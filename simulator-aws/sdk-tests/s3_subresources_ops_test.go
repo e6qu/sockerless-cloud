@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// putTestObject creates a bucket (idempotent) and stores a small object,
-// returning the client. Shared by the new-op tests below.
+// putTestObject creates the bucket if needed, stores an object, and returns the
+// client.
 func putTestObject(t *testing.T, bucket, key string, body []byte) *s3.Client {
 	t.Helper()
 	client := s3Client()
@@ -33,7 +33,7 @@ func TestS3_ObjectAcl(t *testing.T) {
 	bucket, key := "obj-acl-bucket", "acl-obj.txt"
 	client := putTestObject(t, bucket, key, []byte("acl body"))
 
-	// GET the default ACL (owner FULL_CONTROL).
+	// The default ACL grants the owner FULL_CONTROL.
 	getOut, err := client.GetObjectAcl(ctx, &s3.GetObjectAclInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 	})
@@ -42,7 +42,6 @@ func TestS3_ObjectAcl(t *testing.T) {
 	require.NotEmpty(t, getOut.Grants)
 	assert.Equal(t, s3types.PermissionFullControl, getOut.Grants[0].Permission)
 
-	// PUT a custom ACL grant set, then read it back.
 	_, err = client.PutObjectAcl(ctx, &s3.PutObjectAclInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 		AccessControlPolicy: &s3types.AccessControlPolicy{
@@ -116,7 +115,7 @@ func TestS3_ObjectLegalHold(t *testing.T) {
 	require.NotNil(t, out.LegalHold)
 	assert.Equal(t, s3types.ObjectLockLegalHoldStatusOn, out.LegalHold.Status)
 
-	// Turn it off so the object can be deleted.
+	// Lift the hold so the object can be deleted.
 	_, _ = client.PutObjectLegalHold(ctx, &s3.PutObjectLegalHoldInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 		LegalHold: &s3types.ObjectLockLegalHold{Status: s3types.ObjectLockLegalHoldStatusOff},
@@ -156,7 +155,7 @@ func TestS3_ObjectRetention(t *testing.T) {
 	require.NotNil(t, out.Retention.RetainUntilDate)
 	assert.True(t, until.Equal(out.Retention.RetainUntilDate.UTC()))
 
-	// Object Lock-protected objects need bypass to delete; tolerant cleanup.
+	// Object Lock-protected objects need a bypass to delete.
 	_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 		BypassGovernanceRetention: aws.Bool(true),
@@ -209,7 +208,7 @@ func TestS3_ObjectTorrent(t *testing.T) {
 	defer out.Body.Close()
 	data, err := io.ReadAll(out.Body)
 	require.NoError(t, err)
-	// Bencoded metainfo dictionary begins with 'd'.
+	// A bencoded metainfo dictionary begins with 'd'.
 	require.NotEmpty(t, data)
 	assert.Equal(t, byte('d'), data[0])
 
@@ -238,7 +237,7 @@ func TestS3_RestoreObject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A second restore of an already-requested object is accepted (200).
+	// Amazon S3 accepts a second restore of an object already being restored.
 	_, err = client.RestoreObject(ctx, &s3.RestoreObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String(key),
 		RestoreRequest: &s3types.RestoreRequest{Days: aws.Int32(1)},
@@ -252,7 +251,7 @@ func TestS3_UploadPartCopy(t *testing.T) {
 	t.Parallel()
 	bucket := "obj-uploadpartcopy-bucket"
 	srcKey, dstKey := "source-object.txt", "multipart-target.txt"
-	srcBody := bytes.Repeat([]byte("ABCDEFGH"), 16) // 128 bytes
+	srcBody := bytes.Repeat([]byte("ABCDEFGH"), 16)
 	client := putTestObject(t, bucket, srcKey, srcBody)
 
 	created, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
@@ -262,7 +261,6 @@ func TestS3_UploadPartCopy(t *testing.T) {
 	uploadID := aws.ToString(created.UploadId)
 	require.NotEmpty(t, uploadID)
 
-	// Copy a byte range from the source object into part 1.
 	copyOut, err := client.UploadPartCopy(ctx, &s3.UploadPartCopyInput{
 		Bucket:          aws.String(bucket),
 		Key:             aws.String(dstKey),
@@ -308,14 +306,12 @@ func TestS3_ListObjectsV1(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Full listing.
 	out, err := client.ListObjects(ctx, &s3.ListObjectsInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	assert.Len(t, out.Contents, 5)
 	assert.False(t, aws.ToBool(out.IsTruncated))
 
-	// Pagination via Marker / NextMarker with a delimiter (NextMarker is
-	// populated by S3 when a delimiter is present and the list truncates).
+	// Amazon S3 sets NextMarker when a delimited listing truncates.
 	page, err := client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket:    aws.String(bucket),
 		MaxKeys:   aws.Int32(2),
@@ -332,7 +328,7 @@ func TestS3_ListObjectsV1(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, next.Contents)
 
-	// Delimiter rolls dir/* up into a CommonPrefix.
+	// The delimiter rolls dir/* into a CommonPrefix.
 	delim, err := client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket: aws.String(bucket), Delimiter: aws.String("/"),
 	})

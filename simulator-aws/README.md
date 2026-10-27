@@ -1,8 +1,8 @@
 # simulator-aws
 
-`simulator-aws` is one binary that serves a slice of the AWS public API on one
-port, `4566`. Every service shares that port, the way the AWS SDKs, the AWS
-CLI and Terraform's `hashicorp/aws` provider reach AWS through one endpoint
+`simulator-aws` serves a slice of the AWS public API from one binary on one
+port, `4566`. Every service shares that port, so the AWS SDKs, the AWS CLI and
+Terraform's `hashicorp/aws` provider reach all of it through one endpoint
 override. The simulator verifies each request's SigV4 signature, evaluates
 AWS Identity and Access Management (IAM) policies on it, and runs workloads as
 real containers. Unit tests check every served operation and route against
@@ -51,7 +51,7 @@ the console's OpenID Connect set) are in
 | `SOCKERLESS_SPEC_VALIDATE`, `SOCKERLESS_SPEC_DIR` | unset | Validate every success response against the Smithy models in `SOCKERLESS_SPEC_DIR` and write violations to the report file `SOCKERLESS_SPEC_VALIDATE` names |
 
 In `SIM_PLACEMENT`, the AWS services are `ec2`, `ecs` (qualified by launch
-type, such as `ecs:FARGATE`), `lambda` and `batch`.
+type, such as `ecs:FARGATE`), `lambda`, `batch` and `elasticache`.
 
 ## Connect a client
 
@@ -61,8 +61,9 @@ administrator the simulator starts with, as a new AWS account starts with its
 root credential. Two settings follow from serving every service on one host:
 
 - The simulator serves Amazon Simple Storage Service (Amazon S3)
-  general-purpose buckets path-style. Set path-style in the Go SDK and
-  Terraform; the AWS CLI and boto3 use it on their own once an endpoint is set.
+  general-purpose buckets path-style only; virtual-hosted addressing reaches
+  directory buckets alone. Set path-style in the Go SDK and Terraform; the AWS
+  CLI and boto3 use it on their own once an endpoint is set.
 - An operation with a modeled host prefix (AWS Cloud Map's
   `DiscoverInstances`, AWS Step Functions' `StartSyncExecution`, every
   Amazon S3 Control operation) puts a label in front of the endpoint's host.
@@ -236,7 +237,8 @@ through `SIM_DNS_UPSTREAM`.
 The sidecar forwards metadata requests to the simulator with the caller's
 address, so each instance reads only its own record. An instance finds the
 service through `AWS_EC2_METADATA_SERVICE_ENDPOINT`, which names the sidecar;
-`169.254.169.254` isn't routed ([BUGS.md](../BUGS.md)). `PUT /latest/api/token`
+`169.254.169.254` isn't routed. [Instance metadata](../docs/instance-metadata.md)
+lists every path and its limits. `PUT /latest/api/token`
 issues an IMDSv2 session token for 1 to 21,600 seconds and refuses a request a
 proxy forwarded; `HttpTokens=required` refuses every read without a live
 token. The service serves the identity document, placement, network
@@ -286,8 +288,9 @@ concurrency initializes environments before any invocation, and an update to
 
 The function runs as a session of its execution role, which Lambda passes in
 the environment. The simulator also sets `AWS_ENDPOINT_URL` to an address the
-container reaches it on, unless the function's own environment sets it.
-CodeBuild builds get the same variable.
+container reaches it on, unless the function's own environment sets it, and
+CodeBuild builds get the same variable. AWS sets neither, so this is an open
+bug.
 
 ### Guest-kernel requirements
 

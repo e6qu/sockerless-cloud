@@ -14,11 +14,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
-// Amazon ElastiCache cache clusters and replication groups. A create answers
-// with the resource creating and starts its engine; the resource turns
+// A create answers creating and starts the engine; the resource turns
 // available once every node answers, or create-failed when the engine does
-// not start. A delete answers deleting, and the resource is gone once its
-// engine has stopped.
+// not start. A delete answers deleting; the resource goes once its engine
+// stops.
 
 type ECCluster struct {
 	CacheClusterId         string
@@ -29,10 +28,9 @@ type ECCluster struct {
 	NumCacheNodes          int
 	CacheClusterCreateTime string
 	ARN                    string
-	// Endpoint is a Memcached cluster's configuration endpoint, which
-	// reaches any of its nodes.
+	// A Memcached cluster's configuration endpoint, reaching any node.
 	Endpoint string
-	// Port is the port every node accepts connections on.
+	// Every node accepts connections on it.
 	Port                      int
 	Tags                      map[string]string
 	CacheNodes                []ECCacheNode `json:",omitempty"`
@@ -42,12 +40,11 @@ type ECCluster struct {
 	TransitEncryptionEnabled  bool          `json:",omitempty"`
 	TransitEncryptionMode     string        `json:",omitempty"`
 	PreferredAvailabilityZone string        `json:",omitempty"`
-	// Incarnation tells a background transition apart from one on a cluster
-	// recreated under the same identifier.
+	// Tells a background transition apart from one on a cluster recreated under
+	// the same identifier.
 	Incarnation string `json:",omitempty"`
 }
 
-// ECCacheNode is one node of a cache cluster.
 type ECCacheNode struct {
 	CacheNodeId         string
 	CacheNodeStatus     string
@@ -56,8 +53,7 @@ type ECCacheNode struct {
 	Port                int    `json:",omitempty"`
 }
 
-// ecClusterZone is the Availability Zone a cluster's nodes are in: the one
-// it asked for, or the Region's first.
+// The requested zone, else the Region's first.
 func ecClusterZone(c ECCluster) string {
 	if c.PreferredAvailabilityZone != "" {
 		return c.PreferredAvailabilityZone
@@ -65,7 +61,6 @@ func ecClusterZone(c ECCluster) string {
 	return awsAvailabilityZone()
 }
 
-// ECReplicationGroup models the ReplicationGroup shape.
 type ECReplicationGroup struct {
 	ReplicationGroupId       string
 	Description              string
@@ -90,12 +85,11 @@ type ECReplicationGroup struct {
 	AuthTokenEnabled         bool          `json:",omitempty"`
 	TransitEncryptionEnabled bool          `json:",omitempty"`
 	TransitEncryptionMode    string        `json:",omitempty"`
-	// MemberNodes names the member cluster each engine node is.
+	// The member cluster each engine node is.
 	MemberNodes map[int]string `json:",omitempty"`
 	Incarnation string         `json:",omitempty"`
 }
 
-// ECNodeGroup is one node group (shard) of a replication group.
 type ECNodeGroup struct {
 	NodeGroupId    string
 	Status         string
@@ -107,7 +101,6 @@ type ECNodeGroup struct {
 	Members        []ECNodeGroupMember
 }
 
-// ECNodeGroupMember is one node of a node group.
 type ECNodeGroupMember struct {
 	CacheClusterId string
 	CacheNodeId    string
@@ -174,8 +167,7 @@ func ecRequestedBool(r *http.Request, name string) bool {
 	return strings.EqualFold(r.FormValue(name), "true")
 }
 
-// ecTransitEncryption reads a create's in-transit encryption: whether it
-// encrypts, and whether it also accepts unencrypted clients.
+// Whether it encrypts, and whether it also accepts unencrypted clients.
 func ecTransitEncryption(r *http.Request) (enabled bool, mode string, err error) {
 	enabled = ecRequestedBool(r, "TransitEncryptionEnabled")
 	mode = r.FormValue("TransitEncryptionMode")
@@ -190,8 +182,7 @@ func ecTransitEncryption(r *http.Request) (enabled bool, mode string, err error)
 	return enabled, mode, nil
 }
 
-// ecValidAuthToken reports whether an AUTH token meets the constraints the
-// ElastiCache model states: 16 to 128 printable ASCII characters.
+// 16 to 128 printable ASCII characters, per the model.
 func ecValidAuthToken(token string) bool {
 	if len(token) < 16 || len(token) > 128 {
 		return false
@@ -204,8 +195,7 @@ func ecValidAuthToken(token string) bool {
 	return true
 }
 
-// ecRunInBackground runs op on a resource's engine and reports its outcome
-// to settled, with a nil engine when this simulator runs none.
+// engine is nil when the simulator runs none.
 func ecRunInBackground(engine *ecEngine, op func(*ecEngine) error, settled func(error)) {
 	bg.Go(func() {
 		var err error
@@ -335,8 +325,6 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c, false), requestID)
 }
 
-// ecClusterNodes are a standalone cluster's nodes at the endpoints its engine
-// serves them at.
 func ecClusterNodes(c ECCluster, endpoints []cacheengine.Endpoint, count int, status, created string) []ECCacheNode {
 	nodes := make([]ECCacheNode, 0, count)
 	for index := 0; index < count; index++ {
@@ -351,10 +339,8 @@ func ecClusterNodes(c ECCluster, endpoints []cacheengine.Endpoint, count int, st
 	return nodes
 }
 
-// ecSettleCluster moves a cluster whose engine settled to available, or to
-// create-failed when the engine did not start; the model lists no failure
-// status for a cache cluster, and create-failed is the one it lists for a
-// replication group and a serverless cache.
+// The model lists no failure status for a cache cluster; create-failed is the
+// one it lists for replication groups and serverless caches.
 func ecSettleCluster(id, incarnation string, err error) {
 	ecClusters.Update(id, func(c *ECCluster) {
 		if c.Incarnation != incarnation || c.CacheClusterStatus != "creating" {
@@ -371,7 +357,6 @@ func ecSettleCluster(id, incarnation string, err error) {
 	})
 }
 
-// ecSetClusterAvailable ends a cluster's modification or reboot.
 func ecSetClusterAvailable(id, incarnation string) {
 	ecClusters.Update(id, func(c *ECCluster) {
 		if c.Incarnation != incarnation {
@@ -502,8 +487,7 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "ModifyCacheCluster", renderECCluster(updated, false), requestID)
 }
 
-// ecEngineEndpoints is the endpoints a resource's engine serves, or none
-// without an engine.
+// None without an engine.
 func ecEngineEndpoints(engine *ecEngine) []cacheengine.Endpoint {
 	if engine == nil {
 		return nil
@@ -583,7 +567,7 @@ func ecDeleteClusterInBackground(id, incarnation string) {
 	})
 }
 
-// ecNodesToReboot reads CacheNodeIdsToReboot as node indices.
+// CacheNodeIdsToReboot as node indices.
 func ecNodesToReboot(r *http.Request, count int) ([]int, bool) {
 	ids := ecParseStringList(r, "CacheNodeIdsToReboot", "CacheNodeId")
 	if len(ids) == 0 {
@@ -872,9 +856,8 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CreateReplicationGroup", renderECReplGroup(g), requestID)
 }
 
-// ecInitialMemberName is the member cluster a new replication group's node
-// is: <group>-00N for a group without cluster mode, and
-// <group>-<shard>-<member> with it, the shard's primary first.
+// <group>-00N without cluster mode, <group>-<shard>-<member> with it, the
+// shard's primary first.
 func ecInitialMemberName(id string, node, shards, replicas int, cluster bool) string {
 	if !cluster {
 		return fmt.Sprintf("%s-%03d", id, node+1)
@@ -886,15 +869,13 @@ func ecInitialMemberName(id string, node, shards, replicas int, cluster bool) st
 	return fmt.Sprintf("%s-%04d-%03d", id, replica/max(replicas, 1)+1, replica%max(replicas, 1)+2)
 }
 
-// ecTopology is the shape a replication group's engine runs: each shard's
-// primary node, its replicas, and the slots it owns.
+// Each shard's primary, its replicas and the slots it owns.
 type ecTopology struct {
 	primaries []int
 	followers map[int][]int
 	slots     map[int][]string
 }
 
-// ecReadTopology reads the topology a group's engine runs.
 func ecReadTopology(g ECReplicationGroup, e *ecEngine) (ecTopology, error) {
 	if !g.ClusterEnabled {
 		return ecTopology{primaries: []int{e.redis.Primary()}, followers: map[int][]int{e.redis.Primary(): e.redis.Replicas()}}, nil
@@ -910,9 +891,9 @@ func ecReadTopology(g ECReplicationGroup, e *ecEngine) (ecTopology, error) {
 	return ecTopology{primaries: primaries, followers: followers, slots: slots}, nil
 }
 
-// ecShapeTopology is the topology a new group's engine forms: shard s's
-// primary is node s, and its replicas follow the primaries, shard by shard,
-// as cacheengine forms a cluster; without cluster mode node 0 is the primary.
+// Shard s's primary is node s and replicas follow the primaries shard by
+// shard, as cacheengine forms a cluster; without cluster mode node 0 is
+// primary.
 func ecShapeTopology(shards, replicas int, cluster bool) ecTopology {
 	topology := ecTopology{followers: map[int][]int{}, slots: map[int][]string{}}
 	if !cluster {
@@ -933,9 +914,7 @@ func ecShapeTopology(shards, replicas int, cluster bool) ecTopology {
 	return topology
 }
 
-// ecDescribeReplGroupTopology fills a group's node groups, member clusters
-// and endpoints from the topology its engine runs. Nodes the group has not yet
-// named take the next member name of their shard.
+// Unnamed nodes take the next member name of their shard.
 func ecDescribeReplGroupTopology(g *ECReplicationGroup, shape ecTopology, endpoints []cacheengine.Endpoint, status string) {
 	taken := map[string]bool{}
 	present := map[int]bool{}
@@ -1000,9 +979,8 @@ func ecDescribeReplGroupTopology(g *ECReplicationGroup, shape ecTopology, endpoi
 	}
 }
 
-// ecPutMemberClusters records a group's member clusters, each a cache
-// cluster of one node at the endpoint its node answers on, and removes the
-// members it no longer has.
+// Each member is a one-node cache cluster at its node's endpoint; members the
+// group no longer has are removed.
 func ecPutMemberClusters(g ECReplicationGroup, status string) {
 	members := map[string]bool{}
 	for _, group := range g.NodeGroups {
@@ -1045,9 +1023,7 @@ func ecPutMemberClusters(g ECReplicationGroup, status string) {
 	}
 }
 
-// ecSettleReplGroup records the topology a group's engine settled on, and
-// moves the group and its members to available, or to create-failed when the
-// engine did not start.
+// create-failed when the engine did not start.
 func ecSettleReplGroup(id, incarnation string, engine *ecEngine, err error) {
 	var topology *ecTopology
 	if err == nil && engine != nil {
@@ -1215,8 +1191,6 @@ func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "ModifyReplicationGroup", renderECReplGroup(updated), requestID)
 }
 
-// ecRefreshReplGroup records the topology a group's engine now runs and
-// moves the group back to available.
 func ecRefreshReplGroup(id, incarnation string, engine *ecEngine) {
 	var topology *ecTopology
 	if engine != nil {
@@ -1294,8 +1268,7 @@ func ecDeleteReplGroupInBackground(id, incarnation string) {
 	})
 }
 
-// ecReshapeReplGroup moves a group to modifying, runs reshape on its engine
-// in the background and records the topology the engine settles on.
+// Runs reshape in the background and records the settled topology.
 func ecReshapeReplGroup(w http.ResponseWriter, r *http.Request, op string, check func(ECReplicationGroup) (string, bool), reshape func(ECReplicationGroup, *ecEngine) error) {
 	requestID := sim.RequestID(r.Context())
 	id := strings.ToLower(r.FormValue("ReplicationGroupId"))
@@ -1408,9 +1381,7 @@ func handleECTestFailover(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecAddReplicaCluster adds a cache cluster to a replication group without
-// cluster mode as a read replica, which CreateCacheCluster does when it names
-// the group.
+// CreateCacheCluster naming a group without cluster mode adds a read replica.
 func ecAddReplicaCluster(w http.ResponseWriter, r *http.Request, id, groupID string) {
 	requestID := sim.RequestID(r.Context())
 	g, ok := ecReplGroups.Get(strings.ToLower(groupID))
@@ -1465,10 +1436,8 @@ func ecAddReplicaCluster(w http.ResponseWriter, r *http.Request, id, groupID str
 	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c, false), requestID)
 }
 
-// ecRecoverTransitions resumes what a create, modification, reboot or delete
-// left unfinished when the previous control-plane process stopped: an engine
-// re-adopted at start answers again, so a resource it serves settles, and a
-// resource being deleted finishes going.
+// An engine re-adopted at start answers again, so its resource settles; a
+// deleting resource finishes going.
 func ecRecoverTransitions() {
 	for _, c := range ecClusters.List() {
 		if c.ReplicationGroupId != "" {

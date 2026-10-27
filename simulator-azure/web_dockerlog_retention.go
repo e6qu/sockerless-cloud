@@ -8,20 +8,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// A site's docker log lives in the site's file system as one file a day, and
-// App Service rotates it by the site's file-system log settings
-// (httpLogs.fileSystem): files older than retentionInDays go, and past
-// retentionInMb the oldest files go first. A site whose logs configuration
-// sets neither keeps webSiteDockerLogMaxLines lines.
+// A site's docker log is one file a day in its file system, rotated by
+// httpLogs.fileSystem: files older than retentionInDays go, and past
+// retentionInMb the oldest go first. Without either setting the site keeps
+// webSiteDockerLogMaxLines lines.
 
-// webDockerLogRetention is the rotation a site's logs configuration asks for.
 type webDockerLogRetention struct {
 	quotaBytes int64
 	days       int
 }
 
-// webSiteDockerLogRetention reads httpLogs.fileSystem from the site's logs
-// configuration; ok is false when it sets no limit.
+// ok is false when it sets no limit.
 func webSiteDockerLogRetention(siteID string) (webDockerLogRetention, bool) {
 	extra, found := webConfigExtras.Get(siteID)
 	if !found {
@@ -42,8 +39,7 @@ func webSiteDockerLogRetention(siteID string) (webDockerLogRetention, bool) {
 	return r, r.quotaBytes > 0 || r.days > 0
 }
 
-// webDockerLogUsage is each site's docker log size in bytes, counted from
-// the store the first time a site needs it and kept as lines arrive and go.
+// Counted from the store on first need and kept as lines arrive and go.
 var webDockerLogUsage = struct {
 	sync.Mutex
 	bytes     map[string]int64
@@ -54,12 +50,8 @@ func webDockerLogLineBytes(row monitorLogRow) int64 {
 	return int64(len(row["TimeGenerated"]) + 1 + len(row["Message"]) + 1)
 }
 
-// webDockerLogAgeCheckInterval is how often a site's docker log is checked
-// for days past its retention.
 const webDockerLogAgeCheckInterval = time.Minute
 
-// webRotateSiteDockerLog applies a site's rotation after a line of size
-// lineBytes arrived in scope.
 func webRotateSiteDockerLog(siteID, scope string, lineBytes int64, now time.Time) {
 	retention, ok := webSiteDockerLogRetention(siteID)
 	if !ok {
@@ -90,12 +82,10 @@ func webRotateSiteDockerLog(siteID, scope string, lineBytes int64, now time.Time
 	webDockerLogUsage.bytes[scope] = used
 }
 
-// webDockerLogDay is the UTC day of the file a line was written to.
 func webDockerLogDay(e *logstore.Entry[monitorLogRow]) string {
 	return time.UnixMilli(e.Time).UTC().Format("2006-01-02")
 }
 
-// webDropDockerLogLines deletes the lines doomed picks and returns their size.
 func webDropDockerLogLines(scope string, doomed func(*logstore.Entry[monitorLogRow]) bool) int64 {
 	var freed int64
 	webSiteDockerLogs.Edit(scope, func(e *logstore.Entry[monitorLogRow]) (bool, bool) {
@@ -108,8 +98,8 @@ func webDropDockerLogLines(scope string, doomed func(*logstore.Entry[monitorLogR
 	return freed
 }
 
-// webDropOldestDockerLogDays frees at least excess bytes: whole days, oldest
-// first, and when the newest day alone is over the quota, its oldest lines.
+// Whole days, oldest first; when the newest day alone is over the quota, its
+// oldest lines.
 func webDropOldestDockerLogDays(scope string, excess int64) int64 {
 	entries := webSiteDockerLogs.Entries(scope)
 	if len(entries) == 0 {
@@ -147,8 +137,7 @@ func webDropOldestDockerLogDays(scope string, excess int64) int64 {
 	})
 }
 
-// webForgetDockerLogUsage drops the counted size of a site's docker log, as
-// when the site's logs configuration or the log itself is replaced.
+// For when the logs configuration or the log itself is replaced.
 func webForgetDockerLogUsage(siteID string) {
 	scope := strings.ToLower(siteID)
 	webDockerLogUsage.Lock()

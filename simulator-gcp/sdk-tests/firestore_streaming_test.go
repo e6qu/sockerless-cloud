@@ -13,19 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFirestore_RunQueryStreamsChunked proves the runQuery / batchGet server
-// streaming methods are delivered the way real Firestore delivers them over
-// REST: a JSON array sent with chunked transfer-encoding, each result element
-// flushed as its own chunk — not a single buffered body with a Content-Length.
-//
-// The high-level SDK buffers the whole array, so this drives the endpoints with
-// a raw HTTP client that inspects the transport framing.
+// TestFirestore_RunQueryStreamsChunked: Firestore's REST runQuery and batchGet
+// stream a JSON array with chunked transfer-encoding, one element per chunk,
+// not a buffered body with a Content-Length. The high-level SDK buffers the
+// whole array, so a raw HTTP client inspects the framing.
 func TestFirestore_RunQueryStreamsChunked(t *testing.T) {
 	t.Parallel()
 	const db = "/v1/projects/test-project/databases/(default)/documents"
 
-	// Seed three documents in a collection so runQuery returns multiple stream
-	// elements (and batchGet returns multiple results).
+	// Three documents, so runQuery and batchGet each return several elements.
 	seed := func(id string, n int) {
 		body := `{"fields":{"n":{"integerValue":"` + strconv.Itoa(n) + `"}}}`
 		resp, err := http.Post(baseURL+db+"/streamq?documentId="+id, "application/json", strings.NewReader(body))
@@ -47,10 +43,8 @@ func TestFirestore_RunQueryStreamsChunked(t *testing.T) {
 	defer resp.Body.Close()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	// Chunked transfer-encoding (the streaming framing): Go's net/http reports a
-	// chunked response as TransferEncoding == ["chunked"] and reports no
-	// Content-Length (ContentLength == -1). A buffered WriteJSON would set a
-	// fixed Content-Length and no chunked encoding.
+	// Go's net/http reports a chunked response as TransferEncoding ["chunked"]
+	// with ContentLength -1; a buffered body would carry a fixed Content-Length.
 	assert.Equal(t, []string{"chunked"}, resp.TransferEncoding, "runQuery must stream (chunked), not buffer")
 	assert.EqualValues(t, -1, resp.ContentLength, "a streamed response carries no fixed Content-Length")
 

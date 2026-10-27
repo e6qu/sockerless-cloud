@@ -92,7 +92,6 @@ func TestAmplify_WAFv2_Association_CLI(t *testing.T) {
 	require.False(t, hasWAFConfiguration)
 }
 
-// amplifyWaitJobStatus polls get-job while the real build or deployment runs.
 func amplifyWaitJobStatus(t *testing.T, appID, branch, jobID, want string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Minute)
@@ -181,7 +180,6 @@ test:
 	runCLI(t, awsCLI("amplify", "get-app", "--app-id", appID, "--output", "json"))
 	runCLI(t, awsCLI("amplify", "list-apps", "--output", "json"))
 
-	// Branch
 	brOut := runCLI(t, awsCLI("amplify", "create-branch",
 		"--app-id", appID, "--branch-name", "main", "--output", "json"))
 	var brResult struct {
@@ -192,7 +190,6 @@ test:
 	require.NoError(t, json.Unmarshal([]byte(brOut), &brResult))
 	require.Equal(t, "main", brResult.Branch.BranchName)
 
-	// Webhook
 	whOut := runCLI(t, awsCLI("amplify", "create-webhook",
 		"--app-id", appID, "--branch-name", "main",
 		"--description", "cli webhook", "--output", "json"))
@@ -208,8 +205,8 @@ test:
 	require.NotEmpty(t, whResult.Webhook.WebhookUrl)
 	require.Equal(t, appID, whResult.Webhook.AppId)
 
-	// Job — clones the repository, reads its checked-in amplify.yml, executes
-	// the build, and publishes the resulting zip.
+	// The job clones the repository, runs the build its checked-in amplify.yml
+	// describes, and publishes the resulting zip.
 	jobOut := runCLI(t, awsCLI("amplify", "start-job",
 		"--app-id", appID, "--branch-name", "main",
 		"--job-type", "RELEASE",
@@ -257,8 +254,6 @@ test:
 	buildArtifactResponse.Body.Close()
 	require.Equal(t, http.StatusOK, buildArtifactResponse.StatusCode)
 
-	// ListArtifacts returns the concrete end-to-end test outputs and
-	// GetArtifactUrl resolves the selected output through its presigned URL.
 	artifactsOut := runCLI(t, awsCLI("amplify", "list-artifacts",
 		"--app-id", appID,
 		"--branch-name", "main",
@@ -350,7 +345,6 @@ test:
 		"--output", "json").CombinedOutput()
 	require.Error(t, err)
 
-	// Cleanup
 	runCLI(t, awsCLI("amplify", "delete-webhook", "--webhook-id", whResult.Webhook.WebhookId))
 	runCLI(t, awsCLI("amplify", "delete-app", "--app-id", appID))
 }
@@ -381,8 +375,7 @@ func TestAmplify_Deployment_Flow(t *testing.T) {
 	require.NotEmpty(t, depResult.JobId)
 	require.NotEmpty(t, depResult.ZipUploadUrl)
 
-	// Upload a real site zip to the presigned URL the way the console /
-	// amplify tooling does.
+	// Upload a site zip to the presigned URL, as the Amplify tooling does.
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	indexFile, err := zw.Create("index.html")
@@ -415,8 +408,7 @@ func TestAmplify_Deployment_Flow(t *testing.T) {
 
 	amplifyWaitJobStatus(t, appID, "main", depResult.JobId, "SUCCEED")
 
-	// The uploaded build bundle is returned by GetJob's DEPLOY step, byte for
-	// byte. ListArtifacts remains the end-to-end test artifact surface.
+	// GetJob's DEPLOY step returns the uploaded bundle byte for byte.
 	getJobOut := runCLI(t, awsCLI("amplify", "get-job",
 		"--app-id", appID, "--branch-name", "main",
 		"--job-id", depResult.JobId, "--output", "json"))
@@ -453,9 +445,8 @@ func TestAmplify_Deployment_Flow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, zipBytes, gotBytes)
 
-	// Hosting smoke: the deployed branch serves on its defaultDomain child
-	// host (curl-style loopback request with a Host: header — the
-	// cross-platform pattern, *.amplifyapp.com does not resolve locally).
+	// *.amplifyapp.com resolves nowhere locally, so address the branch's
+	// defaultDomain host through the Host header.
 	hostReq, err := http.NewRequest(http.MethodGet, baseURL+"/", nil)
 	require.NoError(t, err)
 	hostReq.Host = "main." + appID + ".amplifyapp.com"

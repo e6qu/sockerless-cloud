@@ -8,8 +8,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// consoleBundle returns the console in dir; this build embeds none, so with no
-// dir the simulator serves no console.
+// This build embeds no console, so without dir the simulator serves none.
 func consoleBundle(dir string) (fs.FS, error) {
 	if dir == "" {
 		return nil, nil

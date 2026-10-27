@@ -14,8 +14,6 @@ func eventGridFilterTestSubscription(t *testing.T, filter string) EventGridEvent
 	return EventGridEventSubscription{Properties: map[string]any{"filter": f}}
 }
 
-// Each advanced filter operator the Event Grid specification declares, graded
-// against the documented semantics.
 func TestEventGridAdvancedFilterOperators(t *testing.T) {
 	const event = `{"id":"1","eventType":"Contoso.Items.ItemReceived","subject":"/A/B/c.jpg","data":{
 		"counter":5,"price":3.5,"enabled":true,"name":"Azure Data Factory","nothing":null,

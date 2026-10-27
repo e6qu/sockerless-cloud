@@ -10,10 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A Cloud SQL instance lists the addresses it serves on. The simulator runs no
-// SQL Server engine, so nothing serves a SQL Server instance, and
-// instances.get, its connectSettings and a clone of it all report no address
-// rather than one no client could reach.
+// The simulator runs no SQL Server engine, so a SQL Server instance's get,
+// connectSettings and clone report no address.
 func TestCloudSQLInstanceWithoutADataPlaneReportsNoAddress(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})

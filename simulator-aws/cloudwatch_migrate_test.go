@@ -6,9 +6,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A stream an earlier build stored whole loads after the upgrade with its
-// events in arrival order, their timestamps and ingestion times kept, and
-// takes new events after them.
+// A stream stored whole by an earlier build loads in arrival order with its
+// times kept, and takes new events after them.
 func TestCloudWatchLogsMigratesLegacyStreamRows(t *testing.T) {
 	db := migrateTestDB(t)
 	key := cwEventsKey("/g", "s")

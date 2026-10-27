@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestAzureCosmosDB_MultiAPIFamiliesCLIFlows drives the MongoDB / Cassandra /
+// TestAzureCosmosDB_MultiAPIFamiliesCLIFlows drives the MongoDB, Cassandra and
 // Gremlin resource families, throughput autoscale migration, and the provider
-// operations/locations surfaces through `az rest` against the simulator.
+// operations and locations through `az rest`.
 func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 	t.Parallel()
 	account := "clicosmosapis"
@@ -15,7 +15,6 @@ func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 	acctURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, ver)
 	runCLI(t, azRest("PUT", acctURL, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard","locations":[{"locationName":"East US","failoverPriority":0}]}}`))
 
-	// MongoDB database + collection.
 	mongoDBURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account+"/mongodbDatabases/shop", ver)
 	out := runCLI(t, azRest("PUT", mongoDBURL, `{"properties":{"resource":{"id":"shop"},"options":{"throughput":400}}}`))
 	if !strings.Contains(out, `"name": "shop"`) {
@@ -37,7 +36,6 @@ func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 		t.Fatalf("migrateToAutoscale missing autoscaleSettings: %s", migOut)
 	}
 
-	// Cassandra keyspace.
 	ksURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account+"/cassandraKeyspaces/ks", ver)
 	ksOut := runCLI(t, azRest("PUT", ksURL, `{"properties":{"resource":{"id":"ks"}}}`))
 	if !strings.Contains(ksOut, `"name": "ks"`) {
@@ -49,7 +47,6 @@ func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 		t.Fatalf("Cassandra keyspace list missing keyspace: %s", ksListOut)
 	}
 
-	// Gremlin database + graph.
 	gremlinDBURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account+"/gremlinDatabases/social", ver)
 	runCLI(t, azRest("PUT", gremlinDBURL, `{"properties":{"resource":{"id":"social"}}}`))
 	graphURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account+"/gremlinDatabases/social/graphs/people", ver)
@@ -58,7 +55,6 @@ func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 		t.Fatalf("Gremlin graph create missing name: %s", graphOut)
 	}
 
-	// Provider operations + locations.
 	opsURL := baseURL + "/providers/Microsoft.DocumentDB/operations?api-version=" + ver
 	opsOut := runCLI(t, azRest("GET", opsURL, ""))
 	if !strings.Contains(opsOut, "databaseAccounts/read") {
@@ -70,8 +66,7 @@ func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
 		t.Fatalf("locations list missing properties: %s", locOut)
 	}
 
-	// Account name existence (HEAD): a follow-on REST HEAD returns 200/empty
-	// for the existing account.
+	// databaseAccountNames HEAD answers 200 with no body for an existing account.
 	nameURL := baseURL + "/providers/Microsoft.DocumentDB/databaseAccountNames/" + account + "?api-version=" + ver
 	runCLI(t, azRest("HEAD", nameURL, ""))
 }

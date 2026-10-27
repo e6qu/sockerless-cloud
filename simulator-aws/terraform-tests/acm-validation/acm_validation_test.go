@@ -8,12 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACMCertificateValidationTerraform exercises the real consumer flow that
-// hit a known shape: a DNS-validated cert with a wildcard SAN, the
-// Route53 _acm-challenge records built from domain_validation_options, and
-// aws_acm_certificate_validation waiting for ISSUED. Before the fix this hung
-// to the validation timeout or failed the record-name consistency
-// check on the literal '*'.
+// TestACMCertificateValidationTerraform applies a DNS-validated certificate
+// with a wildcard SAN, the Route 53 _acm-challenge records built from
+// domain_validation_options, and an aws_acm_certificate_validation that waits
+// for ISSUED.
 func TestACMCertificateValidationTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")
@@ -21,12 +19,10 @@ func TestACMCertificateValidationTerraform(t *testing.T) {
 
 	outputs := readOutputs(t, env)
 	require.Contains(t, outputs.must(t, "certificate_arn"), "arn:aws:acm:us-east-1:")
-	// aws_acm_certificate_validation only finishes creating (and exports an id)
-	// once DescribeCertificate reports ISSUED — so a non-empty validation_id is
-	// the end-to-end proof. The apply also completing (not timing out)
-	// confirms it.
+	// aws_acm_certificate_validation exports an id only once DescribeCertificate
+	// reports ISSUED.
 	require.NotEmpty(t, outputs.must(t, "validation_id"))
-	// The wildcard SAN's record name is de-wildcarded (base domain).
+	// ACM names a wildcard SAN's validation record after its base domain.
 	names := outputs.must(t, "validation_record_names")
 	require.Contains(t, names, "_acm-challenge.devbox.example.test")
 	require.NotContains(t, names, "*", "validation record name must not carry a literal '*'")

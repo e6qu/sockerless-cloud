@@ -9,26 +9,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The remaining Compute Engine surfaces: the machines a reservation's blocks sit
-// on, moving a reserved address between scopes, starting an encrypted instance,
-// and the reads that report what a health check is seeing.
+// The remaining Compute Engine surfaces: moving a reserved address, the health
+// a check observes, interconnect group members, typed updates and capacity
+// advice.
 
-// registerComputeLastVerbs mounts them.
 func registerComputeLastVerbs(srv *sim.Server) {
-	// The hosts a reservation's blocks sit on are not mounted. Compute Engine
-	// declares them at "zones/{zone}/{association}/hosts", where association is
-	// a single path segment, and that is the same shape as every other
-	// two-segment zonal read — "zones/{zone}/machineTypes/{machineType}" among
-	// them. Go's router refuses the pair as ambiguous, and the only way to host
-	// both would be one handler owning every two-segment zonal path, which is
-	// the catch-all the phantom-coverage gate exists to stop: it would answer
-	// for collections it does not serve and read as covering them.
+	// Compute Engine declares a reservation's hosts at
+	// "zones/{zone}/{association}/hosts", which ServeMux refuses as ambiguous with
+	// every two-segment zonal read; hosting both would take a catch-all the
+	// phantom-coverage gate forbids, so the hosts stay unmounted.
 
-	// ── Moving a reserved address ───────────────────────────────────────
-	//
-	// An address is moved to another project or scope by naming where it is
-	// going. It is the same address afterwards, so it moves under a new key
-	// rather than being handed out again.
+	// A moved address is the same reservation, so it moves under a new key rather
+	// than being handed out again.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/addresses/{name}/move",
 		func(w http.ResponseWriter, r *http.Request) {
 			computeMoveAddress(w, r, cScopeGlobal, gcpComputeGlobalAddresses)
@@ -38,12 +30,9 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			computeMoveAddress(w, r, cScopeRegion, gcpComputeRegionAddresses)
 		})
 
-	// ── What a health check is seeing ───────────────────────────────────
-	//
-	// A composite health check reports the health of the sources it names, and
-	// a health source the health of what it watches. Both are derived from the
-	// resource, so a check that watches nothing reports that rather than
-	// claiming health it has not observed.
+	// A composite health check reports the health of the sources it names, and a
+	// health source that of what it watches; a check watching nothing claims no
+	// health.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/compositeHealthChecks/{name}/getHealth",
 		func(w http.ResponseWriter, r *http.Request) {
 			held, ok := gcpComputeCompositeHealthChecks.Get(
@@ -114,7 +103,6 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			})
 		})
 
-	// ── The members an interconnect group is built from ─────────────────
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/interconnectGroups/{name}/createMembers",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
@@ -128,8 +116,8 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			}
 			key := computeGlobalLink(project, "interconnectGroups", name)
 			if !gcpComputeInterconnectGroups.Update(key, func(m *map[string]any) {
-				// The members a group is built from become the members it has,
-				// which is what its operational status is then derived from.
+				// The members become the group's interconnects, which its operational status
+				// derives from.
 				(*m)["interconnects"] = req.Request["interconnects"]
 			}) {
 				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
@@ -139,11 +127,8 @@ func registerComputeLastVerbs(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, key, "createMembers"))
 		})
 
-	// ── The writes a typed collection declares beside its lifecycle ─────
-	//
-	// An update replaces the resource, keeping only its identity; a firewall
-	// also carries the permission check every other collection at its scope
-	// does.
+	// An update replaces the resource, keeping its identity; a firewall update
+	// also carries its scope's permission check.
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/global/firewalls/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeTypedUpdate(w, r, "firewalls", gcpFirewalls, gcpReapplyIngressAfter)
 	})
@@ -157,8 +142,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				"testIamPermissions")
 		})
 
-	// An instance's update replaces it the same way, and Compute Engine
-	// answers with a zone operation rather than a global one.
+	// An instance update answers a zone operation rather than a global one.
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/zones/{zone}/instances/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")
 		var body map[string]any
@@ -179,12 +163,8 @@ func registerComputeLastVerbs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, key, "update"))
 	})
 
-	// ── Capacity advice ─────────────────────────────────────────────────
-	//
-	// calendarMode advises when a future reservation could be met. The advice
-	// is the window the caller asked about, because the simulator has no
-	// capacity forecast to narrow it with — and a narrower window would be a
-	// forecast invented out of nothing.
+	// calendarMode answers the window the caller asked about: the simulator has no
+	// capacity forecast to narrow it with.
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/advice/calendarMode",
 		func(w http.ResponseWriter, r *http.Request) {
 			var req struct {
@@ -204,10 +184,8 @@ func registerComputeLastVerbs(srv *sim.Server) {
 				names = append(names, name)
 			}
 			sort.Strings(names)
-			// One recommendation per specification the caller asked about. The
-			// document declares no identifier on a recommendation, so it
-			// carries none: the caller matches them to its specifications by
-			// the order it sent them in, which is the order they come back.
+			// A recommendation carries no identifier, so they come back in the order the
+			// caller sent its specifications.
 			recommendations := make([]any, 0, len(names))
 			for range names {
 				recommendations = append(recommendations, map[string]any{})
@@ -218,9 +196,8 @@ func registerComputeLastVerbs(srv *sim.Server) {
 		})
 }
 
-// computeObservedHealth reports what a check has actually observed. A check
-// watching nothing is not healthy — it has seen nothing — and saying otherwise
-// would tell a client its backends are up when none are being watched.
+// computeObservedHealth reports a check watching nothing as not healthy: it has
+// observed nothing.
 func computeObservedHealth(watched int) string {
 	if watched == 0 {
 		return "UNHEALTHY"
@@ -228,10 +205,8 @@ func computeObservedHealth(watched int) string {
 	return "HEALTHY"
 }
 
-// computeMoveAddress re-homes a reserved address onto the destination the
-// request names. It is the same address afterwards — the reservation is what is
-// being moved, not the value — so it moves under a new key rather than being
-// handed out again.
+// computeMoveAddress re-homes a reserved address onto the request's
+// destination under a new key; the reservation moves, not the value.
 func computeMoveAddress[T any](w http.ResponseWriter, r *http.Request, scope computeScopeKind, store sim.Store[T]) {
 	project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 	var req struct {
@@ -263,9 +238,8 @@ func computeMoveAddress[T any](w http.ResponseWriter, r *http.Request, scope com
 }
 
 // computeTypedUpdate replaces a global typed resource, keeping only its
-// identity — which is the whole difference between an update and a patch.
-// realize, when set, carries the replacement into the world before the
-// operation is answered.
+// identity. realize, when set, applies the replacement before the operation is
+// answered.
 func computeTypedUpdate[T any](w http.ResponseWriter, r *http.Request, collection string, store sim.Store[T], realize func(context.Context) error) {
 	project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 	var body map[string]any

@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueMLTaskRunCLI exercises the machine-learning task-run family via the CLI.
 func TestGlueMLTaskRunCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("glue", "create-ml-transform",
@@ -67,8 +66,6 @@ func TestGlueMLTaskRunCLI(t *testing.T) {
 	assert.Equal(t, "STOPPED", cancel.Status)
 }
 
-// TestGlueCrawlerScheduleCLI exercises crawler/column-statistics schedule toggles,
-// GetCrawlerMetrics, ListCrawls and the materialized-view refresh family.
 func TestGlueCrawlerScheduleCLI(t *testing.T) {
 	t.Parallel()
 	const crawler = "glue-cli-sched-crawler"
@@ -150,8 +147,6 @@ func TestGlueCrawlerScheduleCLI(t *testing.T) {
 		"--catalog-id", "123456789012", "--database-name", db, "--table-name", tbl))
 }
 
-// TestGlueWorkflowRunCLI exercises workflow-run properties, UpdateWorkflow,
-// ListTriggers/UpdateTrigger and the job-bookmark family.
 func TestGlueWorkflowRunCLI(t *testing.T) {
 	t.Parallel()
 	const wf = "glue-cli-wfrun"
@@ -259,8 +254,6 @@ func TestGlueWorkflowRunCLI(t *testing.T) {
 	assert.Equal(t, job, reset.JobBookmarkEntry.JobName)
 }
 
-// TestGlueConnectionTypeCLI exercises the connection-type registry and
-// TestConnection via the CLI.
 func TestGlueConnectionTypeCLI(t *testing.T) {
 	t.Parallel()
 	const ctName = "REST-glue-cli-conntype"
@@ -292,11 +285,9 @@ func TestGlueConnectionTypeCLI(t *testing.T) {
 	assert.Equal(t, ctName, desc.ConnectionType)
 	assert.NotEmpty(t, desc.Capabilities.SupportedAuthenticationTypes)
 
-	// The catalogue of connection types Glue supports. Its brief types the name
-	// as the ConnectionType enum, so a registered custom connector — which
-	// takes a free-form name — cannot appear in it. `--no-paginate` is not
-	// passed: the CLI follows the token itself, which is how a client reads a
-	// list longer than a page.
+	// The ConnectionType enum types each name, so a registered custom connector,
+	// which takes a free-form name, cannot appear. The CLI follows the pagination
+	// token itself, as a client reads a list longer than a page.
 	out = runCLI(t, awsCLI("glue", "list-connection-types"))
 	var listCT struct {
 		ConnectionTypes []struct {

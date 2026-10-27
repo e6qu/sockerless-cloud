@@ -9,25 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon EC2 Reachability Analyzer (Network Insights), Network Access Analyzer
-// (Network Insights access scopes), Route Server, and Local Gateway Routes
-// families — faithful ec2Query (XML) CRUD.
-//
-// Resources modeled, each persisted in its own sim.Store:
-//   - Network Insights paths (nip-…): a source→destination probe definition.
-//   - Network Insights analyses (nia-…): an analysis run of a path. The
-//     simulator settles it to "succeeded" synchronously with a real-shaped
-//     result (NetworkPathFound=true, empty findings/explanations). No
-//     fabricated hop topology beyond the source/destination is invented.
-//   - Network Insights access scopes (nis-…) + their content (match/exclude
-//     paths) and analyses (nisa-…): Network Access Analyzer.
-//   - Route servers (rs-…): associate to a VPC, with endpoints (rse-…),
-//     peers (rsp-…), VPC associations, and route-table propagation state.
-//   - Local gateway routes on an existing local-gateway-route-table.
-//
-// XML element names match the smithy.api#xmlName traits in
-// specs/cloud-api/aws/ec2.smithy.json.gz exactly (the spec-shape validator
-// rejects any unknown or mis-cased field).
+// Element names match the smithy.api#xmlName traits in
+// specs/cloud-api/aws/ec2.smithy.json.gz exactly; the spec-shape validator
+// rejects anything else.
 
 type EC2NetworkInsightsPath struct {
 	NetworkInsightsPathId  string
@@ -84,7 +68,7 @@ type EC2RouteServer struct {
 	HasPersistRoutesDur     bool
 	SnsNotificationsEnabled bool
 	SnsTopicArn             string
-	// VpcId is the VPC this route server is associated with (AssociateRouteServer).
+	// Set by AssociateRouteServer.
 	VpcId string
 	Tags  []EC2Tag
 }
@@ -117,8 +101,7 @@ type EC2RouteServerPeer struct {
 	Tags                  []EC2Tag
 }
 
-// EC2RouteServerPropagation records that a route server propagates its routes
-// into a given route table (EnableRouteServerPropagation).
+// Set by EnableRouteServerPropagation.
 type EC2RouteServerPropagation struct {
 	RouteServerId string
 	RouteTableId  string
@@ -160,17 +143,14 @@ func registerEC2NetworkInsights(r *AWSQueryRouter, srv *sim.Server) {
 	ec2RouteServerPropagations = sim.MakeStore[EC2RouteServerPropagation](srv.DB(), "ec2_route_server_propagations")
 	ec2LocalGatewayRoutes = sim.MakeStore[EC2LocalGatewayRoute](srv.DB(), "ec2_local_gateway_routes")
 
-	// Network Insights paths (Reachability Analyzer).
 	r.Register("CreateNetworkInsightsPath", handleCreateNetworkInsightsPath)
 	r.Register("DescribeNetworkInsightsPaths", handleDescribeNetworkInsightsPaths)
 	r.Register("DeleteNetworkInsightsPath", handleDeleteNetworkInsightsPath)
 
-	// Network Insights analyses.
 	r.Register("StartNetworkInsightsAnalysis", handleStartNetworkInsightsAnalysis)
 	r.Register("DescribeNetworkInsightsAnalyses", handleDescribeNetworkInsightsAnalyses)
 	r.Register("DeleteNetworkInsightsAnalysis", handleDeleteNetworkInsightsAnalysis)
 
-	// Network Insights access scopes (Network Access Analyzer).
 	r.Register("CreateNetworkInsightsAccessScope", handleCreateNetworkInsightsAccessScope)
 	r.Register("DescribeNetworkInsightsAccessScopes", handleDescribeNetworkInsightsAccessScopes)
 	r.Register("DeleteNetworkInsightsAccessScope", handleDeleteNetworkInsightsAccessScope)
@@ -180,7 +160,6 @@ func registerEC2NetworkInsights(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteNetworkInsightsAccessScopeAnalysis", handleDeleteNetworkInsightsAccessScopeAnalysis)
 	r.Register("GetNetworkInsightsAccessScopeAnalysisFindings", handleGetNetworkInsightsAccessScopeAnalysisFindings)
 
-	// Route servers.
 	r.Register("CreateRouteServer", handleCreateRouteServer)
 	r.Register("DescribeRouteServers", handleDescribeRouteServers)
 	r.Register("ModifyRouteServer", handleModifyRouteServer)
@@ -199,8 +178,8 @@ func registerEC2NetworkInsights(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetRouteServerPropagations", handleGetRouteServerPropagations)
 	r.Register("GetRouteServerRoutingDatabase", handleGetRouteServerRoutingDatabase)
 
-	// Local gateway routes. The list operation in the real EC2 API is
-	// SearchLocalGatewayRoutes (there is no DescribeLocalGatewayRoutes).
+	// The real API lists local gateway routes with SearchLocalGatewayRoutes;
+	// there is no DescribeLocalGatewayRoutes.
 	r.Register("CreateLocalGatewayRoute", handleCreateLocalGatewayRoute)
 	r.Register("SearchLocalGatewayRoutes", handleSearchLocalGatewayRoutes)
 	r.Register("ModifyLocalGatewayRoute", handleModifyLocalGatewayRoute)
@@ -217,8 +196,6 @@ func ec2Response(w http.ResponseWriter, action, body string) {
 		action, ec2Xmlns(), sim.NewUUID(), body, action)
 }
 
-// Network Insights paths
-
 func handleCreateNetworkInsightsPath(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("nip")
 	path := EC2NetworkInsightsPath{
@@ -232,7 +209,7 @@ func handleCreateNetworkInsightsPath(w http.ResponseWriter, r *http.Request) {
 		Protocol:               r.FormValue("Protocol"),
 		Tags:                   parseTags(r),
 	}
-	// A Source/Destination that is itself an ARN is echoed in the *Arn fields.
+	// A Source or Destination that is an ARN echoes in the *Arn fields.
 	if strings.HasPrefix(path.Source, "arn:") {
 		path.SourceArn = path.Source
 	}
@@ -308,13 +285,9 @@ func nipBodyXML(p EC2NetworkInsightsPath) string {
 	return b.String()
 }
 
-// nipTagSetXML emits the <tagSet> element for these families (same shape as
-// the core writeTagSetXML).
 func nipTagSetXML(tags []EC2Tag) string {
 	return writeTagSetXML(tags)
 }
-
-// Network Insights analyses
 
 func handleStartNetworkInsightsAnalysis(w http.ResponseWriter, r *http.Request) {
 	pathID := r.FormValue("NetworkInsightsPathId")
@@ -328,8 +301,8 @@ func handleStartNetworkInsightsAnalysis(w http.ResponseWriter, r *http.Request) 
 		NetworkInsightsAnalysisArn: ec2ResourceArn("network-insights-analysis", id),
 		NetworkInsightsPathId:      pathID,
 		StartDate:                  ec2NowRFC3339Milli(),
-		// The analysis settles synchronously. We report a reachable path with
-		// no findings rather than fabricate a hop-by-hop topology.
+		// The analysis settles at once as a reachable path with no findings; the
+		// simulator computes no hop-by-hop topology.
 		Status:           "succeeded",
 		NetworkPathFound: true,
 		Tags:             parseTags(r),
@@ -380,8 +353,6 @@ func niaBodyXML(a EC2NetworkInsightsAnalysis) string {
 	return b.String()
 }
 
-// Network Insights access scopes (Network Access Analyzer)
-
 func handleCreateNetworkInsightsAccessScope(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("nis")
 	now := ec2NowRFC3339Milli()
@@ -393,8 +364,7 @@ func handleCreateNetworkInsightsAccessScope(w http.ResponseWriter, r *http.Reque
 		Tags:                          parseTags(r),
 	}
 	ec2NetworkInsightsAccessScopes.Put(id, s)
-	// Create returns both the scope and its content (the match/exclude paths
-	// echoed from the request).
+	// Create returns the scope and its content, echoed from the request.
 	body := "<networkInsightsAccessScope>" + nisBodyXML(s) + "</networkInsightsAccessScope>" +
 		"<networkInsightsAccessScopeContent>" + nisContentBodyXML(id) + "</networkInsightsAccessScopeContent>"
 	ec2Response(w, "CreateNetworkInsightsAccessScope", body)
@@ -446,12 +416,10 @@ func nisBodyXML(s EC2NetworkInsightsAccessScope) string {
 }
 
 func nisContentBodyXML(scopeID string) string {
-	// MatchPaths/ExcludePaths are optional; the scope content always carries
-	// the scope id it belongs to.
+	// MatchPaths and ExcludePaths are optional; the content always names its
+	// scope.
 	return fmt.Sprintf("<networkInsightsAccessScopeId>%s</networkInsightsAccessScopeId>", scopeID)
 }
-
-// Network Insights access scope analyses
 
 func handleStartNetworkInsightsAccessScopeAnalysis(w http.ResponseWriter, r *http.Request) {
 	scopeID := r.FormValue("NetworkInsightsAccessScopeId")
@@ -513,7 +481,7 @@ func handleGetNetworkInsightsAccessScopeAnalysisFindings(w http.ResponseWriter, 
 		ec2ErrorXML(w, "InvalidNetworkInsightsAccessScopeAnalysisId.NotFound", "network insights access scope analysis not found: "+id, http.StatusBadRequest)
 		return
 	}
-	// No findings are fabricated; the analysis reported FindingsFound=false.
+	// The analysis reports FindingsFound=false.
 	var b strings.Builder
 	fmt.Fprintf(&b, "<networkInsightsAccessScopeAnalysisId>%s</networkInsightsAccessScopeAnalysisId>", a.NetworkInsightsAccessScopeAnalysisId)
 	fmt.Fprintf(&b, "<analysisStatus>%s</analysisStatus>", a.Status)
@@ -534,8 +502,6 @@ func nisaBodyXML(a EC2NetworkInsightsAccessScopeAnalysis) string {
 	b.WriteString(nipTagSetXML(a.Tags))
 	return b.String()
 }
-
-// Route servers
 
 func handleCreateRouteServer(w http.ResponseWriter, r *http.Request) {
 	id := ec2ID("rs")
@@ -906,8 +872,7 @@ func handleGetRouteServerRoutingDatabase(w http.ResponseWriter, r *http.Request)
 		ec2ErrorXML(w, "InvalidRouteServerId.NotFound", "route server not found: "+rsID, http.StatusBadRequest)
 		return
 	}
-	// No routes are fabricated — the routing database is empty until real BGP
-	// peers advertise prefixes.
+	// The routing database stays empty until BGP peers advertise prefixes.
 	var b strings.Builder
 	fmt.Fprintf(&b, "<areRoutesPersisted>%t</areRoutesPersisted>", rs.PersistRoutesState == "enabled")
 	b.WriteString("<routeSet/>")
@@ -923,8 +888,6 @@ func routeServerPropagationBodyXML(p EC2RouteServerPropagation) string {
 	fmt.Fprintf(&b, "<state>%s</state>", p.State)
 	return b.String()
 }
-
-// Local gateway routes
 
 func lgwRouteKey(rtID, cidr, prefix string) string {
 	if cidr != "" {

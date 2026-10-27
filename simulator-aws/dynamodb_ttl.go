@@ -12,31 +12,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// DynamoDB Time to Live, the deleting half.
+// The DynamoDB Time to Live sweep, as documented:
+//   - Only a Number attribute in epoch seconds counts; other types, and values
+//     more than five years old, are ignored.
+//   - An expired item stays readable until deleted, and an update that moves
+//     or removes its TTL keeps it. The sweep re-reads each candidate under the
+//     table's write lock, so it judges the current value.
+//   - A TTL deletion consumes no write capacity.
 //
-// UpdateTimeToLive and DescribeTimeToLive stored and reported a table's TTL
-// attribute, but nothing deleted an expired item, so a table whose application
-// relied on TTL grew without bound. one application's table on a production
-// deployment held 3,874 session correlations and 1,056 logout tokens that had all
-// expired, the oldest in August, and every scan of that table read them.
-//
-// What DynamoDB documents, and what the sweep does:
-//   - Only a Number attribute in epoch seconds is considered; any other type is
-//     ignored, and so is a value more than five years in the past.
-//   - An expired item is deleted "typically within a few days". Until then it
-//     is still returned by reads, and an update that moves its TTL into the
-//     future, or removes it, keeps it. The sweep re-reads each candidate under
-//     the table's write lock, so an item updated after it was listed is judged
-//     on its new value.
-//   - A TTL deletion consumes no write capacity and leaves the table's indexes
-//     like any other delete. The simulator derives index contents from the
-//     stored items, so removing the item is the whole of it.
-//
-// The simulator deletes at the next sweep rather than days later: the delay is
-// unspecified, and a prompt deletion is the one a test can observe.
+// DynamoDB deletes "typically within a few days"; the simulator deletes at the
+// next sweep, a delay a test can observe.
 const ddbTTLSweepInterval = 5 * time.Second
 
-// ddbTTLMaxAge is how far in the past a TTL value may be and still expire.
 const ddbTTLMaxAgeYears = 5
 
 func startDDBTTLSweeper(srv *sim.Server) {
@@ -45,8 +32,6 @@ func startDDBTTLSweeper(srv *sim.Server) {
 	})
 }
 
-// ddbSweepExpiredItems deletes every item past its table's TTL as of now and
-// returns how many it deleted.
 func ddbSweepExpiredItems(now time.Time) int {
 	deleted := 0
 	for _, table := range ddbTables.List() {
@@ -76,8 +61,6 @@ func ddbDeleteIfStillExpired(table DDBTable, itemKey, attribute string, now time
 	return true
 }
 
-// ddbItemExpired reports whether item's TTL attribute is a Number of epoch
-// seconds that is not after now and not more than five years before it.
 func ddbItemExpired(item map[string]any, attribute string, now time.Time) bool {
 	value, ok := item[attribute].(map[string]any)
 	if !ok {
@@ -95,13 +78,9 @@ func ddbItemExpired(item map[string]any, attribute string, now time.Time) bool {
 	return !expiry.After(now) && !expiry.Before(now.AddDate(-ddbTTLMaxAgeYears, 0, 0))
 }
 
-// ddbTableUsage computes a table's item count and size, and each secondary
-// index's, from the items the table holds. It reads every item, so it is never
-// run on a request: DescribeTable serves the figures ddbDescribedUsage last
-// computed, which is also how DynamoDB behaves — it refreshes these figures
-// about every six hours rather than on each call. An index counts the items
-// that carry its key attributes, and its size is what it projects: the table
-// and index keys, the included attributes, or the whole item.
+// Reads every item, so it never runs on a request: DescribeTable serves cached
+// figures, as DynamoDB refreshes them about every six hours. An index counts
+// the items carrying its key attributes, sized by what it projects.
 func ddbTableUsage(t DDBTable) DDBTable {
 	items := ddbItemSnapshots(ddbTableSortedKeys(t.TableName + "/"))
 	t.ItemCount, t.TableSizeBytes = 0, 0
@@ -140,8 +119,7 @@ func ddbTableUsage(t DDBTable) DDBTable {
 	return t
 }
 
-// ddbProjectedSize is the size of item as an index projects it, and whether
-// the item appears in the index at all (it must carry every index key).
+// false when the item lacks an index key.
 func ddbProjectedSize(item map[string]any, tableKeys, indexKeys []DDBKeySchemaEntry, projection *DDBProjection) (int64, bool) {
 	for _, key := range indexKeys {
 		if _, ok := item[key.AttributeName]; !ok {
@@ -165,12 +143,9 @@ func ddbProjectedSize(item map[string]any, tableKeys, indexKeys []DDBKeySchemaEn
 	return int64(ddbItemSizeBytes(projected)), true
 }
 
-// DescribeTable's usage figures are served from a cache refreshed off the
-// request path. Computing them per call reads every item in the table: on a
-// SQLite-backed table of 2,501 items DescribeTable took 1.6 s, long enough for
-// a health ping built on it to time out. A refresh runs in the background at
-// most once per interval per table, and a table described before its first
-// refresh reports zero, as a newly created DynamoDB table does.
+// Computing usage per DescribeTable reads every item, so a background refresh
+// runs at most once per interval per table; before it, a table reports zero,
+// as a new DynamoDB table does.
 const ddbUsageRefreshInterval = time.Minute
 
 type ddbUsageEntry struct {
@@ -182,14 +157,12 @@ type ddbUsageEntry struct {
 var (
 	ddbUsageMu      sync.Mutex
 	ddbUsageByTable = map[string]*ddbUsageEntry{}
-	// ddbUsageRefreshes counts completed refreshes, so a test can tell a cached
-	// answer from a recomputed one.
+	// Tests tell a cached answer from a recomputed one by this count.
 	ddbUsageRefreshes atomic.Uint64
 )
 
-// ddbDescribedUsage returns t carrying the most recently computed usage figures,
-// starting a background refresh when they are missing or older than the
-// interval. It never reads the table's items.
+// Starts a background refresh when figures are missing or stale; never reads
+// items.
 func ddbDescribedUsage(t DDBTable, now time.Time) DDBTable {
 	ddbUsageMu.Lock()
 	entry := ddbUsageByTable[t.TableName]
@@ -208,7 +181,6 @@ func ddbDescribedUsage(t DDBTable, now time.Time) DDBTable {
 	return ddbApplyUsage(t, cached, computed)
 }
 
-// ddbRefreshTableUsage recomputes one table's figures and stores them.
 func ddbRefreshTableUsage(name string) {
 	table, ok := ddbTables.Get(name)
 	var usage DDBTable
@@ -223,23 +195,22 @@ func ddbRefreshTableUsage(name string) {
 	ddbUsageRefreshes.Add(1)
 }
 
-// ddbForgetUsage drops a table's cached figures, so a table recreated under the
-// same name never reports its predecessor's.
+// A table recreated under the same name never reports its predecessor's
+// figures.
 func ddbForgetUsage(name string) {
 	ddbUsageMu.Lock()
 	defer ddbUsageMu.Unlock()
 	delete(ddbUsageByTable, name)
 }
 
-// ddbResetUsage drops every cached figure; the stores they describe were rebuilt.
+// The stores the figures describe were rebuilt.
 func ddbResetUsage() {
 	ddbUsageMu.Lock()
 	defer ddbUsageMu.Unlock()
 	ddbUsageByTable = map[string]*ddbUsageEntry{}
 }
 
-// ddbApplyUsage copies computed figures onto the table description being
-// answered, matching indexes by name; figures not yet computed read as zero.
+// Figures not yet computed read as zero.
 func ddbApplyUsage(t, usage DDBTable, computed bool) DDBTable {
 	t.ItemCount, t.TableSizeBytes = 0, 0
 	gsiUsage := map[string]DDBGlobalSecondaryIndex{}

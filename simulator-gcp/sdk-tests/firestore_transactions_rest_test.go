@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFirestore_TransactionRESTEndpoints drives the Firestore transaction
-// endpoints directly over REST (a real Firestore client surface), covering the
-// routes the high-level RunTransaction test exercises plus the invalid-token
-// rejection the high-level client can't easily trigger:
+// TestFirestore_TransactionRESTEndpoints drives the transaction routes over
+// REST, including the invalid-token refusal the high-level client cannot
+// easily trigger:
 //
 //	POST /v1/projects/{project}/databases/{database}/documents:beginTransaction
 //	POST /v1/projects/{project}/databases/{database}/documents:rollback
@@ -32,7 +31,6 @@ func TestFirestore_TransactionRESTEndpoints(t *testing.T) {
 		return resp, b
 	}
 
-	// beginTransaction → opaque token.
 	resp, body := post(db+":beginTransaction", `{"options":{"readWrite":{}}}`)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "beginTransaction body=%s", body)
 	var begun struct {

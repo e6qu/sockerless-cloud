@@ -647,6 +647,9 @@ func TestEntra_ApplicationClientSecretEndToEnd(t *testing.T) {
 	// host and the simulator listens on plain http), and the ARM client reads
 	// the control plane with the issued token — the enforcing bearer
 	// middleware accepts the credential.
+	// The principal reads the subscription through the Reader role assigned
+	// to it there.
+	assignRole(t, "/subscriptions/"+subscriptionID, readerRoleID, spID)
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID,
 		&appSecretCredential{clientID: appID, clientSecret: secretText}, clientOpts())
 	require.NoError(t, err)

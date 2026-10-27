@@ -6,20 +6,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// ec2MACPrefix is the locally administered OUI the simulator derives interface
-// MAC addresses under.
+// A locally administered OUI.
 const ec2MACPrefix = "02:0a:ec"
 
-// ec2InterfaceMAC is the MAC address of an elastic network interface, which
-// it keeps for its life.
+// Stable for the interface's life.
 func ec2InterfaceMAC(networkInterfaceID string) string {
 	return ipam.DeriveMAC(ec2MACPrefix, networkInterfaceID)
 }
 
-// ecsCreateTaskNetworkInterface creates the elastic network interface an
-// awsvpc task owns, in its subnet, at RunTask: the task's attachment reports
-// PRECREATED with the interface already in the subnet, so EC2 refuses to delete
-// the subnet under a task that is still starting.
+// Created at RunTask, reported PRECREATED, so Amazon EC2 refuses to delete the
+// subnet under a starting task.
 func ecsCreateTaskNetworkInterface(taskID, attachmentID, subnetID, privateIP string, securityGroupIDs []string) (ECSAttachment, error) {
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
@@ -53,9 +49,8 @@ func ecsCreateTaskNetworkInterface(taskID, attachmentID, subnetID, privateIP str
 	}, nil
 }
 
-// ecsDeleteTaskNetworkInterfaces deletes a stopping task's elastic network
-// interfaces and reports their attachments DELETED, as Amazon ECS does while
-// the task deprovisions and before it reports STOPPED.
+// Amazon ECS deletes the interfaces and reports the attachments DELETED before
+// the task reports STOPPED.
 func ecsDeleteTaskNetworkInterfaces(task *ECSTask) {
 	for i := range task.Attachments {
 		att := &task.Attachments[i]
@@ -69,9 +64,7 @@ func ecsDeleteTaskNetworkInterfaces(task *ECSTask) {
 	}
 }
 
-// ecsReleaseTaskAttachments releases what a task holds as it stops: its
-// network interfaces and its managed Amazon EBS volumes. It returns the
-// container-engine volumes to remove once the task's store update returns.
+// Returns the engine volumes to remove once the task's store update returns.
 func ecsReleaseTaskAttachments(task *ECSTask) []string {
 	ecsDeleteTaskNetworkInterfaces(task)
 	return ecsCleanupTaskManagedEBS(task)

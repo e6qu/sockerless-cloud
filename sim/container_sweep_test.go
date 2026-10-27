@@ -15,22 +15,13 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// The detached reaper is the fast path, and it is not the only one.
-//
-// TestContainerReaperAbnormalExit proves the reaper collects its run when the
-// simulator is SIGKILLed. What it cannot prove is the case that actually leaked:
-// the reaper dying too. It lives inside the harness container the simulator runs
-// in, so a harness that removes that container removes the reaper with it, and
-// the run's workloads then belong to nobody. Twenty-two of them were found on
-// one development host, five still running between two and twenty-five hours
-// after the runs that made them had ended.
-//
-// So the next simulator over the same state directory collects what the last
-// one left. This drives that path with a real engine: a process creates a
-// workload under a state directory with no reaper behind it, is SIGKILLed, and
-// the next run over that state directory removes what it left — while a
-// workload under a different state directory is untouched, which is what keeps
-// three suites of one cloud running at once from collecting each other.
+// The detached reaper dies with the harness container it lives in, and the
+// run's workloads then belong to nobody, which TestContainerReaperAbnormalExit
+// cannot cover. This drives the sweep with a real engine: a process creates a
+// workload under a state directory with no reaper behind it and is
+// SIGKILLed, and the next run over that state directory removes what it left,
+// while a workload under a different state directory stays, so the suites of
+// one cloud running at once never collect each other's.
 
 const containerSweepTestChild = "SOCKERLESS_CONTAINER_SWEEP_TEST_CHILD"
 const containerSweepTestStateDir = "SOCKERLESS_CONTAINER_SWEEP_TEST_STATE_DIR"
@@ -164,10 +155,8 @@ func createSweepTestContainer(t *testing.T, ctx context.Context, engine *client.
 	return created.ID
 }
 
-// Read from mirror.gcr.io rather than Docker Hub, for the
-// reason recorded beside containerReaperTestImage: an unauthenticated Hub pull
-// is rate-limited per source address, and this test lost a CI run to a Hub
-// connection that never completed.
+// Read from mirror.gcr.io rather than Docker Hub, as containerReaperTestImage
+// does.
 const containerSweepTestImage = "mirror.gcr.io/library/alpine:3.22"
 
 // runContainerSweepTestChild is a run with no reaper behind it — the state a

@@ -20,9 +20,9 @@ import (
 
 // A stopping simulator ends the AWS Lambda invocations its durable-execution
 // coordinators and Step Functions Lambda tasks have in flight, and leaves both
-// executions RUNNING for the next process to resume, rather than leaving the
-// execution environments running until the function timeout or failing the
-// executions with the interrupted invocation's error.
+// executions RUNNING for the next process to resume, rather than running the
+// environments until timeout or failing the executions with the interrupted
+// invocation's error.
 func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()

@@ -18,9 +18,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
-// gcpInt64 round-trips int64 quoted-as-string (real GCP discovery
-// shape) AND unquoted numbers (terraform-provider shape). Always emits
-// quoted-string on output.
+// gcpInt64 reads an int64 as the quoted string the Discovery document declares
+// or as the bare number terraform-provider-google sends, and always writes the
+// string.
 type gcpInt64 string
 
 func (g gcpInt64) MarshalJSON() ([]byte, error) {
@@ -99,17 +99,11 @@ var gcpAutoModeSubnetCIDRs = map[string]string{
 	"us-west4":                "10.182.0.0/20",
 }
 
-// ComputeOperationRecord is one operation the sim has handed out. It carries
-// the operation's whole observable state, so a GET or a wait reports what the
-// operation is actually doing rather than a fabricated verdict, and so an
-// operation issued before a restart still resolves.
-//
-// The members are the `compute#operation` resource's own, from the Compute
-// Engine v1 Discovery document: status is one of `PENDING`, `RUNNING` or
-// `DONE`; progress "ranges from 0 to 100"; endTime is "the time that this
-// operation was completed"; and error, httpErrorStatusCode and
-// httpErrorMessage are populated only "if errors are generated during
-// processing of the operation".
+// ComputeOperationRecord is the whole observable state of an operation the
+// simulator handed out, so a GET or a wait reports what it is doing and an
+// operation issued before a restart still resolves. Its members are the
+// `compute#operation` resource's: status PENDING, RUNNING or DONE, progress
+// 0–100, and the error members only when processing failed.
 type ComputeOperationRecord struct {
 	Name          string `json:"name"`
 	ID            string `json:"id,omitempty"`
@@ -130,26 +124,17 @@ type ComputeOperationRecord struct {
 	HTTPErrorMessage    string `json:"httpErrorMessage,omitempty"`
 }
 
-// computeOpRegistry records every operation the sim hands out, in the same
-// store family as the other services' LROs, so polling an operation name
-// issued before a restart still resolves. registerCompute wires it.
+// computeOpRegistry records every operation the simulator hands out, so an
+// operation issued before a restart still resolves.
 var computeOpRegistry sim.Store[ComputeOperationRecord]
 
 func recordComputeOp(rec ComputeOperationRecord) {
 	computeOpRegistry.Put(rec.Name, rec)
 }
 
-// computeOpFinish moves a running operation to DONE. A nil err completes it
-// successfully; a non-nil one populates the error members Compute Engine
-// reports for an operation that failed while it was being processed.
-//
-// `INTERNAL_ERROR` is the error type identifier Compute Engine reports when
-// the work behind an operation does not complete. Google's Compute Engine
-// known-issues page describes the shape exactly — an operation that "gets
-// stuck in a RUNNING state at 0% progress and eventually fails with an
-// INTERNAL_ERROR" — which is also the state an operation starts in here. The
-// accompanying HTTP status is the one the simulator answers when it cannot
-// bring a machine up.
+// computeOpFinish moves a running operation to DONE, with the error members
+// Compute Engine reports when err is non-nil: INTERNAL_ERROR, the type Compute
+// Engine gives an operation whose work did not complete.
 func computeOpFinish(name string, err error) {
 	defer gcpOperationDone.Announce(name)
 	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
@@ -167,8 +152,7 @@ func computeOpFinish(name string, err error) {
 }
 
 // computeOpJSON renders a recorded operation as the `compute#operation`
-// resource, which is the identical shape whether it is returned by the method
-// that started the operation or by a later poll of it.
+// resource, the same shape from the starting method or a later poll.
 func computeOpJSON(rec ComputeOperationRecord) map[string]any {
 	path := fmt.Sprintf("projects/%s/%s/operations/%s", rec.Project, rec.Scope, rec.Name)
 	op := map[string]any{
@@ -209,9 +193,8 @@ func computeOpJSON(rec ComputeOperationRecord) map[string]any {
 	return op
 }
 
-// computeWriteOperation answers an operations GET from the record. An
-// operation name the sim never handed out is not found, rather than answered
-// with a fabricated verdict.
+// computeWriteOperation answers an operations GET from the record; an
+// operation name the simulator never handed out is not found.
 func computeWriteOperation(w http.ResponseWriter, name string) {
 	rec, ok := computeOpRegistry.Get(name)
 	if !ok {
@@ -221,18 +204,13 @@ func computeWriteOperation(w http.ResponseWriter, name string) {
 	sim.WriteJSON(w, http.StatusOK, computeOpJSON(rec))
 }
 
-// computeOperationWaitBudget is how long a `wait` call blocks before returning
-// the operation's current state. Compute Engine documents that
-// zoneOperations.wait "waits for the specified Operation resource to return as
-// DONE or for the request to approach the 2 minute deadline, and retrieves the
-// specified Operation resource", and that it "waits for no more than the 2
-// minutes and then returns the current state of the operation, which might be
-// DONE or still in progress".
+// computeOperationWaitBudget is how long a `wait` blocks: Compute Engine
+// documents that zoneOperations.wait waits for DONE "for no more than the 2
+// minutes and then returns the current state of the operation".
 const computeOperationWaitBudget = 2 * time.Minute
 
-// computeWaitOperation implements that contract: it blocks until the operation
-// reaches DONE, the budget runs out, or the client goes away, then answers with
-// whatever state the operation is in.
+// computeWaitOperation blocks until the operation is DONE, the budget runs out,
+// or the client goes away, then answers the operation's state.
 func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
 	sim.DeclareWait(r.Context(), computeOperationWaitBudget)
 	// Subscribe before reading, so a finish between the read and the wait still
@@ -303,10 +281,9 @@ func newComputeOpRecord(project, scope, targetLink, operationType string) Comput
 	}
 }
 
-// computeConflict writes the 409 ALREADY_EXISTS response real GCP returns
-// when an insert names a resource that already exists. exists reports
-// whether the store already holds the key; when true the handler must
-// return immediately.
+// computeConflict writes the 409 ALREADY_EXISTS Compute Engine answers an
+// insert naming an existing resource, and reports exists; on true the handler
+// returns.
 func computeConflict(w http.ResponseWriter, exists bool, resource, name string) bool {
 	if exists {
 		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "The resource '%s' named '%s' already exists", resource, name)
@@ -387,9 +364,8 @@ func computeFieldError(w http.ResponseWriter, reason, message string) {
 	})
 }
 
-// computeNotFound writes the 404 NOT_FOUND response real GCP returns when a
-// delete targets a resource that is absent. deleted is the bool the store's
-// Delete reported; when false the handler must return immediately.
+// computeNotFound writes the 404 NOT_FOUND Compute Engine answers a delete of
+// an absent resource, and reports !deleted; on true the handler returns.
 func computeNotFound(w http.ResponseWriter, deleted bool, resource, name string) bool {
 	if !deleted {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' named '%s' was not found", resource, name)
@@ -398,10 +374,7 @@ func computeNotFound(w http.ResponseWriter, deleted bool, resource, name string)
 	return false
 }
 
-// ComputeFirewall mirrors `compute#firewall`. Field set covers what
-// terraform-provider-google's `google_compute_firewall` and the Go
-// SDK's `compute.NewFirewallsRESTClient` round-trip; runner setup
-// flows that grant ingress to the build host hit Create/Get/Delete.
+// ComputeFirewall mirrors `compute#firewall`.
 type ComputeFirewall struct {
 	Kind                  string                  `json:"kind,omitempty"`
 	Id                    string                  `json:"id,omitempty"`
@@ -431,17 +404,13 @@ type ComputeFirewallAction struct {
 	Ports      []string `json:"ports,omitempty"`
 }
 
-// ComputeFirewallLog enables logging on a firewall rule.
 type ComputeFirewallLog struct {
 	Enable   bool   `json:"enable"`
 	Metadata string `json:"metadata,omitempty"`
 }
 
-// ComputeRouter mirrors `compute#router`. Cloud NAT lives on a Router
-// — a workload that needs serverless egress (Cloud Run, Cloud
-// Functions with VPC connector) provisions a Router with a `nats[]`
-// entry. Without router CRUD, terraform's `google_compute_router` and
-// `google_compute_router_nat` 404 against the sim.
+// ComputeRouter mirrors `compute#router`; its nats[] holds the router's Cloud
+// NAT configurations.
 type ComputeRouter struct {
 	Kind              string             `json:"kind,omitempty"`
 	Id                string             `json:"id,omitempty"`
@@ -455,25 +424,20 @@ type ComputeRouter struct {
 	Nats              []ComputeRouterNAT `json:"nats,omitempty"`
 }
 
-// ComputeRouterBgp mirrors `compute#router.bgp` — the Border Gateway
-// Protocol settings for the router. The simulator stores them and reports them
-// back; it speaks no BGP.
+// ComputeRouterBgp mirrors `compute#router.bgp`; the simulator stores it but
+// speaks no BGP.
 type ComputeRouterBgp struct {
 	Asn               int32  `json:"asn,omitempty"`
 	AdvertiseMode     string `json:"advertiseMode,omitempty"`
 	KeepaliveInterval int32  `json:"keepaliveInterval,omitempty"`
 }
 
-// ComputeRouterNAT mirrors `compute#routerNat` — a Cloud NAT config
-// embedded in a router. Real GCP supports per-NAT IP allocation
-// (auto/manual), source-subnetwork-IP-ranges-to-NAT (LIST_OF_SUBNET-
-// WORKS / ALL_SUBNETWORKS_ALL_IP_RANGES), TCP/UDP timeout overrides.
-// The fields below cover what `google_compute_router_nat` round-trips.
+// ComputeRouterNAT mirrors `compute#routerNat`, a Cloud NAT configuration on a
+// router.
 type ComputeRouterNAT struct {
 	Name string `json:"name"`
-	// Type defaults to PUBLIC. terraform-provider-google treats this as a
-	// forces-replacement field; the read-back must echo the default or every
-	// refresh plans a NAT replacement.
+	// Type defaults to PUBLIC. It forces replacement in terraform-provider-google,
+	// so the read must echo the default or every refresh plans a replacement.
 	Type                          string                       `json:"type,omitempty"`
 	NatIpAllocateOption           string                       `json:"natIpAllocateOption,omitempty"`
 	NatIps                        []string                     `json:"natIps,omitempty"`
@@ -486,9 +450,8 @@ type ComputeRouterNAT struct {
 	LogConfig                     *ComputeRouterNATLogConfig   `json:"logConfig,omitempty"`
 }
 
-// defaultRouterNATTypes stamps the PUBLIC default onto any NAT that omits
-// the type field, matching real Cloud NAT read-back (the field is
-// forces-replacement in terraform-provider-google).
+// defaultRouterNATTypes stamps PUBLIC onto a NAT that omits its type, as Cloud
+// NAT reads back.
 func defaultRouterNATTypes(nats []ComputeRouterNAT) {
 	for i := range nats {
 		if nats[i].Type == "" {
@@ -497,23 +460,19 @@ func defaultRouterNATTypes(nats []ComputeRouterNAT) {
 	}
 }
 
-// ComputeRouterNATSubnetwork picks a specific subnet for NAT'ing.
 type ComputeRouterNATSubnetwork struct {
 	Name                  string   `json:"name"`
 	SourceIpRangesToNat   []string `json:"sourceIpRangesToNat,omitempty"`
 	SecondaryIpRangeNames []string `json:"secondaryIpRangeNames,omitempty"`
 }
 
-// ComputeRouterNATLogConfig enables NAT logging.
 type ComputeRouterNATLogConfig struct {
 	Enable bool   `json:"enable"`
 	Filter string `json:"filter,omitempty"`
 }
 
-// ComputeAddress mirrors compute#address for regional external IP
-// reservations. Cloud NAT manual mode references these resources from
-// router.nats[].natIps, and Terraform/gcloud both use the regional
-// addresses collection.
+// ComputeAddress mirrors compute#address for a regional IP reservation, which
+// Cloud NAT's manual mode references from router.nats[].natIps.
 type ComputeAddress struct {
 	Kind              string            `json:"kind,omitempty"`
 	Id                string            `json:"id,omitempty"`
@@ -546,9 +505,8 @@ type ComputeNetwork struct {
 	RoutingConfig struct {
 		RoutingMode string `json:"routingMode"`
 	} `json:"routingConfig"`
-	// NetworkFirewallPolicyEnforcementOrder defaults to AFTER_CLASSIC_FIREWALL.
-	// terraform-provider-google reads this back as a computed default; omitting
-	// it makes every refresh plan an in-place update.
+	// NetworkFirewallPolicyEnforcementOrder defaults to AFTER_CLASSIC_FIREWALL;
+	// terraform-provider-google reads it back as a computed default.
 	NetworkFirewallPolicyEnforcementOrder string `json:"networkFirewallPolicyEnforcementOrder,omitempty"`
 	CreationTimestamp                     string `json:"creationTimestamp"`
 }
@@ -578,11 +536,7 @@ type ComputeSubnetwork struct {
 	CreationTimestamp     string `json:"creationTimestamp"`
 }
 
-// ComputeDisk mirrors `compute#disk` — the zonal persistent-disk resource a
-// client creates and attaches to an instance. Field set covers what the Go
-// SDK's `compute.NewDisksRESTClient` round-trips for create / get / list /
-// delete / resize / setLabels — the subset terraform's `google_compute_disk`
-// exercises.
+// ComputeDisk mirrors `compute#disk`, the zonal persistent disk.
 type ComputeDisk struct {
 	Kind              string `json:"kind,omitempty"`
 	Id                string `json:"id,omitempty"`
@@ -590,10 +544,7 @@ type ComputeDisk struct {
 	SelfLink          string `json:"selfLink,omitempty"`
 	CreationTimestamp string `json:"creationTimestamp,omitempty"`
 	Description       string `json:"description,omitempty"`
-	// SizeGb is int64-as-string in real GCP discovery docs (the SDK's
-	// disk struct uses `int64,string` tag). The terraform provider
-	// sends it as an unquoted number. gcpInt64 accepts both shapes on
-	// input and always emits quoted-string on output (matches real GCP).
+	// SizeGb is an int64, so a quoted string on the wire; see gcpInt64.
 	SizeGb            gcpInt64          `json:"sizeGb,omitempty"`
 	Zone              string            `json:"zone,omitempty"`
 	Status            string            `json:"status,omitempty"`
@@ -609,9 +560,8 @@ type ComputeDisk struct {
 	// storagePools.listDisks reads to find a pool's disks.
 	StoragePool string `json:"storagePool,omitempty"`
 
-	// The members the disk's own verbs write: the schedules attached to it,
-	// the key it is encrypted under, the replication it takes part in and the
-	// state that reports.
+	// The members the disk's own verbs write: its resource policies, its
+	// encryption key, and its replication and that replication's state.
 	ResourcePolicies  []string       `json:"resourcePolicies,omitempty"`
 	DiskEncryptionKey map[string]any `json:"diskEncryptionKey,omitempty"`
 	AsyncPrimaryDisk  map[string]any `json:"asyncPrimaryDisk,omitempty"`
@@ -654,8 +604,8 @@ type ComputeInstance struct {
 	Scheduling        map[string]any            `json:"scheduling,omitempty"`
 	ServiceAccounts   []map[string]any          `json:"serviceAccounts,omitempty"`
 
-	// The members the instance's own set-verbs write. Each is stored because
-	// the verb that sets it is only meaningful if a later read returns it.
+	// The members the instance's set-verbs write, stored so a later read returns
+	// them.
 	DeletionProtection              bool             `json:"deletionProtection,omitempty"`
 	MinCpuPlatform                  string           `json:"minCpuPlatform,omitempty"`
 	GuestAccelerators               []map[string]any `json:"guestAccelerators,omitempty"`
@@ -712,10 +662,9 @@ type ComputeAccessConfig struct {
 	Type        string `json:"type,omitempty"`
 	NatIP       string `json:"natIP,omitempty"`
 	NetworkTier string `json:"networkTier,omitempty"`
-	// SecurityPolicy is where an instance records the Cloud Armor policy
-	// applied to its external address. instances.setSecurityPolicy names the
-	// interfaces to apply it to, and this is the member the instance reports it
-	// back on — the Instance schema itself declares no such field.
+	// SecurityPolicy records the Cloud Armor policy instances.setSecurityPolicy
+	// applies to the instance's external address; the Instance schema declares no
+	// such field.
 	SecurityPolicy string `json:"securityPolicy,omitempty"`
 }
 
@@ -798,13 +747,10 @@ type ComputeInstanceGroup struct {
 	Fingerprint       string                          `json:"fingerprint,omitempty"`
 }
 
-// storedComputeInstanceGroup is the persisted row backing an instance
-// group: the wire-shape InstanceGroup (which has no instances member —
-// membership rides the listInstances method and is summarized by the
-// output-only size member) plus the membership the addInstances /
-// removeInstances / listInstances handlers maintain. The embedding
-// flattens on json.Marshal, so sim.Store persistence keeps the same row
-// shape the membership has always been recovered from.
+// storedComputeInstanceGroup is the persisted instance group: the wire
+// InstanceGroup, which has no instances member (listInstances serves
+// membership and size summarizes it), plus the membership addInstances and
+// removeInstances maintain.
 type storedComputeInstanceGroup struct {
 	ComputeInstanceGroup
 	// Instances is the group membership. Store-only: never emitted as
@@ -812,8 +758,7 @@ type storedComputeInstanceGroup struct {
 	Instances []ComputeInstanceGroupInstance `json:"instances,omitempty"`
 }
 
-// wireInstanceGroup is the InstanceGroup resource emitted on the wire,
-// with the output-only size member computed from the stored membership.
+// wireInstanceGroup computes the output-only size from the stored membership.
 func wireInstanceGroup(g storedComputeInstanceGroup) ComputeInstanceGroup {
 	out := g.ComputeInstanceGroup
 	out.Size = int64(len(g.Instances))
@@ -896,9 +841,7 @@ type ComputeForwardingRule struct {
 	NetworkTier         string            `json:"networkTier,omitempty"`
 }
 
-// ComputeInstanceTemplate mirrors `compute#instanceTemplate`. Field set covers
-// what terraform-provider-google `google_compute_instance_template` and the
-// Go SDK's InstanceTemplates REST client round-trip.
+// ComputeInstanceTemplate mirrors `compute#instanceTemplate`.
 type ComputeInstanceTemplate struct {
 	Kind              string         `json:"kind"`
 	Id                string         `json:"id"`
@@ -914,11 +857,9 @@ var (
 	gcpAddresses   sim.Store[ComputeAddress]
 	gcpFirewalls   sim.Store[ComputeFirewall]
 	gcpInstances   sim.Store[ComputeInstance]
-	// gcpNormalizeInstance fills an instance the way instances.insert fills
-	// one — identity, zone, disks, and the real network interface it is
-	// attached to. instances.bulkInsert builds its run through the same
-	// function so a bulk-created instance is the same object a singly-created
-	// one is, rather than a record shaped like it.
+	// gcpNormalizeInstance fills an instance as instances.insert does: identity,
+	// zone, disks and its network interface. instances.bulkInsert builds each
+	// member through it too.
 	gcpNormalizeInstance func(ctx context.Context, project, zone string, inst *ComputeInstance) error
 	gcpInstanceGroups    sim.Store[storedComputeInstanceGroup]
 	gcpHealthChecks      sim.Store[ComputeHealthCheck]
@@ -933,8 +874,8 @@ func registerCompute(srv *sim.Server) {
 	computeOpRegistry = sim.MakeStore[ComputeOperationRecord](srv.DB(), "compute_operations")
 	networks := sim.MakeStore[ComputeNetwork](srv.DB(), "compute_networks")
 	subnetworks := sim.MakeStore[ComputeSubnetwork](srv.DB(), "compute_subnetworks")
-	// Shared so the peering verbs can read a network and the ranges its peer
-	// exchanges, as gcpFirewalls is shared for the effective-firewalls reads.
+	// The peering verbs read networks and their peers' exchanged ranges through
+	// these, as the effective-firewalls reads use gcpFirewalls.
 	gcpComputeNetworks, gcpComputeSubnetworks = networks, subnetworks
 	gcpSubnetworks = subnetworks
 	instanceTemplates := sim.MakeStore[ComputeInstanceTemplate](srv.DB(), "compute_instance_templates")
@@ -952,12 +893,10 @@ func registerCompute(srv *sim.Server) {
 	registerComputeFirewalls(srv, firewalls)
 	registerComputeAddressesAndRouters(srv, addresses, routers)
 
-	// Global operations (for network creates, deletes, etc.)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})
 
-	// Regional operations (for subnetwork creates, deletes, etc.)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})
@@ -1299,10 +1238,8 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 	return subnetLink, nil
 }
 
-// registerComputeZones serves GET /compute/v1/projects/{project}/zones
-// + .../zones/{zone}. gcloud probes a zone's existence before disk
-// CRUD; without these handlers it gets 404 and crashes during retry.
-// Real GCE returns a list of all zones in the project.
+// registerComputeZones serves the zones list and get; gcloud probes a zone's
+// existence before disk CRUD.
 func registerComputeZones(srv *sim.Server) {
 	zoneJSON := func(project, zone string) map[string]any {
 		return map[string]any{
@@ -1378,12 +1315,8 @@ func registerComputeCatalog(srv *sim.Server) {
 			"selfLink": fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", project, zone, name),
 		})
 	})
-	// imageViews are a read-only view of the SAME global images, addressed with
-	// a regional context: "Returns the specified global ImageView resource,
-	// with a regional context." Unlike regions.projectViews — which exists to
-	// expose a replica's lag and is therefore declared unserved — a view adds
-	// no state of its own, so it is served from the image collection rather
-	// than refused.
+	// imageViews read the global images "with a regional context", adding no state
+	// of their own, so the image collection serves them.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/imageViews/{resourceId}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "resourceId")
@@ -1453,12 +1386,10 @@ func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 	}
 }
 
-// recoverComputeOperations settles every operation a restart caught still
-// running. The goroutine that was carrying the work out died with the previous
-// process, so nothing will ever finish it; leaving it RUNNING would have a
-// client poll it forever. Compute Engine's own contract is that an operation
-// reaches DONE, carrying the error when the work did not complete, so each one
-// is finished that way rather than left to hang.
+// recoverComputeOperations finishes every operation a restart caught running
+// with an error, since nothing will finish it; Compute Engine's contract is
+// that an operation reaches DONE, with the error when its work did not
+// complete.
 func recoverComputeOperations() {
 	for _, rec := range computeOpRegistry.List() {
 		if rec.Status == "DONE" {

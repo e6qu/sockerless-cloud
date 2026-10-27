@@ -17,9 +17,9 @@ import (
 )
 
 // A workflow run executes its actions: the Http action reaches its endpoint
-// with the body the expressions built, the condition takes the branch the
+// with the body its expressions built, the condition takes the branch the
 // response selects, and an action type the simulator cannot execute fails the
-// run and names the type.
+// run naming the type.
 func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-exec-rg"
@@ -131,8 +131,8 @@ func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, respErr.StatusCode)
 }
 
-// fireLogicTrigger runs a workflow trigger and returns the run it started,
-// which the service names in x-ms-workflow-run-id.
+// fireLogicTrigger returns the run the trigger started, which the service
+// names in x-ms-workflow-run-id.
 func fireLogicTrigger(t *testing.T, triggers *armlogic.WorkflowTriggersClient, rg, workflow, trigger string) string {
 	t.Helper()
 	var resp *http.Response
@@ -144,8 +144,8 @@ func fireLogicTrigger(t *testing.T, triggers *armlogic.WorkflowTriggersClient, r
 	return runName
 }
 
-// awaitLogicRun polls the run's own status until it leaves Running: Logic
-// Apps offers no waiter or long-running operation for a run.
+// awaitLogicRun polls the run's status until it leaves Running: Logic Apps
+// offers no waiter or long-running operation for a run.
 func awaitLogicRun(t *testing.T, runs *armlogic.WorkflowRunsClient, rg, workflow, run string) *armlogic.WorkflowRun {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)

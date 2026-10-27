@@ -11,14 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file ratchets up the Compute Engine (compute v1) control-plane
-// surface: the metadata CRUD for the resources a real client
-// (cloud.google.com/go/compute/apiv1, gcloud compute, terraform's google
-// provider) drives. Every handler is metadata-only — it stores the
-// resource the client sent, stamps the server-owned members GCP fills in
-// (kind / id / selfLink / creationTimestamp / scope URL), and returns the
-// zonal/regional/global Operation the client polls to DONE. None of these
-// ops need a real-exec networking host, so they work on every platform.
+// Metadata CRUD for Compute Engine collections: each handler stores the
+// resource the client sent, stamps the server-owned members (kind, id,
+// selfLink, creationTimestamp, scope URL), and answers the scope's Operation.
 
 // computeScopeKind distinguishes the three Compute resource scopes. Using a
 // named type makes a mistyped scope a compile error.
@@ -36,10 +31,9 @@ const (
 // reads back faithfully.
 var gcpComputeImages sim.Store[map[string]any]
 
-// computeMetaResource describes one metadata-only Compute collection and
-// the verbs to register for it. The store holds the resource as the
-// client-sent map plus the server-stamped members, so every echoed member
-// is a real Discovery-schema field (no synthetic state in the body).
+// computeMetaResource describes one metadata-only Compute collection and the
+// verbs to register for it. The store holds the client's map plus the
+// server-stamped members, all Discovery-schema fields.
 type computeMetaResource struct {
 	collection string // URL collection segment, e.g. "snapshots"
 	kind       string // resource kind, e.g. "compute#snapshot"
@@ -93,12 +87,9 @@ type computeMetaResource struct {
 	// out rather than derived from res.kind because Google does not derive it:
 	// backendServices answers compute#usableBackendServiceList.
 	listUsableKind string
-	// resourceMetadata stamps the standardized ResourceMetadata the Compute
-	// Discovery document declares. It is opt-in per collection because only
-	// three schemas carry the member — a reservation, a future reservation and
-	// an accelerator type — and emitting it on a schema that does not declare
-	// it would be an invented field, which the spec validator reads as the
-	// defect it is.
+	// resourceMetadata stamps the standardized ResourceMetadata on the three
+	// schemas that declare it: a reservation, a future reservation and an
+	// accelerator type.
 	resourceMetadata bool
 	// reconcile, when set, runs after a verb has changed the store, with the
 	// resource's key. A collection whose resource does something in the world
@@ -236,17 +227,10 @@ type computeStatusRead struct {
 	etag bool
 }
 
-// register wires the configured verbs onto the mux.
-// computeResourceMetadata builds the standardized ResourceMetadata Compute
-// Engine returns beside a resource, from that resource's own kind. The
-// canonical type name is the AIP-123 form the schema describes — "compute#reservation"
-// is "compute.googleapis.com/Reservation".
-//
-// Only resourceType is stamped. The schema's other member, apiVersion, is the
-// version string the resource was retrieved through, and the Discovery document
-// gives its shape by example rather than stating what Compute v1 answers with —
-// so it is left absent rather than guessed at, which is the difference between
-// an incomplete answer and a wrong one.
+// computeResourceMetadata builds the ResourceMetadata Compute Engine returns
+// beside a resource, its resourceType in AIP-123 form ("compute#reservation"
+// is "compute.googleapis.com/Reservation"). apiVersion stays absent: the
+// Discovery document shows it only by example.
 func computeResourceMetadata(kind string) map[string]any {
 	name := strings.TrimPrefix(kind, "compute#")
 	if name == "" {
@@ -270,7 +254,6 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		return computeSelfLink(fmt.Sprintf("projects/%s/%s/%s/", project, computeScopeSegment(res.scope, r), res.collection))
 	}
 
-	// Insert
 	if !res.skipInsert {
 		srv.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
@@ -311,7 +294,6 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// Get
 	if !res.skipGet {
 		srv.HandleFunc("GET "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 			key := relPath(r, sim.PathParam(r, "name"))
@@ -324,7 +306,6 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// List
 	if !res.skipList {
 		srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 			prefix := listPrefix(r)
@@ -357,11 +338,9 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// listUsable — the subset of the collection the caller may attach to a
-	// load balancer. The caller holds the project, so that is the project's
-	// own resources: the same set list returns, under the response kind the
-	// Discovery document declares. Registered on the literal segment, which
-	// wins over the `{name}` get that would otherwise answer for it.
+	// listUsable answers the subset the caller may attach to a load balancer: the
+	// project's own resources, under the response kind the Discovery document
+	// declares. The literal segment wins over the `{name}` get.
 	if res.listUsableKind != "" {
 		srv.HandleFunc("GET "+base+"/listUsable", func(w http.ResponseWriter, r *http.Request) {
 			prefix := listPrefix(r)
@@ -394,9 +373,8 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// IAM, where the document declares it: Compute Engine mounts the triple
-	// under the resource rather than through the AIP-151 colon verbs, so the
-	// routes are named here and the policies live in the shared store.
+	// Compute Engine mounts the IAM triple under the resource rather than as
+	// AIP-151 colon verbs; the policies live in the shared store.
 	if res.iam || res.testIamOnly {
 		policyName := func(r *http.Request) string {
 			return "compute/" + relPath(r, sim.PathParam(r, "resource"))
@@ -414,7 +392,6 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// Delete
 	if !res.skipDelete {
 		srv.HandleFunc("DELETE "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
@@ -429,7 +406,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// Patch (merge top-level members the client sent).
+	// Patch merges the top-level members the client sent.
 	if res.patch {
 		srv.HandleFunc("PATCH "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
@@ -460,11 +437,8 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// Update (PUT: replace the resource, keeping only its identity). Compute
-	// Engine declares this beside patch for the collections whose resource a
-	// client is expected to rewrite whole — a URL map's rules, a health
-	// check's probe — and the difference from patch is exactly that a member
-	// the client left out is gone afterwards.
+	// Update replaces the resource, keeping only its identity, so a member the
+	// client left out is gone, unlike patch.
 	if res.update {
 		srv.HandleFunc("PUT "+base+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
@@ -573,7 +547,6 @@ func (res computeMetaResource) register(srv *sim.Server) {
 		})
 	}
 
-	// setLabels
 	if res.setLabels {
 		srv.HandleFunc("POST "+base+"/{name}/setLabels", func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
@@ -674,20 +647,14 @@ func registerComputeMore(srv *sim.Server) {
 	gcpComputeRegionDisks = mk("compute_region_disks")
 
 	resources := []computeMetaResource{
-		// Storage resources.
-		// The image IAM verbs are mounted in compute.go beside the family
-		// lookup: "images/{resource}/getIamPolicy" and
-		// "images/family/{family}" are the same shape to a path router, so
-		// one handler has to serve both and resolve them the way Compute
-		// Engine does.
+		// compute.go mounts the image IAM verbs beside the family lookup, which shares
+		// their path shape.
 		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, skipList: true, skipInsert: true, skipDelete: true, patch: true, setLabels: true},
 		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: gcpComputeSnapshots, setLabels: true},
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
 		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: gcpComputeRegionDisks, patch: true, setLabels: true},
-		// Addressing / routing.
 		{collection: "addresses", kind: "compute#address", scope: cScopeGlobal, store: gcpComputeGlobalAddresses, setLabels: true},
 		{collection: "routes", kind: "compute#route", scope: cScopeGlobal, store: mk("compute_routes")},
-		// Load-balancing resources.
 		{collection: "targetPools", kind: "compute#targetPool", scope: cScopeRegion, store: gcpComputeTargetPools, aggregated: true},
 		{collection: "backendServices", kind: "compute#backendService", scope: cScopeRegion, store: gcpRegionBackendServices, patch: true, update: true, listUsableKind: "compute#usableBackendServiceList",
 			setVerbs: []computeSetVerb{{verb: "setSecurityPolicy", member: "securityPolicy"}}},
@@ -710,7 +677,6 @@ func registerComputeMore(srv *sim.Server) {
 				{verb: "setProxyHeader", member: "proxyHeader"},
 			}},
 		{collection: "targetGrpcProxies", kind: "compute#targetGrpcProxy", scope: cScopeGlobal, store: mk("compute_target_grpc_proxies"), patch: true},
-		// Instance templates (regional).
 		{collection: "instanceTemplates", kind: "compute#instanceTemplate", scope: cScopeRegion, store: mk("compute_region_instance_templates")},
 	}
 	for _, res := range resources {
@@ -724,12 +690,10 @@ func registerComputeMore(srv *sim.Server) {
 	registerComputeInstanceActions(srv)
 }
 
-// registerComputeInstanceGroupManagers wires the zonal + regional managed
-// instance group surface. A MIG is metadata: name, instanceTemplate,
-// targetSize, baseInstanceName. resize updates targetSize;
-// setInstanceTemplate swaps the template; listManagedInstances reports the
-// instances the group actually manages, which the verbs in
-// compute_igm_instances.go create, move between states and remove.
+// registerComputeInstanceGroupManagers serves the zonal and regional managed
+// instance groups. resize sets targetSize, setInstanceTemplate swaps the
+// template, and listManagedInstances reports the instances the verbs in
+// compute_igm_instances.go manage.
 func registerComputeInstanceGroupManagers(srv *sim.Server) {
 	store := sim.MakeStore[map[string]any](srv.DB(), "compute_instance_group_managers")
 	// A regional instance group is the group a regional manager keeps, so it
@@ -803,10 +767,9 @@ func registerComputeInstanceGroupManagers(srv *sim.Server) {
 	registerComputeInstanceGroupInstances(srv, store)
 }
 
-// registerComputeCatalogMore adds the read-only catalog collections the
-// SDK/gcloud probe before creating resources: regions, acceleratorTypes,
-// and the diskTypes/machineTypes list + aggregated variants the existing
-// catalog handler doesn't cover.
+// registerComputeCatalogMore serves the read-only catalogs clients probe
+// before creating resources: regions, acceleratorTypes, and the diskTypes and
+// machineTypes lists and aggregated lists.
 func registerComputeCatalogMore(srv *sim.Server) {
 	regionsList := []string{"us-central1", "us-east1", "europe-west1"}
 	regionJSON := func(project, region string) map[string]any {
@@ -917,11 +880,9 @@ func registerComputeCatalogMore(srv *sim.Server) {
 	})
 }
 
-// registerComputeOperationsMore adds the operations list + delete + the
-// global wait/aggregated variants the existing per-scope GET handlers
-// don't cover. Every operation the sim hands out is recorded with its scope
-// and state, so a list reports the operations that scope actually holds and
-// delete acknowledges with the 204 real GCP returns.
+// registerComputeOperationsMore serves operations list and delete and the
+// global wait and aggregated list. A list reports the operations its scope
+// holds, and delete answers 204, as Compute Engine does.
 func registerComputeOperationsMore(srv *sim.Server) {
 	listScope := func(w http.ResponseWriter, project, scope string) {
 		items := []map[string]any{}
@@ -981,9 +942,8 @@ func registerComputeOperationsMore(srv *sim.Server) {
 	})
 }
 
-// registerComputeAggregatedExisting adds aggregated-list endpoints for the
-// resources whose per-scope CRUD already lives in compute.go /
-// compute_loadbalancing.go (their stores are package globals).
+// registerComputeAggregatedExisting serves the aggregated lists of the
+// resources compute.go and compute_loadbalancing.go hold.
 func registerComputeAggregatedExisting(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/subnetworks", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteRegionalAggregate(w, gcpSubnetworks, sim.PathParam(r, "project"), "compute#subnetworkAggregatedList", "subnetworks", func(v ComputeSubnetwork) string { return v.SelfLink })
@@ -1032,11 +992,9 @@ func registerComputeAggregatedExisting(srv *sim.Server) {
 	})
 }
 
-// registerComputeInstanceActions adds the instance lifecycle + mutation
-// methods the existing instances handler (registerComputeInstances)
-// doesn't cover: setMachineType, setMetadata, attachDisk,
-// detachDisk, and getSerialPortOutput. All mutate the package-global
-// gcpInstances store and return a zonal Operation.
+// registerComputeInstanceActions serves setMachineType, setMetadata,
+// attachDisk, detachDisk and getSerialPortOutput, each answering a zonal
+// Operation.
 func registerComputeInstanceActions(srv *sim.Server) {
 	instSelfLink := func(r *http.Request) string {
 		return fmt.Sprintf("projects/%s/zones/%s/instances/%s", sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name"))
@@ -1130,12 +1088,10 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		zoneOp(w, r, "detachDisk")
 	})
 
-	// The first serial port carries what the machine wrote to its console
-	// since it was created, of which Compute Engine keeps the last 1 MB;
-	// `start` is the byte offset the caller has already read, moved up to the
-	// oldest byte still kept, and `next` where the next read continues. Ports
-	// 2 to 4 carry what a guest writes to them, which nothing in a container
-	// does.
+	// Port 1 carries what the machine wrote to its console since creation, of
+	// which Compute Engine keeps the last 1 MB; `start` moves up to the oldest
+	// byte kept, and `next` is where the next read continues. Nothing in a
+	// container writes ports 2 to 4.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort", func(w http.ResponseWriter, r *http.Request) {
 		if !exists(r) {
 			notFound(w, r)

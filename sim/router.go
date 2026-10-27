@@ -29,7 +29,6 @@ func ReadJSON(r *http.Request, v any) error {
 	return json.Unmarshal(body, v)
 }
 
-// PathParam extracts a path parameter from the request using Go 1.22+ routing.
 func PathParam(r *http.Request, name string) string {
 	return r.PathValue(name)
 }

@@ -19,7 +19,6 @@ import (
 	"strings"
 )
 
-// ErrTooLarge reports an archive whose entries expand past the caller's bound.
 var ErrTooLarge = errors.New("archive expands past its size limit")
 
 // EntryName is an archive entry's name as a slash-separated path relative to

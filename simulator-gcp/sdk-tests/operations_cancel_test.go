@@ -26,40 +26,30 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// google.longrunning.Operations.CancelOperation across the Google Cloud
-// services whose Discovery documents declare it, driven through each service's
-// own official Go client so the request that reaches the simulator is the one a
-// real client sends.
+// google.longrunning.Operations.CancelOperation across the services whose
+// Discovery documents declare it, each through its own official Go client.
+// The answers differ, as the services' do:
 //
-// The answer each service gives is the answer the service really gives, and
-// they are not all the same:
-//
-//   - The services that spell the standard google.longrunning method — API
-//     Gateway, Artifact Registry, Cloud Build, Eventarc, Cloud Logging,
-//     Memorystore for Redis, Service Usage, Cloud Spanner, Firestore — answer
-//     google.protobuf.Empty. Their own method description says a client checks
+//   - API Gateway, Artifact Registry, Cloud Build, Eventarc, Cloud Logging,
+//     Memorystore for Redis, Service Usage, Cloud Spanner and Firestore spell
+//     the standard method and answer google.protobuf.Empty. A client checks
 //     GetOperation to learn "whether the cancellation succeeded or whether the
-//     operation completed despite cancellation", so cancelling a completed
-//     operation is a documented outcome, not an error, and the recorded result
-//     is left alone.
+//     operation completed despite cancellation", so a completed operation keeps
+//     its recorded result.
 //   - Cloud SQL Admin's sql.operations.cancel is the service's own method and
 //     refuses an operation that is not in progress.
-//   - Cancelling a Cloud Build build operation cancels the build: the steps
-//     that are running stop.
+//   - Cancelling a Cloud Build build operation stops the running steps.
 //
-// A name no operation was ever minted under is NOT_FOUND everywhere.
+// A name never minted is NOT_FOUND everywhere. The routes:
 //
-// The routes these tests drive:
+//   POST /v1/projects/{project}/locations/{location}/operations/{opAction}
+//   POST /v2/projects/{project}/locations/{location}/operations/{opAction}
+//   POST /v1/operations/{opAction...}
+//   POST /v1/projects/{project}/builds/{idAction}
+//   POST /v1/projects/{project}/locations/{location}/builds/{idAction}
 //
-//	POST /v1/projects/{project}/locations/{location}/operations/{opAction}
-//	POST /v2/projects/{project}/locations/{location}/operations/{opAction}
-//	POST /v1/operations/{opAction...}
-//	POST /v1/projects/{project}/builds/{idAction}
-//	POST /v1/projects/{project}/locations/{location}/builds/{idAction}
-//
-// The first two are the colon-verb fan-in on the projects/locations operation
-// collection — one collection shared by every service the simulator serves
-// under it — which dispatches both wait and cancel.
+// The first two are the colon-verb route on the projects/locations operation
+// collection every service under it shares, which serves both wait and cancel.
 
 const cancelProject = "test-project"
 
@@ -84,10 +74,8 @@ func loggingOpsService(t *testing.T) *logging.Service {
 	return svc
 }
 
-// TestSDK_APIGateway_OperationsCancel drives
-// apigateway.projects.locations.operations.cancel. Creating an API mints the
-// operation; cancelling it answers Empty and the operation's recorded result
-// survives, because the API was already created.
+// TestSDK_APIGateway_OperationsCancel: creating an API mints the operation,
+// and cancelling it answers Empty while the recorded result survives.
 func TestSDK_APIGateway_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := apigatewayService(t)
@@ -117,8 +105,6 @@ func TestSDK_APIGateway_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_ArtifactRegistry_OperationsCancel drives
-// artifactregistry.projects.locations.operations.cancel.
 func TestSDK_ArtifactRegistry_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := artifactRegistryOpsService(t)
@@ -144,8 +130,6 @@ func TestSDK_ArtifactRegistry_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_MemorystoreRedis_OperationsCancel drives
-// redis.projects.locations.operations.cancel.
 func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := redisOpsService(t)
@@ -171,8 +155,6 @@ func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_Eventarc_OperationsCancel drives
-// eventarc.projects.locations.operations.cancel.
 func TestSDK_Eventarc_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc, err := eventarcapi.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -206,10 +188,9 @@ func TestSDK_Eventarc_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_ServiceUsage_OperationsCancel drives serviceusage.operations.cancel
-// on the top-level operations collection. Service Usage names its operations
-// operations/{id}, so the enable operation is addressable, gettable and
-// cancellable by the name the enable call returned.
+// TestSDK_ServiceUsage_OperationsCancel: Service Usage names its operations
+// operations/{id}, so the enable's operation is gettable and cancellable by
+// the name the enable returned.
 func TestSDK_ServiceUsage_OperationsCancel(t *testing.T) {
 	svc := serviceUsageService(t)
 
@@ -228,13 +209,11 @@ func TestSDK_ServiceUsage_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_CloudLogging_OperationsCancel drives the cancel Cloud Logging
-// declares on each of its scopes, through the scope-specific method the client
-// generates for it. The folder, organization and billing-account scopes have
-// their own mount; the project scope shares its URI with the Cloud Run
-// operation collection and is dispatched by the fan-in that owns it. Every
-// path must resolve a real Cloud Logging operation and refuse a name no
-// operation was minted under.
+// TestSDK_CloudLogging_OperationsCancel cancels on each scope through the
+// client's scope-specific method. The folder, organization and billing-account
+// scopes have their own mount; the project scope shares its URI with the Cloud
+// Run operation collection's route. Every path must resolve a real Cloud
+// Logging operation and refuse a name never minted.
 func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := loggingOpsService(t)
@@ -307,10 +286,8 @@ func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 	}
 }
 
-// TestSDK_CloudSQL_OperationsCancel drives sql.operations.cancel. Cloud SQL's
-// method is its own, not the google.longrunning one, and it refuses an
-// operation that is not in progress rather than answering Empty — the answer
-// the service publishes for that case.
+// TestSDK_CloudSQL_OperationsCancel: Cloud SQL's own cancel refuses an
+// operation that is not in progress rather than answering Empty.
 func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -339,20 +316,12 @@ func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// TestSDK_CloudBuild_CancelStopsARunningBuild is the cancel that stops real
-// work. The simulator's Cloud Build runs a build's steps as real `docker`
-// processes, so a build step is a live build on the Docker daemon and
-// cancelling has to abort it.
-//
-// The step here is a `docker build` whose Dockerfile sleeps for an hour. The
-// build is left running long enough to be unambiguously inside that sleep
-// before the cancel is issued, so the cancel cannot be racing a step that never
-// started; and the build's operation is required to complete with
-// google.rpc.Code.CANCELLED, with no image produced. The operation completes
-// once the build's steps have stopped, so a cancel that only relabels the
-// record leaves the wait blocked for the hour and the test fails on its
-// deadline — which is what deleting the terminating call in cancelCloudBuild
-// produces.
+// TestSDK_CloudBuild_CancelStopsARunningBuild: the simulator runs build steps
+// as real `docker` processes, so cancelling must abort a live build. The step's
+// Dockerfile sleeps for an hour; the cancel lands once the step runs, and the
+// operation must complete CANCELLED with no image. The operation completes only
+// once the steps stop, so a cancel that only relabels the record blocks the
+// wait until the deadline.
 func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -363,8 +332,6 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 
 	bucket := "cloudbuild-cancel-src"
 	object := "source.tar.gz"
-	// A Dockerfile whose only instruction takes an hour: the build cannot
-	// finish on its own inside this test.
 	pullImageWithRetry(t, cbBaseImage)
 	uploadBuildSource(t, bucket, object, "FROM "+cbBaseImage+"\nRUN sleep 3600\n")
 
@@ -378,16 +345,14 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 		}},
 	}
 
-	// CreateBuild answers at once with the operation tracking the build, whose
-	// BuildOperationMetadata names the build this test cancels.
+	// CreateBuild answers at once with the operation, whose
+	// BuildOperationMetadata names the build.
 	op, err := svc.Projects.Builds.Create(cancelProject, build).Do()
 	require.NoError(t, err)
 	require.False(t, op.Done, "the operation comes back before the build runs")
 	id := buildIDFromOperationName(t, op.Name)
 
-	// The build has no event that says a step started, so the step's status is
-	// read until it does. It is what makes the cancel below cancel work that is
-	// genuinely in flight rather than race a step that has not begun.
+	// Cloud Build signals no step start, so read the step's status until it runs.
 	require.Eventually(t, func() bool {
 		build, err := svc.Projects.Builds.Get(cancelProject, id).Do()
 		require.NoError(t, err)
@@ -399,8 +364,6 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "CANCELLED", cancelled.Status)
 
-	// The build's operation completes with the cancellation, through the Cloud
-	// Build SDK's own wait on it.
 	_, err = waitBuild(t, startedBuild{Operation: op.Name, BuildID: id})
 	require.Error(t, err, "a cancelled build's operation carries an error")
 	assert.Equal(t, codes.Canceled, status.Code(err),
@@ -410,11 +373,8 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "CANCELLED", got.Status, "the cancel is the build's recorded verdict")
 
-	// The step the cancel interrupted keeps the record of having run: Cloud
-	// Build reports a terminated step as CANCELLED, with the start time it was
-	// given when it began and an end time from when it stopped. Settling the
-	// build used to write the pre-run copy of the steps back over the record,
-	// which left a cancelled build reporting a step that had never started.
+	// Cloud Build reports the interrupted step as CANCELLED, with its start time
+	// and an end time from when it stopped.
 	require.Len(t, got.Steps, 1)
 	assert.Equal(t, "CANCELLED", got.Steps[0].Status,
 		"the interrupted step reports the cancel, not the failure its killed process returned")
@@ -422,11 +382,9 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	assert.NotEmpty(t, got.Steps[0].Timing.StartTime, "the step records when it started")
 	assert.NotEmpty(t, got.Steps[0].Timing.EndTime, "the step records when it stopped")
 
-	// A cancelled build must not have produced its image. This assertion has
-	// failed once with the image present and has never reproduced, so it
-	// reports what it saw rather than only that it saw it: the image's own
-	// record and the build's final step state are what distinguish a build
-	// that ran to completion from an image that arrived another way.
+	// A cancelled build must not have produced its image. Report the image's own
+	// record and the step state: they tell a completed build from an image that
+	// arrived another way.
 	if inspect, err := exec.Command("docker", "image", "inspect",
 		"--format", "{{.Id}} created={{.Created}} size={{.Size}}", image).CombinedOutput(); err == nil {
 		final, getErr := svc.Projects.Builds.Get(cancelProject, id).Do()
@@ -452,10 +410,8 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 	}
 }
 
-// TestSDK_CloudBuild_RegionalOperationsCancel drives
-// cloudbuild.projects.locations.operations.cancel. Cloud Build's worker-pool
-// operations live in the regional operations collection, so the operation a
-// create returns is pollable and cancellable by the name it carries.
+// TestSDK_CloudBuild_RegionalOperationsCancel: worker-pool operations live in
+// the regional collection, pollable and cancellable by their own name.
 func TestSDK_CloudBuild_RegionalOperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -481,8 +437,7 @@ func TestSDK_CloudBuild_RegionalOperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// buildIDFromOperationName extracts the build id from a Cloud Build build
-// operation's name, which is `operations/build/{project}/{id}`.
+// buildIDFromOperationName parses `operations/build/{project}/{id}`.
 func buildIDFromOperationName(t *testing.T, name string) string {
 	t.Helper()
 	parts := strings.Split(name, "/")
@@ -499,10 +454,9 @@ func buildStatus(t *testing.T, svc *cloudbuild.Service, id string) string {
 	return b.Status
 }
 
-// TestSDK_CloudBuild_OperationsCancel drives cloudbuild.operations.cancel on
-// the top-level operations collection, which is the other way a client reaches
-// the same build cancellation. A build that has already settled keeps its
-// verdict; a build operation that was never minted is NOT_FOUND.
+// TestSDK_CloudBuild_OperationsCancel cancels on the top-level operations
+// collection: a settled build keeps its verdict, and a build operation never
+// minted is NOT_FOUND.
 func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -543,9 +497,8 @@ func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
-// uploadBuildSource writes the build context Cloud Build fetches: a gzipped
-// tar carrying the given Dockerfile, uploaded through the Cloud Storage JSON
-// API the same way a client uploads one.
+// uploadBuildSource uploads a gzipped tar of the Dockerfile through the Cloud
+// Storage JSON API.
 func uploadBuildSource(t *testing.T, bucket, object, dockerfile string) {
 	t.Helper()
 	var buf bytes.Buffer

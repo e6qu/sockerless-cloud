@@ -16,10 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// nowTimestamp returns a protobuf JSON Timestamp-compatible UTC value.
-// Protobuf JSON canonicalizes fractional seconds to 0, 3, 6, or 9 digits;
-// millisecond precision is enough for the simulator and avoids RFC3339Nano's
-// variable-width fractions.
+// nowTimestamp returns a protobuf JSON Timestamp at millisecond precision,
+// one of the 0, 3, 6 or 9 fractional digits protobuf JSON canonicalizes to.
 func nowTimestamp() string {
 	return time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 }
@@ -84,8 +82,8 @@ func paginateList[T any](w http.ResponseWriter, r *http.Request, items []T, firs
 	return paginateListParam(w, r, items, "pageSize", append([]gcpSortKey[T]{first}, rest...))
 }
 
-// paginateListCompute paginates using the Compute API page-size parameter name
-// ("maxResults"), which the Compute REST API + Go SDK send instead of "pageSize".
+// paginateListCompute pages by "maxResults", the page-size parameter Compute
+// Engine uses instead of "pageSize".
 func paginateListCompute[T any](w http.ResponseWriter, r *http.Request, items []T, first gcpSortKey[T], rest ...gcpSortKey[T]) ([]T, string, bool) {
 	return paginateListParam(w, r, items, "maxResults", append([]gcpSortKey[T]{first}, rest...))
 }
@@ -201,10 +199,9 @@ const gcpEmptyType = "type.googleapis.com/google.protobuf.Empty"
 // response it finished with.
 type gcpOperationMetadata func(response map[string]any) map[string]any
 
-// gcpStandardOperationMetadata is the OperationMetadata message the Cloud
-// Functions, API Gateway, Eventarc and Memorystore APIs each declare in their
-// own package: when the operation was created and ended, the method it ran,
-// and the resource it acted on.
+// gcpStandardOperationMetadata is the OperationMetadata the Cloud Functions,
+// API Gateway, Eventarc and Memorystore APIs each declare: when the operation
+// was created and ended, the method it ran, and the resource it acted on.
 func gcpStandardOperationMetadata(typeURL, verb, target string) gcpOperationMetadata {
 	return func(map[string]any) map[string]any {
 		now := nowTimestamp()

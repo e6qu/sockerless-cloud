@@ -9,18 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmHexSuffix returns a 17-hex-char suffix derived from the current
-// nanosecond clock, for building a length-valid managed-instance ID
-// ("mi-" + 17 hex == 20 chars, which the aws CLI enforces).
+// ssmHexSuffix returns 17 hex characters from the clock: the aws CLI requires a
+// managed-instance ID of "mi-" and 17 hex characters.
 func ssmHexSuffix() string {
 	return fmt.Sprintf("%017x", uint64(time.Now().UnixNano()))[:17]
 }
 
-// TestSSMCLI_Inventory pins the inventory report/read-back surface via
-// the aws CLI: put-inventory captures typed rows, list-inventory-entries
-// and get-inventory read them back, get-inventory-schema enumerates the
-// type, and delete-inventory + describe-inventory-deletions model the
-// async deletion job.
+// TestSSMCLI_Inventory expects put-inventory's typed rows back from
+// list-inventory-entries and get-inventory, get-inventory-schema to enumerate
+// the type, and delete-inventory to run as an asynchronous deletion job.
 func TestSSMCLI_Inventory(t *testing.T) {
 	t.Parallel()
 	instanceID := ssmInstanceID("0cliinv")
@@ -101,9 +98,6 @@ func TestSSMCLI_Inventory(t *testing.T) {
 	assert.Equal(t, "Complete", dd.InventoryDeletions[0].LastStatus)
 }
 
-// TestSSMCLI_Compliance pins the compliance surface: put-compliance-items
-// records items, list-compliance-items reads them, and the two summary
-// ops roll up counts.
 func TestSSMCLI_Compliance(t *testing.T) {
 	t.Parallel()
 	resourceID := ssmInstanceID("0clicmp")
@@ -173,16 +167,11 @@ func TestSSMCLI_Compliance(t *testing.T) {
 	assert.True(t, foundRes)
 }
 
-// TestSSMCLI_NodesAndInstances pins node enumeration (list-nodes /
-// list-nodes-summary) and managed-instance information
-// (describe-instance-information / describe-instance-properties) plus
-// update-managed-instance-role and deregister-managed-instance over the
-// same set a node joins by reporting inventory.
+// TestSSMCLI_NodesAndInstances covers node enumeration, managed-instance
+// information, update-managed-instance-role and deregister-managed-instance
+// over a node that joins by reporting inventory.
 func TestSSMCLI_NodesAndInstances(t *testing.T) {
 	t.Parallel()
-	// The CLI validates the managed-instance ID as "mi-" plus 17 hex
-	// chars (total length 20), so build a deterministic 17-hex suffix
-	// from the timestamp.
 	instanceID := "mi-" + ssmHexSuffix()
 	capture := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 
@@ -271,8 +260,8 @@ func TestSSMCLI_NodesAndInstances(t *testing.T) {
 	runCLI(t, awsCLI("ssm", "deregister-managed-instance", "--instance-id", instanceID, "--output", "json"))
 }
 
-// TestSSMCLI_DocumentPermission pins the account-share list plus the
-// review-metadata ops and Change-Calendar state over the document store.
+// TestSSMCLI_DocumentPermission covers the account-share list, the
+// review-metadata operations and Change Calendar state.
 func TestSSMCLI_DocumentPermission(t *testing.T) {
 	t.Parallel()
 	name := "cli-perm-doc-" + ssmStamp()
@@ -308,7 +297,6 @@ func TestSSMCLI_DocumentPermission(t *testing.T) {
 	assert.Contains(t, dp.AccountIds, "111111111111")
 	require.Len(t, dp.AccountSharingInfoList, 2)
 
-	// Remove one account.
 	runCLI(t, awsCLI("ssm", "modify-document-permission",
 		"--name", name,
 		"--permission-type", "Share",
@@ -325,7 +313,6 @@ func TestSSMCLI_DocumentPermission(t *testing.T) {
 	require.Len(t, dp2.AccountIds, 1)
 	assert.Equal(t, "222222222222", dp2.AccountIds[0])
 
-	// Update metadata (send for review) then read history.
 	runCLI(t, awsCLI("ssm", "update-document-metadata",
 		"--name", name,
 		"--document-version", "1",
@@ -349,8 +336,6 @@ func TestSSMCLI_DocumentPermission(t *testing.T) {
 	assert.Equal(t, "PENDING", lh.Metadata.ReviewerResponse[0].ReviewStatus)
 }
 
-// TestSSMCLI_CalendarState pins get-calendar-state reading a
-// Change-Calendar document's default state.
 func TestSSMCLI_CalendarState(t *testing.T) {
 	t.Parallel()
 	name := "cli-cal-" + ssmStamp()
@@ -377,7 +362,5 @@ func TestSSMCLI_CalendarState(t *testing.T) {
 	assert.NotEmpty(t, gs.AtTime)
 }
 
-// Note: the just-in-time node-access ops start-access-request and
-// get-access-token are not present in aws CLI 2.26.6 (added in a later
-// release), so they are exercised SDK-only (TestSSM_AccessRequest); the
-// SDK path covers the simulator-contract hook for both.
+// aws CLI 2.26.6 lacks start-access-request and get-access-token;
+// TestSSM_AccessRequest in the SDK suite covers them.

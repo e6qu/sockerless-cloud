@@ -13,10 +13,10 @@ import (
 )
 
 // exportRootFS writes the guest's root filesystem to w as a tar archive, read
-// from its ext4 image without mounting it. A running guest's filesystem is
-// frozen for the read, which writes every dirty block and the journal out
-// and holds writers until the thaw, so the archive is the disk as a clean
-// unmount would leave it.
+// from its ext4 image without mounting it. guestinit freezes a running
+// guest's filesystem for the read, which writes every dirty block and the
+// journal out and holds writers until the thaw, so the archive is the disk as
+// a clean unmount would leave it.
 func (g *guest) exportRootFS(ctx context.Context, w io.Writer) error {
 	g.mu.Lock()
 	running, rootfs := g.status == statusRunning, g.rootfs

@@ -9,17 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// logic_remaining_clients_test.go closes the Microsoft.Logic routes that the
-// other Logic Apps SDK tests leave undriven: the integration-account partner /
-// agreement / certificate artifacts, the workflow-version trigger callback URL,
-// the integration-service-environment SKU and managed-API-operation catalogs,
-// and the run-action repetition / request-history / scope-repetition /
-// run-operation reads. Each is exercised through the official armlogic client
-// that owns it, so every route registered in simulator-azure/logicapps_more.go
-// has a real SDK caller.
+// The Microsoft.Logic routes the other Logic Apps tests leave undriven, each
+// through the armlogic client that owns it.
 
-// TestLogicApps_IntegrationAccountArtifactsSDK covers the partner, agreement,
-// and certificate artifacts under an integration account.
 func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ia-artifacts-rg"
@@ -141,9 +133,9 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogicApps_WorkflowVersionTriggerCallbackSDK covers the workflow-version
-// trigger callback URL — the versions/{versionId}/triggers/{name}/listCallbackUrl
-// route, which is a distinct client from the live-trigger callback URL.
+// TestLogicApps_WorkflowVersionTriggerCallbackSDK covers
+// versions/{versionId}/triggers/{name}/listCallbackUrl, a client distinct from
+// the live trigger's callback URL.
 func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-verstrig-rg"
@@ -186,8 +178,8 @@ func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 		"a workflow-version trigger callback URL must be returned")
 }
 
-// TestLogicApps_ServiceEnvironmentCatalogsSDK covers the integration-service-
-// environment SKU catalog and the managed-API operation catalog.
+// TestLogicApps_ServiceEnvironmentCatalogsSDK covers the integration service
+// environment SKU catalog and the managed API operation catalog.
 func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ise-catalog-rg"
@@ -216,13 +208,11 @@ func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = envs.Delete(ctx, rg, iseName, nil) })
 
-	// SKU catalog.
 	skuPager := skus.NewListPager(rg, iseName, nil)
 	require.True(t, skuPager.More())
 	_, err = skuPager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// Managed APIs, then the operation catalog for one of them.
 	const apiName = "servicebus"
 	putPoller, err := managedAPIs.BeginPut(ctx, rg, iseName, apiName,
 		armlogic.IntegrationServiceEnvironmentManagedAPI{}, nil)
@@ -241,11 +231,9 @@ func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogicApps_RunActionSubReadsSDK covers the run-action repetition,
-// request-history, scope-repetition, and run-operation reads. The simulator
-// runs a workflow to completion in one step, so these collections are empty and
-// their item reads are 404s — the assertions pin exactly that, which is the
-// contract a client sees for a run with no repeated or scoped actions.
+// TestLogicApps_RunActionSubReadsSDK covers the repetition, request-history,
+// scope-repetition and run-operation reads for a run with no repeated or
+// scoped actions: the collections are empty and item reads are 404.
 func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-runsub-rg"
@@ -303,7 +291,6 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	require.NotEmpty(t, actPage.Value)
 	actionName := ptrVal(actPage.Value[0].Name)
 
-	// Repetition collections list empty for a single-pass action.
 	repPager := repetitions.NewListPager(rg, wfName, runName, actionName, nil)
 	require.True(t, repPager.More())
 	repPage, err := repPager.NextPage(ctx)
@@ -322,24 +309,21 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, reqPage.Value)
 
-	// The repetition-scoped request-history collection is a distinct route from
-	// the action-scoped one above.
+	// The repetition-scoped request history is a route distinct from the
+	// action-scoped one.
 	repReqPager := repReqHistories.NewListPager(rg, wfName, runName, actionName, "000000", nil)
 	require.True(t, repReqPager.More())
 	repReqPage, err := repReqPager.NextPage(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, repReqPage.Value)
 
-	// Expression traces for a repetition list empty too.
 	tracePager := repetitions.NewListExpressionTracesPager(rg, wfName, runName, actionName, "000000", nil)
 	require.True(t, tracePager.More())
 	_, err = tracePager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// Item reads under those empty collections are 404s. Each is held to the
-	// refusal it names rather than to "an error happened": a transport fault,
-	// a 500 and a deserialisation failure all satisfy a bare error assertion,
-	// and none of them shows the service looked the item up.
+	// Hold each item read to the 404 it names: a transport fault, a 500 or a
+	// deserialisation failure would all satisfy a bare error assertion.
 	_, err = repetitions.Get(ctx, rg, wfName, runName, actionName, "000000", nil)
 	requireAzureNotFound(t, err, "a repetition that does not exist")
 
@@ -355,10 +339,8 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	_, err = runOps.Get(ctx, rg, wfName, runName, "00000000-0000-0000-0000-000000000000", nil)
 	requireAzureNotFound(t, err, "a run operation that does not exist")
 
-	// A run this workflow never had is not found, rather than answered about.
-	// These collections describe one run, so "no repetitions" for a run that
-	// does not exist tells a caller its typo produced nothing. The routes each
-	// pager drives:
+	// These collections describe one run, so a run the workflow never had is not
+	// found rather than answered with empty lists.
 	//
 	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions
 	//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories

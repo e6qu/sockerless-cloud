@@ -7,9 +7,9 @@ terraform {
   }
 }
 
-# Standalone configuration run by TestTerraformRedisCacheServesItsHostName: a
-# Standard Azure Cache for Redis whose engine answers at its hostname, over
-# TLS on its ssl_port and in plaintext on its port, to its access keys.
+# Run by TestTerraformRedisCacheServesItsHostName: a Standard Azure Cache for
+# Redis whose engine answers at its hostname, over TLS on ssl_port and in
+# plaintext on port, to its access keys.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"

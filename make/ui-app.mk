@@ -1,10 +1,5 @@
 # ui-app.mk — standardized recipes for Vite/Bun UI packages.
 #
-# Required:
-#   UI_PACKAGE   : workspace package basename, used in `bun --filter`
-#                  e.g. @sockerless/ui-admin; use the full scoped package
-#                  name because the unscoped basename is ambiguous.
-#
 # Optional:
 #   DEV_PORT     : informational; printed in the run banner
 #   REPO_ROOT_REL: path from this Makefile's dir to the repo root.

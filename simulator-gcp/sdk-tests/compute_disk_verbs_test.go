@@ -8,9 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The verbs a disk carries beyond its lifecycle, in both scopes: the zonal
-// disks are a typed record and the regional ones a map, and the verbs are
-// written once over both so the two cannot serve the same verb differently.
+// The zonal disks are a typed record and the regional ones a map; the verbs are
+// written once over both so the scopes cannot serve a verb differently.
 
 func TestCompute_ZonalDiskVerbs(t *testing.T) {
 	t.Parallel()

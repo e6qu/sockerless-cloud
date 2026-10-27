@@ -8,10 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECRCLI_ImageScanAndConfig drives the AWS CLI through the
-// image-tag-mutability, image-scanning-configuration, on-demand scan, and
-// scan-findings read-back paths. The simulator runs no scanner, so the scan
-// completes with an honest empty findings result.
+// TestECRCLI_ImageScanAndConfig covers image tag mutability, the scanning
+// configuration, an on-demand scan and its findings. The simulator runs no
+// scanner, so the scan completes with empty findings.
 func TestECRCLI_ImageScanAndConfig(t *testing.T) {
 	t.Parallel()
 	repo := "cli-ecr-scan-repo"
@@ -38,8 +37,6 @@ func TestECRCLI_ImageScanAndConfig(t *testing.T) {
 	assert.Equal(t, "COMPLETE", findStatus)
 }
 
-// TestECRCLI_LifecyclePolicyPreview puts a lifecycle policy and drives the
-// preview start + get paths.
 func TestECRCLI_LifecyclePolicyPreview(t *testing.T) {
 	t.Parallel()
 	repo := "cli-ecr-lifecycle-preview-repo"
@@ -56,9 +53,6 @@ func TestECRCLI_LifecyclePolicyPreview(t *testing.T) {
 	assert.Equal(t, repo, name)
 }
 
-// TestECRCLI_RegistryPolicyAndReplication drives the registry-level CLI ops:
-// registry permissions policy CRUD, replication configuration, and the
-// DescribeRegistry / DescribeImageReplicationStatus read-backs.
 func TestECRCLI_RegistryPolicyAndReplication(t *testing.T) {
 	regPolicy := `{"Version":"2012-10-17","Statement":[{"Sid":"AllowReplicate","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":["ecr:CreateRepository","ecr:ReplicateImage"],"Resource":"*"}]}`
 	runCLI(t, awsCLI("ecr", "put-registry-policy", "--policy-text", regPolicy))

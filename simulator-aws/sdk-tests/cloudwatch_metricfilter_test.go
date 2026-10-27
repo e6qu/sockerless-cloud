@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_MetricFilterPublishesMetric proves PutLogEvents evaluates
-// metric filters against incoming events and publishes their
-// MetricTransformations to the CloudWatch metric store: an event matching the
-// filter pattern produces a queryable datapoint, while a non-matching event
-// does not.
+// TestCloudWatch_MetricFilterPublishesMetric expects PutLogEvents to evaluate
+// metric filters and publish their MetricTransformations: a matching event
+// yields a datapoint, a non-matching one does not.
 func TestCloudWatch_MetricFilterPublishesMetric(t *testing.T) {
 	t.Parallel()
 	logs := cwLogsClient()
@@ -89,8 +87,8 @@ func TestCloudWatch_MetricFilterPublishesMetric(t *testing.T) {
 	assert.Equal(t, 2.0, sum, "two ERROR events must aggregate to a Sum of 2")
 }
 
-// TestCloudWatch_MetricFilterJSONValue proves a MetricTransformation can pull
-// the published value out of the matched event via a "$." JSON selector.
+// TestCloudWatch_MetricFilterJSONValue takes the published value from the
+// event through a "$." JSON selector.
 func TestCloudWatch_MetricFilterJSONValue(t *testing.T) {
 	t.Parallel()
 	logs := cwLogsClient()

@@ -9,23 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
-// Dapr sidecar assembly for the Container Apps "Apps" slice. Real Azure
-// Container Apps with configuration.dapr.enabled=true injects a daprd
-// sidecar container into every replica: the app reaches the Dapr HTTP
-// API on localhost:3500 and the gRPC API on localhost:50001, daprd knows
-// the app by its configured appId, and forwards service-invocation calls
-// to the app's appPort. The sim assembles the same contract with the
-// real daprd runtime image joined to the replica's network namespace.
+// With configuration.dapr.enabled, Azure Container Apps injects a daprd sidecar
+// into every replica: the Dapr HTTP API on localhost:3500, gRPC on
+// localhost:50001, the app known by its appId and reached on its appPort.
 
-// daprdSidecarImage pins the daprd runtime the sim injects next to app
-// replicas. The tag is pinned because the flag spelling below is
-// verified against this exact runtime (its body/buffer size flags are
-// `--max-body-size` / `--read-buffer-size`; other daprd releases spell
-// them differently).
+// The flag spellings below (`--max-body-size`, `--read-buffer-size`) are
+// verified against this exact release; others spell them differently.
 const daprdSidecarImage = "mirror.gcr.io/daprio/daprd:1.18.2"
 
-// containerAppDaprSpec returns the app's Dapr configuration when the
-// sidecar is enabled, nil otherwise.
 func containerAppDaprSpec(app ContainerApp) *ContainerAppDapr {
 	cfg := app.Properties.Configuration
 	if cfg == nil || cfg.Dapr == nil || cfg.Dapr.Enabled == nil || !*cfg.Dapr.Enabled {
@@ -34,14 +25,10 @@ func containerAppDaprSpec(app ContainerApp) *ContainerAppDapr {
 	return cfg.Dapr
 }
 
-// acaAppDaprContainer is the real daprd sidecar of one replica of
-// a container app, sharing the replica's network namespace (Docker
-// network-mode container:<main>) so localhost:3500 / localhost:50001
-// reach it from every container in the replica — the same pod-local
-// contract real ACA provides. Its stdout/stderr stream into the app's
-// console log table, matching how ACA surfaces the daprd container's
-// lines in ContainerAppConsoleLogs_CL. The handle joins the replica set,
-// so stop/replace/delete tear the sidecar down with the app containers.
+// acaAppDaprContainer joins the replica's network namespace, so localhost:3500
+// and :50001 reach it from every container in the replica, and logs to
+// ContainerAppConsoleLogs_CL as Azure Container Apps does. It belongs to the
+// replica set, so the app's lifecycle tears it down.
 func acaAppDaprContainer(app ContainerApp, d *ContainerAppDapr, replica string) workload.Container {
 	args := []string{
 		"--dapr-http-port", "3500",
@@ -62,8 +49,8 @@ func acaAppDaprContainer(app ContainerApp, d *ContainerAppDapr, replica string) 
 	if d.EnableAPILogging != nil && *d.EnableAPILogging {
 		args = append(args, "--enable-api-logging")
 	}
-	// ACA expresses httpMaxRequestSize in MB and httpReadBufferSize in
-	// KB; daprd takes both as resource quantities.
+	// Azure Container Apps takes httpMaxRequestSize in MB and httpReadBufferSize in
+	// KB; daprd takes resource quantities.
 	if d.HTTPMaxRequestSize != nil {
 		args = append(args, "--max-body-size", fmt.Sprintf("%dMi", *d.HTTPMaxRequestSize))
 	}
@@ -77,8 +64,7 @@ func acaAppDaprContainer(app ContainerApp, d *ContainerAppDapr, replica string) 
 	return workload.Container{Name: "daprd", Config: sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
-		// The daprd image declares no entrypoint or cmd; the runtime
-		// binary lives at /daprd.
+		// The image declares no entrypoint; the binary is /daprd.
 		Command: []string{"/daprd"},
 		Args:    args,
 		Name:    fmt.Sprintf("sockerless-sim-azure-app-%s-%s-daprd", shortName, replica[strings.LastIndex(replica, "-")+1:]),

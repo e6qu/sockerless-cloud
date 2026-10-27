@@ -1,14 +1,11 @@
 package gcp_cli_test
 
-// `gcloud resource-manager org-policies`, `gcloud organizations` and
-// `gcloud projects get-ancestors` against the simulator's Cloud Resource
-// Manager slice. All three speak the v1 API — the org-policy verbs are POST
-// colon-methods on the hierarchy node, organizations list/describe are
-// SearchOrganizations and organizations.get, and get-ancestors is
-// projects.getAncestry — riding the
-// CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER coordinate.
+// `gcloud resource-manager org-policies`, `gcloud organizations` and `gcloud
+// projects get-ancestors` all speak Cloud Resource Manager v1 over the
+// CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDRESOURCEMANAGER coordinate: the
+// org-policy verbs are POST colon-methods on the hierarchy node.
 //
-// Routes exercised: POST /v1/projects/{projectAction},
+// Routes: POST /v1/projects/{projectAction},
 // POST /v1/folders/{folderAction}, POST /v1/organizations/{orgAction},
 // GET /v1/organizations/{org}, POST /v1/organizations:search,
 // POST /v1/liens, GET /v1/liens, DELETE /v1/liens/{lien}.
@@ -25,17 +22,13 @@ import (
 
 const (
 	cliOrgPolicyBoolean = "constraints/iam.disableServiceAccountKeyCreation"
-	// cliOrgPolicyInherited is set at the organization and read at a project
-	// under it. Every project in this simulator hangs off that organization,
-	// so it is deliberately a constraint no service in the slice acts on and
-	// no other test writes — enforcing it changes nothing but the policy reads
-	// it is set for.
+	// cliOrgPolicyInherited is set at the organization every project hangs off, so
+	// it names a constraint no service here enforces and no other test writes.
 	cliOrgPolicyInherited = "constraints/compute.requireOsLogin"
 	cliOrgPolicyList      = "constraints/gcp.resourceLocations"
 	cliOrganizationID     = "123456789012"
 )
 
-// cliV2Folder is the Cloud Resource Manager v2 Folder shape gcloud prints.
 type cliV2Folder struct {
 	Name           string `json:"name"`
 	Parent         string `json:"parent"`
@@ -63,7 +56,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	runCLI(t, gcloudCLI("projects", "create", projectID,
 		"--organization="+cliOrganizationID, "--format=json"))
 
-	// enable-enforce sets a boolean policy through setOrgPolicy.
 	out := runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		cliOrgPolicyBoolean, "--project="+projectID, "--format=json"))
 	var enforced cliOrgPolicy
@@ -73,7 +65,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	assert.True(t, enforced.BooleanPolicy.Enforced)
 	assert.NotEmpty(t, enforced.Etag)
 
-	// describe reads it back through getOrgPolicy.
 	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "describe",
 		cliOrgPolicyBoolean, "--project="+projectID, "--format=json"))
 	var described cliOrgPolicy
@@ -89,10 +80,8 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	require.NotNil(t, effective.BooleanPolicy)
 	assert.True(t, effective.BooleanPolicy.Enforced)
 
-	// Read on the node that set the policy, the effective read and the direct
-	// read agree, so agreement there says nothing about resolution. What
-	// separates them is a policy set higher in the hierarchy: it is in force at
-	// the project below, and the project still sets nothing of its own.
+	// On the node that set it, the effective and direct reads agree. A policy set
+	// higher up separates them: in force at the project, which sets nothing itself.
 	runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		cliOrgPolicyInherited, "--organization="+cliOrganizationID, "--format=json"))
 	t.Cleanup(func() {
@@ -115,7 +104,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	assert.True(t, inherited.BooleanPolicy.Enforced,
 		"the organization's policy is the one in force at the project under it")
 
-	// list shows the policies set on the resource.
 	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "list",
 		"--project="+projectID, "--format=json"))
 	assert.Contains(t, out, cliOrgPolicyBoolean)
@@ -127,7 +115,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	assert.Contains(t, out, cliOrgPolicyList,
 		"the constraint catalog includes every constraint the slice recognizes")
 
-	// disable-enforce flips the stored policy.
 	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "disable-enforce",
 		cliOrgPolicyBoolean, "--project="+projectID, "--format=json"))
 	var disabled cliOrgPolicy
@@ -143,7 +130,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	require.NotNil(t, allowed.ListPolicy)
 	assert.Contains(t, allowed.ListPolicy.AllowedValues, "in:us-locations")
 
-	// delete clears the policy; the constraint then reads back unset.
 	runCLI(t, gcloudCLI("resource-manager", "org-policies", "delete",
 		cliOrgPolicyBoolean, "--project="+projectID))
 	out = runCLI(t, gcloudCLI("resource-manager", "org-policies", "describe",
@@ -152,8 +138,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	parseJSONObject(t, out, &cleared)
 	assert.Nil(t, cleared.BooleanPolicy, "a cleared policy reads back empty: %s", out)
 
-	// An unrecognized constraint is rejected, so the catalog and the accepted
-	// set are one set.
 	badOut, badErr := gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		"constraints/not.aRealConstraint", "--project="+projectID).CombinedOutput()
 	require.Error(t, badErr, "unknown constraint must fail: %s", badOut)
@@ -161,7 +145,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 }
 
 func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
-	// Organization scope.
 	out := runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		cliOrgPolicyBoolean, "--organization="+cliOrganizationID, "--format=json"))
 	var orgPolicy cliOrgPolicy
@@ -173,9 +156,8 @@ func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
 			cliOrgPolicyBoolean, "--organization="+cliOrganizationID).CombinedOutput()
 	})
 
-	// Folder scope. The folder itself is created over v2, the version
-	// gcloud's `resource-manager folders` group speaks, and the org-policy
-	// verbs address the same folder over v1.
+	// gcloud's `resource-manager folders` group creates the folder over v2; the
+	// org-policy verbs address it over v1.
 	out = runCLI(t, gcloudCLI("resource-manager", "folders", "create",
 		"--display-name=cli-orgpol-folder", "--organization="+cliOrganizationID, "--format=json"))
 	var folder cliV2Folder
@@ -198,11 +180,11 @@ func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
 		cliOrgPolicyBoolean, "--folder="+folderID))
 }
 
-// TestFoldersV2CLI drives the Cloud Resource Manager v2 folders collection —
-// the wire `gcloud resource-manager folders` speaks. Routes exercised:
-// POST /v2/folders, GET /v2/folders, GET /v2/folders/{folder},
-// PATCH /v2/folders/{folder}, DELETE /v2/folders/{folder},
-// POST /v2/folders:search, POST /v2/folders/{folderAction}.
+// TestFoldersV2CLI drives the Cloud Resource Manager v2 folders collection
+// that `gcloud resource-manager folders` speaks: POST /v2/folders,
+// GET /v2/folders, GET /v2/folders/{folder}, PATCH /v2/folders/{folder},
+// DELETE /v2/folders/{folder}, POST /v2/folders:search and
+// POST /v2/folders/{folderAction}.
 func TestFoldersV2CLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, gcloudCLI("resource-manager", "folders", "create",
@@ -228,8 +210,7 @@ func TestFoldersV2CLI(t *testing.T) {
 		"--organization="+cliOrganizationID, "--format=json"))
 	assert.Contains(t, out, folderName)
 
-	// patch is an immediate write returning the Folder, not a long-running
-	// operation.
+	// patch writes immediately and returns the Folder, not an operation.
 	runCLI(t, gcloudCLI("resource-manager", "folders", "update", folderID,
 		"--display-name=cli-folders-v2-renamed"))
 	out = runCLI(t, gcloudCLI("resource-manager", "folders", "describe", folderID, "--format=json"))
@@ -246,7 +227,6 @@ func TestFoldersV2CLI(t *testing.T) {
 	out = runCLI(t, gcloudCLI("resource-manager", "folders", "describe", folderID, "--format=json"))
 	assert.Contains(t, out, "ACTIVE")
 
-	// The IAM triple is served on the v2 folder as well.
 	runCLI(t, gcloudCLI("resource-manager", "folders", "add-iam-policy-binding", folderID,
 		"--member=user:folder-admin@example.com", "--role=roles/resourcemanager.folderAdmin", "--format=json"))
 	out = runCLI(t, gcloudCLI("resource-manager", "folders", "get-iam-policy", folderID, "--format=json"))

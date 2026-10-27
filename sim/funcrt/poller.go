@@ -87,7 +87,6 @@ func (p *Pollers[K]) begin(k K) bool {
 	return true
 }
 
-// Running reports whether k's poller runs.
 func (p *Pollers[K]) Running(k K) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

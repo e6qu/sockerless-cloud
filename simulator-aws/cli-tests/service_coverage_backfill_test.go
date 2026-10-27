@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage backfill for operations that had no test, grouped by service.
-// Each function's name routes it to the matching CI shard.
+// Each function's name routes it to its service's CI shard.
 
 func TestECRCLI_ListDescribeDeleteImages(t *testing.T) {
 	t.Parallel()
@@ -54,8 +53,8 @@ func TestGlueCLI_GetPartitionIndexes(t *testing.T) {
 	runCLI(t, awsCLI("glue", "create-partition-index", "--database-name", "clicovdb", "--table-name", "clicovt",
 		"--partition-index", `{"Keys":["dt"],"IndexName":"cli-cov-index"}`))
 
-	// The index just created is the one the reader returns, with the key it was
-	// created over — an empty or canned descriptor list fails here.
+	// The reader returns the index just created, with the key it was created
+	// over.
 	out := runCLI(t, awsCLI("glue", "get-partition-indexes", "--database-name", "clicovdb", "--table-name", "clicovt",
 		"--output", "json"))
 	var indexes struct {
@@ -76,7 +75,7 @@ func TestGlueCLI_GetPartitionIndexes(t *testing.T) {
 	assert.NotEmpty(t, index.IndexStatus)
 
 	// Deleting it empties the list, so the read above reflects the table's own
-	// indexes rather than a fixed answer.
+	// indexes.
 	runCLI(t, awsCLI("glue", "delete-partition-index", "--database-name", "clicovdb", "--table-name", "clicovt",
 		"--index-name", "cli-cov-index"))
 	parseJSON(t, runCLI(t, awsCLI("glue", "get-partition-indexes", "--database-name", "clicovdb", "--table-name", "clicovt",
@@ -98,9 +97,8 @@ func TestCodeBuildCLI_ListBuilds(t *testing.T) {
 		"--query", "build.id", "--output", "text")))
 	require.NotEmpty(t, buildID)
 
-	// The build just started is in the account's build list, and in the
-	// project's own — a reader that answered with an empty list, or with every
-	// project's builds under one project, fails one of the two.
+	// The build appears in the account's build list and in its project's: an
+	// empty answer, or every project's builds under one, fails one of the two.
 	var all struct {
 		IDs []string `json:"ids"`
 	}
@@ -119,8 +117,8 @@ func TestSFNCLI_VersionsAndValidate(t *testing.T) {
 	const def = `{"StartAt":"x","States":{"x":{"Type":"Pass","End":true}}}`
 	sm := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", "cli-cov-sm",
 		"--definition", def, "--role-arn", cliServiceRole(t, "states.amazonaws.com"), "--query", "stateMachineArn", "--output", "text")))
-	// A published version appears in the listing under the state machine that
-	// published it; a machine with no published version lists none.
+	// A published version lists under the state machine that published it; a
+	// machine with none lists none.
 	var versions struct {
 		StateMachineVersions []struct {
 			StateMachineVersionArn string `json:"stateMachineVersionArn"`

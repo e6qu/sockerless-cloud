@@ -10,23 +10,15 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// Optimistic concurrency on the Cloud Run Admin v1 (Knative) replace methods,
-// driven by the canonical google.golang.org/api/run/v1 client.
-//
-// Each replace method documents the contract: "May provide
+// Each Cloud Run Admin v1 replace method documents: "May provide
 // metadata.resourceVersion to enforce update from last read for optimistic
-// concurrency control." So the shape is one contract across the family — an
-// omitted resourceVersion is unconditional, one matching the version the client
-// last read proceeds, and one the resource has moved past is a modification
+// concurrency control." An omitted resourceVersion is unconditional, the one
+// the client last read proceeds, and one the resource has moved past is a
 // conflict answered 409.
 //
-// resourceVersion is the v1 spelling of the fingerprint the v2 collections
-// spell as etag, over the SAME record: a write through either API version moves
-// the resource on, so a v1 replace holding a resourceVersion read before a v2
-// patch is refused exactly as a v2 patch holding the pre-patch etag would be.
+// resourceVersion is the v1 spelling of the v2 etag over the same record, so a
+// write through either version moves the resource on.
 
-// requireRunV1Conflict asserts a replace was refused as a modification
-// conflict rather than silently overwriting the resource.
 func requireRunV1Conflict(t *testing.T, err error) {
 	t.Helper()
 	require.Error(t, err, "a stale resourceVersion must not silently overwrite the resource")
@@ -79,16 +71,15 @@ func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	assert.Equal(t, replaced.Metadata.ResourceVersion, after.Metadata.ResourceVersion)
 	assert.Equal(t, "mirror.gcr.io/library/alpine:3.20", after.Spec.Template.Spec.Containers[0].Image)
 
-	// An omitted resourceVersion disables conflict detection, which is what the
-	// ObjectMeta member's own description says it does.
+	// An omitted resourceVersion disables conflict detection, as the ObjectMeta
+	// member's description says.
 	unconditional, err := svc.Namespaces.Services.ReplaceService(name, body("mirror.gcr.io/library/alpine:3.21", "")).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "mirror.gcr.io/library/alpine:3.21", unconditional.Spec.Template.Spec.Containers[0].Image)
 }
 
-// TestCloudRunV1_Service_ResourceVersionTracksV2Writes proves the two spellings
-// guard one record: a v2 patch moves the version a v1 client is holding, and
-// the v1 replace refuses it afterwards.
+// TestCloudRunV1_Service_ResourceVersionTracksV2Writes: a v2 patch moves the
+// version a v1 client holds, so the v1 replace refuses it afterwards.
 func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 	t.Parallel()
 	v1 := newRunV1(t)
@@ -140,8 +131,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 }
 
 // TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency covers
-// the second replaceService spelling — the projects.locations path the
-// regional endpoint publishes — over the same record.
+// the projects.locations replaceService path over the same record.
 func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)

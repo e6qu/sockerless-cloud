@@ -11,12 +11,8 @@ import (
 
 const corsTestOrigin = "https://console.example.test"
 
-// TestAzureCORS_PreflightToARMPathReturnsCORSHeaders proves the sim answers a
-// browser's preflight OPTIONS request for an Azure Resource Manager path the
-// way real Azure's edge does: without the bearer token or api-version the
-// actual operation needs (a preflight carries neither), and with the
-// Access-Control-* headers a browser's fetch() requires before it will send
-// the real request.
+// A preflight carries neither the bearer nor the api-version the operation
+// needs.
 func TestAzureCORS_PreflightToARMPathReturnsCORSHeaders(t *testing.T) {
 	srv := buildAuthTestSim(t)
 
@@ -48,9 +44,7 @@ func TestAzureCORS_PreflightToARMPathReturnsCORSHeaders(t *testing.T) {
 	}
 }
 
-// TestAzureCORS_PreflightToGraphPathReturnsCORSHeaders proves the same
-// preflight contract holds for Microsoft Graph (/v1.0), the other data plane
-// the console's portal calls directly from the browser.
+// Microsoft Graph is the other plane the console calls from the browser.
 func TestAzureCORS_PreflightToGraphPathReturnsCORSHeaders(t *testing.T) {
 	srv := buildAuthTestSim(t)
 
@@ -71,14 +65,9 @@ func TestAzureCORS_PreflightToGraphPathReturnsCORSHeaders(t *testing.T) {
 	}
 }
 
-// TestAzureCORS_ActualGETCarriesAllowOrigin proves a real (non-preflight)
-// cross-origin GET against Azure Resource Manager still carries
-// Access-Control-Allow-Origin, so the browser's fetch() can read the
-// response — the header a preflight alone would not prove out, since real
-// browsers send Origin on the actual request too.
-// TestAzureCORS_SliceDispatchersCarryAllowOrigin proves a response a slice's
-// own dispatcher writes, ahead of the mux, still carries the access-control
-// headers: the role definitions list and the tags of a resource scope.
+// TestAzureCORS_SliceDispatchersCarryAllowOrigin: a response a slice's own
+// dispatcher writes ahead of the mux — the role definitions list, a scope's
+// tags — still carries the headers.
 func TestAzureCORS_SliceDispatchersCarryAllowOrigin(t *testing.T) {
 	srv := buildAuthTestSim(t)
 	now := time.Now()
@@ -101,8 +90,6 @@ func TestAzureCORS_SliceDispatchersCarryAllowOrigin(t *testing.T) {
 	}
 }
 
-// TestAzureCORS_PreflightToLogAnalyticsQuery proves a browser may POST a
-// Kusto query to a workspace's query API.
 func TestAzureCORS_PreflightToLogAnalyticsQuery(t *testing.T) {
 	srv := buildAuthTestSim(t)
 	req := httptest.NewRequest(http.MethodOptions, "/v1/workspaces/00000000-0000-0000-0000-000000000000/query", nil)
@@ -144,11 +131,8 @@ func TestAzureCORS_ActualGETCarriesAllowOrigin(t *testing.T) {
 	}
 }
 
-// TestAzureCORS_UnauthenticatedActualGETStillCarriesAllowOrigin proves the
-// CORS header is present even on a rejected (401) actual request — real ARM
-// still answers CORS-eligible so the browser's JavaScript can read the
-// unauthenticated-rejection body rather than reporting an opaque CORS
-// failure that would hide the real 401.
+// Real Azure Resource Manager answers a rejected request CORS-eligible, so the
+// browser reads the 401 rather than an opaque CORS failure.
 func TestAzureCORS_UnauthenticatedActualGETStillCarriesAllowOrigin(t *testing.T) {
 	srv := buildAuthTestSim(t)
 
@@ -165,11 +149,8 @@ func TestAzureCORS_UnauthenticatedActualGETStillCarriesAllowOrigin(t *testing.T)
 	}
 }
 
-// TestAzureCORS_TokenEndpointHasNoCORSHeaders proves the Microsoft Entra
-// token endpoint — the one surface real Azure serves no CORS for, and the
-// entire reason the console's server-side federation broker exists — gets no
-// Access-Control-Allow-Origin even when the request carries a browser Origin
-// header and would otherwise look CORS-eligible.
+// Azure serves no CORS for the Microsoft Entra token endpoint, which is why
+// the console's server-side federation broker exists.
 func TestAzureCORS_TokenEndpointHasNoCORSHeaders(t *testing.T) {
 	srv := buildAuthTestSim(t)
 
@@ -192,10 +173,6 @@ func TestAzureCORS_TokenEndpointHasNoCORSHeaders(t *testing.T) {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty — real Microsoft Entra serves no CORS on the token endpoint", got)
 	}
 
-	// A preflight OPTIONS to the token endpoint must likewise get no CORS
-	// headers: a browser that tried to call it directly would fail exactly as
-	// it does against real Microsoft Entra, which is why the federation
-	// broker exists.
 	preflight := httptest.NewRequest(http.MethodOptions, "/"+simTenantID+"/oauth2/v2.0/token", nil)
 	preflight.Header.Set("Origin", corsTestOrigin)
 	preflight.Header.Set("Access-Control-Request-Method", "POST")
@@ -206,10 +183,8 @@ func TestAzureCORS_TokenEndpointHasNoCORSHeaders(t *testing.T) {
 	}
 }
 
-// TestAzureCORS_AuthLayerHasNoCORSHeaders proves the console's own /auth/*
-// auth layer (session, federation broker) is likewise excluded from the ARM
-// and Graph CORS surfaces — it is same-origin only, reached with
-// credentials: "include", never cross-origin.
+// The console's /auth/* layer is same-origin only, reached with credentials:
+// "include".
 func TestAzureCORS_AuthLayerHasNoCORSHeaders(t *testing.T) {
 	srv := buildAuthTestSim(t)
 

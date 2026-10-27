@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_MLTaskRunLifecycle_SDK exercises the machine-learning task-run family:
-// start each task-run type against an ML transform, then Get/List/Cancel.
 func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -85,9 +83,6 @@ func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
 	assert.Equal(t, gluetypes.TaskStatusTypeStopped, cancel.Status)
 }
 
-// TestGlue_CrawlerScheduleLifecycle_SDK exercises the crawler/column-statistics
-// schedule toggles plus GetCrawlerMetrics, ListCrawls and the materialized-view
-// refresh family.
 func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -132,7 +127,7 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, crawls.Crawls)
 
-	// Column-statistics schedule needs a real table to anchor to.
+	// A column-statistics schedule needs a real table.
 	db := uniquename.New("glue-sdk-sched-db")
 	tbl := uniquename.New("glue-sdk-sched-tbl")
 	_, err = c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -159,7 +154,6 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Materialized-view refresh task runs.
 	start, err := c.StartMaterializedViewRefreshTaskRun(ctx, &glue.StartMaterializedViewRefreshTaskRunInput{
 		CatalogId:    aws.String("123456789012"),
 		DatabaseName: aws.String(db),
@@ -194,8 +188,6 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestGlue_WorkflowRunProperties_SDK exercises workflow-run reads/writes plus
-// UpdateWorkflow, ListTriggers, UpdateTrigger and the job-bookmark family.
 func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -258,7 +250,6 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, wf, aws.ToString(upd.Name))
 
-	// Triggers: ListTriggers + UpdateTrigger.
 	trig := uniquename.New("glue-sdk-wfrun-trigger")
 	_, err = c.CreateTrigger(ctx, &glue.CreateTriggerInput{
 		Name:         aws.String(trig),
@@ -288,7 +279,6 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	assert.Equal(t, "updated trigger", aws.ToString(updT.Trigger.Description))
 	assert.Equal(t, "cron(0 0 * * ? *)", aws.ToString(updT.Trigger.Schedule))
 
-	// Job bookmarks.
 	job := uniquename.New("glue-sdk-wfrun-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
@@ -311,8 +301,6 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	assert.Equal(t, job, aws.ToString(reset.JobBookmarkEntry.JobName))
 }
 
-// TestGlue_ConnectionTypeRegistry_SDK exercises the connection-type registry and
-// TestConnection against a stored connection.
 func TestGlue_ConnectionTypeRegistry_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -340,13 +328,10 @@ func TestGlue_ConnectionTypeRegistry_SDK(t *testing.T) {
 	require.NotNil(t, desc.Capabilities)
 	assert.NotEmpty(t, desc.Capabilities.SupportedAuthenticationTypes)
 
-	// ListConnectionTypes is the catalogue of connection types Glue supports,
-	// and its brief types the name as the ConnectionType enum — a registered
-	// custom connector takes a free-form name and cannot appear in a field
-	// that cannot hold it. So the listing carries the published types, and not
-	// the one registered above.
-	// The catalogue is longer than a page, so it is read the way a client reads
-	// it: following the token until there is none.
+	// The ConnectionType enum types each listed name, so a registered custom
+	// connector, which takes a free-form name, cannot appear: the listing holds the
+	// published types and not the one registered above. It is longer than a page,
+	// so follow the token as a client does.
 	published := map[string]bool{}
 	var pageToken *string
 	for {
@@ -365,7 +350,6 @@ func TestGlue_ConnectionTypeRegistry_SDK(t *testing.T) {
 	assert.True(t, published["JDBC"])
 	assert.False(t, published[ctName], "a registered custom connector is not one of them")
 
-	// TestConnection against a stored connection.
 	const conn = "glue-sdk-conntype-conn"
 	_, err = c.CreateConnection(ctx, &glue.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{

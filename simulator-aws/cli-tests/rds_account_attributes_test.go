@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rdsAccountAttributes runs `aws rds describe-account-attributes` and indexes
-// the reported quotas by name, returning used and max per quota.
 func rdsAccountAttributes(t *testing.T) map[string][2]int64 {
 	t.Helper()
 	out := runCLI(t, awsCLI("rds", "describe-account-attributes"))
@@ -29,10 +27,9 @@ func rdsAccountAttributes(t *testing.T) map[string][2]int64 {
 	return byName
 }
 
-// TestRDSCLI_AccountAttributes drives DescribeAccountAttributes through the real
-// aws CLI: the account quota report must list every documented Amazon RDS quota
-// and track the account's real resources, so the test measures a baseline,
-// creates a DB instance, and asserts the exact usage deltas.
+// TestRDSCLI_AccountAttributes expects the quota report to list every
+// documented Amazon RDS quota and track real resources: it measures a
+// baseline, creates a DB instance, and asserts the exact deltas.
 func TestRDSCLI_AccountAttributes(t *testing.T) {
 	base := rdsAccountAttributes(t)
 	for _, name := range []string{
@@ -49,8 +46,8 @@ func TestRDSCLI_AccountAttributes(t *testing.T) {
 	assert.Equal(t, int64(40), base["DBInstances"][1])
 	assert.Equal(t, int64(100000), base["AllocatedStorage"][1])
 
-	// A reservation of one DB instance in each of two Availability Zones
-	// counts two against the DBInstances quota while nothing uses it.
+	// A reservation of one DB instance in each of two Availability Zones counts
+	// two against the DBInstances quota while unused.
 	reservation := "cli-acct-attr-reservation"
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "cancel-db-capacity-reservation", "--db-capacity-reservation-identifier", reservation).Run()
@@ -84,7 +81,6 @@ func TestRDSCLI_AccountAttributes(t *testing.T) {
 	assert.Equal(t, base["AllocatedStorage"][0]+45, now["AllocatedStorage"][0],
 		"AllocatedStorage usage must add the new instance's allocated storage")
 
-	// A reservation whose capacity would exceed the remaining quota is refused.
 	remaining := now["DBInstances"][1] - now["DBInstances"][0]
 	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "create-db-capacity-reservation",
 		"--db-capacity-reservation-name", "cli-acct-attr-over-quota",

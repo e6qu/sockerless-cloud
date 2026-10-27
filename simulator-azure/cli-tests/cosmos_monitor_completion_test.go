@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows drives the Cosmos DB metric,
-// usage, metric-definition, percentile and private-endpoint-connection surfaces
-// through `az rest` against the simulator.
+// TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows drives the Azure Cosmos DB
+// metric, usage, metric-definition, percentile and private endpoint connection
+// surfaces through `az rest`.
 func TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows(t *testing.T) {
 	t.Parallel()
 	account := "climetricscosmos"
@@ -32,7 +32,6 @@ func TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows(t *testing.T) {
 		t.Fatalf("percentile metrics missing P99: %s", out)
 	}
 
-	// Private endpoint connection: approve, read, list.
 	pecURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account+"/privateEndpointConnections/cli-pe-1", ver)
 	putOut := runCLI(t, azRest("PUT", pecURL, `{"properties":{"privateLinkServiceConnectionState":{"status":"Approved","description":"ok"}}}`))
 	if !strings.Contains(putOut, `"Succeeded"`) {
@@ -49,23 +48,20 @@ func TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows(t *testing.T) {
 }
 
 // TestLogAnalytics_QueryAndMetadataCLIFlows drives the Log Analytics query (GET
-// + batch) and metadata data-plane endpoints through `az rest`.
+// and batch) and metadata endpoints through `az rest`.
 func TestLogAnalytics_QueryAndMetadataCLIFlows(t *testing.T) {
 	t.Parallel()
 	_, customerID := cliLogWorkspace(t, "cli-query-flows-ws")
-	// GET /v1/workspaces/{workspaceId}/query (KQL via the query parameter).
 	queryURL := baseURL + "/v1/workspaces/" + customerID + "/query?query=AppTraces%20%7C%20take%201"
 	if out := runCLI(t, azRest("GET", queryURL, "")); !strings.Contains(out, "PrimaryResult") {
 		t.Fatalf("Log Analytics GET query missing PrimaryResult table: %s", out)
 	}
 
-	// GET /v1/workspaces/{workspaceId}/metadata (workspace schema).
 	metaURL := baseURL + "/v1/workspaces/" + customerID + "/metadata"
 	if out := runCLI(t, azRest("GET", metaURL, "")); !strings.Contains(out, "tables") {
 		t.Fatalf("Log Analytics metadata missing tables: %s", out)
 	}
 
-	// POST /v1/$batch (a batch of one query).
 	batchURL := baseURL + "/v1/$batch"
 	batchBody := `{"requests":[{"id":"r1","workspace":"` + customerID + `","body":{"query":"AppTraces | take 1"}}]}`
 	if out := runCLI(t, azRest("POST", batchURL, batchBody)); !strings.Contains(out, "r1") {

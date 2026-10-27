@@ -10,12 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_VerifiedAccessLifecycleSDK exercises the Amazon EC2 Verified Access
-// control plane end-to-end: an instance, a standalone trust provider that
-// attaches/detaches to the instance, a group with a Cedar policy document under
-// the instance, and an endpoint with its own policy document under the group.
-// It read-backs every resource via the Describe / Get* ops and tears the family
-// down.
+// TestEC2_VerifiedAccessLifecycleSDK covers an AWS Verified Access instance, a
+// trust provider attached to and detached from it, a group with a Cedar policy
+// document, and an endpoint with its own policy document, each read back.
 func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -203,8 +200,6 @@ func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 	assert.Equal(t, epID, aws.ToString(tgts.VerifiedAccessEndpointTargets[0].VerifiedAccessEndpointId))
 }
 
-// TestEC2_VerifiedAccessLoggingSDK covers the per-instance access-log
-// configuration and the client-config export op.
 func TestEC2_VerifiedAccessLoggingSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -252,9 +247,9 @@ func TestEC2_VerifiedAccessLoggingSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(exp.Region))
 }
 
-// TestEC2_TrafficMirrorLifecycleSDK exercises EC2 Traffic Mirroring end-to-end:
-// a target, a filter with an ingress rule + mirrored network services, and a
-// session binding a source ENI to the target through the filter.
+// TestEC2_TrafficMirrorLifecycleSDK covers a target, a filter with an ingress
+// rule and mirrored network services, and a session binding a source ENI to the
+// target through the filter.
 func TestEC2_TrafficMirrorLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

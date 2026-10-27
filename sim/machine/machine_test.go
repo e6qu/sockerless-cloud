@@ -210,8 +210,8 @@ func TestAStopDuringABootWins(t *testing.T) {
 	}
 }
 
-// A machine that is not ready within the boot's deadline is stopped with its
-// disk kept.
+// A machine that is not ready within the boot's deadline stops with its disk
+// kept.
 func TestABootThatNeverBecomesReadyKeepsTheDisk(t *testing.T) {
 	h := newHarness(t)
 	w := h.workload("m-slow", "sleep 300")

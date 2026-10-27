@@ -14,9 +14,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// runInstancesLaunchTemplate resolves a RunInstances LaunchTemplate spec to the
-// owning template's id/name, the resolved version, and the effective version
-// data. Returns ok=false when no LaunchTemplate was supplied.
+// ok is false when the request supplies no LaunchTemplate.
 func runInstancesLaunchTemplate(r *http.Request) (id, name, version string, data EC2LaunchTemplateData, ok bool) {
 	reqId := r.FormValue("LaunchTemplate.LaunchTemplateId")
 	reqName := r.FormValue("LaunchTemplate.LaunchTemplateName")
@@ -45,8 +43,8 @@ func runInstancesLaunchTemplate(r *http.Request) (id, name, version string, data
 			break
 		}
 	}
-	// DescribeInstances echoes the resolved numeric version (real AWS does too;
-	// the provider's $Latest/$Default config is diff-suppressed against it).
+	// DescribeInstances echoes the numeric version; the provider diff-suppresses
+	// its $Latest / $Default config against it.
 	return lt.LaunchTemplateId, lt.LaunchTemplateName, fmt.Sprintf("%d", verNum), data, true
 }
 
@@ -69,9 +67,7 @@ func runInstancesSecurityGroups(r *http.Request) []string {
 	return groups
 }
 
-// ec2FormOrLT returns the request value for key, falling back to the
-// launch-template value (applying LT data to the instance is the documented
-// behaviour, not a synthetic default).
+// Amazon EC2 documents that launch template data applies to the instance.
 func ec2FormOrLT(r *http.Request, key, ltVal string) string {
 	if v := r.FormValue(key); v != "" {
 		return v
@@ -92,10 +88,9 @@ func ec2AtoiOr(s string, def int) int {
 	return n
 }
 
-// runInstancesRootBlockDevice resolves the root volume size/type from the
-// request's BlockDeviceMapping (matched by the sim's root device name, else the
-// sole mapping), else the launch template's. Zero/"" means "use the AWS default"
-// (resolved in ec2CreateInstance).
+// Match the BlockDeviceMapping by the simulator's root device name, else take
+// the sole mapping, else the launch template's. Zero or "" means the AWS
+// default, resolved in ec2CreateInstance.
 func runInstancesRootBlockDevice(r *http.Request, lt EC2LaunchTemplateData) (int, string) {
 	isRoot := func(dn string) bool {
 		return dn == "/dev/sda1" || dn == "/dev/xvda" || dn == "/dev/xvda1"
@@ -125,8 +120,7 @@ func runInstancesRootBlockDevice(r *http.Request, lt EC2LaunchTemplateData) (int
 	return 0, ""
 }
 
-// ec2InstanceLifecycleXML marks a Spot Instance and names its request; an
-// On-Demand instance carries neither.
+// An On-Demand instance carries neither.
 func ec2InstanceLifecycleXML(inst EC2Instance) string {
 	if inst.InstanceLifecycle == "" {
 		return ""
@@ -135,11 +129,8 @@ func ec2InstanceLifecycleXML(inst EC2Instance) string {
 }
 
 func handleRunInstances(w http.ResponseWriter, r *http.Request) {
-	// ClientToken idempotency: the aws-sdk-go-v2 auto-fills ClientToken (it
-	// carries the Smithy idempotencyToken trait) and re-sends the same value on
-	// every retry. A retried RunInstances must replay the original reservation,
-	// not launch a duplicate batch — matching real EC2 within its idempotency
-	// window.
+	// The SDK fills ClientToken (Smithy idempotencyToken trait) and re-sends it on
+	// every retry; a retry must replay the original reservation.
 	clientToken := r.FormValue("ClientToken")
 	if clientToken != "" {
 		if prev, ok := ec2RunTokens.Get(clientToken); ok {
@@ -151,8 +142,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// A LaunchTemplate spec supplies the instance's image/type (unless the
-	// request overrides them) and is echoed back by DescribeInstances.
+	// The launch template supplies image and type unless the request overrides
+	// them, and DescribeInstances echoes it.
 	ltID, _, ltVersion, ltData, hasLT := runInstancesLaunchTemplate(r)
 	imageID := r.FormValue("ImageId")
 	if imageID == "" {
@@ -184,8 +175,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// The AMI's instance type specification, when it has one, decides whether
-	// this instance type may launch it.
+	// The AMI's instance type specification decides whether this type may launch
+	// it.
 	if !ec2ImageAllowsInstanceType(imageID, instanceType) {
 		ec2ErrorXML(w, "InvalidParameterCombination",
 			fmt.Sprintf("The instance type %q is not supported by the image %q", instanceType, imageID),
@@ -197,8 +188,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		subnetID = r.FormValue("NetworkInterface.1.SubnetId")
 	}
 	if subnetID == "" {
-		// No subnet specified — launch into the account's default VPC subnet,
-		// as real EC2 does.
+		// Without a subnet, launch into the default VPC.
 		subnetID = defaultVPCSubnetID()
 	}
 	subnet, ok := ec2Subnets.Get(subnetID)
@@ -206,8 +196,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", subnetID), http.StatusBadRequest)
 		return
 	}
-	// The instance is always modeled at the control plane — like
-	// VPC/subnet/NAT; ec2LaunchInstance places its workload.
+	// ec2LaunchInstance places the workload.
 	placement := EC2Placement{
 		Tenancy:         r.FormValue("Placement.Tenancy"),
 		HostId:          r.FormValue("Placement.HostId"),
@@ -234,8 +223,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		if placement.Tenancy == "" {
 			placement.Tenancy = "host"
 		}
-		// The capacity check and the placements it admits hold the lock
-		// together, so concurrent launches cannot share the last slot.
+		// Hold the lock across the capacity check and the placements so concurrent
+		// launches cannot share the last slot.
 		ec2HostPlacementMu.Lock()
 		defer ec2HostPlacementMu.Unlock()
 	}
@@ -247,9 +236,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	launchTime := time.Now().UTC().Format(time.RFC3339)
 	tags := parseTags(r)
 
-	// Instance knobs: request value, else launch-template value, else the AWS
-	// default the API documents (metadata options). These are the fields
-	// aws_instance reads back; dropping them forces drift every plan.
+	// Request value, else launch template value, else the documented default.
+	// aws_instance reads these back; dropping them forces drift every plan.
 	shutdownBehavior := ec2FormOrLT(r, "InstanceInitiatedShutdownBehavior", ltData.InstanceInitiatedShutdownBehavior)
 	if shutdownBehavior == "" {
 		shutdownBehavior = "stop"
@@ -263,8 +251,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	metaTokens := ec2FormOrLT(r, "MetadataOptions.HttpTokens", ltMetaTokens)
 	if metaTokens == "" {
-		// An AMI registered with ImdsSupport v2.0 launches instances that
-		// require IMDSv2.
+		// An AMI registered with ImdsSupport v2.0 launches instances requiring
+		// IMDSv2.
 		metaTokens = "optional"
 		if img, ok := ec2LookupImage(imageID); ok && img.ImdsSupport == "v2.0" {
 			metaTokens = "required"
@@ -298,7 +286,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		UserData:                 ec2FormOrLT(r, "UserData", ltData.UserData),
 		DisableApiTermination:    ec2BoolStr(ec2FormOrLT(r, "DisableApiTermination", ltData.DisableApiTermination)),
 		ShutdownBehavior:         shutdownBehavior,
-		SourceDestCheck:          true, // AWS default; ModifyInstanceAttribute can disable it
+		SourceDestCheck:          true, // The AWS default; ModifyInstanceAttribute can disable it.
 		CpuCoreCount:             ec2AtoiOr(r.FormValue("CpuOptions.CoreCount"), 0),
 		CpuThreadsPerCore:        ec2AtoiOr(r.FormValue("CpuOptions.ThreadsPerCore"), 0),
 		RootVolumeSize:           rootSize,
@@ -366,10 +354,8 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 			inst = ec2FulfilSpotLaunch(inst, *spotOptions, tags)
 		}
 		if hasLT {
-			// Real AWS records launch-template provenance as system tags on the
-			// instance (DescribeInstances has no LaunchTemplate field); the
-			// provider flattens aws_instance.launch_template from these, so their
-			// absence forces a destroy+create every plan.
+			// DescribeInstances has no LaunchTemplate field; AWS records provenance as
+			// system tags, which the provider flattens into aws_instance.launch_template.
 			inst.Tags = append(inst.Tags,
 				EC2Tag{Key: "aws:ec2launchtemplate:id", Value: ltID},
 				EC2Tag{Key: "aws:ec2launchtemplate:version", Value: ltVersion})
@@ -384,8 +370,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Record the reservation under its ClientToken so a retried RunInstances
-	// replays these exact instances instead of launching a duplicate batch.
+	// A retry with this ClientToken replays these instances.
 	if clientToken != "" && len(instances) > 0 {
 		ids := make([]string, 0, len(instances))
 		for _, inst := range instances {
@@ -400,7 +385,6 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	writeRunInstancesResponse(w, reservationID, instances)
 }
 
-// writeRunInstancesResponse renders the RunInstances XML for a reservation.
 func writeRunInstancesResponse(w http.ResponseWriter, reservationID string, instances []EC2Instance) {
 	var instanceItems strings.Builder
 	for _, inst := range instances {
@@ -416,17 +400,13 @@ func writeRunInstancesResponse(w http.ResponseWriter, reservationID string, inst
 </RunInstancesResponse>`, ec2Xmlns(), sim.NewUUID(), reservationID, ec2Owner(), instanceItems.String())
 }
 
-// writeRunInstancesReplay re-renders the original reservation for an idempotent
-// RunInstances retry, re-fetching each instance's current state from the store.
+// Replays the original reservation for an idempotent retry.
 func writeRunInstancesReplay(w http.ResponseWriter, tok EC2RunInstancesToken) {
-	// Replay the exact response the original call returned (instances in their
-	// launch-time "pending" state), captured in the token. Re-reading the live
-	// control-plane state here raced the asynchronous pending->running
-	// transition, so a retried RunInstances could report "running".
+	// Replay the original response, instances still "pending": re-reading live
+	// state would race the asynchronous pending → running transition.
 	instances := tok.LaunchInstances
 	if instances == nil {
-		// Tokens persisted before LaunchInstances was recorded fall back to the
-		// instance ids; the launch state is still "pending" for the replay.
+		// Older tokens hold only instance ids; replay them as "pending".
 		for _, id := range tok.InstanceIds {
 			if inst, ok := ec2Instances.Get(id); ok {
 				inst.State = "pending"
@@ -461,8 +441,7 @@ func runInstancesCounts(w http.ResponseWriter, r *http.Request) (int, int, bool)
 type EC2InstanceCreateSpec struct {
 	Context       context.Context
 	ReservationId string
-	// AmiLaunchIndex is the instance's position among those its request
-	// launched.
+	// The instance's position among those its request launched.
 	AmiLaunchIndex         int
 	ImageId                string
 	InstanceType           string
@@ -485,8 +464,7 @@ type EC2InstanceCreateSpec struct {
 	CpuThreadsPerCore      int
 	RootVolumeSize         int
 	RootVolumeType         string
-	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
-	// "terminate".
+	// InstanceInitiatedShutdownBehavior: "stop" or "terminate".
 	ShutdownBehavior         string
 	MetadataHttpTokens       string
 	MetadataHttpEndpoint     string

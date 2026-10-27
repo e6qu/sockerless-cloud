@@ -1,6 +1,6 @@
 ---
 name: reopen-postmortem
-description: Every reopened community-filed issue triggers a structured postmortem that goes into the BUG entry. The postmortem captures (a) what test passed but should have failed, (b) what SDK / CLI / provider code path the test missed, (c) what new canonical-client test catches the regression. Distilled from BUG-1146 — the pattern across #190 (reopened once) and #193 (reopened once) where "fixed" was claimed against a partial test that bypassed the real client contract, and the user found the gap the moment they ran a real SDK against the merged build.
+description: Every reopened community-filed issue triggers a structured postmortem that goes into the BUG entry. The postmortem captures (a) what test passed but should have failed, (b) what SDK / CLI / provider code path the test missed, (c) what new canonical-client test catches the regression. A reopen means "fixed" was claimed against a test that bypassed the real client contract.
 ---
 
 # Reopen postmortem invariant

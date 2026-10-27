@@ -14,21 +14,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// Container Apps "Apps" slice (Microsoft.App/containerApps). Parallel
-// to the Jobs slice in containerapps.go. Required for the
-// `Config.UseApp=true` aca code path: when set, sockerless creates
-// long-running ContainerApps with internal-only ingress instead of
-// short-lived Jobs so peers resolve a stable per-revision FQDN.
-//
-// Wire format mirrors armappcontainers.ContainerApp (azure-sdk-for-go
-// v2). Backend reads `properties.provisioningState`,
-// `properties.latestReadyRevisionName`, and
-// `properties.latestRevisionFqdn` (used to register a Private DNS
-// CNAME), so each of those is populated on Create and Get.
+// Microsoft.App/containerApps.
 //
 // Real API: https://learn.microsoft.com/en-us/rest/api/containerapps/container-apps
 
-// ContainerApp represents a Microsoft.App/containerApps resource.
 type ContainerApp struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -38,19 +27,15 @@ type ContainerApp struct {
 	Identity   *SiteIdentity     `json:"identity,omitempty"`
 	Properties ContainerAppProps `json:"properties"`
 	SystemData *SystemData       `json:"systemData,omitempty"`
-	// SystemIdentityClientID is the application ID of the app's
-	// system-assigned identity, which the directory reads and the identity's
-	// wire shape does not carry.
+	// SystemIdentityClientID is the system-assigned identity's application ID,
+	// which the directory reads and the wire shape does not carry.
 	SystemIdentityClientID string `json:"-"`
 }
 
-// ContainerAppProps holds the properties of a ContainerApp. Matches
-// the field set armappcontainers.ContainerAppProperties exposes that
-// the aca backend reads.
 type ContainerAppProps struct {
 	ProvisioningState string `json:"provisioningState"`
-	// RunningStatus is Stopped once the app was stopped and Running
-	// otherwise; a write keeps it.
+	// RunningStatus is Stopped once the app was stopped and Running otherwise; a
+	// write keeps it.
 	RunningStatus           string                `json:"runningStatus,omitempty"`
 	ManagedEnvironmentID    string                `json:"managedEnvironmentId,omitempty"`
 	EnvironmentID           string                `json:"environmentId,omitempty"`
@@ -63,7 +48,6 @@ type ContainerAppProps struct {
 	EventStreamEndpoint     string                `json:"eventStreamEndpoint,omitempty"`
 }
 
-// ContainerAppConfig mirrors armappcontainers.Configuration.
 type ContainerAppConfig struct {
 	ActiveRevisionsMode  string                         `json:"activeRevisionsMode,omitempty"`
 	Dapr                 *ContainerAppDapr              `json:"dapr,omitempty"`
@@ -76,9 +60,8 @@ type ContainerAppConfig struct {
 	Service              *ContainerAppService           `json:"service,omitempty"`
 }
 
-// ContainerAppDapr mirrors armappcontainers.Dapr. When Enabled is true
-// the sim injects a real daprd sidecar into every replica of the app —
-// see acaAppDaprContainer in containerapps_dapr.go.
+// When Enabled, every replica runs a real daprd sidecar
+// (containerapps_dapr.go).
 type ContainerAppDapr struct {
 	AppID              string `json:"appId,omitempty"`
 	AppPort            *int32 `json:"appPort,omitempty"`
@@ -90,49 +73,40 @@ type ContainerAppDapr struct {
 	LogLevel           string `json:"logLevel,omitempty"`
 }
 
-// ContainerAppIdentitySettings mirrors armappcontainers.IdentitySettings —
-// per-managed-identity lifecycle settings. `identity` is a required member
-// (a user-assigned identity resource ID, or "system").
+// `identity` is required: a user-assigned identity resource ID, or "system".
 type ContainerAppIdentitySettings struct {
 	Identity  string `json:"identity"`
 	Lifecycle string `json:"lifecycle,omitempty"`
 }
 
-// ContainerAppRuntime mirrors armappcontainers.Runtime. Microsoft.App
-// api-version 2025-01-01 declares only the `java` member (`dotnet` exists
-// solely in newer preview api-versions the simulator does not serve).
+// Microsoft.App 2025-01-01 declares only `java`; `dotnet` exists only in newer
+// preview api-versions.
 type ContainerAppRuntime struct {
 	Java *ContainerAppRuntimeJava `json:"java,omitempty"`
 }
 
-// ContainerAppRuntimeJava mirrors armappcontainers.RuntimeJava.
 type ContainerAppRuntimeJava struct {
 	EnableMetrics *bool `json:"enableMetrics,omitempty"`
 }
 
-// ContainerAppService mirrors armappcontainers.Service — the dev
-// ContainerApp Service binding. `type` is a required member.
+// `type` is required.
 type ContainerAppService struct {
 	Type string `json:"type"`
 }
 
-// ContainerAppIngress mirrors armappcontainers.Ingress. The backend
-// sets External=false + TargetPort=8080 + Transport=auto.
 type ContainerAppIngress struct {
 	External   *bool                       `json:"external,omitempty"`
 	TargetPort *int32                      `json:"targetPort,omitempty"`
 	Transport  string                      `json:"transport,omitempty"`
 	Fqdn       string                      `json:"fqdn,omitempty"`
 	Traffic    []ContainerAppTrafficWeight `json:"traffic,omitempty"`
-	// ClientCertificateMode is the ingress's mTLS setting: ignore drops a
-	// client certificate, accept forwards one as X-Forwarded-Client-Cert,
-	// require also refuses a client that presents none.
+	// ClientCertificateMode: ignore drops a client certificate, accept forwards it
+	// as X-Forwarded-Client-Cert, require also refuses a client presenting none.
 	ClientCertificateMode string `json:"clientCertificateMode,omitempty"`
 }
 
-// ContainerAppTrafficWeight mirrors armappcontainers.TrafficWeight: a share of
-// the app's ingress traffic, sent to a named revision or to whichever revision
-// is latest.
+// A share of ingress traffic, sent to a named revision or to whichever is
+// latest.
 type ContainerAppTrafficWeight struct {
 	RevisionName   string `json:"revisionName,omitempty"`
 	Weight         *int32 `json:"weight,omitempty"`
@@ -140,8 +114,7 @@ type ContainerAppTrafficWeight struct {
 	Label          string `json:"label,omitempty"`
 }
 
-// UnmarshalJSON accepts the weight as a JSON number or a numeric string: `az
-// containerapp ingress traffic set` sends it as a string.
+// `az containerapp ingress traffic set` sends the weight as a string.
 func (t *ContainerAppTrafficWeight) UnmarshalJSON(data []byte) error {
 	type plain ContainerAppTrafficWeight
 	var wire struct {
@@ -173,7 +146,6 @@ func (t *ContainerAppTrafficWeight) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ContainerAppRegistry mirrors armappcontainers.RegistryCredentials.
 type ContainerAppRegistry struct {
 	Server            string `json:"server,omitempty"`
 	Username          string `json:"username,omitempty"`
@@ -181,9 +153,8 @@ type ContainerAppRegistry struct {
 	Identity          string `json:"identity,omitempty"`
 }
 
-// ContainerAppSecret mirrors armappcontainers.Secret: a value, or the Key
-// Vault secret KeyVaultURL names, read as the managed identity Identity names
-// (containerapps_identity.go).
+// A value, or the Key Vault secret KeyVaultURL names, read as the managed
+// identity Identity names (containerapps_identity.go).
 type ContainerAppSecret struct {
 	Name        string `json:"name"`
 	Value       string `json:"value,omitempty"`
@@ -191,33 +162,27 @@ type ContainerAppSecret struct {
 	KeyVaultURL string `json:"keyVaultUrl,omitempty"`
 }
 
-// ContainerAppTemplate mirrors armappcontainers.Template.
 type ContainerAppTemplate struct {
-	// RevisionSuffix names the revision this template creates; empty lets the
-	// platform name it.
+	// Empty lets the platform name the revision.
 	RevisionSuffix string             `json:"revisionSuffix,omitempty"`
 	Containers     []JobContainer     `json:"containers,omitempty"`
 	InitContainers []JobContainer     `json:"initContainers,omitempty"`
 	Volumes        []JobVolume        `json:"volumes,omitempty"`
 	Scale          *ContainerAppScale `json:"scale,omitempty"`
-	// TerminationGracePeriodSeconds is how long a replica gets between SIGTERM
-	// and SIGKILL; nil means the platform default, zero kills at once.
+	// The grace between SIGTERM and SIGKILL; nil means the platform default, zero
+	// kills at once.
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 }
 
-// The running statuses of an app.
 const (
 	acaRunning = "Running"
 	acaStopped = "Stopped"
 )
 
-// acaDefaultTerminationGrace is what Azure Container Apps grants a replica or
-// a job execution between SIGTERM and SIGKILL when the template sets nothing:
-// thirty seconds, per the Template schema. The Jobs API exposes no such member,
-// so an execution gets the same default.
+// Thirty seconds, per the Template schema. The Jobs API exposes no such
+// member, so an execution gets the same default.
 const acaDefaultTerminationGrace = 30 * time.Second
 
-// acaAppStopGrace is the grace an app's replicas get on stop.
 func acaAppStopGrace(app ContainerApp) time.Duration {
 	if app.Properties.Template != nil && app.Properties.Template.TerminationGracePeriodSeconds != nil &&
 		*app.Properties.Template.TerminationGracePeriodSeconds >= 0 {
@@ -226,7 +191,6 @@ func acaAppStopGrace(app ContainerApp) time.Duration {
 	return acaDefaultTerminationGrace
 }
 
-// ContainerAppScale mirrors armappcontainers.Scale.
 type ContainerAppScale struct {
 	MinReplicas     *int32                  `json:"minReplicas,omitempty"`
 	MaxReplicas     *int32                  `json:"maxReplicas,omitempty"`
@@ -235,8 +199,6 @@ type ContainerAppScale struct {
 	Rules           []ContainerAppScaleRule `json:"rules,omitempty"`
 }
 
-// ContainerAppScaleRule mirrors armappcontainers.ScaleRule: a named trigger of
-// one kind.
 type ContainerAppScaleRule struct {
 	Name       string                        `json:"name,omitempty"`
 	AzureQueue *ContainerAppQueueScaleRule   `json:"azureQueue,omitempty"`
@@ -245,8 +207,7 @@ type ContainerAppScaleRule struct {
 	TCP        *ContainerAppTriggerScaleRule `json:"tcp,omitempty"`
 }
 
-// ContainerAppTriggerScaleRule mirrors armappcontainers.HTTPScaleRule and
-// TCPScaleRule, which share their shape.
+// HTTPScaleRule and TCPScaleRule share this shape.
 type ContainerAppTriggerScaleRule struct {
 	Metadata map[string]string           `json:"metadata,omitempty"`
 	Auth     []ContainerAppScaleRuleAuth `json:"auth,omitempty"`
@@ -273,9 +234,7 @@ type ContainerAppScaleRuleAuth struct {
 	TriggerParameter string `json:"triggerParameter,omitempty"`
 }
 
-// ContainerAppAuthToken mirrors armappcontainers.ContainerAppAuthToken
-// — a TrackedResource whose properties carry the EasyAuth token the
-// getAuthtoken action issues.
+// The properties carry the EasyAuth token getAuthtoken issues.
 type ContainerAppAuthToken struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -285,17 +244,12 @@ type ContainerAppAuthToken struct {
 	Properties ContainerAppAuthTokenProps `json:"properties"`
 }
 
-// ContainerAppAuthTokenProps mirrors
-// armappcontainers.ContainerAppAuthTokenProperties.
 type ContainerAppAuthTokenProps struct {
 	Token   string `json:"token,omitempty"`
 	Expires string `json:"expires,omitempty"`
 }
 
-// CustomHostnameAnalysisResult mirrors
-// armappcontainers.CustomHostnameAnalysisResult — the
-// listCustomHostNameAnalysis action response. Only swagger-declared
-// fields are emitted.
+// Only swagger-declared fields are emitted.
 type CustomHostnameAnalysisResult struct {
 	HostName                            string   `json:"hostName,omitempty"`
 	IsHostnameAlreadyVerified           bool     `json:"isHostnameAlreadyVerified"`
@@ -312,12 +266,9 @@ type CustomHostnameAnalysisResult struct {
 
 var acaApps sim.Store[ContainerApp]
 
-// stampContainerAppServerDefaults applies the defaults real ACA stamps
-// server-side on every write. terraform-provider-azurerm reads
-// properties.template.scale.cooldownPeriod (default 300) and pollingInterval
-// (default 30) and would otherwise drift to 0 on a post-apply plan; the
-// ingress FQDN, the revisions mode, maxInactiveRevisions and the traffic split
-// that sends everything to the latest revision are likewise server-populated.
+// stampContainerAppServerDefaults applies what Azure Container Apps stamps on
+// every write. terraform-provider-azurerm reads scale.cooldownPeriod (300) and
+// pollingInterval (30) and would drift to 0 without them.
 func stampContainerAppServerDefaults(app *ContainerApp, fqdn string) {
 	if cfg := app.Properties.Configuration; cfg != nil {
 		if strings.EqualFold(cfg.ActiveRevisionsMode, "Multiple") {
@@ -357,10 +308,8 @@ func stampContainerAppServerDefaults(app *ContainerApp, fqdn string) {
 	}
 }
 
-// acaAsyncOpHeaders writes the ARM LRO response headers for a Microsoft.App
-// operation: Azure-AsyncOperation → the operationStatuses envelope URL,
-// Location → the operationResults URL, plus Retry-After. Both routes are
-// served by the shared ARM async-operation handler.
+// Azure-AsyncOperation points at operationStatuses and Location at
+// operationResults; the shared async-operation handler serves both.
 func acaAsyncOpHeaders(w http.ResponseWriter, r *http.Request, sub, loc, opID string) {
 	apiVersion := r.URL.Query().Get("api-version")
 	writeAzureAsyncCreateHeaders(w, opID,
@@ -377,7 +326,6 @@ func registerContainerAppsApps(srv *sim.Server) {
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
 
-	// PUT - Create or update containerApp
 	srv.HandleFunc("PUT "+basePath+"/containerApps/{appName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -401,12 +349,9 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		// Container Apps answers a PUT with an Azure-AsyncOperation header
-		// that the SDK poller follows to the operationStatuses URL before
-		// it reads the app. Settle the revision's replicas before answering
-		// and issue the operation already Succeeded.
-		// The internal FQDN format mirrors real ACA:
-		// <app>.internal.<env>.<domain>, and a revision's
+		// The SDK poller follows Azure-AsyncOperation before it reads the app, so
+		// settle the revision's replicas first and issue the operation Succeeded. The
+		// internal FQDN is <app>.internal.<env>.<domain>, and a revision's
 		// <app>--<suffix>.internal.<env>.<domain>.
 		envName := acaEnvironmentName(req.Properties.EnvironmentID)
 		if envName == "" {
@@ -417,9 +362,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 		appFqdn := azureEndpointHostname(r, name, "internal", envName)
 
-		// Real ARM stamps `createdAt` once on resource creation and only
-		// updates `lastModifiedAt` on subsequent PUT/PATCH writes — preserve
-		// the original CreatedAt across updates instead of restamping.
+		// Keep CreatedAt across updates.
 		nowStamp := time.Now().UTC().Format(time.RFC3339Nano)
 		systemData := &SystemData{
 			CreatedAt:      nowStamp,
@@ -473,7 +416,6 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 	})
 
-	// GET - Get containerApp
 	srv.HandleFunc("GET "+basePath+"/containerApps/{appName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -488,7 +430,6 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
-	// GET - List containerApps in resource group
 	srv.HandleFunc("GET "+basePath+"/containerApps", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -507,12 +448,9 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// POST /containerApps/{appName}/listsecrets — real ACA keeps
-	// secrets out of GET responses; the dedicated listSecrets POST
-	// returns them. terraform-provider-azurerm refreshes via this
-	// endpoint on every plan after create.
-	// Single lowercase registration; AzurePathNormalizationMiddleware
-	// canonicalizes any client casing to lowercase before dispatch.
+	// GET omits secrets; listsecrets returns them, and terraform-provider-azurerm
+	// reads it on every plan. AzurePathNormalizationMiddleware lowercases the
+	// action.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/listsecrets", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -525,19 +463,15 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 		secrets := []ContainerAppSecret{}
-		// Keep a non-nil slice when the app has a configuration but no secrets:
-		// SecretsCollection.value is a REQUIRED array, so it must serialize as
-		// [] not null (a configured-but-secretless app overwrote it otherwise).
+		// SecretsCollection.value is required: keep [] rather than null.
 		if app.Properties.Configuration != nil && app.Properties.Configuration.Secrets != nil {
 			secrets = app.Properties.Configuration.Secrets
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": secrets})
 	})
 
-	// DELETE - Delete containerApp. Real Azure ARM returns 202 Accepted
-	// with Azure-AsyncOperation + Location headers and an empty body; the
-	// resource stays observable in provisioningState=Deleting until the
-	// operation completes, then the final GET returns 404.
+	// Azure answers 202 with the operation headers and an empty body; the app
+	// reads Deleting until the operation completes.
 	srv.HandleFunc("DELETE "+basePath+"/containerApps/{appName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -552,9 +486,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 		app.Properties.ProvisioningState = "Deleting"
 		apps.Put(resourceID, app)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
-			// A concurrent PUT is rejected with 409 while the state is
-			// Deleting, so the record present here is still the one this
-			// operation owns.
+			// A concurrent PUT is refused with 409 while Deleting, so this record is
+			// still the one this operation owns.
 			apps.Delete(resourceID)
 			syncManagedIdentityPrincipal(app.Identity, nil, "", "")
 			deleteACAAppRevisions(resourceID)
@@ -565,8 +498,6 @@ func registerContainerAppsApps(srv *sim.Server) {
 		w.WriteHeader(http.StatusAccepted)
 	})
 
-	// GET - List containerApps by subscription. ARM exposes a
-	// subscription-wide list alongside the resource-group-scoped one.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/containerApps", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		prefix := armSubscriptionID(sub) + "/"
@@ -584,8 +515,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// PATCH - Update containerApp: 202 with the operation while a revision
-	// the patch creates provisions, else 200 with the app.
+	// 202 with the operation while a revision the patch creates provisions, else
+	// 200 with the app.
 	srv.HandleFunc("PATCH "+basePath+"/containerApps/{appName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -653,8 +584,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
-	// POST /containerApps/{appName}/start — start the app's revisions.
-	// LRO whose body poller terminates on provisioningState=Succeeded.
+	// The body poller terminates on provisioningState Succeeded.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/start", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -676,7 +606,6 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
-	// POST /containerApps/{appName}/stop — stop the app's revisions.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/stop", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -694,9 +623,9 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
-	// POST /containerApps/{appName}/getAuthtoken — issue the token the
-	// app's log streams accept. The SDK spells the segment `getAuthtoken`
-	// and the Azure CLI `getAuthToken`; azureNormalizeRequestPath folds both.
+	// Issues the token the log streams accept. The SDK spells the segment
+	// `getAuthtoken` and the Azure CLI `getAuthToken`; azureNormalizeRequestPath
+	// folds both.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/getAuthtoken", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -723,9 +652,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, token)
 	})
 
-	// POST /containerApps/{appName}/listCustomHostNameAnalysis — analyze
-	// a custom hostname's DNS binding. The SDK sends the mixed-case
-	// segment verbatim.
+	// The SDK sends the mixed-case segment verbatim.
 	srv.HandleFunc("POST "+basePath+"/containerApps/{appName}/listCustomHostNameAnalysis", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -749,9 +676,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 
 const acaProvisioningInProgress = "InProgress"
 
-// failInterruptedACAProvisioning settles what an earlier process left
-// provisioning: its operation fails at restart, and so do the revision and
-// the app it provisioned.
+// failInterruptedACAProvisioning fails what an earlier process left
+// provisioning: the operation, the revision and the app.
 func failInterruptedACAProvisioning() {
 	for _, rev := range acaRevisions.List() {
 		if rev.ProvisioningState == acaRevisionProvisioning {
@@ -769,9 +695,8 @@ func failInterruptedACAProvisioning() {
 	}
 }
 
-// acaStoreProvisioning stores a written app and returns the operation its
-// write answers with: InProgress while a revision it created provisions, or
-// one it created before still does, and settled at once otherwise.
+// acaStoreProvisioning returns an operation InProgress while a revision the
+// write created, or an earlier one, still provisions, and settled otherwise.
 func acaStoreProvisioning(app *ContainerApp, rev *acaRevision) string {
 	if rev != nil {
 		app.Properties.ProvisioningState = acaProvisioningInProgress
@@ -788,10 +713,9 @@ func acaStoreProvisioning(app *ContainerApp, rev *acaRevision) string {
 	return issueAzureAsyncOperation(nil)
 }
 
-// acaSettleAppIdentity validates an app's secrets against its identity, brings
-// the directory in step with its system-assigned identity and reconciles its
-// revisions, returning the revision the write creates; it answers the request
-// and restores the directory when any of it fails.
+// acaSettleAppIdentity validates the secrets against the identity, brings the
+// directory in step with the system-assigned identity and reconciles the
+// revisions; on failure it answers the request and restores the directory.
 func acaSettleAppIdentity(w http.ResponseWriter, app *ContainerApp, prev ContainerApp, appFqdn string) (*acaRevision, bool) {
 	secrets := acaAppSecrets(*app)
 	var containers []JobContainer
@@ -869,8 +793,8 @@ func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID str
 		shortName = shortName[:24]
 	}
 	containerName := fmt.Sprintf("sockerless-sim-azure-app-%s-%s-%s", shortName, replica[strings.LastIndex(replica, "-")+1:], c.Name)
-	// The host pulls the replica's image with the credential the app
-	// declared for its registry, as Container Apps does.
+	// The host pulls with the credential the app declared for the registry, as
+	// Container Apps does.
 	return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             sim.ResolveLocalImage(c.Image),
@@ -889,8 +813,6 @@ func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID str
 	}}
 }
 
-// acaAppLogSink writes an app container's output to the
-// ContainerAppConsoleLogs_CL of the workspace the app's environment names.
 type acaAppLogSink struct {
 	app       ContainerApp
 	container string

@@ -1,23 +1,11 @@
 package main
 
-// Microsoft.Subscription (2021-10-01) ownership acceptance — the second half
-// of the programmatic subscription-creation flow.
-//
-// An alias creation that directs a subscription at a tenant and an owner
-// (properties.additionalProperties.subscriptionTenantId /
-// subscriptionOwnerId) does not hand the subscription over by itself: it
-// leaves an ownership request in the Pending state, and the destination owner
-// completes the handover by calling Subscription_AcceptOwnership. That call is
-// long-running in the Azure Resource Manager sense — it answers 202 with a
-// Location naming a Microsoft.Subscription operation, which reports 202 while
-// the acceptance runs and 200 with the new subscription's link once it has
-// settled. Subscription_AcceptOwnershipStatus reports the ownership state
-// itself (Pending, then Completed), and the same transition is visible on the
-// alias the provider reads.
-//
-// Wire shapes, status codes and the Location target mirror the vendored
-// Swagger and its examples
-// (specs/cloud-api/azure/subscription-arm-subscriptions-2021-10-01).
+// Microsoft.Subscription 2021-10-01 ownership acceptance. An alias directing a
+// subscription at a tenant and owner leaves a Pending ownership request;
+// Subscription_AcceptOwnership completes it, answering 202 with a Location
+// naming an operation that reports 202 while it runs and 200 with the
+// subscription's link once settled. Subscription_AcceptOwnershipStatus reports
+// Pending, then Completed, and the alias shows the same transition.
 
 import (
 	"fmt"
@@ -27,18 +15,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SubscriptionOwnershipRecord mirrors AcceptOwnershipStatusResponse in the
-// Microsoft.Subscription 2021-10-01 Swagger (spec field spelling kept), keyed
-// by the subscription whose ownership it tracks. AliasName links it back to
-// the alias creation that raised the request, so accepting ownership is
-// visible on the alias too.
+// AcceptOwnershipStatusResponse, spec field spelling kept, keyed by
+// subscription. AliasName links back to the alias that raised the request.
 type SubscriptionOwnershipRecord struct {
 	SubscriptionID string
 	AliasName      string
-	// AcceptOwnershipState carries the Swagger's AcceptOwnershipState enum.
-	// An offer runs Pending → Completed; the enum's third member, Expired, is
-	// reached by an expiry the 2021-10-01 contract puts no period on, so
-	// nothing here produces it.
+	// Pending → Completed. The contract puts no period on the expiry that reaches
+	// Expired, so nothing produces it.
 	AcceptOwnershipState string
 	ProvisioningState    string // Pending / Accepted / Succeeded
 	BillingOwner         string
@@ -47,11 +30,8 @@ type SubscriptionOwnershipRecord struct {
 	Tags                 map[string]string
 }
 
-// SubscriptionOperationRecord is one entry of the Microsoft.Subscription
-// operation registry that SubscriptionOperation_Get reads. The operation's
-// run state lives in the shared Azure Resource Manager async-operation store
-// under the same id; this record carries the provider-specific result, the
-// link to the subscription the operation concerns.
+// The run state lives in the shared async-operation store under the same ID;
+// this record carries the link to the subscription the operation concerns.
 type SubscriptionOperationRecord struct {
 	ID               string
 	SubscriptionLink string
@@ -66,10 +46,8 @@ func registerSubscriptionOwnership(srv *sim.Server) {
 	azureSubscriptionOwnerships = sim.MakeStore[SubscriptionOwnershipRecord](srv.DB(), "azure_subscription_ownerships")
 	azureSubscriptionOperations = sim.MakeStore[SubscriptionOperationRecord](srv.DB(), "azure_subscription_operations")
 
-	// POST - Subscription_AcceptOwnership.
 	srv.HandleFunc("POST /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnership", handleSubscriptionAcceptOwnership)
 
-	// GET - Subscription_AcceptOwnershipStatus.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/subscriptions/{subscriptionId}/acceptOwnershipStatus", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		record, ok := azureSubscriptionOwnerships.Get(sub)
@@ -81,8 +59,7 @@ func registerSubscriptionOwnership(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, subscriptionOwnershipStatusResponse(record))
 	})
 
-	// GET - SubscriptionOperation_Get: the Location target of every
-	// long-running Microsoft.Subscription operation.
+	// The Location target of every long-running Microsoft.Subscription operation.
 	srv.HandleFunc("GET /providers/Microsoft.Subscription/subscriptionOperations/{operationId}", func(w http.ResponseWriter, r *http.Request) {
 		opID := sim.PathParam(r, "operationId")
 		record, ok := azureSubscriptionOperations.Get(opID)
@@ -147,16 +124,15 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 			sub, record.AcceptOwnershipState), http.StatusConflict)
 		return
 	}
-	// Ownership is accepted by a principal of the tenant the subscription was
-	// directed at; a principal of any other tenant has nothing to accept.
+	// Only a principal of the tenant the subscription was directed at can accept.
 	if !equalFoldNonEmpty(callerTenant, record.SubscriptionTenantID) {
 		subscriptionRPError(w, "AuthorizationFailed", fmt.Sprintf(
 			"The ownership of subscription '%s' was offered to tenant '%s'; the caller belongs to tenant '%s'.",
 			sub, record.SubscriptionTenantID, callerTenant), http.StatusForbidden)
 		return
 	}
-	// Accepting ownership brings the subscription into the caller's tenant,
-	// which is exactly what blockSubscriptionsIntoTenant governs.
+	// Accepting brings the subscription into the caller's tenant, which
+	// blockSubscriptionsIntoTenant governs.
 	if azureSubscriptionPolicyDenies(callerTenant, callerObjectID, policyBlockSubscriptionsIntoTenant) {
 		subscriptionRPError(w, policyBlockSubscriptionsIntoTenant, fmt.Sprintf(
 			"The subscription policy of tenant '%s' blocks subscriptions from entering the tenant.",
@@ -177,13 +153,19 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 			rec.AcceptOwnershipState = "Completed"
 			rec.ProvisioningState = "Succeeded"
 		})
-		// The accepted subscription takes the name its new owner gave it, and
-		// the alias that raised the request reports the completed handover.
+		// The subscription takes its new owner's name, and the alias reports the
+		// completed handover.
 		ensureAzureSubscriptionRecord(sub)
 		azureSubscriptionRecords.Update(sub, func(rec *AzureSubscriptionRecord) {
 			rec.DisplayName = displayName
 			rec.TenantID = callerTenant
 		})
+		// A subscription that changes directory loses its role assignments;
+		// the principal that accepted it owns it in the new one.
+		rbacRemoveAssignmentsWithin(armSubscriptionID(sub))
+		if callerObjectID != "" {
+			rbacAssignOwner(sub, sim.NewUUID(), callerObjectID, rbacPrincipalType(callerObjectID))
+		}
 		if record.AliasName != "" {
 			azureSubscriptionAliases.Update(record.AliasName, func(alias *SubscriptionAliasRecord) {
 				alias.AcceptOwnershipState = "Completed"
@@ -202,9 +184,7 @@ func handleSubscriptionAcceptOwnership(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// subscriptionOperationURL is the absolute Location a long-running
-// Microsoft.Subscription operation advertises, carrying forward the
-// api-version the caller used.
+// Carries forward the caller's api-version.
 func subscriptionOperationURL(r *http.Request, opID string) string {
 	apiVersion := r.URL.Query().Get("api-version")
 	return fmt.Sprintf("%s://%s/providers/Microsoft.Subscription/subscriptionOperations/%s?api-version=%s",
@@ -219,9 +199,8 @@ func subscriptionOwnershipStatusResponse(record SubscriptionOwnershipRecord) map
 		"subscriptionTenantId": record.SubscriptionTenantID,
 		"displayName":          record.DisplayName,
 	}
-	// billingOwner is the user principal name of the billing owner. It is
-	// present only when the principal that raised the ownership request is a
-	// directory user; an application principal has no user principal name.
+	// Present only when a directory user raised the request; an application
+	// principal has no user principal name.
 	if record.BillingOwner != "" {
 		out["billingOwner"] = record.BillingOwner
 	}
@@ -231,8 +210,7 @@ func subscriptionOwnershipStatusResponse(record SubscriptionOwnershipRecord) map
 	return out
 }
 
-// equalFoldNonEmpty reports whether two identifiers are the same, treating an
-// empty identifier as matching nothing.
+// An empty identifier matches nothing.
 func equalFoldNonEmpty(a, b string) bool {
 	return a != "" && b != "" && strings.EqualFold(a, b)
 }

@@ -1,7 +1,6 @@
 # Standardized Makefile for ui-core — shared TS/React library, no
 # Vite bundle. Build is a typecheck; there's no `run` for a library.
 
-UI_PACKAGE := core
 REPO_ROOT  := $(abspath $(CURDIR)/../../..)
 
 include $(REPO_ROOT)/make/help.mk

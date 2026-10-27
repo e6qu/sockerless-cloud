@@ -97,7 +97,6 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 		"--stage-name", "cli",
 	)), `"stageName": "cli"`)
 
-	// List endpoints: the deployment + stage just created appear.
 	assert.Contains(t, runCLI(t, awsCLI("apigateway", "get-deployments",
 		"--rest-api-id", created.ID,
 	)), deployment.ID)
@@ -185,7 +184,6 @@ func TestAPIGatewayV2_HttpApiLifecycle(t *testing.T) {
 		"--route-id", route.RouteID,
 	)), route.RouteID)
 
-	// UpdateRoute (PATCH) changes the route key; GetRoute reflects it.
 	assert.Contains(t, runCLI(t, awsCLI("apigatewayv2", "update-route",
 		"--api-id", api.APIID,
 		"--route-id", route.RouteID,
@@ -240,11 +238,6 @@ func TestAPIGatewayV2_HttpApiLifecycle(t *testing.T) {
 	))
 }
 
-// TestAPIGateway_ApiKeysUsagePlansCLI exercises the v1 API-key + usage-plan
-// surface through the aws CLI: create-api-key / get-api-key / get-api-keys /
-// update-api-key, create-usage-plan / get-usage-plan / get-usage-plans /
-// update-usage-plan, create-usage-plan-key / get-usage-plan-key /
-// get-usage-plan-keys, plus the deletes.
 func TestAPIGateway_ApiKeysUsagePlansCLI(t *testing.T) {
 	t.Parallel()
 	keyOut := runCLI(t, awsCLI("apigateway", "create-api-key",
@@ -308,8 +301,6 @@ func TestAPIGateway_ApiKeysUsagePlansCLI(t *testing.T) {
 		"--usage-plan-id", plan.ID)), key.ID)
 }
 
-// TestAPIGateway_ModelsValidatorsAuthorizersCLI exercises the v1 REST-API-scoped
-// model / request-validator / authorizer CRUD through the aws CLI.
 func TestAPIGateway_ModelsValidatorsAuthorizersCLI(t *testing.T) {
 	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigateway", "create-rest-api", "--name", "cli-mva-api"))
@@ -366,8 +357,7 @@ func TestAPIGateway_ModelsValidatorsAuthorizersCLI(t *testing.T) {
 	assert.Contains(t, runCLI(t, awsCLI("apigateway", "get-authorizers", "--rest-api-id", api.ID)), auth.ID)
 }
 
-// TestAPIGatewayV2_AuthorizersModelsCLI exercises the v2 API-scoped authorizer
-// + model CRUD through the aws CLI (output is PascalCase).
+// The v2 CLI output is PascalCase.
 func TestAPIGatewayV2_AuthorizersModelsCLI(t *testing.T) {
 	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
@@ -418,8 +408,6 @@ func TestAPIGatewayV2_AuthorizersModelsCLI(t *testing.T) {
 	assert.Contains(t, runCLI(t, awsCLI("apigatewayv2", "get-models", "--api-id", api.APIID)), "CliV2Model")
 }
 
-// TestAPIGatewayV2_DomainNamesMappingsVpcLinksCLI exercises the v2 domain-name +
-// API-mapping + VPC-link surface through the aws CLI.
 func TestAPIGatewayV2_DomainNamesMappingsVpcLinksCLI(t *testing.T) {
 	t.Parallel()
 	domain := fmt.Sprintf("cli-%d.example.com", time.Now().UnixNano())

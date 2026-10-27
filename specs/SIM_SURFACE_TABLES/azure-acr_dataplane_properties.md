@@ -17,8 +17,8 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PATCH /acr/v1/{path...}` | ✓ `simulator-azure/acr_dataplane_properties.go:57::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /acr/v1/{path...}` | ✓ `simulator-azure/acr_dataplane_properties.go:60::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PATCH /acr/v1/{path...}` | ✓ `simulator-azure/acr_dataplane_properties.go:41::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /acr/v1/{path...}` | ✓ `simulator-azure/acr_dataplane_properties.go:44::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

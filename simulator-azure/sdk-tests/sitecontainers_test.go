@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createSiteForContainers provisions a Function App site and returns its
-// default hostname (used to route invocations).
+// createSiteForContainers creates a function app and returns its default
+// hostname.
 func createSiteForContainers(t *testing.T, rg, name string) string {
 	t.Helper()
 	ensureRG(t, rg)
@@ -43,7 +43,6 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Create the main + one sidecar sitecontainer.
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
 			Image:  to.Ptr("myapp:latest"),
@@ -64,13 +63,11 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// GET the main container back.
 	got, err := client.GetSiteContainer(ctx, rg, site, "main", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "myapp:latest", *got.Properties.Image)
 	assert.True(t, *got.Properties.IsMain)
 
-	// LIST returns both.
 	pager := client.NewListSiteContainersPager(rg, site, nil)
 	names := map[string]bool{}
 	for pager.More() {
@@ -83,7 +80,6 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 	assert.True(t, names["main"], "main sitecontainer should be listed")
 	assert.True(t, names["redis"], "redis sitecontainer should be listed")
 
-	// DELETE the sidecar; LIST should drop it.
 	_, err = client.DeleteSiteContainer(ctx, rg, site, "redis", nil)
 	require.NoError(t, err)
 	_, err = client.GetSiteContainer(ctx, rg, site, "redis", nil)
@@ -91,12 +87,9 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 }
 
-// TestSDK_AzureFunctions_MultiContainerSharesLocalhost proves the App
-// Service multi-container loopback contract: a sidecar sitecontainer that
-// binds a port is reachable from the main on localhost:<port>. The main
-// runs the localhost-probe HTTP server; on invoke it connects to the
-// sidecar (an HTTP server on :9090) over the shared loopback and echoes a
-// success token.
+// TestSDK_AzureFunctions_MultiContainerSharesLocalhost: a sidecar's port is
+// reachable from the main on localhost. On invoke, the main's probe server
+// connects to the sidecar's :9090 and echoes a success token.
 func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-sc-localhost-rg"
@@ -107,8 +100,6 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Main: probe-retry HTTP server that connects to the sidecar on
-	// localhost:9090 when invoked.
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
@@ -119,7 +110,6 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Sidecar: HTTP server bound to :9090 inside the shared netns.
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "sidecar", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
@@ -130,8 +120,7 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Invoke the function app: the sim starts the main + sidecar sharing one
-	// network namespace and posts to the main's HTTP port.
+	// The invoke starts the main and sidecar in one network namespace.
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
 	req.Header.Set("Content-Type", "application/json")
 	req.Host = host
@@ -145,9 +134,8 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 		"main must reach the sidecar on localhost:9090 over the shared netns")
 }
 
-// A sidecar sitecontainer that cannot start fails the site's start: the
-// invoke is refused and names the sidecar, rather than running the main
-// without it.
+// A sidecar that cannot start fails the site start: the invoke is refused,
+// naming the sidecar, rather than running the main without it.
 func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-sc-badsidecar-rg"
@@ -165,8 +153,7 @@ func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
 		},
 	}, nil)
 	require.NoError(t, err)
-	// No registry listens on 127.0.0.1:1, so the image can be neither found
-	// nor pulled.
+	// No registry listens on 127.0.0.1:1.
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "unpullable", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
 			Image:  to.Ptr("127.0.0.1:1/sockerless/absent-sidecar:none"),

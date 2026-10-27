@@ -13,17 +13,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// Every workload container is a member of an engine network that carries a
-// sidecar: the engine network of a virtual network's address prefix, a
-// Container Apps environment's own network, or the platform network for a
-// workload on no virtual network.
-// The sidecar answers DNS at the address Azure reserves for its resolver and
-// forwards metadata to the simulator, so the catalog attributes a query to
-// the network it came through and the metadata handlers see the workload's
-// own address.
+// Every workload container joins an engine network with a sidecar: a virtual
+// network prefix's, a Container Apps environment's, or the platform network.
+// The sidecar answers DNS at Azure's reserved resolver address and forwards
+// metadata, so the catalog attributes a query to its network and the metadata
+// handlers see the workload's own address.
 
-// azureWorkloadNetwork is the engine network a workload joins and the
-// resolver it is handed: the sidecar's address on that network.
 type azureWorkloadNetwork struct {
 	Network string
 	DNS     string
@@ -32,7 +27,7 @@ type azureWorkloadNetwork struct {
 func (n azureWorkloadNetwork) resolvers() []string { return []string{n.DNS} }
 
 // azureResolverNetworks maps an engine network to the virtual network it
-// realizes, which decides the private zones a query through its sidecar sees.
+// realizes, which decides the private zones a query through it sees.
 var azureResolverNetworks sync.Map
 
 func azureNetworkVNet(network string) string {
@@ -48,9 +43,7 @@ func azurePlatformNetworkName() string {
 	return "sockerless-sim-azure-platform-" + sim.WorkloadScope()
 }
 
-// azureEnsureSidecar runs the sidecar of an engine network that exists and
-// returns its address; the zero address takes the second host of the
-// network's range.
+// The zero address takes the second host of the network's range.
 func azureEnsureSidecar(ctx context.Context, network string, address netip.Addr) (string, error) {
 	if networkSidecars == nil {
 		return "", fmt.Errorf("network %s: the simulator's resolver is not running, so it has no sidecar to give the network", network)
@@ -82,9 +75,8 @@ func azurePlatformNetwork(ctx context.Context) (azureWorkloadNetwork, error) {
 	return azureWorkloadNetwork{Network: name, DNS: dns}, nil
 }
 
-// azureVNetNetworkFor realizes the engine network of the virtual network's
-// first address prefix, for an attach point that names the whole network and
-// no subnet, and, for a service placed on guests, joins the node agent to it.
+// azureVNetNetworkFor realizes the network of the first address prefix, for an
+// attach point naming the whole virtual network.
 func azureVNetNetworkFor(ctx context.Context, service placement.Service, vnetID string) (azureWorkloadNetwork, error) {
 	vnet, ok := azureVnets.Get(vnetID)
 	if !ok {
@@ -145,14 +137,11 @@ func azureJoinedVNetPrefixNetwork(ctx context.Context, service placement.Service
 	return network, nil
 }
 
-// azureVNetPrefixNetwork realizes one address prefix of the virtual network
-// as an engine network with its sidecar at the address Azure reserves for its
-// resolver in that prefix, and registers the network so the catalog answers
-// its queries with the zones linked to the virtual network. Each prefix is
-// an engine network of its own: the engine's bridge driver spans one range
-// per network. The engine isolates its bridges from each other, so a workload
-// in one prefix does not reach one in another prefix of the same virtual
-// network, where Azure routes between them.
+// azureVNetPrefixNetwork realizes one address prefix as an engine network, with
+// its sidecar at Azure's reserved resolver address, because the bridge driver
+// spans one range per network. The engine isolates bridges, so unlike Azure a
+// workload in one prefix does not reach another prefix of the same virtual
+// network.
 func azureVNetPrefixNetwork(ctx context.Context, vnet VirtualNetwork, prefix netip.Prefix, first bool) (azureWorkloadNetwork, error) {
 	name := dockerNetForVNetPrefix(vnet.ID, prefix, first)
 	if _, err := sim.EnsureCloudNetwork(ctx, sim.CloudNetwork{Name: name, CIDR: prefix}); err != nil {
@@ -170,11 +159,10 @@ func azureVNetPrefixNetwork(ctx context.Context, vnet VirtualNetwork, prefix net
 	return azureWorkloadNetwork{Network: name, DNS: dns}, nil
 }
 
-// azureVNetResolverAddress is the second usable address of the virtual
-// network's lowest subnet — one of the two addresses Azure reserves in every
-// subnet "to map the Azure DNS IPs to the VNet space" — or the virtual
-// network's own second host while it has no subnet. The subnet ledger keeps
-// tenants off it as part of its reservation.
+// azureVNetResolverAddress is the second usable address of the lowest subnet —
+// Azure reserves it "to map the Azure DNS IPs to the VNet space" — or of the
+// virtual network itself while it has no subnet. The subnet ledger keeps
+// tenants off it.
 func azureVNetResolverAddress(vnetID string, vnetPrefix netip.Prefix) netip.Addr {
 	base := vnetPrefix.Masked().Addr()
 	chosen := netip.Addr{}
@@ -203,16 +191,14 @@ func azureVNetResolverAddress(vnetID string, vnetPrefix netip.Prefix) netip.Addr
 	return base.Next().Next()
 }
 
-// azureVNetMicroVMAgentAddress is the third usable address of the same
-// subnet, the other address Azure reserves, which a node agent takes on the
-// virtual network.
+// The third usable address, Azure's other reservation, which the node agent
+// takes.
 func azureVNetMicroVMAgentAddress(vnetID string, vnetPrefix netip.Prefix) netip.Addr {
 	return azureVNetResolverAddress(vnetID, vnetPrefix).Next()
 }
 
-// azureVNetNetworkNames lists the engine networks of the virtual network's
-// prefixes: one per stored prefix, and any this process realized for a
-// prefix the network no longer has.
+// azureVNetNetworkNames also lists networks this process realized for prefixes
+// the virtual network no longer has.
 func azureVNetNetworkNames(vnetID string) []string {
 	names := []string{dockerNetForVNet(vnetID)}
 	seen := map[string]bool{names[0]: true}
@@ -234,9 +220,8 @@ func azureVNetNetworkNames(vnetID string) []string {
 	return names
 }
 
-// azureRemoveVNetNetwork removes the engine network of each of the virtual
-// network's prefixes, its sidecar and the node agent off it first; the engine
-// refuses while a workload is still attached.
+// The engine refuses to remove a network a workload is still attached to, so
+// remove the sidecar and the node agent first.
 func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
 	if azureNatGateways != nil {
 		for _, gw := range azureNatGateways.List() {
@@ -259,11 +244,9 @@ func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
 	return nil
 }
 
-// azureWholeVNetSubnet is the subnet whose ledger records the address a
-// connection naming a whole virtual network takes: the network's first
-// subnet, so a network interface created later in the virtual network
-// cannot lease the same address. A virtual network without a subnet has
-// none.
+// azureWholeVNetSubnet: a connection naming a whole virtual network records
+// its address in the first subnet's ledger, so a later network interface
+// cannot lease it.
 func azureWholeVNetSubnet(vnet VirtualNetwork) string {
 	for _, listed := range vnet.Properties.Subnets {
 		if subnet, ok := azureSubnetByID(listed.ID); ok {
@@ -281,10 +264,9 @@ func azureWholeVNetSubnet(vnet VirtualNetwork) string {
 	return subnets[0].ID
 }
 
-// azureLeaseWorkloadAddress leases an address in the subnet for a workload
-// container that has no network interface resource of its own — a Container
-// Apps replica, an App Service site, a container group's container — under
-// owner, and returns it.
+// azureLeaseWorkloadAddress serves a workload with no network interface
+// resource of its own: a Container Apps replica, an App Service site, a
+// container group's container.
 func azureLeaseWorkloadAddress(subnetID, owner string) (string, error) {
 	ip, err := azureLeaseSubnetAddress(subnetID, owner, nil)
 	if err != nil {
@@ -297,12 +279,9 @@ func azureReleaseWorkloadAddress(subnetID, owner, address string) {
 	azureReleaseSubnetAddress(subnetID, owner, net.ParseIP(address))
 }
 
-// azureWorkloadAddress leases the address a workload without a network
-// interface resource of its own takes on network: one of the subnet's when
-// the workload sits in a virtual network's subnet, else one of the
-// simulator's half of the platform network, which the engine never
-// allocates, so the workload lands at the same address whichever backend
-// places it. The release gives it back.
+// azureWorkloadAddress leases from the subnet, or else from the simulator's
+// half of the platform network, which the engine never allocates, so the
+// workload lands at the same address whichever backend places it.
 func azureWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, subnetID, owner string) (string, func(), error) {
 	if subnetID != "" {
 		address, err := azureLeaseWorkloadAddress(subnetID, owner)
@@ -314,8 +293,8 @@ func azureWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, sub
 	return azurePlatformAddress(ctx, network, owner)
 }
 
-// azureAdoptWorkloadAddress records that owner, a workload an earlier process
-// placed, holds address on network, and returns the release.
+// azureAdoptWorkloadAddress records the address a workload an earlier process
+// placed holds.
 func azureAdoptWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, subnetID, owner, address string) (func(), error) {
 	if subnetID != "" {
 		if _, err := azureLeaseSubnetAddress(subnetID, owner, net.ParseIP(address)); err != nil {
@@ -330,8 +309,6 @@ func azureAdoptWorkloadAddress(ctx context.Context, network azureWorkloadNetwork
 	return sim.ReservePlatformAddress(ctx, network.Network, at, owner)
 }
 
-// azurePlatformAddress leases the address a workload on no virtual network
-// takes: one of the simulator's half of the network it joins.
 func azurePlatformAddress(ctx context.Context, network azureWorkloadNetwork, owner string) (string, func(), error) {
 	address, release, err := sim.LeasePlatformAddress(ctx, network.Network, owner, netip.Addr{})
 	if err != nil {
@@ -340,7 +317,6 @@ func azurePlatformAddress(ctx context.Context, network azureWorkloadNetwork, own
 	return address.String(), release, nil
 }
 
-// azureReleaseOnExit returns the workload's lease once it has exited.
 func azureReleaseOnExit(exited <-chan struct{}, release func()) {
 	go func() {
 		<-exited
@@ -348,9 +324,8 @@ func azureReleaseOnExit(exited <-chan struct{}, release func()) {
 	}()
 }
 
-// azureRemoveWorkloadNetworks removes the engine networks a simulator with no
-// persistent state created for its workloads, once their sidecars and
-// workloads are gone; a persistent simulator's next run finds them again.
+// azureRemoveWorkloadNetworks runs only without persistent state; a persistent
+// simulator's next run finds the networks again.
 func azureRemoveWorkloadNetworks() {
 	if sim.HasPersistentWorkloadIdentity() {
 		return

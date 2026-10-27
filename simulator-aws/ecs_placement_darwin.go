@@ -7,8 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ecsHostCeiling on macOS (a developer running the simulator natively, with
-// no cgroup of its own) is the machine: physical memory and every CPU.
+// On macOS there is no cgroup; the machine's memory and CPUs are the ceiling.
 func ecsHostCeiling() ecsTaskSize {
 	memBytes, err := unix.SysctlUint64("hw.memsize")
 	if err != nil {

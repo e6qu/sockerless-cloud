@@ -7,9 +7,9 @@ terraform {
   }
 }
 
-# Standalone configuration run by TestTerraformFrontEndForwardedHeaders: a
-# Linux custom-container web app and a container app whose containers answer
-# every request with the request headers they received.
+# Run by TestTerraformFrontEndForwardedHeaders: a Linux custom-container web
+# app and a container app whose containers answer with the request headers
+# they received.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"
@@ -29,9 +29,8 @@ provider "azurerm" {
   features {}
 }
 
-# busybox nc runs the script on each connection: it collects the header lines
-# that follow the request line, then answers with them as a body its
-# Content-Length delimits.
+# busybox nc collects the header lines after the request line and answers
+# with them as a body its Content-Length delimits.
 locals {
   echo_headers = "set -f; f=$(mktemp); read -r l; while read -r l && [ $${#l} -gt 1 ]; do echo $l >> $f; done; printf 'HTTP/1.1 200 OK\\r\\nContent-Length: %s\\r\\nConnection: close\\r\\n\\r\\n' $(wc -c < $f); cat $f; rm $f"
 }
@@ -59,9 +58,9 @@ resource "azurerm_linux_web_app" "xff" {
     WEBSITES_PORT = "8080"
   }
 
-  # TLS mutual authentication: the front end asks a client for a certificate
-  # and forwards it as X-ARR-ClientCert; Optional lets a client without one
-  # through, and the excluded path is never asked.
+  # The front end asks for a client certificate and forwards it as
+  # X-ARR-ClientCert; Optional lets a client without one through, and the
+  # excluded path is never asked.
   client_certificate_enabled         = true
   client_certificate_mode            = "Optional"
   client_certificate_exclusion_paths = "/public"

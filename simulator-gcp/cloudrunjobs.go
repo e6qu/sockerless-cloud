@@ -13,8 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// Cloud Run Jobs v2 types
-
 // Job represents a Cloud Run Job resource.
 type Job struct {
 	Name                   string              `json:"name"`
@@ -58,14 +56,10 @@ type CancelExecutionRequest struct {
 	ValidateOnly bool   `json:"validateOnly,omitempty"`
 }
 
-// cloudRunEtagOK enforces the optimistic concurrency an etag-bearing request
-// asks for, on any Cloud Run v2 resource that carries one. Every resource whose
-// schema declares an etag mints a fresh fingerprint at each store write, so
-// `current` is the fingerprint of the version the store holds now. An omitted
-// etag acts unconditionally — the member is optional on every request that
-// accepts one — a supplied one must match, and a stale one is refused with the
-// ABORTED status Cloud Run answers a modification conflict with. `kind` names
-// the resource in the message, so a conflict says what moved under the caller.
+// cloudRunEtagOK enforces a request's etag on any Cloud Run v2 resource that
+// carries one; every store write mints a fresh etag. An omitted etag is
+// unconditional, a matching one proceeds, and a stale one is ABORTED, as Cloud
+// Run answers a modification conflict.
 func cloudRunEtagOK(w http.ResponseWriter, kind, name, current, supplied string) bool {
 	if supplied == "" || supplied == current {
 		return true
@@ -75,8 +69,6 @@ func cloudRunEtagOK(w http.ResponseWriter, kind, name, current, supplied string)
 	return false
 }
 
-// cloudRunJobEtagOK is cloudRunEtagOK bound to a Job, which several handlers
-// check the same way.
 func cloudRunJobEtagOK(w http.ResponseWriter, job Job, etag string) bool {
 	return cloudRunEtagOK(w, "job", job.Name, job.Etag, etag)
 }
@@ -387,14 +379,10 @@ type RPCStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Condition represents a status condition on a resource; run/apiv2 REST
-// clients send its state as a number.
-// Condition carries three reason fields, each with its own enum in the
-// Discovery document. Those enums are not exhaustive for `reason`: gcloud's
-// own cancellation poller reads condition["reason"] and compares it to the
-// literal "Cancelled" (and "Stopped" for a stop), which is proof the service
-// sends values the document does not list. The simulator answers what the real
-// client expects, and the spec validator skips this field for that reason.
+// Condition is a resource status condition; run/apiv2 REST clients send its
+// state as a number. The Discovery reason enums are not exhaustive: gcloud's
+// cancellation poller compares reason to "Cancelled" and "Stopped", so the
+// simulator sends those and the spec validator skips the field.
 type Condition struct {
 	Type               string                       `json:"type"`
 	State              protoEnum[runConditionState] `json:"state"`
@@ -405,11 +393,9 @@ type Condition struct {
 	RevisionReason     string                       `json:"revisionReason,omitempty"`
 }
 
-// Operation represents a long-running operation. Kind and SelfLink are the two
-// members Cloud Storage adds to google.longrunning.Operation in its own
-// GoogleLongrunningOperation schema ("storage#operation" and the link to the
-// record); every other service's document declares neither, so they are omitted
-// there.
+// Operation is google.longrunning.Operation. Only Cloud Storage's
+// GoogleLongrunningOperation declares Kind ("storage#operation") and
+// SelfLink, so other services omit them.
 type Operation struct {
 	Name     string          `json:"name"`
 	Metadata map[string]any  `json:"metadata,omitempty"`
@@ -420,19 +406,14 @@ type Operation struct {
 	SelfLink string          `json:"selfLink,omitempty"`
 }
 
-// OperationError represents an error from a long-running operation.
 type OperationError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-// newLRO creates a completed Long-Running Operation and persists it so
-// subsequent GET /operations/{op} polls return the same record, for the methods
-// whose work the request that returns the operation already finished.
-//
-// metadata builds the metadata message the method declares; each service
-// supplies its own, since the message belongs to the API and not to the
-// response type.
+// newLRO records an already-completed operation, for methods whose work
+// finishes before they answer, so GET /operations/{op} returns the same record.
+// metadata builds the metadata message the method declares.
 func newLRO(project, location string, resource any, typeName string, metadata gcpOperationMetadata) Operation {
 	responseMap := gcpOperationAny(resource, typeName)
 	op := Operation{
@@ -454,9 +435,8 @@ func gcpOperationAny(resource any, typeName string) map[string]any {
 	if resource == nil {
 		return map[string]any{"@type": typeName}
 	}
-	// resource is always a struct this package declares, so Marshal fails only
-	// on a type it cannot encode — a regression that would break every SDK
-	// reading the operation, and so fails loudly.
+	// resource is always a struct this package declares, so a Marshal failure is
+	// a regression that would break every SDK reading the operation: fail loudly.
 	data, err := json.Marshal(resource)
 	if err != nil {
 		panic(fmt.Errorf("marshal %s operation payload: %w", typeName, err))
@@ -664,9 +644,8 @@ func cloneAnyMap(src map[string]any) map[string]any {
 // alike. Cloud Functions runs on Cloud Run and gets the same.
 const cloudRunStopGrace = 10 * time.Second
 
-// crOperations holds long-running Operation records so the SDK can
-// `GetOperation` against the LRO returned by Create/Run/Delete, matching
-// real Cloud Run. Unknown ops 404 instead of synthetic done=true.
+// crOperations holds the long-running operations Create, Run and Delete
+// return, for GetOperation; an unknown name is NOT_FOUND.
 var crOperations sim.Store[Operation]
 
 // recoverCloudRunJobRunOperations completes every persisted RunJob operation
@@ -685,12 +664,8 @@ func recoverCloudRunJobRunOperations() {
 	}
 }
 
-// crjJobs, crjExecutions and crjTasks are the Cloud Run jobs stores. A job,
-// its executions and its tasks are each one resource addressable through two
-// API versions — the v2 resource-oriented surface and the v1 Knative
-// `namespaces` surface — so the stores are package-scoped rather than closed
-// over by the v2 handlers alone, and the v1 handlers project the same records
-// rather than keeping their own.
+// crjJobs, crjExecutions and crjTasks hold the Cloud Run jobs records the v2
+// handlers serve and the v1 Knative handlers project.
 var (
 	crjJobs       sim.Store[Job]
 	crjExecutions sim.Store[Execution]
@@ -712,7 +687,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
 
-	// Create job
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -770,20 +744,16 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cloudRunJobWriteOperation(project, location, jobID, job))
 	})
 
-	// Get job
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs/{job}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		jobID := sim.PathParam(r, "job")
 
-		// Reject if the path has extra segments (executions)
 		if strings.Contains(r.URL.Path, "/executions") {
 			return // let the executions handler deal with it
 		}
 
-		// The {job} wildcard also carries the GET-side IAM verb
-		// `{job}:getIamPolicy` (Go's mux can't spell `{id}:verb`); split
-		// on the colon and dispatch to the shared IAM handler.
+		// {job} also carries the GET verb `{job}:getIamPolicy`.
 		if id, action, found := strings.Cut(jobID, ":"); found {
 			if action == "getIamPolicy" {
 				handleResourceIAM(w, r, gcpResourceIAMStore(),
@@ -803,7 +773,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
-	// List jobs
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -811,7 +780,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		gcpWritePage(w, r, jobs, prefix, "jobs", func(j Job) string { return j.Name })
 	})
 
-	// Delete job
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/jobs/{job}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -833,8 +801,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// RunJob and the POST-side IAM verbs all arrive as
-	// POST .../jobs/{job}:<verb>; the verb selects the method.
+	// RunJob and the POST IAM verbs arrive as POST .../jobs/{job}:<verb>.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs/{jobAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -871,9 +838,8 @@ func registerCloudRunJobs(srv *sim.Server) {
 			return
 		}
 		if request.ValidateOnly {
-			// The request validated and nothing was created, so the operation
-			// carries no resource: reporting an Execution that does not exist
-			// would be the fake this simulator refuses to serve.
+			// The request validated and nothing was created, so the operation carries no
+			// resource.
 			lro := cloudRunLRO(project, location, nil, "type.googleapis.com/google.cloud.run.v2.Execution")
 			sim.WriteJSON(w, http.StatusOK, lro)
 			return
@@ -883,7 +849,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, startCloudRunJobRunOperation(project, location, exec))
 	})
 
-	// Get execution
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -899,7 +864,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, exec)
 	})
 
-	// List executions
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -925,10 +889,8 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// The custom methods the executions collection publishes. Cloud Run v2
-	// declares exactly one — executions.cancel — so every other verb reaching
-	// this fan-in names a method the service does not serve and is refused as
-	// such rather than silently cancelling the execution.
+	// Cloud Run v2 declares one custom method on executions, cancel; refuse any
+	// other verb.
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -972,7 +934,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, startCloudRunExecutionCancelOperation(project, location, exec))
 	})
 
-	// UpdateJob: PATCH /v2/projects/{project}/locations/{location}/jobs/{job}
 	srv.HandleFunc("PATCH /v2/projects/{project}/locations/{location}/jobs/{job}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -994,8 +955,8 @@ func registerCloudRunJobs(srv *sim.Server) {
 		if !cloudRunJobTemplateValid(w, update.Template, false) || !cloudRunJobExecutionTokenValid(w, jobID, update) {
 			return
 		}
-		// UpdateJob has no updateMask parameter — the full mutable resource is
-		// replaced. Preserve identity + server-owned fields.
+		// UpdateJob has no updateMask: it replaces the whole mutable resource, so
+		// carry identity and server-owned fields over.
 		update.Name = existing.Name
 		update.UID = existing.UID
 		update.CreateTime = existing.CreateTime
@@ -1023,7 +984,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cloudRunJobWriteOperation(project, location, jobID, update))
 	})
 
-	// DeleteExecution: DELETE /v2/.../jobs/{job}/executions/{execution}
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -1043,7 +1003,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// GetTask: GET /v2/.../jobs/{job}/executions/{execution}/tasks/{task}
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks/{task}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -1059,7 +1018,6 @@ func registerCloudRunJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, task)
 	})
 
-	// ListTasks: GET /v2/.../jobs/{job}/executions/{execution}/tasks
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/jobs/{job}/executions/{execution}/tasks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -1083,16 +1041,11 @@ func registerCloudRunJobs(srv *sim.Server) {
 	})
 }
 
-// applyCloudRunJobOverrides returns the task template one run should use: the
-// job's own template with the request's per-run replacements applied. The job
-// resource is untouched — an override lasts for the execution it was sent
-// with, which is what makes it an override rather than an update.
-//
-// Per google.cloud.run.v2.ContainerOverride: args replace the container's
-// args, clearArgs empties them, and env is merged into the container's env
-// (a name present in both takes the override's value). A container override
-// with no name addresses the job's first container, the way a single-container
-// job is addressed everywhere else in the API.
+// applyCloudRunJobOverrides returns the job's task template with one run's
+// overrides applied, leaving the job untouched. Per ContainerOverride, args
+// replace the container's args, clearArgs empties them, and env merges into
+// the container's env with the override winning; an override without a name
+// addresses the first container.
 func applyCloudRunJobOverrides(template *TaskTemplate, overrides *Overrides) *TaskTemplate {
 	if template == nil || overrides == nil {
 		return template

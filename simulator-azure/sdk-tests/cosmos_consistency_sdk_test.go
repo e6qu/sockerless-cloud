@@ -12,10 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCosmos_SessionTokenRoundTrip proves a write returns an x-ms-session-token
-// and a subsequent Session-consistency read that sends that token back succeeds
-// (read-your-writes), driven through the official azcosmos client — the session
-// machinery in cosmos_consistency.go.
+// TestCosmos_SessionTokenRoundTrip: a write returns x-ms-session-token, and a
+// Session read that sends it back sees the write.
 func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -37,8 +35,7 @@ func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
 	require.NotNil(t, writeResp.SessionToken, "a write must return a session token")
 	require.NotEmpty(t, *writeResp.SessionToken)
 
-	// Read-your-writes: a Session read that sends the write's token back observes
-	// the write and itself returns a session token.
+	// The read itself returns a session token.
 	session := azcosmos.ConsistencyLevelSession.ToPtr()
 	readResp, err := cc.ReadItem(ctx, pk, "x", &azcosmos.ItemOptions{
 		ConsistencyLevel: session,
@@ -50,7 +47,7 @@ func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(readResp.Value, &got))
 	assert.EqualValues(t, 1, got["v"])
 
-	// A second write advances the session token monotonically past the first.
+	// A second write advances the session token past the first.
 	raw2, _ := json.Marshal(map[string]any{"id": "x", "pk": "p", "v": 2})
 	w2, err := cc.UpsertItem(ctx, pk, raw2, nil)
 	require.NoError(t, err, "UpsertItem")
@@ -59,10 +56,9 @@ func TestCosmos_SessionTokenRoundTrip(t *testing.T) {
 		"a later write must issue a distinct (advanced) session token")
 }
 
-// TestCosmos_ConsistencyEscalationRejected proves the sim honors the account's
-// consistency ceiling: the default account consistency is Session, so a request
-// asking for Strong (a stronger level) is rejected with 400 BadRequest, exactly
-// as real Cosmos rejects an escalation past the account maximum.
+// TestCosmos_ConsistencyEscalationRejected: the account's default consistency
+// is Session, so a request for Strong is refused with 400 BadRequest, as Azure
+// refuses an escalation past the account level.
 func TestCosmos_ConsistencyEscalationRejected(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
@@ -83,7 +79,6 @@ func TestCosmos_ConsistencyEscalationRejected(t *testing.T) {
 		t.Fatalf("seed CreateItem: %v", err)
 	}
 
-	// Strong > the account's Session ceiling → 400.
 	strong := azcosmos.ConsistencyLevelStrong.ToPtr()
 	_, err = cc.ReadItem(ctx, pk, "x", &azcosmos.ItemOptions{ConsistencyLevel: strong})
 	require.Error(t, err, "Strong read must be rejected against a Session-max account")
@@ -91,7 +86,7 @@ func TestCosmos_ConsistencyEscalationRejected(t *testing.T) {
 	require.True(t, errors.As(err, &re), "want an azcore.ResponseError")
 	assert.Equal(t, 400, re.StatusCode, "escalation past the account max is a 400")
 
-	// Eventual (weaker than Session) is permitted.
+	// Eventual is weaker than Session, so it is permitted.
 	eventual := azcosmos.ConsistencyLevelEventual.ToPtr()
 	_, err = cc.ReadItem(ctx, pk, "x", &azcosmos.ItemOptions{ConsistencyLevel: eventual})
 	require.NoError(t, err, "Eventual (weaker) read must be permitted")

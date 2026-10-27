@@ -69,9 +69,8 @@ func TestGCSCLI_SoftDeleteListAndRestore(t *testing.T) {
 	if !strings.Contains(retired, object) {
 		t.Fatalf("gcloud storage objects list --soft-deleted did not include %q: %s", object, retired)
 	}
-	// gcloud renders the resource in its own snake_case projection, so the
-	// assertion is on what the CLI shows rather than on the wire spelling the
-	// SDK test already pins.
+	// gcloud renders its own snake_case projection; the SDK test pins the wire
+	// spelling.
 	if !strings.Contains(retired, "soft_delete_time") || !strings.Contains(retired, "hard_delete_time") {
 		t.Fatalf("a soft-deleted listing must carry both delete times: %s", retired)
 	}
@@ -113,10 +112,9 @@ func cliObjectGeneration(t *testing.T, listing string) string {
 	}
 }
 
-// Per-object access controls through the vendor CLI. `gcloud storage objects
-// update --add-acl-grant` writes one entry and `--remove-acl-grant` takes it
-// away; both read the object's ACL back, which is the surface that used to be
-// answered by the object handler.
+// TestGCSCLI_ObjectACLGrants: `gcloud storage objects update --add-acl-grant`
+// writes one entry and `--remove-acl-grant` removes it, each reading the
+// object's ACL back.
 func TestGCSCLI_ObjectACLGrants(t *testing.T) {
 	t.Parallel()
 	bucket := "cli-object-acl-bucket"

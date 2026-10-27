@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// The in-guest operations over the real az CLI. Each runs against a machine
-// that really booted, and asserts on what the guest produced.
+// Each in-guest operation runs against a machine that booted, and asserts on
+// what the guest produced.
 func TestComputeVirtualMachineGuestOperationsCLI(t *testing.T) {
 	t.Parallel()
 

@@ -8,8 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ec2NetworkInterfaceMatchesFilters applies the DescribeNetworkInterfaces filter
-// set (previously all filters were ignored, so a scoped query returned every ENI).
 func ec2NetworkInterfaceMatchesFilters(eni EC2NetworkInterface, filters map[string][]string) bool {
 	for name, vals := range filters {
 		switch name {
@@ -75,11 +73,8 @@ func handleDescribeNetworkInterfaces(w http.ResponseWriter, r *http.Request) {
 </DescribeNetworkInterfacesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// eniFieldsXML renders the inner ENI fields (no wrapper element), shared by
-// DescribeNetworkInterfaces (wrapped in <item>) and CreateNetworkInterface
-// (wrapped in <networkInterface>). The attachment block only appears when the
-// ENI is attached, and sourceDestCheck reflects the (modifiable)
-// SourceDestDisabled flag.
+// The attachment block appears only when attached; sourceDestCheck reflects
+// SourceDestDisabled.
 func eniFieldsXML(eni EC2NetworkInterface) string {
 	var groups strings.Builder
 	for _, groupID := range eni.SecurityGroupIds {
@@ -133,9 +128,7 @@ func eniFieldsXML(eni EC2NetworkInterface) string {
 		privateIPs.String(), attachment, writeTagSetXML(eni.Tags))
 }
 
-// handleCreateNetworkInterface materializes a standalone ENI in a subnet
-// (status "available", source/dest check on). Control-plane modeling like
-// handleCreateNatGateway — no real fabric.
+// A standalone network interface starts available with source/dest check on.
 func handleCreateNetworkInterface(w http.ResponseWriter, r *http.Request) {
 	subnetID := r.FormValue("SubnetId")
 	subnet, ok := ec2Subnets.Get(subnetID)

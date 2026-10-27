@@ -6,7 +6,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerUI mounts the console the build embeds or consoleDir holds.
 func registerUI(srv *sim.Server, consoleDir string) error {
 	bundle, err := consoleBundle(consoleDir)
 	if err != nil {

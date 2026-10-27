@@ -9,14 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3ControlTerraform drives the S3 control plane through
-// terraform-provider-aws: a standard access point over a bucket, the Object
-// Lambda access point that serves reads through a transformation function, a
-// Storage Lens dashboard, and the Access Grants instance with a location and a
-// grant inside it. Apply creates each, the outputs are read back from the
-// simulator's own answers, and destroy removes them in dependency order —
-// which is where an instance that refuses to delete while it still holds
-// grants would show up.
+// TestS3ControlTerraform applies a standard access point, an Object Lambda
+// access point serving reads through a transformation function, a Storage Lens
+// dashboard, and an Access Grants instance with a location and a grant, reads
+// them back and destroys them in dependency order: an instance refuses to
+// delete while it holds grants.
 func TestS3ControlTerraform(t *testing.T) {
 	tfsim.WithoutHTTPSGateway(t)
 	env := tfsim.Start(t, ".")

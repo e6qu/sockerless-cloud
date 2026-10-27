@@ -19,9 +19,8 @@ func logicTestDefinition(t *testing.T, actions string) map[string]any {
 	return def
 }
 
-// A run executes its actions in runAfter order, evaluating expressions over
-// variables, parameters, other actions' outputs and Foreach items, and takes
-// the branch its condition selects.
+// Expressions read variables, parameters, other actions' outputs and Foreach
+// items, and the condition selects the branch.
 func TestLogicRunExecutesActions(t *testing.T) {
 	var received []string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,8 +61,7 @@ func TestLogicRunExecutesActions(t *testing.T) {
 	}
 }
 
-// An action type the simulator cannot execute fails the run naming the type,
-// and a failure an action after it handles leaves the run Succeeded.
+// A failure an action after it handles leaves the run Succeeded.
 func TestLogicRunFailsAnActionItCannotExecute(t *testing.T) {
 	def := logicTestDefinition(t, `{
 		"send": {"type": "ApiConnection", "inputs": {"host": {"connection": {"name": "office365"}}}}
@@ -88,8 +86,6 @@ func TestLogicRunFailsAnActionItCannotExecute(t *testing.T) {
 	}
 }
 
-// Terminate ends the run with the status and error it names, and the actions
-// it cut off do not run.
 func TestLogicRunTerminate(t *testing.T) {
 	def := logicTestDefinition(t, `{
 		"stop": {"type": "Terminate", "inputs": {"runStatus": "Failed", "runError": {"code": "Stopped", "message": "stopped by design"}}},

@@ -9,18 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// The Microsoft.Network resource provider gives every top-level tracked
-// resource the same six operations — CreateOrUpdate, Get, Delete, UpdateTags,
-// list-by-resource-group and list-by-subscription — with the same ARM envelope
-// (id/name/type/location/tags/etag) wrapping a resource-specific properties
-// bag. azureNetworkResourceSpec captures that shared surface once so each
-// resource file contributes only what actually differs: its properties, the
-// defaults and cross-resource references the service computes, and whatever
-// association work its create and delete perform.
+// Every top-level tracked Microsoft.Network resource has the same six
+// operations — CreateOrUpdate, Get, Delete, UpdateTags, list by resource group
+// and by subscription — with the same envelope around its properties.
+// azureNetworkResourceSpec captures that surface once; each resource supplies
+// only what differs.
 
-// azureNetworkResourceHeader is the ARM Resource envelope. It is embedded in
-// each Microsoft.Network resource type, so its fields marshal inline exactly as
-// the swagger declares them.
+// Embedded in each resource type, so its fields marshal inline as the swagger
+// declares them.
 type azureNetworkResourceHeader struct {
 	ID       string            `json:"id,omitempty"`
 	Name     string            `json:"name,omitempty"`
@@ -30,51 +26,35 @@ type azureNetworkResourceHeader struct {
 	Etag     string            `json:"etag,omitempty"`
 }
 
-// azureNetworkResourceSpec describes one top-level Microsoft.Network resource.
 type azureNetworkResourceSpec[T any] struct {
-	// collection is the resource-group-scoped path segment, e.g.
-	// "applicationSecurityGroups".
 	collection string
-	// subCollection is the subscription-scoped spelling of the same segment.
-	// It is normally identical to collection; Microsoft.Network spells the
+	// Usually identical to collection; Microsoft.Network spells the
 	// service-endpoint-policy list "ServiceEndpointPolicies", and the SDK sends
-	// exactly that, so the two are kept separate.
+	// exactly that.
 	subCollection string
-	// nameParam is the swagger's path-parameter name for the resource name.
-	nameParam string
-	// resourceType is the ARM type string, e.g.
-	// "Microsoft.Network/applicationSecurityGroups".
-	resourceType string
-	store        sim.Store[T]
-	// noUpdateTags marks a resource type Microsoft.Network gives no UpdateTags
-	// operation — private endpoints and private link services are retagged
-	// through a full create-or-update instead.
+	nameParam     string
+	resourceType  string
+	store         sim.Store[T]
+	// Private endpoints and private link services have no UpdateTags; they retag
+	// through a full create-or-update.
 	noUpdateTags bool
-	// deleteStatus is the status a successful delete answers with. Most of the
-	// provider's resources document 200 for a completed delete; network
-	// watchers document only 202 and 204, and their SDK client rejects
-	// anything else. Zero means 200.
+	// Most resources document 200 for a completed delete; network watchers
+	// document only 202 and 204, and their client rejects anything else. Zero
+	// means 200.
 	deleteStatus int
 
-	// header returns the embedded ARM envelope of a resource so the shared
-	// handlers can stamp identity and read tags.
 	header func(*T) *azureNetworkResourceHeader
-	// provision applies the resource's own create/update semantics: default
-	// values, generated identifiers, child-resource identity, provisioning
-	// state, and whatever fabric the resource owns. It runs after the ARM
-	// envelope has been stamped, and receives the previously stored record when
-	// this write updates an existing resource. An error means the host could not
-	// realize the resource, which ARM reports as a retryable service condition.
+	// provision applies the resource's own create/update semantics after the
+	// envelope is stamped; previous is the stored record on an update. An error
+	// means the host could not realize the resource, a retryable service
+	// condition.
 	provision func(ctx context.Context, res *T, previous *T) error
-	// project renders a stored record for a response, refreshing the
-	// cross-resource references the real service recomputes on every read
-	// (attached subnets, live connections). Optional.
+	// project refreshes the cross-resource references the service recomputes on
+	// every read. Optional.
 	project func(*T)
-	// validate rejects a request body the resource provider will not accept,
-	// writing the ARM error itself and returning false.
+	// validate writes the error itself and returns false.
 	validate func(w http.ResponseWriter, r *http.Request, res *T) bool
-	// afterDelete runs once the row is gone, releasing whatever the resource
-	// owned.
+	// afterDelete releases what the resource owned.
 	afterDelete func(ctx context.Context, id string, deleted T)
 }
 
@@ -82,8 +62,6 @@ func (s azureNetworkResourceSpec[T]) resourceID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", s.collection, sim.PathParam(r, s.nameParam))
 }
 
-// resources is the spec's store as the shared ARM operations read it, with
-// the not-found error naming the request's resource and resource group.
 func (s azureNetworkResourceSpec[T]) resources(r *http.Request) armResources[T] {
 	return armResources[T]{
 		store:   s.store,
@@ -95,7 +73,6 @@ func (s azureNetworkResourceSpec[T]) resources(r *http.Request) armResources[T] 
 	}
 }
 
-// registerAzureNetworkResource mounts the six shared operations.
 func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResourceSpec[T]) {
 	if s.subCollection == "" {
 		s.subCollection = s.collection
@@ -135,9 +112,7 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 			}
 		}
 		s.store.Put(id, req)
-		// The Microsoft.Network resource provider answers a create or update
-		// with the provisioned resource once it reaches a terminal state; a
-		// terminal 200 carrying the resource completes the SDK's long-running
+		// A terminal 200 carrying the resource completes the SDK's long-running
 		// operation on the first response.
 		sim.WriteJSON(w, http.StatusOK, s.resources(r).projected(req))
 	})
@@ -151,8 +126,8 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 		if status == 0 {
 			status = http.StatusOK
 		}
-		// ARM reports a delete of an absent resource as a no-content success,
-		// so a repeated delete is idempotent.
+		// Azure Resource Manager answers a delete of an absent resource with no
+		// content, so a repeated delete is idempotent.
 		armDelete(w, r, s.resources(r), s.resourceID(r), armDeletion[T]{
 			status: status, absentStatus: http.StatusNoContent, after: s.afterDelete,
 		})
@@ -182,23 +157,18 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 	})
 }
 
-// azureNetworkResourceNotFound writes the ARM error the Microsoft.Network
-// resource provider returns for a read of a resource that does not exist.
 func azureNetworkResourceNotFound(w http.ResponseWriter, resourceType, name, rg string) {
 	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"The Resource '%s/%s' under resource group '%s' was not found.", resourceType, name, rg)
 }
 
-// azureNetworkEtag is the weak entity tag Microsoft.Network stamps on every
-// resource and child resource; clients treat it as opaque and only compare it
-// for change detection.
+// Clients treat it as opaque and compare it only for change detection.
 func azureNetworkEtag() string {
 	return `W/"` + sim.NewUUID() + `"`
 }
 
-// azureWriteProvisioningError answers a create whose provisioning failed: with
-// the request's own error when the resource's addresses could not be leased
-// as asked, and as the resource provider's failure otherwise.
+// The request's own error when addresses could not be leased as asked, the
+// resource provider's failure otherwise.
 func azureWriteProvisioningError(w http.ResponseWriter, resourceType, name string, err error) {
 	var fault *azureAddressFault
 	switch {

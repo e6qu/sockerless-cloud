@@ -9,16 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements faithful control-plane CRUD for the EC2 networking-misc
-// resource families that round out the public-IP / edge-networking surface:
-// Elastic IP address transfers, BYOIP CIDRs, public IPv4 pools, NAT-gateway
-// secondary addresses, trunk-interface associations, carrier gateways,
-// customer-owned IP (COIP) pools, network-interface permissions, virtual
-// private gateway route propagation, VPN concentrators, and managed-prefix-list
-// modification. Each is backed by a real SQLite-persisted sim.Store and
-// rendered as the exact ec2Query XML the AWS SDK for Go v2 and the aws CLI
-// deserialize (element names taken verbatim from the EC2 Smithy model).
-
 type EC2AddressTransfer struct {
 	AllocationId                     string
 	PublicIp                         string
@@ -120,69 +110,56 @@ func registerEC2NetworkingMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2EniPermissions = sim.MakeStore[EC2NetworkInterfacePermission](srv.DB(), "ec2_eni_permissions")
 	ec2VpnConcentrators = sim.MakeStore[EC2VpnConcentrator](srv.DB(), "ec2_vpn_concentrators")
 
-	// Address transfers
 	r.Register("EnableAddressTransfer", handleEnableAddressTransfer)
 	r.Register("DisableAddressTransfer", handleDisableAddressTransfer)
 	r.Register("AcceptAddressTransfer", handleAcceptAddressTransfer)
 	r.Register("DescribeAddressTransfers", handleDescribeAddressTransfers)
 
-	// BYOIP CIDRs
 	r.Register("ProvisionByoipCidr", handleProvisionByoipCidr)
 	r.Register("DeprovisionByoipCidr", handleDeprovisionByoipCidr)
 	r.Register("AdvertiseByoipCidr", handleAdvertiseByoipCidr)
 	r.Register("WithdrawByoipCidr", handleWithdrawByoipCidr)
 	r.Register("DescribeByoipCidrs", handleDescribeByoipCidrs)
 
-	// Public IPv4 pools
 	r.Register("CreatePublicIpv4Pool", handleCreatePublicIpv4Pool)
 	r.Register("DeletePublicIpv4Pool", handleDeletePublicIpv4Pool)
 	r.Register("DescribePublicIpv4Pools", handleDescribePublicIpv4Pools)
 	r.Register("ProvisionPublicIpv4PoolCidr", handleProvisionPublicIpv4PoolCidr)
 	r.Register("DeprovisionPublicIpv4PoolCidr", handleDeprovisionPublicIpv4PoolCidr)
 
-	// NAT-gateway secondary addresses
 	r.Register("AssignPrivateNatGatewayAddress", handleAssignPrivateNatGatewayAddress)
 	r.Register("UnassignPrivateNatGatewayAddress", handleUnassignPrivateNatGatewayAddress)
 	r.Register("AssociateNatGatewayAddress", handleAssociateNatGatewayAddress)
 	r.Register("DisassociateNatGatewayAddress", handleDisassociateNatGatewayAddress)
 
-	// Trunk interfaces
 	r.Register("AssociateTrunkInterface", handleAssociateTrunkInterface)
 	r.Register("DisassociateTrunkInterface", handleDisassociateTrunkInterface)
 	r.Register("DescribeTrunkInterfaceAssociations", handleDescribeTrunkInterfaceAssociations)
 
-	// Carrier gateways
 	r.Register("CreateCarrierGateway", handleCreateCarrierGateway)
 	r.Register("DeleteCarrierGateway", handleDeleteCarrierGateway)
 	r.Register("DescribeCarrierGateways", handleDescribeCarrierGateways)
 
-	// Customer-owned IP (COIP) pools
 	r.Register("CreateCoipPool", handleCreateCoipPool)
 	r.Register("DeleteCoipPool", handleDeleteCoipPool)
 	r.Register("DescribeCoipPools", handleDescribeCoipPools)
 	r.Register("GetCoipPoolUsage", handleGetCoipPoolUsage)
 
-	// Network-interface permissions
 	r.Register("CreateNetworkInterfacePermission", handleCreateNetworkInterfacePermission)
 	r.Register("DeleteNetworkInterfacePermission", handleDeleteNetworkInterfacePermission)
 	r.Register("DescribeNetworkInterfacePermissions", handleDescribeNetworkInterfacePermissions)
 
-	// VGW route propagation
 	r.Register("EnableVgwRoutePropagation", handleEnableVgwRoutePropagation)
 	r.Register("DisableVgwRoutePropagation", handleDisableVgwRoutePropagation)
 
-	// VPN concentrators
 	r.Register("CreateVpnConcentrator", handleCreateVpnConcentrator)
 	r.Register("DeleteVpnConcentrator", handleDeleteVpnConcentrator)
 	r.Register("DescribeVpnConcentrators", handleDescribeVpnConcentrators)
 
-	// Managed-prefix-list modify (store owned by ec2_acl_peering_prefix.go).
 	r.Register("ModifyManagedPrefixList", handleModifyManagedPrefixList)
 }
 
-// ec2ReturnResponse renders the legacy ec2Query mutation acknowledgement
-// (<OpResponse><requestId/><return>true</return></OpResponse>) shared by the
-// delete/toggle operations whose modeled output is a single Return member.
+// For operations whose modelled output is a single Return member.
 func ec2ReturnResponse(w http.ResponseWriter, action string) {
 	ec2Response(w, action, "<return>true</return>")
 }
@@ -401,9 +378,8 @@ func handleProvisionPublicIpv4PoolCidr(w http.ResponseWriter, r *http.Request) {
 		netmask = 32
 	}
 	count := 1 << uint(32-netmask)
-	// A /N from the IPAM pool contributes 2^(32-N) contiguous addresses; the
-	// exact octets aren't surfaced by the SDK shape beyond first/last so a
-	// deterministic, well-formed range is faithful to the contract.
+	// A /N contributes 2^(32-N) addresses; the SDK shape surfaces only first and
+	// last, so the range is derived deterministically.
 	rng := EC2PublicIpv4PoolRange{
 		FirstAddress:          "10.0.0.0",
 		LastAddress:           fmt.Sprintf("10.0.%d.%d", (count-1)>>8&0xff, (count-1)&0xff),
@@ -588,9 +564,7 @@ func handleDisassociateNatGatewayAddress(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// natGatewayAddressMutation resolves the NAT gateway, applies the per-op
-// address-set mutation, and renders the shared
-// <natGatewayId>/<natGatewayAddressSet> response.
+// Writes the error when the NAT gateway does not resolve.
 func natGatewayAddressTarget(w http.ResponseWriter, r *http.Request) (EC2NatGateway, bool) {
 	id := r.FormValue("NatGatewayId")
 	natgw, ok := ec2NatGateways.Get(id)
@@ -911,9 +885,8 @@ func handleDisableVgwRoutePropagation(w http.ResponseWriter, r *http.Request) {
 	setVgwRoutePropagation(w, r, "DisableVgwRoutePropagation", false)
 }
 
-// setVgwRoutePropagation toggles propagation of a virtual private gateway's
-// routes into a route table. Enabling records a propagating-VGW route on the
-// table (origin EnableVgwRoutePropagation); disabling removes those routes.
+// Enabling records a propagated route (origin EnableVgwRoutePropagation) on
+// the table; disabling removes those routes.
 func setVgwRoutePropagation(w http.ResponseWriter, r *http.Request, action string, enable bool) {
 	gatewayID := r.FormValue("GatewayId")
 	routeTableID := r.FormValue("RouteTableId")
@@ -938,8 +911,8 @@ func setVgwRoutePropagation(w http.ResponseWriter, r *http.Request, action strin
 		}
 		rt.Routes = next
 	})
-	// The Smithy output is smithy.api#Unit; the EC2 wire still acknowledges
-	// the mutation with <return>true</return>.
+	// The output is smithy.api#Unit, but the EC2 wire still answers
+	// <return>true</return>.
 	ec2ReturnResponse(w, action)
 }
 
@@ -1049,8 +1022,8 @@ func handleModifyManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 		if len(addEntries) > 0 {
 			p.Entries = append(append([]EC2PrefixListEntry{}, p.Entries...), addEntries...)
 		}
-		// A successful modification advances the version, as real AWS does;
-		// CurrentVersion-based optimistic concurrency is honored by the client.
+		// A modification advances the version, which clients use for
+		// CurrentVersion-based optimistic concurrency.
 		p.Version++
 		p.State = "modify-complete"
 	})

@@ -57,8 +57,7 @@ func TestAzureDNSServerAnswersConfiguredZones(t *testing.T) {
 	}
 }
 
-// A name outside the endpoint suffixes and every Azure DNS zone is recursed
-// for, as Azure-provided DNS does for a virtual network.
+// Azure-provided DNS recurses for a name outside every zone.
 func TestAzureDNSServerRecursesOutsideItsZones(t *testing.T) {
 	upstream, err := dnsserver.Start(dnsserver.Config{Host: "127.0.0.1", Name: "upstream", Catalog: func(dnsserver.Query) dnsserver.View {
 		rr, _ := dns.NewRR("account.blob.example.com. 60 IN A 203.0.113.9")
@@ -92,8 +91,7 @@ func TestAzureDNSServerRecursesOutsideItsZones(t *testing.T) {
 	}
 }
 
-// Every Azure DNS public zone is served with its record sets, and a name a
-// data plane registers answers ahead of every zone.
+// A name a data plane registers answers ahead of every zone.
 func TestAzureDNSServerServesPublicZonesAndRegisteredNames(t *testing.T) {
 	zones, sets := azurePublicDNSZones, azurePublicDNSRecordSets
 	t.Cleanup(func() { azurePublicDNSZones, azurePublicDNSRecordSets = zones, sets })
@@ -160,9 +158,8 @@ func TestParseAzureDNSZonesRejectsEmptyConfig(t *testing.T) {
 	}
 }
 
-// An Azure Private DNS zone answers only the virtual networks it is linked
-// to, ahead of a public zone of the same name. A query comes from the virtual
-// network whose address space holds the querier's address.
+// A query comes from the virtual network whose address space holds the
+// querier's address.
 func TestAzureDNSServerServesPrivateZonesToLinkedVirtualNetworks(t *testing.T) {
 	pubZones, pubSets := azurePublicDNSZones, azurePublicDNSRecordSets
 	zones, sets, links := azurePrivateDNSZones, azurePrivateDNSRecordSets, azurePrivateDNSVNetLinks

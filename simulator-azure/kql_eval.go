@@ -18,9 +18,8 @@ type kqlCompiled struct {
 	eval func(row []any) any
 }
 
-// kqlBinder resolves a query's names against the schema flowing into each
-// operator, types every expression before any row is read, and turns the
-// expression into a function of the row.
+// kqlBinder types every expression against the schema flowing into each
+// operator before any row is read.
 type kqlBinder struct {
 	src    string
 	op     string
@@ -205,8 +204,7 @@ func (b *kqlBinder) compileBinary(e kqlBinary) (kqlCompiled, *kqlError) {
 	return kqlCompiled{}, kqlSyntaxError(b.src, e.pos, e.op)
 }
 
-// kqlStringMatcher returns the test a string operator applies. Operators
-// without the _cs suffix ignore case, as Kusto's do.
+// Operators without the _cs suffix ignore case, as Kusto's do.
 func kqlStringMatcher(op string) func(haystack, needle string) bool {
 	base := strings.TrimPrefix(op, "!")
 	caseSensitive := strings.HasSuffix(base, "_cs")
@@ -237,8 +235,7 @@ func kqlStringMatcher(op string) func(haystack, needle string) bool {
 	}
 }
 
-// kqlHasTerm reports whether needle occurs in haystack on term boundaries: a
-// term is a run of letters and digits, so `has "error"` matches "an error:"
+// A term is a run of letters and digits, so `has "error"` matches "an error:"
 // but not "errors".
 func kqlHasTerm(haystack, needle string, boundaryBefore, boundaryAfter bool) bool {
 	if needle == "" {
@@ -834,7 +831,6 @@ func kqlToLong(v any) any {
 	return nil
 }
 
-// kqlCompare orders two non-null values of comparable types.
 func kqlCompare(a, b any) int {
 	switch a := a.(type) {
 	case string:
@@ -910,8 +906,7 @@ func kqlToString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// kqlParseDynamic reads JSON text as a dynamic value. Text that is not JSON
-// stays the string it is, as parse_json leaves it.
+// Text that is not JSON stays a string, as parse_json leaves it.
 func kqlParseDynamic(s string) any {
 	dec := json.NewDecoder(strings.NewReader(s))
 	dec.UseNumber()
@@ -922,8 +917,7 @@ func kqlParseDynamic(s string) any {
 	return kqlDynamicFromJSON(v)
 }
 
-// kqlDynamicFromJSON turns decoded JSON into the engine's dynamic value:
-// integers are longs and other numbers reals.
+// Integers are longs and other numbers reals.
 func kqlDynamicFromJSON(v any) any {
 	switch v := v.(type) {
 	case json.Number:
@@ -954,8 +948,7 @@ func kqlDynamicFromJSON(v any) any {
 	return v
 }
 
-// kqlDynamicMember reads a property of a dynamic bag or an element of a
-// dynamic array; a negative index counts from the end. Anything else is null.
+// A negative index counts from the end; anything else is null.
 func kqlDynamicMember(v, key any) any {
 	switch v := v.(type) {
 	case map[string]any:
@@ -975,7 +968,7 @@ func kqlDynamicMember(v, key any) any {
 	return nil
 }
 
-// kqlFormatTimespan writes a timespan the way Kusto does: [-][d.]hh:mm:ss[.fffffff].
+// Kusto's format: [-][d.]hh:mm:ss[.fffffff].
 func kqlFormatTimespan(d time.Duration) string {
 	sign := ""
 	if d < 0 {
@@ -1001,8 +994,6 @@ func kqlFormatTimespan(d time.Duration) string {
 	return out
 }
 
-// kqlRenderValue converts an engine value into the JSON the query API returns
-// for a cell of the given column type.
 func kqlRenderValue(v any) any {
 	switch v := v.(type) {
 	case time.Time, time.Duration, map[string]any, []any:
@@ -1231,8 +1222,7 @@ func kqlRowKey(row []any) string {
 	return sb.String()
 }
 
-// kqlColumnName names an output column: the name the query gave it, or the
-// column an expression reads, or Kusto's ColumnN for anything else.
+// The name the query gave, the column an expression reads, or Kusto's ColumnN.
 func kqlColumnName(item kqlAssignment, taken map[string]bool) string {
 	if item.name != "" {
 		return item.name
@@ -1287,7 +1277,6 @@ func kqlDuplicateColumn(op string, cols []Column) *kqlError {
 	return nil
 }
 
-// apply runs one tabular operator over the rows flowing into it.
 func (b *kqlBinder) apply(op kqlOperator, in kqlResultSet) (kqlResultSet, *kqlError) {
 	b.op = op.operatorName()
 	b.schema = in.columns

@@ -269,17 +269,14 @@ func TestGlue_PartitionLifecycle_CLI(t *testing.T) {
 }
 
 // glueJobRunCompletionBudget bounds the wait for an AWS Glue job run to settle.
-// A Python shell job run is real container work — the interpreter image is
-// pulled if absent, the script runs inside it, and the run settles when that
-// container exits — so the budget covers the container engine's
-// pull/create/start/wait alongside whatever else is running on the host. Real
-// AWS Glue job runs take minutes; the API promises nothing faster.
+// A Python shell job run is real container work (pull if absent, run the
+// script, exit), so the budget covers the container engine alongside whatever
+// else shares the host.
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_CLI(t *testing.T) {
 	t.Parallel()
-	// The interpreter this job run executes in, fetched before the clock the
-	// run is timed by starts.
+	// Fetch the interpreter image before the run's clock starts.
 	ensureGluePythonShellImage(t)
 	bucket := "glue-cli-scripts"
 	scriptPath := filepath.Join(tmpDir, "glue-cli-script.py")
@@ -371,8 +368,8 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 		"--run-id", "jr_does_not_exist"))
 	assert.Contains(t, errOut, "EntityNotFoundException")
 
-	// get-job-runs for a non-existent job must error (EntityNotFoundException),
-	// not return an empty list.
+	// get-job-runs for a missing job fails with EntityNotFoundException rather
+	// than returning an empty list.
 	errOut = runCLIExpectError(t, awsCLI("glue", "get-job-runs", "--job-name", "glue-cli-no-such-job"))
 	assert.Contains(t, errOut, "EntityNotFoundException")
 }
@@ -927,7 +924,6 @@ func TestGlue_TableVersionsAndIndexes_CLI(t *testing.T) {
 	require.Len(t, bd.Errors, 1)
 	assert.Equal(t, "999", bd.Errors[0].VersionId)
 
-	// Partition index lifecycle.
 	runCLI(t, awsCLI("glue", "create-partition-index",
 		"--database-name", db, "--table-name", tbl,
 		"--partition-index", `{"IndexName":"dt-index","Keys":["dt"]}`))
@@ -1001,7 +997,6 @@ func TestGlue_ColumnStatistics_CLI(t *testing.T) {
 	parseJSON(t, out, &gcs)
 	assert.Empty(t, gcs.ColumnStatisticsList)
 
-	// Partition-scoped statistics.
 	runCLI(t, awsCLI("glue", "create-partition",
 		"--database-name", db, "--table-name", tbl,
 		"--partition-input", `{"Values":["2024-01-01"],"StorageDescriptor":{"Location":"s3://bucket/stats/dt=2024-01-01/"}}`))
@@ -1029,7 +1024,7 @@ func TestGlue_ColumnStatistics_CLI(t *testing.T) {
 }
 
 // An account has one Data Catalog resource policy, so a test holds this while
-// the policy it put is the one it reads back, and deletes it before letting go.
+// it reads back the policy it put, and deletes the policy before releasing it.
 var glueCatalogPolicy sync.Mutex
 
 func TestGlue_ResourcePolicyAndCatalog_CLI(t *testing.T) {
@@ -1057,7 +1052,6 @@ func TestGlue_ResourcePolicyAndCatalog_CLI(t *testing.T) {
 		runCLI(t, awsCLI("glue", "delete-resource-policy"))
 	}()
 
-	// Data catalog encryption + catalog import status.
 	runCLI(t, awsCLI("glue", "put-data-catalog-encryption-settings",
 		"--data-catalog-encryption-settings",
 		`{"EncryptionAtRest":{"CatalogEncryptionMode":"SSE-KMS","SseAwsKmsKeyId":"arn:aws:kms:us-east-1:123456789012:key/abc"},"ConnectionPasswordEncryption":{"ReturnConnectionPasswordEncrypted":true}}`))

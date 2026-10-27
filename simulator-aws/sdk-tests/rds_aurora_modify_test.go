@@ -76,7 +76,7 @@ func TestRDS_AuroraModifyClusterRotatesPasswordAndMovesPort(t *testing.T) {
 	}
 
 	// The engine has not run yet: it starts on the first connection with the
-	// password the cluster was created with and installs the new one.
+	// creation password and installs the new one.
 	modify(&rds.ModifyDBClusterInput{MasterUserPassword: aws.String("Pending-Password-1")})
 	writer := open(writerHost, port, "Pending-Password-1")
 	_, err = writer.ExecContext(testContext, `CREATE TABLE kept (id integer PRIMARY KEY, value varchar(64) NOT NULL)`)
@@ -86,7 +86,6 @@ func TestRDS_AuroraModifyClusterRotatesPasswordAndMovesPort(t *testing.T) {
 	require.Error(t, open(writerHost, port, "Created-Password-0").PingContext(testContext),
 		"the password the cluster was created with no longer signs in")
 
-	// Two rotations in a row against the running engine.
 	for _, password := range []string{"Rotated-Password-2", "Rotated-Password-3"} {
 		modify(&rds.ModifyDBClusterInput{MasterUserPassword: aws.String(password)})
 		require.NoError(t, open(writerHost, port, password).PingContext(testContext), password)

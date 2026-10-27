@@ -11,9 +11,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EventBridge uses the AWS JSON protocol with X-Amz-Target:
-// AWSEvents.<Operation>. The simulator implements the foundational
-// rule/target/event slice used by SDK, CLI, and Terraform consumers.
+// Amazon EventBridge speaks AWS-JSON with X-Amz-Target: AWSEvents.<Operation>.
 
 type EBRule struct {
 	Name               string            `json:"Name"`
@@ -46,10 +44,8 @@ type EBTarget struct {
 	RoleArn   string `json:"RoleArn,omitempty"`
 	Input     string `json:"Input,omitempty"`
 	InputPath string `json:"InputPath,omitempty"`
-	// Structured target parameters round-trip byte-exact: storing and
-	// re-emitting the raw JSON preserves every sub-shape so ListTargetsByRule
-	// returns what PutTargets received (terraform aws_cloudwatch_event_target
-	// reads these back).
+	// Stored raw so ListTargetsByRule returns what PutTargets received, which
+	// aws_cloudwatch_event_target reads back.
 	EcsParameters               json.RawMessage `json:"EcsParameters,omitempty"`
 	InputTransformer            json.RawMessage `json:"InputTransformer,omitempty"`
 	RetryPolicy                 json.RawMessage `json:"RetryPolicy,omitempty"`
@@ -181,7 +177,7 @@ func ebReplayArn(name string) string {
 	return fmt.Sprintf("arn:aws:events:%s:%s:replay/%s", awsRegion(), awsAccountID(), name)
 }
 
-// ebBusName is the bus an EventBusName names, by name or by ARN.
+// Accepts a name or an ARN.
 func ebBusName(name string) string {
 	if name == "" {
 		return "default"
@@ -614,10 +610,7 @@ func handleEBListRules(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, out)
 }
 
-// handleEBListRuleNamesByTarget returns the names of rules on the given bus that
-// have a target with the supplied ARN. EventBridge scans every rule's target
-// list for the ARN; a rule with multiple targets sharing the ARN is reported
-// once.
+// A rule with several targets sharing the ARN is reported once.
 func handleEBListRuleNamesByTarget(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TargetArn    string `json:"TargetArn"`
@@ -658,10 +651,8 @@ func handleEBListRuleNamesByTarget(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, out)
 }
 
-// handleEBTestEventPattern reports whether the supplied Event matches the
-// supplied EventPattern. It reuses ebEventPatternMatches — the same evaluator
-// PutEvents delivery uses — so a "Result":true here is exactly a rule that
-// would fire on the event. A malformed pattern yields InvalidEventPatternException.
+// Uses the same evaluator as PutEvents delivery, so true means a rule would
+// fire. A malformed pattern is an InvalidEventPatternException.
 func handleEBTestEventPattern(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EventPattern string `json:"EventPattern"`
@@ -692,16 +683,12 @@ func handleEBTestEventPattern(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{"Result": result})
 }
 
-// ebValidateEventPattern reports why a pattern is not one EventBridge
-// accepts.
 func ebValidateEventPattern(patternJSON string) error {
 	_, err := awsParsePattern(ebPatternDialect, patternJSON)
 	return err
 }
 
-// handleEBUpdateEventBus updates a named (or default) event bus's mutable
-// fields — Description, KmsKeyIdentifier, and DeadLetterConfig — and returns the
-// bus's identity plus the updated fields, matching the UpdateEventBus response.
+// Description, KmsKeyIdentifier and DeadLetterConfig are mutable.
 func handleEBUpdateEventBus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string          `json:"Name"`
@@ -905,9 +892,8 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 	entries := make([]map[string]string, 0, len(req.Entries))
 	failed := 0
 	for _, entry := range req.Entries {
-		// Real EventBridge requires each entry's Detail to be a valid JSON
-		// object; a malformed Detail fails that single entry (the rest of the
-		// batch still succeeds) with a MalformedDetail per-entry error.
+		// A Detail that is not a JSON object fails only its own entry, with
+		// MalformedDetail.
 		if entry.Detail != "" {
 			var detailObj any
 			if err := json.Unmarshal([]byte(entry.Detail), &detailObj); err != nil {
@@ -938,8 +924,7 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
 }
 
-// ebAcceptEvent records an event that happened at the given time on bus,
-// archives it and delivers it to the bus's matching rules, returning its ID.
+// Archives the event and delivers it to the bus's matching rules.
 func ebAcceptEvent(bus, source, detailType, detail string, resources []string, at time.Time) string {
 	record := EBEventRecord{
 		ID:         sim.NewUUID(),
@@ -956,18 +941,14 @@ func ebAcceptEvent(bus, source, detailType, detail string, resources []string, a
 	return record.ID
 }
 
-// ebPutServiceEvent is an AWS service's own event on the default event bus.
+// An AWS service's event on the default bus.
 func ebPutServiceEvent(source, detailType, detail string, resources []string) {
 	ebAcceptEvent(ebBusName(""), source, detailType, detail, resources, time.Now())
 }
 
-// ebMaxArchivedEvents bounds an archive's retained-event slice when the archive
-// has no finite RetentionDays (0 = indefinite in real EventBridge). Without a
-// bound a long-lived sim leaks memory as ArchivedEvents grows unboundedly. A
-// real indefinite archive is effectively bounded by storage; the sim models that
-// as a generous in-memory window, dropping the oldest events past the cap.
-// replayArchivedEvents iterates the retained slice, so only the retained window
-// replays — faithful to a retention period.
+// An archive without finite RetentionDays (0 is indefinite) keeps at most this
+// many of its newest events, so a long-lived simulator does not grow without
+// bound; replay covers the retained window.
 const ebMaxArchivedEvents = 10000
 
 func archiveEBEvent(bus string, record EBEventRecord) {
@@ -981,8 +962,7 @@ func archiveEBEvent(bus string, record EBEventRecord) {
 		}
 		archive.ArchivedEvents = append(archive.ArchivedEvents, record)
 		archive.ArchivedEvents = ebApplyRetention(archive.ArchivedEvents, archive.RetentionDays)
-		// EventCount and SizeBytes describe the retained window, recomputed from
-		// the (possibly trimmed) slice so they stay consistent after aging-out.
+		// Recompute from the retained slice so they stay consistent.
 		archive.EventCount = int64(len(archive.ArchivedEvents))
 		archive.SizeBytes = 0
 		for _, e := range archive.ArchivedEvents {
@@ -992,11 +972,8 @@ func archiveEBEvent(bus string, record EBEventRecord) {
 	}
 }
 
-// ebApplyRetention bounds an archive's retained events. When RetentionDays is set
-// (> 0), events older than that window (by their epoch Time) age out, matching
-// EventBridge's retention period. When it is unset/0 (indefinite), the slice is
-// capped to the newest ebMaxArchivedEvents so memory stays bounded. The newest
-// events are always retained, so a just-archived event survives both paths.
+// With RetentionDays set, older events age out; with 0 the newest
+// ebMaxArchivedEvents are kept. The newest event always survives.
 func ebApplyRetention(events []EBEventRecord, retentionDays *int32) []EBEventRecord {
 	if retentionDays != nil && *retentionDays > 0 {
 		cutoff := time.Now().Unix() - int64(*retentionDays)*86400
@@ -1014,10 +991,8 @@ func ebApplyRetention(events []EBEventRecord, retentionDays *int32) []EBEventRec
 	return events
 }
 
-// ebBuildEvent assembles the full EventBridge event object that rule and
-// archive patterns match and a target's InputPath / InputTransformer
-// JSONPaths resolve against. PutEvents has already rejected a Detail that is
-// not JSON.
+// The event object patterns match and InputPath / InputTransformer resolve
+// against. PutEvents has already rejected a non-JSON Detail.
 func ebBuildEvent(record EBEventRecord) map[string]any {
 	var detailObj any
 	if record.Detail != "" {
@@ -1040,8 +1015,7 @@ func ebBuildEvent(record EBEventRecord) map[string]any {
 	}
 }
 
-// ebJSONPath resolves a simple EventBridge input-transformer JSONPath
-// ($.a.b, $.a[0].b) against the event object, returning the value + found.
+// Simple paths such as $.a.b and $.a[0].b.
 func ebJSONPath(root any, path string) (any, bool) {
 	if !strings.HasPrefix(path, "$") {
 		return nil, false
@@ -1085,8 +1059,7 @@ func ebJSONPath(root any, path string) (any, bool) {
 	return cur, true
 }
 
-// ebApplyInput computes the body delivered to a target per its mutually
-// exclusive Input / InputPath / InputTransformer, in real-EventBridge priority.
+// Input, InputPath and InputTransformer are mutually exclusive.
 func ebApplyInput(target EBTarget, record EBEventRecord) string {
 	if target.Input != "" {
 		return target.Input
@@ -1115,7 +1088,7 @@ func ebApplyInput(target EBTarget, record EBEventRecord) string {
 		val := ""
 		if v, ok := ebJSONPath(event, jp); ok {
 			if s, isStr := v.(string); isStr {
-				val = s // unquoted: matches AWS inserting a string into "<var>"
+				val = s // Unquoted: AWS inserts a string into "<var>" bare.
 			} else {
 				raw, _ := json.Marshal(v)
 				val = string(raw)
@@ -1126,8 +1099,7 @@ func ebApplyInput(target EBTarget, record EBEventRecord) string {
 	return out
 }
 
-// ebEventPatternMatches reports whether event satisfies a pattern
-// PutRule or CreateArchive stored after validating it.
+// The pattern was validated when PutRule or CreateArchive stored it.
 func ebEventPatternMatches(patternJSON string, event map[string]any) bool {
 	pattern, err := awsParsePattern(ebPatternDialect, patternJSON)
 	if err != nil {
@@ -1136,9 +1108,7 @@ func ebEventPatternMatches(patternJSON string, event map[string]any) bool {
 	return awsPatternMatches(pattern, event)
 }
 
-// ebLambdaNameFromARN extracts the function name from a Lambda function ARN
-// (arn:aws:lambda:<region>:<acct>:function:<name>[:<qualifier>]). The sim keys
-// lambdaFunctions by unqualified name, so any qualifier is dropped.
+// lambdaFunctions is keyed by unqualified name, so drop any qualifier.
 func ebLambdaNameFromARN(arn string) string {
 	const marker = ":function:"
 	i := strings.Index(arn, marker)
@@ -1225,9 +1195,8 @@ func handleEBListArchives(w http.ResponseWriter, r *http.Request) {
 	}, ebArchiveSummary)
 }
 
-// ebArchiveSummary projects an archive onto the list-shape Archive
-// members; ArchiveArn / Description / EventPattern / KmsKeyIdentifier
-// are describe-only and must not appear in ListArchives entries.
+// ArchiveArn, Description, EventPattern and KmsKeyIdentifier are
+// describe-only.
 func ebArchiveSummary(a EBArchive) map[string]any {
 	out := map[string]any{
 		"ArchiveName":    a.ArchiveName,
@@ -1263,11 +1232,8 @@ func handleEBDeleteArchive(w http.ResponseWriter, r *http.Request) {
 	writeEBJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleEBUpdateArchive mutates an existing archive's Description, EventPattern,
-// RetentionDays, and KmsKeyIdentifier. Only the fields supplied in the request
-// are changed (each is a pointer so the absent/null case leaves the stored value
-// intact), matching UpdateArchive. A malformed EventPattern is rejected with
-// InvalidEventPatternException, the same way CreateArchive validates patterns.
+// Pointers leave absent fields unchanged; a malformed EventPattern is an
+// InvalidEventPatternException, as in CreateArchive.
 func handleEBUpdateArchive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ArchiveName      string  `json:"ArchiveName"`
@@ -1398,8 +1364,8 @@ func handleEBListReplays(w http.ResponseWriter, r *http.Request) {
 	}, ebReplaySummary)
 }
 
-// ebListBySource answers ListArchives and ListReplays, which filter by the
-// same three members and page the same way.
+// ListArchives and ListReplays filter by the same three members and page the
+// same way.
 func ebListBySource[T any](w http.ResponseWriter, r *http.Request, member string, items []T,
 	fields func(T) (name, source, state string), summary func(T) map[string]any) {
 	var req struct {
@@ -1442,12 +1408,9 @@ func ebListBySource[T any](w http.ResponseWriter, r *http.Request, member string
 	writeEBJSON(w, http.StatusOK, out)
 }
 
-// handleEBCancelReplay transitions a replay out of an in-progress state. Per the
-// real CancelReplay state machine, a replay that is STARTING or RUNNING moves to
-// CANCELLED (real AWS reports the intermediate CANCELLING state while it drains;
-// the sim's in-process replay leaves nothing to drain, so it lands directly on
-// CANCELLED). A replay already in a terminal state (COMPLETED, CANCELLED, FAILED)
-// cannot be cancelled and yields IllegalStatusException, exactly as real AWS.
+// STARTING or RUNNING moves to CANCELLED; AWS reports CANCELLING while it
+// drains, but the in-process replay has nothing to drain. A terminal replay is
+// an IllegalStatusException.
 func handleEBCancelReplay(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReplayName string `json:"ReplayName"`
@@ -1479,9 +1442,7 @@ func handleEBCancelReplay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ebReplaySummary projects a replay onto the list-shape Replay members;
-// ReplayArn / Description are describe-only and must not appear in
-// ListReplays entries.
+// ReplayArn and Description are describe-only.
 func ebReplaySummary(rp EBReplay) map[string]any {
 	out := map[string]any{
 		"ReplayName":     rp.ReplayName,
@@ -1542,8 +1503,7 @@ func ebArchiveByARN(arn string) (EBArchive, bool) {
 	return EBArchive{}, false
 }
 
-// replayArchivedEvents delivers the archived events of the replay's time
-// window to the destination bus's rules, or to the rules its FilterArns name.
+// To the destination bus's rules, or the rules FilterArns names.
 func replayArchivedEvents(archive EBArchive, replay EBReplay) {
 	arn, _ := replay.Destination["Arn"].(string)
 	bus, ok := ebBusByARN(arn)

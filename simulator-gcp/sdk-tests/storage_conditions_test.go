@@ -151,9 +151,8 @@ func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
 	}
 }
 
-// TestGCS_RangedReadCarriesTheObjectsDescription reads part of an object the
-// way the client library does, through the XML API, which describes the object
-// in the headers of the read itself.
+// TestGCS_RangedReadCarriesTheObjectsDescription: the client library reads a
+// range through the XML API, whose response headers describe the object.
 func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 	t.Parallel()
 	bucketRangedReadBucket := uniquename.New("ranged-read-bucket")
@@ -178,9 +177,8 @@ func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 	require.Error(t, err, "a range that begins at the end of the object")
 }
 
-// TestGCS_V4SignedURLReadsWithoutCredentials signs a URL with a key minted
-// through the IAM API, as a deployment would, and reads the object with no
-// credential but the URL.
+// TestGCS_V4SignedURLReadsWithoutCredentials signs with a key minted through
+// the IAM API and reads the object with no credential but the URL.
 func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	t.Parallel()
 	bucketSignedUrlBucket := uniquename.New("signed-url-bucket")
@@ -245,9 +243,9 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status, "a URL whose path was changed after signing: %s", body)
 	require.Contains(t, body, "SignatureDoesNotMatch")
 
-	// One second is the shortest X-Goog-Expires a signed URL takes; the client
-	// library rounds the lifetime it is given down to whole seconds. The URL
-	// stops working the instant X-Goog-Date plus X-Goog-Expires has passed.
+	// One second is the shortest X-Goog-Expires, since the client library rounds
+	// the lifetime down to whole seconds; the URL stops working the instant
+	// X-Goog-Date plus X-Goog-Expires passes.
 	short := sign(2*time.Second - time.Millisecond)
 	parsed, err := url.Parse(short)
 	require.NoError(t, err)
@@ -262,8 +260,6 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	require.Contains(t, body, "ExpiredToken")
 }
 
-// TestGCS_BatchDeletesAnswerEachCall sends object deletes in one JSON API batch
-// and reads each call's answer back by its Content-ID.
 func TestGCS_BatchDeletesAnswerEachCall(t *testing.T) {
 	t.Parallel()
 	bucketBatchBucket := uniquename.New("batch-bucket")

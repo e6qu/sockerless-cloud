@@ -13,22 +13,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_slot_swap.go swaps two deployment slots of an app (WebApps_SwapSlot,
-// WebApps_SwapSlotWithProduction). A swap exchanges what the two slots run —
-// their content, their general settings and their swappable app settings,
-// connection strings and storage mounts — while each slot keeps its
-// hostnames, its publishing endpoints and the settings that stick to it. The
-// platform restarts the destination on the source's content and waits for it
-// to answer before it routes the destination's hostname there; a destination
-// that does not start fails the swap and leaves both slots as they were.
+// A swap exchanges what two slots run — content, general settings, and the
+// swappable app settings, connection strings and storage mounts — while each
+// slot keeps its hostnames, publishing endpoints and sticky settings. The
+// platform restarts the destination and waits for it to answer before
+// routing its hostname there; a destination that does not start fails the
+// swap and leaves both slots as they were.
 
-// webSwapLocks serializes the swaps of one app.
 var webSwapLocks = sim.NewKeyedLocks()
 
 // webSlotSettingsNotSwapped are the siteConfig properties a swap leaves with
-// the slot: scale settings, IP restrictions, Always On, diagnostic log
-// settings, CORS, VNet integration, the TLS settings and the kind of the
-// slot's own source control.
+// the slot.
 var webSlotSettingsNotSwapped = map[string]bool{
 	"alwaysOn":                               true,
 	"scmType":                                true,
@@ -56,9 +51,6 @@ var webSlotSettingsNotSwapped = map[string]bool{
 	"elasticWebAppScaleLimit":                true,
 }
 
-// registerWebSlotSwap mounts both spellings of the swap: on the app, whose
-// targetSlot swaps into production, and on a slot, which swaps into its
-// targetSlot ("production" for the app itself).
 func registerWebSlotSwap(both func(string, string, http.HandlerFunc)) {
 	both("POST", "/slotsswap", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
@@ -78,8 +70,6 @@ func registerWebSlotSwap(both func(string, string, http.HandlerFunc)) {
 		}
 		appName := sim.PathParam(r, "siteName")
 		appID := strings.TrimSuffix(webResourceID(r), "/slots/"+sim.PathParam(r, "slot"))
-		// The slot the path names swaps into targetSlot; on the app itself,
-		// targetSlot swaps into production.
 		source, target := sim.PathParam(r, "slot"), req.TargetSlot
 		if source == "" {
 			source, target = req.TargetSlot, "production"
@@ -118,7 +108,6 @@ func registerWebSlotSwap(both func(string, string, http.HandlerFunc)) {
 	})
 }
 
-// webSlotOf resolves one slot of an app by name, "production" being the app.
 func webSlotOf(appID, slot string) (Site, bool) {
 	if strings.EqualFold(slot, "production") {
 		return azfSites.Get(appID)
@@ -126,7 +115,6 @@ func webSlotOf(appID, slot string) (Site, bool) {
 	return webSlots.Get(appID + "/slots/" + slot)
 }
 
-// webSlotName is the name a swap reports a slot by.
 func webSlotName(site Site) string {
 	if _, slot, ok := strings.Cut(site.Name, "/"); ok {
 		return slot
@@ -134,7 +122,6 @@ func webSlotName(site Site) string {
 	return "production"
 }
 
-// webSaveSlotRow stores an app or slot row in its own store.
 func webSaveSlotRow(site Site) {
 	if strings.Contains(site.ID, "/slots/") {
 		webSlots.Put(site.ID, site)
@@ -143,9 +130,6 @@ func webSaveSlotRow(site Site) {
 	azfSites.Put(site.ID, site)
 }
 
-// webSwapSlots swaps srcID into dstID and dstID into srcID, then starts the
-// destination on its new content; a destination that does not start swaps
-// back and fails the operation.
 func webSwapSlots(appID, srcID, dstID string) *AsyncOperationError {
 	defer webSwapLocks.Lock(appID)()
 
@@ -192,8 +176,7 @@ func webSwapSlots(appID, srcID, dstID string) *AsyncOperationError {
 	return nil
 }
 
-// webExchangeSlots exchanges what two slots of an app run. Both stop first;
-// each restarts on its next request.
+// Both slots stop first; each restarts on its next request.
 func webExchangeSlots(appID, aID, bID string) error {
 	a, ok := webJobSite(aID)
 	if !ok {
@@ -269,10 +252,9 @@ func webExchangeSlots(appID, aID, bID string) error {
 	return webDiscoverWebJobs(bID)
 }
 
-// webStickyAppSetting reports whether an app setting stays with its slot: one
-// the app's slotConfigNames names, and one ending _EXTENSION_VERSION unless
-// every slot sets WEBSITE_OVERRIDE_PRESERVE_DEFAULT_STICKY_SLOT_SETTINGS to 0
-// or false.
+// An app setting stays with its slot when slotConfigNames names it, or when
+// it ends in _EXTENSION_VERSION unless every slot sets
+// WEBSITE_OVERRIDE_PRESERVE_DEFAULT_STICKY_SLOT_SETTINGS to 0 or false.
 func webStickyAppSetting(sticky SlotConfigNames, a, b map[string]string) func(string) bool {
 	names := webNameSet(sticky.AppSettingNames)
 	overridden := func(settings map[string]string) bool {
@@ -296,8 +278,6 @@ func webNameSet(names []string) func(string) bool {
 	return func(name string) bool { return set[strings.ToLower(name)] }
 }
 
-// webSwapStrings is what a slot holds after a swap: its own sticky entries and
-// the other slot's swappable ones.
 func webSwapStrings(own, other map[string]string, sticky func(string) bool) map[string]string {
 	out := map[string]string{}
 	for k, v := range own {
@@ -343,8 +323,6 @@ func webSwapStorage(own, other map[string]*AzureStorageInfoValue, sticky func(st
 	return out
 }
 
-// webSwapSiteConfig is the siteConfig a slot runs after a swap: the other
-// slot's general settings with its own values of the settings that stay.
 func webSwapSiteConfig(own, other *SiteConfig) *SiteConfig {
 	if own == nil {
 		own = &SiteConfig{}
@@ -375,8 +353,7 @@ func webSwapSiteConfig(own, other *SiteConfig) *SiteConfig {
 }
 
 // webSwapContent exchanges the records that live in the two slots' file
-// systems: the deployment manifest and history, and the webjobs with their run
-// history. webSwapHomes exchanges the file systems themselves.
+// systems; webSwapHomes exchanges the file systems themselves.
 func webSwapContent(aID, bID string) {
 	if am, aok := webDeployManifests.Get(aID); aok {
 		webDeployManifests.Delete(aID)
@@ -419,8 +396,6 @@ func webSwapContent(aID, bID string) {
 	})
 }
 
-// swapRowsByPrefix exchanges the rows under prefix a with those under prefix
-// b; move rewrites a row's keys from one prefix to the other.
 func swapRowsByPrefix[T any](store sim.Store[T], a, b string, move func(row *T, from, to string)) {
 	under := func(p string) []sim.Keyed[T] { return store.ListPrefix(p) }
 	aRows, bRows := under(a), under(b)
@@ -441,7 +416,6 @@ func swapRowsByPrefix[T any](store sim.Store[T], a, b string, move func(row *T, 
 	put(bRows, b, a)
 }
 
-// webSwapHomes exchanges two slots' persistent /home storage.
 func webSwapHomes(aName, bName string) error {
 	aDir, bDir := siteHomeDir(aName), siteHomeDir(bName)
 	tmp := aDir + ".swap-" + sim.RandomHex(4)
@@ -469,8 +443,6 @@ func webDirExists(dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-// webStopSiteWebJobs stops every webjob process of a site: its continuous
-// jobs stop and its running triggered runs abort.
 func webStopSiteWebJobs(siteID string) {
 	for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool { return rec.SiteID == siteID }) {
 		webKillWebJobContainer(rec.ID)

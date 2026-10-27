@@ -8,14 +8,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront Functions + Invalidations.
-// Functions live at /2020-05-31/function and follow the Stage state
-// machine (DEVELOPMENT → LIVE via PublishFunction). The simulator
-// stores + returns the function code verbatim; it does NOT interpret
-// the JS (out of scope, intentional limitation).
-// Invalidations live at /2020-05-31/distribution/{DistributionId}/invalidation
-// and only matter for the create/get/list flow — they're operations,
-// not state, so no Terraform resource references them.
+// Functions move DEVELOPMENT → LIVE via PublishFunction; the simulator stores
+// the code verbatim and does not interpret it.
 
 type CFFunctionConfig struct {
 	XMLName                   xml.Name                     `xml:"FunctionConfig"`
@@ -58,7 +52,6 @@ type CFFunctionList struct {
 	Items      []CFFunctionSummary `xml:"Items>FunctionSummary,omitempty"`
 }
 
-// CreateFunctionRequest mirrors the SDK body wrapper.
 type cfCreateFunctionRequest struct {
 	XMLName        xml.Name         `xml:"CreateFunctionRequest"`
 	Name           string           `xml:"Name"`
@@ -67,7 +60,6 @@ type cfCreateFunctionRequest struct {
 	Tags           *CFTags          `xml:"Tags,omitempty"`
 }
 
-// UpdateFunctionRequest mirrors the SDK body for PUT /function/{Name}.
 type cfUpdateFunctionRequest struct {
 	XMLName        xml.Name         `xml:"UpdateFunctionRequest"`
 	FunctionConfig CFFunctionConfig `xml:"FunctionConfig"`
@@ -142,8 +134,6 @@ func cfFunctionARN(name, stage string) string {
 	return "arn:aws:cloudfront::" + awsAccountID() + ":function/" + name + "/" + stage
 }
 
-// registerCloudFrontFunctions registers the function + invalidation routes.
-// Invoked from registerCloudFront() in cloudfront.go.
 func registerCloudFrontFunctions(srv *sim.Server) {
 	cfFunctions = sim.MakeStore[cfStoredFunction](srv.DB(), "cloudfront_functions")
 	cfInvalidations = sim.MakeStore[cfStoredInvalidation](srv.DB(), "cloudfront_invalidations")
@@ -152,7 +142,6 @@ func registerCloudFrontFunctions(srv *sim.Server) {
 
 	functionResource := cloudTrailRESTResource("AWS::CloudFront::Function", "name")
 	distributionResource := cloudTrailRESTResource("AWS::CloudFront::Distribution", "distId")
-	// Functions
 	mux.HandleFunc("POST /"+cfAPIVersion+"/function", cloudTrailRecordedREST("CreateFunction", "cloudfront.amazonaws.com", nil, handleCFCreateFunction))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/function", cloudTrailRecordedREST("ListFunctions", "cloudfront.amazonaws.com", nil, handleCFListFunctions))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/function/{name}/describe", cloudTrailRecordedREST("DescribeFunction", "cloudfront.amazonaws.com", functionResource, handleCFDescribeFunction))
@@ -161,7 +150,6 @@ func registerCloudFrontFunctions(srv *sim.Server) {
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/function/{name}", cloudTrailRecordedREST("DeleteFunction", "cloudfront.amazonaws.com", functionResource, handleCFDeleteFunction))
 	mux.HandleFunc("POST /"+cfAPIVersion+"/function/{name}/publish", cloudTrailRecordedREST("PublishFunction", "cloudfront.amazonaws.com", functionResource, handleCFPublishFunction))
 
-	// Invalidations
 	mux.HandleFunc("POST /"+cfAPIVersion+"/distribution/{distId}/invalidation", cloudTrailRecordedREST("CreateInvalidation", "cloudfront.amazonaws.com", distributionResource, handleCFCreateInvalidation))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution/{distId}/invalidation", cloudTrailRecordedREST("ListInvalidations", "cloudfront.amazonaws.com", distributionResource, handleCFListInvalidations))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution/{distId}/invalidation/{id}", cloudTrailRecordedREST("GetInvalidation", "cloudfront.amazonaws.com", distributionResource, handleCFGetInvalidation))
@@ -220,9 +208,8 @@ func handleCFDescribeFunction(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, stored.Summary)
 }
 
-// GetFunction returns the function code in the body and metadata in the
-// ETag header. AWS uses Content-Type=application/octet-stream; the
-// FunctionSummary header is X-Amz-Cf-Functionsummary (skipped in sim).
+// The code goes in the body and the version in ETag. The simulator omits the
+// X-Amz-Cf-Functionsummary header.
 func handleCFGetFunction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	stored, ok := cfFunctions.Get(name)
@@ -330,7 +317,7 @@ func handleCFCreateInvalidation(w http.ResponseWriter, r *http.Request) {
 	inv := CFInvalidation{
 		Xmlns:             cfNamespace,
 		Id:                id,
-		Status:            "Completed", // sim: eager completion, real AWS: InProgress→Completed
+		Status:            "Completed", // AWS moves InProgress → Completed; the simulator completes at once.
 		CreateTime:        cfNowISO(),
 		InvalidationBatch: batch,
 	}

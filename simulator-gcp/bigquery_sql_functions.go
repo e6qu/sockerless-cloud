@@ -150,7 +150,6 @@ var bqFunctions = map[string]bqFunction{
 
 var bqRegisterFunctions sync.Once
 
-// bqSQLiteName is the name a GoogleSQL function is registered under.
 func bqSQLiteName(name string) string { return "bq_" + strings.ToLower(name) }
 
 func bqEnsureFunctions() {

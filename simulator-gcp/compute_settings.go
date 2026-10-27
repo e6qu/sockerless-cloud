@@ -7,11 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Compute Engine settings singletons. A settings resource is not created
-// or deleted: it exists for every project in the scope that holds it, and a
-// get before any patch answers with the defaults Compute Engine applies. So
-// the store holds only the projects that have patched theirs, and a read that
-// misses returns the defaults rather than a 404.
+// A Compute Engine settings resource exists for every project in its scope, so
+// the store holds only the projects that patched theirs, and a read that
+// misses returns Compute Engine's defaults rather than a 404.
 
 // registerComputeSettings serves the snapshot settings, which a project has
 // globally and per region, and the instance settings it has per zone.
@@ -38,9 +36,8 @@ func registerComputeSettings(srv *sim.Server) {
 		}
 	}
 
-	// The two handlers a settings resource has. They are built here and
-	// mounted below at literal paths, which is what keeps the route visible to
-	// the surface-table reader.
+	// Build the two handlers here and mount them at literal paths below, so the
+	// surface tables see the routes.
 	read := func(store sim.Store[map[string]any],
 		key func(*http.Request) string, defaults func(*http.Request) map[string]any) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

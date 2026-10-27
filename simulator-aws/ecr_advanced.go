@@ -8,28 +8,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Additional ECR control-plane slices: account settings, registry-wide
-// scanning configuration, repository creation templates, managed-signing
-// configuration, pull-time update exclusions, pull-through-cache rule
-// update/validate, OCI image referrers, and image storage-class
-// transitions.
-//
-// Everything here is faithful CRUD over real per-registry singleton or
-// keyed stores. No data is fabricated: image-signing status and the
-// image-referrers list are honest empties (the simulator runs no Amazon
-// Web Services Signer and stores no OCI referrer artifacts), shaped
-// exactly as the SDK model expects.
+// The simulator runs no AWS Signer and stores no OCI referrers, so image
+// signing status and the referrers list are empty.
 
-// ECRAccountSetting persists a single named account setting
-// (BASIC_SCAN_TYPE_VERSION / REGISTRY_POLICY_SCOPE / BLOB_MOUNTING / …)
-// keyed by its name. Real ECR exposes these through Get/PutAccountSetting.
+// Keyed by setting name.
 type ECRAccountSetting struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// ECRRegistryScanningConfiguration is the registry-wide scanning
-// configuration singleton (scanType + rules).
 type ECRRegistryScanningConfiguration struct {
 	ScanType string                    `json:"scanType"`
 	Rules    []ECRRegistryScanningRule `json:"rules"`
@@ -45,9 +32,7 @@ type ECRScanningRepoFilter struct {
 	FilterType string `json:"filterType"`
 }
 
-// ECRRepositoryCreationTemplate models a repository creation template,
-// keyed by its namespace prefix. Mirrors the SDK RepositoryCreationTemplate
-// shape; createdAt/updatedAt serialize as awsJson epoch-second numbers.
+// Keyed by namespace prefix; createdAt and updatedAt are epoch-second numbers.
 type ECRRepositoryCreationTemplate struct {
 	Prefix                             string                                 `json:"prefix"`
 	Description                        string                                 `json:"description,omitempty"`
@@ -63,8 +48,6 @@ type ECRRepositoryCreationTemplate struct {
 	UpdatedAt                          int64                                  `json:"updatedAt"`
 }
 
-// ECRSigningConfiguration is the registry-wide managed-signing
-// configuration singleton (a list of signing rules).
 type ECRSigningConfiguration struct {
 	Rules []ECRSigningRule `json:"rules"`
 }
@@ -79,8 +62,7 @@ type ECRSigningRepoFilter struct {
 	FilterType string `json:"filterType"`
 }
 
-// ECRPullTimeUpdateExclusion records one IAM principal excluded from
-// pull-time recording, keyed by principal ARN.
+// Keyed by principal ARN.
 type ECRPullTimeUpdateExclusion struct {
 	PrincipalArn string `json:"principalArn"`
 	CreatedAt    int64  `json:"createdAt"`
@@ -169,9 +151,7 @@ func handleECRPutAccountSetting(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ecrDefaultAccountSettingValue returns the real-ECR default for a setting
-// that has never been Put, so GetAccountSetting reflects the same values a
-// fresh AWS account reports.
+// A setting never Put reports a fresh account's default.
 func ecrDefaultAccountSettingValue(name string) string {
 	switch name {
 	case "BASIC_SCAN_TYPE_VERSION":
@@ -192,7 +172,7 @@ func handleECRGetRegistryScanningConfiguration(w http.ResponseWriter, r *http.Re
 	}
 	cfg, ok := ecrRegistryScanningConfig.Get(ecrRegistrySingletonKey)
 	if !ok {
-		// A registry with no scanning configured defaults to BASIC with no rules.
+		// No configuration means BASIC with no rules.
 		cfg = ECRRegistryScanningConfiguration{ScanType: "BASIC", Rules: []ECRRegistryScanningRule{}}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -240,9 +220,8 @@ func handleECRBatchGetRepositoryScanningConfiguration(w http.ResponseWriter, r *
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Derive each repo's scanning config from the registry scanning config
-	// (scanFrequency + applied filters) plus the repo's own scanOnPush flag —
-	// the same composition real ECR performs.
+	// Combine the registry's scanFrequency and filters with the repository's own
+	// scanOnPush, as Amazon ECR does.
 	regCfg, _ := ecrRegistryScanningConfig.Get(ecrRegistrySingletonKey)
 
 	configs := []map[string]any{}
@@ -323,8 +302,7 @@ func handleECRUpdateRepositoryCreationTemplate(w http.ResponseWriter, r *http.Re
 			"The repository creation template with prefix '%s' does not exist", req.Prefix)
 		return
 	}
-	// Update only the supplied fields — real ECR leaves omitted members
-	// unchanged on an update.
+	// Leave omitted members unchanged.
 	if req.Description != nil {
 		existing.Description = *req.Description
 	}
@@ -420,8 +398,7 @@ func handleECRDescribeRepositoryCreationTemplates(w http.ResponseWriter, r *http
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ecrRepoCreationTemplateInput holds the Create/Update request shape with
-// pointer fields so Update can distinguish "omitted" from "set to empty".
+// Pointers tell omitted from empty.
 type ecrRepoCreationTemplateInput struct {
 	Prefix                             string                                 `json:"prefix"`
 	Description                        *string                                `json:"description"`
@@ -459,7 +436,7 @@ func (in ecrRepoCreationTemplateInput) toTemplate() ECRRepositoryCreationTemplat
 		t.CustomRoleArn = *in.CustomRoleArn
 	}
 	if t.ImageTagMutability == "" {
-		t.ImageTagMutability = "MUTABLE" // AWS default
+		t.ImageTagMutability = "MUTABLE" // The AWS default.
 	}
 	return t
 }
@@ -564,9 +541,7 @@ func handleECRDescribeImageSigningStatus(w http.ResponseWriter, r *http.Request)
 	if req.ImageId.ImageTag != "" {
 		imageId["imageTag"] = req.ImageId.ImageTag
 	}
-	// The simulator runs no Amazon Web Services Signer, so an image matches no
-	// signing rule and carries no signing status — an honest empty list, shaped
-	// exactly as the SDK model expects.
+	// Without AWS Signer, no image matches a signing rule.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"registryId":      ecrRegistryId(),
 		"repositoryName":  req.RepositoryName,
@@ -712,9 +687,8 @@ func handleECRValidatePullThroughCacheRule(w http.ResponseWriter, r *http.Reques
 			http.StatusNotFound)
 		return
 	}
-	// A rule with no credential to verify validates as reachable; the
-	// simulator does not contact the upstream registry, so report a valid
-	// rule (isValid true) when no failure condition exists.
+	// The simulator does not contact the upstream; without a failure condition the
+	// rule reports valid.
 	resp := map[string]any{
 		"ecrRepositoryPrefix": rule.EcrRepositoryPrefix,
 		"registryId":          rule.RegistryId,
@@ -753,9 +727,7 @@ func handleECRListImageReferrers(w http.ResponseWriter, r *http.Request) {
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
-	// The simulator stores no OCI referrer artifacts (no Sigstore
-	// signatures, SBOMs, or attestations are pushed against a subject), so
-	// the referrers list is honestly empty — shaped exactly as the SDK model.
+	// No referrer artifacts are stored.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"referrers": []any{},
 	})
@@ -794,9 +766,8 @@ func handleECRUpdateImageStorageClass(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// Transitioning to ARCHIVE completes immediately (ARCHIVED); restoring
-	// to STANDARD begins activation (ACTIVATING) — the same terminal/in-flight
-	// statuses real ECR reports for each target class.
+	// ARCHIVE completes at once (ARCHIVED); STANDARD begins activation
+	// (ACTIVATING).
 	imageStatus := "ARCHIVED"
 	if target == "STANDARD" {
 		imageStatus = "ACTIVATING"

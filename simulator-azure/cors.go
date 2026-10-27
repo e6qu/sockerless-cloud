@@ -5,27 +5,22 @@ import (
 	"strings"
 )
 
-// azureCORSMaxAge is the preflight cache lifetime the sim advertises for both
-// Azure Resource Manager and Microsoft Graph, in seconds.
+// azureCORSMaxAge is the preflight cache lifetime in seconds, for Azure
+// Resource Manager and Microsoft Graph alike.
 const azureCORSMaxAge = "3600"
 
-// azureCORSSurface carries the CORS response headers one Azure data plane
-// advertises to a browser. Azure Resource Manager and Microsoft Graph are
-// distinct hosts on real Azure (management.azure.com vs graph.microsoft.com)
-// with their own method and header contracts; the collapsed-host simulator
-// keeps that distinction in the headers it answers with, even though both are
-// served from the same origin here.
+// azureCORSSurface carries one plane's CORS headers. Azure Resource Manager
+// and Microsoft Graph are distinct hosts with their own method and header
+// contracts; the simulator keeps them distinct on one origin.
 type azureCORSSurface struct {
 	allowMethods  string
 	allowHeaders  string
 	exposeHeaders string
 }
 
-// azureARMCORSSurface mirrors the Azure Resource Manager control-plane
-// contract: the full CRUD method set, the ARM correlation/client-request
-// headers on top of the standard bearer + content headers, and the
-// long-running-operation headers (Location, Azure-AsyncOperation,
-// Retry-After) and rate-limit headers ARM exposes to callers.
+// Azure Resource Manager: the full CRUD method set, its correlation and
+// client-request headers, and the long-running-operation and rate-limit
+// headers it exposes.
 var azureARMCORSSurface = azureCORSSurface{
 	allowMethods: "GET, HEAD, PUT, POST, PATCH, DELETE, OPTIONS",
 	allowHeaders: "authorization, content-type, accept, if-match, if-none-match, " +
@@ -35,38 +30,29 @@ var azureARMCORSSurface = azureCORSSurface{
 		"retry-after, location, azure-asyncoperation, content-type",
 }
 
-// azureGraphCORSSurface mirrors Microsoft Graph's browser contract: Graph
-// supports CORS for the /v1.0 (and /beta) endpoints so single-page apps can
-// call it directly, with its own client-request-id / Prefer headers and
-// request-id response headers.
+// Microsoft Graph serves CORS on /v1.0 and /beta, with its own
+// client-request-id and Prefer headers and request-id response header.
 var azureGraphCORSSurface = azureCORSSurface{
 	allowMethods:  "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 	allowHeaders:  "authorization, content-type, accept, prefer, if-match, if-none-match, client-request-id",
 	exposeHeaders: "request-id, client-request-id, content-type",
 }
 
-// azureLogsCORSSurface mirrors the Log Analytics and Application Insights
-// query APIs (api.loganalytics.io, api.applicationinsights.io), which serve
-// CORS so a browser can run a Kusto query with its own token.
+// The Log Analytics and Application Insights query APIs (api.loganalytics.io,
+// api.applicationinsights.io) serve CORS so a browser can run a Kusto query
+// with its own token.
 var azureLogsCORSSurface = azureCORSSurface{
 	allowMethods:  "GET, POST, OPTIONS",
 	allowHeaders:  "authorization, content-type, accept, prefer, x-ms-app, x-ms-client-request-id",
 	exposeHeaders: "x-ms-request-id, content-type",
 }
 
-// azureCORSSurfaceFor reports the CORS surface a request path belongs to.
-// Azure Resource Manager control-plane paths always begin with
-// /subscriptions, /providers, or /tenants (the only tenant-scoped, unscoped,
-// and directory-list ARM roots); Microsoft Graph is served at /v1.0, and the
-// Log Analytics and Application Insights query APIs at /v1/workspaces and
-// /v1/apps. Every
-// other path — the Microsoft Entra OAuth2/OpenID surface
-// (/{tenant}/oauth2/*, /{tenant}/v2.0/.well-known/*), the console's own
-// /auth/* auth layer, the OCI/ACR/storage/Key Vault/Service Bus/Event Grid
-// data planes, and /health and /ui/ — is deliberately excluded: real Azure
-// serves no CORS for the Entra token endpoint (the entire reason the
-// federation broker in federation_broker.go exists), and the rest either
-// authenticate with their own scheme or are not browser-called cross-origin.
+// azureCORSSurfaceFor: Azure Resource Manager paths begin with /subscriptions,
+// /providers or /tenants; Microsoft Graph is /v1.0; the query APIs are
+// /v1/workspaces and /v1/apps. Everything else is excluded: Azure serves no
+// CORS for the Microsoft Entra token endpoint (hence federation_broker.go),
+// and the other planes authenticate with their own scheme or are not called
+// cross-origin.
 func azureCORSSurfaceFor(path string) (azureCORSSurface, bool) {
 	switch {
 	case strings.HasPrefix(path, "/subscriptions"), strings.HasPrefix(path, "/providers"), strings.HasPrefix(path, "/tenants"):
@@ -80,29 +66,17 @@ func azureCORSSurfaceFor(path string) (azureCORSSurface, bool) {
 	}
 }
 
-// AzureCORSMiddleware serves faithful Azure Resource Manager and Microsoft
-// Graph CORS: real Azure answers a browser's preflight OPTIONS request for
-// these two data planes without requiring the bearer token or api-version the
-// actual operation needs (a preflight carries neither — the browser sends it
-// unauthenticated by design), and stamps Access-Control-Allow-Origin on the
-// real response so the SPA's fetch() can read it. This must wrap the ARM
-// bearer and api-version middlewares (see main.go) rather
-// than sit inside them, exactly as a real preflight reaches Azure's edge
-// before the resource provider's own auth check.
-//
-// The Microsoft Entra token endpoint (/{tenant}/oauth2/*) is a distinct host
-// on real Azure (login.microsoftonline.com) that serves no CORS at all — the
-// path match here never reaches it, so the browser-side client_credentials
-// exchange stays impossible and the server-side broker in
-// federation_broker.go remains the only path a browser has to a token.
+// AzureCORSMiddleware answers a browser's preflight without the bearer or
+// api-version the operation needs, as Azure's edge does, and stamps
+// Access-Control-Allow-Origin on the real response. It wraps the bearer and
+// api-version middlewares (main.go), as a preflight reaches Azure's edge before
+// the resource provider's auth.
 func AzureCORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			// No Origin header means this is not a browser cross-origin
-			// request (a same-origin fetch, the Azure SDK, the az CLI, or
-			// Terraform) — nothing to negotiate, and no header to add that a
-			// real non-browser Azure client would not also see absent.
+			// Without an Origin header the request is not cross-origin: nothing to
+			// negotiate.
 			next.ServeHTTP(w, r)
 			return
 		}

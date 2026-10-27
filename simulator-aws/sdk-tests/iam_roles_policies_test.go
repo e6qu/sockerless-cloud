@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_RolePermissionsBoundary exercises PutRolePermissionsBoundary →
-// GetRole (reads the boundary back) → UpdateRoleDescription →
-// DeleteRolePermissionsBoundary. aws_iam_role.permissions_boundary drives the
-// Put/Delete pair; the description update returns the modified Role.
+// TestIAM_RolePermissionsBoundary covers the boundary pair
+// aws_iam_role.permissions_boundary drives, and UpdateRoleDescription returning
+// the modified role.
 func TestIAM_RolePermissionsBoundary(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -64,10 +63,8 @@ func TestIAM_RolePermissionsBoundary(t *testing.T) {
 	assert.Nil(t, cleared.Role.PermissionsBoundary, "boundary should be cleared after delete")
 }
 
-// TestIAM_PolicyVersions exercises the managed-policy versioning flow:
-// CreatePolicy (v1) → CreatePolicyVersion (v2, SetAsDefault) →
-// ListPolicyVersions → SetDefaultPolicyVersion (back to v1) →
-// DeletePolicyVersion (v2). aws_iam_policy uses this when the document changes.
+// TestIAM_PolicyVersions covers the versioning flow aws_iam_policy uses when
+// the document changes.
 func TestIAM_PolicyVersions(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -93,12 +90,10 @@ func TestIAM_PolicyVersions(t *testing.T) {
 	assert.Equal(t, "v2", aws.ToString(cv.PolicyVersion.VersionId))
 	assert.True(t, cv.PolicyVersion.IsDefaultVersion)
 
-	// GetPolicy now reports v2 as the default version.
 	gp, err := client.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: aws.String(arn)})
 	require.NoError(t, err)
 	assert.Equal(t, "v2", aws.ToString(gp.Policy.DefaultVersionId))
 
-	// GetPolicyVersion on the v2 (now default) version returns the document.
 	def, err := client.GetPolicyVersion(ctx, &iam.GetPolicyVersionInput{
 		PolicyArn: aws.String(arn),
 		VersionId: aws.String("v2"),
@@ -107,14 +102,14 @@ func TestIAM_PolicyVersions(t *testing.T) {
 	require.NotNil(t, def.PolicyVersion)
 	assert.Equal(t, "v2", aws.ToString(def.PolicyVersion.VersionId))
 
-	// Switch the default back to v1, then v2 is deletable.
+	// Moving the default back to v1 makes v2 deletable.
 	_, err = client.SetDefaultPolicyVersion(ctx, &iam.SetDefaultPolicyVersionInput{
 		PolicyArn: aws.String(arn),
 		VersionId: aws.String("v1"),
 	})
 	require.NoError(t, err)
 
-	// Deleting the current default must fail.
+	// The default version cannot be deleted.
 	_, err = client.DeletePolicyVersion(ctx, &iam.DeletePolicyVersionInput{
 		PolicyArn: aws.String(arn),
 		VersionId: aws.String("v1"),
@@ -128,9 +123,8 @@ func TestIAM_PolicyVersions(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_InstanceProfileTags exercises TagInstanceProfile →
-// ListInstanceProfileTags → UntagInstanceProfile. aws_iam_instance_profile.tags
-// drives the tag/untag pair.
+// TestIAM_InstanceProfileTags covers the tag pair aws_iam_instance_profile.tags
+// drives.
 func TestIAM_InstanceProfileTags(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -182,9 +176,8 @@ func TestIAM_InstanceProfileTags(t *testing.T) {
 	assert.Equal(t, "infra", remaining["team"], "team tag should remain")
 }
 
-// TestIAM_ContextKeys exercises GetContextKeysForCustomPolicy (parses the
-// supplied JSON) and GetContextKeysForPrincipalPolicy (over a role's inline +
-// attached policies). Both return the distinct Condition context keys.
+// TestIAM_ContextKeys expects the distinct condition keys of a supplied policy
+// and of a role's inline and attached policies.
 func TestIAM_ContextKeys(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -201,7 +194,6 @@ func TestIAM_ContextKeys(t *testing.T) {
 	assert.True(t, keys["aws:PrincipalTag/team"], "custom policy context key missing")
 	assert.True(t, keys["s3:prefix"], "custom policy context key missing")
 
-	// Principal path: build a role with an inline policy carrying a condition.
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	role, err := client.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String("ck-role"),
@@ -233,10 +225,9 @@ func TestIAM_ContextKeys(t *testing.T) {
 	assert.True(t, pkeys["aws:RequestTag/cost-center"], "principal policy context key missing")
 }
 
-// TestIAM_EntitiesForPolicy attaches a managed policy to a user and a role and
-// asserts ListEntitiesForPolicy reflects the real attachments, and that
-// ListPoliciesGrantingServiceAccess derives the granted namespace from the
-// attached policy's actions.
+// TestIAM_EntitiesForPolicy expects ListEntitiesForPolicy to reflect a managed
+// policy's attachments, and ListPoliciesGrantingServiceAccess to derive the
+// namespace from its actions.
 func TestIAM_EntitiesForPolicy(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -281,7 +272,6 @@ func TestIAM_EntitiesForPolicy(t *testing.T) {
 	require.Len(t, ent.PolicyRoles, 1)
 	assert.Equal(t, "efp-role", aws.ToString(ent.PolicyRoles[0].RoleName))
 
-	// EntityFilter=Role narrows the result to roles only.
 	roleOnly, err := client.ListEntitiesForPolicy(ctx, &iam.ListEntitiesForPolicyInput{
 		PolicyArn:    aws.String(arn),
 		EntityFilter: types.EntityTypeRole,
@@ -304,8 +294,7 @@ func TestIAM_EntitiesForPolicy(t *testing.T) {
 	assert.Equal(t, 0, byNs["ec2"], "no attached policy grants the ec2 namespace")
 }
 
-// TestIAM_PolicyTags exercises TagPolicy → ListPolicyTags → UntagPolicy on a
-// managed policy. aws_iam_policy.tags drives the tag/untag pair.
+// TestIAM_PolicyTags covers the tag pair aws_iam_policy.tags drives.
 func TestIAM_PolicyTags(t *testing.T) {
 	t.Parallel()
 	client := iamClient()

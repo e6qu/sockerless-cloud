@@ -49,10 +49,8 @@ func TestStoreReportNamesWhatHoldsTheDatabase(t *testing.T) {
 		}
 	}
 
-	// The blob store is two megabytes of bodies; the name store is a few
-	// kilobytes. The report is ordered by size, so the blobs must come first —
-	// that ordering is the whole point when a database is 2.4 GB and the
-	// question is what holds it.
+	// The blob store is two megabytes of bodies and the name store a few
+	// kilobytes; the report orders by size, so the blobs come first.
 	blobAt, smallAt := strings.Index(out, "objects_with_bodies"), strings.Index(out, "names_only")
 	if blobAt > smallAt {
 		t.Errorf("names_only is reported above objects_with_bodies, so the report is not ordered by size:\n%s", out)
@@ -67,8 +65,8 @@ func TestStoreReportNamesWhatHoldsTheDatabase(t *testing.T) {
 }
 
 // TestStoreReportBoundsTheWriteAheadLog proves the journal_size_limit the DSN
-// sets is in force: after a checkpoint, the write-ahead log file is truncated
-// rather than left at the high-water mark a large write drove it to.
+// sets is in force: after a checkpoint, SQLite truncates the write-ahead log
+// file instead of leaving it at the high-water mark a large write drove it to.
 func TestStoreReportBoundsTheWriteAheadLog(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(dir)

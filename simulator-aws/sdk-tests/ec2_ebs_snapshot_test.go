@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createSnapshotForEBS creates a volume + snapshot and returns the snapshot id.
 func createSnapshotForEBS(t *testing.T, c *ec2.Client) string {
 	t.Helper()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -22,10 +21,8 @@ func createSnapshotForEBS(t *testing.T, c *ec2.Client) string {
 	return aws.ToString(snap.SnapshotId)
 }
 
-// TestEC2_EbsEncryptionByDefaultSDK round-trips the account-level EBS
-// encryption-by-default flag and the default KMS key id: enable/disable flips
-// the flag GetEbsEncryptionByDefault reports, and Modify/Get/Reset round-trip the
-// default key (Reset reverts to the AWS-managed alias/aws/ebs key).
+// TestEC2_EbsEncryptionByDefaultSDK covers the account-level encryption flag
+// and default KMS key; Reset returns to the AWS managed alias/aws/ebs key.
 func TestEC2_EbsEncryptionByDefaultSDK(t *testing.T) {
 	c := ec2Client()
 
@@ -45,7 +42,6 @@ func TestEC2_EbsEncryptionByDefaultSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(got2.EbsEncryptionByDefault))
 
-	// Default KMS key id round-trip.
 	const cmk = "arn:aws:kms:us-east-1:000000000000:key/abcd1234-1111-2222-3333-444455556666"
 	mod, err := c.ModifyEbsDefaultKmsKeyId(ctx, &ec2.ModifyEbsDefaultKmsKeyIdInput{KmsKeyId: aws.String(cmk)})
 	require.NoError(t, err)
@@ -60,8 +56,8 @@ func TestEC2_EbsEncryptionByDefaultSDK(t *testing.T) {
 	assert.Contains(t, aws.ToString(reset.KmsKeyId), "aws/ebs", "Reset reverts to the AWS-managed key")
 }
 
-// TestEC2_FastSnapshotRestoresSDK enables fast snapshot restores for a
-// (snapshot, AZ), reads them back (must settle to enabled), then disables them.
+// TestEC2_FastSnapshotRestoresSDK waits for fast snapshot restores to settle
+// to enabled.
 func TestEC2_FastSnapshotRestoresSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -77,7 +73,6 @@ func TestEC2_FastSnapshotRestoresSDK(t *testing.T) {
 	assert.Equal(t, snapID, aws.ToString(en.Successful[0].SnapshotId))
 	assert.NotEmpty(t, string(en.Successful[0].State))
 
-	// Enabling on a non-existent snapshot lands in Unsuccessful.
 	badEn, err := c.EnableFastSnapshotRestores(ctx, &ec2.EnableFastSnapshotRestoresInput{
 		SourceSnapshotIds: []string{"snap-ffffffffffffffff"},
 		AvailabilityZones: []string{"us-east-1a"},
@@ -106,8 +101,8 @@ func TestEC2_FastSnapshotRestoresSDK(t *testing.T) {
 	assert.Equal(t, types.FastSnapshotRestoreStateCodeDisabling, dis.Successful[0].State)
 }
 
-// TestEC2_SnapshotTierSDK archives a snapshot then restores it, asserting the
-// tiering/restore start times and the temporary-vs-permanent restore flags.
+// TestEC2_SnapshotTierSDK covers the tiering and restore start times and the
+// temporary and permanent restore flags.
 func TestEC2_SnapshotTierSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -120,7 +115,6 @@ func TestEC2_SnapshotTierSDK(t *testing.T) {
 	assert.Equal(t, snapID, aws.ToString(mod.SnapshotId))
 	require.NotNil(t, mod.TieringStartTime)
 
-	// Temporary restore.
 	tmp, err := c.RestoreSnapshotTier(ctx, &ec2.RestoreSnapshotTierInput{
 		SnapshotId: aws.String(snapID), TemporaryRestoreDays: aws.Int32(5),
 	})
@@ -130,23 +124,19 @@ func TestEC2_SnapshotTierSDK(t *testing.T) {
 	assert.Equal(t, int32(5), aws.ToInt32(tmp.RestoreDuration))
 	require.NotNil(t, tmp.RestoreStartTime)
 
-	// Permanent restore.
 	perm, err := c.RestoreSnapshotTier(ctx, &ec2.RestoreSnapshotTierInput{
 		SnapshotId: aws.String(snapID), PermanentRestore: aws.Bool(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(perm.IsPermanentRestore))
 
-	// RestoreSnapshotFromRecycleBin on a live snapshot is faithfully rejected:
-	// the snapshot isn't in the Recycle Bin (state "recoverable").
+	// A live snapshot is not in the Recycle Bin, so the restore is rejected.
 	_, err = c.RestoreSnapshotFromRecycleBin(ctx, &ec2.RestoreSnapshotFromRecycleBinInput{
 		SnapshotId: aws.String(snapID),
 	})
 	require.Error(t, err, "a live snapshot is not in the Recycle Bin")
 }
 
-// TestEC2_SnapshotBlockPublicAccessSDK round-trips the account-level snapshot
-// block-public-access state.
 func TestEC2_SnapshotBlockPublicAccessSDK(t *testing.T) {
 	c := ec2Client()
 
@@ -170,7 +160,6 @@ func TestEC2_SnapshotBlockPublicAccessSDK(t *testing.T) {
 	assert.Equal(t, types.SnapshotBlockPublicAccessStateUnblocked, got2.State)
 }
 
-// TestEC2_VolumeAttributeSDK round-trips the autoEnableIO volume attribute.
 func TestEC2_VolumeAttributeSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

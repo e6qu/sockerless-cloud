@@ -13,14 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The S3 control plane is host-addressed: every operation carries the account
-// id as a modeled endpoint host prefix, so these run through
-// awsCLIHostPrefixed the way Cloud Map's data plane and Step Functions' sync
-// executions do.
+// Every S3 control plane operation carries the account id as a modeled
+// endpoint host prefix, so these tests go through awsCLIHostPrefixed.
 
 const s3ControlCLIAccount = "123456789012"
 
-// s3ControlCLI runs one s3control operation for the test account. The account
+// s3ControlCLI runs one s3control operation for the test account; the account
 // id is an operation parameter, so it follows the subcommand.
 func s3ControlCLI(t *testing.T, args ...string) string {
 	t.Helper()
@@ -32,8 +30,6 @@ func s3ControlCLICommand(args ...string) *exec.Cmd {
 	return awsCLIHostPrefixed(full...)
 }
 
-// TestS3ControlCLI_AccessPointAndObjectLambda covers the access point family
-// the CLI manages, and the Object Lambda access point layered over it.
 func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 	t.Parallel()
 	bucket, apName, olapName := "cli-olap-bucket", "cli-olap-support", "cli-olap"
@@ -68,8 +64,8 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 	listed := s3ControlCLI(t, "list-access-points", "--bucket", bucket)
 	assert.Contains(t, listed, apName)
 
-	// The Object Lambda access point is created from a JSON configuration
-	// file, which is how the CLI takes a nested structure.
+	// The CLI takes the Object Lambda access point's nested configuration as a
+	// JSON file.
 	configuration := fmt.Sprintf(`{
 	  "SupportingAccessPoint": %q,
 	  "TransformationConfigurations": [{
@@ -96,7 +92,6 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 	listedOLAP := s3ControlCLI(t, "list-access-points-for-object-lambda")
 	assert.Contains(t, listedOLAP, olapName)
 
-	// The access point's scope, which narrows what it admits.
 	scopePath := filepath.Join(tmpDir, "ap-scope.json")
 	require.NoError(t, os.WriteFile(scopePath,
 		[]byte(`{"Prefixes":["reports/"],"Permissions":["GetObject"]}`), 0o644))
@@ -107,8 +102,6 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 	s3ControlCLI(t, "delete-access-point-scope", "--name", apName)
 }
 
-// TestS3ControlCLI_StorageLens covers a Storage Lens dashboard configuration
-// and a Storage Lens group.
 func TestS3ControlCLI_StorageLens(t *testing.T) {
 	t.Parallel()
 	configID, groupName := "cli-storage-lens", "cli-lens-group"
@@ -133,8 +126,8 @@ func TestS3ControlCLI_StorageLens(t *testing.T) {
 	listed := s3ControlCLI(t, "list-storage-lens-configurations")
 	assert.Contains(t, listed, configID)
 
-	// The configuration's tags are the set its own tagging operations keep;
-	// tag-resource does not serve the configuration type.
+	// The configuration's own tagging operations keep its tags; tag-resource does
+	// not serve the configuration type.
 	var described struct {
 		StorageLensConfiguration struct {
 			StorageLensArn string `json:"StorageLensArn"`
@@ -169,8 +162,6 @@ func TestS3ControlCLI_StorageLens(t *testing.T) {
 	assert.Contains(t, groups, groupName)
 }
 
-// TestS3ControlCLI_AccessGrants covers the Access Grants instance, a location,
-// and a grant inside it.
 func TestS3ControlCLI_AccessGrants(t *testing.T) {
 	t.Parallel()
 	bucket, roleName := "cli-grants-bucket", "cli-grants-role"
@@ -218,9 +209,8 @@ func TestS3ControlCLI_AccessGrants(t *testing.T) {
 		"--access-grants-location-id", createdLocation.AccessGrantsLocationId)
 }
 
-// TestS3ControlCLI_MultiRegionAccessPoint covers the asynchronous endpoint:
-// the create hands back a token, and describing that token is where the CLI
-// learns the outcome.
+// TestS3ControlCLI_MultiRegionAccessPoint covers the asynchronous create: it
+// returns a token, and describing the token reports the outcome.
 func TestS3ControlCLI_MultiRegionAccessPoint(t *testing.T) {
 	t.Parallel()
 	bucket, name := "cli-mrap-bucket", "cli-mrap"
@@ -273,9 +263,9 @@ func TestS3ControlCLI_MultiRegionAccessPoint(t *testing.T) {
 	assert.Contains(t, listed, name)
 }
 
-// TestS3ControlCLI_BatchJob runs a batch job through the CLI: the manifest
-// lists two objects, one by a URL-encoded key holding a space, a comma and an
-// é, the job tags them, and the tags are readable afterwards.
+// TestS3ControlCLI_BatchJob runs a batch job whose manifest lists two objects,
+// one by a URL-encoded key holding a space, a comma and an é; the job tags
+// them, and the tags read back.
 func TestS3ControlCLI_BatchJob(t *testing.T) {
 	t.Parallel()
 	bucket, roleName := "cli-batch-bucket", "cli-batch-role"
@@ -318,7 +308,7 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(created), &createdJob))
 	require.NotEmpty(t, createdJob.JobId)
 
-	// The job is prepared and then waits for confirmation, running nothing.
+	// The job prepares, then waits for confirmation without running.
 	suspended := awaitCLIS3BatchJob(t, createdJob.JobId, "Suspended")
 	assert.Equal(t, 2, suspended.ProgressSummary.TotalNumberOfTasks)
 	assert.Equal(t, 0, suspended.ProgressSummary.NumberOfTasksSucceeded)
@@ -330,8 +320,7 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 	job := awaitCLIS3BatchJob(t, createdJob.JobId, "Complete")
 	assert.Equal(t, 2, job.ProgressSummary.NumberOfTasksSucceeded)
 
-	// The job really tagged the objects, which is what the progress report is
-	// a report of.
+	// The progress report reflects tags the job really wrote.
 	for _, key := range []string{"alpha.txt", "beta report,é.txt"} {
 		tags := runCLI(t, awsCLI("s3api", "get-object-tagging", "--bucket", bucket, "--key", key))
 		assert.Contains(t, tags, "reviewed", key)
@@ -348,7 +337,6 @@ func TestS3ControlCLI_BatchJob(t *testing.T) {
 	assert.Contains(t, jobs, createdJob.JobId)
 }
 
-// cliS3BatchJob is the part of describe-job's answer the tests read.
 type cliS3BatchJob struct {
 	Status          string `json:"Status"`
 	ProgressSummary struct {
@@ -371,7 +359,6 @@ func awaitCLIS3BatchJob(t *testing.T, jobID, want string) cliS3BatchJob {
 	return described.Job
 }
 
-// TestS3ControlCLI_ListRegionalBuckets lists the account's regional buckets.
 func TestS3ControlCLI_ListRegionalBuckets(t *testing.T) {
 	t.Parallel()
 	bucket := "cli-regional-bucket"

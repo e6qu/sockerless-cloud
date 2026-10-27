@@ -13,8 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// awaitECSTaskStop waits for a stop StopTask has already accepted to finish.
-// A task with no stop in flight has finished stopping, or was never asked to.
+// A task with no stop in flight has finished stopping or was never asked to.
 func awaitECSTaskStop(t *testing.T, taskID string) {
 	t.Helper()
 	inFlight, ok := ecsTaskStopsInFlight.Load(taskID)
@@ -32,16 +31,10 @@ func awaitECSTaskStop(t *testing.T, taskID string) {
 	}
 }
 
-// Amazon ECS answers StopTask at once. The task it returns is still running,
-// with its desired status STOPPED and its stop code, reason and stoppingAt set;
-// its containers are given their stop timeout afterwards. The simulator did all
-// of that before answering, under the task's lifecycle lock, so a workspace
-// stop on a production deployment took 30.5 seconds.
-//
-// Holding the lifecycle lock stands in for whatever keeps a task's lifecycle
-// busy — a start still pulling its image, or containers taking their stop
-// timeout. StopTask must answer through it, and finish the stop once it is
-// free.
+// Amazon ECS answers StopTask at once with the task still running, desired
+// STOPPED, and its stop code, reason and stoppingAt set; the containers then
+// get their stop timeout. The held lifecycle lock stands in for a busy
+// lifecycle, such as a start still pulling its image.
 func TestStopTaskAnswersWhileTheTaskIsStillStopping(t *testing.T) {
 	buildConformanceSimulator(t)
 	ecsClusters.Put("stop-cluster", ECSCluster{
@@ -152,9 +145,8 @@ func TestStopTaskAnswersWhileTheTaskIsStillStopping(t *testing.T) {
 	}
 }
 
-// A task the scheduler has asked to stop still reads RUNNING until its
-// containers have had their stop timeout. Counted among the service's tasks, it
-// made the scheduler stop the service's remaining task for the same surplus.
+// A task asked to stop reads RUNNING until its stop timeout ends; counting it
+// would make the scheduler stop another task for the same surplus.
 func TestServiceSchedulerDoesNotStopAnotherTaskForAStopInProgress(t *testing.T) {
 	buildConformanceSimulator(t)
 	clusterArn := ecsArn("cluster", "surplus-cluster")
@@ -209,10 +201,8 @@ func TestServiceSchedulerDoesNotStopAnotherTaskForAStopInProgress(t *testing.T) 
 	bg.Await()
 }
 
-// StopTask answers before the containers have stopped, so a restart inside a
-// container's stop timeout leaves a task asked to stop that has not. Recovery
-// resumed a pending one as if nobody had asked, and stopped a running one as
-// though its workload had vanished.
+// A restart inside a stop timeout leaves a task asked to stop that has not;
+// recovery must finish that stop.
 func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
 	bg.Await()
 	ecsBackgroundServer = nil
@@ -282,10 +272,8 @@ func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
 	}
 }
 
-// A pending task the previous process left is resumed under its lifecycle
-// lock, as a live start is. Without it, a StopTask that landed while the resume
-// was starting containers could take the handles and record the task STOPPED,
-// and the resume then reported it RUNNING with no containers.
+// Resume a pending task under its lifecycle lock, as a live start is, so a
+// StopTask racing the resume cannot leave it RUNNING without containers.
 func TestResumedPendingTaskWaitsForItsLifecycleLock(t *testing.T) {
 	bg.Await()
 	ecsBackgroundServer = nil

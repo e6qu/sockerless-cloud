@@ -1,12 +1,7 @@
 package main
 
-// Fuzz targets for untrusted-input string parsers that previously had no fuzz
-// coverage. Each parser decodes data that arrives over the wire from a client
-// (an aws-chunked transfer-encoding size line, a CloudTrail pagination cursor, a
-// CloudWatch percentile/aggregation/sort spec, a CloudWatch metric timestamp, an
-// Amplify build-spec document). The contract under fuzzing is "never panic" — a
-// malformed input must return an error or a benign zero value, never crash the
-// simulator process.
+// Each target parses untrusted wire input and must return an error or a
+// benign zero value, never panic.
 
 import "testing"
 

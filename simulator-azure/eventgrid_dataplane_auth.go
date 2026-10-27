@@ -83,7 +83,7 @@ func eventGridAuthorizePublish(w http.ResponseWriter, r *http.Request, resourceI
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	bearer, isBearer := eventGridSchemeValue(authorization, eventGridBearerScheme)
 	if isBearer {
-		if !eventGridEntraTokenAuthorizes(bearer) {
+		if !eventGridEntraTokenAuthorizes(bearer, resourceID) {
 			eventGridUnauthorized(w, eventGridNotAuthorizedMessage(r.Host))
 			return false
 		}
@@ -292,12 +292,17 @@ func eventGridSASCoversRequest(resource string, r *http.Request) bool {
 // eventGridEntraTokenAuthorizes reports whether a bearer token is a live
 // Microsoft Entra access token issued for the Event Grid data-plane audience,
 // which is the audience the official publisher clients request through the
-// scope https://eventgrid.azure.net/.default.
-func eventGridEntraTokenAuthorizes(token string) bool {
+// scope https://eventgrid.azure.net/.default, whose principal Azure RBAC
+// grants the Microsoft.EventGrid/events/send/action data action on the topic
+// or domain.
+func eventGridEntraTokenAuthorizes(token, resourceID string) bool {
 	claims, err := verifyAzureSimJWT(token)
 	if err != nil {
 		return false
 	}
 	audience := azureTokenAudience(claims)
-	return audience == eventGridEntraAudience || audience == eventGridEntraAudience+"/"
+	if audience != eventGridEntraAudience && audience != eventGridEntraAudience+"/" {
+		return false
+	}
+	return rbacAllows(rbacCallerFromClaims(claims), resourceID, "Microsoft.EventGrid/events/send/action", true)
 }

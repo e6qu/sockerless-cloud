@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeVpcsFiltering covers vpc-id filter / multi-id
-// return the right VPC(s), and CidrBlockAssociationSet is populated.
+// TestEC2_DescribeVpcsFiltering expects the vpc-id filter and a list of ids to
+// return the right VPCs, with CidrBlockAssociationSet populated.
 func TestEC2_DescribeVpcsFiltering(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -22,7 +22,6 @@ func TestEC2_DescribeVpcsFiltering(t *testing.T) {
 	require.NoError(t, err)
 	bID := aws.ToString(b.Vpc.VpcId)
 
-	// vpc-id filter returns exactly the requested VPC.
 	byFilter, err := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []types.Filter{{Name: aws.String("vpc-id"), Values: []string{bID}}},
 	})
@@ -31,21 +30,20 @@ func TestEC2_DescribeVpcsFiltering(t *testing.T) {
 	assert.Equal(t, bID, aws.ToString(byFilter.Vpcs[0].VpcId))
 	assert.Equal(t, "10.62.0.0/16", aws.ToString(byFilter.Vpcs[0].CidrBlock))
 
-	// CidrBlockAssociationSet must carry the primary CIDR (data.aws_vpc reads it).
+	// data.aws_vpc reads the primary CIDR from CidrBlockAssociationSet.
 	require.NotEmpty(t, byFilter.Vpcs[0].CidrBlockAssociationSet)
 	assoc := byFilter.Vpcs[0].CidrBlockAssociationSet[0]
 	assert.Equal(t, "10.62.0.0/16", aws.ToString(assoc.CidrBlock))
 	require.NotNil(t, assoc.CidrBlockState)
 	assert.Equal(t, types.VpcCidrBlockStateCodeAssociated, assoc.CidrBlockState.State)
 
-	// --vpc-ids with both returns both.
 	byIDs, err := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{aID, bID}})
 	require.NoError(t, err)
 	require.Len(t, byIDs.Vpcs, 2)
 }
 
-// TestEC2_DescribeSecurityGroupsVpcFilter covers the vpc-id filter
-// must not leak SGs from other VPCs.
+// TestEC2_DescribeSecurityGroupsVpcFilter expects the vpc-id filter to keep out
+// other VPCs' groups.
 func TestEC2_DescribeSecurityGroupsVpcFilter(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -72,7 +70,6 @@ func TestEC2_DescribeSecurityGroupsVpcFilter(t *testing.T) {
 	for _, sg := range out.SecurityGroups {
 		assert.Equal(t, aID, aws.ToString(sg.VpcId), "vpc-id filter must not return SGs from other VPCs")
 	}
-	// The VPC-A SG is present...
 	var names []string
 	for _, sg := range out.SecurityGroups {
 		names = append(names, aws.ToString(sg.GroupName))

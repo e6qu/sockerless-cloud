@@ -21,9 +21,8 @@ func requireGoogleErrCode(t *testing.T, err error, code int) {
 	require.Equal(t, code, gerr.Code)
 }
 
-// TestFirestore_UpdateMaskPreservesFields covers Patch and Commit
-// must honor updateMask and preserve unmentioned fields (DocumentRef.Update /
-// Set MergeAll) instead of replacing the whole document.
+// TestFirestore_UpdateMaskPreservesFields: Patch and Commit honour updateMask
+// and keep the fields it does not name.
 func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 	t.Parallel()
 	svc, err := firestore.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
@@ -32,7 +31,6 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 	parent := "projects/test-project/databases/(default)"
 	docName := parent + "/documents/mask-test/doc1"
 
-	// Seed a document with two fields.
 	_, err = svc.Projects.Databases.Documents.Commit(parent, &firestore.CommitRequest{
 		Writes: []*firestore.Write{{
 			Update: &firestore.Document{
@@ -46,7 +44,6 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// PATCH only field "a" with an updateMask — "b" must survive.
 	_, err = svc.Projects.Databases.Documents.Patch(docName, &firestore.Document{
 		Fields: map[string]firestore.Value{"a": {StringValue: "updated"}},
 	}).UpdateMaskFieldPaths("a").Do()
@@ -58,7 +55,6 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 	assert.Equal(t, "updated", got.Fields["a"].StringValue)
 	assert.Equal(t, "keepme", got.Fields["b"].StringValue)
 
-	// COMMIT with a per-write updateMask — same preservation.
 	_, err = svc.Projects.Databases.Documents.Commit(parent, &firestore.CommitRequest{
 		Writes: []*firestore.Write{{
 			Update:     &firestore.Document{Name: docName, Fields: map[string]firestore.Value{"a": {StringValue: "v3"}}},
@@ -74,9 +70,8 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 	assert.Equal(t, "keepme", got.Fields["b"].StringValue)
 }
 
-// TestSecretManager_AccessDisabledVersionFails covers accessing a
-// DISABLED version (or "latest" when the highest version is disabled) must
-// return FAILED_PRECONDITION (400), not the payload.
+// TestSecretManager_AccessDisabledVersionFails: accessing a DISABLED version,
+// or `latest` when the newest version is disabled, answers FAILED_PRECONDITION.
 func TestSecretManager_AccessDisabledVersionFails(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)
@@ -91,21 +86,18 @@ func TestSecretManager_AccessDisabledVersionFails(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// Enabled → access works.
 	acc, err := svc.Projects.Secrets.Versions.Access(v1.Name).Do()
 	require.NoError(t, err)
 	require.NotNil(t, acc.Payload)
 
-	// Disable the version.
 	_, err = svc.Projects.Secrets.Versions.Disable(v1.Name, &secretmanager.DisableSecretVersionRequest{}).Do()
 	require.NoError(t, err)
 
-	// Explicit access now fails FAILED_PRECONDITION (400).
 	_, err = svc.Projects.Secrets.Versions.Access(v1.Name).Do()
 	requireGoogleErrCode(t, err, 400)
 
-	// "latest" = highest version number (the disabled one) → also fails, it
-	// does NOT fall back to an older enabled version.
+	// `latest` resolves to the disabled newest version; it does not fall back to
+	// an older enabled one.
 	_, err = svc.Projects.Secrets.Versions.Access(secretName + "/versions/latest").Do()
 	requireGoogleErrCode(t, err, 400)
 }

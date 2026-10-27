@@ -1,14 +1,9 @@
 package azure_sdk_test
 
-// Literal route coverage doc for the Azure Cosmos DB (Microsoft.DocumentDB)
-// metric/usage/region/private-endpoint-connection ratchet and the Azure
-// Monitor / Log Analytics query data plane. These routes ARE exercised by the
-// armcosmos and azquery SDK round-trips in cosmos_completion_test.go and
-// loganalytics_query_test.go (and the `az rest` flows in cli-tests), but the
-// azure-sdk-for-go clients build their request URLs internally, so the literal
-// templates never appear in the test source. This block records them so the
-// simulator-testing-contract hook (which greps changed test files for each
-// route's literal "METHOD /path" token) can see the coverage.
+// The SDK clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 // Cosmos DB metric, usage, metric-definition, percentile and region routes
 // (simulator-azure/cosmos_metrics.go):

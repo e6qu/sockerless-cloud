@@ -63,36 +63,29 @@ type sbAMQPConn struct {
 	nextHandle   uint32
 	nextDelivery uint32
 	links        map[uint64]*sbAMQPLink
-	// claims holds the audiences this connection has authenticated through the
-	// CBS put-token handshake. An entity link may only be attached once a
-	// claim covering it has been granted, exactly as the real services require.
+	// The audiences this connection authenticated through CBS put-token. An entity
+	// link attaches only under a covering claim, as the services require.
 	claims []string
-	// deliveries maps the delivery id of each unsettled peek-lock transfer to
-	// the message lock it carries, for the receiver's disposition.
+	// Each unsettled peek-lock transfer's delivery id to the lock it carries.
 	deliveries map[uint32]sbAMQPDelivery
-	// sessions holds the transfer-id bookkeeping of each begun session, by
-	// channel, that every flow frame reports.
+	// Each begun session's transfer-id bookkeeping, by channel, for flow frames.
 	sessions map[uint16]*sbAMQPSession
-	// done closes when the connection ends.
-	done    chan struct{}
-	mu      sync.Mutex
-	writeMu sync.Mutex
+	done     chan struct{}
+	mu       sync.Mutex
+	writeMu  sync.Mutex
 }
 
-// sbAMQPSession is the session state AMQP 1.0 section 2.5.6 has each endpoint
-// report in its flow frames. Guarded by sbAMQPConn.mu.
+// The session state AMQP 1.0 section 2.5.6 reports in flow frames. Guarded by
+// sbAMQPConn.mu.
 type sbAMQPSession struct {
 	nextIncomingID uint32
 	nextOutgoingID uint32
 }
 
-// sbAMQPIncomingWindow and sbAMQPOutgoingWindow are the session windows the
-// simulator advertises in begin and flow frames.
 const (
 	sbAMQPIncomingWindow = 5000
 	sbAMQPOutgoingWindow = 1000
-	// sbAMQPSenderCredit is the link credit granted to a client's sender link;
-	// the grant is renewed once half of it is spent.
+	// Renewed once half is spent.
 	sbAMQPSenderCredit = 1000
 )
 
@@ -115,26 +108,22 @@ type sbAMQPLink struct {
 	serverHandle uint32
 	clientRole   bool
 	settledSend  bool
-	// credit and deliveryCount are the link's flow state (AMQP 1.0 section
-	// 2.6.7). On a link the simulator sends on, deliveryCount counts the
-	// transfers it sent and credit is what the receiver still allows; on a link
-	// it receives on, deliveryCount counts the transfers it received and credit
-	// is what it last granted.
+	// The link's flow state (AMQP 1.0 section 2.6.7). Sending, deliveryCount
+	// counts transfers sent and credit is what the receiver still allows;
+	// receiving, deliveryCount counts transfers received and credit is what was
+	// last granted.
 	credit        uint32
 	deliveryCount uint32
-	// drain records that the receiver asked for its unused credit back once
-	// no more messages are available.
+	// The receiver asked for its unused credit back once no messages remain.
 	drain bool
-	// session is the message session a session receiver holds the lock of;
-	// awaitingSession marks a session receiver still waiting to accept one,
-	// which is handed nothing. owner names the link as a session lock holder,
-	// and detached closes when the link ends.
+	// session is the message session a session receiver holds; awaitingSession
+	// marks one still waiting to accept a session, which is handed nothing. owner
+	// names the link as lock holder, and detached closes when the link ends.
 	session         string
 	awaitingSession bool
 	owner           string
 	detached        chan struct{}
-	// readSeq is the next sequence number an Event Hubs consumer link reads.
-	readSeq int64
+	readSeq         int64
 }
 
 type amqpFrame struct {
@@ -220,8 +209,7 @@ func newSBAMQPConn(namespace string, transport sbAMQPTransport) *sbAMQPConn {
 	}
 }
 
-// sessionLocked returns the state of the session on channel. The caller holds
-// c.mu.
+// The caller holds c.mu.
 func (c *sbAMQPConn) sessionLocked(channel uint16) *sbAMQPSession {
 	s := c.sessions[channel]
 	if s == nil {
@@ -231,8 +219,7 @@ func (c *sbAMQPConn) sessionLocked(channel uint16) *sbAMQPSession {
 	return s
 }
 
-// linkFlowLocked encodes the flow frame reporting a link's state. The caller
-// holds c.mu.
+// The caller holds c.mu.
 func (c *sbAMQPConn) linkFlowLocked(link *sbAMQPLink, drain bool) []byte {
 	s := c.sessionLocked(link.channel)
 	return encodeDescribedList(amqpDescFlow, []any{
@@ -260,7 +247,6 @@ func (c *sbAMQPConn) currentNamespace() string {
 	return c.namespace
 }
 
-// grantClaim records an audience this connection authenticated for.
 func (c *sbAMQPConn) grantClaim(audience string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -272,7 +258,6 @@ func (c *sbAMQPConn) grantClaim(audience string) {
 	c.claims = append(c.claims, audience)
 }
 
-// hasClaimFor reports whether a granted claim authorizes an entity path.
 func (c *sbAMQPConn) hasClaimFor(entityPath string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -322,8 +307,8 @@ func (c *sbAMQPConn) serve(ctx context.Context) {
 		c.endLinks(ended)
 		close(c.done)
 	}()
-	// AMQP is a byte stream: a read can end inside a protocol header or a
-	// frame, so bytes carry over until the rest arrives.
+	// AMQP is a byte stream: a read can end inside a header or frame, so bytes
+	// carry over until the rest arrives.
 	var pending []byte
 	for {
 		data, err := c.transport.Read(ctx)
@@ -339,8 +324,7 @@ func (c *sbAMQPConn) serve(ctx context.Context) {
 	}
 }
 
-// handleFrames handles every complete protocol header and frame at the start
-// of data and returns how many bytes they took.
+// Returns how many bytes the complete headers and frames took.
 func (c *sbAMQPConn) handleFrames(ctx context.Context, data []byte) (int, error) {
 	consumed := 0
 	for len(data)-consumed >= 8 {
@@ -443,8 +427,8 @@ func (c *sbAMQPConn) handleFrame(ctx context.Context, frame amqpFrame) error {
 		// The detach names the link by the handle this end assigned it.
 		return c.writeFrame(amqpFrameTypeAMQP, frame.channel, encodeDescribedList(amqpDescDetach, []any{link.serverHandle, true}))
 	case amqpDescEnd:
-		// Ending a session ends its links (AMQP 1.0 section 2.5.4): a link
-		// left behind would be handed messages its receiver can never see.
+		// Ending a session ends its links (AMQP 1.0 section 2.5.4): a link left
+		// behind would be handed messages its receiver can never see.
 		c.mu.Lock()
 		delete(c.sessions, frame.channel)
 		var ended []*sbAMQPLink
@@ -483,8 +467,8 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 		address = name
 	}
 	entityAddress := strings.Trim(address, "/")
-	// The CBS and management endpoints carry the handshake itself and are
-	// reachable before any claim exists; every entity link requires one.
+	// The CBS and management endpoints carry the handshake and are reachable
+	// before any claim; every entity link requires one.
 	if entityAddress != "$cbs" && entityAddress != "$management" &&
 		!c.hasClaimFor(entityAddress) {
 		return c.refuseAttach(frame, name, clientRole, entityAddress)
@@ -533,8 +517,8 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 		return nil
 	}
 	if clientRole {
-		// Echo the sender settle mode the receiver asked for: settled is
-		// receive-and-delete, anything else peek-lock. AMQP's default is mixed.
+		// Echo the receiver's sender settle mode: settled is receive-and-delete,
+		// anything else peek-lock. AMQP's default is mixed.
 		sndSettleMode := uint8(2)
 		if field(frame.fields, 3) != nil {
 			sndSettleMode = asUint8(field(frame.fields, 3))
@@ -576,8 +560,7 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	return c.writeFrame(amqpFrameTypeAMQP, frame.channel, flow)
 }
 
-// grantSenderCredit renews a client sender link's credit once half of it is
-// spent, so a sender never runs dry however many messages it sends.
+// Renew once half is spent, so a sender never runs dry.
 func (c *sbAMQPConn) grantSenderCredit(channel uint16, handle uint32) error {
 	c.mu.Lock()
 	link := c.links[sbAMQPLinkKey(channel, handle)]
@@ -599,17 +582,13 @@ func (c *sbAMQPConn) grantSenderCredit(channel uint16, handle uint32) error {
 	return c.writeFrame(amqpFrameTypeAMQP, channel, flow)
 }
 
-// refuseAttach answers an attach for an entity the connection has not
-// authenticated for. Real Service Bus and Event Hubs complete the attach
-// handshake and immediately detach the link with the amqp:unauthorized-access
-// error condition, which is what the AMQP clients surface as an auth failure.
+// Service Bus and Event Hubs complete the attach and immediately detach with
+// amqp:unauthorized-access, which AMQP clients surface as an auth failure.
 func (c *sbAMQPConn) refuseAttach(frame amqpFrame, name string, clientRole bool, address string) error {
 	return c.refuseAttachWith(frame, name, clientRole, errSASInvalidSignature.Condition,
 		fmt.Sprintf("Unauthorized access. %q claim(s) are required to perform this operation.", address))
 }
 
-// refuseAttachWith completes an attach and detaches the link at once with an
-// error, the way the services refuse a link.
 func (c *sbAMQPConn) refuseAttachWith(frame amqpFrame, name string, clientRole bool, condition, description string) error {
 	c.mu.Lock()
 	serverHandle := c.nextHandle
@@ -629,8 +608,8 @@ func (c *sbAMQPConn) refuseAttachWith(frame amqpFrame, name string, clientRole b
 		nil,
 		uint64(math.MaxUint32),
 	}
-	// A refused link's attach carries no terminus (AMQP 1.0 section 2.6.3),
-	// which tells the client to wait for the detach that says why.
+	// A refused link's attach carries no terminus (AMQP 1.0 section 2.6.3), telling
+	// the client to wait for the detach that says why.
 	if !clientRole {
 		attachFields[3] = uint8(2)
 	}
@@ -730,12 +709,10 @@ func (c *sbAMQPConn) handleTransfer(ctx context.Context, frame amqpFrame) error 
 	}))
 }
 
-// sbAMQPBatchFormat is the message-format of a transfer whose data sections
-// are each an encoded message, as a batch send produces.
+// Each data section is an encoded message, as a batch send produces.
 const sbAMQPBatchFormat = 0x80013700
 
-// sbOutgoingFromAMQP reads what the broker acts on from an AMQP message:
-// its id, time to live and scheduled enqueue time.
+// The id, time to live and scheduled enqueue time the broker acts on.
 func sbOutgoingFromAMQP(msg *amqp.Message, raw []byte) sbOutgoing {
 	out := sbOutgoing{payload: sbPayload{Body: msg.GetData(), AMQP: append([]byte(nil), raw...)}}
 	if msg.Properties != nil {
@@ -758,10 +735,8 @@ func sbOutgoingFromAMQP(msg *amqp.Message, raw []byte) sbOutgoing {
 	return out
 }
 
-// sbAMQPPutTokenOutcome verifies a CBS put-token request against the
-// addressed namespace's authorization rules. On success the audience is
-// recorded as a claim on the connection; on failure the caller answers with
-// the refusal the real services return.
+// On success the audience becomes a claim on the connection; on failure the
+// caller answers with the services' refusal.
 func (c *sbAMQPConn) sbAMQPPutTokenOutcome(req *amqp.Message) (statusCode int32, description string) {
 	token, _ := req.Value.(string)
 	audience, err := verifyMessagingSAS(c.currentNamespace(), token)
@@ -776,12 +751,10 @@ func (c *sbAMQPConn) sbAMQPPutTokenOutcome(req *amqp.Message) (statusCode int32,
 	return 202, "Accepted"
 }
 
-// sbAMQPManagementEntity returns the entity a management RPC addresses, when
-// the request names one. Event Hubs metadata reads carry the hub in the `name`
-// application property; Service Bus operations such as peek and renew-lock are
-// scoped by the entity management link they arrive on, whose attach already
-// required a claim, so those report no entity and are authorized by holding
-// any claim on the connection.
+// Event Hubs metadata reads name the hub in the `name` application property.
+// Service Bus operations such as peek and renew-lock are scoped by the
+// management link they arrive on, whose attach required a claim, so they
+// report no entity and are authorized by any claim.
 func sbAMQPManagementEntity(req *amqp.Message) (entity string, named bool) {
 	if req.ApplicationProperties == nil {
 		return "", false
@@ -792,9 +765,8 @@ func sbAMQPManagementEntity(req *amqp.Message) (entity string, named bool) {
 	return "", false
 }
 
-// authorizedForManagement reports whether the connection may run a management
-// operation: a claim covering the named entity, or — for a link-scoped
-// operation — any claim at all.
+// A claim covering the named entity or, for a link-scoped operation, any
+// claim.
 func (c *sbAMQPConn) authorizedForManagement(req *amqp.Message) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -841,9 +813,8 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 	if link == nil {
 		return nil
 	}
-	// CBS put-token is the services' authentication handshake: verify the
-	// Shared Access Signature before anything else on this connection is
-	// allowed to address an entity.
+	// CBS put-token is the authentication handshake: verify the SAS before
+	// anything else on the connection may address an entity.
 	if req.ApplicationProperties != nil && fmt.Sprint(req.ApplicationProperties["operation"]) == "put-token" {
 		statusCode, description := c.sbAMQPPutTokenOutcome(req)
 		resp := &amqp.Message{
@@ -859,8 +830,8 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 		}
 		return c.writeReply(link, body)
 	}
-	// Every other management operation addresses an entity and therefore
-	// requires a claim, even when it arrives over the $cbs link.
+	// Every other management operation addresses an entity and requires a claim,
+	// even over the $cbs link.
 	if !c.authorizedForManagement(req) {
 		resp := &amqp.Message{
 			Properties: &amqp.MessageProperties{CorrelationID: corr},
@@ -891,11 +862,10 @@ func (c *sbAMQPConn) respondRPC(channel uint16, address string, req *amqp.Messag
 	return c.writeReply(link, body)
 }
 
-// handleFlow applies a receiver's flow frame to the link the simulator sends
-// on. AMQP 1.0 section 2.6.7 defines link-credit relative to the receiver's
-// delivery-count, so the credit left is the receiver's delivery-count plus its
-// link-credit minus the transfers already sent; a receiver that re-issues a
-// flow restates its allowance rather than adding to it.
+// AMQP 1.0 section 2.6.7 defines link-credit relative to the receiver's
+// delivery-count: credit left is its delivery-count plus link-credit minus the
+// transfers sent, so a re-issued flow restates the allowance rather than adding
+// to it.
 func (c *sbAMQPConn) handleFlow(_ context.Context, frame amqpFrame) error {
 	handlePtr := field(frame.fields, 4)
 	if handlePtr == nil {
@@ -936,10 +906,9 @@ func (c *sbAMQPConn) handleFlow(_ context.Context, frame amqpFrame) error {
 	return c.completeFlow(frame.channel, handle, echo)
 }
 
-// sbAMQPSenderCreditFrom computes a sender's link-credit from a receiver's
-// flow. Delivery counts are RFC 1982 serial numbers, so the difference is
-// taken modulo 2^32; a receiver whose flow crossed transfers still in flight
-// can name a delivery-count behind the sender's, and is then owed nothing.
+// Delivery counts are RFC 1982 serial numbers, so the difference is modulo
+// 2^32; a flow that crossed in-flight transfers can name a count behind the
+// sender's and is owed nothing.
 func sbAMQPSenderCreditFrom(receiverCount, receiverCredit, senderCount uint32) uint32 {
 	if remaining := int32(receiverCount + receiverCredit - senderCount); remaining > 0 {
 		return uint32(remaining)
@@ -947,9 +916,8 @@ func sbAMQPSenderCreditFrom(receiverCount, receiverCredit, senderCount uint32) u
 	return 0
 }
 
-// completeFlow answers a flow once the deliveries it made possible are sent:
-// a drain gives the unused credit back by advancing the delivery count, and
-// both a drain and an echo request are answered with the link's state.
+// A drain returns unused credit by advancing the delivery count, and a drain or
+// echo is answered with the link's state.
 func (c *sbAMQPConn) completeFlow(channel uint16, handle uint32, echo bool) error {
 	c.mu.Lock()
 	link := c.links[sbAMQPLinkKey(channel, handle)]
@@ -968,8 +936,7 @@ func (c *sbAMQPConn) completeFlow(channel uint16, handle uint32, echo bool) erro
 	return c.writeFrame(amqpFrameTypeAMQP, channel, flow)
 }
 
-// deliverEventHubEventsLocked sends an Event Hubs consumer link the events
-// its credit covers. The caller holds c.mu.
+// The caller holds c.mu.
 func (c *sbAMQPConn) deliverEventHubEventsLocked(namespace string, link *sbAMQPLink) error {
 	for link.credit > 0 {
 		msg, next, ok := ehAMQPNextEvent(namespace, link.address, link.readSeq)
@@ -984,8 +951,7 @@ func (c *sbAMQPConn) deliverEventHubEventsLocked(namespace string, link *sbAMQPL
 	return nil
 }
 
-// sbAMQPDeliverEventHubEvents pushes newly published events to the Event Hubs
-// consumer links of the namespace that still hold credit.
+// To the namespace's Event Hubs consumer links that still hold credit.
 func sbAMQPDeliverEventHubEvents(namespace string) error {
 	var firstErr error
 	sbAMQPActiveConns.Range(func(key, _ any) bool {
@@ -1029,8 +995,8 @@ func (c *sbAMQPConn) deliverAvailableMessages(paths []string) error {
 		if link.session != "" && !sbSessionHeld(namespace, path, link.session, link.owner) {
 			continue
 		}
-		// A receiver whose transfers arrive settled is receive-and-delete;
-		// otherwise every message is delivered under a peek-lock.
+		// A receiver whose transfers arrive settled is receive-and-delete; otherwise
+		// every message is delivered under a peek-lock.
 		peekLock := !link.settledSend
 		msgs, _ := sbReceive(namespace, path, link.session, int(link.credit), peekLock)
 		for _, m := range msgs {
@@ -1054,8 +1020,7 @@ func (c *sbAMQPConn) deliverAvailableMessages(paths []string) error {
 	return nil
 }
 
-// sbAMQPMessage renders a stored message for an AMQP receiver: the message
-// as its sender sent it, with the broker's annotations over it.
+// The message as sent, with the broker's annotations over it.
 func sbAMQPMessage(m msgq.Message[sbPayload], peekLock bool) *amqp.Message {
 	out := &amqp.Message{}
 	if len(m.Payload.AMQP) > 0 {
@@ -1110,9 +1075,8 @@ func sbAMQPMessage(m msgq.Message[sbPayload], peekLock bool) *amqp.Message {
 	return out
 }
 
-// handleDisposition settles the peek-locked messages a receiver's
-// disposition names, and confirms each outcome the way Service Bus does when
-// the receiver settles second.
+// Each outcome is confirmed as Service Bus does when the receiver settles
+// second.
 func (c *sbAMQPConn) handleDisposition(frame amqpFrame) error {
 	if !asBool(field(frame.fields, 0)) {
 		return nil
@@ -1151,10 +1115,8 @@ func (c *sbAMQPConn) handleDisposition(frame amqpFrame) error {
 	}
 }
 
-// sbSettlementFromState maps an AMQP delivery outcome to the Service Bus
-// settlement it stands for: accepted completes, released returns the message
-// uncounted, modified abandons it (or defers it when undeliverable-here), and
-// rejected dead-letters it.
+// accepted completes, released returns the message uncounted, modified
+// abandons it (or defers it when undeliverable-here), rejected dead-letters it.
 func sbSettlementFromState(state any) (sbSettlement, bool) {
 	d, ok := state.(amqpDescribed)
 	if !ok {
@@ -1231,11 +1193,9 @@ func sbAMQPEntityPath(address string) string {
 	return address
 }
 
-// sbAMQPReceiverPath returns the message store a receiver link reads, and
-// false for a link that reads no entity: the CBS node, a management node, or
-// any other address that names no queue, subscription or dead-letter queue. A
-// management node's reply link sources from `<entity>/$management`; handing
-// it an entity's message loses the message.
+// False for the CBS node, a management node, or any address naming no queue,
+// subscription or dead-letter queue. A management reply link sources from
+// `<entity>/$management`, and handing it an entity's message loses it.
 func sbAMQPReceiverPath(address string) (string, bool) {
 	address = strings.Trim(address, "/")
 	if address == "" || address == "$cbs" || strings.EqualFold(address, "$management") || sbAMQPIsManagementAddress(address) {
@@ -1245,8 +1205,7 @@ func sbAMQPReceiverPath(address string) (string, bool) {
 	return path, !strings.Contains(path, "$") || sbIsDeadLetterPath(path)
 }
 
-// sbAMQPSelectorFilter returns the selector-filter expression of an attach's
-// source terminus, empty when it sets none.
+// Empty when the source terminus sets none.
 func sbAMQPSelectorFilter(source any) string {
 	d, ok := source.(amqpDescribed)
 	if !ok {
@@ -1264,8 +1223,6 @@ func sbAMQPSelectorFilter(source any) string {
 	return ""
 }
 
-// sbAMQPIsManagementAddress reports whether an address is an entity's
-// management node, `<entity>/$management`.
 func sbAMQPIsManagementAddress(address string) bool {
 	return strings.HasSuffix(strings.ToLower(address), "/$management")
 }
@@ -1316,8 +1273,6 @@ func (c *sbAMQPConn) receiverForAddressMatch(address string, channel *uint16) *s
 	return links[0]
 }
 
-// writeReply sends a settled management or CBS reply on the receiver link a
-// lookup returned a copy of.
 func (c *sbAMQPConn) writeReply(reply *sbAMQPLink, payload []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1329,9 +1284,8 @@ func (c *sbAMQPConn) writeReply(reply *sbAMQPLink, payload []byte) error {
 	return err
 }
 
-// writeTransferLocked sends one transfer on a link and returns its delivery
-// id; a nil tag gets a unique one. The transfer spends a unit of the link's
-// credit and advances its delivery count. The caller holds c.mu.
+// A nil tag gets a unique one. The transfer spends a unit of credit and
+// advances the delivery count. The caller holds c.mu.
 func (c *sbAMQPConn) writeTransferLocked(link *sbAMQPLink, payload []byte, settled bool, tag []byte) (uint32, error) {
 	deliveryID := atomic.AddUint32(&c.nextDelivery, 1) - 1
 	if tag == nil {
@@ -1400,19 +1354,15 @@ func newSBAMQPRawTransport(conn net.Conn) *sbAMQPRawTransport {
 	return &sbAMQPRawTransport{conn: conn, r: bufio.NewReader(conn)}
 }
 
-// sbAMQPMaxFrameSize bounds the length-prefixed frame the raw transport will
-// allocate. The 4-byte size prefix is attacker-controlled (the TLS listener is
-// pre-auth), so without a cap a header declaring 0xFFFFFFFF forces a ~4GB
-// make([]byte, size) → OOM. 16 MiB is far above any real Service Bus control or
-// transfer frame.
+// The pre-auth TLS listener reads an attacker-controlled 4-byte size prefix, so
+// cap the allocation; 16 MiB is far above any real Service Bus frame.
 const sbAMQPMaxFrameSize = 16 * 1024 * 1024
 
 func (t *sbAMQPRawTransport) Read(context.Context) ([]byte, error) {
 	return sbAMQPReadFrame(t.r)
 }
 
-// sbAMQPReadFrame reads one length-prefixed AMQP frame (or the 8-byte AMQP
-// protocol-id header) from r, bounding the declared size before allocating.
+// Bounds the declared size before allocating.
 func sbAMQPReadFrame(r *bufio.Reader) ([]byte, error) {
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(r, header); err != nil {
@@ -1428,11 +1378,8 @@ func sbAMQPReadFrame(r *bufio.Reader) ([]byte, error) {
 	frame := make([]byte, size)
 	copy(frame, header)
 	if _, err := io.ReadFull(r, frame[8:]); err != nil {
-		// A frame that did not arrive whole is not a frame. Returning the
-		// partly filled buffer beside the error handed a caller that checked
-		// only one of the two a body the peer never sent — the size it claimed,
-		// zero-padded — on a pre-authentication path where the peer chooses
-		// both the size and where to stop sending.
+		// A partial frame is no frame: return no buffer beside the error, on this
+		// pre-authentication path where the peer chooses size and cutoff.
 		return nil, err
 	}
 	return frame, nil
@@ -1465,9 +1412,8 @@ func sbAMQPNamespaceFromHost(host string) string {
 }
 
 func parseAMQPFrame(data []byte) (amqpFrame, error) {
-	// The frame header is 8 bytes (size:4, doff:1, type:1, channel:2);
-	// the size field is attacker-controlled so guard it against a short
-	// buffer and a size that overruns the data before slicing.
+	// The 8-byte header is size:4, doff:1, type:1, channel:2; the size is
+	// attacker-controlled, so guard against a short buffer and an overrun.
 	if len(data) < 8 {
 		return amqpFrame{}, errors.New("short AMQP frame")
 	}
@@ -1501,11 +1447,8 @@ func parseAMQPFrame(data []byte) (amqpFrame, error) {
 	}, nil
 }
 
-// amqpMaxValues / amqpMaxDepth bound the work a single (attacker-controlled)
-// frame can cause: a wire-encoded list/map/array carries its element count as a
-// u32, and an element can re-trigger decoding, so without a budget a crafted
-// frame loops billions of times (OOM/hang) or nests until the stack overflows.
-// Real Service Bus control frames are tiny, so these caps never bite legitimately.
+// An attacker-controlled frame carries u32 element counts and can nest, so
+// budget values and depth; real Service Bus control frames are tiny.
 const (
 	amqpMaxValues = 100000
 	amqpMaxDepth  = 1024
@@ -1645,9 +1588,8 @@ func (r *amqpValueReader) readValue() (any, error) {
 }
 
 func (r *amqpValueReader) readList(end, count int) ([]any, error) {
-	// count is attacker-controlled (decoded from the wire) — do not
-	// pre-size the slice with it or a huge value OOMs the process; the
-	// loop is bounded by the available data.
+	// count comes off the wire: pre-sizing with it would let a huge value exhaust
+	// memory; the loop is bounded by the data.
 	var out []any
 	for i := 0; i < count && r.off < len(r.data); i++ {
 		v, err := r.readValue()
@@ -1664,11 +1606,8 @@ func (r *amqpValueReader) readList(end, count int) ([]any, error) {
 
 func (r *amqpValueReader) readMap(_ int, count int) (out map[any]any, err error) {
 	out = map[any]any{}
-	// A decoded key can be a composite (list/array → []any, or a described
-	// value wrapping one), which is not a valid Go map key and panics
-	// "hash of unhashable type" on insert. Real AMQP map keys are scalars
-	// (symbols/strings); a composite key means a malformed frame, so
-	// recover the insert panic into an error rather than crashing.
+	// A composite decoded key is not a valid Go map key and panics on insert. Real
+	// AMQP map keys are scalars, so recover into an error for a malformed frame.
 	defer func() {
 		if recover() != nil {
 			out, err = nil, errors.New("invalid AMQP map key")
@@ -1693,9 +1632,8 @@ func (r *amqpValueReader) readArray(_ int, count int) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// count is attacker-controlled — don't pre-size with it (OOM). The
-	// per-element re-injection of elemType decrements r.off, so guard
-	// against underflowing below 0 (which would index r.data[-1]).
+	// count comes off the wire: do not pre-size with it. Re-injecting elemType
+	// decrements r.off, so guard against going below 0.
 	var out []any
 	for i := 0; i < count; i++ {
 		if r.off <= 0 {
@@ -1868,8 +1806,8 @@ func encodeList(fields []any) []byte {
 	return append(out, body...)
 }
 
-// encodeMap encodes each key as the type it has, so a symbol key stays a
-// symbol on the wire, in an order independent of map iteration.
+// A symbol key stays a symbol on the wire, in an order independent of map
+// iteration.
 func encodeMap(m map[any]any) []byte {
 	keys := make([]any, 0, len(m))
 	for k := range m {

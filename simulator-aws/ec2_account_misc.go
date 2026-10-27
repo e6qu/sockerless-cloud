@@ -10,42 +10,28 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 account-settings, ID-format, EIP
-// address-attribute (PTR record), EC2-Classic↔VPC ClassicLink, Nitro Enclave
-// certificate↔IAM-role, Client VPN export/import, Site-to-Site VPN
-// tunnel-replacement, transit-gateway Connect-peer, VPC-peering-options, and
-// network-ACL-association control-plane operations. Each backs onto a real
-// SQLite-persisted store and renders the exact ec2Query XML the AWS SDK for Go
-// v2 and the aws CLI deserialize, matching com.amazonaws.ec2.
-
-// EC2IdFormatSetting records the per-resource-type useLongIds preference at the
-// account level. Real EC2 has long IDs permanently enabled for every resource
-// type (the opt-in period closed years ago), so the honest default is true.
+// Amazon EC2 has long IDs permanently enabled for every resource type, so the
+// default is true.
 type EC2IdFormatSetting struct {
 	Resource   string
 	UseLongIds bool
 }
 
-// EC2AddressAttribute records the PTR (reverse-DNS) record configured on an
-// Elastic IP, keyed by allocation ID. Real EC2 stores this separately from the
-// address itself (ModifyAddressAttribute / ResetAddressAttribute mutate it).
+// Amazon EC2 stores the PTR record apart from the address. Keyed by
+// allocation ID.
 type EC2AddressAttribute struct {
 	AllocationId string
 	PublicIp     string
 	PtrRecord    string
 }
 
-// EC2ClassicLink records a ClassicLink attachment between an EC2-Classic
-// instance and a VPC, with the security groups applied to the link.
 type EC2ClassicLink struct {
 	InstanceId string
 	VpcId      string
 	GroupIds   []string
 }
 
-// EC2EnclaveCertRole records an association between an ACM certificate and an
-// IAM role for AWS Nitro Enclaves ACM integration, including the deterministic
-// S3 bucket/key where the certificate bundle is uploaded.
+// Records the Amazon S3 bucket and key where the certificate bundle goes.
 type EC2EnclaveCertRole struct {
 	CertificateArn          string
 	RoleArn                 string
@@ -54,15 +40,12 @@ type EC2EnclaveCertRole struct {
 	EncryptionKmsKeyId      string
 }
 
-// EC2ClientVpnCertRevocationList records the imported client certificate
-// revocation list PEM for a Client VPN endpoint, keyed by endpoint ID.
+// Keyed by endpoint ID.
 type EC2ClientVpnCertRevocationList struct {
 	ClientVpnEndpointId string
 	Pem                 string
 }
 
-// EC2TransitGatewayConnectPeer models a Connect peer (GRE tunnel + BGP) on a
-// transit-gateway Connect attachment.
 type EC2TransitGatewayConnectPeer struct {
 	TransitGatewayConnectPeerId string
 	TransitGatewayAttachmentId  string
@@ -84,12 +67,11 @@ var (
 	ec2EnclaveCertRoles    sim.Store[EC2EnclaveCertRole]
 	ec2ClientVpnCertCRLs   sim.Store[EC2ClientVpnCertRevocationList]
 	ec2TGWConnectPeers     sim.Store[EC2TransitGatewayConnectPeer]
-	ec2ManagedResourceVis  sim.Store[EC2IdFormatSetting] // reused row shape: holds the single visibility setting
+	ec2ManagedResourceVis  sim.Store[EC2IdFormatSetting] // Reuses the row shape to hold the single visibility setting.
 	ec2VpcPeeringOptionsDB sim.Store[EC2VpcPeeringOptions]
 )
 
-// EC2VpcPeeringOptions records the DNS/ClassicLink peering options per side of a
-// VPC peering connection, keyed by the peering-connection ID.
+// Keyed by peering-connection ID.
 type EC2VpcPeeringOptions struct {
 	VpcPeeringConnectionId                          string
 	AccepterAllowDnsResolutionFromRemoteVpc         bool
@@ -100,9 +82,7 @@ type EC2VpcPeeringOptions struct {
 	RequesterAllowEgressLocalVpcToRemoteClassicLink bool
 }
 
-// ec2IdFormatResources is the canonical set of resource types EC2 reports
-// ID-format status for. It mirrors the resource enumeration in the
-// ModifyIdFormat documentation.
+// The resource types the ModifyIdFormat documentation enumerates.
 var ec2IdFormatResources = []string{
 	"bundle", "conversion-task", "customer-gateway", "dhcp-options",
 	"elastic-ip-allocation", "elastic-ip-association", "export-task",
@@ -124,66 +104,53 @@ func registerEC2AccountMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VpcPeeringOptionsDB = sim.MakeStore[EC2VpcPeeringOptions](srv.DB(), "ec2_vpc_peering_options")
 
 	for action, h := range map[string]http.HandlerFunc{
-		// ID format / account settings
-		"DescribeIdFormat":          handleDescribeIdFormat,
-		"ModifyIdFormat":            handleModifyIdFormat,
-		"DescribeIdentityIdFormat":  handleDescribeIdentityIdFormat,
-		"ModifyIdentityIdFormat":    handleModifyIdentityIdFormat,
-		"DescribeAggregateIdFormat": handleDescribeAggregateIdFormat,
-		"DescribePrincipalIdFormat": handleDescribePrincipalIdFormat,
-		// EIP address attributes + domain transitions
-		"ModifyAddressAttribute":  handleModifyAddressAttribute,
-		"ResetAddressAttribute":   handleResetAddressAttribute,
-		"MoveAddressToVpc":        handleMoveAddressToVpc,
-		"RestoreAddressToClassic": handleRestoreAddressToClassic,
-		"DescribeMovingAddresses": handleDescribeMovingAddresses,
-		// ClassicLink
-		"AttachClassicLinkVpc": handleAttachClassicLinkVpc,
-		"DetachClassicLinkVpc": handleDetachClassicLinkVpc,
-		// Nitro Enclave certificate ↔ IAM role
-		"AssociateEnclaveCertificateIamRole":      handleAssociateEnclaveCertificateIamRole,
-		"DisassociateEnclaveCertificateIamRole":   handleDisassociateEnclaveCertificateIamRole,
-		"GetAssociatedEnclaveCertificateIamRoles": handleGetAssociatedEnclaveCertificateIamRoles,
-		// Client VPN export/import
+		"DescribeIdFormat":                               handleDescribeIdFormat,
+		"ModifyIdFormat":                                 handleModifyIdFormat,
+		"DescribeIdentityIdFormat":                       handleDescribeIdentityIdFormat,
+		"ModifyIdentityIdFormat":                         handleModifyIdentityIdFormat,
+		"DescribeAggregateIdFormat":                      handleDescribeAggregateIdFormat,
+		"DescribePrincipalIdFormat":                      handleDescribePrincipalIdFormat,
+		"ModifyAddressAttribute":                         handleModifyAddressAttribute,
+		"ResetAddressAttribute":                          handleResetAddressAttribute,
+		"MoveAddressToVpc":                               handleMoveAddressToVpc,
+		"RestoreAddressToClassic":                        handleRestoreAddressToClassic,
+		"DescribeMovingAddresses":                        handleDescribeMovingAddresses,
+		"AttachClassicLinkVpc":                           handleAttachClassicLinkVpc,
+		"DetachClassicLinkVpc":                           handleDetachClassicLinkVpc,
+		"AssociateEnclaveCertificateIamRole":             handleAssociateEnclaveCertificateIamRole,
+		"DisassociateEnclaveCertificateIamRole":          handleDisassociateEnclaveCertificateIamRole,
+		"GetAssociatedEnclaveCertificateIamRoles":        handleGetAssociatedEnclaveCertificateIamRoles,
 		"ExportClientVpnClientCertificateRevocationList": handleExportClientVpnClientCertificateRevocationList,
 		"ImportClientVpnClientCertificateRevocationList": handleImportClientVpnClientCertificateRevocationList,
 		"ExportClientVpnClientConfiguration":             handleExportClientVpnClientConfiguration,
-		// Site-to-Site VPN tunnel replacement / certificate
-		"GetVpnTunnelReplacementStatus": handleGetVpnTunnelReplacementStatus,
-		"ModifyVpnTunnelCertificate":    handleModifyVpnTunnelCertificate,
-		"ReplaceVpnTunnel":              handleReplaceVpnTunnel,
-		// Transit gateway Connect peer
-		"CreateTransitGatewayConnectPeer":    handleCreateTransitGatewayConnectPeer,
-		"DeleteTransitGatewayConnectPeer":    handleDeleteTransitGatewayConnectPeer,
-		"DescribeTransitGatewayConnectPeers": handleDescribeTransitGatewayConnectPeers,
-		// Transit gateway Client VPN attachments
-		"AcceptTransitGatewayClientVpnAttachment": handleAcceptTransitGatewayClientVpnAttachment,
-		"RejectTransitGatewayClientVpnAttachment": handleRejectTransitGatewayClientVpnAttachment,
-		"DeleteTransitGatewayClientVpnAttachment": handleDeleteTransitGatewayClientVpnAttachment,
-		"DescribeTransitGatewayMeteringPolicies":  handleDescribeTransitGatewayMeteringPolicies,
-		// VPC peering options / reject
-		"ModifyVpcPeeringConnectionOptions": handleModifyVpcPeeringConnectionOptions,
-		"RejectVpcPeeringConnection":        handleRejectVpcPeeringConnection,
-		// Network ACL association
-		"ReplaceNetworkAclAssociation": handleReplaceNetworkAclAssociation,
-		// Honest-empty / template / org-sharing / visibility / encryption
-		"DescribeVpcEndpointAssociations":               handleDescribeVpcEndpointAssociations,
-		"GetFlowLogsIntegrationTemplate":                handleGetFlowLogsIntegrationTemplate,
-		"EnableReachabilityAnalyzerOrganizationSharing": handleEnableReachabilityAnalyzerOrganizationSharing,
-		"GetManagedResourceVisibility":                  handleGetManagedResourceVisibility,
-		"ModifyManagedResourceVisibility":               handleModifyManagedResourceVisibility,
-		"GetVpcResourcesBlockingEncryptionEnforcement":  handleGetVpcResourcesBlockingEncryptionEnforcement,
-		"DescribeElasticGpus":                           handleDescribeElasticGpus,
-		"DescribeOutpostLags":                           handleDescribeOutpostLags,
-		"DescribeSecondaryInterfaces":                   handleDescribeSecondaryInterfaces,
-		"DescribeServiceLinkVirtualInterfaces":          handleDescribeServiceLinkVirtualInterfaces,
+		"GetVpnTunnelReplacementStatus":                  handleGetVpnTunnelReplacementStatus,
+		"ModifyVpnTunnelCertificate":                     handleModifyVpnTunnelCertificate,
+		"ReplaceVpnTunnel":                               handleReplaceVpnTunnel,
+		"CreateTransitGatewayConnectPeer":                handleCreateTransitGatewayConnectPeer,
+		"DeleteTransitGatewayConnectPeer":                handleDeleteTransitGatewayConnectPeer,
+		"DescribeTransitGatewayConnectPeers":             handleDescribeTransitGatewayConnectPeers,
+		"AcceptTransitGatewayClientVpnAttachment":        handleAcceptTransitGatewayClientVpnAttachment,
+		"RejectTransitGatewayClientVpnAttachment":        handleRejectTransitGatewayClientVpnAttachment,
+		"DeleteTransitGatewayClientVpnAttachment":        handleDeleteTransitGatewayClientVpnAttachment,
+		"DescribeTransitGatewayMeteringPolicies":         handleDescribeTransitGatewayMeteringPolicies,
+		"ModifyVpcPeeringConnectionOptions":              handleModifyVpcPeeringConnectionOptions,
+		"RejectVpcPeeringConnection":                     handleRejectVpcPeeringConnection,
+		"ReplaceNetworkAclAssociation":                   handleReplaceNetworkAclAssociation,
+		"DescribeVpcEndpointAssociations":                handleDescribeVpcEndpointAssociations,
+		"GetFlowLogsIntegrationTemplate":                 handleGetFlowLogsIntegrationTemplate,
+		"EnableReachabilityAnalyzerOrganizationSharing":  handleEnableReachabilityAnalyzerOrganizationSharing,
+		"GetManagedResourceVisibility":                   handleGetManagedResourceVisibility,
+		"ModifyManagedResourceVisibility":                handleModifyManagedResourceVisibility,
+		"GetVpcResourcesBlockingEncryptionEnforcement":   handleGetVpcResourcesBlockingEncryptionEnforcement,
+		"DescribeElasticGpus":                            handleDescribeElasticGpus,
+		"DescribeOutpostLags":                            handleDescribeOutpostLags,
+		"DescribeSecondaryInterfaces":                    handleDescribeSecondaryInterfaces,
+		"DescribeServiceLinkVirtualInterfaces":           handleDescribeServiceLinkVirtualInterfaces,
 	} {
 		r.Register(action, h)
 	}
 }
 
-// ec2IdFormatUseLongIds returns the stored useLongIds for a resource, defaulting
-// to true (real AWS has long IDs permanently enabled for every resource type).
 func ec2IdFormatUseLongIds(resource string) bool {
 	if s, ok := ec2IdFormatSettings.Get(resource); ok {
 		return s.UseLongIds
@@ -283,9 +250,8 @@ func handleDescribePrincipalIdFormat(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), arn, idFormatStatusSetXML(resources))
 }
 
-// ec2AddrAttr loads the stored PTR attribute for an allocation, synthesizing one
-// from the allocation's public IP if none has been set yet (real EC2 returns an
-// AddressAttribute with a default reverse-DNS-shaped PtrRecord).
+// Without a stored attribute, derive the default reverse-DNS PtrRecord from
+// the address.
 func ec2AddrAttr(allocID string) (EC2AddressAttribute, bool) {
 	eip, ok := ec2ElasticIPs.Get(allocID)
 	if !ok {
@@ -320,7 +286,7 @@ func handleModifyAddressAttribute(w http.ResponseWriter, r *http.Request) {
 	domainName := r.FormValue("DomainName")
 	a.PtrRecord = domainName
 	if domainName != "" && !strings.HasSuffix(domainName, ".") {
-		// Real EC2 stores the PTR record with a trailing dot.
+		// Amazon EC2 stores the PTR record with a trailing dot.
 		a.PtrRecord = domainName + "."
 	}
 	ec2AddressAttributes.Put(allocID, a)
@@ -388,8 +354,7 @@ func handleDescribeMovingAddresses(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("<movingAddressStatusSet>")
 	for _, e := range ec2ElasticIPs.List() {
-		// Only EIPs currently in the EC2-Classic domain are "moving"
-		// (move-in-progress / in-classic). VPC EIPs are stable and omitted.
+		// Only EC2-Classic addresses can be moving; VPC addresses are omitted.
 		if e.Domain != "standard" {
 			continue
 		}
@@ -437,8 +402,7 @@ func handleDetachClassicLinkVpc(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// enclaveCertKey is the composite store key: certificate ARN + role ARN, since
-// a certificate may be associated with multiple roles.
+// A certificate may be associated with several roles.
 func enclaveCertKey(certArn, roleArn string) string { return certArn + "|" + roleArn }
 
 func handleAssociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.Request) {
@@ -448,9 +412,8 @@ func handleAssociateEnclaveCertificateIamRole(w http.ResponseWriter, r *http.Req
 		ec2ErrorXML(w, "MissingParameter", "CertificateArn and RoleArn are required", http.StatusBadRequest)
 		return
 	}
-	// Real EC2 uploads the certificate bundle to an S3 bucket it manages,
-	// under a deterministic role_arn/certificate_arn key, and encrypts the
-	// private key with a KMS key.
+	// Amazon EC2 places the bundle in a bucket it manages, under a deterministic
+	// role_arn/certificate_arn key, with the private key encrypted by AWS KMS.
 	bucket := fmt.Sprintf("aws-ec2-enclave-certificate-%s", awsRegion())
 	objectKey := roleArn + "/" + certArn
 	kmsKey := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", awsRegion(), awsAccountID(), sim.NewUUID())
@@ -540,9 +503,7 @@ func handleExportClientVpnClientConfiguration(w http.ResponseWriter, r *http.Req
 		ec2ErrorXML(w, "InvalidClientVpnEndpointId.NotFound", fmt.Sprintf("The Client VPN endpoint '%s' does not exist", epID), http.StatusBadRequest)
 		return
 	}
-	// Real EC2 returns an OpenVPN .ovpn config file referencing the endpoint's
-	// DNS name, port, and transport protocol. Build a deterministic one from the
-	// endpoint's stored fields.
+	// Build the .ovpn file from the endpoint's DNS name, port and transport.
 	dnsName := ep.DnsName
 	if dnsName == "" {
 		dnsName = fmt.Sprintf("%s.clientvpn.%s.amazonaws.com", strings.TrimPrefix(epID, "cvpn-endpoint-"), awsRegion())
@@ -561,7 +522,6 @@ func handleExportClientVpnClientConfiguration(w http.ResponseWriter, r *http.Req
 		ec2Xmlns(), sim.NewUUID(), ec2EscapeXML(cfg))
 }
 
-// ec2EscapeXML escapes a string for embedding as XML character data.
 func ec2EscapeXML(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
 	return r.Replace(s)
@@ -603,8 +563,7 @@ func handleModifyVpnTunnelCertificate(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidVpnConnectionID.NotFound", fmt.Sprintf("The vpnConnection ID '%s' does not exist", vpnID), http.StatusBadRequest)
 		return
 	}
-	// Rotating a tunnel certificate puts the matching tunnel into a transient
-	// rekeying state; we model that by flipping its status to DOWN momentarily.
+	// Rotating a tunnel certificate sets the matching tunnel DOWN while it rekeys.
 	ec2VpnConnections.Update(vpnID, func(c *EC2VpnConnection) {
 		for i := range c.Tunnels {
 			if c.Tunnels[i].OutsideIpAddress == outsideIP {
@@ -756,11 +715,8 @@ func tgwConnectPeerMatchesFilters(p EC2TransitGatewayConnectPeer, filters map[st
 	return true
 }
 
-// The sim does not model a separate transit-gateway client-VPN attachment
-// store: a Client VPN endpoint associated to a transit gateway is represented
-// by the endpoint itself. These accept/reject/delete/describe operations
-// transition the requested attachment id and return the canonical
-// TransitGatewayClientVpnAttachment shape.
+// The simulator has no separate transit gateway Client VPN attachment store;
+// these operations transition the requested attachment id.
 
 func tgwClientVpnAttachmentXML(attachID, state string) string {
 	return fmt.Sprintf("<transitGatewayAttachmentId>%s</transitGatewayAttachmentId><state>%s</state><creationTime>%s</creationTime>",
@@ -789,8 +745,7 @@ func handleDeleteTransitGatewayClientVpnAttachment(w http.ResponseWriter, r *htt
 }
 
 func handleDescribeTransitGatewayMeteringPolicies(w http.ResponseWriter, r *http.Request) {
-	// The sim creates no transit-gateway metering policies, so the set is
-	// honestly empty.
+	// The simulator creates no transit gateway metering policies.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeTransitGatewayMeteringPoliciesResponse %s><requestId>%s</requestId><transitGatewayMeteringPolicies/></DescribeTransitGatewayMeteringPoliciesResponse>`,
 		ec2Xmlns(), sim.NewUUID())
@@ -862,9 +817,8 @@ func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) 
 		ec2ErrorXML(w, "InvalidNetworkAclID.NotFound", fmt.Sprintf("The networkAcl ID '%s' does not exist", newACLID), http.StatusBadRequest)
 		return
 	}
-	// Find the ACL that currently owns the association, detach it, and re-attach
-	// the underlying subnet to the new ACL under a fresh association id —
-	// exactly the swap real EC2 performs.
+	// Detach the subnet from its current ACL and attach it to the new one under a
+	// fresh association id.
 	var subnetID string
 	for _, acl := range ec2NetworkAcls.List() {
 		for _, a := range acl.Associations {
@@ -895,8 +849,6 @@ func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) 
 		ec2Xmlns(), sim.NewUUID(), newAssocID)
 }
 
-// ---- Honest-empty / template / org-sharing / visibility / encryption ----
-
 func handleDescribeVpcEndpointAssociations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeVpcEndpointAssociationsResponse %s><requestId>%s</requestId><vpcEndpointAssociationSet/></DescribeVpcEndpointAssociationsResponse>`,
@@ -904,8 +856,8 @@ func handleDescribeVpcEndpointAssociations(w http.ResponseWriter, r *http.Reques
 }
 
 func handleGetFlowLogsIntegrationTemplate(w http.ResponseWriter, r *http.Request) {
-	// Real EC2 returns a CloudFormation template that wires the flow logs into
-	// Athena. Build a minimal deterministic, valid CloudFormation document.
+	// Amazon EC2 returns a CloudFormation template wiring flow logs into Athena;
+	// this one declares no resources.
 	tmpl := `{"AWSTemplateFormatVersion":"2010-09-09","Description":"VPC Flow Logs Athena integration","Resources":{}}`
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetFlowLogsIntegrationTemplateResponse %s><requestId>%s</requestId><result>%s</result></GetFlowLogsIntegrationTemplateResponse>`,
@@ -918,8 +870,7 @@ func handleEnableReachabilityAnalyzerOrganizationSharing(w http.ResponseWriter, 
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2ManagedResourceVisibility loads the account's managed-resource default
-// visibility, defaulting to "visible" (real EC2's default).
+// "visible" is the default.
 func ec2ManagedResourceVisibility() string {
 	if s, ok := ec2ManagedResourceVis.Get("default"); ok && s.Resource != "" {
 		return s.Resource

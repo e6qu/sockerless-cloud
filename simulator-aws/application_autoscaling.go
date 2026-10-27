@@ -11,16 +11,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Application Auto Scaling — terraform-provider-aws and the AWS SDK use this
-// service (distinct from EC2 Auto Scaling in autoscaling.go) to scale ECS
-// services, DynamoDB tables, Aurora replicas, and the like. Runner platform
-// modules declare `aws_appautoscaling_target` + `aws_appautoscaling_policy`
-// to autoscale the ECS service that backs sockerless. Wire format is the JSON
-// protocol with `X-Amz-Target: AnyScaleFrontendService.<Action>`.
+// Application Auto Scaling speaks AWS-JSON with
+// `X-Amz-Target: AnyScaleFrontendService.<Action>`; it is distinct from
+// Amazon EC2 Auto Scaling in autoscaling.go.
 
-// AppScalableTarget is the registration that bounds a resource's capacity.
-// The identity is the (ServiceNamespace, ResourceId, ScalableDimension)
-// triple. Config blocks are held as raw JSON so they round-trip byte-exact.
+// Hold configuration blocks as raw JSON so they round-trip byte-exact.
 type AppScalableTarget struct {
 	ServiceNamespace  string            `json:"ServiceNamespace"`
 	ResourceId        string            `json:"ResourceId"`
@@ -34,25 +29,19 @@ type AppScalableTarget struct {
 	Tags              map[string]string `json:"Tags,omitempty"`
 }
 
-// AppScalingPolicy attaches a scaling rule to a scalable target. Identity is
-// the target triple plus PolicyName.
 type AppScalingPolicy struct {
-	PolicyName        string          `json:"PolicyName"`
-	PolicyARN         string          `json:"PolicyARN"`
-	ServiceNamespace  string          `json:"ServiceNamespace"`
-	ResourceId        string          `json:"ResourceId"`
-	ScalableDimension string          `json:"ScalableDimension"`
-	PolicyType        string          `json:"PolicyType"`
-	TargetTracking    json.RawMessage `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
-	StepScaling       json.RawMessage `json:"StepScalingPolicyConfiguration,omitempty"`
-	CreationTime      float64         `json:"CreationTime"`
-	// Alarms are the CloudWatch alarms Application Auto Scaling created for a
-	// target tracking policy.
-	Alarms []AppScalingAlarm `json:"Alarms,omitempty"`
+	PolicyName        string            `json:"PolicyName"`
+	PolicyARN         string            `json:"PolicyARN"`
+	ServiceNamespace  string            `json:"ServiceNamespace"`
+	ResourceId        string            `json:"ResourceId"`
+	ScalableDimension string            `json:"ScalableDimension"`
+	PolicyType        string            `json:"PolicyType"`
+	TargetTracking    json.RawMessage   `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
+	StepScaling       json.RawMessage   `json:"StepScalingPolicyConfiguration,omitempty"`
+	CreationTime      float64           `json:"CreationTime"`
+	Alarms            []AppScalingAlarm `json:"Alarms,omitempty"`
 }
 
-// appScalingReplaceAlarms replaces the alarms of a policy whose configuration
-// was set, creating the ones a target tracking policy needs.
 func appScalingReplaceAlarms(policy *AppScalingPolicy) {
 	appScalingDeleteAlarms(*policy)
 	policy.Alarms = nil
@@ -71,9 +60,6 @@ func appScalingAlarmsJSON(alarms []AppScalingAlarm) []map[string]string {
 	return out
 }
 
-// AppScheduledAction is a one-off or recurring schedule that adjusts a
-// scalable target's min/max capacity at a given time. Identity is the
-// (ServiceNamespace, ResourceId, ScheduledActionName) triple.
 type AppScheduledAction struct {
 	ScheduledActionName  string          `json:"ScheduledActionName"`
 	ScheduledActionARN   string          `json:"ScheduledActionARN"`
@@ -88,10 +74,7 @@ type AppScheduledAction struct {
 	CreationTime         float64         `json:"CreationTime"`
 }
 
-// AppScalingActivity is one entry in a scalable target's activity log. The sim
-// records an activity only when a real capacity change occurs; the store is
-// empty (and DescribeScalingActivities returns []) until then — faithful, never
-// fabricated.
+// Record an activity only on a real capacity change.
 type AppScalingActivity struct {
 	ActivityId        string  `json:"ActivityId"`
 	ServiceNamespace  string  `json:"ServiceNamespace"`
@@ -137,7 +120,6 @@ func registerApplicationAutoScaling(r *AWSRouter, srv *sim.Server) {
 	startAppScheduledActions(srv)
 }
 
-// appScalableTargetKey is the storage key for the identity triple.
 func appScalableTargetKey(ns, resourceID, dim string) string {
 	return ns + "|" + resourceID + "|" + dim
 }
@@ -151,8 +133,7 @@ func appScalableTargetARN(id string) string {
 		awsRegion(), awsAccountID(), id)
 }
 
-// appScalingPolicyARN matches the real PolicyARN shape, which embeds the
-// resource path and policy name.
+// The PolicyARN embeds the resource path and policy name.
 func appScalingPolicyARN(ns, resourceID, name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:scalingPolicy:%s:resource/%s/%s:policyName/%s",
 		awsRegion(), awsAccountID(), sim.NewUUID(), ns, resourceID, name)
@@ -180,7 +161,7 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	key := appScalableTargetKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 
-	// Register is upsert: an existing target keeps fields the caller omits.
+	// Register upserts: an existing target keeps fields the caller omits.
 	target, exists := appScalableTargets.Get(key)
 	if !exists {
 		target = AppScalableTarget{
@@ -197,13 +178,9 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 	if req.MaxCapacity != nil {
 		target.MaxCapacity = *req.MaxCapacity
 	}
-	// The role Application Auto Scaling modifies the target through. The model
-	// marks it required on the ScalableTarget a describe returns, and its own
-	// documentation says why a register may omit it: where the service
-	// supports a service-linked role, Application Auto Scaling uses one and
-	// creates it if it does not yet exist. So this account gets that role —
-	// through IAM, where a caller can then read it — rather than the describe
-	// answering without the member a client dereferences.
+	// The model requires RoleARN on a described ScalableTarget. Where the service
+	// supports a service-linked role, Application Auto Scaling uses it and
+	// creates it in IAM when missing, so a register may omit the role.
 	switch {
 	case req.RoleARN != "":
 		target.RoleARN = req.RoleARN
@@ -243,7 +220,7 @@ func handleAppASDeregisterScalableTarget(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	appScalableTargets.Delete(key)
-	// Deregistering a target removes its policies too.
+	// Deregistering a target removes its policies.
 	for _, p := range appScalingPolicies.List() {
 		if p.ServiceNamespace == req.ServiceNamespace &&
 			p.ResourceId == req.ResourceId &&
@@ -339,7 +316,6 @@ func handleAppASPutScalingPolicy(w http.ResponseWriter, r *http.Request) {
 			"PolicyName, ServiceNamespace, ResourceId, and ScalableDimension are required", http.StatusBadRequest)
 		return
 	}
-	// A policy requires a registered scalable target.
 	targetKey := appScalableTargetKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension)
 	if _, ok := appScalableTargets.Get(targetKey); !ok {
 		AWSErrorf(w, "ObjectNotFoundException", http.StatusBadRequest,
@@ -398,11 +374,8 @@ func handleAppASDeleteScalingPolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// appASDescribePage is the shared describe-and-paginate body for the Application
-// Auto Scaling list operations (ScalingPolicies / ScheduledActions): identical
-// filter (by service namespace + optional names + resource id + scalable
-// dimension), name-sort, pagination, and {<respKey>, NextToken} response shape,
-// differing only in store, name accessor, response key, and JSON renderer.
+// appASDescribePage serves DescribeScalingPolicies and
+// DescribeScheduledActions, which differ only in store, name and response key.
 func appASDescribePage[T any](
 	w http.ResponseWriter, store sim.Store[T], respKey, namespace, resourceID, dimension string,
 	wantNames map[string]bool, maxResults *int32, nextToken string,
@@ -477,8 +450,7 @@ func scalingPolicyToJSON(p AppScalingPolicy) map[string]any {
 	return m
 }
 
-// appScalableTargetByARN finds the target whose ARN matches, for the tag ops
-// (which address resources by ScalableTargetARN).
+// The tagging operations address a target by ScalableTargetARN.
 func appScalableTargetByARN(arn string) (string, AppScalableTarget, bool) {
 	for _, t := range appScalableTargets.List() {
 		if t.ARN == arn {
@@ -556,10 +528,8 @@ func handleAppASUntagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// appScheduledActionKey is the storage key for a scheduled action's identity
-// triple (ServiceNamespace, ResourceId, ScheduledActionName). Real AWS allows
-// the same action name across different resources, so ResourceId is part of
-// the key.
+// The same action name may exist on different resources, so ResourceId is
+// part of the key.
 func appScheduledActionKey(ns, resourceID, name string) string {
 	return ns + "|" + resourceID + "|" + name
 }
@@ -607,8 +577,8 @@ func handleAppASPutScheduledAction(w http.ResponseWriter, r *http.Request) {
 			CreationTime:        float64(time.Now().Unix()),
 		}
 	}
-	// PutScheduledAction is upsert: omitted optional fields are left as-is
-	// on update, except Schedule which the caller always re-sends.
+	// Upsert: keep omitted optional fields, except Schedule, which the caller
+	// always re-sends.
 	if req.Schedule != "" {
 		action.Schedule = req.Schedule
 	}
@@ -696,9 +666,6 @@ func scheduledActionToJSON(a AppScheduledAction) map[string]any {
 	return m
 }
 
-// handleAppASDescribeScalingActivities returns the activity log for a scalable
-// target. The sim records an activity only on a real capacity change, so the
-// list is empty until then — faithful, never fabricated.
 func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ServiceNamespace           string `json:"ServiceNamespace"`
@@ -728,7 +695,6 @@ func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request
 		}
 		return true
 	})
-	// Most-recent-first ordering, matching real AWS.
 	page, next, pageOK := awsKeyPage(w, appASBadToken, matched, func(it AppScalingActivity) string { return it.ActivityId }, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
@@ -768,10 +734,8 @@ func scalingActivityToJSON(a AppScalingActivity) map[string]any {
 	return m
 }
 
-// handleAppASGetPredictiveScalingForecast returns the load and capacity
-// forecast for a predictive-scaling policy. The sim does not run a forecasting
-// model, so the forecasts are empty (no timestamps/values) — faithful to a
-// target with no historical data rather than fabricated curves.
+// The simulator runs no forecasting model, so the forecast is empty, as for a
+// target with no history.
 func handleAppASGetPredictiveScalingForecast(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ServiceNamespace  string   `json:"ServiceNamespace"`
@@ -800,8 +764,6 @@ func handleAppASGetPredictiveScalingForecast(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// appASDescribeRequest is the request of DescribeScalingPolicies and
-// DescribeScheduledActions, each naming its own resources.
 type appASDescribeRequest struct {
 	PolicyNames          []string `json:"PolicyNames"`
 	ScheduledActionNames []string `json:"ScheduledActionNames"`

@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_ReservedInstances covers the Reserved Instances control plane via
-// the aws CLI: describe the offering catalog, purchase an offering into an
-// active RI, read it back, modify it, list it on the marketplace, read and
-// cancel the listing, describe modifications, attempt a queued-deletion (fails
-// honestly for an active RI), and run the exchange quote / accept flow.
+// TestEC2CLI_ReservedInstances purchases an offering into an active Reserved
+// Instance, modifies it, lists it on the marketplace and cancels the listing,
+// fails a queued deletion of the active instance, and runs the exchange quote
+// and accept flow.
 func TestEC2CLI_ReservedInstances(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -67,7 +66,6 @@ func TestEC2CLI_ReservedInstances(t *testing.T) {
 		t.Fatalf("after cancel, listing status: got %q, want cancelled", cstatus)
 	}
 
-	// An active RI is not queued, so a queued-deletion attempt fails for it.
 	nFailed := q("ec2", "delete-queued-reserved-instances", "--reserved-instances-ids", riID,
 		"--query", "length(FailedQueuedPurchaseDeletions)", "--output", "text")
 	if nFailed != "1" {
@@ -96,10 +94,9 @@ func TestEC2CLI_ReservedInstances(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_CapacityReservationBilling covers the Capacity Reservation
-// billing-ownership transfer and the splitting / moving ops via the aws CLI.
-// The topology and cancellation-quote ops are SDK-only (missing from aws CLI
-// 2.26.6); the SDK test covers their contract hook.
+// TestEC2CLI_CapacityReservationBilling covers the billing-ownership transfer
+// and the split and move operations. aws CLI 2.26.6 lacks the topology and
+// cancellation-quote operations; the SDK test covers them.
 func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -132,7 +129,6 @@ func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
 		t.Fatalf("accept billing ownership Return: got %q, want True", acc)
 	}
 
-	// Reject + disassociate on a fresh reservation.
 	cr2 := q("ec2", "create-capacity-reservation",
 		"--instance-type", "t3.medium", "--instance-platform", "Linux/UNIX",
 		"--availability-zone", "us-east-1a", "--instance-count", "2",
@@ -185,10 +181,9 @@ func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_CapacityBlock covers the Capacity Block (ML) flow via the aws CLI:
-// describe offerings, purchase a block, then the extension offering / purchase /
-// history. describe-capacity-blocks and describe-capacity-block-status are
-// SDK-only (missing from aws CLI 2.26.6); the SDK test covers their hook.
+// TestEC2CLI_CapacityBlock covers the Capacity Block offerings, purchase and
+// extension flow. aws CLI 2.26.6 lacks describe-capacity-blocks and
+// describe-capacity-block-status; the SDK test covers them.
 func TestEC2CLI_CapacityBlock(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

@@ -6,10 +6,7 @@ import (
 	"time"
 )
 
-// Container Apps scales in to a lower nonzero count once the lower demand has
-// held for the 300-second scale-down stabilization window, and to zero once no
-// rule has asked for a replica for the cooldown period ("Scale behavior" in
-// app-containerapps-scale-app.md.gz).
+// "Scale behavior" in app-containerapps-scale-app.md.gz.
 func TestACAScaleInDue(t *testing.T) {
 	now := time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)
 	const cooldown = 60 * time.Second
@@ -33,10 +30,6 @@ func TestACAScaleInDue(t *testing.T) {
 	}
 }
 
-// A revision scales on its HTTP rule, or on the default one when it has
-// ingress and names none, and on its queue rules; a revision with neither runs
-// its minimum, and one whose only rules the simulator does not run keeps a
-// replica.
 func TestACARevisionScaling(t *testing.T) {
 	containers := []JobContainer{{Name: "app"}}
 	i32 := func(n int32) *int32 { return &n }

@@ -10,11 +10,7 @@ import (
 )
 
 func TestAWSChunkedReader_RoundTrip(t *testing.T) {
-	// Encode "hello world" as a single chunk + terminal.
-	// Format:
-	//   "b\r\n"                           ← 11 == 0xb chunk size
-	//   "hello world\r\n"                 ← payload
-	//   "0\r\nx-amz-checksum-crc32:abc==\r\n\r\n"
+	// One 11-byte (0xb) chunk, then the terminal chunk with a trailer.
 	chunked := "b\r\nhello world\r\n0\r\nx-amz-checksum-crc32:abc==\r\n\r\n"
 	r := newAWSChunkedReader(strings.NewReader(chunked))
 	got, err := io.ReadAll(r)
@@ -40,8 +36,7 @@ func TestAWSChunkedReader_MultipleChunks(t *testing.T) {
 }
 
 func TestAWSChunkedReader_SignedExtensionIgnored(t *testing.T) {
-	// SDK signed-streaming chunks carry `;chunk-signature=<hex>` on
-	// every size line. The decoder must ignore extensions.
+	// Signed streaming carries `;chunk-signature=<hex>` on every size line.
 	sig := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 	chunked := "b;chunk-signature=" + sig + "\r\nhello world\r\n" +
 		"0;chunk-signature=" + sig + "\r\n\r\n"
@@ -56,8 +51,7 @@ func TestAWSChunkedReader_SignedExtensionIgnored(t *testing.T) {
 }
 
 func TestAWSChunkedReader_NoTrailingHeader(t *testing.T) {
-	// STREAMING-AWS4-HMAC-SHA256-PAYLOAD (no trailer) — terminal
-	// chunk is followed only by a single \r\n.
+	// Without a trailer, only "\r\n" follows the terminal chunk.
 	chunked := "5\r\nhello\r\n0\r\n\r\n"
 	r := newAWSChunkedReader(strings.NewReader(chunked))
 	got, err := io.ReadAll(r)
@@ -70,7 +64,7 @@ func TestAWSChunkedReader_NoTrailingHeader(t *testing.T) {
 }
 
 func TestAWSChunkedReader_ReadInSmallSlices(t *testing.T) {
-	// Read 1 byte at a time to exercise the chunk-boundary path.
+	// Read a byte at a time to cross chunk boundaries.
 	chunked := "b\r\nhello world\r\n0\r\n\r\n"
 	r := newAWSChunkedReader(strings.NewReader(chunked))
 	var buf bytes.Buffer

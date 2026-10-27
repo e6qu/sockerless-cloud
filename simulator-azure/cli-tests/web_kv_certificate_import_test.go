@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for importing a Key Vault certificate into App Service with
-// `az webapp config ssl import`. App Service reads the certificate's secret as
+// `az webapp config ssl import`: App Service reads the certificate's secret as
 // its first-party service principal, "Microsoft Azure App Service", which an
 // operator grants with `az keyvault set-policy --spn <its application ID>`.
 //
@@ -54,8 +53,8 @@ func TestWebAppSSLImport_CLI_AuthorizesAppServicePrincipal(t *testing.T) {
 		return out
 	}
 
-	// The vault's creator can read the secret; App Service cannot until the
-	// vault grants its service principal.
+	// The vault's creator can read the secret; App Service cannot until the vault
+	// grants its service principal.
 	locked := importCert("ssl-import-locked")
 	assert.Equal(t, "OperationNotPermittedOnKeyVault", locked.KeyVaultSecretStatus)
 

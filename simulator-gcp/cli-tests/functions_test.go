@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Cloud Functions tests use direct HTTP since gcloud functions deploy
-// tries to upload source code which won't work with the simulator.
-
 func functionsURL(name string) string {
 	return fmt.Sprintf("%s/v2/projects/%s/locations/%s/functions/%s",
 		baseURL, project, location, name)
@@ -41,8 +38,6 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 		}
 	}`)
 
-	// Create returns an LRO whose settled response carries the function it
-	// created, under the resource name the caller asked for.
 	var op struct {
 		Done     bool `json:"done"`
 		Response struct {
@@ -55,7 +50,6 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 		fmt.Sprintf("projects/%s/locations/%s/functions/cli-test-func", project, location),
 		op.Response.Name, "the operation's response is the function it created")
 
-	// GET the function
 	getURL := functionsURL("cli-test-func")
 	out = httpDoJSON(t, "GET", getURL, "")
 
@@ -74,20 +68,17 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "ACTIVE", fn.State)
 	assert.Equal(t, "nodejs18", fn.BuildConfig.Runtime)
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", getURL, "")
 }
 
 func TestFunctions_List(t *testing.T) {
 	t.Parallel()
-	// Create a function
 	url := functionsBaseURL() + "?functionId=list-test-func"
 	httpDoJSON(t, "POST", url, `{
 		"buildConfig": {"runtime": "python312", "entryPoint": "main"},
 		"serviceConfig": {}
 	}`)
 
-	// List functions
 	out := httpDoJSON(t, "GET", functionsBaseURL(), "")
 
 	var result struct {
@@ -97,8 +88,6 @@ func TestFunctions_List(t *testing.T) {
 	}
 	parseJSON(t, out, &result)
 
-	// The list has to hold the function this test created, by its full
-	// resource name — the presence of some other function proves nothing.
 	names := make([]string, 0, len(result.Functions))
 	for _, f := range result.Functions {
 		names = append(names, f.Name)
@@ -107,7 +96,6 @@ func TestFunctions_List(t *testing.T) {
 		fmt.Sprintf("projects/%s/locations/%s/functions/list-test-func", project, location),
 		"the list must hold the function that was just created")
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", functionsURL("list-test-func"), "")
 }
 
@@ -158,8 +146,8 @@ func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, "body=%q", body)
 	assert.Equal(t, "GET /cloudfunctions-net", body)
 
-	// Cloud Logging ingests the container's stdout asynchronously, so the read
-	// is repeated until the request line the container wrote arrives.
+	// Cloud Logging ingests the container's stdout asynchronously, so repeat the
+	// read until the request line arrives.
 	var out string
 	var payloads []string
 	require.Eventually(t, func() bool {
@@ -182,10 +170,8 @@ func TestFunctions_Delete(t *testing.T) {
 		"serviceConfig": {}
 	}`)
 
-	// Delete
 	httpDoJSON(t, "DELETE", functionsURL("delete-test-func"), "")
 
-	// Verify gone
 	resp, err := httpDo("GET", functionsURL("delete-test-func"), "")
 	require.NoError(t, err)
 	resp.Body.Close()

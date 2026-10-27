@@ -9,39 +9,31 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Whether a site can be cloned.
-//
-// WebApps_IsCloneable answers from the site itself. App Service clones an app
-// only from a Premium or Isolated App Service plan, so the plan the site is
-// placed on decides the result, and the deployment slots a clone would leave
-// behind decide whether the result is partial. Both are facts this simulator
-// already holds, so the answer is computed from them rather than declared.
+// WebApps_IsCloneable answers from the site: App Service clones only from a
+// Premium or Isolated plan, so the site's plan decides, and the deployment
+// slots a clone would leave behind make it partial.
 
-// webCloneablePlanTiers are the App Service plan tiers a site can be cloned
-// from. Cloning copies an app's content and configuration onto a new app, and
-// App Service offers it on the Premium and Isolated tiers only.
+// Cloning copies an app's content and configuration onto a new app, offered on
+// the Premium and Isolated tiers only.
 var webCloneablePlanTiers = []string{
 	"Premium", "PremiumV2", "PremiumV3", "PremiumContainer",
 	"Isolated", "IsolatedV2",
 }
 
-// registerWebCloneability mounts both families.
 func registerWebCloneability(srv *sim.Server) {
 	srv.HandleFunc("POST "+webProvider+"/sites/{siteName}/iscloneable", webIsCloneable)
 	srv.HandleFunc("POST "+webProvider+"/sites/{siteName}/slots/{slot}/iscloneable", webIsCloneable)
 
 }
 
-// webIsCloneable reports whether the addressed site or slot can be cloned.
 func webIsCloneable(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
 	}
 	site, _ := webResource(r)
 
-	// The tier is read from the plan the site is placed on rather than from the
-	// site's stored copy, so a plan scaled after the site was created decides
-	// the answer.
+	// Read the plan the site is placed on, so a plan scaled after the site was
+	// created decides.
 	tier := webCloneabilityTier(r, site)
 
 	var blocking, unsupported []map[string]any
@@ -54,8 +46,8 @@ func webIsCloneable(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// A clone copies one app. The source's deployment slots are not cloned with
-	// it, so a site that has them can be cloned only in part.
+	// A clone copies one app, not its slots, so a site with slots clones only in
+	// part.
 	if slots := webSlotNamesOf(r, site.ID); len(slots) > 0 {
 		unsupported = append(unsupported, map[string]any{
 			"name": "DeploymentSlots",
@@ -80,10 +72,7 @@ func webIsCloneable(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// webCloneabilityTier resolves the App Service plan tier the addressed
-// resource runs on. A deployment slot runs on its production site's plan and
-// carries no plan of its own, so a slot that names none is answered for by the
-// site it belongs to — which is the plan that would host the clone.
+// A slot runs on its production site's plan, which would host the clone.
 func webCloneabilityTier(r *http.Request, site Site) string {
 	if tier := webPlanSKUFor(site.Properties.ServerFarmID); tier != "" {
 		return tier
@@ -100,8 +89,7 @@ func webCloneabilityTier(r *http.Request, site Site) string {
 	return site.Properties.SKU
 }
 
-// webCriteria renders a criterion list, which is always present even when
-// nothing blocks the clone.
+// The criterion list is present even when nothing blocks the clone.
 func webCriteria(items []map[string]any) []any {
 	rendered := make([]any, 0, len(items))
 	for _, item := range items {
@@ -110,7 +98,6 @@ func webCriteria(items []map[string]any) []any {
 	return rendered
 }
 
-// webTierIsCloneable reports whether an App Service plan tier allows cloning.
 func webTierIsCloneable(tier string) bool {
 	for _, allowed := range webCloneablePlanTiers {
 		if strings.EqualFold(tier, allowed) {
@@ -120,8 +107,7 @@ func webTierIsCloneable(tier string) bool {
 	return false
 }
 
-// webTierLabel names the tier in the refusal. A site placed on no plan has no
-// tier to name.
+// A site on no plan has no tier to name.
 func webTierLabel(tier string) string {
 	if tier == "" {
 		return "no App Service plan"
@@ -129,8 +115,7 @@ func webTierLabel(tier string) string {
 	return tier
 }
 
-// webSlotNamesOf lists the deployment slots of the addressed resource. A slot
-// addressed directly has none of its own: the request is already inside one.
+// A slot addressed directly has none of its own.
 func webSlotNamesOf(r *http.Request, siteID string) []string {
 	if sim.PathParam(r, "slot") != "" {
 		return nil

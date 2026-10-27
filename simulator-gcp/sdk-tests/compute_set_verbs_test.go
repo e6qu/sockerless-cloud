@@ -8,9 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The "set<Thing>" verbs each write one member onto a resource and answer with
-// an Operation, so every assertion here reads the resource back — an Operation
-// says nothing about what was stored.
+// Each "set<Thing>" verb answers with an Operation, which says nothing about
+// what was stored, so every assertion reads the resource back.
 
 func TestCompute_TargetHttpsProxySetVerbs(t *testing.T) {
 	t.Parallel()
@@ -73,8 +72,8 @@ func TestCompute_TargetTcpProxySetVerbs(t *testing.T) {
 	assert.Equal(t, "PROXY_V1", got.ProxyHeader)
 }
 
-// A backend bucket's edge security policy arrives as a SecurityPolicyReference
-// — the body says securityPolicy, and the bucket stores edgeSecurityPolicy.
+// A backend bucket's edge security policy arrives as a SecurityPolicyReference:
+// the body says securityPolicy, and the bucket stores edgeSecurityPolicy.
 func TestCompute_BackendBucketEdgeSecurityPolicyLandsOnItsOwnMember(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -168,8 +167,7 @@ func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
 }
 
 // An instance records a Cloud Armor policy on the access configs of the
-// interfaces the request names, which is the member the Instance schema
-// carries it on.
+// interfaces the request names, where the Instance schema carries it.
 func TestCompute_InstanceSecurityPolicyLandsOnItsAccessConfigs(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

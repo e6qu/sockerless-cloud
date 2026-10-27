@@ -13,16 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_DBProxyLifecycle exercises the RDS Proxy surface end to end:
-// CreateDBProxy → DescribeDBProxies → ModifyDBProxy → CreateDBProxyEndpoint
-// → DescribeDBProxyEndpoints → ModifyDBProxyEndpoint → DescribeDBProxyTargetGroups
-// → ModifyDBProxyTargetGroup → RegisterDBProxyTargets → DescribeDBProxyTargets
-// → DeregisterDBProxyTargets → DeleteDBProxyEndpoint → DeleteDBProxy.
 func TestRDS_DBProxyLifecycle(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
 
-	// Backing instance the proxy will target.
 	instID := "proxy-target-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -81,7 +75,6 @@ func TestRDS_DBProxyLifecycle(t *testing.T) {
 	assert.Equal(t, int32(600), aws.ToInt32(modOut.DBProxy.IdleClientTimeout))
 	assert.True(t, aws.ToBool(modOut.DBProxy.DebugLogging))
 
-	// Proxy endpoint.
 	epName := "sdk-test-proxy-ep"
 	epOut, err := c.CreateDBProxyEndpoint(ctx, &rds.CreateDBProxyEndpointInput{
 		DBProxyName:         aws.String(proxyName),
@@ -112,7 +105,6 @@ func TestRDS_DBProxyLifecycle(t *testing.T) {
 		_, _ = c.DeleteDBProxyEndpoint(ctx, &rds.DeleteDBProxyEndpointInput{DBProxyEndpointName: aws.String(epName + "-renamed")})
 	})
 
-	// Target group.
 	tgOut, err := c.DescribeDBProxyTargetGroups(ctx, &rds.DescribeDBProxyTargetGroupsInput{DBProxyName: aws.String(proxyName)})
 	require.NoError(t, err)
 	require.Len(t, tgOut.TargetGroups, 1)
@@ -133,7 +125,6 @@ func TestRDS_DBProxyLifecycle(t *testing.T) {
 	require.NotNil(t, tgMod.DBProxyTargetGroup)
 	assert.Equal(t, int32(80), aws.ToInt32(tgMod.DBProxyTargetGroup.ConnectionPoolConfig.MaxConnectionsPercent))
 
-	// Targets.
 	regOut, err := c.RegisterDBProxyTargets(ctx, &rds.RegisterDBProxyTargetsInput{
 		DBProxyName:           aws.String(proxyName),
 		DBInstanceIdentifiers: []string{instID},
@@ -157,9 +148,8 @@ func TestRDS_DBProxyLifecycle(t *testing.T) {
 	assert.Empty(t, tDesc2.Targets)
 }
 
-// TestRDS_RolesAndSecurityGroups exercises IAM-role associations on a DB
-// cluster and a DB instance plus the EC2-Classic-style DB security group
-// ingress surface.
+// TestRDS_RolesAndSecurityGroups covers IAM role associations on a DB cluster
+// and a DB instance, and EC2-Classic DB security group ingress.
 func TestRDS_RolesAndSecurityGroups(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -224,7 +214,6 @@ func TestRDS_RolesAndSecurityGroups(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DB security groups.
 	sgName := "sdk-test-dbsg"
 	sgOut, err := c.CreateDBSecurityGroup(ctx, &rds.CreateDBSecurityGroupInput{
 		DBSecurityGroupName:        aws.String(sgName),
@@ -257,8 +246,6 @@ func TestRDS_RolesAndSecurityGroups(t *testing.T) {
 	require.Len(t, descSG.DBSecurityGroups, 1)
 }
 
-// TestRDS_CertificatesAndBackups exercises the certificate surface,
-// per-instance and per-cluster automated backups, and DB log files.
 func TestRDS_CertificatesAndBackups(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -280,7 +267,6 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 		_, _ = c.ModifyCertificates(ctx, &rds.ModifyCertificatesInput{RemoveCustomerOverride: aws.Bool(true)})
 	})
 
-	// Automated backups need an instance and a cluster.
 	instID := "backup-instance"
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(instID),
@@ -369,7 +355,6 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
-	// An RDS for PostgreSQL instance writes no MySQL error log.
 	_, err = c.DownloadDBLogFilePortion(ctx, &rds.DownloadDBLogFilePortionInput{
 		DBInstanceIdentifier: aws.String(instID),
 		LogFileName:          aws.String("error/mysql-error.log"),
@@ -408,14 +393,10 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 	assert.Empty(t, ab.DBInstanceAutomatedBackups)
 }
 
-// TestRDS_CopyGroupsAndSourceIdentifiers exercises CopyDBParameterGroup,
-// CopyDBClusterParameterGroup, CopyOptionGroup, and the event
-// subscription source-identifier add/remove surface.
 func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
 
-	// DB parameter group copy.
 	srcPG := "copy-src-pg"
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 		DBParameterGroupName:   aws.String(srcPG),
@@ -439,7 +420,6 @@ func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 		_, _ = c.DeleteDBParameterGroup(ctx, &rds.DeleteDBParameterGroupInput{DBParameterGroupName: aws.String(dstPG)})
 	})
 
-	// DB cluster parameter group copy.
 	srcCPG := "copy-src-cpg"
 	_, err = c.CreateDBClusterParameterGroup(ctx, &rds.CreateDBClusterParameterGroupInput{
 		DBClusterParameterGroupName: aws.String(srcCPG),
@@ -462,7 +442,6 @@ func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 		_, _ = c.DeleteDBClusterParameterGroup(ctx, &rds.DeleteDBClusterParameterGroupInput{DBClusterParameterGroupName: aws.String(dstCPG)})
 	})
 
-	// Option group copy.
 	srcOG := "copy-src-og"
 	_, err = c.CreateOptionGroup(ctx, &rds.CreateOptionGroupInput{
 		OptionGroupName:        aws.String(srcOG),
@@ -487,7 +466,6 @@ func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 		_, _ = c.DeleteOptionGroup(ctx, &rds.DeleteOptionGroupInput{OptionGroupName: aws.String(dstOG)})
 	})
 
-	// Event subscription source identifiers.
 	subName := "src-id-sub"
 	_, err = c.CreateEventSubscription(ctx, &rds.CreateEventSubscriptionInput{
 		SubscriptionName: aws.String(subName),
@@ -514,9 +492,6 @@ func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 	assert.NotContains(t, remOut.EventSubscription.SourceIdsList, "my-db-instance")
 }
 
-// TestRDS_PendingMaintenanceActions exercises
-// DescribePendingMaintenanceActions and ApplyPendingMaintenanceAction
-// against a DB instance resource.
 func TestRDS_PendingMaintenanceActions(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()

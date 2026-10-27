@@ -14,22 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSQS_FifoNameAttributeCoupling locks the real-SQS coupling between
-// the .fifo name suffix and the FifoQueue=true attribute: a .fifo name
-// without the attribute (and the attribute without a .fifo name) is
-// rejected with InvalidParameterValue.
+// TestSQS_FifoNameAttributeCoupling expects a .fifo name without
+// FifoQueue=true, or the attribute without the name, to be refused with
+// InvalidParameterValue.
 func TestSQS_FifoNameAttributeCoupling(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
 
-	// .fifo name without FifoQueue=true → rejected.
 	_, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("coupling-bad.fifo"),
 	})
 	assert.Equal(t, "InvalidParameterValue", errCode(t, err),
 		"a .fifo name requires FifoQueue=true")
 
-	// FifoQueue=true without a .fifo name → rejected.
 	_, err = c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName:  aws.String("coupling-bad-noattr"),
 		Attributes: map[string]string{"FifoQueue": "true"},
@@ -37,7 +34,6 @@ func TestSQS_FifoNameAttributeCoupling(t *testing.T) {
 	assert.Equal(t, "InvalidParameterValue", errCode(t, err),
 		"FifoQueue=true requires the .fifo suffix")
 
-	// Matching name + attribute → accepted.
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("coupling-ok.fifo"),
 		Attributes: map[string]string{
@@ -52,9 +48,8 @@ func TestSQS_FifoNameAttributeCoupling(t *testing.T) {
 	require.NotNil(t, out.QueueUrl)
 }
 
-// TestSQS_FifoSendRequiresMessageGroupId asserts that a FIFO queue
-// rejects SendMessage without MessageGroupId (MissingParameter) and
-// accepts it when supplied.
+// TestSQS_FifoSendRequiresMessageGroupId expects a FIFO queue to refuse
+// SendMessage without MessageGroupId (MissingParameter).
 func TestSQS_FifoSendRequiresMessageGroupId(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -87,8 +82,8 @@ func TestSQS_FifoSendRequiresMessageGroupId(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(send.MessageId))
 }
 
-// TestSQS_FifoSendRequiresDedup asserts that a FIFO queue without
-// ContentBasedDeduplication requires an explicit MessageDeduplicationId.
+// TestSQS_FifoSendRequiresDedup expects a FIFO queue without
+// ContentBasedDeduplication to require MessageDeduplicationId.
 func TestSQS_FifoSendRequiresDedup(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -120,8 +115,8 @@ func TestSQS_FifoSendRequiresDedup(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(send.MessageId))
 }
 
-// TestSQS_SendMessageBatch exercises the happy path plus each batch-level
-// error (empty, too many, duplicate Ids) and a per-entry FIFO failure.
+// TestSQS_SendMessageBatch covers a successful batch and each batch-level
+// error.
 func TestSQS_SendMessageBatch(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -132,7 +127,6 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 		_, _ = c.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: url})
 	})
 
-	// Happy path: 2 entries succeed.
 	batch, err := c.SendMessageBatch(ctx, &sqs.SendMessageBatchInput{
 		QueueUrl: url,
 		Entries: []sqstypes.SendMessageBatchRequestEntry{
@@ -148,7 +142,6 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 		assert.NotEmpty(t, aws.ToString(s.MD5OfMessageBody))
 	}
 
-	// Both messages are now in the queue.
 	recv, err := c.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            url,
 		MaxNumberOfMessages: 10,
@@ -156,11 +149,9 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, recv.Messages, 2)
 
-	// (The empty-batch path is reachable only via a raw client that can
-	// emit a zero-length Entries list — the SDK rejects it client-side —
-	// so EmptyBatchRequest is asserted in the CLI test instead.)
+	// The SDK refuses an empty batch client-side, so the CLI suite covers
+	// EmptyBatchRequest.
 
-	// Too many entries (11).
 	tooMany := make([]sqstypes.SendMessageBatchRequestEntry, 11)
 	for i := range tooMany {
 		tooMany[i] = sqstypes.SendMessageBatchRequestEntry{
@@ -171,7 +162,6 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 	_, err = c.SendMessageBatch(ctx, &sqs.SendMessageBatchInput{QueueUrl: url, Entries: tooMany})
 	assert.Equal(t, "AWS.SimpleQueueService.TooManyEntriesInBatchRequest", errCode(t, err))
 
-	// Duplicate Ids.
 	_, err = c.SendMessageBatch(ctx, &sqs.SendMessageBatchInput{
 		QueueUrl: url,
 		Entries: []sqstypes.SendMessageBatchRequestEntry{
@@ -182,9 +172,8 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 	assert.Equal(t, "AWS.SimpleQueueService.BatchEntryIdsNotDistinct", errCode(t, err))
 }
 
-// TestSQS_SendMessageBatch_FifoPerEntryFailure asserts a per-entry FIFO
-// validation failure lands in the Failed array (HTTP 200, not a
-// top-level error).
+// TestSQS_SendMessageBatch_FifoPerEntryFailure expects a FIFO entry's
+// validation failure in Failed, with HTTP 200 rather than a top-level error.
 func TestSQS_SendMessageBatch_FifoPerEntryFailure(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -344,11 +333,10 @@ func TestSQSDelayAndMaximumSizeRuntime(t *testing.T) {
 	assert.GreaterOrEqual(t, time.Since(sent), time.Second, "the long poll returned the message before DelaySeconds elapsed")
 }
 
-// TestSQSMessageRetentionPeriodDropsExpiredMessages holds the message
-// invisible until just past its retention deadline, so a queue that kept it
-// would hand it to the long poll the moment its visibility timeout ended.
-// MessageRetentionPeriod cannot go below 60 seconds, so the test runs in
-// parallel with the rest of the suite.
+// TestSQSMessageRetentionPeriodDropsExpiredMessages keeps the message invisible
+// until just past its retention deadline, so a queue that kept it would hand it
+// to the long poll when the visibility timeout ended. MessageRetentionPeriod
+// cannot go below 60 seconds, so the test runs in parallel.
 func TestSQSMessageRetentionPeriodDropsExpiredMessages(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -405,24 +393,21 @@ func TestSQSMessageRetentionPeriodDropsExpiredMessages(t *testing.T) {
 	assert.Equal(t, "0", attrs.Attributes["ApproximateNumberOfMessagesNotVisible"])
 }
 
-// TestSNS_FifoTopicCoupling locks the SNS .fifo-name ↔ FifoTopic=true
-// coupling at CreateTopic.
+// TestSNS_FifoTopicCoupling expects CreateTopic to tie the .fifo name to
+// FifoTopic=true.
 func TestSNS_FifoTopicCoupling(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
 
-	// .fifo name without FifoTopic=true → rejected.
 	_, err := c.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("sns-bad.fifo")})
 	assert.Equal(t, "InvalidParameter", errCode(t, err))
 
-	// FifoTopic=true without .fifo → rejected.
 	_, err = c.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name:       aws.String("sns-bad-noattr"),
 		Attributes: map[string]string{"FifoTopic": "true"},
 	})
 	assert.Equal(t, "InvalidParameter", errCode(t, err))
 
-	// Matching → accepted.
 	out, err := c.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name: aws.String("sns-ok.fifo"),
 		Attributes: map[string]string{
@@ -437,8 +422,6 @@ func TestSNS_FifoTopicCoupling(t *testing.T) {
 	require.NotNil(t, out.TopicArn)
 }
 
-// TestSNS_FifoPublishRequiresMessageGroupId asserts a FIFO topic rejects
-// Publish without MessageGroupId and accepts it when supplied.
 func TestSNS_FifoPublishRequiresMessageGroupId(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
@@ -469,8 +452,6 @@ func TestSNS_FifoPublishRequiresMessageGroupId(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(pub.MessageId))
 }
 
-// TestSNS_PublishBatch exercises the happy path, fan-out to an SQS
-// subscriber, and the batch-level errors.
 func TestSNS_PublishBatch(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -494,7 +475,7 @@ func TestSNS_PublishBatch(t *testing.T) {
 	require.NoError(t, err)
 	queueARN := qAttrs.Attributes["QueueArn"]
 
-	// Real SNS→SQS delivery is gated by the queue's resource policy.
+	// Amazon SNS delivers to the queue only under its resource policy.
 	setQueuePolicyAllowingSNS(t, sqsC, aws.ToString(q.QueueUrl), queueARN, aws.ToString(tpc.TopicArn))
 
 	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
@@ -518,7 +499,6 @@ func TestSNS_PublishBatch(t *testing.T) {
 		assert.NotEmpty(t, aws.ToString(s.MessageId))
 	}
 
-	// Both fanned out to the SQS subscriber.
 	recv, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            q.QueueUrl,
 		MaxNumberOfMessages: 10,
@@ -526,11 +506,9 @@ func TestSNS_PublishBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, recv.Messages, 2)
 
-	// (EmptyBatchRequest is reachable only via a raw client emitting a
-	// zero-length entry list — the SDK rejects it client-side — so it's
-	// asserted in the CLI test instead.)
+	// The SDK refuses an empty batch client-side, so the CLI suite covers
+	// EmptyBatchRequest.
 
-	// Duplicate Ids.
 	_, err = snsC.PublishBatch(ctx, &sns.PublishBatchInput{
 		TopicArn: tpc.TopicArn,
 		PublishBatchRequestEntries: []snstypes.PublishBatchRequestEntry{
@@ -540,7 +518,6 @@ func TestSNS_PublishBatch(t *testing.T) {
 	})
 	assert.Equal(t, "BatchEntryIdsNotDistinct", errCode(t, err))
 
-	// Too many entries (11).
 	tooMany := make([]snstypes.PublishBatchRequestEntry, 11)
 	for i := range tooMany {
 		tooMany[i] = snstypes.PublishBatchRequestEntry{

@@ -333,7 +333,7 @@ func handleFilesDataPlane(w http.ResponseWriter, r *http.Request, account string
 		case r.Method == http.MethodPut && restype == "service" && comp == "properties":
 			handleFilesSetServiceProperties(w, r, account)
 		case r.Method == http.MethodPost && restype == "service" && comp == "userdelegationkey":
-			if !RequireStorageOAuthBearer(w, r) {
+			if !RequireStorageOAuthBearer(w, r, "file", account) {
 				return
 			}
 			handleFilesGetUserDelegationKey(w, r, account)

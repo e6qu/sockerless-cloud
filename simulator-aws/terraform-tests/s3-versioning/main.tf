@@ -15,7 +15,6 @@ variable "content" {
   type = string
 }
 
-# The version id of an earlier write to read back, empty for none.
 variable "earlier_version" {
   type    = string
   default = ""

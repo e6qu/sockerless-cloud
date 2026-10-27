@@ -9,15 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFunctionApp_CLI_StartupFileRunsTheContainer drives a Linux custom
-// container function app with the native az commands: `az functionapp config
-// set --startup-file` writes siteConfig.appCommandLine, `az functionapp config
-// appsettings set` writes WEBSITES_PORT, and a request to the site's hostname
-// reaches the container the image's entrypoint runs with that command, on that
-// port.
+// TestFunctionApp_CLI_StartupFileRunsTheContainer: `az functionapp config set
+// --startup-file` writes siteConfig.appCommandLine and `appsettings set` writes
+// WEBSITES_PORT; a request to the site reaches the container running that
+// command on that port.
 func TestFunctionApp_CLI_StartupFileRunsTheContainer(t *testing.T) {
 	t.Parallel()
-	// The full workload runtime: the site runs a real container.
+	// The site runs a container, so use the full workload runtime.
 	env := startAzTLSSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-startup",

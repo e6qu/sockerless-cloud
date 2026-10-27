@@ -8,9 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// Reads that answer from what the project already holds, and the writes beside
-// them. Each is derived rather than stored separately, so none can disagree
-// with the resources it describes.
+// Each read derives from resources the project already holds, so none can
+// disagree with them.
 
 func TestCompute_RegionZonesAndImageFamilyView(t *testing.T) {
 	t.Parallel()

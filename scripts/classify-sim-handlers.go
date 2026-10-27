@@ -6,11 +6,9 @@
 //	go run scripts/classify-sim-handlers.go <dir>...
 //
 // A surface table that records only "a route is mounted" cannot tell an
-// implemented operation from one that answers and does nothing. Both look
-// identical to a client that only checks the status code, and identical to the
-// coverage probe — which is how five Cloud Storage object ACL methods counted
-// as covered for as long as that gate existed. This reports the distinction the
-// route alone cannot carry:
+// implemented operation from one that answers and does nothing: both look
+// identical to a client that only checks the status code, and to the
+// coverage probe. This reports the distinction the route alone cannot carry:
 //
 //	state  — the handler reaches simulator state: it reads or writes a store,
 //	         directly or through a function in its own package. This is an
@@ -43,8 +41,8 @@ import (
 
 // storeOps are the store methods that reach stored state: the sim.Store
 // interface plus Upsert, which only the concrete MemoryStore and SQLiteStore
-// carry. Leaving Upsert out read EnableEbsEncryptionByDefault — which records
-// the account's default through it — as touching nothing.
+// carry and through which EnableEbsEncryptionByDefault records the account's
+// default.
 var storeOps = map[string]bool{
 	"Get": true, "Put": true, "Update": true, "Delete": true, "Upsert": true,
 	"List": true, "Filter": true, "Len": true, "Generation": true,
@@ -192,7 +190,6 @@ func (p *pkg) resolveConsts(exprs map[string]ast.Expr, seed map[string][]string)
 	return out
 }
 
-// classify walks every registration and reports the class of its handler.
 // localClosures collects the function values a body binds to a name —
 // `patchAutokey := func(…)`, `var load = func(…)`. A registrar's handler
 // commonly reaches state only through one of these siblings, and without them
@@ -233,6 +230,7 @@ func localClosures(body *ast.BlockStmt) map[string]*ast.FuncLit {
 	return found
 }
 
+// classify walks every registration and reports the class of its handler.
 func (p *pkg) classify() []string {
 	var rows []string
 	for _, file := range p.files {
@@ -349,8 +347,7 @@ func handlerName(handler ast.Expr) string {
 // Most are one literal. A registrar serving a surface under several version
 // prefixes takes the prefix as a parameter and concatenates it —
 // `srv.HandleFunc("GET "+prefix+"/projects/{project}/instances", …)` — and its
-// callers pass literals. Reading only the literal missed a quarter of the
-// registered surface, so a table's silence about an op meant nothing.
+// callers pass literals, so the prefix resolves through the callers.
 func (p *pkg) routes(call *ast.CallExpr, file *ast.File) []string {
 	// RegisterVersioned("2014-11-13", "Action", handler) names the action
 	// second; every other registrar names the route first.

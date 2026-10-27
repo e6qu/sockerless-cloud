@@ -17,12 +17,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// monitor_dcr.go serves data collection rules (Microsoft.Insights/
-// dataCollectionRules) and the Logs Ingestion API that uploads through them.
-// An upload names a rule by its immutable id and one of the rule's declared
-// streams; every data flow carrying that stream runs its transformKql over
-// the rows and writes the result to the output table of each Log Analytics
-// destination it names, and to nothing else.
+// Data collection rules and the Logs Ingestion API. An upload names a rule by
+// its immutable id and one of its declared streams; every data flow carrying
+// that stream runs its transformKql over the rows and writes the result to the
+// output table of each Log Analytics destination it names, and nowhere else.
 
 type DataCollectionRule struct {
 	ID         string                       `json:"id"`
@@ -94,27 +92,23 @@ type DCRDataFlow struct {
 
 var dataCollectionRules sim.Store[DataCollectionRule]
 
-// dataCollectionRulesByImmutableID finds the rule an upload names.
 var dataCollectionRulesByImmutableID sim.GenerationIndex[DataCollectionRule]
 
 func dataCollectionRuleImmutableIDKeys(r DataCollectionRule) []string {
 	return []string{strings.ToLower(r.Properties.ImmutableID)}
 }
 
-// dcrColumnKQLTypes maps a stream column type to the query engine's.
 var dcrColumnKQLTypes = map[string]string{
 	"string": "string", "int": "int", "long": "long", "real": "real",
 	"boolean": "bool", "datetime": "datetime", "dynamic": "dynamic",
 }
 
-// dcrInvalid is a rule the service refuses, with what is wrong with it.
 type dcrInvalid string
 
 func (e dcrInvalid) Error() string { return string(e) }
 
 func dcrInvalidf(format string, args ...any) error { return dcrInvalid(fmt.Sprintf(format, args...)) }
 
-// dcrStreamColumns reads a declared stream's columns as the engine's schema.
 func dcrStreamColumns(decl DCRStreamDeclaration) []Column {
 	cols := make([]Column, 0, len(decl.Columns))
 	for _, c := range decl.Columns {
@@ -123,8 +117,8 @@ func dcrStreamColumns(decl DCRStreamDeclaration) []Column {
 	return cols
 }
 
-// dcrOutputTable names the table a data flow writes a stream to: the
-// outputStream's, or the input stream's own when the flow names none.
+// The outputStream's table, or the input stream's own when the flow names
+// none.
 func dcrOutputTable(flow DCRDataFlow, stream string) (string, error) {
 	out := flow.OutputStream
 	if out == "" {
@@ -139,8 +133,6 @@ func dcrOutputTable(flow DCRDataFlow, stream string) (string, error) {
 	return "", dcrInvalidf("The output stream '%s' is not valid: it starts with Custom- or Microsoft-.", out)
 }
 
-// dcrTransform parses and binds a flow's transformKql against its input
-// stream, returning the query and the schema it produces.
 func dcrTransform(kql string, input []Column) (kqlQuery, []Column, *kqlError) {
 	if strings.TrimSpace(kql) == "" {
 		kql = "source"
@@ -163,8 +155,8 @@ func dcrTransform(kql string, input []Column) (kqlQuery, []Column, *kqlError) {
 	return parsed, set.columns, nil
 }
 
-// validateDataCollectionRule checks a rule the way the service does before
-// accepting it, and fills in each Log Analytics destination's workspace id.
+// validateDataCollectionRule also fills in each Log Analytics destination's
+// workspace id.
 func validateDataCollectionRule(rule *DataCollectionRule) error {
 	p := &rule.Properties
 	if p.DataCollectionEndpointID != "" {
@@ -285,7 +277,6 @@ func validateDataCollectionRule(rule *DataCollectionRule) error {
 	return nil
 }
 
-// kqlSchemaColumn finds a column of a schema by name.
 func kqlSchemaColumn(cols []Column, name string) (Column, bool) {
 	for _, c := range cols {
 		if c.Name == name {
@@ -396,9 +387,8 @@ func registerDataCollectionRules(srv *sim.Server) {
 
 	srv.HandleFunc("POST /dataCollectionRules/{ruleId}/streams/{stream}", handleLogsIngestionUpload)
 
-	// Data collection rule associations attach a rule to a resource whose
-	// Azure Monitor Agent then collects by it. The simulator runs no agent, so
-	// it declares every association operation unserved.
+	// An association attaches a rule to a resource whose Azure Monitor Agent then
+	// collects by it; the simulator runs no agent.
 	associationsUnserved := func(w http.ResponseWriter, _ *http.Request) {
 		AzureError(w, "NotImplemented",
 			"The simulator runs no Azure Monitor Agent, so data collection rule associations are not implemented.",
@@ -417,8 +407,7 @@ func registerDataCollectionRules(srv *sim.Server) {
 	})
 }
 
-// dataCollectionEndpointByID reads an endpoint by its ARM id, whatever the
-// casing of the id's segments.
+// Matches the ID case-insensitively.
 func dataCollectionEndpointByID(id string) (DataCollectionEndpoint, bool) {
 	parts := strings.Split(strings.Trim(id, "/"), "/")
 	if len(parts) != 8 || !strings.EqualFold(parts[6], "dataCollectionEndpoints") {
@@ -427,7 +416,6 @@ func dataCollectionEndpointByID(id string) (DataCollectionEndpoint, bool) {
 	return dataCollectionEndpoints.Get(armResourceID(parts[1], parts[3], "Microsoft.Insights", "dataCollectionEndpoints", parts[7]))
 }
 
-// logsIngestionMaxBody is the API's limit on one call's body.
 const logsIngestionMaxBody = 1 << 20
 
 func logsIngestionError(w http.ResponseWriter, status int, code, format string, args ...any) {
@@ -435,7 +423,6 @@ func logsIngestionError(w http.ResponseWriter, status int, code, format string, 
 	sim.WriteJSON(w, status, map[string]any{"error": map[string]any{"code": code, "message": fmt.Sprintf(format, args...)}})
 }
 
-// handleLogsIngestionUpload is the Logs Ingestion API's Upload.
 func handleLogsIngestionUpload(w http.ResponseWriter, r *http.Request) {
 	immutableID, stream := sim.PathParam(r, "ruleId"), sim.PathParam(r, "stream")
 	rule, ok := dataCollectionRulesByImmutableID.Lookup(dataCollectionRules, strings.ToLower(immutableID), dataCollectionRuleImmutableIDKeys)
@@ -543,8 +530,7 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// dcrCell reads one uploaded value as a cell of its declared column type; a
-// value of the wrong shape is null.
+// A value of the wrong shape is null.
 func dcrCell(v any, typ string) any {
 	if v == nil {
 		if typ == "string" {
@@ -608,8 +594,7 @@ func dcrCell(v any, typ string) any {
 	return nil
 }
 
-// kqlStoredValue writes a cell as the stored row keeps it; a null cell is
-// absent.
+// A null cell is absent.
 func kqlStoredValue(v any) (string, bool) {
 	switch v := v.(type) {
 	case nil:
@@ -624,8 +609,8 @@ func kqlStoredValue(v any) (string, bool) {
 	return kqlToString(v), true
 }
 
-// DataCollectionEndpoint is a data collection endpoint: the Logs Ingestion
-// endpoint a data collection rule that names it is uploaded through.
+// DataCollectionEndpoint is the Logs Ingestion endpoint a rule naming it is
+// uploaded through.
 type DataCollectionEndpoint struct {
 	ID         string                           `json:"id"`
 	Name       string                           `json:"name"`
@@ -667,8 +652,8 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 			"The Resource 'Microsoft.Insights/dataCollectionEndpoints/%s' under resource group '%s' was not found.",
 			sim.PathParam(r, "dataCollectionEndpointName"), sim.PathParam(r, "resourceGroupName"))
 	}
-	// The Logs Ingestion API is served beside Azure Resource Manager, so an
-	// endpoint's logs ingestion URL is the host the request reached.
+	// The Logs Ingestion API is served beside Azure Resource Manager, so the
+	// endpoint's URL is the host the request reached.
 	wire := func(r *http.Request, dce DataCollectionEndpoint) DataCollectionEndpoint {
 		dce.Properties.LogsIngestion = &DataCollectionEndpointURL{Endpoint: azureRequestScheme(r) + "://" + r.Host}
 		return dce
@@ -747,10 +732,8 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 	})
 }
 
-// monitorPatchTagsAndIdentity applies the PATCH a data collection rule or
-// endpoint takes, which carries only its tags and managed identity, gives the
-// resource a new etag and answers with the result. fields locates the three
-// members in a stored resource.
+// The PATCH carries only tags and managed identity and gives the resource a
+// new etag. fields locates the three members in a stored resource.
 func monitorPatchTagsAndIdentity[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], id string,
 	notFound func(http.ResponseWriter, *http.Request), wire func(*http.Request, T) T,
 	fields func(*T) (*map[string]string, *json.RawMessage, *string)) {
@@ -781,8 +764,7 @@ func monitorPatchTagsAndIdentity[T any](w http.ResponseWriter, r *http.Request, 
 	sim.WriteJSON(w, http.StatusOK, wire(r, out))
 }
 
-// monitorListUnder answers every resource whose ID starts with prefix, matched
-// regardless of case as Azure Resource Manager matches IDs, in ID order.
+// Matches IDs case-insensitively, as Azure Resource Manager does, in ID order.
 func monitorListUnder[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix string, id func(T) string, wire func(*http.Request, T) T) {
 	prefix = strings.ToLower(prefix)
 	items := store.Filter(func(res T) bool {

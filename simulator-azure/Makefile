@@ -1,10 +1,6 @@
-# Standardized Makefile for simulator-azure — see docs/MAKEFILE_STANDARD.md.
-#
-# This sim is its own Go module, resolved against the sibling support
-# modules (sim, ui-auth) through the repo-root go.work during
-# development and through tagged versions when installed with
-# `go install ...@version`. `build` embeds the console built in ui/ (build the UI first);
-# `build-api`, which the test suites use, builds without it.
+# See docs/MAKEFILE_STANDARD.md. `build` embeds the console built in ui/
+# (build the UI first); `build-api`, which the test suites use, builds
+# without it.
 
 APP_NAME       := simulator-azure
 GO_PACKAGE     := .
@@ -15,26 +11,15 @@ GO_LDFLAGS      := -s -w
 RUN_ENV        := SIM_LISTEN_ADDR=:4568
 RUN_FLAGS      :=
 
-# go-test deadline for the CLI suite. Each `az` invocation carries ~0.5-2s of
-# Python interpreter startup, so the wall-clock grows with the test count as the
-# sim's coverage ratchets up; keep generous headroom over the current runtime.
-#
-# Measured on a CI runner at 171 tests: 680s, with nothing hanging — the slowest
-# are 15-30s of real `az` work and 180 subtests had already passed when the old
-# 600s deadline fired. 13m matches the SDK suite and is the most this can be:
-# the CI step allows 14 minutes and the job 15, so a larger inner deadline would
-# surface as an opaque step kill instead of a named Go stack. That headroom is
-# thin and this suite roughly doubled in one pass; BUG-41 tracks sharding it the
-# way the AWS CLI suite is sharded.
+# Each `az` invocation pays ~0.5-2s of Python startup, so the CLI suite's
+# runtime grows with its test count. 13m is the ceiling: the CI step allows 14
+# minutes, and a larger inner deadline would surface as an opaque step kill
+# instead of a named Go stack.
 CLI_TEST_TIMEOUT ?= 13m
 
 REPO_ROOT_REL  := ..
 
 include $(REPO_ROOT_REL)/make/go-app.mk
-
-# ── Domain-specific test targets ────────────────────────────────────
-# Each sub-tree (sdk-tests, cli-tests, terraform-tests) is a
-# separate Go module; the CI calls these directly.
 
 .PHONY: unit-test race-test sdk-test sdk-test-local docker-sdk-test cli-test terraform-test
 
@@ -46,11 +31,8 @@ UNIT_TEST_TIMEOUT ?= 10m
 unit-test: ## go test the simulator module's own package-internal tests (fast; no Docker/real-exec)
 	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
-# The same tests under the race detector. Separate from unit-test because the
-# detector needs cgo, which unit-test deliberately does not have. The AWS
-# module's header records why this target exists: asynchronous simulator work
-# that nothing tracked outlived the test that started it and read stores the
-# next test was replacing, 144 times over.
+# Separate from unit-test because the race detector needs cgo, which unit-test
+# does not have.
 RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
@@ -63,16 +45,11 @@ else
 sdk-test: sdk-test-local ## go test the SDK-driven sim tests
 endif
 
-# The Cosmos DB emulator differential tests are slow and variable, so the SDK
-# suite carries an explicit deadline above Go's 10-minute default; the CI step
-# gives it headroom over this.
+# The Azure Cosmos DB emulator differential tests are slow and variable, so the
+# SDK suite needs more than Go's 10-minute default.
 SDK_TEST_TIMEOUT ?= 13m
 
-# What each suite runs. A sharded CI job narrows its shard with
-# `-run`; the default runs everything. Without these the arguments a
-# shard passes are accepted by make and dropped on the floor, so every
-# shard runs the whole suite — twice the work the split was meant to
-# avoid, and no warning that the partition is doing nothing.
+# A sharded CI job narrows its suite with `-run`; the default runs everything.
 SDK_TEST_ARGS ?= ./...
 CLI_TEST_ARGS ?= ./...
 
@@ -86,20 +63,15 @@ cli-test: build-api ## go test the CLI-driven sim tests
 # timeout only has to outlast it.
 TERRAFORM_TEST_TIMEOUT ?= 600s
 
-# TERRAFORM_TEST_ARGS carries extra `go test` flags — CI's tf shards use it to
-# select one apply/destroy entrypoint per job (`-run TestTerraformApplyDestroy`
-# for the shared stack, `-run TestTerraformSubscriptionApplyDestroy` for the
-# standalone Microsoft.Subscription config).
+# CI's Terraform shards select one apply/destroy entrypoint per job with `-run`.
 TERRAFORM_TEST_ARGS ?=
 
 terraform-test: build-api ## go test the terraform-driven sim tests (apply+destroy deadline = TERRAFORM_TEST_TIMEOUT)
 	cd terraform-tests && TERRAFORM_TEST_TIMEOUT=$(TERRAFORM_TEST_TIMEOUT) $(GO_ENV) go test -v -count=1 -timeout 20m $(TERRAFORM_TEST_ARGS) ./...
 
-# Aggregate that runs every test category.
 .PHONY: test-all
 test-all: unit-test sdk-test cli-test terraform-test ## run every test category
 
-# ── Docker targets ──────────────────────────────────────────────────
 .PHONY: docker-build docker-run docker-test docker-test-build
 
 IMAGE := sockerless-simulator-azure
@@ -108,27 +80,18 @@ DOCKER_TEST_USER := $(shell id -u):$(shell id -g)
 DOCKER_SOCK_GID := $(shell stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)
 DOCKER_TEST_GROUPS := $(DOCKER_SOCK_GID),0
 DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS_DOCKER_TEST_UIDGID=$(DOCKER_TEST_USER) -e SOCKERLESS_DOCKER_TEST_GROUPS=$(DOCKER_TEST_GROUPS) -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER=
-# The simulator hands the container engine host paths — a webjob's materialized
-# directory, an Azure Files share a workload mounts — and the engine resolves a
-# mount source on the host it runs on, not inside the client container. Running
-# the simulator in this harness therefore needs one directory that is the same
-# path on both sides: the engine's own host directory, mounted into the
-# container at its own path and made the simulator's temporary directory.
-# Without it every workload bind-mounts an empty directory the engine created,
-# and a job reads none of the files it was given.
-#
-# It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
-# host is commonly a memory-backed filesystem, which a build tree or a volume
-# seed would fill.
+# The engine resolves a bind-mount source on its own host, not inside this
+# container, so the simulator's temporary directory must be the same path on
+# both sides; otherwise every workload mounts an empty directory. /var/tmp,
+# not /tmp: /tmp on an engine host is often memory-backed, and a build tree or
+# a volume seed would fill it.
 DOCKER_TEST_SHARED_TMP := /var/tmp/skl
 DOCKER_TEST_SHARED_TMP_MOUNT := -v $(DOCKER_TEST_SHARED_TMP):$(DOCKER_TEST_SHARED_TMP)
 
 DOCKER_TEST_RUN_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e NO_PROXY=localhost,127.0.0.1,::1,.localhost,*.localhost -e no_proxy=localhost,127.0.0.1,::1,.localhost,*.localhost -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
 
-# Spec validation is armed by two coordinates the harness has to carry into the
-# container, exactly as the Amazon Web Services harness does. Without them a
-# macOS run of `SOCKERLESS_SPEC_VALIDATE=... make sdk-test` validates nothing
-# and writes no report — a pass that checked no wire shape at all.
+# Carry the spec-validation coordinates into the container; without them a
+# macOS run of `SOCKERLESS_SPEC_VALIDATE=... make sdk-test` validates nothing.
 DOCKER_SPEC_VALIDATION_FLAGS := $(if $(strip $(SOCKERLESS_SPEC_VALIDATE)),-v "$(dir $(SOCKERLESS_SPEC_VALIDATE)):/sockerless-spec" -e SOCKERLESS_SPEC_VALIDATE="/sockerless-spec/$(notdir $(SOCKERLESS_SPEC_VALIDATE))" -e SOCKERLESS_SPEC_DIR=/src/specs/cloud-api/azure)
 
 docker-build: ## build the docker image
@@ -156,9 +119,7 @@ docker-test: docker-test-build ## run all tests inside docker
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
-# The shard filter and the deadline travel into the container: without them
-# the inner make ran the whole suite against the default deadline whatever the
-# caller asked for, so a sharded or long-budget local run was neither.
+# Pass the shard filter and the deadline through to the inner make.
 docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-network docker harness
 	docker run --rm --network host \
 		--security-opt label=disable \

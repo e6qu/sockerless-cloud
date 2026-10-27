@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A fresh clock and empty buckets per test: the buckets are process state
-// shared across the simulators a test builds.
+// The buckets are process state shared across the simulators a test builds.
 func throughputClock(t *testing.T) *time.Time {
 	t.Helper()
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)

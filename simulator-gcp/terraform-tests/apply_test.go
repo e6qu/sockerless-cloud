@@ -17,50 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformApplyDestroy provisions the full GCP-sim coverage stack
-// (compute network + disk + subnet + VPC Access connector + firewall +
-// regional address + Cloud NAT + global HTTP load balancer, public + private
-// DNS zones, Artifact Registry, Cloud Run v2 Service + Job + Worker Pool,
-// Cloud Functions v2,
-// Pub/Sub, Cloud Build trigger, Cloud Storage bucket + object, Cloud Logging
-// sink/metric, BigQuery dataset/table, Firestore document, Memorystore Redis,
-// Cloud SQL instance/database/user, Eventarc trigger, Secret Manager, IAM service
-// account) in a single
-// terraform apply round-trip and asserts the cross-resource references
-// converged.
-//
-// Slices exercised against the simulator:
-//   - compute.googleapis.com (networks + disks + subnetworks + firewalls +
-//     addresses + routers + router NATs + healthChecks + backendServices +
-//     urlMaps + targetHttpProxies + globalForwardingRules)
-//   - vpcaccess.googleapis.com (connectors)
-//   - dns.googleapis.com (public + private managedZones + record sets via Changes)
-//   - artifactregistry.googleapis.com (Docker repository)
-//   - run.googleapis.com v2 (Service + Job + Worker Pool + worker-pool IAM member)
-//   - cloudfunctions.googleapis.com v2 (Function)
-//   - eventarc.googleapis.com (Trigger)
-//   - pubsub.googleapis.com (Topic + Subscription)
-//   - cloudbuild.googleapis.com (Trigger)
-//   - storage.googleapis.com (bucket + object)
-//   - logging.googleapis.com (project sink + metric)
-//   - bigquery.googleapis.com (dataset + table)
-//   - firestore.googleapis.com (document)
-//   - redis.googleapis.com (Memorystore Redis instance)
-//   - sqladmin.googleapis.com (Cloud SQL instance + database + user)
-//   - secretmanager.googleapis.com (secret + version)
-//   - iam.googleapis.com (service account — via iam_beta_custom_endpoint;
-//     terraform-provider-google routes the resource through iambeta.NewClient
-//     which uses iam_beta_custom_endpoint, NOT iam_custom_endpoint)
-//   - spanner.googleapis.com (instance + database)
-//   - bigtableadmin.googleapis.com (instance + table)
-//   - cloudresourcemanager.googleapis.com v1 (google_project create +
-//     operation wait + read + soft-delete on destroy; the org-policy verbs
-//     behind google_project_organization_policy /
-//     google_folder_organization_policy / google_organization_policy; the
-//     liens collection behind google_resource_manager_lien) and the folders
-//     collection behind google_folder
-//   - cloudbilling.googleapis.com (projects.getBillingInfo, read by the
-//     google_project Read path)
+// TestTerraformApplyDestroy applies main.tf, which holds resources from every
+// Google Cloud service the provider reaches the simulator through, in one
+// terraform apply; it asserts the cross-resource references converged, plans
+// again expecting no drift, and destroys.
 func TestTerraformApplyDestroy(t *testing.T) {
 	cleanTerraformWorkspace(t)
 	// The worker pool's instances run this image; its startup probe has to
@@ -72,9 +32,7 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	out, err = runTimed(t, "terraform apply", terraformCmd("apply", "-auto-approve", "-var", "secret_label_env=dev"))
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
-	// Idempotency: a second plan must show no drift. -detailed-exitcode makes
-	// terraform exit 2 (non-zero) on any drift, which runTimed surfaces as an
-	// error — so a clean plan (exit 0) is the only pass.
+	// -detailed-exitcode exits 2 on drift, so only an empty plan passes.
 	out, err = runTimed(t, "terraform plan", terraformCmd("plan", "-detailed-exitcode", "-var", "secret_label_env=dev"))
 	require.NoError(t, err, "terraform plan showed drift after apply (not idempotent):\n%s", out)
 
@@ -111,11 +69,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Equal(t, true, outputs.mustValue(t, "service_account_access_token_minted"),
 		"a reduced lifetime must still mint a token")
 
-	// What generateAccessToken actually did with that lifetime. `lifetime` is a
-	// request member the data source never re-reads, so the state attribute
-	// above is the configured literal; the token's own claim span is the API's
-	// answer. An implementation that ignored the request and applied the
-	// documented one-hour default reports 3600 here.
+	// `lifetime` is a request member the data source never re-reads, so the
+	// token's own claim span is the API's answer: an API that applied the one-hour
+	// default reports 3600 here.
 	require.Equal(t, float64(600),
 		outputs.mustNumber(t, "service_account_access_token_lifetime_seconds"),
 		"the minted token must expire 600s after it was issued, not at the one-hour default")
@@ -166,11 +122,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"projects/test-project/locations/us-central1/workerPools/tf-crv2-worker-pool/roles/run.invoker/",
 		"Cloud Run v2 worker pool IAM member id must bind the role on the pool resource; got %s", crWorkerPoolIAMID)
 
-	// Worker-pool automatic scaling. scaling_mode / min_instance_count /
-	// max_instance_count are members the provider sends on the v2 wire that the
-	// pinned Discovery revision does not publish; a simulator that dropped them
-	// would re-plan the pool forever (the clean `plan -detailed-exitcode` above
-	// is the other half of that proof).
+	// scaling_mode, min_instance_count and max_instance_count are members the
+	// provider sends that the pinned Discovery revision does not publish; a
+	// simulator that dropped them would re-plan the pool forever.
 	require.Equal(t, "AUTOMATIC", outputs.must(t, "cloud_run_v2_worker_pool_scaling_mode"))
 	require.Equal(t, float64(1), outputs.mustNumber(t, "cloud_run_v2_worker_pool_min_instance_count"))
 	require.Equal(t, float64(5), outputs.mustNumber(t, "cloud_run_v2_worker_pool_max_instance_count"))
@@ -528,13 +482,10 @@ func requireIPv4InCIDR(t *testing.T, value, cidr string, msgAndArgs ...any) {
 	require.True(t, block.Contains(ip), msgAndArgs...)
 }
 
-// cleanTerraformArtifacts empties a terraform working directory of everything a
-// previous run put there: the provider cache and lock file, the state and its
-// backup, and any crash log. A run aborted before its destroy leaves state
-// naming resources this simulator process has never heard of, which turns the
-// next apply into an update against phantom resources and the next destroy into
-// a failure — so every suite starts from an empty workspace rather than
-// inheriting one.
+// cleanTerraformArtifacts removes the provider cache, the lock file, the state
+// and its backup, and crash logs. State an aborted run left behind names
+// resources this simulator process never created, so every suite starts from an
+// empty workspace.
 func cleanTerraformArtifacts(t *testing.T, dir string) {
 	t.Helper()
 	for _, name := range []string{
@@ -549,15 +500,13 @@ func cleanTerraformArtifacts(t *testing.T, dir string) {
 	}
 }
 
-// cleanTerraformWorkspace empties the root working directory, the one main.tf
-// lives in.
 func cleanTerraformWorkspace(t *testing.T) {
 	t.Helper()
 	cleanTerraformArtifacts(t, filepath.Dir(mustAbs("main.tf")))
 }
 
-// cleanTerraformFixture empties a fixture working directory, named relative to
-// the root the way terraformCmdInDir names one.
+// cleanTerraformFixture names dir relative to the root, as terraformCmdInDir
+// does.
 func cleanTerraformFixture(t *testing.T, dir string) {
 	t.Helper()
 	cleanTerraformArtifacts(t, filepath.Join(filepath.Dir(mustAbs("main.tf")), dir))
@@ -588,8 +537,7 @@ func (o tfOutputs) mustValue(t *testing.T, key string) any {
 	return v.Value
 }
 
-// mustNumber reads a numeric output (terraform encodes every number as a JSON
-// float).
+// Terraform encodes every number as a JSON float.
 func (o tfOutputs) mustNumber(t *testing.T, key string) float64 {
 	t.Helper()
 	v, ok := o[key]
@@ -599,8 +547,6 @@ func (o tfOutputs) mustNumber(t *testing.T, key string) float64 {
 	return n
 }
 
-// mustObject reads an object-typed output — a nested configuration block such
-// as a container probe or an environment variable — as a decoded map.
 func (o tfOutputs) mustObject(t *testing.T, key string) map[string]any {
 	t.Helper()
 	v, ok := o[key]
@@ -610,9 +556,7 @@ func (o tfOutputs) mustObject(t *testing.T, key string) map[string]any {
 	return m
 }
 
-// mustBlock reads the single element of a max_items=1 nested block that
-// terraform represents as a one-element list (probe handlers, value_source,
-// secret_key_ref).
+// Terraform represents a max_items=1 nested block as a one-element list.
 func mustBlock(t *testing.T, obj map[string]any, key string) map[string]any {
 	t.Helper()
 	list, ok := obj[key].([]any)

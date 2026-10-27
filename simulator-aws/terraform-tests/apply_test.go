@@ -14,15 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStackProductionShape provisions the production-shape stack
-// (CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC +
-// runner-foundation S3 / DynamoDB / KMS / SecretsManager / SSM)
-// in a single terraform apply round-trip, then asserts the
-// cross-resource references converged correctly.
+// TestStackProductionShape applies the production-shape stack (CloudFront,
+// ACM, AWS WAF, Route 53 ALIAS, Amplify, IAM service-linked roles and OIDC
+// providers, and the runner foundation's Amazon S3, DynamoDB, AWS KMS, Secrets
+// Manager and Systems Manager resources) in one apply, then asserts the
+// cross-resource references converged.
 //
-// AWS-SDK actions exercised transitively via terraform-provider-aws's
-// per-resource Create+Read+Delete sequences (listed so the
-// simulator-testing-contract check sees each op referenced):
+// terraform-provider-aws's Create, Read and Delete sequences exercise these
+// operations:
 //   - DynamoDB: CreateTable, DescribeTable, DeleteTable,
 //     DescribeContinuousBackups, UpdateContinuousBackups,
 //     DescribeTimeToLive, UpdateTimeToLive,
@@ -108,18 +107,14 @@ import (
 //     RegisterInstance, GetInstance, DeregisterInstance,
 //     ListTagsForResource, TagResource, UntagResource
 //
-// What this proves end-to-end:
-//   - WAFv2 association resource_arn values equal the CloudFront distribution
-//     ARN and Amplify app ARN. Terraform resolves both references and refreshes
-//     each real cross-service association through WAFv2.
-//   - Route 53 ALIAS target.name == CloudFront distribution
-//     domain_name. This is the production DNS flow: api.foo.example
-//     resolves to the CloudFront edge (real AWS uses an A record with
-//     alias{} that points at the distribution's regional FQDN).
-//   - ACM certificate ARN region is us-east-1. CloudFront rejects
-//     viewer certs from any other region; provisioning ACM in
-//     us-east-1 specifically is the "production shape" gotcha.
-//   - Amplify app + SLR/OIDC ARNs round-trip and surface in TF state.
+// The assertions:
+//   - The AWS WAF associations' resource_arn values equal the CloudFront
+//     distribution ARN and the Amplify app ARN.
+//   - The Route 53 ALIAS target name equals the CloudFront distribution's
+//     domain_name.
+//   - The ACM certificate lives in us-east-1: CloudFront rejects viewer
+//     certificates from any other Region.
+//   - The Amplify app, service-linked role and OIDC provider ARNs reach state.
 func TestStackProductionShape(t *testing.T) {
 	init := terraformCmd("init")
 	init.Stdout = nil
@@ -131,17 +126,13 @@ func TestStackProductionShape(t *testing.T) {
 	out, err = runTimed(t, "terraform apply", apply)
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
-	// Restart the cloud between apply and refresh. A zero-diff plan proves the
-	// official AWS provider can rediscover the complete stack from persistent
-	// cloud APIs without process-local state.
+	// A zero-diff plan after a restart proves the provider rediscovers the whole
+	// stack through the cloud APIs alone.
 	restartTerraformSimulator(t)
 	plan := terraformCmd("plan", "-detailed-exitcode")
 	out, err = runTimed(t, "terraform plan after simulator restart", plan)
 	require.NoError(t, err, "terraform refresh after simulator restart was not a zero-diff plan:\n%s", out)
 
-	// Read outputs and assert cross-resource invariants. Failures here
-	// indicate the simulator returned cross-resource references that
-	// don't match the TF graph — real AWS would never do this.
 	outputs := readOutputs(t)
 
 	cfARN := outputs.must(t, "cloudfront_arn")
@@ -158,9 +149,7 @@ func TestStackProductionShape(t *testing.T) {
 	require.Equal(t, amplifyARN, amplifyWAFResource,
 		"WAFv2 association resource_arn must equal Amplify app ARN")
 
-	// Route 53 ALIAS target names normalise to a trailing dot in real
-	// AWS storage. The sim stores them the same way; strip the dot
-	// when comparing back to the CloudFront domain.
+	// Route 53 stores ALIAS target names with a trailing dot.
 	require.Equal(t, cfDomain, strings.TrimSuffix(r53Alias, "."),
 		"Route 53 ALIAS target name must equal CloudFront distribution domain_name")
 
@@ -427,11 +416,8 @@ func TestStackProductionShape(t *testing.T) {
 	require.Contains(t, ssmARN, ":parameter/tf-test/runner/config",
 		"SSM Parameter ARN must include :parameter<leading-slash><name>; got %s", ssmARN)
 
-	// S3 bucket-subresource round-trips. Each output below depends on
-	// the terraform-provider-aws Create+Read cycle returning the value
-	// the apply set. If any bucket-subresource handler in the sim is
-	// missing or returns a wrong-shape body, the provider's Read fails
-	// to parse the value and the output is empty / wrong.
+	// The provider reads each bucket subresource back after setting it; a
+	// missing or misshapen subresource leaves its output empty or wrong.
 	require.Equal(t, "Enabled", outputs.must(t, "s3_bucket_versioning_status"),
 		"PutBucketVersioning Status must round-trip through GetBucketVersioning")
 	require.Equal(t, "expire-30d", outputs.must(t, "s3_bucket_lifecycle_id"),
@@ -474,15 +460,10 @@ func TestStackProductionShape(t *testing.T) {
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
 
-// runTimed runs a terraform command, capturing combined output, with a
-// watchdog that fires just before the test's own deadline. terraform spawns
-// provider-plugin grandchildren; if go test's hard timeout (SIGQUIT) fired
-// while a plain CombinedOutput() was in flight it would orphan that whole tree
-// (t.Cleanup does NOT run on the test-binary timeout), leaving spinning
-// provider processes that starve later runs into cascading timeouts. The
-// watchdog instead kills the process group (terraform put itself in its own
-// group via Setpgid) and returns a clean error with the captured output, so a
-// stuck command fails diagnosably and never leaks orphans.
+// runTimed runs a terraform command and kills its process group shortly
+// before the test deadline. go test's hard timeout skips t.Cleanup, so without
+// the watchdog the provider plugins terraform spawns would outlive the run and
+// starve later ones.
 func runTimed(t *testing.T, label string, cmd *exec.Cmd) ([]byte, error) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -494,19 +475,14 @@ func runTimed(t *testing.T, label string, cmd *exec.Cmd) ([]byte, error) {
 
 	killGroup := func() {
 		if cmd.Process != nil {
-			// Negative pid targets the whole process group (Setpgid'd tree).
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
 	}
-	// Safety net for the pass/fail/panic paths (cleanup does not run on the
-	// test-binary SIGQUIT timeout — the watchdog below covers that case).
 	t.Cleanup(killGroup)
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
-	// Fire ~20s before the test deadline so we reap the tree and fail cleanly
-	// rather than letting the hard SIGQUIT orphan it.
 	var watchdog <-chan time.Time
 	if dl, ok := t.Deadline(); ok {
 		if d := time.Until(dl) - 20*time.Second; d > 0 {
@@ -522,7 +498,7 @@ func runTimed(t *testing.T, label string, cmd *exec.Cmd) ([]byte, error) {
 		return buf.Bytes(), err
 	case <-watchdog:
 		killGroup()
-		<-done // reap the killed process so no zombie/orphan remains
+		<-done
 		t.Logf("%s TIMED OUT after %s (process group killed to avoid orphans)",
 			label, time.Since(start).Round(time.Millisecond))
 		return buf.Bytes(), fmt.Errorf("%s timed out near the test deadline", label)

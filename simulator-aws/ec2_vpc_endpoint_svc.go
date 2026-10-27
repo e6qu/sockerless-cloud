@@ -9,28 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements five EC2 (ec2Query) control-plane families that front the
-// VPC endpoint-service / CIDR / secondary-network / encryption stack:
-//
-//   - VPC endpoint services (vpce-svc-…): a service configuration that fronts a
-//     network/gateway load balancer, with an allowed-principal permission set
-//     and a private-DNS verification state.
-//   - VPC/Subnet CIDR-block associations: a secondary CIDR added to an existing
-//     VPC/subnet, with an association id and an "associated" state.
-//   - Subnet CIDR reservations (subnet-cidr-res-…).
-//   - Secondary networks (sn-…) / secondary subnets (sns-…).
-//   - Security-group ↔ VPC associations (state "associated").
-//   - VPC encryption controls (vpce-…), one per VPC, with a mode + per-resource
-//     exclusion state.
-//
-// All element/list names match the EC2 smithy model (ec2.smithy.json) xmlName
-// traits exactly — the runtime spec-shape validator rejects any divergence. The
-// VPC/subnet/security-group stores are the existing ec2.go ones; these ops add
-// the secondary metadata around them.
+// Element and list names match the ec2.smithy.json xmlName traits exactly;
+// the spec-shape validator rejects divergence.
 
-// EC2VpcEndpointServiceConfiguration models a VpcEndpointServiceConfiguration:
-// the provider side of a PrivateLink service. ServiceName is the
-// com.amazonaws.vpce.<region>.<id> DNS name consumers target.
+// ServiceName is the com.amazonaws.vpce.<region>.<id> name consumers target.
 type EC2VpcEndpointServiceConfiguration struct {
 	ServiceId               string
 	ServiceName             string
@@ -45,12 +27,9 @@ type EC2VpcEndpointServiceConfiguration struct {
 	PrivateDnsNameState     string
 	PayerResponsibility     string
 	Tags                    []EC2Tag
-	// AllowedPrincipals is the permission set ModifyVpcEndpointServicePermissions
-	// edits and DescribeVpcEndpointServicePermissions reads back.
-	AllowedPrincipals []EC2AllowedPrincipal
+	AllowedPrincipals       []EC2AllowedPrincipal
 }
 
-// EC2AllowedPrincipal is one entry of a service's allowed-principal set.
 type EC2AllowedPrincipal struct {
 	PrincipalType       string
 	Principal           string
@@ -58,9 +37,8 @@ type EC2AllowedPrincipal struct {
 	ServiceId           string
 }
 
-// EC2VpcCidrAssoc records a CIDR block association on a VPC: a secondary IPv4
-// block in CidrBlock, or an IPv6 block in Ipv6CidrBlock with the border group
-// it is advertised from and the pool it came from.
+// A secondary IPv4 block in CidrBlock, or an IPv6 block in Ipv6CidrBlock with
+// its border group and pool.
 type EC2VpcCidrAssoc struct {
 	AssociationId      string
 	VpcId              string
@@ -82,7 +60,7 @@ type EC2SubnetCidrReservation struct {
 	Tags                    []EC2Tag
 }
 
-// EC2SecondaryNetwork models a secondary network (an RDMA-class network fabric).
+// An RDMA-class network fabric.
 type EC2SecondaryNetwork struct {
 	SecondaryNetworkId string
 	OwnerId            string
@@ -92,7 +70,6 @@ type EC2SecondaryNetwork struct {
 	Tags               []EC2Tag
 }
 
-// EC2SecondarySubnet models a secondary subnet within a secondary network.
 type EC2SecondarySubnet struct {
 	SecondarySubnetId    string
 	SecondaryNetworkId   string
@@ -105,8 +82,6 @@ type EC2SecondarySubnet struct {
 	Tags                 []EC2Tag
 }
 
-// EC2SecondaryCidrAssoc is one CIDR-block association of a secondary
-// network/subnet.
 type EC2SecondaryCidrAssoc struct {
 	AssociationId string
 	CidrBlock     string
@@ -121,19 +96,17 @@ type EC2SecurityGroupVpcAssociation struct {
 	GroupOwnerId string
 }
 
-// EC2VpcEncryptionControl models a VPC encryption control: a per-VPC enforce/
-// monitor mode plus per-resource-type exclusion state.
+// A per-VPC enforce or monitor mode plus per-resource-type exclusions.
 type EC2VpcEncryptionControl struct {
 	VpcEncryptionControlId string
 	VpcId                  string
 	Mode                   string
 	State                  string
-	Exclusions             map[string]string // resource xmlName -> exclusion state
+	Exclusions             map[string]string // Resource xmlName to exclusion state.
 	Tags                   []EC2Tag
 }
 
-// EC2AccountVpcEncryptionControl is the Region-scoped account policy that
-// drives VPC Encryption Controls for every VPC in the account.
+// Region-scoped account policy for every VPC's encryption controls.
 type EC2AccountVpcEncryptionControl struct {
 	State               string
 	Mode                string
@@ -142,7 +115,6 @@ type EC2AccountVpcEncryptionControl struct {
 	LastUpdateTimestamp string
 }
 
-// State stores for the families above.
 var (
 	ec2VpcEndpointServices          sim.Store[EC2VpcEndpointServiceConfiguration]
 	ec2VpcCidrAssocs                sim.Store[EC2VpcCidrAssoc]
@@ -154,7 +126,6 @@ var (
 	ec2AccountVpcEncryptionControls sim.Store[EC2AccountVpcEncryptionControl]
 )
 
-// registerEC2VpcEndpointSvc registers this EC2 sub-service's ec2Query actions.
 func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VpcEndpointServices = sim.MakeStore[EC2VpcEndpointServiceConfiguration](srv.DB(), "ec2_vpc_endpoint_services")
 	ec2VpcCidrAssocs = sim.MakeStore[EC2VpcCidrAssoc](srv.DB(), "ec2_vpc_cidr_assocs")
@@ -165,7 +136,6 @@ func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2VpcEncryptionControls = sim.MakeStore[EC2VpcEncryptionControl](srv.DB(), "ec2_vpc_encryption_controls")
 	ec2AccountVpcEncryptionControls = sim.MakeStore[EC2AccountVpcEncryptionControl](srv.DB(), "ec2_account_vpc_encryption_controls")
 
-	// VPC endpoint services
 	r.Register("CreateVpcEndpointServiceConfiguration", handleCreateVpcEndpointServiceConfiguration)
 	r.Register("DescribeVpcEndpointServiceConfigurations", handleDescribeVpcEndpointServiceConfigurations)
 	r.Register("ModifyVpcEndpointServiceConfiguration", handleModifyVpcEndpointServiceConfiguration)
@@ -177,7 +147,6 @@ func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeVpcEndpointServices", handleDescribeVpcEndpointServices)
 	r.Register("ModifyVpcEndpointPayerResponsibility", handleModifyVpcEndpointPayerResponsibility)
 
-	// VPC/Subnet CIDR
 	r.Register("AssociateVpcCidrBlock", handleAssociateVpcCidrBlock)
 	r.Register("DisassociateVpcCidrBlock", handleDisassociateVpcCidrBlock)
 	r.Register("AssociateSubnetCidrBlock", handleAssociateSubnetCidrBlock)
@@ -186,7 +155,6 @@ func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteSubnetCidrReservation", handleDeleteSubnetCidrReservation)
 	r.Register("GetSubnetCidrReservations", handleGetSubnetCidrReservations)
 
-	// Secondary networks/subnets
 	r.Register("CreateSecondaryNetwork", handleCreateSecondaryNetwork)
 	r.Register("DeleteSecondaryNetwork", handleDeleteSecondaryNetwork)
 	r.Register("DescribeSecondaryNetworks", handleDescribeSecondaryNetworks)
@@ -194,12 +162,10 @@ func registerEC2VpcEndpointSvc(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteSecondarySubnet", handleDeleteSecondarySubnet)
 	r.Register("DescribeSecondarySubnets", handleDescribeSecondarySubnets)
 
-	// Security-group VPC associations
 	r.Register("AssociateSecurityGroupVpc", handleAssociateSecurityGroupVpc)
 	r.Register("DisassociateSecurityGroupVpc", handleDisassociateSecurityGroupVpc)
 	r.Register("DescribeSecurityGroupVpcAssociations", handleDescribeSecurityGroupVpcAssociations)
 
-	// VPC encryption control
 	r.Register("CreateVpcEncryptionControl", handleCreateVpcEncryptionControl)
 	r.Register("DeleteVpcEncryptionControl", handleDeleteVpcEncryptionControl)
 	r.Register("ModifyVpcEncryptionControl", handleModifyVpcEncryptionControl)
@@ -220,7 +186,6 @@ func handleCreateVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.
 		ipTypes = []string{"ipv4"}
 	}
 	id := ec2ID("vpce-svc")
-	// The consumer-facing service name AWS assigns: com.amazonaws.vpce.<region>.<id>.
 	serviceName := fmt.Sprintf("com.amazonaws.vpce.%s.%s", awsRegion(), id)
 	privateDns := r.FormValue("PrivateDnsName")
 	cfg := EC2VpcEndpointServiceConfiguration{
@@ -529,8 +494,8 @@ func handleDescribeVpcEndpointServices(w http.ResponseWriter, r *http.Request) {
 </DescribeVpcEndpointServicesResponse>`, ec2Xmlns(), sim.NewUUID(), nameSet.String(), details.String())
 }
 
-// serviceConfigurationXML renders the ServiceConfiguration shape (CreateVpcEndpointServiceConfiguration
-// + DescribeVpcEndpointServiceConfigurations).
+// Shared by CreateVpcEndpointServiceConfiguration and
+// DescribeVpcEndpointServiceConfigurations.
 func serviceConfigurationXML(cfg EC2VpcEndpointServiceConfiguration) string {
 	var b strings.Builder
 	b.WriteString("<serviceType>")
@@ -556,7 +521,7 @@ func serviceConfigurationXML(cfg EC2VpcEndpointServiceConfiguration) string {
 	return b.String()
 }
 
-// serviceDetailXML renders the ServiceDetail shape (DescribeVpcEndpointServices).
+// For DescribeVpcEndpointServices.
 func serviceDetailXML(cfg EC2VpcEndpointServiceConfiguration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<serviceName>%s</serviceName>", cfg.ServiceName)
@@ -578,9 +543,7 @@ func serviceDetailXML(cfg EC2VpcEndpointServiceConfiguration) string {
 	return b.String()
 }
 
-// ec2ServiceTypeForCfg classifies a service configuration by the load-balancer
-// kind it fronts (Gateway when it fronts a Gateway Load Balancer, else
-// Interface).
+// Gateway for a Gateway Load Balancer, else Interface.
 func ec2ServiceTypeForCfg(cfg EC2VpcEndpointServiceConfiguration) string {
 	if len(cfg.GatewayLoadBalancerArns) > 0 {
 		return "Gateway"
@@ -588,7 +551,6 @@ func ec2ServiceTypeForCfg(cfg EC2VpcEndpointServiceConfiguration) string {
 	return "Interface"
 }
 
-// ec2PrincipalType classifies a principal ARN for the AllowedPrincipal shape.
 func ec2PrincipalType(principal string) string {
 	switch {
 	case principal == "*":
@@ -666,8 +628,7 @@ func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID %q does not exist", subnetId), http.StatusBadRequest)
 		return
 	}
-	// "Associates a CIDR block with your subnet. You can only associate a
-	// single IPv6 CIDR block with your subnet."
+	// "You can only associate a single IPv6 CIDR block with your subnet."
 	ipv6 := r.FormValue("Ipv6CidrBlock")
 	if ipv6 == "" {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter Ipv6CidrBlock", http.StatusBadRequest)
@@ -1032,9 +993,7 @@ func ec2SgVpcAssocMatchesFilters(a EC2SecurityGroupVpcAssociation, filters map[s
 	return true
 }
 
-// ec2EncryptionExclusionResources is the fixed set of resource exclusion fields
-// a VpcEncryptionControl carries, in their VpcEncryptionControlExclusions
-// xmlName form.
+// In VpcEncryptionControlExclusions xmlName form.
 var ec2EncryptionExclusionResources = []struct{ field, xmlName string }{
 	{"InternetGatewayExclusion", "internetGateway"},
 	{"EgressOnlyInternetGatewayExclusion", "egressOnlyInternetGateway"},
@@ -1320,8 +1279,7 @@ func handleModifyVpcEncryptionControl(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, res := range ec2EncryptionExclusionResources {
 			if v := r.FormValue(res.field); v != "" {
-				// The Modify input carries the enable/disable verb; the read-back
-				// state is the corresponding enabled/disabled steady state.
+				// Modify takes enable/disable; the read-back state is enabled/disabled.
 				switch v {
 				case "enable":
 					ctrl.Exclusions[res.xmlName] = "enabled"
@@ -1382,8 +1340,6 @@ func vpcEncryptionControlXML(ctrl EC2VpcEncryptionControl) string {
 	return b.String()
 }
 
-// ec2StringSetXML renders a ValueStringList under the given set element with
-// <item> entries.
 func ec2StringSetXML(elem string, vals []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<%s>", elem)
@@ -1394,9 +1350,7 @@ func ec2StringSetXML(elem string, vals []string) string {
 	return b.String()
 }
 
-// ec2ApplyAddRemove applies an Add/Remove pair to a string slice (idempotent
-// add, set-subtract remove), the Modify* semantics of the endpoint-service
-// configuration.
+// Idempotent add, set-subtract remove.
 func ec2ApplyAddRemove(cur, add, remove []string) []string {
 	out := append([]string(nil), cur...)
 	for _, a := range add {

@@ -173,9 +173,8 @@ func handleMSRedisFailover(w http.ResponseWriter, r *http.Request, id string) {
 const msRedisLimitedDataLossBytes = 30 << 20
 
 // checkReplicationGap fails unless replica has acknowledged the primary's
-// replication stream to within msRedisLimitedDataLossBytes. The primary's own
-// account of the offset each replica acknowledged is what it compares, so a
-// replica that has stopped acknowledging counts as trailing by everything
+// replication stream to within msRedisLimitedDataLossBytes, by the primary's
+// own account, so a replica that stopped acknowledging trails by everything
 // written since.
 func (p *msRedisPlane) checkReplicationGap(replica int) error {
 	if err := p.Ensure(); err != nil {
@@ -223,7 +222,6 @@ func (p *msRedisPlane) checkReplicationGap(replica int) error {
 		"the replica is not replicating from the primary, so a LIMITED_DATA_LOSS failover cannot bound the data it loses")
 }
 
-// msRedisParseObjectURI splits gs://bucket/object.
 func msRedisParseObjectURI(uri string) (bucket, object string, ok bool) {
 	rest, found := strings.CutPrefix(uri, "gs://")
 	if !found {

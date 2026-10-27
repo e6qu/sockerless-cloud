@@ -16,27 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the App Service SCM (Kudu) deployment API. The native
-// deployment commands read the SCM hostname from the site's hostNameSslStates
-// and send the artifact there themselves, with the publishing credentials as
-// basic auth:
-//
-//	az webapp deploy --type zip           POST /api/publish?type=zip
-//	az webapp deployment source config-zip POST /api/zipdeploy?isAsync=true
-//
-// and both then read GET /api/deployments/latest until Kudu reports the
-// deployment complete; with --track-status, az webapp deploy then polls
-// GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/deploymentStatus/{deploymentStatusId}
-// until the restarted site runs the new content. az webapp log deployment
-// list and show read GET /api/deployments and GET /api/deployments/{id}/log.
+// The native deployment commands read the SCM hostname from the site's
+// hostNameSslStates and send the artifact there with the publishing
+// credentials as basic auth: `az webapp deploy --type zip` to /api/publish, and
+// `az webapp deployment source config-zip` to /api/zipdeploy. Both then poll
+// /api/deployments/latest; with --track-status, `az webapp deploy` also polls
+// the ARM deploymentStatus until the restarted site runs the new content.
 
-// startLoopbackProxy runs the HTTPS proxy the CLI reaches the simulator's
-// `.localhost` hostnames through. The SCM hostname the simulator advertises is
-// `<app>.scm.localhost:<port>`, and `.localhost` names do not resolve on every
-// platform; the CLI honours HTTPS_PROXY, so the proxy carries each CONNECT to
-// a `.localhost` name on the simulator's port to the simulator's loopback
-// listener. TLS runs end to end through the tunnel, so the CLI verifies the
-// simulator's certificate for the hostname it asked for.
+// startLoopbackProxy runs the HTTPS proxy through which the CLI reaches the
+// simulator's `<app>.scm.localhost:<port>` hostnames, which do not resolve on
+// every platform. The CLI honours HTTPS_PROXY; TLS runs end to end through the
+// tunnel, so the CLI verifies the certificate for the hostname it asked for.
 func startLoopbackProxy(t *testing.T, simPort string) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -101,8 +91,6 @@ func (e kuduCLIEnv) command(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// kuduCLILogin starts a TLS simulator and logs the CLI in to it through the
-// loopback proxy.
 func kuduCLILogin(t *testing.T) kuduCLIEnv {
 	t.Helper()
 	env := startAzTLSSimulator(t)
@@ -122,9 +110,8 @@ func kuduCLILogin(t *testing.T) kuduCLIEnv {
 	return az
 }
 
-// kuduCLIWebApp starts a TLS simulator, logs the CLI in to it through the
-// loopback proxy, and creates a NODE:20-lts web app, returning the CLI and
-// the SCM host the app reports.
+// kuduCLIWebApp creates a NODE:20-lts web app and returns the CLI and the SCM
+// host the app reports.
 func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
 	t.Helper()
 	az := kuduCLILogin(t)
@@ -137,7 +124,6 @@ func kuduCLIWebApp(t *testing.T, rg, plan, app string) (kuduCLIEnv, string) {
 	return az, kuduCLIScmHost(t, az, rg, app)
 }
 
-// kuduCLIScmHost is the SCM host az webapp show reports for an app.
 func kuduCLIScmHost(t *testing.T, az kuduCLIEnv, rg, app string) string {
 	t.Helper()
 	port := az.baseURL[strings.LastIndex(az.baseURL, ":")+1:]
@@ -194,7 +180,6 @@ require("http").createServer((req, res) => {
 		"-o", "json"))
 	assert.Equal(t, "az webapp deployment source config-zip", served("/greeting.txt"))
 
-	// Kudu's own deployment list, read through the SCM site.
 	var kuduDeployments []struct {
 		ID       string `json:"id"`
 		Deployer string `json:"deployer"`

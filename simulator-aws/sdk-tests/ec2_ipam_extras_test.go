@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ipamExtrasFixtureIpam creates an IPAM and returns its ID plus a pool under
-// its private default scope, with tolerant cleanup. The extra IPAM families
-// (policies, prefix-list resolvers, external tokens) all hang off a parent
-// IPAM, so the round-trip tests share this fixture.
+// ipamExtrasFixtureIpam creates an IPAM and returns its ID and its private
+// default scope; the policy, prefix-list resolver and external token families
+// hang off it.
 func ipamExtrasFixtureIpam(t *testing.T, c *ec2.Client) (ipamID, scopeID string) {
 	t.Helper()
 	created, err := c.CreateIpam(ctx, &ec2.CreateIpamInput{
@@ -30,9 +29,6 @@ func ipamExtrasFixtureIpam(t *testing.T, c *ec2.Client) (ipamID, scopeID string)
 	return ipamID, scopeID
 }
 
-// TestEC2_IpamPolicyLifecycleSDK exercises the IPAM policy family end-to-end:
-// create, describe read-back, enable/disable with the enabled-policy query,
-// allocation-rule modify+get, and the organization-targets read.
 func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -72,7 +68,6 @@ func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
 	}
 	assert.Equal(t, "policy-a", nameTag)
 
-	// Allocation rules: modify then read back.
 	mod, err := c.ModifyIpamPolicyAllocationRules(ctx, &ec2.ModifyIpamPolicyAllocationRulesInput{
 		IpamPolicyId: aws.String(policyID),
 		Locale:       aws.String("us-east-1"),
@@ -95,7 +90,6 @@ func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
 	assert.Equal(t, pool, aws.ToString(rules.IpamPolicyDocuments[0].AllocationRules[0].SourceIpamPoolId))
 	assert.Equal(t, "us-east-1", aws.ToString(rules.IpamPolicyDocuments[0].Locale))
 
-	// Enable / GetEnabled / Disable.
 	en, err := c.EnableIpamPolicy(ctx, &ec2.EnableIpamPolicyInput{IpamPolicyId: aws.String(policyID)})
 	require.NoError(t, err)
 	assert.Equal(t, policyID, aws.ToString(en.IpamPolicyId))
@@ -114,7 +108,7 @@ func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(gotOff.IpamPolicyEnabled))
 
-	// Organization targets read (honest-empty for an account-managed policy).
+	// An account-managed policy has no organization targets.
 	orgs, err := c.GetIpamPolicyOrganizationTargets(ctx, &ec2.GetIpamPolicyOrganizationTargetsInput{
 		IpamPolicyId: aws.String(policyID),
 	})
@@ -122,9 +116,8 @@ func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
 	assert.Empty(t, orgs.OrganizationTargets)
 }
 
-// ipamExtrasFixturePool provisions a small pool under the IPAM's private
-// default scope so allocation-rule and pool-allocation tests have a real pool
-// to reference.
+// ipamExtrasFixturePool provisions a small pool under the IPAM's private default
+// scope for the allocation tests to reference.
 func ipamExtrasFixturePool(t *testing.T, c *ec2.Client, ipamID string) string {
 	t.Helper()
 	ipam, err := c.DescribeIpams(ctx, &ec2.DescribeIpamsInput{IpamIds: []string{ipamID}})
@@ -142,9 +135,6 @@ func ipamExtrasFixturePool(t *testing.T, c *ec2.Client, ipamID string) string {
 	return poolID
 }
 
-// TestEC2_IpamByoasnLifecycleSDK exercises the BYOASN family: provision an ASN
-// into the IPAM, describe it, associate/disassociate it to a CIDR, deprovision
-// it, and move a BYOIP CIDR into an IPAM pool.
 func TestEC2_IpamByoasnLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -209,10 +199,6 @@ func TestEC2_IpamByoasnLifecycleSDK(t *testing.T) {
 	assert.Equal(t, "198.51.100.0/24", aws.ToString(moved.ByoipCidr.Cidr))
 }
 
-// TestEC2_IpamPrefixListResolverLifecycleSDK exercises the prefix-list resolver
-// family: create a resolver with a static-CIDR rule, describe + modify it,
-// create a target, describe + modify the target, read the resolver rules and
-// versioned entries, then delete everything.
 func TestEC2_IpamPrefixListResolverLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -277,7 +263,6 @@ func TestEC2_IpamPrefixListResolverLifecycleSDK(t *testing.T) {
 	require.Len(t, entries.Entries, 1)
 	assert.Equal(t, "10.0.0.0/16", aws.ToString(entries.Entries[0].Cidr))
 
-	// Target round-trip.
 	tgt, err := c.CreateIpamPrefixListResolverTarget(ctx, &ec2.CreateIpamPrefixListResolverTargetInput{
 		IpamPrefixListResolverId: aws.String(resolverID),
 		PrefixListId:             aws.String("pl-0123456789abcdef0"),
@@ -313,9 +298,6 @@ func TestEC2_IpamPrefixListResolverLifecycleSDK(t *testing.T) {
 	assert.False(t, aws.ToBool(modTgt.IpamPrefixListResolverTarget.TrackLatestVersion))
 }
 
-// TestEC2_IpamExternalResourceVerificationTokenSDK exercises the external
-// resource verification token family: create a token, describe it, and delete
-// it.
 func TestEC2_IpamExternalResourceVerificationTokenSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -348,9 +330,8 @@ func TestEC2_IpamExternalResourceVerificationTokenSDK(t *testing.T) {
 	assert.Equal(t, ipamID, aws.ToString(desc.IpamExternalResourceVerificationTokens[0].IpamId))
 }
 
-// TestEC2_IpamDiscoveredResourcesSDK exercises the read-only discovery probes,
-// which return honest-empty result sets since the sim has no cross-account
-// discovery backend.
+// TestEC2_IpamDiscoveredResourcesSDK expects the read-only discovery probes to
+// return empty sets: nothing discovers across accounts.
 func TestEC2_IpamDiscoveredResourcesSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -383,9 +364,6 @@ func TestEC2_IpamDiscoveredResourcesSDK(t *testing.T) {
 	assert.Empty(t, cidrs.IpamDiscoveredResourceCidrs)
 }
 
-// TestEC2_IpamModifyPoolAllocationSDK exercises ModifyIpamPoolAllocation: a
-// CIDR is provisioned and allocated, then the allocation's description is
-// modified and read back.
 func TestEC2_IpamModifyPoolAllocationSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

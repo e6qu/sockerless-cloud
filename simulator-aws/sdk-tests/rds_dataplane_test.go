@@ -20,14 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSNativeDataPlanesWithIAMAuthentication_SDK creates database instances
-// through the official Amazon RDS SDK, generates their IAM database
-// authentication tokens through AWS's official signer, and then executes
-// schema/write/read transactions through stock PostgreSQL and MySQL drivers.
-// The driver connections are the independent data-plane oracle; the simulator
-// test does not call an internal database endpoint. Each instance signs in the
-// users its engine holds under their own passwords, and RDS for PostgreSQL
-// signs in a user granted rds_iam only with an IAM authentication token.
+// TestRDSNativeDataPlanesWithIAMAuthentication_SDK creates DB instances through
+// the SDK, generates IAM database authentication tokens with AWS's signer, and
+// runs transactions through stock PostgreSQL and MySQL drivers, which are the
+// independent oracle for the data plane. Each instance signs in its engine's
+// users under their own passwords, and RDS for PostgreSQL signs in a user
+// granted rds_iam only with an IAM authentication token.
 func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

@@ -60,9 +60,8 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// deleteRecursive and renameTo are long-running operations: GCS returns a
-	// GoogleLongrunningOperation. The sim performs the mutation synchronously
-	// and returns a done=true operation carrying the result.
+	// deleteRecursive and renameTo answer an operation; the simulator does the
+	// work in the request and answers it done.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/folders/{folder}/deleteRecursive", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "folder")
 		removed := false
@@ -138,12 +137,9 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		gcsCreateFolder(w, r, gcsManagedFolders, bucketExists, "managed folder", func(f *GCSManagedFolder) string { return f.Name }, key, build)
 	})
 
-	// managedFolders.update (PATCH). Every other member of the resource is
-	// output-only or fixed at creation (name, bucket, the timestamps), so
-	// rapidCacheConfig is the metadata a patch can change: a present member
-	// replaces the stored one, an explicit null clears it, an absent member
-	// leaves it alone — JSON-API PATCH semantics. A metadata write bumps the
-	// folder's metageneration, as any GCS metadata write does.
+	// managedFolders.update changes rapidCacheConfig, the one member not
+	// output-only or fixed: present replaces, null clears, absent leaves it.
+	// The write bumps metageneration.
 	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/managedFolders/{managedFolder}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		f, ok := gcsManagedFolders.Get(key(bucket, name))
@@ -185,8 +181,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Managed-folder IAM — getIamPolicy / setIamPolicy / testIamPermissions.
-	// Backed by the same shared policy store as bucket/object IAM.
+	// Managed-folder IAM uses the policy store bucket and object IAM share.
 	resource := func(bucket, name string) string {
 		return "projects/_/buckets/" + bucket + "/managedFolders/" + name
 	}
@@ -218,9 +213,8 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// A policy is its bindings; the document requires them of this method,
-		// and a set with none is a set of nothing rather than a policy that
-		// grants nobody.
+		// The document requires bindings on this method, so a set with none is
+		// refused.
 		if len(policy.Bindings) == 0 {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the policy must carry at least one binding")

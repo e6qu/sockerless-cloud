@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSNSCLI_LambdaFailureFeedbackLogsTheFailedDelivery sets a topic's Lambda
-// failure feedback role, publishes to a subscription whose function does not
-// exist, and reads the delivery status entry back from the topic's Failure log
-// group and the failure from its AWS/SNS metric.
+// TestSNSCLI_LambdaFailureFeedbackLogsTheFailedDelivery publishes to a
+// subscription whose function does not exist, then reads the delivery status
+// entry from the topic's Failure log group and the failure from its AWS/SNS
+// metric.
 func TestSNSCLI_LambdaFailureFeedbackLogsTheFailedDelivery(t *testing.T) {
 	t.Parallel()
 	const (

@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogs_MetricFilterRoundTrip covers PutMetricFilter, DescribeMetricFilters,
-// TestMetricFilter, and DeleteMetricFilter against a real log group.
 func TestLogs_MetricFilterRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -43,7 +41,6 @@ func TestLogs_MetricFilterRoundTrip(t *testing.T) {
 	require.Len(t, desc.MetricFilters[0].MetricTransformations, 1)
 	assert.Equal(t, "ErrorCount", aws.ToString(desc.MetricFilters[0].MetricTransformations[0].MetricName))
 
-	// Filter by metric name/namespace.
 	descByMetric, err := cw.DescribeMetricFilters(ctx, &cloudwatchlogs.DescribeMetricFiltersInput{
 		MetricName:      aws.String("ErrorCount"),
 		MetricNamespace: aws.String("MyApp"),
@@ -71,8 +68,6 @@ func TestLogs_MetricFilterRoundTrip(t *testing.T) {
 	assert.Empty(t, desc2.MetricFilters)
 }
 
-// TestLogs_SubscriptionFilterRoundTrip covers PutSubscriptionFilter,
-// DescribeSubscriptionFilters, and DeleteSubscriptionFilter.
 func TestLogs_SubscriptionFilterRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -113,9 +108,8 @@ func TestLogs_SubscriptionFilterRoundTrip(t *testing.T) {
 	assert.Empty(t, desc2.SubscriptionFilters)
 }
 
-// TestLogs_RetentionAndTags covers PutRetentionPolicy/DeleteRetentionPolicy and
-// the legacy TagLogGroup/UntagLogGroup/ListTagsLogGroup verbs plus the newer
-// TagResource/UntagResource ARN-based verbs.
+// TestLogs_RetentionAndTags covers the retention policy, the name-keyed
+// TagLogGroup family and the ARN-keyed TagResource family.
 func TestLogs_RetentionAndTags(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -147,7 +141,6 @@ func TestLogs_RetentionAndTags(t *testing.T) {
 	require.Len(t, g2.LogGroups, 1)
 	assert.Nil(t, g2.LogGroups[0].RetentionInDays)
 
-	// Legacy tag verbs (keyed by log-group name).
 	_, err = cw.TagLogGroup(ctx, &cloudwatchlogs.TagLogGroupInput{
 		LogGroupName: aws.String(group),
 		Tags:         map[string]string{"env": "test", "team": "infra"},
@@ -173,7 +166,6 @@ func TestLogs_RetentionAndTags(t *testing.T) {
 	assert.False(t, hasTeam)
 	assert.Equal(t, "test", lt2.Tags["env"])
 
-	// ARN-based UntagResource.
 	arn := aws.ToString(g.LogGroups[0].Arn)
 	_, err = cw.UntagResource(ctx, &cloudwatchlogs.UntagResourceInput{
 		ResourceArn: aws.String(arn),
@@ -187,8 +179,8 @@ func TestLogs_RetentionAndTags(t *testing.T) {
 	assert.Empty(t, lt3.Tags)
 }
 
-// TestLogs_DeleteLogStream covers CreateLogStream then DeleteLogStream removing
-// the stream and its events.
+// TestLogs_DeleteLogStream expects DeleteLogStream to remove the stream and its
+// events.
 func TestLogs_DeleteLogStream(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -213,15 +205,12 @@ func TestLogs_DeleteLogStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, streams.LogStreams)
 
-	// Deleting a now-missing stream is a ResourceNotFoundException.
 	_, err = cw.DeleteLogStream(ctx, &cloudwatchlogs.DeleteLogStreamInput{
 		LogGroupName: aws.String(group), LogStreamName: aws.String("s1"),
 	})
 	requireAWSErrorCode(t, err, "ResourceNotFoundException")
 }
 
-// TestLogs_ExportTaskRoundTrip covers CreateExportTask, DescribeExportTasks, and
-// CancelExportTask.
 func TestLogs_ExportTaskRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -251,14 +240,12 @@ func TestLogs_ExportTaskRoundTrip(t *testing.T) {
 	require.NotNil(t, desc.ExportTasks[0].Status)
 	assert.Equal(t, cwlogtypes.ExportTaskStatusCodeCompleted, desc.ExportTasks[0].Status.Code)
 
-	// A completed task cannot be cancelled.
 	_, err = cw.CancelExportTask(ctx, &cloudwatchlogs.CancelExportTaskInput{
 		TaskId: aws.String(taskId),
 	})
 	require.Error(t, err)
 }
 
-// TestLogs_DataProtectionPolicy covers Put/Get/DeleteDataProtectionPolicy.
 func TestLogs_DataProtectionPolicy(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -293,8 +280,8 @@ func TestLogs_DataProtectionPolicy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestLogs_TestMetricFilterJSONKeywordTests runs the JSON pattern tests IS
-// NULL, NOT EXISTS, IS TRUE and IS FALSE through TestMetricFilter.
+// TestLogs_TestMetricFilterJSONKeywordTests covers the JSON pattern tests IS
+// NULL, NOT EXISTS, IS TRUE and IS FALSE.
 func TestLogs_TestMetricFilterJSONKeywordTests(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()

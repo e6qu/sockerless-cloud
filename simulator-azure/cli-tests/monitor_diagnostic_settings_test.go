@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMonitorDiagnosticSettings_CLI drives Azure Monitor diagnostic settings
-// on a Container Apps environment with the native az commands: the categories
-// the environment offers, a setting created, shown, listed and deleted.
+// TestMonitorDiagnosticSettings_CLI drives Azure Monitor diagnostic settings on
+// a Container Apps environment with the native az commands: the categories the
+// environment offers, and a setting created, shown, listed and deleted.
 //
 //	GET    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettingsCategories
 //	PUT    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettings/{name}
@@ -35,8 +35,8 @@ func TestMonitorDiagnosticSettings_CLI(t *testing.T) {
 		"%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/cli-diag-env?api-version=%s", env.baseURL, subscriptionID, rg, acaAPIVersion),
 		"--body", `{"location":"eastus","properties":{"appLogsConfiguration":{"destination":"azure-monitor"}}}`, "-o", "json")), &cae)
 
-	// az prints the categories collection whole, and flattens each
-	// resource's properties into it.
+	// az prints the categories collection whole, with each resource's properties
+	// flattened into it.
 	var categories struct {
 		Value []struct {
 			Name         string `json:"name"`

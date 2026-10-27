@@ -13,14 +13,14 @@ import (
 )
 
 // Payloads keeps object contents in files of their own, so a store row holds a
-// reference and not the bytes. A row is decoded whole on every read, and a
-// body inside it made a 1 KiB range of a 6 MiB object cost the whole 6 MiB.
+// reference and not the bytes: the store decodes a row whole on every read, and
+// a body inside it would make a 1 KiB range of a 6 MiB object cost all 6 MiB.
 //
-// Every write goes to a new file and returns its reference; nothing a reader
-// can hold is rewritten in place. The row that points at a file is written
-// after the file, and the file it replaced is removed after the row, so a
-// crash between the two leaves an unreferenced file (which Sweep removes) and
-// never a row pointing at nothing.
+// Every write goes to a new file and returns its reference; Payloads never
+// rewrites a file a reader can hold. Write the row that points at a file after
+// the file, and remove the file it replaced after the row, so a crash between
+// the two leaves an unreferenced file (which Sweep removes) and never a row
+// pointing at nothing.
 //
 // The empty reference names the empty payload: a write of no bytes stores no
 // file, and opening "" reads nothing.
@@ -104,7 +104,6 @@ func (p *Payloads) WriteFrom(r io.Reader) (string, Digests, error) {
 	return ref, digests, nil
 }
 
-// Write stores data in a new payload.
 func (p *Payloads) Write(data []byte) (string, Digests, error) {
 	return p.WriteFrom(bytes.NewReader(data))
 }
@@ -210,7 +209,6 @@ func (p *Payloads) Open(ref string) (Reader, error) {
 	return file, nil
 }
 
-// Read returns the whole payload ref names.
 func (p *Payloads) Read(ref string) ([]byte, error) {
 	file, err := p.Open(ref)
 	if err != nil {

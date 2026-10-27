@@ -16,24 +16,15 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-// web_certificates.go implements the Microsoft.Web SSL certificate surfaces:
-// the top-level Microsoft.Web/certificates ARM resource (Certificates_List /
-// ListByResourceGroup / Get / CreateOrUpdate / Update / Delete) and the
-// site-scoped Microsoft.Web/sites[/slots]/certificates child resource
-// (SiteCertificates_*). Every derived member — thumbprint, subject, issuer,
-// SANs, validity dates — comes from the uploaded certificate
-// itself: the PFX (PKCS#12) or PEM payload is parsed for real, exactly as
-// App Service parses an `az webapp config ssl upload`. A Key Vault-sourced
-// certificate (keyVaultId + keyVaultSecretName) resolves the secret against
-// the simulator's own Key Vault stores and reports the swagger's
-// KeyVaultSecretStatus truthfully from what that lookup finds.
+// Microsoft.Web/certificates and the site-scoped certificates child. Every
+// derived member — thumbprint, subject, issuer, SANs, validity — comes from
+// parsing the uploaded PFX or PEM, as App Service parses `az webapp config ssl
+// upload`. A Key Vault-sourced certificate resolves against the simulator's Key
+// Vault stores, and KeyVaultSecretStatus reports what that lookup finds.
 
-// WebCertificate mirrors the swagger Certificate resource (a TrackedResource:
-// id/name/type/location/tags plus kind). PfxBlob and Password hold the
-// request's x-ms-secret members: write-only on the wire (never serialized
-// into a response), retained across restarts through the persistence
-// sidecar via `json:"-"` — which only rides top-level fields, so they live
-// here rather than inside Properties.
+// PfxBlob and Password are the x-ms-secret members: never serialized, kept
+// across restarts by the persistence sidecar, which carries only top-level
+// json:"-" fields.
 type WebCertificate struct {
 	ID         string                   `json:"id,omitempty"`
 	Name       string                   `json:"name,omitempty"`
@@ -46,9 +37,6 @@ type WebCertificate struct {
 	Password   string                   `json:"-"`
 }
 
-// WebCertificateProperties mirrors the swagger CertificateProperties (the
-// members the simulator serves; the request's write-only pfxBlob/password
-// pair rides WebCertificate's hidden top-level fields).
 type WebCertificateProperties struct {
 	SubjectName            string   `json:"subjectName,omitempty"`
 	HostNames              []string `json:"hostNames,omitempty"`
@@ -71,10 +59,8 @@ var (
 	webSiteCertificates sim.Store[WebCertificate]
 )
 
-// webCertificatePutRequest is the decode shape for Certificate
-// CreateOrUpdate / Update bodies. It exists because pfxBlob and password are
-// x-ms-secret (write-only): the stored struct hides them from JSON entirely,
-// so the request needs its own view that can still read them.
+// The stored struct hides the x-ms-secret pfxBlob and password from JSON, so
+// requests need their own view.
 type webCertificatePutRequest struct {
 	Kind       string            `json:"kind"`
 	Location   string            `json:"location"`
@@ -91,9 +77,8 @@ type webCertificatePutRequest struct {
 	} `json:"properties"`
 }
 
-// parseWebCertificatePayload extracts the leaf X.509 certificate from an
-// uploaded payload: a PKCS#12 (PFX) archive protected by password, a PEM
-// bundle, or bare DER bytes — the three encodings real App Service accepts.
+// A password-protected PKCS#12 archive, a PEM bundle, or bare DER: the three
+// encodings App Service accepts.
 func parseWebCertificatePayload(blob []byte, password string) (*x509.Certificate, error) {
 	_, leaf, _, pfxErr := pkcs12.DecodeChain(blob, password)
 	if pfxErr == nil && leaf != nil {
@@ -116,12 +101,10 @@ func parseWebCertificatePayload(blob []byte, password string) (*x509.Certificate
 	return nil, fmt.Errorf("the certificate payload is not a valid PKCS#12 archive, PEM bundle, or DER certificate: %v", pfxErr)
 }
 
-// applyX509ToWebCertificate fills the certificate resource's derived members
-// from the parsed leaf certificate: SHA-1 thumbprint over the DER bytes (the
-// fingerprint every Azure certificate surface reports), subject and issuer
-// common names, the SAN host list and the validity window. The cerBlob
-// member stays absent, as real Microsoft.Web/certificates reads answer —
-// `az webapp config ssl` output would otherwise be undecodable for the CLI.
+// SHA-1 thumbprint over the DER bytes (what every Azure certificate surface
+// reports), subject and issuer common names, SAN hosts and validity. cerBlob
+// stays absent, as Azure's reads answer; the CLI cannot decode `az webapp config
+// ssl` output otherwise.
 func applyX509ToWebCertificate(p *WebCertificateProperties, leaf *x509.Certificate) {
 	sum := sha1.Sum(leaf.Raw)
 	p.Thumbprint = strings.ToUpper(hex.EncodeToString(sum[:]))
@@ -141,9 +124,7 @@ func applyX509ToWebCertificate(p *WebCertificateProperties, leaf *x509.Certifica
 	}
 }
 
-// resolveKeyVaultCertificate resolves a keyVaultId/keyVaultSecretName-sourced
-// certificate against the simulator's own Key Vault stores and reports the
-// swagger's KeyVaultSecretStatus from what the lookup actually finds:
+// KeyVaultSecretStatus from what the lookup finds:
 //
 //	KeyVaultDoesNotExist          — no vault at that resource ID
 //	OperationNotPermittedOnKeyVault — vault does not grant App Service's
@@ -169,8 +150,8 @@ func resolveKeyVaultCertificate(p *WebCertificateProperties) {
 		return
 	}
 	value := rec.latest().Value
-	// A Key Vault certificate's secret carries the full PKCS#12 archive
-	// base64-encoded (content type application/x-pkcs12) or as PEM text.
+	// The secret carries the PKCS#12 archive base64-encoded
+	// (application/x-pkcs12) or PEM text.
 	payload := []byte(value)
 	if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value)); err == nil {
 		payload = decoded
@@ -184,9 +165,8 @@ func resolveKeyVaultCertificate(p *WebCertificateProperties) {
 	p.KeyVaultSecretStatus = "Succeeded"
 }
 
-// webCertLookupVault finds the Key Vault addressed by an ARM resource ID,
-// matching case-insensitively because clients vary the provider-namespace
-// casing in hand-built IDs.
+// Case-insensitive, because clients vary the namespace casing in hand-built
+// IDs.
 func webCertLookupVault(keyVaultID string) (KeyVault, bool) {
 	if v, ok := keyVaults.Get(keyVaultID); ok {
 		return v, true
@@ -199,18 +179,13 @@ func webCertLookupVault(keyVaultID string) (KeyVault, bool) {
 	return KeyVault{}, false
 }
 
-// webCertVaultPermitsSecretGet reports whether the vault lets App Service read
-// the certificate's secret: App Service reads it as its first-party service
-// principal, which the vault's access policies, or its Azure RBAC role
-// assignments, must grant the secret get permission itself.
+// App Service reads the secret as its first-party service principal, which the
+// vault's access policies or Azure RBAC must grant secret get itself.
 func webCertVaultPermitsSecretGet(v KeyVault, secretName string) bool {
 	return keyVaultGrantsSecretGet(v, appServiceSPObjectID, secretName)
 }
 
-// buildWebCertificateProperties assembles the stored properties from a
-// CreateOrUpdate/Update request: a PFX/PEM payload is parsed for its real
-// members, a Key Vault reference is resolved against the vault stores. The
-// returned message is non-empty when the request is invalid (HTTP 400).
+// The message is non-empty for an invalid request (400).
 func buildWebCertificateProperties(req webCertificatePutRequest) (WebCertificateProperties, string) {
 	p := WebCertificateProperties{
 		HostNames:              req.Properties.HostNames,
@@ -251,17 +226,14 @@ func registerWebCertificates(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	}
 
-	// Certificates_List — every certificate in the subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/certificates", func(w http.ResponseWriter, r *http.Request) {
 		writeList(w, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 
-	// Certificates_ListByResourceGroup.
 	srv.HandleFunc("GET "+webProvider+"/certificates", func(w http.ResponseWriter, r *http.Request) {
 		writeList(w, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "certificates")+"/")
 	})
 
-	// Certificates_Get.
 	srv.HandleFunc("GET "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		c, ok := webCertificates.Get(certID(r))
 		if !ok {
@@ -273,7 +245,6 @@ func registerWebCertificates(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, c)
 	})
 
-	// Certificates_CreateOrUpdate.
 	srv.HandleFunc("PUT "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		var req webCertificatePutRequest
 		if err := sim.ReadJSON(r, &req); err != nil {
@@ -300,9 +271,8 @@ func registerWebCertificates(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// Certificates_Update — PATCH with CertificatePatchResource. A new
-	// pfxBlob or Key Vault reference re-derives the certificate members;
-	// members absent from the patch stay as stored.
+	// A new pfxBlob or Key Vault reference re-derives the members; absent members
+	// stay.
 	srv.HandleFunc("PATCH "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		cert, ok := webCertificates.Get(certID(r))
 		if !ok {
@@ -320,7 +290,7 @@ func registerWebCertificates(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, updated)
 	})
 
-	// Certificates_Delete — 200 when deleted, 204 when it never existed.
+	// 200 when deleted, 204 when it never existed.
 	srv.HandleFunc("DELETE "+webProvider+"/certificates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if webCertificates.Delete(certID(r)) {
 			w.WriteHeader(http.StatusOK)
@@ -330,9 +300,8 @@ func registerWebCertificates(srv *sim.Server) {
 	})
 }
 
-// patchWebCertificate applies a CertificatePatchResource body on top of the
-// stored certificate: kind merges, and a payload or Key Vault reference in
-// the patch re-runs the same derivation as a create.
+// kind merges, and a payload or Key Vault reference re-runs the create's
+// derivation.
 func patchWebCertificate(r *http.Request, cert WebCertificate) (WebCertificate, string) {
 	var req webCertificatePutRequest
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -355,8 +324,7 @@ func patchWebCertificate(r *http.Request, cert WebCertificate) (WebCertificate, 
 	return cert, ""
 }
 
-// registerWebSiteCertificates wires the SiteCertificates_* operations — the
-// same certificate parsing, keyed under the site or slot resource.
+// Keyed under the site or slot.
 func registerWebSiteCertificates(both func(string, string, http.HandlerFunc)) {
 	certID := func(r *http.Request) string {
 		return webResourceID(r) + "/certificates/" + sim.PathParam(r, "certificateName")

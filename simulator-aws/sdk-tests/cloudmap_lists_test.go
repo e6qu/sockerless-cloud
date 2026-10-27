@@ -16,10 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cmRawCall issues a signed awsJson1.1 Cloud Map request by hand so a test can
-// inspect the exact members the simulator puts on the wire — the SDK silently
-// drops members its model doesn't know, which is precisely what a wire-shape
-// assertion needs to see.
+// cmRawCall issues a signed awsJson1.1 Cloud Map request by hand: the SDK drops
+// members its model does not know, which a wire-shape assertion needs to see.
 func cmRawCall(t *testing.T, op string, payload map[string]any) (int, map[string]json.RawMessage) {
 	t.Helper()
 	body, err := json.Marshal(payload)
@@ -37,7 +35,6 @@ func cmRawCall(t *testing.T, op string, payload map[string]any) (int, map[string
 	return resp.StatusCode, wire
 }
 
-// cmAPIErrorCode extracts the modeled error code from a failed SDK call.
 func cmAPIErrorCode(t *testing.T, err error) string {
 	t.Helper()
 	require.Error(t, err)
@@ -46,7 +43,6 @@ func cmAPIErrorCode(t *testing.T, err error) string {
 	return ae.ErrorCode()
 }
 
-// cmHTTPNamespace creates an HTTP namespace and registers its cleanup.
 func cmHTTPNamespace(t *testing.T, client *servicediscovery.Client, name string) string {
 	t.Helper()
 	out, err := client.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
@@ -60,7 +56,6 @@ func cmHTTPNamespace(t *testing.T, client *servicediscovery.Client, name string)
 	return id
 }
 
-// cmService creates a service in a namespace and registers its cleanup.
 func cmService(t *testing.T, client *servicediscovery.Client, nsID, name string) sdtypes.Service {
 	t.Helper()
 	out, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
@@ -74,9 +69,9 @@ func cmService(t *testing.T, client *servicediscovery.Client, nsID, name string)
 	return *out.Service
 }
 
-// TestCloudMap_ListNamespaces exercises ListNamespaces: the NamespaceSummary
-// shape (including ServiceCount), the TYPE / NAME / HTTP_NAME filters the ECS
-// backend's network-state recovery relies on, and MaxResults/NextToken paging.
+// TestCloudMap_ListNamespaces covers the NamespaceSummary shape with
+// ServiceCount, the TYPE, NAME and HTTP_NAME filters the ECS backend's
+// network-state recovery relies on, and paging.
 func TestCloudMap_ListNamespaces(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -104,7 +99,6 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 		_, _ = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(privB)})
 	}()
 
-	// NAME filter selects exactly the named namespace, with the summary shape.
 	byName, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:      sdtypes.NamespaceFilterNameName,
@@ -124,7 +118,6 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	require.NotNil(t, summary.Properties.DnsProperties)
 	assert.NotEmpty(t, aws.ToString(summary.Properties.DnsProperties.HostedZoneId))
 
-	// A service in the namespace moves ServiceCount.
 	cmService(t, client, privA, "list-ns-svc")
 	byName, err = client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
@@ -136,7 +129,6 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	require.Len(t, byName.Namespaces, 1)
 	assert.Equal(t, int32(1), aws.ToInt32(byName.Namespaces[0].ServiceCount))
 
-	// TYPE filter keeps DNS_PRIVATE namespaces only.
 	byType, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:      sdtypes.NamespaceFilterNameType,
@@ -154,7 +146,6 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	assert.True(t, ids[privA] && ids[privB], "TYPE=DNS_PRIVATE must return both private namespaces")
 	assert.False(t, ids[httpID], "TYPE=DNS_PRIVATE must exclude the HTTP namespace")
 
-	// HTTP_NAME filter matches the HTTP namespace's HttpProperties.
 	byHTTPName, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		Filters: []sdtypes.NamespaceFilter{{
 			Name:   sdtypes.NamespaceFilterNameHttpName,
@@ -165,7 +156,6 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 	require.Len(t, byHTTPName.Namespaces, 1)
 	assert.Equal(t, httpID, aws.ToString(byHTTPName.Namespaces[0].Id))
 
-	// BEGINS_WITH on NAME matches both private namespaces; MaxResults pages them.
 	firstPage, err := client.ListNamespaces(ctx, &servicediscovery.ListNamespacesInput{
 		MaxResults: aws.Int32(1),
 		Filters: []sdtypes.NamespaceFilter{{
@@ -200,9 +190,8 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 		"paging through BEGINS_WITH must yield every matching namespace")
 }
 
-// TestCloudMap_ListInstances exercises ListInstances: per-service attribute
-// isolation (the same instance ID may back several services), paging, and the
-// ServiceNotFound error for an unknown service.
+// TestCloudMap_ListInstances covers per-service attributes (one instance ID may
+// back several services), paging, and ServiceNotFound for an unknown service.
 func TestCloudMap_ListInstances(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -249,7 +238,6 @@ func TestCloudMap_ListInstances(t *testing.T) {
 	assert.Equal(t, "10.1.0.2", listB.Instances[0].Attributes["AWS_INSTANCE_IPV4"])
 	assert.Equal(t, "beta", listB.Instances[0].Attributes["role"])
 
-	// A second instance under svcA lets MaxResults page the list.
 	_, err = client.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
 		ServiceId:  svcA.Id,
 		InstanceId: aws.String("second-inst"),
@@ -286,10 +274,9 @@ func TestCloudMap_ListInstances(t *testing.T) {
 	assert.Equal(t, "ServiceNotFound", cmAPIErrorCode(t, err))
 }
 
-// TestCloudMap_ResourceTags exercises TagResource, UntagResource and
-// ListTagsForResource against namespaces and services, including the tags a
-// Create* request carries — the path the ECS backend's network-state recovery
-// uses to find its namespace by the sockerless:network-id tag.
+// TestCloudMap_ResourceTags covers tags on namespaces and services, including
+// a Create* request's tags, through which the ECS backend's network-state
+// recovery finds its namespace by the sockerless:network-id tag.
 func TestCloudMap_ResourceTags(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -352,7 +339,6 @@ func TestCloudMap_ResourceTags(t *testing.T) {
 	assert.NotContains(t, remaining, "env")
 	assert.Equal(t, "platform", remaining["owner"])
 
-	// A service carries its own tags on its own ARN.
 	svcOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("tagged-svc"),
 		NamespaceId: aws.String(nsID),
@@ -370,7 +356,6 @@ func TestCloudMap_ResourceTags(t *testing.T) {
 	assert.Equal(t, "tier", aws.ToString(svcTags.Tags[0].Key))
 	assert.Equal(t, "web", aws.ToString(svcTags.Tags[0].Value))
 
-	// An ARN that addresses nothing is a ResourceNotFoundException.
 	_, err = client.ListTagsForResource(ctx, &servicediscovery.ListTagsForResourceInput{
 		ResourceARN: aws.String("arn:aws:servicediscovery:us-east-1:000000000000:namespace/ns-missing"),
 	})
@@ -383,9 +368,9 @@ func TestCloudMap_ResourceTags(t *testing.T) {
 	assert.Equal(t, "ResourceNotFoundException", cmAPIErrorCode(t, err))
 }
 
-// TestCloudMap_OperationsLifecycle exercises GetOperation and ListOperations
-// over the operations every mutating Cloud Map call records — including the
-// instance operations a caller polls after RegisterInstance.
+// TestCloudMap_OperationsLifecycle covers the operations every mutating call
+// records, including the instance operations a caller polls after
+// RegisterInstance.
 func TestCloudMap_OperationsLifecycle(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -425,13 +410,12 @@ func TestCloudMap_OperationsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sdtypes.OperationTypeDeregisterInstance, deregOp.Operation.Type)
 
-	// An unknown operation ID is an error, not an invented SUCCESS.
+	// An unknown operation ID is an error, not a SUCCESS.
 	_, err = client.GetOperation(ctx, &servicediscovery.GetOperationInput{
 		OperationId: aws.String("op-does-not-exist"),
 	})
 	assert.Equal(t, "OperationNotFound", cmAPIErrorCode(t, err))
 
-	// The service's operations are filterable and pageable.
 	svcOps, err := client.ListOperations(ctx, &servicediscovery.ListOperationsInput{
 		Filters: []sdtypes.OperationFilter{{
 			Name:   sdtypes.OperationFilterNameServiceId,
@@ -463,7 +447,6 @@ func TestCloudMap_OperationsLifecycle(t *testing.T) {
 	require.Len(t, secondPage.Operations, 1)
 	assert.NotEqual(t, aws.ToString(firstPage.Operations[0].Id), aws.ToString(secondPage.Operations[0].Id))
 
-	// Deleting a namespace records a DELETE_NAMESPACE operation.
 	throwaway := cmHTTPNamespace(t, client, "ops-delete-ns")
 	delOut, err := client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{
 		Id: aws.String(throwaway),
@@ -475,10 +458,9 @@ func TestCloudMap_OperationsLifecycle(t *testing.T) {
 	assert.Equal(t, throwaway, delOp.Operation.Targets[string(sdtypes.OperationTargetTypeNamespace)])
 }
 
-// TestCloudMap_DiscoverInstancesFiltering exercises DiscoverInstances: the
-// InstancesRevision it returns alongside the instances, the QueryParameters /
-// OptionalParameters attribute filters, MaxResults, and the custom health
-// status a caller sets through UpdateInstanceCustomHealthStatus.
+// TestCloudMap_DiscoverInstancesFiltering covers the InstancesRevision beside
+// the instances, the QueryParameters and OptionalParameters filters,
+// MaxResults, and the custom health status a caller sets.
 func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -524,7 +506,6 @@ func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 	assert.Equal(t, int64(2), aws.ToInt64(all.InstancesRevision),
 		"DiscoverInstances reports the service's instance-list revision")
 
-	// QueryParameters keep only instances carrying the attribute value.
 	prod, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
 		NamespaceName:   aws.String("discover-filter-ns"),
 		ServiceName:     aws.String("discover-filter-svc"),
@@ -564,7 +545,7 @@ func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, capped.Instances, 1)
 
-	// A custom health status is what DiscoverInstances reports.
+	// DiscoverInstances reports the custom health status.
 	_, err = client.UpdateInstanceCustomHealthStatus(ctx, &servicediscovery.UpdateInstanceCustomHealthStatusInput{
 		ServiceId:  svcID,
 		InstanceId: aws.String("disc-1"),
@@ -596,9 +577,6 @@ func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 	assert.Equal(t, "disc-2", aws.ToString(healthyOnly.Instances[0].InstanceId))
 }
 
-// TestCloudMap_UniquenessAndCustomHealthErrors covers the modeled errors real
-// Cloud Map raises for duplicate names and for a custom health update against
-// a service that has no HealthCheckCustomConfig.
 func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -616,11 +594,10 @@ func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
 	})
 	assert.Equal(t, "ServiceAlreadyExists", cmAPIErrorCode(t, err))
 
-	// The same service name in a different namespace is fine.
 	otherNs := cmHTTPNamespace(t, client, "unique-ns-other")
 	cmService(t, client, otherNs, "unique-svc")
 
-	// A service without HealthCheckCustomConfig can't take a custom status.
+	// A service without HealthCheckCustomConfig refuses a custom status.
 	plain := cmService(t, client, nsID, "plain-health-svc")
 	_, err = client.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
 		ServiceId:  plain.Id,
@@ -641,8 +618,8 @@ func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
 	})
 	assert.Equal(t, "CustomHealthNotFound", cmAPIErrorCode(t, err))
 
-	// A service configured for custom health reports AWS Cloud Map's fixed
-	// threshold of one and accepts the status update.
+	// A custom-health service reports Cloud Map's fixed threshold of one and
+	// accepts the status update.
 	customOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:                    aws.String("custom-health-svc"),
 		NamespaceId:             aws.String(nsID),
@@ -679,8 +656,6 @@ func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
 	assert.Equal(t, int32(1), aws.ToInt32(customSummary.HealthCheckCustomConfig.FailureThreshold))
 }
 
-// TestCloudMap_PrivateNamespaceSOARoundTrip proves the SOA a client configures
-// on a private DNS namespace survives into GetNamespace.
 func TestCloudMap_PrivateNamespaceSOARoundTrip(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -709,9 +684,9 @@ func TestCloudMap_PrivateNamespaceSOARoundTrip(t *testing.T) {
 	assert.Equal(t, int64(60), aws.ToInt64(got.Namespace.Properties.DnsProperties.SOA.TTL))
 }
 
-// TestCloudMap_WireShape inspects the raw awsJson1.1 bodies: the responses must
-// carry exactly the modeled members — no simulator bookkeeping — and a private
-// namespace created without the required Vpc must be rejected.
+// TestCloudMap_WireShape expects raw awsJson1.1 bodies to carry exactly the
+// modeled members, and a private namespace without the required Vpc to be
+// rejected.
 func TestCloudMap_WireShape(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -749,7 +724,6 @@ func TestCloudMap_WireShape(t *testing.T) {
 	assert.NotContains(t, instances[0], "ServiceId")
 	assert.NotContains(t, instances[0], "CustomHealthStatus")
 
-	// Vpc is required on a private DNS namespace.
 	status, wire = cmRawCall(t, "CreatePrivateDnsNamespace", map[string]any{"Name": "wire-no-vpc.local"})
 	require.Equal(t, http.StatusBadRequest, status)
 	var errType string

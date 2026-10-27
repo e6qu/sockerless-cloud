@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A Cloud Run job whose image lives in Artifact Registry is started by a host
-// that pulls the image itself, and Artifact Registry refuses an anonymous
-// pull, so the host has to pull as the identity real Cloud Run pulls with —
-// the project's Cloud Run service agent. The registry's data plane is the one
-// the job's image names, reached at this simulator's own coordinate.
+// The host that starts a Cloud Run job pulls the image itself, and Artifact
+// Registry refuses an anonymous pull, so the host pulls as the project's Cloud
+// Run service agent, the identity real Cloud Run pulls with.
 func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {

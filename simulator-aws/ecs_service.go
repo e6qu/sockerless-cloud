@@ -11,16 +11,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// ECS Service family — terraform-provider-aws declares `aws_ecs_service` for
-// long-lived Fargate services (the common case; RunTask alone covers only
-// one-shot tasks) and `aws_ecs_cluster_capacity_providers` for the cluster's
-// capacity-provider config. Services reconcile durable tasks through the same
-// runtime as RunTask; their counts and deployment state are derived from those
-// tasks rather than synthesized from desiredCount.
+// A service reconciles durable tasks through the RunTask runtime; its counts
+// and deployment state derive from those tasks, never from desiredCount.
 
-// ECSService is a control-plane model of an ECS service. Config blocks the sim
-// doesn't interpret (network/load-balancer/registry config) are held as raw
-// JSON so they round-trip byte-exact.
+// Configuration the simulator does not interpret is held as raw JSON so it
+// round-trips byte-exact.
 type ECSService struct {
 	ServiceArn               string          `json:"serviceArn"`
 	ServiceName              string          `json:"serviceName"`
@@ -43,18 +38,14 @@ type ECSService struct {
 	DeploymentController     json.RawMessage `json:"deploymentController,omitempty"`
 	DeploymentConfiguration  json.RawMessage `json:"deploymentConfiguration,omitempty"`
 	CapacityProviderStrategy json.RawMessage `json:"capacityProviderStrategy,omitempty"`
-	// Top-level Service knobs the provider reads back — each was dropped on
-	// create/update, so aws_ecs_service.{enable_ecs_managed_tags,
-	// health_check_grace_period_seconds,ordered_placement_strategy,
-	// placement_constraints,availability_zone_rebalancing} drifted every plan.
+	// The provider reads these back; dropping them drifts every plan.
 	EnableECSManagedTags          bool            `json:"enableECSManagedTags,omitempty"`
 	HealthCheckGracePeriodSeconds *int            `json:"healthCheckGracePeriodSeconds,omitempty"`
 	PlacementConstraints          json.RawMessage `json:"placementConstraints,omitempty"`
 	PlacementStrategy             json.RawMessage `json:"placementStrategy,omitempty"`
 	AvailabilityZoneRebalancing   string          `json:"availabilityZoneRebalancing,omitempty"`
-	// These three surface inside the deployment record (not the Service top
-	// level) — the SDK Service type has no such fields. Stored here for
-	// round-trip, emitted via the primary deployment.
+	// The SDK Service type carries these only inside the deployment record; they
+	// are emitted through the primary deployment.
 	ServiceConnectConfiguration json.RawMessage   `json:"-"`
 	VolumeConfigurations        json.RawMessage   `json:"-"`
 	VpcLatticeConfigurations    json.RawMessage   `json:"-"`
@@ -69,8 +60,7 @@ type ECSServiceEvent struct {
 	Message   string  `json:"message"`
 }
 
-// ECSDeployment is the service's deployment record. Its counts and rollout
-// state follow the tasks owned by that deployment.
+// Its counts and rollout state follow the tasks the deployment owns.
 type ECSDeployment struct {
 	Id                          string          `json:"id"`
 	Status                      string          `json:"status"`
@@ -104,23 +94,16 @@ func registerECSServices(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerServiceV20141113.ListTaskDefinitionFamilies", handleECSListTaskDefinitionFamilies)
 	r.Register("AmazonEC2ContainerServiceV20141113.DescribeCapacityProviders", handleECSDescribeCapacityProviders)
 
-	// ECS Express Mode (Express Gateway services) — the managed
-	// ALB+Fargate+autoscaling bundle.
 	registerECSExpress(r, srv)
 	registerECSGateways(r, srv)
 }
 
-// ecsBuiltInCapacityProviders are the two AWS-managed providers every account
-// has; they are always ACTIVE and need no cluster association.
+// Always ACTIVE, needing no cluster association.
 var ecsBuiltInCapacityProviders = []string{"FARGATE", "FARGATE_SPOT"}
 
-// handleECSDescribeCapacityProviders is the read-back for capacity providers
-// — without it `aws_ecs_cluster_capacity_providers` shows spurious
-// drift on the post-apply plan. The sim has no standalone capacity-provider
-// store (providers live as names on clusters via PutClusterCapacityProviders),
-// so it resolves the built-in FARGATE/FARGATE_SPOT plus any custom provider
-// referenced by a cluster. A requested name that resolves to neither is a
-// failure, mirroring real ECS.
+// Resolves FARGATE, FARGATE_SPOT and any custom provider; a requested name
+// resolving to neither is a failure, as in Amazon ECS. Without this,
+// aws_ecs_cluster_capacity_providers drifts after apply.
 func handleECSDescribeCapacityProviders(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CapacityProviders []string `json:"capacityProviders"`
@@ -139,8 +122,7 @@ func handleECSDescribeCapacityProviders(w http.ResponseWriter, r *http.Request) 
 			known[ecsCapacityProviderName(cp)] = true
 		}
 	}
-	// Custom providers created via CreateCapacityProvider carry their full
-	// config (autoScalingGroupProvider, status, type, tags); echo them verbatim.
+	// Echo custom providers' full configuration verbatim.
 	custom := map[string]ECSCapacityProvider{}
 	for _, cp := range ecsCapacityProviders.List() {
 		known[cp.Name] = true
@@ -183,8 +165,6 @@ func handleECSDescribeCapacityProviders(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// ecsCapacityProviderName normalizes a capacity provider name or ARN to its
-// bare name.
 func ecsCapacityProviderName(ref string) string {
 	if strings.HasPrefix(ref, "arn:") {
 		parts := strings.Split(ref, "/")
@@ -193,10 +173,8 @@ func ecsCapacityProviderName(ref string) string {
 	return ref
 }
 
-// handleECSListTaskDefinitionFamilies aggregates the distinct families across
-// the registered task definitions — the family companion to
-// ListTaskDefinitions. status (ACTIVE/INACTIVE/ALL) selects which revisions a
-// family must have to be listed; familyPrefix narrows by name prefix.
+// status (ACTIVE, INACTIVE or ALL) selects which revisions a family needs to
+// be listed; familyPrefix narrows by name.
 func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FamilyPrefix string `json:"familyPrefix"`
@@ -213,14 +191,13 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 	if status == "" {
 		status = "ACTIVE"
 	}
-	// active[family] is true if the family has ≥1 ACTIVE revision.
+	// True when the family has an ACTIVE revision.
 	active := map[string]bool{}
 	seen := map[string]bool{}
 	for _, row := range ecsTaskDefinitions.ListPrefix(req.FamilyPrefix) {
 		td := row.Item
 		seen[td.Family] = true
-		// A row written before revisions recorded a status is ACTIVE, as
-		// ListTaskDefinitions reads it.
+		// A row stored without a status is ACTIVE, as ListTaskDefinitions reads it.
 		if td.Status == "ACTIVE" || td.Status == "" {
 			active[td.Family] = true
 		}
@@ -253,8 +230,7 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// ecsClusterNameFromRef extracts the cluster name from a name or ARN,
-// defaulting to "default" (the implicit cluster) when empty.
+// Empty means the implicit "default" cluster.
 func ecsClusterNameFromRef(ref string) string {
 	if ref == "" {
 		return "default"
@@ -266,7 +242,6 @@ func ecsClusterNameFromRef(ref string) string {
 	return ref
 }
 
-// ecsServiceNameFromRef extracts the service name from a name or ARN.
 func ecsServiceNameFromRef(ref string) string {
 	if strings.HasPrefix(ref, "arn:") {
 		parts := strings.Split(ref, "/")
@@ -277,8 +252,8 @@ func ecsServiceNameFromRef(ref string) string {
 
 func ecsServiceKey(cluster, service string) string { return cluster + "/" + service }
 
-// validateECSServiceRegistries enforces the Amazon ECS service-discovery
-// coordinate rules that depend on the AWS Cloud Map DNS record type.
+// The Amazon ECS service-discovery rules that depend on the AWS Cloud Map DNS
+// record type.
 func validateECSServiceRegistries(raw json.RawMessage) (string, string) {
 	registries, err := ecsServiceRegistries(raw)
 	if err != nil {
@@ -306,8 +281,7 @@ func validateECSServiceRegistries(raw json.RawMessage) (string, string) {
 	return "", ""
 }
 
-// ecsServiceFromARN resolves a service ARN (arn:...:service/<cluster>/<name>,
-// or the older arn:...:service/<name> form) to its stored service.
+// Accepts arn:…:service/<cluster>/<name> and the older arn:…:service/<name>.
 func ecsServiceFromARN(arn string) (clusterName, key string, svc ECSService, ok bool) {
 	idx := strings.Index(arn, ":service/")
 	if idx < 0 {
@@ -466,20 +440,17 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 	if len(connectors) > 0 {
 		ecsApplyGatewayDeployment(svc, gatewayPlan, revisionArn)
 	}
-	// CreateService records the requested state and answers with it; placing
-	// the tasks is the service scheduler's work. Amazon ECS answers a create
-	// for ten tasks with the service at runningCount 0 and a PRIMARY
-	// deployment of desiredCount 10 / runningCount 0, and converges it after
-	// the response.
+	// Placing tasks is the scheduler's work: Amazon ECS answers a create for ten
+	// tasks with runningCount 0 and a PRIMARY deployment of desiredCount 10,
+	// runningCount 0, and converges after the response.
 	svc, _ = ecsServices.Get(key)
 	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
 }
 
-// ecsServiceRoleARN resolves the role a CreateService names, which lets Amazon
-// ECS register the service's tasks with its load balancer. The role is only
-// permitted with a load balancer and a task definition outside the awsvpc
-// network mode, and Amazon ECS must be able to assume it.
+// The role lets Amazon ECS register tasks with the load balancer; it is
+// permitted only with a load balancer and a non-awsvpc task definition, and
+// Amazon ECS must be able to assume it.
 func ecsServiceRoleARN(serviceArn, ref string, loadBalancers json.RawMessage, taskDefinition string) (string, string) {
 	bindings, err := ecsServiceLoadBalancers(loadBalancers)
 	if err != nil || len(bindings) == 0 {
@@ -495,9 +466,7 @@ func ecsServiceRoleARN(serviceArn, ref string, loadBalancers json.RawMessage, ta
 	return role.Arn, ""
 }
 
-// ecsServiceConnectNamespace extracts the Cloud Map namespace from a service's
-// serviceConnectConfiguration JSON, for ListServicesByNamespace. Returns "" when
-// no namespace is configured.
+// For ListServicesByNamespace; "" when no namespace is configured.
 func ecsServiceConnectNamespace(scc []byte) string {
 	if len(scc) == 0 {
 		return ""
@@ -511,17 +480,13 @@ func ecsServiceConnectNamespace(scc []byte) string {
 	return cfg.Namespace
 }
 
-// ecsServiceDeployment builds the service's single PRIMARY deployment. The
-// service-connect / volume / vpc-lattice configs surface here (the SDK Service
-// type carries them only inside the deployment record, not at the top level).
+// The SDK Service type carries the service-connect, volume and VPC Lattice
+// configuration only inside the deployment record.
 func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
-	// "When a service deployment is started, it begins in an IN_PROGRESS
-	// state. When the service reaches a steady state, the deployment
-	// transitions to a COMPLETED state." Deciding that from the counts the
-	// service carries at the moment the deployment record is built reads the
-	// previous revision's tasks: a service already running its desired count
-	// would start its next rollout finished. The scheduler completes the
-	// rollout once the deployment's own tasks are running and in service.
+	// "When a service deployment is started, it begins in an IN_PROGRESS state.
+	// When the service reaches a steady state, the deployment transitions to a
+	// COMPLETED state." The current counts are the previous revision's, so the
+	// scheduler, not this builder, completes the rollout.
 	return ECSDeployment{
 		Id:                          "ecs-svc/" + sim.NewUUID(),
 		Status:                      "PRIMARY",
@@ -538,12 +503,8 @@ func ecsServiceDeployment(svc ECSService, now float64) ECSDeployment {
 	}
 }
 
-// handleECSDescribeServices reports the service records the control plane
-// holds. Counts, deployment rollout state and events are owned by the service
-// scheduler, which converges them from real task state on every task lifecycle
-// transition, on its stabilization timer while a deployment is in progress, and
-// on its launch-retry timer; a read reports that record and never runs a
-// scheduler pass of its own.
+// The scheduler owns counts, rollout state and events, converging them on task
+// transitions and its timers; a read never runs a scheduler pass.
 func handleECSDescribeServices(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster  string   `json:"cluster"`
@@ -643,8 +604,7 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// status selects the lifecycle state; real AWS defaults to ACTIVE (INACTIVE
-	// revisions are excluded unless INACTIVE or ALL is requested explicitly).
+	// ACTIVE is the default; INACTIVE revisions appear only for INACTIVE or ALL.
 	status := strings.ToUpper(req.Status)
 	if status == "" {
 		status = "ACTIVE"
@@ -655,8 +615,8 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		revision int
 	}
 	var defs []tdRef
-	// Rows are keyed "<family>:<revision>" and a family holds no colon, so the
-	// families a prefix names are that key range; the family check decides.
+	// Rows are keyed "<family>:<revision>" and a family holds no colon, so a
+	// prefix names a key range; the family check decides.
 	for _, row := range ecsTaskDefinitions.ListPrefix(req.FamilyPrefix) {
 		td := row.Item
 		if !strings.HasPrefix(td.Family, req.FamilyPrefix) {
@@ -673,8 +633,7 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		}
 		defs = append(defs, tdRef{td.TaskDefinitionArn, td.Family, td.Revision})
 	}
-	// Order by family, then revision ascending (numeric, not lexical — so :10
-	// sorts after :2); sort=DESC returns newest-revision-first.
+	// By family, then revision numerically (:10 after :2); DESC is newest first.
 	descending := strings.EqualFold(req.Sort, "DESC")
 	page, next, pageOK := awsKeyPage(w, ecsBadToken, defs, func(d tdRef) string {
 		k := d.family + "\x00" + listq.IntKey(int64(d.revision))
@@ -698,9 +657,8 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
-	// UpdateService accepts nearly the whole service surface; the provider sends
-	// every changed attribute here. Anything not persisted drifts on the next
-	// plan, so each updatable field below is read and written.
+	// The provider sends every changed attribute here; each one must persist or
+	// the next plan drifts.
 	var req struct {
 		Cluster                       string          `json:"cluster"`
 		Service                       string          `json:"service"`
@@ -847,8 +805,8 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 	now := ecsEpochSeconds()
 	if deploymentRequired {
-		// The deployment being replaced stays ACTIVE beside the new PRIMARY
-		// one until the scheduler has drained its tasks.
+		// The replaced deployment stays ACTIVE beside the new PRIMARY until its tasks
+		// drain.
 		previous := svc.Deployments
 		svc.Deployments = []ECSDeployment{ecsServiceDeployment(svc, now)}
 		for _, d := range previous {
@@ -866,9 +824,8 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 			ecsApplyGatewayDeployment(svc, gatewayPlan, revisionArn)
 		}
 	}
-	// The update is recorded and answered with; applying it is the service
-	// scheduler's work, which starts new tasks and replaces running ones under
-	// the deployment configuration's minimumHealthyPercent and maximumPercent.
+	// Applying the update is the scheduler's work, under minimumHealthyPercent and
+	// maximumPercent.
 	svc, _ = ecsServices.Get(key)
 	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
@@ -920,22 +877,16 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 			"Service not found: %s", req.Service)
 		return
 	}
-	// Without force, Amazon ECS refuses to delete a service that is still
-	// scaled up: the caller must scale it to zero first. The flag had been
-	// parsed and ignored, so a delete that AWS rejects succeeded here and a
-	// caller relying on the rejection — the usual scale-down-then-delete
-	// sequence — was never told it had skipped a step.
+	// Without force, Amazon ECS refuses to delete a service still scaled up.
 	if !req.Force && svc.DesiredCount > 0 {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The service cannot be stopped while it is scaled above 0.")
 		return
 	}
 
-	// Amazon ECS reports a deleted service DRAINING while its tasks stop and
-	// INACTIVE once they have; DescribeServices keeps returning it as INACTIVE,
-	// which is how terraform-provider-aws confirms the delete converged.
-	// Persist DRAINING before stopping tasks so their lifecycle callbacks
-	// cannot race the delete and launch a replacement.
+	// DRAINING while tasks stop, then INACTIVE, which DescribeServices keeps
+	// returning and terraform-provider-aws waits for. Persist DRAINING first so
+	// task callbacks cannot launch a replacement.
 	svc.Status = "DRAINING"
 	svc.DesiredCount = 0
 	svc.RunningCount = 0

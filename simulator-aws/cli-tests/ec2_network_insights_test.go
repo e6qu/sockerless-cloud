@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_NetworkInsights drives the Reachability Analyzer and Network
-// Access Analyzer families over the aws CLI: path → analysis, and access
-// scope → content → scope analysis → findings, with tolerant teardown.
 func TestEC2CLI_NetworkInsights(t *testing.T) {
 	t.Parallel()
 	pathID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-network-insights-path",
@@ -80,9 +77,6 @@ func TestEC2CLI_NetworkInsights(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_RouteServer drives the route-server graph over the aws CLI:
-// route server → association → endpoint → peer → propagation → routing
-// database, with tolerant teardown.
 func TestEC2CLI_RouteServer(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -175,8 +169,6 @@ func TestEC2CLI_RouteServer(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_LocalGatewayRoute drives the local-gateway-route CRUD path over
-// the aws CLI: create → search → modify → delete.
 func TestEC2CLI_LocalGatewayRoute(t *testing.T) {
 	t.Parallel()
 	rtID := "lgw-rtb-0fedcba9876543210"

@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformRedisCacheServesItsHostName applies an azurerm_redis_cache and
-// connects to the hostname, ports and access keys Terraform read back: the
-// cache's hostname resolves through the simulator's DNS to the address its
-// engine answers at, over TLS on ssl_port and in plaintext on port, to either
-// key, and a write through the one reads back through the other.
+// TestTerraformRedisCacheServesItsHostName connects to the hostname, ports and
+// access keys Terraform read back: the hostname resolves through the
+// simulator's DNS, the engine answers over TLS and plaintext to either key, and
+// a write through one connection reads back through the other.
 func TestTerraformRedisCacheServesItsHostName(t *testing.T) {
 	t.Parallel()
 	dir := tfWorkspaceFrom(t, mustAbs("redis"))

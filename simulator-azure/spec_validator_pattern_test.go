@@ -7,11 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A Swagger schema's `pattern` is part of the contract, and it is where the
-// identity-bearing strings are pinned: a resource name, a key, a duration.
-// Checking only that a member is a string accepts a value no client could send
-// back. These tests hold the check itself, so deleting it fails here rather
-// than going unnoticed because the simulator happens to be clean today.
+// A schema's `pattern` pins the identity-bearing strings; checking only that a
+// member is a string accepts a value no client could send back. These hold the
+// check itself, so removing it fails here.
 
 func azureValidateString(t *testing.T, pattern string, value any) []sim.SpecViolation {
 	t.Helper()
@@ -51,10 +49,8 @@ func TestAzureValidatorAcceptsAValueThePatternAdmits(t *testing.T) {
 	}
 }
 
-// Swagger patterns anchor themselves when they mean to, and the corpus carries
-// both forms — so the expression is matched as written rather than anchored on
-// the author's behalf. A pattern with a leading ^ and no trailing $ constrains
-// only the start, which is what its author asked for.
+// The corpus carries anchored and unanchored patterns, so match as written: a
+// leading ^ with no trailing $ constrains only the start.
 func TestAzureValidatorMatchesThePatternAsWritten(t *testing.T) {
 	prefixOnly := `^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*`
 	if v := azureValidateString(t, prefixOnly, "abc-def!!"); len(v) != 0 {
@@ -65,8 +61,8 @@ func TestAzureValidatorMatchesThePatternAsWritten(t *testing.T) {
 	}
 }
 
-// A schema with no pattern is unconstrained beyond its type, and a pattern the
-// Go engine cannot compile constrains nothing rather than failing every value.
+// A pattern RE2 cannot compile constrains nothing rather than failing every
+// value.
 func TestAzureValidatorIgnoresWhatItCannotRead(t *testing.T) {
 	if v := azureValidateString(t, "", "anything at all ~!@#"); len(v) != 0 {
 		t.Errorf("an unpatterned string was reported: %+v", v)

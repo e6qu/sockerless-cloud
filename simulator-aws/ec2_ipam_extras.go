@@ -9,23 +9,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements faithful control-plane CRUD for the Amazon EC2 IP
-// Address Manager (IPAM) families that complement the core IPAM slice in
-// ec2_ipam.go: IPAM policies (allocation rules + organization targets, with an
-// enabled/disabled toggle), BYOASN (bring-your-own-ASN) entries provisioned
-// into an IPAM and associated to CIDRs, prefix-list resolvers and their
-// targets (with versioned rule/entry reads), external-resource verification
-// tokens, and the read-only discovered-resource probes. Every resource is
-// backed by a real SQLite-persisted store and rendered as the exact ec2Query
-// XML the AWS SDK for Go v2 and the aws CLI deserialize (member casing taken
-// from ec2.smithy.json).
-
 type EC2IpamPolicyAllocationRule struct {
 	SourceIpamPoolId string
 }
 
-// EC2IpamPolicyDocument is a (locale, resourceType) bucket of allocation rules
-// inside a policy. Real AWS keys allocation rules by locale + resource type.
+// AWS keys allocation rules by locale and resource type.
 type EC2IpamPolicyDocument struct {
 	IpamPolicyId    string
 	Locale          string
@@ -53,7 +41,6 @@ type EC2IpamByoasn struct {
 	State         string
 }
 
-// EC2IpamAsnAssociation records an ASN associated to a BYOIP CIDR.
 type EC2IpamAsnAssociation struct {
 	Asn           string
 	Cidr          string
@@ -153,7 +140,6 @@ func registerEC2IPAMExtras(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IpamPLResolverTgts = sim.MakeStore[EC2IpamPrefixListResolverTarget](srv.DB(), "ec2_ipam_pl_resolver_targets")
 	ec2IpamExtResTokens = sim.MakeStore[EC2IpamExternalResourceVerificationToken](srv.DB(), "ec2_ipam_ext_res_tokens")
 
-	// IPAM policies
 	r.Register("CreateIpamPolicy", handleCreateIpamPolicy)
 	r.Register("DescribeIpamPolicies", handleDescribeIpamPolicies)
 	r.Register("DeleteIpamPolicy", handleDeleteIpamPolicy)
@@ -164,7 +150,6 @@ func registerEC2IPAMExtras(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyIpamPolicyAllocationRules", handleModifyIpamPolicyAllocationRules)
 	r.Register("GetIpamPolicyOrganizationTargets", handleGetIpamPolicyOrganizationTargets)
 
-	// BYOASN
 	r.Register("ProvisionIpamByoasn", handleProvisionIpamByoasn)
 	r.Register("DeprovisionIpamByoasn", handleDeprovisionIpamByoasn)
 	r.Register("DescribeIpamByoasn", handleDescribeIpamByoasn)
@@ -172,7 +157,6 @@ func registerEC2IPAMExtras(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DisassociateIpamByoasn", handleDisassociateIpamByoasn)
 	r.Register("MoveByoipCidrToIpam", handleMoveByoipCidrToIpam)
 
-	// Prefix-list resolvers + targets
 	r.Register("CreateIpamPrefixListResolver", handleCreateIpamPrefixListResolver)
 	r.Register("DescribeIpamPrefixListResolvers", handleDescribeIpamPrefixListResolvers)
 	r.Register("ModifyIpamPrefixListResolver", handleModifyIpamPrefixListResolver)
@@ -185,21 +169,17 @@ func registerEC2IPAMExtras(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetIpamPrefixListResolverVersions", handleGetIpamPrefixListResolverVersions)
 	r.Register("GetIpamPrefixListResolverVersionEntries", handleGetIpamPrefixListResolverVersionEntries)
 
-	// External-resource verification tokens
 	r.Register("CreateIpamExternalResourceVerificationToken", handleCreateIpamExternalResourceVerificationToken)
 	r.Register("DescribeIpamExternalResourceVerificationTokens", handleDescribeIpamExternalResourceVerificationTokens)
 	r.Register("DeleteIpamExternalResourceVerificationToken", handleDeleteIpamExternalResourceVerificationToken)
 
-	// Discovered resources (read-only honest-empty)
 	r.Register("GetIpamDiscoveredAccounts", handleGetIpamDiscoveredAccounts)
 	r.Register("GetIpamDiscoveredPublicAddresses", handleGetIpamDiscoveredPublicAddresses)
 	r.Register("GetIpamDiscoveredResourceCidrs", handleGetIpamDiscoveredResourceCidrs)
 
-	// Pool allocation mutation
 	r.Register("ModifyIpamPoolAllocation", handleModifyIpamPoolAllocation)
 }
 
-// ec2ParseIpamPolicyAllocationRules reads AllocationRule.N.SourceIpamPoolId.
 func ec2ParseIpamPolicyAllocationRules(r *http.Request, prefix string) []EC2IpamPolicyAllocationRule {
 	var rules []EC2IpamPolicyAllocationRule
 	for i := 1; ; i++ {
@@ -289,7 +269,7 @@ func handleEnableIpamPolicy(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidIpamPolicyId.NotFound", fmt.Sprintf("The ipam policy ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Only one policy is enabled at a time per account, like real AWS.
+	// One policy is enabled at a time per account.
 	for _, p := range ec2IpamPolicies.List() {
 		if p.Enabled && p.IpamPolicyId != id {
 			ec2IpamPolicies.Update(p.IpamPolicyId, func(pp *EC2IpamPolicy) { pp.Enabled = false })
@@ -420,8 +400,7 @@ func handleGetIpamPolicyOrganizationTargets(w http.ResponseWriter, r *http.Reque
 		ec2ErrorXML(w, "InvalidIpamPolicyId.NotFound", fmt.Sprintf("The ipam policy ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// An account-managed policy has no Organizations targets until one applies
-	// it to an entity; honest-empty here.
+	// An account-managed policy has no Organizations targets until applied.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetIpamPolicyOrganizationTargetsResponse %s>
   <requestId>%s</requestId>
@@ -565,8 +544,6 @@ func ipamByoipCidrXML(b EC2IpamByoipCidr) string {
 	return sb.String()
 }
 
-// ec2ParseIpamPLResolverRules reads Rule.N.{RuleType,StaticCidr,IpamScopeId,
-// ResourceType} request params.
 func ec2ParseIpamPLResolverRules(r *http.Request, prefix string) []EC2IpamPrefixListResolverRule {
 	var rules []EC2IpamPrefixListResolverRule
 	for i := 1; ; i++ {
@@ -688,7 +665,7 @@ func handleDeleteIpamPrefixListResolver(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	res.State = "delete-complete"
-	// Targets under the resolver go away with it.
+	// Targets go with the resolver.
 	for _, t := range ec2IpamPLResolverTgts.List() {
 		if t.IpamPrefixListResolverId == id {
 			ec2IpamPLResolverTgts.Delete(t.IpamPrefixListResolverTargetId)
@@ -877,7 +854,7 @@ func handleGetIpamPrefixListResolverVersions(w http.ResponseWriter, r *http.Requ
 		ec2ErrorXML(w, "InvalidIpamPrefixListResolverId.NotFound", fmt.Sprintf("The ipam prefix list resolver ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// A freshly created resolver has version 1.
+	// A new resolver has version 1.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetIpamPrefixListResolverVersionsResponse %s>
   <requestId>%s</requestId>
@@ -892,8 +869,8 @@ func handleGetIpamPrefixListResolverVersionEntries(w http.ResponseWriter, r *htt
 		ec2ErrorXML(w, "InvalidIpamPrefixListResolverId.NotFound", fmt.Sprintf("The ipam prefix list resolver ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Static-CIDR rules resolve directly to entries; pool/resource rules resolve
-	// from live discovery the sim has no backend for, so they yield no entries.
+	// Pool and resource rules need live discovery the simulator lacks, so only
+	// static-CIDR rules yield entries.
 	var items strings.Builder
 	for _, rule := range res.Rules {
 		if rule.StaticCidr != "" {
@@ -983,9 +960,8 @@ func handleDeleteIpamExternalResourceVerificationToken(w http.ResponseWriter, r 
 </DeleteIpamExternalResourceVerificationTokenResponse>`, ec2Xmlns(), sim.NewUUID(), ipamExtResTokenXML(tok))
 }
 
-// The sim has no live cross-account discovery backend, so these return
-// honest-empty result sets — exactly the shape a real IPAM resource discovery
-// returns before it has scanned any monitored account.
+// The simulator has no cross-account discovery, so these answer as a resource
+// discovery that has scanned nothing.
 
 func handleGetIpamDiscoveredAccounts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")

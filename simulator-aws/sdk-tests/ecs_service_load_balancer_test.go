@@ -16,12 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_ServiceRegistersHealthyLoadBalancerTargets proves the complete
-// Amazon ECS service data plane through the official ECS and Elastic Load
-// Balancing v2 clients: a real task serves HTTP on its elastic network
-// interface, the service registers that address, the target passes a real
-// health probe, an Application Load Balancer forwards to it, and replacement
-// swaps the target without losing the service endpoint.
+// TestECS_ServiceRegistersHealthyLoadBalancerTargets expects a task serving HTTP
+// on its ENI to be registered by the service, pass a health probe and receive
+// traffic from an Application Load Balancer, and a replacement to swap the
+// target without losing the endpoint.
 func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
@@ -50,9 +48,8 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String(container),
 			Image:       aws.String(containerCommandImage),
-			// The server starts after the first steady-state probe. Amazon ECS
-			// must keep reconciling target health without another API request or
-			// task transition.
+			// The server starts after the first steady-state probe, so Amazon ECS keeps
+			// reconciling target health without another request or task transition.
 			Command:   []string{"http", fmt.Sprint(port), "ecs-service-ok", "3"},
 			Essential: aws.Bool(true),
 			PortMappings: []ecstypes.PortMapping{{
@@ -67,22 +64,17 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		Name: aws.String("svc-lb-tg"), Protocol: elbtypes.ProtocolEnumHttp,
 		Port: aws.Int32(port), VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
 		HealthCheckPath: aws.String("/health"),
-		// The container starts serving only after the target's first health
-		// check has already failed, so the target enters service on a later
-		// check. Elastic Load Balancing runs those on this interval, and the
-		// 30-second default would make the test wait one out for nothing.
+		// The container serves only after the first health check failed, so the
+		// target enters service on a later check; the 30-second default interval would
+		// make the test wait one out.
 		HealthCheckIntervalSeconds: aws.Int32(5),
 		HealthyThresholdCount:      aws.Int32(2),
 	})
 	require.NoError(t, err)
 	targetGroupArn := aws.ToString(targetGroup.TargetGroups[0].TargetGroupArn)
-	// A task the service replaces has its target deregistered, and Elastic Load
-	// Balancing drains a deregistering target for this long before dropping it.
-	// The delay is set well past the test's own runtime so the drain is still
-	// running when the replacement is asserted: what this test is about is the
-	// service data plane surviving a replacement, and a delay that elapsed
-	// mid-assertion would make that a race. The delay's own expiry is covered
-	// by the target-health tests.
+	// A replaced task's target drains for the deregistration delay. The delay
+	// outlasts the test so the drain is still running when the replacement is
+	// asserted; the target-health tests cover its expiry.
 	_, err = elbC.ModifyTargetGroupAttributes(ctx, &elbv2.ModifyTargetGroupAttributesInput{
 		TargetGroupArn: aws.String(targetGroupArn),
 		Attributes: []elbtypes.TargetGroupAttribute{{
@@ -170,12 +162,9 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		Reason: aws.String("validate load-balanced replacement"),
 	})
 	require.NoError(t, err)
-	// The service replaces the stopped task, and its target group ends up
-	// holding both addresses: the replacement in service, and the stopped
-	// task's address draining. Elastic Load Balancing deregisters through the
-	// deregistration delay however the removal was requested, so a target that
-	// simply vanished the moment its task stopped would be the simulator
-	// inventing a transition the service does not make.
+	// The target group ends up holding the replacement in service and the stopped
+	// task's address draining: Elastic Load Balancing deregisters through the
+	// delay however the removal was requested.
 	var replacement, targetHealthDiagnostic string
 	require.Eventually(t, func() bool {
 		health, healthErr := elbC.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{

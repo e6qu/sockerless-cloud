@@ -14,16 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the provider-level reads that were the last gaps in three
-// documents:
+// The provider-level reads.
 //
 //	GET /providers/Microsoft.Compute/operations
 //	GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/usages
 //	GET /{scope}/providers/Microsoft.EventGrid/extensionTopics/default
 //	POST /subscriptions/{subscriptionId}/resourcegroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/regenerateSharedKey
 
-// The Microsoft.Compute action catalog is the provider's own surface, and its
-// per-location usage is counted from what the subscription holds there.
+// The Microsoft.Compute action catalog is the provider's own, and per-location
+// usage counts what the subscription holds there.
 func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 	t.Parallel()
 	operations, err := armcompute.NewOperationsClient(&fakeCredential{}, clientOpts())
@@ -39,8 +38,8 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 		require.NotNil(t, op.Display, "%s names what it authorizes", *op.Name)
 		assert.Equal(t, "Microsoft Compute", *op.Display.Provider)
 	}
-	// Every action the catalog carries belongs to this provider, and the ones a
-	// role assignment on a virtual machine needs are there.
+	// Every action belongs to this provider, and those a role assignment on a
+	// virtual machine needs are there.
 	for action := range actions {
 		assert.True(t, strings.HasPrefix(action, "Microsoft.Compute/"),
 			"%s is an action of another provider", action)
@@ -54,8 +53,7 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 		assert.Contains(t, actions, needed)
 	}
 
-	// A location the subscription holds nothing in reports nothing held, which
-	// needs no machine and so runs on any host.
+	// A location holding nothing reports nothing held, with no machine needed.
 	usageOnBareHost, err := armcompute.NewUsageClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	empty, err := usageOnBareHost.NewListPager("australiacentral2", nil).NextPage(ctx)
@@ -68,9 +66,8 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 	}
 }
 
-// The usage is counted from what the subscription is holding, so creating a
-// machine moves it. A machine needs a real network interface, so this half
-// needs the Linux network capabilities the simulator's fabric is built on.
+// Creating a machine moves the usage. A machine needs a network interface, so
+// this test needs the Linux network capabilities the simulator's fabric uses.
 func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 
 	const rg, location = "compute-usage-rg", "eastus"
@@ -95,8 +92,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 	beforeMachines, _ := usageFor("virtualMachines")
 	beforeCores, _ := usageFor("cores")
 
-	// Creating a machine moves the figures, which is what makes them a count of
-	// what the subscription holds rather than a fixed answer.
+	// Creating a machine moves the figures, so they count what is held.
 	createOperationsVM(t, rg, "usage-vm", nicID, func(vm *armcompute.VirtualMachine) {
 		vm.Properties.HardwareProfile = &armcompute.HardwareProfile{
 			VMSize: to.Ptr(armcompute.VirtualMachineSizeTypes("Standard_B2s")),
@@ -110,8 +106,8 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 	_ = location
 }
 
-// An extension topic is derived from the scope it is asked about, and names the
-// system topic whose source is that resource.
+// An extension topic derives from the scope asked about, and names the system
+// topic whose source is that resource.
 func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	t.Parallel()
 	rg := uniquename.New("eventgrid-extension-rg")
@@ -123,8 +119,7 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Storage/storageAccounts/extensionsource"
 
-	// A resource with no system topic still has an extension topic — the events
-	// exist either way — and it names no system topic, because there is none.
+	// A resource with no system topic still has an extension topic, naming none.
 	bare, err := client.Get(ctx, scope, nil)
 	require.NoError(t, err)
 	require.NotNil(t, bare.Properties)
@@ -132,8 +127,8 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	assert.Contains(t, *bare.Properties.Description, scope)
 	assert.Equal(t, "default", *bare.Name)
 
-	// Create the system topic that carries that resource's events; the
-	// extension topic now points at it.
+	// Once a system topic carries the resource's events, the extension topic
+	// names it.
 	topics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := topics.BeginCreateOrUpdate(ctx, rg, "extension-system-topic", armeventgrid.SystemTopic{
@@ -152,14 +147,12 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	assert.Equal(t, *created.ID, *mapped.Properties.SystemTopic,
 		"the extension topic names the system topic carrying the resource's events")
 
-	// Another resource's extension topic is not that one.
 	other, err := client.Get(ctx, scope+"other", nil)
 	require.NoError(t, err)
 	assert.Empty(t, *other.Properties.SystemTopic)
 }
 
-// A workspace's shared keys are its own pair, and regenerating them replaces
-// the pair rather than reporting that it did.
+// Regenerating a workspace's shared keys replaces the pair.
 func TestSDK_OperationalInsights_RegenerateSharedKey(t *testing.T) {
 	t.Parallel()
 	const rg, workspace = "loganalytics-keys-rg", "keys-workspace"
@@ -168,8 +161,8 @@ func TestSDK_OperationalInsights_RegenerateSharedKey(t *testing.T) {
 	base := baseURL + "/subscriptions/" + subscriptionID + "/resourcegroups/" + rg +
 		"/providers/Microsoft.OperationalInsights/workspaces/"
 
-	// The workspace whose keys these are. It is created through its own ARM
-	// resource, which is what makes the 404 below a real negative control.
+	// Creating the workspace through its own ARM resource makes the 404 below a
+	// real negative control.
 	putARMJSON(t, "/subscriptions/"+subscriptionID+"/resourcegroups/"+rg+
 		"/providers/Microsoft.OperationalInsights/workspaces/"+workspace+"?api-version=2020-08-01",
 		`{"location":"eastus","properties":{"sku":{"name":"PerGB2018"}}}`)
@@ -202,11 +195,10 @@ func TestSDK_OperationalInsights_RegenerateSharedKey(t *testing.T) {
 	assert.NotEqual(t, first["primarySharedKey"], regenerated["primarySharedKey"],
 		"a regeneration must replace the key")
 
-	// And the replacement is what the read serves afterwards.
+	// The read serves the replacement afterwards.
 	after := read(base + workspace + "/sharedKeys")
 	assert.Equal(t, regenerated, after)
 
-	// A workspace the subscription does not hold has no keys to regenerate.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		base+"absent-workspace/regenerateSharedKey?api-version=2020-08-01", nil)
 	require.NoError(t, err)

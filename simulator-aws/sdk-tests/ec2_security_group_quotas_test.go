@@ -15,12 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ValidateSecurityGroupQuotasForInterface arrived in the Amazon EC2 model on
-// 2026-09-04 and the pinned aws-sdk-go-v2 release predates it, so the request
-// is signed and posted the way the generated client signs an ec2Query call.
-// The answer is computed from the security groups the simulator holds, against
-// the Amazon VPC quotas AWS publishes: sixty rules per security group and five
-// security groups per network interface.
+// ValidateSecurityGroupQuotasForInterface reached the Amazon EC2 model on
+// 2026-09-04, after the pinned aws-sdk-go-v2 release, so sign and post the
+// ec2Query call as the generated client would. The simulator answers from its
+// security groups against the published Amazon VPC quotas: sixty rules per
+// security group and five security groups per network interface.
 func validateSecurityGroupQuotas(t *testing.T, groupIDs ...string) (int, string) {
 	t.Helper()
 	form := url.Values{"Action": {"ValidateSecurityGroupQuotasForInterface"}, "Version": {"2016-11-15"}}

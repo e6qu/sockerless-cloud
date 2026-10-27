@@ -13,10 +13,9 @@ import (
 
 // TestLambdaConcurrencyTerraform configures a function's reserved
 // concurrency, an alias's provisioned concurrency and a Kinesis event source
-// mapping with terraform-provider-aws. The provider waits for the provisioned
-// concurrency configuration to read READY, after which the alias's first
-// invocation runs on the environment it initialised
-// (provisioned-concurrency.md.gz).
+// mapping. The provider waits for the provisioned concurrency configuration
+// to read READY, after which the alias's first invocation runs on an
+// environment it initialised.
 func TestLambdaConcurrencyTerraform(t *testing.T) {
 	handler, err := filepath.Abs("../../../testdata/lambda-runtime-handler")
 	require.NoError(t, err)

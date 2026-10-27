@@ -5,15 +5,11 @@
 //
 //	go run scripts/check-fake-tests.go <dir>...
 //
-// Every detector decides from the syntax tree rather than from a grep, because
-// the sweep that motivated this found that grep-based rules miss the instance
-// that matters: the offending expression is in the third file, or is not a
-// literal. Each detector was also calibrated against this repository before
-// being trusted — the first run of `empty-table` reported twenty-four
-// collections as permanently empty, every one of them a map filled by index
-// assignment the detector could not see. A detector that reports findings
-// nobody can act on is itself a fake test, so those were fixed before any
-// finding here was acted on.
+// Every detector decides from the syntax tree rather than a grep, because
+// grep-based rules miss the instance that matters: the offending expression
+// sits in another file, or is not a literal. A detector that reports findings
+// nobody can act on is itself a fake test, so each is calibrated against this
+// repository.
 //
 // Classes at zero are held at zero; the classes with a standing population
 // carry a floor that may only fall. See scripts/check-fake-tests.sh.
@@ -239,9 +235,8 @@ func emptyLiteralFor(body *ast.BlockStmt, name string) bool {
 		case *ast.AssignStmt:
 			for i, lhs := range node.Lhs {
 				// A map or slice filled by index — seen[x] = true — grows
-				// without ever being reassigned. Reading only Ident targets
-				// reported every such collection as permanently empty, which
-				// was every hit this detector produced on its first run.
+				// without ever being reassigned; reading only Ident targets
+				// would report every such collection as permanently empty.
 				if index, ok := lhs.(*ast.IndexExpr); ok {
 					if id, ok := index.X.(*ast.Ident); ok && id.Name == name {
 						grown = true
@@ -492,8 +487,7 @@ func printExpr(b *strings.Builder, fset *token.FileSet, e ast.Expr) error {
 
 // statusOnly reports a response whose status code is asserted and whose body is
 // never read. A handler returning a constant, an empty list, or the request
-// echoed back satisfies a status assertion, which is how two Azure subnet
-// child collections stayed constants through a passing suite.
+// echoed back satisfies a status assertion.
 func statusOnly(fset *token.FileSet, fn *ast.FuncDecl, path string) []finding {
 	var out []finding
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -595,9 +589,7 @@ func anyError(fset *token.FileSet, fn *ast.FuncDecl, path string, identifying, d
 			}
 			// A helper that names the error counts, however deep it sits:
 			// requireSGErrorCode(t, err, "InvalidGroup.NotFound") identifies
-			// the refusal exactly as an inline comparison would, and a
-			// detector blind to it reported six such tests as accepting any
-			// error.
+			// the refusal exactly as an inline comparison would.
 			if callsAsserting(call, identifying) {
 				identified = true
 				return true

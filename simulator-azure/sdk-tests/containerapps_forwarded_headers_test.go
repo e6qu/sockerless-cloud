@@ -63,9 +63,9 @@ func TestSDK_ContainerAppsIngress_ForwardedRequestHeaders(t *testing.T) {
 	assert.Equal(t, baseURLScheme(t), got.Get("X-Forwarded-Proto"))
 }
 
-// echoedFrontEndHeaders sends a request carrying host to the simulator, the way
-// a client resolving a platform hostname to its front end does, and returns the
-// headers the echoing workload received.
+// echoedFrontEndHeaders sends a request carrying host, as a client resolving a
+// platform hostname to its front end does, and returns the headers the
+// echoing workload received.
 func echoedFrontEndHeaders(t *testing.T, host string, header http.Header) http.Header {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)

@@ -8,14 +8,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AppInsightsPurge tracks an asynchronous data-purge operation
-// (ComponentsClient.Purge / GetPurgeStatus).
+// AppInsightsPurge is an asynchronous data purge (Purge / GetPurgeStatus).
 type AppInsightsPurge struct {
 	OperationID string `json:"operationId"`
 	Status      string `json:"status"`
 }
 
-// AppInsightsComponent represents an Azure Application Insights component.
 type AppInsightsComponent struct {
 	ID         string                         `json:"id"`
 	Name       string                         `json:"name"`
@@ -26,12 +24,12 @@ type AppInsightsComponent struct {
 	Properties AppInsightsComponentProperties `json:"properties"`
 }
 
-// AppInsightsComponentProperties holds the properties of an Application Insights component.
-// App Insights uses PascalCase for some property names (InstrumentationKey, ConnectionString)
-// unlike most ARM APIs which use camelCase — the SDK serde reflects this.
+// Application Insights spells some properties in PascalCase
+// (InstrumentationKey, ConnectionString), unlike most Azure Resource Manager
+// APIs.
 type AppInsightsComponentProperties struct {
-	// AppID is the unique id the data plane addresses the component by;
-	// ApplicationID mirrors the component's name.
+	// AppID is the id the data plane addresses the component by; ApplicationID
+	// mirrors the component's name.
 	AppID                           string  `json:"AppId,omitempty"`
 	ApplicationID                   string  `json:"ApplicationId,omitempty"`
 	ApplicationType                 string  `json:"Application_Type,omitempty"`
@@ -41,15 +39,12 @@ type AppInsightsComponentProperties struct {
 	SamplingPercentage              float64 `json:"SamplingPercentage,omitempty"`
 	PublicNetworkAccessForIngestion string  `json:"publicNetworkAccessForIngestion,omitempty"`
 	PublicNetworkAccessForQuery     string  `json:"publicNetworkAccessForQuery,omitempty"`
-	// WorkspaceResourceId links a workspace-based component to its Log Analytics
-	// workspace; terraform-provider-azurerm reads it back as workspace_id.
+	// terraform-provider-azurerm reads WorkspaceResourceId back as workspace_id.
 	WorkspaceResourceId string `json:"WorkspaceResourceId,omitempty"`
 	ProvisioningState   string `json:"provisioningState"`
 }
 
-// AppInsightsBillingFeatures is the currentbillingfeatures wire shape. App
-// Insights is a legacy API that uses PascalCase JSON (not camelCase) — see the
-// note on AppInsightsComponentProperties.
+// The currentbillingfeatures wire shape, in Application Insights' PascalCase.
 type AppInsightsBillingFeatures struct {
 	DataVolumeCap          AppInsightsDataVolumeCap `json:"DataVolumeCap"`
 	CurrentBillingFeatures []string                 `json:"CurrentBillingFeatures"`
@@ -66,9 +61,8 @@ type AppInsightsDataVolumeCap struct {
 
 var azureAppInsightsComponents sim.Store[AppInsightsComponent]
 
-// A component is stored under its ARM id while the query data plane addresses
-// it by the app id it was issued, so the one reaches the other through an
-// index rather than a walk of every component.
+// The store keys components by resource ID while the query data plane
+// addresses them by app id.
 var azureInsightsByApplicationID sim.GenerationIndex[AppInsightsComponent]
 
 func azureInsightsApplicationIDKeys(c AppInsightsComponent) []string {
@@ -78,8 +72,8 @@ func azureInsightsApplicationIDKeys(c AppInsightsComponent) []string {
 	return []string{strings.ToLower(c.Properties.AppID)}
 }
 
-// Telemetry names its component by instrumentation key, and a
-// resource-centric query by ARM id, whatever its casing.
+// Telemetry names its component by instrumentation key, and a resource-centric
+// query by resource ID in any casing.
 var (
 	azureInsightsByInstrumentationKey sim.GenerationIndex[AppInsightsComponent]
 	azureInsightsByResourceID         sim.GenerationIndex[AppInsightsComponent]
@@ -102,7 +96,6 @@ func registerApplicationInsights(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights"
 
-	// PUT - Create or update component
 	srv.HandleFunc("PUT "+armBase+"/components/{componentName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -126,7 +119,7 @@ func registerApplicationInsights(srv *sim.Server) {
 			kind = "web"
 		}
 
-		// Preserve stable IDs across upserts (real App Insights keeps the same instrumentation key).
+		// Application Insights keeps the instrumentation key across upserts.
 		appID := sim.NewUUID()
 		instrumentationKey := sim.NewUUID()
 		if existing, exists := components.Get(resourceID); exists {
@@ -134,9 +127,8 @@ func registerApplicationInsights(srv *sim.Server) {
 			instrumentationKey = existing.Properties.InstrumentationKey
 		}
 
-		// Default provider-managed properties when the request omits them so the
-		// read-back echoes the same values terraform-provider-azurerm expects,
-		// matching real ARM Microsoft.Insights/components defaults.
+		// Default the provider-managed properties as Microsoft.Insights/components
+		// does, so the read-back matches what terraform-provider-azurerm expects.
 		appType := req.Properties.ApplicationType
 		if appType == "" {
 			appType = "web"
@@ -158,7 +150,7 @@ func registerApplicationInsights(srv *sim.Server) {
 			publicNetworkAccessForQuery = "Enabled"
 		}
 
-		// terraform reads tags as a non-null map; echo {} rather than absent/null.
+		// terraform reads tags as a non-null map.
 		tags := req.Tags
 		if tags == nil {
 			tags = map[string]string{}
@@ -189,11 +181,10 @@ func registerApplicationInsights(srv *sim.Server) {
 		}
 
 		components.Put(resourceID, comp)
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, comp)
 	})
 
-	// GET - Get component
 	srv.HandleFunc("GET "+armBase+"/components/{componentName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -211,7 +202,6 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, comp)
 	})
 
-	// DELETE - Delete component
 	srv.HandleFunc("DELETE "+armBase+"/components/{componentName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -226,7 +216,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		}
 	})
 
-	// PATCH - Update component tags only (ComponentsClient.UpdateTags).
+	// ComponentsClient.UpdateTags: tags only.
 	srv.HandleFunc("PATCH "+armBase+"/components/{componentName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -253,7 +243,6 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, comp)
 	})
 
-	// GET - List components in a resource group (ComponentsClient.NewListByResourceGroupPager).
 	srv.HandleFunc("GET "+armBase+"/components", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -267,7 +256,6 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET - List components in the subscription (ComponentsClient.NewListPager).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/components", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		prefix := armSubscriptionID(sub) + "/resourceGroups/"
@@ -280,9 +268,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// POST - Purge data, and GET its status (ComponentsClient.Purge /
-	// GetPurgeStatus). Purge is a 202 that returns an operationId the caller
-	// later polls for completion.
+	// Purge answers 202 with an operationId the caller polls.
 	purges := sim.MakeStore[AppInsightsPurge](srv.DB(), "insights_purges")
 	srv.HandleFunc("POST "+armBase+"/components/{componentName}/purge", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
@@ -308,8 +294,8 @@ func registerApplicationInsights(srv *sim.Server) {
 		}
 		purgeID := sim.NewUUID()
 		purges.Put(purgeID, AppInsightsPurge{OperationID: purgeID, Status: "completed"})
-		// Real App Insights returns the purge id in both the body and the
-		// x-ms-status-location header pointing at the operations status URL.
+		// Application Insights returns the purge id in the body and an
+		// x-ms-status-location header at the operation status URL.
 		w.Header().Set("x-ms-status-location", fmt.Sprintf("%s://%s%s/operations/%s?api-version=%s",
 			azureRequestScheme(r), r.Host, resourceID, purgeID, r.URL.Query().Get("api-version")))
 		sim.WriteJSON(w, http.StatusAccepted, map[string]any{"operationId": purgeID})
@@ -323,10 +309,9 @@ func registerApplicationInsights(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"status": p.Status})
 	})
 
-	// GET/PUT - Billing features (azurerm provider reads then updates after
-	// creating a component). PUT must persist + echo the submitted DataVolumeCap
-	// / CurrentBillingFeatures so e.g. daily_data_cap_in_gb round-trips instead
-	// of perpetually drifting to a static value.
+	// The azurerm provider reads then updates billing features after creating a
+	// component, so PUT persists DataVolumeCap and CurrentBillingFeatures and
+	// daily_data_cap_in_gb round-trips.
 	billing := sim.MakeStore[AppInsightsBillingFeatures](srv.DB(), "insights_billing")
 	defaultBilling := AppInsightsBillingFeatures{
 		DataVolumeCap: AppInsightsDataVolumeCap{
@@ -355,24 +340,19 @@ func registerApplicationInsights(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// ResetTime / MaxHistoryCap are server-computed read-only fields.
+		// ResetTime and MaxHistoryCap are server-computed and read-only.
 		b.DataVolumeCap.MaxHistoryCap = defaultBilling.DataVolumeCap.MaxHistoryCap
 		billing.Put(billingKey(r), b)
 		sim.WriteJSON(w, http.StatusOK, b)
 	})
 
-	// The data plane — the application's telemetry, read through the same query
-	// engine Log Analytics uses.
+	// The application's telemetry, read through the Log Analytics query engine.
 	registerInsightsDataPlane(srv)
 }
 
-// insightsDefaultBilling copies the plan a component starts on, slice and all.
-// Assigning the default gives away its backing array, and decoding a request
-// body into the copy writes through it: a PUT naming the Enterprise plan
-// overwrote "Basic" inside the default, so every component created afterwards
-// started on Enterprise without anyone asking. A default is read by every
-// request that has no record of its own, which makes it exactly the value a
-// request must never be able to write to.
+// insightsDefaultBilling deep-copies the default plan: decoding a request into
+// a shallow copy writes through the shared slice into the default every
+// component without a record reads.
 func insightsDefaultBilling(from AppInsightsBillingFeatures) AppInsightsBillingFeatures {
 	out := from
 	out.CurrentBillingFeatures = append([]string(nil), from.CurrentBillingFeatures...)

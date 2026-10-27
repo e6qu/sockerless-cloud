@@ -6,19 +6,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_move.go re-homes Microsoft.Web resources between resource groups for
-// the Resources_MoveResources operation: the site (or plan / certificate)
-// row itself plus the site's entire child subtree — slots, deployments,
-// host-name bindings, source controls, site extensions, sitecontainers,
-// public and private certificates, domain ownership identifiers, premier
-// add-ons, push settings, function keys, webjobs and run history, deployed
-// content and deployment operation records, config sections and
-// configuration snapshots — so a moved site keeps working exactly as it did,
-// just addressed under the new resource group. The Microsoft.Web hooks in
-// resourceMoveHooks (resource_move.go) dispatch to the functions here.
+// Re-homes Microsoft.Web resources for Resources_MoveResources (through
+// resource_move.go's hooks): the site, plan or certificate and the site's whole
+// child subtree, so a moved site keeps working under the new group.
 
-// webMoveSiteTree moves a production site and everything stored beneath it
-// (including its deployment slots and their subtrees) onto a new resource ID.
+// Including the deployment slots and their subtrees.
 func webMoveSiteTree(oldID, newID, targetRG string) {
 	site, ok := azfSites.Get(oldID)
 	if !ok {
@@ -34,9 +26,7 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 		return &s.ID
 	})
 
-	// Child stores keyed by the site (or slot) resource-ID prefix. The
-	// prefixes below cover both the production site's children and, because
-	// the slot IDs share the site's prefix, every slot child too.
+	// Slot IDs share the site's prefix, so these cover slot children too.
 	oldSub, newSub := oldID+"/", newID+"/"
 	rekeyRowsByPrefix(webDeployments, oldSub, newSub, func(d *WebDeployment) *string { return &d.ID })
 	rekeyRowsByPrefix(webHostNameBindings, oldSub, newSub, func(b *WebHostNameBinding) *string { return &b.ID })
@@ -60,8 +50,6 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 		return &row.ID
 	})
 
-	// Key-addressed per-resource records, for the site itself and each of
-	// its slots.
 	ids := [][2]string{{oldID, newID}}
 	for _, s := range webSlots.Filter(func(row Site) bool { return strings.HasPrefix(row.ID, newID+"/slots/") }) {
 		ids = append(ids, [2]string{oldID + strings.TrimPrefix(s.ID, newID), s.ID})
@@ -72,23 +60,21 @@ func webMoveSiteTree(oldID, newID, targetRG string) {
 		rekeyEntry(siteConfigStore, pair[0], pair[1])
 		rekeyEntry(webWorkflowFiles, pair[0], pair[1])
 		rekeyEntry(kuduSiteSettings, pair[0], pair[1])
-		// The publishing password is derived from the site's resource ID, so
-		// it is pinned across the move the way every other resource-ID-derived
-		// credential is: a move never rotates a site's deployment credential.
+		// The publishing password derives from the resource ID, so pin it: a move
+		// never rotates a site's deployment credential.
 		pinAzureKeySlots(pair[0], pair[1], azureKeyMaterial32, "publishingPassword")
 	}
 
-	// A workflow hosted by the site signs its callback URLs with an access key
-	// derived from the workflow's resource ID, which the site's move rewrote.
+	// A hosted workflow signs callback URLs with a key derived from its resource
+	// ID, which the move rewrote.
 	for _, wf := range logicWorkflows.Filter(func(wf LogicWorkflow) bool { return strings.HasPrefix(wf.ID, newSub) }) {
 		pinAzureKeySlots(oldID+strings.TrimPrefix(wf.ID, newID), wf.ID, azureKeyMaterial32,
 			"logic-access-primary", "logic-access-secondary")
 	}
 }
 
-// webMoveAppServicePlan moves an App Service plan row and repoints every
-// site whose serverFarmId referenced it — a plan and its apps address each
-// other by resource ID, and the move rewrites that ID.
+// A plan and its apps reference each other by resource ID, so repoint every
+// site's serverFarmId.
 func webMoveAppServicePlan(oldID, newID string) {
 	plan, ok := azureAppServicePlans.Get(oldID)
 	if !ok {
@@ -107,8 +93,7 @@ func webMoveAppServicePlan(oldID, newID string) {
 	repoint(webSlots)
 }
 
-// webMoveCertificate moves a resource-group-scoped Microsoft.Web certificate
-// row onto its new resource ID. Certificates carry no child records.
+// Certificates carry no child records.
 func webMoveCertificate(oldID, newID string) {
 	if cert, ok := webCertificates.Get(oldID); ok {
 		webCertificates.Delete(oldID)

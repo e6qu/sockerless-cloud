@@ -17,18 +17,12 @@ func newFuzzRegistry() *OCIRegistry {
 	}
 }
 
-// FuzzOCIServe drives the OCI /v2/ data-plane request router with arbitrary
-// paths, methods, digest query params, and bodies. The path splitting
-// (strings.Index on /blobs/, /manifests/, etc.), the digest prefix handling in
-// storeBlob, the manifest JSON handling, and ociReadBody must never panic on
-// any input — they should return an HTTP error response instead.
-//
-// The second half of that sentence is the half a panic-only oracle cannot see,
-// so the response is inspected too. Each iteration gets a registry with nothing
-// in it, which makes two properties checkable on arbitrary input: a read of
-// content that was never pushed cannot succeed, and no request may leave the
-// registry holding content under an empty key — the shape a digest splitter
-// that mishandles "sha256:" or ":" would produce.
+// FuzzOCIServe drives the OCI /v2/ request router with arbitrary paths,
+// methods, digest query params and bodies. The router must never panic and
+// must answer with an HTTP error instead, so the fuzz inspects the response
+// too: each iteration gets an empty registry, where no read of content can
+// succeed and no request may leave content under an empty key — the shape a
+// digest splitter mishandling "sha256:" or ":" would produce.
 func FuzzOCIServe(f *testing.F) {
 	type seed struct {
 		method, path, digest, enc string

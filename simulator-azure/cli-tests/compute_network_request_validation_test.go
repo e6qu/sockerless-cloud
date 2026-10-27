@@ -10,15 +10,12 @@ import (
 	"time"
 )
 
-// The `az` counterpart of the SDK request-validation tests: Azure answers a
-// virtual-machine or subnet write the client got wrong with 4xx, before its
-// resource provider realizes anything. A 503 OperationNotAllowed would tell az
-// (and every SDK retry policy) that the service is temporarily unwell and the
-// request is worth repeating, which it never is.
+// Azure answers a malformed virtual machine or subnet write with 4xx. A 503
+// OperationNotAllowed would tell az and every SDK retry policy to repeat a
+// request that can never succeed.
 
-// runCLIExpectFailure runs an az command that must fail, returning its combined
-// output so the caller can assert on the error Azure reported. runCLI fails the
-// test on a non-zero exit, which is the opposite of what these tests need.
+// runCLIExpectFailure runs an az command that must fail and returns its
+// combined output.
 func runCLIExpectFailure(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	const perCmdTimeout = 60 * time.Second

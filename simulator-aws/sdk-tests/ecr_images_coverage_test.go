@@ -13,9 +13,8 @@ import (
 
 const ecrManifest = `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:covcfg"},"layers":[]}`
 
-// TestECR_ListAndDescribeAndDeleteImages covers ListImages + DescribeImages
-// (both were unregistered) and the BatchDeleteImage alias-delete fix (deleting
-// by tag must drop the image's digest alias too).
+// TestECR_ListAndDescribeAndDeleteImages expects BatchDeleteImage by tag to
+// drop the image's digest too.
 func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("cov-images")
@@ -43,15 +42,13 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 		ImageIds:       []ecrtypes.ImageIdentifier{{ImageTag: aws.String("v1")}},
 	})
 	require.NoError(t, err)
-	// Deleted entries are bare ImageIdentifier objects (imageDigest /
-	// imageTag) the SDK reads back directly — the digest is resolved even
-	// though the delete was by tag.
+	// Deleted entries are ImageIdentifier objects carrying the digest even though
+	// the delete named the tag.
 	require.Len(t, del.ImageIds, 1)
 	assert.Equal(t, "v1", aws.ToString(del.ImageIds[0].ImageTag))
 	assert.NotEmpty(t, aws.ToString(del.ImageIds[0].ImageDigest))
 	assert.Empty(t, del.Failures)
 
-	// The image (and its digest alias) is gone from both reads.
 	descAfter, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
 	assert.Empty(t, descAfter.ImageDetails, "BatchDeleteImage removes every alias")
@@ -60,17 +57,15 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 	assert.Empty(t, listAfter.ImageIds)
 }
 
-// TestECR_ListImagesFilterAndPagination covers the filter.tagStatus + maxResults
-// /nextToken support that ListImages/DescribeImages silently dropped (a TAGGED/
-// UNTAGGED filter previously returned every image).
+// TestECR_ListImagesFilterAndPagination covers filter.tagStatus and maxResults
+// and nextToken on ListImages and DescribeImages.
 func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("cov-filter")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
-	// Two distinct manifests (different config digests → different image
-	// digests) so each tag is a separate image and pagination has 2 entries.
+	// Two manifests with different config digests make two images to page.
 	imgs := []struct{ tag, manifest string }{
 		{"v1", `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:covimg1"},"layers":[]}`},
 		{"v2", `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:covimg2"},"layers":[]}`},
@@ -112,7 +107,6 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 		aws.ToString(page2.ImageIds[0].ImageDigest)+aws.ToString(page2.ImageIds[0].ImageTag),
 		"each page returns a distinct imageId")
 
-	// DescribeImages honors the same UNTAGGED filter.
 	descUntagged, err := c.DescribeImages(ctx, &ecr.DescribeImagesInput{
 		RepositoryName: aws.String(repo),
 		Filter:         &ecrtypes.DescribeImagesFilter{TagStatus: ecrtypes.TagStatusUntagged},
@@ -121,7 +115,6 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 	assert.Empty(t, descUntagged.ImageDetails, "DescribeImages UNTAGGED excludes tagged images")
 }
 
-// TestECR_LifecyclePolicyLifecycle covers Put/Get/DeleteLifecyclePolicy.
 func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 	t.Parallel()
 	repo := uniquename.New("cov-lifecycle")
@@ -142,7 +135,7 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 	assert.Error(t, err, "lifecycle policy gone after delete")
 }
 
-// imageSizeInBytes is the image's compressed layers and its config, and a
+// imageSizeInBytes counts the image's compressed layers and its config, and a
 // repository's images are its own even when another repository's name begins
 // with its name.
 func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
@@ -173,9 +166,9 @@ func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
 		"two layers of 1200 and 34 bytes and a 7-byte config")
 }
 
-// ecrClusterAutoscalerManifest is the manifest of cluster-autoscaler v1.13.6
-// as the AWS CLI's batch-get-image example prints it; its describe-images
-// example reports the same image at 48318255 bytes.
+// ecrClusterAutoscalerManifest is cluster-autoscaler v1.13.6's manifest as the
+// AWS CLI's batch-get-image example prints it; its describe-images example
+// reports the image at 48318255 bytes.
 const ecrClusterAutoscalerManifest = `{
    "schemaVersion": 2,
    "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
@@ -208,8 +201,7 @@ const ecrClusterAutoscalerManifest = `{
    ]
 }`
 
-// The size Amazon ECR reports for an image AWS documents both the manifest and
-// the imageSizeInBytes of.
+// Amazon ECR sizes an image whose manifest and imageSizeInBytes AWS documents.
 func TestECR_DescribeImagesSizesTheDocumentedImage(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()

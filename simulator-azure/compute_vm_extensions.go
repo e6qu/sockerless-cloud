@@ -12,19 +12,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Azure virtual machine extensions. An extension is not a record that something
-// was installed — it is the guest agent running the handler's payload inside
-// the machine, and the instance view afterwards is what that run produced. So
-// the Custom Script extension's commandToExecute executes in the guest through
-// azureGuestExec, and its output and exit status are what the extension
-// reports.
-//
-// An extension whose handler this simulator does not implement is refused
-// rather than reported as succeeded: a caller cannot tell a handler that did
-// nothing from one that ran, and provisioning an extension that never ran is
-// precisely the fiction these operations exist to avoid.
+// Azure virtual machine extensions: the Custom Script extension's
+// commandToExecute runs in the guest through azureGuestExec, and its output and
+// exit status are what the extension reports. A handler this simulator does not
+// implement is refused rather than reported as succeeded.
 
-// VirtualMachineExtension is the ARM resource.
 type VirtualMachineExtension struct {
 	ID         string                            `json:"id,omitempty"`
 	Name       string                            `json:"name,omitempty"`
@@ -45,9 +37,8 @@ type VirtualMachineExtensionProperties struct {
 	SuppressFailures        *bool                                `json:"suppressFailures,omitempty"`
 	ProvisioningState       string                               `json:"provisioningState,omitempty"`
 	InstanceView            *VirtualMachineExtensionInstanceView `json:"instanceView,omitempty"`
-	// ProtectedSettings is accepted and never returned, which is what makes it
-	// protected. It is stored so the handler can read it, exactly as the guest
-	// agent does, and stripped from every response.
+	// Keep ProtectedSettings for the handler, as the guest agent does, and strip
+	// it from every response.
 	ProtectedSettings map[string]any `json:"protectedSettings,omitempty"`
 }
 
@@ -61,10 +52,7 @@ type VirtualMachineExtensionInstanceView struct {
 
 var azureVMExtensions sim.Store[VirtualMachineExtension]
 
-// customScriptHandlers are the extension handlers this simulator runs. The pair
-// is (publisher, type) as Azure names them; the Custom Script extension is the
-// one whose contract is "run this in the machine", which is the contract the
-// execution path satisfies.
+// The pair is (publisher, type) as Azure names them.
 var customScriptHandlers = map[string]bool{
 	"Microsoft.Azure.Extensions/CustomScript":       true,
 	"Microsoft.OSTCExtensions/CustomScriptForLinux": true,
@@ -128,9 +116,8 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		if len(patch.Tags) > 0 {
 			existing.Tags = patch.Tags
 		}
-		// A patch re-runs the handler, because changing what an extension is
-		// supposed to do without doing it would leave the instance view
-		// describing the previous run.
+		// A patch re-runs the handler, so the instance view describes the new
+		// settings.
 		view, err := azureRunVMExtension(r.Context(), vm, existing.Name, existing.Properties)
 		if err != nil {
 			azureWriteVMExtensionError(w, existing.Name, err)
@@ -174,8 +161,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+extPath, func(w http.ResponseWriter, r *http.Request) {
 		id := azureVMExtensionID(r)
 		if !azureVMExtensions.Delete(id) {
-			// Azure answers a delete of an extension that is not there with 204,
-			// the same as a delete that removed one.
+			// Azure answers a delete of an absent extension with 204.
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -183,10 +169,8 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 	})
 }
 
-// azureVMExtensionHandlerError is a handler this simulator cannot run at all,
-// which Azure refuses as VMExtensionHandlerNotFound; any other failure is the
-// guest failing to process the extension, which Azure reports as
-// VMExtensionProvisioningError.
+// Azure refuses a handler that cannot run at all as VMExtensionHandlerNotFound;
+// any other failure is VMExtensionProvisioningError.
 type azureVMExtensionHandlerError struct{ message string }
 
 func (e *azureVMExtensionHandlerError) Error() string { return e.message }
@@ -205,13 +189,10 @@ func azureVMExtensionID(r *http.Request) string {
 	return armChildID(azureVMResourceID(r), "extensions", sim.PathParam(r, "vmExtensionName"))
 }
 
-// azureVMExtensionResponse strips the members Azure never returns. Protected
-// settings are write-only by contract — returning them would hand back a secret
-// the caller entrusted to the machine.
+// Protected settings are write-only by contract.
 func azureVMExtensionResponse(e VirtualMachineExtension, r *http.Request) VirtualMachineExtension {
 	e.Properties.ProtectedSettings = nil
-	// The instance view is returned on a read only when it was asked for, which
-	// is how Azure keeps a list cheap.
+	// Azure returns the instance view on a read only when $expand asks for it.
 	if r.Method == http.MethodGet && !strings.EqualFold(r.URL.Query().Get("$expand"), "instanceView") {
 		e.Properties.InstanceView = nil
 	}
@@ -260,10 +241,6 @@ func azureVMExtensionFailed(view *VirtualMachineExtensionInstanceView) bool {
 	return false
 }
 
-// azureRunVMExtension executes the extension in the machine and reports what
-// happened. The command comes from the handler's own settings — commandToExecute
-// for the Custom Script extension, which is the member that contract defines —
-// and it runs in the guest, so the status reflects a real execution.
 func azureRunVMExtension(
 	ctx context.Context,
 	vm VirtualMachine,
@@ -306,22 +283,17 @@ func azureRunVMExtension(
 			DisplayStatus: "Provisioning failed",
 			Time:          now,
 		}
-		// The message says what happened. Reporting "Enable succeeded" on a
-		// command that exited non-zero would contradict the status beside it.
 		outcome = fmt.Sprintf("Enable failed: the command exited %d", exitCode)
 	}
-	// The handler reports what the command wrote, which is what an operator
-	// reads to find out what an extension actually did.
 	status.Message = fmt.Sprintf("%s: \n[stdout]\n%s\n[stderr]\n%s",
 		outcome, string(stdout), string(stderr))
 	view.Statuses = []VMStatus{status}
 	return view, nil
 }
 
-// azureCustomScriptCommand reads the command out of the handler's settings. The
-// Custom Script extension accepts it in the public settings or the protected
-// ones, and the protected copy wins because that is where a caller puts a
-// command carrying a secret.
+// The Custom Script extension accepts the command in public or protected
+// settings; the protected copy wins, as that is where a command carrying a
+// secret goes.
 func azureCustomScriptCommand(properties VirtualMachineExtensionProperties) string {
 	if command, ok := properties.ProtectedSettings["commandToExecute"].(string); ok && command != "" {
 		return command

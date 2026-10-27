@@ -9,13 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventGrid_ARMControlPlaneMore exercises the broader Microsoft.EventGrid
-// ARM control plane the simulator serves beyond basic topic CRUD: the
-// operations + topic-type registries, resource updates (PATCH) and key
-// regeneration, the per-scope EventSubscription extensions (update /
-// getFullUrl / getDeliveryAttributes), the subscription-/resource-group-/
-// regional-/topic-type-scoped event subscription list views, event types by
-// resource, and private link resources / private endpoint connections.
+// TestEventGrid_ARMControlPlaneMore exercises the Microsoft.EventGrid control
+// plane beyond topic CRUD: the operations and topic-type registries, PATCH and
+// key regeneration, the event subscription extensions (update, getFullUrl,
+// getDeliveryAttributes), the scoped event subscription lists, event types by
+// resource, and private link resources and endpoint connections.
 func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-eventgrid-more-rg"
@@ -85,14 +83,13 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, regenResp.Key1)
 	require.NotNil(t, regenResp.Key2)
-	// listKeys reflects the rotation, exactly as real EventGrid does: key1 is
-	// the regenerated value, key2 is unchanged.
+	// listKeys reflects the rotation: key1 is the regenerated value, key2 is
+	// unchanged.
 	keys, err := topics.ListSharedAccessKeys(ctx, rg, topicName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, *keys.Key2, *regenResp.Key2)
 	assert.Equal(t, *keys.Key1, *regenResp.Key1)
 
-	// Topics_ListEventTypes (event types under the topic resource).
 	tePager := topics.NewListEventTypesPager(rg, "Microsoft.EventGrid", "topics", topicName, nil)
 	for tePager.More() {
 		_, err := tePager.NextPage(ctx)
@@ -150,8 +147,7 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "eg", *stUpdResp.Tags["owner"])
 
-	// ---- Event subscription on a topic scope: create → update → getFullUrl
-	//      → getDeliveryAttributes, then the scoped list views ----
+	// An event subscription on a topic scope, then the scoped list views.
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.EventGrid/topics/" + topicName
@@ -196,7 +192,6 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	_, err = subs.GetDeliveryAttributes(ctx, scope, subName, nil)
 	require.NoError(t, err)
 
-	// Scoped list views: each pager must surface the created subscription.
 	globalSub := []*armeventgrid.EventSubscription{}
 	for p := subs.NewListGlobalBySubscriptionPager(nil); p.More(); {
 		page, err := p.NextPage(ctx)

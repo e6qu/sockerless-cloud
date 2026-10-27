@@ -14,18 +14,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// A regional NAT gateway belongs to a VPC rather than to a subnet. Its
-// addresses each serve one Availability Zone. In automatic mode, the
-// default, it "associates EIPs in all AZs where your VPC has subnets ...,
-// expands to new AZs when you create subnets there, and retracts from AZs
-// where you've removed all subnets"; with AvailabilityZoneAddresses given
-// "auto-expansion is disabled and you must manually manage AZ coverage".
-// The simulator places the gateway's presence in each covered zone at a
-// private address of one of the zone's subnets, where the zone's egress
-// sidecar runs.
+// A regional NAT gateway belongs to a VPC, each address serving one zone. In
+// automatic mode, the default, it "associates EIPs in all AZs where your VPC
+// has subnets ..., expands to new AZs when you create subnets there, and
+// retracts from AZs where you've removed all subnets"; with
+// AvailabilityZoneAddresses "auto-expansion is disabled". The simulator places
+// each zone's presence at a private address of one of the zone's subnets.
 
-// ec2NatRegionalMu serializes changes to regional gateways' zones and
-// addresses, which subnet, gateway and address operations all make.
+// Subnet, gateway and address operations all change regional gateways' zones.
 var ec2NatRegionalMu sync.Mutex
 
 func handleCreateRegionalNatGateway(w http.ResponseWriter, r *http.Request, connectivityType string) {
@@ -104,9 +100,7 @@ func handleCreateRegionalNatGateway(w http.ResponseWriter, r *http.Request, conn
 	writeCreateNatGatewayResponse(w, natgw)
 }
 
-// ec2RegionalZoneAddressParams reads CreateNatGateway's
-// AvailabilityZoneAddress.N members, each naming its zone by name or id and
-// the Elastic IP addresses that serve it.
+// Each member names its zone by name or id and the Elastic IPs serving it.
 func ec2RegionalZoneAddressParams(r *http.Request) ([]EC2NatGatewayAddress, string, string) {
 	var addresses []EC2NatGatewayAddress
 	for i := 1; ; i++ {
@@ -135,8 +129,7 @@ func ec2RegionalZoneAddressParams(r *http.Request) ([]EC2NatGatewayAddress, stri
 	}
 }
 
-// ec2ElasticIPAssociated reports whether the Elastic IP address is already
-// associated, with an instance or network interface or with a NAT gateway.
+// Associated with an instance, a network interface or a NAT gateway.
 func ec2ElasticIPAssociated(eip EC2ElasticIP) bool {
 	if eip.AssociationId != "" {
 		return true
@@ -151,8 +144,6 @@ func ec2ElasticIPAssociated(eip EC2ElasticIP) bool {
 	return false
 }
 
-// ec2NatGatewayZoneOf is the gateway's presence in the zone, when the
-// gateway covers it.
 func ec2NatGatewayZoneOf(natgw EC2NatGateway, zone string) (EC2NatGatewayZone, bool) {
 	for _, z := range natgw.Zones {
 		if z.AvailabilityZone == zone {
@@ -162,8 +153,6 @@ func ec2NatGatewayZoneOf(natgw EC2NatGateway, zone string) (EC2NatGatewayZone, b
 	return EC2NatGatewayZone{}, false
 }
 
-// ec2ReleaseAmazonProvidedNatAddresses returns the public addresses a
-// regional gateway allocated itself to the pool.
 func ec2ReleaseAmazonProvidedNatAddresses(addresses []EC2NatGatewayAddress) {
 	for _, address := range addresses {
 		if address.AmazonProvided {
@@ -172,8 +161,7 @@ func ec2ReleaseAmazonProvidedNatAddresses(addresses []EC2NatGatewayAddress) {
 	}
 }
 
-// ec2RefuseRegionalPrivateAddresses refuses the private-address operations
-// on a regional gateway, whose addresses are Elastic IP addresses per zone.
+// A regional gateway's addresses are Elastic IPs per zone.
 func ec2RefuseRegionalPrivateAddresses(w http.ResponseWriter, natgw EC2NatGateway) bool {
 	if ec2NatAvailabilityMode(natgw) != "regional" {
 		return false
@@ -182,10 +170,8 @@ func ec2RefuseRegionalPrivateAddresses(w http.ResponseWriter, natgw EC2NatGatewa
 	return true
 }
 
-// ec2AssociateRegionalNatGatewayAddress associates Elastic IP addresses with
-// a regional gateway in the zone the request names: "The regional NAT
-// gateway uses a separate EIP in each AZ to handle outbound NAT traffic from
-// that AZ."
+// "The regional NAT gateway uses a separate EIP in each AZ to handle outbound
+// NAT traffic from that AZ."
 func ec2AssociateRegionalNatGatewayAddress(w http.ResponseWriter, r *http.Request, natgw EC2NatGateway) {
 	if len(ec2ParamList(r, "PrivateIpAddress")) > 0 {
 		ec2ErrorXML(w, "InvalidParameterCombination", "PrivateIpAddress is not supported for a regional NAT gateway", http.StatusBadRequest)
@@ -233,9 +219,7 @@ func ec2AssociateRegionalNatGatewayAddress(w http.ResponseWriter, r *http.Reques
 	writeNatGatewayAddressResponse(w, "AssociateNatGatewayAddress", natgw)
 }
 
-// ec2DisassociateRegionalNatGatewayAddress disassociates addresses from a
-// regional gateway, whose every address, the only one of a zone included,
-// may go: a zone left without an address leaves the gateway's coverage.
+// Any address may go; a zone left without one leaves the gateway's coverage.
 func ec2DisassociateRegionalNatGatewayAddress(w http.ResponseWriter, r *http.Request, natgw EC2NatGateway) {
 	associations := ec2ParamList(r, "AssociationId")
 	if len(associations) == 0 {
@@ -262,20 +246,16 @@ func ec2DisassociateRegionalNatGatewayAddress(w http.ResponseWriter, r *http.Req
 	writeNatGatewayAddressResponse(w, "DisassociateNatGatewayAddress", natgw)
 }
 
-// ec2ReconcileRegionalNatGatewaysLogged reconciles the VPC's regional
-// gateways for an operation that has already taken effect and cannot fail
-// on the gateways' data plane.
+// For operations that already took effect and cannot fail on the data plane.
 func ec2ReconcileRegionalNatGatewaysLogged(ctx context.Context, vpcID string) {
 	if err := ec2ReconcileRegionalNatGateways(ctx, vpcID); err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-ec2] vpc %s: regional NAT gateways: %v\n", vpcID, err)
 	}
 }
 
-// ec2ReconcileRegionalNatGateways brings every available regional gateway of
-// the VPC to the VPC's subnets: an automatic gateway covers the zones the
-// subnets use and no other, each covered zone with an IPv4 subnet holds the
-// gateway at an address of one of them, and the zone's sidecar runs there
-// while the VPC's network is up. Every workload of the VPC then follows its
+// An automatic gateway covers exactly the zones the subnets use; each covered
+// zone with an IPv4 subnet holds the gateway at one of its addresses, with the
+// sidecar running while the network is up. Every workload then follows its
 // route table again.
 func ec2ReconcileRegionalNatGateways(ctx context.Context, vpcID string) error {
 	if vpcID == "" || ec2NatGateways == nil {

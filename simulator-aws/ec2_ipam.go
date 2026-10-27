@@ -12,13 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements faithful control-plane CRUD for Amazon EC2 IP Address
-// Manager (IPAM). An IPAM owns a public and a private default scope (created
-// with it) plus a default resource discovery and its association; scopes hold
-// pools; pools hold provisioned CIDRs and carved allocations. Every resource is
-// backed by a real SQLite-persisted store and rendered as the exact ec2Query XML
-// the AWS SDK for Go v2 and the aws CLI deserialize (member casing taken from
-// ec2.smithy.json).
+// An IPAM comes with public and private default scopes and a default resource
+// discovery and association; scopes hold pools; pools hold provisioned CIDRs
+// and carved allocations.
 
 type EC2IpamOperatingRegion struct {
 	RegionName string
@@ -82,9 +78,8 @@ type EC2IpamPool struct {
 	AllocationResourceTags         []EC2Tag
 	PublicIpSource                 string
 	Tags                           []EC2Tag
-	// Provisioned CIDRs and carved allocations live with the pool.
-	Cidrs       []EC2IpamPoolCidr
-	Allocations []EC2IpamPoolAllocation
+	Cidrs                          []EC2IpamPoolCidr
+	Allocations                    []EC2IpamPoolAllocation
 }
 
 type EC2IpamPoolCidr struct {
@@ -137,7 +132,7 @@ var (
 	ec2IpamPools             sim.Store[EC2IpamPool]
 	ec2IpamResourceDiscos    sim.Store[EC2IpamResourceDiscovery]
 	ec2IpamResourceDiscoAsns sim.Store[EC2IpamResourceDiscoveryAssociation]
-	// Delegated IPAM Organizations admin account, set by EnableIpamOrganizationAdminAccount.
+	// Set by EnableIpamOrganizationAdminAccount.
 	ec2IpamAdminAccounts sim.Store[ec2IpamAdminAccount]
 )
 
@@ -153,25 +148,21 @@ func registerEC2IPAM(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IpamResourceDiscoAsns = sim.MakeStore[EC2IpamResourceDiscoveryAssociation](srv.DB(), "ec2_ipam_resource_discovery_associations")
 	ec2IpamAdminAccounts = sim.MakeStore[ec2IpamAdminAccount](srv.DB(), "ec2_ipam_admin_accounts")
 
-	// IPAM
 	r.Register("CreateIpam", handleCreateIpam)
 	r.Register("DescribeIpams", handleDescribeIpams)
 	r.Register("ModifyIpam", handleModifyIpam)
 	r.Register("DeleteIpam", handleDeleteIpam)
 
-	// Scopes
 	r.Register("CreateIpamScope", handleCreateIpamScope)
 	r.Register("DescribeIpamScopes", handleDescribeIpamScopes)
 	r.Register("ModifyIpamScope", handleModifyIpamScope)
 	r.Register("DeleteIpamScope", handleDeleteIpamScope)
 
-	// Pools
 	r.Register("CreateIpamPool", handleCreateIpamPool)
 	r.Register("DescribeIpamPools", handleDescribeIpamPools)
 	r.Register("ModifyIpamPool", handleModifyIpamPool)
 	r.Register("DeleteIpamPool", handleDeleteIpamPool)
 
-	// Pool CIDRs + allocations
 	r.Register("ProvisionIpamPoolCidr", handleProvisionIpamPoolCidr)
 	r.Register("DeprovisionIpamPoolCidr", handleDeprovisionIpamPoolCidr)
 	r.Register("GetIpamPoolCidrs", handleGetIpamPoolCidrs)
@@ -180,7 +171,6 @@ func registerEC2IPAM(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("GetIpamPoolAllocations", handleGetIpamPoolAllocations)
 	r.Register("DescribeIpamPoolAllocations", handleDescribeIpamPoolAllocations)
 
-	// Resource discoveries + associations
 	r.Register("CreateIpamResourceDiscovery", handleCreateIpamResourceDiscovery)
 	r.Register("DescribeIpamResourceDiscoveries", handleDescribeIpamResourceDiscoveries)
 	r.Register("ModifyIpamResourceDiscovery", handleModifyIpamResourceDiscovery)
@@ -189,12 +179,10 @@ func registerEC2IPAM(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DisassociateIpamResourceDiscovery", handleDisassociateIpamResourceDiscovery)
 	r.Register("DescribeIpamResourceDiscoveryAssociations", handleDescribeIpamResourceDiscoveryAssociations)
 
-	// Resource CIDRs + address history
 	r.Register("GetIpamResourceCidrs", handleGetIpamResourceCidrs)
 	r.Register("GetIpamAddressHistory", handleGetIpamAddressHistory)
 	r.Register("ModifyIpamResourceCidr", handleModifyIpamResourceCidr)
 
-	// Organizations delegated admin
 	r.Register("EnableIpamOrganizationAdminAccount", handleEnableIpamOrganizationAdminAccount)
 	r.Register("DisableIpamOrganizationAdminAccount", handleDisableIpamOrganizationAdminAccount)
 }
@@ -203,7 +191,6 @@ func ipamArn(resource string) string {
 	return fmt.Sprintf("arn:aws:ec2::%s:%s", awsAccountID(), resource)
 }
 
-// ec2ParseOperatingRegions reads OperatingRegion.N.RegionName request params.
 func ec2ParseOperatingRegions(r *http.Request, prefix string) []EC2IpamOperatingRegion {
 	var regions []EC2IpamOperatingRegion
 	for i := 1; ; i++ {
@@ -238,8 +225,7 @@ func handleCreateIpam(w http.ResponseWriter, r *http.Request) {
 		tier = "advanced"
 	}
 
-	// An IPAM is created together with its public + private default scopes and a
-	// default resource discovery + association, exactly like real AWS.
+	// Create the default scopes, resource discovery and association with the IPAM.
 	pubScope := EC2IpamScope{
 		IpamScopeId:   ec2ID("ipam-scope"),
 		OwnerId:       ec2Owner(),
@@ -427,8 +413,8 @@ func handleDeleteIpam(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidIpamId.NotFound", fmt.Sprintf("The ipam ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Cascade: the IPAM's default scopes, default resource discovery, its
-	// association, and any pools under its scopes go away with it.
+	// The default scopes, resource discovery, association and pools go with the
+	// IPAM.
 	scopeIDs := map[string]bool{}
 	for _, s := range ec2IpamScopes.List() {
 		if s.IpamArn == ipam.IpamArn {
@@ -604,7 +590,7 @@ func handleCreateIpamPool(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter addressFamily", http.StatusBadRequest)
 		return
 	}
-	// Resolve the owning IPAM from the scope's ARN (arn:...:ipam/ipam-xxxx).
+	// The scope's IpamArn ends in ipam/ipam-xxxx.
 	ipamID := strings.TrimPrefix(scope.IpamArn[strings.LastIndex(scope.IpamArn, ":")+1:], "ipam/")
 	id := ec2ID("ipam-pool")
 	pool := EC2IpamPool{
@@ -655,8 +641,7 @@ func atoiOr(s string, def int) int {
 	return v
 }
 
-// parseAllocationResourceTags reads AllocationResourceTag.N.Key/Value (the IPAM
-// pool's allocation-resource-tag list, a flat key/value list, not a tag spec).
+// A flat key/value list, not a tag specification.
 func parseAllocationResourceTags(r *http.Request, prefix string) []EC2Tag {
 	var tags []EC2Tag
 	for i := 1; ; i++ {
@@ -998,9 +983,7 @@ func ipamPoolAllocationBodyXML(a EC2IpamPoolAllocation) string {
 	return b.String()
 }
 
-// ipamCarveCidr carves the next free sub-CIDR of the given netmask length out of
-// the pool's provisioned CIDRs, avoiding existing allocations. Returns "" if it
-// can't fit. Faithful to how IPAM hands out non-overlapping sub-ranges.
+// Returns "" when nothing fits.
 func ipamCarveCidr(pool EC2IpamPool, netmask int) string {
 	for _, prov := range pool.Cidrs {
 		base := prov.Cidr
@@ -1182,8 +1165,8 @@ func handleGetIpamPoolAllocations(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDescribeIpamPoolAllocations(w http.ResponseWriter, r *http.Request) {
-	// DescribeIpamPoolAllocations selects by allocation IDs (or filters) across
-	// every pool — it carries no IpamPoolId, unlike GetIpamPoolAllocations.
+	// Unlike GetIpamPoolAllocations, this spans every pool and carries no
+	// IpamPoolId.
 	wantIDs := ec2ParamList(r, "IpamPoolAllocationId")
 	filters := ec2Filters(r)
 	var all []EC2IpamPoolAllocation
@@ -1475,11 +1458,8 @@ func ipamResourceDiscoveryAssociationMatchesFilters(a EC2IpamResourceDiscoveryAs
 	return true
 }
 
-// GetIpamResourceCidrs surfaces the VPC/subnet CIDRs IPAM monitors. We synthesize
-// the monitored set from each pool allocation that targets a resource, joined to
-// the scope it belongs to — faithful in shape and content (a real IPAM populates
-// these from resource discovery; in the sim the allocations are the discovered
-// resources).
+// A real IPAM fills these from resource discovery; the simulator derives them
+// from pool allocations that target a resource.
 
 func handleGetIpamResourceCidrs(w http.ResponseWriter, r *http.Request) {
 	scopeID := r.FormValue("IpamScopeId")
@@ -1535,7 +1515,6 @@ func handleGetIpamAddressHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	var items strings.Builder
-	// Surface the allocation history for the requested CIDR across all pools.
 	for _, p := range ec2IpamPools.List() {
 		for _, a := range p.Allocations {
 			if a.Cidr != cidr {

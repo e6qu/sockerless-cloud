@@ -19,10 +19,7 @@
 # pattern match. cve-canary's signatures are four OWASP Log4j ids plus two
 # `google-mrs-` React ids, and json-sqli-canary's single signature is
 # `owasp-crs-id942550-sqli` — no CRS-version segment at all, unlike every other
-# id on the page. Composing that one by analogy would have produced
-# `owasp-crs-v030001-id942550-sqli`, a string that appears in no repository
-# anywhere; the real one appears in Google's own terraform-google-waap. It is
-# read from the page, not built.
+# id on the page — so it is read from the page, never composed by analogy.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"

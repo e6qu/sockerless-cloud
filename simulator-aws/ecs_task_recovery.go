@@ -16,8 +16,7 @@ func recoverECSTasks() error {
 	return recoverECSTasksWithContainerFinder(ecsFindExistingWorkloads)
 }
 
-// ecsFindExistingWorkloads lists the workloads of a task an earlier process
-// placed, on the backend the task's launch type places on.
+// On the backend the task's launch type places on.
 func ecsFindExistingWorkloads(task ECSTask, labels map[string]string) ([]placement.Existing, error) {
 	backend, err := awsPlacement.For(ecsPlacementService(task.LaunchType))
 	if err != nil {
@@ -26,8 +25,6 @@ func ecsFindExistingWorkloads(task ECSTask, labels map[string]string) ([]placeme
 	return backend.Find(context.Background(), labels)
 }
 
-// ecsWorkloadFinder lists the workloads carrying every label that an earlier
-// process placed for task.
 type ecsWorkloadFinder func(task ECSTask, labels map[string]string) ([]placement.Existing, error)
 
 func recoverECSTasksWithContainerFinder(findExistingContainers ecsWorkloadFinder) error {
@@ -160,13 +157,8 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 	}
 }
 
-// ecsRecoverStoppingTask finishes a stop that the previous simulator process
-// accepted and did not complete. StopTask answers before the task's containers
-// have stopped, so a restart inside a container's stop timeout leaves a task
-// whose desired status is STOPPED and whose last status is not. Resuming or
-// adopting it as a running task would keep a workload the caller asked to
-// stop; whatever of it is still on the host is adopted only so that the stop
-// can take it down.
+// A restart inside a stop timeout leaves a task desired STOPPED but not yet
+// stopped; adopt what remains only so the stop can take it down.
 func ecsRecoverStoppingTask(task ECSTask, findExistingContainers ecsWorkloadFinder) error {
 	taskID := task.TaskID()
 	existing, err := findExistingContainers(task, map[string]string{"sockerless-sim-task": taskID})

@@ -10,11 +10,9 @@
 # provider, one "Choose your locations" page each, and all four share the same
 # six-column table. The tables lean on rowspans — a metropolitan area written
 # once covers the entries beneath it — so they are read through the grid
-# expander in scripts/lib/html_table_grid.py rather than row by row. A
+# expander in scripts/lib/html_table_grid.py rather than row by row: a
 # row-counting parser gets the enumeration right and the associations wrong,
-# which is the one failure a count check cannot catch, and it did: it filed
-# aws-lgknx under no city at all, because Seoul is rowspanned from the entry
-# above it.
+# the one failure a count check cannot catch.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"

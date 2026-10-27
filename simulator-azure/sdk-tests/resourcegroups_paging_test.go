@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ResourceGroups_List honours $top and continues at the nextLink it returns;
-// the SDK pager follows it to the end of the list.
+// ResourceGroups_List honours $top and continues at its nextLink, which the SDK
+// pager follows to the end.
 func TestResourceGroups_ListPagesByTop(t *testing.T) {
 	t.Parallel()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())

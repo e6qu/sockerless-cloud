@@ -40,11 +40,8 @@ func TestWafExpressionSetsVendoredCatalog(t *testing.T) {
 		t.Errorf("catalogue holds %d signature slots, want %d", got, want)
 	}
 
-	// A stable set and its canary are in sync, which the source states outright
-	// for every pair it lists, so they hold the same signatures. The two
-	// vulnerability sets have no stable half — cve-canary and json-sqli-canary
-	// are canary-only, which is why their names carry no counterpart — so a
-	// pair is only checked where the source has one.
+	// The source states each stable set and its canary are in sync, so they hold
+	// the same signatures. cve-canary and json-sqli-canary have no stable half.
 	pairs := 0
 	for id := range byID {
 		stable := regexp.MustCompile(`-canary$`).ReplaceAllString(id, "-stable")
@@ -65,10 +62,8 @@ func TestWafExpressionSetsVendoredCatalog(t *testing.T) {
 		t.Errorf("%d stable/canary pairs, want %d — the two vulnerability sets are canary-only", got, want)
 	}
 
-	// The two sets whose signatures the page gives outside the versioned
-	// tables. json-sqli-canary is the one that matters: its identifier carries
-	// no CRS-version segment, so composing it by analogy with every other id
-	// produces owasp-crs-v030001-id942550-sqli, which exists nowhere.
+	// json-sqli-canary's identifier has no CRS-version segment, so composing it by
+	// analogy yields owasp-crs-v030001-id942550-sqli, which does not exist.
 	jsonSQLi := byID["json-sqli-canary"]
 	if len(jsonSQLi) != 1 || jsonSQLi[0] != "owasp-crs-id942550-sqli" {
 		t.Errorf("json-sqli-canary holds %v, want the unversioned owasp-crs-id942550-sqli", jsonSQLi)

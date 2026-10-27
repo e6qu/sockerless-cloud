@@ -5,17 +5,10 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_VPNSiteToSite covers the Site-to-Site VPN control plane through the
-// aws CLI: customer gateway + VPN gateway (attach/detach) + VPN connection with
-// two tunnels and a static route, the describe read-backs,
-// modify-vpn-connection-options / modify-vpn-tunnel-options,
-// get-active-vpn-tunnel-status, the device-type catalog and sample
-// configuration, and the route/connection/gateway teardown.
 func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	// Customer gateway.
 	cgw := q("ec2", "create-customer-gateway", "--bgp-asn", "65000",
 		"--public-ip", "198.51.100.9", "--type", "ipsec.1",
 		"--query", "CustomerGateway.CustomerGatewayId", "--output", "text")
@@ -29,7 +22,6 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 		t.Fatalf("describe-customer-gateways: got %q", v)
 	}
 
-	// VPN gateway + attach.
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.211.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	vgw := q("ec2", "create-vpn-gateway", "--type", "ipsec.1", "--amazon-side-asn", "64512",
 		"--query", "VpnGateway.VpnGatewayId", "--output", "text")
@@ -47,7 +39,6 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 		t.Fatalf("vpn gateway attachment vpc: got %q, want %q", v, vpc)
 	}
 
-	// VPN connection (static routing).
 	conn := q("ec2", "create-vpn-connection", "--customer-gateway-id", cgw, "--vpn-gateway-id", vgw,
 		"--type", "ipsec.1", "--options", "StaticRoutesOnly=true",
 		"--query", "VpnConnection.VpnConnectionId", "--output", "text")
@@ -66,7 +57,6 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 		t.Fatalf("expected two tunnels, got %q", n)
 	}
 
-	// Static route add + read-back.
 	runCLI(t, awsCLI("ec2", "create-vpn-connection-route", "--vpn-connection-id", conn,
 		"--destination-cidr-block", "172.17.0.0/16"))
 	if v := q("ec2", "describe-vpn-connections", "--vpn-connection-ids", conn,
@@ -74,18 +64,15 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 		t.Fatalf("vpn static route: got %q", v)
 	}
 
-	// Modify options + tunnel options.
 	runCLI(t, awsCLI("ec2", "modify-vpn-connection-options", "--vpn-connection-id", conn,
 		"--local-ipv4-network-cidr", "10.0.0.0/16", "--remote-ipv4-network-cidr", "192.168.0.0/16"))
 	runCLI(t, awsCLI("ec2", "modify-vpn-tunnel-options", "--vpn-connection-id", conn,
 		"--vpn-tunnel-outside-ip-address", outside,
 		"--tunnel-options", "TunnelInsideCidr=169.254.30.0/30"))
 
-	// Route delete.
 	runCLI(t, awsCLI("ec2", "delete-vpn-connection-route", "--vpn-connection-id", conn,
 		"--destination-cidr-block", "172.17.0.0/16"))
 
-	// Device-type catalog + sample configuration.
 	devType := q("ec2", "get-vpn-connection-device-types",
 		"--query", "VpnConnectionDeviceTypes[0].VpnConnectionDeviceTypeId", "--output", "text")
 	if devType == "" {
@@ -98,11 +85,6 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ClientVPN covers the Client VPN control plane through the aws CLI:
-// endpoint create with mutual auth + describe + modify, target-network
-// association + describe, authorization (ingress) rules + describe, routes +
-// describe, apply-security-groups, the connection list + terminate, and a
-// tolerant teardown.
 func TestEC2CLI_ClientVPN(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -131,7 +113,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "modify-client-vpn-endpoint", "--client-vpn-endpoint-id", ep,
 		"--description", "updated", "--split-tunnel"))
 
-	// Associate target network.
 	assoc := q("ec2", "associate-client-vpn-target-network", "--client-vpn-endpoint-id", ep,
 		"--subnet-id", subnet, "--query", "AssociationId", "--output", "text")
 	if assoc == "" {
@@ -142,7 +123,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 		t.Fatalf("target network subnet: got %q, want %q", v, subnet)
 	}
 
-	// Authorization rule.
 	runCLI(t, awsCLI("ec2", "authorize-client-vpn-ingress", "--client-vpn-endpoint-id", ep,
 		"--target-network-cidr", "0.0.0.0/0", "--authorize-all-groups", "--description", "allow all"))
 	if v := q("ec2", "describe-client-vpn-authorization-rules", "--client-vpn-endpoint-id", ep,
@@ -150,7 +130,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 		t.Fatalf("authorization rule cidr: got %q", v)
 	}
 
-	// Route.
 	runCLI(t, awsCLI("ec2", "create-client-vpn-route", "--client-vpn-endpoint-id", ep,
 		"--destination-cidr-block", "0.0.0.0/0", "--target-vpc-subnet-id", subnet))
 	if v := q("ec2", "describe-client-vpn-routes", "--client-vpn-endpoint-id", ep,
@@ -158,7 +137,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 		t.Fatalf("client vpn route cidr: got %q", v)
 	}
 
-	// Apply security groups.
 	sg := q("ec2", "create-security-group", "--group-name", "cli-cvpn-sg",
 		"--description", "cvpn", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")
 	if v := q("ec2", "apply-security-groups-to-client-vpn-target-network", "--client-vpn-endpoint-id", ep,
@@ -167,7 +145,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 		t.Fatalf("apply-security-groups returned %q, want %q", v, sg)
 	}
 
-	// Connections (empty) + terminate.
 	if v := q("ec2", "describe-client-vpn-connections", "--client-vpn-endpoint-id", ep,
 		"--query", "length(Connections)", "--output", "text"); v != "0" {
 		t.Fatalf("expected no connections, got %q", v)
@@ -177,7 +154,6 @@ func TestEC2CLI_ClientVPN(t *testing.T) {
 		t.Fatalf("terminate-client-vpn-connections endpoint: got %q, want %q", v, ep)
 	}
 
-	// Tolerant teardown of routes/rules/associations.
 	_ = (awsCLI("ec2", "delete-client-vpn-route", "--client-vpn-endpoint-id", ep,
 		"--destination-cidr-block", "0.0.0.0/0", "--target-vpc-subnet-id", subnet)).Run()
 	_ = (awsCLI("ec2", "revoke-client-vpn-ingress", "--client-vpn-endpoint-id", ep,

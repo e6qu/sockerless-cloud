@@ -13,13 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK covers the state
-// the Files and Queues data planes keep beyond a share's bytes — directory
-// metadata, share snapshots, leases, stored security descriptors, queue access
-// policies and the service configuration. None of it is expressible in a POSIX
-// directory tree, so all of it lives in the simulator's persistent stores; a
-// restart that reattaches the same data directory must answer exactly as the
-// process that wrote it did.
+// TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK: directory
+// metadata, share snapshots, leases, security descriptors, queue access
+// policies and service configuration live in the persistent stores, not the
+// POSIX tree, and a restart on the same data directory answers as before.
 func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -98,15 +95,14 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cmd = startPersistentAzureSimulator(t, stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })
 
-	// The nested directory is still a directory, and still carries its metadata.
 	resp = restartRawReq(t, "GET", endpoint, "/"+share+"/build?restype=directory", filesHost, "", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "a nested directory must survive the restart")
 	assert.Equal(t, "compile", resp.Header.Get("x-ms-meta-stage"),
 		"directory metadata must survive the restart")
 	resp.Body.Close()
 
-	// The file inside it reads back, and its bytes are on disk beside the
-	// SQLite database that describes them.
+	// The file reads back, its bytes on disk beside the SQLite database that
+	// describes them.
 	resp = restartRawReq(t, "GET", endpoint, "/"+share+"/build/bundle.tar", filesHost, "", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
@@ -117,7 +113,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err, "a nested file's bytes must live under SIM_DATA_DIR/files")
 	assert.Equal(t, payload, onDisk)
 
-	// The snapshot still answers with the bytes it froze.
 	resp = restartRawReq(t, "GET", endpoint,
 		"/"+share+"/build/bundle.tar?sharesnapshot="+snapshot, filesHost, "", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "a share snapshot must survive the restart")
@@ -126,7 +121,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, payload, snapshotBody)
 
-	// The stored security descriptor is still resolvable by its key.
 	resp = restartRawReq(t, "GET", endpoint, "/"+share+"?restype=share&comp=filepermission", filesHost, "", nil,
 		map[string]string{"x-ms-file-permission-key": permissionKey})
 	require.Equal(t, http.StatusOK, resp.StatusCode, "a stored permission must survive the restart")
@@ -135,8 +129,8 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	resp.Body.Close()
 	assert.Contains(t, string(permissionBody), sddl)
 
-	// The share is still leased, so a write without the lease id is still
-	// refused and the holder's write still goes through.
+	// The share is still leased: a write without the lease ID is refused, the
+	// holder's goes through.
 	resp = restartRawReq(t, "PUT", endpoint, "/"+share+"?restype=share&comp=metadata", filesHost, "", nil,
 		map[string]string{"x-ms-meta-owner": "intruder"})
 	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode,
@@ -147,7 +141,6 @@ func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "the lease holder must still be able to write")
 	resp.Body.Close()
 
-	// The queue's stored access policy and the service configuration read back.
 	resp = restartRawReq(t, "GET", endpoint, "/"+queue+"?comp=acl", queuesHost, "", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	aclBody, err := io.ReadAll(resp.Body)

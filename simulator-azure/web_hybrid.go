@@ -8,21 +8,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_hybrid.go serves the two App Service hybrid connection families on
-// production sites and their deployment-slot twins:
+// The two hybrid connection families at site and slot level:
 //
 //   - hybridConnectionNamespaces/{ns}/relays/{relay} — the Service Bus relay
-//     ("V2") hybrid connection, plus the hybridConnectionRelays view;
-//   - hybridconnection/{entityName} — the classic (BizTalk) relay service
-//     connection.
+//     ("V2") connection, plus the hybridConnectionRelays view;
+//   - hybridconnection/{entityName} — the classic (BizTalk) relay connection.
 //
-// They are distinct resources in real App Service (networkFeatures reports
-// them side by side as hybridConnections and hybridConnectionsV2); each keeps
-// one store keyed by the canonical ARM resource id. The App Service plan-level
-// hybrid connection views (web_plan_network.go) assemble from these same
-// site-level stores.
+// networkFeatures reports them side by side (hybridConnections,
+// hybridConnectionsV2). Each store keys by canonical resource ID, and the plan
+// views (web_plan_network.go) read these stores.
 
-// WebHybridConnection mirrors the swagger HybridConnection resource.
 type WebHybridConnection struct {
 	ID         string                        `json:"id,omitempty"`
 	Name       string                        `json:"name,omitempty"`
@@ -30,9 +25,8 @@ type WebHybridConnection struct {
 	Properties WebHybridConnectionProperties `json:"properties"`
 }
 
-// WebHybridConnectionProperties mirrors the swagger HybridConnectionProperties.
-// sendKeyValue is carried as state but — exactly as the contract documents —
-// never returned on ARM reads; POST …/listKeys (plan level) is the read path.
+// sendKeyValue is kept but never returned on reads, as the contract documents;
+// the plan-level listKeys returns it.
 type WebHybridConnectionProperties struct {
 	ServiceBusNamespace string `json:"serviceBusNamespace,omitempty"`
 	RelayName           string `json:"relayName,omitempty"`
@@ -44,7 +38,6 @@ type WebHybridConnectionProperties struct {
 	ServiceBusSuffix    string `json:"serviceBusSuffix,omitempty"`
 }
 
-// WebRelayServiceConnection mirrors the swagger RelayServiceConnectionEntity.
 type WebRelayServiceConnection struct {
 	ID         string                              `json:"id,omitempty"`
 	Name       string                              `json:"name,omitempty"`
@@ -52,8 +45,7 @@ type WebRelayServiceConnection struct {
 	Properties WebRelayServiceConnectionProperties `json:"properties"`
 }
 
-// WebRelayServiceConnectionProperties mirrors the swagger
-// RelayServiceConnectionEntityProperties (wire spellings included: biztalkUri).
+// Wire spellings included: biztalkUri.
 type WebRelayServiceConnectionProperties struct {
 	EntityName               string `json:"entityName,omitempty"`
 	EntityConnectionString   string `json:"entityConnectionString,omitempty"`
@@ -108,8 +100,8 @@ func registerWebHybridConnections(srv *sim.Server) {
 		id := relayID(r)
 		hc := req
 		if existing, ok := webHybridConnections.Get(id); ok {
-			// An update keeps the members the request omitted — most
-			// importantly the send key, which clients rarely re-send.
+			// An update keeps omitted members, above all the send key, which clients rarely
+			// re-send.
 			if hc.Properties.RelayARMURI == "" {
 				hc.Properties.RelayARMURI = existing.Properties.RelayARMURI
 			}
@@ -152,10 +144,8 @@ func registerWebHybridConnections(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// hybridConnectionRelays — the contract declares a single HybridConnection
-	// (not a collection), and the armappservice SDK unmarshals exactly that, so
-	// the wire can carry at most one: the first connection in id order, or an
-	// empty envelope when the site has none.
+	// The contract declares a single HybridConnection, which the armappservice SDK
+	// unmarshals, so answer the first by ID, or an empty envelope.
 	both("GET", "/hybridConnectionRelays", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -176,8 +166,7 @@ func registerWebHybridConnections(srv *sim.Server) {
 		return webResourceID(r) + "/hybridconnection/" + sim.PathParam(r, "entityName")
 	}
 
-	// The list spelling shares the single-resource contract quirk: the swagger
-	// declares one RelayServiceConnectionEntity, so the wire carries the first.
+	// The swagger declares one RelayServiceConnectionEntity, so answer the first.
 	both("GET", "/hybridconnection", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -243,15 +232,12 @@ func registerWebHybridConnections(srv *sim.Server) {
 	})
 }
 
-// stripSendKeyValue renders a hybrid connection for an ARM read: the send key
-// value never rides a GET/PUT response, only the listKeys action.
+// Only listKeys returns the send key.
 func stripSendKeyValue(hc WebHybridConnection) WebHybridConnection {
 	hc.Properties.SendKeyValue = ""
 	return hc
 }
 
-// siteHybridConnections lists one site/slot's Service Bus relay hybrid
-// connections, sorted by id.
 func siteHybridConnections(resID string) []WebHybridConnection {
 	prefix := resID + "/hybridConnectionNamespaces/"
 	out := webHybridConnections.Filter(func(c WebHybridConnection) bool { return strings.HasPrefix(c.ID, prefix) })
@@ -259,8 +245,6 @@ func siteHybridConnections(resID string) []WebHybridConnection {
 	return out
 }
 
-// siteRelayServiceConnections lists one site/slot's classic relay service
-// connections, sorted by id.
 func siteRelayServiceConnections(resID string) []WebRelayServiceConnection {
 	prefix := resID + "/hybridconnection/"
 	out := webRelayServiceConns.Filter(func(c WebRelayServiceConnection) bool { return strings.HasPrefix(c.ID, prefix) })

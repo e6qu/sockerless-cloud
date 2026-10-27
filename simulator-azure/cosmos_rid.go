@@ -14,14 +14,12 @@ import (
 )
 
 // Azure Cosmos DB resource ids (`_rid`) are hierarchical binary ids: a
-// database's is 4 bytes, a container's is its database's followed by 4 of its
-// own, and a container child's — an item, stored procedure, trigger or
-// user-defined function — is its container's followed by 8 more, whose last
-// byte carries the child's kind in its top four bits. The service spells an id
-// as base64 with '/' replaced by '-', so an id is also a path segment, and it
-// addresses a resource by id as well as by name: dbs/{dbRid}/colls/{collRid}/docs/{docRid}.
+// database's is 4 bytes, a container's is its database's plus 4, and a
+// container child's (item, stored procedure, trigger, user-defined function)
+// is its container's plus 8, the last byte's top four bits carrying the kind.
+// The service spells an id as base64 with '/' replaced by '-', and addresses a
+// resource by id as well as by name: dbs/{dbRid}/colls/{collRid}/docs/{docRid}.
 
-// Container child kinds, as the top four bits of a child id's last byte.
 const (
 	cosmosRIDKindDocument            byte = 0x0
 	cosmosRIDKindUserDefinedFunction byte = 0x6
@@ -29,8 +27,8 @@ const (
 	cosmosRIDKindStoredProcedure     byte = 0x8
 )
 
-// cosmosRIDRecord is the id minted for one database or container, keyed by the
-// resource's data-plane key, with a container's per-kind child counters.
+// Keyed by the resource's data-plane key, with a container's per-kind child
+// counters.
 type cosmosRIDRecord struct {
 	Key      string          `json:"key"`
 	RID      []byte          `json:"rid"`
@@ -65,8 +63,8 @@ func cosmosRIDRecordByRID(rid []byte) (cosmosRIDRecord, bool) {
 	})
 }
 
-// cosmosMintRID returns the id recorded under key, minting one when there is
-// none: parent followed by n random bytes, unique across the simulator.
+// cosmosMintRID mints parent followed by n random bytes, unique across the
+// simulator, when key has none.
 func cosmosMintRID(key string, parent []byte, n int) []byte {
 	cosmosRIDMu.Lock()
 	defer cosmosRIDMu.Unlock()
@@ -78,8 +76,8 @@ func cosmosMintRID(key string, parent []byte, n int) []byte {
 		if _, err := rand.Read(own); err != nil {
 			panic(fmt.Sprintf("crypto/rand: %v", err))
 		}
-		// A container's id and a user's share their slot; a set top bit in
-		// the slot's last byte marks a user.
+		// A container's id and a user's share their slot; a set top bit in the slot's
+		// last byte marks a user.
 		own[n-1] &^= 0x80
 		if bytes.Equal(own, make([]byte, n)) {
 			continue
@@ -109,10 +107,8 @@ func cosmosCollectionRID(account, db, coll string) string {
 	return cosmosEncodeRID(cosmosCollectionRIDBytes(account, db, coll))
 }
 
-// cosmosChildRID mints the id of a new item, stored procedure, trigger or
-// user-defined function of a container: the container's id followed by the
-// container's next number for that kind, little-endian, with the kind in the
-// top four bits of the last byte.
+// cosmosChildRID appends the container's next number for the kind,
+// little-endian, with the kind in the last byte's top four bits.
 func cosmosChildRID(account, db, coll string, kind byte) string {
 	collRID := cosmosCollectionRIDBytes(account, db, coll)
 	key := cosmosDataCollKey(account, db, coll)
@@ -132,14 +128,12 @@ func cosmosChildRID(account, db, coll string, kind byte) string {
 	return cosmosEncodeRID(append(append([]byte(nil), collRID...), child...))
 }
 
-// cosmosChildSelf is the `_self` link of a container child: its path by id.
 func cosmosChildSelf(account, db, coll, segment, rid string) string {
 	return "dbs/" + cosmosDatabaseRID(account, db) + "/colls/" + cosmosCollectionRID(account, db, coll) + "/" + segment + "/" + rid + "/"
 }
 
-// cosmosDropRIDs forgets the ids of the database or container at key and of
-// everything under it, so a resource created again under the same name gets a
-// new id, as on the service.
+// A resource created again under the same name gets a new id, as on the
+// service.
 func cosmosDropRIDs(key string) {
 	cosmosRIDs.Delete(key)
 	for _, entry := range cosmosRIDs.ListPrefix(key + "/") {
@@ -147,9 +141,8 @@ func cosmosDropRIDs(key string) {
 	}
 }
 
-// cosmosRIDPath reports whether a data-plane path addresses its database, and
-// container when present, by resource id rather than name: each id segment
-// decodes to an id of its level's length that extends its parent's.
+// Each id segment decodes to an id of its level's length that extends its
+// parent's.
 func cosmosRIDPath(segments []string) bool {
 	if len(segments) < 2 || segments[0] != "dbs" {
 		return false
@@ -174,8 +167,6 @@ func cosmosRIDPath(segments []string) bool {
 
 var cosmosRIDChildSegments = map[string]bool{"docs": true, "sprocs": true, "triggers": true, "udfs": true}
 
-// cosmosResolveRIDPath rewrites a path that addresses resources by id into the
-// same path by name, reporting false when an id names no resource of account.
 func cosmosResolveRIDPath(account string, segments []string) ([]string, bool) {
 	out := append([]string(nil), segments...)
 	var db, coll string
@@ -209,8 +200,6 @@ func cosmosResolveRIDPath(account string, segments []string) ([]string, bool) {
 	return out, true
 }
 
-// cosmosChildNameByRID finds the id of the container child of the given
-// collection segment whose resource id is rid.
 func cosmosChildNameByRID(account, db, coll, segment, rid string) (string, bool) {
 	prefix := cosmosDataCollKey(account, db, coll) + "/"
 	if segment == "docs" {
@@ -229,9 +218,7 @@ func cosmosChildNameByRID(account, db, coll, segment, rid string) (string, bool)
 	return "", false
 }
 
-// cosmosRewriteRIDRequest turns a request addressing resources by id into the
-// same request by name, answering 404 when an id names nothing. It reports
-// whether the request may proceed.
+// cosmosRewriteRIDRequest answers 404 when an id names nothing.
 func cosmosRewriteRIDRequest(w http.ResponseWriter, r *http.Request) bool {
 	segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if !cosmosRIDPath(segments) {

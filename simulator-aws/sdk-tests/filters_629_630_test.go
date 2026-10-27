@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_ListTaskDefinitions_SortAndStatus covers issue #630.
 func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -34,16 +33,15 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 	require.NoError(t, err)
 	desc, err := c.ListTaskDefinitions(ctx, &ecs.ListTaskDefinitionsInput{FamilyPrefix: aws.String(fam), Status: ecstypes.TaskDefinitionStatusActive, Sort: ecstypes.SortOrderDesc})
 	require.NoError(t, err)
-	// sort: DESC must reverse ASC.
 	require.Len(t, asc.TaskDefinitionArns, 3)
 	require.Len(t, desc.TaskDefinitionArns, 3)
 	for i := range asc.TaskDefinitionArns {
 		assert.Equal(t, asc.TaskDefinitionArns[i], desc.TaskDefinitionArns[len(desc.TaskDefinitionArns)-1-i], "DESC should reverse ASC")
 	}
-	assert.Equal(t, arns[0], asc.TaskDefinitionArns[0])  // rev1 first ASC
-	assert.Equal(t, arns[2], desc.TaskDefinitionArns[0]) // rev3 first DESC
+	assert.Equal(t, arns[0], asc.TaskDefinitionArns[0])
+	assert.Equal(t, arns[2], desc.TaskDefinitionArns[0])
 
-	// status: a deregistered (INACTIVE) revision must drop out of the ACTIVE list.
+	// A deregistered, INACTIVE revision leaves the ACTIVE list.
 	_, err = c.DeregisterTaskDefinition(ctx, &ecs.DeregisterTaskDefinitionInput{TaskDefinition: aws.String(arns[0])})
 	require.NoError(t, err)
 	active, err := c.ListTaskDefinitions(ctx, &ecs.ListTaskDefinitionsInput{FamilyPrefix: aws.String(fam), Status: ecstypes.TaskDefinitionStatusActive})
@@ -52,7 +50,6 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 	assert.Contains(t, active.TaskDefinitionArns, arns[1])
 }
 
-// TestSM_ListSecrets_TagKeyFilter covers issue #629.
 func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
 	t.Parallel()
 	nameB := uniquename.New("sm629-b")
@@ -68,13 +65,11 @@ func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
 		Tags: []smtypes.Tag{{Key: aws.String("sm629-other"), Value: aws.String("z")}},
 	})
 	require.NoError(t, err)
-	// tag-key matching no secret → empty.
 	none, err := c.ListSecrets(ctx, &secretsmanager.ListSecretsInput{
 		Filters: []smtypes.Filter{{Key: smtypes.FilterNameStringTypeTagKey, Values: []string{"sm629-no-such-key"}}},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, none.SecretList, "a tag-key matching nothing must return []")
-	// tag-key matching secret a → only a.
 	one, err := c.ListSecrets(ctx, &secretsmanager.ListSecretsInput{
 		Filters: []smtypes.Filter{{Key: smtypes.FilterNameStringTypeTagKey, Values: []string{"sm629:workspace-id"}}},
 	})

@@ -14,27 +14,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon ECS sends its service metrics to CloudWatch in 1-minute periods: it
-// collects several data points each minute and aggregates them into the
-// minute's one datapoint, so a minute's SampleCount counts its samples. A
-// service's CPUUtilization is the CPU units its tasks use over the CPU units
-// reserved for them, and MemoryUtilization the memory they use over the memory
-// reserved for them, both with the ClusterName and ServiceName dimensions.
+// Amazon ECS aggregates several samples into each minute's datapoint, so
+// SampleCount counts samples. CPUUtilization is CPU units used over reserved,
+// MemoryUtilization memory used over reserved, both with ClusterName and
+// ServiceName.
 
 const ecsMetricNamespace = "AWS/ECS"
 
-// ecsMetricSampleInterval is the gap between two readings of a service's tasks
-// within a minute.
 const ecsMetricSampleInterval = 15 * time.Second
 
-// ecsServiceMetricKey is one service's metric in one minute.
 type ecsServiceMetricKey struct {
 	cluster, service, metric string
 	minute                   int64
 }
 
-// ecsCPUReading is a container's cumulative CPU time at the moment the engine
-// read it, from which the next reading's usage rate follows.
+// The next reading's usage rate follows from this one.
 type ecsCPUReading struct {
 	totalNanos uint64
 	at         time.Time
@@ -64,8 +58,6 @@ func ecsPublishServiceMetrics(ctx context.Context) {
 	}
 }
 
-// ecsServiceUsage sums one service's use and reservation across its running
-// tasks in one sample.
 type ecsServiceUsage struct {
 	cpuUsed, cpuReserved float64
 	memUsed, memReserved float64
@@ -73,8 +65,7 @@ type ecsServiceUsage struct {
 	memSampled           bool
 }
 
-// ecsSampleServiceMetrics reads every running service task's containers from
-// the container engine and records each service's utilization for the minute.
+// Reads every running service task's containers from the engine.
 func ecsSampleServiceMetrics(ctx context.Context, now time.Time) {
 	cli := sim.DockerClient()
 	if cli == nil || ecsTasks == nil {
@@ -150,9 +141,8 @@ func ecsSampleServiceMetrics(ctx context.Context, now time.Time) {
 	}
 }
 
-// ecsTaskReservation is the CPU units and MiB a task reserves: its task size
-// when it has one, else the sum of its containers' cpu and memoryReservation
-// (or memory, when a container sets no soft limit).
+// The task size, else the containers' cpu and memoryReservation (memory when
+// a container sets no soft limit).
 func ecsTaskReservation(task ECSTask) (cpu, mem float64) {
 	cpu, _ = strconv.ParseFloat(task.Cpu, 64)
 	mem, _ = strconv.ParseFloat(task.Memory, 64)
@@ -192,9 +182,8 @@ func ecsReadContainerStats(ctx context.Context, cli *mobyclient.Client, containe
 	return stats, err
 }
 
-// ecsContainerCPUUnits is the CPU a container used since its previous reading,
-// in CPU units (1,024 to a vCPU); the first reading of a container only sets
-// the baseline.
+// 1,024 CPU units to a vCPU; a container's first reading only sets the
+// baseline.
 func ecsContainerCPUUnits(containerID string, stats mobycontainer.StatsResponse) (float64, bool) {
 	reading := ecsCPUReading{totalNanos: stats.CPUStats.CPUUsage.TotalUsage, at: stats.Read}
 	ecsServiceMetrics.Lock()
@@ -209,9 +198,7 @@ func ecsContainerCPUUnits(containerID string, stats mobycontainer.StatsResponse)
 	return cores * 1024, true
 }
 
-// ecsContainerMemoryMiB is the memory a container has in use: the engine's
-// usage less the inactive file cache the kernel can reclaim, as `docker stats`
-// counts it.
+// Usage less the reclaimable inactive file cache, as `docker stats` counts it.
 func ecsContainerMemoryMiB(stats mobycontainer.StatsResponse) float64 {
 	used := stats.MemoryStats.Usage
 	inactive := stats.MemoryStats.Stats["inactive_file"]
@@ -224,8 +211,7 @@ func ecsContainerMemoryMiB(stats mobycontainer.StatsResponse) float64 {
 	return float64(used) / (1024 * 1024)
 }
 
-// ecsFlushServiceMetrics reports every minute before current to CloudWatch:
-// a minute's samples arrive together once it has closed.
+// A minute's samples go out together once it has closed.
 func ecsFlushServiceMetrics(current int64) {
 	ecsServiceMetrics.Lock()
 	closed := map[ecsServiceMetricKey][]float64{}

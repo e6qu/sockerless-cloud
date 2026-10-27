@@ -6,13 +6,9 @@ import (
 	"testing"
 )
 
-// TestIAM_UserLifecycleAndEnforcementCLI covers the IAM user ops over the aws
-// CLI (create-user / get-user / create-access-key / list-access-keys /
-// put-user-policy / get-user-policy / attach-user-policy /
-// list-attached-user-policies / detach-user-policy / delete-user-policy /
-// delete-access-key / delete-user) and proves call-time enforcement (#657): a
-// CLI call made with the restricted user's minted key is denied
-// UnauthorizedOperation for an action its policy doesn't grant.
+// TestIAM_UserLifecycleAndEnforcementCLI covers the IAM user operations and
+// call-time enforcement: a call signed with the restricted user's key is
+// denied UnauthorizedOperation for an action its policy does not grant.
 func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 	t.Parallel()
 	user := "cli-restricted"
@@ -49,7 +45,6 @@ func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 	runCLI(t, awsCLI("iam", "detach-user-policy", "--user-name", user, "--policy-arn", arn))
 	runCLI(t, awsCLI("iam", "delete-user-policy", "--user-name", user, "--policy-name", "least-priv"))
 
-	// Re-grant just DescribeVolumes, mint a key, and prove enforcement.
 	runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", user,
 		"--policy-name", "least-priv",
 		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeVolumes","Resource":"*"}]}`))
@@ -68,7 +63,6 @@ func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 		t.Fatalf("list-access-keys missing the minted key: %s", lk)
 	}
 
-	// Denied action with the restricted key → UnauthorizedOperation.
 	denyCmd := awsCLI("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "1")
 	denyCmd.Env = withCreds(denyCmd.Env, ck.AccessKey.AccessKeyId, ck.AccessKey.SecretAccessKey)
 	deny := runCLIExpectError(t, denyCmd)
@@ -76,7 +70,6 @@ func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 		t.Fatalf("create-volume with restricted key expected UnauthorizedOperation; got: %s", deny)
 	}
 
-	// Allowed action with the restricted key → succeeds.
 	allowCmd := awsCLI("ec2", "describe-volumes")
 	allowCmd.Env = withCreds(allowCmd.Env, ck.AccessKey.AccessKeyId, ck.AccessKey.SecretAccessKey)
 	runCLI(t, allowCmd)
@@ -84,13 +77,11 @@ func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-access-key", "--user-name", user, "--access-key-id", ck.AccessKey.AccessKeyId))
 }
 
-// TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI proves the credential-minting
-// loop the console's Security credentials page drives, over the plain aws CLI:
-// create a user, mint an access key with `aws iam create-access-key`, sign a
-// call with the minted pair (`aws sts get-caller-identity` — the verification
-// command the console shows), and confirm the caller identity is the minted
-// user. The same access key ID presented with a wrong secret is rejected by the
-// Signature Version 4 verifier with SignatureDoesNotMatch.
+// TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI mints an access key with
+// `aws iam create-access-key`, as the console's Security credentials page
+// does, and `aws sts get-caller-identity` signed with it names the user. The
+// same key ID with a wrong secret fails SigV4 verification with
+// SignatureDoesNotMatch.
 func TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI(t *testing.T) {
 	t.Parallel()
 	user := "cli-minted-operator"
@@ -139,12 +130,10 @@ func TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI(t *testing.T) {
 	}
 }
 
-// TestIAM_DynamoDBTransactionsResourceScopedCLI proves `aws dynamodb
-// transact-write-items` works under the standard least-privilege pattern — a
-// policy whose Resource is one table's ARN — because the enforcement gate
-// derives table ARNs from TransactItems rather than a (missing) top-level
-// TableName (GitHub issue #870). A transaction touching an ungranted table is
-// denied AccessDeniedException.
+// TestIAM_DynamoDBTransactionsResourceScopedCLI runs transact-write-items under
+// a policy scoped to one table's ARN: the enforcement gate derives table ARNs
+// from TransactItems, which carry no top-level TableName. A transaction
+// touching an ungranted table is denied AccessDeniedException.
 func TestIAM_DynamoDBTransactionsResourceScopedCLI(t *testing.T) {
 	t.Parallel()
 	for _, table := range []string{"cli-txn-scoped", "cli-txn-other"} {
@@ -192,11 +181,10 @@ func TestIAM_DynamoDBTransactionsResourceScopedCLI(t *testing.T) {
 	}
 }
 
-// TestIAM_ECRResourceScopedCLI proves `aws ecr describe-images` works under a
-// policy scoped to a repository namespace, because the enforcement gate derives
-// the repository ARN from the request's repositoryName. Repository names carry
-// slashes and IAM's `*` spans them, so a nested name under the granted prefix
-// is allowed; a repository outside the prefix is denied AccessDeniedException.
+// TestIAM_ECRResourceScopedCLI runs describe-images under a policy scoped to a
+// repository namespace: the gate derives the repository ARN from
+// repositoryName, and IAM's `*` spans the slashes in a nested name. A
+// repository outside the prefix is denied AccessDeniedException.
 func TestIAM_ECRResourceScopedCLI(t *testing.T) {
 	t.Parallel()
 	for _, repo := range []string{"cli-scoped-ns/app", "cli-scoped-ns/golden/omnibus", "cli-other-ns/app"} {
@@ -213,7 +201,7 @@ func TestIAM_ECRResourceScopedCLI(t *testing.T) {
 		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
 			`"Action":["ecr:DescribeImages","ecr:ListImages"],`+
 			`"Resource":"arn:aws:ecr:us-east-1:123456789012:repository/cli-scoped-ns/*"}]}`))
-	// The inline policy has to go before the user does, exactly as on real IAM.
+	// IAM deletes a user only once its inline policies are gone.
 	t.Cleanup(func() {
 		_ = awsCLI("iam", "delete-user-policy", "--user-name", user, "--policy-name", "one-namespace").Run()
 	})
@@ -243,8 +231,8 @@ func TestIAM_ECRResourceScopedCLI(t *testing.T) {
 	}
 }
 
-// withCreds replaces the AWS credential env entries so the CLI call is signed
-// with the given (restricted) access key.
+// withCreds replaces the AWS credential env entries so the CLI signs with the
+// given key.
 func withCreds(env []string, akid, secret string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, e := range env {
@@ -256,10 +244,10 @@ func withCreds(env []string, akid, secret string) []string {
 	return append(out, "AWS_ACCESS_KEY_ID="+akid, "AWS_SECRET_ACCESS_KEY="+secret)
 }
 
-// TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI creates a tagged alarm under
-// a tagging grant scoped to alarms: the tagging check put-metric-alarm adds
-// authorizes against the alarm it names, so the grant allows it and one
-// scoped to dashboards does not.
+// TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI creates a tagged alarm: the
+// tagging check put-metric-alarm adds authorizes against the alarm it names,
+// so a grant scoped to alarms allows it and one scoped to dashboards does
+// not.
 func TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI(t *testing.T) {
 	t.Parallel()
 	credentials := func(user, tagging string) (string, string) {

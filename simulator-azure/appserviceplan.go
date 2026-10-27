@@ -33,25 +33,21 @@ type AppServicePlanProperties struct {
 	IsXenon                   bool   `json:"isXenon"`
 	MaximumElasticWorkerCount int    `json:"maximumElasticWorkerCount"`
 	NumberOfSites             int    `json:"numberOfSites"`
-	// HostingEnvironmentProfile places the plan in an App Service
-	// Environment. The environment reads its own inventory back through it,
-	// and its stamp capacity counts the plan's instances against the pool the
-	// plan targets.
+	// An App Service Environment reads its inventory back through this, and its
+	// stamp capacity counts the plan's instances against the pool targeted.
 	HostingEnvironmentProfile *HostingEnvironmentProfile `json:"hostingEnvironmentProfile,omitempty"`
-	// TargetWorkerSizeID names the worker size the plan's instances run on,
-	// which is the App Service Environment pool they consume capacity from.
+	// TargetWorkerSizeID selects the App Service Environment pool the plan's
+	// instances consume capacity from.
 	TargetWorkerSizeID *int32 `json:"targetWorkerSizeId,omitempty"`
 }
 
 var azureAppServicePlans sim.Store[AppServicePlan]
 
-// appServicePlanSkuTier maps an App Service plan SKU name onto the pricing
-// tier and SKU family the service reports for it, which is what a client that
-// sends only a SKU name reads back. The mapping is Microsoft's published
-// App Service plan SKU catalog: F1 Free, D1 Shared, B* Basic, S* Standard,
-// P*v4 PremiumV4, P*v3 / P*mv3 PremiumV3, P*v2 PremiumV2, P* Premium,
-// I*v2 / I*mv2 IsolatedV2, I* Isolated, Y1 Dynamic, FC1 FlexConsumption,
-// EP* ElasticPremium, WS* WorkflowStandard.
+// appServicePlanSkuTier maps a SKU name onto the tier and family the service
+// reports, from Microsoft's published App Service plan SKU catalog: F1 Free,
+// D1 Shared, B* Basic, S* Standard, P*v4 PremiumV4, P*v3 / P*mv3 PremiumV3,
+// P*v2 PremiumV2, P* Premium, I*v2 / I*mv2 IsolatedV2, I* Isolated, Y1
+// Dynamic, FC1 FlexConsumption, EP* ElasticPremium, WS* WorkflowStandard.
 func appServicePlanSkuTier(name string) (tier, family string) {
 	upper := strings.ToUpper(name)
 	switch {
@@ -87,8 +83,7 @@ func appServicePlanSkuTier(name string) (tier, family string) {
 		}
 		return "Isolated", "I"
 	}
-	// A SKU name the catalog does not cover: report the name as its own tier
-	// rather than silently claiming a tier the plan does not have.
+	// Report an uncatalogued name as its own tier rather than claim one.
 	return name, name
 }
 
@@ -98,10 +93,8 @@ func registerAppServicePlan(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web"
 
-	// go-azure-sdk uses "serverFarms" (capital F), azurestack uses "serverfarms".
-	// Register both casings. Resource IDs are normalized to lowercase.
+	// go-azure-sdk sends "serverFarms", azurestack "serverfarms".
 	for _, sfPath := range []string{"serverfarms", "serverFarms"} {
-		// PUT - Create or update service plan
 		srv.HandleFunc("PUT "+armBase+"/"+sfPath+"/{planName}", func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
@@ -115,22 +108,17 @@ func registerAppServicePlan(srv *sim.Server) {
 
 			resourceID := armResourceID(sub, rg, "Microsoft.Web", "serverfarms", planName)
 
-			// A plan placed in an App Service Environment is placed in one
-			// that exists; the resource provider refuses a reference to an
-			// environment it cannot resolve.
+			// The resource provider refuses an App Service Environment it cannot resolve.
 			hostingEnvironment, err := webResolveHostingEnvironmentProfile(req.Properties.HostingEnvironmentProfile)
 			if err != nil {
 				AzureError(w, "InvalidRequestContent", err.Error(), http.StatusBadRequest)
 				return
 			}
 
-			// The service derives an App Service plan's tier, family and size
-			// from the SKU name a client sends. terraform-provider-azurerm's
-			// azurerm_service_plan sends nothing but the name and capacity, and
-			// consumers branch on the tier it reads back — the Function App
-			// resource refuses a backup configuration on a Dynamic-tier plan,
-			// which is what a plan whose tier never left "Dynamic" made of
-			// every plan the provider created.
+			// The service derives tier, family and size from the SKU name.
+			// terraform-provider-azurerm's azurerm_service_plan sends only the name and
+			// capacity, and consumers branch on the tier: the Function App resource
+			// refuses a backup configuration on a Dynamic-tier plan.
 			sku := req.Sku
 			if sku.Name == "" {
 				sku.Name = "Y1"
@@ -168,7 +156,6 @@ func registerAppServicePlan(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, plan)
 		})
 
-		// GET - Get service plan
 		srv.HandleFunc("GET "+armBase+"/"+sfPath+"/{planName}", func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
@@ -184,7 +171,6 @@ func registerAppServicePlan(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, plan)
 		})
 
-		// DELETE - Delete service plan
 		srv.HandleFunc("DELETE "+armBase+"/"+sfPath+"/{planName}", func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
 			rg := sim.PathParam(r, "resourceGroupName")
@@ -192,8 +178,8 @@ func registerAppServicePlan(srv *sim.Server) {
 			resourceID := armResourceID(sub, rg, "Microsoft.Web", "serverfarms", planName)
 
 			plans.Delete(resourceID)
-			// The plan's own networking children go with it: VNet routes and
-			// plan-level connection gateways are stored under the plan id.
+			// The plan's VNet routes and connection gateways are stored under the plan ID
+			// and go with it.
 			prefix := resourceID + "/"
 			for _, rt := range webPlanVnetRoutes.Filter(func(rt WebVnetRoute) bool { return strings.HasPrefix(rt.ID, prefix) }) {
 				webPlanVnetRoutes.Delete(rt.ID)
@@ -205,9 +191,7 @@ func registerAppServicePlan(srv *sim.Server) {
 		})
 	}
 
-	// The azurerm v3 provider (go-azure-sdk) also sends a GET to
-	// .../providers/Microsoft.Web/serverFarms?api-version=... (list all in RG)
-	// when checking if a service plan exists. Handle this as well.
+	// go-azure-sdk lists the group's serverFarms when checking a plan exists.
 	srv.HandleFunc("GET "+armBase+"/serverFarms", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")

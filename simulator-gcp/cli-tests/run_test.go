@@ -27,9 +27,8 @@ type jobRun struct {
 	Execution string
 }
 
-// runJob runs a job through the v2 RunJob method. gcloud's own `run jobs
-// execute` drives the v1 Knative run, which answers with the Execution and no
-// operation, so the v2 method is put on the wire directly.
+// runJob calls the v2 RunJob method on the wire: gcloud's `run jobs execute`
+// drives the v1 Knative run, which answers with the Execution and no operation.
 func runJob(t *testing.T, jobID string) jobRun {
 	t.Helper()
 	out := httpDoJSON(t, "POST", jobURL(jobID+":run"), "")
@@ -48,8 +47,6 @@ func runJob(t *testing.T, jobID string) jobRun {
 	return jobRun{Operation: op.Name, Execution: op.Metadata.Name}
 }
 
-// runOperationResult is a finished google.longrunning.Operation of the Cloud
-// Run v2 API.
 type runOperationResult struct {
 	Done  bool `json:"done"`
 	Error *struct {
@@ -59,9 +56,8 @@ type runOperationResult struct {
 	Response json.RawMessage `json:"response"`
 }
 
-// waitRunOperation blocks on run.projects.locations.operations.wait until the
-// operation is done. The method may answer before then, so a not-done answer is
-// waited on again.
+// waitRunOperation calls run.projects.locations.operations.wait until the
+// operation is done; the method may answer before then.
 func waitRunOperation(t *testing.T, name string) runOperationResult {
 	t.Helper()
 	var op runOperationResult
@@ -74,7 +70,6 @@ func waitRunOperation(t *testing.T, name string) runOperationResult {
 
 func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	t.Parallel()
-	// Create a Cloud Run Job with echo command
 	createBody := `{
 		"template": {
 			"taskCount": 1,
@@ -91,8 +86,7 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	}`
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId=cli-run-job", createBody)
 
-	// Run the job and wait on its operation, which completes when the
-	// execution does.
+	// The operation completes when the execution does.
 	run := runJob(t, "cli-run-job")
 	op := waitRunOperation(t, run.Operation)
 	require.Nil(t, op.Error, "the execution succeeded, so its RunJob operation did")
@@ -108,7 +102,6 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	assert.Equal(t, 0, exec.FailedCount)
 	assert.Equal(t, 0, exec.RunningCount)
 
-	// Poll Cloud Logging until the job's real output is ingested.
 	require.Eventually(t, func() bool {
 		out = runCLI(t, gcloudCLI("logging", "read",
 			`logName:"run.googleapis.com" AND resource.type="cloud_run_job" AND resource.labels.job_name="cli-run-job"`,
@@ -118,7 +111,6 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 	}, 60*time.Second, 250*time.Millisecond)
 	assert.Contains(t, out, "hello-from-crj", "expected real process output in Cloud Logging")
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", jobURL("cli-run-job"), "")
 }
 
@@ -140,8 +132,7 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 	}`
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId=cli-fail-job", createBody)
 
-	// Run the job and wait on its operation, which completes when the
-	// execution does and carries the execution's failure.
+	// The operation completes when the execution does and carries its failure.
 	run := runJob(t, "cli-fail-job")
 	op := waitRunOperation(t, run.Operation)
 	require.NotNil(t, op.Error, "a failed execution fails its RunJob operation")
@@ -161,7 +152,6 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 	assert.Equal(t, 1, exec.FailedCount, "expected job to fail")
 	assert.Equal(t, 0, exec.RunningCount)
 
-	// Verify at least one condition indicates failure
 	found := false
 	for _, c := range exec.Conditions {
 		if strings.Contains(c.State, "FAILED") {
@@ -170,6 +160,5 @@ func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
 	}
 	assert.True(t, found, "expected CONDITION_FAILED in conditions")
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", jobURL("cli-fail-job"), "")
 }

@@ -11,10 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
-// acaRevision is one revision of a container app: the template the app carried
-// when the revision was created, and whether the revision is active and so runs
-// replicas. A change to the app's template creates a revision; a change to its
-// configuration applies to the revisions it already has.
+// acaRevision: a change to the app's template creates a revision; a change to
+// its configuration applies to the revisions it has.
 //
 // Real API: https://learn.microsoft.com/en-us/azure/container-apps/revisions
 type acaRevision struct {
@@ -27,8 +25,8 @@ type acaRevision struct {
 	Active         bool                  `json:"active"`
 	Fqdn           string                `json:"fqdn"`
 	Template       *ContainerAppTemplate `json:"template"`
-	// ProvisioningState is Provisioning while the revision's replicas start,
-	// then Provisioned or Failed; a record without one was provisioned.
+	// ProvisioningState is Provisioning while the replicas start, then Provisioned
+	// or Failed; a record without one was provisioned.
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
 
@@ -44,15 +42,11 @@ func (rev acaRevision) provisioned() bool {
 
 var acaRevisions sim.Store[acaRevision]
 
-// acaDefaultMaxInactiveRevisions is the configuration.maxInactiveRevisions
-// Azure Container Apps stamps on an app that sets none.
 const acaDefaultMaxInactiveRevisions = 100
 
-// acaRevisionsByApp indexes revisions by the app they belong to; ingress reads
-// it on every request an app's FQDN receives.
+// Ingress reads this on every request to an app's FQDN.
 var acaRevisionsByApp sim.GenerationIndex[acaRevision]
 
-// acaAppRevisions returns an app's revisions, oldest first.
 func acaAppRevisions(appID string) []acaRevision {
 	revisions := append([]acaRevision(nil), acaRevisionsByApp.LookupAll(acaRevisions, appID, func(rev acaRevision) []string {
 		return []string{rev.AppID}
@@ -74,8 +68,7 @@ func acaSingleRevisionMode(app ContainerApp) bool {
 	return app.Properties.Configuration == nil || !strings.EqualFold(app.Properties.Configuration.ActiveRevisionsMode, "Multiple")
 }
 
-// acaAppFqdn is the hostname the app's ingress answers on; a revision's own
-// hostname puts the revision name where the app name stands.
+// A revision's hostname puts the revision name where the app name stands.
 func acaAppFqdn(app ContainerApp) string {
 	fqdn, latest := app.Properties.LatestRevisionFqdn, app.Properties.LatestRevisionName
 	if latest != "" && strings.HasPrefix(fqdn, latest+".") {
@@ -94,9 +87,8 @@ func acaTemplatesEqual(a, b *ContainerAppTemplate) bool {
 	return errLeft == nil && errRight == nil && left == right
 }
 
-// acaNextRevisionName names the revision a template creates: the template's
-// revisionSuffix when it sets one; otherwise a random suffix for an app's first
-// revision and a seven-digit sequence number for each one after it.
+// The template's revisionSuffix when set; otherwise a random suffix for the
+// first revision and a seven-digit sequence number after it.
 func acaNextRevisionName(app ContainerApp, existing []acaRevision) (string, int, error) {
 	if suffix := app.Properties.Template.RevisionSuffix; suffix != "" {
 		name := app.Name + "--" + suffix
@@ -118,9 +110,7 @@ func acaNextRevisionName(app ContainerApp, existing []acaRevision) (string, int,
 	return fmt.Sprintf("%s--%07d", app.Name, seq), seq, nil
 }
 
-// acaValidateTraffic checks the ingress traffic split of a multiple-revision
-// app: each entry names a revision or the latest one, and the weights add up to
-// 100.
+// Each entry names a revision or the latest one, and the weights add up to 100.
 func acaValidateTraffic(app ContainerApp, revisions []acaRevision) error {
 	if acaSingleRevisionMode(app) || app.Properties.Configuration.Ingress == nil {
 		return nil
@@ -152,10 +142,8 @@ func acaValidateTraffic(app ContainerApp, revisions []acaRevision) error {
 	return nil
 }
 
-// acaTrafficWeights returns the share of the app's ingress traffic each
-// revision carries. A single-revision app sends all of it to its latest ready
-// revision, which a latestRevision entry names too, so a revision takes
-// traffic once it has provisioned.
+// A single-revision app sends everything to its latest ready revision, so a
+// revision takes traffic once it has provisioned.
 func acaTrafficWeights(app ContainerApp) map[string]int32 {
 	latest := app.Properties.LatestReadyRevisionName
 	if acaSingleRevisionMode(app) || app.Properties.Configuration.Ingress == nil || len(app.Properties.Configuration.Ingress.Traffic) == 0 {
@@ -175,8 +163,7 @@ func acaTrafficWeights(app ContainerApp) map[string]int32 {
 	return weights
 }
 
-// acaPickRevision chooses the revision an ingress request goes to, in
-// proportion to the traffic weights among active revisions with replicas.
+// In proportion to the weights among active revisions with replicas.
 func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 	weights := acaTrafficWeights(app)
 	var candidates []revisions.Weighted[acaRevision]
@@ -188,12 +175,10 @@ func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 	return revisions.Pick(candidates)
 }
 
-// acaReconcileRevisions brings an app's revisions in line with the app it is
-// about to store and returns the revision the app's template creates, if any:
-// a template the latest revision does not carry, or carried into a failed
-// provisioning, becomes a new active revision that provisions once the write
-// is answered. The revision mode then applies, and inactive revisions beyond
-// maxInactiveRevisions are removed, oldest first.
+// acaReconcileRevisions: a template the latest revision does not carry, or
+// carried into a failed provisioning, becomes a new active revision that
+// provisions once the write is answered. Then the revision mode applies and
+// inactive revisions beyond maxInactiveRevisions go, oldest first.
 func acaReconcileRevisions(app *ContainerApp, appFqdn string) (*acaRevision, error) {
 	revisions := acaAppRevisions(app.ID)
 	latest, hasLatest := acaAppRevision(app.ID, app.Properties.LatestRevisionName)
@@ -229,10 +214,9 @@ func acaReconcileRevisions(app *ContainerApp, appFqdn string) (*acaRevision, err
 	return &rev, nil
 }
 
-// acaProvisionRevision starts a new revision's replicas and settles the
-// revision, and the app while the revision is still its latest: Provisioned
-// and Succeeded, with the revision its latest ready one, or both Failed, the
-// error the write's operation reports.
+// acaProvisionRevision settles the revision, and the app while the revision is
+// still its latest: Provisioned and Succeeded, or both Failed with the error
+// the write's operation reports.
 func acaProvisionRevision(appID string, rev acaRevision) *AsyncOperationError {
 	app, ok := acaApps.Get(appID)
 	if !ok {
@@ -253,7 +237,6 @@ func acaProvisionRevision(appID string, rev acaRevision) *AsyncOperationError {
 			r.LastActiveTime = time.Now().UTC()
 		}
 	}) {
-		// The app went while its revision provisioned.
 		stopACAAppReplicas(rev.ID)
 		return nil
 	}
@@ -281,15 +264,14 @@ func acaProvisionRevision(appID string, rev acaRevision) *AsyncOperationError {
 	return nil
 }
 
-// acaRevisionRequestError is a revision change the request itself makes
-// impossible, which the client answers by changing the request.
+// acaRevisionRequestError is fixed by changing the request.
 type acaRevisionRequestError struct{ err error }
 
 func (e *acaRevisionRequestError) Error() string { return e.err.Error() }
 
-// acaEnforceRevisionMode deactivates every revision but the latest of a
-// single-revision app, and the latest ready one while the latest provisions,
-// and removes the inactive revisions the app keeps no room for.
+// acaEnforceRevisionMode deactivates every revision of a single-revision app
+// but the latest, and the latest ready one while the latest provisions, and
+// removes the inactive revisions the app keeps no room for.
 func acaEnforceRevisionMode(app ContainerApp) {
 	if acaSingleRevisionMode(app) {
 		keep := map[string]bool{app.Properties.LatestRevisionName: true}
@@ -329,7 +311,6 @@ func acaPruneInactiveRevisions(app ContainerApp) {
 	}
 }
 
-// startACAAppRevisions starts the replicas of every active revision of the app.
 func startACAAppRevisions(ctx context.Context, app ContainerApp) error {
 	for _, rev := range acaAppRevisions(app.ID) {
 		if rev.Active {
@@ -341,16 +322,14 @@ func startACAAppRevisions(ctx context.Context, app ContainerApp) error {
 	return nil
 }
 
-// stopACAAppRevisions stops the replicas of every revision of the app.
 func stopACAAppRevisions(appID string) {
 	for _, rev := range acaAppRevisions(appID) {
 		stopACAAppReplicas(rev.ID)
 	}
 }
 
-// deleteACAAppRevisions forgets the app's revisions before it stops their
-// replicas, so a start in the background that lands in between finds its
-// revision gone.
+// Forget the revisions before stopping their replicas, so a background start
+// landing in between finds its revision gone.
 func deleteACAAppRevisions(appID string) {
 	for _, rev := range acaAppRevisions(appID) {
 		acaRevisions.Delete(rev.ID)
@@ -358,7 +337,6 @@ func deleteACAAppRevisions(appID string) {
 	}
 }
 
-// acaRevisionsByFqdn indexes revisions by the hostname each answers on.
 var acaRevisionsByFqdn sim.GenerationIndex[acaRevision]
 
 func acaRevisionByFqdn(host string) (acaRevision, bool) {

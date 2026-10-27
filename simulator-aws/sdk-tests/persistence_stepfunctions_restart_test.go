@@ -71,8 +71,8 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 		StateMachineArn: machine.StateMachineArn,
 	})
 	require.NoError(t, err)
-	// The execution launches its task behind StartExecution; ListTasks is the
-	// only place it appears, and Amazon ECS offers no waiter for a task to exist.
+	// The execution launches its task after StartExecution returns; only ListTasks
+	// shows it, and Amazon ECS has no waiter for a task to exist.
 	var launched []string
 	require.Eventually(t, func() bool {
 		tasks, listErr := ecsAPI.ListTasks(testCtx, &ecs.ListTasksInput{Cluster: aws.String(clusterName)})
@@ -98,7 +98,7 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 		})
 		return describeErr == nil && described.Status == sfntypes.ExecutionStatusSucceeded
 	}, 45*time.Second, 100*time.Millisecond)
-	// The task ran to completion, so it is listed among the stopped ones.
+	// The task ran to completion, so it lists among the stopped.
 	tasks, err := ecsAPI.ListTasks(testCtx, &ecs.ListTasksInput{Cluster: aws.String(clusterName), DesiredStatus: ecstypes.DesiredStatusStopped})
 	require.NoError(t, err)
 	require.Len(t, tasks.TaskArns, 1, "recovery must observe the original Amazon ECS task instead of launching a duplicate")

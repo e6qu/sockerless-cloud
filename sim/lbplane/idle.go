@@ -10,8 +10,8 @@ import (
 
 // ErrIdleTimeout marks a forward that no byte moved through, in either
 // direction, for the upstream's IdleTimeout. A SendError carrying it means the
-// target never began its answer; returned bare, the answer was already partly
-// written to the client.
+// target never began its answer; returned bare, Forward had already written
+// part of the answer to the client.
 var ErrIdleTimeout = errors.New("connection idle timeout elapsed")
 
 // idleWatch calls expire once its idle period passes with no byte read from

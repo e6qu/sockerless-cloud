@@ -19,13 +19,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// web_sourcecontrol.go serves a site's source control (sourcecontrols/web)
-// and WebApps_SyncRepository. Configuring a repository and branch, and each
-// sync, has the site's Kudu fetch the branch's head and deploy its tree into
-// wwwroot, recording the deployment under the commit's ID with the commit's
-// author and message, as Kudu records a repository deployment.
+// Each configuration and sync has the site's Kudu fetch the branch head and
+// deploy its tree into wwwroot, recording the deployment under the commit's
+// ID, author and message, as Kudu records a repository deployment.
 
-// webSourceControlFetchTimeout bounds one fetch of a site's repository.
 const webSourceControlFetchTimeout = 10 * time.Minute
 
 func registerWebSourceControl(both func(string, string, http.HandlerFunc)) {
@@ -89,7 +86,6 @@ func registerWebSourceControl(both func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// WebApps_SyncRepository redeploys the configured branch's current head.
 	both("POST", "/sync", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -117,8 +113,7 @@ func kuduConflict(w http.ResponseWriter) {
 
 func boolValue(b *bool) bool { return b != nil && *b }
 
-// webKeepScmType keeps a site's scmType across a configuration write that
-// does not name one: a new site has none, and source control sets it.
+// A new site has no scmType, and source control sets it.
 func webKeepScmType(cfg *SiteConfig, prev *Site) {
 	if cfg.ScmType != "" {
 		return
@@ -129,8 +124,6 @@ func webKeepScmType(cfg *SiteConfig, prev *Site) {
 	}
 }
 
-// webSetScmType records the site's source-control kind in its configuration
-// and returns the updated site.
 func webSetScmType(r *http.Request, scmType string) Site {
 	store := webResourceStore(r)
 	site, _ := store.Get(webResourceID(r))
@@ -142,9 +135,6 @@ func webSetScmType(r *http.Request, scmType string) Site {
 	return site
 }
 
-// webSourceControlScmType is the ScmType App Service records for a source
-// control configuration: GitHub Actions, a continuously integrated GitHub or
-// Bitbucket repository, or an external Git or Mercurial repository.
 func webSourceControlScmType(p WebSourceControlProperties) string {
 	if boolValue(p.IsGitHubAction) {
 		return "GitHubAction"
@@ -175,8 +165,6 @@ func webRepositoryHost(repoURL string) string {
 	return strings.ToLower(u.Hostname())
 }
 
-// webRepositoryDeployer is the deployer Kudu records a repository deployment
-// under.
 func webRepositoryDeployer(repoURL string) string {
 	switch webRepositoryHost(repoURL) {
 	case "github.com":
@@ -187,10 +175,8 @@ func webRepositoryDeployer(repoURL string) string {
 	return "External Git"
 }
 
-// webDeployFromRepository fetches the head of the configured branch and
-// deploys its tree into the site's wwwroot with Kudu's sync semantics,
-// recording the Kudu deployment. A fetch that fails is recorded as a failed
-// deployment of the fetch. The caller holds the site's deployment lock.
+// A failed fetch is recorded as a failed deployment. The caller holds the
+// site's deployment lock.
 func webDeployFromRepository(site *Site, p WebSourceControlProperties) {
 	now := time.Now()
 	deployer := webRepositoryDeployer(p.RepoURL)
@@ -259,8 +245,6 @@ func webFailRepositoryDeployment(rec WebKuduDeployment, err error) {
 	kuduSaveDeployment(rec)
 }
 
-// webFetchRepository clones the configured branch and returns its head
-// commit and the files of its tree.
 func webFetchRepository(p WebSourceControlProperties, logf func(int, string, ...any)) (*object.Commit, []archive.File, error) {
 	if boolValue(p.IsMercurial) {
 		return nil, nil, errors.New("fetching a Mercurial repository is not supported; configure a Git repository")
@@ -302,8 +286,7 @@ func webFetchRepository(p WebSourceControlProperties, logf func(int, string, ...
 	return c, files, nil
 }
 
-// webRepositoryFiles reads the regular files of a checked-out tree, leaving
-// out the repository's own .git metadata as Kudu's sync does.
+// Leave out .git, as Kudu's sync does.
 func webRepositoryFiles(dir string) ([]archive.File, error) {
 	var files []archive.File
 	var total int64

@@ -20,9 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// outsideListener is a listener of the test's own on an address a workload
-// in a VPC reaches only by leaving the VPC: the host's own address, where
-// the test records who connected.
+// outsideListener listens on the host's own address, which a VPC workload
+// reaches only by leaving the VPC, and records who connected.
 func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 	t.Helper()
 	probe, err := net.Dial("udp4", "192.0.2.1:9")
@@ -50,11 +49,10 @@ func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 }
 
 // An instance in a private subnet leaves the VPC through the NAT gateway its
-// route table names: what it opens outside arrives from the gateway and not
-// from the instance, and the gateway's metrics count the connection and its
-// bytes. Rerouted through the internet gateway the instance leaves the NAT
-// gateway's metrics alone, and once the gateway is deleted the route to it
-// leads nowhere.
+// route table names: its connections arrive from the gateway, whose metrics
+// count them and their bytes. Rerouted through the internet gateway the
+// instance leaves the NAT gateway's metrics alone, and once the gateway is
+// deleted the route to it leads nowhere.
 func TestEC2_NatGatewayCarriesAPrivateSubnetsConnections(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -130,9 +128,8 @@ func TestEC2_NatGatewayCarriesAPrivateSubnetsConnections(t *testing.T) {
 		}
 		return total
 	}
-	// The gateway reports a connection's bytes when it ends, which the
-	// request's close brings about; the metric follows on the cloud's own
-	// cadence.
+	// The gateway reports a connection's bytes when it closes; the metric follows
+	// on CloudWatch's own cadence.
 	require.Eventually(t, func() bool { return sum("BytesOutToDestination") > 0 }, time.Minute, 2*time.Second, "the gateway counted no bytes toward the destination")
 	assert.GreaterOrEqual(t, sum("ConnectionAttemptCount"), 1.0)
 	assert.GreaterOrEqual(t, sum("ConnectionEstablishedCount"), 1.0)

@@ -8,36 +8,24 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// Provisioned throughput. A PROVISIONED table promises a number of
-// read and write capacity units per second, and Amazon DynamoDB enforces the
-// promise: a request that would spend more than the table has accrued is
-// refused with ProvisionedThroughputExceededException, and every SDK retries
-// exactly that error with backoff. The simulator stored the numbers and never
-// enforced them, so a consumer's retry path was dead code here and only came
-// alive in production, under load.
+// Amazon DynamoDB refuses a request that would spend more than a PROVISIONED
+// table has accrued with ProvisionedThroughputExceededException, which every
+// SDK retries with backoff.
 //
-// The model is DynamoDB's own, at the granularity a single-partition table
-// has: one token bucket per table for reads and one for writes, and one pair
-// per global secondary index (a GSI has its own provisioned throughput),
-// refilled at the provisioned rate and holding up to 300 seconds of unused
-// capacity — the burst DynamoDB documents it retains. A request spends the
-// units the existing capacity accounting already computes for its
-// ConsumedCapacity (1 WCU per KB written, 1 RCU per 4 KB read strongly
-// consistent, half of that eventually consistent, twice for transactions).
-// PAY_PER_REQUEST tables are never throttled here, as on the service, and a
-// local secondary index spends the base table's capacity, as on the service.
+// Each table, and each global secondary index, has a read and a write token
+// bucket refilled at the provisioned rate, holding up to 300 seconds of unused
+// capacity as DynamoDB documents. A request spends the units its
+// ConsumedCapacity reports. PAY_PER_REQUEST tables are never throttled, and a
+// local secondary index spends the table's capacity.
 //
-// A table stored before CreateTable recorded the request's throughput carries
-// 0/0, which the service never allows; such a table is not throttled, because
-// a bucket refilled at zero would refuse every request a deployed simulator's
-// existing tables receive after an upgrade.
+// A table stored with 0/0 throughput, which the service never allows, is not
+// throttled: such rows predate recording the requested throughput.
 
-// ddbBurstSeconds is how much unused capacity a bucket retains.
 const ddbBurstSeconds = 300.0
 
 var (
 	ddbBuckets kvstore.Buckets
-	// ddbNow is the clock the buckets refill by; tests substitute it.
+	// Tests substitute the clock.
 	ddbNow = time.Now
 )
 
@@ -45,9 +33,8 @@ func ddbBucketKey(table, index, kind string) string {
 	return table + "|" + index + "|" + kind
 }
 
-// ddbProvisionedRate is the read and write units per second the table
-// (index == "") or the named global secondary index is provisioned for, and
-// whether provisioned throughput applies at all.
+// index "" means the table; provisioned is false when throughput does not
+// apply.
 func ddbProvisionedRate(t DDBTable, index string) (read, write float64, provisioned bool) {
 	if t.BillingModeSummary != nil && strings.EqualFold(t.BillingModeSummary.BillingMode, "PAY_PER_REQUEST") {
 		return 0, 0, false
@@ -67,9 +54,7 @@ func ddbProvisionedRate(t DDBTable, index string) (read, write float64, provisio
 	return float64(pt.ReadCapacityUnits), float64(pt.WriteCapacityUnits), true
 }
 
-// ddbTake spends `units` of read or write capacity from the table's (or the
-// index's) bucket. False means the bucket could not cover them: the request
-// is throttled and nothing was spent.
+// false means the request is throttled and nothing was spent.
 func ddbTake(t DDBTable, index string, units float64, write bool) bool {
 	if units <= 0 {
 		return true
@@ -85,10 +70,8 @@ func ddbTake(t DDBTable, index string, units float64, write bool) bool {
 	return ddbBuckets.Take(ddbBucketKey(t.TableName, index, kind), kvstore.Limit{Rate: rate, Burst: rate * ddbBurstSeconds}, units, ddbNow())
 }
 
-// ddbTakeWrite spends a write against the table and against every global
-// secondary index the item lands in (one whose partition key the item
-// carries), as the service charges. It returns the name of the bucket that
-// refused ("" for the table) and whether the write may proceed.
+// Charge the table and every global secondary index the item lands in; return
+// the refusing bucket ("" for the table).
 func ddbTakeWrite(t DDBTable, item map[string]any, units float64) (string, bool) {
 	if !ddbTake(t, "", units, true) {
 		return "", false
@@ -104,8 +87,8 @@ func ddbTakeWrite(t DDBTable, item map[string]any, units float64) (string, bool)
 	return "", true
 }
 
-// ddbItemInIndex: an item is written to a global secondary index only when it
-// carries the index's partition key.
+// An item lands in a global secondary index only when it carries the index's
+// partition key.
 func ddbItemInIndex(g DDBGlobalSecondaryIndex, item map[string]any) bool {
 	if item == nil {
 		return false
@@ -119,15 +102,12 @@ func ddbItemInIndex(g DDBGlobalSecondaryIndex, item map[string]any) bool {
 	return false
 }
 
-// ddbForgetBuckets drops a table's buckets — its provisioning changed, or it
-// is gone — so the next request starts from a full bucket at the new rate.
+// The next request starts from a full bucket at the new rate.
 func ddbForgetBuckets(table string) {
 	ddbBuckets.Forget(table + "|")
 }
 
-// ddbWriteThrottled answers a throttled request with the service's error and
-// message; `index` names the global secondary index that refused, or "" for
-// the table.
+// index names the refusing global secondary index, or "" for the table.
 func ddbWriteThrottled(w http.ResponseWriter, index string) {
 	if index == "" {
 		AWSError(w, "ProvisionedThroughputExceededException",
@@ -140,9 +120,7 @@ func ddbWriteThrottled(w http.ResponseWriter, index string) {
 		http.StatusBadRequest)
 }
 
-// ddbReadIndex is the bucket a read against `index` spends from: a global
-// secondary index has its own throughput; a local secondary index and the
-// table itself spend the table's.
+// A local secondary index spends the table's bucket.
 func ddbReadIndex(t DDBTable, index string) string {
 	if ddbIsGSI(t, index) {
 		return index

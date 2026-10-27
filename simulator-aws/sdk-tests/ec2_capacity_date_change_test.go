@@ -28,7 +28,7 @@ func createFutureDatedReservation(t *testing.T, client *ec2.Client, lead time.Du
 }
 
 // TestEC2SDK_FutureDatedCapacityReservation holds a future-dated reservation
-// to its documented life: scheduled with no instances until its start date,
+// to its documented life: scheduled, with no instances, until its start date,
 // with a commitment, and only targeted matching.
 func TestEC2SDK_FutureDatedCapacityReservation(t *testing.T) {
 	t.Parallel()
@@ -76,16 +76,13 @@ func TestEC2SDK_FutureDatedCapacityReservation(t *testing.T) {
 	require.NoError(t, sized(8), "32 vCPUs")
 }
 
-// TestEC2SDK_CapacityReservationDateChangeQuote postpones a scheduled
-// reservation by quote: the quote states the terms, applying it moves the
-// start date once, and the 30-day and commitment rules hold.
 func TestEC2SDK_CapacityReservationDateChangeQuote(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
 	cr := createFutureDatedReservation(t, client, 20*24*time.Hour)
 	start := aws.ToTime(cr.StartDate)
 
-	// More than two weeks before the start: no additional commitment.
+	// More than two weeks before the start, no commitment is added.
 	quoted, err := client.CreateCapacityReservationDateChangeQuote(ctx, &ec2.CreateCapacityReservationDateChangeQuoteInput{
 		CapacityReservationId: cr.CapacityReservationId,
 		NewStartDate:          aws.Time(start.Add(7 * 24 * time.Hour)),
@@ -146,8 +143,6 @@ func TestEC2SDK_CapacityReservationDateChangeQuote(t *testing.T) {
 	})
 	require.Equal(t, "InvalidParameterValue", errCode(t, err), "a quote is used once")
 
-	// Within two weeks of the start, each day of postponement adds a day of
-	// commitment.
 	soon := createFutureDatedReservation(t, client, 6*24*time.Hour)
 	soonQuote, err := client.CreateCapacityReservationDateChangeQuote(ctx, &ec2.CreateCapacityReservationDateChangeQuoteInput{
 		CapacityReservationId: soon.CapacityReservationId,
@@ -157,7 +152,6 @@ func TestEC2SDK_CapacityReservationDateChangeQuote(t *testing.T) {
 	require.Equal(t, fourteenDays+3*24*60*60,
 		int64(aws.ToInt32(soonQuote.CapacityReservationModificationQuote.ModificationTerms.ReservationUpdate.NewCommitmentDuration)))
 
-	// Pagination walks every quote once.
 	seen := map[string]bool{}
 	var token *string
 	for {
@@ -189,8 +183,6 @@ func TestEC2SDK_CapacityReservationDateChangeQuote(t *testing.T) {
 	require.Equal(t, "IncorrectState", errCode(t, err), "an active reservation has no start date to postpone")
 }
 
-// TestEC2SDK_DescribeCapacityReservationsPaginates walks every reservation one
-// page at a time with the SDK's own paginator, each exactly once.
 func TestEC2SDK_DescribeCapacityReservationsPaginates(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()

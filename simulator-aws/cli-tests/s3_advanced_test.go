@@ -8,14 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3CLI_BucketMetadataTableConfiguration round-trips the legacy V1
-// S3 Metadata table configuration (?metadataTable) via the aws CLI.
-//
-// The V2 ?metadataConfiguration ops, ?abac, ?renameObject, object
-// ?encryption, and the inventory/journal table-config updates are not
-// present in the local aws CLI 2.26.6 — those ops are covered by the
-// SDK round-trips in sdk-tests/s3_advanced_test.go (which exercise the
-// same simulator handlers and the conformance hook).
+// TestS3CLI_BucketMetadataTableConfiguration round-trips the V1 S3 Metadata
+// table configuration (?metadataTable). aws CLI 2.26.6 lacks the V2
+// ?metadataConfiguration operations, ?abac, ?renameObject, object ?encryption
+// and the inventory and journal table-config updates;
+// sdk-tests/s3_advanced_test.go covers them.
 func TestS3CLI_BucketMetadataTableConfiguration(t *testing.T) {
 	t.Parallel()
 	bucket := "cli-metadata-table-bucket"

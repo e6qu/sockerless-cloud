@@ -77,9 +77,14 @@ export async function signedFetch(input: SignedRequestInput): Promise<Response> 
     .map(([name, value]) => `${name}=${value}`)
     .join("&");
 
+  // Every service but Amazon S3 signs the request path URI-encoded a second
+  // time: an ARN segment the URL carries as %3A signs as %253A.
+  const path = url.pathname || "/";
+  const canonicalPath = input.service === "s3" ? path : path.split("/").map(rfc3986).join("/");
+
   const canonicalRequest = [
     input.method,
-    url.pathname || "/",
+    canonicalPath,
     canonicalQuery,
     canonicalHeaders,
     signedHeaders,

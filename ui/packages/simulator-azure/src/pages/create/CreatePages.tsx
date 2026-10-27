@@ -81,7 +81,7 @@ export function DeploymentPage() {
       <div className="az-deployment">
         <div className="az-deployment-head" role="status" aria-live="polite">
           {deployment.status === "InProgress" ? (
-            <Spinner size="small" />
+            <Spinner size="small" aria-label={headline} />
           ) : (
             <AzureIcon name={deployment.status === "Succeeded" ? "status_success" : "status_error"} size={32} />
           )}

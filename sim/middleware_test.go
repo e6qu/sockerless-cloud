@@ -11,12 +11,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// TestLoggingMiddleware_StreamingEnvelopeSentinels asserts that streaming-
-// envelope headers surface as structured fields on the request log when
-// present. This is the operator-visible footprint that would have made
-// the known-bad shape ("handler reads body without consuming aws-chunked
-// envelope") greppable. Fields must be absent on plain requests so the
-// happy path stays quiet.
+// Streaming-envelope headers surface as structured fields on the request log
+// when present, so a handler that reads a body without consuming the
+// aws-chunked envelope shows there; a plain request carries none.
 func TestLoggingMiddleware_StreamingEnvelopeSentinels(t *testing.T) {
 	cases := []struct {
 		name       string

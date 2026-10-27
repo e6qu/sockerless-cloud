@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueCustomEntityTypeCLI round-trips a custom entity type through the
-// create/get/list/delete CLI verbs.
 func TestGlueCustomEntityTypeCLI(t *testing.T) {
 	t.Parallel()
 	name := "glue-cli-cet"
@@ -55,8 +53,6 @@ func TestGlueCustomEntityTypeCLI(t *testing.T) {
 	assert.Equal(t, name, del.Name)
 }
 
-// TestGlueUsageProfileCLI round-trips a usage profile through
-// create/get/list/update/delete.
 func TestGlueUsageProfileCLI(t *testing.T) {
 	t.Parallel()
 	name := "glue-cli-profile"
@@ -111,9 +107,6 @@ func TestGlueUsageProfileCLI(t *testing.T) {
 	runCLI(t, awsCLI("glue", "delete-usage-profile", "--name", name))
 }
 
-// TestGlueSchemaMetadataCLI exercises list-schemas, update-schema,
-// update-registry, check-schema-version-validity, schema-version metadata, and
-// get-schema-versions-diff via the CLI.
 func TestGlueSchemaMetadataCLI(t *testing.T) {
 	t.Parallel()
 	reg := "glue-cli-meta-reg"
@@ -227,8 +220,8 @@ func TestGlueSchemaMetadataCLI(t *testing.T) {
 	assert.NotEmpty(t, diff.Diff)
 }
 
-// TestGlueSearchTablesCLI creates tables then searches the catalog store, and
-// also covers the code-generation / source-control / resource-policy verbs.
+// TestGlueSearchTablesCLI searches the catalog for created tables, and covers
+// the code-generation, source-control and resource-policy verbs.
 func TestGlueSearchTablesCLI(t *testing.T) {
 	t.Parallel()
 	db := "glue-cli-search-db"
@@ -261,7 +254,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	}
 	assert.True(t, foundLink)
 
-	// GetMapping derives a column mapping from the source table.
 	out = runCLI(t, awsCLI("glue", "get-mapping",
 		"--source", `{"DatabaseName":"`+db+`","TableName":"src"}`))
 	var mapping struct {
@@ -272,7 +264,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &mapping)
 	require.Len(t, mapping.Mapping, 2)
 
-	// GetPlan produces a Python script.
 	out = runCLI(t, awsCLI("glue", "get-plan",
 		"--mapping", `[{"SourceTable":"src","SourcePath":"id","TargetTable":"src","TargetPath":"id"}]`,
 		"--source", `{"DatabaseName":"`+db+`","TableName":"src"}`))
@@ -282,7 +273,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &plan)
 	assert.Contains(t, plan.PythonScript, "glueContext")
 
-	// GetDataflowGraph parses the script to a DAG.
 	out = runCLI(t, awsCLI("glue", "get-dataflow-graph", "--python-script", plan.PythonScript))
 	var graph struct {
 		DagNodes []struct {
@@ -292,7 +282,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &graph)
 	assert.NotEmpty(t, graph.DagNodes)
 
-	// CreateScript generates a script from a DAG.
 	out = runCLI(t, awsCLI("glue", "create-script",
 		"--dag-nodes", `[{"Id":"source0","NodeType":"DataSource","Args":[{"Name":"database","Value":"`+db+`"}]}]`,
 		"--language", "PYTHON"))
@@ -302,7 +291,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &script)
 	assert.Contains(t, script.PythonScript, "source0")
 
-	// GetDashboardUrl returns a shaped URL.
 	out = runCLI(t, awsCLI("glue", "get-dashboard-url",
 		"--resource-id", "session-1", "--resource-type", "SESSION"))
 	var url struct {
@@ -311,7 +299,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &url)
 	assert.Contains(t, url.Url, "session-1")
 
-	// Source-control sync on a job.
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-codegen-job",
 		"--role", cliServiceRole(t, "glue.amazonaws.com"),
@@ -337,7 +324,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &scResp)
 	assert.Equal(t, "glue-cli-codegen-job", scResp.JobName)
 
-	// UpdateUserDefinedFunction on an existing UDF.
 	runCLI(t, awsCLI("glue", "create-user-defined-function",
 		"--database-name", db,
 		"--function-input", `{"FunctionName":"udf1","ClassName":"com.example.Old","OwnerName":"owner","OwnerType":"USER"}`))
@@ -355,7 +341,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	parseJSON(t, out, &getUDF)
 	assert.Equal(t, "com.example.New", getUDF.UserDefinedFunction.ClassName)
 
-	// GetResourcePolicies enumerates the catalog resource policy.
 	func() {
 		glueCatalogPolicy.Lock()
 		defer glueCatalogPolicy.Unlock()
@@ -373,8 +358,8 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	assert.GreaterOrEqual(t, len(pols.GetResourcePoliciesResponseList), 1)
 }
 
-// TestGlueIdentityCenterCLI round-trips the singleton Glue Identity Center
-// configuration through create/get/update/delete.
+// TestGlueIdentityCenterCLI round-trips the account's single AWS Glue
+// Identity Center configuration.
 func TestGlueIdentityCenterCLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-glue-identity-center-configuration",

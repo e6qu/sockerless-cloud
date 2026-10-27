@@ -21,8 +21,6 @@ import (
 // resumable threshold.
 const resumablePayloadSize = 9 << 20
 
-// writeResumablePayload writes resumablePayloadSize random bytes to a file in
-// the test's temporary directory.
 func writeResumablePayload(t *testing.T, name string) (string, []byte) {
 	t.Helper()
 	payload := make([]byte, resumablePayloadSize)

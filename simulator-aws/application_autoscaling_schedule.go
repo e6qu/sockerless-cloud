@@ -17,8 +17,6 @@ func startAppScheduledActions(srv *sim.Server) {
 		Start(srv, "Application Auto Scaling scheduled actions", time.Second)
 }
 
-// appScheduledActionEntries runs every scheduled action on its Schedule, read
-// in its Timezone, between StartTime and EndTime.
 func appScheduledActionEntries(actions sim.Store[AppScheduledAction], targets sim.Store[AppScalableTarget]) []cron.Entry {
 	var entries []cron.Entry
 	for _, action := range actions.List() {
@@ -55,9 +53,8 @@ func appScheduledActionEntries(actions sim.Store[AppScheduledAction], targets si
 	return entries
 }
 
-// appRunScheduledAction sets the scalable target's MinCapacity and
-// MaxCapacity to the action's ScalableTargetAction and moves the current
-// capacity into the new range, unless the target suspends scheduled scaling.
+// appRunScheduledAction moves the current capacity into the new range unless
+// the target suspends scheduled scaling.
 func appRunScheduledAction(action AppScheduledAction, targets sim.Store[AppScalableTarget], at time.Time) {
 	var change struct {
 		MinCapacity *int `json:"MinCapacity"`

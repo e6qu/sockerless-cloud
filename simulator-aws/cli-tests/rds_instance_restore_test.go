@@ -25,13 +25,12 @@ type cliDBInstance struct {
 }
 
 // cliWaitDBInstanceAvailable waits for Amazon RDS to finish creating or
-// starting the instance and taking its first automated backup.
+// starting the instance and to take its first automated backup.
 func cliWaitDBInstanceAvailable(t *testing.T, instanceID string) {
 	t.Helper()
 	runCLI(t, awsCLI("rds", "wait", "db-instance-available", "--db-instance-identifier", instanceID))
 }
 
-// cliAvailableDBInstance waits for the instance and describes it.
 func cliAvailableDBInstance(t *testing.T, instanceID string) cliDBInstance {
 	t.Helper()
 	cliWaitDBInstanceAvailable(t, instanceID)
@@ -49,12 +48,12 @@ func cliCleanupDBInstance(t *testing.T, instanceID string) {
 	})
 }
 
-// aws rds restore-db-instance-to-point-in-time --restore-time returns an RDS
-// for PostgreSQL instance to the rows committed by that time, which lies
-// before the LatestRestorableTime describe-db-instances reports, and refuses
-// a time before the instance's first automated snapshot. The instance signs in
-// a user granted rds_iam with the token aws rds generate-db-auth-token makes,
-// and the restored instance signs in the users the engine holds.
+// restore-db-instance-to-point-in-time --restore-time returns an RDS for
+// PostgreSQL instance to the rows committed by then, before the
+// LatestRestorableTime describe-db-instances reports, and refuses a time
+// before the first automated snapshot. The instance signs in a user granted
+// rds_iam with the token generate-db-auth-token makes, and the restored
+// instance signs in the users the engine holds.
 func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -128,8 +127,8 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 		cliLedger(t, ctx, cliConnectPostgresAs(t, ctx, target.Endpoint.Address, target.Endpoint.Port, "ledger_reader", "Reader-Password-1")),
 		"the restored instance signs in the users its engine holds")
 
-	// Deleting the source with --no-delete-automated-backups retains its
-	// automated backup, which restores the deleted instance by its resource ID.
+	// Deleting the source with --no-delete-automated-backups keeps its automated
+	// backup, which restores the deleted instance by its resource ID.
 	var sources struct {
 		DBInstances []struct {
 			DbiResourceId string `json:"DbiResourceId"`
@@ -156,9 +155,8 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 		"the retained automated backup holds every row committed before the deletion")
 }
 
-// aws rds create-db-instance with a backup retention period takes the
-// instance's first automated backup though no client connects: the automated
-// backup describe-db-instance-automated-backups lists turns active and the
+// create-db-instance with a backup retention period takes the first automated
+// backup with no client connected: the automated backup turns active and the
 // automated snapshot is available.
 func TestRDSCLI_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
 	t.Parallel()
@@ -199,9 +197,9 @@ func TestRDSCLI_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T)
 	assert.NotEmpty(t, cliAvailableDBInstance(t, instanceID).LatestRestorableTime)
 }
 
-// aws rds restore-db-instance-from-s3 imports a Percona XtraBackup from an
-// Amazon S3 prefix the ingestion role reads into a new RDS for MySQL
-// instance, which serves the backup's data to its master user.
+// restore-db-instance-from-s3 imports a Percona XtraBackup from an Amazon S3
+// prefix the ingestion role reads into a new RDS for MySQL instance serving
+// the backup's data to its master user.
 func TestRDSCLI_InstanceRestoresFromS3XtraBackup(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

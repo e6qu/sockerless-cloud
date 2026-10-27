@@ -1,13 +1,9 @@
 package main
 
-// Azure Network Watcher packet captures.
-//
-// A capture's content is traffic recorded off a machine's interface by the
-// Network Watcher agent inside the machine. No backend runs a machine, so a
-// create validates its request and then reports that the capture cannot
-// start; a capture reported Running with no packets behind it would be
-// fiction. The stored resource and its status, stop and delete operations
-// serve whatever captures the store holds.
+// Azure Network Watcher packet captures. The Network Watcher agent records a
+// capture inside the machine, and no backend exposes a tap, so a create
+// validates its request and reports that the capture cannot start rather than
+// claiming a Running capture with no packets.
 
 import (
 	"fmt"
@@ -17,7 +13,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AzurePacketCaptureFilter mirrors the PacketCaptureFilter definition.
 type AzurePacketCaptureFilter struct {
 	Protocol        string `json:"protocol,omitempty"`
 	LocalIPAddress  string `json:"localIPAddress,omitempty"`
@@ -26,7 +21,6 @@ type AzurePacketCaptureFilter struct {
 	RemotePort      string `json:"remotePort,omitempty"`
 }
 
-// AzurePacketCaptureStorageLocation mirrors PacketCaptureStorageLocation.
 type AzurePacketCaptureStorageLocation struct {
 	StorageId   string `json:"storageId,omitempty"`
 	StoragePath string `json:"storagePath,omitempty"`
@@ -34,8 +28,8 @@ type AzurePacketCaptureStorageLocation struct {
 	LocalPath   string `json:"localPath,omitempty"`
 }
 
-// AzurePacketCaptureProperties mirrors PacketCaptureResultProperties, which the
-// swagger composes from PacketCaptureParameters plus a provisioning state.
+// PacketCaptureResultProperties: PacketCaptureParameters plus a provisioning
+// state.
 type AzurePacketCaptureProperties struct {
 	Target                  string                            `json:"target,omitempty"`
 	TargetType              string                            `json:"targetType,omitempty"`
@@ -50,16 +44,14 @@ type AzurePacketCaptureProperties struct {
 	ProvisioningState       string                            `json:"provisioningState,omitempty"`
 }
 
-// AzurePacketCapture is the stored capture resource.
 type AzurePacketCapture struct {
 	ID         string                       `json:"id"`
 	Name       string                       `json:"name"`
 	Etag       string                       `json:"etag,omitempty"`
 	Properties AzurePacketCaptureProperties `json:"properties"`
 
-	// CaptureStartTime, Status and StopReason record the session's outcome so
-	// a status read after the process restarted still reports truthfully
-	// rather than inventing a Running session with nothing behind it.
+	// Persist the session's outcome, so a status read after a restart still
+	// reports it.
 	CaptureStartTime string `json:"captureStartTime,omitempty"`
 	Status           string `json:"packetCaptureStatus,omitempty"`
 	StopReason       string `json:"stopReason,omitempty"`
@@ -84,10 +76,8 @@ func packetCaptureID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkWatchers", sim.PathParam(r, "networkWatcherName"), "packetCaptures", sim.PathParam(r, "packetCaptureName"))
 }
 
-// packetCaptureTarget names why a capture of the target cannot start: the
-// virtual machine is missing, has no interface, or has no interface a capture
-// can tap on this host. Returning an empty capture instead would be
-// indistinguishable from a real capture that saw no traffic.
+// The machine is missing, has no interface, or has none a capture can tap on
+// this host.
 func packetCaptureTarget(target string) error {
 	vm, ok := azureVMs.Get(target)
 	if !ok {
@@ -132,9 +122,8 @@ func handlePacketCaptureCreate(w http.ResponseWriter, r *http.Request) {
 	AzureErrorf(w, "PacketCaptureTargetNotReady", http.StatusBadRequest, "%v", packetCaptureTarget(props.Target))
 }
 
-// packetCaptureResult renders the resource shape a client reads back, which
-// carries the parameters and the provisioning state but not the session's
-// runtime status — that belongs to queryStatus.
+// The parameters and provisioning state, not the session status, which
+// belongs to queryStatus.
 func packetCaptureResult(c AzurePacketCapture) map[string]any {
 	return map[string]any{
 		"id":         c.ID,

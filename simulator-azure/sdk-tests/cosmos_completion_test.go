@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cosmosMetricFilter is a realistic Azure Monitor legacy metric $filter naming a
-// metric, time grain and a one-hour window.
+// cosmosMetricFilter is an Azure Monitor legacy metric $filter naming a metric,
+// a time grain and a one-hour window.
 const cosmosMetricFilter = "(name.value eq 'Total Requests') and timeGrain eq duration'PT5M' and startTime eq 2024-01-01T00:00:00Z and endTime eq 2024-01-01T01:00:00Z"
 
-// ensureCosmosMultiRegionAccount provisions a two-region Cosmos DB account so
-// the online/offline-region operations have a non-write region to act on.
+// ensureCosmosMultiRegionAccount provisions a two-region account, so the
+// region operations have a non-write region to act on.
 func ensureCosmosMultiRegionAccount(t *testing.T, rg, account string) {
 	t.Helper()
 	ensureRG(t, rg)
@@ -27,9 +27,6 @@ func ensureCosmosMultiRegionAccount(t *testing.T, rg, account string) {
 	resp.Body.Close()
 }
 
-// TestAzureCosmosDB_MetricsAndUsagesSDK drives the account/database/collection
-// metric, usage and metric-definition list surfaces through the armcosmos
-// clients that call them.
 func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 	t.Parallel()
 	rg, account := "sdk-cosmos-metrics-rg", "sdkcosmosmetrics"
@@ -85,8 +82,6 @@ func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 	require.NotEmpty(t, collDefs.Value)
 }
 
-// TestAzureCosmosDB_PartitionAndPercentileMetricsSDK drives the partition-,
-// partition-key-range-, region- and percentile-scoped metric list surfaces.
 func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 	t.Parallel()
 	rg, account := "sdk-cosmos-partmetrics-rg", "sdkcosmospartmetrics"
@@ -157,8 +152,8 @@ func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 	require.NotEmpty(t, pstMetrics.Value)
 }
 
-// TestAzureCosmosDB_OnlineOfflineRegionSDK exercises the online-/offline-region
-// long-running operations and the write-region offline rejection.
+// TestAzureCosmosDB_OnlineOfflineRegionSDK: the region operations run, and the
+// write region cannot be taken offline.
 func TestAzureCosmosDB_OnlineOfflineRegionSDK(t *testing.T) {
 	t.Parallel()
 	rg, account := "sdk-cosmos-region-rg", "sdkcosmosregion"
@@ -177,13 +172,11 @@ func TestAzureCosmosDB_OnlineOfflineRegionSDK(t *testing.T) {
 	_, err = onPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The write region (failover priority 0) cannot be taken offline.
+	// The write region has failover priority 0.
 	_, err = client.BeginOfflineRegion(ctx, rg, account, armcosmos.RegionForOnlineOffline{Region: to.Ptr("East US")}, nil)
 	require.Error(t, err)
 }
 
-// TestAzureCosmosDB_PrivateEndpointConnectionsSDK exercises the private
-// endpoint connection list/get/create-or-update/delete surface.
 func TestAzureCosmosDB_PrivateEndpointConnectionsSDK(t *testing.T) {
 	t.Parallel()
 	rg, account, pecName := "sdk-cosmos-pec-rg", "sdkcosmospec", "pe-conn-1"

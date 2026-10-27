@@ -17,17 +17,17 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /compute/v1/projects/{project}/global/interconnectGroups/{name}/createMembers` | ✓ `simulator-gcp/compute_last_verbs.go:118::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /compute/v1/projects/{project}/global/firewalls/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:147::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:150::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/firewalls/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_last_verbs.go:153::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /compute/v1/projects/{project}/zones/{zone}/instances/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:162::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/advice/calendarMode` | ○ `simulator-gcp/compute_last_verbs.go:188::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/global/addresses/{name}/move` | ✓ `simulator-gcp/compute_last_verbs.go:32::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/addresses/{name}/move` | ✓ `simulator-gcp/compute_last_verbs.go:36::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/compositeHealthChecks/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:47::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/regions/{region}/healthSources/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:66::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /compute/v1/projects/{project}/regions/{region}/backendServices/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:89::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/interconnectGroups/{name}/createMembers` | ✓ `simulator-gcp/compute_last_verbs.go:106::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /compute/v1/projects/{project}/global/firewalls/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:132::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /compute/v1/projects/{project}/global/backendServices/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:135::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/firewalls/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_last_verbs.go:138::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /compute/v1/projects/{project}/zones/{zone}/instances/{name}` | ✓ `simulator-gcp/compute_last_verbs.go:146::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/advice/calendarMode` | ○ `simulator-gcp/compute_last_verbs.go:168::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/global/addresses/{name}/move` | ✓ `simulator-gcp/compute_last_verbs.go:24::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/addresses/{name}/move` | ✓ `simulator-gcp/compute_last_verbs.go:28::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/compositeHealthChecks/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:36::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/regions/{region}/healthSources/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:55::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /compute/v1/projects/{project}/regions/{region}/backendServices/{name}/getHealth` | ✓ `simulator-gcp/compute_last_verbs.go:78::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

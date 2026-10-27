@@ -17,8 +17,7 @@ type azureAdvertisedEndpointConfig struct {
 	ServiceBus string            `json:"serviceBus,omitempty"`
 	EventGrid  string            `json:"eventGrid,omitempty"`
 	ACR        string            `json:"acr,omitempty"`
-	// AppServiceScm is the App Service SCM (Kudu) site of a web app; {name}
-	// is the label of the app's default hostname, so a slot's is
+	// {name} is the label of the app's default hostname, so a slot's is
 	// "<site>-<slot>".
 	AppServiceScm string `json:"appServiceScm,omitempty"`
 }
@@ -29,11 +28,9 @@ var (
 	azureAdvertisedEndpointsErr  error
 )
 
-// azureRequestScheme reports the scheme the CLIENT used, which is what every
-// absolute URL the simulator emits (long-running-operation polling targets,
-// Key Vault endpoints, advertised data-plane hosts) must carry. Behind a TLS
-// terminating gateway r.TLS is nil even though the client spoke HTTPS, so the
-// forwarded-proto header the gateway sets is authoritative when present.
+// azureRequestScheme reports the scheme the client used, which every absolute
+// URL the simulator emits must carry. Behind a TLS-terminating gateway r.TLS
+// is nil, so the gateway's forwarded-proto header wins when present.
 func azureRequestScheme(r *http.Request) string {
 	if fp := r.Header.Get("X-Forwarded-Proto"); fp != "" {
 		if i := strings.IndexByte(fp, ','); i >= 0 {
@@ -128,10 +125,8 @@ func azureStorageEndpointURL(r *http.Request, account, service string) string {
 			})))
 		}
 	}
-	// A request that already arrived at the service's own hostname is
-	// addressing the very endpoint being reported, so the endpoint is the host
-	// it used. Prefixing the subdomain again would advertise
-	// `acct.file.acct.file.<host>`, a name that resolves nowhere.
+	// A request already at the service's own hostname is addressing this endpoint;
+	// prefixing again would advertise `acct.file.acct.file.<host>`.
 	if hostname, _ := azureRequestHostParts(r); strings.HasPrefix(hostname, account+"."+service+".") {
 		return fmt.Sprintf("%s://%s/", azureRequestScheme(r), r.Host)
 	}
@@ -165,12 +160,9 @@ func azureEventGridEndpointURL(r *http.Request, topic string) string {
 	return ""
 }
 
-// azureACRLoginServer returns the host Azure Container Registry's control
-// plane advertises as a registry's `loginServer` (a bare host, never a URL —
-// real ACR returns e.g. `myregistry.azurecr.io`, not a scheme-prefixed
-// value). Like the other data planes, the host is derived from the request
-// so a client reaches the simulator at the coordinate it just used for ARM,
-// unless an external gateway coordinate is configured.
+// azureACRLoginServer returns a bare host, never a URL, as Azure Container
+// Registry does (`myregistry.azurecr.io`). It derives from the request unless
+// an external gateway coordinate is configured.
 func azureACRLoginServer(r *http.Request, name string) string {
 	if cfg, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
 		panic(err)
@@ -184,11 +176,10 @@ func azureACRLoginServer(r *http.Request, name string) string {
 	return azureEndpointHost(r, name, "azurecr")
 }
 
-// azureAppServiceScmHost returns the SCM hostname App Service advertises for
-// a web app in its Repository hostNameSslStates entry, which is the host the
-// Azure CLI and terraform-provider-azurerm send Kudu deployments to. Like the
-// other data planes it is derived from the request unless an external gateway
-// coordinate is configured, so a client reaches the simulator at it.
+// azureAppServiceScmHost returns the Repository hostNameSslStates host, where
+// the Azure CLI and terraform-provider-azurerm send Kudu deployments. It
+// derives from the request unless an external gateway coordinate is
+// configured.
 func azureAppServiceScmHost(r *http.Request, label string) string {
 	if cfg, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
 		panic(err)

@@ -48,9 +48,8 @@ func servingTemplate(response string) *armappcontainers.Template {
 	}
 }
 
-// containerAppIngressGet sends a request to the simulator carrying host, the
-// way a client resolving an app's or a revision's FQDN to the platform's front
-// end does, and returns the body the replica answered with.
+// containerAppIngressGet sends a request carrying host, as a client resolving
+// an app's or revision's FQDN to the front end does, and returns the body.
 func containerAppIngressGet(t *testing.T, host string) string {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
@@ -145,7 +144,7 @@ func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *
 	assert.False(t, latest.CreatedTime.Before(*old.CreatedTime))
 	assert.Equal(t, "v1", ptrVal(old.Template.Containers[0].Args[2]), "a revision keeps the template it was created with")
 
-	// A configuration change applies to the revisions the app has.
+	// A configuration change applies to the app's revisions.
 	updated = updateContainerApp(t, client, rg, name, armappcontainers.ContainerApp{
 		Properties: &armappcontainers.ContainerAppProperties{
 			Configuration: &armappcontainers.Configuration{MaxInactiveRevisions: to.Ptr[int32](0)},
@@ -156,7 +155,7 @@ func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *
 	require.Len(t, listed, 1, "maxInactiveRevisions 0 keeps no inactive revision")
 	assert.Contains(t, listed, second)
 
-	// A revisionSuffix names the revision; reusing one names a revision the app already has.
+	// A revisionSuffix names the revision; reusing one names an existing revision.
 	updated = updateContainerApp(t, client, rg, name, armappcontainers.ContainerApp{
 		Properties: &armappcontainers.ContainerAppProperties{Template: func() *armappcontainers.Template {
 			tmpl := servingTemplate("v3")

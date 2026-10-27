@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_CreateSnapshotsSDK covers the multi-volume snapshot set: a running
-// instance with an attached data volume is snapshotted via CreateSnapshots, and
-// the returned SnapshotInfo carries the volume id, owner, size, and tags.
+// TestEC2_CreateSnapshotsSDK snapshots a running instance with a data volume;
+// each SnapshotInfo carries the volume id, owner, size and tags.
 func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -49,8 +48,7 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	// The multi-volume snapshot set covers the instance's root volume plus the
-	// attached data volume.
+	// The set covers the root volume and the data volume.
 	require.Len(t, out.Snapshots, 2)
 	byVol := map[string]types.SnapshotInfo{}
 	for _, si := range out.Snapshots {
@@ -76,7 +74,6 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 		assert.Equal(t, "100%", aws.ToString(snap.Progress))
 	}
 
-	// ExcludeBootVolume drops the root volume, leaving only the data volume.
 	noBoot, err := c.CreateSnapshots(ctx, &ec2.CreateSnapshotsInput{
 		InstanceSpecification: &types.InstanceSpecification{
 			InstanceId:        aws.String(instID),
@@ -88,8 +85,6 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 	assert.Equal(t, aws.ToString(vol.VolumeId), aws.ToString(noBoot.Snapshots[0].VolumeId))
 }
 
-// TestEC2_VolumeStatusSDK covers DescribeVolumeStatus + EnableVolumeIO + the
-// CopyVolumes duplication path over an existing volume.
 func TestEC2_VolumeStatusSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -115,7 +110,7 @@ func TestEC2_VolumeStatusSDK(t *testing.T) {
 	assert.NotEqual(t, volID, aws.ToString(cp.Volumes[0].VolumeId))
 	assert.Equal(t, int32(20), aws.ToInt32(cp.Volumes[0].Size))
 
-	// ImportVolume materializes a fresh volume via a conversion task.
+	// ImportVolume creates a volume through a conversion task.
 	imp, err := c.ImportVolume(ctx, &ec2.ImportVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"),
 		Image:            &types.DiskImageDetail{Bytes: aws.Int64(1 << 30), Format: types.DiskImageFormatVmdk, ImportManifestUrl: aws.String("https://example/manifest")},
@@ -125,14 +120,11 @@ func TestEC2_VolumeStatusSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(imp.ConversionTask.ConversionTaskId))
 }
 
-// TestEC2_RecycleBinSDK covers the volume / snapshot Recycle Bin list + restore
-// surface, plus the DescribeLockedSnapshots read-back.
 func TestEC2_RecycleBinSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 
-	// The list surfaces start empty (no resources in the bin), proving the shape
-	// round-trips.
+	// The lists start empty.
 	lv, err := c.ListVolumesInRecycleBin(ctx, &ec2.ListVolumesInRecycleBinInput{})
 	require.NoError(t, err)
 	assert.Empty(t, lv.Volumes)
@@ -145,13 +137,10 @@ func TestEC2_RecycleBinSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, locked.Snapshots)
 
-	// A volume not in the bin is rejected by RestoreVolumeFromRecycleBin.
 	_, err = c.RestoreVolumeFromRecycleBin(ctx, &ec2.RestoreVolumeFromRecycleBinInput{VolumeId: aws.String("vol-deadbeef")})
 	requireAWSErrorCode(t, err, "InvalidVolume.NotFound")
 }
 
-// TestEC2_ReplaceRootVolumeSDK covers the replace-root-volume task + Mac
-// volume-ownership / SIP modification tasks (control-plane task records).
 func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -197,7 +186,6 @@ func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 	assert.Equal(t, types.MacModificationTaskTypeSIPModification, sip.MacModificationTask.TaskType)
 }
 
-// TestEC2_CoipCidrSDK covers CoIP CIDR add/delete on an existing CoIP pool.
 func TestEC2_CoipCidrSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -223,23 +211,21 @@ func TestEC2_CoipCidrSDK(t *testing.T) {
 	assert.Equal(t, "10.40.0.0/24", aws.ToString(del.CoipCidr.Cidr))
 }
 
-// TestEC2_DefaultVpcSDK covers CreateDefaultVpc / CreateDefaultSubnet. The
-// account is provisioned with a default VPC and "a default subnet in each
-// Availability Zone", so CreateDefaultVpc reports DefaultVpcAlreadyExists and
-// CreateDefaultSubnet refuses a second default subnet in a zone: "You can have
-// only one default subnet per Availability Zone."
+// TestEC2_DefaultVpcSDK: the account holds a default VPC and "a default subnet
+// in each Availability Zone", so CreateDefaultVpc reports
+// DefaultVpcAlreadyExists and CreateDefaultSubnet refuses a second one: "You
+// can have only one default subnet per Availability Zone."
 func TestEC2_DefaultVpcSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 
-	// The default VPC already exists for the account.
 	_, err := c.CreateDefaultVpc(ctx, &ec2.CreateDefaultVpcInput{})
 	require.Error(t, err)
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "DefaultVpcAlreadyExists", apiErr.ErrorCode())
 
-	// The seeded default VPC holds a /20 default subnet per zone.
+	// The default VPC holds a /20 default subnet per zone.
 	vpcs, err := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []types.Filter{{Name: aws.String("is-default"), Values: []string{"true"}}},
 	})
@@ -281,8 +267,6 @@ func TestEC2_DefaultVpcSDK(t *testing.T) {
 	assert.Equal(t, "InvalidParameterValue", errorCode(err))
 }
 
-// TestEC2_PrefixListsSDK covers DescribePrefixLists (AWS-managed + customer
-// lists) and the managed-prefix-list association / version-restore surface.
 func TestEC2_PrefixListsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -325,8 +309,6 @@ func TestEC2_PrefixListsSDK(t *testing.T) {
 	assert.Equal(t, plID, aws.ToString(restored.PrefixList.PrefixListId))
 }
 
-// TestEC2_SecurityGroupReferencesSDK covers the security-group reference /
-// stale / for-vpc surfaces derived from the SG store.
 func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -362,8 +344,6 @@ func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
 	assert.Empty(t, stale.StaleSecurityGroupSet, "no stale rules in a fresh VPC")
 }
 
-// TestEC2_LaunchTemplateDataSDK covers GetLaunchTemplateData (derived from an
-// instance) and DeleteLaunchTemplateVersions.
 func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 	t.Parallel()
 	ltName := uniquename.New("sdk-lt-data")
@@ -414,8 +394,6 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 	require.Len(t, fail.UnsuccessfullyDeletedLaunchTemplateVersions, 1)
 }
 
-// TestEC2_Ipv6AddressesSDK covers IPv6 assign / unassign on an ENI plus
-// UnassignPrivateIpAddresses and the IPv6-pool describe surface.
 func TestEC2_Ipv6AddressesSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -450,9 +428,6 @@ func TestEC2_Ipv6AddressesSDK(t *testing.T) {
 	assert.Empty(t, pools.Ipv6Pools)
 }
 
-// TestEC2_DefaultCreditSpecificationSDK covers the default credit specification,
-// AZ-group opt-in, VPC tenancy, and the ENI-attribute / DNS-name-option /
-// route-table-association / VPC-endpoint / diagnostic-interrupt surfaces.
 func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	c := ec2Client()
 
@@ -480,8 +455,6 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(az.Return))
 
-	// VPC tenancy + DNS-name-options + ENI attribute + route-table association +
-	// VPC endpoint + diagnostic interrupt, exercised over real resources.
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.215.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
@@ -525,7 +498,6 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Route-table association replacement.
 	rt, err := c.CreateRouteTable(ctx, &ec2.CreateRouteTableInput{VpcId: aws.String(vpcID)})
 	require.NoError(t, err)
 	rtID := aws.ToString(rt.RouteTable.RouteTableId)
@@ -541,7 +513,6 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(repl.NewAssociationId))
 
-	// VPC endpoint modify.
 	ep, err := c.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
 		VpcId: aws.String(vpcID), ServiceName: aws.String("com.amazonaws.us-east-1.s3"),
 		VpcEndpointType: types.VpcEndpointTypeGateway,
@@ -555,8 +526,6 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(em.Return))
 }
 
-// TestEC2_InterruptibleAndTasksSDK covers the interruptible capacity-reservation
-// allocation and export/import-task surfaces.
 func TestEC2_InterruptibleAndTasksSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -586,8 +555,7 @@ func TestEC2_InterruptibleAndTasksSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "import-ami-0123456789abcdef0", aws.ToString(imp.ImportTaskId))
 
-	// GetAssociatedIpv6PoolCidrs read-back over a (non-existent) pool id is an
-	// empty association set.
+	// An unknown pool has no associated CIDRs.
 	cidrs, err := c.GetAssociatedIpv6PoolCidrs(ctx, &ec2.GetAssociatedIpv6PoolCidrsInput{PoolId: aws.String("ipv6pool-ec2-0123456789abcdef0")})
 	require.NoError(t, err)
 	assert.Empty(t, cidrs.Ipv6CidrAssociations)

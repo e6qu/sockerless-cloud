@@ -8,11 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests exercise the resource-based IAM policy surface via the aws CLI:
-// an S3 bucket policy, a Lambda function policy, an SNS topic policy, and an SQS
-// queue policy. Each set/get round-trips the policy document; the sim also
-// mirrors it into the central resource-policy store the IAM enforcement gate
-// consults.
+// Each resource-based policy round-trips through set and get; the simulator
+// also evaluates it in the IAM enforcement gate.
 
 func TestS3CLI_BucketPolicyRoundtrip(t *testing.T) {
 	t.Parallel()
@@ -138,8 +135,8 @@ func TestSQSCLI_QueuePolicyAttribute(t *testing.T) {
 	assert.Contains(t, out, "AllowSend")
 }
 
-// jsonQuoted JSON-encodes a string so it can be embedded as a nested JSON
-// value (the SQS --attributes map carries the policy as a JSON string).
+// jsonQuoted JSON-encodes a string for nesting: the SQS --attributes map
+// carries the policy as a JSON string.
 func jsonQuoted(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return `"` + r.Replace(s) + `"`

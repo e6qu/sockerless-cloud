@@ -12,17 +12,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// awsPlacement maps each compute service to the backend its workloads run on,
-// from SIM_PLACEMENT; every service runs on containers until configured
-// otherwise.
+// SIM_PLACEMENT maps compute services to backends; containers are the default.
 var awsPlacement = awsContainerPlacement()
 
-// awsMicroVMBackend is set when the table names a microVM service and the
-// node agent started.
 var awsMicroVMBackend *placement.MicroVMBackend
 
-// awsMACPrefix is the locally administered prefix an Amazon EC2 elastic network
-// interface's MAC address carries.
+// A locally administered prefix.
 const awsMACPrefix = "0e:a7:7d"
 
 func awsContainerPlacement() *placement.Table {
@@ -34,7 +29,6 @@ func awsContainerPlacement() *placement.Table {
 	return table
 }
 
-// awsConfigurePlacement reads the placement table from the configuration.
 func awsConfigurePlacement(cfg *sim.Config) error {
 	table, err := placement.ParseTable(cfg.Placement)
 	if err != nil {
@@ -45,12 +39,10 @@ func awsConfigurePlacement(cfg *sim.Config) error {
 	return nil
 }
 
-// awsStartPlacement starts the node agent when a service is configured onto
-// microVMs, on the platform network at its third host address, or adopts the
-// one a previous process of a persistent simulator left running, and returns
-// what stops it: nothing, when the simulator persists, since the agent and
-// its guests outlive the process the way containers do. A table naming no
-// microVM service starts nothing.
+// Start the node agent on the platform network's third host address when a
+// service runs on microVMs, or adopt one a persistent simulator left running.
+// A persistent simulator gets no stop function: the agent and its guests
+// outlive the process, as containers do.
 func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Context) error, err error) {
 	if services := awsPlacement.Services(); len(services) > 0 {
 		log.Printf("placement: %s", strings.Join(services, ", "))
@@ -98,9 +90,8 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 	}, nil
 }
 
-// awsLeaveMicroVMNetwork takes the node agent off a VPC's engine network
-// ahead of the VPC's deletion removing it: the engine removes no network a
-// container is still on.
+// The engine removes no network a container is still on, so leave it before
+// the VPC's deletion removes it.
 func awsLeaveMicroVMNetwork(ctx context.Context, network string) error {
 	if awsMicroVMBackend == nil {
 		return nil
@@ -108,10 +99,8 @@ func awsLeaveMicroVMNetwork(ctx context.Context, network string) error {
 	return awsMicroVMBackend.Leave(ctx, network)
 }
 
-// awsJoinMicroVMNetwork makes the node agent a member of a VPC's engine
-// network at the address Amazon VPC reserves for future use, before the
-// first guest lands there. A table with no microVM service has no agent to
-// join.
+// Join at the address Amazon VPC reserves for future use, before the first
+// guest lands there.
 func awsJoinMicroVMNetwork(ctx context.Context, network string, cidr netip.Prefix) error {
 	if awsMicroVMBackend == nil {
 		return nil

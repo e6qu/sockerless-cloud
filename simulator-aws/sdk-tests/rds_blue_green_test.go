@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rdsAwaitBlueGreenStatus polls DescribeBlueGreenDeployments, for which the
-// SDK carries no waiter, until the deployment reports status.
+// rdsAwaitBlueGreenStatus polls DescribeBlueGreenDeployments, which has no SDK
+// waiter, until the deployment reports status.
 func rdsAwaitBlueGreenStatus(t *testing.T, ctx context.Context, c *rds.Client, id, status string) types.BlueGreenDeployment {
 	t.Helper()
 	var deployment types.BlueGreenDeployment
@@ -33,8 +33,6 @@ func rdsAwaitBlueGreenStatus(t *testing.T, ctx context.Context, c *rds.Client, i
 	return deployment
 }
 
-// rdsAwaitBlueGreenGone polls until DescribeBlueGreenDeployments no longer
-// finds the deployment.
 func rdsAwaitBlueGreenGone(t *testing.T, ctx context.Context, c *rds.Client, id string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -56,7 +54,6 @@ func rdsEndpointOf(instance types.DBInstance) string {
 	return fmt.Sprintf("%s:%d", aws.ToString(instance.Endpoint.Address), aws.ToInt32(instance.Endpoint.Port))
 }
 
-// rdsWriteFails reports the error a write through the session returns.
 func rdsWriteFails(t *testing.T, database auroraSnapshotClient, statement string) error {
 	t.Helper()
 	switch session := database.(type) {
@@ -71,12 +68,12 @@ func rdsWriteFails(t *testing.T, database auroraSnapshotClient, statement string
 	return nil
 }
 
-// A blue/green deployment of a DB instance provisions a green instance that
-// holds the blue instance's data, with the target engine version and DB
-// parameter group, and serves it read-only. The switchover gives the green
-// instance the blue identifier, ARN and endpoint with every row the blue
-// instance committed, and keeps the blue instance under -old1 on an endpoint
-// of its own; Terraform deletes that instance by the deployment's Source.
+// A blue/green deployment of a DB instance provisions a read-only green
+// instance with the blue instance's data, target engine version and DB
+// parameter group. The switchover gives the green instance the blue
+// identifier, ARN and endpoint with every committed row, and keeps the blue
+// instance as -old1 on its own endpoint; Terraform deletes it by the
+// deployment's Source.
 func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 	t.Parallel()
 	for _, engine := range []string{"mysql", "postgres"} {
@@ -200,12 +197,11 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 	}
 }
 
-// Deleting a blue/green deployment before its switchover with DeleteTarget
-// deletes the green instance; without it the green instance stays as a
-// standalone instance that accepts writes. A deployment refuses a DB cluster
-// source, a source without automated backups, a second deployment of the
-// same name, and a DB parameter group that does not exist, as ModifyDBInstance
-// does; an instance upgrades minor versions automatically unless told not to.
+// Deleting a deployment before switchover with DeleteTarget deletes the green
+// instance; without it the green instance stays, standalone and writable. A
+// deployment refuses a DB cluster source, a source without automated backups,
+// a duplicate name and a missing DB parameter group, as ModifyDBInstance does;
+// an instance takes minor upgrades automatically unless told not to.
 func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

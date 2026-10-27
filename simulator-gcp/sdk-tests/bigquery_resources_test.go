@@ -8,12 +8,6 @@ import (
 	bigquery "google.golang.org/api/bigquery/v2"
 )
 
-// bqService is shared with data_saas_coverage_test.go — it builds a BigQuery
-// v2 REST client pointed at the simulator using the canonical
-// google.golang.org/api construction (WithEndpoint sets the full BasePath,
-// which for this client includes the /bigquery/v2/ path).
-
-// bqMakeDataset creates a dataset fixture and returns its ID.
 func bqMakeDataset(t *testing.T, svc *bigquery.Service, project, dataset string) {
 	t.Helper()
 	_, err := svc.Datasets.Insert(project, &bigquery.Dataset{
@@ -22,7 +16,6 @@ func bqMakeDataset(t *testing.T, svc *bigquery.Service, project, dataset string)
 	require.NoError(t, err)
 }
 
-// bqMakeTable creates a table fixture under an existing dataset.
 func bqMakeTable(t *testing.T, svc *bigquery.Service, project, dataset, table string) {
 	t.Helper()
 	_, err := svc.Tables.Insert(project, dataset, &bigquery.Table{
@@ -159,13 +152,9 @@ func TestBigQueryRowAccessPolicies(t *testing.T) {
 	require.Equal(t, "region = 'EMEA'", updated.FilterPredicate)
 	require.Equal(t, created.CreationTime, updated.CreationTime)
 
-	// IAM verbs on a row access policy: getIamPolicy + testIamPermissions only
-	// (no setIamPolicy is exposed by BigQuery for row access policies).
 	resource := "projects/" + project + "/datasets/" + dataset + "/tables/" + table + "/rowAccessPolicies/" + p1
-	// A row access policy carries no IAM policy of its own until one is
-	// written, and BigQuery exposes no setIamPolicy for it — so the read is the
-	// documented empty policy: no bindings, and an etag a caller could pass
-	// back for optimistic concurrency.
+	// BigQuery exposes no setIamPolicy for a row access policy, so getIamPolicy
+	// answers the documented empty policy: no bindings, and an etag.
 	pol, err := svc.RowAccessPolicies.GetIamPolicy(resource, &bigquery.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
 	require.Empty(t, pol.Bindings)
@@ -177,7 +166,6 @@ func TestBigQueryRowAccessPolicies(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"bigquery.rowAccessPolicies.getIamPolicy"}, perms.Permissions)
 
-	// batchDelete removes the named policies.
 	require.NoError(t, svc.RowAccessPolicies.BatchDelete(project, dataset, table, &bigquery.BatchDeleteRowAccessPoliciesRequest{
 		PolicyIds: []string{p1, p2},
 	}).Do())
@@ -262,9 +250,8 @@ func TestBigQueryDatasetUndelete(t *testing.T) {
 	svc := bqService(t)
 	const project, dataset = "sock-proj", "ds_undelete"
 
-	// Distinguishing metadata: undelete has to answer with the stored dataset,
-	// so an implementation that fabricated one — or that answered from the
-	// request alone — would lose these.
+	// undelete must answer with the stored dataset, so these fields catch one
+	// fabricated from the request.
 	created, err := svc.Datasets.Insert(project, &bigquery.Dataset{
 		DatasetReference: &bigquery.DatasetReference{ProjectId: project, DatasetId: dataset},
 		FriendlyName:     "Undelete fixture",
@@ -303,7 +290,6 @@ func TestBigQueryJobCancelAndDelete(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// A query job completes synchronously in the sim.
 	googleSQL := false
 	job, err := svc.Jobs.Insert(project, &bigquery.Job{
 		Configuration: &bigquery.JobConfiguration{
@@ -331,7 +317,6 @@ func TestBigQueryJobCancelAndDelete(t *testing.T) {
 	require.Equal(t, "DONE", cancel.Job.Status.State,
 		"a synchronous query job is already finished, so the cancel reports it DONE")
 
-	// jobs.delete removes the job record.
 	require.NoError(t, svc.Jobs.Delete(project, jobID).Do())
 	_, err = svc.Jobs.Get(project, jobID).Do()
 	require.Error(t, err)

@@ -13,10 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSNS_SubscriptionAttributes round-trips a subscription's mutable
-// attributes: Set RawMessageDelivery / FilterPolicy, then Get them back along
-// with the fixed read-only fields (SubscriptionArn / TopicArn / Protocol /
-// Endpoint / Owner / PendingConfirmation).
+// TestSNS_SubscriptionAttributes round-trips RawMessageDelivery and
+// FilterPolicy, and reads the fixed SubscriptionArn, TopicArn, Protocol,
+// Endpoint, Owner and PendingConfirmation.
 func TestSNS_SubscriptionAttributes(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -50,7 +49,6 @@ func TestSNS_SubscriptionAttributes(t *testing.T) {
 	subARN := aws.ToString(sub.SubscriptionArn)
 	require.NotEmpty(t, subARN)
 
-	// Defaults before any Set.
 	got, err := snsC.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
 		SubscriptionArn: aws.String(subARN),
 	})
@@ -60,10 +58,9 @@ func TestSNS_SubscriptionAttributes(t *testing.T) {
 	assert.Equal(t, "sqs", got.Attributes["Protocol"])
 	assert.Equal(t, queueARN, got.Attributes["Endpoint"])
 	assert.Equal(t, "false", got.Attributes["RawMessageDelivery"])
-	// sqs is auto-confirmed.
+	// An Amazon SQS subscription confirms itself.
 	assert.Equal(t, "false", got.Attributes["PendingConfirmation"])
 
-	// Set RawMessageDelivery=true and a FilterPolicy, round-trip both.
 	filterPolicy := `{"event":["order_placed"]}`
 	for name, val := range map[string]string{
 		"RawMessageDelivery": "true",
@@ -84,7 +81,6 @@ func TestSNS_SubscriptionAttributes(t *testing.T) {
 	assert.Equal(t, "true", got.Attributes["RawMessageDelivery"])
 	assert.Equal(t, filterPolicy, got.Attributes["FilterPolicy"])
 
-	// Clearing an attribute removes it.
 	_, err = snsC.SetSubscriptionAttributes(ctx, &sns.SetSubscriptionAttributesInput{
 		SubscriptionArn: aws.String(subARN),
 		AttributeName:   aws.String("RawMessageDelivery"),
@@ -95,12 +91,10 @@ func TestSNS_SubscriptionAttributes(t *testing.T) {
 		SubscriptionArn: aws.String(subARN),
 	})
 	require.NoError(t, err)
-	// Default reasserted after clearing.
+	// Clearing restores the default.
 	assert.Equal(t, "false", got.Attributes["RawMessageDelivery"])
 }
 
-// TestSNS_GetSubscriptionAttributes_NotFound asserts the canonical NotFound
-// shape for an unknown subscription ARN.
 func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -113,10 +107,9 @@ func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
 		"expected NotFound, got %v", err)
 }
 
-// TestSNS_ConfirmSubscription confirms a confirmation-required (https)
-// subscription. The token is the subscription ARN with its colons stripped —
-// the deterministic token the confirmation message carries; ConfirmSubscription
-// flips the subscription to confirmed and is idempotent.
+// TestSNS_ConfirmSubscription confirms an https subscription with the token its
+// confirmation message carries, the subscription ARN without colons;
+// ConfirmSubscription is idempotent.
 func TestSNS_ConfirmSubscription(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -137,7 +130,6 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 	subARN := aws.ToString(sub.SubscriptionArn)
 	require.NotEmpty(t, subARN)
 
-	// Pending before confirmation.
 	got, err := snsC.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
 		SubscriptionArn: aws.String(subARN),
 	})
@@ -158,7 +150,6 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "false", got.Attributes["PendingConfirmation"])
 
-	// Idempotent re-confirm.
 	conf2, err := snsC.ConfirmSubscription(ctx, &sns.ConfirmSubscriptionInput{
 		TopicArn: aws.String(topicARN),
 		Token:    aws.String(token),
@@ -166,7 +157,6 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, subARN, aws.ToString(conf2.SubscriptionArn))
 
-	// A bogus token is rejected.
 	_, err = snsC.ConfirmSubscription(ctx, &sns.ConfirmSubscriptionInput{
 		TopicArn: aws.String(topicARN),
 		Token:    aws.String("not-a-real-token"),
@@ -174,9 +164,8 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSNS_AddRemovePermission asserts that AddPermission writes a statement
-// into the topic's Policy attribute (readable via GetTopicAttributes) and that
-// RemovePermission drops it.
+// TestSNS_AddRemovePermission expects AddPermission to add a statement to the
+// topic's Policy attribute and RemovePermission to drop it.
 func TestSNS_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -221,7 +210,7 @@ func TestSNS_AddRemovePermission(t *testing.T) {
 	awsP, _ := json.Marshal(doc.Statement[1].Principal["AWS"])
 	assert.Contains(t, string(awsP), "arn:aws:iam::123456789012:root")
 
-	// Duplicate label is rejected.
+	// A duplicate label is refused.
 	_, err = snsC.AddPermission(ctx, &sns.AddPermissionInput{
 		TopicArn:     aws.String(topicARN),
 		Label:        aws.String("cross-acct-publish"),
@@ -245,7 +234,7 @@ func TestSNS_AddRemovePermission(t *testing.T) {
 	require.Len(t, doc.Statement, 1, "RemovePermission drops the label's statement and keeps the default")
 	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
 
-	// Removing an absent label is a NotFound.
+	// Removing an absent label is NotFound.
 	_, err = snsC.RemovePermission(ctx, &sns.RemovePermissionInput{
 		TopicArn: aws.String(topicARN),
 		Label:    aws.String("no-such-label"),

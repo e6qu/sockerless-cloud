@@ -11,9 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// kqlError is a query the service refuses. The Log Analytics query API
-// answers it with HTTP 400 and an ErrorResponse whose code is
-// BadArgumentError, nesting what went wrong as a SyntaxError or SemanticError.
+// The Log Analytics query API refuses with 400 and an ErrorResponse coded
+// BadArgumentError, nesting a SyntaxError or SemanticError.
 type kqlError struct {
 	kind    string // SyntaxError, SemanticError, or empty for a request-level fault
 	code    string // the innermost diagnostic code, such as SYN0002
@@ -51,7 +50,6 @@ func kqlSemanticError(code, message string) *kqlError {
 	return &kqlError{kind: "SemanticError", code: code, message: message}
 }
 
-// body renders the ErrorResponse the query API answers a refused query with.
 func (e *kqlError) body() map[string]any {
 	if e.kind == "" {
 		return map[string]any{"error": map[string]any{"code": "BadArgumentError", "message": e.message}}
@@ -79,7 +77,6 @@ func (e *kqlError) body() map[string]any {
 	}}
 }
 
-// writeKQLResult answers a query request with its tables or its error.
 func writeKQLResult(w http.ResponseWriter, scope logScope, query, timespan string) {
 	result, err := runKQLQuery(scope, query, timespan)
 	if err != nil {
@@ -89,11 +86,8 @@ func writeKQLResult(w http.ResponseWriter, scope logScope, query, timespan strin
 	sim.WriteJSON(w, http.StatusOK, result)
 }
 
-// runKQLQuery executes a KQL query against the rows in scope and returns the
-// QueryResults tabular shape. Both the POST and GET Log Analytics
-// query endpoints and each member of a $batch run through here. timespan is
-// the request's ISO 8601 interval, which bounds TimeGenerated before the query
-// runs.
+// runKQLQuery serves the POST and GET query endpoints and each $batch member.
+// timespan, an ISO 8601 interval, bounds TimeGenerated before the query runs.
 func runKQLQuery(scope logScope, query, timespan string) (QueryResponse, *kqlError) {
 	now := time.Now().UTC()
 	var window *[2]time.Time
@@ -158,8 +152,7 @@ func runKQLQuery(scope logScope, query, timespan string) (QueryResponse, *kqlErr
 
 var iso8601Duration = regexp.MustCompile(`^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$`)
 
-// addISO8601Duration moves an instant by an ISO 8601 duration, forwards for
-// sign 1 and backwards for sign -1.
+// sign is 1 for forwards, -1 for backwards.
 func addISO8601Duration(t time.Time, s string, sign int) (time.Time, bool) {
 	m := iso8601Duration.FindStringSubmatch(s)
 	if m == nil || s == "P" || strings.HasSuffix(s, "T") {
@@ -178,8 +171,7 @@ func addISO8601Duration(t time.Time, s string, sign int) (time.Time, bool) {
 	return t.Add(time.Duration(sign) * clock), true
 }
 
-// parseQueryTimespan reads the query API's timespan: a duration ending now, or
-// an interval given as start/end, start/duration or duration/end.
+// A duration ending now, or start/end, start/duration or duration/end.
 func parseQueryTimespan(s string, now time.Time) (time.Time, time.Time, bool) {
 	first, second, isInterval := strings.Cut(s, "/")
 	if !isInterval {
@@ -201,16 +193,14 @@ func parseQueryTimespan(s string, now time.Time) (time.Time, time.Time, bool) {
 	return time.Time{}, time.Time{}, false
 }
 
-// kqlTableSchemas are the Azure tables every workspace holds, with the
-// columns the simulator records.
 var kqlTableSchemas = map[string][]Column{
 	"AppTraces": {
 		{Name: "TimeGenerated", Type: "datetime"},
 		{Name: "Message", Type: "string"},
 		{Name: "AppRoleName", Type: "string"},
 	},
-	// The resource-specific tables diagnostic settings fill, with the columns
-	// the Azure Monitor table reference lists (monitor-table-*.md.gz).
+	// The resource-specific tables diagnostic settings fill, with the columns the
+	// Azure Monitor table reference lists (monitor-table-*.md.gz).
 	"AppServiceConsoleLogs": {
 		{Name: "_BilledSize", Type: "real"}, {Name: "Category", Type: "string"}, {Name: "ContainerId", Type: "string"},
 		{Name: "Host", Type: "string"}, {Name: "_IsBillable", Type: "string"}, {Name: "Level", Type: "string"},
@@ -248,8 +238,7 @@ var kqlTableSchemas = map[string][]Column{
 	"AppMetrics":             append(kqlAppTableColumns("Name"), Column{Name: "Sum", Type: "real"}),
 }
 
-// kqlAppTableColumns is the part of a workspace-based Application Insights
-// table's schema the simulator records: when, what, and which role wrote it.
+// When, what, and which role wrote it.
 func kqlAppTableColumns(what string) []Column {
 	return []Column{
 		{Name: "TimeGenerated", Type: "datetime"},
@@ -258,12 +247,10 @@ func kqlAppTableColumns(what string) []Column {
 	}
 }
 
-// monitorLogRow is a generic log row stored as field→value pairs.
 type monitorLogRow map[string]string
 
-// typedRow reads a stored row as the typed cells of the given columns. A
-// datetime or number that is absent or unreadable is null; a string is never
-// null in Kusto, only empty.
+// An absent or unreadable datetime or number is null; a Kusto string is never
+// null, only empty.
 func (row monitorLogRow) typedRow(columns []Column) []any {
 	result := make([]any, len(columns))
 	for i, col := range columns {

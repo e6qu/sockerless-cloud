@@ -13,8 +13,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// cosmosItemsClient drives one account's data plane with signed requests,
-// optionally carrying extra headers, as an SDK does.
 type cosmosItemsClient struct {
 	t       *testing.T
 	srv     *sim.Server
@@ -45,7 +43,6 @@ func (c *cosmosItemsClient) do(method, path, body string, headers map[string]str
 	return recorder.Code, recorder.Header(), recorder.Body.Bytes()
 }
 
-// dataRID reads the _rid the data plane serves for the resource at path.
 func (c *cosmosItemsClient) dataRID(path string) string {
 	c.t.Helper()
 	_, out := c.must(http.StatusOK, http.MethodGet, path, "", nil)
@@ -67,7 +64,6 @@ func (c *cosmosItemsClient) must(want int, method, path, body string, headers ma
 	return header, out
 }
 
-// cosmosFixedClock pins the clock expiry and throughput are judged by.
 func cosmosFixedClock(t *testing.T) *time.Time {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)

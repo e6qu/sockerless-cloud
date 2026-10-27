@@ -1,6 +1,6 @@
 ---
 name: surface-table-completeness
-description: Enforce the full-enumeration rule before claiming any sim surface "fixed" — community-filed issues against closed operation tables (S3 subresources, KV data plane, Pub/Sub verbs, Lambda subresources, Azure storage data planes) get half-fixed when only the user-named ops land; the rest reopen as follow-up issues with the same shape. This skill keeps every PR honest by requiring a corresponding row-by-row check against `specs/SIM_SURFACE_TABLES/<surface>.md`. Distilled from BUG-1145 — the meta-shape behind issue #196 → #201, #190 → #134 → #1142, and #193 → #1135 → #1143.
+description: Enforce the full-enumeration rule before claiming any sim surface "fixed" — community-filed issues against closed operation tables (S3 subresources, KV data plane, Pub/Sub verbs, Lambda subresources, Azure storage data planes) get half-fixed when only the user-named ops land; the rest reopen as follow-up issues with the same shape. This skill keeps every PR honest by requiring a corresponding row-by-row check against `specs/SIM_SURFACE_TABLES/<surface>.md`.
 ---
 
 # Surface-table completeness invariant

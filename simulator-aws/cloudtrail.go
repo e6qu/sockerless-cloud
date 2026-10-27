@@ -32,22 +32,17 @@ type CloudTrailTrail struct {
 	InsightSelectors []map[string]any
 }
 
-// CloudTrailDelivery records a trail's latest delivery separately from the
-// trail row: delivery happens on every request, and writing it into the
-// trail would re-key the index over trails each time, costing the index its
-// whole point.
+// Store delivery apart from the trail: it changes on every request, and
+// writing the trail each time would invalidate the trail index.
 type CloudTrailDelivery struct {
-	// LatestDelivery is the last delivery that succeeded.
 	LatestDelivery string
-	// LatestDeliveryAttempt is the last delivery tried, and
-	// LatestDeliveryError why it failed, empty when it did not.
+	// LatestDeliveryError is empty when the attempt succeeded.
 	LatestDeliveryAttempt string `json:",omitempty"`
 	LatestDeliveryError   string `json:",omitempty"`
 }
 
-// CloudTrailChannel is a CloudTrail Lake channel — a named resource with an ARN
-// (arn:aws:cloudtrail:region:acct:channel/UUID) routing events from a partner or
-// custom Source into one or more event-data-store Destinations.
+// A channel routes events from a partner or custom Source into event data
+// stores.
 type CloudTrailChannel struct {
 	ARN          string
 	Name         string
@@ -68,20 +63,16 @@ type CloudTrailEvent struct {
 	Resources    []CloudTrailResource
 	ErrorCode    string
 	ErrorMessage string
-	// Seq is a monotonic record-order sequence used as the total-order
-	// tiebreaker among events that share a (second-granularity) EventTime, so
-	// LookupEvents pages them newest-first deterministically rather than by a
-	// random EventId. Internal only — cloudTrailEventJSON projects the wire
-	// fields explicitly, so Seq never leaks to a client.
+	// Seq breaks ties among events sharing a second-granularity EventTime so
+	// LookupEvents pages newest-first deterministically. It never reaches the
+	// wire.
 	Seq int64
 }
 
-// cloudTrailSeq is the last CloudTrailEvent.Seq handed out.
 var cloudTrailSeq int64
 
-// cloudTrailNextSeq returns a sequence number above every earlier one, including
-// those a previous process recorded: it never falls below the clock in
-// nanoseconds, so a restart needs no scan of the stored events to resume.
+// Never fall below the clock in nanoseconds, so a restart needs no scan to
+// resume above earlier sequences.
 func cloudTrailNextSeq() int64 {
 	for {
 		last := atomic.LoadInt64(&cloudTrailSeq)
@@ -92,7 +83,6 @@ func cloudTrailNextSeq() int64 {
 	}
 }
 
-// cloudTrailHistoryRetention is how far back CloudTrail event history reaches.
 const cloudTrailHistoryRetention = 90 * 24 * time.Hour
 
 func cloudTrailSweepHistory(now time.Time) int {
@@ -137,7 +127,7 @@ func (w *cloudTrailStatusRecorder) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-// Unwrap lets AWSError find the service model the wrapped writer serves.
+// AWSError finds the service model through Unwrap.
 func (w *cloudTrailStatusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *cloudTrailStatusRecorder) statusCode() int {
@@ -309,8 +299,7 @@ func handleCloudTrailUpdateTrail(w http.ResponseWriter, r *http.Request) {
 		trail.S3KeyPrefix = strings.Trim(req.S3KeyPrefix, "/")
 	}
 	cloudTrailTrails.Put(trail.Name, trail)
-	// UpdateTrailResponse (unlike the Trail shape DescribeTrails/GetTrail return)
-	// has no HomeRegion member — emit the response shape's fields only.
+	// UpdateTrailResponse has no HomeRegion member.
 	writeAWSJSON(w, http.StatusOK, map[string]any{
 		"Name":         trail.Name,
 		"S3BucketName": trail.S3BucketName,
@@ -382,13 +371,12 @@ func handleCloudTrailLookupEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The full matched, time-ordered event list; a stable cursor resumes within
-	// it so head-insertion between page fetches can't duplicate or skip events.
+	// The cursor resumes within the ordered list, so an event recorded between
+	// pages is neither duplicated nor skipped.
 	now := time.Now()
 	history := cloudTrailEvents.Filter(func(event CloudTrailEvent) bool { return cloudTrailInHistory(event, now) })
 	matched := cloudTrailMatchedOrdered(history, req.LookupAttributes)
-	// StartTime/EndTime (epoch-second numbers in awsJson) scope events to a
-	// [StartTime, EndTime] window — inclusive, matching the real LookupEvents API.
+	// The window is inclusive, as in LookupEvents.
 	matched = cloudTrailFilterTimeWindow(matched, req.StartTime, req.EndTime)
 	pageSize := req.MaxResults
 	if pageSize <= 0 || pageSize > 50 {
@@ -398,7 +386,7 @@ func handleCloudTrailLookupEvents(w http.ResponseWriter, r *http.Request) {
 	start := 0
 	if req.NextToken != "" {
 		if curTime, curSeq, ok := cloudTrailDecodeToken(req.NextToken); ok {
-			start = len(matched) // token past the end → empty page
+			start = len(matched)
 			for i, ev := range matched {
 				if cloudTrailAfterCursor(ev, curTime, curSeq) {
 					start = i
@@ -428,10 +416,8 @@ type cloudTrailLookupAttribute struct {
 	AttributeValue string
 }
 
-// cloudTrailMatchedOrdered returns the events matching attrs in descending
-// (EventTime, EventId) order — the stable total order that pagination cursors
-// resume against. (EventTime, EventId) is unique (EventId is a UUID), so a
-// cursor names exactly one position regardless of events ingested later.
+// Order by descending (EventTime, Seq), a unique total order pagination
+// cursors resume against.
 func cloudTrailMatchedOrdered(events []CloudTrailEvent, attrs []cloudTrailLookupAttribute) []CloudTrailEvent {
 	ordered := append([]CloudTrailEvent(nil), events...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -443,9 +429,7 @@ func cloudTrailMatchedOrdered(events []CloudTrailEvent, attrs []cloudTrailLookup
 		if ordered[i].EventTime != ordered[j].EventTime {
 			return ordered[i].EventTime > ordered[j].EventTime
 		}
-		// Same second: order by record sequence (newest first), a deterministic
-		// chronological tiebreaker — not the random EventId, which buried a
-		// just-recorded event among same-second events under heavy volume.
+		// Same second: newest record first.
 		return ordered[i].Seq > ordered[j].Seq
 	})
 	matched := make([]CloudTrailEvent, 0, len(ordered))
@@ -457,9 +441,7 @@ func cloudTrailMatchedOrdered(events []CloudTrailEvent, attrs []cloudTrailLookup
 	return matched
 }
 
-// cloudTrailFilterTimeWindow keeps only events whose EventTime falls within the
-// inclusive [start, end] window. Either bound may be nil (unbounded on that
-// side). Bounds arrive as epoch seconds (awsJson timestamp wire form).
+// Either bound may be nil; bounds arrive as epoch seconds.
 func cloudTrailFilterTimeWindow(events []CloudTrailEvent, start, end *float64) []CloudTrailEvent {
 	if start == nil && end == nil {
 		return events
@@ -482,12 +464,9 @@ func cloudTrailFilterTimeWindow(events []CloudTrailEvent, start, end *float64) [
 	return out
 }
 
-// cloudTrailEncodeToken / cloudTrailDecodeToken make the LookupEvents NextToken
-// an opaque cursor naming the last-returned event by its stable
-// (EventTime, EventId) key, rather than an absolute offset. Resuming "after"
-// that key is immune to head-insertion: events ingested mid-pagination are
-// newer (sort before the cursor) and so are never revisited, and none are
-// skipped — each matching event is returned exactly once.
+// NextToken names the last-returned event by (EventTime, Seq). Events
+// recorded mid-pagination sort before the cursor, so none is revisited or
+// skipped.
 func cloudTrailEncodeToken(ev CloudTrailEvent) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(ev.EventTime + "\x00" + strconv.FormatInt(ev.Seq, 10)))
 }
@@ -508,13 +487,11 @@ func cloudTrailDecodeToken(token string) (eventTime string, seq int64, ok bool) 
 	return parts[0], seq, true
 }
 
-// cloudTrailAfterCursor reports whether ev sorts strictly after the cursor in
-// the descending (EventTime, EventId) order — i.e. ev belongs on a later page.
 func cloudTrailAfterCursor(ev CloudTrailEvent, curTime string, curSeq int64) bool {
 	if ev.EventTime != curTime {
-		return ev.EventTime < curTime // descending by time: later page = older event
+		return ev.EventTime < curTime
 	}
-	return ev.Seq < curSeq // same second: descending by record sequence
+	return ev.Seq < curSeq
 }
 
 func handleCloudTrailDeleteTrail(w http.ResponseWriter, r *http.Request) {
@@ -526,9 +503,6 @@ func handleCloudTrailDeleteTrail(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleCloudTrailListTrails returns the name, ARN, and home Region of every
-// trail in the account (the lightweight ListTrails view, distinct from the fuller
-// DescribeTrails summary).
 func handleCloudTrailListTrails(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NextToken string
@@ -810,10 +784,7 @@ func handleCloudTrailGetEventSelectors(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cloudTrailTrailByTrailName resolves the trail named by the request's TrailName
-// field — the request-shape key the *EventSelectors / *InsightSelectors
-// operations use (distinct from the Name key used by GetTrail / StartLogging
-// etc.).
+// The selector operations key the trail by TrailName, not Name.
 func cloudTrailTrailByTrailName(w http.ResponseWriter, r *http.Request) (CloudTrailTrail, bool) {
 	var req struct {
 		TrailName string
@@ -870,11 +841,8 @@ func cloudTrailARN(name string) string {
 	return fmt.Sprintf("arn:aws:cloudtrail:%s:%s:trail/%s", awsRegion(), awsAccountID(), name)
 }
 
-// cloudTrailRecordAPICall records a management event for an awsJson or
-// query-protocol API call served by the central POST / router. reqBody is the
-// buffered request payload (the handler has already consumed r.Body), used to
-// extract the resources[] the call acted on for ResourceName/ResourceType
-// lookups.
+// The handler has consumed r.Body, so reqBody carries the buffered payload
+// for extracting resources[].
 func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, status int, respHeaders http.Header, respBody []byte) {
 	if cloudTrailEvents == nil || status >= 500 {
 		return
@@ -883,19 +851,15 @@ func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, s
 	if eventName == "" {
 		return
 	}
-	// Real CloudTrail does not log its own LookupEvents read calls. Recording
-	// them grows the trail under a paginating consumer's feet — each page fetch
-	// would prepend a fresh event — so skip it (the read API used to walk the
-	// trail must not perturb the trail it walks).
+	// CloudTrail does not log its own LookupEvents, which would grow the trail
+	// under a paginating reader.
 	if eventName == "LookupEvents" {
 		return
 	}
 	source, ok := awsEventSource(r)
 	if !ok {
-		// A recognised operation whose service slice has no eventSource
-		// mapping. Surface it loudly instead of recording a fabricated source
-		// — the missing entry is a real gap in awsEventSourceByTargetPrefix /
-		// awsEventSourceByQueryVersion that must be added.
+		// An unmapped event source is a gap in awsEventSourceByTargetPrefix or
+		// awsEventSourceByQueryVersion; log it rather than record a made-up source.
 		logger := srv.Logger()
 		logger.Warn().
 			Str("event", eventName).
@@ -923,13 +887,8 @@ func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, s
 type cloudTrailRESTEventNameFunc func(*http.Request, []byte) string
 type cloudTrailRESTResourceFunc func(*http.Request, []byte) []CloudTrailResource
 
-// restRegisteredOps records, per CloudTrail event source, the static REST
-// operation names registered through cloudTrailRecordedREST. REST services (S3
-// aside, which composes its op name dynamically) name their operation as a
-// constant at registration, so this registry lets the service-conformance gate
-// measure their operation coverage the way it reads the awsJson/awsQuery routers
-// for the RPC services. (Operations registered via cloudTrailRecordedRESTDynamic
-// carry a per-request name and are not captured here.)
+// The service-conformance gate reads this registry to measure REST services'
+// operation coverage. Dynamic registrations are not captured.
 var restRegisteredOps = map[string]map[string]bool{}
 
 func restRegisterOp(source, op string) {
@@ -1074,11 +1033,7 @@ func cloudTrailXMLErrorFields(body []byte) (string, string) {
 	return "", ""
 }
 
-// cloudTrailRecord finalises and persists a management event: it stamps the
-// event id/time and a default username, then delivers it to every logging
-// trail. All recording paths (central API router, REST services like Scheduler,
-// and service-invoked targets) funnel through here so every event carries a
-// consistent shape.
+// Every recording path funnels through here so events share one shape.
 func cloudTrailRecord(ev CloudTrailEvent) {
 	if cloudTrailEvents == nil {
 		return
@@ -1094,10 +1049,8 @@ func cloudTrailRecord(ev CloudTrailEvent) {
 	cloudTrailLakeIngest(ev)
 }
 
-// cloudTrailAccessKeyID extracts the IAM access key id from a SigV4
-// Authorization header (`Credential=<AKID>/<date>/<region>/<service>/...`).
-// Empty when the request is unsigned — real CloudTrail also omits AccessKeyId
-// for anonymous or service-invoked calls.
+// Empty for an unsigned request; CloudTrail omits AccessKeyId for anonymous
+// and service-invoked calls too.
 func cloudTrailAccessKeyID(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	i := strings.Index(auth, "Credential=")
@@ -1111,9 +1064,7 @@ func cloudTrailAccessKeyID(r *http.Request) string {
 	return cred
 }
 
-// cloudTrailReadOnly classifies an operation as read-only by its verb, the
-// convention AWS follows for its own per-operation readOnly flag (the value the
-// ReadOnly lookup attribute filters on).
+// AWS sets its own readOnly flag by the operation's verb.
 func cloudTrailReadOnly(eventName string) bool {
 	for _, p := range []string{
 		"Describe", "Get", "List", "Lookup", "BatchGet", "Search", "Scan",
@@ -1126,25 +1077,12 @@ func cloudTrailReadOnly(eventName string) bool {
 	return false
 }
 
-// cloudTrailDataEventOps is the registry of data-plane (item / object / message /
-// record / function-invocation level) operations that CloudTrail classifies as
-// DATA events. Real AWS does NOT log data events by default and NEVER returns
-// them from LookupEvents (they require explicit data-event selectors and are
-// delivered separately), so the sim must not record them into the trail it
-// serves. Every service's ops route through the same central recorder, so without
-// this classification they all leak into the management-event trail. Data events
-// are the enumerated exception, exactly as AWS defines them — everything unlisted
-// is a management event, recorded normally.
-//
-// The registry is populated by cloudTrailDeclareDataEvents, called from each
-// service slice's register function (registration-time classification), so the
-// data-event list lives WITH the handlers it describes rather than in a far-away
-// table a service author editing that slice would never see.
+// CloudTrail never returns data events from LookupEvents, so the recorder
+// skips the operations each service declares as data events through
+// cloudTrailDeclareDataEvents; everything else is a management event.
 var cloudTrailDataEventOps = map[string]map[string]bool{}
 
-// cloudTrailDeclareDataEvents marks (source, ops...) as data events. Call it from
-// a service's register function, alongside its r.Register(...) calls, so a new
-// high-volume data-plane op is classified where it's added.
+// Call it from a service's register function, beside its r.Register calls.
 func cloudTrailDeclareDataEvents(source string, ops ...string) {
 	m := cloudTrailDataEventOps[source]
 	if m == nil {
@@ -1156,17 +1094,12 @@ func cloudTrailDeclareDataEvents(source string, ops ...string) {
 	}
 }
 
-// cloudTrailIsDataEvent reports whether (source, eventName) is a data-plane event.
 func cloudTrailIsDataEvent(source, eventName string) bool {
 	return cloudTrailDataEventOps[source][eventName]
 }
 
-// cloudTrailShouldRecord reports whether an API call belongs in the trail that
-// LookupEvents serves. Real CloudTrail records only AUTHENTICATED MANAGEMENT
-// events there: an unauthenticated request (e.g. the container healthcheck's
-// bare `GET /`, which the S3 slice routes to ListBuckets) isn't a real API call
-// and must not generate phantom events, and data-plane events are never returned
-// by LookupEvents.
+// LookupEvents serves only authenticated management events, so an
+// unauthenticated request such as a bare healthcheck `GET /` records nothing.
 func cloudTrailShouldRecord(r *http.Request, source, eventName string) bool {
 	if cloudTrailAccessKeyID(r) == "" {
 		return false
@@ -1187,13 +1120,8 @@ func awsRequestOperationName(r *http.Request) string {
 	return ""
 }
 
-// awsEventSourceByTargetPrefix maps an awsJson `X-Amz-Target` service prefix to
-// the CloudTrail `eventSource` value real AWS records for that service. The
-// prefixes are the per-service namespaces the sim registers (see each
-// service's Register call); the eventSource values are AWS's canonical
-// `<service>.amazonaws.com` endpoints. Order-independent: every prefix is
-// distinct after the point where sibling services diverge (e.g.
-// AmazonEC2ContainerService vs AmazonEC2ContainerRegistry).
+// Every prefix is distinct past the point sibling services diverge, so order
+// does not matter.
 var awsEventSourceByTargetPrefix = []struct{ prefix, source string }{
 	{"com.amazonaws.cloudtrail", "cloudtrail.amazonaws.com"},
 	{"CloudTrail_", "cloudtrail.amazonaws.com"},
@@ -1221,8 +1149,7 @@ var awsEventSourceByTargetPrefix = []struct{ prefix, source string }{
 	{"secretsmanager", "secretsmanager.amazonaws.com"},
 }
 
-// awsEventSourceByQueryVersion maps a query-protocol service's request
-// `Version` (sent by the SDK, unique per service) to its eventSource.
+// The SDK sends a Version unique per query-protocol service.
 var awsEventSourceByQueryVersion = map[string]string{
 	"2016-11-15": "ec2.amazonaws.com",
 	"2011-01-01": "autoscaling.amazonaws.com",
@@ -1235,11 +1162,8 @@ var awsEventSourceByQueryVersion = map[string]string{
 	"2015-02-02": "elasticache.amazonaws.com",
 }
 
-// awsEventSource resolves the CloudTrail eventSource for an awsJson or
-// query-protocol request. It never guesses: an unmapped service returns
-// ok=false so the caller can surface the gap (and skip the event) rather than
-// record a fabricated source — a wrong source silently breaks LookupEvents
-// filtering, which is the exact defect a generic default would reintroduce.
+// Never guess: a wrong source silently breaks LookupEvents filtering, so an
+// unmapped service returns ok=false.
 func awsEventSource(r *http.Request) (string, bool) {
 	if target := r.Header.Get("X-Amz-Target"); target != "" {
 		for _, m := range awsEventSourceByTargetPrefix {
@@ -1255,10 +1179,8 @@ func awsEventSource(r *http.Request) (string, bool) {
 	return "", false
 }
 
-// cloudTrailLoggingTrails indexes the trails that are logging under one
-// constant key, so per-request delivery reads the decoded set instead of
-// decoding every stored trail; the index rebuilds only when a trail is
-// created, started, stopped or deleted.
+// The index rebuilds only when a trail is created, started, stopped or
+// deleted.
 var cloudTrailLoggingTrails sim.GenerationIndex[CloudTrailTrail]
 
 func cloudTrailLoggingTrailKeys(trail CloudTrailTrail) []string {
@@ -1286,7 +1208,6 @@ func cloudTrailDeliverEvent(event CloudTrailEvent) {
 	}
 }
 
-// cloudTrailDeliverTo writes one event's log file to the trail's bucket.
 func cloudTrailDeliverTo(trail CloudTrailTrail, event CloudTrailEvent) error {
 	body, err := cloudTrailLogBody(event)
 	if err != nil {
@@ -1325,8 +1246,7 @@ func cloudTrailLogBody(event CloudTrailEvent) ([]byte, error) {
 func cloudTrailObjectKey(trail CloudTrailTrail, event CloudTrailEvent) string {
 	t, err := time.Parse(time.RFC3339, event.EventTime)
 	if err != nil {
-		// EventTime is always sim-written RFC3339; a malformed value must not
-		// silently produce a year-0001 S3 key path — fall back to now.
+		// A malformed EventTime must not yield a year-0001 Amazon S3 key.
 		t = time.Now().UTC()
 	}
 	prefix := strings.Trim(trail.S3KeyPrefix, "/")
@@ -1337,13 +1257,8 @@ func cloudTrailObjectKey(trail CloudTrailTrail, event CloudTrailEvent) string {
 		prefix, awsAccountID(), awsRegion(), t.Year(), t.Month(), t.Day(), trail.Name, event.EventId)
 }
 
-// cloudTrailEventMatches implements LookupEvents filtering for all eight
-// AttributeKey values the CloudTrail API defines (EventId, EventName, ReadOnly,
-// Username, ResourceType, ResourceName, EventSource, AccessKeyId). Multiple
-// attributes are ANDed, matching real CloudTrail. An unsupported key is
-// rejected upstream by cloudTrailValidateLookupAttributes — it must never reach
-// here, but if it did it returns false (never silently match-all, which is the
-// exact defect of only handling three of the eight keys).
+// Attributes AND together. An unsupported key never gets here
+// (cloudTrailValidateLookupAttributes rejects it) and would match nothing.
 func cloudTrailEventMatches(ev CloudTrailEvent, attrs []cloudTrailLookupAttribute) bool {
 	for _, attr := range attrs {
 		switch attr.AttributeKey {
@@ -1399,9 +1314,7 @@ func cloudTrailHasResource(ev CloudTrailEvent, pred func(CloudTrailResource) boo
 	return false
 }
 
-// cloudTrailValidLookupKeys is the set of AttributeKey values real CloudTrail
-// accepts (per the LookupAttribute API reference). Any other key is rejected
-// with InvalidLookupAttributesException rather than silently ignored.
+// Any other key is an InvalidLookupAttributesException.
 var cloudTrailValidLookupKeys = map[string]bool{
 	"EventId": true, "EventName": true, "ReadOnly": true, "Username": true,
 	"ResourceType": true, "ResourceName": true, "EventSource": true, "AccessKeyId": true,
@@ -1421,9 +1334,7 @@ func cloudTrailEventJSON(ev CloudTrailEvent) map[string]any {
 		"EventSource": ev.EventSource,
 		"EventTime":   cloudTrailEpochSeconds(ev.EventTime),
 		"Username":    ev.Username,
-		// The LookupEvents Event.ReadOnly response field is a string
-		// ("true"/"false"), not a boolean (the boolean lives in the embedded
-		// CloudTrailEvent record).
+		// Event.ReadOnly is a string on the wire.
 		"ReadOnly":        strconv.FormatBool(ev.ReadOnly),
 		"Resources":       resources,
 		"CloudTrailEvent": cloudTrailEventRecordJSON(ev),
@@ -1434,8 +1345,7 @@ func cloudTrailEventJSON(ev CloudTrailEvent) map[string]any {
 	return out
 }
 
-// cloudTrailInvokedBy is the AWS service that made a call in-process, which
-// CloudTrail records as the call's invokedBy and source address.
+// CloudTrail records the in-process caller as invokedBy and source address.
 func cloudTrailInvokedBy(r *http.Request) string {
 	if caller, ok := sim.CallerOf(r.Context()); ok && sim.InProcess(r) {
 		return caller.Service
@@ -1443,20 +1353,16 @@ func cloudTrailInvokedBy(r *http.Request) string {
 	return ""
 }
 
-// cloudTrailEventRecordJSON renders the full event record AWS embeds as the
-// `CloudTrailEvent` string field of a LookupEvents result.
 func cloudTrailEventRecordJSON(ev CloudTrailEvent) string {
 	raw, _ := json.Marshal(cloudTrailEventRecord(ev))
 	return string(raw)
 }
 
-// cloudTrailEventRecord builds the canonical CloudTrail event-record object
-// (the shape delivered to S3 and embedded in LookupEvents).
 func cloudTrailEventRecord(ev CloudTrailEvent) map[string]any {
 	identity := map[string]any{}
 	if cred, ok := iamTempCreds.Get(ev.AccessKeyId); ok && ev.AccessKeyId != "" && cred.RoleName != "" {
-		// A role session is recorded as the assumed role, with the service
-		// that holds it when a service made the call.
+		// Record a role session as the assumed role, with the holding service when a
+		// service made the call.
 		identity["type"] = "AssumedRole"
 		identity["arn"] = cred.PrincipalArn
 		identity["accessKeyId"] = ev.AccessKeyId
@@ -1501,8 +1407,8 @@ func cloudTrailEventRecord(ev CloudTrailEvent) map[string]any {
 	if ev.InvokedBy != "" {
 		rec["sourceIPAddress"] = ev.InvokedBy
 	}
-	// Real CloudTrail records failed API calls with errorCode/errorMessage at the
-	// top level of the record (the call still happened — it just didn't succeed).
+	// CloudTrail records a failed call's errorCode and errorMessage at the top
+	// level.
 	if ev.ErrorCode != "" {
 		rec["errorCode"] = ev.ErrorCode
 	}

@@ -14,16 +14,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// CloudTrail Lake control plane: event data stores, Lake queries (run
-// synchronously over the same recorded events LookupEvents serves), dashboards,
-// imports, federation, resource policies, organization delegated admin, event
-// configuration, and public keys. Each is a real, faithfully-stored resource —
-// no fakes.
+// AWS CloudTrail Lake queries run synchronously over the events each event
+// data store ingested.
 
-// CloudTrailEventDataStore is a CloudTrail Lake event data store: a named
-// resource with an ARN (arn:aws:cloudtrail:region:acct:eventdatastore/UUID), a
-// lifecycle Status (CREATED → ENABLED, or STOPPED_INGESTION / PENDING_DELETION),
-// a retention period, and advanced event selectors.
+// Status moves CREATED → ENABLED, or to STOPPED_INGESTION or
+// PENDING_DELETION.
 type CloudTrailEventDataStore struct {
 	ARN                          string
 	Name                         string
@@ -42,8 +37,7 @@ type CloudTrailEventDataStore struct {
 	UpdatedTimestamp             string
 }
 
-// CloudTrailQuery is a Lake query run over the recorded events. The sim runs it
-// synchronously and settles it FINISHED, materialising the matched event rows.
+// The simulator runs a query synchronously and settles it FINISHED.
 type CloudTrailQuery struct {
 	QueryId        string
 	EventDataStore string
@@ -57,8 +51,6 @@ type CloudTrailQuery struct {
 	EventsMatched  int64
 }
 
-// CloudTrailDashboard is a CloudTrail Lake dashboard: a named resource with an
-// ARN and a set of query widgets.
 type CloudTrailDashboard struct {
 	ARN                          string
 	Name                         string
@@ -71,8 +63,6 @@ type CloudTrailDashboard struct {
 	UpdatedTimestamp             string
 }
 
-// CloudTrailImport is a CloudTrail Lake import job copying historical events
-// from S3 into one or more event-data-store destinations.
 type CloudTrailImport struct {
 	ImportId         string
 	Destinations     []string
@@ -84,8 +74,7 @@ type CloudTrailImport struct {
 	UpdatedTimestamp string
 }
 
-// CloudTrailLakeEvent is an event as one event data store ingested it. Each
-// store keeps its own copy, from its creation onward and for its own retention
+// Each store keeps its own copy from its creation on, for its own retention
 // period, apart from the 90 days of event history.
 type CloudTrailLakeEvent struct {
 	EventDataStore string
@@ -101,8 +90,6 @@ var (
 	cloudTrailOrgAdmins       sim.Store[CloudTrailOrgAdmin]
 )
 
-// CloudTrailOrgAdmin records an account registered as the organization's
-// CloudTrail delegated administrator.
 type CloudTrailOrgAdmin struct {
 	AccountId string
 }
@@ -171,8 +158,7 @@ func cloudTrailDashboardARN(name string) string {
 	return fmt.Sprintf("arn:aws:cloudtrail:%s:%s:dashboard/%s", awsRegion(), awsAccountID(), name)
 }
 
-// findCloudTrailEDS resolves an event data store by ARN or by the bare UUID that
-// terminates the ARN (the EventDataStore request field accepts either).
+// The EventDataStore field accepts an ARN or its trailing UUID.
 func findCloudTrailEDS(arnOrID string) (CloudTrailEventDataStore, bool) {
 	if eds, ok := cloudTrailEventDataStores.Get(arnOrID); ok {
 		return eds, true
@@ -185,10 +171,7 @@ func findCloudTrailEDS(arnOrID string) (CloudTrailEventDataStore, bool) {
 	return CloudTrailEventDataStore{}, false
 }
 
-// cloudTrailEDSResponse renders the full event-data-store response shape shared
-// by Create/Get/Update/Restore (each emits the subset of these its response
-// shape declares; the spec-shape validator tolerates the superset of members
-// only when each is a real member of that response, so callers pick the fields).
+// Each response emits the subset of these its shape declares.
 func cloudTrailEDSResponse(eds CloudTrailEventDataStore) map[string]any {
 	resp := map[string]any{
 		"EventDataStoreArn":            eds.ARN,
@@ -375,9 +358,8 @@ func handleCloudTrailDeleteEventDataStore(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	// Real CloudTrail moves a deleted store to PENDING_DELETION (a 7-day waiting
-	// period during which RestoreEventDataStore can recover it) rather than
-	// removing it outright.
+	// A deleted store waits 7 days in PENDING_DELETION, recoverable by
+	// RestoreEventDataStore.
 	eds.Status = "PENDING_DELETION"
 	eds.UpdatedTimestamp = time.Now().UTC().Format(time.RFC3339)
 	cloudTrailEventDataStores.Put(eds.ARN, eds)
@@ -432,9 +414,6 @@ func cloudTrailEDSFromRequest(w http.ResponseWriter, r *http.Request) (CloudTrai
 	return eds, true
 }
 
-// cloudTrailIngestingStores indexes the event data stores that are ingesting
-// under one constant key, so recording an event reads the decoded set rather
-// than every stored event data store.
 var cloudTrailIngestingStores sim.GenerationIndex[CloudTrailEventDataStore]
 
 func cloudTrailIngestingStoreKeys(eds CloudTrailEventDataStore) []string {
@@ -456,10 +435,8 @@ func cloudTrailLakeIngest(event CloudTrailEvent) {
 	}
 }
 
-// cloudTrailSelectorsSelect reports whether an event data store's advanced
-// event selectors take a management event. A store without selectors takes
-// every management event, and a selector takes the event when each of its
-// eventCategory and readOnly field selectors admits it.
+// A store without selectors takes every management event; a selector takes
+// one when each of its eventCategory and readOnly field selectors admits it.
 func cloudTrailSelectorsSelect(selectors []map[string]any, event CloudTrailEvent) bool {
 	if len(selectors) == 0 {
 		return true
@@ -512,9 +489,7 @@ func cloudTrailFieldAdmits(field map[string]any, value string) bool {
 	return true
 }
 
-// cloudTrailSweepLake deletes each ingested event once it is older than its
-// event data store's retention period, and the events of a store that no
-// longer exists.
+// Also delete the events of stores that no longer exist.
 func cloudTrailSweepLake(now time.Time) int {
 	return cloudTrailLakeEvents.Prune(func(stored CloudTrailLakeEvent) bool {
 		eds, ok := cloudTrailEventDataStores.Get(stored.EventDataStore)
@@ -526,8 +501,7 @@ func cloudTrailSweepLake(now time.Time) int {
 	})
 }
 
-// cloudTrailQueryStore returns the event data store a query statement reads
-// FROM, which CloudTrail Lake names by its ID or its ARN.
+// The FROM clause names the store by ID or ARN.
 func cloudTrailQueryStore(statement string) (string, bool) {
 	fields := strings.Fields(statement)
 	for i, field := range fields {
@@ -570,7 +544,6 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 			"The event data store "+eds.ARN+" is pending deletion", http.StatusBadRequest)
 		return
 	}
-	// Run the query synchronously over the store's events and settle FINISHED.
 	rows, scanned, matched := cloudTrailRunQuery(eds.ARN, req.QueryStatement)
 	query := CloudTrailQuery{
 		QueryId:        sim.NewUUID(),
@@ -588,11 +561,8 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{"QueryId": query.QueryId})
 }
 
-// cloudTrailRunQuery executes a Lake query over the events one event data store
-// ingested. It returns rows (one per matched event) plus scanned/matched counts.
-// The query statement's WHERE eventName = '<X>' / eventSource = '<X>' clauses,
-// when present, scope the rows; everything else returns all of the store's
-// events.
+// Only `eventName = '<X>'` and `eventSource = '<X>'` predicates scope the
+// rows; any other statement returns all of the store's events.
 func cloudTrailRunQuery(storeARN, statement string) (rows []map[string]string, scanned, matched int64) {
 	var events []CloudTrailEvent
 	for _, stored := range cloudTrailLakeEvents.Filter(func(stored CloudTrailLakeEvent) bool {
@@ -624,9 +594,7 @@ func cloudTrailRunQuery(storeARN, statement string) (rows []map[string]string, s
 	return rows, scanned, matched
 }
 
-// cloudTrailQueryEquals extracts the value of a `<column> = '<value>'` predicate
-// from a (lowercased) query statement, if present. Used to scope a Lake query to
-// a specific eventName/eventSource over the recorded events.
+// lowerStatement must be lowercased.
 func cloudTrailQueryEquals(lowerStatement, column string) string {
 	idx := strings.Index(lowerStatement, column)
 	for idx >= 0 {
@@ -705,8 +673,7 @@ func handleCloudTrailGetQueryResults(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cloudTrailQueryResultRows shapes the rows as the wire form GetQueryResults
-// returns: a list of rows, each row a list of single-entry {column: value} maps.
+// Each row is a list of single-entry {column: value} maps.
 func cloudTrailQueryResultRows(rows []map[string]string) [][]map[string]string {
 	out := make([][]map[string]string, 0, len(rows))
 	for _, row := range rows {
@@ -793,8 +760,7 @@ func handleCloudTrailGenerateQuery(w http.ResponseWriter, r *http.Request) {
 			"EventDataStores and Prompt are required", http.StatusBadRequest)
 		return
 	}
-	// Deterministically generate a SQL statement scanning the named event data
-	// store, mirroring the natural-language → SQL behavior of the real op.
+	// The simulator does not translate the prompt; it scans the named store.
 	statement := fmt.Sprintf("SELECT eventName, eventSource, eventTime FROM %s LIMIT 10", req.EventDataStores[0])
 	writeAWSJSON(w, http.StatusOK, map[string]any{
 		"QueryStatement": statement,
@@ -1026,8 +992,6 @@ func handleCloudTrailDeleteDashboard(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{})
 }
 
-// cloudTrailRefreshID returns the decimal refresh id AWS CloudTrail assigns to
-// a dashboard refresh.
 func cloudTrailRefreshID() string {
 	buf := make([]byte, 8)
 	_, _ = rand.Read(buf)
@@ -1045,9 +1009,7 @@ func handleCloudTrailStartDashboardRefresh(w http.ResponseWriter, r *http.Reques
 		cloudTrailError(w, "ResourceNotFoundException", "Dashboard not found", http.StatusNotFound)
 		return
 	}
-	// A refresh id is a decimal number, not a UUID: the model admits only
-	// digits, so a client that round-trips it into GetDashboard would be
-	// sending a value the service rejects.
+	// The model admits only digits in a refresh id.
 	writeAWSJSON(w, http.StatusOK, map[string]any{"RefreshId": cloudTrailRefreshID()})
 }
 
@@ -1083,8 +1045,7 @@ func handleCloudTrailStartImport(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, cloudTrailImportResponse(imp, false))
 }
 
-// cloudTrailImportResponse renders the import response shape. withStats includes
-// the ImportStatistics (GetImport / StopImport carry it; StartImport does not).
+// GetImport and StopImport carry ImportStatistics; StartImport does not.
 func cloudTrailImportResponse(imp CloudTrailImport, withStats bool) map[string]any {
 	resp := map[string]any{
 		"ImportId":         imp.ImportId,
@@ -1390,9 +1351,7 @@ func handleCloudTrailListPublicKeys(w http.ResponseWriter, r *http.Request) {
 	if !readAWSJSON(w, r, &req) {
 		return
 	}
-	// CloudTrail digest-signing public keys are an account-level static set. The
-	// sim does not sign digest files, so it advertises no keys (a real, empty
-	// result) rather than a fabricated key.
+	// The simulator signs no digest files, so it advertises no keys.
 	writeAWSJSON(w, http.StatusOK, map[string]any{"PublicKeyList": []map[string]any{}})
 }
 

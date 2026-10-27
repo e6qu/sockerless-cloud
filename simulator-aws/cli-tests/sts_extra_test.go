@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSTS_GetFederationToken_CLI mints credentials for a federated user.
 func TestSTS_GetFederationToken_CLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "get-federation-token",
@@ -104,7 +103,6 @@ func TestSTS_AssumeRoot_CLI(t *testing.T) {
 	assert.Equal(t, "123456789012", res.SourceIdentity)
 }
 
-// TestSTS_DecodeAuthorizationMessage_CLI round-trips a base64 JSON message.
 func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
 	t.Parallel()
 	original := `{"allowed":false}`
@@ -119,7 +117,6 @@ func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
 	assert.Equal(t, original, res.DecodedMessage)
 }
 
-// TestSTS_GetAccessKeyInfo_CLI resolves an access key id to its account.
 func TestSTS_GetAccessKeyInfo_CLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "get-access-key-info",

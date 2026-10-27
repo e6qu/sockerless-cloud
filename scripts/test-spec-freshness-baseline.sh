@@ -12,9 +12,8 @@ root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 
-# A commit of aws-sdk-go-v2 that is no longer the tip for this path: the
-# vendored Glue model was pinned here until the branch that carried
-# c06550cb44f3 advanced it, so upstream is guaranteed to have moved past it.
+# A commit of aws-sdk-go-v2 that is no longer the tip for this path, so
+# upstream is guaranteed to have moved past it.
 superseded_pin='701936ed82997e9cbd0dd2bab29f9d2b1b3b5ff5'
 # An older commit of the same repository, standing in for a pin a branch
 # changed to something that is still not upstream tip.

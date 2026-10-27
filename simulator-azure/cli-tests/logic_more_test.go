@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// TestLogicAppsCLI_MoreOperations exercises the extended Microsoft.Logic ARM
-// slice through `az rest`: integration accounts (+ a map artifact), an
-// integration service environment, the provider operations list, and the
-// workflow version/trigger read collections.
+// TestLogicAppsCLI_MoreOperations exercises the extended Microsoft.Logic slice
+// through `az rest`: integration accounts with a map artifact, an integration
+// service environment, the provider operations list, and the workflow version
+// and trigger collections.
 func TestLogicAppsCLI_MoreOperations(t *testing.T) {
 	t.Parallel()
 	const apiVersion = "2019-05-01"

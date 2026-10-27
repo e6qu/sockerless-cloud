@@ -15,34 +15,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
-// The Cloud SQL data plane.
-//
-// A Cloud SQL instance is a real database engine. The simulator serves the
-// instance's PRIMARY address as a listener it actually owns: the address in
+// A Cloud SQL instance is a real database engine. Its PRIMARY address in
 // `ipAddresses` is a loopback address this process binds at the engine's
-// conventional port (PostgreSQL 5432, MySQL 3306 — the Cloud SQL Admin API
-// carries no port, so the port is the engine's, exactly as on Google Cloud).
-// The first client connection starts the engine — a real PostgreSQL or MySQL
-// container whose data directory is the named volume
-// sockerless-cloudsql-<project>-<instance> — and the front proxy owns TLS and
-// authentication, then relays bytes.
-//
-// Identity is real: the users the Cloud SQL Admin API declares are reconciled
-// into the engine as real roles with their declared passwords, and a session
-// runs as the user the client named, not as a shared superuser. Credentials
-// are sealed under a Google-owned Cloud KMS key from the simulator's own KMS
-// slice — never stored in the clear.
-//
-// A host that cannot provide the conventional port on a per-instance loopback
-// address (macOS refuses loopback aliases without root) leaves the instance
-// exactly as modeled as the whole slice was before the data plane existed,
-// and says so on stderr. Linux provides it natively; CI exercises the real
-// path.
+// conventional port (PostgreSQL 5432, MySQL 3306; the API carries no port).
+// The first connection starts a PostgreSQL or MySQL container on the volume
+// sockerless-cloudsql-<project>-<instance>, and the front proxy terminates TLS
+// and authentication, then relays bytes. The API's users are real engine
+// roles with their declared passwords, sealed under a Google-owned Cloud KMS
+// key. A host that cannot bind the port on a per-instance loopback address
+// (macOS without root) serves no engine and says so on stderr.
 
 // sqlGoogleOwnedKeyVersion is the Cloud KMS key version that seals Cloud SQL
-// credentials — the simulator's analogue of the Google-owned key Cloud SQL
-// encrypts instance secrets under. It lives in the same key-material store
-// the Cloud KMS slice serves, under a name no customer request can produce.
+// credentials, standing in for Google's own key, in the Cloud KMS slice's
+// material store under a name no customer request can produce.
 const sqlGoogleOwnedKeyVersion = "projects/google-managed/locations/global/keyRings/cloud-sql/cryptoKeys/instance-credentials/cryptoKeyVersions/1"
 
 // sqlSealSecret encrypts a credential under the Cloud-SQL-owned KMS key,
@@ -167,10 +152,9 @@ func sqlNewDataPlane(project, instance string, family dbengine.Family) *sqlDataP
 	return plane
 }
 
-// sqlInstallDataPlane binds the instance's PRIMARY address and records it on
-// the instance. It returns false — with the reason — when this host cannot
-// provide a loopback address at the engine's conventional port; the caller
-// keeps the instance modeled and says so.
+// sqlInstallDataPlane binds the instance's PRIMARY address and records it, or
+// returns false with the reason when this host cannot bind a loopback address
+// at the engine's port.
 func sqlInstallDataPlane(inst *SQLInstance) (bool, error) {
 	family, ok := sqlEngineFamily(inst.DatabaseVersion)
 	if !ok {
@@ -231,7 +215,7 @@ func sqlRecoverDataPlanes() error {
 		recorded, _ := inst.IpAddresses[0]["ipAddress"].(string)
 		ip := net.ParseIP(recorded)
 		if ip == nil || !ip.IsLoopback() {
-			// A modeled instance from a host without the capability.
+			// An instance this host could not serve.
 			continue
 		}
 		listener, err := net.Listen("tcp", net.JoinHostPort(recorded, strconv.Itoa(sqlEngine(family).Port)))
@@ -264,11 +248,9 @@ func sqlEngineAdminPassword(project, instance string, family dbengine.Family) (s
 	return "", fmt.Errorf("instance %s has no %s credential: create the instance with rootPassword or set one with users.update", instance, admin)
 }
 
-// sqlReconcileEngineState creates or updates, inside the running engine,
-// every user and database the Cloud SQL Admin API declares for the instance.
-// It runs at engine readiness — first boot, control-plane restart, and after
-// a restore replaced the data directory — and after control-plane mutations
-// while the engine is up, so the API and the engine never disagree.
+// sqlReconcileEngineState makes the running engine hold every user and
+// database the API declares. It runs at engine readiness (first boot,
+// restart, after a restore) and after each mutation while the engine is up.
 func sqlReconcileEngineState(plane *sqlDataPlane) error {
 	for _, u := range sqlUsers.List() {
 		if u.Project != plane.project || u.Instance != plane.instance {
@@ -317,9 +299,9 @@ func (plane *sqlDataPlane) execMySQL(statement string) error {
 	return plane.Exec(command)
 }
 
-// sqlEngineEnsureUser makes the engine hold the user with the declared
-// password. PostgreSQL users are members of the admin role, mirroring Cloud
-// SQL's cloudsqlsuperuser membership.
+// sqlEngineEnsureUser makes the engine hold the user with its declared
+// password; PostgreSQL users join the admin role, as Cloud SQL's
+// cloudsqlsuperuser membership.
 func sqlEngineEnsureUser(plane *sqlDataPlane, name, password string) error {
 	if plane.Engine.Family == dbengine.Postgres {
 		if name == sqlBuiltInAdminUser(dbengine.Postgres) {
@@ -355,10 +337,9 @@ func sqlEngineEnsureDatabase(plane *sqlDataPlane, name string) error {
 	return plane.execMySQL("CREATE DATABASE IF NOT EXISTS " + dbengine.QuoteMySQLIdentifier(name))
 }
 
-// sqlEngineDropUserIfRunning removes a deleted user's role from a running
-// engine. An engine that is not running needs nothing: readiness reconciles
-// only users that still exist, and a role in a cold data directory whose API
-// user is gone cannot authenticate — the front proxy holds no credential.
+// sqlEngineDropUserIfRunning drops a deleted user's role from a running
+// engine. A stopped engine needs nothing: readiness reconciles only existing
+// users, and the front proxy holds no credential for a gone one.
 func sqlEngineDropUserIfRunning(project, instance, name string) error {
 	plane, running := sqlRunningDataPlane(project, instance)
 	if !running {
@@ -391,9 +372,8 @@ func sqlRunningDataPlane(project, instance string) (*sqlDataPlane, bool) {
 	return plane, true
 }
 
-// sqlReconcileIfRunning applies control-plane user/database mutations to a
-// running engine immediately. An engine that is not running needs nothing:
-// readiness reconciles the full declared state before serving any client.
+// sqlReconcileIfRunning applies user and database mutations to a running
+// engine at once; a stopped one reconciles at readiness.
 func sqlReconcileIfRunning(project, instance string) error {
 	plane, running := sqlRunningDataPlane(project, instance)
 	if !running {
@@ -424,9 +404,9 @@ func sqlCredentialMatches(project, instance, user, password string) bool {
 	return false
 }
 
-// sqlStopEngine stops the instance's engine container, leaving the listener
-// and the volume in place; the next client connection starts a fresh engine.
-// The restore path uses it to swap the data directory underneath.
+// sqlStopEngine stops the engine container, keeping the listener and volume,
+// so the restore can swap the data directory; the next connection starts a
+// fresh engine.
 func sqlStopEngine(project, instance string) {
 	if plane, ok := sqlLoadDataPlane(project, instance); ok {
 		if err := plane.Stop(); err != nil {
@@ -435,9 +415,8 @@ func sqlStopEngine(project, instance string) {
 	}
 }
 
-// sqlStopDataPlane closes the instance's listener and stops its engine. An
-// instance being deleted discards its engine, which ends a start still
-// initialising the volume at once, and removes its data volume.
+// sqlStopDataPlane closes the listener and stops the engine; deleteVolume
+// also ends a start still initialising and removes the data volume.
 func sqlStopDataPlane(project, instance string, deleteVolume bool) {
 	if deleteVolume {
 		defer dbengine.ReleaseLoopback(project + "/" + instance)

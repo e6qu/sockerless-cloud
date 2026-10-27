@@ -20,10 +20,10 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// The agent image is built on the engine from these sources: the agent and
-// guestinit compile in a Go stage, and the runtime stage carries Firecracker
-// and the guest kernel at pinned releases with their digests. Only an engine a
-// service is configured onto microVMs for ever builds it.
+// The simulator builds the agent image on the engine from these sources: the
+// agent and guestinit compile in a Go stage, and the runtime stage carries
+// Firecracker and the guest kernel at pinned releases with their digests. Only
+// an engine a service is configured onto microVMs for ever builds it.
 //
 //go:embed cmd/nodeagent/*.go cmd/guestinit/*.go
 var sources embed.FS

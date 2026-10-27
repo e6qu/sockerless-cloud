@@ -13,13 +13,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// ecrAuthTestToken re-seeds the authorization-token store and issues one token,
-// returning the Basic parameter GetAuthorizationToken serves and the password
-// half `aws ecr get-login-password` prints.
+// Returns the Basic parameter GetAuthorizationToken serves and the password
+// `aws ecr get-login-password` prints.
 func ecrAuthTestToken(t *testing.T) (authorizationToken, password string) {
 	t.Helper()
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	token, expires, err := ecrIssueAuthorizationToken()
@@ -40,8 +38,8 @@ func ecrAuthTestToken(t *testing.T) (authorizationToken, password string) {
 	return token, pass
 }
 
-// ecrAuthProbe runs one registry request through the data plane's Authorize
-// hook and reports whether it was let through, together with the refusal.
+// Reports whether the Authorize hook let the request through, and the
+// refusal.
 func ecrAuthProbe(t *testing.T, method, target, authorization string) (bool, *http.Response, string) {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)
@@ -62,10 +60,8 @@ func ecrAuthProbe(t *testing.T, method, target, authorization string) (bool, *ht
 	return allowed, resp, body
 }
 
-// TestECRDataPlaneAcceptsTheAuthorizationTokenItIssued pins the credential the
-// Amazon ECR control plane mints against the data plane that must accept it:
-// the whole authorization token is the Basic parameter, exactly as the User
-// Guide's `curl -i -H "Authorization: Basic $TOKEN"` example presents it.
+// The whole token is the Basic parameter, as the User Guide's
+// `curl -i -H "Authorization: Basic $TOKEN"` example presents it.
 func TestECRDataPlaneAcceptsTheAuthorizationTokenItIssued(t *testing.T) {
 	token, password := ecrAuthTestToken(t)
 
@@ -79,12 +75,10 @@ func TestECRDataPlaneAcceptsTheAuthorizationTokenItIssued(t *testing.T) {
 		{"manifest push", http.MethodPut, "/v2/team/app/manifests/v1"},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
-			// The token as GetAuthorizationToken serves it.
 			if allowed, _, body := ecrAuthProbe(t, probe.method, probe.target, "Basic "+token); !allowed {
 				t.Fatalf("the issued authorization token must authenticate; refused with %s", body)
 			}
-			// The same credential a Docker client rebuilds from
-			// `aws ecr get-login-password`.
+			// The credential Docker rebuilds from `aws ecr get-login-password`.
 			docker := base64.StdEncoding.EncodeToString([]byte("AWS:" + password))
 			if allowed, _, body := ecrAuthProbe(t, probe.method, probe.target, "Basic "+docker); !allowed {
 				t.Fatalf("the docker login credential must authenticate; refused with %s", body)
@@ -93,11 +87,8 @@ func TestECRDataPlaneAcceptsTheAuthorizationTokenItIssued(t *testing.T) {
 	}
 }
 
-// TestECRDataPlaneRefusesEveryOtherCredential covers the refusals: a request
-// with no credential, one whose password is wrong, one whose user half is not
-// AWS, and one whose Basic parameter is not decodable. Each answers the Basic
-// challenge Amazon ECR publishes and the plain-text body a real registry
-// returns.
+// No credential, a wrong password, a user other than AWS and an undecodable
+// parameter each get the Basic challenge and the plain-text body.
 func TestECRDataPlaneRefusesEveryOtherCredential(t *testing.T) {
 	_, password := ecrAuthTestToken(t)
 
@@ -140,11 +131,7 @@ func TestECRDataPlaneRefusesEveryOtherCredential(t *testing.T) {
 	}
 }
 
-// TestECRDataPlaneRefusesAnExpiredAuthorizationToken drives the twelve-hour
-// expiry the API Reference states, and pins the distinct refusal Amazon ECR
-// answers it with — the Docker Registry v2 DENIED envelope a Docker client
-// renders as `denied: Your authorization token has expired. Reauthenticate and
-// try again.` The expired record is also dropped, so it cannot come back.
+// The expired record is also dropped, so it cannot come back.
 func TestECRDataPlaneRefusesAnExpiredAuthorizationToken(t *testing.T) {
 	token, password := ecrAuthTestToken(t)
 
@@ -185,12 +172,9 @@ func TestECRDataPlaneRefusesAnExpiredAuthorizationToken(t *testing.T) {
 	}
 }
 
-// TestECRAuthorizationTokensAreUnguessableAndDistinct pins that the password
-// half is real credential material: two calls never produce the same token, and
-// the password is neither derived from the registry nor short enough to guess.
+// Tokens never repeat and are neither derived from the registry nor short.
 func TestECRAuthorizationTokensAreUnguessableAndDistinct(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ecrAuthorizationTokens = sim.MakeStore[ECRAuthorizationToken](nil, "ecr_authorization_tokens")
 	seen := map[string]bool{}
@@ -212,7 +196,6 @@ func TestECRAuthorizationTokensAreUnguessableAndDistinct(t *testing.T) {
 			t.Fatalf("authorization token password is only %d characters", len(password))
 		}
 	}
-	// Every issued token authenticates until it expires.
 	if got := len(ecrAuthorizationTokens.List()); got != 8 {
 		t.Fatalf("issued token count = %d, want 8", got)
 	}

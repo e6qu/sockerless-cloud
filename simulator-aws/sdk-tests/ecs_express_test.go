@@ -28,7 +28,7 @@ func expressCreateCluster(t *testing.T, c *ecs.Client, name string) string {
 
 // createECSExpressInfrastructureRole creates the role an Express service
 // provisions its load balancer, target group, listener rule, certificate,
-// security groups and auto scaling as: trusted by ecs.amazonaws.com, and
+// security groups and auto scaling as: trusted by ecs.amazonaws.com and
 // allowed those services.
 func createECSExpressInfrastructureRole(t *testing.T, name string) string {
 	t.Helper()
@@ -50,8 +50,8 @@ func expressManagedResources(t *testing.T, c *ecs.Client, svc *ecstypes.ECSExpre
 	return out.ServiceRevisions[0].EcsManagedResources
 }
 
-// expressLoadBalancerArn is the load balancer that serves the service's
-// ingress path, as the managed resources report it.
+// expressLoadBalancerArn is the load balancer serving the service's ingress
+// path, as the managed resources report it.
 func expressLoadBalancerArn(t *testing.T, c *ecs.Client, svc *ecstypes.ECSExpressGatewayService) string {
 	t.Helper()
 	managed := expressManagedResources(t, c, svc)
@@ -62,19 +62,17 @@ func expressLoadBalancerArn(t *testing.T, c *ecs.Client, svc *ecstypes.ECSExpres
 	return aws.ToString(managed.IngressPaths[0].LoadBalancer.Arn)
 }
 
-// TestECSExpress_CreateAssemblyAndLifecycle drives the full ECS Express Mode
-// service lifecycle (Create/Describe/Update/Delete) through the ECS SDK and
-// asserts both the control-plane response shape and the faithful assembly: the
-// underlying ALB, scalable target, and Fargate service all exist via their own
-// service APIs, and Delete tears them down.
+// TestECSExpress_CreateAssemblyAndLifecycle expects the Express service's
+// Application Load Balancer, scalable target and Fargate service to exist
+// through their own APIs, and Delete to remove them.
 func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
 	elb := elbv2Client()
 	aa := appAutoScalingClient()
 	cluster := expressCreateCluster(t, c, "express-cluster")
-	// Isolate the lifecycle from the shared default VPC: other shard tests
-	// launch into it, and the real-VPC tier plumbs task networking per VPC.
+	// Keep off the shared default VPC: other tests launch into it, and task
+	// networking is per VPC.
 	vpcID, subnets := createECSTestVPCSubnets(t, "express-lifecycle", 2)
 	sg, err := ec2Client().CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
 		GroupName:   aws.String("express-lifecycle"),
@@ -82,9 +80,8 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 		VpcId:       aws.String(vpcID),
 	})
 	require.NoError(t, err)
-	// A caller-supplied group owns its rules: admit the load balancer's
-	// health-check and forwarding path, which reaches the task ENI from the
-	// VPC gateway coordinate.
+	// A caller-supplied group owns its rules, so admit the load balancer's health
+	// check and forwarding path, which reaches the task ENI from the VPC gateway.
 	vpcs, err := ec2Client().DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{vpcID}})
 	require.NoError(t, err)
 	require.Len(t, vpcs.Vpcs, 1)
@@ -125,12 +122,11 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.NotEmpty(t, svc.ActiveConfigurations)
 
 	cfg := svc.ActiveConfigurations[0]
-	// Defaults applied.
 	assert.Equal(t, "256", aws.ToString(cfg.Cpu))
 	assert.Equal(t, "512", aws.ToString(cfg.Memory))
 	assert.Equal(t, "/ping", aws.ToString(cfg.HealthCheckPath))
 
-	// Ingress path: PUBLIC, an https endpoint in a domain AWS owns, served by
+	// The ingress path is PUBLIC, an https endpoint in a domain AWS owns, served by
 	// the load balancer the managed resources name.
 	require.NotEmpty(t, cfg.IngressPaths)
 	ingress := cfg.IngressPaths[0]
@@ -144,7 +140,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.Len(t, lbs.LoadBalancers, 1)
 	assert.Equal(t, "internet-facing", string(lbs.LoadBalancers[0].Scheme))
 
-	// The Application Auto Scaling scalable target exists at service/<cluster>/<svc>.
 	resourceID := "service/" + cluster + "/web"
 	st, err := aa.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
 		ServiceNamespace: aastypes.ServiceNamespaceEcs,
@@ -154,7 +149,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.Len(t, st.ScalableTargets, 1, "expected scalable target for %s", resourceID)
 	assert.Equal(t, resourceID, aws.ToString(st.ScalableTargets[0].ResourceId))
 
-	// The backing ECS Fargate service exists.
 	ds, err := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
 		Cluster:  aws.String(cluster),
 		Services: []string{"web"},
@@ -175,7 +169,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	assert.Equal(t, "env", aws.ToString(desc.Service.Tags[0].Key))
 	assert.Equal(t, "test", aws.ToString(desc.Service.Tags[0].Value))
 
-	// Without include, tags are absent.
 	descNoTags, err := c.DescribeExpressGatewayService(ctx, &ecs.DescribeExpressGatewayServiceInput{
 		ServiceArn: svc.ServiceArn,
 	})
@@ -202,7 +195,6 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.NotNil(t, tc.ScalingTarget)
 	assert.EqualValues(t, 8, aws.ToInt32(tc.ScalingTarget.MaxTaskCount))
 
-	// The scalable target reflects the new capacity bounds.
 	st2, err := aa.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
 		ServiceNamespace: aastypes.ServiceNamespaceEcs,
 		ResourceIds:      []string{resourceID},
@@ -211,10 +203,9 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.Len(t, st2.ScalableTargets, 1)
 	assert.EqualValues(t, 8, aws.ToInt32(st2.ScalableTargets[0].MaxCapacity))
 	assert.EqualValues(t, 2, aws.ToInt32(st2.ScalableTargets[0].MinCapacity))
-	// The rollout launches two replacement tasks and waits out their
-	// steady-state and target-health gating while the scheduler's bounded
-	// placement-retry chain (1+2+4+8+16+32s) may recover from a transient launch
-	// failure, so the wait covers the full retry budget.
+	// The rollout launches two replacement tasks and waits out their steady state
+	// and target health, while the scheduler's placement retries (1, 2, 4, 8, 16,
+	// 32s) may recover a failed launch; the wait covers that budget.
 	rolled := waitForECSServicesStable(t, c, cluster, 2*time.Minute, "web").Services[0]
 	assert.EqualValues(t, 2, rolled.DesiredCount)
 	assert.EqualValues(t, 2, rolled.RunningCount)
@@ -229,11 +220,10 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	require.NotNil(t, del.Service.Status)
 	assert.Equal(t, ecstypes.ExpressGatewayServiceStatusCodeDraining, del.Service.Status.StatusCode)
 
-	// The ALB is gone (it was the only service on it).
+	// The load balancer served only this service, so it is gone.
 	_, err = elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{albArn}})
 	assert.Equal(t, "LoadBalancerNotFound", errCode(t, err), "ALB %s should have been torn down on Delete", albArn)
 
-	// The scalable target is gone.
 	stAfter, err := aa.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
 		ServiceNamespace: aastypes.ServiceNamespaceEcs,
 		ResourceIds:      []string{resourceID},
@@ -242,20 +232,15 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	assert.Empty(t, stAfter.ScalableTargets, "scalable target should be torn down on Delete")
 }
 
-// TestECSExpress_Errors covers the documented Create/Describe error cases.
 func TestECSExpress_Errors(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
 	cluster := expressCreateCluster(t, c, "express-err-cluster")
 
-	// Note: infrastructureRoleArn is a required field in the SDK model, so the
-	// "missing infra role → InvalidParameterException" case is enforced
-	// client-side by the SDK before the request is sent (matching real AWS). The
-	// server-side InvalidParameterException for a missing infra role is exercised
-	// by the CLI test, which can send a request without it.
+	// The SDK model requires infrastructureRoleArn, so the SDK refuses a request
+	// without it before sending; the CLI test covers the service's refusal.
 	infrastructureRole := createECSExpressInfrastructureRole(t, "express-errors")
 
-	// Create with BOTH taskDefinitionArn and primaryContainer → InvalidParameterException.
 	_, err := c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String(cluster),
 		ServiceName:           aws.String("mutex-violation"),
@@ -267,13 +252,11 @@ func TestECSExpress_Errors(t *testing.T) {
 	})
 	assert.Equal(t, "InvalidParameterException", errCode(t, err))
 
-	// Describe a bogus serviceArn → ResourceNotFoundException.
 	_, err = c.DescribeExpressGatewayService(ctx, &ecs.DescribeExpressGatewayServiceInput{
 		ServiceArn: aws.String("arn:aws:ecs:us-east-1:000000000000:express-gateway-service/express-err-cluster/nope"),
 	})
 	assert.Equal(t, "ResourceNotFoundException", errCode(t, err))
 
-	// Create against a nonexistent cluster → ClusterNotFoundException.
 	_, err = c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String("no-such-cluster"),
 		ServiceName:           aws.String("orphan"),
@@ -284,8 +267,8 @@ func TestECSExpress_Errors(t *testing.T) {
 	})
 	assert.Equal(t, "ClusterNotFoundException", errCode(t, err))
 
-	// A role whose trust policy does not let Amazon ECS assume it, and a role
-	// that does not exist, are refused before anything is provisioned.
+	// A role Amazon ECS may not assume, and a role that does not exist, are refused
+	// before anything is provisioned.
 	for name, role := range map[string]string{
 		"not trusted": serviceRole(t, "lambda.amazonaws.com"),
 		"missing":     "arn:aws:iam::000000000000:role/express-infra-missing",
@@ -302,8 +285,9 @@ func TestECSExpress_Errors(t *testing.T) {
 	}
 }
 
-// TestECSExpress_ALBConsolidation asserts two Express services with identical
-// network configuration share one ALB (the documented 25-per-ALB consolidation).
+// TestECSExpress_ALBConsolidation expects two Express services with the same
+// network configuration to share one load balancer, as documented (25 per
+// load balancer).
 func TestECSExpress_ALBConsolidation(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()

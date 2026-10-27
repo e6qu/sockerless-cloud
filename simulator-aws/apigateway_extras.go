@@ -12,17 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon API Gateway v1 (REST APIs) — additional control-plane slices that
-// extend the core registerAPIGateway surface in apigateway.go: base path
-// mappings, client certificates, documentation parts/versions, gateway
-// responses, the account-settings singleton, OpenAPI export, SDK generation
-// metadata, usage reporting, and tag reads. All restJson1, matching the
-// com.amazonaws.apigateway BackplaneControlService HTTP traits and response
-// shapes (note the v1 wire quirk: list collections serialize the singular
-// `item` jsonName, not the member name).
-
-// APIGWBasePathMapping mirrors the BasePathMapping shape. Keyed by
-// `<domainName>/<basePath>`; an empty base path is normalized to "(none)".
+// Keyed by `<domainName>/<basePath>`; the SDK sends "(none)" for an empty
+// base path.
 type APIGWBasePathMapping struct {
 	BasePath   string `json:"basePath"`
 	RestApiId  string `json:"restApiId,omitempty"`
@@ -30,8 +21,6 @@ type APIGWBasePathMapping struct {
 	DomainName string `json:"domainNameRef,omitempty"`
 }
 
-// APIGWClientCertificate mirrors the ClientCertificate shape. Keyed by
-// clientCertificateId.
 type APIGWClientCertificate struct {
 	ClientCertificateId   string            `json:"clientCertificateId"`
 	Description           string            `json:"description,omitempty"`
@@ -41,7 +30,6 @@ type APIGWClientCertificate struct {
 	Tags                  map[string]string `json:"tags,omitempty"`
 }
 
-// APIGWDocumentationPartLocation mirrors the DocumentationPartLocation shape.
 type APIGWDocumentationPartLocation struct {
 	Type       string `json:"type"`
 	Path       string `json:"path,omitempty"`
@@ -50,8 +38,7 @@ type APIGWDocumentationPartLocation struct {
 	Name       string `json:"name,omitempty"`
 }
 
-// APIGWDocumentationPart mirrors the DocumentationPart shape. Keyed by
-// `<restApiId>/<id>`. Properties is a JSON document string per the API.
+// Keyed by `<restApiId>/<id>`. Properties is a JSON document string.
 type APIGWDocumentationPart struct {
 	Id         string                         `json:"id"`
 	Location   APIGWDocumentationPartLocation `json:"location"`
@@ -59,8 +46,7 @@ type APIGWDocumentationPart struct {
 	RestApiId  string                         `json:"restApiIdRef,omitempty"`
 }
 
-// APIGWDocumentationVersion mirrors the DocumentationVersion shape. Keyed by
-// `<restApiId>/<version>`.
+// Keyed by `<restApiId>/<version>`.
 type APIGWDocumentationVersion struct {
 	Version     string `json:"version"`
 	CreatedDate int64  `json:"createdDate,omitempty"`
@@ -68,8 +54,7 @@ type APIGWDocumentationVersion struct {
 	RestApiId   string `json:"restApiIdRef,omitempty"`
 }
 
-// APIGWGatewayResponse mirrors the GatewayResponse shape. Keyed by
-// `<restApiId>/<responseType>`.
+// Keyed by `<restApiId>/<responseType>`.
 type APIGWGatewayResponse struct {
 	ResponseType       string            `json:"responseType"`
 	StatusCode         string            `json:"statusCode,omitempty"`
@@ -79,8 +64,7 @@ type APIGWGatewayResponse struct {
 	RestApiId          string            `json:"restApiIdRef,omitempty"`
 }
 
-// APIGWAccount mirrors the account-level settings singleton (GetAccount /
-// UpdateAccount). A single row keyed by the literal "account".
+// A single row keyed "account".
 type APIGWAccount struct {
 	CloudwatchRoleArn string                 `json:"cloudwatchRoleArn,omitempty"`
 	ThrottleSettings  *APIGWThrottleSettings `json:"throttleSettings,omitempty"`
@@ -97,9 +81,8 @@ var (
 	apigwAccount            sim.Store[APIGWAccount]
 )
 
-// apigwDefaultGatewayResponseTypes is the set of gateway-response types real
-// API Gateway treats as defaults — surfaced by GetGatewayResponses even
-// before any PutGatewayResponse override, with defaultResponse=true.
+// GetGatewayResponses lists these with defaultResponse=true before any
+// PutGatewayResponse override.
 var apigwDefaultGatewayResponseTypes = []string{
 	"DEFAULT_4XX", "DEFAULT_5XX", "RESOURCE_NOT_FOUND", "UNAUTHORIZED",
 	"INVALID_API_KEY", "ACCESS_DENIED", "AUTHORIZER_FAILURE",
@@ -110,8 +93,7 @@ var apigwDefaultGatewayResponseTypes = []string{
 	"WAF_FILTERED",
 }
 
-// apigwSdkTypes is AWS's real GetSdkTypes catalog — the SDK platforms the
-// service can generate (GetSdkType / GetSdkTypes).
+// The GetSdkTypes catalog of the real service.
 func apigwSdkTypes() []map[string]any {
 	return []map[string]any{
 		{
@@ -172,9 +154,6 @@ func apigwSdkTypes() []map[string]any {
 	}
 }
 
-// registerAPIGatewayExtras mounts the additional Amazon API Gateway v1 REST
-// control-plane slices on the shared mux. Called once from
-// registerAPIGateway in apigateway.go.
 func registerAPIGatewayExtras(srv *sim.Server) {
 	apigwBasePathMappings = sim.MakeStore[APIGWBasePathMapping](srv.DB(), "apigw_basepathmappings")
 	apigwClientCertificates = sim.MakeStore[APIGWClientCertificate](srv.DB(), "apigw_clientcertificates")
@@ -189,21 +168,18 @@ func registerAPIGatewayExtras(srv *sim.Server) {
 	domainResource := cloudTrailRESTResource("AWS::ApiGateway::DomainName", "domainName")
 	certResource := cloudTrailRESTResource("AWS::ApiGateway::ClientCertificate", "clientCertificateId")
 
-	// Base path mappings — scoped under a custom domain name.
 	mux.HandleFunc("POST /domainnames/{domainName}/basepathmappings", cloudTrailRecordedREST("CreateBasePathMapping", src, domainResource, handleAPIGWCreateBasePathMapping))
 	mux.HandleFunc("GET /domainnames/{domainName}/basepathmappings", cloudTrailRecordedREST("GetBasePathMappings", src, domainResource, handleAPIGWListBasePathMappings))
 	mux.HandleFunc("GET /domainnames/{domainName}/basepathmappings/{basePath}", cloudTrailRecordedREST("GetBasePathMapping", src, domainResource, handleAPIGWGetBasePathMapping))
 	mux.HandleFunc("PATCH /domainnames/{domainName}/basepathmappings/{basePath}", cloudTrailRecordedREST("UpdateBasePathMapping", src, domainResource, handleAPIGWUpdateBasePathMapping))
 	mux.HandleFunc("DELETE /domainnames/{domainName}/basepathmappings/{basePath}", cloudTrailRecordedREST("DeleteBasePathMapping", src, domainResource, handleAPIGWDeleteBasePathMapping))
 
-	// Client certificates — top-level resources.
 	mux.HandleFunc("POST /clientcertificates", cloudTrailRecordedREST("GenerateClientCertificate", src, nil, handleAPIGWGenerateClientCertificate))
 	mux.HandleFunc("GET /clientcertificates", cloudTrailRecordedREST("GetClientCertificates", src, nil, handleAPIGWListClientCertificates))
 	mux.HandleFunc("GET /clientcertificates/{clientCertificateId}", cloudTrailRecordedREST("GetClientCertificate", src, certResource, handleAPIGWGetClientCertificate))
 	mux.HandleFunc("PATCH /clientcertificates/{clientCertificateId}", cloudTrailRecordedREST("UpdateClientCertificate", src, certResource, handleAPIGWUpdateClientCertificate))
 	mux.HandleFunc("DELETE /clientcertificates/{clientCertificateId}", cloudTrailRecordedREST("DeleteClientCertificate", src, certResource, handleAPIGWDeleteClientCertificate))
 
-	// Documentation parts — scoped to a REST API.
 	mux.HandleFunc("POST /restapis/{restApiId}/documentation/parts", cloudTrailRecordedREST("CreateDocumentationPart", src, apiResource, handleAPIGWCreateDocumentationPart))
 	mux.HandleFunc("GET /restapis/{restApiId}/documentation/parts", cloudTrailRecordedREST("GetDocumentationParts", src, apiResource, handleAPIGWListDocumentationParts))
 	mux.HandleFunc("PUT /restapis/{restApiId}/documentation/parts", cloudTrailRecordedREST("ImportDocumentationParts", src, apiResource, handleAPIGWImportDocumentationParts))
@@ -211,37 +187,30 @@ func registerAPIGatewayExtras(srv *sim.Server) {
 	mux.HandleFunc("PATCH /restapis/{restApiId}/documentation/parts/{documentationPartId}", cloudTrailRecordedREST("UpdateDocumentationPart", src, apiResource, handleAPIGWUpdateDocumentationPart))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/documentation/parts/{documentationPartId}", cloudTrailRecordedREST("DeleteDocumentationPart", src, apiResource, handleAPIGWDeleteDocumentationPart))
 
-	// Documentation versions — scoped to a REST API.
 	mux.HandleFunc("POST /restapis/{restApiId}/documentation/versions", cloudTrailRecordedREST("CreateDocumentationVersion", src, apiResource, handleAPIGWCreateDocumentationVersion))
 	mux.HandleFunc("GET /restapis/{restApiId}/documentation/versions", cloudTrailRecordedREST("GetDocumentationVersions", src, apiResource, handleAPIGWListDocumentationVersions))
 	mux.HandleFunc("GET /restapis/{restApiId}/documentation/versions/{documentationVersion}", cloudTrailRecordedREST("GetDocumentationVersion", src, apiResource, handleAPIGWGetDocumentationVersion))
 	mux.HandleFunc("PATCH /restapis/{restApiId}/documentation/versions/{documentationVersion}", cloudTrailRecordedREST("UpdateDocumentationVersion", src, apiResource, handleAPIGWUpdateDocumentationVersion))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/documentation/versions/{documentationVersion}", cloudTrailRecordedREST("DeleteDocumentationVersion", src, apiResource, handleAPIGWDeleteDocumentationVersion))
 
-	// Gateway responses — scoped to a REST API, keyed by response type.
 	mux.HandleFunc("PUT /restapis/{restApiId}/gatewayresponses/{responseType}", cloudTrailRecordedREST("PutGatewayResponse", src, apiResource, handleAPIGWPutGatewayResponse))
 	mux.HandleFunc("GET /restapis/{restApiId}/gatewayresponses", cloudTrailRecordedREST("GetGatewayResponses", src, apiResource, handleAPIGWListGatewayResponses))
 	mux.HandleFunc("GET /restapis/{restApiId}/gatewayresponses/{responseType}", cloudTrailRecordedREST("GetGatewayResponse", src, apiResource, handleAPIGWGetGatewayResponse))
 	mux.HandleFunc("PATCH /restapis/{restApiId}/gatewayresponses/{responseType}", cloudTrailRecordedREST("UpdateGatewayResponse", src, apiResource, handleAPIGWUpdateGatewayResponse))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/gatewayresponses/{responseType}", cloudTrailRecordedREST("DeleteGatewayResponse", src, apiResource, handleAPIGWDeleteGatewayResponse))
 
-	// Request validator (single, by id) + model default template.
 	mux.HandleFunc("GET /restapis/{restApiId}/requestvalidators/{requestValidatorId}", cloudTrailRecordedREST("GetRequestValidator", src, apiResource, handleAPIGWGetRequestValidator))
 	mux.HandleFunc("GET /restapis/{restApiId}/models/{modelName}/default_template", cloudTrailRecordedREST("GetModelTemplate", src, apiResource, handleAPIGWGetModelTemplate))
 
-	// Account-level settings singleton.
 	mux.HandleFunc("GET /account", cloudTrailRecordedREST("GetAccount", src, nil, handleAPIGWGetAccount))
 	mux.HandleFunc("PATCH /account", cloudTrailRecordedREST("UpdateAccount", src, nil, handleAPIGWUpdateAccount))
 
-	// OpenAPI export + SDK generation of a deployed stage.
 	mux.HandleFunc("GET /restapis/{restApiId}/stages/{stageName}/exports/{exportType}", cloudTrailRecordedREST("GetExport", src, apiResource, handleAPIGWGetExport))
 	mux.HandleFunc("GET /restapis/{restApiId}/stages/{stageName}/sdks/{sdkType}", cloudTrailRecordedREST("GetSdk", src, apiResource, handleAPIGWGetSdk))
 
-	// SDK type catalog.
 	mux.HandleFunc("GET /sdktypes", cloudTrailRecordedREST("GetSdkTypes", src, nil, handleAPIGWListSdkTypes))
 	mux.HandleFunc("GET /sdktypes/{id}", cloudTrailRecordedREST("GetSdkType", src, nil, handleAPIGWGetSdkType))
 
-	// Usage reporting + tag reads.
 	mux.HandleFunc("GET /usageplans/{usagePlanId}/usage", cloudTrailRecordedREST("GetUsage", src, nil, handleAPIGWGetUsage))
 	mux.HandleFunc("GET /tags/{resourceArn}", cloudTrailRecordedREST("GetTags", src, nil, handleAPIGWGetTags))
 }
@@ -349,8 +318,6 @@ func handleAPIGWDeleteBasePathMapping(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// normalizeBasePath maps the path-encoded "(none)" sentinel the SDK sends for
-// the empty base path back to the empty string the store keys on.
 func normalizeBasePath(basePath string) string {
 	if basePath == "(none)" {
 		return ""
@@ -432,9 +399,8 @@ func handleAPIGWDeleteClientCertificate(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// apigwClientCertPEM produces a real-shaped, deterministic PEM block for a
-// generated client certificate. The body is the certificate id padded into
-// base64 lines — a syntactically valid PEM envelope clients can store.
+// The body is the certificate id padded into base64 lines, not a real
+// certificate.
 func apigwClientCertPEM(id string) string {
 	payload := base64.StdEncoding.EncodeToString([]byte("apigw-client-certificate:" + id + ":" + awsAccountID()))
 	var b strings.Builder
@@ -544,7 +510,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	// On overwrite, the imported set replaces existing parts for the API.
+	// Mode overwrite replaces the API's existing parts.
 	if strings.EqualFold(req.Mode, "overwrite") {
 		for _, p := range apigwDocParts.List() {
 			if p.RestApiId == restApiId {
@@ -552,8 +518,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	// The import body is an OpenAPI/Swagger document; create a single
-	// API-level documentation part recording the imported content.
+	// Record the imported OpenAPI document as one API-level documentation part.
 	p := APIGWDocumentationPart{
 		Id:         sim.NewUUID()[:10],
 		Location:   APIGWDocumentationPartLocation{Type: "API"},
@@ -831,8 +796,7 @@ func handleAPIGWGetModelTemplate(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Model name specified")
 		return
 	}
-	// The default mapping template is a sample request body derived from the
-	// model's JSON schema, exactly as GetModelTemplate returns.
+	// GetModelTemplate derives a sample body from the model's JSON schema.
 	tmpl := fmt.Sprintf("#set($inputRoot = $input.path('$'))\n{\n  \"_model\": \"%s\",\n  \"_schema\": %s\n}", m.Name, strconv.Quote(m.Schema))
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": tmpl})
 }
@@ -960,8 +924,8 @@ func handleAPIGWGetSdk(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "NotFoundException", "No SDK type called "+sdkType+" exists", http.StatusNotFound)
 		return
 	}
-	// Real GetSdk streams a zip of generated SDK sources; emit a deterministic
-	// zip-shaped binary payload as the HTTP body (httpPayload Blob).
+	// The real GetSdk streams a zip of generated sources; this zip carries only a
+	// manifest line naming the target.
 	body := apigwSdkZip(restApiId, stageName, sdkType)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s_%s_%s.zip", restApiId, stageName, sdkType))
@@ -970,8 +934,6 @@ func handleAPIGWGetSdk(w http.ResponseWriter, r *http.Request) {
 }
 
 func apigwSdkZip(restApiId, stageName, sdkType string) []byte {
-	// "PK\x03\x04" local-file-header magic so the payload is a recognizable
-	// (empty) zip envelope; the manifest line records the generated target.
 	manifest := fmt.Sprintf("sdk=%s api=%s stage=%s", sdkType, restApiId, stageName)
 	return append([]byte("PK\x03\x04"), []byte(manifest)...)
 }
@@ -1015,8 +977,7 @@ func handleAPIGWGetUsage(w http.ResponseWriter, r *http.Request) {
 	if endDate == "" {
 		endDate = time.Now().UTC().Format("2006-01-02")
 	}
-	// Per-key daily [used, remaining] logs. With no traffic the usage is
-	// zero against the plan's quota limit.
+	// Without traffic the usage is zero against the plan's quota.
 	limit := 0
 	if up.Quota != nil {
 		limit = up.Quota.Limit
@@ -1044,7 +1005,6 @@ func handleAPIGWGetTags(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }
 
-// apigwTagsForARN resolves the tags off a stored API Gateway resource ARN.
 // Supported ARN tails: /restapis/<id>, /apikeys/<id>, /usageplans/<id>,
 // /clientcertificates/<id>.
 func apigwTagsForARN(arn string) map[string]string {
@@ -1079,8 +1039,6 @@ func apigwTagsForARN(arn string) map[string]string {
 	return nil
 }
 
-// apigwPatchString applies the request's replace and add operations on path to
-// value.
 func apigwPatchString(w http.ResponseWriter, r *http.Request, path string, value *string) bool {
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`

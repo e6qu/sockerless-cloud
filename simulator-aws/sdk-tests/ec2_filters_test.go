@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeFiltersPositionIndependent covers a vpc-id filter
-// must be honored regardless of its position in the Filter.N sequence.
-// Previously these handlers only inspected Filter.1, so a vpc-id filter sent
-// after another filter was ignored and ALL resources were returned.
+// TestEC2_DescribeFiltersPositionIndependent expects a vpc-id filter honoured
+// wherever it sits in the Filter.N sequence.
 func TestEC2_DescribeFiltersPositionIndependent(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -28,7 +26,7 @@ func TestEC2_DescribeFiltersPositionIndependent(t *testing.T) {
 	_, err = client.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: vpc2.Vpc.VpcId, CidrBlock: aws.String("10.92.1.0/24")})
 	require.NoError(t, err)
 
-	// vpc-id is the SECOND filter (after an unsupported one) — must still scope.
+	// vpc-id comes second, after an unsupported filter.
 	subOut, err := client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		Filters: []types.Filter{
 			{Name: aws.String("state"), Values: []string{"available"}},
@@ -39,7 +37,6 @@ func TestEC2_DescribeFiltersPositionIndependent(t *testing.T) {
 	require.Len(t, subOut.Subnets, 1, "vpc-id filter must apply regardless of position")
 	assert.Equal(t, *sn1.Subnet.SubnetId, *subOut.Subnets[0].SubnetId)
 
-	// Same for DescribeNatGateways (a NAT in each VPC).
 	mkNat := func(subnetID *string) string {
 		eip, err := client.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
 		require.NoError(t, err)

@@ -20,16 +20,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// The connection, session and change-stream entry points of the Cloud Bigtable
-// data API are exercised through the generated gRPC client — the high-level
-// cloud.google.com/go/bigtable client does not expose them — while the SQL
-// surface goes through that client's PreparedStatement API, which is how a real
-// caller reaches ExecuteQuery.
+// The generated gRPC client drives the connection, session and change-stream
+// entry points, which cloud.google.com/go/bigtable does not expose; SQL goes
+// through that client's PreparedStatement API, the way a real caller reaches
+// ExecuteQuery.
 
-// btFixture provisions an instance, a table and a column family through the
-// admin clients and returns the generated data client alongside the resource
-// names, so every test below reads and writes state the admin surface really
-// created.
+// btFixture provisions the instance, table and column family through the admin
+// clients, so every test reads and writes state the admin surface created.
 type btFixture struct {
 	data     btpb.BigtableClient
 	client   *bigtable.Client
@@ -104,9 +101,9 @@ func TestBigtable_PingAndWarm(t *testing.T) {
 	requireGRPCStatus(t, err, codes.NotFound)
 }
 
-// TestBigtable_GetClientConfiguration reads the configuration the instance
-// implies: the server serves the session API and its configuration never
-// changes, so the client is told to route sessions and stop polling.
+// TestBigtable_GetClientConfiguration: the server serves the session API and
+// its configuration never changes, so the client is told to route sessions and
+// stop polling.
 func TestBigtable_GetClientConfiguration(t *testing.T) {
 	t.Parallel()
 	f := newBTFixture(t, "bt-config-proj", "bt-config-inst", "events", "cf")
@@ -123,10 +120,9 @@ func TestBigtable_GetClientConfiguration(t *testing.T) {
 	requireGRPCStatus(t, err, codes.NotFound)
 }
 
-// TestBigtable_OpenTableSession runs the session protocol end to end: the open
-// handshake, a mutation delivered as a virtual RPC, and a read that sees it.
-// The high-level client reads the same row afterwards, which is what proves the
-// session writes the store the rest of the data plane serves.
+// TestBigtable_OpenTableSession runs the open handshake, a mutation as a
+// virtual RPC and a read over the session; the high-level client then reads the
+// same row, proving the session writes the store the data plane serves.
 func TestBigtable_OpenTableSession(t *testing.T) {
 	t.Parallel()
 	f := newBTFixture(t, "bt-session-proj", "bt-session-inst", "events", "cf")
@@ -140,7 +136,6 @@ func TestBigtable_OpenTableSession(t *testing.T) {
 		Permission: btpb.OpenTableRequest_PERMISSION_READ_WRITE,
 	})
 
-	// A mutation over the session.
 	mutateResponse := &btpb.TableResponse{}
 	btVirtualRPC(t, stream, 1, &btpb.TableRequest{Payload: &btpb.TableRequest_MutateRow{
 		MutateRow: &btpb.SessionMutateRowRequest{
@@ -150,13 +145,11 @@ func TestBigtable_OpenTableSession(t *testing.T) {
 	}}, mutateResponse)
 	require.NotNil(t, mutateResponse.GetMutateRow())
 
-	// The row is there for the unary data plane.
 	row, err := f.client.Open("events").ReadRow(ctx, "user#1")
 	require.NoError(t, err)
 	require.Len(t, row[f.family], 1)
 	assert.Equal(t, "alice", string(row[f.family][0].Value))
 
-	// And for a read over the same session.
 	readResponse := &btpb.TableResponse{}
 	btVirtualRPC(t, stream, 2, &btpb.TableRequest{Payload: &btpb.TableRequest_ReadRow{
 		ReadRow: &btpb.SessionReadRowRequest{Key: []byte("user#1")},
@@ -168,7 +161,6 @@ func TestBigtable_OpenTableSession(t *testing.T) {
 	require.Len(t, returned.GetFamilies()[0].GetColumns(), 1)
 	assert.Equal(t, []byte("alice"), returned.GetFamilies()[0].GetColumns()[0].GetCells()[0].GetValue())
 
-	// A row that does not exist reads as no row.
 	missing := &btpb.TableResponse{}
 	btVirtualRPC(t, stream, 3, &btpb.TableRequest{Payload: &btpb.TableRequest_ReadRow{
 		ReadRow: &btpb.SessionReadRowRequest{Key: []byte("user#absent")},
@@ -470,8 +462,6 @@ func TestBigtable_ExecuteQuery(t *testing.T) {
 	requireGRPCStatus(t, err, codes.NotFound)
 }
 
-// btOpenSession performs the session open handshake with the given typed
-// request as its payload.
 func btOpenSession(t *testing.T, stream btSessionClient, open proto.Message) {
 	t.Helper()
 	payload, err := proto.Marshal(open)
@@ -484,7 +474,6 @@ func btOpenSession(t *testing.T, stream btSessionClient, open proto.Message) {
 	require.NotNil(t, resp.GetOpenSession(), "the handshake is answered with an open_session response")
 }
 
-// btVirtualRPCRequest wraps a typed session request as a virtual RPC.
 func btVirtualRPCRequest(t *testing.T, rpcID int64, request proto.Message) *btpb.SessionRequest {
 	t.Helper()
 	payload, err := proto.Marshal(request)
@@ -495,7 +484,6 @@ func btVirtualRPCRequest(t *testing.T, rpcID int64, request proto.Message) *btpb
 	}}}
 }
 
-// btVirtualRPC sends one virtual RPC and decodes its response payload.
 func btVirtualRPC(t *testing.T, stream btSessionClient, rpcID int64, request, response proto.Message) {
 	t.Helper()
 	require.NoError(t, stream.Send(btVirtualRPCRequest(t, rpcID, request)))

@@ -5,13 +5,9 @@ import (
 	"testing"
 )
 
-// VPN concentrators (create/delete/describe-vpn-concentrator{,s}) are exercised
-// SDK-side only: the operations are too new to exist in aws CLI 2.26.6, so the
-// CLI binary rejects the command verbs. The SDK suite covers the
-// simulator-test-contract hook for those ops.
+// aws CLI 2.26.6 lacks the VPN concentrator commands; the SDK suite covers
+// them.
 
-// TestEC2CLI_AddressTransferLifecycle exercises enable/describe/accept/disable
-// of an Elastic IP address transfer through the aws CLI.
 func TestEC2CLI_AddressTransferLifecycle(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "allocate-address", "--domain", "vpc",
@@ -49,8 +45,6 @@ func TestEC2CLI_AddressTransferLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "disable-address-transfer", "--allocation-id", allocID))
 }
 
-// TestEC2CLI_ByoipCidrLifecycle exercises provision/advertise/describe/withdraw/
-// deprovision of a BYOIP CIDR through the aws CLI.
 func TestEC2CLI_ByoipCidrLifecycle(t *testing.T) {
 	t.Parallel()
 	const cidr = "198.51.100.0/24"
@@ -84,8 +78,6 @@ func TestEC2CLI_ByoipCidrLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "deprovision-byoip-cidr", "--cidr", cidr))
 }
 
-// TestEC2CLI_PublicIpv4PoolLifecycle exercises create/provision-cidr/describe/
-// deprovision-cidr/delete of a public IPv4 pool through the aws CLI.
 func TestEC2CLI_PublicIpv4PoolLifecycle(t *testing.T) {
 	t.Parallel()
 	poolID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-public-ipv4-pool",
@@ -119,8 +111,6 @@ func TestEC2CLI_PublicIpv4PoolLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_NatGatewayAddressLifecycle exercises assign/associate/disassociate/
-// unassign of NAT-gateway secondary addresses through the aws CLI.
 func TestEC2CLI_NatGatewayAddressLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -166,8 +156,6 @@ func TestEC2CLI_NatGatewayAddressLifecycle(t *testing.T) {
 		"--nat-gateway-id", natID, "--private-ip-addresses", secondaryIP))
 }
 
-// TestEC2CLI_TrunkInterfaceLifecycle exercises associate/describe/disassociate
-// of a trunk-interface association through the aws CLI.
 func TestEC2CLI_TrunkInterfaceLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -202,8 +190,6 @@ func TestEC2CLI_TrunkInterfaceLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "disassociate-trunk-interface", "--association-id", assocID))
 }
 
-// TestEC2CLI_CarrierGatewayLifecycle exercises create/describe/delete of a
-// carrier gateway through the aws CLI.
 func TestEC2CLI_CarrierGatewayLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -233,8 +219,6 @@ func TestEC2CLI_CarrierGatewayLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_CoipPoolLifecycle exercises create/describe/get-usage/delete of a
-// customer-owned IP (COIP) pool through the aws CLI.
 func TestEC2CLI_CoipPoolLifecycle(t *testing.T) {
 	t.Parallel()
 	poolID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-coip-pool",
@@ -260,8 +244,6 @@ func TestEC2CLI_CoipPoolLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "delete-coip-pool", "--coip-pool-id", poolID))
 }
 
-// TestEC2CLI_NetworkInterfacePermissionLifecycle exercises create/describe/delete
-// of a network-interface permission through the aws CLI.
 func TestEC2CLI_NetworkInterfacePermissionLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -295,8 +277,6 @@ func TestEC2CLI_NetworkInterfacePermissionLifecycle(t *testing.T) {
 		"--network-interface-permission-id", permID))
 }
 
-// TestEC2CLI_VgwRoutePropagation exercises enable/disable of virtual private
-// gateway route propagation into a route table through the aws CLI.
 func TestEC2CLI_VgwRoutePropagation(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -319,8 +299,6 @@ func TestEC2CLI_VgwRoutePropagation(t *testing.T) {
 		"--gateway-id", vgwID, "--route-table-id", rtID))
 }
 
-// TestEC2CLI_ModifyManagedPrefixList exercises modify-managed-prefix-list:
-// adding and removing entries on an existing managed prefix list through the CLI.
 func TestEC2CLI_ModifyManagedPrefixList(t *testing.T) {
 	t.Parallel()
 	plID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-managed-prefix-list",

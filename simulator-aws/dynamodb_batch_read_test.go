@@ -14,26 +14,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A read that names many items takes the stripes covering them once.
-//
-// Every read path used to take the item lock per item: acquire, read one item,
-// deep copy it, release. Query and Scan were converted to one acquisition when
-// a profile showed concurrent queries interleaving on that lock item by item
-// rather than queueing request by request. BatchGetItem and TransactGetItems
-// were left behind, and they are the two operations whose whole purpose is to
-// name a hundred items at once — a batch of a hundred keys contended with
-// every other reader of that table a hundred times.
-//
-// For TransactGetItems it is not only cost. DynamoDB documents the operation as
-// an atomic read: "TransactGetItems is a synchronous operation that atomically
-// retrieves multiple items". Reading one stripe acquisition at a time gave each
-// item its own instant of the store, so a transactional write committing
-// between two of them was visible in the result — exactly the anomaly the
-// operation exists to exclude.
+// BatchGetItem and TransactGetItems take one stripe acquisition per table, and
+// TransactGetItems reads one instant: "TransactGetItems is a synchronous
+// operation that atomically retrieves multiple items".
 
-// ddbHookStore calls onGet before each item read, so a test can observe what
-// else can happen while a read is in flight. Every other method delegates
-// untouched.
+// ddbHookStore calls onGet before each item read; every other method
+// delegates.
 type ddbHookStore struct {
 	sim.Store[map[string]any]
 	onGet func(id string)
@@ -76,8 +62,6 @@ func ddbTransactGet(t *testing.T, table string, keys []map[string]any) *httptest
 	return recorder
 }
 
-// ddbSeededKeys returns the primary keys of the first n items ddbSeedQueryTable
-// stored in a single-partition table.
 func ddbSeededKeys(n int) []map[string]any {
 	keys := make([]map[string]any, 0, n)
 	for i := range n {
@@ -89,10 +73,8 @@ func ddbSeededKeys(n int) []map[string]any {
 	return keys
 }
 
-// TestDDBBatchGetItemTakesOneStripePerTable holds the cost of a batch to the
-// number of tables it names rather than the number of items. The stripe count
-// is the only observable difference: the items returned are the same either
-// way, which is what let a hundredfold difference in lock traffic go unnoticed.
+// The stripe count is the only observable difference; the items returned are
+// the same either way.
 func TestDDBBatchGetItemTakesOneStripePerTable(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const perTable = 50
@@ -117,9 +99,6 @@ func TestDDBBatchGetItemTakesOneStripePerTable(t *testing.T) {
 		"a batch over two tables must take one stripe per table, not one per item")
 }
 
-// TestDDBTransactGetItemsTakesOneStripe holds the cost of a transactional read
-// to the tables it names, the same property TestDDBBatchGetItemTakesOneStripePerTable
-// holds for a batch.
 func TestDDBTransactGetItemsTakesOneStripe(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table = "transact-cost"
@@ -135,16 +114,10 @@ func TestDDBTransactGetItemsTakesOneStripe(t *testing.T) {
 		"a transactional read over one table must take that table's stripe once, not once per item")
 }
 
-// TestDDBTransactGetItemsReadsOneInstant is the atomicity DynamoDB documents: a
-// write committed while a transactional read is in flight is either wholly
-// before it or wholly after it, never between two of its items.
-//
-// The writer starts from inside the read's first item read and takes the
-// table's stripe for writing, so a read that released its stripe between items
-// could hand the writer the table and see the new value in its second item.
-// Every later item read therefore asserts the writer has not run, and the read
-// asserts it held one acquisition across both items: the writer's own
-// acquisition is the only other one the counter may have recorded.
+// The writer starts inside the read's first item read and takes the table's
+// stripe, so a read releasing between items would see the write in its second
+// item. The read must record one acquisition across both items besides the
+// writer's own.
 func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table = "transact-read"
@@ -158,14 +131,12 @@ func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 
 	var writerDone atomic.Bool
 	written := make(chan struct{})
-	// The writer writes to a store this test's temporary database backs, and
-	// that database is closed by a cleanup registered before this one, so this
-	// runs first and lets the writer finish against a live handle.
+	// Register after the database's cleanup so this runs first and the writer
+	// finishes against a live handle.
 	t.Cleanup(func() { <-written })
-	// The violation is recorded rather than asserted where it is seen: a failed
-	// assertion inside the hook unwinds the read through Goexit, and the read
-	// releases its stripe on the way out rather than through a defer, so the
-	// writer would block forever and the cleanup above with it.
+	// Record the violation instead of asserting in the hook: a failed assertion
+	// unwinds through Goexit, the read releases its stripe without a defer, and
+	// the writer and this cleanup would block forever.
 	var interleaved atomic.Bool
 	reads := 0
 	hooked.onGet = func(string) {

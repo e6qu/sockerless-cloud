@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueMLTransformCLI exercises the ML transform CRUD family via the aws CLI.
 func TestGlueMLTransformCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("glue", "create-ml-transform",
@@ -74,8 +73,6 @@ func TestGlueMLTransformCLI(t *testing.T) {
 	assert.Equal(t, id, del.TransformId)
 }
 
-// TestGlueDataQualityCLI exercises Data Quality rulesets, evaluation and
-// recommendation runs, results, statistics and models via the aws CLI.
 func TestGlueDataQualityCLI(t *testing.T) {
 	t.Parallel()
 	const rulesetName = "glue-cli-dqr"
@@ -190,9 +187,8 @@ func TestGlueDataQualityCLI(t *testing.T) {
 
 	runCLI(t, awsCLI("glue", "list-data-quality-statistics"))
 
-	// A model is trained from a statistical history this simulator never
-	// collects, so no profile has one — and a profile nothing issued is not
-	// found rather than answered for.
+	// A model trains on a statistical history the simulator never collects, so no
+	// profile has one, and a profile nothing issued is not found.
 	modelErr := runCLIExpectError(t, awsCLI("glue", "get-data-quality-model", "--profile-id", "profile-1"))
 	assert.Contains(t, modelErr, "No data quality profile")
 	resultErr := runCLIExpectError(t, awsCLI("glue", "get-data-quality-model-result",
@@ -200,8 +196,6 @@ func TestGlueDataQualityCLI(t *testing.T) {
 	assert.Contains(t, resultErr, "No data quality profile")
 }
 
-// TestGlueColumnStatisticsTaskCLI exercises the column-statistics task settings
-// and runs family via the aws CLI.
 func TestGlueColumnStatisticsTaskCLI(t *testing.T) {
 	t.Parallel()
 	const dbName = "glue-cli-cst-db"
@@ -292,7 +286,7 @@ func TestGlueColumnStatisticsTaskCLI(t *testing.T) {
 	parseJSON(t, out, &listRuns)
 	assert.Contains(t, listRuns.ColumnStatisticsTaskRunIds, runID)
 
-	// A terminal run cannot be stopped — the CLI surfaces the service error.
+	// A terminal run cannot be stopped.
 	runCLIExpectError(t, awsCLI("glue", "stop-column-statistics-task-run",
 		"--database-name", dbName, "--table-name", tblName))
 }

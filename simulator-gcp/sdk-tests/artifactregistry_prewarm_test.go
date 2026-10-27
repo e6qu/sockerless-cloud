@@ -38,7 +38,6 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 		pkgName, &artifactregistry.Tag{Version: pkgName + "/versions/sha256:abc"}).TagId("latest").Do()
 	require.NoError(t, err)
 
-	// Nothing is cached before a prewarm.
 	list, err := svc.Projects.Locations.Repositories.PrewarmedArtifacts.List(repoName).Do()
 	require.NoError(t, err)
 	assert.Empty(t, list.PrewarmedArtifacts)
@@ -164,8 +163,8 @@ func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// The repository colon-verb fan-in serves the IAM triple as well as these
-// custom methods, so the two must not shadow each other.
+// The repository colon-verb route serves the IAM triple and these custom
+// methods, so neither may shadow the other.
 func TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)

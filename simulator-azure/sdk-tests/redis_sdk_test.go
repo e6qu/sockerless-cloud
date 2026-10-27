@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ensureRedisResourceGroup creates (idempotently) a resource group for the
-// Redis tests.
 func ensureRedisResourceGroup(t *testing.T, name string) {
 	t.Helper()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -50,7 +48,6 @@ func TestRedis_CreateGetListLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "redis-lifecycle", *got.Name)
 
-	// ListByResourceGroup + ListBySubscription pagers.
 	rgPager := client.NewListByResourceGroupPager(rg, nil)
 	found := false
 	for rgPager.More() {
@@ -78,7 +75,6 @@ func TestRedis_CheckNameAvailability(t *testing.T) {
 	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Fresh, unused name → available.
 	resp, err := client.CheckNameAvailability(ctx, armredis.CheckNameAvailabilityParameters{
 		Name: ptrStr("redis-never-used-name"),
 		Type: ptrStr("Microsoft.Cache/redis"),
@@ -86,7 +82,7 @@ func TestRedis_CheckNameAvailability(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp
 
-	// A name already taken by a created cache → unavailable.
+	// A name a created cache holds is unavailable.
 	newRedisCacheForTest(t, rg, "redis-taken-name")
 	_, err = client.CheckNameAvailability(ctx, armredis.CheckNameAvailabilityParameters{
 		Name: ptrStr("redis-taken-name"),

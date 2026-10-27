@@ -12,10 +12,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// Cloud Billing's account collection is real control-plane state: created,
-// listed, patched, moved between organizations, subaccounted, and linked to
-// projects — with getBillingInfo and updateBillingInfo answering from the
-// same store, so the two halves of the surface never disagree.
+// Cloud Billing serves accounts and project links from one store, so
+// getBillingInfo and updateBillingInfo never disagree.
 func TestCloudBilling_AccountLifecycleAndProjectLink(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -132,10 +130,8 @@ func TestCloudBilling_AccountLifecycleAndProjectLink(t *testing.T) {
 	assert.Equal(t, 404, gerr.Code)
 }
 
-// The service catalog is the installation's own: the services this simulator
-// hosts, under stable identifiers, with SKU lists that are empty because
-// this deployment publishes no price sheet — that emptiness is the
-// catalog's truth, pinned here so it never becomes fabricated pricing.
+// The service catalog lists the services this simulator hosts, with SKU lists
+// left empty because the deployment publishes no price sheet.
 func TestCloudBilling_ServiceCatalogIsTheInstallationsOwn(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

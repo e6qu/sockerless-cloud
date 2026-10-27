@@ -11,37 +11,27 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Azure Resource Manager answers a virtual-machine create, start, restart,
-// power-off, deallocate, redeploy, reimage, reapply, maintenance or delete
-// request at once — 201/200 for the PUT, 202 for the actions and the DELETE —
-// with an Azure-AsyncOperation to poll, and the Compute resource provider moves
-// the machine behind that operation: provisioningState reads Creating, Updating
-// or Deleting and the instance view's power state reads starting, stopping or
-// deallocating until the guest has really moved, then Succeeded (or Failed) and
-// the settled power state.
+// Azure Resource Manager answers a virtual-machine create, action or delete at
+// once — 201/200 for the PUT, 202 for the actions and DELETE — with an
+// Azure-AsyncOperation. provisioningState reads Creating, Updating or Deleting
+// and the power state starting, stopping or deallocating until the guest has
+// moved, then Succeeded or Failed and the settled power state.
 
-// azureBootVM, azureHaltVM and azureDestroyVM place, halt and remove the
-// instance behind a machine on its placement backend. A unit test substitutes
-// them to hold a move open on a channel and observe the operation around it.
+// A unit test substitutes these to hold a move open on a channel.
 var (
 	azureBootVM    = azureBootVMWorkload
 	azureHaltVM    = azureHaltVMWorkload
 	azureDestroyVM = azureDestroyVMWorkload
 )
 
-// azureGuestExec runs a command inside a machine's guest and reports what it
-// wrote and how it exited.
 var azureGuestExec = azureGuestExecInWorkload
 
-// azureGuestConsole reads the console output a machine's guest wrote.
 var azureGuestConsole = azureGuestConsoleOfWorkload
 
-// azureVMRequestFault is a virtual-machine write the client cannot fix by
-// retrying: the request's networkProfile names no usable network interface.
-// Azure rejects these during request validation — 400 InvalidParameter for a
-// networkProfile the Compute resource provider cannot accept, 404
-// ResourceNotFound for a referenced interface that does not exist — and never
-// as a failed operation an SDK retry policy would retry.
+// azureVMRequestFault is a write the client cannot fix by retrying. Azure
+// rejects it at request validation — 400 InvalidParameter for an unusable
+// networkProfile, 404 ResourceNotFound for a missing interface — never as a
+// failed operation an SDK retry policy would retry.
 type azureVMRequestFault struct {
 	code    string
 	status  int
@@ -50,8 +40,8 @@ type azureVMRequestFault struct {
 
 func (f *azureVMRequestFault) Error() string { return f.message }
 
-// azureValidateVMNetworkProfile applies those request-validation rules from
-// ARM state alone.
+// azureValidateVMNetworkProfile applies those rules from Azure Resource Manager
+// state alone.
 func azureValidateVMNetworkProfile(vm VirtualMachine) *azureVMRequestFault {
 	nics := vm.Properties.NetworkProfile.NetworkInterfaces
 	if len(nics) != 1 {
@@ -81,17 +71,13 @@ func azureValidateVMNetworkProfile(vm VirtualMachine) *azureVMRequestFault {
 	return nil
 }
 
-// azureVMProvisioningErrors holds the error of each machine whose last
-// operation failed; its instance view reports it beside provisioningState
-// Failed.
 var azureVMProvisioningErrors sim.Store[AsyncOperationError]
 
 func registerVirtualMachineOperationRecovery(srv *sim.Server) {
 	azureVMProvisioningErrors = sim.MakeStore[AsyncOperationError](srv.DB(), "compute_virtual_machine_provisioning_errors")
-	// The goroutine behind a machine's operation died with the previous
-	// process, and the operation store fails that operation on restart; the
-	// machine fails with it instead of staying Creating or Updating, which
-	// would refuse every later operation on it.
+	// The operation store fails an operation whose goroutine died with the
+	// previous process; fail its machine too, or it would stay Creating or
+	// Updating and refuse every later operation.
 	for _, vm := range azureVMs.List() {
 		if !azureVMOperationRunning(vm.Properties.ProvisioningState) {
 			continue
@@ -107,9 +93,8 @@ func registerVirtualMachineOperationRecovery(srv *sim.Server) {
 	}
 }
 
-// azureVMOperationRunning reports the provisioning states Microsoft's "States
-// and billing status of Azure Virtual Machines" names for an operation still in
-// progress on the machine.
+// The provisioning states "States and billing status of Azure Virtual
+// Machines" names for an operation in progress.
 func azureVMOperationRunning(provisioningState string) bool {
 	switch provisioningState {
 	case "Creating", "Updating", "Deleting":
@@ -118,16 +103,13 @@ func azureVMOperationRunning(provisioningState string) bool {
 	return false
 }
 
-// azureClaimVMOperation moves an existing machine to provisioningState
-// Updating and its power state to transition, and reports false when another
-// operation still holds the machine.
+// azureClaimVMOperation reports false when another operation still holds the
+// machine.
 func azureClaimVMOperation(id, transition string) bool {
 	return azureClaimVMOperationAs(id, "Updating", transition)
 }
 
-// azureClaimVMOperationAs is azureClaimVMOperation for an operation that
-// reports a provisioningState of its own; an empty transition leaves the power
-// state alone.
+// An empty transition leaves the power state alone.
 func azureClaimVMOperationAs(id, provisioningState, transition string) bool {
 	claimed := false
 	azureVMs.Update(id, func(vm *VirtualMachine) {
@@ -143,16 +125,12 @@ func azureClaimVMOperationAs(id, provisioningState, transition string) bool {
 	return claimed
 }
 
-// azureVMOperationConflict is ARM's refusal of an operation on a machine
-// another operation still holds.
 func azureVMOperationConflict(w http.ResponseWriter, operation, id string) {
 	AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 		"Operation '%s' is not allowed on VM '%s' since another operation is in progress on it.",
 		operation, id[strings.LastIndex(id, "/")+1:])
 }
 
-// azureRunVMOperation runs work behind a new operation and settles the
-// machine's provisioningState by its outcome.
 func azureRunVMOperation(id string, work func(ctx context.Context) *AsyncOperationError) string {
 	azureVMProvisioningErrors.Delete(id)
 	return startAzureAsyncOperationOutcome(func() *AsyncOperationError {
@@ -162,16 +140,14 @@ func azureRunVMOperation(id string, work func(ctx context.Context) *AsyncOperati
 	})
 }
 
-// azureRunVMWork runs work in the background for a request Azure answers
-// without an operation to poll; the machine's provisioningState and instance
-// view are where its outcome shows.
+// azureRunVMWork is for a request Azure answers without an operation to poll;
+// the provisioningState and instance view show the outcome.
 func azureRunVMWork(id string, work func(ctx context.Context) *AsyncOperationError) {
 	azureVMProvisioningErrors.Delete(id)
 	bg.Go(func() { azureSettleVMOperation(id, work(context.Background())) })
 }
 
-// azureSettleVMOperation settles the provisioningState of a machine whose
-// operation ended; a machine the operation deleted has nothing to settle.
+// A machine the operation deleted has nothing to settle.
 func azureSettleVMOperation(id string, opErr *AsyncOperationError) {
 	settled := azureVMs.Update(id, func(vm *VirtualMachine) {
 		vm.Properties.ProvisioningState = "Succeeded"
@@ -184,8 +160,7 @@ func azureSettleVMOperation(id string, opErr *AsyncOperationError) {
 	}
 }
 
-// azureForgetVM drops everything the simulator holds about a deleted machine,
-// and detaches its network interfaces, which outlive it.
+// azureForgetVM detaches the machine's network interfaces, which outlive it.
 func azureForgetVM(id string) {
 	if vm, ok := azureVMs.Get(id); ok {
 		syncManagedIdentityPrincipal(vm.Identity, nil, "", "")
@@ -207,9 +182,8 @@ func azureForgetVM(id string) {
 	azureReconcileAutoRegisteredRecords()
 }
 
-// azureVMBootFailure is the error a failed operation reports when the machine
-// could not be placed. A networkProfile that stopped resolving keeps its own
-// request-validation code; anything else Azure reports as AllocationFailed.
+// A networkProfile that stopped resolving keeps its request-validation code;
+// Azure reports anything else as AllocationFailed.
 func azureVMBootFailure(id string, err error) *AsyncOperationError {
 	var fault *azureVMRequestFault
 	if errors.As(err, &fault) {
@@ -221,8 +195,6 @@ func azureVMBootFailure(id string, err error) *AsyncOperationError {
 	}
 }
 
-// azureVMHaltFailure is the error a failed operation reports when the machine
-// could not be stopped.
 func azureVMHaltFailure(id string, err error) *AsyncOperationError {
 	return &AsyncOperationError{
 		Code:    "InternalExecutionError",
@@ -230,17 +202,14 @@ func azureVMHaltFailure(id string, err error) *AsyncOperationError {
 	}
 }
 
-// writeAzureVMOperationAccepted answers an action on a machine the way the
-// Compute resource provider does: 202 with no body, the operation's status URL
-// as Azure-AsyncOperation and its monitor URL as Location.
+// The Compute resource provider answers 202 with no body, the status URL as
+// Azure-AsyncOperation and the monitor URL as Location.
 func writeAzureVMOperationAccepted(w http.ResponseWriter, r *http.Request, vm VirtualMachine, opID string) {
 	asyncOperation, monitor := computeOperationURLs(r, sim.PathParam(r, "subscriptionId"), vm.Location, opID)
 	writeAzureAsyncCreateHeaders(w, opID, asyncOperation, monitor)
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// azureVMProvisioningStatus is the ProvisioningState entry of a machine's
-// instance view.
 func azureVMProvisioningStatus(vm VirtualMachine) VMStatus {
 	switch vm.Properties.ProvisioningState {
 	case "Creating":

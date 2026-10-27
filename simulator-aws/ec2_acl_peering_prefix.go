@@ -9,12 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements faithful control-plane CRUD for the EC2 resources that
-// round out the VPC networking surface: network ACLs, VPC peering connections,
-// managed prefix lists, VPC Flow Logs, and egress-only internet gateways. Each
-// is backed by a real SQLite-persisted store and rendered as the exact ec2Query
-// XML the AWS SDK for Go v2 and the aws CLI deserialize.
-
 type EC2NetworkAcl struct {
 	NetworkAclId string
 	VpcId        string
@@ -116,7 +110,6 @@ func registerEC2AclPeeringPrefix(r *AWSQueryRouter, srv *sim.Server) {
 	ec2FlowLogs = sim.MakeStore[EC2FlowLog](srv.DB(), "ec2_flow_logs")
 	ec2EgressOnlyGateways = sim.MakeStore[EC2EgressOnlyInternetGateway](srv.DB(), "ec2_egress_only_gateways")
 
-	// Network ACLs
 	r.Register("CreateNetworkAcl", handleCreateNetworkAcl)
 	r.Register("DescribeNetworkAcls", handleDescribeNetworkAcls)
 	r.Register("DeleteNetworkAcl", handleDeleteNetworkAcl)
@@ -124,24 +117,20 @@ func registerEC2AclPeeringPrefix(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteNetworkAclEntry", handleDeleteNetworkAclEntry)
 	r.Register("ReplaceNetworkAclEntry", handleReplaceNetworkAclEntry)
 
-	// VPC peering
 	r.Register("CreateVpcPeeringConnection", handleCreateVpcPeeringConnection)
 	r.Register("DescribeVpcPeeringConnections", handleDescribeVpcPeeringConnections)
 	r.Register("AcceptVpcPeeringConnection", handleAcceptVpcPeeringConnection)
 	r.Register("DeleteVpcPeeringConnection", handleDeleteVpcPeeringConnection)
 
-	// Managed prefix lists
 	r.Register("CreateManagedPrefixList", handleCreateManagedPrefixList)
 	r.Register("DescribeManagedPrefixLists", handleDescribeManagedPrefixLists)
 	r.Register("DeleteManagedPrefixList", handleDeleteManagedPrefixList)
 	r.Register("GetManagedPrefixListEntries", handleGetManagedPrefixListEntries)
 
-	// Flow logs
 	r.Register("CreateFlowLogs", handleCreateFlowLogs)
 	r.Register("DescribeFlowLogs", handleDescribeFlowLogs)
 	r.Register("DeleteFlowLogs", handleDeleteFlowLogs)
 
-	// Egress-only internet gateways
 	r.Register("CreateEgressOnlyInternetGateway", handleCreateEgressOnlyInternetGateway)
 	r.Register("DescribeEgressOnlyInternetGateways", handleDescribeEgressOnlyInternetGateways)
 	r.Register("DeleteEgressOnlyInternetGateway", handleDeleteEgressOnlyInternetGateway)
@@ -163,8 +152,8 @@ func handleCreateNetworkAcl(w http.ResponseWriter, r *http.Request) {
 		VpcId:        vpcID,
 		IsDefault:    false,
 		OwnerId:      ec2Owner(),
-		// Real AWS seeds every new network ACL with the two default deny-all
-		// rules (rule 32767 / IPv4 0.0.0.0/0 and the implicit egress one).
+		// Every new network ACL starts with the deny-all rule 32767 in both
+		// directions.
 		Entries: []EC2NetworkAclEntry{
 			{RuleNumber: 32767, Protocol: "-1", RuleAction: "deny", Egress: false, CidrBlock: "0.0.0.0/0"},
 			{RuleNumber: 32767, Protocol: "-1", RuleAction: "deny", Egress: true, CidrBlock: "0.0.0.0/0"},
@@ -322,7 +311,7 @@ func handleCreateNetworkAclEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	entry := parseNetworkAclEntry(r)
 	ec2NetworkAcls.Update(id, func(acl *EC2NetworkAcl) {
-		// Copy then append so we don't mutate the shared backing slice in place.
+		// Copy before appending so the shared backing array is never mutated.
 		next := make([]EC2NetworkAclEntry, 0, len(acl.Entries)+1)
 		next = append(next, acl.Entries...)
 		next = append(next, entry)
@@ -411,8 +400,8 @@ func handleCreateVpcPeeringConnection(w http.ResponseWriter, r *http.Request) {
 		AccepterCidrBlock:      accCidr,
 		AccepterOwnerId:        peerOwner,
 		AccepterRegion:         peerRegion,
-		// Same-account peerings to a VPC that exists locally are
-		// pending-acceptance until AcceptVpcPeeringConnection.
+		// A same-account peering stays pending-acceptance until
+		// AcceptVpcPeeringConnection.
 		StatusCode:    "pending-acceptance",
 		StatusMessage: "Pending Acceptance by " + peerOwner,
 		Tags:          parseTags(r),
@@ -615,9 +604,7 @@ func handleDeleteManagedPrefixList(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidPrefixListID.NotFound", fmt.Sprintf("The prefix list ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Real AWS transitions the list to delete-complete; the resource is then
-	// gone from subsequent describes. We delete it from the store but echo the
-	// delete-complete state in the response, as the API does.
+	// Delete the list but answer delete-complete, as the API does.
 	pl.State = "delete-complete"
 	ec2ManagedPrefixLists.Delete(id)
 	w.Header().Set("Content-Type", "text/xml")

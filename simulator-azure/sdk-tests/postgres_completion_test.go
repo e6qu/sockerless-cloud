@@ -10,12 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzurePGFlexibleServer_CompletionSurfaces exercises the completion of the
-// Microsoft.DBforPostgreSQL/flexibleServers control plane: provider operations
-// metadata, the location/server capability catalogs, log files, quota usages,
-// virtual-network subnet usage, the private-DNS-zone suffix, long-term-retention
-// backups, server threat protection, migrations, and private endpoint
-// connections / private link resources — through the official SDK clients.
+// TestAzurePGFlexibleServer_CompletionSurfaces exercises the flexible server
+// operations metadata, capability catalogs, log files, quota usages, subnet
+// usage, private DNS zone suffix, long-term-retention backups, threat
+// protection, migrations, and private endpoint connections and link resources.
 func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "pg-completion-rg"
@@ -209,7 +207,7 @@ func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	})
 
 	// TuningOptions and QuotaUsages are 2025-08-01 surfaces with no client in the
-	// vendored v4 SDK; exercise them through a direct ARM request.
+	// vendored v4 SDK.
 	t.Run("QuotaUsages", func(t *testing.T) {
 		resp := armReq(t, "GET", "/subscriptions/"+subscriptionID+"/providers/Microsoft.DBforPostgreSQL/locations/"+loc+"/resourceType/flexibleServers/usages", "")
 		defer resp.Body.Close()

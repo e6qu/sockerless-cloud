@@ -10,13 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cbCLICreateProject creates a NO_SOURCE project with a one-command buildspec so
-// build/batch/sandbox round-trips have a real project to run against.
-// cbCLIBuildCompletionBudget bounds every wait for an AWS CodeBuild build or
-// sandbox command to reach a terminal state. Both are real container work — the
-// build environment image is created and the commands run inside it — so the
-// budget is really a budget for the container engine alongside whatever else is
-// running on the host. Real AWS CodeBuild builds take minutes.
+// cbCLIBuildCompletionBudget bounds each wait for a build or sandbox command
+// to finish. Both run real containers in the build environment image, so the
+// budget covers the container engine and whatever else shares the host.
 const cbCLIBuildCompletionBudget = 4 * time.Minute
 
 func cbCLICreateProject(t *testing.T, name, buildspec string) {
@@ -33,10 +29,9 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 	})
 }
 
-// TestCodeBuildCLI_BuildBatches covers start-build-batch, batch-get-build-batches,
-// list-build-batches, list-build-batches-for-project, stop-build-batch,
-// retry-build-batch, delete-build-batch, and batch-delete-builds: a
-// build-list batch starts a build per task and reports each in buildGroups.
+// TestCodeBuildCLI_BuildBatches covers the build-batch operations and
+// batch-delete-builds: a build-list batch starts a build per task and reports
+// each in buildGroups.
 func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	t.Parallel()
 	proj := uniquename.New("cb-cli-batch")
@@ -108,7 +103,6 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	parseJSON(t, out, &lbp)
 	require.Contains(t, lbp.Ids, batchID)
 
-	// A succeeded batch build cannot be retried.
 	assert.Contains(t, runCLIExpectError(t, awsCLI("codebuild", "retry-build-batch", "--id", batchID)), "InvalidInputException")
 
 	runCLI(t, awsCLI("codebuild", "stop-build-batch", "--id", batchID))
@@ -181,8 +175,6 @@ func TestCodeBuildCLI_StartBuildImageOverride(t *testing.T) {
 	assert.Contains(t, logs, "ID=alpine")
 }
 
-// TestCodeBuildCLI_Fleets covers create-fleet, update-fleet, batch-get-fleets,
-// list-fleets, delete-fleet.
 func TestCodeBuildCLI_Fleets(t *testing.T) {
 	t.Parallel()
 	name := "cb-cli-fleet"
@@ -237,10 +229,6 @@ func TestCodeBuildCLI_Fleets(t *testing.T) {
 	runCLI(t, awsCLI("codebuild", "delete-fleet", "--arn", arn))
 }
 
-// TestCodeBuildCLI_SandboxesAndCommands covers start-sandbox, batch-get-sandboxes,
-// list-sandboxes, list-sandboxes-for-project, start-sandbox-connection,
-// start-command-execution, batch-get-command-executions,
-// list-command-executions-for-sandbox, stop-sandbox.
 func TestCodeBuildCLI_SandboxesAndCommands(t *testing.T) {
 	t.Parallel()
 	proj := "cb-cli-sandbox-proj"
@@ -339,7 +327,6 @@ func TestCodeBuildCLI_SandboxesAndCommands(t *testing.T) {
 	assert.Equal(t, "STOPPED", stop.Sandbox.Status)
 }
 
-// TestCodeBuildCLI_Webhooks covers create-webhook, update-webhook, delete-webhook.
 func TestCodeBuildCLI_Webhooks(t *testing.T) {
 	t.Parallel()
 	proj := "cb-cli-webhook-proj"
@@ -373,8 +360,6 @@ func TestCodeBuildCLI_Webhooks(t *testing.T) {
 	runCLI(t, awsCLI("codebuild", "delete-webhook", "--project-name", proj))
 }
 
-// TestCodeBuildCLI_ReportInsights covers describe-test-cases, describe-code-coverages,
-// get-report-group-trend, and delete-report against a real report.
 func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 	t.Parallel()
 	rgName := "cb-cli-insights-rg"
@@ -391,11 +376,9 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 		runCLI(t, awsCLI("codebuild", "delete-report-group", "--arn", rgArn, "--delete-reports"))
 	})
 
-	// The build writes the JUnit XML its reports entry declares, and the entry
-	// names the group by ARN so the report lands in the group created above; a
-	// bare name would create "<project-name>-<report-group-name>" instead. The
-	// content rides base64 so neither the buildspec YAML nor the shell touches
-	// it. The two cases below are what the file holds — one passing, one failing.
+	// The reports entry names the group by ARN; a bare name would create a
+	// "<project-name>-<report-group-name>" group instead. The JUnit XML rides
+	// base64 so neither the buildspec YAML nor the shell alters it.
 	proj := "cb-cli-insights-proj"
 	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n"+
 		"      - mkdir -p test-results\\n"+
@@ -429,8 +412,6 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
 	require.NotEmpty(t, reportArn)
 
-	// The two test cases are the ones the JUnit XML held, with the statuses,
-	// suite, prefix and duration it recorded.
 	out = runCLI(t, awsCLI("codebuild", "describe-test-cases", "--report-arn", reportArn))
 	var tc struct {
 		TestCases []struct {
@@ -457,8 +438,8 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 	assert.Equal(t, "SUCCEEDED", byName["totalsTheBasket"])
 	assert.Equal(t, "FAILED", byName["rejectsAnEmptyBasket"])
 
-	// The build wrote no coverage file, and this is a TEST report group, so the
-	// coverage answer is empty rather than an invented hundred-percent row.
+	// The build wrote no coverage file to this TEST report group, so the
+	// coverage answer is empty.
 	out = runCLI(t, awsCLI("codebuild", "describe-code-coverages", "--report-arn", reportArn))
 	var cov struct {
 		CodeCoverages []struct {
@@ -481,16 +462,11 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 	}
 	parseJSON(t, out, &trend)
 	require.Len(t, trend.RawData, 1)
-	// One of the report's two cases passed.
 	assert.Equal(t, "50", trend.RawData[0].Data)
 
 	runCLI(t, awsCLI("codebuild", "delete-report", "--arn", reportArn))
 }
 
-// TestCodeBuildCLI_ResourcePolicyAndControls covers put-resource-policy,
-// get-resource-policy, delete-resource-policy, list-shared-projects,
-// list-shared-report-groups, update-project-visibility, invalidate-project-cache,
-// and list-curated-environment-images.
 func TestCodeBuildCLI_ResourcePolicyAndControls(t *testing.T) {
 	t.Parallel()
 	proj := "cb-cli-policy-proj"
@@ -532,7 +508,6 @@ func TestCodeBuildCLI_ResourcePolicyAndControls(t *testing.T) {
 
 	runCLI(t, awsCLI("codebuild", "delete-resource-policy", "--resource-arn", projARN))
 
-	// update-project-visibility / invalidate-project-cache.
 	out = runCLI(t, awsCLI("codebuild", "update-project-visibility",
 		"--project-arn", projARN, "--project-visibility", "PRIVATE"))
 	var vis struct {

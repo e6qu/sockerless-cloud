@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values` | ✓ `simulator-azure/activitylog.go:68::handleActivityLogList` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values` | ✓ `simulator-azure/activitylog.go:64::handleActivityLogList` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

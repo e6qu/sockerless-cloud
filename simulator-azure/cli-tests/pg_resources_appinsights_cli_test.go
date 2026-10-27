@@ -12,7 +12,6 @@ const pgAPIVersion = "2024-08-01"
 const resourcesAPIVersion = "2021-04-01"
 const subscriptionsAPIVersion = "2022-12-01"
 
-// subURL builds a non-resource-group-scoped ARM URL against the simulator.
 func subURL(path, apiVersion string) string {
 	return fmt.Sprintf("%s/subscriptions/%s/%s?api-version=%s", baseURL, subscriptionID, path, apiVersion)
 }
@@ -34,16 +33,15 @@ func TestCLI_PGFlexibleServer_Actions(t *testing.T) {
 	runCLI(t, azRest("PUT", pgURL("flexibleServers/"+server),
 		`{"location":"eastus","properties":{"administratorLogin":"psqladmin","administratorLoginPassword":"Sup3rSecret!","version":"15","storage":{"storageSizeGB":32}}}`))
 
-	// Lifecycle actions return 202 Accepted with no body.
+	// Lifecycle actions answer 202 Accepted with no body.
 	runCLI(t, azRest("POST", pgURL("flexibleServers/"+server+"/stop"), ""))
 	runCLI(t, azRest("POST", pgURL("flexibleServers/"+server+"/start"), ""))
 	runCLI(t, azRest("POST", pgURL("flexibleServers/"+server+"/restart"), ""))
 
-	// Subscription-wide list contains the server.
 	out := runCLI(t, azRest("GET", subURL("providers/Microsoft.DBforPostgreSQL/flexibleServers", pgAPIVersion), ""))
 	assert.Contains(t, out, server)
 
-	// CheckNameAvailability: the created name is taken.
+	// The created name is taken.
 	out = runCLI(t, azRest("POST", subURL("providers/Microsoft.DBforPostgreSQL/checkNameAvailability", pgAPIVersion),
 		fmt.Sprintf(`{"name":"%s","type":"Microsoft.DBforPostgreSQL/flexibleServers"}`, server)))
 	var cna struct {
@@ -55,7 +53,6 @@ func TestCLI_PGFlexibleServer_Actions(t *testing.T) {
 
 func TestCLI_Resources_ProvidersAndTags(t *testing.T) {
 	t.Parallel()
-	// Provider registration + get.
 	out := runCLI(t, azRest("POST", subURL("providers/Microsoft.DBforPostgreSQL/register", resourcesAPIVersion), ""))
 	assert.Contains(t, out, "Registered")
 
@@ -66,7 +63,6 @@ func TestCLI_Resources_ProvidersAndTags(t *testing.T) {
 	parseJSON(t, out, &prov)
 	assert.Equal(t, "Microsoft.Insights", prov.Namespace)
 
-	// Predefined tagNames catalog.
 	runCLI(t, azRest("PUT", subURL("tagNames/cliCostCenter", resourcesAPIVersion), ""))
 	runCLI(t, azRest("PUT", subURL("tagNames/cliCostCenter/tagValues/finance", resourcesAPIVersion), ""))
 	out = runCLI(t, azRest("GET", subURL("tagNames", resourcesAPIVersion), ""))
@@ -75,7 +71,6 @@ func TestCLI_Resources_ProvidersAndTags(t *testing.T) {
 	runCLI(t, azRest("DELETE", subURL("tagNames/cliCostCenter/tagValues/finance", resourcesAPIVersion), ""))
 	runCLI(t, azRest("DELETE", subURL("tagNames/cliCostCenter", resourcesAPIVersion), ""))
 
-	// Operations metadata list.
 	out = runCLI(t, azRest("GET", tenantScopeURL("providers/Microsoft.Resources/operations", resourcesAPIVersion), ""))
 	assert.Contains(t, out, "Microsoft.Resources/")
 }
@@ -92,7 +87,6 @@ func TestCLI_Resources_ResourceGroupUpdate(t *testing.T) {
 	parseJSON(t, out, &got)
 	assert.Equal(t, "platform", got.Tags["team"])
 
-	// exportTemplate returns an ARM template document.
 	out = runCLI(t, azRest("POST",
 		fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/exportTemplate?api-version=%s", baseURL, subscriptionID, rg, resourcesAPIVersion),
 		`{"resources":["*"]}`))
@@ -132,11 +126,9 @@ func TestCLI_AppInsights_ListUpdateTagsPurge(t *testing.T) {
 	runCLI(t, azRest("PUT", insightsURL("components/"+name),
 		`{"location":"eastus","kind":"web","properties":{"Application_Type":"web"}}`))
 
-	// List components in the resource group.
 	out := runCLI(t, azRest("GET", insightsURL("components"), ""))
 	assert.Contains(t, out, name)
 
-	// UpdateTags (PATCH).
 	out = runCLI(t, azRest("PATCH", insightsURL("components/"+name), `{"tags":{"owner":"observability"}}`))
 	var comp struct {
 		Tags map[string]string `json:"tags"`
@@ -144,7 +136,6 @@ func TestCLI_AppInsights_ListUpdateTagsPurge(t *testing.T) {
 	parseJSON(t, out, &comp)
 	assert.Equal(t, "observability", comp.Tags["owner"])
 
-	// Purge + status.
 	out = runCLI(t, azRest("POST", insightsURL("components/"+name+"/purge"),
 		`{"table":"traces","filters":[{"column":"timestamp","operator":"<","value":"2030-01-01"}]}`))
 	var purge struct {

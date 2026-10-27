@@ -14,9 +14,8 @@ import (
 
 const asLaunchingTransition = "autoscaling:EC2_INSTANCE_LAUNCHING"
 
-// asLifecycleWait is the in-process side of one open lifecycle action: the
-// channels CompleteLifecycleAction and RecordLifecycleActionHeartbeat reach
-// its timeout goroutine through.
+// asLifecycleWait carries the channels CompleteLifecycleAction and
+// RecordLifecycleActionHeartbeat use to reach an action's timeout goroutine.
 type asLifecycleWait struct {
 	heartbeat chan struct{}
 	result    chan string
@@ -27,8 +26,7 @@ var asLifecycleWaits = struct {
 	m  map[string]*asLifecycleWait
 }{m: map[string]*asLifecycleWait{}}
 
-// asLifecycleFinish serializes the decision an instance's last completed
-// lifecycle action triggers, so two hooks finishing together decide once.
+// Two hooks finishing together must decide the instance's fate once.
 var asLifecycleFinish sync.Mutex
 
 func asHooksFor(group, transition string) []ASLifecycleHook {
@@ -41,8 +39,6 @@ func asHooksFor(group, transition string) []ASLifecycleHook {
 	return hooks
 }
 
-// asInstanceAwaitsLifecycleAction reports whether an instance has an open
-// lifecycle action, which holds it in Pending:Wait.
 func asInstanceAwaitsLifecycleAction(group, instanceID string) bool {
 	for _, a := range asLifecycleActions.List() {
 		if a.AutoScalingGroupName == group && a.InstanceId == instanceID && !a.Completed {
@@ -52,9 +48,7 @@ func asInstanceAwaitsLifecycleAction(group, instanceID string) bool {
 	return false
 }
 
-// asLifecycleTimeouts returns when an action times out without a heartbeat,
-// and when it times out regardless: the global timeout, or 100 times the
-// heartbeat timeout if that is sooner.
+// The global timeout applies, or 100 times the heartbeat timeout when sooner.
 func asLifecycleTimeouts(hook ASLifecycleHook, action ASLifecycleAction) (heartbeat, global time.Time) {
 	last, err := time.Parse(time.RFC3339Nano, action.HeartbeatTime)
 	if err != nil {
@@ -71,9 +65,6 @@ func asLifecycleTimeouts(hook ASLifecycleHook, action ASLifecycleAction) (heartb
 	return last.Add(time.Duration(hook.HeartbeatTimeout) * time.Second), started.Add(limit)
 }
 
-// asBeginLaunchLifecycleActions holds a launched instance in Pending:Wait:
-// one lifecycle action per launch hook, a notification to each hook's target,
-// and a wait that ends on CompleteLifecycleAction or on the hook's timeout.
 func asBeginLaunchLifecycleActions(group, instanceID, activityID string, hooks []ASLifecycleHook) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, hook := range hooks {
@@ -131,9 +122,8 @@ func asAwaitLifecycleAction(hook ASLifecycleHook, action ASLifecycleAction, wait
 	}
 }
 
-// asCompleteLifecycleAction records an action's result and, once every hook
-// has answered for the instance, lets it proceed to InService or, if any
-// answered ABANDON, terminates it so the group launches a replacement.
+// Once every hook has answered, the instance proceeds to InService or, on any
+// ABANDON, terminates so the group launches a replacement.
 func asCompleteLifecycleAction(action ASLifecycleAction, result, reason string) {
 	asLifecycleFinish.Lock()
 	defer asLifecycleFinish.Unlock()
@@ -172,8 +162,6 @@ func asCompleteLifecycleAction(action ASLifecycleAction, result, reason string) 
 	asRefreshInstanceSettled(action.AutoScalingGroupName, action.InstanceId, message)
 }
 
-// asAbandonLaunchedInstance terminates an instance whose launch was abandoned
-// and has the group launch a replacement toward its desired capacity.
 func asAbandonLaunchedInstance(group, instanceID string) {
 	terminateASGInstance(instanceID)
 	asg, ok := autoScalingGroups.Get(group)
@@ -190,8 +178,7 @@ func asAbandonLaunchedInstance(group, instanceID string) {
 	}
 }
 
-// asFindLifecycleAction finds the open action CompleteLifecycleAction or
-// RecordLifecycleActionHeartbeat addresses, by token or else by instance.
+// Find the action by token, else by instance.
 func asFindLifecycleAction(group, hook, token, instanceID string) (ASLifecycleAction, bool) {
 	for _, a := range asLifecycleActions.List() {
 		if a.AutoScalingGroupName != group || a.LifecycleHookName != hook || a.Completed {
@@ -211,8 +198,7 @@ func asNoActiveLifecycleAction(token, instanceID string) string {
 	return "No active Lifecycle Action found with instance ID " + instanceID
 }
 
-// asSignalLifecycleAction hands a result or a heartbeat to the action's wait.
-// An action whose wait is not running is completed directly.
+// Complete an action whose wait is not running directly.
 func asSignalLifecycleAction(action ASLifecycleAction, result string) {
 	asLifecycleWaits.mu.Lock()
 	wait := asLifecycleWaits.m[action.Token]
@@ -236,8 +222,6 @@ func asSignalLifecycleAction(action ASLifecycleAction, result string) {
 	}
 }
 
-// asLifecycleNotificationTarget delivers a lifecycle message to an Amazon SQS
-// queue or Amazon SNS topic target.
 func asLifecycleNotificationTarget(target string, message map[string]string) {
 	body, err := json.Marshal(message)
 	if err != nil {
@@ -278,10 +262,8 @@ func asNotifyLifecycleAction(hook ASLifecycleHook, action ASLifecycleAction) {
 	asLifecycleNotificationTarget(hook.NotificationTargetARN, message)
 }
 
-// asValidateLifecycleHookTarget proves, as PutLifecycleHook does by sending a
-// test notification, that the hook's role lets Amazon EC2 Auto Scaling
-// publish to its target, and sends that test notification. It returns the
-// ValidationError message when the role cannot publish.
+// PutLifecycleHook sends a test notification to prove the hook's role can
+// publish to its target; return the ValidationError message when it cannot.
 func asValidateLifecycleHookTarget(asg AutoScalingGroup, hook ASLifecycleHook) string {
 	if hook.NotificationTargetARN == "" {
 		return ""
@@ -312,8 +294,6 @@ func asValidateLifecycleHookTarget(asg AutoScalingGroup, hook ASLifecycleHook) s
 	return ""
 }
 
-// asResumeLifecycleWaits restarts the timeout of every lifecycle action a
-// previous run left open.
 func asResumeLifecycleWaits() {
 	for _, action := range asLifecycleActions.List() {
 		if action.Completed || action.StartTime == "" {

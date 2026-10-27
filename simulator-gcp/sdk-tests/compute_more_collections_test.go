@@ -8,17 +8,11 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The Compute Engine collections whose whole surface is the standard resource
-// lifecycle, driven through the generated client. Each asserts that the
-// resource is remembered — created, read back with what was sent, listed, and
-// gone after a delete — because a collection that answers without storing
-// anything is indistinguishable from one that does until something reads it
-// back.
+// Each lifecycle-only collection must remember the resource: created, read
+// back with what was sent, listed, and gone after a delete. The global VM
+// extension policy departs from the standard lifecycle at:
 //
-// The routes these drive, including the one the global VM extension policy
-// departs from the standard lifecycle with:
-//
-//	POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete
+//   POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete
 
 func TestCompute_CrossSiteNetworkLifecycle(t *testing.T) {
 	t.Parallel()
@@ -100,9 +94,9 @@ func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "DEDICATED", link.InterconnectType)
 
-	// The MACsec configuration is the caller's own keychain read back, with the
-	// key name and key the service generates for each entry. An interconnect
-	// configured with none has an empty keychain rather than no answer.
+	// The MACsec configuration is the caller's keychain read back with the key
+	// name and key the service generates per entry; an interconnect configured
+	// with none answers an empty keychain.
 	empty, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
 	require.NoError(t, err)
 	require.NotNil(t, empty.Result)
@@ -129,8 +123,8 @@ func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 	assert.NotEqual(t, configured.Result.PreSharedKeys[0].Ckn,
 		configured.Result.PreSharedKeys[1].Ckn, "each key gets its own")
 
-	// Reading it twice returns the same keychain: a caller configuring a router
-	// from it cannot be handed a different key each time.
+	// A second read returns the same keychain, so a router configured from it
+	// cannot get a different key each time.
 	again, err := svc.Interconnects.GetMacsecConfig(project, "link-1").Do()
 	require.NoError(t, err)
 	assert.Equal(t, configured.Result.PreSharedKeys[0].Cak, again.Result.PreSharedKeys[0].Cak)
@@ -148,8 +142,8 @@ func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "the pair that carries the trunk", group.Description)
 
-	// The group's IAM policy is readable and writable, which the document
-	// declares for this collection and not for every one beside it.
+	// The document declares the IAM policy for this collection, not for every one
+	// beside it.
 	_, err = svc.InterconnectGroups.SetIamPolicy(project, "bundle", &compute.GlobalSetPolicyRequest{
 		Policy: &compute.Policy{Bindings: []*compute.Binding{{
 			Role: "roles/compute.viewer", Members: []string{"user:reader@example.com"},
@@ -216,9 +210,8 @@ func TestCompute_VmExtensionPolicyZonalAndGlobal(t *testing.T) {
 	require.Error(t, err, "the policy was retired, so reading it must fail")
 }
 
-// A project's enrolment in a Compute Engine preview feature. Which features
-// exist is Google's to say and is not vendored here; what this project has done
-// about one is the caller's own.
+// Which preview features exist is Google's to say and is not vendored; a
+// project's enrolment in one is the caller's own.
 func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -242,8 +235,8 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", got.ActivationStatus)
 	assert.Equal(t, "beta-networking", got.Name)
-	// The description is Google's account of the feature, and this simulator
-	// does not vendor the catalogue it comes from.
+	// The description is Google's account of the feature, from a catalogue the
+	// simulator does not vendor.
 	assert.Empty(t, got.Description)
 
 	// Turning it off is the same write, and the read follows it.
@@ -265,17 +258,15 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	assert.Empty(t, other.Items)
 }
 
-// The policy a project puts on a licence code, which is the caller's own
-// binding and needs no licence behind it — a policy can be written for a code
-// Google issued for one of its published images.
+// A project may bind a policy on a licence code without a licence behind it,
+// for example a code Google issued for one of its published images.
 func TestCompute_LicenceCodePolicy(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
 	const project, code = "licence-project", "1000205"
 
-	// A code this project was never issued is not found. Reading a code is a
-	// read of the licence it was issued for, and Google's own published codes
-	// are not licences this project holds.
+	// Reading a code reads the licence it was issued for, and Google's published
+	// codes are not licences this project holds.
 	_, err := svc.LicenseCodes.Get(project, code).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -309,9 +300,8 @@ func TestCompute_LicenceCodePolicy(t *testing.T) {
 	assert.Empty(t, empty.Bindings)
 }
 
-// A reliability risk is something Google's analysis detected about a project,
-// not a set it publishes. This simulator runs no such analysis, so it has
-// detected none — which is an answer, not a refusal.
+// Google's analysis detects reliability risks; the simulator runs none, so it
+// reports none, which is an answer rather than a refusal.
 func TestCompute_ReliabilityRisksAreObservedNotPublished(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

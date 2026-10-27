@@ -13,21 +13,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_function_keys.go implements the Azure Functions key surface of the
-// Microsoft.Web ARM slice: host-level keys (master key, host function keys,
-// system keys), per-function keys, the functions admin token, and the
-// host-sync actions (ListSyncStatus / SyncFunctions / SyncFunctionTriggers /
-// ListSyncFunctionTriggers). The keys are load-bearing: the POST /api/function
-// invoke path enforces the real Azure Functions authLevel contract against
-// them (see azureFunctionInvokeAuthorized).
+// The Azure Functions key surface: host keys (master, function, system),
+// per-function keys, the admin token, and the host-sync actions. The POST
+// /api/function invoke path enforces authLevel against these keys
+// (azureFunctionInvokeAuthorized).
 
-// WebHostKeysRow is the durable per-site (or per-slot) Functions host key
-// store — the state behind WebApps_ListHostKeys and
-// WebApps_{CreateOrUpdate,Delete}HostSecret. Real Azure mints a master key and
-// a "default" host function key when the function app is created; the sim does
-// the same (ensureWebHostKeys, called from site/slot creation). Keyed by the
-// canonical ARM resource ID of the site or slot. EncryptionKey is the site's
-// WEBSITE_AUTH_ENCRYPTION_KEY, which no ARM operation returns.
+// Azure mints a master key and a "default" host function key with a new
+// function app, as ensureWebHostKeys does. Keyed by canonical site or slot ID.
+// EncryptionKey is the site's WEBSITE_AUTH_ENCRYPTION_KEY, which no ARM
+// operation returns.
 type WebHostKeysRow struct {
 	MasterKey     string            `json:"masterKey"`
 	FunctionKeys  map[string]string `json:"functionKeys"`
@@ -37,11 +31,9 @@ type WebHostKeysRow struct {
 
 var webHostKeys sim.Store[WebHostKeysRow]
 
-// WebFunctionKeysRow holds one function's own keys (WebApps_ListFunctionKeys /
-// CreateOrUpdateFunctionSecret / DeleteFunctionSecret). Real Azure mints a
-// "default" key when the function is created. Keyed by the function's
-// canonical ARM resource ID (<site>/functions/<name>), carried in ID so the
-// site-deletion cleanup can find every row under a site prefix.
+// Azure mints a "default" key with a new function. Keyed by
+// <site>/functions/<name>, carried in ID so site deletion finds every row by
+// prefix.
 type WebFunctionKeysRow struct {
 	ID   string            `json:"id"`
 	Keys map[string]string `json:"keys"`
@@ -49,11 +41,7 @@ type WebFunctionKeysRow struct {
 
 var webFunctionKeys sim.Store[WebFunctionKeysRow]
 
-// ensureWebHostKeys returns the site's host key row, minting the initial
-// master key + "default" host function key on first reference — the key set
-// real Azure provisions with a new function app — and the site's encryption
-// key. A row that exists is returned with its keys untouched, so deleting an
-// individual key stays deleted.
+// A row that exists keeps its keys, so a deleted key stays deleted.
 func ensureWebHostKeys(resID string) WebHostKeysRow {
 	row, ok := webHostKeys.Get(resID)
 	if !ok {
@@ -77,8 +65,6 @@ func ensureWebHostKeys(resID string) WebHostKeysRow {
 	return row
 }
 
-// ensureWebFunctionKeys returns a function's key row, minting the "default"
-// function key real Azure provisions with a new function.
 func ensureWebFunctionKeys(fnID string) WebFunctionKeysRow {
 	if row, ok := webFunctionKeys.Get(fnID); ok {
 		if row.Keys == nil {
@@ -91,8 +77,6 @@ func ensureWebFunctionKeys(fnID string) WebFunctionKeysRow {
 	return row
 }
 
-// webCleanupFunctionKeys removes the key rows stored under a deleted site or
-// slot (host keys plus every per-function key row).
 func webCleanupFunctionKeys(resID string) {
 	webHostKeys.Delete(resID)
 	prefix := resID + "/functions/"
@@ -101,8 +85,6 @@ func webCleanupFunctionKeys(resID string) {
 	}
 }
 
-// webFunctionID is the canonical ARM ID of the addressed function under the
-// addressed site or slot.
 func webFunctionID(r *http.Request) string {
 	resID := webResourceID(r)
 	if site, ok := hostRunFunctionApp(resID); ok {
@@ -111,8 +93,7 @@ func webFunctionID(r *http.Request) string {
 	return resID + "/functions/" + sim.PathParam(r, "functionName")
 }
 
-// webFunctionMissing writes the canonical 404 when the addressed function does
-// not exist (the site/slot is checked first); returns true when it responded.
+// The site or slot is checked first. Returns true when it responded.
 func webFunctionMissing(w http.ResponseWriter, r *http.Request) bool {
 	if webMissing(w, r) {
 		return true
@@ -131,9 +112,7 @@ func webFunctionMissing(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// functionsHostSecretsIn reads a host-run function app's secret store
-// into its key rows before a key operation reads or changes them; it answers
-// 500 and returns false when the store cannot be read.
+// Answers 500 and returns false when the store cannot be read.
 func functionsHostSecretsIn(w http.ResponseWriter, r *http.Request) bool {
 	site, ok := hostRunFunctionApp(webResourceID(r))
 	if !ok {
@@ -146,8 +125,7 @@ func functionsHostSecretsIn(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// functionsHostSecretsOut writes a host-run function app's changed key rows
-// into its secret store, where the running host picks them up.
+// The running host picks them up from the store.
 func functionsHostSecretsOut(w http.ResponseWriter, r *http.Request) bool {
 	site, ok := hostRunFunctionApp(webResourceID(r))
 	if !ok {
@@ -161,8 +139,7 @@ func functionsHostSecretsOut(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc)) {
-	// POST /host/default/listkeys — WebApps_ListHostKeys. The HostKeys wire
-	// shape is a bare object (no ARM resource envelope).
+	// The HostKeys shape is a bare object, no resource envelope.
 	both("POST", "/host/default/listkeys", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -175,10 +152,8 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		})
 	})
 
-	// PUT /host/default/{keyType}/{keyName} — WebApps_CreateOrUpdateHostSecret.
-	// keyType is the host key family exactly as the Azure CLI and SDK spell it:
-	// functionKeys, systemKeys, or masterKey. An omitted value means "generate
-	// one", as real Azure does.
+	// keyType is functionKeys, systemKeys or masterKey, as the Azure CLI and SDK
+	// spell it. An omitted value means "generate one", as in Azure.
 	both("PUT", "/host/default/{keyType}/{keyName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -223,7 +198,6 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		sim.WriteJSON(w, status, map[string]any{"name": keyName, "value": value})
 	})
 
-	// DELETE /host/default/{keyType}/{keyName} — WebApps_DeleteHostSecret.
 	both("DELETE", "/host/default/{keyType}/{keyName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -253,8 +227,6 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// POST /functions/{functionName}/listkeys — WebApps_ListFunctionKeys
-	// (StringDictionary of the function's own keys).
 	both("POST", "/functions/{functionName}/listkeys", func(w http.ResponseWriter, r *http.Request) {
 		if webFunctionMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -263,9 +235,8 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"properties": row.Keys})
 	})
 
-	// POST /functions/{functionName}/listsecrets — WebApps_ListFunctionSecrets.
-	// Real Azure returns the function's default key and the HTTP-trigger URL
-	// carrying it.
+	// Azure returns the function's default key and the HTTP-trigger URL carrying
+	// it.
 	both("POST", "/functions/{functionName}/listsecrets", func(w http.ResponseWriter, r *http.Request) {
 		if webFunctionMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -280,8 +251,6 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		})
 	})
 
-	// PUT /functions/{functionName}/keys/{keyName} —
-	// WebApps_CreateOrUpdateFunctionSecret.
 	both("PUT", "/functions/{functionName}/keys/{keyName}", func(w http.ResponseWriter, r *http.Request) {
 		if webFunctionMissing(w, r) {
 			return
@@ -310,8 +279,6 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		sim.WriteJSON(w, status, map[string]any{"name": keyName, "value": value})
 	})
 
-	// DELETE /functions/{functionName}/keys/{keyName} —
-	// WebApps_DeleteFunctionSecret.
 	both("DELETE", "/functions/{functionName}/keys/{keyName}", func(w http.ResponseWriter, r *http.Request) {
 		if webFunctionMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -332,10 +299,9 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// GET /functions/admin/token — WebApps_GetFunctionsAdminToken: a
-	// short-lived JWT for the Functions host admin API, HMAC-SHA256-signed
-	// with the site's WEBSITE_AUTH_ENCRYPTION_KEY, the key the host validates
-	// platform tokens with, returned as a JSON string.
+	// A short-lived JWT for the host admin API, HMAC-SHA256-signed with the
+	// site's WEBSITE_AUTH_ENCRYPTION_KEY, which the host validates platform tokens
+	// with, returned as a JSON string.
 	both("GET", "/functions/admin/token", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -350,26 +316,21 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 		sim.WriteJSON(w, http.StatusOK, token)
 	})
 
-	// The host-sync action family. The sim keeps every function's trigger
-	// metadata in its own durable store, so a sync request finds nothing stale
-	// to reconcile and completes immediately — 204, the documented success.
+	// Every function's trigger metadata lives in a durable store, so a sync finds
+	// nothing stale and completes at once with 204, the documented success.
 	sync204 := func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	// POST /host/default/listsyncstatus — WebApps_ListSyncStatus.
 	both("POST", "/host/default/listsyncstatus", sync204)
-	// POST /host/default/sync — WebApps_SyncFunctions.
 	both("POST", "/host/default/sync", sync204)
-	// POST /syncfunctiontriggers — WebApps_SyncFunctionTriggers.
 	both("POST", "/syncfunctiontriggers", sync204)
 
-	// POST /listsyncfunctiontriggerstatus — WebApps_ListSyncFunctionTriggers.
-	// Its purpose (per the ARM template deployment flow it exists for) is to
-	// hand the caller the credentials for the host's synctriggers endpoint:
-	// the FunctionSecrets shape carrying the master key and the trigger URL.
+	// Exists for the ARM template deployment flow: hands the caller the
+	// credentials for the host's synctriggers endpoint, the master key and the
+	// trigger URL.
 	both("POST", "/listsyncfunctiontriggerstatus", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) || !functionsHostSecretsIn(w, r) {
 			return
@@ -383,13 +344,10 @@ func registerWebFunctionKeyHandlers(both func(string, string, http.HandlerFunc))
 	})
 }
 
-// readKeyInfoValue reads a CreateOrUpdate{Host,Function}Secret request body's
-// key value. Real Azure Resource Manager accepts both KeyInfo wire spellings
-// its api-versions define — the flat {"name","value"} object of 2025-03-01
-// (the Go SDK) and the ProxyOnlyResource {"properties":{"name","value"}}
-// envelope of the 2018-11-01 track the Azure CLI sends — and so does the
-// simulator. An empty body means "generate a value". Returns ok=false after
-// writing the 400 for a malformed body.
+// Azure Resource Manager accepts both KeyInfo spellings: the flat
+// {"name","value"} of 2025-03-01 (the Go SDK) and the {"properties":{...}}
+// envelope of 2018-11-01 (the Azure CLI). An empty body means "generate a
+// value". Returns ok=false after writing the 400.
 func readKeyInfoValue(w http.ResponseWriter, r *http.Request) (string, bool) {
 	var req struct {
 		Name       string `json:"name"`
@@ -409,9 +367,8 @@ func readKeyInfoValue(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return req.Value, true
 }
 
-// webFunctionsAdminToken mints the Functions admin JWT: issued by the site's
-// SCM host for its /azurefunctions audience and HMAC-SHA256 signed with the
-// site's encryption key, the token the host accepts as an admin credential.
+// Issued by the site's SCM host for its /azurefunctions audience and signed
+// with the site's encryption key.
 func webFunctionsAdminToken(defaultHostName, encryptionKey string) (string, error) {
 	key, err := functionsKeyBytes(encryptionKey)
 	if err != nil {
@@ -438,7 +395,6 @@ func webFunctionsAdminToken(defaultHostName, encryptionKey string) (string, erro
 	return signing + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
-// functionsHostKeySeed is the identifiable-secret seed of a host key family.
 func functionsHostKeySeed(keyType string) uint64 {
 	switch keyType {
 	case "masterKey":
@@ -449,22 +405,16 @@ func functionsHostKeySeed(keyType string) uint64 {
 	return functionsFunctionKeySeed
 }
 
-// azureFunctionInvokeAuthorized enforces the real Azure Functions authLevel
-// contract on the POST /api/function invoke path. The route addresses the
-// function named "function"; when the site declares that function's config
-// (the ARM FunctionEnvelope carrying the function.json bindings), the
-// Functions host enforces the httpTrigger binding's authLevel:
+// The route addresses the function named "function". When the site declares
+// its config (the FunctionEnvelope carrying function.json), the host enforces
+// the httpTrigger's authLevel:
 //
 //   - "anonymous" — no key required;
-//   - "function" (and the real host's default when the binding omits
-//     authLevel) — a valid key in the x-functions-key header or the ?code=
-//     query: one of the function's own keys, a host-level function key, or
-//     the master key;
+//   - "function" (the host's default) — a key in x-functions-key or ?code=:
+//     the function's own, a host function key, or the master key;
 //   - "admin" — the master key only.
 //
-// A site with no declared function config has no function.json for the host
-// to read, so no key check applies; App Service routes a container site's
-// request straight to its container.
+// With no declared config there is no function.json, so no key check applies.
 func azureFunctionInvokeAuthorized(site *Site, r *http.Request) bool {
 	fn, ok := azfFunctionConfigs.Get(site.ID + "/functions/function")
 	if !ok {
@@ -502,9 +452,7 @@ func azureFunctionInvokeAuthorized(site *Site, r *http.Request) bool {
 	return false
 }
 
-// azureFunctionHTTPAuthLevel reads the httpTrigger binding's authLevel from a
-// function's stored config. The real Functions host defaults to "function"
-// when function.json omits the member.
+// The host defaults to "function" when function.json omits the member.
 func azureFunctionHTTPAuthLevel(fn FunctionEnvelope) string {
 	bindings, ok := fn.Properties.Config["bindings"].([]any)
 	if !ok {

@@ -8,9 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A bulk insert creates a run of resources from one request. What a caller
-// depends on afterwards is the run existing, so every assertion reads the
-// resources back rather than the operation.
+// The operation says nothing about the run, so every assertion reads the
+// resources back.
 
 func TestCompute_InstancesBulkInsert(t *testing.T) {
 	t.Parallel()
@@ -42,15 +41,12 @@ func TestCompute_InstancesBulkInsert(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// The run comes up behind the operation, exactly as a single insert does,
-	// so the caller waits on it before reading the instances back.
+	// The run comes up behind the operation, as a single insert does.
 	_, err = svc.ZoneOperations.Wait(project, zone, op.Name).Do()
 	require.NoError(t, err)
 
-	// The run is three real instances, numbered from the pattern, each on the
-	// machine type the run's properties named and each attached to a real
-	// network interface — which is what makes them instances rather than
-	// records shaped like instances.
+	// Three instances numbered from the pattern, each on the run's machine type
+	// and attached to a real network interface.
 	for _, name := range []string{"worker-001", "worker-002", "worker-003"} {
 		got, err := svc.Instances.Get(project, zone, name).Do()
 		require.NoError(t, err, "the bulk insert created %s", name)

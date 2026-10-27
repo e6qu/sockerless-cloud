@@ -11,7 +11,6 @@ variable "endpoint" {
   type = string
 }
 
-# The address and port of the header-echoing target the test serves.
 variable "target_ip" {
   type = string
 }

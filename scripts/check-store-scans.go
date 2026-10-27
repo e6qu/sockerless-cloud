@@ -5,25 +5,10 @@
 //
 //	go run scripts/check-store-scans.go <dir>...
 //
-// A CPU profile of the deployed AWS simulator, taken while twelve concurrent
-// requests were in flight against one load-balanced application, attributed
-// 84.8% of all its CPU to a single function — and 99.7% of that to one
-// `ecsTasks.List()`, JSON-decoding every stored Amazon ECS task, stopped ones
-// included, once per proxied request, to find the one holding a target's ENI
-// address. The guest has two vCPUs, so the whole data plane ran at an
-// effective concurrency of two: a static health endpoint behind the load
-// balancer answered in 1.3s where a directly-proxied one answered in 0.13s,
-// and it grew linearly from there. It surfaced as thirty-second browser
-// timeouts, because a page load fans out over dozens of subresources and every
-// one paid the scan.
-//
-// What makes it a class rather than an incident is the second one. The load
-// balancer's own host lookup had the identical shape on a hotter path still —
-// a WrapHandler middleware, so every request into the simulator paid it before
-// any handler ran, an Amazon DynamoDB call as much as a proxied page load —
-// and it was invisible only because a deployment holds a handful of load
-// balancers against a few hundred tasks. Nothing but a profile of a live
-// deployment would have found either.
+// A List decodes every row it holds, so a scan on a per-request path makes
+// every request cost the whole store: a load balancer's proxy path that
+// listed every stored Amazon ECS task to find one target's address capped
+// the data plane at the guest's vCPU count.
 //
 // So the scans this reports are the ones on that kind of path, not every scan
 // in the tree. A control-plane Describe that reads a table once per API call

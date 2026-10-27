@@ -9,15 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// An agent pool runs as many runs at once as it has agents; the rest of the
-// runs scheduled on it wait Queued.
+// A pool runs as many runs at once as it has agents; the rest wait Queued.
 var (
 	acrPoolMu      sync.Mutex
 	acrPoolBusy    = map[string]int{}
 	acrPoolChanged = make(chan struct{})
 )
 
-// acrAgentPoolCapacity is the pool's `count` of agents, one when it names none.
+// acrAgentPoolCapacity is the pool's agent `count`, one when it names none.
 func acrAgentPoolCapacity(poolID string) int {
 	pool, ok := acrAgentPools.Get(poolID)
 	if !ok {
@@ -54,15 +53,12 @@ func acrReleaseAgent(poolID string) {
 	acrPoolNotify()
 }
 
-// acrPoolNotify wakes the runs waiting for an agent; the caller holds
-// acrPoolMu.
+// acrPoolNotify requires the caller to hold acrPoolMu.
 func acrPoolNotify() {
 	close(acrPoolChanged)
 	acrPoolChanged = make(chan struct{})
 }
 
-// handleACRAgentPoolQueueStatus answers AgentPools_GetQueueStatus with the
-// number of the pool's runs still waiting for an agent.
 func handleACRAgentPoolQueueStatus(w http.ResponseWriter, r *http.Request) {
 	regID, ok := acrRegistryID(r)
 	if !ok {

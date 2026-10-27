@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for what an App Service app runs: the connection strings in its
-// environment, the stopped state, its persistent /home share, and swap with
-// preview with the slot differences read:
+// What an App Service app runs: its connection strings in the environment, the
+// stopped state, its persistent /home share, and swap with preview with the
+// slot differences read.
 //
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/config/connectionstrings
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}/config/connectionstrings
@@ -25,11 +25,10 @@ import (
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}/slotsdiffs
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slotsdiffs
 
-// filesHTTPCommand runs the container-command image as a server over its
-// environment and the site's wwwroot.
+// filesHTTPCommand serves the container's environment and the site's wwwroot.
 const filesHTTPCommand = "files-http 80 /home/site/wwwroot"
 
-// createFilesWebApp creates a Linux custom-container web app that runs
+// createFilesWebApp creates a Linux custom-container web app running
 // filesHTTPCommand with its persistent /home share mounted.
 func createFilesWebApp(t *testing.T, rg, name string, settings map[string]string) *armappservice.WebAppsClient {
 	t.Helper()
@@ -60,7 +59,6 @@ func createFilesWebApp(t *testing.T, rg, name string, settings map[string]string
 	return client
 }
 
-// siteGet sends one GET to a site hostname and returns the status and body.
 func siteGet(t *testing.T, host, path string) (int, string) {
 	t.Helper()
 	status, body := azureSiteRequest(t, host, http.MethodGet, path, "")
@@ -266,7 +264,7 @@ func TestSDK_WebApps_SwapWithPreviewAndSlotDifferences(t *testing.T) {
 	}
 	assert.Equal(t, 1, fromProduction)
 
-	// The first phase: the slot runs on production's slot settings.
+	// Preview: the slot runs on production's slot settings.
 	_, err = client.ApplySlotConfigurationSlot(ctx, rg, name, slot, toProduction, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "production", siteEnv(t, slotHost, "STICKY"))
@@ -282,8 +280,8 @@ func TestSDK_WebApps_SwapWithPreviewAndSlotDifferences(t *testing.T) {
 	assert.Equal(t, "staging", siteEnv(t, slotHost, "STICKY"))
 	assert.Equal(t, "staging-db", siteEnv(t, slotHost, "CUSTOMCONNSTR_Db"))
 
-	// Preview again, then complete it with the swap; production's reset cancels
-	// nothing once the swap completed the preview.
+	// Preview again and complete it with the swap; production's reset then
+	// cancels nothing.
 	_, err = client.ApplySlotConfigurationSlot(ctx, rg, name, slot, toProduction, nil)
 	require.NoError(t, err)
 	swap, err := client.BeginSwapSlot(ctx, rg, name, slot, toProduction, nil)

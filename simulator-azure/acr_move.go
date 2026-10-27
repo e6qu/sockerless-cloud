@@ -4,44 +4,25 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cross-resource-group move for Microsoft.ContainerRegistry/registries. The
-// hook table in resource_move.go dispatches Resources_MoveResources here.
-//
-// A registry keys its ARM record — and its replications, scope maps, tokens,
-// credential sets, connected registries, private endpoint connections, cache
-// rules, webhooks, tasks, task runs and agent pools — by resource ID, so the
-// whole subtree re-keys onto the destination group. The registry's login
-// server is derived from its globally unique name rather than its resource
-// group, so the host a Docker client pushes to is unchanged by the move.
-//
-// The OCI data plane's content is keyed by the registry's resource ID — that
-// is what keeps two registries in one simulator from sharing repositories — so
-// it moves with the registry: the repointing pass in resource_move.go re-keys
-// every manifest, blob and in-flight upload stored beneath the old ID and
-// rewrites the registry identity each row records, so a repository pushed
-// before the move is pulled unchanged after it.
-//
-// The registry's two admin passwords are derived from the resource ID, which
-// embeds the resource group, so the material listCredentials serves is pinned
-// onto the moved ID; the next regenerateCredential clears the pin and derives
-// fresh material.
+// Cross-resource-group move for Microsoft.ContainerRegistry/registries
+// (dispatched from resource_move.go). The registry's ARM record and every
+// child re-key onto the destination group. The login server derives from the
+// globally unique name, so it is unchanged. The OCI content keys by resource
+// ID, and the repointing pass in resource_move.go re-keys it. The admin
+// passwords derive from the resource ID, so the move pins the served material
+// onto the new ID until the next regenerateCredential.
 
-// acrMovableChildStores are the generic child stores a registry's move
-// re-keys. registerACRChild appends each one as it mounts it, and registerACR
-// resets the list so a second buildSimulator in the same process re-collects
-// its own stores rather than the previous build's.
+// acrMovableChildStores: registerACRChild appends each generic child store, and
+// registerACR resets the list so a second buildSimulator re-collects its own.
 var acrMovableChildStores []sim.Store[acrSubResource]
 
-// acrCacheRules, acrWebhooks are the two registry children with bespoke row
-// types; the move re-keys them alongside the generic ones.
 var (
 	acrCacheRules sim.Store[ACRCacheRule]
 	acrWebhooks   sim.Store[acrWebhookStored]
 )
 
-// moveACRRegistryARM re-homes one container registry's ARM plane onto a new
-// resource ID, pinning its admin credentials so the password an operator holds
-// keeps authenticating.
+// moveACRRegistryARM pins the admin credentials so the password an operator
+// holds keeps authenticating.
 func moveACRRegistryARM(oldID, newID string) {
 	registry, ok := acrRegistries.Get(oldID)
 	if !ok {
@@ -61,11 +42,9 @@ func moveACRRegistryARM(oldID, newID string) {
 	rekeyRowsByPrefix(acrCacheRules, oldSub, newSub, func(c *ACRCacheRule) *string { return &c.ID })
 	rekeyRowsByPrefix(acrWebhooks, oldSub, newSub, func(wh *acrWebhookStored) *string { return &wh.ID })
 
-	// A task run is stored under its own short run identifier rather than its
-	// resource ID, so its record is rewritten in place: the ID it reports
-	// names the registry, and that reference moves with the registry.
-	// Update rather than Put, because a run still executing writes its own
-	// record from the background at the same time.
+	// A task run is stored under its short run ID, so rewrite its record in place.
+	// Update rather than Put: a run still executing writes its own record
+	// concurrently.
 	for _, run := range acrRuns.List() {
 		if len(run.ID) <= len(oldSub) || run.ID[:len(oldSub)] != oldSub {
 			continue

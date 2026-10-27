@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// v2 ContainerApps "Apps" routes (Microsoft.App/containerApps).
-// Smoke-test the CRUD via az rest so a regression in the route
-// registration is caught at the wire level.
+// Microsoft.App/containerApps CRUD through `az rest`.
 func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 	appURL := acaURL("containerApps/cli-test-app")
@@ -58,8 +56,7 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 
 	azRestLongRunning(t, "DELETE", appURL, "")
 
-	// `az rest` exits non-zero on 404 and runCLI requires success, so read
-	// the deleted app over raw HTTP.
+	// `az rest` exits non-zero on 404, so read the deleted app over raw HTTP.
 	req, err := http.NewRequest("GET", baseURL+"/subscriptions/"+subscriptionID+
 		"/resourceGroups/"+resourceGroup+
 		"/providers/Microsoft.App/containerApps/cli-test-app?api-version="+acaAPIVersion, nil)
@@ -71,9 +68,9 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "GET after the delete operation completes must be 404")
 }
 
-// TestContainerAppsApps_CLI_PatchMergeSemantics drives the RFC 7396 PATCH
-// contract over az rest: a null tag member deletes the tag, and a nested
-// scale patch merges member-wise instead of replacing the object.
+// TestContainerAppsApps_CLI_PatchMergeSemantics holds the RFC 7396 PATCH
+// contract: a null tag deletes the tag, and a nested scale patch merges
+// member-wise.
 func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 	t.Parallel()
 	appURL := acaURL("containerApps/cli-patch-app")
@@ -91,8 +88,7 @@ func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 	azRestLongRunning(t, "PUT", appURL, body)
 	t.Cleanup(func() { _, _ = azRest("DELETE", appURL, "").CombinedOutput() })
 
-	// The scale change makes a revision, so the patch is accepted and
-	// provisions it.
+	// The scale change makes a revision, so the patch provisions it.
 	azRestLongRunning(t, "PATCH", appURL,
 		`{"tags":{"drop":null,"added":"new"},"properties":{"template":{"scale":{"minReplicas":2}}}}`)
 	out := runCLI(t, azRest("GET", appURL, ""))
@@ -137,30 +133,23 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 	azRestLongRunning(t, "PUT", appURL, body)
 	defer runCLI(t, azRest("DELETE", appURL, ""))
 
-	// Generous deadline so a slow real-replica start on a loaded CI runner
-	// doesn't expire before the arithmetic output is logged.
-	//
-	// The assertion is on the decoded console lines rather than on a substring
-	// of the query response: "54" appears in the ISO-8601 TimeGenerated stamp
-	// of any row landing at 54 seconds past the minute, so a substring search
-	// passes for a replica that printed something else entirely — or that
-	// printed nothing and left only a stamp behind.
+	// Assert on decoded console lines: "54" appears in the TimeGenerated stamp of
+	// any row landing 54 seconds past the minute.
 	lines := waitForContainerAppLogLine(t, "ContainerAppName_s", appName, "54", 60*time.Second)
 	assert.Contains(t, lines, "54",
 		"the replica evaluates 9 * 6 and prints the result; its console lines were %q", lines)
 
-	// The platform's own events about the replica are system logs, apart
-	// from what the container printed.
+	// The platform's own events about the replica are system logs, apart from
+	// what the container printed.
 	system := cliQueryWorkspace(t, customerID,
 		`ContainerAppSystemLogs_CL | where ContainerAppName_s == "`+appName+`" and Reason_s == "ContainerStarted" | project Log_s`)
 	assert.Contains(t, system, "Started container 'main'")
 	assert.NotContains(t, lines, "Container app replica started", "the console holds only what the containers printed")
 }
 
-// TestContainerAppsApps_CLI_ConfigurationRoundTrip drives every
-// configuration member — dapr, identitySettings, maxInactiveRevisions,
-// runtime, and service — through az rest PUT/GET/PATCH, pinning the raw
-// ARM wire spelling of each member.
+// TestContainerAppsApps_CLI_ConfigurationRoundTrip pins the ARM wire spelling
+// of every configuration member (dapr, identitySettings, maxInactiveRevisions,
+// runtime, service) through PUT/GET/PATCH.
 func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
 	t.Parallel()
 	appURL := acaURL("containerApps/cli-cfg-app")
@@ -244,8 +233,7 @@ func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
 	assert.Contains(t, cfg.IdentitySettings[0].Identity, "/userAssignedIdentities/cli-identity")
 	assert.Equal(t, "Init", cfg.IdentitySettings[0].Lifecycle)
 
-	// An RFC 7396 merge patch of one dapr member must preserve every
-	// sibling dapr member and every sibling configuration member.
+	// An RFC 7396 merge patch of one dapr member preserves every sibling member.
 	out = runCLI(t, azRest("PATCH", appURL,
 		`{"properties":{"configuration":{"dapr":{"logLevel":"warn"}}}}`))
 	var patched struct {
@@ -266,8 +254,7 @@ func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
 	require.Len(t, pcfg.IdentitySettings, 1)
 }
 
-// WebApps.UpdateAzureStorageAccounts is what the azure-functions
-// backend uses to bind named volumes to Azure Files.
+// WebApps.UpdateAzureStorageAccounts binds named volumes to Azure Files shares.
 func TestWebApps_CLI_UpdateAzureStorageAccounts(t *testing.T) {
 	t.Parallel()
 	const azfAPIVersion = "2024-04-01"

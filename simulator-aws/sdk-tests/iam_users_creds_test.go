@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// iamClientWithCreds builds an IAM client signed with the given access key, so
-// the sim resolves the request's caller (e.g. for ChangePassword) to the user
-// that owns that key.
+// iamClientWithCreds builds an IAM client signed with the given key, so the
+// request's caller, as ChangePassword acts on, is the key's user.
 func iamClientWithCreds(akid, secret string) *iam.Client {
 	cfg := sdkConfig()
 	cfg.Credentials = credentials.NewStaticCredentialsProvider(akid, secret, "")
@@ -22,8 +21,8 @@ func iamClientWithCreds(akid, secret string) *iam.Client {
 	})
 }
 
-// TestIAM_UpdateUser renames a user and changes its path, asserting the ARN
-// re-keys to the new name/path.
+// TestIAM_UpdateUser expects the ARN to follow a renamed user's new name and
+// path.
 func TestIAM_UpdateUser(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -50,12 +49,10 @@ func TestIAM_UpdateUser(t *testing.T) {
 	assert.Equal(t, "/team/", aws.ToString(got.User.Path))
 	assert.Contains(t, aws.ToString(got.User.Arn), ":user/team/"+newUser)
 
-	// The old name no longer resolves.
 	_, err = c.GetUser(ctx, &iam.GetUserInput{UserName: aws.String(user)})
 	require.Error(t, err)
 }
 
-// TestIAM_UpdateGroup renames a group and changes its path.
 func TestIAM_UpdateGroup(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -83,8 +80,8 @@ func TestIAM_UpdateGroup(t *testing.T) {
 	assert.Contains(t, aws.ToString(got.Group.Arn), ":group/div/"+newGroup)
 }
 
-// TestIAM_LoginProfile exercises the console-password profile lifecycle plus
-// ChangePassword for the calling user.
+// TestIAM_LoginProfile covers the console password profile and ChangePassword
+// for the calling user.
 func TestIAM_LoginProfile(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -128,8 +125,8 @@ func TestIAM_LoginProfile(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestIAM_AccessKeyLastUsed updates an access key's status and reads back its
-// last-used info (the never-used "N/A" sentinel shape).
+// TestIAM_AccessKeyLastUsed expects a never-used key's last-used info in its
+// "N/A" form.
 func TestIAM_AccessKeyLastUsed(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -162,12 +159,12 @@ func TestIAM_AccessKeyLastUsed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, user, aws.ToString(lastUsed.UserName))
 	require.NotNil(t, lastUsed.AccessKeyLastUsed)
-	// Never used: ServiceName and Region are the "N/A" sentinel, no LastUsedDate.
+	// A never-used key reports "N/A" for ServiceName and Region and no
+	// LastUsedDate.
 	assert.Equal(t, "N/A", aws.ToString(lastUsed.AccessKeyLastUsed.ServiceName))
 	assert.Equal(t, "N/A", aws.ToString(lastUsed.AccessKeyLastUsed.Region))
 }
 
-// TestIAM_UserTags exercises TagUser / ListUserTags / UntagUser.
 func TestIAM_UserTags(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -208,8 +205,7 @@ func TestIAM_UserTags(t *testing.T) {
 	assert.NotContains(t, got, "env")
 }
 
-// TestIAM_AccountPasswordPolicy exercises the account password-policy singleton
-// plus its NoSuchEntity-when-unset semantics.
+// TestIAM_AccountPasswordPolicy expects NoSuchEntity while the policy is unset.
 func TestIAM_AccountPasswordPolicy(t *testing.T) {
 	c := iamClient()
 	t.Cleanup(func() { c.DeleteAccountPasswordPolicy(ctx, &iam.DeleteAccountPasswordPolicyInput{}) })
@@ -241,9 +237,8 @@ func TestIAM_AccountPasswordPolicy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestIAM_ChangePassword validates a password change against the account policy,
-// signing the request with the user's own access key so the caller resolves to
-// that user.
+// TestIAM_ChangePassword checks a password change against the account policy,
+// signed with the user's own key so the caller is that user.
 func TestIAM_ChangePassword(t *testing.T) {
 	admin := iamClient()
 	user := "uc-changepw-user"
@@ -267,9 +262,8 @@ func TestIAM_ChangePassword(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Grant the user iam:ChangePassword, the identity-based permission AWS
-	// requires for a self-service password change (the sim's call-time IAM
-	// enforcement evaluates it).
+	// AWS requires the identity permission iam:ChangePassword for a self-service
+	// password change.
 	_, err = admin.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
 		UserName:       aws.String(user),
 		PolicyName:     aws.String("allow-changepassword"),
@@ -286,24 +280,20 @@ func TestIAM_ChangePassword(t *testing.T) {
 		admin.DeleteUserPolicy(ctx, &iam.DeleteUserPolicyInput{UserName: aws.String(user), PolicyName: aws.String("allow-changepassword")})
 	})
 
-	// A client signed as the user; ChangePassword acts on the caller.
 	userClient := iamClientWithCreds(akid, secret)
 
-	// Too short → policy violation.
 	_, err = userClient.ChangePassword(ctx, &iam.ChangePasswordInput{
 		OldPassword: aws.String("OldPass-123!"),
 		NewPassword: aws.String("short"),
 	})
 	requireAWSErrorCode(t, err, "PasswordPolicyViolation")
 
-	// Wrong old password → error.
 	_, err = userClient.ChangePassword(ctx, &iam.ChangePasswordInput{
 		OldPassword: aws.String("WrongOld-1!"),
 		NewPassword: aws.String("ValidNewPass-123!"),
 	})
 	requireAWSErrorCode(t, err, "InvalidUserType")
 
-	// Valid change.
 	_, err = userClient.ChangePassword(ctx, &iam.ChangePasswordInput{
 		OldPassword: aws.String("OldPass-123!"),
 		NewPassword: aws.String("ValidNewPass-123!"),

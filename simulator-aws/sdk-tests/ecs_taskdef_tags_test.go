@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_TaskDefinitionTagsIncludePath verifies task-definition tags surface on
-// the paths terraform-provider-aws reads: the RegisterTaskDefinition response
-// (top-level Tags), DescribeTaskDefinition with include=TAGS (top-level Tags),
-// and ListTagsForResource. Without include=TAGS, Describe returns no tags
-// (matching real AWS), so the provider only sees them on the include path.
+// TestECS_TaskDefinitionTagsIncludePath expects tags on the paths
+// terraform-provider-aws reads: the RegisterTaskDefinition response,
+// DescribeTaskDefinition with include=TAGS, and ListTagsForResource; without
+// include=TAGS, Describe returns none.
 func TestECS_TaskDefinitionTagsIncludePath(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -28,12 +27,10 @@ func TestECS_TaskDefinitionTagsIncludePath(t *testing.T) {
 		Tags:                 tags,
 	})
 	require.NoError(t, err)
-	// RegisterTaskDefinition echoes tags at the response top level.
 	assert.ElementsMatch(t, tagPairs(tags), tagPairs(reg.Tags))
 
 	arn := aws.ToString(reg.TaskDefinition.TaskDefinitionArn)
 
-	// DescribeTaskDefinition with include=TAGS surfaces them (the provider's path).
 	withTags, err := c.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(arn),
 		Include:        []ecstypes.TaskDefinitionField{ecstypes.TaskDefinitionFieldTags},
@@ -42,14 +39,12 @@ func TestECS_TaskDefinitionTagsIncludePath(t *testing.T) {
 	assert.ElementsMatch(t, tagPairs(tags), tagPairs(withTags.Tags),
 		"DescribeTaskDefinition --include TAGS must return the tags")
 
-	// Without include=TAGS, no tags (real AWS omits them).
 	noTags, err := c.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: aws.String(arn),
 	})
 	require.NoError(t, err)
 	assert.Empty(t, noTags.Tags, "DescribeTaskDefinition without include=TAGS returns no tags")
 
-	// ListTagsForResource also returns them.
 	lt, err := c.ListTagsForResource(ctx, &ecs.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, tagPairs(tags), tagPairs(lt.Tags))
@@ -63,9 +58,8 @@ func tagPairs(tags []ecstypes.Tag) [][2]string {
 	return out
 }
 
-// TestECS_DescribeTasksTagsIncludePath verifies that DescribeTasks surfaces
-// task tags only when Include=[TAGS] is passed, matching real AWS. Without
-// Include, the tags field is absent from each task object.
+// TestECS_DescribeTasksTagsIncludePath expects DescribeTasks to return task tags
+// only with Include=[TAGS].
 func TestECS_DescribeTasksTagsIncludePath(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -92,7 +86,6 @@ func TestECS_DescribeTasksTagsIncludePath(t *testing.T) {
 	require.Len(t, run.Tasks, 1)
 	taskArn := run.Tasks[0].TaskArn
 
-	// With Include=TAGS, the tags appear on the task.
 	withTags, err := c.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 		Cluster: clusterArn,
 		Tasks:   []string{aws.ToString(taskArn)},
@@ -102,7 +95,6 @@ func TestECS_DescribeTasksTagsIncludePath(t *testing.T) {
 	require.Len(t, withTags.Tasks, 1)
 	assert.NotEmpty(t, withTags.Tasks[0].Tags, "DescribeTasks with Include=TAGS must return tags")
 
-	// Without Include, tags are absent.
 	noTags, err := c.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 		Cluster: clusterArn,
 		Tasks:   []string{aws.ToString(taskArn)},

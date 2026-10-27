@@ -18,10 +18,8 @@ import (
 func s3Client() *s3.Client {
 	return s3.NewFromConfig(sdkConfig(), func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
-		// UsePathStyle = true is canonical config for any HTTP S3
-		// endpoint that doesn't resolve `{bucket}.<host>` DNS — the
-		// same option real users set against MinIO, LocalStack, or
-		// any in-cluster S3 alternative addressed by IP / localhost.
+		// Path-style addressing, as for any S3 endpoint addressed by IP or localhost
+		// without {bucket}.<host> DNS.
 		o.UsePathStyle = true
 	})
 }
@@ -247,8 +245,8 @@ func TestS3_DeleteObject(t *testing.T) {
 		assert.NotEqual(t, "to-delete.txt", aws.ToString(object.Key))
 	}
 
-	// Deleting a key that is already gone is not an error, which is what makes
-	// S3's delete idempotent.
+	// Deleting a key that is already gone is not an error: S3's delete is
+	// idempotent.
 	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String("del-bucket"),
 		Key:    aws.String("to-delete.txt"),
@@ -286,10 +284,9 @@ func TestS3_HeadBucket_NoSuchBucket_ErrorClassification(t *testing.T) {
 		"S3 NotFound (HeadBucket) must be classified by SDK errors.As; got %T: %v", err, err)
 }
 
-// A bucket is addressed as "/{bucket}" or "/{bucket}/", and both forms are
-// the bucket: an empty key is not an object. aws-sdk-go-v2 1.47 puts the
-// trailing slash on CreateBucket where earlier versions sent none, and the
-// simulator answered 404 to every bucket operation addressed that way.
+// TestS3_BucketIsAddressedWithOrWithoutATrailingSlash expects "/{bucket}" and
+// "/{bucket}/" both to address the bucket: an empty key is not an object.
+// aws-sdk-go-v2 1.47 and later put the trailing slash on CreateBucket.
 func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -300,12 +297,11 @@ func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
 		_, _ = client.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
-	// The SDK's own path for a bucket operation, whichever form it sends.
 	_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// And the wire forms themselves, so the routing is held rather than the
-	// SDK's current choice of form.
+	// The wire forms themselves, so the test holds the routing rather than the
+	// SDK's choice of form.
 	signedGet := func(target string) *http.Response {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 		require.NoError(t, err)
@@ -323,7 +319,7 @@ func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
 		assert.Contains(t, string(body), "ListBucketResult", "GET %s lists the bucket", path)
 	}
 
-	// A key that is genuinely missing is still a missing object, not a bucket.
+	// A missing key is still a missing object, not a bucket.
 	response := signedGet(baseURL + "/" + bucket + "/no-such-key")
 	_ = response.Body.Close()
 	assert.Equal(t, 404, response.StatusCode)

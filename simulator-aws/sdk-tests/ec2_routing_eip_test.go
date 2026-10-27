@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_ReplaceRouteAndTargetsSDK covers the missing ReplaceRoute operation
-// and the full CreateRoute target set (previously only gateway/nat/eni were
-// parsed; IPv6, prefix-list, peering, egress-only targets were dropped).
+// TestEC2_ReplaceRouteAndTargetsSDK covers ReplaceRoute and every CreateRoute
+// target: gateway, NAT gateway, ENI, IPv6, prefix list, peering and egress-only
+// internet gateway.
 func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -30,7 +30,6 @@ func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
 	require.NoError(t, err)
 	natID := aws.ToString(nat.NatGateway.NatGatewayId)
 
-	// Create a default route targeting the IGW, then ReplaceRoute → NAT gateway.
 	_, err = c.CreateRoute(ctx, &ec2.CreateRouteInput{
 		RouteTableId: aws.String(rtID), DestinationCidrBlock: aws.String("0.0.0.0/0"), GatewayId: aws.String(igwID),
 	})
@@ -53,7 +52,6 @@ func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
 	assert.Equal(t, natID, aws.ToString(defRoute.NatGatewayId), "ReplaceRoute must swap the target to the NAT gateway")
 	assert.Empty(t, aws.ToString(defRoute.GatewayId), "old IGW target must be cleared by ReplaceRoute")
 
-	// IPv6 destination + egress-only IGW target round-trip (previously dropped).
 	_, err = c.CreateRoute(ctx, &ec2.CreateRouteInput{
 		RouteTableId:                aws.String(rtID),
 		DestinationIpv6CidrBlock:    aws.String("::/0"),
@@ -72,9 +70,9 @@ func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
 	assert.Equal(t, "eigw-0123456789abcdef0", aws.ToString(v6.EgressOnlyInternetGatewayId))
 }
 
-// TestEC2_ElasticIPAssociationSDK covers the missing AssociateAddress /
-// DisassociateAddress operations and the Address response fields (association_id,
-// instance, private_ip, public_ipv4_pool) that aws_eip reads back.
+// TestEC2_ElasticIPAssociationSDK covers AssociateAddress and
+// DisassociateAddress and the association_id, instance, private_ip and
+// public_ipv4_pool fields aws_eip reads back.
 func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -115,8 +113,8 @@ func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
 	assert.Empty(t, aws.ToString(desc.Addresses[0].InstanceId))
 }
 
-// TestEC2_NatGatewayAddressFieldsSDK covers the NatGatewayAddress fields
-// (association_id, network_interface_id) aws_nat_gateway reads back.
+// TestEC2_NatGatewayAddressFieldsSDK covers the association_id and
+// network_interface_id fields aws_nat_gateway reads back.
 func TestEC2_NatGatewayAddressFieldsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -137,9 +135,9 @@ func TestEC2_NatGatewayAddressFieldsSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(addr.AssociationId), "nat gateway address association_id must be reported")
 }
 
-// TestEC2_MainRouteTableSDK covers the main route table AWS auto-creates per VPC
-// (read by aws_vpc.main_route_table_id / aws_default_route_table via the
-// association.main filter).
+// TestEC2_MainRouteTableSDK covers the main route table AWS creates with every
+// VPC, which aws_vpc.main_route_table_id and aws_default_route_table read
+// through the association.main filter.
 func TestEC2_MainRouteTableSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

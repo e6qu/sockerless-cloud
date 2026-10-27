@@ -10,15 +10,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_backup_handlers.go mounts the Microsoft.Web backup, restore and snapshot
-// operations described in web_backup.go, at both the production-site and the
-// deployment-slot scope. Every restore spelling the specification marks
-// `x-ms-long-running-operation: true` answers 202 with the Azure-AsyncOperation
-// poll coordinates; the reads and the backup itself are synchronous, as the
-// specification declares them.
+// The Microsoft.Web backup, restore and snapshot operations at site and slot
+// scope. Every restore the specification marks
+// `x-ms-long-running-operation: true` answers 202 with Azure-AsyncOperation;
+// the reads and the backup itself are synchronous, as declared.
 
-// backupRequestBody is the swagger BackupRequest wire shape (properties
-// flattened by x-ms-client-flatten on the client side, nested on the wire).
+// Properties are flattened client-side by x-ms-client-flatten and nested on the
+// wire.
 type backupRequestBody struct {
 	Properties struct {
 		BackupName        string                     `json:"backupName"`
@@ -29,7 +27,6 @@ type backupRequestBody struct {
 	} `json:"properties"`
 }
 
-// restoreRequestBody is the swagger RestoreRequest wire shape.
 type restoreRequestBody struct {
 	Properties struct {
 		StorageAccountURL          string                     `json:"storageAccountUrl"`
@@ -46,7 +43,6 @@ type restoreRequestBody struct {
 	} `json:"properties"`
 }
 
-// snapshotRestoreRequestBody is the swagger SnapshotRestoreRequest wire shape.
 type snapshotRestoreRequestBody struct {
 	Properties struct {
 		SnapshotTime   string `json:"snapshotTime"`
@@ -61,8 +57,6 @@ type snapshotRestoreRequestBody struct {
 	} `json:"properties"`
 }
 
-// deletedAppRestoreRequestBody is the swagger DeletedAppRestoreRequest wire
-// shape.
 type deletedAppRestoreRequestBody struct {
 	Properties struct {
 		DeletedSiteID        string `json:"deletedSiteId"`
@@ -72,13 +66,11 @@ type deletedAppRestoreRequestBody struct {
 	} `json:"properties"`
 }
 
-// webBackupID resolves the addressed backup item's store key.
 func webBackupID(r *http.Request) string {
 	return armChildID(webResourceID(r), "backups", sim.PathParam(r, "backupId"))
 }
 
-// webNextBackupID picks the next backup id for a site. BackupItemProperties.id
-// is an int32 the service assigns, increasing per app.
+// BackupItemProperties.id is an int32 the service assigns, increasing per app.
 func webNextBackupID(resID string) int32 {
 	prefix := resID + "/backups/"
 	next := int32(1)
@@ -90,7 +82,7 @@ func webNextBackupID(resID string) int32 {
 	return next
 }
 
-// webBackupsFor lists a site's backup items, oldest first.
+// Oldest first.
 func webBackupsFor(resID string) []WebBackupItemRow {
 	prefix := resID + "/backups/"
 	rows := webBackupItems.Filter(func(row WebBackupItemRow) bool { return strings.HasPrefix(row.ID, prefix) })
@@ -106,10 +98,8 @@ func sortBackupItems(rows []WebBackupItemRow) {
 	}
 }
 
-// registerWebBackups mounts the whole family.
 func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 
-	// WebApps_UpdateBackupConfiguration[Slot] — PUT /config/backup.
 	both("PUT", "/config/backup", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -131,12 +121,9 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			BackupSchedule:    req.Properties.BackupSchedule,
 			Databases:         req.Properties.Databases,
 		}
-		// Real Azure defaults a schedule's start time to the moment the
-		// configuration is saved, and always serves one back. A schedule
-		// without it is a document real Azure never returns — and
-		// terraform-provider-azurerm 5.1.0 dereferences the member before its
-		// own nil check (FlattenBackupConfig, common_web_app_schema.go:1158),
-		// so serving the omission crashed the provider mid-apply.
+		// Azure defaults a schedule's start time to the save time and always returns
+		// one; terraform-provider-azurerm 5.1.0 dereferences it before its nil check
+		// (FlattenBackupConfig, common_web_app_schema.go:1158).
 		if row.BackupSchedule != nil && row.BackupSchedule.StartTime == "" {
 			row.BackupSchedule.StartTime = time.Now().UTC().Format("2006-01-02T15:04:05.9999999")
 		}
@@ -144,7 +131,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, backupConfigWire(r, row))
 	})
 
-	// WebApps_DeleteBackupConfiguration[Slot] — DELETE /config/backup.
 	both("DELETE", "/config/backup", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -153,9 +139,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// WebApps_GetBackupConfiguration[Slot] — POST /config/backup/list. An app
-	// with no configured backup has no such sub-resource, which terraform's
-	// FlattenBackupConfig reads as "no backup block".
+	// An app with no backup configuration has no such sub-resource, which
+	// terraform's FlattenBackupConfig reads as "no backup block".
 	backupConfigList := func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -170,9 +155,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 	}
 	both("POST", "/config/backup/list", backupConfigList)
 
-	// WebApps_Backup[Slot] — POST /backup. The archive and its manifest are
-	// written into the storage account before the response is composed, so the
-	// status the caller reads is the status of work that really happened.
+	// The archive and manifest are written before the response is composed, so
+	// the status is that of work that happened.
 	both("POST", "/backup", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -186,8 +170,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		storageURL := req.Properties.StorageAccountURL
 		backupName := req.Properties.BackupName
 		databases := req.Properties.Databases
-		// A request that names no storage takes the app's configured backup
-		// storage, which is how a scheduled backup runs.
+		// A request naming no storage uses the configured backup storage, as a
+		// scheduled backup does.
 		scheduled := false
 		if storageURL == "" {
 			cfg, ok := webBackupConfigs.Get(resID)
@@ -271,10 +255,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, backupItemWire(r, row, false))
 	})
 
-	// WebApps_ListBackups[Slot] — GET /backups, and
-	// WebApps_ListSiteBackups[Slot] — POST /listbackups. The specification
-	// gives both the same summary ("Gets existing backups of an app") and the
-	// same BackupItemCollection response.
+	// WebApps_ListBackups (GET /backups) and WebApps_ListSiteBackups (POST
+	// /listbackups) share a summary and the BackupItemCollection response.
 	listBackups := func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -289,7 +271,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 	both("GET", "/backups", listBackups)
 	both("POST", "/listbackups", listBackups)
 
-	// WebApps_GetBackupStatus[Slot] — GET /backups/{backupId}.
 	both("GET", "/backups/{backupId}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -303,11 +284,10 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, backupItemWire(r, row, false))
 	})
 
-	// WebApps_ListBackupStatusSecrets[Slot] — POST /backups/{backupId}/list.
-	// The specification: "Gets status of a web app backup that may be in
-	// progress, including secrets associated with the backup, such as the
-	// Azure Storage SAS URL. Also can be used to update the SAS URL for the
-	// backup if a new URL is passed in the request body."
+	// The specification: "Gets status of a web app backup that may be in progress,
+	// including secrets associated with the backup, such as the Azure Storage SAS
+	// URL. Also can be used to update the SAS URL for the backup if a new URL is
+	// passed in the request body."
 	both("POST", "/backups/{backupId}/list", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -335,10 +315,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		sim.WriteJSON(w, http.StatusOK, backupItemWire(r, row, true))
 	})
 
-	// WebApps_DeleteBackup[Slot] — DELETE /backups/{backupId}. Deleting a
-	// backup removes the archive and its manifest from the storage account,
-	// which is the transition BackupItemStatus models as
-	// DeleteInProgress → Deleted.
+	// Deleting a backup removes its archive and manifest, the DeleteInProgress →
+	// Deleted transition BackupItemStatus models.
 	both("DELETE", "/backups/{backupId}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -358,11 +336,10 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// WebApps_DiscoverBackup[Slot] — POST /discoverbackup. The specification:
-	// "Discovers an existing app backup that can be restored from a blob in
-	// Azure storage. Use this to get information about the databases stored in
-	// a backup." The answer is the RestoreRequest completed from the archive's
-	// own manifest.
+	// The specification: "Discovers an existing app backup that can be restored
+	// from a blob in Azure storage. Use this to get information about the
+	// databases stored in a backup." Answers the RestoreRequest completed from the
+	// archive's manifest.
 	both("POST", "/discoverbackup", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -419,7 +396,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// WebApps_Restore[Slot] — POST /backups/{backupId}/restore.
 	both("POST", "/backups/{backupId}/restore", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -446,7 +422,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		webRestoreFromBlob(w, r, storageURL, blobName, req, item.ID)
 	})
 
-	// WebApps_RestoreFromBackupBlob[Slot] — POST /restoreFromBackupBlob.
 	both("POST", "/restoreFromBackupBlob", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -464,7 +439,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		webRestoreFromBlob(w, r, req.Properties.StorageAccountURL, req.Properties.BlobName, req, "")
 	})
 
-	// WebApps_RestoreSnapshot[Slot] — POST /restoreSnapshot.
 	both("POST", "/restoreSnapshot", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -475,9 +449,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 			return
 		}
 		resID := webResourceID(r)
-		// "Optional. Specifies the web app that snapshot contents will be
-		// retrieved from. If empty, the targeted web app will be used as the
-		// source."
+		// "Optional. Specifies the web app that snapshot contents will be retrieved
+		// from. If empty, the targeted web app will be used as the source."
 		sourceID := resID
 		if src := req.Properties.RecoverySource; src != nil && src.ID != "" {
 			sourceID = strings.TrimRight(src.ID, "/")
@@ -540,7 +513,6 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// WebApps_RestoreFromDeletedApp[Slot] — POST /restoreFromDeletedApp.
 	both("POST", "/restoreFromDeletedApp", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -584,9 +556,8 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// WebApps_ListSnapshots[Slot] — GET /snapshots (the primary region) and
-	// WebApps_ListSnapshotsFromDRSecondary[Slot] — GET /snapshotsdr (the
-	// geo-redundant secondary the `useDRSecondary` restores read).
+	// GET /snapshots reads the primary region, GET /snapshotsdr the geo-redundant
+	// secondary that `useDRSecondary` restores read.
 	listSnapshots := func(useDR bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if webMissing(w, r) {
@@ -604,10 +575,9 @@ func registerWebBackups(both func(string, string, http.HandlerFunc)) {
 	both("GET", "/snapshotsdr", listSnapshots(true))
 }
 
-// webRestoreFromBlob performs the shared work of WebApps_Restore and
-// WebApps_RestoreFromBackupBlob: read the archive back out of the storage
-// account, replace the app's content with it, and reconcile the custom domains
-// the manifest lists.
+// Shared by WebApps_Restore and WebApps_RestoreFromBackupBlob: read the
+// archive back, replace the app's content, and reconcile the manifest's
+// custom domains.
 func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blobName string,
 	req restoreRequestBody, backupItemID string) {
 	target, code, msg := webParseBackupStorageURL(storageURL)
@@ -669,9 +639,8 @@ func webRestoreFromBlob(w http.ResponseWriter, r *http.Request, storageURL, blob
 	})
 }
 
-// webIssueRestore runs the restore behind an Azure Resource Manager
-// long-running operation and answers 202 with its poll coordinates, which is
-// what `x-ms-long-running-operation: true` on every restore declares.
+// 202 with the poll coordinates, as `x-ms-long-running-operation: true` on
+// every restore declares.
 func webIssueRestore(w http.ResponseWriter, r *http.Request, resID string, run func() *AsyncOperationError) {
 	opID := startAzureAsyncOperationOutcome(run)
 	opURL := azureAsyncOperationHeader(r, sim.PathParam(r, "subscriptionId"),

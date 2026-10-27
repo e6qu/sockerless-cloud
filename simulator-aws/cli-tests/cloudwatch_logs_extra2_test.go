@@ -7,10 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogsAccountAndQueryPolicyCLI exercises account policies, query
-// definitions, and resource policies through the aws CLI.
 func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
-	// Account policy.
 	policyName := "cli-account-dp-policy"
 	doc := `{"Rules":[{"DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	defer runCLIIgnore(awsCLI("logs", "delete-account-policy",
@@ -42,7 +39,6 @@ func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-account-policy",
 		"--policy-name", policyName, "--policy-type", "DATA_PROTECTION_POLICY"))
 
-	// Query definition.
 	qOut := runCLI(t, awsCLI("logs", "put-query-definition",
 		"--name", "cli-query-def",
 		"--query-string", "fields @timestamp, @message", "--output", "json"))
@@ -72,7 +68,6 @@ func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 	assert.True(t, foundQ, "query definition should be listed")
 	runCLI(t, awsCLI("logs", "delete-query-definition", "--query-definition-id", qd.QueryDefinitionId))
 
-	// Resource policy.
 	rpName := "cli-resource-policy"
 	rpDoc := `{"Version":"2012-10-17","Statement":[{"Sid":"R53","Effect":"Allow","Principal":{"Service":"route53.amazonaws.com"},"Action":"logs:PutLogEvents","Resource":"*"}]}`
 	defer runCLIIgnore(awsCLI("logs", "delete-resource-policy", "--policy-name", rpName))
@@ -95,7 +90,6 @@ func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-resource-policy", "--policy-name", rpName))
 }
 
-// TestLogsDestinationCLI exercises cross-account destinations.
 func TestLogsDestinationCLI(t *testing.T) {
 	t.Parallel()
 	name := "cli-destination"
@@ -140,8 +134,6 @@ func TestLogsDestinationCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-destination", "--destination-name", name))
 }
 
-// TestLogsDeliveryCLI exercises the vended-log delivery surface: delivery
-// sources, delivery destinations (+ policy), and a delivery linking them.
 func TestLogsDeliveryCLI(t *testing.T) {
 	t.Parallel()
 	srcName := "cli-delivery-source"
@@ -166,8 +158,8 @@ func TestLogsDeliveryCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "get-delivery-source", "--name", srcName))
 	runCLI(t, awsCLI("logs", "describe-delivery-sources"))
 
-	// aws CLI 2.26.6 lacks the newer --delivery-destination-type flag; the
-	// sim defaults the destination type to S3 and the SDK test covers it.
+	// aws CLI 2.26.6 lacks --delivery-destination-type; the destination type
+	// defaults to S3, and the SDK test covers the flag.
 	dstOut := runCLI(t, awsCLI("logs", "put-delivery-destination",
 		"--name", dstName,
 		"--output-format", "json",
@@ -230,8 +222,6 @@ func TestLogsDeliveryCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-delivery-source", "--name", srcName))
 }
 
-// TestLogsAnomalyAndIndexCLI exercises log anomaly detectors, index policies,
-// field indexes, and the published configuration templates.
 func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/anomaly-index"
@@ -290,7 +280,6 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-log-anomaly-detector",
 		"--anomaly-detector-arn", ad.AnomalyDetectorArn))
 
-	// Index policy.
 	runCLI(t, awsCLI("logs", "put-index-policy",
 		"--log-group-identifier", group,
 		"--policy-document", `{"Fields":["requestId","accountId"]}`))
@@ -308,7 +297,6 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "describe-field-indexes", "--log-group-identifiers", group))
 	runCLI(t, awsCLI("logs", "delete-index-policy", "--log-group-identifier", group))
 
-	// Configuration templates.
 	ctOut := runCLI(t, awsCLI("logs", "describe-configuration-templates", "--output", "json"))
 	var ct struct {
 		ConfigurationTemplates []struct {

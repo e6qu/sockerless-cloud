@@ -6,11 +6,9 @@ import (
 	"fmt"
 )
 
-// applyARMMergePatch applies an RFC 7396 JSON Merge Patch — the content type
-// ARM PATCH requests carry — to a typed resource: patch members replace or
-// recurse into the stored document, and an explicit null removes the member.
-// The merged document is decoded back into the same type, so fields the type
-// does not model are dropped exactly as the PUT path drops them.
+// applyARMMergePatch applies an RFC 7396 JSON Merge Patch, the content type of
+// Azure Resource Manager PATCH requests, and decodes the merge back into T, so
+// fields T does not model drop exactly as on PUT.
 func applyARMMergePatch[T any](resource *T, patch []byte) error {
 	if !json.Valid(patch) {
 		return fmt.Errorf("request body is not valid JSON")
@@ -27,9 +25,6 @@ func applyARMMergePatch[T any](resource *T, patch []byte) error {
 	return nil
 }
 
-// jsonMergePatch implements the RFC 7396 merge algorithm over two valid JSON
-// documents: an object patch merges member-wise (null removes the member,
-// nested objects recurse); any non-object patch replaces the target wholesale.
 func jsonMergePatch(target, patch json.RawMessage) json.RawMessage {
 	if isJSONNull(patch) {
 		return patch
@@ -51,8 +46,8 @@ func jsonMergePatch(target, patch json.RawMessage) json.RawMessage {
 	}
 	merged, err := json.Marshal(targetObj)
 	if err != nil {
-		// Unreachable: every member is a json.RawMessage produced by a
-		// successful Unmarshal, so re-marshaling cannot fail.
+		// Every member came from a successful Unmarshal, so re-marshaling cannot
+		// fail.
 		panic(err)
 	}
 	return merged

@@ -12,18 +12,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Amazon ECS Express Mode: an Express service is a Fargate service behind an
-// Application Load Balancer, a target group, an HTTPS listener rule, an AWS
-// Certificate Manager certificate, security groups and an Application Auto
-// Scaling target with a target-tracking policy, all of which Amazon ECS creates
-// through those services' APIs as the service's infrastructure role. Up to 25
-// Express services with the same network configuration share one load
-// balancer, each reached through its own hostname on the shared HTTPS listener.
-// What the role is refused is recorded on the managed resource as FAILED, the
-// way DescribeServiceRevisions reports it in ecsManagedResources.
+// An Express service is a Fargate service behind an Application Load
+// Balancer, target group, HTTPS listener rule, AWS Certificate Manager
+// certificate, security groups and an Application Auto Scaling target, all of
+// which Amazon ECS creates through those services' APIs as the infrastructure
+// role. Up to 25 Express services with the same network configuration share
+// one load balancer, each with its own hostname on the shared listener. A
+// refusal is recorded on the managed resource as FAILED.
 
-// expressGatewayContainer mirrors the SDK ExpressGatewayContainer document
-// (camelCase wire keys). Unmodeled blocks ride RawMessage so they round-trip.
+// Unmodelled blocks ride RawMessage so they round-trip.
 type expressGatewayContainer struct {
 	Image                 string                        `json:"image,omitempty"`
 	ContainerPort         *int32                        `json:"containerPort,omitempty"`
@@ -60,8 +57,7 @@ type expressIngressPath struct {
 	Endpoint   string `json:"endpoint"`
 }
 
-// expressGatewayServiceConfiguration is the per-revision configuration the SDK
-// reads back (an activeConfigurations[] entry, or the Update targetConfiguration).
+// An activeConfigurations entry, or Update's targetConfiguration.
 type expressGatewayServiceConfiguration struct {
 	Cpu                  string                       `json:"cpu,omitempty"`
 	CreatedAt            float64                      `json:"createdAt"`
@@ -77,7 +73,6 @@ type expressGatewayServiceConfiguration struct {
 	TaskRoleArn          string                       `json:"taskRoleArn,omitempty"`
 }
 
-// expressGatewayServiceStatus is the {statusCode,statusReason} status object.
 type expressGatewayServiceStatus struct {
 	StatusCode   string `json:"statusCode"`
 	StatusReason string `json:"statusReason,omitempty"`
@@ -89,8 +84,7 @@ const (
 	expressStatusFailed  = "FAILED"
 )
 
-// expressManagedResource is one resource Amazon ECS manages for an Express
-// service, in the members every ECSManagedResources entry shares.
+// The members every ECSManagedResources entry shares.
 type expressManagedResource struct {
 	Arn          string  `json:"arn,omitempty"`
 	Status       string  `json:"status,omitempty"`
@@ -118,9 +112,8 @@ func (r *expressManagedResource) deleted() {
 	r.UpdatedAt = ecsEpochSeconds()
 }
 
-// ECSExpressLoadBalancer is a load balancer Express services share: the
-// services whose network configuration is its NetworkKey are placed on it
-// until it carries expressServicesPerLoadBalancer of them.
+// Holds services whose network configuration is NetworkKey, up to
+// expressServicesPerLoadBalancer of them.
 type ECSExpressLoadBalancer struct {
 	LoadBalancerArn string                 `json:"loadBalancerArn"`
 	DNSName         string                 `json:"dnsName"`
@@ -136,8 +129,6 @@ type ECSExpressLoadBalancer struct {
 
 const expressServicesPerLoadBalancer = 25
 
-// ECSExpressService is the stored control-plane record for an Express service
-// and the resources Amazon ECS manages for it.
 type ECSExpressService struct {
 	ServiceArn            string                               `json:"serviceArn"`
 	ServiceName           string                               `json:"serviceName"`
@@ -152,15 +143,13 @@ type ECSExpressService struct {
 	AccessType      string `json:"accessType"`
 	Hostname        string `json:"hostname"`
 	LoadBalancerArn string `json:"loadBalancerArn,omitempty"`
-	// LoadBalancerFailure is the load balancer the role was refused, which no
-	// shared record names.
+	// The load balancer the role was refused, which no shared record names.
 	LoadBalancerFailure *expressManagedResource `json:"loadBalancerFailure,omitempty"`
 	Certificate         expressManagedResource  `json:"certificate"`
 	Rule                expressManagedResource  `json:"rule"`
 	TargetGroup         expressManagedResource  `json:"targetGroup"`
 	TargetGroupPort     int                     `json:"targetGroupPort,omitempty"`
-	// ServiceSecurityGroup is the group Amazon ECS created for the tasks when
-	// the caller supplied none.
+	// Created for the tasks when the caller supplied none.
 	ServiceSecurityGroup       *expressManagedResource  `json:"serviceSecurityGroup,omitempty"`
 	ServiceSecurityGroupID     string                   `json:"serviceSecurityGroupId,omitempty"`
 	ServiceSecurityGroupRuleID string                   `json:"serviceSecurityGroupRuleId,omitempty"`
@@ -190,7 +179,6 @@ func registerECSExpress(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerServiceV20141113.DeleteExpressGatewayService", handleECSDeleteExpressGatewayService)
 }
 
-// ecsExpressArn builds the ARN that identifies an Express service:
 // arn:aws:ecs:<region>:<account>:express-gateway-service/<cluster>/<name>.
 func ecsExpressArn(cluster, name string) string {
 	return ecsArn("express-gateway-service", cluster+"/"+name)
@@ -230,8 +218,8 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// taskDefinitionArn is mutually exclusive with the container/role/size knobs
-	// the managed task definition derives.
+	// taskDefinitionArn excludes the container, role and size settings the
+	// managed task definition derives from.
 	if req.TaskDefinitionArn != "" {
 		if req.PrimaryContainer != nil || req.ExecutionRoleArn != "" || req.TaskRoleArn != "" || req.Cpu != "" || req.Memory != "" {
 			AWSError(w, "InvalidParameterException",
@@ -280,8 +268,8 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 		taskDefArn = expressRegisterManagedTaskDef(serviceName, cpu, memory, req.ExecutionRoleArn, req.TaskRoleArn, container, containerPort)
 	}
 
-	// An Express service is PUBLIC: its load balancer is internet-facing in
-	// the default VPC's subnets unless the request names others.
+	// An Express service is PUBLIC: internet-facing in the default VPC's subnets
+	// unless the request names others.
 	netCfg := req.NetworkConfiguration
 	if netCfg == nil {
 		netCfg = &expressNetworkConfiguration{}
@@ -298,9 +286,8 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	svc := ECSExpressService{
 		ServiceArn:  serviceArn,
 		ServiceName: serviceName,
-		// Amazon ECS returns the cluster as its full ARN in the Express service
-		// record; terraform-provider-aws parses the cluster name back out of it
-		// (clusterNameFromARN splits on "/"), so a bare name would read back empty.
+		// terraform-provider-aws parses the cluster name out of the ARN, so a bare
+		// name would read back empty.
 		Cluster:               cluster.ClusterArn,
 		InfrastructureRoleArn: req.InfrastructureRoleArn,
 		CreatedAt:             now,
@@ -424,7 +411,7 @@ func handleECSUpdateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	}
 	client := expressClient(svc)
 
-	// New revision derived from the current one with the mutable fields applied.
+	// Derive the new revision from the current one.
 	cur := svc.ActiveConfigurations[len(svc.ActiveConfigurations)-1]
 	now := ecsEpochSeconds()
 	next := cur
@@ -474,7 +461,7 @@ func handleECSUpdateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	}
 	expressUpdateTargetGroup(client, &svc, port, next.HealthCheckPath)
 
-	// Roll the backing Fargate service to the (possibly new) task definition.
+	// Roll the backing Fargate service to the task definition.
 	if ecsKey := svc.EcsServiceKey; ecsKey != "" {
 		ecsServices.Update(ecsKey, func(es *ECSService) {
 			es.TaskDefinition = next.TaskDefinitionArn
@@ -541,11 +528,9 @@ func handleECSDeleteExpressGatewayService(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Amazon ECS answers the delete with the service DRAINING and converges it
-	// to INACTIVE once its tasks have stopped and its resources are removed.
-	// The teardown here runs before the response, so the next Describe (the
-	// provider's delete waiter polls until INACTIVE) sees it complete, while
-	// a resource the role is refused keeps the service DRAINING and says why.
+	// Amazon ECS answers DRAINING and converges to INACTIVE. Teardown runs before
+	// the response, so the provider's delete waiter sees it complete; a refused
+	// resource keeps the service DRAINING and says why.
 	svc.Status = expressGatewayServiceStatus{StatusCode: "DRAINING", StatusReason: "Service is being deleted"}
 	svc.UpdatedAt = ecsEpochSeconds()
 	ecsExpressServices.Put(svc.ServiceArn, svc)
@@ -616,8 +601,6 @@ func expressConfigJSON(c expressGatewayServiceConfiguration) map[string]any {
 	return m
 }
 
-// expressIngressPaths is the service's entry point once its load balancer
-// carries its hostname.
 func expressIngressPaths(svc ECSExpressService) []expressIngressPath {
 	if svc.LoadBalancerArn == "" {
 		return nil
@@ -625,8 +608,7 @@ func expressIngressPaths(svc ECSExpressService) []expressIngressPath {
 	return []expressIngressPath{{AccessType: svc.AccessType, Endpoint: "https://" + svc.Hostname}}
 }
 
-// expressFailureReason names the first managed resource the role was refused,
-// which the service's statusReason carries.
+// The service's statusReason carries it.
 func expressFailureReason(svc ECSExpressService) string {
 	type named struct {
 		name     string
@@ -667,10 +649,8 @@ func expressNormalizeScalingTarget(in *expressScalingTarget) *expressScalingTarg
 	return &out
 }
 
-// expressManagedScalingTarget returns the auto-scaling configuration ECS reports
-// for the managed scalable target it always provisions. When the caller omitted
-// scalingTarget, ECS applies the documented defaults (metric AVERAGE_CPU, target
-// value 60, min/max task count 1), so the read-back configuration is never nil.
+// Without scalingTarget, the documented defaults apply: AVERAGE_CPU, target
+// 60, min and max task count 1.
 func expressManagedScalingTarget(in *expressScalingTarget) *expressScalingTarget {
 	st := in
 	if st == nil {
@@ -688,9 +668,8 @@ func expressManagedScalingTarget(in *expressScalingTarget) *expressScalingTarget
 	return &out
 }
 
-// expressRegisterManagedTaskDef registers a Fargate task definition with a
-// single container named `Main` (the Express contract) into ecsTaskDefinitions,
-// the same store RegisterTaskDefinition uses, and returns its ARN.
+// A single container named `Main`, per the Express contract, in the store
+// RegisterTaskDefinition uses.
 func expressRegisterManagedTaskDef(serviceName, cpu, memory, execRole, taskRole string, container *expressGatewayContainer, port int32) string {
 	family := "express-" + serviceName
 
@@ -739,8 +718,7 @@ func expressAwsvpcConfiguration(subnets, securityGroups []string) json.RawMessag
 	return netJSON
 }
 
-// expressServiceLoadBalancers binds the service's Main container to its target
-// group; a service whose target group was refused has no binding.
+// A refused target group means no binding.
 func expressServiceLoadBalancers(targetGroup expressManagedResource, port int) json.RawMessage {
 	if !targetGroup.active() {
 		return nil
@@ -753,8 +731,7 @@ func expressServiceLoadBalancers(targetGroup expressManagedResource, port int) j
 	return lbJSON
 }
 
-// expressCreateFargateService records the backing Fargate service in
-// ecsServices and returns its store key.
+// Returns the store key.
 func expressCreateFargateService(clusterName, clusterArn, serviceName, taskDefArn string, desired int, subnets, securityGroups []string, targetGroup expressManagedResource, port int) string {
 	now := ecsEpochSeconds()
 	svc := ECSService{
@@ -777,26 +754,18 @@ func expressCreateFargateService(clusterName, clusterArn, serviceName, taskDefAr
 	return key
 }
 
-// expressNetworkKey is what consolidated services share: the load balancer's
-// scheme and subnets and the tasks' security groups.
+// The load balancer's scheme and subnets and the tasks' security groups.
 func expressNetworkKey(scheme string, subnets, securityGroups []string) string {
 	return scheme + "|" + joinSorted(subnets) + "|" + joinSorted(securityGroups)
 }
 
-// expressServicesOnLoadBalancer is every service, other than the one named,
-// that a shared load balancer carries.
 func expressServicesOnLoadBalancer(lbArn, exceptServiceArn string) []ECSExpressService {
 	return ecsExpressServices.Filter(func(other ECSExpressService) bool {
 		return other.LoadBalancerArn == lbArn && other.ServiceArn != exceptServiceArn && other.Status.StatusCode != "INACTIVE"
 	})
 }
 
-// expressProvisionIngress creates what fronts the service, as the
-// infrastructure role, and returns the security groups its tasks run in. A
-// refusal is recorded on the resource refused; the resources that need it are
-// not attempted.
-// expressLoadBalancerScheme is the scheme of every Express service's load
-// balancer, since an Express service is PUBLIC.
+// An Express service is PUBLIC.
 const expressLoadBalancerScheme = "internet-facing"
 
 func expressProvisionIngress(client ecsGatewayClient, svc *ECSExpressService, subnets, callerSecurityGroups []string, port int, healthCheckPath string) []string {
@@ -863,8 +832,7 @@ func expressProvisionIngress(client ecsGatewayClient, svc *ECSExpressService, su
 	return securityGroups
 }
 
-// expressFreeRulePriority is the lowest listener rule priority no other
-// service on the load balancer holds.
+// The lowest priority no other service on the load balancer holds.
 func expressFreeRulePriority(svc ECSExpressService) int {
 	used := map[int]bool{}
 	for _, other := range expressServicesOnLoadBalancer(svc.LoadBalancerArn, svc.ServiceArn) {
@@ -879,8 +847,7 @@ func expressFreeRulePriority(svc ECSExpressService) int {
 	return priority
 }
 
-// rulePriority reads a rule's priority back from Elastic Load Balancing, which
-// is where it lives.
+// The priority lives in Elastic Load Balancing.
 func (svc ECSExpressService) rulePriority() int {
 	if rule, ok := elbv2Rules.Get(svc.Rule.Arn); ok {
 		priority, _ := strconv.Atoi(rule.Priority)
@@ -889,9 +856,8 @@ func (svc ECSExpressService) rulePriority() int {
 	return 0
 }
 
-// expressEnsureLoadBalancer places the service on a shared load balancer with
-// its network configuration and room for it, or creates one with its security
-// group. It reports false when the service has no load balancer.
+// Reuses a shared load balancer with matching network configuration and room,
+// or creates one with its security group; false means no load balancer.
 func expressEnsureLoadBalancer(client ecsGatewayClient, svc *ECSExpressService, scheme string, subnets, callerSecurityGroups []string, vpc string) (ECSExpressLoadBalancer, bool) {
 	key := expressNetworkKey(scheme, subnets, callerSecurityGroups)
 	shared := ecsExpressLoadBalancers.Filter(func(lb ECSExpressLoadBalancer) bool {
@@ -953,8 +919,7 @@ func expressEnsureLoadBalancer(client ecsGatewayClient, svc *ECSExpressService, 
 	return lb, true
 }
 
-// expressCreateServiceSecurityGroup creates the tasks' security group, which
-// admits the container port from the load balancer's group.
+// Admits the container port from the load balancer's group.
 func expressCreateServiceSecurityGroup(client ecsGatewayClient, svc *ECSExpressService, vpc, loadBalancerGroupID string, port int) []string {
 	form := url.Values{
 		"GroupName":                       {ecsGatewayRandomName()},
@@ -980,8 +945,6 @@ func expressCreateServiceSecurityGroup(client ecsGatewayClient, svc *ECSExpressS
 	return []string{svc.ServiceSecurityGroupID}
 }
 
-// expressAdmitLoadBalancer lets the load balancer's security group reach the
-// container port in the tasks' group.
 func expressAdmitLoadBalancer(client ecsGatewayClient, svc *ECSExpressService, loadBalancerGroupID string, port int) *ecsGatewayCallFailure {
 	body, failure := client.ec2("AuthorizeSecurityGroupIngress", url.Values{
 		"GroupId":                              {svc.ServiceSecurityGroupID},
@@ -998,8 +961,6 @@ func expressAdmitLoadBalancer(client ecsGatewayClient, svc *ECSExpressService, l
 	return nil
 }
 
-// expressCreateTargetGroup creates the service's target group for its
-// container port and health check path.
 func expressCreateTargetGroup(client ecsGatewayClient, svc *ECSExpressService, vpc string, port int, healthCheckPath string) *ecsGatewayCallFailure {
 	form := url.Values{
 		"Name":                       {ecsGatewayRandomName()},
@@ -1024,9 +985,8 @@ func expressCreateTargetGroup(client ecsGatewayClient, svc *ECSExpressService, v
 	return nil
 }
 
-// expressUpdateTargetGroup applies a new health check path to the target
-// group, and a new container port by replacing it: a target group's port is
-// fixed at creation. The tasks' group admits the new port instead of the old.
+// A target group's port is fixed at creation, so a new port replaces the
+// group; the tasks' group admits the new port instead.
 func expressUpdateTargetGroup(client ecsGatewayClient, svc *ECSExpressService, port int, healthCheckPath string) {
 	if !svc.TargetGroup.active() {
 		return
@@ -1082,8 +1042,7 @@ func expressUpdateTargetGroup(client ecsGatewayClient, svc *ECSExpressService, p
 	}
 }
 
-// expressMetricToPredefined maps the Express autoScalingMetric enum to the
-// Application Auto Scaling ECS predefined-metric type.
+// To the Application Auto Scaling ECS predefined metric type.
 func expressMetricToPredefined(metric string) string {
 	switch metric {
 	case "AVERAGE_MEMORY":
@@ -1104,14 +1063,12 @@ func expressScalingResourceID(svc ECSExpressService) string {
 	return "service/" + ecsClusterNameFromRef(svc.Cluster) + "/" + svc.ServiceName
 }
 
-// expressProvisionAutoScaling registers the service's scalable target and
-// puts its target-tracking policy, as the infrastructure role.
+// As the infrastructure role.
 func expressProvisionAutoScaling(client ecsGatewayClient, svc *ECSExpressService, scaling *expressScalingTarget) {
 	svc.ScalingPolicyName = "express-" + svc.ServiceName
 	expressApplyAutoScaling(client, svc, scaling)
 }
 
-// expressUpdateAutoScaling re-applies the scaling configuration on update.
 func expressUpdateAutoScaling(client ecsGatewayClient, svc *ECSExpressService, scaling *expressScalingTarget) {
 	applied := expressNormalizeScalingTarget(scaling)
 	if applied.MinTaskCount == nil {
@@ -1180,10 +1137,8 @@ func expressApplyAutoScaling(client ecsGatewayClient, svc *ECSExpressService, sc
 	}
 }
 
-// expressTeardown removes the service's resources as the infrastructure role,
-// stopping at the first refusal, which it records on the resource. The shared
-// load balancer, its listener and its security group go with the last service
-// on it.
+// Stops at the first refusal and records it. The last service on a shared
+// load balancer removes the load balancer, listener and security group.
 func expressTeardown(client ecsGatewayClient, svc *ECSExpressService) *ecsGatewayCallFailure {
 	if svc.EcsServiceKey != "" {
 		lock := ecsServiceLock(svc.EcsServiceKey)
@@ -1215,10 +1170,8 @@ func expressTeardown(client ecsGatewayClient, svc *ECSExpressService) *ecsGatewa
 		svc.TargetGroup.deleted()
 		save()
 	}
-	// The last service on a shared load balancer takes the listener, the load
-	// balancer and its security group with it; an earlier one takes its
-	// certificate off the listener. Either way the certificate goes once no
-	// listener carries it.
+	// An earlier service only takes its certificate off the listener; either way
+	// the certificate goes once no listener carries it.
 	lb, onLoadBalancer := ecsExpressLoadBalancers.Get(svc.LoadBalancerArn)
 	remaining := expressServicesOnLoadBalancer(svc.LoadBalancerArn, svc.ServiceArn)
 	if onLoadBalancer && len(remaining) == 0 {
@@ -1270,7 +1223,7 @@ func expressTeardown(client ecsGatewayClient, svc *ECSExpressService) *ecsGatewa
 		svc.ScalableTarget.deleted()
 		save()
 	}
-	// The tasks' group goes after the load balancer's, which its rule names.
+	// The tasks' group goes after the load balancer's, whose rule names it.
 	if svc.ServiceSecurityGroup != nil && svc.ServiceSecurityGroup.active() {
 		if failure := ecsGatewayDeleteSecurityGroup(client, svc.ServiceSecurityGroupID); failure != nil && failure.Code != "InvalidGroup.NotFound" {
 			svc.ServiceSecurityGroup.fail(failure)
@@ -1282,8 +1235,7 @@ func expressTeardown(client ecsGatewayClient, svc *ECSExpressService) *ecsGatewa
 	return nil
 }
 
-// expressDeleteLoadBalancer removes a shared load balancer its last service
-// left: its listener, then the load balancer, then its security group.
+// The listener, then the load balancer, then its security group.
 func expressDeleteLoadBalancer(client ecsGatewayClient, lb ECSExpressLoadBalancer) *ecsGatewayCallFailure {
 	if lb.Listener.active() {
 		if _, failure := client.elb("DeleteListener", url.Values{"ListenerArn": {lb.ListenerArn}}); failure != nil {
@@ -1310,9 +1262,8 @@ func expressDeleteLoadBalancer(client ecsGatewayClient, lb ECSExpressLoadBalance
 	return nil
 }
 
-// expressDetachCertificate takes a leaving service's certificate off the
-// shared listener; when it is the listener's default, another service's
-// certificate takes its place.
+// When it is the listener's default, another service's certificate replaces
+// it.
 func expressDetachCertificate(client ecsGatewayClient, svc ECSExpressService, lb ECSExpressLoadBalancer, remaining []ECSExpressService) *ecsGatewayCallFailure {
 	listener, ok := elbv2Listeners.Get(lb.ListenerArn)
 	if ok && len(listener.Certificates) > 0 && listener.Certificates[0] == svc.Certificate.Arn {
@@ -1336,8 +1287,7 @@ func expressDetachCertificate(client ecsGatewayClient, svc ECSExpressService, lb
 	return failure
 }
 
-// ecsExpressManagedResourcesJSON is the ECSManagedResources of the Express
-// service whose revision revisionArn is, or nil for any other revision.
+// nil for a revision that is not an Express service's.
 func ecsExpressManagedResourcesJSON(revisionArn string) map[string]any {
 	if ecsExpressServices == nil {
 		return nil
@@ -1421,8 +1371,7 @@ func ecsExpressManagedResourcesJSON(revisionArn string) map[string]any {
 	return out
 }
 
-// ecsExpressHostnameAddresses answers each Express service's hostname with the
-// address of the load balancer that carries it, while the service is on it.
+// Only while the service is on the load balancer.
 func ecsExpressHostnameAddresses() map[string]string {
 	if ecsExpressServices == nil {
 		return nil
@@ -1438,8 +1387,7 @@ func ecsExpressHostnameAddresses() map[string]string {
 
 func expressBoolPtr(b bool) *bool { return &b }
 
-// joinSorted joins a string slice into a stable, order-independent key (a copy
-// is sorted so the caller's slice is untouched).
+// Sorts a copy, leaving the caller's slice untouched.
 func joinSorted(in []string) string {
 	cp := append([]string(nil), in...)
 	sort.Strings(cp)

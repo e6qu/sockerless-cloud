@@ -57,8 +57,8 @@ func TestELBTrustStoreTerraform(t *testing.T) {
 	require.Contains(t, arn, ":truststore/tf-mtls/")
 	assert.NotEmpty(t, outputs["revocation_id"].Value)
 
-	// The provider does not expose the counts, so read them back through the
-	// Elastic Load Balancing API.
+	// The provider exposes neither count, so read them through the Elastic Load
+	// Balancing API.
 	client := elbv2.New(elbv2.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), HTTPClient: env.Client,
 		Credentials: credentials.NewStaticCredentialsProvider("test", "test", "")})
 	described, err := client.DescribeTrustStores(context.Background(), &elbv2.DescribeTrustStoresInput{TrustStoreArns: []string{arn}})

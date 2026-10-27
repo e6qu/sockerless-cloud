@@ -26,7 +26,8 @@ const (
 	sqlStateCannotConnectNow     = "57P03"
 )
 
-// Frontend authenticates a client before its session is relayed to the engine.
+// Frontend authenticates a client before the endpoint relays its session to
+// the engine.
 type Frontend struct {
 	Certificate func() (tls.Certificate, error)
 	// RefusePlaintext, when set, answers whether a client that did not ask for

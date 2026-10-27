@@ -14,10 +14,8 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 )
 
-// TestSecretManager_ConcurrentAddVersion_UniqueIDs asserts that concurrent
-// AddSecretVersion calls each get a distinct, monotonic version ID — the
-// per-secret counter is reserved atomically, so no two versions collide and
-// none is silently overwritten.
+// TestSecretManager_ConcurrentAddVersion_UniqueIDs: concurrent
+// AddSecretVersion calls each get a distinct version ID, numbered 1..n.
 func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)
@@ -62,7 +60,6 @@ func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 		require.False(t, ids[id], "duplicate version ID %d — IDs collided under concurrency", id)
 		ids[id] = true
 	}
-	// IDs must be exactly 1..n (monotonic, no gaps, no collisions).
 	got := make([]int, 0, len(ids))
 	for id := range ids {
 		got = append(got, id)
@@ -73,8 +70,6 @@ func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 	}
 }
 
-// TestSecretManager_ListFilter asserts ListSecrets honors the `filter` query
-// param (label match), instead of returning the full set.
 func TestSecretManager_ListFilter(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)
@@ -100,8 +95,6 @@ func TestSecretManager_ListFilter(t *testing.T) {
 	}
 }
 
-// TestCloudKMS_ConcurrentCreateVersion_UniqueIDs asserts concurrent
-// CreateCryptoKeyVersion calls each reserve a distinct version ID atomically.
 func TestCloudKMS_ConcurrentCreateVersion_UniqueIDs(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
@@ -117,8 +110,6 @@ func TestCloudKMS_ConcurrentCreateVersion_UniqueIDs(t *testing.T) {
 	}).CryptoKeyId("concurrency-key").Do()
 	require.NoError(t, err)
 
-	// The key starts with primary version 1. Spawn concurrent new-version
-	// creations.
 	const n = 10
 	var wg sync.WaitGroup
 	errs := make([]error, n)
@@ -137,7 +128,6 @@ func TestCloudKMS_ConcurrentCreateVersion_UniqueIDs(t *testing.T) {
 
 	versions, err := svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.List(keyName).Do()
 	require.NoError(t, err)
-	// 1 initial + n concurrently created, all distinct.
 	require.Len(t, versions.CryptoKeyVersions, n+1, "every concurrent CreateCryptoKeyVersion must persist a distinct version")
 	seen := map[string]bool{}
 	for _, v := range versions.CryptoKeyVersions {

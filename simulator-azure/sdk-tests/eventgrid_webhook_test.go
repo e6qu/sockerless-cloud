@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newEventGridWebhook serves a webhook the way an Event Grid subscriber does:
-// it answers the subscription validation handshake by echoing the event's
-// validationCode, and hands every notification's events to the channel.
+// newEventGridWebhook serves an Event Grid subscriber: it echoes the
+// validationCode of the validation handshake and hands every delivery's events
+// to the channel.
 func newEventGridWebhook(t *testing.T) (*httptest.Server, chan []map[string]any) {
 	t.Helper()
 	deliveries := make(chan []map[string]any, 16)
@@ -46,8 +46,7 @@ func newEventGridWebhook(t *testing.T) (*httptest.Server, chan []map[string]any)
 
 // A webhook subscription's create runs Event Grid's validation handshake: an
 // endpoint that answers without the echo completes it by visiting the
-// validationUrl, and an endpoint that refuses it fails the create with Url
-// validation.
+// validationUrl, and one that refuses fails the create with Url validation.
 func TestEventGrid_WebhookValidationHandshakeSDK(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-eventgrid-handshake-rg"

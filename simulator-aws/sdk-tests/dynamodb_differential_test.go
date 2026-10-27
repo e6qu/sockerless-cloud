@@ -21,44 +21,34 @@ import (
 	smithy "github.com/aws/smithy-go"
 )
 
-// Lever 5b of the #652 "silent incompleteness" prevention work: differential
-// testing of the sockerless DynamoDB slice against a reference oracle (Amazon's
-// own DynamoDB Local). Each scenario runs the SAME sequence of operations
-// against the sim and against DynamoDB Local and asserts the observable outcome
-// is identical. This catches the "silent-wrong" class automatically: a dropped
-// field, a mis-evaluated expression, or an accepted-but-wrong write diverges
-// from the oracle and fails the test.
+// These tests run each scenario's operations against the simulator and
+// against Amazon's DynamoDB Local and expect the same observable outcome, so a
+// dropped field, a mis-evaluated expression or a wrong write diverges from the
+// oracle.
 //
-// IMPORTANT (per project direction): DynamoDB Local is a reference, not a
-// ceiling. The sockerless sim may legitimately become *more* faithful to real
-// AWS than DynamoDB Local is — and where it does, we must NOT regress the sim to
-// match the oracle. Such a divergence is recorded in diffKnownDivergences with a
-// justification (ideally citing real AWS behavior), and the test asserts the
-// divergence is exactly the documented one (so a regression on either side still
-// fails). Every other divergence is a real bug and fails the test.
+// DynamoDB Local is a reference, not a ceiling: where the simulator is more
+// faithful to DynamoDB, record the divergence in diffKnownDivergences with the
+// reason rather than regress the simulator. The test then asserts exactly the
+// recorded divergence, and any other fails.
 
-// diffResult is the observable outcome of one scenario against one client: a
-// normalized value (JSON-comparable) plus the AWS error code, if the operation
-// failed. Exactly one of value / errCode is meaningful per scenario, but both
-// are compared so an "errored vs succeeded" divergence is caught.
+// diffResult is one scenario's outcome against one client: a JSON-comparable
+// value and the AWS error code if the operation failed. Both are compared, so
+// an errored-versus-succeeded divergence shows.
 type diffResult struct {
 	value   any
 	errCode string
 }
 
-// diffDivergence documents a case where the sim and DynamoDB Local legitimately
-// differ because the sim is the more faithful of the two. The test asserts the
-// observed results match these exactly.
+// diffDivergence records a case where the simulator is the more faithful of the
+// two; the observed results must match it exactly.
 type diffDivergence struct {
 	sim    diffResult
 	local  diffResult
 	reason string
 }
 
-// diffKnownDivergences is empty today: every scenario below agrees with DynamoDB
-// Local. When the sim is intentionally more faithful than DynamoDB Local on some
-// behavior, add an entry here (keyed by scenario name) with the reason — do not
-// change the sim to match the oracle.
+// diffKnownDivergences holds, by scenario name, each case where the simulator is
+// intentionally more faithful than DynamoDB Local, with the reason.
 var diffKnownDivergences = map[string]diffDivergence{}
 
 func TestDynamoDB_DifferentialVsLocal(t *testing.T) {
@@ -78,13 +68,11 @@ func TestDynamoDB_DifferentialVsLocal(t *testing.T) {
 			localRes := captureDiff(func() (any, error) { return sc.run(localC, sc.name+"-local") })
 
 			if div, ok := diffKnownDivergences[sc.name]; ok {
-				// Documented sim-superiority divergence: assert it's exactly the
-				// known shape on both sides (a change on either side still fails).
+				// A recorded divergence must hold exactly on both sides.
 				assertDiffEqual(t, "sim (documented divergence: "+div.reason+")", div.sim, simRes)
 				assertDiffEqual(t, "DynamoDB Local (documented divergence: "+div.reason+")", div.local, localRes)
 				return
 			}
-			// Default: the sim must agree with the oracle.
 			if simRes.errCode != localRes.errCode || canonJSON(simRes.value) != canonJSON(localRes.value) {
 				t.Errorf("differential mismatch for %q:\n  sim:   err=%q value=%s\n  local: err=%q value=%s\n"+
 					"If the sim is the MORE faithful one here, add a diffKnownDivergences entry with a justification "+
@@ -97,8 +85,8 @@ func TestDynamoDB_DifferentialVsLocal(t *testing.T) {
 
 type diffScenario struct {
 	name string
-	// run performs the scenario's full setup→operation→read-back against one
-	// client, using the given unique table name, and returns the observable.
+	// run performs the scenario's setup, operation and read-back against one
+	// client under the given table name, and returns the outcome.
 	run func(c *dynamodb.Client, table string) (any, error)
 }
 
@@ -156,7 +144,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 		}},
 
 		{"update-if-not-exists-parenthesized-subtract", func(c *dynamodb.Client, table string) (any, error) {
-			// The ElectroDB-style decrement (#648): the RHS is always parenthesized.
+			// The ElectroDB decrement always parenthesizes the RHS.
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
 			}
@@ -180,7 +168,7 @@ func dynamoDifferentialScenarios() []diffScenario {
 		}},
 
 		{"condition-put-if-absent", func(c *dynamodb.Client, table string) (any, error) {
-			// terraform's state-lock guard: the second put must fail.
+			// Terraform's state-lock guard: the second put fails.
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
 			}
@@ -192,7 +180,6 @@ func dynamoDifferentialScenarios() []diffScenario {
 			if _, err := c.PutItem(ctx, put); err != nil {
 				return nil, err
 			}
-			// Second put with the same condition must be rejected.
 			_, err := c.PutItem(ctx, put)
 			return "second-put", err
 		}},
@@ -246,7 +233,6 @@ func dynamoDifferentialScenarios() []diffScenario {
 		}},
 
 		{"transact-write-update", func(c *dynamodb.Client, table string) (any, error) {
-			// #641: TransactWriteItems with an Update action.
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
 			}
@@ -280,12 +266,11 @@ func dynamoDifferentialScenarios() []diffScenario {
 			if _, err := c.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &table, Key: diffKey("k", nil)}); err != nil {
 				return nil, err
 			}
-			return diffGet(c, table, "k") // expect the absent sentinel on both
+			return diffGet(c, table, "k")
 		}},
 
 		{"malformed-filter-fails-loud", func(c *dynamodb.Client, table string) (any, error) {
-			// Both the sim and DynamoDB Local must reject a malformed expression
-			// with ValidationException (lever 2, validated against the oracle).
+			// Both reject a malformed expression with ValidationException.
 			if err := diffMakeTable(c, table); err != nil {
 				return nil, err
 			}
@@ -541,8 +526,6 @@ func dynamoDifferentialScenarios() []diffScenario {
 	}
 }
 
-// ── scenario helpers ─────────────────────────────────────────────────────────
-
 // diffMakeTableWithIndex is a table keyed by PK with a KEYS_ONLY global index
 // byGroup on grp (hash) and rank (numeric range).
 func diffMakeTableWithIndex(c *dynamodb.Client, table string) error {
@@ -588,9 +571,9 @@ func diffPutIndexed(c *dynamodb.Client, table string) error {
 	return nil
 }
 
-// diffRefusal turns a refusal into the scenario's value, its code and its
-// message, so the wording is compared with DynamoDB Local's and not only the
-// code; captureDiff keeps nothing but the code of an error.
+// diffRefusal turns a refusal into the scenario's value (code and message), so
+// the wording is compared with DynamoDB Local's; captureDiff keeps only an
+// error's code.
 func diffRefusal(err error) (any, error) {
 	if err == nil {
 		return "accepted", nil
@@ -691,15 +674,13 @@ func diffGet(c *dynamodb.Client, table, pk string) (any, error) {
 	return diffNormItem(out.Item), nil
 }
 
-// ── normalization ────────────────────────────────────────────────────────────
-
 func diffNormItems(items []map[string]ddbtypes.AttributeValue) any {
 	out := make([]any, 0, len(items))
 	for _, it := range items {
 		out = append(out, diffNormItem(it))
 	}
-	// Sort by canonical JSON so result ordering doesn't cause false mismatches
-	// (Scan/Query ordering is compared separately where it matters via the key).
+	// Sort by canonical JSON so result order cannot cause a mismatch; where order
+	// matters the key compares it.
 	sort.Slice(out, func(i, j int) bool { return canonJSON(out[i]) < canonJSON(out[j]) })
 	return out
 }
@@ -712,9 +693,8 @@ func diffNormItem(item map[string]ddbtypes.AttributeValue) any {
 	return m
 }
 
-// diffNormAV renders a DynamoDB attribute value into a canonical, comparable
-// shape, normalizing numbers (so "5" and "5.0" compare equal) and sorting set
-// members.
+// diffNormAV renders an attribute value comparably: numbers canonical ("5"
+// equals "5.0") and set members sorted.
 func diffNormAV(v ddbtypes.AttributeValue) any {
 	switch t := v.(type) {
 	case *ddbtypes.AttributeValueMemberS:
@@ -755,10 +735,8 @@ func diffNormAV(v ddbtypes.AttributeValue) any {
 	}
 }
 
-// canonNum reduces a DynamoDB numeric string to a canonical form so that
-// numerically-equal values compare equal regardless of formatting. The same
-// transform is applied to both sides, so the exact canonical text is irrelevant
-// — only its determinism and equality semantics matter.
+// canonNum reduces a numeric string to a canonical form so equal numbers
+// compare equal whatever their formatting; both sides take the same transform.
 func canonNum(s string) string {
 	if r, ok := new(big.Rat).SetString(s); ok {
 		return r.RatString()
@@ -785,15 +763,12 @@ func awsErrCode(err error) string {
 	return ""
 }
 
-// ── DynamoDB Local lifecycle ─────────────────────────────────────────────────
-
 // dynamoDBLocalLabel marks the DynamoDB Local containers this suite starts, so
-// one left behind by a killed run can be found and removed by the next one.
+// the next run finds and removes one a killed run left behind.
 const dynamoDBLocalLabel = "sockerless-aws-sdk-test=dynamodb-local"
 
-// reapStaleDynamoDBLocal removes DynamoDB Local containers left over from an
-// earlier run of this suite. A survivor holds the published port and the
-// container name, so the next run fails to start until it is gone.
+// reapStaleDynamoDBLocal removes DynamoDB Local containers an earlier run left
+// behind, which hold the published port and the container name.
 func reapStaleDynamoDBLocal(t *testing.T) {
 	t.Helper()
 	listCtx, cancelList := context.WithTimeout(context.Background(), 30*time.Second)
@@ -813,30 +788,25 @@ func reapStaleDynamoDBLocal(t *testing.T) {
 	}
 }
 
-// startDynamoDBLocal launches Amazon's DynamoDB Local in a throwaway Docker
-// container and returns its endpoint plus a stop func. Docker is a required
-// dependency for this oracle-backed test; a missing binary or pull/start failure
-// fails loud instead of reporting a green test that exercised nothing.
+// startDynamoDBLocal runs DynamoDB Local in a throwaway Docker container and
+// returns its endpoint and a stop func. Docker is required: a missing binary
+// or a failed pull or start fails the test.
 func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker is required for DynamoDB Local differential test: %v", err)
 	}
 
-	// Amazon publishes DynamoDB Local on Docker Hub as well as on the ECR
-	// Public Gallery, and mirror.gcr.io serves the Docker Hub copy without
-	// either registry's anonymous limits, which throttle a shared CI runner
-	// and fail this oracle-backed test for a reason that has nothing to do
-	// with DynamoDB. Pinned by digest: the oracle is only an oracle if it stays
-	// the same one, and both registries serve this digest.
+	// mirror.gcr.io serves Docker Hub's copy of DynamoDB Local without the
+	// anonymous rate limits that throttle a shared CI runner. The digest pins the
+	// oracle, and both registries serve it.
 	const pinned = "mirror.gcr.io/amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
 	image, err := baseimage.EnsureRef(pinned)
 	if err != nil {
 		t.Fatalf("docker is present but %s could not be pulled after retries: %v", pinned, err)
 	}
-	// A digest copied from one machine can name that machine's platform
-	// manifest rather than the index, and another architecture then pulls an
-	// image it cannot execute.
+	// A digest copied from one machine can name its platform manifest rather than
+	// the index, which another architecture cannot execute.
 	archCtx, cancelArch := context.WithTimeout(context.Background(), 30*time.Second)
 	engineArch, engineErr := exec.CommandContext(archCtx, "docker", "version", "--format", "{{.Server.Arch}}").CombinedOutput()
 	imageArch, imageErr := exec.CommandContext(archCtx, "docker", "image", "inspect", "--format", "{{.Architecture}}", image).CombinedOutput()
@@ -856,18 +826,15 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	// -inMemory keeps it fast and stateless; each run starts clean.
+	// -inMemory keeps each run clean.
 	containerName := fmt.Sprintf("sockerless-dynamodb-local-%d", port)
-	// A test binary that is killed — a timeout, an interrupt, a crashed run —
-	// leaves DynamoDB Local running with its port held for as long as the
-	// machine stays up. The label
-	// makes those survivors findable, and every run reaps them before starting
-	// its own: this helper is the only thing that carries the label, and it
-	// starts exactly one container per run.
+	// A killed test binary leaves DynamoDB Local running with its port held, so
+	// each run first reaps labelled survivors; only this helper sets the label,
+	// one container per run.
 	reapStaleDynamoDBLocal(t)
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 2*time.Minute)
-	// No --rm: a DynamoDB Local that exits must stay inspectable, or its exit
-	// code and log vanish with it. stop removes it.
+	// No --rm: an exited DynamoDB Local stays inspectable with its exit code and
+	// log. stop removes it.
 	runOut, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--name", containerName,
 		"--label", dynamoDBLocalLabel,
 		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
@@ -907,9 +874,9 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 	probe := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-	// DynamoDB Local is a JVM, and a cold start on a loaded CI runner can take
-	// well over 30s. The deadline is wall-clock and each probe carries its own
-	// timeout, so a probe the SDK retries cannot stretch the wait.
+	// DynamoDB Local is a JVM whose cold start on a loaded runner can pass 30s.
+	// The deadline is wall-clock and each probe has its own timeout, so SDK
+	// retries cannot stretch the wait.
 	deadline := time.Now().Add(120 * time.Second)
 	var probeErr error
 	for {

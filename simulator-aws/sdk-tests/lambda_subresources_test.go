@@ -27,10 +27,9 @@ func lambdaCreateFn(t *testing.T, c *lambda.Client, name string) string {
 	return aws.ToString(out.FunctionArn)
 }
 
-// TestLambda_PublishVersion creates a function, publishes versions
-// monotonically, and lists them. Each PublishVersion returns 201 with
-// a Version field; the Nth call gives "N". ListVersionsByFunction
-// includes $LATEST followed by published versions.
+// TestLambda_PublishVersion expects each PublishVersion to answer 201 with the
+// next number as Version, and ListVersionsByFunction to list $LATEST then the
+// published versions.
 func TestLambda_PublishVersion(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
@@ -60,9 +59,8 @@ func TestLambda_PublishVersion(t *testing.T) {
 	}
 }
 
-// TestLambda_ListFunctions_FunctionVersionAll verifies that ListFunctions
-// with FunctionVersion=ALL returns both $LATEST and every published version,
-// while the default call returns only $LATEST.
+// TestLambda_ListFunctions_FunctionVersionAll expects FunctionVersion=ALL to
+// list $LATEST and every published version, and the default only $LATEST.
 func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
@@ -75,7 +73,6 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	_, err = c.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(name)})
 	require.NoError(t, err)
 
-	// Default: only $LATEST for this function.
 	defList, err := c.ListFunctions(ctx, &lambda.ListFunctionsInput{})
 	require.NoError(t, err)
 	var defForName *types.FunctionConfiguration
@@ -87,7 +84,6 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	require.NotNil(t, defForName, "default list must include the function")
 	assert.Equal(t, "$LATEST", aws.ToString(defForName.Version), "default list must show $LATEST only")
 
-	// FunctionVersion=ALL: should include $LATEST + 2 published versions for this function.
 	all, err := c.ListFunctions(ctx, &lambda.ListFunctionsInput{
 		FunctionVersion: types.FunctionVersionAll,
 	})
@@ -103,7 +99,6 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	assert.Contains(t, seen, "2", "FunctionVersion=ALL must include published version 2")
 }
 
-// TestLambda_AliasCRUD exercises the full alias lifecycle.
 func TestLambda_AliasCRUD(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
@@ -156,9 +151,8 @@ func TestLambda_AliasCRUD(t *testing.T) {
 	require.Error(t, err, "deleted alias must 404")
 }
 
-// TestLambda_AddRemovePermission exercises the resource-policy
-// statement CRUD (AddPermission appends, GetPolicy reads the doc,
-// RemovePermission deletes by Sid).
+// TestLambda_AddRemovePermission expects AddPermission to append a statement
+// GetPolicy reads, and RemovePermission to delete it by Sid.
 func TestLambda_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
@@ -191,8 +185,6 @@ func TestLambda_AddRemovePermission(t *testing.T) {
 	require.Error(t, err, "GetPolicy must 404 when no statements remain")
 }
 
-// TestLambda_FunctionUrlConfigCRUD exercises the FunctionUrlConfig
-// lifecycle (Create→Get→Update→Delete).
 func TestLambda_FunctionUrlConfigCRUD(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()

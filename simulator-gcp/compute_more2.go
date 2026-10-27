@@ -10,19 +10,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file is an isolated tranche of Compute Engine (compute v1)
-// control-plane metadata CRUD, layered on top of compute.go /
-// compute_more.go without editing them. It reuses the
-// computeMetaResource machinery (defined in compute_more.go) for the
-// standard insert/get/list/delete/patch/setLabels/aggregated verbs and
-// adds faithful IAM-policy, custom-verb, and read-only catalog handlers
-// for resource families the first two files do not yet cover. Every
-// handler is metadata-only: it stores the client-sent resource and
-// returns the Operation / list / policy shape the Discovery document
-// defines — no real-exec networking, no synthetic status.
-
-// registerComputeMore2 wires the second wave of metadata-only Compute
-// control-plane collections onto the shared mux.
 func registerComputeMore2(srv *sim.Server) {
 	mk := func(table string) sim.Store[map[string]any] {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
@@ -34,22 +21,15 @@ func registerComputeMore2(srv *sim.Server) {
 	regionAutoscalers := mk("compute_region_autoscalers")
 	zoneAutoscalers := mk("compute_zone_autoscalers")
 
-	// Standard metadata-only CRUD families. Each entry reuses
-	// computeMetaResource.register, which stamps the server-owned members
-	// (kind / id / selfLink / creationTimestamp / scope URL) real GCP
-	// fills in and returns the scope-appropriate Operation on insert /
-	// delete / patch / setLabels. The aggregated flag is set only for
-	// collections whose Discovery document defines an aggregatedList
-	// method, so no invented /aggregated/<collection> route is registered.
-	// Shared so the node verbs in compute_members.go address the same groups,
-	// and the reservation verbs the same reservations.
+	// The aggregated flag marks only the collections whose Discovery document
+	// declares an aggregatedList. The node verbs in compute_members.go and the
+	// reservation verbs share these stores.
 	gcpComputeNodeGroups = mk("compute_node_groups")
 	gcpComputeReservations = mk("compute_reservations")
 	gcpComputeRegionalPublicDelegatedPrefixes = mk("compute_region_public_delegated_prefixes")
 	gcpComputeBackendBuckets = mk("compute_backend_buckets")
 
 	families := []computeMetaResource{
-		// Global load-balancing / addressing / policy resources.
 		{collection: "backendBuckets", kind: "compute#backendBucket", scope: cScopeGlobal, store: gcpComputeBackendBuckets, patch: true, update: true, aggregated: true, listUsableKind: "compute#usableBackendBucketList",
 			// setEdgeSecurityPolicy sends a SecurityPolicyReference, so its
 			// body member is securityPolicy while the bucket stores it as
@@ -67,7 +47,6 @@ func registerComputeMore2(srv *sim.Server) {
 			}},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeGlobal, store: mk("compute_ssl_policies"), patch: true, aggregated: true},
 
-		// Regional resources.
 		{collection: "resourcePolicies", kind: "compute#resourcePolicy", scope: cScopeRegion, store: mk("compute_resource_policies"), patch: true, aggregated: true},
 		{collection: "sslCertificates", kind: "compute#sslCertificate", scope: cScopeRegion, store: mk("compute_region_ssl_certificates")},
 		// The regional public delegated prefixes are a separate collection
@@ -96,7 +75,6 @@ func registerComputeMore2(srv *sim.Server) {
 		{collection: "instantSnapshots", kind: "compute#instantSnapshot", scope: cScopeRegion, store: mk("compute_region_instant_snapshots"), setLabels: true},
 		{collection: "sslPolicies", kind: "compute#sslPolicy", scope: cScopeRegion, store: mk("compute_region_ssl_policies"), patch: true},
 
-		// Zonal resources.
 		{collection: "autoscalers", kind: "compute#autoscaler", scope: cScopeZone, store: zoneAutoscalers, testIamOnly: true},
 		{collection: "nodeGroups", kind: "compute#nodeGroup", scope: cScopeZone, store: gcpComputeNodeGroups, patch: true, aggregated: true},
 		{collection: "reservations", kind: "compute#reservation", scope: cScopeZone, store: gcpComputeReservations, patch: true, aggregated: true, resourceMetadata: true},
@@ -116,15 +94,10 @@ func registerComputeMore2(srv *sim.Server) {
 		res.register(srv)
 	}
 
-	// Licenses: a global metadata resource whose List response carries no
-	// `kind` member (LicensesListResponse), so it cannot ride the shared
-	// list helper (which always stamps kind). Registered with bespoke
-	// handlers that round-trip the stored License faithfully.
 	registerComputeLicenses(srv, mk("compute_licenses"), mk("compute_license_codes"))
 
-	// autoscalers.patch / autoscalers.update are collection-level verbs
-	// (the target is named by the `autoscaler` query parameter, not a path
-	// segment), so they cannot ride the shared item-level helper.
+	// autoscalers.patch and .update name the autoscaler in a query parameter
+	// rather than a path segment, so they mount at the collection base.
 	registerComputeAutoscalerCollectionMutations(srv, cScopeRegion, regionAutoscalers)
 	registerComputeAutoscalerCollectionMutations(srv, cScopeZone, zoneAutoscalers)
 
@@ -166,11 +139,9 @@ func registerComputeMore2(srv *sim.Server) {
 	registerComputeRegionDiskTypesCatalog(srv)
 }
 
-// registerComputeLicenses wires the global licenses collection. Licenses
-// is registered standalone rather than via computeMetaResource because
-// the LicensesListResponse schema defines no `kind` member (the shared
-// list helper always stamps kind); every verb here emits exactly the
-// documented License / LicensesListResponse / Operation shape.
+// registerComputeLicenses serves the global licenses collection on its own:
+// LicensesListResponse declares no `kind`, which the shared list helper
+// always stamps.
 func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]any]) {
 	const collection = "licenses"
 	base := computeScopeMux(cScopeGlobal, collection)
@@ -209,20 +180,14 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(sim.PathParam(r, "project"), "global", computeSelfLink(key), "insert"))
 	})
 
-	// A licence code is read as a resource of its own, and every field the
-	// LicenseCode schema declares that this simulator knows is the licence's:
-	// the code names the licence it was issued for, and the alias is that
-	// licence's URL and description. The fields a licence here never carries —
-	// the retention and attachment rules Compute Engine's own published
-	// licences set — are left out rather than defaulted, because a licence
-	// this project created declares them or it does not.
+	// A licence code reads as its own resource: the code names its licence, and
+	// the alias carries that licence's URL and description. The retention and
+	// attachment rules Google's published licences set are absent unless the
+	// licence declares them.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{licenseCode}",
 		func(w http.ResponseWriter, r *http.Request) {
-			// The code is its own row, so this is a lookup rather than a walk
-			// of every licence. The row holds the licence's storage key: the
-			// licence stays the one copy of the data, and a code whose licence
-			// has been deleted resolves to nothing, which is the same answer
-			// as a code that was never issued.
+			// The code is its own row holding the licence's key, so a code whose licence
+			// is gone resolves to nothing, like one never issued.
 			code := sim.PathParam(r, "licenseCode")
 			notFound := func() {
 				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
@@ -307,8 +272,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 		if page == nil {
 			page = []map[string]any{}
 		}
-		// LicensesListResponse has no `kind` member; emit only the
-		// documented id / items / nextPageToken fields.
+		// LicensesListResponse has no `kind`; emit only id, items and nextPageToken.
 		resp := map[string]any{"id": computeNumericID(), "items": page}
 		if next != "" {
 			resp["nextPageToken"] = next
@@ -359,11 +323,9 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 	})
 }
 
-// registerComputeAutoscalerCollectionMutations wires autoscalers.patch
-// and autoscalers.update. Unlike most Compute mutations these target
-// the autoscaler via the collection path plus an `autoscaler` query
-// parameter rather than a path segment, so they are registered at the
-// collection base and share the patch verb's store.
+// registerComputeAutoscalerCollectionMutations serves autoscalers.patch and
+// .update at the collection base with the `autoscaler` query parameter,
+// sharing the patch verb's store.
 func registerComputeAutoscalerCollectionMutations(srv *sim.Server, scope computeScopeKind, store sim.Store[map[string]any]) {
 	base := computeScopeMux(scope, "autoscalers")
 	apply := func(w http.ResponseWriter, r *http.Request, opType string, merge bool) {
@@ -457,9 +419,8 @@ func registerComputeRegionTargetHttpsProxySetters(srv *sim.Server) {
 	mutate("setSslCertificates", "setSslCertificates")
 }
 
-// registerComputeSslPoliciesAvailableFeatures wires the
-// sslPolicies.listAvailableFeatures read, which returns the cipher /
-// feature catalog GCP publishes for the selected profile.
+// registerComputeSslPoliciesAvailableFeatures serves
+// sslPolicies.listAvailableFeatures from the published cipher catalog.
 func registerComputeSslPoliciesAvailableFeatures(srv *sim.Server, scope computeScopeKind) {
 	base := computeScopeMux(scope, "sslPolicies")
 	srv.HandleFunc("GET "+base+"/listAvailableFeatures", func(w http.ResponseWriter, r *http.Request) {
@@ -469,9 +430,8 @@ func registerComputeSslPoliciesAvailableFeatures(srv *sim.Server, scope computeS
 	})
 }
 
-// computeTLSCipherFeatures is the published TLS cipher-suite feature list
-// GCP returns from sslPolicies.listAvailableFeatures (the documented
-// set of ciphers a custom profile may reference).
+// computeTLSCipherFeatures is the TLS cipher-suite list Compute Engine
+// publishes for a custom SSL policy profile.
 var computeTLSCipherFeatures = []string{
 	"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
 	"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
@@ -486,10 +446,9 @@ var computeTLSCipherFeatures = []string{
 	"TLS_RSA_WITH_3DES_EDE_CBC_SHA",
 }
 
-// registerComputeIAMTriplet wires the getIamPolicy / setIamPolicy /
-// testIamPermissions methods for one scoped collection. The policy is
-// stored per resource self-link path and round-tripped as the
-// compute-discovery Policy (version / bindings / auditConfigs / etag).
+// registerComputeIAMTriplet serves getIamPolicy, setIamPolicy and
+// testIamPermissions for one scoped collection, storing the Policy per
+// resource self-link path.
 func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collection string, store sim.Store[map[string]any]) {
 	base := computeScopeMux(scope, collection)
 	resourceKey := func(r *http.Request) string {
@@ -497,7 +456,6 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 		return fmt.Sprintf("projects/%s/%s/%s/%s", project, computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
 	}
 
-	// getIamPolicy
 	srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
 		key := resourceKey(r)
 		if pol, ok := store.Get(key); ok {
@@ -507,7 +465,6 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 		sim.WriteJSON(w, http.StatusOK, emptyComputeIamPolicy())
 	})
 
-	// setIamPolicy
 	srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
 		key := resourceKey(r)
 		var body map[string]any
@@ -520,7 +477,6 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 		sim.WriteJSON(w, http.StatusOK, pol)
 	})
 
-	// testIamPermissions
 	srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Permissions []string `json:"permissions"`
@@ -529,8 +485,8 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// Faithful to a simulator that grants every requested permission:
-		// the granted subset is echoed back verbatim.
+		// Echo every requested permission as granted; the stored policy is not
+		// consulted.
 		granted := req.Permissions
 		if granted == nil {
 			granted = []string{}
@@ -539,7 +495,6 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 	})
 }
 
-// emptyComputeIamPolicy returns a freshly-versioned empty Policy.
 func emptyComputeIamPolicy() map[string]any {
 	return map[string]any{
 		"version":  1,
@@ -548,11 +503,8 @@ func emptyComputeIamPolicy() map[string]any {
 	}
 }
 
-// buildComputeIamPolicy assembles the stored Policy from a setIamPolicy
-// request body. The compute API accepts either a wrapped `policy` object
-// or the top-level Policy fields; both spellings are honored. Bindings
-// arrive JSON-decoded as []interface{} and are normalized to a stable
-// []map[string]any shape before storage.
+// buildComputeIamPolicy reads a setIamPolicy body, whose Policy may be wrapped
+// in `policy` or given top-level, and normalizes its bindings for storage.
 func buildComputeIamPolicy(body map[string]any) map[string]any {
 	if body == nil {
 		body = map[string]any{}
@@ -597,8 +549,6 @@ func buildComputeIamPolicy(body map[string]any) map[string]any {
 	return pol
 }
 
-// normalizeBindings coerces a JSON-decoded bindings value ([]interface{}
-// of map[string]any) to the []map[string]any the store holds.
 func normalizeBindings(raw any) []map[string]any {
 	arr, ok := raw.([]interface{})
 	if !ok {
@@ -613,15 +563,14 @@ func normalizeBindings(raw any) []map[string]any {
 	return out
 }
 
-// registerComputeNodeTypesCatalog serves the zonal nodeTypes list / get /
-// aggregatedList — the sole-node hardware catalog GCP publishes.
+// registerComputeNodeTypesCatalog serves the zonal nodeTypes list, get and
+// aggregatedList.
 func registerComputeNodeTypesCatalog(srv *sim.Server) {
 	const collection = "nodeTypes"
 	zones := []string{"us-central1-a", "us-central1-b", "europe-west1-b"}
-	// Real sole-tenant node types whose name encodes their spec
-	// ("<gen>-node-<vCPU>-<GB>"), so guestCpus / memoryMb are derived
-	// verifiably (GB → MB at 1024). Values match the GCP node-types
-	// documentation for these names.
+	// Sole-tenant node type names encode their spec ("<gen>-node-<vCPU>-<GB>"),
+	// so guestCpus and memoryMb derive from the name, matching Google's
+	// node-types documentation.
 	type nodeSpec struct {
 		guestCpus int
 		memoryMb  int
@@ -674,8 +623,6 @@ func registerComputeNodeTypesCatalog(srv *sim.Server) {
 	})
 }
 
-// registerComputeStoragePoolTypesCatalog serves the zonal storagePoolTypes
-// catalog (list / get / aggregatedList).
 func registerComputeStoragePoolTypesCatalog(srv *sim.Server) {
 	const collection = "storagePoolTypes"
 	zones := []string{"us-central1-a", "us-central1-b", "europe-west1-b"}
@@ -714,8 +661,6 @@ func registerComputeStoragePoolTypesCatalog(srv *sim.Server) {
 	})
 }
 
-// registerComputeNetworkProfilesCatalog serves the global networkProfiles
-// catalog (list / get).
 func registerComputeNetworkProfilesCatalog(srv *sim.Server) {
 	const collection = "networkProfiles"
 	names := []string{"internet-profile", "private-network-profile"}
@@ -740,8 +685,6 @@ func registerComputeNetworkProfilesCatalog(srv *sim.Server) {
 	})
 }
 
-// registerComputeRegionDiskTypesCatalog serves the regional diskTypes
-// catalog (list / get).
 func registerComputeRegionDiskTypesCatalog(srv *sim.Server) {
 	const collection = "diskTypes"
 	names := []string{"pd-standard", "pd-balanced", "pd-ssd"}

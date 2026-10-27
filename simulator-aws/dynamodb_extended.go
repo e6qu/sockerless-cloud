@@ -1,18 +1,7 @@
 package main
 
-// DynamoDB extended control-plane operations: backups, point-in-time
-// restore, global tables (legacy + current), resource-based policies,
-// Kinesis streaming destinations, table exports/imports, and contributor
-// insights. These are faithful CRUD over per-resource metadata/state — the
-// sim stores the configuration the SDK/CLI/terraform write and reads back the
-// real DynamoDB shapes + error codes (ResourceNotFoundException,
-// ResourceInUseException, BackupNotFoundException, GlobalTableNotFoundException,
-// GlobalTableAlreadyExistsException, ExportNotFoundException,
-// ImportNotFoundException, PolicyNotFoundException).
-//
-// Timestamps serialize as Unix-epoch JSON numbers (the awsJson1_0 protocol's
-// timestamp form for DynamoDB — the SDK deserializer calls
-// smithytime.ParseEpochSeconds, which rejects an RFC3339 string).
+// Timestamps serialize as epoch-second JSON numbers; the SDK's
+// smithytime.ParseEpochSeconds rejects RFC 3339 strings.
 
 import (
 	"fmt"
@@ -25,9 +14,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// DDBBackup is a point-in-time snapshot of a table's schema + items, taken by
-// CreateBackup. The item snapshot is stored verbatim so RestoreTableFromBackup
-// can recreate the table exactly.
+// Store the item snapshot verbatim so RestoreTableFromBackup recreates the
+// table exactly.
 type DDBBackup struct {
 	BackupArn          string                    `json:"BackupArn"`
 	BackupName         string                    `json:"BackupName"`
@@ -44,25 +32,22 @@ type DDBBackup struct {
 	GSIs               []DDBGlobalSecondaryIndex `json:"GSIs"`
 	LSIs               []DDBLocalSecondaryIndex  `json:"LSIs"`
 	BillingMode        string                    `json:"BillingMode"`
-	Items              map[string]map[string]any `json:"Items"` // itemKey -> item
+	Items              map[string]map[string]any `json:"Items"`
 }
 
-// DDBGlobalTable is a legacy (2017.11.29) global table: a named set of region
-// replicas over a same-named table.
+// A legacy (2017.11.29) global table: Region replicas of a same-named table.
 type DDBGlobalTable struct {
 	GlobalTableName  string   `json:"GlobalTableName"`
 	GlobalTableArn   string   `json:"GlobalTableArn"`
 	CreationDateTime float64  `json:"CreationDateTime"`
-	Replicas         []string `json:"Replicas"` // region names
-	// Settings persisted by UpdateGlobalTableSettings.
+	Replicas         []string `json:"Replicas"`
+	// Persisted by UpdateGlobalTableSettings.
 	BillingMode             string           `json:"BillingMode"`
 	ProvisionedWriteUnits   int64            `json:"ProvisionedWriteUnits"`
 	ProvisionedReadUnits    int64            `json:"ProvisionedReadUnits"`
 	ProvisionedReadByRegion map[string]int64 `json:"ProvisionedReadByRegion"`
 }
 
-// DDBStreamDestination is a Kinesis Data Streams destination associated with a
-// table by EnableKinesisStreamingDestination.
 type DDBStreamDestination struct {
 	TableName                            string  `json:"TableName"`
 	StreamArn                            string  `json:"StreamArn"`
@@ -71,7 +56,6 @@ type DDBStreamDestination struct {
 	CreatedAt                            float64 `json:"CreatedAt"`
 }
 
-// DDBExport is a table export record created by ExportTableToPointInTime.
 type DDBExport struct {
 	ExportArn    string  `json:"ExportArn"`
 	TableArn     string  `json:"TableArn"`
@@ -88,7 +72,6 @@ type DDBExport struct {
 	ClientToken  string  `json:"ClientToken"`
 }
 
-// DDBImport is a table import record created by ImportTable.
 type DDBImport struct {
 	ImportArn          string              `json:"ImportArn"`
 	ImportStatus       string              `json:"ImportStatus"`
@@ -108,12 +91,10 @@ type DDBImport struct {
 	BillingMode        string              `json:"BillingMode"`
 }
 
-// DDBContributorInsight is the CloudWatch Contributor Insights enable/disable
-// state for a table or one of its indexes.
 type DDBContributorInsight struct {
 	TableName string  `json:"TableName"`
 	IndexName string  `json:"IndexName"`
-	Status    string  `json:"Status"` // ENABLED / DISABLED
+	Status    string  `json:"Status"`
 	Mode      string  `json:"Mode"`
 	UpdatedAt float64 `json:"UpdatedAt"`
 }
@@ -129,9 +110,6 @@ var (
 	ddbExtendedMu   sync.Mutex
 )
 
-// registerDynamoDBExtended mounts the extended control-plane handlers onto the
-// existing DynamoDB JSON router and initializes the backing stores. Called from
-// registerDynamoDB.
 func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 	ddbBackups = sim.MakeStore[DDBBackup](srv.DB(), "ddb_backups")
 	ddbGlobalTables = sim.MakeStore[DDBGlobalTable](srv.DB(), "ddb_global_tables")
@@ -146,7 +124,6 @@ func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 		r.Register(target, ddbRequire(ddbRequiredMembers[op], h))
 	}
 
-	// Backups.
 	reg("DynamoDB_20120810.CreateBackup", handleDDBCreateBackup)
 	reg("DynamoDB_20120810.DescribeBackup", handleDDBDescribeBackup)
 	reg("DynamoDB_20120810.ListBackups", handleDDBListBackups)
@@ -154,7 +131,6 @@ func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 	reg("DynamoDB_20120810.RestoreTableFromBackup", handleDDBRestoreTableFromBackup)
 	reg("DynamoDB_20120810.RestoreTableToPointInTime", handleDDBRestoreTableToPointInTime)
 
-	// Global tables (legacy + current).
 	reg("DynamoDB_20120810.CreateGlobalTable", handleDDBCreateGlobalTable)
 	reg("DynamoDB_20120810.DescribeGlobalTable", handleDDBDescribeGlobalTable)
 	reg("DynamoDB_20120810.ListGlobalTables", handleDDBListGlobalTables)
@@ -164,18 +140,15 @@ func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 	reg("DynamoDB_20120810.UpdateTableReplicaAutoScaling", handleDDBUpdateTableReplicaAutoScaling)
 	reg("DynamoDB_20120810.DescribeTableReplicaAutoScaling", handleDDBDescribeTableReplicaAutoScaling)
 
-	// Resource-based policy.
 	reg("DynamoDB_20120810.PutResourcePolicy", handleDDBPutResourcePolicy)
 	reg("DynamoDB_20120810.GetResourcePolicy", handleDDBGetResourcePolicy)
 	reg("DynamoDB_20120810.DeleteResourcePolicy", handleDDBDeleteResourcePolicy)
 
-	// Kinesis streaming destinations.
 	reg("DynamoDB_20120810.EnableKinesisStreamingDestination", handleDDBEnableKinesisStreaming)
 	reg("DynamoDB_20120810.DisableKinesisStreamingDestination", handleDDBDisableKinesisStreaming)
 	reg("DynamoDB_20120810.DescribeKinesisStreamingDestination", handleDDBDescribeKinesisStreaming)
 	reg("DynamoDB_20120810.UpdateKinesisStreamingDestination", handleDDBUpdateKinesisStreaming)
 
-	// Exports / imports.
 	reg("DynamoDB_20120810.ExportTableToPointInTime", handleDDBExportTableToPointInTime)
 	reg("DynamoDB_20120810.DescribeExport", handleDDBDescribeExport)
 	reg("DynamoDB_20120810.ListExports", handleDDBListExports)
@@ -183,12 +156,10 @@ func registerDynamoDBExtended(r *AWSRouter, srv *sim.Server) {
 	reg("DynamoDB_20120810.DescribeImport", handleDDBDescribeImport)
 	reg("DynamoDB_20120810.ListImports", handleDDBListImports)
 
-	// Contributor insights.
 	reg("DynamoDB_20120810.UpdateContributorInsights", handleDDBUpdateContributorInsights)
 	reg("DynamoDB_20120810.DescribeContributorInsights", handleDDBDescribeContributorInsights)
 	reg("DynamoDB_20120810.ListContributorInsights", handleDDBListContributorInsights)
 
-	// Endpoints discovery.
 	reg("DynamoDB_20120810.DescribeEndpoints", handleDDBDescribeEndpoints)
 }
 
@@ -215,15 +186,9 @@ func ddbStreamArn(stream string) string {
 	return stream
 }
 
-// ddbTableItemsSnapshot copies every stored item for a table into a fresh map
-// keyed by the per-item store key.
-//
-// The table's stripe is held while the stored maps are collected and released
-// before any of them is copied, which is what ddbItemSnapshots does: a
-// published item is never mutated in place, so the deep copy — the expensive
-// half, and the half that scales with the table — does not need the lock. A
-// backup or an export of a large table used to hold every other reader of that
-// table off for the whole JSON round trip of every row it held.
+// Collect under the table's stripe and copy after releasing it: a published
+// item never changes, so the deep copy, which scales with the table, needs no
+// lock.
 func ddbTableItemsSnapshot(tableName string) map[string]map[string]any {
 	return ddbItemSnapshots(ddbTableSortedKeys(tableName + "/"))
 }
@@ -288,8 +253,6 @@ func ddbBillingModeOf(t DDBTable) string {
 	return "PROVISIONED"
 }
 
-// ddbBackupDescription assembles the BackupDescription shape DescribeBackup and
-// DeleteBackup return.
 func ddbBackupDescription(bk DDBBackup) map[string]any {
 	keySchema := make([]map[string]any, 0, len(bk.KeySchema))
 	for _, k := range bk.KeySchema {
@@ -396,11 +359,10 @@ func handleDDBListBackups(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// ddbRestoreItems writes a backup's or snapshot's items into the target table,
-// each under the key the target's schema gives it; a backup taken by an older
-// build holds its items under that build's key encoding.
+// Key each item by the target's schema; a backup from an older build holds
+// its items under that build's encoding.
 func ddbRestoreItems(items map[string]map[string]any, srcTable string, target DDBTable) {
-	// Both tables: the source is read from and the target is written to.
+	// Lock both tables: read the source, write the target.
 	defer ddbItemLocks.Lock(true, srcTable, target.TableName)()
 	for _, item := range items {
 		clone := ddbCloneItem(item)
@@ -457,7 +419,7 @@ func handleDDBRestoreTableToPointInTime(w http.ResponseWriter, r *http.Request) 
 			"Source table not found: %s", srcName)
 		return
 	}
-	// PITR must be enabled on the source (terraform/real AWS reject otherwise).
+	// The source must have point-in-time recovery enabled.
 	settings, _ := ddbTableSettings.Get(srcName)
 	if settings.PITRStatus != "ENABLED" {
 		AWSErrorf(w, "InvalidRestoreTimeException", http.StatusBadRequest,
@@ -477,7 +439,6 @@ func handleDDBRestoreTableToPointInTime(w http.ResponseWriter, r *http.Request) 
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": t})
 }
 
-// ddbRecreateTable builds a fresh ACTIVE table from a backup/source schema.
 func ddbRecreateTable(name string, keySchema []DDBKeySchemaEntry, attrs []DDBAttributeDef,
 	gsis []DDBGlobalSecondaryIndex, lsis []DDBLocalSecondaryIndex, billingMode string) DDBTable {
 	if billingMode == "" {
@@ -556,8 +517,7 @@ func handleDDBCreateGlobalTable(w http.ResponseWriter, r *http.Request) {
 			"Global table already exists: %s", req.GlobalTableName)
 		return
 	}
-	// The same-named table must exist in the current region (real AWS requires
-	// the source table before a legacy global table can be formed).
+	// A legacy global table requires the same-named table in this Region.
 	if _, ok := ddbTables.Get(req.GlobalTableName); !ok {
 		AWSErrorf(w, "TableNotFoundException", http.StatusBadRequest,
 			"Table not found: %s", req.GlobalTableName)
@@ -792,9 +752,7 @@ func handleDDBUpdateGlobalTableSettings(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// ddbTableAutoScalingDescription assembles the TableAutoScalingDescription a
-// table reports for auto-scaling settings (one replica row for the current
-// region).
+// One replica row, for the current Region.
 func ddbTableAutoScalingDescription(t DDBTable) map[string]any {
 	return map[string]any{
 		"TableName":   t.TableName,
@@ -862,8 +820,7 @@ func handleDDBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	rev := sim.NewUUID()
 	ddbResourcePols.Put(req.ResourceArn, IAMResourcePolicy{ARN: req.ResourceArn, Policy: req.Policy})
-	// Mirror into the central IAM resource-policy store so the enforcement gate
-	// sees it, exactly as SQS/SNS do.
+	// The IAM enforcement gate reads the central resource-policy store.
 	iamPutResourcePolicy(req.ResourceArn, req.Policy)
 	writeDDBJSON(w, http.StatusOK, map[string]any{"RevisionId": rev})
 }
@@ -906,14 +863,13 @@ func handleDDBDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{"RevisionId": sim.NewUUID()})
 }
 
-// ddbResourceExistsForPolicy reports whether a table or stream ARN names a real
-// resource a policy may attach to. Accepts table ARNs (including index/stream
-// sub-ARNs) for an existing table.
+// Accepts table ARNs, including index and stream sub-ARNs, of an existing
+// table.
 func ddbResourceExistsForPolicy(arn string) bool {
 	if _, _, ok := ddbTableByArn(arn); ok {
 		return true
 	}
-	// table-stream sub-ARN: arn:aws:dynamodb:...:table/<name>/stream/<ts>
+	// A stream sub-ARN reads arn:aws:dynamodb:…:table/<name>/stream/<ts>.
 	const sep = ":table/"
 	if idx := strings.Index(arn, sep); idx >= 0 {
 		rest := arn[idx+len(sep):]
@@ -1266,9 +1222,8 @@ func handleDDBImportTable(w http.ResponseWriter, r *http.Request) {
 	if billing == "" {
 		billing = "PAY_PER_REQUEST"
 	}
-	// ImportTable creates the destination table as part of the import. Model the
-	// import as immediately COMPLETED (the sim's synchronous model) and the
-	// table as ACTIVE so a subsequent DescribeTable/PutItem works.
+	// ImportTable creates the destination table. The import completes at once and
+	// reads nothing from the Amazon S3 source.
 	t := ddbRecreateTable(tcp.TableName, tcp.KeySchema, tcp.AttributeDefinitions, nil, nil, billing)
 	ddbTables.Put(tcp.TableName, t)
 

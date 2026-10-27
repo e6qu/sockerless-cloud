@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sbReq points at the Service Bus REST data plane subdomain
-// (`{namespace}.servicebus.<host>`).
+// sbReq addresses the Service Bus REST data plane at
+// `{namespace}.servicebus.<host>`.
 func sbReq(t *testing.T, method, namespace, path string, body []byte, headers map[string]string) *http.Response {
 	t.Helper()
 	var br io.Reader
@@ -41,14 +41,13 @@ func sbReq(t *testing.T, method, namespace, path string, body []byte, headers ma
 	return resp
 }
 
-// TestServiceBus_QueueRESTRoundTrip exercises the canonical
-// SendMessage → ReceiveAndDelete flow with real status codes.
+// TestServiceBus_QueueRESTRoundTrip covers Send Message and Receive and Delete.
 func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 	t.Parallel()
 	ns := uniquename.New("ns1")
 	queue := uniquename.New("myqueue")
 
-	// SendMessage must return 201, not 200.
+	// Send Message answers 201, not 200.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("hello sb body"),
 		map[string]string{
 			"Content-Type":     "application/atom+xml;type=entry;charset=utf-8",
@@ -58,7 +57,7 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 		"SendMessage must return 201 Created")
 	resp.Body.Close()
 
-	// ReceiveAndDelete on a queue with messages must return 200 + body.
+	// Receive and Delete on a queue with messages answers 200 with the body.
 	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"ReceiveAndDelete with messages must return 200")
@@ -70,28 +69,25 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, brokerProps, "ReceiveAndDelete must carry BrokerProperties header")
 	assert.Contains(t, brokerProps, `"MessageId":`)
 
-	// ReceiveAndDelete on empty queue must return 204.
+	// Receive and Delete on an empty queue answers 204.
 	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"ReceiveAndDelete on empty queue must return 204")
 	resp.Body.Close()
 }
 
-// TestServiceBus_PeekLockComplete exercises PeekLock → CompleteLock
-// (the read-with-lock-then-ack flow that gives at-least-once delivery
-// guarantees in real Service Bus).
+// TestServiceBus_PeekLockComplete covers Peek-Lock, then Complete: the
+// at-least-once delivery flow.
 func TestServiceBus_PeekLockComplete(t *testing.T) {
 	t.Parallel()
 	ns := uniquename.New("ns2")
 	queue := uniquename.New("lockqueue")
 
-	// Send a message.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("locked body"), nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// PeekLock must return 201 + body + Location header pointing at
-	// the lock-token URL.
+	// Peek-Lock answers 201 with the body and a Location naming the lock.
 	resp = sbReq(t, "POST", ns, "/"+queue+"/messages/head", nil, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode,
 		"PeekLock with messages must return 201")
@@ -101,19 +97,15 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 	location := resp.Header.Get("Location")
 	require.NotEmpty(t, location, "PeekLock must carry Location header")
 
-	// Same message must NOT be returned by a second PeekLock (it's locked).
+	// A second Peek-Lock does not return the locked message.
 	resp = sbReq(t, "POST", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"PeekLock on a locked queue must return 204 (no other unlocked messages)")
 	resp.Body.Close()
 
-	// CompleteLock follows the Location header. The sim emits an
-	// absolute URL with the request Host (`{ns}.servicebus.<host>`)
-	// — Azure SDK clients resolve that via DNS in production. The
-	// test harness has no DNS for `*.servicebus.localhost`, so it
-	// resolves the Location to the same connection target as
-	// sbReq (baseURL) while preserving the namespace-prefixed Host
-	// header. Path + query come from Location verbatim.
+	// Follow the Location: dial baseURL, as sbReq does, with the
+	// `{ns}.servicebus.<host>` Host the absolute URL names, and take its path and
+	// query verbatim. Clients resolve that host through DNS.
 	locURL, err := url.Parse(location)
 	require.NoError(t, err)
 	require.Equal(t, ns+".servicebus.localhost", locURL.Host,
@@ -124,8 +116,7 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 	completeReq, err := http.NewRequest("DELETE", baseURL+locURL.RequestURI(), nil)
 	require.NoError(t, err)
 	completeReq.Host = locURL.Host
-	// Following the Location header is still an authenticated Service Bus
-	// call, so it carries the same Shared Access Signature.
+	// The Location is an authenticated Service Bus call too.
 	completeReq.Header.Set("Authorization", serviceBusHTTPAuthorization(t, ns))
 	completeResp, err := http.DefaultClient.Do(completeReq)
 	require.NoError(t, err)
@@ -133,29 +124,25 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, completeResp.StatusCode,
 		"CompleteLock must return 204")
 
-	// Queue is now empty.
 	resp = sbReq(t, "DELETE", ns, "/"+queue+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"Queue should be empty after CompleteLock")
 	resp.Body.Close()
 }
 
-// TestServiceBus_TopicSubscriptionRoundTrip exercises the topic +
-// subscription variant: POST /{topic}/messages then DELETE
-// /{topic}/subscriptions/{sub}/messages/head.
+// TestServiceBus_TopicSubscriptionRoundTrip sends to a topic and receives from
+// its subscription.
 func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
 	t.Parallel()
 	ns := uniquename.New("ns3")
 	topic := uniquename.New("mytopic")
 	sub := "mysub"
 
-	// Send to topic.
 	resp := sbReq(t, "POST", ns, "/"+topic+"/subscriptions/"+sub+"/messages",
 		[]byte("topic body"), nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// Subscription Receive.
 	resp = sbReq(t, "DELETE", ns,
 		"/"+topic+"/subscriptions/"+sub+"/messages/head", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -163,7 +150,6 @@ func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, "topic body", string(got))
 
-	// Empty after consumption.
 	resp = sbReq(t, "DELETE", ns,
 		"/"+topic+"/subscriptions/"+sub+"/messages/head?timeout=0", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -290,9 +276,8 @@ func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = receiver.Close(context.Background()) })
 
-	// Generous receive window: the message is already enqueued, so this returns
-	// as soon as the AMQP link delivers it; the wide timeout only guards against
-	// slow link/credit establishment on a loaded CI runner.
+	// The message is already enqueued; the timeout covers AMQP link and credit
+	// setup.
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
@@ -330,9 +315,8 @@ func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = receiver.Close(context.Background()) })
 
-	// Generous receive window: the message is already enqueued, so this returns
-	// as soon as the AMQP link delivers it; the wide timeout only guards against
-	// slow link/credit establishment on a loaded CI runner.
+	// The message is already enqueued; the timeout covers AMQP link and credit
+	// setup.
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
@@ -361,9 +345,8 @@ func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = receiver.Close(context.Background()) })
 
-	// Generous receive window: the message is already enqueued, so this returns
-	// as soon as the AMQP link delivers it; the wide timeout only guards against
-	// slow link/credit establishment on a loaded CI runner.
+	// The message is already enqueued; the timeout covers AMQP link and credit
+	// setup.
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
@@ -401,9 +384,8 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = receiver.Close(context.Background()) })
 
-	// Generous receive window: the message is already enqueued, so this returns
-	// as soon as the AMQP link delivers it; the wide timeout only guards against
-	// slow link/credit establishment on a loaded CI runner.
+	// The message is already enqueued; the timeout covers AMQP link and credit
+	// setup.
 	receiveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	messages, err := receiver.ReceiveMessages(receiveCtx, 1, nil)
@@ -413,9 +395,8 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 }
 
 // A subscription receiver on a client that never addressed the topic holds
-// only the claim for its own subscription, and receives through it; its
-// messages reach the receiver, not the management link the SDK attaches
-// beside it.
+// only its subscription's claim and receives through it, not through the
+// management link the SDK attaches beside it.
 func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("sdk-amqp-sub-own")
@@ -464,7 +445,7 @@ func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
 }
 
 // sbTopicDeliveryState reports where a message sent to a topic rests, so a
-// receive that times out says whether the fan-out or the delivery lost it.
+// timed-out receive says whether the fan-out or the delivery lost it.
 func sbTopicDeliveryState(t *testing.T, adminClient *admin.Client, topic, sub string) string {
 	t.Helper()
 	stateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -36,9 +36,9 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 		{Data: []byte("poison"), Attributes: map[string]string{"origin": "test"}},
 	}})
 	require.NoError(t, err)
-	// Nack on the stream that received the message, as a subscriber client
-	// does: a nack sent beside a stream the client is closing can reach the
-	// service first, which then redelivers into the closing stream.
+	// Nack on the stream that received the message, as a subscriber client does:
+	// a nack sent beside a closing stream can reach the service first and be
+	// redelivered into the closing stream.
 	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	stream, err := sc.StreamingPull(streamCtx)
@@ -56,8 +56,8 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 			ModifyDeadlineAckIds: []string{got[0].GetAckId()}, ModifyDeadlineSeconds: []int32{0},
 		}))
 	}
-	// The service ends the stream once it has read every request, the fifth
-	// nack among them; a message received here would be a sixth attempt.
+	// The service ends the stream once it has read every request, the fifth nack
+	// among them; a message received here would be a sixth attempt.
 	require.NoError(t, stream.CloseSend())
 	resp, err := stream.Recv()
 	require.Error(t, err, "the stream must end without a sixth delivery, got %v", resp.GetReceivedMessages())
@@ -112,8 +112,8 @@ func TestPubSub_GRPC_FilterAndOrdering(t *testing.T) {
 	require.Equal(t, "k-2", string(second[0].GetMessage().GetData()))
 }
 
-// psCreateTopic creates a topic the test deletes when it ends, so a rerun in
-// the same simulator starts from nothing.
+// psCreateTopic deletes the topic when the test ends, so a rerun in the same
+// simulator starts from nothing.
 func psCreateTopic(t *testing.T, pub pubsubpb.PublisherClient, name string) {
 	t.Helper()
 	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: name})
@@ -124,7 +124,6 @@ func psCreateTopic(t *testing.T, pub pubsubpb.PublisherClient, name string) {
 	})
 }
 
-// psCreateSubscription creates a subscription the test deletes when it ends.
 func psCreateSubscription(t *testing.T, sc pubsubpb.SubscriberClient, sub *pubsubpb.Subscription) {
 	t.Helper()
 	_, err := sc.CreateSubscription(ctx, sub)

@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Monitor diagnostic settings route a resource's platform logs to the
-// Log Analytics workspace they name, category by category.
+// Azure Monitor diagnostic settings route a resource's platform logs, category
+// by category, to the Log Analytics workspace they name.
 //
 //	PUT    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettings/{name}
 //	GET    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettings/{name}
@@ -24,8 +24,8 @@ import (
 //	GET    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettingsCategories
 //	GET    /{resourceUri}/providers/Microsoft.Insights/diagnosticSettingsCategories/{name}
 
-// queryWorkspaceRows runs a KQL query against a workspace through the azquery
-// Logs client and returns the first table's rows.
+// queryWorkspaceRows runs a KQL query through the azquery Logs client and
+// returns the first table's rows.
 func queryWorkspaceRows(t *testing.T, customerID, kql string) []azquery.Row {
 	t.Helper()
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
@@ -38,14 +38,14 @@ func queryWorkspaceRows(t *testing.T, customerID, kql string) []azquery.Row {
 	return resp.Tables[0].Rows
 }
 
-// A site's console lines reach the AppServiceConsoleLogs table of the
-// workspace a diagnostic setting with that category names, and the setting
-// round-trips with the categories the site offers.
+// A site's console lines reach AppServiceConsoleLogs in the workspace a
+// diagnostic setting with that category names, and the setting round-trips
+// with the categories the site offers.
 func TestMonitor_DiagnosticSettingRoutesSiteConsoleLogs(t *testing.T) {
 	t.Parallel()
 	const rg, site = "monitor-diag-site-rg", "monitor-diag-site"
 	ws := createLogWorkspace(t, rg, "monitor-diag-site-ws")
-	// The container writes one access-log line per request to its stdout.
+	// The container writes one access-log line per request to stdout.
 	azureCreateContainerSite(t, rg, site, commandImageName, "serve 80 diag-ok", nil)
 	t.Cleanup(func() { azureDeleteSite(rg, site) })
 	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/sites/" + site
@@ -106,8 +106,8 @@ func TestMonitor_DiagnosticSettingRoutesSiteConsoleLogs(t *testing.T) {
 
 	status, _ := azureSiteRequest(t, site, http.MethodGet, "/diag-request", "")
 	require.Equal(t, http.StatusOK, status)
-	// The platform's warm-up request reaches the container first, so the
-	// query names the request this test sent.
+	// The platform's warm-up request reaches the container first, so query the
+	// request this test sent.
 	kql := fmt.Sprintf(`AppServiceConsoleLogs | where _ResourceId == "%s" and ResultDescription == "GET /diag-request" | project ResultDescription, Category, Type`, siteID)
 	require.Eventually(t, func() bool { return len(queryWorkspaceRows(t, ws.customerID, kql)) > 0 },
 		2*time.Minute, time.Second, "the console line never reached the workspace")
@@ -122,9 +122,9 @@ func TestMonitor_DiagnosticSettingRoutesSiteConsoleLogs(t *testing.T) {
 	require.Error(t, err, "a deleted setting is gone")
 }
 
-// A Container Apps environment whose logs destination is azure-monitor sends
-// its console and system logs to the resource-specific tables of the
-// workspace its diagnostic setting names.
+// A Container Apps environment logging to azure-monitor sends its console and
+// system logs to the resource-specific tables of the workspace its diagnostic
+// setting names.
 func TestMonitor_DiagnosticSettingRoutesEnvironmentLogs(t *testing.T) {
 	t.Parallel()
 	const rg, envName, app = "monitor-diag-env-rg", "monitor-diag-env", "monitor-diag-app"

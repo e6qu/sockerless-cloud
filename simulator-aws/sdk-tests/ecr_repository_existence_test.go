@@ -53,9 +53,8 @@ func ociErrorEnvelope(t *testing.T, resp *http.Response) (code, message string) 
 	return envelope.Errors[0].Code, envelope.Errors[0].Message
 }
 
-// ecrRegistryId returns the registry the client is talking to, which a real
-// client reads from the control plane rather than assuming — the same
-// identifier the registry names in its refusal.
+// ecrRegistryId reads the registry id from the control plane, as a client
+// does; the registry names it in its refusal.
 func ecrRegistryId(t *testing.T) string {
 	t.Helper()
 	registry, err := ecrClient().DescribeRegistry(ctx, &ecr.DescribeRegistryInput{})
@@ -63,8 +62,8 @@ func ecrRegistryId(t *testing.T) string {
 	return aws.ToString(registry.RegistryId)
 }
 
-// ecrDeleteRepository removes a repository and everything in it, so a test that
-// asserts on a repository's absence starts from it.
+// ecrDeleteRepository removes a repository and its contents, so a test asserting
+// its absence starts from it.
 func ecrDeleteRepository(t *testing.T, repo string) {
 	t.Helper()
 	_, err := ecrClient().DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
@@ -77,11 +76,9 @@ func ecrDeleteRepository(t *testing.T, repo string) {
 	}
 }
 
-// TestECR_RegistryRefusesARepositoryThatDoesNotExist drives every
-// repository-scoped registry route against a repository the registry does not
-// hold, then creates the repository and shows the same routes start working,
-// then deletes it and shows they stop again. A push that lands in a repository
-// nobody created is the defect this locks out.
+// TestECR_RegistryRefusesARepositoryThatDoesNotExist expects every
+// repository-scoped registry route to refuse a repository nobody created, work
+// once it exists, and refuse again once it is deleted.
 func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 	t.Parallel()
 	const repo = "ecr-absent/app"
@@ -119,12 +116,10 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 			"a refused %s must not allocate an upload", route.name)
 	}
 
-	// A HEAD carries no body, so the refusal a client sees there is the status.
 	resp := ociDo(t, http.MethodHead, baseURL+"/v2/"+repo+"/manifests/v1", nil, "")
 	resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	// Nothing the refused push carried reached the control plane.
 	_, err := ecrClient().DescribeImages(ctx, &ecr.DescribeImagesInput{
 		RepositoryName: aws.String(repo),
 	})
@@ -132,8 +127,8 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 	require.ErrorAs(t, err, &missing,
 		"a refused push must not have brought the repository into existence")
 
-	// Creating the repository — what the documented push flow tells a user to do
-	// first — is what makes the registry serve it.
+	// Creating the repository, the documented first step, makes the registry
+	// serve it.
 	ecrCreateRepository(t, repo)
 
 	resp = ociDo(t, http.MethodPost, baseURL+"/v2/"+repo+"/blobs/uploads/", nil, "")
@@ -143,8 +138,8 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 		"a push to a repository that exists must be accepted")
 	require.NotEmpty(t, location)
 
-	// A repository that exists but holds nothing answers a pull for the absent
-	// tag, not for the absent repository.
+	// An existing empty repository refuses a pull for the absent tag, not the
+	// absent repository.
 	resp = ociDo(t, http.MethodGet, baseURL+"/v2/"+repo+"/manifests/v1", nil, "")
 	code, _ := ociErrorEnvelope(t, resp)
 	resp.Body.Close()
@@ -152,8 +147,8 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 	assert.Equal(t, "MANIFEST_UNKNOWN", code,
 		"an empty repository that exists must report the manifest missing, not the name unknown")
 
-	// Finish the push, then delete the repository: the content goes with it and
-	// the registry is back to refusing the name.
+	// Finish the push, then delete the repository: its content goes with it and
+	// the registry refuses the name again.
 	resp = ociDo(t, http.MethodPatch, baseURL+location, layer, "application/octet-stream")
 	resp.Body.Close()
 	resp = ociDo(t, http.MethodPut, baseURL+location+"?digest="+digest, nil, "")
@@ -176,16 +171,15 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 }
 
 // TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate covers the one
-// push Amazon ECR does not refuse:
+// push Amazon ECR accepts for a missing repository:
 //
 //	"When there isn't a repository creation template that matches the target
 //	 repository for an image push, Amazon ECR will not create a repository with
 //	 default settings."
 //
 // (Amazon ECR User Guide, "Templates to control repositories created during a
-// pull through cache, create on push, or replication action".) So a push
-// covered by a template applied for CREATE_ON_PUSH creates the repository with
-// that template's settings, and nothing else does.
+// pull through cache, create on push, or replication action".) A push a
+// CREATE_ON_PUSH template covers creates the repository with its settings.
 func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -199,9 +193,8 @@ func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) 
 		ecrDeleteRepository(t, repo)
 		t.Cleanup(func() { ecrDeleteRepository(t, repo) })
 	}
-	// The prefix is this test's own, and a previous run against a persisted
-	// registry may have left the template behind, so it is removed before it is
-	// created rather than asserted absent.
+	// A previous run against a persisted registry may have left the template, so
+	// remove it first.
 	_, _ = client.DeleteRepositoryCreationTemplate(ctx, &ecr.DeleteRepositoryCreationTemplateInput{
 		Prefix: aws.String(prefix),
 	})
@@ -220,8 +213,8 @@ func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) 
 		})
 	})
 
-	// A pull is not a push: the template covers the name but nothing is being
-	// created, so the registry still refuses it.
+	// A pull creates nothing, so the registry refuses it although the template
+	// covers the name.
 	resp := ociDo(t, http.MethodGet, baseURL+"/v2/"+pulled+"/manifests/v1", nil, "")
 	code, _ := ociErrorEnvelope(t, resp)
 	resp.Body.Close()
@@ -233,7 +226,6 @@ func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) 
 	var missing *ecrtypes.RepositoryNotFoundException
 	require.ErrorAs(t, err, &missing)
 
-	// A push covered by the template creates the repository from it.
 	resp = ociDo(t, http.MethodPost, baseURL+"/v2/"+pushed+"/blobs/uploads/", nil, "")
 	resp.Body.Close()
 	require.Equal(t, http.StatusAccepted, resp.StatusCode,
@@ -254,15 +246,13 @@ func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) 
 	assert.JSONEq(t, lifecyclePolicy, aws.ToString(policy.LifecyclePolicyText),
 		"the created repository must carry the template's lifecycle policy")
 
-	// A push outside every template's prefix is still refused.
 	resp = ociDo(t, http.MethodPost, baseURL+"/v2/"+uncovered+"/blobs/uploads/", nil, "")
 	code, _ = ociErrorEnvelope(t, resp)
 	resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Equal(t, "NAME_UNKNOWN", code)
 
-	// And so is one covered only by a template applied for another scenario: a
-	// pull-through cache template is not in the path of an image push.
+	// A pull-through cache template is not in an image push's path.
 	const cachePrefix = "ecr-cache-only"
 	_, _ = client.DeleteRepositoryCreationTemplate(ctx, &ecr.DeleteRepositoryCreationTemplateInput{
 		Prefix: aws.String(cachePrefix),

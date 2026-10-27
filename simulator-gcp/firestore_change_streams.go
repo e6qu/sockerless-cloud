@@ -9,10 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Firestore's change streams, and the two document methods that read through a
-// pipeline or a watch.
+// Firestore change streams, and the listen and executePipeline document
+// methods.
 
-// registerFirestoreChangeStreams mounts them.
 func registerFirestoreChangeStreams(srv *sim.Server) {
 	streams := sim.MakeStore[map[string]any](srv.DB(), "firestore_change_streams")
 
@@ -92,17 +91,14 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// The two document methods are mounted literally as well as offered to the
-	// documents fan-in: the fan-in is reached for a verb under a document
-	// path, and these two are addressed on the documents collection itself,
-	// where no fan-in sees them.
+	// The fan-in sees verbs under a document path; these two are addressed on the
+	// documents collection itself, so they also mount literally.
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:listen", fsListen)
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:executePipeline", fsExecutePipeline)
 }
 
-// fsListen watches the targets a client adds. The answer reports the target it
-// was given — the state of a watch with nothing pending — rather than a
-// document change the database has not made.
+// fsListen answers with the target the client added, as a watch with nothing
+// pending.
 func fsListen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AddTarget *struct {
@@ -130,13 +126,10 @@ func fsListen(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"targetChange": change})
 }
 
-// fsExecutePipeline runs a structured pipeline. The results are the documents
-// the pipeline selects; with none selected there are none, and reporting rows
-// the database does not hold would be worse than reporting an empty run.
+// fsExecutePipeline answers the documents the pipeline selects, which may be
+// none.
 func fsExecutePipeline(w http.ResponseWriter, r *http.Request) {
-	// The pipeline is required, and a pipeline with no stages is still a
-	// pipeline — so this asks whether one was sent, not whether it has
-	// anything in it.
+	// The pipeline is required; one with no stages is still sent.
 	var req struct {
 		StructuredPipeline *map[string]any `json:"structuredPipeline"`
 	}

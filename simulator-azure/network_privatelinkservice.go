@@ -9,40 +9,30 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Private link services (Microsoft.Network/privateLinkServices) are the
-// provider half of Azure Private Link: a service owner puts one in front of a
-// standard load balancer, and consumers reach it through private endpoints in
-// their own virtual networks. Three things carry the resource's behavior, and
-// all three are implemented here rather than stored and echoed:
+// Private link services, the provider half of Azure Private Link, front a
+// standard load balancer for consumers' private endpoints:
 //
-//   - Each NAT IP configuration takes a real address out of its subnet, through
-//     the same fabric a caller-created network interface uses, and the resulting
-//     interfaces are what the read-only networkInterfaces property reports.
-//   - The privateEndpointConnections collection is the same set of objects a
-//     private endpoint creates when it connects here. Approving or rejecting a
-//     connection through this surface is what the consumer's private endpoint
-//     reads back, and deleting one disconnects the endpoint.
+//   - each NAT IP configuration leases a real subnet address through an
+//     ordinary interface, which networkInterfaces reports;
+//   - privateEndpointConnections are the objects endpoints create when they
+//     connect, so approving, rejecting or deleting one here is what the
+//     endpoint reads;
 //   - visibility and autoApproval decide who may see the service and whose
-//     connections skip the owner's approval. CheckPrivateLinkServiceVisibility
-//     and ListAutoApprovedPrivateLinkServices answer from those two sets, and
-//     the connection a private endpoint opens starts Approved or Pending
-//     according to them.
+//     connections skip approval, for CheckPrivateLinkServiceVisibility,
+//     ListAutoApprovedPrivateLinkServices and new connections alike.
 
-// PrivateLinkService mirrors Microsoft.Network/privateLinkServices.
 type PrivateLinkService struct {
 	azureNetworkResourceHeader
 	ExtendedLocation *azureExtendedLocation       `json:"extendedLocation,omitempty"`
 	Properties       PrivateLinkServiceProperties `json:"properties"`
 }
 
-// azureExtendedLocation is the ARM extended-location envelope (Azure edge zones).
+// The extended-location envelope (Azure edge zones).
 type azureExtendedLocation struct {
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
 }
 
-// PrivateLinkServiceProperties holds the service's configuration and the
-// read-only state the Microsoft.Network resource provider computes for it.
 type PrivateLinkServiceProperties struct {
 	LoadBalancerFrontendIPConfigurations []SubResource                       `json:"loadBalancerFrontendIpConfigurations,omitempty"`
 	IPConfigurations                     []PrivateLinkServiceIPConfiguration `json:"ipConfigurations,omitempty"`
@@ -58,14 +48,11 @@ type PrivateLinkServiceProperties struct {
 	EnableProxyProtocol                  bool                                `json:"enableProxyProtocol,omitempty"`
 }
 
-// azureResourceSet is the subscription list shared by the visibility and
-// auto-approval properties.
+// The subscription list visibility and autoApproval share.
 type azureResourceSet struct {
 	Subscriptions []string `json:"subscriptions,omitempty"`
 }
 
-// PrivateLinkServiceIPConfiguration is one NAT IP configuration of a private
-// link service.
 type PrivateLinkServiceIPConfiguration struct {
 	ID         string                                      `json:"id,omitempty"`
 	Name       string                                      `json:"name,omitempty"`
@@ -74,7 +61,6 @@ type PrivateLinkServiceIPConfiguration struct {
 	Properties PrivateLinkServiceIPConfigurationProperties `json:"properties"`
 }
 
-// PrivateLinkServiceIPConfigurationProperties holds one NAT address.
 type PrivateLinkServiceIPConfigurationProperties struct {
 	PrivateIPAddress          string       `json:"privateIPAddress,omitempty"`
 	PrivateIPAllocationMethod string       `json:"privateIPAllocationMethod,omitempty"`
@@ -84,8 +70,7 @@ type PrivateLinkServiceIPConfigurationProperties struct {
 	PrivateIPAddressVersion   string       `json:"privateIPAddressVersion,omitempty"`
 }
 
-// NetworkPrivateEndpointConnection is a connection between a private endpoint
-// and the private link service it targets, as the service owner sees it.
+// The connection as the service owner sees it.
 type NetworkPrivateEndpointConnection struct {
 	ID         string                                     `json:"id,omitempty"`
 	Name       string                                     `json:"name,omitempty"`
@@ -94,10 +79,8 @@ type NetworkPrivateEndpointConnection struct {
 	Properties NetworkPrivateEndpointConnectionProperties `json:"properties"`
 }
 
-// NetworkPrivateEndpointConnectionProperties holds the connection's state. The
-// private endpoint itself is stored as a bare reference and rendered from the
-// live endpoint record on read, so the connection can never report an endpoint
-// that has since changed or been deleted.
+// The endpoint is stored as a bare reference and rendered from the live record
+// on read, so it never reports one that changed or was deleted.
 type NetworkPrivateEndpointConnectionProperties struct {
 	PrivateEndpoint                   *PrivateEndpoint                   `json:"privateEndpoint,omitempty"`
 	PrivateLinkServiceConnectionState *PrivateLinkServiceConnectionState `json:"privateLinkServiceConnectionState,omitempty"`
@@ -106,8 +89,7 @@ type NetworkPrivateEndpointConnectionProperties struct {
 	PrivateEndpointLocation           string                             `json:"privateEndpointLocation,omitempty"`
 }
 
-// PrivateLinkServiceConnectionState is the approval state of a private endpoint
-// connection, shared by the consumer and provider surfaces.
+// Shared by the consumer and provider surfaces.
 type PrivateLinkServiceConnectionState struct {
 	Status          string `json:"status,omitempty"`
 	Description     string `json:"description,omitempty"`
@@ -116,9 +98,7 @@ type PrivateLinkServiceConnectionState struct {
 
 var (
 	azurePrivateLinkServices sim.Store[PrivateLinkService]
-	// azurePLSConnections holds every private endpoint connection on a private
-	// link service, keyed by the connection's ARM id, so the service's own
-	// collection and the consumer endpoint's view read one object.
+	// Keyed by connection ID, so both sides read one object.
 	azurePLSConnections sim.Store[NetworkPrivateEndpointConnection]
 )
 
@@ -147,9 +127,7 @@ func registerNetworkPrivateLinkServices(srv *sim.Server) {
 	registerPrivateLinkServiceDiscovery(srv)
 }
 
-// validatePrivateLinkService applies the request-validation rules the resource
-// provider applies before it provisions anything: a service needs at least one
-// NAT IP configuration, and every configuration must name a subnet that exists.
+// At least one NAT IP configuration, each naming an existing subnet.
 func validatePrivateLinkService(w http.ResponseWriter, _ *http.Request, pls *PrivateLinkService) bool {
 	if len(pls.Properties.IPConfigurations) == 0 {
 		AzureErrorf(w, "PrivateLinkServiceMustHaveIpConfiguration", http.StatusBadRequest,
@@ -168,12 +146,11 @@ func validatePrivateLinkService(w http.ResponseWriter, _ *http.Request, pls *Pri
 	return true
 }
 
-// provisionPrivateLinkService assigns the service's alias, provisions a network
-// interface for every NAT IP configuration, and releases the interfaces an
-// update dropped.
+// Mint the alias, provision an interface per NAT IP configuration, and release
+// the ones an update dropped.
 func provisionPrivateLinkService(ctx context.Context, pls *PrivateLinkService, previous *PrivateLinkService) error {
-	// The alias is minted once and is what a consumer names in a manual
-	// connection request, so it must survive every later update.
+	// A consumer names the alias in a manual connection request, so it must
+	// survive every update.
 	if previous != nil && previous.Properties.Alias != "" {
 		pls.Properties.Alias = previous.Properties.Alias
 	} else {
@@ -236,9 +213,8 @@ func provisionPrivateLinkService(ctx context.Context, pls *PrivateLinkService, p
 	return nil
 }
 
-// projectPrivateLinkService refreshes the read-only properties the resource
-// provider recomputes on every read: the NAT addresses the subnet allocated and
-// the live connection set.
+// The subnet's NAT addresses and the live connection set, recomputed on every
+// read.
 func projectPrivateLinkService(pls *PrivateLinkService) {
 	for i := range pls.Properties.IPConfigurations {
 		ipcfg := &pls.Properties.IPConfigurations[i]
@@ -249,8 +225,6 @@ func projectPrivateLinkService(pls *PrivateLinkService) {
 	pls.Properties.PrivateEndpointConnections = privateLinkServiceConnections(pls.ID)
 }
 
-// deletePrivateLinkServiceResources releases the interfaces the service owned
-// and disconnects every private endpoint that was connected to it.
 func deletePrivateLinkServiceResources(ctx context.Context, id string, deleted PrivateLinkService) {
 	for _, ipcfg := range deleted.Properties.IPConfigurations {
 		_ = azureDeletePlatformNIC(ctx, privateLinkServiceNICID(id, ipcfg.Name))
@@ -261,9 +235,8 @@ func deletePrivateLinkServiceResources(ctx context.Context, id string, deleted P
 }
 
 func privateLinkServiceNICID(plsID, ipConfigName string) string {
-	// A private link service's interfaces live in the same resource group as
-	// the service, under the ordinary network-interface type, named after the
-	// service and the NAT configuration they realize.
+	// In the service's resource group, as ordinary interfaces named after the
+	// service and NAT configuration.
 	rgScope := plsID[:strings.Index(plsID, "/providers/")]
 	name := plsID[strings.LastIndex(plsID, "/")+1:]
 	return rgScope + "/providers/Microsoft.Network/networkInterfaces/" + name + "." + ipConfigName + ".nic"
@@ -280,8 +253,6 @@ func privateLinkServiceConnections(plsID string) []NetworkPrivateEndpointConnect
 	return conns
 }
 
-// projectNetworkPrivateEndpointConnection renders the stored connection's
-// private-endpoint reference from the live endpoint record.
 func projectNetworkPrivateEndpointConnection(conn *NetworkPrivateEndpointConnection) {
 	if conn.Properties.PrivateEndpoint == nil || conn.Properties.PrivateEndpoint.ID == "" {
 		return
@@ -298,9 +269,6 @@ func projectNetworkPrivateEndpointConnection(conn *NetworkPrivateEndpointConnect
 	conn.Properties.PrivateEndpointLocation = pe.Location
 }
 
-// registerPrivateLinkServiceConnections mounts the provider-side connection
-// surface: the owner reads the connections consumers opened, approves or
-// rejects them, and deletes the ones it no longer wants.
 func registerPrivateLinkServiceConnections(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	base := armBase + "/privateLinkServices/{serviceName}/privateEndpointConnections"
@@ -332,9 +300,8 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// UpdatePrivateEndpointConnection is how the service owner approves or
-	// rejects a pending connection. Only the connection state is writable; the
-	// endpoint reference and the link identifier belong to the consumer side.
+	// Only the connection state is writable; the endpoint reference and link
+	// identifier belong to the consumer side.
 	srv.HandleFunc("PUT "+base+"/{peConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		id := connID(r)
 		var req NetworkPrivateEndpointConnection
@@ -369,9 +336,8 @@ func registerPrivateLinkServiceConnections(srv *sim.Server) {
 	})
 }
 
-// registerPrivateLinkServiceDiscovery mounts the two consumer-facing discovery
-// operations. Both answer from the visibility and auto-approval sets the
-// service owner configured, evaluated against the subscription making the call.
+// Both answer from the owner's visibility and auto-approval sets, for the
+// calling subscription.
 func registerPrivateLinkServiceDiscovery(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	subBase := azureNetworkSubBase()
@@ -416,10 +382,8 @@ func registerPrivateLinkServiceDiscovery(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/locations/{location}/autoApprovedPrivateLinkServices", autoApproved)
 }
 
-// privateLinkServiceVisibleTo reports whether a subscription may see the
-// service. A service in the default access mode is visible to everyone; a
-// restricted one only to the subscriptions on its visibility list, where "*"
-// stands for all of them.
+// Default access is visible to everyone; restricted only to listed
+// subscriptions, "*" meaning all.
 func privateLinkServiceVisibleTo(pls PrivateLinkService, subscription string) bool {
 	if strings.EqualFold(pls.Properties.AccessMode, "Restricted") {
 		return azureResourceSetContains(pls.Properties.Visibility, subscription)
@@ -430,8 +394,6 @@ func privateLinkServiceVisibleTo(pls PrivateLinkService, subscription string) bo
 	return azureResourceSetContains(pls.Properties.Visibility, subscription)
 }
 
-// privateLinkServiceAutoApprovesFor reports whether a connection opened from
-// the subscription skips the owner's approval.
 func privateLinkServiceAutoApprovesFor(pls PrivateLinkService, subscription string) bool {
 	return azureResourceSetContains(pls.Properties.AutoApproval, subscription)
 }

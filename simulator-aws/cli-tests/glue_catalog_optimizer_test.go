@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_CatalogCRUD_CLI exercises create/get/get-catalogs/update/delete-catalog.
 func TestGlue_CatalogCRUD_CLI(t *testing.T) {
 	t.Parallel()
 	const name = "glue-cli-catalog"
@@ -56,8 +55,6 @@ func TestGlue_CatalogCRUD_CLI(t *testing.T) {
 	assert.True(t, found)
 }
 
-// TestGlue_TableOptimizerCRUD_CLI exercises create/get/update/batch-get/
-// list-table-optimizer-runs/delete on a table optimizer.
 func TestGlue_TableOptimizerCRUD_CLI(t *testing.T) {
 	t.Parallel()
 	const db = "glue-cli-opt-db"
@@ -124,8 +121,6 @@ func TestGlue_TableOptimizerCRUD_CLI(t *testing.T) {
 	assert.Len(t, batch.Failures, 1)
 }
 
-// TestGlue_BatchGetFamilies_CLI exercises batch-get-crawlers/jobs/triggers/
-// workflows/custom-entity-types, batch-delete-connection and batch-update-partition.
 func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 	t.Parallel()
 	const crawler = "glue-cli-batch-crawler"
@@ -220,8 +215,6 @@ func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 	assert.Len(t, bup.Errors, 1)
 }
 
-// TestGlue_IntegrationCRUD_CLI exercises the zero-ETL integration family plus
-// resource/table properties.
 func TestGlue_IntegrationCRUD_CLI(t *testing.T) {
 	t.Parallel()
 	const name = "glue-cli-integration"

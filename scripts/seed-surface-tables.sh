@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Generate per-service surface-table stubs from registered HandleFunc
-# patterns. Each stub lists what the sim already handles (✓ rows); ✗
-# rows for missing ops + sdk-test / tf-test columns are filled in by
-# subsequent per-surface PRs.
+# patterns. Each stub lists what the sim already handles (✓ rows); the ✗ rows
+# for missing ops and the sdk-test / tf-test columns are written by hand.
 #
 # Usage: bash scripts/seed-surface-tables.sh
 #
@@ -150,10 +149,8 @@ for cloud in aws azure gcp; do
     is_preserved "$table_name" && continue
 
     # Rows come from the AST reader, which resolves a route composed from a
-    # version prefix or a constant as well as a plain literal. Reading the
-    # literal alone with a regular expression missed a quarter of the registered
-    # surface — fifteen surfaces had no table at all — so a table's silence
-    # about an op said nothing about whether the op was served.
+    # version prefix or a constant as well as a plain literal, so a table's
+    # silence about an op means the op is not served.
     awk -F'\t' -v want="simulator-$cloud/$base.go" -v t="$table_name" -v c="$cloud" -v b="$base" '
       {
         split($1, at, ":")

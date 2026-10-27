@@ -123,7 +123,6 @@ func EncodeCommand(args []string) []byte {
 	return b.Bytes()
 }
 
-// ReadReply reads one RESP2 reply.
 func ReadReply(reader *bufio.Reader) (any, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -228,7 +227,6 @@ func ParseInfo(text string) map[string]string {
 // rdbMagic opens every RDB file.
 const rdbMagic = "REDIS"
 
-// IsRDB reports whether data is an RDB file.
 func IsRDB(data []byte) bool {
 	return bytes.HasPrefix(data, []byte(rdbMagic))
 }

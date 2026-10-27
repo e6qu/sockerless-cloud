@@ -35,13 +35,8 @@ func registerELBv2DataPlane(srv *sim.Server) {
 	})
 }
 
-// elbv2LoadBalancersByDNSName indexes load balancers by the hostname their
-// data plane answers on.
-//
-// This lookup is the first thing every request into the simulator meets: the
-// middleware above runs ahead of every service's handler, so an Amazon DynamoDB
-// call pays it too. Answering it by reading and JSON-decoding the whole
-// load-balancer store would cost every request a scan.
+// Every request into the simulator meets this lookup first, an Amazon DynamoDB
+// call included, so it must not scan the load-balancer store.
 var elbv2LoadBalancersByDNSName sim.GenerationIndex[ELBv2LoadBalancer]
 
 func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
@@ -49,9 +44,8 @@ func elbv2LoadBalancerFromDataPlaneHost(host string) (ELBv2LoadBalancer, bool) {
 	if hostname == "" {
 		return ELBv2LoadBalancer{}, false
 	}
-	// A load balancer still being created has no DNS name yet and answers on
-	// nothing; the index drops the empty key, so a malformed request with no
-	// Host header cannot match it.
+	// A load balancer still being created has no DNS name; the index drops the
+	// empty key, so a request without Host cannot match it.
 	return elbv2LoadBalancersByDNSName.Lookup(elbv2LoadBalancers, hostname,
 		func(lb ELBv2LoadBalancer) []string {
 			return []string{lbplane.Hostname(lb.DNSName)}
@@ -71,8 +65,6 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 	elbv2ServeListener(w, r, listener)
 }
 
-// elbv2ForwardToHealthyTarget forwards a request to a target in service of
-// the target groups the forward actions name.
 func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, actions []ELBv2Action) {
 	targetGroup, target, cookies, ok := elbv2HealthyTargetForActions(r, actions)
 	if !ok {
@@ -106,23 +98,20 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 				header.Add("Set-Cookie", cookie.String())
 			}
 		},
-		// "The load balancer establishes TLS connections with the targets
-		// using certificates that you install on the targets. The load balancer
-		// does not validate these certificates."
+		// "The load balancer does not validate these certificates."
 		SkipTargetVerification: true,
 		Admit:                  elbv2AdmitForwardedFlow(listener, targetGroup, target),
 	}, elbv2ForwardAnswers)
 }
 
 var elbv2ForwardAnswers = lbplane.Answers{
-	// A target its security group closes to the load balancer is one the
-	// load balancer cannot reach: the request finds no target in service.
+	// A target whose security group closes it to the load balancer is not in
+	// service.
 	NotAdmitted: func(w http.ResponseWriter, _ error) {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 	},
-	// "HTTP 504: Gateway timeout ... The load balancer established a
-	// connection to the target but the target did not respond before the
-	// idle timeout period elapsed."
+	// "HTTP 504: Gateway timeout ... the target did not respond before the idle
+	// timeout period elapsed."
 	Timeout: func(w http.ResponseWriter, _ error) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusGatewayTimeout)
@@ -133,10 +122,8 @@ var elbv2ForwardAnswers = lbplane.Answers{
 
 const elbv2GatewayTimeoutPage = "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n"
 
-// elbv2ForwardedHeaders adds the headers an Application Load Balancer sends
-// every target: X-Forwarded-For as routing.http.xff_header_processing.mode and
-// routing.http.xff_client_port.enabled direct, the protocol and port of the
-// listener the client connected to, and X-Amzn-Trace-Id.
+// X-Forwarded-For as the xff attributes direct, the listener's protocol and
+// port, and X-Amzn-Trace-Id.
 func elbv2ForwardedHeaders(r *http.Request, listener ELBv2Listener, attrs map[string]string) func(http.Header) {
 	clientIP, clientPort := lbplane.ClientAddress(r)
 	return func(h http.Header) {
@@ -156,9 +143,8 @@ func elbv2ForwardedHeaders(r *http.Request, listener ELBv2Listener, attrs map[st
 	}
 }
 
-// elbv2TraceID is the X-Amzn-Trace-Id the load balancer forwards: a new Root
-// when the request carries none, a Self inserted ahead of a Root the request
-// carries, or its Self updated. Every other field passes through.
+// A new Root when none, a Self inserted ahead of an existing Root, or Self
+// updated; other fields pass through.
 func elbv2TraceID(existing string, now time.Time) string {
 	id := fmt.Sprintf("1-%08x-%s", now.Unix(), lbplane.RandomHex(12))
 	if existing == "" {
@@ -181,8 +167,7 @@ func elbv2TraceID(existing string, now time.Time) string {
 	return "Root=" + id + ";" + existing
 }
 
-// elbv2IdleTimeout reads the load balancer's idle_timeout.timeout_seconds for
-// each request, so ModifyLoadBalancerAttributes governs the next one.
+// Read per request, so ModifyLoadBalancerAttributes governs the next one.
 func elbv2IdleTimeout(lbArn string) time.Duration {
 	seconds, err := strconv.Atoi(elbv2LoadBalancerAttributes(lbArn)["idle_timeout.timeout_seconds"])
 	if err != nil {
@@ -191,9 +176,7 @@ func elbv2IdleTimeout(lbArn string) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// elbv2ListenersByLoadBalancerPort indexes listeners by the load balancer and
-// port that select one, which is what every proxied request resolves before it
-// is forwarded.
+// Every proxied request resolves its listener through this.
 var elbv2ListenersByLoadBalancerPort sim.GenerationIndex[ELBv2Listener]
 
 func elbv2ListenerKey(loadBalancerArn string, port int) string {
@@ -208,9 +191,8 @@ func elbv2ListenerForDataPlaneRequest(r *http.Request, lb ELBv2LoadBalancer) (EL
 		})
 }
 
-// elbv2DataPlaneListenerPort is the port the client connected to, which alone
-// selects the listener: a client's X-Forwarded-Proto is a claim the load
-// balancer forwards, never one it routes on.
+// The connected port alone selects the listener; a client's
+// X-Forwarded-Proto is never routed on.
 func elbv2DataPlaneListenerPort(r *http.Request) int {
 	if r.TLS != nil {
 		return 443
@@ -223,28 +205,22 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 	return 80
 }
 
-// elbv2HealthyTargetForListener picks a target the load balancer may forward
-// to. A load balancer routes from the health its checker maintains — "Each
-// load balancer node routes requests only to the healthy targets in the
-// enabled Availability Zones" — rather than checking a target because a
-// request arrived for it.
+// "Each load balancer node routes requests only to the healthy targets" as
+// its checker maintains them, never probing on request.
 func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
 	tg, target, _, ok := elbv2HealthyTargetForActions(nil, listener.DefaultActions)
 	return tg, target, ok
 }
 
-// Elastic Load Balancing reserves these cookie names for the load balancer:
 // AWSALBTG carries a weighted forward's target group stickiness, AWSALB a
-// target group's lb_cookie stickiness to one target.
+// target group's lb_cookie stickiness.
 const (
 	elbv2TargetGroupStickinessCookie = "AWSALBTG"
 	elbv2TargetStickinessCookie      = "AWSALB"
 )
 
-// elbv2StickinessKey signs the stickiness cookies the load balancer sets, so a
-// client cannot name a target group or target of its choosing. The key
-// outlives a restart with the rest of the state, so the cookies clients hold
-// stay valid across one.
+// Signing stops a client naming its own target. The key persists, so cookies
+// survive a restart.
 var elbv2StickinessKey []byte
 
 func elbv2LoadStickinessKey(srv *sim.Server) {
@@ -258,8 +234,6 @@ func elbv2LoadStickinessKey(srv *sim.Server) {
 	elbv2StickinessKey = []byte(key)
 }
 
-// elbv2StickyCookie makes a cookie whose value carries payload under the load
-// balancer's signature, good for duration seconds.
 func elbv2StickyCookie(name, payload string, duration int) *http.Cookie {
 	mac := hmac.New(sha256.New, elbv2StickinessKey)
 	mac.Write([]byte(payload))
@@ -267,8 +241,7 @@ func elbv2StickyCookie(name, payload string, duration int) *http.Cookie {
 	return &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: duration}
 }
 
-// elbv2StickyCookiePayload reads the payload of the named cookie a request
-// carries, when the load balancer signed it.
+// Only cookies the load balancer signed.
 func elbv2StickyCookiePayload(r *http.Request, name string) (string, bool) {
 	if r == nil {
 		return "", false
@@ -297,15 +270,10 @@ func elbv2StickyCookiePayload(r *http.Request, name string) (string, bool) {
 	return string(payload), true
 }
 
-// elbv2HealthyTargetForActions picks a target of the target groups the first
-// forwarding action sends to: a weighted forward divides requests among its
-// target groups by weight, and a target group whose weight is 0 receives
-// nothing. With target group stickiness enabled, "requests from a client
-// should be routed to the same target group" for DurationSeconds: a request
-// carrying the AWSALBTG cookie the load balancer set stays with that target
-// group while it has a target in service, and a request without one is given
-// the cookie for the group the weights chose. The cookies to set come back
-// with the choice.
+// A weighted forward divides requests by weight; weight 0 receives nothing.
+// With target group stickiness, a request carrying AWSALBTG stays with that
+// group while it has a target in service; otherwise it gets the cookie for the
+// weighted choice.
 func elbv2HealthyTargetForActions(r *http.Request, actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, []*http.Cookie, bool) {
 	for _, action := range actions {
 		var groups []revisions.Weighted[string]
@@ -356,8 +324,7 @@ func elbv2HealthyTargetForActions(r *http.Request, actions []ELBv2Action) (ELBv2
 	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, nil, false
 }
 
-// elbv2ReadyTargets lists the targets of a target group that receive traffic,
-// in registration order.
+// In registration order.
 func elbv2ReadyTargets(tg ELBv2TargetGroup) []ELBv2TargetDescription {
 	var ready []ELBv2TargetDescription
 	for _, target := range tg.Targets {
@@ -368,9 +335,7 @@ func elbv2ReadyTargets(tg ELBv2TargetGroup) []ELBv2TargetDescription {
 	return ready
 }
 
-// elbv2RoundRobin counts the requests each target group has routed, which
-// the default load_balancing.algorithm.type, round_robin, turns among the
-// targets in service.
+// Per-group request counts for the default round_robin algorithm.
 var elbv2RoundRobin = struct {
 	sync.Mutex
 	routed map[string]uint64
@@ -384,12 +349,9 @@ func elbv2RoundRobinNext(targetGroupArn string) uint64 {
 	return n
 }
 
-// elbv2PickTarget picks the target of tg a request goes to. With
-// stickiness.enabled and stickiness.type lb_cookie, "requests from a client
-// should be routed to the same target" for stickiness.lb_cookie.duration_seconds,
-// "1 day (86400 seconds)" by default: a request carrying the AWSALB cookie the
-// load balancer set stays with that target while it is in service, and a
-// request without one is given the cookie for the target round robin chose.
+// With lb_cookie stickiness (default "1 day (86400 seconds)"), a request
+// carrying AWSALB stays with that target while in service; otherwise it gets
+// the cookie for the round-robin choice.
 func elbv2PickTarget(r *http.Request, tg ELBv2TargetGroup) (ELBv2TargetDescription, *http.Cookie) {
 	ready := elbv2ReadyTargets(tg)
 	attrs := tg.Attributes
@@ -447,13 +409,11 @@ func elbv2LoadBalancerAttributes(lbArn string) map[string]string {
 	return attrs
 }
 
-// elbv2ProbeTarget runs one health check against a target and reports why it
-// failed, which is what the target health checker turns into the state and
-// reason code DescribeTargetHealth reports.
+// Returns why the check failed, which the checker turns into state and reason
+// code.
 func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2TargetDescription) (int, error) {
-	// "HealthCheckPort — The port the load balancer uses when performing health
-	// checks on targets. The default is to use the port on which each target
-	// receives traffic from the load balancer."
+	// "The default is to use the port on which each target receives traffic from
+	// the load balancer."
 	target.Port = elbv2EffectiveHealthCheckPort(tg, target)
 	address, err := elbv2TargetAddress(tg, target)
 	if err != nil {
@@ -467,8 +427,8 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	// A target whose security group drops the load balancer's probe answers
-	// nothing, so the check times out as it does on Elastic Load Balancing.
+	// A security group dropping the probe makes the check time out, as on Elastic
+	// Load Balancing.
 	if lb, ok := elbv2LoadBalancerForTargetGroup(tg); ok {
 		if admit := elbv2TargetAdmission(lb, tg, target, target.Port); admit != nil {
 			if err := admit(netip.Addr{}); err != nil {
@@ -476,13 +436,12 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 			}
 		}
 	}
-	// Every health-check protocol but HTTP and HTTPS is a connection test,
-	// which is what a dial proves.
+	// Every protocol but HTTP and HTTPS is a connection test.
 	if !strings.EqualFold(protocol, "HTTP") && !strings.EqualFold(protocol, "HTTPS") {
 		return 0, lbplane.ProbeTCP(ctx, address, timeout)
 	}
-	// "Matcher — The codes to use when checking for a successful response
-	// from a target."
+	// "Matcher — The codes to use when checking for a successful response from a
+	// target."
 	codes := tg.MatcherHttpCode
 	if codes == "" {
 		codes = elbv2DefaultMatcher()
@@ -491,9 +450,8 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if err != nil {
 		return 0, fmt.Errorf("target group %s matcher: %w", tg.Arn, err)
 	}
-	// "These protocols use the HTTP GET method to send health check
-	// requests", to HealthCheckPath — "The default is /." The load balancer
-	// does not validate the target's certificate.
+	// HTTP GET to HealthCheckPath ("The default is /."), without validating the
+	// target's certificate.
 	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
 		Scheme:  strings.ToLower(protocol),
 		Address: address,
@@ -503,8 +461,8 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	})
 }
 
-// elbv2LoadBalancerForTargetGroup is the load balancer whose listener forwards
-// to the target group, which the target group's health checks come from.
+// The load balancer whose listener forwards to the group sends its health
+// checks.
 func elbv2LoadBalancerForTargetGroup(tg ELBv2TargetGroup) (ELBv2LoadBalancer, bool) {
 	for _, listener := range elbv2Listeners.List() {
 		for _, arn := range elbv2ActionForwardTargets(listener.DefaultActions) {

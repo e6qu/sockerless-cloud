@@ -9,19 +9,16 @@ import (
 	"testing"
 )
 
-// execCallSite names one `os/exec` use the workload-dispatch invariant permits,
-// scoped to the exact expression rather than to the whole file: a file may hold
-// one sanctioned call and still be the place a workload exec is added.
+// execCallSite is scoped to the exact expression rather than the file: a file
+// may hold one sanctioned call and still be where a workload exec is added.
 type execCallSite struct {
 	file string // path relative to the simulator module root
 	call string // the exact expression allowed, matched as a substring of the line
 	why  string
 }
 
-// execCallForms are the ways a Go file reaches os/exec. A file that imports the
-// package is scanned for every one of them; a file that does not import it is
-// skipped, so an unrelated local variable named `exec` (Cloud Run executions
-// are spelled that way) is never mistaken for a process launch.
+// A file that does not import os/exec is skipped, so a local variable named
+// `exec` (Cloud Run executions) is never taken for a process launch.
 var execCallForms = []string{
 	"exec.Command(",
 	"exec.CommandContext(",
@@ -29,16 +26,12 @@ var execCallForms = []string{
 	"exec.Cmd{",
 }
 
-// Workload-dispatch invariant. No sim handler may execute a workload via
-// `os/exec`. Workloads run in the container engine honouring the workload's
-// Architecture field, as docs/architecture.md describes.
-//
-// The scan walks every non-test Go file of the simulator module and of the
-// framework module `sim/` it is built on, so the framework cannot host what
-// the handlers forbid; paths are repository-relative. The three
-// test-suite modules (sdk-tests, cli-tests, terraform-tests) are their own
-// modules of test drivers — they shell out to `gcloud`, `terraform` and the
-// simulator binary by design — and are outside the invariant.
+// No simulator handler may run a workload through `os/exec`: workloads run in
+// the container engine, honouring the workload's Architecture field (see
+// docs/architecture.md). The scan walks every non-test Go file of the simulator
+// module and of `sim/`, so the framework cannot host what the handlers forbid.
+// The test-suite modules shell out to `gcloud`, `terraform` and the simulator
+// by design and fall outside the invariant.
 func TestNoOsExecOfWorkloads(t *testing.T) {
 	t.Parallel()
 	allowed := []execCallSite{
@@ -182,11 +175,9 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		}
 
 		for lineNo, line := range strings.Split(text, "\n") {
-			// Cut every sanctioned expression out of the line before deciding:
-			// a line that held one sanctioned call and one new one would
-			// otherwise pass on the strength of the sanctioned half. A
-			// sanctioned expression may also be a declaration that only types
-			// a value, which is how a file reaches os/exec without a call.
+			// Cut every sanctioned expression out of the line first, so a line holding a
+			// sanctioned call and a new one cannot pass on the sanctioned half. A
+			// sanctioned expression may be a declaration that only types a value.
 			residue := line
 			for _, site := range fileSites {
 				if strings.Contains(residue, site.call) {
@@ -207,17 +198,16 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		}
 	}
 
-	// A sanctioned call site that no longer exists, in a file that still
-	// imports os/exec or in one that no longer does, would silently widen the
-	// allowance for whatever is added to the file next.
+	// A sanctioned call site that no longer exists would silently widen the
+	// allowance for whatever the file gains next.
 	for _, site := range allowed {
 		if !matched[site] {
 			t.Errorf("%s no longer contains the sanctioned call site %q (%s) — drop the stale allowance", site.file, site.call, site.why)
 		}
 	}
 
-	// A scan that reached nothing proves nothing: the allowlist names files that
-	// do import os/exec today, so the walk must have found them.
+	// The allowlist names files that import os/exec, so a walk that scanned
+	// nothing missed them.
 	if scanned == 0 {
 		t.Fatal("the os/exec scan examined no file — the walk did not reach the simulator sources")
 	}

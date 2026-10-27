@@ -11,10 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2IamInstanceProfileAssociation models the iip-assoc-… record that links an
-// IAM instance profile to a running instance. Real EC2 keeps the association as
-// a first-class resource (Associate/Disassociate/Replace/Describe), transitions
-// it through associating → associated, and reports the bound profile's ARN+ID.
+// Amazon EC2 transitions an association through associating → associated and
+// reports the bound profile's ARN and ID.
 type EC2IamInstanceProfileAssociation struct {
 	AssociationId string
 	InstanceId    string
@@ -25,10 +23,8 @@ type EC2IamInstanceProfileAssociation struct {
 	Tags          []EC2Tag
 }
 
-// EC2BundleTask models a BundleInstance task (bundle-… ID). The task captures
-// the Windows instance's root volume to the named S3 location and progresses
-// pending → bundling → storing → complete in real EC2; the sim records it as a
-// completed task so the op is a faithful write, not a no-op.
+// Amazon EC2 progresses pending → bundling → storing → complete; the simulator
+// records the task as complete.
 type EC2BundleTask struct {
 	BundleId   string
 	InstanceId string
@@ -40,8 +36,6 @@ type EC2BundleTask struct {
 	S3Prefix   string
 }
 
-// EC2InstanceExportTask models a CreateInstanceExportTask record (export-i-… ID)
-// — the VM Import/Export task that writes an instance's disk image to S3.
 type EC2InstanceExportTask struct {
 	ExportTaskId      string
 	InstanceId        string
@@ -56,9 +50,7 @@ type EC2InstanceExportTask struct {
 	Tags              []EC2Tag
 }
 
-// EC2ConversionTask models an ImportInstance conversion task (import-i-… ID).
-// Real EC2 returns a conversion task that converts an uploaded disk image into
-// an instance; the sim records it as an active task.
+// The simulator records the task as active; no instance results.
 type EC2ConversionTask struct {
 	ConversionTaskId string
 	InstanceId       string
@@ -68,11 +60,8 @@ type EC2ConversionTask struct {
 	Tags             []EC2Tag
 }
 
-// EC2InstanceAttributes holds the per-instance attributes that the
-// modify-credit / modify-placement / modify-maintenance / modify-network-
-// performance ops mutate. They live in their own store (keyed by instance ID)
-// so the existing instance record stays unchanged while these ops still perform
-// a faithful, read-back-able write against the instance.
+// A separate store keyed by instance ID keeps these out of the instance
+// record.
 type EC2InstanceAttributes struct {
 	InstanceId                 string
 	CpuCredits                 string
@@ -81,8 +70,6 @@ type EC2InstanceAttributes struct {
 	BandwidthWeighting         string
 }
 
-// EC2InstanceSqlHaState models a SQL Server High Availability registration for
-// an instance (DescribeInstanceSqlHaStates / Enable/Disable standby detection).
 type EC2InstanceSqlHaState struct {
 	InstanceId            string
 	SqlServerLicenseUsage string
@@ -103,7 +90,6 @@ var (
 	ec2InstanceAttributes       sim.Store[EC2InstanceAttributes]
 )
 
-// ec2InstanceAttrs fetches (or seeds an empty) attribute record for an instance.
 func ec2InstanceAttrs(instanceID string) EC2InstanceAttributes {
 	if a, ok := ec2InstanceAttributes.Get(instanceID); ok {
 		return a
@@ -111,12 +97,6 @@ func ec2InstanceAttrs(instanceID string) EC2InstanceAttributes {
 	return EC2InstanceAttributes{InstanceId: instanceID}
 }
 
-// registerEC2InstanceExtras registers the EC2 instance-attributes family:
-// IAM-instance-profile associations, bundle/product/export/import tasks, credit
-// specifications, CPU/placement/maintenance/event modifications, console output,
-// password/TPM/UEFI reads, SQL-HA states, and the instance-requirements
-// instance-type lookup. Every handler operates on the existing instance store
-// and the shared instance-type catalog — no fakes, no synthetic instances.
 func registerEC2InstanceExtras(r *AWSQueryRouter, srv *sim.Server) {
 	ec2IamInstanceProfileAssocs = sim.MakeStore[EC2IamInstanceProfileAssociation](srv.DB(), "ec2_iam_instance_profile_assocs")
 	ec2BundleTasks = sim.MakeStore[EC2BundleTask](srv.DB(), "ec2_bundle_tasks")
@@ -158,8 +138,7 @@ func registerEC2InstanceExtras(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// ec2RequireInstance fetches an instance by ID, writing the canonical
-// InvalidInstanceID.NotFound error and reporting ok=false when it is missing.
+// Writes InvalidInstanceID.NotFound when missing.
 func ec2RequireInstance(w http.ResponseWriter, id string) (EC2Instance, bool) {
 	inst, ok := ec2Instances.Get(id)
 	if !ok {
@@ -169,10 +148,7 @@ func ec2RequireInstance(w http.ResponseWriter, id string) (EC2Instance, bool) {
 	return inst, true
 }
 
-// ec2IamProfileArnAndID resolves the request's IamInstanceProfile.{Arn,Name}
-// pair to a (arn, id) tuple. Real EC2 derives the ARN from the named profile;
-// the sim renders an instance-profile ARN from the supplied name when only the
-// name is given, and synthesizes a stable profile ID.
+// With only a name, render the ARN from it and derive a stable profile ID.
 func ec2IamProfileArnAndID(r *http.Request) (arn, id string) {
 	arn = r.FormValue("IamInstanceProfile.Arn")
 	name := r.FormValue("IamInstanceProfile.Name")
@@ -251,7 +227,7 @@ func handleReplaceIamInstanceProfileAssociation(w http.ResponseWriter, r *http.R
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter iamInstanceProfile", http.StatusBadRequest)
 		return
 	}
-	// Replacing keeps the same association ID but swaps the bound profile.
+	// Replacing keeps the association ID and swaps the profile.
 	old.ProfileArn = arn
 	old.ProfileId = profileID
 	old.State = "associated"
@@ -350,11 +326,8 @@ func handleConfirmProductInstance(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// ConfirmProductInstance reports whether the product code is owned by the
-	// requester and attached to the instance. The sim has no product-code
-	// registry, so it faithfully reports the code as not associated: return
-	// false and omit ownerId (which AWS includes only when the code is
-	// attached).
+	// The simulator has no product-code registry, so it reports the code as not
+	// attached and omits ownerId.
 	_ = inst
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ConfirmProductInstanceResponse %s><requestId>%s</requestId><return>false</return></ConfirmProductInstanceResponse>`,
@@ -405,9 +378,7 @@ func ec2InstanceExportTaskXML(t EC2InstanceExportTask) string {
 }
 
 func handleImportInstance(w http.ResponseWriter, r *http.Request) {
-	// ImportInstance converts an uploaded disk image into an instance and
-	// returns a conversion task. The sim records the task; the import-i ID is a
-	// real conversion-task ID. No instance exists yet (the upload is pending).
+	// No instance exists until the upload completes.
 	task := EC2ConversionTask{
 		ConversionTaskId: ec2ID("import-i"),
 		State:            "active",
@@ -427,8 +398,7 @@ func ec2ConversionTaskXML(t EC2ConversionTask) string {
 		t.ConversionTaskId, t.ExpirationTime, t.State, xmlEscape(t.StatusMessage), writeTagSetXML(t.Tags))
 }
 
-// ec2CpuCredits returns the instance's stored CPU-credit option, defaulting to
-// standard (real EC2's default for burstable instances) when none was set.
+// standard is the default for burstable instances.
 func ec2CpuCredits(instanceID string) string {
 	if a, ok := ec2InstanceAttributes.Get(instanceID); ok && a.CpuCredits != "" {
 		return a.CpuCredits
@@ -611,10 +581,8 @@ func handleModifyInstanceEventStartTime(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	notBefore := r.FormValue("NotBefore")
-	// Real EC2 reschedules the named scheduled event to start no earlier than
-	// NotBefore and echoes the updated event. The sim has no scheduled-event
-	// registry, so it faithfully echoes the rescheduled event for the request's
-	// IDs.
+	// The simulator has no scheduled-event registry; it echoes the rescheduled
+	// events for the request's IDs.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceEventStartTimeResponse %s><requestId>%s</requestId><event><instanceEventId>%s</instanceEventId><code>system-maintenance</code><description>scheduled maintenance</description><notBefore>%s</notBefore></event></ModifyInstanceEventStartTimeResponse>`,
 		ec2Xmlns(), sim.NewUUID(), eventID, notBefore)
@@ -625,9 +593,8 @@ func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
 		return
 	}
-	// The console carries what the instance's machine wrote to it, the most
-	// recent 64 KB, base64-encoded as the API requires; an instance that has
-	// written nothing has no output element.
+	// The most recent 64 KB the machine wrote, base64-encoded; an instance that
+	// wrote nothing has no output element.
 	console, err := ec2ConsoleOutput(r.Context(), instanceID)
 	if err != nil {
 		ec2ErrorXML(w, "InternalError", "An internal error has occurred", http.StatusInternalServerError)
@@ -647,7 +614,7 @@ func handleGetConsoleScreenshot(w http.ResponseWriter, r *http.Request) {
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
 		return
 	}
-	// A deterministic 1x1 PNG, base64-encoded as the API returns the screenshot.
+	// A fixed 1x1 PNG, not a capture of the console.
 	imageData := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetConsoleScreenshotResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><imageData>%s</imageData></GetConsoleScreenshotResponse>`,
@@ -659,10 +626,7 @@ func handleGetPasswordData(w http.ResponseWriter, r *http.Request) {
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
 		return
 	}
-	// Real EC2 returns the encrypted password data for a Windows instance, or an
-	// empty string when no password is available. The sim's Linux-derived
-	// instances have no Windows password, so it faithfully returns an empty
-	// passwordData with the current timestamp.
+	// The simulator's Linux instances have no Windows password.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetPasswordDataResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><timestamp>%s</timestamp><passwordData></passwordData></GetPasswordDataResponse>`,
 		ec2Xmlns(), sim.NewUUID(), instanceID, ec2NowRFC3339Milli())
@@ -681,7 +645,7 @@ func handleGetInstanceTpmEkPub(w http.ResponseWriter, r *http.Request) {
 	if keyFormat == "" {
 		keyFormat = "der"
 	}
-	// Deterministic TPM endorsement-key material for the instance, base64-shaped.
+	// Derived from the instance ID, not a real TPM endorsement key.
 	keyValue := base64.StdEncoding.EncodeToString([]byte("tpm-ek-pub:" + instanceID))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceTpmEkPubResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><keyType>%s</keyType><keyFormat>%s</keyFormat><keyValue>%s</keyValue></GetInstanceTpmEkPubResponse>`,
@@ -693,17 +657,14 @@ func handleGetInstanceUefiData(w http.ResponseWriter, r *http.Request) {
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
 		return
 	}
-	// Base64 representation of the instance's non-volatile UEFI variable store.
+	// Derived from the instance ID, not a real UEFI variable store.
 	uefiData := base64.StdEncoding.EncodeToString([]byte("uefi-vars:" + instanceID))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetInstanceUefiDataResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><uefiData>%s</uefiData></GetInstanceUefiDataResponse>`,
 		ec2Xmlns(), sim.NewUUID(), instanceID, uefiData)
 }
 
-// handleEC2DescribeInstanceImageMetadata returns each instance with the
-// metadata of the AMI it was launched from, joining the instance store and the
-// (deterministic) AMI metadata. Distinct handler name avoids colliding with the
-// image-management family's helper of the same intent.
+// The name avoids colliding with the image-management family's helper.
 func handleEC2DescribeInstanceImageMetadata(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
 	insts := ec2Instances.List()
@@ -750,7 +711,6 @@ func handleEC2DescribeInstanceImageMetadata(w http.ResponseWriter, r *http.Reque
 		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
-// ec2InstanceStateCode maps an instance-state name to its 16-bit state code.
 func ec2InstanceStateCode(name string) int {
 	switch ec2InstanceStateName(name) {
 	case "pending":
@@ -769,8 +729,7 @@ func ec2InstanceStateCode(name string) int {
 	return 16
 }
 
-// ec2InstanceStateName normalizes an empty/missing state to running (an
-// instance that has finished launching), matching the sim's instance lifecycle.
+// An empty state reads as running.
 func ec2InstanceStateName(name string) string {
 	if name == "" {
 		return "running"
@@ -795,8 +754,7 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 	}
 	var items strings.Builder
 	for _, inst := range results {
-		// NetworkNodes are hashed strings identifying the instance's place in the
-		// network fabric; derive deterministic nodes from the instance ID.
+		// Derived from the instance ID.
 		nodes := fmt.Sprintf("<networkNodeSet><item>nn-%s-1</item><item>nn-%s-2</item><item>nn-%s-3</item></networkNodeSet>",
 			inst.InstanceId, inst.InstanceId, inst.InstanceId)
 		items.WriteString("<item>")
@@ -814,7 +772,6 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String(), nextTokenXML)
 }
 
-// ec2SqlHaState fetches (or seeds) the SQL-HA registration for an instance.
 func ec2SqlHaState(instanceID string) EC2InstanceSqlHaState {
 	if s, ok := ec2InstanceSqlHaStates.Get(instanceID); ok {
 		return s
@@ -840,9 +797,8 @@ func ec2SqlHaStateXML(s EC2InstanceSqlHaState) string {
 		s.LastUpdatedTime, creds, writeTagSetXML(s.Tags))
 }
 
-// ec2SqlHaSelected returns the SQL-HA states for the requested instance IDs (or
-// every registered instance when no IDs are given). The describe ops seed a
-// state for an existing instance so the read reflects a live SQL-HA instance.
+// With no IDs, every registered instance. Describing seeds a state for an
+// existing instance.
 func ec2SqlHaSelected(r *http.Request) []EC2InstanceSqlHaState {
 	ids := ec2ParamList(r, "InstanceId")
 	var states []EC2InstanceSqlHaState

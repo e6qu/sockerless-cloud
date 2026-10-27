@@ -7,14 +7,9 @@ import (
 	"syscall"
 )
 
-// elbv2HostCannotOfferAddress reports whether a data-plane bind failed because
-// the host will not give the simulator that address and port — it is already
-// bound by another process, the port is privileged and the simulator is not,
-// or the loopback address does not exist here.
-//
-// It is deliberately narrow. Anything else (a malformed listener, a target
-// group that cannot be resolved) is a real configuration failure and must
-// still fail the API call.
+// True only when the host will not give the address and port: in use,
+// privileged, or a missing loopback address. Any other failure is real
+// configuration and still fails the call.
 func elbv2HostCannotOfferAddress(err error) bool {
 	return errors.Is(err, syscall.EADDRINUSE) ||
 		errors.Is(err, syscall.EACCES) ||

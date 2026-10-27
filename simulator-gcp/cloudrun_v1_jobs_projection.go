@@ -7,26 +7,13 @@ import (
 	"strings"
 )
 
-// Knative (Cloud Run Admin v1) shapes for the Cloud Run Jobs family, and the
-// projection that renders the v2-owned Job / Execution / Task records in them.
-//
-// A Cloud Run job, its executions and its tasks are ONE resource each,
-// addressable through two API versions: the v2 resource-oriented surface
-// (`/v2/projects/{p}/locations/{l}/jobs/…`) and the v1 Knative surface
-// (`/apis/run.googleapis.com/v1/namespaces/{ns}/…`). The simulator stores the
-// resource once, in the v2 stores (crjJobs / crjExecutions / crjTasks), and
-// renders the Knative shape on read — the same rule the services projection in
-// cloudrun_service_projection.go follows, and the reason a job created through
-// either version is visible through the other.
-//
-// The Knative namespace is the project: `namespaces/{project}`. The v1 jobs
-// surface is regional on real Cloud Run — a client reaches it at
-// `{region}-run.googleapis.com` — and the simulator serves one origin, so the
+// A Cloud Run job, its executions and its tasks are one resource each,
+// addressable through v2 (`/v2/projects/{p}/locations/{l}/jobs/…`) and the v1
+// Knative surface (`/apis/run.googleapis.com/v1/namespaces/{ns}/…`). The v2
+// stores hold them once and these types render the Knative shape on read. The
+// namespace is the project; v1 jobs are regional on Google Cloud
+// (`{region}-run.googleapis.com`) and the simulator serves one origin, so the
 // namespaces surface addresses cloudRunDefaultLocation.
-//
-// Shapes per the vendored cloudrun-v1 Discovery document's Job / JobSpec /
-// JobStatus / Execution / ExecutionSpec / ExecutionStatus / Task / TaskSpec /
-// TaskStatus schemas.
 
 // CRExecution is the Knative rendering of a Cloud Run job execution.
 type CRExecution struct {
@@ -242,7 +229,6 @@ func cloudRunV2ConditionsToV1(conditions []Condition) []CRCondition {
 	return out
 }
 
-// cloudRunV2VolumeToV1 renders a v2 Volume in the Knative shape.
 func cloudRunV2VolumeToV1(volume Volume) CRVolume {
 	out := CRVolume{Name: volume.Name}
 	switch {
@@ -390,7 +376,6 @@ func cloudRunSecondsToDuration(seconds string) string {
 	return strconv.FormatInt(value, 10) + "s"
 }
 
-// cloudRunV2ExecutionToV1 renders a v2 Execution in the Knative shape.
 func cloudRunV2ExecutionToV1(execution Execution) (CRExecution, bool) {
 	project, _, job, executionID, ok := parseCloudRunV2ExecutionName(execution.Name)
 	if !ok {
@@ -431,7 +416,6 @@ func cloudRunV2ExecutionToV1(execution Execution) (CRExecution, bool) {
 	}, true
 }
 
-// cloudRunV2TaskToV1 renders a v2 Task in the Knative shape.
 func cloudRunV2TaskToV1(task Task) (CRTask, bool) {
 	project, _, job, execution, taskID, ok := parseCloudRunV2TaskName(task.Name)
 	if !ok {
@@ -523,10 +507,9 @@ type CRExecutionReference struct {
 	CompletionStatus    string `json:"completionStatus,omitempty"`
 }
 
-// cloudRunExecutionCompletionStatus reports an execution's outcome in the
-// ExecutionReference.completionStatus enum the Knative Job status carries. It
-// reads the execution record itself — the same record the v2 collection
-// serves — rather than inferring an outcome from the reference's timestamps.
+// cloudRunExecutionCompletionStatus reads the execution record itself for
+// ExecutionReference.completionStatus, rather than inferring the outcome from
+// the reference's timestamps.
 func cloudRunExecutionCompletionStatus(executionName string) string {
 	execution, ok := crjExecutions.Get(executionName)
 	if !ok {
@@ -546,7 +529,6 @@ func cloudRunExecutionCompletionStatus(executionName string) string {
 	}
 }
 
-// cloudRunV2JobToV1 renders a v2 Job in the Knative shape.
 func cloudRunV2JobToV1(job Job) (CRJob, bool) {
 	parts := strings.Split(job.Name, "/")
 	if len(parts) != 6 || parts[0] != "projects" || parts[2] != "locations" || parts[4] != "jobs" {
@@ -607,9 +589,8 @@ func cloudRunV2JobToV1(job Job) (CRJob, bool) {
 	}, true
 }
 
-// cloudRunV1JobToV2 folds a Knative Job body onto the v2 resource the
-// simulator stores. Server-owned members (name, uid, timestamps, conditions,
-// execution counters) are seeded by the caller.
+// cloudRunV1JobToV2 folds a Knative Job body onto the v2 resource; the caller
+// seeds the server-owned members.
 func cloudRunV1JobToV2(job CRJob) Job {
 	converted := Job{
 		Labels:      job.Metadata.Labels,

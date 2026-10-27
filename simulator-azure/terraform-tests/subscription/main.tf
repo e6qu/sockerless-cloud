@@ -7,12 +7,9 @@ terraform {
   }
 }
 
-# Standalone Microsoft.Subscription alias-API configuration, run by
-# TestTerraformSubscriptionApplyDestroy as its own CI shard: each
+# Run by TestTerraformSubscriptionApplyDestroy as its own CI shard: each
 # azurerm_subscription create and cancel sits through the provider's fixed 60s
-# StateChangeConf delay plus four 10s confirmation polls, too slow for the
-# shared stack's CI budget. The provider wiring is identical to the shared
-# stack's — same simulator endpoint coordinate, same service principal.
+# StateChangeConf delay and four 10s confirmation polls.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"
@@ -32,11 +29,9 @@ provider "azurerm" {
   features {}
 }
 
-# azurerm_subscription supports two creation modes; both run here. Creation
-# PUTs the alias with a billing scope and polls the alias to Succeeded;
-# adoption attaches an alias to an existing subscription id. Destroy deletes
-# the alias and cancels the subscription (the provider then waits for the
-# Disabled state).
+# Both azurerm_subscription creation modes: a billing-scope alias polled to
+# Succeeded, and adoption of an existing subscription. Destroy deletes the
+# alias and cancels the subscription, waiting for Disabled.
 
 resource "azurerm_subscription" "created" {
   alias             = "tf-test-sub-alias"

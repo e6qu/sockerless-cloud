@@ -26,7 +26,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// Server is the main simulator HTTP server.
 type Server struct {
 	config Config
 	logger zerolog.Logger
@@ -38,14 +37,11 @@ type Server struct {
 	// routed is the routing core: the mux plus the middlewares that must run
 	// after a request has been claimed. WrapHandler wraps this, so a
 	// host-addressed data plane intercepts ahead of the generic path handlers
-	// while still being observed by the outer chain built in finalHandler.
+	// and the outer chain finalHandler builds still observes it.
 	routed http.Handler
-	// handler is the outermost chain, built on first use. It is read on every
-	// request and written by the first request to arrive, so it is guarded:
-	// without the lock two concurrent first requests both saw nil, both built
-	// a chain, and both wrote it — twelve of the thirteen races the detector
-	// found in this repository, and a live defect rather than a test artefact,
-	// since a real deployment's first two requests race exactly the same way.
+	// handler is the outermost chain, built on first use. Every request reads it
+	// and the first to arrive writes it, so the lock keeps two concurrent first
+	// requests from each building and writing a chain.
 	handlerMu sync.RWMutex
 	handler   http.Handler
 	db        *sql.DB // nil when persistence disabled
@@ -116,13 +112,9 @@ func BrowserFederationCoordinates(bool) map[string]string {
 	}
 }
 
-// NewServer creates a new simulator server with the given configuration.
-//
-// Returns an error when persistence is requested (cfg.Persist=true)
-// but the data directory cannot be opened. Operator asked for durable
-// state; degrading silently to in-memory would mask misconfiguration
-// (bad path, perms, full disk) and produce silent data loss across
-// restarts.
+// NewServer fails when persistence is requested (cfg.Persist) but the data
+// directory cannot be opened: degrading to in-memory state would hide the
+// misconfiguration and lose data across restarts.
 func NewServer(cfg Config) (*Server, error) {
 	uiAuth, err := uiauth.New(uiauth.Config{
 		Issuer: cfg.UIOIDCIssuer, ClientID: cfg.UIOIDCClientID, ClientSecret: cfg.UIOIDCClientSecret,
@@ -158,9 +150,8 @@ func NewServer(cfg Config) (*Server, error) {
 	uiAuth.RegisterMonitoring(mux)
 
 	// The runtime mode decides whether this process holds a container engine
-	// client, so it is resolved once here and carried, never re-read: what the
-	// server reports about itself and what it can actually do have to be the
-	// same answer.
+	// client, so resolve it once here and carry it, never re-read: what the
+	// server reports about itself and what it can do have to agree.
 	runtimeMode, err := ResolveRuntimeMode()
 	if err != nil {
 		return nil, err
@@ -181,11 +172,10 @@ func NewServer(cfg Config) (*Server, error) {
 		})
 	})
 
-	// Build middleware chain. otelhttp.NewHandler is outermost so
-	// per-request spans see the post-routing path; the existing
-	// middlewares run inside the span. Spans emit to a no-op tracer
-	// unless main.go calls InitObservability with OTEL_EXPORTER_OTLP_ENDPOINT
-	// set in the env.
+	// otelhttp.NewHandler is outermost so per-request spans see the post-routing
+	// path; the other middlewares run inside the span. Spans go to a no-op
+	// tracer unless main calls InitObservability with
+	// OTEL_EXPORTER_OTLP_ENDPOINT set.
 	var routed http.Handler = mux
 	if rewrite := cfg.RewriteRequest; rewrite != nil {
 		inner := routed
@@ -231,10 +221,8 @@ func NewServer(cfg Config) (*Server, error) {
 			Msg("API-only mode: no container engine client; operations that execute workloads will be refused")
 	}
 
-	// Open SQLite database if persistence enabled. No fallback —
-	// operator asked for durable state; if we can't deliver, surface
-	// the error and let the caller decide (typically log.Fatal in
-	// main).
+	// With persistence on, a database that does not open is the caller's error,
+	// never a fallback to memory.
 	var db *sql.DB
 	if cfg.Persist {
 		db, err = OpenDB(dataDir)
@@ -264,13 +252,15 @@ func NewServer(cfg Config) (*Server, error) {
 	return srv, nil
 }
 
-// Handle registers a pattern on the server's mux.
+// Handle registers a pattern on the server's mux and records it for
+// RoutePatterns.
 func (s *Server) Handle(pattern string, handler http.Handler) {
 	s.routePatterns = append(s.routePatterns, pattern)
 	s.mux.Handle(pattern, handler)
 }
 
-// HandleFunc registers a handler function on the server's mux.
+// HandleFunc registers a handler function on the server's mux and records
+// its pattern for RoutePatterns.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	s.routePatterns = append(s.routePatterns, pattern)
 	s.mux.HandleFunc(pattern, handler)
@@ -389,17 +379,13 @@ func (s *Server) ServeUIRoot(w http.ResponseWriter, r *http.Request) bool {
 
 // StartBackground runs service work under the server lifecycle. The worker
 // must return when ctx is cancelled. ListenAndServe cancels and drains every
-// registered worker before checkpointing and closing SQLite, so no service can
-// query durable state after orderly shutdown has closed the database.
+// worker before checkpointing and closing SQLite, so no service queries
+// durable state after shutdown closed the database.
 //
-// A panic in one of these workers is contained here. In a handler a panic is a
-// 500 and the service keeps serving, because net/http recovers it; on a bare
-// goroutine it ends the process. A deployed simulator was restarted thirteen
-// times in thirteen minutes by its own retention sweeper meeting a busy
-// database, and every restart tore down the network namespace of every running
-// task. Maintenance work must not be able to do that. The stack is written
-// where the deployment collects it, and the worker stops -- so the failure is
-// as loud as a crash without taking the service with it.
+// A panic in a worker ends the worker, not the process: net/http recovers a
+// handler's panic, but one on a bare goroutine would end the simulator and
+// tear down the network namespace of every running task. The stack goes
+// where the deployment collects it, so the failure is as loud as a crash.
 //
 // name says what the worker is, and is what a shutdown still waiting on it
 // reports.
@@ -595,11 +581,9 @@ func (s *Server) Serve() error {
 		return &http.Server{
 			Addr:    addr,
 			Handler: handler,
-			// Bound only the header read (slowloris protection). A fixed
-			// ReadTimeout/WriteTimeout caps the WHOLE body, which cuts off large
-			// image-layer / build-context uploads + downloads under load —
-			// surfacing as an "i/o timeout" 500 on a slow OCI/S3 transfer on a
-			// loaded CI runner.
+			// Bound only the header read, against slowloris: a ReadTimeout or
+			// WriteTimeout caps the whole body and cuts off a large image-layer or
+			// build-context transfer on a loaded host.
 			ReadHeaderTimeout: 30 * time.Second,
 			IdleTimeout:       120 * time.Second,
 			// Every request's context descends from the background context, so
@@ -678,9 +662,8 @@ func (s *Server) Serve() error {
 	if err == http.ErrServerClosed {
 		err = <-done
 	}
-	// Each phase says how long it took: a shutdown that overran its unit's
-	// stop timeout was killed without a word, and a deploy waited 90 seconds
-	// on it with nothing to say why.
+	// Log how long each phase took, so a shutdown a service manager kills
+	// for overrunning its stop timeout leaves a trace of where it waited.
 	started := time.Now()
 	s.stopBackground()
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background workers returned")

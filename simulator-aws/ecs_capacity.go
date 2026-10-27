@@ -9,14 +9,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS capacity providers — the control-plane resource behind
-// aws_ecs_capacity_provider. A capacity provider names an Auto Scaling group
-// (or AWS-managed Fargate) that ECS uses for task placement. The sim stores it
-// as a named control-plane object so Create/Describe/List/Update/Delete
-// round-trip; the two AWS-managed providers (FARGATE / FARGATE_SPOT) are
-// implicit and always ACTIVE and cannot be created or deleted.
+// The AWS-managed FARGATE and FARGATE_SPOT providers are implicit, always
+// ACTIVE, and cannot be created or deleted.
 
-// ECSCapacityProvider is the stored shape of a custom capacity provider.
 type ECSCapacityProvider struct {
 	CapacityProviderArn      string          `json:"capacityProviderArn"`
 	Name                     string          `json:"name"`
@@ -105,13 +100,8 @@ func handleECSUpdateCapacityProvider(w http.ResponseWriter, r *http.Request) {
 			"The specified capacity provider does not exist. Specify a valid name or ARN and try again.")
 		return
 	}
-	// An update carries AutoScalingGroupProviderUpdate, which is the settings
-	// that can change — not the whole provider. It has no autoScalingGroupArn,
-	// because the group a provider is for cannot be changed. Replacing the
-	// stored provider with it therefore threw the ARN away: the provider that
-	// came back from the update, and every read of it afterwards, described a
-	// capacity provider attached to no auto scaling group, and the model marks
-	// that ARN required. The update's members are merged over the stored ones.
+	// AutoScalingGroupProviderUpdate lacks autoScalingGroupArn, which cannot
+	// change and the model requires, so merge the update over the stored members.
 	cp.AutoScalingGroupProvider = ecsMergeProviderJSON(cp.AutoScalingGroupProvider, req.AutoScalingGroupProvider)
 	cp.ManagedInstancesProvider = ecsMergeProviderJSON(cp.ManagedInstancesProvider, req.ManagedInstancesProvider)
 	cp.UpdateStatus = "UPDATE_COMPLETE"
@@ -119,9 +109,7 @@ func handleECSUpdateCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"capacityProvider": cp})
 }
 
-// ecsMergeProviderJSON overlays an update's members onto the stored provider,
-// leaving members the update does not mention — the auto scaling group's ARN
-// among them — as they were. An update that carries nothing changes nothing.
+// Members the update omits, the group ARN among them, stay as they were.
 func ecsMergeProviderJSON(stored, update json.RawMessage) json.RawMessage {
 	if len(update) == 0 {
 		return stored
@@ -157,10 +145,7 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := ecsCapacityProviderName(req.CapacityProvider)
-	// The AWS-managed providers are reserved. CreateCapacityProvider already
-	// refused these names and the delete did not, so the two disagreed about
-	// whether FARGATE exists — and this file's own comment says it cannot be
-	// deleted.
+	// The AWS-managed providers are reserved.
 	for _, builtin := range ecsBuiltInCapacityProviders {
 		if name == builtin {
 			AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
@@ -174,10 +159,8 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 			"The specified capacity provider does not exist. Specify a valid name or ARN and try again.")
 		return
 	}
-	// A provider a cluster still names cannot be deleted; AWS asks the caller
-	// to disassociate it with PutClusterCapacityProviders first. The cluster's
-	// own list was never consulted, so deleting one left clusters naming a
-	// provider that no longer existed.
+	// A provider a cluster still names cannot be deleted; the caller must first
+	// disassociate it with PutClusterCapacityProviders.
 	if clusters := ecsClustersUsingCapacityProvider(name); len(clusters) > 0 {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
 			"The capacity provider '%s' is in use by cluster(s) %s and cannot be deleted. "+
@@ -191,8 +174,6 @@ func handleECSDeleteCapacityProvider(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"capacityProvider": cp})
 }
 
-// ecsClustersUsingCapacityProvider names the clusters whose capacity-provider
-// list still holds this provider, which is what stops it being deleted.
 func ecsClustersUsingCapacityProvider(name string) []string {
 	var clusters []string
 	for _, cluster := range ecsClusters.List() {

@@ -8,12 +8,8 @@ import (
 	"google.golang.org/api/dns/v1"
 )
 
-// TestDNS_RrsetsListNameTypeFilter pins the rrsets.list name+type
-// filter that the Cloud Run service-discovery path uses
-// (backends/gcp-common/network_discovery_clouddns.go calls
-// .Name(fqdn).Type("A")). Real Cloud DNS returns only the matching
-// record set; the sim must honor the query params, not return the
-// whole zone.
+// TestDNS_RrsetsListNameTypeFilter: Cloud DNS's rrsets.list returns only the
+// record sets matching the name and type parameters.
 func TestDNS_RrsetsListNameTypeFilter(t *testing.T) {
 	t.Parallel()
 	svc := dnsService(t)
@@ -25,7 +21,6 @@ func TestDNS_RrsetsListNameTypeFilter(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// Two A records + one TXT in the same zone.
 	mk := func(name, typ string, data ...string) {
 		_, err := svc.ResourceRecordSets.Create(project, "disc-zone", &dns.ResourceRecordSet{
 			Name: name, Type: typ, Ttl: 30, Rrdatas: data,

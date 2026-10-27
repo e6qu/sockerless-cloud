@@ -19,11 +19,9 @@ import (
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
 )
 
-// eventarcCollect drains a list iterator and returns the identity of every item
-// it yielded. Every collection in this file lives in one shared location, so a
-// test asserts MEMBERSHIP of the resource it created: "exactly one item, then
-// iterator.Done" would make each test's result depend on which other tests have
-// already run and on whether their cleanups succeeded.
+// eventarcCollect returns every item's identity. The tests share one location,
+// so each asserts membership of its own resource: an exact count would depend
+// on which other tests ran and whether their cleanups succeeded.
 func eventarcCollect[T any](t *testing.T, next func() (T, error), id func(T) string) []string {
 	t.Helper()
 	var out []string
@@ -110,8 +108,8 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name, created.GetName())
 	assert.Equal(t, "test", created.GetLabels()["env"])
-	// A cleanup that swallowed its error would leave the trigger behind, and
-	// the location is shared with every other test in this file.
+	// The location is shared with every other test in this file, so the cleanup
+	// must not swallow its error.
 	t.Cleanup(func() {
 		op, err := client.DeleteTrigger(ctx, &eventarcpb.DeleteTriggerRequest{Name: name})
 		if assert.NoError(t, err, "delete %s", name) {
@@ -299,10 +297,8 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 		(*eventarcpb.Enrollment).GetName)
 	assert.Contains(t, enrollments, enrollmentName, "the enrollment just created must be listed")
 
-	// messageBuses:listEnrollments returns the names of enrollments bound to the
-	// bus. The bus belongs to this test, so the binding it made is the whole of
-	// that list — an enrollment bound to another bus leaking in would be a
-	// scoping defect.
+	// The bus belongs to this test, so its binding is the whole list; another
+	// bus's enrollment here would be a scoping defect.
 	busEnrollments := eventarcCollect(t,
 		client.ListMessageBusEnrollments(ctx, &eventarcpb.ListMessageBusEnrollmentsRequest{Parent: busName}).Next,
 		func(name string) string { return name })
@@ -504,9 +500,9 @@ func TestEventarc_LocationsSDK(t *testing.T) {
 	assert.Equal(t, "us-central1", got.GetLocationId())
 }
 
-// Eventarc and Cloud Build both keep triggers at the global location, under
-// one path. Each service's list holds only its own triggers, because each
-// client names its service by host.
+// Eventarc and Cloud Build both keep triggers at the global location under one
+// path; each client names its service by host, so each list holds only its own
+// triggers.
 func TestEventarc_GlobalTriggersApartFromCloudBuild(t *testing.T) {
 	t.Parallel()
 	const project = "eventarc-global-project"

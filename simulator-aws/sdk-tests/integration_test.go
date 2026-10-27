@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIntegration_ECSFullLifecycle exercises the complete ECS backend flow:
-// RegisterTaskDefinition → RunTask → wait RUNNING → logs → StopTask → verify STOPPED → Deregister
 func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
@@ -28,13 +26,11 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	logGroup := "/ecs/integration-test"
 	subnetID := createECSTestSubnet(t, "integration-ecs")
 
-	// Setup: create cluster
 	_, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String(clusterName),
 	})
 	require.NoError(t, err)
 
-	// Register task definition with awslogs driver
 	tdOut, err := ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("integration-task"),
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
@@ -46,10 +42,8 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
 				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
-				// The container announces itself, then idles. The stream's
-				// first event must be that line: Amazon ECS seeds nothing at
-				// RunTask time, and this test used to pass on a synthetic
-				// "container started" event from a container that wrote nothing.
+				// The container announces itself, then idles; that line is the stream's first
+				// event, since Amazon ECS writes nothing to the stream at RunTask.
 				Command: []string{"sh", "-c", "echo lifecycle-app-up; exec tail -f /dev/null"},
 				LogConfiguration: &ecstypes.LogConfiguration{
 					LogDriver: "awslogs",
@@ -66,7 +60,6 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	tdArn := *tdOut.TaskDefinition.TaskDefinitionArn
 
-	// Run task
 	runOut, err := ecsC.RunTask(ctx, &ecs.RunTaskInput{
 		Cluster:        aws.String(clusterName),
 		TaskDefinition: aws.String(tdArn),
@@ -93,22 +86,21 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	require.Len(t, descOut.Tasks, 1)
 	assert.Equal(t, "RUNNING", *descOut.Tasks[0].LastStatus)
 
-	// Verify CloudWatch log group was auto-created
+	// awslogs-create-group made the driver create the log group.
 	groups, err := cwC.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(logGroup),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, groups.LogGroups, "ECS should auto-create log group")
 
-	// Find log streams
 	streams, err := cwC.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, streams.LogStreams, "ECS should auto-create log stream")
 
-	// The container's own first line reaches the stream while the task runs,
-	// and it is the first event: nothing precedes what the container wrote.
+	// The container's first line reaches the stream while the task runs, with
+	// nothing before it.
 	awaitLogLine(t, cwC, logGroup, "lifecycle-app-up", 30*time.Second)
 	events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
@@ -119,7 +111,6 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	require.NotEmpty(t, events.Events, "the running container's stdout should reach its log stream")
 	require.Equal(t, "lifecycle-app-up", aws.ToString(events.Events[0].Message), "the stream must begin with the container's first line")
 
-	// Stop task
 	_, err = ecsC.StopTask(ctx, &ecs.StopTaskInput{
 		Cluster: aws.String(clusterName),
 		Task:    aws.String(taskArn),
@@ -127,30 +118,26 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify STOPPED state, which StopTask does not wait for
+	// StopTask does not wait for STOPPED.
 	stoppedTask := waitTaskStopped(t, ecsC, clusterName, taskArn)
 	assert.Equal(t, "STOPPED", *stoppedTask.LastStatus)
 	assert.Equal(t, ecstypes.TaskStopCodeUserInitiated, stoppedTask.StopCode)
 	for _, c := range stoppedTask.Containers {
 		require.NotNil(t, c.ExitCode)
-		// User-initiated StopTask SIGKILLs the container → 137 (128+SIGKILL).
+		// A user StopTask SIGKILLs the container: 137 (128+SIGKILL).
 		assert.Equal(t, int32(137), *c.ExitCode)
 	}
 
-	// Deregister task definition
 	_, err = ecsC.DeregisterTaskDefinition(ctx, &ecs.DeregisterTaskDefinitionInput{
 		TaskDefinition: aws.String(tdArn),
 	})
 	require.NoError(t, err)
 
-	// Cleanup logs
 	cwC.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
 		LogGroupName: aws.String(logGroup),
 	})
 }
 
-// TestIntegration_LambdaFullLifecycle exercises the complete Lambda backend flow:
-// CreateFunction → Invoke → DescribeLogStreams → GetLogEvents → DeleteFunction
 func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -159,7 +146,6 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	fnName := "integration-lambda-fn"
 	logGroupName := "/aws/lambda/" + fnName
 
-	// Create function
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
@@ -169,7 +155,6 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Invoke
 	invokeOut, err := lc.Invoke(ctx, &lambda.InvokeInput{
 		FunctionName: aws.String(fnName),
 	})
@@ -177,7 +162,7 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	assert.Equal(t, int32(200), invokeOut.StatusCode)
 	assert.Equal(t, "$LATEST", *invokeOut.ExecutedVersion)
 
-	// Find log stream (same call pattern as Lambda backend logs.go:67)
+	// The Lambda backend's logs.go makes the same call.
 	streams, err := cwC.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
 		OrderBy:      cwlogtypes.OrderByLastEventTime,
@@ -189,7 +174,6 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	streamName := *streams.LogStreams[0].LogStreamName
 	assert.Contains(t, streamName, "[$LATEST]")
 
-	// Get log events
 	events, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroupName),
 		LogStreamName: aws.String(streamName),
@@ -206,11 +190,10 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	assert.Contains(t, logOutput, "END RequestId:")
 	assert.Contains(t, logOutput, "REPORT RequestId:")
 
-	// Verify pagination tokens work (follow mode simulation)
 	token := events.NextForwardToken
 	require.NotNil(t, token)
 
-	// Re-read with token — no new events expected
+	// Re-reading with the token, as follow mode does, returns nothing new.
 	events2, err := cwC.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroupName),
 		LogStreamName: aws.String(streamName),
@@ -221,19 +204,16 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	assert.Empty(t, events2.Events, "no new events should be returned")
 	assert.Equal(t, *token, *events2.NextForwardToken, "token should be stable when no new events")
 
-	// Delete function
 	_, err = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{
 		FunctionName: aws.String(fnName),
 	})
 	require.NoError(t, err)
 
-	// Cleanup logs
 	cwC.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 }
 
-// TestIntegration_ECRAuthToken verifies the ECR GetAuthorizationToken flow.
 func TestIntegration_ECRAuthToken(t *testing.T) {
 	t.Parallel()
 	ecrC := ecr.NewFromConfig(sdkConfig(), func(o *ecr.Options) {

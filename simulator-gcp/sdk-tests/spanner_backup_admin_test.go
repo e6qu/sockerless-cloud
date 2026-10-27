@@ -12,9 +12,6 @@ import (
 	spanneradmin "google.golang.org/api/spanner/v1"
 )
 
-// spannerAdminService builds the official Google Cloud Spanner REST client
-// against the simulator — same client, same resource names, only the endpoint
-// coordinate differs from a real project.
 func spannerAdminService(t *testing.T, ctx context.Context) *spanneradmin.Service {
 	t.Helper()
 	svc, err := spanneradmin.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
@@ -22,9 +19,9 @@ func spannerAdminService(t *testing.T, ctx context.Context) *spanneradmin.Servic
 	return svc
 }
 
-// spannerWriteRows commits rows into a table through the session data plane —
-// a read-write transaction, INSERT DML, and Commit — so the rows exist in the
-// database's real backing engine and not in any admin-side record.
+// spannerWriteRows commits through the session data plane (a read-write
+// transaction, INSERT DML and Commit), so the rows live in the database's
+// backing engine, not in an admin-side record.
 func spannerWriteRows(t *testing.T, svc *spanneradmin.Service, database string, statements ...string) {
 	t.Helper()
 	session, err := svc.Projects.Instances.Databases.Sessions.Create(database, &spanneradmin.CreateSessionRequest{}).Do()
@@ -49,8 +46,6 @@ func spannerWriteRows(t *testing.T, svc *spanneradmin.Service, database string, 
 	require.NoError(t, err)
 }
 
-// spannerQueryRows runs a query through the session data plane and returns the
-// rows the SQL engine produced.
 func spannerQueryRows(t *testing.T, svc *spanneradmin.Service, database, query string) [][]interface{} {
 	t.Helper()
 	session, err := svc.Projects.Instances.Databases.Sessions.Create(database, &spanneradmin.CreateSessionRequest{}).Do()
@@ -64,11 +59,10 @@ func spannerQueryRows(t *testing.T, svc *spanneradmin.Service, database, query s
 	return result.Rows
 }
 
-// TestSpanner_BackupRestoreCrossPlane is the decisive cross-plane test: a
-// database created through the admin API is written to through the data plane,
-// backed up, dropped, restored from a copy of that backup, and read again
-// through the data plane. The restored database must produce the same rows,
-// which is only possible if the backup captured the database's real bytes.
+// TestSpanner_BackupRestoreCrossPlane writes a database through the data
+// plane, backs it up, drops it, restores it from a copy of the backup and reads
+// it again: the same rows come back only if the backup captured the database's
+// real bytes.
 func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -88,8 +82,8 @@ func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, op.Done)
 
-	// The create request's extraStatements are the database's initial schema:
-	// they must build tables the data plane can query immediately.
+	// The create request's extraStatements are the initial schema, queryable at
+	// once.
 	createOp, err := svc.Projects.Instances.Databases.Create(instanceName, &spanneradmin.CreateDatabaseRequest{
 		CreateStatement: "CREATE DATABASE `ledger`",
 		ExtraStatements: []string{
@@ -133,8 +127,7 @@ func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, backups.Backups, 1)
 
-	// The copy must carry the captured bytes, not just the metadata: the
-	// restore below runs from the copy.
+	// The restore runs from the copy, so it must carry the captured bytes.
 	copyOp, err := svc.Projects.Instances.Backups.Copy(instanceName, &spanneradmin.CopyBackupRequest{
 		BackupId:     "ledger-daily-copy",
 		SourceBackup: backup.Name,
@@ -179,8 +172,8 @@ func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 	after := spannerQueryRows(t, svc, databaseName, "SELECT EntryId, Amount, Memo FROM Entries ORDER BY EntryId")
 	require.Equal(t, before, after, "the restore brought back the exact rows the backup captured")
 
-	// The restored schema is queryable as schema, not just as rows: the index
-	// the create statement built came back with it, and new writes land in it.
+	// The restored schema keeps the index the create built, and new writes land
+	// in it.
 	restoredDdl, err := svc.Projects.Instances.Databases.GetDdl(databaseName).Do()
 	require.NoError(t, err)
 	assert.Equal(t, ddl.Statements, restoredDdl.Statements)
@@ -202,10 +195,9 @@ func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 	require.Error(t, err, "the deleted backup is gone")
 }
 
-// TestSpanner_DatabaseAdminSurface covers the rest of the administrative
-// surface against the same real state: drop protection, database roles derived
-// from the database's own DDL, the IAM triple, backup schedules and the
-// operations collections.
+// TestSpanner_DatabaseAdminSurface: drop protection, database roles derived
+// from the database's DDL, the IAM triple, backup schedules and the operations
+// collections, over the same state.
 func TestSpanner_DatabaseAdminSurface(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -261,8 +253,7 @@ func TestSpanner_DatabaseAdminSurface(t *testing.T) {
 	}).UpdateMask("enableDropProtection").Do()
 	require.NoError(t, err)
 
-	// Database roles come out of the database's own fine-grained access
-	// control DDL, not from a parallel record.
+	// Database roles come from the database's fine-grained access-control DDL.
 	roles, err := svc.Projects.Instances.Databases.DatabaseRoles.List(databaseName).Do()
 	require.NoError(t, err)
 	require.Len(t, roles.DatabaseRoles, 1)
@@ -342,9 +333,8 @@ func TestSpanner_DatabaseAdminSurface(t *testing.T) {
 	_, err = svc.Projects.Instances.Databases.BackupSchedules.Delete(schedule.Name).Do()
 	require.NoError(t, err)
 
-	// Operations: the database's own collection lists what the DDL updates and
-	// the patch recorded, and each is individually readable, cancellable and
-	// deletable.
+	// The database's own collection lists what the DDL updates and the patch
+	// recorded, each readable, cancellable and deletable.
 	databaseOps, err := svc.Projects.Instances.Databases.Operations.List(databaseName + "/operations").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, databaseOps.Operations)
@@ -364,9 +354,6 @@ func TestSpanner_DatabaseAdminSurface(t *testing.T) {
 	assert.NotEmpty(t, instanceOps.Operations, "CreateInstance recorded an instance operation")
 }
 
-// TestSpanner_InstancePartitionsAndMove covers the instance-scoped surface:
-// instance partitions and MoveInstance, both of which change instance state the
-// subsequent reads report.
 func TestSpanner_InstancePartitionsAndMove(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

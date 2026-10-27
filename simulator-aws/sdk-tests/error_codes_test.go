@@ -9,22 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An error-path assertion has to name the error the operation returns.
+// requireAWSErrorCode names the error an operation returns. A bare
+// `require.Error(t, err)` also passes on a refused connection, a 500 from a
+// panicking handler, a signature mismatch or a deserialisation failure; the
+// modeled code is what an SDK maps to a typed error and callers switch on.
 //
-// `require.Error(t, err)` on an AWS call is satisfied by a connection refused,
-// a 500 from a panicking handler, a signature mismatch and a deserialisation
-// failure — none of which shows the service refused anything. Several of these
-// assertions were left over from before their operation was implemented and
-// passed for the whole time it did not exist. Asserting the modeled code is
-// what makes the test fail when the simulator answers with the wrong refusal,
-// which is the failure worth catching: a real SDK maps the code to a typed
-// error, and callers switch on it.
-//
-// The comparison is case-insensitive because a code travels differently on
-// different protocols — the awsQuery services spell it in an XML `<Code>`
-// element, awsJson in an `__type` that may carry a namespace prefix, and REST
-// services in the `x-amzn-ErrorType` header — and the SDK normalises none of
-// them for the caller.
+// The comparison ignores case because each protocol carries the code its own
+// way: awsQuery in an XML `<Code>`, awsJson in an `__type` that may carry a
+// namespace prefix, REST in the `x-amzn-ErrorType` header, and the SDK
+// normalises none of them.
 func requireAWSErrorCode(t *testing.T, err error, want string) {
 	t.Helper()
 	require.Error(t, err, "the operation was expected to fail with %s", want)

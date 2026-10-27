@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// r53MoreCLIZone creates a hosted zone via the aws CLI and returns its bare id,
-// registering a tolerant cleanup that deletes the zone.
+// r53MoreCLIZone creates a hosted zone, returns its bare id and registers its
+// deletion.
 func r53MoreCLIZone(t *testing.T, name string) string {
 	t.Helper()
 	caller := "cli-more-" + time.Now().Format("150405.000000")
@@ -248,7 +248,6 @@ func TestRoute53_CLILimitsCheckerRangesAndTags(t *testing.T) {
 	rangesOut := runCLI(t, awsCLI("route53", "get-checker-ip-ranges", "--output", "json"))
 	require.Contains(t, rangesOut, "CheckerIpRanges")
 
-	// Tag a health check, then batch-read with list-tags-for-resources.
 	hcOut := runCLI(t, awsCLI("route53", "create-health-check",
 		"--caller-reference", "cli-hc-"+time.Now().Format("150405.000000"),
 		"--health-check-config", `{"IPAddress":"192.0.2.10","Port":80,"Type":"HTTP","ResourcePath":"/","RequestInterval":30,"FailureThreshold":3}`,

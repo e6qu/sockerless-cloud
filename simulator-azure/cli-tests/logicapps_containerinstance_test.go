@@ -41,8 +41,8 @@ func TestContainerInstancesCLI_GroupLogsLifecycle(t *testing.T) {
 	runCLI(t, azRest("PUT", url, body))
 
 	logURL := strings.Replace(url, "?api-version=", "/containers/main/logs?api-version=", 1)
-	// Generous deadline so a slow real-container start on a loaded CI runner
-	// doesn't expire before logs are emitted; the loop breaks on first match.
+	// The loop breaks on the first match; the deadline covers a slow container
+	// start on a loaded runner.
 	deadline := time.Now().Add(30 * time.Second)
 	var logs string
 	for time.Now().Before(deadline) {

@@ -23,8 +23,6 @@ import (
 	"google.golang.org/genproto/googleapis/cloud/audit"
 )
 
-// auditActivityEntriesIn reads a project's Admin Activity entries for a
-// method on a resource.
 func auditActivityEntriesIn(t *testing.T, project, methodName, resourceName string) []*logging.Entry {
 	t.Helper()
 	it := logadminClientFor(t, project).Entries(ctx, logadmin.Filter(

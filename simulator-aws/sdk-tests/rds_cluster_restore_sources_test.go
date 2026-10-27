@@ -24,7 +24,6 @@ const (
 	restoreSourceDatabase = "application"
 )
 
-// connectRDSDatabase opens a stock driver on endpoint as the master user.
 func connectRDSDatabase(t *testing.T, ctx context.Context, family, endpoint string) auroraSnapshotClient {
 	t.Helper()
 	if family == "postgres" {
@@ -48,8 +47,6 @@ func connectRDSDatabase(t *testing.T, ctx context.Context, family, endpoint stri
 	return auroraMySQL{ctx: ctx, db: db}
 }
 
-// auroraClusterFixture creates Aurora clusters and their writers and connects
-// to their cluster endpoints, deleting everything it made when the test ends.
 type auroraClusterFixture struct {
 	t      *testing.T
 	ctx    context.Context
@@ -107,10 +104,9 @@ type rdsClusterView struct {
 	earliest, latest *time.Time
 }
 
-// nextMillisecondThenWait reads the engine's clock, returns the next
-// millisecond — RDS takes RestoreToTime to the millisecond — and returns only
-// once the engine's clock has passed it, so every row committed before the
-// call commits by that time and every row committed after it commits later.
+// nextMillisecondThenWait returns the engine clock's next millisecond (Amazon
+// RDS takes RestoreToTime to the millisecond) once the clock has passed it, so
+// rows committed before the call commit by then and rows after commit later.
 func nextMillisecondThenWait(t *testing.T, ctx context.Context, database auroraSnapshotClient) time.Time {
 	t.Helper()
 	switch engine := database.(type) {
@@ -133,8 +129,6 @@ func nextMillisecondThenWait(t *testing.T, ctx context.Context, database auroraS
 	return time.Time{}
 }
 
-// nextSecondThenWait returns the MySQL-family engine's next whole second and
-// waits until the engine's clock reaches it.
 func nextSecondThenWait(t *testing.T, ctx context.Context, database auroraSnapshotClient) time.Time {
 	t.Helper()
 	engine, ok := database.(auroraMySQL)
@@ -145,10 +139,10 @@ func nextSecondThenWait(t *testing.T, ctx context.Context, database auroraSnapsh
 	return time.Unix(next, 0).UTC()
 }
 
-// An Aurora cluster restores to any time in its restorable window: the
-// restored cluster holds every row committed by RestoreToTime and none
-// committed after it, and accepts writes of its own. The window opens when
-// the cluster's engine first serves, and a time outside it is refused.
+// An Aurora cluster restores to any time in its restorable window: the restored
+// cluster holds every row committed by RestoreToTime and none after, and takes
+// writes of its own. The window opens when the engine first serves, and a time
+// outside it is refused.
 func TestRDS_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 	t.Parallel()
 	for _, engine := range []string{"aurora-postgresql", "aurora-mysql"} {
@@ -215,8 +209,8 @@ func TestRDS_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 }
 
 // RestoreDBClusterFromSnapshot migrates an RDS for PostgreSQL or RDS for MySQL
-// DB snapshot, named by its ARN, into a new Aurora cluster that serves the
-// instance's data under its master credential.
+// DB snapshot, named by ARN, into an Aurora cluster that serves its data under
+// its master credential.
 func TestRDS_AuroraClusterRestoresFromADBInstanceSnapshot(t *testing.T) {
 	t.Parallel()
 	for _, engine := range []string{"postgres", "mysql"} {

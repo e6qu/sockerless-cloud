@@ -11,12 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection is the Azure
-// Private Link round trip across both halves of the feature. It proves the
-// consumer's private endpoint and the provider's private link service see ONE
-// connection object rather than two copies: the endpoint's create opens the
-// connection on the service, the service's owner approves it there, and the
-// endpoint's own read reports the owner's decision.
+// TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection: the consumer's
+// private endpoint and the provider's private link service see one connection
+// object. The endpoint's create opens it on the service, the owner approves it
+// there, and the endpoint's read reports the decision.
 func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	t.Parallel()
 	rg := "plink-rg"
@@ -45,8 +43,8 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.NotNil(t, pls.Properties.Alias)
 	assert.NotEmpty(t, *pls.Properties.Alias, "the service must be given an alias")
 	assert.Equal(t, armnetwork.AccessMode("Default"), *pls.Properties.AccessMode)
-	// The NAT configuration took a real address out of the provider subnet, and
-	// the service reports the interface that holds it.
+	// The NAT configuration took an address out of the provider subnet, and the
+	// service reports the interface holding it.
 	require.Len(t, pls.Properties.IPConfigurations, 1)
 	require.NotNil(t, pls.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
 	natAddress := *pls.Properties.IPConfigurations[0].Properties.PrivateIPAddress
@@ -54,8 +52,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.Len(t, pls.Properties.NetworkInterfaces, 1)
 	assert.Empty(t, pls.Properties.PrivateEndpointConnections, "no consumer has connected yet")
 
-	// The NAT interface is an ordinary network interface: it answers Get and
-	// carries the address the subnet allocated.
+	// The NAT interface is an ordinary network interface that answers Get.
 	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	natNICName := resourceName(*pls.Properties.NetworkInterfaces[0].ID)
@@ -95,7 +92,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.NotNil(t, state)
 	assert.Equal(t, "Pending", *state.Status)
 
-	// The very same connection is what the service lists.
+	// The service lists the same connection.
 	var connNames []string
 	connPager := plsClient.NewListPrivateEndpointConnectionsPager(rg, "billing-pls", nil)
 	for connPager.More() {
@@ -115,12 +112,11 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.NotNil(t, conn.Properties.LinkIdentifier)
 	assert.NotEmpty(t, *conn.Properties.LinkIdentifier)
 
-	// The service reports the connection on its own read too.
 	withConn, err := plsClient.Get(ctx, rg, "billing-pls", nil)
 	require.NoError(t, err)
 	require.Len(t, withConn.Properties.PrivateEndpointConnections, 1)
 
-	// The owner approves; the consumer's endpoint reads the decision back.
+	// The owner approves; the endpoint reads the decision back.
 	approved, err := plsClient.UpdatePrivateEndpointConnection(ctx, rg, "billing-pls", "billing-pe",
 		armnetwork.PrivateEndpointConnection{
 			Properties: &armnetwork.PrivateEndpointConnectionProperties{
@@ -167,10 +163,9 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.Error(t, err, "the service's NAT interface must be released with the service")
 }
 
-// TestNetworkPrivateLinkService_VisibilityAndAutoApproval covers the two
-// consumer-facing discovery operations and the auto-approval they drive: a
-// service that auto-approves the caller's subscription connects an endpoint
-// without the owner acting, and one that does not leaves it pending.
+// TestNetworkPrivateLinkService_VisibilityAndAutoApproval: a service that
+// auto-approves the caller's subscription connects an endpoint without the
+// owner acting; one that does not leaves it pending.
 func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	t.Parallel()
 	rg := "plink-visibility-rg"
@@ -241,7 +236,7 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	}
 	assert.True(t, byRG[*pls.ID])
 
-	// An automatic connection to an auto-approving service is connected at once.
+	// An automatic connection to an auto-approving service connects at once.
 	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "auto-pe", armnetwork.PrivateEndpoint{
@@ -289,12 +284,10 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	assert.False(t, *closedVis.Visible, "a restricted service with an empty visibility list is not visible")
 }
 
-// TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject proves the
-// integration across resource providers: an endpoint pointed at a Key Vault
-// opens its connection in the vault's own privateEndpointConnections
-// collection, so the armkeyvault client lists it, the vault owner's rejection
-// there is what the endpoint reads back, and the endpoint publishes the vault's
-// name under a custom DNS configuration.
+// TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject: an endpoint on a
+// key vault opens its connection in the vault's own privateEndpointConnections
+// collection, the vault owner's rejection there is what the endpoint reads,
+// and the endpoint publishes the vault's name in a custom DNS configuration.
 func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	t.Parallel()
 	rg := "plink-kv-rg"
@@ -336,8 +329,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	pe, err := pePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// The endpoint and the vault are in the same subscription, so the vault
-	// owner's write access auto-approves the connection.
+	// Same subscription, so the vault owner's write access auto-approves.
 	state := pe.Properties.PrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState
 	require.NotNil(t, state)
 	assert.Equal(t, "Approved", *state.Status)
@@ -349,7 +341,6 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	peAddress := *pe.Properties.CustomDNSConfigs[0].IPAddresses[0]
 	assert.NotEmpty(t, peAddress)
 
-	// The vault's own private-endpoint-connection surface lists it.
 	kvConnClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	kvConn, err := kvConnClient.Get(ctx, rg, "pelinkvault", "vault-pe", nil)
@@ -371,8 +362,8 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	}
 	assert.True(t, listed["vault-pe"])
 
-	// The vault owner rejects the connection on the vault; the endpoint reads
-	// the rejection back, because both surfaces address one object.
+	// The vault owner rejects the connection on the vault; the endpoint reads the
+	// rejection, because both surfaces address one object.
 	_, err = kvConnClient.Put(ctx, rg, "pelinkvault", "vault-pe", armkeyvault.PrivateEndpointConnection{
 		Properties: &armkeyvault.PrivateEndpointConnectionProperties{
 			PrivateLinkServiceConnectionState: &armkeyvault.PrivateLinkServiceConnectionState{
@@ -388,8 +379,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	assert.Equal(t, "Rejected",
 		*rejected.Properties.PrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState.Status)
 
-	// A rewrite of the endpoint must not silently re-approve what the vault
-	// owner rejected.
+	// Rewriting the endpoint must not re-approve what the vault owner rejected.
 	rewritePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "vault-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
 		Properties: &armnetwork.PrivateEndpointProperties{
@@ -418,10 +408,9 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	require.Error(t, err, "deleting the endpoint must close the connection on the vault")
 }
 
-// TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords proves a private DNS
-// zone group publishes real A records: the records it reports are the records
-// the private DNS zone's own record surface serves, and deleting the group
-// takes them back out.
+// TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords: the A records a
+// private DNS zone group reports are the ones the zone serves, and deleting
+// the group removes them.
 func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	t.Parallel()
 	rg := "plink-dns-rg"
@@ -498,7 +487,6 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	require.Len(t, records[0].IPAddresses, 1)
 	assert.Equal(t, peAddress, *records[0].IPAddresses[0])
 
-	// The record the group reports is a real record set in the zone.
 	recordClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	record, err := recordClient.Get(ctx, rg, zoneName, armprivatedns.RecordTypeA, "dnslinkvault", nil)
@@ -529,9 +517,8 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	require.Error(t, err, "removing the zone group must remove the records it published")
 }
 
-// TestNetworkPrivateEndpoint_ListsAndAvailableTypes covers the endpoint list
-// operations and the available-private-endpoint-type catalog, which reports the
-// resource types an endpoint can actually terminate on.
+// TestNetworkPrivateEndpoint_ListsAndAvailableTypes covers the endpoint lists
+// and the catalog of resource types an endpoint can terminate on.
 func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	t.Parallel()
 	rg := "plink-list-rg"
@@ -651,9 +638,8 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	assert.True(t, byRG["Microsoft.KeyVault/vaults"])
 }
 
-// TestNetworkProfiles_CRUD covers the whole Microsoft.Network/networkProfiles
-// surface and the subnet validation its container network interface
-// configurations are subject to.
+// TestNetworkProfiles_CRUD covers the network profile and the subnet
+// validation its container network interface configurations are subject to.
 func TestNetworkProfiles_CRUD(t *testing.T) {
 	t.Parallel()
 	rg := "netprofile-rg"
@@ -663,7 +649,7 @@ func TestNetworkProfiles_CRUD(t *testing.T) {
 	client, err := armnetwork.NewProfilesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// A configuration naming a subnet that does not exist is rejected.
+	// A configuration naming a missing subnet is refused.
 	_, err = client.CreateOrUpdate(ctx, rg, "bad-profile", armnetwork.Profile{
 		Location: to.Ptr("eastus"),
 		Properties: &armnetwork.ProfilePropertiesFormat{
@@ -704,8 +690,7 @@ func TestNetworkProfiles_CRUD(t *testing.T) {
 	assert.Equal(t, *created.ID+"/containerNetworkInterfaceConfigurations/aci-cnic", *cfg.ID)
 	require.Len(t, cfg.Properties.IPConfigurations, 1)
 	assert.Equal(t, subnetID, *cfg.Properties.IPConfigurations[0].Properties.Subnet.ID)
-	// Nothing has been deployed against the profile, so it has realized no
-	// container network interfaces.
+	// Nothing deployed against the profile, so no container network interfaces.
 	assert.Empty(t, created.Properties.ContainerNetworkInterfaces)
 
 	got, err := client.Get(ctx, rg, "aci-profile", nil)
@@ -752,7 +737,6 @@ func TestNetworkProfiles_CRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-// resourceName returns the last segment of an ARM resource id.
 func resourceName(id string) string {
 	for i := len(id) - 1; i >= 0; i-- {
 		if id[i] == '/' {

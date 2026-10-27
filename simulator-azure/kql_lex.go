@@ -31,8 +31,7 @@ type kqlToken struct {
 	pos  int
 }
 
-// kqlHyphenatedKeywords are the operator names Kusto spells with a hyphen,
-// which the lexer joins so that `project-away` is one word and `a-b` stays a
+// The lexer joins these so `project-away` is one word and `a-b` stays a
 // subtraction.
 var kqlHyphenatedKeywords = map[string]bool{
 	"project-away": true, "project-keep": true, "project-rename": true, "project-reorder": true,
@@ -40,8 +39,7 @@ var kqlHyphenatedKeywords = map[string]bool{
 	"top-hitters": true, "parse-where": true, "parse-kv": true, "find-in": true,
 }
 
-// kqlNegatableOperators are the string operators Kusto negates with a leading
-// `!`, as in `!contains`.
+// Negated with a leading `!`, as in `!contains`.
 var kqlNegatableOperators = map[string]bool{
 	"contains": true, "contains_cs": true, "has": true, "has_cs": true,
 	"startswith": true, "startswith_cs": true, "endswith": true, "endswith_cs": true,
@@ -62,8 +60,8 @@ var kqlTimespanUnits = map[string]time.Duration{
 func kqlIsIdentStart(r rune) bool { return r == '_' || r == '$' || unicode.IsLetter(r) }
 func kqlIsIdentPart(r rune) bool  { return kqlIsIdentStart(r) || unicode.IsDigit(r) }
 
-// lexKQL splits a query into tokens. A string literal is one token whatever it
-// holds, so a `|` inside quotes never separates two operators.
+// A string literal is one token, so a `|` inside quotes never separates
+// operators.
 func lexKQL(src string) ([]kqlToken, *kqlError) {
 	var toks []kqlToken
 	i := 0
@@ -203,8 +201,7 @@ func lexKQL(src string) ([]kqlToken, *kqlError) {
 	return toks, nil
 }
 
-// lexKQLString reads the quoted literal whose opening quote is at src[i]. A
-// verbatim literal (@"...") takes every character as written but a doubled
+// A verbatim literal (@"...") takes every character as written but a doubled
 // quote; a regular one honours Kusto's backslash escapes.
 func lexKQLString(src string, i int, verbatim bool) (string, int, *kqlError) {
 	quote := src[i]
@@ -213,7 +210,6 @@ func lexKQLString(src string, i int, verbatim bool) (string, int, *kqlError) {
 	for j < len(src) {
 		c := src[j]
 		if c == quote {
-			// A verbatim literal spells its own quote character twice.
 			if verbatim && j+1 < len(src) && src[j+1] == quote {
 				b.WriteByte(quote)
 				j += 2
@@ -263,8 +259,7 @@ func lexKQLString(src string, i int, verbatim bool) (string, int, *kqlError) {
 	return "", 0, kqlSyntaxError(src, i, src[i:j])
 }
 
-// lexKQLNumber reads a long, a real, or — when a unit follows the digits with
-// no space — a timespan such as 5m or 1.5h.
+// A unit right after the digits makes a timespan: 5m, 1.5h.
 func lexKQLNumber(src string, i int) (kqlToken, int, *kqlError) {
 	j := i
 	isReal := false

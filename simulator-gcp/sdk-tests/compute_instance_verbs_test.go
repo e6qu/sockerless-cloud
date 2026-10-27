@@ -8,14 +8,12 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The verbs an instance carries beyond its lifecycle. Each answers with an
-// Operation, so every assertion reads the instance back: a verb that stored
-// nothing would be indistinguishable from one that worked.
+// Each verb answers with an Operation, so every assertion reads the instance
+// back.
 
-// createVerbInstance brings up an instance and waits for the boot, because
-// insert answers while the machine is still provisioning and several of these
-// verbs are refused on an instance that is not running yet — exactly as
-// Compute Engine refuses them.
+// createVerbInstance waits for the boot: insert answers while the machine is
+// still provisioning, and Compute Engine refuses several of these verbs on an
+// instance that is not running yet.
 func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name, cidr string) {
 	t.Helper()
 	subnet := createInstanceSubnetwork(t, svc, project, "us-central1", "verbs-net", cidr)

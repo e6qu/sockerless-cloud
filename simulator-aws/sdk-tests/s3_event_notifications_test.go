@@ -49,11 +49,10 @@ func receiveOne(t *testing.T, sqsClient *sqs.Client, url string, wait int32) (st
 	return "", false
 }
 
-// TestS3_EventNotification_SQSDelivery proves end-to-end S3→SQS event delivery:
-// a bucket notification config with a QueueConfiguration on s3:ObjectCreated:*
-// delivers a faithful S3 event-notification record to the queue when the queue
-// policy admits s3.amazonaws.com (Principal:{Service} + ArnLike SourceArn), and
-// delivers nothing when the policy is absent.
+// TestS3_EventNotification_SQSDelivery expects a QueueConfiguration on
+// s3:ObjectCreated:* to deliver an S3 event record to a queue whose policy
+// admits s3.amazonaws.com (Principal Service with ArnLike SourceArn), and
+// nothing to a queue without that policy.
 func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	t.Parallel()
 	s3c := s3Client()
@@ -64,7 +63,6 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	require.NoError(t, err)
 	bucketArn := "arn:aws:s3:::" + bucket
 
-	// Positive: queue WITH a policy admitting S3 from this bucket.
 	allowedURL, allowedARN := queueArnAndURL(t, sqsc, "evt-allowed-q")
 	policy := fmt.Sprintf(`{
       "Version": "2012-10-17",
@@ -82,7 +80,7 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Negative: queue WITHOUT any policy → S3 has no permission to deliver.
+	// Without a queue policy, Amazon S3 may not deliver.
 	deniedURL, deniedARN := queueArnAndURL(t, sqsc, "evt-denied-q")
 	both := &s3types.NotificationConfiguration{
 		QueueConfigurations: []s3types.QueueConfiguration{
@@ -141,7 +139,6 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Trigger an ObjectCreated event.
 	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String("path/to/object.txt"),
@@ -149,7 +146,6 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Positive: the allowed queue receives a faithful S3 event record.
 	body, got := receiveOne(t, sqsc, allowedURL, 20)
 	require.True(t, got, "S3 must deliver the event to the authorized queue")
 

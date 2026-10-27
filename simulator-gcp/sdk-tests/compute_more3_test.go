@@ -9,15 +9,7 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-// Exercises the third wave of Compute Engine (compute v1) control-plane
-// metadata CRUD added in compute_more3.go via the official
-// google.golang.org/api/compute/v1 client. Every resource here is
-// metadata-only — insert returns a DONE Operation synchronously and
-// get/list/aggregatedList/iamPolicy read the stored state back — so these
-// run on every host (no real-exec network).
-//
-// Route coverage exercised by these SDK tests (the pre-commit hook keys on
-// literal path references):
+// Route coverage the pre-commit hook keys on:
 //   GET  /compute/v1/projects/{project}/aggregated/firewallPolicies
 //   GET  /compute/v1/projects/{project}/aggregated/networkEndpointGroups
 //   GET  /compute/v1/projects/{project}/aggregated/routers
@@ -113,7 +105,7 @@ func TestCompute3_Commitments_CRUD_Aggregated(t *testing.T) {
 	assertComputeListHasName(t, agg.Items["regions/"+more3Region].Commitments, func(c *compute.Commitment) string { return c.Name }, "sdk-cmt-1")
 
 	// Turning auto-renew on is the one edit an operator makes to a running
-	// commitment, so it is the member the update has to move.
+	// commitment.
 	_, err = svc.RegionCommitments.Update(more3Project, more3Region, "sdk-cmt-1", &compute.Commitment{
 		Name:      "sdk-cmt-1",
 		Plan:      "TWELVE_MONTH",
@@ -216,7 +208,6 @@ func TestCompute3_GlobalFirewallPolicies_Rules_Associations_IAM(t *testing.T) {
 	_, err = svc.NetworkFirewallPolicies.RemoveRule(more3Project, "sdk-fp-1").Priority(1000).Do()
 	require.NoError(t, err)
 
-	// IAM triplet.
 	pol, err := svc.NetworkFirewallPolicies.GetIamPolicy(more3Project, "sdk-fp-1").Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, pol.Etag)

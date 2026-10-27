@@ -11,19 +11,13 @@ terraform {
   }
 }
 
-# Standalone configuration run by
-# TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets: one vault,
-# whose access policies grant three readers each by its own
-# azurerm_key_vault_access_policy, and the three readers.
-#
-#   - App Service imports a certificate from the vault as its first-party
-#     service principal, "Microsoft Azure App Service", read from Microsoft
-#     Graph by its application ID.
-#   - A container app with system-assigned and user-assigned identities holds
-#     a secret that references the vault, read as the user-assigned identity,
-#     and its ingress answers with the secret's value and the token its
-#     identity endpoint issues that identity.
-#   - A Container Apps job reads the same secret as the same identity.
+# Run by TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets: one
+# vault granting three readers, each through its own
+# azurerm_key_vault_access_policy. App Service imports a certificate as its
+# first-party service principal, found in Microsoft Graph by application ID; a
+# container app holds a secret referencing the vault, read as its
+# user-assigned identity, and answers with the secret's value and the token its
+# identity endpoint issues; a Container Apps job reads the same secret.
 
 variable "endpoint" {
   description = "Simulator endpoint URL"
@@ -148,10 +142,9 @@ resource "azurerm_container_app_environment" "kv" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.kv.id
 }
 
-# busybox nc answers each connection on 8080 after reading the request's
-# headers, with the secret's value and then the token the app's identity
-# endpoint issues its user-assigned identity, in a body its Content-Length
-# delimits.
+# busybox nc answers on 8080, after reading the request headers, with the
+# secret's value and then the identity endpoint's token for the user-assigned
+# identity, in a body its Content-Length delimits.
 resource "azurerm_container_app" "kv" {
   name                         = "tf-azrm-kvconsumers-ca"
   container_app_environment_id = azurerm_container_app_environment.kv.id
@@ -272,7 +265,7 @@ output "job_identity_ids" {
 }
 
 # Each azurerm_key_vault_access_policy adds its own policy and leaves the
-# others as they are.
+# others alone.
 data "azurerm_key_vault" "granted" {
   name                = azurerm_key_vault.kv.name
   resource_group_name = azurerm_resource_group.kv.name

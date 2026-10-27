@@ -89,8 +89,8 @@ func TestServiceBusRESTReceiveWaitsForAScheduledMessage(t *testing.T) {
 	}
 }
 
-// A restarted simulator loads scheduled messages without the timers that
-// would have announced them.
+// A restarted simulator loads scheduled messages without the timers that would
+// have announced them.
 func TestServiceBusRESTReceiveWaitsForAScheduledMessageAfterARestart(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	sbTestQueue("q", nil)

@@ -20,10 +20,9 @@ func describeOneInstance(t *testing.T, c *ec2.Client, id string) types.Instance 
 	return out.Reservations[0].Instances[0]
 }
 
-// TestEC2_InstanceKnobFidelitySDK covers the RunInstances input knobs and the
-// Instance response fields that aws_instance reads back — previously dropped, so
-// metadata_options / iam_instance_profile / ebs_optimized / monitoring /
-// key_name / cpu_options all drifted every plan.
+// TestEC2_InstanceKnobFidelitySDK covers the RunInstances inputs aws_instance
+// reads back: metadata_options, iam_instance_profile, ebs_optimized,
+// monitoring, key_name and cpu_options.
 func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -64,7 +63,6 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 	assert.Equal(t, int32(1), aws.ToInt32(got.CpuOptions.CoreCount))
 	assert.True(t, aws.ToBool(got.SourceDestCheck), "source_dest_check defaults true")
 
-	// ModifyInstanceAttribute must persist (was a no-op).
 	_, err = c.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
 		InstanceId: aws.String(id), SourceDestCheck: &types.AttributeBooleanValue{Value: aws.Bool(false)},
 	})
@@ -84,9 +82,9 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 	assert.True(t, aws.ToBool(attr.DisableApiTermination.Value), "disable_api_termination must persist")
 }
 
-// TestEC2_RunInstancesAppliesLaunchTemplateSDK covers that launch-template data
-// (IAM profile, metadata options) is applied to the launched instance, not just
-// image/type.
+// TestEC2_RunInstancesAppliesLaunchTemplateSDK expects the launch template's
+// IAM profile and metadata options on the instance, not only its image and
+// type.
 func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
 	t.Parallel()
 	ltName := uniquename.New("knob-lt")

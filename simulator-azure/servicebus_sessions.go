@@ -8,12 +8,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
-// Service Bus message sessions. A session-enabled queue or subscription
-// (requiresSession) delivers a session's messages only to the receiver that
-// holds the session's lock, which it takes when it accepts the session — by
-// name, or as the next session with a message to receive — and keeps for the
-// entity's lockDuration, renewing it with renew-session-lock. Each session
-// carries a state its receivers read and write.
+// Service Bus message sessions: a requiresSession entity delivers a session's
+// messages only to the receiver holding its lock, taken on accepting the
+// session — by name, or as the next session with a message — and kept for the
+// lockDuration, renewed with renew-session-lock. Each session carries a state
+// its receivers read and write.
 
 var (
 	errSBSessionLocked   = errors.New("the requested session cannot be accepted: it is locked by another receiver")
@@ -24,13 +23,13 @@ var (
 	errSBSessionfulEntity  = sbInvalidOperation("It is not possible for an entity that requires sessions to create a non-sessionful message receiver.")
 )
 
-// sbInvalidOperation is a refusal whose text is the service's own sentence.
+// The text is the service's own sentence.
 type sbInvalidOperation string
 
 func (e sbInvalidOperation) Error() string { return string(e) }
 
-// sbRequireSessionIDs refuses a send whose messages lack a session id when the
-// address is, or fans out to, a session-enabled queue or subscription.
+// Refuse a send lacking session ids when the address is, or fans out to, a
+// session-enabled entity.
 func sbRequireSessionIDs(namespace, address string, outs []sbOutgoing) error {
 	for _, path := range sbSendPaths(namespace, address) {
 		if !sbSettings(namespace, path).requiresSession {
@@ -45,9 +44,8 @@ func sbRequireSessionIDs(namespace, address string, outs []sbOutgoing) error {
 	return nil
 }
 
-// sbAcceptSession locks a session of a session-enabled entity for owner: the
-// named one, or with requested empty the first session holding a receivable
-// message whose lock is free. It reports false when no such session exists.
+// The named session or, with requested empty, the first session holding a
+// receivable message whose lock is free. False when none exists.
 func sbAcceptSession(namespace, path, requested, owner string) (string, time.Time, bool, error) {
 	settings := sbSettings(namespace, path)
 	now := time.Now()
@@ -90,8 +88,7 @@ func sbAcceptSession(namespace, path, requested, owner string) (string, time.Tim
 	return session, until, session != "", nil
 }
 
-// sbReleaseSession gives up owner's lock on a session, as closing a session
-// receiver does.
+// As closing a session receiver does.
 func sbReleaseSession(namespace, path, session, owner string) {
 	sbQueueDurable.Update(sbQueueKey(namespace, path), func(rec *sbQueueRecord) {
 		s, ok := rec.Sessions[session]
@@ -104,14 +101,12 @@ func sbReleaseSession(namespace, path, session, owner string) {
 	sbSignalEnqueue(namespace, path)
 }
 
-// sbSessionHeld reports whether owner still holds a session's lock.
 func sbSessionHeld(namespace, path, session, owner string) bool {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
 	s := rec.Sessions[session]
 	return s.Owner == owner && s.LockedUntil > time.Now().UnixMilli()
 }
 
-// sbRenewSessionLock extends the lock of a session its holder still holds.
 func sbRenewSessionLock(namespace, path, session string) (time.Time, error) {
 	settings := sbSettings(namespace, path)
 	now := time.Now()
@@ -149,8 +144,6 @@ func sbSetSessionState(namespace, path, session string, state []byte) {
 	})
 }
 
-// sbScheduledCount counts the messages of an entity waiting for their
-// scheduled enqueue time.
 func sbScheduledCount(namespace, path string) int32 {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, path))
 	now := time.Now()
@@ -163,8 +156,7 @@ func sbScheduledCount(namespace, path string) int32 {
 	return n
 }
 
-// sbTopicScheduledCount counts the messages scheduled on a topic that still
-// wait for their enqueue time in any of its subscriptions.
+// Messages scheduled on a topic still waiting in any of its subscriptions.
 func sbTopicScheduledCount(namespace, topic string, subs []string) int32 {
 	rec, _ := sbQueueDurable.Get(sbQueueKey(namespace, topic))
 	if len(rec.Scheduled) == 0 {
@@ -187,10 +179,9 @@ func sbTopicScheduledCount(namespace, topic string, subs []string) int32 {
 	return int32(len(waiting))
 }
 
-// sbReceivers wakes whatever waits for an entity, keyed by sbQueueKey, to
-// gain a receivable message or a free session, and at the instant a scheduled
-// or locked message becomes receivable hands it to the AMQP receivers holding
-// credit for it.
+// Keyed by sbQueueKey: wakes what waits for an entity to gain a receivable
+// message or a free session, and hands a scheduled or locked message to the
+// AMQP receivers holding credit the instant it becomes receivable.
 var sbReceivers = msgq.NewWaiter(func(key string, now time.Time) (time.Time, bool) {
 	namespace, path, ok := strings.Cut(key, "/")
 	if !ok {

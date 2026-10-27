@@ -14,14 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The S3 control plane is authorized like every other surface: the operation's
-// IAM action, against the resource the request names. These tests prove both
-// halves per route family — a credential scoped to the resource the request is
-// about gets through, and the same grant pointed at another resource of the
-// same type is refused, which only holds if the gate derives the ARN rather
-// than just the action.
+// The S3 control plane authorizes the operation's IAM action against the
+// resource the request names. Each test grants a credential on the named
+// resource and points the same grant at another resource of the type, which
+// is refused only if the gate derives the ARN rather than just the action.
 
-// s3ControlClientWithCreds talks to the control plane as one IAM principal.
 func s3ControlClientWithCreds(akid, secret string) *s3control.Client {
 	return s3control.NewFromConfig(aws.Config{
 		Region:      "us-east-1",
@@ -30,7 +27,6 @@ func s3ControlClientWithCreds(akid, secret string) *s3control.Client {
 	}, func(o *s3control.Options) { o.BaseEndpoint = aws.String(simEndpoint("s3-control")) })
 }
 
-// s3ControlPolicy is an identity policy allowing one action on one resource.
 func s3ControlPolicy(action, resource string) string {
 	return fmt.Sprintf(
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":%q,"Resource":%q}]}`,
@@ -373,8 +369,8 @@ func TestS3Control_AccessPointScopeIsAnS3ExpressAction(t *testing.T) {
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 	assert.Contains(t, err.Error(), "s3express:GetAccessPointScope")
 
-	// The s3 spelling of the same access point is a different resource, which
-	// is the whole point of the namespace.
+	// The s3 spelling of the same access point is a different resource, which is
+	// what the namespace means.
 	s3Spelled := s3ControlClientWithCreds(restrictedCredential(t, "s3express-scope-s3-arn",
 		s3ControlPolicy("s3express:GetAccessPointScope", s3ControlARN("accesspoint/"+apName))))
 	_, err = s3Spelled.GetAccessPointScope(ctx, &s3control.GetAccessPointScopeInput{

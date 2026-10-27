@@ -14,15 +14,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// envStaticIP derives a stable, environment-unique static IP for a managed
-// environment. Real Azure allocates a distinct staticIp per environment; a
-// single hardcoded value makes every environment collide, so terraform/SDK
-// read-backs across two environments see the same IP. The IP is deterministic
-// in the resource ID so re-reads of the same environment are stable.
+// envStaticIP derives a distinct, stable static IP per environment from its
+// resource ID, as Azure allocates one per environment.
 func envStaticIP(resourceID string) string {
 	h := sha256.Sum256([]byte(resourceID))
-	// 100.64.0.0/10 is the carrier-grade-NAT range Azure-managed environments
-	// surface; pick a host within it deterministically.
+	// The carrier-grade-NAT range 100.64.0.0/10, which Azure-managed environments
+	// surface.
 	return fmt.Sprintf("100.%d.%d.%d", 64+int(h[0])%64, h[1], h[2])
 }
 
@@ -33,20 +30,13 @@ type ContainerAppEnvironment struct {
 	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags,omitempty"`
 	Properties EnvProperties     `json:"properties"`
-	// DockerNetworkName is the engine network that backs this environment:
-	// its own, or its virtual network's when the environment names an
-	// infrastructure subnet of a stored virtual network. Jobs and apps
-	// launched in the environment connect to it with their names as DNS
-	// aliases, so they resolve each other through the engine's resolver.
-	//
-	// Sockerless-internal wiring: it persists through the store's JSON
-	// marshal but must never appear on the ARM wire — responses go
-	// through wire(), which excludes it.
+	// DockerNetworkName is the engine network backing the environment: its own,
+	// or its virtual network's when it names a stored infrastructure subnet. Jobs
+	// and apps join it with their names as DNS aliases. It persists in the store
+	// but never reaches the wire: responses go through wire().
 	DockerNetworkName string `json:"dockerNetworkName,omitempty"`
 }
 
-// containerAppEnvironmentWire is the ARM response shape for a managed
-// environment: the stored record minus sockerless-internal wiring.
 type containerAppEnvironmentWire struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -67,9 +57,6 @@ func (e ContainerAppEnvironment) wire() containerAppEnvironmentWire {
 	}
 }
 
-// acaEnvironments is the package-level store for Container Apps
-// environments. Exposed so containerapps.go can resolve a job's
-// environment + backing Docker network when launching executions.
 var acaEnvironments sim.Store[ContainerAppEnvironment]
 
 type EnvProperties struct {
@@ -117,9 +104,7 @@ type VnetConfiguration struct {
 	Internal               bool   `json:"internal"`
 }
 
-// EnvironmentAuthToken mirrors armappcontainers.EnvironmentAuthToken —
-// a TrackedResource whose properties carry the token the getAuthtoken
-// action issues.
+// The properties carry the token getAuthtoken issues.
 type EnvironmentAuthToken struct {
 	ID         string                    `json:"id,omitempty"`
 	Name       string                    `json:"name,omitempty"`
@@ -129,23 +114,18 @@ type EnvironmentAuthToken struct {
 	Properties EnvironmentAuthTokenProps `json:"properties"`
 }
 
-// EnvironmentAuthTokenProps mirrors
-// armappcontainers.EnvironmentAuthTokenProperties.
 type EnvironmentAuthTokenProps struct {
 	Token   string `json:"token,omitempty"`
 	Expires string `json:"expires,omitempty"`
 }
 
-// CheckNameAvailabilityResponse mirrors the common-types
-// CheckNameAvailabilityResponse (checkNameAvailability action).
 type CheckNameAvailabilityResponse struct {
 	NameAvailable *bool  `json:"nameAvailable,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 	Message       string `json:"message,omitempty"`
 }
 
-// WorkloadProfileStates mirrors armappcontainers.WorkloadProfileStates —
-// a ProxyResource (no location) reporting per-profile node counts.
+// A ProxyResource reporting per-profile node counts.
 type WorkloadProfileStates struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -153,17 +133,14 @@ type WorkloadProfileStates struct {
 	Properties WorkloadProfileStatesProps `json:"properties,omitempty"`
 }
 
-// WorkloadProfileStatesProps mirrors
-// armappcontainers.WorkloadProfileStatesProperties.
 type WorkloadProfileStatesProps struct {
 	MinimumCount *int32 `json:"minimumCount,omitempty"`
 	MaximumCount *int32 `json:"maximumCount,omitempty"`
 	CurrentCount *int32 `json:"currentCount,omitempty"`
 }
 
-// Certificate mirrors armappcontainers.Certificate — a TrackedResource
-// for Custom Domain bindings. Secret request members (password, the raw
-// PFX/PEM `value`) are stripped from responses, matching real ACA.
+// Responses strip the secret request members (password, the PFX/PEM
+// `value`), as Azure Container Apps does.
 type Certificate struct {
 	ID         string            `json:"id,omitempty"`
 	Name       string            `json:"name,omitempty"`
@@ -173,7 +150,6 @@ type Certificate struct {
 	Properties CertificateProps  `json:"properties,omitempty"`
 }
 
-// CertificateProps mirrors armappcontainers.CertificateProperties.
 type CertificateProps struct {
 	ProvisioningState             string                         `json:"provisioningState,omitempty"`
 	CertificateKeyVaultProperties *CertificateKeyVaultProperties `json:"certificateKeyVaultProperties,omitempty"`
@@ -187,14 +163,11 @@ type CertificateProps struct {
 	PublicKeyHash                 string                         `json:"publicKeyHash,omitempty"`
 }
 
-// CertificateKeyVaultProperties mirrors
-// armappcontainers.CertificateKeyVaultProperties.
 type CertificateKeyVaultProperties struct {
 	Identity    string `json:"identity,omitempty"`
 	KeyVaultURL string `json:"keyVaultUrl,omitempty"`
 }
 
-// ManagedCertificate mirrors armappcontainers.ManagedCertificate.
 type ManagedCertificate struct {
 	ID         string                  `json:"id,omitempty"`
 	Name       string                  `json:"name,omitempty"`
@@ -204,8 +177,6 @@ type ManagedCertificate struct {
 	Properties ManagedCertificateProps `json:"properties,omitempty"`
 }
 
-// ManagedCertificateProps mirrors
-// armappcontainers.ManagedCertificateProperties.
 type ManagedCertificateProps struct {
 	ProvisioningState       string `json:"provisioningState,omitempty"`
 	SubjectName             string `json:"subjectName,omitempty"`
@@ -220,7 +191,6 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
 
-	// PUT - Create or update container app environment
 	srv.HandleFunc("PUT "+armBase+"/managedEnvironments/{envName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -234,13 +204,11 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 
 		resourceID := armResourceID(sub, rg, "Microsoft.App", "managedEnvironments", envName)
 
-		// An environment on a virtual network's infrastructure subnet joins
-		// the engine network of the prefix that subnet lies in; any other
-		// environment is a networking domain of its own, which matches ACA's
-		// managed-VNet model. Either network is created when the
-		// environment's first workload attaches. A subnet not stored yet
-		// names the network's first prefix; the environment's workloads
-		// cannot lease an address in the subnet until it exists.
+		// An environment on a virtual network's infrastructure subnet joins the engine
+		// network of that subnet's prefix; any other is a networking domain of its
+		// own, as in the managed-VNet model. The network is created when the first
+		// workload attaches. A subnet not stored yet names the first prefix; workloads
+		// cannot lease an address in it until it exists.
 		dockerNetName := acaEnvironmentNetworkName(resourceID)
 		if vnet, ok := acaInfrastructureVNet(req.Properties); ok {
 			dockerNetName = dockerNetForVNet(vnet.ID)
@@ -274,15 +242,13 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			DockerNetworkName: dockerNetName,
 		}
 		environments.Put(resourceID, env)
-		// Linking the workspace creates the custom log tables the
-		// environment writes to.
+		// Linking the workspace creates the custom log tables the environment writes.
 		acaLogWorkspace(resourceID)
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, env.wire())
 	})
 
-	// GET - Get container app environment
 	srv.HandleFunc("GET "+armBase+"/managedEnvironments/{envName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -298,9 +264,8 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, env.wire())
 	})
 
-	// DELETE - Delete container app environment. Real Azure ARM returns 202
-	// Accepted with the LRO headers and an empty body for an existing
-	// environment and 204 No Content when it does not exist.
+	// Azure answers 202 with the operation headers and an empty body for an
+	// existing environment, and 204 for an absent one.
 	srv.HandleFunc("DELETE "+armBase+"/managedEnvironments/{envName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -315,7 +280,6 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		env.Properties.ProvisioningState = "Deleting"
 		environments.Put(resourceID, env)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
-			// A virtual network's engine network goes with the virtual network.
 			if env.DockerNetworkName != "" && acaEnvironmentVNetID(env) == "" {
 				azureRemoveSidecar(env.DockerNetworkName)
 				err := azureLeaveMicroVMNetwork(context.Background(), env.DockerNetworkName)
@@ -339,9 +303,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		w.WriteHeader(http.StatusAccepted)
 	})
 
-	// PATCH - Update a managed environment. Real ACA models this as a
-	// long-running operation that settles to provisioningState=Succeeded;
-	// the SDK's body poller reads it off the 200 body.
+	// The SDK's body poller reads Succeeded off the 200 body.
 	srv.HandleFunc("PATCH "+armBase+"/managedEnvironments/{envName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -358,14 +320,13 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Merge over the ARM wire shape so sockerless-internal wiring (the
-		// backing Docker network) is neither patchable nor exposed.
+		// Merge over the wire shape so the backing engine network is neither patchable
+		// nor exposed.
 		merged := env.wire()
 		if err := applyARMMergePatch(&merged, patch); err != nil {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Identity and server-owned fields are not client-writable.
 		prior := env
 		env.Tags = merged.Tags
 		env.Properties = merged.Properties
@@ -376,7 +337,6 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, env.wire())
 	})
 
-	// GET - List managed environments in a resource group.
 	srv.HandleFunc("GET "+armBase+"/managedEnvironments", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -391,7 +351,6 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET - List managed environments by subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/managedEnvironments", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		prefix := armSubscriptionID(sub) + "/"
@@ -405,9 +364,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// POST /managedEnvironments/{envName}/getAuthtoken — issue an
-	// environment auth token. The SDK sends the mixed-case segment
-	// verbatim (not in the lowercasing middleware map).
+	// The SDK sends the mixed-case segment verbatim.
 	srv.HandleFunc("POST "+armBase+"/managedEnvironments/{envName}/getAuthtoken", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -432,9 +389,8 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, token)
 	})
 
-	// POST /managedEnvironments/{envName}/checknameavailability — check a
-	// child resource name. The middleware lowercases the SDK's
-	// `checkNameAvailability` segment, so the handler registers lowercase.
+	// Checks a child resource name. The middleware lowercases
+	// `checkNameAvailability`.
 	srv.HandleFunc("POST "+armBase+"/managedEnvironments/{envName}/checknameavailability", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -453,8 +409,6 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Name is available when no certificate of that name already exists
-		// in the environment.
 		certID := resourceID + "/certificates/" + req.Name
 		_, certExists := acaEnvCertificates.Get(certID)
 		available := !certExists
@@ -466,8 +420,7 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// GET /managedEnvironments/{envName}/workloadProfileStates — per-profile
-	// node-count states derived from the environment's workload profiles.
+	// Node-count states derived from the environment's workload profiles.
 	srv.HandleFunc("GET "+armBase+"/managedEnvironments/{envName}/workloadProfileStates", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -500,9 +453,8 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 	registerContainerAppEnvironmentCertificates(srv, environments)
 }
 
-// ManagedEnvironmentStorage pairs a sockerless-known name with a
-// storage-account + file-share backing it. ACA jobs/apps reference
-// these by storage.name to resolve their VolumeMounts.
+// ManagedEnvironmentStorage names an Azure Files share that jobs and apps
+// reference by storage name in their volumes.
 type ManagedEnvironmentStorage struct {
 	ID         string                              `json:"id"`
 	Name       string                              `json:"name"`
@@ -510,13 +462,10 @@ type ManagedEnvironmentStorage struct {
 	Properties ManagedEnvironmentStorageProperties `json:"properties"`
 }
 
-// ManagedEnvironmentStorageProperties mirrors
-// Microsoft.App/managedEnvironments/storages resources.
 type ManagedEnvironmentStorageProperties struct {
 	AzureFile *AzureFileProperties `json:"azureFile,omitempty"`
 }
 
-// AzureFileProperties carries the per-storage file-share backing.
 type AzureFileProperties struct {
 	AccountName string `json:"accountName"`
 	ShareName   string `json:"shareName"`
@@ -524,10 +473,6 @@ type AzureFileProperties struct {
 	AccessMode  string `json:"accessMode,omitempty"`
 }
 
-// acaEnvStorages is the package-level store for
-// managedEnvironments/<env>/storages/<name> resources. Exported for
-// use by the ACA Jobs/Apps executor to resolve a VolumeName →
-// (account, share) for host-side binding.
 var acaEnvStorages sim.Store[ManagedEnvironmentStorage]
 
 func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[ContainerAppEnvironment]) {
@@ -599,10 +544,8 @@ func registerContainerAppEnvironmentStorages(srv *sim.Server, envs sim.Store[Con
 	})
 }
 
-// LookupEnvStorageBinding returns (storageAccount, shareName, ok) for
-// a managed-environment storage reference (envID = the env resource
-// path, storageName = the storage sub-resource name). Used by the ACA
-// Jobs / Apps executor to resolve Volume{StorageName} → host dir.
+// LookupEnvStorageBinding resolves a volume's storage name in the environment
+// to its storage account and share.
 func LookupEnvStorageBinding(envID, storageName string) (string, string, bool) {
 	id := envID + "/storages/" + storageName
 	s, ok := acaEnvStorages.Get(id)
@@ -612,9 +555,8 @@ func LookupEnvStorageBinding(envID, storageName string) (string, string, bool) {
 	return s.Properties.AzureFile.AccountName, s.Properties.AzureFile.ShareName, true
 }
 
-// acaEnvCertificates / acaEnvManagedCertificates back the
-// managedEnvironments/<env>/certificates and /managedCertificates
-// sub-resources used for Custom Domain bindings.
+// The certificates and managedCertificates sub-resources behind custom domain
+// bindings.
 var acaEnvCertificates sim.Store[Certificate]
 var acaEnvManagedCertificates sim.Store[ManagedCertificate]
 
@@ -636,7 +578,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		return envID, true
 	}
 
-	// PUT - Create or update a certificate (synchronous in real ACA).
+	// Synchronous in Azure Container Apps.
 	srv.HandleFunc("PUT "+armBase+"/certificates/{certificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -665,7 +607,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// GET - Get a certificate.
 	srv.HandleFunc("GET "+armBase+"/certificates/{certificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -680,7 +621,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// PATCH - Update a certificate's tags (synchronous).
 	srv.HandleFunc("PATCH "+armBase+"/certificates/{certificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -705,7 +645,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// DELETE - Delete a certificate.
 	srv.HandleFunc("DELETE "+armBase+"/certificates/{certificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -719,7 +658,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		}
 	})
 
-	// GET - List certificates in the environment.
 	srv.HandleFunc("GET "+armBase+"/certificates", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -732,9 +670,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 	})
 
-	// PUT - Create or update a managed certificate. Real ACA models this
-	// as a long-running operation; the SDK's body poller terminates on
-	// provisioningState=Succeeded read off the 200/201 body.
+	// The SDK's body poller terminates on provisioningState Succeeded.
 	srv.HandleFunc("PUT "+armBase+"/managedCertificates/{managedCertificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -773,7 +709,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		}
 	})
 
-	// GET - Get a managed certificate.
 	srv.HandleFunc("GET "+armBase+"/managedCertificates/{managedCertificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -788,7 +723,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// PATCH - Update a managed certificate's tags (synchronous).
 	srv.HandleFunc("PATCH "+armBase+"/managedCertificates/{managedCertificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -813,7 +747,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		sim.WriteJSON(w, http.StatusOK, cert)
 	})
 
-	// DELETE - Delete a managed certificate.
 	srv.HandleFunc("DELETE "+armBase+"/managedCertificates/{managedCertificateName}", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -827,7 +760,6 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		}
 	})
 
-	// GET - List managed certificates in the environment.
 	srv.HandleFunc("GET "+armBase+"/managedCertificates", func(w http.ResponseWriter, r *http.Request) {
 		envID, ok := requireEnv(w, r)
 		if !ok {
@@ -841,8 +773,7 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 	})
 }
 
-// acaInfrastructureSubnetID is the subnet an environment's workloads sit in,
-// whichever of the two spellings the request carried it in.
+// Either of the two spellings the request may carry.
 func acaInfrastructureSubnetID(props EnvProperties) string {
 	if props.VnetConfiguration != nil && props.VnetConfiguration.InfrastructureSubnetId != "" {
 		return props.VnetConfiguration.InfrastructureSubnetId
@@ -850,8 +781,6 @@ func acaInfrastructureSubnetID(props EnvProperties) string {
 	return props.InfrastructureSubnetId
 }
 
-// acaInfrastructureVNet is the stored virtual network an environment's
-// infrastructure subnet belongs to.
 func acaInfrastructureVNet(props EnvProperties) (VirtualNetwork, bool) {
 	subnetID := acaInfrastructureSubnetID(props)
 	if subnetID == "" || azureVnets == nil {
@@ -860,16 +789,14 @@ func acaInfrastructureVNet(props EnvProperties) (VirtualNetwork, bool) {
 	return azureVnets.Get(azureVNetIDOfSubnet(subnetID))
 }
 
-// acaEnvironmentNetworkName names the engine network of an environment on no
-// virtual network: the environment's name for the operator and a digest of
-// its resource id, so two environments of one name are two networks.
+// The environment's name, for the operator, and a digest of its resource ID,
+// so two environments of one name are two networks.
 func acaEnvironmentNetworkName(envID string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(envID)))
 	return "sim-env-" + strings.ToLower(envID[strings.LastIndex(envID, "/")+1:]) + "-" + hex.EncodeToString(sum[:4])
 }
 
-// acaEnvironmentVNetID is the virtual network whose engine network the
-// environment joined, or "" for an environment on a network of its own.
+// acaEnvironmentVNetID is "" for an environment on a network of its own.
 func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
 	vnet, ok := acaInfrastructureVNet(env.Properties)
 	if !ok {
@@ -884,11 +811,9 @@ func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
 	return ""
 }
 
-// acaEnvironmentNetwork is the engine network a workload of the environment
-// attaches to, with its sidecar as the workload's resolver — that of the
-// prefix its infrastructure subnet lies in, created on first use, or the
-// environment's own — and the subnet a workload leases its address in when
-// the environment is on a virtual network's infrastructure subnet.
+// acaEnvironmentNetwork returns the network of the prefix the infrastructure
+// subnet lies in (created on first use) or the environment's own, with its
+// sidecar as resolver, and the subnet a workload leases its address in.
 func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (azureWorkloadNetwork, string, error) {
 	if vnetID := acaEnvironmentVNetID(env); vnetID != "" {
 		subnetID := acaInfrastructureSubnetID(env.Properties)
@@ -914,9 +839,7 @@ func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (az
 	return azureWorkloadNetwork{Network: env.DockerNetworkName, DNS: dns}, "", nil
 }
 
-// acaWorkloadNetwork is the network a workload of the environment envID runs
-// on: the environment's, or the platform network for a workload whose
-// environment is not stored.
+// The platform network when the environment is not stored.
 func acaWorkloadNetwork(ctx context.Context, envID string) (azureWorkloadNetwork, string, error) {
 	if envID != "" {
 		if env, ok := acaEnvironments.Get(envID); ok {

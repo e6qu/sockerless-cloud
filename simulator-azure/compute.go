@@ -23,8 +23,8 @@ type PublicIPAddress struct {
 	Location string            `json:"location"`
 	Tags     map[string]string `json:"tags"`
 	Sku      *SkuName          `json:"sku,omitempty"`
-	// Zones is read back by terraform-provider-azurerm; an absent value drifts
-	// the empty list to null, so emit a non-nil (possibly empty) slice.
+	// terraform-provider-azurerm drifts an absent list to null, so emit a non-nil
+	// slice.
 	Zones      []string                  `json:"zones"`
 	Properties PublicIPAddressProperties `json:"properties"`
 }
@@ -34,8 +34,7 @@ type PublicIPAddressProperties struct {
 	PublicIPAllocationMethod string `json:"publicIPAllocationMethod,omitempty"`
 	PublicIPAddressVersion   string `json:"publicIPAddressVersion,omitempty"`
 	IdleTimeoutInMinutes     int32  `json:"idleTimeoutInMinutes,omitempty"`
-	// IPTags is a non-nil (possibly empty) list so the provider's flatten
-	// produces {} rather than drifting to null on every refresh.
+	// A non-nil list keeps the provider's flatten from drifting to null.
 	IPTags            []any  `json:"ipTags"`
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
@@ -121,15 +120,12 @@ type NetworkInterfaceIPConfigurationProperties struct {
 	PrivateIPAddressVersion         string              `json:"privateIPAddressVersion,omitempty"`
 	Primary                         bool                `json:"primary,omitempty"`
 	ProvisioningState               string              `json:"provisioningState,omitempty"`
-	// ApplicationSecurityGroups are the groups this IP configuration belongs
-	// to. Membership is what a network security group rule written against a
-	// group resolves to when the simulator programs the interface's filter.
+	// A network security group rule written against an application security
+	// group resolves to its members when the simulator programs the filter.
 	ApplicationSecurityGroups []SubResource `json:"applicationSecurityGroups,omitempty"`
-	// ApplicationGatewayBackendAddressPools are the application gateway backend
-	// pools this IP configuration joined. A workload joins a gateway's backend
-	// through its interface, exactly as it joins a load balancer's, and the
-	// membership declared here is what the pool reports as its backend IP
-	// configurations and what the gateway's data plane forwards to.
+	// A workload joins an application gateway's backend through its interface, as
+	// it joins a load balancer's; the pool reports these members and the gateway
+	// forwards to them.
 	ApplicationGatewayBackendAddressPools []SubResource `json:"applicationGatewayBackendAddressPools,omitempty"`
 }
 
@@ -139,14 +135,11 @@ type VirtualMachine struct {
 	Type     string            `json:"type"`
 	Location string            `json:"location"`
 	Tags     map[string]string `json:"tags,omitempty"`
-	// Identity is the machine's VirtualMachineIdentity, whose shape App
-	// Service's ManagedServiceIdentity shares; the Instance Metadata Service
-	// mints tokens for the identities it names.
+	// The Instance Metadata Service mints tokens for the identities named here.
 	Identity   *SiteIdentity `json:"identity,omitempty"`
 	Properties VMProperties  `json:"properties"`
-	// SystemIdentityClientID is the application ID of the machine's
-	// system-assigned identity, which the directory reads and the identity's
-	// wire shape does not carry.
+	// SystemIdentityClientID is the system-assigned identity's application ID,
+	// which the directory reads and the wire shape does not carry.
 	SystemIdentityClientID string `json:"-"`
 }
 
@@ -155,22 +148,18 @@ type VMProperties struct {
 	StorageProfile  map[string]any   `json:"storageProfile,omitempty"`
 	OSProfile       map[string]any   `json:"osProfile,omitempty"`
 	NetworkProfile  VMNetworkProfile `json:"networkProfile,omitempty"`
-	// DiagnosticsProfile carries bootDiagnostics, which names whether the
-	// machine writes boot artifacts and to which storage account. It is a
-	// modelled member rather than a dropped one because
-	// RetrieveBootDiagnosticsData reads it, and because a member the model
-	// drops reads back missing and shows up as perpetual drift in a client
-	// that sent it.
+	// RetrieveBootDiagnosticsData reads bootDiagnostics, and a dropped member
+	// would read back missing and drift in a client that sent it.
 	DiagnosticsProfile map[string]any `json:"diagnosticsProfile,omitempty"`
-	// Priority and EvictionPolicy are what make a machine a Spot machine and
-	// decide what an eviction does to it.
+	// Priority and EvictionPolicy make a machine a Spot machine and decide what
+	// an eviction does.
 	Priority          string          `json:"priority,omitempty"`
 	EvictionPolicy    string          `json:"evictionPolicy,omitempty"`
 	ProvisioningState string          `json:"provisioningState,omitempty"`
 	VMID              string          `json:"vmId,omitempty"`
 	InstanceView      *VMInstanceView `json:"instanceView,omitempty"`
-	// UserData is base64 the machine reads back from the Instance Metadata
-	// Service; unlike osProfile.customData, nothing in the guest runs it.
+	// The machine reads UserData back from the Instance Metadata Service; unlike
+	// osProfile.customData, nothing in the guest runs it.
 	UserData string `json:"userData,omitempty"`
 }
 
@@ -202,9 +191,8 @@ var (
 	azureNICs             sim.Store[NetworkInterface]
 	azureVMs              sim.Store[VirtualMachine]
 	azureVMStates         sim.Store[string]
-	// azureVMGeneralized records which machines have been generalized, which
-	// is what makes an image capturable from one and what the instance view
-	// reports as its operating-system state.
+	// A generalized machine can be captured, and its instance view reports the OS
+	// state.
 	azureVMGeneralized sim.Store[bool]
 )
 
@@ -257,9 +245,8 @@ func registerComputeCatalog(srv *sim.Server) {
 	})
 }
 
-// azureDefaultSkuTier ensures a SKU is present with a non-empty tier. Public
-// IP / prefix / load balancer all read sku_tier back as a forces-replacement
-// field, defaulting to Regional in real Azure.
+// Public IPs, prefixes and load balancers read sku_tier back as a
+// forces-replacement field; Azure defaults it to Regional.
 func azureDefaultSkuTier(sku **SkuName, defaultName string) {
 	if *sku == nil {
 		*sku = &SkuName{Name: defaultName}
@@ -515,11 +502,9 @@ func registerLoadBalancers(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// backendAddressPools is the only load-balancer child collection
-	// with standalone write operations in ARM
-	// (LoadBalancerBackendAddressPools_CreateOrUpdate/Delete); probes
-	// and loadBalancingRules are read-only sub-resources mutated via
-	// the parent loadBalancers PUT.
+	// backendAddressPools is the only load-balancer child collection with its own
+	// write operations; probes and loadBalancingRules change through the parent
+	// PUT.
 	registerLoadBalancerChild(srv, "backendAddressPools", "backendAddressPoolName", "Microsoft.Network/loadBalancers/backendAddressPools", true,
 		func(lb *LoadBalancer) *[]LoadBalancerChild { return &lb.Properties.BackendAddressPools })
 	registerLoadBalancerChild(srv, "probes", "probeName", "Microsoft.Network/loadBalancers/probes", false,
@@ -643,23 +628,15 @@ func registerAzureLoadBalancerDataPlane(srv *sim.Server) {
 	})
 }
 
-// azureLBsByFrontendAddress indexes load balancers by the address their
-// frontends answer on. The lookup below runs in a handler wrapper, so every
-// request into the simulator pays it before any handler runs — the same shape
-// that put 84.8% of the AWS simulator's CPU in one Amazon ECS task scan.
+// A handler wrapper runs this lookup ahead of every request, so it reads an
+// index rather than scanning load balancers.
 var azureLBsByFrontendAddress sim.GenerationIndex[LoadBalancer]
 
-// azureNICsByBackendPool indexes network interfaces by the backend address
-// pools their IP configurations declare membership in — a load balancer's and
-// an application gateway's alike, since a virtual machine joins either the
-// same way, through its interface rather than through the pool's own
-// configuration. Both lookups ran over every interface in the subscription,
-// and the application gateway's ran from a handler wrapper.
+// A virtual machine joins a load balancer's or an application gateway's
+// backend pool through its interface, so both look members up here.
 var azureNICsByBackendPool sim.GenerationIndex[NetworkInterface]
 
-// azureNICsInBackendPool returns the interfaces with an IP configuration in
-// the pool. Pool identifiers are compared case-insensitively, as ARM resource
-// identifiers are, so the index is keyed on their lowercase form.
+// Pool IDs compare case-insensitively, as Azure Resource Manager IDs do.
 func azureNICsInBackendPool(poolID string) []NetworkInterface {
 	if azureNICs == nil || poolID == "" {
 		return nil
@@ -679,9 +656,8 @@ func azureNICsInBackendPool(poolID string) []NetworkInterface {
 		})
 }
 
-// azureLoadBalancerFrontendAddresses returns every address a load balancer
-// answers on. It reads the public-IP store, which the index rebuild pays once
-// rather than once per request.
+// The index rebuild pays the public-IP store read once rather than per
+// request.
 func azureLoadBalancerFrontendAddresses(lb LoadBalancer) []string {
 	var addresses []string
 	for _, frontend := range lb.Properties.FrontendIPConfigurations {
@@ -706,8 +682,6 @@ func azureLoadBalancerFromDataPlaneHost(host string) (LoadBalancer, LoadBalancer
 	if !ok {
 		return LoadBalancer{}, LoadBalancerChild{}, false
 	}
-	// The frontend is resolved from the matched load balancer alone, so this
-	// costs a walk of its own configurations rather than of every one stored.
 	for _, frontend := range lb.Properties.FrontendIPConfigurations {
 		pipID := propertySubResourceID(frontend.Properties, "publicIPAddress")
 		if pipID == "" {
@@ -732,9 +706,8 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		http.Error(w, "no healthy backends", http.StatusServiceUnavailable)
 		return
 	}
-	// A load balancer forwards at layer 4, so the backend receives the request
-	// exactly as the client sent it, Host header included, bounded only by the
-	// rule's idle timeout.
+	// A load balancer forwards at layer 4: the backend receives the request as the
+	// client sent it, Host header included, bounded by the rule's idle timeout.
 	idle := time.Duration(intProperty(rule.Properties, "idleTimeoutInMinutes")) * time.Minute
 	if idle <= 0 {
 		idle = 4 * time.Minute
@@ -746,15 +719,14 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
 		Timeout:  idle,
-		// A load balancer passes the client's own address through to the
-		// backend, so the backend's network security groups see the client.
+		// A load balancer passes the client's address through, so the backend's
+		// network security groups see the client.
 		Admit: func(client netip.Addr) error {
 			return azureAdmitIngress("Tcp", client, target.Address, target.Port)
 		},
 	}, lbplane.Answers{
-		// The backend's groups dropped the flow's packets: the client's
-		// connection ends without an answer, as it does behind Azure Load
-		// Balancer, where nothing sends a reset for a dropped packet.
+		// Azure Load Balancer sends no reset for a dropped packet: the connection ends
+		// without an answer.
 		NotAdmitted: func(w http.ResponseWriter, _ error) { lbplane.CloseWithoutAnswer(w) },
 		Failed:      func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
 	})
@@ -792,9 +764,8 @@ func azureHealthyLoadBalancerTarget(lb LoadBalancer, rule LoadBalancerChild) (az
 	return azureLBTarget{}, false
 }
 
-// azureLoadBalancerTargetInRotation reports whether the rule sends the backend
-// traffic: one its health probe has marked up, or any backend of a rule with
-// no probe.
+// azureLoadBalancerTargetInRotation: a backend its health probe marked up, or
+// any backend of a rule with no probe.
 func azureLoadBalancerTargetInRotation(lb LoadBalancer, rule LoadBalancerChild, target azureLBTarget) bool {
 	probe, hasProbe := azureLoadBalancerRuleProbe(lb, rule)
 	if !hasProbe {
@@ -854,22 +825,17 @@ func azureIPConfigInBackendPool(ipcfg NetworkInterfaceIPConfiguration, poolID st
 	return false
 }
 
-// azureHealthProbeSweep is how often the prober looks for backends whose next
-// probe has come due; each probe's own intervalInSeconds sets how often one
-// backend is probed.
+// azureHealthProbeSweep is how often the prober looks for due probes; each
+// probe's intervalInSeconds sets how often one backend is probed.
 const azureHealthProbeSweep = 250 * time.Millisecond
 
-// azureLoadBalancerHealth holds what the health probes last recorded for each
-// backend of each load balancer probe, keyed by azureLoadBalancerHealthKey.
 var azureLoadBalancerHealth = lbplane.NewHealthTracker[string]()
 
 func azureLoadBalancerHealthKey(lb LoadBalancer, probe LoadBalancerChild, target azureLBTarget) string {
 	return strings.ToLower(lb.ID) + "|" + strings.ToLower(probe.ID) + "|" + target.Address
 }
 
-// azureLoadBalancerRuleProbe returns the health probe a load-balancing rule
-// names. A rule without one has no prober, and every backend in its pool
-// receives traffic.
+// A rule without a probe sends traffic to every backend in its pool.
 func azureLoadBalancerRuleProbe(lb LoadBalancer, rule LoadBalancerChild) (LoadBalancerChild, bool) {
 	probeID := propertySubResourceID(rule.Properties, "probe")
 	if probeID == "" {
@@ -880,14 +846,12 @@ func azureLoadBalancerRuleProbe(lb LoadBalancer, rule LoadBalancerChild) (LoadBa
 			return probe, true
 		}
 	}
-	// A rule naming a probe that does not exist has no probe that could pass.
 	return LoadBalancerChild{ID: probeID}, true
 }
 
-// azureProbePolicy is a probe's schedule: a probe every intervalInSeconds
-// (default 15), and probeThreshold consecutive results — numberOfProbes on a
-// probe that predates probeThreshold, default 1 — to move a backend into or
-// out of rotation.
+// azureProbePolicy: a probe every intervalInSeconds (default 15), and
+// probeThreshold consecutive results — numberOfProbes on an older probe,
+// default 1 — to move a backend into or out of rotation.
 func azureProbePolicy(probe LoadBalancerChild) lbplane.HealthPolicy {
 	interval := time.Duration(intProperty(probe.Properties, "intervalInSeconds")) * time.Second
 	if interval <= 0 {
@@ -908,8 +872,6 @@ func azureProbePolicy(probe LoadBalancerChild) lbplane.HealthPolicy {
 	}
 }
 
-// azureSweepLoadBalancerProbes probes every backend of every load-balancing
-// rule's health probe that has come due at now.
 func azureSweepLoadBalancerProbes(ctx context.Context, now time.Time) {
 	if azureLBs == nil {
 		return
@@ -942,11 +904,10 @@ func azureSweepLoadBalancerProbes(ctx context.Context, now time.Time) {
 	azureLoadBalancerHealth.Sweep(ctx, now, targets)
 }
 
-// azureProbeBackend runs one health probe. A Tcp probe succeeds when the
-// backend accepts the connection; an Http or Https probe succeeds on a 200
-// response alone — any other code, a redirect included, marks the backend
-// down — and does not validate an Https backend's certificate. A probe times
-// out after its interval or 30 seconds, whichever is shorter.
+// azureProbeBackend: Tcp succeeds on an accepted connection; Http and Https
+// succeed on a 200 alone, a redirect included marking the backend down, and do
+// not validate the certificate. A probe times out after its interval or 30
+// seconds, whichever is shorter.
 func azureProbeBackend(ctx context.Context, probe LoadBalancerChild, target azureLBTarget) (int, error) {
 	if probe.Properties == nil {
 		return 0, fmt.Errorf("health probe %s does not exist", probe.ID)
@@ -1110,8 +1071,6 @@ func registerNetworkInterfaces(srv *sim.Server) {
 				return
 			}
 		}
-		// Every IP configuration of an interface shares the interface's one
-		// subnet.
 		for _, ipcfg := range nic.Properties.IPConfigurations {
 			first := nic.Properties.IPConfigurations[primary]
 			if !strings.EqualFold(ipcfg.Properties.Subnet.ID, first.Properties.Subnet.ID) {
@@ -1163,9 +1122,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 	})
 }
 
-// stripVMAdminPassword removes the write-only osProfile.adminPassword from a
-// VM before it is stored or returned. Real Azure never echoes the admin
-// password back on create or GET.
+// Azure never echoes osProfile.adminPassword.
 func stripVMAdminPassword(vm *VirtualMachine) {
 	if vm.Properties.OSProfile != nil {
 		delete(vm.Properties.OSProfile, "adminPassword")
@@ -1200,9 +1157,8 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, "LocationRequired", "The location property is required for this definition.", http.StatusBadRequest)
 			return
 		}
-		// Request validation precedes provisioning, as it does in Azure: a
-		// networkProfile, image or size the Compute resource provider cannot
-		// accept is the client's error, reported as 400/404, not as a failed
+		// Azure validates the request before provisioning: a networkProfile, image or
+		// size the Compute resource provider cannot accept is a 400/404, not a failed
 		// operation.
 		if fault := azureValidateVMRequest(r.Context(), vm); fault != nil {
 			AzureError(w, fault.code, fault.message, fault.status)
@@ -1251,8 +1207,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		}
 		azureReconcileAutoRegisteredRecords()
 		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
-			// The boot leases a dynamic address, which the registered
-			// record then names.
+			// The boot leases a dynamic address, which the registered record names.
 			defer azureReconcileAutoRegisteredRecords()
 			if err := azureBootVM(ctx, vm); err != nil {
 				logger.Error().
@@ -1278,13 +1233,9 @@ func registerVirtualMachines(srv *sim.Server) {
 		sim.WriteJSON(w, status, virtualMachineWithInstanceView(stored))
 	})
 
-	// VirtualMachines_Update — the PATCH that carries a VirtualMachineUpdate:
-	// the tags dictionary (replaced wholesale, as real Azure does) plus the
-	// mutable property blocks. Only the blocks present in the body are
-	// touched, which is what makes a tags-only PATCH — the request the portal's
-	// Tags blade, `az vm update --set tags…`, and the azurerm provider's tag
-	// update all send — leave the machine's hardware, storage, OS, and network
-	// profiles alone.
+	// VirtualMachines_Update touches only the blocks present, so a tags-only PATCH
+	// — from the portal, `az vm update --set tags…` or the azurerm provider —
+	// leaves the profiles alone. Tags replace wholesale, as in Azure.
 	srv.HandleFunc("PATCH "+armBase+"/virtualMachines/{vmName}", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Compute", "virtualMachines", sim.PathParam(r, "vmName"))
 		var patch struct {
@@ -1374,15 +1325,9 @@ func registerVirtualMachines(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": items})
 	})
 
-	// VirtualMachines_ListAll — every virtual machine in the subscription,
-	// across all resource groups. Distinct from the resource-group-scoped
-	// VirtualMachines_List above: `az vm list` without `--resource-group`,
-	// armcompute's NewListAllPager, and any subscription-wide inventory read
-	// (the Azure portal's own "Virtual machines" blade) go through this one.
-	// The result is paged the way ARM pages it — a nextLink once the page
-	// fills — over a resource-ID ordering, which is what makes the offset
-	// continuation token address the same machine on every page request.
-	// `statusOnly=true` asks for the instance view rather than the model view.
+	// VirtualMachines_ListAll pages over a resource-ID ordering, so the offset
+	// continuation token addresses the same machine on every request.
+	// `statusOnly=true` asks for the instance view.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/virtualMachines", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		all := azureVMs.Filter(func(vm VirtualMachine) bool { return strings.HasPrefix(vm.ID, prefix) })
@@ -1425,8 +1370,8 @@ func registerVirtualMachines(srv *sim.Server) {
 		writeAzureVMOperationAccepted(w, r, vm, opID)
 	})
 
-	// Each action names the power state the machine passes through and the
-	// one it settles in; a boot follows the halt only for start and restart.
+	// Each action names the power state the machine passes through and the one it
+	// settles in; a boot follows the halt only for start and restart.
 	for _, action := range []struct {
 		name, transition, settled string
 		halt, boot                bool
@@ -1485,8 +1430,6 @@ func virtualMachineWithInstanceView(vm VirtualMachine) VirtualMachine {
 		azureVMProvisioningStatus(vm),
 		{Code: state, Level: "Info", DisplayStatus: "VM " + display},
 	}
-	// A generalized machine reports it, which is how a caller knows an image
-	// can be captured from it.
 	if generalized, _ := azureVMGeneralized.Get(vm.ID); generalized {
 		statuses = append(statuses, VMStatus{
 			Code: "OSState/generalized", Level: "Info", DisplayStatus: "VM generalized",

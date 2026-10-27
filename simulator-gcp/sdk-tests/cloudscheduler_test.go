@@ -40,8 +40,8 @@ type schedulerRequest struct {
 	body   string
 }
 
-// schedulerEndpoint answers each request with the next status of statuses
-// (the last one repeating) and hands every request it received to the test.
+// schedulerEndpoint answers each request with the next of statuses, repeating
+// the last, and hands every request to the test.
 func schedulerEndpoint(t *testing.T, statuses ...int) (*httptest.Server, <-chan schedulerRequest) {
 	t.Helper()
 	received := make(chan schedulerRequest, 16)
@@ -67,10 +67,10 @@ func awaitSchedulerRequest(t *testing.T, received <-chan schedulerRequest, withi
 	}
 }
 
-// awaitJobStatus reads the job until Cloud Scheduler has recorded the outcome
-// of an attempt that started at or after since: the API offers no wait on a
-// job's status. The comparison keeps lastAttemptTime's full precision, since an
-// earlier attempt can start within the same millisecond as since.
+// awaitJobStatus reads the job until Cloud Scheduler records the outcome of an
+// attempt that started at or after since: the API offers no wait on a job's
+// status. Compare at lastAttemptTime's full precision, since an earlier attempt
+// can start within the same millisecond.
 func awaitJobStatus(t *testing.T, c *scheduler.CloudSchedulerClient, name string, since time.Time) *schedulerpb.Job {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -85,8 +85,6 @@ func awaitJobStatus(t *testing.T, c *scheduler.CloudSchedulerClient, name string
 	}
 }
 
-// TestCloudScheduler_HTTPJobLifecycle creates an HTTP job, runs it on demand,
-// pauses, resumes, updates, lists and deletes it.
 func TestCloudScheduler_HTTPJobLifecycle(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient(t)

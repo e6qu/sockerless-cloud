@@ -13,11 +13,11 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// A load job's source data rides jobs.insert's media path: in one multipart
-// request while it fits a chunk, and past that through a resumable session
-// the Go client begins on the /upload path and POSTs each chunk to.
+// A load job's data rides jobs.insert's media path: one multipart request
+// while it fits a chunk, and past that a resumable session the Go client
+// begins on the /upload path.
 //
-//	POST /upload/bigquery/v2/projects/{project}/jobs
+//   POST /upload/bigquery/v2/projects/{project}/jobs
 
 func bqLoadJob(project, dataset, table, format, write string) *bigquery.Job {
 	return &bigquery.Job{Configuration: &bigquery.JobConfiguration{Load: &bigquery.JobConfigurationLoad{
@@ -31,7 +31,6 @@ func bqLoadJob(project, dataset, table, format, write string) *bigquery.Job {
 	}}}
 }
 
-// bqFinishedJob waits for an inserted job to finish and reads it back.
 func bqFinishedJob(t *testing.T, svc *bigquery.Service, project string, job *bigquery.Job) *bigquery.Job {
 	t.Helper()
 	bqWaitJob(t, project, job.JobReference.JobId, job.JobReference.Location)

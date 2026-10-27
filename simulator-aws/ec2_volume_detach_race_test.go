@@ -10,16 +10,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// An instance reaching "running" or "stopped" restamps every volume attached to
-// it. That walk and a DetachVolume for the same volume are two read-modify-write
-// sequences over one row, and if the walk decides from a value it read before
-// the detach, its write puts the attachment back — leaving a volume the API
-// reported as detached still in-use, so the DeleteVolume that follows is
-// refused. It needs a slow instance transition to be observable, which is why a
-// host running real machines sees it and a fast one does not.
+// A volume restamp on an instance transition and a DetachVolume are two
+// read-modify-writes of one row; a restamp deciding from a stale read would
+// put the attachment back, and DeleteVolume would then be refused. Only slow
+// transitions make the race observable.
 func TestEC2DetachIsNotUndoneByAConcurrentInstanceTransition(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 
@@ -63,13 +59,11 @@ func TestEC2DetachIsNotUndoneByAConcurrentInstanceTransition(t *testing.T) {
 	}
 }
 
-// Terminating an instance releases the volumes it held, and reads which
-// attachments each volume has for the same reason: a volume detached while the
-// walk is in flight must not be written back holding the attachment it just
-// lost. A volume marked delete-on-termination is still removed.
+// Termination reads attachments under the same lock, so a volume detached
+// mid-walk is not written back attached. A delete-on-termination volume is
+// still removed.
 func TestEC2TerminationReleaseIsNotUndoneByAConcurrentDetach(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
 
@@ -100,7 +94,7 @@ func TestEC2TerminationReleaseIsNotUndoneByAConcurrentDetach(t *testing.T) {
 
 		vol, ok := ec2Volumes.Get(volumeID)
 		if !ok {
-			continue // the termination walk removed it, which is its job
+			continue // The termination walk removed it.
 		}
 		if len(vol.Attachments) != 0 {
 			t.Fatalf("attempt %d: the volume survived with %d attachment(s) to the terminated instance",

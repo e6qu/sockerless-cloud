@@ -25,7 +25,7 @@ import (
 // Export is a host directory the server serves under a name: a client mounts
 // `<server>:/<name>`. Only names the one entry of Root the export's root
 // lists, which serves a bind of a single file as a directory holding that
-// file alone; nothing else at that root is looked up, made or removed.
+// file alone; the server looks up, makes or removes nothing else at that root.
 type Export struct {
 	Root     string
 	ReadOnly bool
@@ -53,7 +53,6 @@ type node struct {
 	ino    uint64
 }
 
-// path is the node's host path.
 func (n *node) path() string {
 	if n.parent == nil {
 		return n.export.root

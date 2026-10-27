@@ -15,14 +15,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Azure Monitor Activity Log: the subscription's administrative events.
-// Azure Resource Manager writes a BeginRequest event when a write, delete or
-// action reaches it and an EndRequest event with the outcome when it answers,
-// and Activity Logs - List (GET
-// /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values)
-// reads them back newest first, filtered by time span and by resource group,
-// resource, provider, correlation ID, caller, status or level. Events older
-// than the service's 90-day retention are dropped.
+// The Azure Monitor Activity Log. Azure Resource Manager writes a BeginRequest
+// event when a write, delete or action reaches it and an EndRequest event with
+// the outcome; Activity Logs - List reads them newest first, filtered. Events
+// older than the 90-day retention drop.
 
 const activityLogRetention = 90 * 24 * time.Hour
 
@@ -68,8 +64,7 @@ func registerActivityLog(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values", handleActivityLogList)
 }
 
-// activityLogOperation names what a request does in Azure RBAC action form,
-// with the resource it acts on.
+// activityLogOperation names what a request does in Azure RBAC action form.
 type activityLogOperation struct {
 	resourceID    string
 	resourceGroup string
@@ -78,9 +73,8 @@ type activityLogOperation struct {
 	action        string
 }
 
-// activityLogOperationOf maps an ARM request to its operation, or reports
-// false for a request the Activity Log does not record: a read, or a query
-// that changes nothing.
+// activityLogOperationOf reports false for what the Activity Log does not
+// record: a read, or a query that changes nothing.
 func activityLogOperationOf(r *http.Request) (activityLogOperation, bool) {
 	if r.Method != http.MethodPut && r.Method != http.MethodPatch && r.Method != http.MethodDelete && r.Method != http.MethodPost {
 		return activityLogOperation{}, false
@@ -153,9 +147,8 @@ func activityLogDisplay(op activityLogOperation) string {
 	}
 }
 
-// activityLogSingular names one of a resource type: storageAccounts is a
-// storage account, publicIPAddresses a public IP address, and Redis stays
-// Redis.
+// activityLogSingular: storageAccounts is a storage account, publicIPAddresses
+// a public IP address, and Redis stays Redis.
 func activityLogSingular(plural string) string {
 	lower := strings.ToLower(plural)
 	switch {
@@ -169,8 +162,8 @@ func activityLogSingular(plural string) string {
 	return strings.TrimSuffix(plural, "s")
 }
 
-// activityLogWords spells an identifier as title-cased words, keeping an
-// acronym together: publicIPAddress is "Public IP Address".
+// activityLogWords keeps an acronym together: publicIPAddress is "Public IP
+// Address".
 func activityLogWords(identifier string) string {
 	runes := []rune(identifier)
 	var out []rune
@@ -189,8 +182,8 @@ func activityLogWords(identifier string) string {
 	return string(out)
 }
 
-// activityLogCaller names who made the request from its bearer token: a
-// user's principal name, or an application's object ID.
+// activityLogCaller names a user by principal name and an application by
+// object ID.
 func activityLogCaller(r *http.Request) (caller, tenant string) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
@@ -239,8 +232,6 @@ func (w *activityLogRecorder) Write(p []byte) (int, error) {
 
 func (w *activityLogRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// AzureActivityLogMiddleware records the BeginRequest and EndRequest events
-// of every ARM write, delete and action that reaches the resource providers.
 func AzureActivityLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		op, ok := activityLogOperationOf(r)
@@ -307,8 +298,8 @@ func AzureActivityLogMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// activityLogPrune drops events past the retention period, at most once an
-// hour so a busy subscription does not rescan its log on every write.
+// activityLogPrune runs at most once an hour so a busy subscription does not
+// rescan its log on every write.
 func activityLogPrune() {
 	now := time.Now()
 	last := activityLogLastPrune.Load()
@@ -330,9 +321,8 @@ type activityLogFilter struct {
 	levels, channels                                    []string
 }
 
-// parseActivityLogFilter reads the documented $filter grammar: a time span
-// (eventTimestamp ge … and eventTimestamp le …) and at most one of the other
-// conditions, joined by `and`.
+// parseActivityLogFilter reads a time span and at most one other condition,
+// joined by `and`.
 func parseActivityLogFilter(raw string) (activityLogFilter, error) {
 	var filter activityLogFilter
 	if strings.TrimSpace(raw) == "" {
@@ -445,8 +435,8 @@ func (f activityLogFilter) matches(event ActivityLogEvent) bool {
 	case f.subStatus != "" && !strings.EqualFold(event.SubStatus.Value, f.subStatus):
 		return false
 	}
-	// Every event the simulator records is an Azure Resource Manager
-	// operation, which Azure files under the Operation channel.
+	// Azure files every Azure Resource Manager operation under the Operation
+	// channel.
 	if len(f.channels) > 0 && !slices.ContainsFunc(f.channels, func(channel string) bool {
 		return strings.EqualFold(strings.TrimSpace(channel), "Operation")
 	}) {

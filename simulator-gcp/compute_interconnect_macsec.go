@@ -8,22 +8,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The MACsec configuration of a Cloud Interconnect.
-//
-// This is the caller's own configuration read back, not a reading taken off
-// Google's equipment. An interconnect carries a keychain the caller wrote — each
-// pre-shared key with a name and the time it becomes valid — and the operation
-// returns that keychain with the Connectivity Association Key Name (CKN) and
-// key (CAK) the service generates for each entry. Generating those is what the
-// operation does, so the simulator does it too, deriving each from the
-// interconnect and the key it belongs to so that reading the configuration
-// twice returns the same keychain.
-//
-// The diagnostics beside it are a different thing entirely and stay unserved:
-// link status, circuit identifiers and LACP state are read off the physical
-// equipment at both ends, which this simulator does not have.
+// The MACsec configuration of a Cloud Interconnect is the caller's keychain
+// read back, with the Connectivity Association Key Name (CKN) and key (CAK)
+// the service generates for each pre-shared key. The simulator derives both
+// from the interconnect and the key, so repeated reads return the same
+// keychain.
 
-// registerComputeInterconnectMacsec mounts the configuration read.
 func registerComputeInterconnectMacsec(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnects/{interconnect}/getMacsecConfig",
 		func(w http.ResponseWriter, r *http.Request) {
@@ -57,10 +47,8 @@ func registerComputeInterconnectMacsec(srv *sim.Server) {
 		})
 }
 
-// computeMacsecKey derives one of the two generated values for a pre-shared
-// key. A CKN is 32 bytes and a CAK 16, both rendered as hex, and both are
-// derived from the interconnect and the key they belong to so that the
-// configuration a caller reads does not change between reads.
+// computeMacsecKey derives a pre-shared key's 32-byte CKN or 16-byte CAK, as
+// hex, from the interconnect and the key, so reads return the same value.
 func computeMacsecKey(kind, interconnect, keyName string, size int) string {
 	sum := sha256.Sum256([]byte(kind + "\x00" + interconnect + "\x00" + keyName))
 	return hex.EncodeToString(sum[:size])

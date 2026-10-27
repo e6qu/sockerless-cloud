@@ -121,9 +121,9 @@ func registerComputeInstancePower(srv *sim.Server) {
 	const base = "/compute/v1/projects/{project}/zones/{zone}/instances/{name}"
 	logger := srv.Logger()
 
-	// run answers the verb with the operation and moves the machine behind it,
-	// on a context of its own: a client that stops waiting must not take the
-	// move down with it, and the request's context dies with the response.
+	// run answers the verb with the operation and moves the machine on a context
+	// of its own: the request's context dies with the response, and a client that
+	// stops waiting must not stop the move.
 	run := func(w http.ResponseWriter, r *http.Request, m computeInstanceMove) {
 		project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")
 		link := computeInstanceSelfLink(project, zone, name)
@@ -227,9 +227,7 @@ func registerComputeInstancePower(srv *sim.Server) {
 		run(w, r, computeResumeMove)
 	})
 
-	// The keys are supplied per disk and never stored: they exist for the
-	// duration of the call, which is why an instance started this way looks
-	// exactly like one started any other way afterwards.
+	// The disk keys exist only for the call and are never stored.
 	srv.HandleFunc("POST "+base+"/startWithEncryptionKey", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Disks []struct {

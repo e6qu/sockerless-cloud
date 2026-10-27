@@ -232,7 +232,6 @@ type Plane struct {
 	changes signals.Keyed[int]
 }
 
-// New builds the plane serving a resource from its record.
 func New(cfg Config, record Record) *Plane {
 	p := &Plane{
 		cfg:         cfg,
@@ -260,7 +259,6 @@ func New(cfg Config, record Record) *Plane {
 	return p
 }
 
-// Volume is the volume that holds the plane's data.
 func (p *Plane) Volume() string { return p.cfg.Volume }
 
 // Record is the plane's topology as it now stands.
@@ -276,7 +274,6 @@ func (p *Plane) Record() Record {
 	}
 }
 
-// Endpoints are the endpoints the plane serves.
 func (p *Plane) Endpoints() []Endpoint {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -937,7 +934,6 @@ func (p *Plane) Command(index int, args ...string) (any, error) {
 	return reply, nil
 }
 
-// everyNode runs one command on every node.
 func (p *Plane) everyNode(args ...string) error {
 	for _, index := range p.Nodes() {
 		if _, err := p.Command(index, args...); err != nil {

@@ -10,32 +10,27 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// appServiceLinuxStack is one built-in Linux runtime stack: the linuxFxVersion
-// that selects it and the platform image App Service runs for it. The image's
-// own entrypoint (/opt/startup/init_container.sh) runs Oryx, which writes the
-// startup script for the content in /home/site/wwwroot: the site's startup
-// command when it has one, else the app it detects, else the platform's
-// default page when the directory is empty.
+// appServiceLinuxStack is one built-in Linux runtime stack on its platform
+// image. The image's entrypoint (/opt/startup/init_container.sh) runs Oryx,
+// which starts the site's startup command, else the app it detects in
+// /home/site/wwwroot, else the default page.
 type appServiceLinuxStack struct {
-	Stack        string // the stack's catalogue value, "node"
-	StackDisplay string // "Node"
-	Major        string // "20"
-	MajorDisplay string // "Node 20"
-	Minor        string // "20-lts"
-	MinorDisplay string // "Node 20 LTS"
+	Stack        string
+	StackDisplay string
+	Major        string
+	MajorDisplay string
+	Minor        string
+	MinorDisplay string
 	Image        string
-	// Port is the PORT the image's own configuration declares and its startup
-	// script listens on.
+	// Port is the PORT the image's own configuration declares.
 	Port int
 }
 
-// LinuxFxVersion is the siteConfig value that selects the stack.
 func (s appServiceLinuxStack) LinuxFxVersion() string {
 	return strings.ToUpper(s.Stack) + "|" + s.Minor
 }
 
-// appServiceLinuxStacks are the built-in Linux stacks this App Service runs,
-// each on the platform image Microsoft publishes for it under
+// Each stack runs on the image Microsoft publishes under
 // mcr.microsoft.com/appsvc, pinned to one build.
 var appServiceLinuxStacks = []appServiceLinuxStack{
 	{
@@ -55,8 +50,6 @@ var appServiceLinuxStacks = []appServiceLinuxStack{
 	},
 }
 
-// appServiceLinuxStackNames lists the linuxFxVersion of every stack this App
-// Service runs.
 func appServiceLinuxStackNames() []string {
 	out := make([]string, 0, len(appServiceLinuxStacks))
 	for _, s := range appServiceLinuxStacks {
@@ -65,8 +58,8 @@ func appServiceLinuxStackNames() []string {
 	return out
 }
 
-// webDefaultSiteKind is the kind a site created without one reports: a web
-// app, on Linux when the site or its App Service plan is reserved.
+// webDefaultSiteKind is a web app, on Linux when the site or its App Service
+// plan is reserved.
 func webDefaultSiteKind(reserved bool, serverFarmID string) string {
 	if !reserved && serverFarmID != "" {
 		if plan, ok := webValidateLookupPlan(serverFarmID); ok {
@@ -79,14 +72,10 @@ func webDefaultSiteKind(reserved bool, serverFarmID string) string {
 	return "app"
 }
 
-// siteIsFunctionApp reports whether the site is an Azure Functions app, which
-// the platform runs on the Functions host rather than on a web runtime stack.
 func siteIsFunctionApp(site *Site) bool {
 	return strings.Contains(strings.ToLower(site.Kind), "functionapp")
 }
 
-// siteBuiltInStack returns the built-in Linux stack a web app's linuxFxVersion
-// selects, when it is one this App Service runs.
 func siteBuiltInStack(site *Site) (appServiceLinuxStack, bool) {
 	fx := siteRuntimeStack(site)
 	if fx == "" || siteIsFunctionApp(site) {
@@ -100,9 +89,8 @@ func siteBuiltInStack(site *Site) (appServiceLinuxStack, bool) {
 	return appServiceLinuxStack{}, false
 }
 
-// appServiceSitesHomeRoot holds each built-in-stack site's /home: the
-// persistent storage App Service mounts into the site's container, with the
-// deployed content in site/wwwroot and the platform's logs in LogFiles.
+// appServiceSitesHomeRoot holds each built-in-stack site's /home, with the
+// content in site/wwwroot and the platform's logs in LogFiles.
 func appServiceSitesHomeRoot() string {
 	return sim.ScopedDataDir("", "web-sites", "sockerless-sim-azure-web-sites")
 }
@@ -111,25 +99,19 @@ func siteHomeDir(siteName string) string {
 	return filepath.Join(appServiceSitesHomeRoot(), siteStorageName(siteName))
 }
 
-// siteStorageName is the name an app's or a slot's own storage and containers
-// go by: "<app>" for an app and "<app>__<slot>" for a slot, as App Service
-// spells a slot's publishing user.
+// App Service spells a slot's publishing user "<app>__<slot>".
 func siteStorageName(siteName string) string {
 	return strings.Replace(siteName, "/", "__", 1)
 }
 
-// removeSiteHome deletes a deleted site's /home storage.
 func removeSiteHome(siteName string) {
 	_ = os.RemoveAll(siteHomeDir(siteName))
 }
 
-// prepareSiteHome lays out the /home a built-in-stack site's container mounts
-// and returns the binds for it. /home is the site's one persistent share, so
-// site/wwwroot holds whatever its deployments, its Kudu file system and the
-// app itself last wrote there. A run-from-package app instead runs the
-// package WEBSITE_RUN_FROM_PACKAGE names by URL, mounted read-only as the
-// platform mounts it, or with WEBSITE_RUN_FROM_PACKAGE=1 the last deployed
-// package, read-only too.
+// /home is the site's one persistent share, so site/wwwroot holds whatever
+// its deployments, Kudu and the app itself last wrote. A run-from-package app
+// runs the package WEBSITE_RUN_FROM_PACKAGE names by URL, or with the value 1
+// the last deployed package, mounted read-only as the platform mounts it.
 func prepareSiteHome(site *Site) ([]string, error) {
 	home, err := ensureSiteHome(site.Name)
 	if err != nil {
@@ -156,8 +138,6 @@ func prepareSiteHome(site *Site) ([]string, error) {
 	return binds, nil
 }
 
-// ensureSiteHome creates a site's /home storage with the directories the
-// platform lays out in it, and returns its host directory.
 func ensureSiteHome(siteName string) (string, error) {
 	home := siteHomeDir(siteName)
 	for _, dir := range []string{home, filepath.Join(home, "site"), filepath.Join(home, "site", "wwwroot"),

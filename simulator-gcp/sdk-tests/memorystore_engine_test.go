@@ -43,8 +43,6 @@ func redisClusterClient(t *testing.T) *rediscluster.CloudRedisClusterClient {
 	return client
 }
 
-// createRedisCluster creates a cluster, waits for its operation, deletes it
-// when the test ends and returns it as the service reports it.
 func createRedisCluster(t *testing.T, svc *redis.Service, parent, id string, cluster *redis.Cluster) *redis.Cluster {
 	t.Helper()
 	name := parent + "/clusters/" + id
@@ -83,7 +81,6 @@ func discoveryAddress(t *testing.T, cluster *redis.Cluster) string {
 	return redisEndpoint(cluster.DiscoveryEndpoints[0].Address, cluster.DiscoveryEndpoints[0].Port)
 }
 
-// clusterClient connects to a cluster's discovery endpoint with options.
 func clusterClient(t *testing.T, cluster *redis.Cluster, options goredis.ClusterOptions) *goredis.ClusterClient {
 	t.Helper()
 	options.Addrs = []string{discoveryAddress(t, cluster)}
@@ -108,9 +105,8 @@ func requireKeys(t *testing.T, client goredis.Cmdable, prefix string, count int)
 	}
 }
 
-// requireShards asserts the topology a fresh client reads from the cluster:
-// shards shards whose slots cover the keyspace, each with its primary and
-// replicas replicas.
+// requireShards asserts the topology a fresh client reads: shards shards whose
+// slots cover the keyspace, each with its primary and replicas replicas.
 func requireShards(t *testing.T, cluster *redis.Cluster, options goredis.ClusterOptions, shards, replicas int) {
 	t.Helper()
 	client := clusterClient(t, cluster, options)
@@ -577,10 +573,10 @@ func TestMemorystoreRedis_ClusterTokenAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "WRONGPASS")
 }
 
-// A LIMITED_DATA_LOSS failover refuses to promote a replica that trails the
-// primary by more than 30 MB of replication, and promotes it once it has
-// caught up. A script spinning on the replica keeps it from applying the
-// replication stream while the primary takes a 40 MB write.
+// A LIMITED_DATA_LOSS failover refuses to promote a replica trailing the
+// primary by more than 30 MB and promotes it once it caught up. A script
+// spinning on the replica keeps it from applying the stream while the primary
+// takes a 40 MB write.
 func TestMemorystoreRedis_LimitedDataLossFailover(t *testing.T) {
 	t.Parallel()
 	svc := redisService(t)

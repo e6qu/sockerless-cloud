@@ -46,8 +46,6 @@ type EHAuthorizationRule struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// EHPrivateEndpointConnection is a private endpoint connection on an
-// Event Hubs namespace.
 type EHPrivateEndpointConnection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -55,8 +53,7 @@ type EHPrivateEndpointConnection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// ehEvent is one event as its publisher sent it; the partition's log assigns
-// its sequence number and enqueued time.
+// The partition's log assigns the sequence number and enqueued time.
 type ehEvent struct {
 	AMQP []byte `json:"amqp"`
 }
@@ -71,8 +68,7 @@ var (
 	ehNetworkRules   sim.Store[EHNetworkRuleSet]
 )
 
-// EHNetworkRuleSet is the single 'default' network rule set on an
-// Event Hubs namespace.
+// The single 'default' network rule set on a namespace.
 type EHNetworkRuleSet struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -342,7 +338,6 @@ func handleEHListNamespaceNetworkRuleSets(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []EHNetworkRuleSet{ruleSet}})
 }
 
-// handleEHUpdateNamespace applies a PATCH to an Event Hubs namespace.
 func handleEHUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	n, ok := ehNamespaces.Get(id)
@@ -377,8 +372,6 @@ func handleEHUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, n)
 }
 
-// handleEHListNamespacesBySub lists every Event Hubs namespace in the
-// subscription.
 func handleEHListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	var out []EHNamespace
@@ -463,8 +456,7 @@ func handleEHDeletePrivateEndpointConnection(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleEHListPrivateLinkResources returns the namespace's private link
-// resource groups (the single "namespace" group).
+// A namespace exposes the single "namespace" group.
 func handleEHListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
@@ -485,9 +477,7 @@ func handleEHListPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEHListNetworkSecurityPerimeterConfigs returns the namespace's
-// network security perimeter configurations (none until a perimeter is
-// associated, as real Azure returns).
+// None until a perimeter is associated, as Azure returns.
 func handleEHListNetworkSecurityPerimeterConfigs(w http.ResponseWriter, r *http.Request) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	if _, ok := ehNamespaces.Get(id); !ok {
@@ -515,9 +505,8 @@ func handleEHReconcileNetworkSecurityPerimeterConfig(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusOK)
 }
 
-// ehDRAuthRuleParent validates the namespace exists and returns its
-// resource ID. A GEO-DR alias surfaces the primary namespace's SAS
-// authorization rules, so they are read through the namespace store.
+// A Geo-DR alias surfaces the primary namespace's SAS rules, so read them
+// through the namespace store.
 func ehDRAuthRuleParent(r *http.Request) (string, bool) {
 	id := ehNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
 	_, ok := ehNamespaces.Get(id)
@@ -832,9 +821,7 @@ func ehAuthRuleGet(scope string) http.HandlerFunc {
 	}
 }
 
-// ehDropAuthRule removes an authorization rule together with its
-// key-rotation state, so a later rule created under the same ID starts from
-// fresh key material.
+// A later rule with the same ID starts from fresh keys.
 func ehDropAuthRule(ruleID string) {
 	ehAuthRules.Delete(ruleID)
 	azureDropKeyGens(ruleID, "primary", "secondary")
@@ -889,9 +876,8 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		// RegenerateAccessKeyParameters: keyType selects the slot; the optional
-		// key field pins the slot to caller-supplied material instead of an
-		// auto-generated value — both exactly as real Event Hubs behaves.
+		// keyType selects the slot; the optional key pins it to caller-supplied
+		// material, as Event Hubs does.
 		var req struct {
 			KeyType string `json:"keyType"`
 			Key     string `json:"key"`
@@ -914,8 +900,6 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 	}
 }
 
-// ehResolveAuthRule validates the parent + rule from the request path and
-// returns the rule's full resource ID.
 func ehResolveAuthRule(w http.ResponseWriter, r *http.Request, scope string) (parent, ruleID string, ok bool) {
 	parent, ok = ehAuthRuleParentID(r, scope)
 	if !ok {
@@ -930,11 +914,8 @@ func ehResolveAuthRule(w http.ResponseWriter, r *http.Request, scope string) (pa
 	return parent, ruleID, true
 }
 
-// ehAuthKeysBody is the canonical Event Hubs AccessKeys shape listKeys and
-// regenerateKeys both return. Keys are deterministic 44-char base64 strings
-// derived from the rule resource ID + rotation generation (mirroring the
-// real-Azure SAS-key shape); the connection strings embed the current key
-// material, so both reflect every rotation performed so far.
+// ehAuthKeysBody derives each 44-character base64 key from the rule ID and
+// its rotation generation; the connection strings embed the current keys.
 func ehAuthKeysBody(r *http.Request, ruleID, namespace, ruleName, scope string) map[string]any {
 	primary := azureKeyMaterial32(ruleID, "primary")
 	secondary := azureKeyMaterial32(ruleID, "secondary")
@@ -1029,8 +1010,8 @@ func ehAMQPHandleRPC(namespace string, req *amqp.Message) (*amqp.Message, bool) 
 			lastOffset = strconv.FormatInt(last.Seq, 10)
 			lastTime = time.UnixMilli(last.Time).UTC()
 		}
-		// begin_sequence_number is the oldest sequence a consumer can still
-		// read; once events age out of retention it advances past them.
+		// begin_sequence_number is the oldest sequence a consumer can still read;
+		// retention advances it.
 		beginSeq := head.First
 		return ehAMQPValue(req, map[string]any{
 			"name":                          hub.Name,
@@ -1115,8 +1096,8 @@ func ehAMQPEnqueue(namespace, address string, msg *amqp.Message) {
 	ehLog.Append(key, now, events...)
 }
 
-// ehRetention is how long the hub keeps an event: retentionDescription's
-// retentionTimeInHours when set, else messageRetentionInDays.
+// retentionDescription's retentionTimeInHours when set, else
+// messageRetentionInDays.
 func ehRetention(hub EHEventHub) time.Duration {
 	if desc, ok := hub.Properties["retentionDescription"].(map[string]any); ok {
 		if hours, ok := desc["retentionTimeInHours"].(float64); ok && hours > 0 {
@@ -1138,7 +1119,6 @@ func ehRetention(hub EHEventHub) time.Duration {
 
 const ehDefaultRetention = 7 * 24 * time.Hour
 
-// ehTrim ages out the partition's events past the hub's retention.
 func ehTrim(hub EHEventHub, key string, now time.Time) {
 	ehLog.Trim(key, now.Add(-ehRetention(hub)))
 }
@@ -1158,9 +1138,8 @@ func ehExpandAMQPEvents(msg *amqp.Message) []*amqp.Message {
 	return events
 }
 
-// ehAMQPNextEvent renders the event at sequence number seq — or, when that
-// aged out, the oldest retained one — and returns the sequence number the
-// consumer reads next.
+// ehAMQPNextEvent falls forward to the oldest retained event when seq aged
+// out, and returns the next sequence number.
 func ehAMQPNextEvent(namespace, address string, seq int64) ([]byte, int64, bool) {
 	hubName, partitionID, ok := ehAMQPParseConsumerAddress(address)
 	if !ok {
@@ -1195,9 +1174,8 @@ func ehAMQPNextEvent(namespace, address string, seq int64) ([]byte, int64, bool)
 
 var ehStartFilter = regexp.MustCompile(`^amqp\.annotation\.x-opt-(offset|sequence-number|enqueued-time)\s*(>=|>)\s*'([^']*)'$`)
 
-// ehStartPosition resolves a consumer link's selector filter — the start
-// position an Event Hubs client asks for — to the sequence number it reads
-// first. A link without a filter starts at the oldest retained event.
+// ehStartPosition resolves a consumer link's selector filter; without one the
+// link starts at the oldest retained event.
 func ehStartPosition(namespace, address, filter string) int64 {
 	hubName, partitionID, ok := ehAMQPParseConsumerAddress(address)
 	if !ok {

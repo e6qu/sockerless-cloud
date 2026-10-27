@@ -226,12 +226,12 @@ func TestEntraAuthority_MSALGoAcquiresTokenThroughTenantDiscovery(t *testing.T) 
 	// Manager plane accepts — proving the authority the client discovered and
 	// the resource plane it then calls are the same identity service.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		baseURL+"/subscriptions?api-version=2022-12-01", nil)
+		"https://"+authorityHost+"/subscriptions?api-version=2022-12-01", nil)
 	if err != nil {
 		t.Fatalf("build ARM request: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+result.AccessToken)
-	armResp, err := http.DefaultClient.Do(req)
+	armResp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatalf("ARM request with the MSAL-acquired token: %v", err)
 	}

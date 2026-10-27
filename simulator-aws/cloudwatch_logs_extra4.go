@@ -9,19 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// CloudWatch Logs control-plane operations for S3 Table Integration data-source
-// associations, data-source field discovery, query log-group enumeration,
-// account-level bearer-token authentication, and vended-log delivery
-// configuration updates. Each operates on a real sim.Store (or an existing
-// CloudWatch Logs store) at CloudWatch Logs (awsJson1.1) API fidelity. There
-// are no fakes: associations are stored and read back, fields are derived from
-// real stored log events, the query log-group list is read from the stored
-// Insights query, and delivery configuration updates mutate the existing
-// delivery record. Reads with no underlying data return honestly-empty results.
-
-// CWS3TableSource mirrors the SDK S3TableIntegrationSource shape: a stored
-// association between a data source and an S3 Table Integration. Keyed by
-// identifier.
+// Keyed by identifier.
 type CWS3TableSource struct {
 	Identifier             string `json:"identifier"`
 	IntegrationArn         string `json:"-"`
@@ -35,8 +23,7 @@ type CWS3TableSource struct {
 
 var (
 	cwS3TableSources sim.Store[CWS3TableSource]
-	// cwBearerTokenAuth records, per log-group identifier, whether bearer-token
-	// authentication is enabled for that log-delivery source.
+	// Keyed by log-group identifier.
 	cwBearerTokenAuth sim.Store[bool]
 )
 
@@ -151,10 +138,8 @@ func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "dataSourceName and dataSourceType are required", http.StatusBadRequest)
 		return
 	}
-	// A data source categorizes a log group's events. Discover the field set
-	// from that log group's stored events: the structural @-fields plus any
-	// top-level keys parsed from JSON event messages. With no matching log group
-	// or no events, the field list is honestly empty.
+	// Discover the structural @-fields plus the top-level keys of the log group's
+	// JSON messages.
 	fieldTypes := map[string]string{}
 	if _, ok := cwLogGroups.Get(req.DataSourceName); ok {
 		fieldTypes["@timestamp"] = "timestamp"
@@ -186,8 +171,6 @@ func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logFields": logFields})
 }
 
-// cwLogFieldDataType reports the CloudWatch Logs data-type name for a value
-// parsed from a JSON log event message.
 func cwLogFieldDataType(v any) string {
 	switch v.(type) {
 	case bool:
@@ -223,8 +206,7 @@ func handleCWListLogGroupsForQuery(w http.ResponseWriter, r *http.Request) {
 			"The specified query does not exist: %s", req.QueryId)
 		return
 	}
-	// The log groups the query processed are the ones it was started against.
-	// A query started against none yields an honestly-empty list.
+	// The query processed the log groups it was started against.
 	identifiers := append([]string{}, q.LogGroups...)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroupIdentifiers": identifiers})
 }

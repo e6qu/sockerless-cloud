@@ -12,11 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant covers Amazon DynamoDB's
-// fine-grained access control: the pair of condition keys a policy uses to let
-// a principal reach only its own rows (dynamodb:LeadingKeys, the partition-key
-// values a request may name) and only some of their columns
-// (dynamodb:Attributes). Both are settled by the request.
+// TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant covers DynamoDB's
+// fine-grained access control: dynamodb:LeadingKeys (the partition-key values a
+// request may name) keeps a principal to its own rows and dynamodb:Attributes
+// to some of their columns, both settled by the request.
 func TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := ddbClient()
@@ -42,8 +41,8 @@ func TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// The policy AWS documents for this: read your own row, and only the
-	// columns you are allowed to see.
+	// The policy AWS documents: read your own row, and only the columns you may
+	// see.
 	akid, secret := restrictedCredential(t, "ddb-alice",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:GetItem","Resource":"*",
 		  "Condition":{
@@ -72,9 +71,9 @@ func TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant(t *testing.T) {
 }
 
 // TestKMS_EncryptionContextConditionKeyScopesTheGrant covers
-// kms:EncryptionContext:<key>, which is how a policy allows a key to be used
-// only for data labelled a particular way — the label travels with the request
-// and is bound into the ciphertext.
+// kms:EncryptionContext:<key>, which allows a key only for data labelled a
+// certain way; the label travels with the request and binds into the
+// ciphertext.
 func TestKMS_EncryptionContextConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := kmsClient()

@@ -141,9 +141,7 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 		assert.Equal(t, types.ScalingActivityStatusCodeSuccessful, launched[id], "launch activity of %s", id)
 	}
 
-	// DescribeAutoScalingGroups Filters: the sim used to ignore Filters and
-	// return every group. A tag:env=sdk filter must return only sdk-asg, and a
-	// tag:env=nope filter must return nothing.
+	// A tag:env=sdk filter returns only sdk-asg, and tag:env=nope returns nothing.
 	matched, err := asgClient.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
 		Filters: []types.Filter{{Name: aws.String("tag:env"), Values: []string{"sdk"}}},
 	})
@@ -164,9 +162,6 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 	}
 }
 
-// TestAutoScalingPoliciesAndHooksSDK exercises the scaling-policy,
-// scheduled-action, lifecycle-hook, and per-instance verbs of EC2 Auto
-// Scaling against a real group, asserting round-trip read-back.
 func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	t.Parallel()
 	asgClient := autoScalingClient()
@@ -209,7 +204,6 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 		})
 	})
 
-	// Scaling policy round-trip.
 	putPol, err := asgClient.PutScalingPolicy(ctx, &autoscaling.PutScalingPolicyInput{
 		AutoScalingGroupName: aws.String("pol-asg"),
 		PolicyName:           aws.String("scale-out"),
@@ -229,7 +223,7 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	assert.Equal(t, "scale-out", aws.ToString(polOut.ScalingPolicies[0].PolicyName))
 	assert.Equal(t, int32(1), aws.ToInt32(polOut.ScalingPolicies[0].ScalingAdjustment))
 
-	// ExecutePolicy bumps DesiredCapacity by the scaling adjustment.
+	// ExecutePolicy adds the scaling adjustment to DesiredCapacity.
 	_, err = asgClient.ExecutePolicy(ctx, &autoscaling.ExecutePolicyInput{
 		AutoScalingGroupName: aws.String("pol-asg"),
 		PolicyName:           aws.String("scale-out"),
@@ -253,7 +247,6 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, polOut.ScalingPolicies)
 
-	// Scheduled action round-trip.
 	_, err = asgClient.PutScheduledUpdateGroupAction(ctx, &autoscaling.PutScheduledUpdateGroupActionInput{
 		AutoScalingGroupName: aws.String("pol-asg"),
 		ScheduledActionName:  aws.String("nightly"),
@@ -277,7 +270,6 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Lifecycle hook round-trip.
 	_, err = asgClient.PutLifecycleHook(ctx, &autoscaling.PutLifecycleHookInput{
 		AutoScalingGroupName: aws.String("pol-asg"),
 		LifecycleHookName:    aws.String("drain"),
@@ -300,7 +292,6 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Per-instance verbs.
 	asgInstances, err := asgClient.DescribeAutoScalingInstances(ctx, &autoscaling.DescribeAutoScalingInstancesInput{})
 	require.NoError(t, err)
 	var instanceID string
@@ -320,7 +311,6 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 	require.NotNil(t, termOut.Activity)
 	assert.Equal(t, "pol-asg", aws.ToString(termOut.Activity.AutoScalingGroupName))
 
-	// SetInstanceHealth on a remaining instance is accepted.
 	grpOut, err = asgClient.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
 		AutoScalingGroupNames: []string{"pol-asg"},
 	})
@@ -373,17 +363,14 @@ func TestCloudTrailRecordsAPICallsToS3SDK(t *testing.T) {
 	for _, event := range eventsOut.Events {
 		if aws.ToString(event.EventName) == "CreateVpc" {
 			foundCreateVpc = true
-			// EC2 is a query-protocol service; the recorded event must carry
-			// its real CloudTrail eventSource so EventSource-keyed LookupEvents
-			// filters work (not a generic aws.amazonaws.com).
+			// The event carries Amazon EC2's own eventSource, which EventSource-keyed
+			// LookupEvents filters match.
 			assert.Equal(t, "ec2.amazonaws.com", aws.ToString(event.EventSource))
 			break
 		}
 	}
 	assert.True(t, foundCreateVpc, "LookupEvents must include the recorded EC2 CreateVpc management event")
 
-	// EventSource-keyed lookup must find the EC2 event (the filter real
-	// consumers use to scope CloudTrail to one service).
 	bySource, err := ctClient.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
 		LookupAttributes: []cttypes.LookupAttribute{{
 			AttributeKey:   cttypes.LookupAttributeKeyEventSource,

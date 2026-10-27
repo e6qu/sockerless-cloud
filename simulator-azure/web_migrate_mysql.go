@@ -9,27 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Migrating a site's in-app MySQL database to a remote one, and its content
-// into an Azure Files share.
-//
-// App Service offers a site a MySQL database running beside it, in the app's
-// own sandbox, and MigrateMySql moves that database out to a remote server the
-// caller names. The operation is a request the platform records and then reports
-// on, and both halves of that are the simulator's to hold: whether the site has
-// in-app MySQL at all is the WEBSITE_MYSQL_ENABLED app setting it already
-// stores, and the migration the caller started is state like any other.
-//
-// What the simulator does not do is move bytes — there is no MySQL process here
-// whose tables could be copied. That does not make the operation unanswerable:
-// what a caller asks for is that the platform accept the request and report its
-// progress, and a request against a site with no in-app MySQL is refused here
-// exactly as App Service refuses it, before any copying would begin.
+// Migrating a site's in-app MySQL database to a remote server, and its content
+// into an Azure Files share. Whether a site has in-app MySQL is its
+// WEBSITE_MYSQL_ENABLED setting, and a request against one without is refused as
+// App Service refuses it. The simulator records the migration and moves no
+// data.
 
-// webStorageMigrations records the content migrations a caller has started, so
-// the operation each returns is one the simulator actually holds.
 var webStorageMigrations sim.Store[webMySQLMigration]
 
-// webMySQLMigration is a migration a caller started against a site.
 type webMySQLMigration struct {
 	Site        string `json:"site"`
 	OperationID string `json:"operationId"`
@@ -38,8 +25,7 @@ type webMySQLMigration struct {
 
 var webMySQLMigrations sim.Store[webMySQLMigration]
 
-// webSiteInAppMySQLEnabled reports whether the site runs the in-app MySQL
-// database, which is the app setting App Service switches it on with.
+// App Service switches in-app MySQL on with this app setting.
 func webSiteInAppMySQLEnabled(resourceID string) bool {
 	config, ok := siteConfigStore.Get(resourceID)
 	if !ok {
@@ -53,10 +39,8 @@ func webSiteInAppMySQLEnabled(resourceID string) bool {
 	return false
 }
 
-// registerWebMigrateMySQL mounts the migration and the status beside it. The
-// document declares the migration on a production site only — a deployment slot
-// has no in-app database of its own to move — while the status is readable on
-// both.
+// The document declares the migration on a production site only — a slot has
+// no in-app database — and the status on both.
 func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, http.HandlerFunc)) {
 	webMySQLMigrations = sim.MakeStore[webMySQLMigration](srv.DB(), "web_mysql_migrations")
 	webStorageMigrations = sim.MakeStore[webMySQLMigration](srv.DB(), "web_storage_migrations")
@@ -75,8 +59,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
-		// Both are required by the document, and a migration with neither a
-		// destination nor a type is not a migration.
+		// The document requires both.
 		if request.Properties.ConnectionString == "" || request.Properties.MigrationType == "" {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"connectionString and migrationType are both required to migrate a MySQL database.")
@@ -91,10 +74,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			return
 		}
 
-		// The operation the caller can now ask the status of. It is complete
-		// when it is recorded: the platform has nothing left to do that the
-		// caller could observe, and reporting it as running would be reporting
-		// work nothing is performing.
+		// Recorded as complete: no data moves.
 		migration := webMySQLMigration{
 			Site:        id,
 			OperationID: sim.NewUUID(),
@@ -102,12 +82,10 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 		}
 		webMySQLMigrations.Put(id, migration)
 
-		// The document answers this with an Operation — the operation itself,
-		// not a resource with properties — and names the header a client polls
-		// it through.
+		// The document answers with an Operation, not a resource, and names the
+		// header a client polls it through.
 		started := time.Now().UTC().Format(time.RFC3339)
-		// Absolute, as the header is defined and as a client's poller requires:
-		// it is a URL to fetch, not a path within this response.
+		// Absolute, as the header is defined and a poller requires.
 		w.Header().Set("Location", fmt.Sprintf("%s://%s%s/migratemysql/status?api-version=%s",
 			azureRequestScheme(r), r.Host, id, r.URL.Query().Get("api-version")))
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -119,12 +97,9 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 		})
 	})
 
-	// WebApps_MigrateStorage. App Service moves the site's content into the
-	// Azure Files share the caller names and, if asked, switches the site over
-	// to it. What a caller can observe of that is the operation the platform
-	// starts, which is state the simulator holds like any other; no bytes move,
-	// because these sites are served out of a container image rather than out
-	// of a share.
+	// WebApps_MigrateStorage moves content into the named Azure Files share and
+	// optionally switches the site to it. The simulator records the operation and
+	// moves no data: these sites serve from a container image, not a share.
 	site("PUT", "/migrate", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -139,8 +114,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 			return
 		}
-		// The document requires both, and a migration with no share to move
-		// into is not a migration.
+		// The document requires both.
 		if request.Properties.AzurefilesConnectionString == "" || request.Properties.AzurefilesShare == "" {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest,
 				"azurefilesConnectionString and azurefilesShare are both required to migrate a site's content.")
@@ -168,9 +142,7 @@ func registerWebMigrateMySQL(srv *sim.Server, both, site func(string, string, ht
 		properties := map[string]any{
 			"localMySqlEnabled": webSiteInAppMySQLEnabled(id),
 		}
-		// The operation id and its status belong to a migration that was asked
-		// for. A site that has never been migrated reports neither, rather than
-		// an operation nobody started.
+		// A site never migrated reports no operation id or status.
 		if migration, ok := webMySQLMigrations.Get(id); ok {
 			properties["operationId"] = migration.OperationID
 			properties["migrationOperationStatus"] = migration.Status

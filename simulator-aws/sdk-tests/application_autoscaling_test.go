@@ -16,11 +16,9 @@ func appAutoScalingClient() *applicationautoscaling.Client {
 	})
 }
 
-// TestAppAutoScaling_TargetAndPolicyLifecycle pins the flow a runner platform
-// module drives to autoscale its ECS service: register a scalable target,
-// attach a target-tracking policy, read both back, then tear down. This is
-// Application Auto Scaling (AnyScaleFrontendService), distinct from EC2 Auto
-// Scaling.
+// TestAppAutoScaling_TargetAndPolicyLifecycle registers a scalable target for
+// an Amazon ECS service, attaches a target-tracking policy, reads both back
+// and tears them down.
 func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 	t.Parallel()
 	c := appAutoScalingClient()
@@ -53,7 +51,7 @@ func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 	assert.EqualValues(t, 4, aws.ToInt32(tgt.MaxCapacity))
 	assert.Equal(t, dimension, tgt.ScalableDimension)
 
-	// Re-register raising MaxCapacity is an upsert, not a duplicate.
+	// Registering again with a higher MaxCapacity updates the target.
 	_, err = c.RegisterScalableTarget(ctx, &applicationautoscaling.RegisterScalableTargetInput{
 		ServiceNamespace:  ns,
 		ResourceId:        aws.String(resourceID),
@@ -70,7 +68,6 @@ func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 	require.Len(t, descOut.ScalableTargets, 1, "re-register must update in place, not duplicate")
 	assert.EqualValues(t, 8, aws.ToInt32(descOut.ScalableTargets[0].MaxCapacity))
 
-	// Attach a target-tracking policy.
 	putOut, err := c.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
 		PolicyName:        aws.String("cpu-target-tracking"),
 		ServiceNamespace:  ns,
@@ -99,7 +96,6 @@ func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 	require.NotNil(t, pol.TargetTrackingScalingPolicyConfiguration, "target-tracking config must round-trip")
 	assert.EqualValues(t, 60.0, aws.ToFloat64(pol.TargetTrackingScalingPolicyConfiguration.TargetValue))
 
-	// Teardown.
 	_, err = c.DeleteScalingPolicy(ctx, &applicationautoscaling.DeleteScalingPolicyInput{
 		PolicyName:        aws.String("cpu-target-tracking"),
 		ServiceNamespace:  ns,
@@ -123,9 +119,8 @@ func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 	assert.Empty(t, descOut.ScalableTargets, "deregistered target must no longer be described")
 }
 
-// TestAppAutoScaling_Tags covers the tag surface on a scalable target:
-// register with tags, list them, add one, remove one. terraform-provider-aws
-// reads tags via ListTagsForResource on every refresh of a tagged target.
+// TestAppAutoScaling_Tags covers the tags terraform-provider-aws reads through
+// ListTagsForResource on every refresh of a tagged target.
 func TestAppAutoScaling_Tags(t *testing.T) {
 	t.Parallel()
 	c := appAutoScalingClient()
@@ -184,8 +179,6 @@ func TestAppAutoScaling_Tags(t *testing.T) {
 	assert.Equal(t, "runners", listOut.Tags["team"])
 }
 
-// TestAppAutoScaling_PolicyRequiresTarget verifies a scaling policy cannot be
-// attached to a resource with no registered scalable target.
 func TestAppAutoScaling_PolicyRequiresTarget(t *testing.T) {
 	t.Parallel()
 	c := appAutoScalingClient()
@@ -202,7 +195,5 @@ func TestAppAutoScaling_PolicyRequiresTarget(t *testing.T) {
 			},
 		},
 	})
-	// No scalable target is registered for the resource, so the policy has
-	// nothing to attach to.
 	requireAWSErrorCode(t, err, "ObjectNotFoundException")
 }

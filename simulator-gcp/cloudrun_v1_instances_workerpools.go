@@ -9,17 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Run Admin v1 (Knative) surface for instances and worker pools.
-//
-// Both collections address the SAME resources the v2 handlers in
-// cloudruninstances.go and cloudrunworkerpools.go own — the records in
-// crv2Instances, crv2WorkerPools and crv2WorkerPoolRevisions — rendered in the
-// Knative shape. There is no v1 store: an instance deployed through either API
-// version is visible, mutable and deletable through the other.
-//
-// Real API:
-//   https://cloud.google.com/run/docs/reference/rest/v1/namespaces.instances
-//   https://cloud.google.com/run/docs/reference/rest/v1/namespaces.workerpools
+// The Cloud Run Admin v1 (Knative) instances and worker pools address the
+// records the v2 handlers own (crv2Instances, crv2WorkerPools,
+// crv2WorkerPoolRevisions) in the Knative shape; there is no v1 store, so
+// either API version sees the other's writes.
 
 // CRInstance is the Knative rendering of a Cloud Run instance.
 type CRInstance struct {
@@ -175,10 +168,9 @@ func cloudRunV2InstanceToV1(instance InstanceV2) (CRInstance, bool) {
 	}, true
 }
 
-// cloudRunV1InstanceToV2 folds a Knative Instance body onto the v2 resource the
-// simulator stores. Server-owned members (name, uid, timestamps, conditions,
-// urls) are seeded by the caller through seedInstanceV2Defaults, so only the
-// client-settable spec crosses here.
+// cloudRunV1InstanceToV2 folds the client-settable spec of a Knative Instance
+// onto the v2 resource; the caller seeds the server-owned members through
+// seedInstanceV2Defaults.
 func cloudRunV1InstanceToV2(instance CRInstance) InstanceV2 {
 	converted := InstanceV2{
 		Labels:      instance.Metadata.Labels,
@@ -293,7 +285,7 @@ func cloudRunV2WorkerPoolToV1(pool WorkerPoolV2) (CRWorkerPool, bool) {
 }
 
 // cloudRunV1WorkerPoolToV2 folds a Knative WorkerPool body onto the v2
-// resource; server-owned members are seeded by seedWorkerPoolV2Defaults.
+// resource; seedWorkerPoolV2Defaults seeds the server-owned members.
 func cloudRunV1WorkerPoolToV2(pool CRWorkerPool) WorkerPoolV2 {
 	converted := WorkerPoolV2{
 		Labels:      pool.Metadata.Labels,
@@ -323,9 +315,7 @@ func cloudRunV1WorkerPoolToV2(pool CRWorkerPool) WorkerPoolV2 {
 }
 
 // knativeDryRun reports whether the request asked for a validate-only write.
-// Cloud Run's Knative methods accept `dryRun=all`, meaning "validate the
-// request and populate defaults without persisting it"; any other value is
-// rejected rather than silently treated as a real write.
+// Cloud Run's Knative methods accept only `dryRun=all`.
 func knativeDryRun(w http.ResponseWriter, r *http.Request) (dryRun bool, ok bool) {
 	switch value := r.URL.Query().Get("dryRun"); value {
 	case "":
@@ -345,28 +335,17 @@ func knativeDeleteStatus(w http.ResponseWriter) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Success"})
 }
 
-// knativeResourceVersion is the opaque optimistic-concurrency token the Knative
-// v1 surface stamps on a resource. It is the resource's generation: every v1
-// projection renders metadata.resourceVersion from the same counter the v2
-// collections bump on a write, so a write through either spelling invalidates a
-// resourceVersion read before it.
+// knativeResourceVersion renders the resource's generation, the counter the v2
+// collections bump on every write, so a write through either API version
+// invalidates a resourceVersion read before it.
 func knativeResourceVersion(generation int64) string {
 	return strconv.FormatInt(generation, 10)
 }
 
 // knativeReplaceAllowed enforces the optimistic concurrency the Cloud Run v1
-// replace methods document: "May provide metadata.resourceVersion to enforce
-// update from last read for optimistic concurrency control." An omitted
-// resourceVersion is unconditional, a matching one proceeds, and a stale one is
-// refused.
-//
-// Cloud Run answers a conflict the way every Google API does — the Knative
-// Status object the document declares is the response shape of the delete
-// methods, not the error shape; the service's own errors arrive as
-// google.rpc.Status ("googleapi: Error 409: …"), and the canonical code for a
-// read-modify-write conflict is ABORTED. That is the same answer the v2 etag
-// check gives for the same record, so neither spelling accepts a write the
-// other would refuse.
+// replace methods document: an omitted metadata.resourceVersion is
+// unconditional, a matching one proceeds, and a stale one is ABORTED, the
+// google.rpc.Status the v2 etag check answers too.
 func knativeReplaceAllowed(w http.ResponseWriter, kind, name, namespace, current, supplied string) bool {
 	if supplied == "" || supplied == current {
 		return true

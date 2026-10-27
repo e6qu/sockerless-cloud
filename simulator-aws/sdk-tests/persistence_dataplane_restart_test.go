@@ -126,9 +126,8 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.Len(t, described.LoadBalancers, 1)
-	// Target health is a live measurement, not stored configuration: a
-	// restarted load balancer checks its registered targets again before it
-	// forwards to them.
+	// Target health is a live measurement: a restarted load balancer checks its
+	// targets again before forwarding to them.
 	waitForPersistentTargetInService(t, testCtx, elbAPI, targetGroupARN)
 	assertPersistentTCPEcho(t, listenerPort, "after-restart")
 	secondNetworkInterface, err := ec2API.CreateNetworkInterface(testCtx, &ec2.CreateNetworkInterfaceInput{
@@ -161,10 +160,9 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	assert.Contains(t, aws.ToString(secondDaemonTaskDefinition.DaemonTaskDefinitionArn), "persistent-daemon-family:2")
 }
 
-// waitForPersistentTargetInService blocks until Elastic Load Balancing's health
-// checker has put the registered target in service. A load balancer forwards
-// only to targets that have passed a health check, so a client that has just
-// registered one waits for that check before sending it traffic.
+// waitForPersistentTargetInService blocks until the health checker puts the
+// registered target in service: a load balancer forwards only to targets that
+// passed a health check.
 func waitForPersistentTargetInService(
 	t *testing.T,
 	ctx context.Context,
@@ -279,8 +277,8 @@ func TestAmazonRDSDataAndEndpointSurviveSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, connection.QueryRow(testCtx, `SELECT value FROM persistence WHERE id = 1`).Scan(&value))
 	assert.Equal(t, "survived-restart", value)
 
-	// The simulator adopts the running engine and reads its output again from
-	// the start; the log files keep each line once.
+	// The simulator adopts the running engine and reads its output again from the
+	// start; the log files keep each line once.
 	_, err = connection.Exec(testCtx, `SELECT * FROM logged_after_restart`)
 	require.Error(t, err)
 	rdsAwaitLogFileHolding(testCtx, t, rdsAPI, instanceID, `relation "logged_after_restart" does not exist`)
@@ -306,11 +304,10 @@ func connectPersistentPostgreSQL(
 	))
 	require.NoError(t, err)
 
-	// One connect, no retry. An Amazon RDS instance that reports "available"
-	// serves the client that dials its endpoint, so the endpoint must hold the
-	// client until its engine finishes replaying the write-ahead log rather than
-	// forwarding it into a server that answers "the database system is starting
-	// up" (SQLSTATE 57P03). Retrying here would hide exactly that.
+	// One connect, no retry: an Amazon RDS instance reporting "available" serves
+	// the client that dials it, so the endpoint holds the client until the engine
+	// finishes replaying its write-ahead log rather than passing it to a server
+	// answering "the database system is starting up" (SQLSTATE 57P03).
 	connection, err := pgx.ConnectConfig(testCtx, config)
 	require.NoError(t, err, "PostgreSQL at %s refused the client", endpoint)
 	return connection

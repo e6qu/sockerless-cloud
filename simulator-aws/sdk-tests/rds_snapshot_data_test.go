@@ -14,15 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Amazon RDS snapshot carries the data, and a restore returns to it.
-//
-// This is the property that separates a snapshot from a metadata row: rows
-// written before the snapshot exist in the restored instance, and rows
-// written after it do not. Both halves are asserted through a stock
-// PostgreSQL driver against the instances' real data planes — the restored
-// engine boots on the captured volume, cloned copy-on-write where the
-// engine's volume store supports block cloning and by full copy elsewhere,
-// with this test indifferent to which, because the API is.
+// TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt expects rows written before
+// the snapshot in the restored instance and rows written after it not,
+// asserted through a stock PostgreSQL driver against both instances' data
+// planes. How the engine copies the volume is not observable through the API,
+// so the test does not depend on it.
 func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -78,8 +74,7 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('before-snapshot')`)
 	require.NoError(t, err)
 
-	// Snapshot, and wait for the capture to settle: the status is a real
-	// state machine now, backed by the copy.
+	// The capture is asynchronous; wait for it to settle.
 	_, err = c.CreateDBSnapshot(testContext, &rds.CreateDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(snapshotID),
 		DBInstanceIdentifier: aws.String(instanceID),
@@ -96,7 +91,7 @@ func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
 	}).Wait(testContext, &rds.DescribeDBSnapshotsInput{DBSnapshotIdentifier: aws.String(snapshotID)}, 3*time.Minute),
 		"the snapshot must settle once its capture completes")
 
-	// Rows written after the snapshot are the half a restore must NOT have.
+	// A restore must not hold rows written after the snapshot.
 	_, err = source.Exec(testContext, `INSERT INTO ledger VALUES ('after-snapshot')`)
 	require.NoError(t, err)
 	require.NoError(t, source.Close(testContext))

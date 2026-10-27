@@ -8,14 +8,14 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-// listUsable, through the generated Go client:
+// listUsable:
 //
-//	GET /compute/v1/projects/{project}/global/backendServices/listUsable
-//	GET /compute/v1/projects/{project}/global/backendBuckets/listUsable
-//	GET /compute/v1/projects/{project}/regions/{region}/backendServices/listUsable
+//   GET /compute/v1/projects/{project}/global/backendServices/listUsable
+//   GET /compute/v1/projects/{project}/global/backendBuckets/listUsable
+//   GET /compute/v1/projects/{project}/regions/{region}/backendServices/listUsable
 //
-// The literal segment has to beat the `{name}` get, which would otherwise
-// answer `backend service "listUsable" not found`.
+// The literal segment must beat the `{name}` get, which would answer
+// `backend service "listUsable" not found`.
 
 func TestCompute_BackendServicesListUsable(t *testing.T) {
 	t.Parallel()

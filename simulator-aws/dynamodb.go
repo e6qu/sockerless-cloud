@@ -1,18 +1,10 @@
 package main
 
-// AWS DynamoDB uses the awsJson1_0 protocol. The AWS SDK Go v2's
-// deserializer requires responses to carry `Content-Type:
-// application/x-amz-json-1.0` (not `application/json`); without it the
-// SDK silently fails to decode the body and the result struct is nil,
-// which terraform-provider-aws then treats as ResourceNotFound (its
-// waiter loops 21 times then errors "couldn't find resource").
-//
-// `sim.WriteJSON` (used elsewhere) sets `application/json`. The
-// `writeDDBJSON` wrapper below sets the per-protocol header instead so
-// each DynamoDB success response carries the right CT. Errors keep going
-// through `AWSErrorf` which already sets `application/x-amz-json-1.1`
-// (real AWS uses 1.1 for errors across JSON-RPC services, regardless of
-// the service's own payload protocol).
+// Amazon DynamoDB speaks awsJson1_0. The SDK decodes nothing from a success
+// response whose Content-Type is not `application/x-amz-json-1.0`, and
+// terraform-provider-aws then reads the nil result as ResourceNotFound, so
+// writeDDBJSON sets it. Errors go through AWSErrorf with
+// `application/x-amz-json-1.1`, as AWS uses for every JSON-RPC service.
 
 import (
 	"encoding/base64"
@@ -30,23 +22,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// DynamoDB — a table backs Terraform state locking
-// (`backend "s3" { dynamodb_table = "..." }`), job tracking, and shared state
-// across distributed tasks.
-// Without this slice, terraform's state-lock acquire 404s and
-// `aws dynamodb` workflow steps fail.
-//
-// Field set covers the JSON-protocol actions terraform + the SDK use:
-// CreateTable / DescribeTable / DeleteTable / ListTables /
-// PutItem / GetItem / UpdateItem / DeleteItem / Query / Scan +
-// the conditional-write semantics terraform's state lock relies on
-// (ConditionExpression with attribute_not_exists).
-
-// DDBTable is a DynamoDB table. Real AWS stores items keyed by
-// HashKey + RangeKey; the sim collapses to HashKey-only storage
-// (the most common shape for Terraform state locks: `LockID` is the
-// hash key, no range key) and falls through to the slow path for
-// composite keys when a RangeKey is declared.
 type DDBTable struct {
 	TableName                 string                    `json:"TableName"`
 	TableId                   string                    `json:"TableId"`
@@ -70,28 +45,24 @@ type DDBTable struct {
 	VectorIndexes []DDBVectorIndexDescription `json:"VectorIndexes,omitempty"`
 }
 
-// DDBTableSettings holds table state that DynamoDB exposes through APIs other
-// than DescribeTable. Keeping it in a separate durable record prevents
-// simulator-only fields from appearing in the service response while allowing
-// TTL, point-in-time recovery, and tags to survive SQLite serialization.
+// Keep state DynamoDB exposes outside DescribeTable (TTL, point-in-time
+// recovery, tags) in its own durable record so it never leaks into the
+// DescribeTable response.
 type DDBTableSettings struct {
-	PITRStatus       string  `json:"pitrStatus,omitempty"` // ENABLED / DISABLED
-	TTLStatus        string  `json:"ttlStatus,omitempty"`  // ENABLED / DISABLED
+	PITRStatus       string  `json:"pitrStatus,omitempty"`
+	TTLStatus        string  `json:"ttlStatus,omitempty"`
 	TTLAttributeName string  `json:"ttlAttributeName,omitempty"`
 	Tags             []SMTag `json:"tags,omitempty"`
 }
 
-// DDBSSEDescription mirrors the SDK SSEDescription returned by DescribeTable for
-// an SSE-enabled table.
 type DDBSSEDescription struct {
 	Status          string `json:"Status"`
 	SSEType         string `json:"SSEType"`
 	KMSMasterKeyArn string `json:"KMSMasterKeyArn,omitempty"`
 }
 
-// DDBProvisionedThroughput mirrors the SDK shape. For PAY_PER_REQUEST
-// tables real AWS still returns a zero-filled struct so terraform's
-// reader doesn't NPE — the sim follows.
+// DynamoDB returns a zero-filled struct for PAY_PER_REQUEST tables;
+// terraform's reader dereferences it.
 type DDBProvisionedThroughput struct {
 	NumberOfDecreasesToday int64   `json:"NumberOfDecreasesToday"`
 	ReadCapacityUnits      int64   `json:"ReadCapacityUnits"`
@@ -100,50 +71,38 @@ type DDBProvisionedThroughput struct {
 	LastDecreaseDateTime   float64 `json:"LastDecreaseDateTime,omitempty"`
 }
 
-// DDBTableClassSummary mirrors the SDK shape — STANDARD (default) or
-// STANDARD_INFREQUENT_ACCESS. Real AWS returns this on every Describe.
+// DynamoDB returns this on every Describe.
 type DDBTableClassSummary struct {
 	TableClass         string  `json:"TableClass"`
 	LastUpdateDateTime float64 `json:"LastUpdateDateTime,omitempty"`
 }
 
-// DDBWarmThroughput mirrors `types.TableWarmThroughputDescription`. Real
-// AWS DynamoDB returns this on every DescribeTable response, with
-// Status=ACTIVE on a fresh on-demand table. terraform-provider-aws v6
-// added `waitTableWarmThroughputActive` after `waitTableActive` in the
-// Create flow — that wait function returns empty state and loops 21
-// times if `output.WarmThroughput == nil`, so the field MUST be present
-// on every response or terraform errors "waiting for update ... couldn't
-// find resource".
+// DynamoDB returns WarmThroughput on every DescribeTable, ACTIVE for a fresh
+// on-demand table. terraform-provider-aws v6 waits on it after table creation
+// and fails when it is nil.
 type DDBWarmThroughput struct {
 	ReadUnitsPerSecond  int64  `json:"ReadUnitsPerSecond"`
 	Status              string `json:"Status"`
 	WriteUnitsPerSecond int64  `json:"WriteUnitsPerSecond"`
 }
 
-// DDBAttributeDef matches the SDK's `AttributeDefinition` shape.
 type DDBAttributeDef struct {
 	AttributeName string `json:"AttributeName"`
 	AttributeType string `json:"AttributeType"` // S / N / B
 }
 
-// DDBKeySchemaEntry pairs an attribute with its role.
 type DDBKeySchemaEntry struct {
 	AttributeName string `json:"AttributeName"`
 	KeyType       string `json:"KeyType"` // HASH / RANGE
 }
 
-// DDBProjection is a secondary index's attribute projection.
 type DDBProjection struct {
 	ProjectionType   string   `json:"ProjectionType"` // ALL / KEYS_ONLY / INCLUDE
 	NonKeyAttributes []string `json:"NonKeyAttributes,omitempty"`
 }
 
-// DDBGlobalSecondaryIndex mirrors the GSI shape. The CreateTable request
-// carries IndexName/KeySchema/Projection/ProvisionedThroughput; the
-// Create/Describe responses additionally carry IndexStatus (ACTIVE),
-// IndexArn, ItemCount, and IndexSizeBytes — terraform-provider-aws waits for
-// IndexStatus==ACTIVE on every GSI before the table converges.
+// Responses add IndexStatus, IndexArn, ItemCount and IndexSizeBytes;
+// terraform-provider-aws waits for every GSI to reach ACTIVE.
 type DDBGlobalSecondaryIndex struct {
 	IndexName             string                    `json:"IndexName"`
 	KeySchema             []DDBKeySchemaEntry       `json:"KeySchema"`
@@ -156,8 +115,7 @@ type DDBGlobalSecondaryIndex struct {
 	WarmThroughput        *DDBWarmThroughput        `json:"WarmThroughput,omitempty"`
 }
 
-// DDBLocalSecondaryIndex mirrors the LSI shape. LSIs are created with the
-// table and have no independent status (no IndexStatus field).
+// A local secondary index is created with the table and has no IndexStatus.
 type DDBLocalSecondaryIndex struct {
 	IndexName      string              `json:"IndexName"`
 	KeySchema      []DDBKeySchemaEntry `json:"KeySchema"`
@@ -167,9 +125,7 @@ type DDBLocalSecondaryIndex struct {
 	IndexSizeBytes int64               `json:"IndexSizeBytes"`
 }
 
-// DDBBillingModeSummary mirrors the SDK shape — `PAY_PER_REQUEST` or
-// `PROVISIONED`. The sim accepts both; tests don't exercise actual
-// throughput throttling.
+// Both billing modes are accepted.
 type DDBBillingModeSummary struct {
 	BillingMode                       string `json:"BillingMode"`
 	LastUpdateToPayPerRequestDateTime int64  `json:"LastUpdateToPayPerRequestDateTime,omitempty"`
@@ -177,31 +133,24 @@ type DDBBillingModeSummary struct {
 
 var (
 	ddbTables sim.Store[DDBTable]
-	// ddbTableSettings holds control-plane state returned outside
-	// DescribeTable. Mutations use ddbTableSettingsMu so simultaneous tag,
-	// TTL, and PITR updates cannot overwrite one another.
+	// ddbTableSettingsMu serializes mutations so concurrent tag, TTL and PITR
+	// updates do not overwrite one another.
 	ddbTableSettings   sim.Store[DDBTableSettings]
 	ddbTableSettingsMu sync.Mutex
-	// ddbItems holds per-table item maps. Keyed by `<table>/<itemKey>`,
-	// where itemKey is a deterministic encoding of the primary-key
-	// attribute values (HASH#<value> or HASH#<v>|RANGE#<v>).
+	// Keyed `<table>/<itemKey>`, itemKey encoding the primary-key values (see
+	// dynamodb_keys.go).
 	ddbItems sim.Store[map[string]any]
 )
 
-// writeDDBJSON writes a DynamoDB success response with the awsJson1_0
-// content-type. The AWS SDK Go v2 DynamoDB deserializer requires the
-// exact `application/x-amz-json-1.0` value — `application/json` causes
-// silent decode failure where output.Table comes back nil, which
-// terraform-provider-aws then treats as ResourceNotFound.
+// The SDK requires exactly `application/x-amz-json-1.0`.
 func writeDDBJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeDDBConditionalCheckFailed emits ConditionalCheckFailedException, including
-// the existing item when ReturnValuesOnConditionCheckFailure=ALL_OLD — the `Item`
-// member optimistic-locking libraries read to surface the conflicting record.
+// With ReturnValuesOnConditionCheckFailure=ALL_OLD, carry the existing item,
+// which optimistic-locking libraries read.
 func writeDDBConditionalCheckFailed(w http.ResponseWriter, returnValues string, old map[string]any, exists bool) {
 	body := map[string]any{
 		"__type":  "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
@@ -221,14 +170,11 @@ func ddbIndexArn(table, index string) string {
 	return fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s/index/%s", awsRegion(), awsAccountID(), table, index)
 }
 
-// ddbTableByArn locates a stored table by its full ARN. Tag CRUD takes
-// ResourceArn (not TableName) and real DynamoDB accepts both forms; the
-// sim's name-keyed store has to be scanned for an ARN match.
+// Tagging operations address a table by ResourceArn.
 func ddbTableByArn(arn string) (string, DDBTable, bool) {
 	if arn == "" {
 		return "", DDBTable{}, false
 	}
-	// ARN shape: arn:aws:dynamodb:<region>:<account>:table/<name>
 	const sep = ":table/"
 	idx := strings.Index(arn, sep)
 	if idx < 0 {
@@ -240,18 +186,17 @@ func ddbTableByArn(arn string) (string, DDBTable, bool) {
 }
 
 func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators bool) {
-	// Item-level ops are CloudTrail DATA events (excluded from LookupEvents); the
-	// table-level ops registered below are management events.
+	// Item-level operations are CloudTrail data events, excluded from
+	// LookupEvents; the table-level operations are management events.
 	cloudTrailDeclareDataEvents("dynamodb.amazonaws.com",
 		"GetItem", "PutItem", "UpdateItem", "DeleteItem", "Query", "Scan",
 		"BatchGetItem", "BatchWriteItem", "TransactWriteItems", "TransactGetItems",
 		"ExecuteStatement", "ExecuteTransaction", "BatchExecuteStatement")
 	ddbTables = sim.MakeStore[DDBTable](srv.DB(), "ddb_tables")
 	ddbTableSettings = sim.MakeStore[DDBTableSettings](srv.DB(), "ddb_table_settings")
-	// Items and their key index are read in bulk — an index query, a scan, the
-	// usage refresh and the TTL sweep each read every item of a table — so they
-	// are served from memory and written through to SQLite: a SQLite read per
-	// item held the table's lock long enough to stall writes for seconds.
+	// Index queries, scans, the usage refresh and the TTL sweep read every item of
+	// a table, so serve items from memory and write through to SQLite: a SQLite
+	// read per item held the table lock long enough to stall writes.
 	ddbItems = sim.MakeCachedStore[map[string]any](srv.DB(), "ddb_items")
 	ddbItemNames = sim.MakeCachedStore[string](srv.DB(), "ddb_item_names")
 	ddbKeyFormat = sim.MakeStore[string](srv.DB(), "ddb_key_format")
@@ -299,7 +244,6 @@ func registerDynamoDB(r *AWSRouter, srv *sim.Server, startBackgroundEvaluators b
 	registerDynamoDBExtended(r, srv)
 }
 
-// handleDDBDescribeLimits returns the account/table capacity maximums.
 func handleDDBDescribeLimits(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{
 		"AccountMaxReadCapacityUnits":  80000,
@@ -309,11 +253,8 @@ func handleDDBDescribeLimits(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDDBUpdateContinuousBackups enables/disables PITR. Persists to the
-// table's out-of-band settings so DescribeContinuousBackups reads back the
-// updated state. Real DynamoDB returns the new ContinuousBackupsDescription;
-// terraform-provider-aws polls DescribeContinuousBackups after this to
-// confirm convergence.
+// terraform-provider-aws polls DescribeContinuousBackups afterwards for
+// convergence.
 func handleDDBUpdateContinuousBackups(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName                        string `json:"TableName"`
@@ -350,9 +291,6 @@ func handleDDBUpdateContinuousBackups(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDDBUpdateTimeToLive enables/disables TTL on a table attribute.
-// Persists to the table's out-of-band settings so DescribeTimeToLive reads
-// back the updated state.
 func handleDDBUpdateTimeToLive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName               string `json:"TableName"`
@@ -389,10 +327,7 @@ func handleDDBUpdateTimeToLive(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDDBTagResource attaches tags + persists upsert. Real DynamoDB
-// returns empty body but stores the tags so ListTagsOfResource reads
-// them back (same upsert semantics as real AWS: re-tag with same Key
-// replaces Value).
+// Re-tagging a key replaces its value.
 func handleDDBTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string  `json:"ResourceArn"`
@@ -431,8 +366,7 @@ func handleDDBTagResource(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleDDBUntagResource removes tag keys from the persisted set.
-// Real DynamoDB returns empty body + silently ignores missing keys.
+// Missing keys are ignored.
 func handleDDBUntagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string   `json:"ResourceArn"`
@@ -470,10 +404,7 @@ func handleDDBUntagResource(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleDDBDescribeContinuousBackups returns the PITR status for a
-// table from its persisted out-of-band settings. New tables default to
-// DISABLED. terraform-provider-aws polls this after UpdateContinuousBackups
-// for convergence.
+// New tables default to DISABLED.
 func handleDDBDescribeContinuousBackups(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName string `json:"TableName"`
@@ -503,9 +434,6 @@ func handleDDBDescribeContinuousBackups(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleDDBDescribeTimeToLive returns TTL config from the table's persisted
-// out-of-band settings. terraform-provider-aws
-// polls this after UpdateTimeToLive until status matches.
 func handleDDBDescribeTimeToLive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName string `json:"TableName"`
@@ -534,8 +462,7 @@ func handleDDBDescribeTimeToLive(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDDBListTagsOfResource returns the persisted out-of-band tag list for a
-// table ARN, matching how real DynamoDB keeps tags outside DescribeTable.
+// DynamoDB keeps tags outside DescribeTable.
 func handleDDBListTagsOfResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
@@ -598,8 +525,8 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "KeySchema is required", http.StatusBadRequest)
 		return
 	}
-	// Every key attribute (table + GSI + LSI) must be declared in
-	// AttributeDefinitions — real DynamoDB rejects otherwise.
+	// Every key attribute of the table and its indexes must be declared in
+	// AttributeDefinitions.
 	defined := map[string]bool{}
 	for _, ad := range req.AttributeDefinitions {
 		defined[ad.AttributeName] = true
@@ -622,10 +549,8 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	if billingMode == "" {
 		billingMode = "PROVISIONED"
 	}
-	// The service's own rule: a PROVISIONED table (the default) states both
-	// units, and an on-demand table states neither. The request's throughput
-	// used to be dropped on the floor, so every provisioned table described
-	// itself as 0/0 and nothing could be enforced.
+	// A PROVISIONED table (the default) states both units; an on-demand table
+	// states neither.
 	hasUnits := req.ProvisionedThroughput != nil &&
 		(req.ProvisionedThroughput.ReadCapacityUnits > 0 || req.ProvisionedThroughput.WriteCapacityUnits > 0)
 	switch {
@@ -652,9 +577,8 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 	now := float64(time.Now().Unix())
 
-	// Model secondary indexes as immediately ACTIVE. terraform-provider-aws
-	// waits for every GSI's IndexStatus to reach ACTIVE before the table
-	// converges; pre-fix the indexes were dropped entirely (returned null).
+	// Index builds complete at once; terraform-provider-aws waits for every GSI's
+	// IndexStatus to reach ACTIVE.
 	gsis := make([]DDBGlobalSecondaryIndex, 0, len(req.GlobalSecondaryIndexes))
 	for _, g := range req.GlobalSecondaryIndexes {
 		gsis = append(gsis, ddbActivateGSI(req.TableName, g))
@@ -676,16 +600,14 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		BillingModeSummary: &DDBBillingModeSummary{
 			BillingMode: billingMode,
 		},
-		// Real AWS returns a zero-filled ProvisionedThroughput even for
-		// PAY_PER_REQUEST tables so terraform's reader doesn't NPE.
+		// DynamoDB returns a zero-filled ProvisionedThroughput for PAY_PER_REQUEST
+		// tables.
 		ProvisionedThroughput: ddbTableThroughput(billingMode, req.ProvisionedThroughput),
 		TableClassSummary: &DDBTableClassSummary{
 			TableClass: "STANDARD",
 		},
-		// Real DynamoDB returns WarmThroughput on every Describe with
-		// Status=ACTIVE for on-demand tables; terraform-provider-aws v6's
-		// waitTableWarmThroughputActive depends on this field being
-		// present + non-nil.
+		// terraform-provider-aws v6's waitTableWarmThroughputActive needs this
+		// non-nil.
 		WarmThroughput: &DDBWarmThroughput{
 			ReadUnitsPerSecond:  12000,
 			WriteUnitsPerSecond: 4000,
@@ -698,9 +620,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	if len(lsis) > 0 {
 		table.LocalSecondaryIndexes = lsis
 	}
-	// Server-side encryption: once enabled, real DynamoDB reports the full
-	// descriptor (Status ENABLED) on every Describe. SSEType defaults to KMS
-	// (a customer/AWS-managed key) when omitted.
+	// SSEType defaults to KMS when omitted.
 	if req.SSESpecification != nil && req.SSESpecification.Enabled {
 		sseType := req.SSESpecification.SSEType
 		if sseType == "" {
@@ -712,8 +632,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 			KMSMasterKeyArn: req.SSESpecification.KMSMasterKeyId,
 		}
 	}
-	// Vector indexes declared with the table, validated the same way
-	// UpdateTable validates one it is asked to create.
+	// Validate as UpdateTable validates an index it creates.
 	for _, raw := range req.VectorIndexes {
 		idx, err := ddbParseVectorIndex(req.TableName, raw)
 		if err != nil {
@@ -723,9 +642,7 @@ func handleDDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		table.VectorIndexes = append(table.VectorIndexes, idx)
 	}
 	ddbTables.Put(req.TableName, table)
-	// Tags set at create time round-trip through ListTagsOfResource — real
-	// DynamoDB accepts Tags on CreateTable; dropping them makes every plan
-	// re-add them.
+	// Store create-time tags; dropping them makes every plan re-add them.
 	ddbTableSettings.Put(req.TableName, DDBTableSettings{Tags: req.Tags})
 	writeDDBJSON(w, http.StatusOK, map[string]any{"TableDescription": table})
 }
@@ -747,8 +664,7 @@ func handleDDBDescribeTable(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{"Table": ddbDescribedUsage(t, time.Now())})
 }
 
-// ddbActivateGSI fills the stored/response fields of a GSI so it reports as
-// immediately ACTIVE (the sim models index builds as instantaneous).
+// The simulator builds indexes instantly.
 func ddbActivateGSI(tableName string, g DDBGlobalSecondaryIndex) DDBGlobalSecondaryIndex {
 	g.IndexStatus = "ACTIVE"
 	g.IndexArn = ddbIndexArn(tableName, g.IndexName)
@@ -781,10 +697,8 @@ func ddbMergeAttributeDefs(existing, incoming []DDBAttributeDef) []DDBAttributeD
 	return out
 }
 
-// handleDDBUpdateTable applies GSI create/update/delete, throughput, billing
-// mode, and deletion-protection changes. terraform-provider-aws manages the GSI
-// lifecycle after table creation via UpdateTable's GlobalSecondaryIndexUpdates,
-// then polls DescribeTable until each new GSI's IndexStatus is ACTIVE.
+// terraform-provider-aws manages GSIs after creation through
+// GlobalSecondaryIndexUpdates and polls until each is ACTIVE.
 func handleDDBUpdateTable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName                 string                    `json:"TableName"`
@@ -887,10 +801,8 @@ func handleDDBDeleteTable(w http.ResponseWriter, r *http.Request) {
 	ddbForgetBuckets(req.TableName)
 	ddbForgetUsage(req.TableName)
 	ddbTableSettings.Delete(req.TableName)
-	// Real DeleteTable deletes the table AND all of its items — purge the
-	// item stores so the rows don't survive into a same-named recreate.
-	// Keys are "<table>/<hash>[|<rng>]"; the trailing "/" prevents a prefix
-	// collision with a differently-named table (e.g. "foo" vs "foobar").
+	// DeleteTable deletes the items too. The trailing "/" keeps "foo" from
+	// matching "foobar".
 	for _, k := range ddbTableSortedKeys(req.TableName + "/") {
 		ddbItems.Delete(k)
 		ddbItemNames.Delete(k)
@@ -923,11 +835,9 @@ func handleDDBListTables(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// ddbKeyPage pages a list sorted by key from just after exclusiveStart, the
-// cursor DynamoDB's list operations take: listing resumes at the first key
-// greater than it whether or not that key still exists, and lastEvaluated
-// names the page's last key when more remain. A limit of zero or less, or
-// above max, takes max.
+// Resume at the first key greater than exclusiveStart whether or not it still
+// exists; lastEvaluated names the page's last key when more remain. A limit
+// out of (0, max] takes max.
 func ddbKeyPage[T any](sorted []T, key func(T) string, exclusiveStart string, limit, max int) (page []T, lastEvaluated string) {
 	start := 0
 	if exclusiveStart != "" {
@@ -944,10 +854,9 @@ func ddbKeyPage[T any](sorted []T, key func(T) string, exclusiveStart string, li
 	return page, key(page[len(page)-1])
 }
 
-// ddbAttrValueSize returns the stored byte size DynamoDB assigns an attribute
-// value. Binary values are measured after base64 decoding, numbers use the
-// documented significant-digit formula, and document values include their
-// per-container and per-element overhead.
+// Measure binary after base64 decoding, numbers by the documented
+// significant-digit formula, and documents with their per-container and
+// per-element overhead.
 func ddbAttrValueSize(v any) int {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -1003,7 +912,7 @@ func ddbAttrValueSize(v any) int {
 		}
 		return sz
 	}
-	return 1 // BOOL / NULL
+	return 1
 }
 
 func ddbBinarySize(encoded string) int {
@@ -1052,8 +961,7 @@ func ddbValidateItemSize(item map[string]any) error {
 	return nil
 }
 
-// ddbReadUnits / ddbWriteUnits convert an item size to consumed capacity units
-// (read: 4KB blocks, halved for eventually-consistent; write: 1KB blocks).
+// Reads use 4 KB blocks, halved for eventually consistent; writes 1 KB blocks.
 func ddbReadUnits(item map[string]any, strong bool) float64 {
 	blocks := (ddbItemSizeBytes(item) + 4095) / 4096
 	if blocks < 1 {
@@ -1073,8 +981,7 @@ func ddbWriteUnits(item map[string]any) float64 {
 	return float64(blocks)
 }
 
-// ddbConsumedCapacity builds the ConsumedCapacity response block, or nil when
-// ReturnConsumedCapacity was unset/NONE.
+// nil when ReturnConsumedCapacity is unset or NONE.
 func ddbConsumedCapacity(returnLevel, tableName string, units float64) map[string]any {
 	if returnLevel == "" || strings.EqualFold(returnLevel, "NONE") {
 		return nil
@@ -1086,9 +993,8 @@ func ddbConsumedCapacity(returnLevel, tableName string, units float64) map[strin
 	}
 }
 
-// ddbCanonicalNumber returns an exact canonical form of a DynamoDB number string
-// so equal numbers share a store key. Falls back to the trimmed input when it
-// isn't a valid number.
+// Equal numbers share a store key; an invalid number returns the trimmed
+// input.
 func ddbCanonicalNumber(s string) string {
 	if r, ok := new(big.Rat).SetString(strings.TrimSpace(s)); ok {
 		return r.RatString()
@@ -1096,14 +1002,11 @@ func ddbCanonicalNumber(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// ddbMaxItemDepth is DynamoDB's attribute nesting limit (32 levels). A top-level
-// attribute is level 1, so its M/L children may descend 31 further levels.
+// A top-level attribute is level 1, so its children may descend 31 more.
 const ddbMaxItemDepth = 32
 
-// ddbItemTooDeep reports whether any attribute of an item nests beyond the
-// 32-level limit (real DynamoDB returns ValidationException). The walk is
-// bounded to the limit, so a pathologically deep item can't overflow the stack
-// here either.
+// The walk stops at the limit, so a pathological item cannot overflow the
+// stack.
 func ddbItemTooDeep(item map[string]any) bool {
 	for _, av := range item {
 		if ddbAttrExceedsDepth(av, ddbMaxItemDepth-1) {
@@ -1182,8 +1085,8 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 	itemKey := ddbItemKey(t, req.Item)
 	old, exists := ddbItems.Get(itemKey)
 
-	// Atomically evaluate the ConditionExpression (e.g. terraform's state-lock
-	// "attribute_not_exists(LockID)") before writing.
+	// Evaluate the condition atomically with the write, e.g. terraform's
+	// "attribute_not_exists(LockID)".
 	if condOK, err := ddbEvalCondition(old, exists, req.ConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues); err != nil {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
@@ -1209,12 +1112,7 @@ func handleDDBPutItem(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, resp)
 }
 
-// ddbProjectItem restricts an item to the top-level attributes named in a
-// ProjectionExpression (resolving #alias names via ExpressionAttributeNames).
-// An empty projection returns the item unchanged. Nested document paths select
-// by their top-level attribute — sufficient for the common projection case;
-// previously ProjectionExpression was ignored entirely and the whole item came
-// back.
+// An empty projection returns the item unchanged.
 func ddbProjectItem(item map[string]any, projection string, exprNames map[string]string) map[string]any {
 	if projection == "" || item == nil {
 		return item
@@ -1225,9 +1123,8 @@ func ddbProjectItem(item map[string]any, projection string, exprNames map[string
 		if path == "" {
 			continue
 		}
-		// Project just the value at this (possibly nested) path, grafting it into
-		// out at the same path so `a.b` returns only the nested sub-attribute and
-		// sibling paths (`a.b, a.c`) merge under their shared prefix.
+		// Graft the value at its path so `a.b` returns only the sub-attribute and
+		// sibling paths merge under their prefix.
 		if v, ok := ddbResolvePath(item, path, exprNames); ok {
 			_ = ddbSetByPath(out, path, exprNames, v)
 		}
@@ -1278,8 +1175,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName string         `json:"TableName"`
 		Key       map[string]any `json:"Key"`
-		// Modern clients drive UpdateItem with an UpdateExpression; the legacy
-		// AttributeUpdates parameter is also accepted.
+		// The legacy AttributeUpdates parameter is accepted too.
 		UpdateExpression          string            `json:"UpdateExpression"`
 		ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames"`
 		ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues"`
@@ -1326,15 +1222,11 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	oldItem := ddbCloneItem(item)
-	// An update works on a copy and publishes that, so a stored item is never
-	// mutated after it is published. That invariant is what lets a reader copy
-	// what it found outside the lock instead of inside it: the map it is
-	// holding cannot change under it. Mutating in place made every read pay
-	// for its copy while excluding every other reader.
+	// Update a copy and publish it: a published item never changes, so readers
+	// may copy it outside the lock.
 	item = ddbCloneItem(item)
 	if item == nil {
 		item = map[string]any{}
-		// Copy primary-key attrs from Key into the new item.
 		for k, v := range req.Key {
 			item[k] = v
 		}
@@ -1358,7 +1250,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 			}
 		case "ADD":
 			item[attr] = ddbAddValues(item[attr], upd.Value)
-		default: // PUT (default)
+		default:
 			item[attr] = upd.Value
 		}
 	}
@@ -1399,7 +1291,6 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		for attr, newVal := range item {
 			oldVal, ok := oldItem[attr]
 			if !ok {
-				// Newly-added attr has no old value to emit.
 				continue
 			}
 			if !ddbAttrEqual(oldVal, newVal) {
@@ -1409,7 +1300,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 		if len(changed) > 0 {
 			resp["Attributes"] = changed
 		}
-	default: // NONE (default) and "" emit no Attributes field.
+	default:
 	}
 	if cc := ddbConsumedCapacity(req.ReturnConsumedCapacity, req.TableName, ddbWriteUnits(item)); cc != nil {
 		resp["ConsumedCapacity"] = cc
@@ -1417,9 +1308,7 @@ func handleDDBUpdateItem(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, resp)
 }
 
-// ddbCloneItem deep-copies a stored item via JSON round-trip so the
-// pre-update snapshot is independent of in-place mutations. Returns nil
-// when the source item is nil/empty.
+// Returns nil for a nil or empty item.
 func ddbCloneItem(item map[string]any) map[string]any {
 	if len(item) == 0 {
 		return nil
@@ -1442,30 +1331,17 @@ func ddbItemSnapshot(itemKey string) (map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
-	// Copied after the stripe is released. A published item is never mutated
-	// in place — every writer publishes a copy — so the map found under the
-	// lock cannot change while it is being copied, and the copy is the
-	// expensive half of a read.
+	// Copy outside the lock: a published item never changes in place, and the
+	// copy is the expensive half of a read.
 	return ddbCloneItem(item), true
 }
 
-// ddbSnapshotBatch is how many stored items one acquisition of a table stripe
-// copies out for a scanning read.
-//
-// A Query addresses one partition and #38 narrowed it to those keys, but Scan
-// walks the table by definition, and it took the item lock once per key. That made
-// concurrent scans interleave on a process-wide mutex per item rather than per
-// request, which degrades with both table size and concurrency -- the shape that
-// left 44 concurrent DynamoDB reads in flight and none of them answered.
-//
-// Scan stops as soon as its Limit is met, so snapshotting every remaining key
-// would copy items the request never examines. A batch bounds that overshoot at
-// one batch while cutting lock acquisitions by orders of magnitude.
+// A Scan copies items out of a table stripe this many at a time: one
+// acquisition per item made concurrent scans contend item by item, and
+// snapshotting every key would copy items a Limit never reaches.
 const ddbSnapshotBatch = 256
 
-// ddbItemSnapshots copies out every stored item present in itemKeys under a
-// single acquisition per table. Keys with no stored item are absent from the
-// result, matching ddbItemSnapshot's not-found case.
+// One acquisition per table; keys without an item are absent.
 func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
 	found := make(map[string]map[string]any, len(itemKeys))
 	release := ddbLockItemKeys(false, itemKeys...)
@@ -1475,8 +1351,7 @@ func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
 		}
 	}
 	release()
-	// Copied after the stripes are released, for the reason ddbItemSnapshot
-	// gives: a published item never changes, so the copy does not need the lock.
+	// Copy outside the lock; a published item never changes.
 	out := make(map[string]map[string]any, len(found))
 	for itemKey, item := range found {
 		out[itemKey] = ddbCloneItem(item)
@@ -1484,9 +1359,7 @@ func ddbItemSnapshots(itemKeys []string) map[string]map[string]any {
 	return out
 }
 
-// ddbBatchedSnapshots hands out snapshots for an ordered key list, loading them
-// a batch at a time so a caller that stops early has only copied the batch it
-// stopped in.
+// A caller that stops early has copied only the batch it stopped in.
 type ddbBatchedSnapshots struct {
 	keys   []string
 	batch  map[string]map[string]any
@@ -1497,7 +1370,6 @@ func newDDBBatchedSnapshots(keys []string) *ddbBatchedSnapshots {
 	return &ddbBatchedSnapshots{keys: keys}
 }
 
-// at returns the snapshot for keys[i], loading the batch containing i if needed.
 func (s *ddbBatchedSnapshots) at(i int, itemKey string) (map[string]any, bool) {
 	if s.batch == nil || i >= s.loaded {
 		end := i + ddbSnapshotBatch
@@ -1511,8 +1383,6 @@ func (s *ddbBatchedSnapshots) at(i int, itemKey string) (map[string]any, bool) {
 	return item, ok
 }
 
-// ddbAttrEqual compares two attribute values structurally via JSON
-// canonicalization so attrs present-and-different are detected.
 func ddbAttrEqual(a, b any) bool {
 	ab, err1 := json.Marshal(a)
 	bb, err2 := json.Marshal(b)
@@ -1581,10 +1451,7 @@ func handleDDBDeleteItem(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// handleDDBQuery returns items whose primary-key attributes match the
-// request's KeyConditionExpression. The implemented expression subset is
-// the DynamoDB equality form used by SDK/CLI/Terraform clients:
-// `<hash> = :value` plus optional `AND <range> = :value`.
+// handleDDBQuery returns the items matching the KeyConditionExpression.
 func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TableName                 string            `json:"TableName"`
@@ -1611,9 +1478,8 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			"Requested resource not found: Table: %s not found", req.TableName)
 		return
 	}
-	// IndexName selects a GSI/LSI; the KeyConditionExpression then matches that
-	// index's key attributes. The matcher is generic over item attributes, so a
-	// GSI query needs no special handling beyond rejecting an unknown index.
+	// The matcher is generic over item attributes, so an index query only needs
+	// the index to exist.
 	if req.IndexName != "" && !ddbHasIndex(t, req.IndexName) {
 		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
 			"The table does not have the specified index: %s", req.IndexName)
@@ -1624,9 +1490,8 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			"Consistent reads are not supported on global secondary indexes", http.StatusBadRequest)
 		return
 	}
-	// Compile the key + filter expressions once, up front: a malformed
-	// expression (or an undefined #name/:value) is a ValidationException
-	// regardless of whether any item is examined — never a silent empty result.
+	// A malformed expression or an undefined #name / :value is a
+	// ValidationException even when no item is examined.
 	keyExpr, err := ddbCompileExpr("KeyConditionExpression", req.KeyConditionExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
@@ -1639,22 +1504,17 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prefix := req.TableName + "/"
-	// ScanIndexForward (default true) walks the sort key ascending; false walks
-	// it descending — the basis of every "latest N" access pattern. The
-	// candidate key set is built in the scan direction so ExclusiveStartKey
-	// resume + Limit + LastEvaluatedKey all work in that direction.
-	// A Query addresses one partition, so the items it can return are a
-	// contiguous run of the sorted key space rather than the whole table. When
-	// the partition cannot be read out of the key condition — a query on a
-	// secondary index, whose key attributes are not the table's — the whole
-	// table is the candidate set and the key condition decides.
+	// ScanIndexForward=false walks the sort key descending; resume, Limit and
+	// LastEvaluatedKey follow that direction. A Query reads one partition as a
+	// contiguous key range; when the key condition does not fix the table's
+	// partition, the whole table is the candidate set.
 	forward := req.ScanIndexForward == nil || *req.ScanIndexForward
 	index, onIndex := ddbIndexByName(t, req.IndexName)
 	onGSI := onIndex && ddbIsGSI(t, req.IndexName)
 	var remaining []string
 	if onIndex {
-		// An index holds its own ordered entries, so a query on one reads its
-		// partition in index sort-key order and resumes by the index's key.
+		// An index query reads its partition in index sort-key order and resumes by
+		// the index's key.
 		remaining = ddbIndexCandidateKeys(t, index, keyExpr, req.ExclusiveStartKey, forward)
 	} else {
 		var candidates []string
@@ -1666,27 +1526,15 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 		remaining = ddbQueryCandidateKeys(candidates, t, req.ExclusiveStartKey, prefix, forward)
 	}
 
-	// Query reads only the items matching the KeyConditionExpression; Limit caps
-	// how many such items are *examined* (ScannedCount), and the optional
-	// FilterExpression is applied to those, so Count <= ScannedCount.
+	// Limit caps the items examined (ScannedCount); FilterExpression applies to
+	// those, so Count <= ScannedCount.
 	var items []map[string]any
 	scanned := 0
 	var lastScanned map[string]any
 	exhausted := true
-	// One critical section for the whole scan, and a clone only for the items
-	// the query actually returns.
-	//
-	// Taking the item lock per candidate made concurrent queries interleave on
-	// a process-wide mutex — each acquiring it, reading one item, and deep
-	// copying that item through JSON before deciding it did not match the key
-	// condition at all. The cost was N acquisitions and N clones per query, so
-	// concurrent queries fought item by item rather than query by query: forty
-	// four of them left every request over a minute old and the in-flight
-	// count climbing rather than draining.
-	//
-	// The key condition is evaluated against the stored item because the
-	// expression evaluator never writes to what it reads; only a match is
-	// cloned, which is what callers may keep.
+	// Hold one critical section for the whole query and clone only the matches:
+	// a lock and a clone per candidate made concurrent queries contend item by
+	// item. The evaluator never writes to what it reads.
 	var matched []map[string]any
 	func() {
 		defer ddbItemLocks.Lock(false, req.TableName)()
@@ -1701,8 +1549,8 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			}
 			scanned++
 			lastScannedStored = stored
-			// A global secondary index holds only what it projects, so its
-			// filter sees nothing else; a local one reads the table.
+			// A global secondary index holds only what it projects; a local one reads the
+			// table.
 			view := stored
 			if onGSI {
 				view = ddbProjectToIndex(t, index, stored)
@@ -1710,24 +1558,20 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			if filterExpr.match(view, true) {
 				matched = append(matched, stored)
 			}
-			// Reaching Limit ends the page with a LastEvaluatedKey even when
-			// nothing is left, as DynamoDB does: the next page is then empty.
+			// Reaching Limit ends the page with a LastEvaluatedKey even when nothing is
+			// left; the next page is then empty.
 			if req.Limit > 0 && scanned >= req.Limit {
 				exhausted = false
 				break
 			}
 		}
-		// The resume cursor is read from the last key-matching item, so it too
-		// has to leave the critical section as a copy.
+		// The resume cursor leaves the critical section as a copy too.
 		if lastScannedStored != nil {
 			lastScanned = ddbCloneItem(lastScannedStored)
 		}
 	}()
-	// The matches are copied once the stripe is released: a published item is
-	// never mutated in place, so the copy is safe outside the lock and no
-	// other reader waits for it.
 	// An index query returns what the index projects, unless a local index is
-	// asked for the table's attributes by Select or a ProjectionExpression.
+	// asked for table attributes by Select or ProjectionExpression.
 	projectToIndex := onGSI || (onIndex && !strings.EqualFold(req.Select, "ALL_ATTRIBUTES") && req.ProjectionExpression == "")
 	for _, stored := range matched {
 		item := ddbCloneItem(stored)
@@ -1741,8 +1585,7 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := map[string]any{"Count": len(items), "ScannedCount": scanned}
-	// Emit LastEvaluatedKey when we stopped on Limit before exhausting the keys —
-	// from the last *scanned* (key-matched) item's full key, the resume cursor.
+	// Stopping on Limit emits the last key-matched item's key as the cursor.
 	if !exhausted && lastScanned != nil {
 		if onIndex {
 			out["LastEvaluatedKey"] = ddbIndexLastEvaluatedKey(t, index, lastScanned)
@@ -1750,7 +1593,7 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 			out["LastEvaluatedKey"] = ddbExtractKey(t, lastScanned)
 		}
 	}
-	// Select=COUNT returns only Count/ScannedCount and omits Items.
+	// Select=COUNT omits Items.
 	if !strings.EqualFold(req.Select, "COUNT") {
 		out["Items"] = ddbProjectItems(items, req.ProjectionExpression, req.ExpressionAttributeNames)
 	}
@@ -1768,15 +1611,12 @@ func handleDDBQuery(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// ddbQueryCandidateKeys returns the table's item keys to examine for a Query,
-// resumed past ExclusiveStartKey and ordered for ScanIndexForward (ascending
-// when forward, descending otherwise). keys must be the ascending sorted set.
+// keys must be sorted ascending.
 func ddbQueryCandidateKeys(keys []string, t DDBTable, exclusiveStart map[string]any, prefix string, forward bool) []string {
 	startKey := ddbItemKey(t, exclusiveStart)
 	if forward {
 		return keys[ddbResumeIndex(keys, startKey, prefix, t.TableName+"/"):]
 	}
-	// Descending: examine keys strictly less than the resume key, reversed.
 	end := len(keys)
 	if startKey != prefix && startKey != t.TableName+"/" {
 		end = sort.Search(len(keys), func(i int) bool { return keys[i] >= startKey })
@@ -1788,7 +1628,6 @@ func ddbQueryCandidateKeys(keys []string, t DDBTable, exclusiveStart map[string]
 	return out
 }
 
-// ddbProjectItems projects every item by a ProjectionExpression (no-op when empty).
 func ddbProjectItems(items []map[string]any, projection string, exprNames map[string]string) []map[string]any {
 	if projection == "" {
 		return items
@@ -1800,8 +1639,8 @@ func ddbProjectItems(items []map[string]any, projection string, exprNames map[st
 	return out
 }
 
-// ddbIsGSI reports whether name is one of the table's global secondary indexes
-// (which, unlike LSIs and the base table, don't support consistent reads).
+// Global secondary indexes, unlike local ones and the table, reject
+// consistent reads.
 func ddbIsGSI(t DDBTable, name string) bool {
 	if name == "" {
 		return false
@@ -1814,7 +1653,6 @@ func ddbIsGSI(t DDBTable, name string) bool {
 	return false
 }
 
-// ddbHasIndex reports whether the table has a GSI or LSI with the given name.
 func ddbHasIndex(t DDBTable, name string) bool {
 	for _, g := range t.GlobalSecondaryIndexes {
 		if g.IndexName == name {
@@ -1865,7 +1703,7 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 			"Consistent reads are not supported on global secondary indexes", http.StatusBadRequest)
 		return
 	}
-	// Segment/TotalSegments must be provided together and 0 <= Segment < TotalSegments.
+	// Segment and TotalSegments come together, with 0 <= Segment < TotalSegments.
 	if (req.Segment != nil) != (req.TotalSegments != nil) {
 		AWSError(w, "ValidationException",
 			"The Segment and TotalSegments parameters must be provided together", http.StatusBadRequest)
@@ -1882,16 +1720,14 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Compile the filter once: a malformed FilterExpression (or an undefined
-	// #name/:value) is a ValidationException, not a silently emptied result.
+	// A malformed FilterExpression is a ValidationException.
 	filterExpr, err := ddbCompileExpr("FilterExpression", req.FilterExpression, req.ExpressionAttributeNames, req.ExpressionAttributeValues)
 	if err != nil {
 		AWSError(w, "ValidationException", err.Error(), http.StatusBadRequest)
 		return
 	}
 	prefix := req.TableName + "/"
-	// A scan of an index reads the index's entries, so it sees only the items
-	// the index holds; a scan of the table reads the table.
+	// An index scan sees only the items the index holds.
 	index, onIndex := ddbIndexByName(t, req.IndexName)
 	onGSI := onIndex && ddbIsGSI(t, req.IndexName)
 	var remaining []string
@@ -1901,9 +1737,8 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 		keys := ddbTableSortedKeys(prefix)
 		remaining = keys[ddbResumeIndex(keys, ddbItemKey(t, req.ExclusiveStartKey), prefix, prefix):]
 	}
-	// Parallel scan: a TotalSegments=N scan issues N calls, each owning the
-	// partitions that hash to its segment, so the segments stay disjoint and
-	// complete however the table changes between their pages.
+	// Each segment owns the partitions that hash to it, so segments stay disjoint
+	// and complete however the table changes between pages.
 	if req.TotalSegments != nil {
 		segment := 0
 		if req.Segment != nil {
@@ -1918,10 +1753,8 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 		remaining = part
 	}
 
-	// Limit caps the number of items *examined* (ScannedCount), not the number
-	// returned; the FilterExpression is applied to the examined items, so a
-	// filtered Scan can return fewer than Limit and still carry a
-	// LastEvaluatedKey to resume from.
+	// Limit caps the items examined, so a filtered Scan can return fewer than
+	// Limit and still carry a LastEvaluatedKey.
 	var items []map[string]any
 	scanned := 0
 	var lastScanned map[string]any
@@ -1977,13 +1810,8 @@ func handleDDBScan(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, out)
 }
 
-// ddbEvalCondition reports whether a DynamoDB ConditionExpression holds for an
-// item. `exists` is whether the item is currently present. Supports the common
-// ConditionExpression via the full expression grammar in dynamodb_expr.go
-// (functions, comparators, BETWEEN/IN, AND/OR/NOT, parentheses, nested paths).
-// An empty expression always holds. A malformed expression, or one referencing
-// an undefined #name / :value, returns an error (surfaced as a
-// ValidationException) rather than a silent non-match.
+// exists says whether the item is present. An empty expression holds; a
+// malformed one or an undefined reference is an error.
 func ddbEvalCondition(item map[string]any, exists bool, expr string, names map[string]string, values map[string]any) (bool, error) {
 	c, err := ddbCompileExpr("ConditionExpression", expr, names, values)
 	if err != nil {
@@ -1992,7 +1820,6 @@ func ddbEvalCondition(item map[string]any, exists bool, expr string, names map[s
 	return c.match(item, exists), nil
 }
 
-// ddbExpectedEntry is one entry of the legacy Expected map.
 type ddbExpectedEntry struct {
 	Value              map[string]any   `json:"Value"`
 	Exists             *bool            `json:"Exists"`
@@ -2000,9 +1827,8 @@ type ddbExpectedEntry struct {
 	AttributeValueList []map[string]any `json:"AttributeValueList"`
 }
 
-// ddbExpectedToCondition translates the legacy Expected map (+ ConditionalOperator)
-// into an equivalent ConditionExpression with generated #name/:val placeholders,
-// so it evaluates through the same engine as a modern ConditionExpression.
+// Translate the legacy Expected map into a ConditionExpression so it evaluates
+// through the same engine.
 func ddbExpectedToCondition(expected map[string]ddbExpectedEntry, condOp string) (string, map[string]string, map[string]any, error) {
 	names := map[string]string{}
 	values := map[string]any{}
@@ -2017,7 +1843,7 @@ func ddbExpectedToCondition(expected map[string]ddbExpectedEntry, condOp string)
 			return p
 		}
 		op := strings.ToUpper(spec.ComparisonOperator)
-		// Legacy shorthand: Exists / Value without an explicit operator.
+		// Legacy shorthand: Exists or Value without an operator.
 		if op == "" {
 			switch {
 			case spec.Exists != nil && !*spec.Exists:
@@ -2087,8 +1913,7 @@ func ddbExpectedToCondition(expected map[string]ddbExpectedEntry, condOp string)
 	return strings.Join(clauses, joiner), names, values, nil
 }
 
-// ddbCheckExpected evaluates the legacy Expected condition (no-op when empty).
-// Returns false only when a non-empty Expected condition fails.
+// false only when a non-empty Expected condition fails.
 func ddbCheckExpected(item map[string]any, exists bool, expected map[string]ddbExpectedEntry, condOp string) (bool, error) {
 	if len(expected) == 0 {
 		return true, nil
@@ -2118,10 +1943,9 @@ func ddbCompare(a, b any, op string) bool {
 	if op == "<>" {
 		return !ddbAttrValuesEqual(a, b)
 	}
-	// Numeric comparison when both sides are N; lexicographic otherwise.
+	// Numeric when both sides are N, lexicographic otherwise.
 	as, bs := ddbScalarString(a), ddbScalarString(b)
-	// Exact rational comparison when both sides are numbers (DynamoDB carries 38
-	// digits — float64 would mis-order large/precise numbers); lexicographic else.
+	// Compare exactly: DynamoDB numbers carry 38 digits, beyond float64.
 	if ar, aok := new(big.Rat).SetString(as); aok {
 		if br, bok := new(big.Rat).SetString(bs); bok {
 			c := ar.Cmp(br)
@@ -2165,15 +1989,15 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// A batch spans whatever tables it names, and their stripes are taken in
-	// one ordered call so two concurrent batches cannot deadlock on each other.
+	// Take every table's stripe in one ordered call so concurrent batches cannot
+	// deadlock.
 	batchTables := make([]string, 0, len(req.RequestItems))
 	for table := range req.RequestItems {
 		batchTables = append(batchTables, table)
 	}
 	defer ddbItemLocks.Lock(true, batchTables...)()
-	// Validate the whole batch first (real DynamoDB rejects before applying):
-	// 1..25 total requests, every table exists, every put item within depth.
+	// Validate the whole batch before applying: 1..25 requests, existing tables,
+	// put items within depth.
 	total := 0
 	for tableName, ops := range req.RequestItems {
 		total += len(ops)
@@ -2214,9 +2038,8 @@ func handleDDBBatchWriteItem(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// As on the service, a throttled entry is not an error: it comes back in
-	// UnprocessedItems for the caller to retry, and only a batch in which
-	// nothing could be processed is refused outright.
+	// A throttled entry comes back in UnprocessedItems; only a batch that could
+	// process nothing is refused.
 	unprocessed := map[string]any{}
 	processed := 0
 	for tableName, ops := range req.RequestItems {
@@ -2264,12 +2087,8 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Every key the request names is resolved before anything is read, so the
-	// whole batch is served by one acquisition per table rather than one per
-	// key. A batch is a hundred keys at its published maximum, and taking the
-	// stripe for each of them made a batch contend with every other DynamoDB
-	// reader a hundred times over — the shape ddbSnapshotBatch describes for
-	// Scan, on the operation whose entire purpose is amortising a round trip.
+	// Resolve every key first so the batch takes one acquisition per table, not
+	// one per key.
 	wanted := map[string][]string{}
 	var allKeys []string
 	for tableName, spec := range req.RequestItems {
@@ -2321,13 +2140,10 @@ func handleDDBBatchGetItem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDDBTransactWriteItems applies Put/Delete/Update/ConditionCheck actions
-// atomically: all ConditionExpressions are evaluated first under the item lock;
-// if any fails the whole transaction aborts with TransactionCanceledException.
+// Evaluate every condition first under the item lock; any failure aborts the
+// whole transaction with TransactionCanceledException.
 func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
-	// One operation shape covers Put/Update/Delete/ConditionCheck — exactly one
-	// is set per item. Put carries Item; the others carry Key; Update also
-	// carries UpdateExpression.
+	// Exactly one of Put, Update, Delete and ConditionCheck is set per item.
 	type txWrite struct {
 		TableName                 string            `json:"TableName"`
 		Item                      map[string]any    `json:"Item"`
@@ -2349,17 +2165,15 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Real DynamoDB allows 1..100 actions per transaction.
+	// A transaction holds 1..100 actions.
 	if n := len(req.TransactItems); n == 0 || n > 100 {
 		AWSError(w, "ValidationException",
 			"1 validation error detected: Value at 'transactItems' failed to satisfy constraint: Member must have length less than or equal to 100 and at least 1",
 			http.StatusBadRequest)
 		return
 	}
-	// A transaction spans the tables its items name, and takes their stripes in
-	// one ordered call: the whole transaction has to be atomic against anything
-	// else touching those tables, and two concurrent transactions naming the
-	// same tables in different orders must not be able to deadlock.
+	// Take the stripes in one ordered call: the transaction is atomic against its
+	// tables, and transactions naming them in different orders cannot deadlock.
 	transactTables := make([]string, 0, len(req.TransactItems))
 	for _, ti := range req.TransactItems {
 		for _, op := range []*txWrite{ti.Put, ti.Update, ti.Delete, ti.ConditionCheck} {
@@ -2369,9 +2183,8 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer ddbItemLocks.Lock(true, transactTables...)()
-	// A transaction spends twice a single write's capacity on every item it
-	// touches, and it spends it before it writes anything: the service refuses
-	// the whole transaction when the table cannot cover it.
+	// A transaction spends twice a single write's capacity per item, checked
+	// before anything is written.
 	for _, ti := range req.TransactItems {
 		for _, op := range []*txWrite{ti.Put, ti.Update, ti.Delete, ti.ConditionCheck} {
 			if op == nil {
@@ -2379,7 +2192,7 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			}
 			t, ok := ddbTables.Get(op.TableName)
 			if !ok {
-				continue // reported below, where the service reports it
+				continue // Reported below, where the service reports it.
 			}
 			item := op.Item
 			if item == nil {
@@ -2392,10 +2205,8 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate exactly-one-op + the table exists, and evaluate EVERY item's
-	// condition so CancellationReasons reflects all items (real DynamoDB returns
-	// one {Code} per item, in order; "None" for items that didn't cause the
-	// cancellation).
+	// Evaluate every item's condition so CancellationReasons carries one Code per
+	// item in order, "None" for items that did not cancel.
 	reasons := make([]map[string]any, len(req.TransactItems))
 	cancelled := false
 	for i, ti := range req.TransactItems {
@@ -2483,9 +2294,8 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Every write is prepared before any is applied: an update that cannot be
-	// applied, or leaves an index key of the wrong type, refuses the whole
-	// transaction, as DynamoDB's all-or-nothing contract requires.
+	// Prepare every write before applying any: an update that cannot apply, or
+	// leaves an index key of the wrong type, refuses the whole transaction.
 	// ConditionCheck is read-only.
 	type plannedWrite struct {
 		table  DDBTable
@@ -2503,8 +2313,7 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 			t, _ := ddbTables.Get(ti.Update.TableName)
 			key := ddbItemKey(t, ti.Update.Key)
 			stored, _ := ddbItems.Get(key)
-			// Copy before mutating, as UpdateItem does: a published item is
-			// never changed in place.
+			// Copy before mutating, as UpdateItem does.
 			item := ddbCloneItem(stored)
 			if item == nil {
 				item = map[string]any{}
@@ -2538,10 +2347,8 @@ func handleDDBTransactWriteItems(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{})
 }
 
-// writeDDBTransactionCancelled emits TransactionCanceledException with a per-item
-// CancellationReasons array (one entry per TransactItem, in request order) — the
-// shape the AWS SDK / ElectroDB read to map a conditional failure to a domain
-// conflict. The __type carries the service prefix DynamoDB emits.
+// The SDK maps the per-item CancellationReasons to conditional failures; the
+// __type carries the service prefix.
 func writeDDBTransactionCancelled(w http.ResponseWriter, reasons []map[string]any) {
 	codes := make([]string, len(reasons))
 	for i, rsn := range reasons {
@@ -2567,14 +2374,8 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// A transactional read is serializable: DynamoDB documents TransactGetItems
-	// as a single atomic operation, so every item in it must come from one
-	// instant of the store. Reading them one stripe acquisition at a time gave
-	// each item its own instant, and a writer committing between two of them
-	// was visible in the result — the anomaly the operation exists to exclude.
-	// Every key is therefore resolved first and the whole set read under one
-	// acquisition, which is also what makes it cost one lock rather than one
-	// per item.
+	// TransactGetItems is one atomic read, so read every item under a single
+	// acquisition: per-item acquisitions let a writer commit between two items.
 	itemKeys := make([]string, len(req.TransactItems))
 	for i, ti := range req.TransactItems {
 		if ti.Get == nil {
@@ -2618,7 +2419,6 @@ func handleDDBTransactGetItems(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{"Responses": responses})
 }
 
-// ddbExtractKey builds a DynamoDB key AttributeValue map from an item's primary key attributes.
 func ddbExtractKey(t DDBTable, item map[string]any) map[string]any {
 	key := map[string]any{}
 	for _, k := range t.KeySchema {
@@ -2629,9 +2429,7 @@ func ddbExtractKey(t DDBTable, item map[string]any) map[string]any {
 	return key
 }
 
-// ddbTableSortedKeys returns the item keys under prefix in order, read as a
-// key range from the item-name store: a table's with "<table>/", one
-// partition's with "<table>/<hash>".
+// A table's prefix is "<table>/", a partition's "<table>/<hash>".
 func ddbTableSortedKeys(prefix string) []string {
 	rows := ddbItemNames.ListPrefix(prefix)
 	keys := make([]string, len(rows))
@@ -2641,17 +2439,14 @@ func ddbTableSortedKeys(prefix string) []string {
 	return keys
 }
 
-// ddbResumeIndex returns the index into a sorted key slice at which to resume
-// after an ExclusiveStartKey, via binary search rather than a linear scan. keys
-// must be sorted. The resume point is the first key strictly greater than
-// startKey, matching the original "advance past the matching key" semantics.
+// keys must be sorted. Resume at the first key strictly greater than
+// startKey.
 func ddbResumeIndex(keys []string, startKey, prefix, tablePrefix string) int {
 	if startKey == prefix || startKey == tablePrefix {
 		return 0
 	}
-	// DynamoDB resumes after the ExclusiveStartKey's position, whether or not
-	// an item is still stored there: an item deleted between pages must not
-	// send the next page back to the start.
+	// Resume after the cursor's position whether or not its item still exists, so
+	// a deletion between pages does not restart the listing.
 	return sort.Search(len(keys), func(i int) bool { return keys[i] > startKey })
 }
 
@@ -2671,7 +2466,7 @@ func ddbAttrValuesEqual(a, b any) bool {
 	if !aok || !bok {
 		return fmt.Sprint(a) == fmt.Sprint(b)
 	}
-	// Numbers compare by value, not text: {N:"5"} == {N:"5.0"} == {N:"1e1"}.
+	// Numbers compare by value: {N:"5"} == {N:"5.0"} == {N:"1e1"}.
 	if an, ok := av["N"]; ok {
 		bn, ok2 := bv["N"]
 		return ok2 && ddbCanonicalNumber(fmt.Sprint(an)) == ddbCanonicalNumber(fmt.Sprint(bn))
@@ -2690,13 +2485,11 @@ func ddbAttrValuesEqual(a, b any) bool {
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
-// ddbItemNames mirrors the keys of ddbItems for iteration. Maintained
-// alongside Put/Delete in handleDDBPutItem etc.
+// ddbItemNames mirrors ddbItems' keys for ordered iteration.
 var ddbItemNames sim.Store[string]
 
-// ddbTableThroughput is what DescribeTable reports: the request's units for a
-// PROVISIONED table; for an on-demand table the zero-filled struct the service
-// itself returns, so terraform's state read has a shape to compare against.
+// For an on-demand table, the zero-filled struct the service returns, so
+// terraform's state read has a shape to compare.
 func ddbTableThroughput(billingMode string, requested *DDBProvisionedThroughput) *DDBProvisionedThroughput {
 	if strings.EqualFold(billingMode, "PROVISIONED") && requested != nil {
 		return &DDBProvisionedThroughput{

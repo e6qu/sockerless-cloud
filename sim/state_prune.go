@@ -19,16 +19,10 @@ const pruneBatch = 500
 // deleted. It reads the table in key order a batch at a time and re-checks each
 // candidate under the write lock, so a row rewritten since the scan survives.
 //
-// Prune runs on a background goroutine, which is why it treats a busy database
-// as a reason to stop rather than as a fault. A panic in a handler is recovered
-// by net/http into a 500; a panic here takes the whole simulator down with it,
-// and a deployed one did: the sweeper met SQLITE_BUSY against a database its
-// own service was writing to, fatalDBErr panicked, systemd restarted the
-// process, and the next sweep met it again -- thirteen times in thirteen
-// minutes, each restart losing every task's network namespace, so an
-// application behind the simulator's load balancer never became reachable.
-// Contention is not corruption: the rows are still there, and the next sweep
-// deletes them.
+// Prune runs on a background goroutine, where a panic takes the whole
+// simulator down, and every task's network namespace with it, so it treats a
+// busy database as a reason to stop rather than a fault. Contention is not
+// corruption: the rows are still there, and the next sweep deletes them.
 func (s *SQLiteStore[T]) Prune(expired func(T) bool) int {
 	pruned := 0
 	after, started := "", false

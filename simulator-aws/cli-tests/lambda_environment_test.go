@@ -101,8 +101,8 @@ func TestLambda_ProvisionedConcurrency_CLI(t *testing.T) {
 	assert.Equal(t, 1, put.Requested)
 	assert.Equal(t, "IN_PROGRESS", put.Status)
 
-	// The API offers nothing to wait on, so read the Status AWS documents for
-	// the allocation until it is READY.
+	// The API offers nothing to wait on, so poll the allocation's documented
+	// Status until READY.
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
 		status := strings.TrimSpace(runCLI(t, awsCLI("lambda", "get-provisioned-concurrency-config",

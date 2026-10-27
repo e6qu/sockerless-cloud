@@ -12,10 +12,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// newFSClient builds a high-level Firestore client over the REST transport so it
-// talks to the sim's Firestore v1 REST surface. The high-level client is what
-// emits DocumentTransform/Precondition/Cursor/Projection wire shapes — the
-// low-level REST shim does not.
+// newFSClient runs the high-level client over REST: it, not the low-level
+// REST client, emits the DocumentTransform, Precondition, Cursor and Projection
+// wire shapes.
 func newFSClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
 	c, err := firestore.NewRESTClient(ctx, project,
@@ -29,15 +28,11 @@ func newFSClient(t *testing.T, project string) *firestore.Client {
 	return c
 }
 
-// TestFirestore_FieldTransforms exercises the four FieldTransform operators the
-// high-level client emits (Increment, ArrayUnion, ArrayRemove, ServerTimestamp)
-// through Set(..., MergeAll) and Update writes.
 func TestFirestore_FieldTransforms(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-transforms")
 	doc := c.Collection("counters").Doc("c1")
 
-	// Seed with a base document.
 	if _, err := doc.Set(ctx, map[string]any{
 		"n":    int64(10),
 		"tags": []string{"a", "b"},
@@ -90,9 +85,8 @@ func TestFirestore_FieldTransforms(t *testing.T) {
 		t.Fatalf("arrayRemove on missing: want empty array, got %v (%T)", data["gone"], data["gone"])
 	}
 
-	// ServerTimestamp set the field to a real timestamp value: the client
-	// decodes a Firestore timestampValue to a time.Time, so a null, an empty
-	// string or any other value type fails the type assertion outright.
+	// The client decodes a timestampValue to a time.Time, so a null, an empty
+	// string or any other type fails the assertion.
 	afterGet := time.Now().UTC().Add(time.Second)
 	updatedAt, ok := data["updatedAt"].(time.Time)
 	if !ok {
@@ -113,9 +107,8 @@ func TestFirestore_FieldTransforms(t *testing.T) {
 	}
 }
 
-// TestFirestore_IncrementCreatesDoc verifies a standalone transform (Increment
-// on an absent field, doc created by Set) applies, and that increment of a
-// missing field treats it as 0.
+// TestFirestore_IncrementMissingField: Increment on an absent field treats it
+// as 0 and applies through a Set that creates the document.
 func TestFirestore_IncrementMissingField(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-incr-missing")
@@ -133,13 +126,11 @@ func TestFirestore_IncrementMissingField(t *testing.T) {
 	}
 }
 
-// TestFirestore_CreatePrecondition: Create on an already-existing doc must fail
-// (the high-level Create emits currentDocument.exists=false). The sim returns
-// the ALREADY_EXISTS status at HTTP 409, exactly as real Firestore does; the
-// gax REST transport maps HTTP 409 → codes.Aborted (its canonical HTTP→gRPC
-// mapping has no entry for AlreadyExists), so the REST client surfaces Aborted.
-// This is the genuine behavior of the high-level REST client against real
-// Firestore as well — only the gRPC transport would surface AlreadyExists.
+// TestFirestore_CreatePrecondition: the high-level Create sends
+// currentDocument.exists=false, and Firestore answers an existing document with
+// ALREADY_EXISTS at HTTP 409, which the gax REST transport maps to
+// codes.Aborted (its HTTP-to-gRPC table has no AlreadyExists). Only the gRPC
+// transport surfaces AlreadyExists.
 func TestFirestore_CreatePrecondition(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-create-pre")
@@ -157,8 +148,8 @@ func TestFirestore_CreatePrecondition(t *testing.T) {
 	}
 }
 
-// TestFirestore_UpdatePrecondition: Update on a missing doc must fail with
-// NotFound (the high-level Update emits currentDocument.exists=true).
+// TestFirestore_UpdatePrecondition: the high-level Update sends
+// currentDocument.exists=true, so a missing document fails with NotFound.
 func TestFirestore_UpdatePrecondition(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-update-pre")
@@ -173,8 +164,8 @@ func TestFirestore_UpdatePrecondition(t *testing.T) {
 	}
 }
 
-// TestFirestore_NumericEqualityQuery: Where("n","==",1) must match a doc whose n
-// was stored as an integer, exercising the unified numeric equality.
+// TestFirestore_NumericEqualityQuery: Where("n", "==", 1.0) matches a document
+// whose n is stored as an integer.
 func TestFirestore_NumericEqualityQuery(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-num-eq")
@@ -195,8 +186,6 @@ func TestFirestore_NumericEqualityQuery(t *testing.T) {
 	}
 }
 
-// TestFirestore_CursorPagination: OrderBy(...).StartAfter(...) must slice the
-// ordered result by the cursor.
 func TestFirestore_CursorPagination(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-cursor")
@@ -220,10 +209,9 @@ func TestFirestore_CursorPagination(t *testing.T) {
 	}
 }
 
-// TestFirestore_CursorTieBreakByName exercises the implicit __name__ order the
-// high-level client appends to a cursor: with two docs sharing a rank, a
-// document-snapshot StartAfter cursor must tie-break by document name
-// (referenceValue).
+// TestFirestore_CursorTieBreakByName: the high-level client appends an implicit
+// __name__ order to a cursor, so a snapshot StartAfter tie-breaks equal ranks
+// by document name.
 func TestFirestore_CursorTieBreakByName(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-cursor-tie")
@@ -247,8 +235,6 @@ func TestFirestore_CursorTieBreakByName(t *testing.T) {
 	}
 }
 
-// TestFirestore_SelectProjection: Select("a") must return only the projected
-// field.
 func TestFirestore_SelectProjection(t *testing.T) {
 	t.Parallel()
 	c := newFSClient(t, "fs-select")

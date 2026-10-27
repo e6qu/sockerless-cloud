@@ -35,7 +35,6 @@ func TestECS_TaskDefEnvironment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Describe the task definition and verify env vars round-trip
 	descOut, err := client.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
 	})
@@ -137,7 +136,6 @@ func TestECS_TaskDefMountPoints(t *testing.T) {
 
 	td := descOut.TaskDefinition
 
-	// Verify volumes
 	require.Len(t, td.Volumes, 2)
 	volNames := map[string]bool{}
 	for _, v := range td.Volumes {
@@ -146,7 +144,6 @@ func TestECS_TaskDefMountPoints(t *testing.T) {
 	assert.True(t, volNames["data-vol"], "should have data-vol")
 	assert.True(t, volNames["config-vol"], "should have config-vol")
 
-	// Verify mount points on the container
 	require.Len(t, td.ContainerDefinitions, 1)
 	mounts := td.ContainerDefinitions[0].MountPoints
 	require.Len(t, mounts, 2)
@@ -211,7 +208,7 @@ func TestECS_RunTaskTags(t *testing.T) {
 	taskArn := *runOut.Tasks[0].TaskArn
 	cleanupECSTask(t, client, clusterName, taskArn)
 
-	// Describe with TAGS include to get tag data
+	// DescribeTasks returns tags only when asked to include TAGS.
 	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
 		Cluster: aws.String(clusterName),
 		Tasks:   []string{taskArn},
@@ -257,7 +254,6 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create VPC and security groups via EC2 API first
 	ec2C := ec2Client()
 	vpcOut, err := ec2C.CreateVpc(ctx, &ec2sdk.CreateVpcInput{
 		CidrBlock: aws.String("10.0.0.0/16"),
@@ -278,8 +274,7 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Real ECS validates subnets exist in EC2; create them up front so
-	// the simulator's RunTask hits the real-AWS validation contract.
+	// Amazon ECS validates that subnets exist in Amazon EC2.
 	sub1Out, err := ec2C.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
 		VpcId:     aws.String(vpcID),
 		CidrBlock: aws.String("10.0.10.0/24"),

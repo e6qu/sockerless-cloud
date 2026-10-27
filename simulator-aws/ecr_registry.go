@@ -7,31 +7,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECR control-plane slices that operate on the registry as a whole or
-// extend per-repository configuration: image-tag mutability, image
-// scanning configuration + on-demand scans, lifecycle-policy previews,
-// and the registry-level policy + replication configuration.
-//
-// All of these are faithful CRUD over the existing repository store
-// (or a per-registry singleton store) — no fabricated data. Image scans
-// run against stored images and return a real-shaped findings result;
-// the simulator does not invent CVEs, so the findings list is empty and
-// the scan status is COMPLETE with zero severity counts.
+// The simulator runs no vulnerability scanner, so scans complete with no
+// findings and zero severity counts.
 
-// ECRImageTagMutabilityExclusionFilter mirrors the SDK
-// ImageTagMutabilityExclusionFilter shape (filterType + filter).
 type ECRImageTagMutabilityExclusionFilter struct {
 	FilterType string `json:"filterType"`
 	Filter     string `json:"filter"`
 }
 
-// ECRRegistryPolicy is the registry-wide permissions policy singleton.
 type ECRRegistryPolicy struct {
 	RegistryId string `json:"registryId"`
 	PolicyText string `json:"policyText"`
 }
 
-// ECRReplicationRule mirrors the SDK ReplicationRule shape.
 type ECRReplicationRule struct {
 	Destinations      []ECRReplicationDestination `json:"destinations"`
 	RepositoryFilters []ECRRepositoryFilter       `json:"repositoryFilters,omitempty"`
@@ -47,18 +35,14 @@ type ECRRepositoryFilter struct {
 	FilterType string `json:"filterType"`
 }
 
-// ECRReplicationConfiguration is the registry-wide replication
-// configuration singleton.
 type ECRReplicationConfiguration struct {
 	Rules []ECRReplicationRule `json:"rules"`
 }
 
 var (
-	// ecrRegistryPolicy holds the registry permissions policy under the
-	// fixed key "registry" (there is exactly one per registry).
+	// One per registry, under the key "registry".
 	ecrRegistryPolicy sim.Store[ECRRegistryPolicy]
-	// ecrReplicationConfig holds the registry replication configuration
-	// under the fixed key "registry".
+	// One per registry, under the key "registry".
 	ecrReplicationConfig sim.Store[ECRReplicationConfiguration]
 )
 
@@ -82,8 +66,7 @@ func registerECRRegistry(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonEC2ContainerRegistry_V20150921.DescribeImageReplicationStatus", handleECRDescribeImageReplicationStatus)
 }
 
-// ecrResolveImage finds a stored image by tag or digest, mirroring the
-// keying used by PutImage (repo:tag and repo:digest aliases).
+// PutImage stores repo:tag and repo:digest aliases.
 func ecrResolveImage(repo, tag, digest string) (ECRImageDetail, bool) {
 	if digest != "" {
 		if img, ok := ecrImages.Get(repo + ":" + digest); ok {
@@ -185,8 +168,7 @@ func handleECRStartImageScan(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// The simulator runs no vulnerability scanner, so the scan completes
-	// immediately with no findings — a real-shaped, honest empty result.
+	// No scanner runs, so the scan completes at once without findings.
 	imageId := map[string]string{"imageDigest": img.ImageDigest}
 	if req.ImageId.ImageTag != "" {
 		imageId["imageTag"] = req.ImageId.ImageTag
@@ -230,9 +212,8 @@ func handleECRDescribeImageScanFindings(w http.ResponseWriter, r *http.Request) 
 	if req.ImageId.ImageTag != "" {
 		imageId["imageTag"] = req.ImageId.ImageTag
 	}
-	// No scanner runs in the simulator, so report a completed scan with an
-	// empty findings list and zero severity counts. Fabricating CVEs would
-	// be a fake — the result is honest and the shape matches the SDK model.
+	// No scanner runs: a completed scan with no findings and zero severity
+	// counts.
 	now := time.Now().Unix()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"registryId":     ecrRegistryId(),
@@ -265,9 +246,7 @@ func handleECRStartLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request
 			"The repository with name '%s' does not exist", req.RepositoryName)
 		return
 	}
-	// Use the supplied policy text, or fall back to the repository's stored
-	// lifecycle policy — matching real ECR, which previews the active policy
-	// when no text is supplied.
+	// Without policy text, preview the repository's stored lifecycle policy.
 	policyText := req.LifecyclePolicyText
 	if policyText == "" {
 		if pol, ok := ecrLifecyclePolicies.Get(req.RepositoryName); ok {
@@ -308,9 +287,7 @@ func handleECRGetLifecyclePolicyPreview(w http.ResponseWriter, r *http.Request) 
 			http.StatusBadRequest)
 		return
 	}
-	// The preview evaluates the active policy against the stored images.
-	// The simulator's lifecycle rules expire nothing by default, so the
-	// preview returns no results and a zero expiring-image count.
+	// The simulator applies no lifecycle rules, so the preview expires nothing.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"registryId":          ecrRegistryId(),
 		"repositoryName":      req.RepositoryName,
@@ -330,7 +307,7 @@ func handleECRDescribeRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, ok := ecrReplicationConfig.Get(ecrRegistrySingletonKey)
 	if !ok {
-		// A registry with no replication configured reports an empty rule set.
+		// No replication configured means an empty rule set.
 		cfg = ECRReplicationConfiguration{Rules: []ECRReplicationRule{}}
 	}
 	if cfg.Rules == nil {
@@ -443,9 +420,7 @@ func handleECRDescribeImageReplicationStatus(w http.ResponseWriter, r *http.Requ
 			http.StatusBadRequest)
 		return
 	}
-	// Build a replication status per configured destination. With no
-	// replication configured the list is empty — matching real ECR, which
-	// reports no statuses when the registry has no replication rules.
+	// One status per configured destination; none without replication.
 	statuses := []map[string]any{}
 	if cfg, ok := ecrReplicationConfig.Get(ecrRegistrySingletonKey); ok {
 		for _, rule := range cfg.Rules {

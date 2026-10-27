@@ -3,15 +3,10 @@
 # have, and touch the package index only if there is something to install.
 #
 # The runner image already ships most of what the jobs ask for, so running
-# `apt-get update` regardless means a degraded Ubuntu mirror fails a job that
-# needed nothing
-# from it — which is exactly what happened to two jobs of one run, each after
-# `scripts/ci-apt-update.sh` had spent ten minutes on three honest retries.
-#
-# So: ask dpkg what is missing, and stop there when the answer is nothing. When
-# something is missing the index refresh and the install run as before, and a
-# genuinely unavailable package still fails loudly — the point is not to
-# tolerate a broken mirror, it is not to consult one with no question to ask.
+# `apt-get update` regardless lets a degraded Ubuntu mirror fail a job that
+# needed nothing from it. Ask dpkg what is missing, and stop there when the
+# answer is nothing; when something is missing the index refresh and the
+# install run, and a genuinely unavailable package still fails loudly.
 
 set -euo pipefail
 

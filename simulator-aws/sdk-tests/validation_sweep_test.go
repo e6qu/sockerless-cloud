@@ -14,8 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestValidationSweep covers the fidelity gaps surfaced by the sweep: the sim
-// must reject inputs real AWS rejects.
+// TestValidationSweep expects inputs AWS refuses to be refused.
 func TestValidationSweep(t *testing.T) {
 	t.Parallel()
 	t.Run("SQS_CreateQueue_idempotency", func(t *testing.T) {
@@ -24,12 +23,12 @@ func TestValidationSweep(t *testing.T) {
 			QueueName: aws.String("vq-idem"), Attributes: map[string]string{"VisibilityTimeout": "30"},
 		})
 		require.NoError(t, err)
-		// Same name, same attributes → idempotent OK.
+		// The same name with the same attributes is idempotent.
 		_, err = c.CreateQueue(ctx, &sqs.CreateQueueInput{
 			QueueName: aws.String("vq-idem"), Attributes: map[string]string{"VisibilityTimeout": "30"},
 		})
 		require.NoError(t, err)
-		// Same name, different attributes → QueueNameExists.
+		// The same name with different attributes is QueueNameExists.
 		_, err = c.CreateQueue(ctx, &sqs.CreateQueueInput{
 			QueueName: aws.String("vq-idem"), Attributes: map[string]string{"VisibilityTimeout": "60"},
 		})

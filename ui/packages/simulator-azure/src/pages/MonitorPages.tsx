@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Dropdown, Field, Option, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, Text, Textarea } from "@fluentui/react-components";
 import { API_VERSION } from "../api.js";
@@ -69,10 +69,8 @@ export function MonitorOverviewPage() {
 
 export function MonitorActivityLogPage() {
   const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: listSubscriptions });
-  const [subscription, setSubscription] = useState("");
-  useEffect(() => {
-    if (!subscription && subscriptions.data?.[0]) setSubscription(subscriptions.data[0].subscriptionId);
-  }, [subscription, subscriptions.data]);
+  const [picked, setSubscription] = useState("");
+  const subscription = picked || subscriptions.data?.[0]?.subscriptionId || "";
   return (
     <MonitorBlade title="Activity log" testid="monitor-activity">
       <Field label="Subscription" orientation="horizontal">
@@ -88,6 +86,8 @@ export function MonitorActivityLogPage() {
           ))}
         </Dropdown>
       </Field>
+      {subscriptions.isError ? <ErrorBar title="The subscriptions could not be listed.">{errorText(subscriptions.error)}</ErrorBar> : null}
+      {subscriptions.isLoading ? <EmptyState title="Loading subscriptions…" loading /> : null}
       {subscription ? <ActivityLogSection key={subscription} scope={`/subscriptions/${subscription}`} /> : null}
     </MonitorBlade>
   );
@@ -113,14 +113,12 @@ export function MonitorLogsPage() {
         )
       ).flat(),
   });
-  const [workspace, setWorkspace] = useState("");
+  const [picked, setWorkspace] = useState("");
   const [query, setQuery] = useState("AppTraces\n| take 100");
   const [result, setResult] = useState<QueryTable | null>(null);
   const [error, setError] = useState<string>();
   const [running, setRunning] = useState(false);
-  useEffect(() => {
-    if (!workspace && workspaces.data?.[0]) setWorkspace(workspaces.data[0].id);
-  }, [workspace, workspaces.data]);
+  const workspace = picked || workspaces.data?.[0]?.id || "";
   const chosen = workspaces.data?.find((entry) => entry.id === workspace);
   const run = async () => {
     if (!chosen) return;
@@ -143,7 +141,11 @@ export function MonitorLogsPage() {
   };
   return (
     <MonitorBlade title="Logs" testid="monitor-logs">
-      {workspaces.data && workspaces.data.length === 0 ? (
+      {subscriptions.isError || workspaces.isError ? (
+        <ErrorBar title="The Log Analytics workspaces could not be listed.">{errorText(subscriptions.error ?? workspaces.error)}</ErrorBar>
+      ) : !workspaces.data ? (
+        <EmptyState title="Loading Log Analytics workspaces…" loading />
+      ) : workspaces.data.length === 0 ? (
         <EmptyState title="No Log Analytics workspaces" description="Create a Log Analytics workspace to query logs." />
       ) : (
         <>

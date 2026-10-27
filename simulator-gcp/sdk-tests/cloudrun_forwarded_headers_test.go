@@ -55,8 +55,8 @@ func cloudRunEchoedHeaders(t *testing.T, uri string, header http.Header) http.He
 	return echoed
 }
 
-// assertCloudRunForwardedFor checks that X-Forwarded-For holds the values the
-// client supplied followed by the loopback address the test connected from.
+// assertCloudRunForwardedFor requires the client-supplied values followed by
+// the loopback address the test connected from.
 func assertCloudRunForwardedFor(t *testing.T, got string, supplied ...string) {
 	t.Helper()
 	parts := strings.Split(got, ",")

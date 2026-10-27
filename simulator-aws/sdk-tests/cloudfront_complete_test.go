@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudFront_ConnectionFunction_Lifecycle exercises the full connection
-// function CRUD + lifecycle surface (Create, Get, Describe, Update, Publish,
-// Test, List, Delete) plus ListDistributionsByConnectionFunction, all through
-// the real aws-sdk-go-v2 CloudFront client against the simulator.
 func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -43,20 +39,18 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	assert.Contains(t, aws.ToString(createOut.ConnectionFunctionSummary.ConnectionFunctionArn), "connection-function/")
 
 	defer func() {
-		// Tolerant cleanup: best-effort delete with whatever the latest ETag is.
+		// The cleanup deletes with whatever the latest ETag is.
 		desc, derr := c.DescribeConnectionFunction(ctx, &cloudfront.DescribeConnectionFunctionInput{Identifier: aws.String(id)})
 		if derr == nil {
 			_, _ = c.DeleteConnectionFunction(ctx, &cloudfront.DeleteConnectionFunctionInput{Id: aws.String(id), IfMatch: desc.ETag})
 		}
 	}()
 
-	// Get returns the code as the payload.
 	getOut, err := c.GetConnectionFunction(ctx, &cloudfront.GetConnectionFunctionInput{Identifier: aws.String(id)})
 	require.NoError(t, err)
 	assert.Equal(t, code, getOut.ConnectionFunctionCode)
 	assert.NotEmpty(t, aws.ToString(getOut.ETag))
 
-	// Describe returns the summary + ETag.
 	descOut, err := c.DescribeConnectionFunction(ctx, &cloudfront.DescribeConnectionFunctionInput{Identifier: aws.String(id)})
 	require.NoError(t, err)
 	require.NotNil(t, descOut.ConnectionFunctionSummary)
@@ -64,7 +58,7 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	etag := aws.ToString(descOut.ETag)
 	require.NotEmpty(t, etag)
 
-	// Update — bumps the ETag.
+	// Update changes the ETag.
 	newCode := []byte("function handler(event) { event.x = 1; return event; }")
 	updOut, err := c.UpdateConnectionFunction(ctx, &cloudfront.UpdateConnectionFunctionInput{
 		Id:                     aws.String(id),
@@ -80,7 +74,6 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	require.NotEmpty(t, updETag)
 	assert.NotEqual(t, etag, updETag)
 
-	// Test — returns a real-shaped test result.
 	testOut, err := c.TestConnectionFunction(ctx, &cloudfront.TestConnectionFunctionInput{
 		Id:               aws.String(id),
 		IfMatch:          aws.String(updETag),
@@ -90,7 +83,7 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	require.NotNil(t, testOut.ConnectionFunctionTestResult)
 	assert.NotNil(t, testOut.ConnectionFunctionTestResult.ConnectionFunctionSummary)
 
-	// Publish — promotes DEVELOPMENT → LIVE.
+	// Publish promotes DEVELOPMENT to LIVE.
 	pubOut, err := c.PublishConnectionFunction(ctx, &cloudfront.PublishConnectionFunctionInput{
 		Id:      aws.String(id),
 		IfMatch: aws.String(updETag),
@@ -99,7 +92,6 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	require.NotNil(t, pubOut.ConnectionFunctionSummary)
 	assert.Equal(t, "LIVE", string(pubOut.ConnectionFunctionSummary.Stage))
 
-	// List — finds the function.
 	listOut, err := c.ListConnectionFunctions(ctx, &cloudfront.ListConnectionFunctionsInput{})
 	require.NoError(t, err)
 	found := false
@@ -110,7 +102,6 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "created connection function should appear in ListConnectionFunctions")
 
-	// ListDistributionsByConnectionFunction — honest empty list.
 	byFnOut, err := c.ListDistributionsByConnectionFunction(ctx, &cloudfront.ListDistributionsByConnectionFunctionInput{
 		ConnectionFunctionIdentifier: aws.String(id),
 	})
@@ -119,8 +110,6 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	assert.Equal(t, int32(0), aws.ToInt32(byFnOut.DistributionList.Quantity))
 }
 
-// TestCloudFront_TestFunction exercises the CloudFront Functions TestFunction
-// op against a real stored function.
 func TestCloudFront_TestFunction(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -157,8 +146,6 @@ func TestCloudFront_TestFunction(t *testing.T) {
 	assert.Equal(t, name, aws.ToString(testOut.TestResult.FunctionSummary.Name))
 }
 
-// TestCloudFront_TagResource exercises Tag/UntagResource + ListTagsForResource
-// against a stored distribution ARN.
 func TestCloudFront_TagResource(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -198,21 +185,19 @@ func TestCloudFront_TagResource(t *testing.T) {
 	}
 }
 
-// TestCloudFront_CreateDistributionVariants exercises CreateDistribution and
-// CreateDistributionWithTags (both serviced by the shared POST /distribution
-// dynamic dispatcher) plus CreateStreamingDistributionWithTags.
+// TestCloudFront_CreateDistributionVariants covers CreateDistribution and
+// CreateDistributionWithTags, which share the POST /distribution route, and
+// CreateStreamingDistributionWithTags.
 func TestCloudFront_CreateDistributionVariants(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// CreateDistribution (no tags).
 	arn, id, etag := cfCreateMinimalDistribution(t, c, ctx)
 	require.NotEmpty(t, arn)
 	cfTolerantDeleteDistribution(c, ctx, id, etag)
 
-	// CreateDistributionWithTags.
 	caller := "withtags-" + time.Now().Format("150405.000000")
 	wtOut, err := c.CreateDistributionWithTags(ctx, &cloudfront.CreateDistributionWithTagsInput{
 		DistributionConfigWithTags: &cftypes.DistributionConfigWithTags{
@@ -224,7 +209,6 @@ func TestCloudFront_CreateDistributionVariants(t *testing.T) {
 	require.NotNil(t, wtOut.Distribution)
 	cfTolerantDeleteDistribution(c, ctx, aws.ToString(wtOut.Distribution.Id), aws.ToString(wtOut.ETag))
 
-	// CreateStreamingDistributionWithTags.
 	scaller := "stream-wt-" + time.Now().Format("150405.000000")
 	swtOut, err := c.CreateStreamingDistributionWithTags(ctx, &cloudfront.CreateStreamingDistributionWithTagsInput{
 		StreamingDistributionConfigWithTags: &cftypes.StreamingDistributionConfigWithTags{
@@ -302,6 +286,6 @@ func cfTolerantDeleteDistribution(c *cloudfront.Client, ctx context.Context, id,
 	if id == "" {
 		return
 	}
-	// The distribution was created disabled, so it can be deleted directly.
+	// The distribution was created disabled, so it deletes directly.
 	_, _ = c.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{Id: aws.String(id), IfMatch: aws.String(etag)})
 }

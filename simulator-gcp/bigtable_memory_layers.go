@@ -18,8 +18,7 @@ import (
 )
 
 // A cluster's memory layer is a singleton under it, disabled until an update
-// sets its memory configuration. The REST and gRPC surfaces share the logic
-// below and differ only in how they carry a request and an error.
+// sets its memory configuration. The REST and gRPC doors share the logic below.
 
 const bigtableMemoryLayerSuffix = "/memoryLayer"
 
@@ -50,12 +49,12 @@ func bigtableMemoryLayerCluster(name string) (string, error) {
 	return clusterName, nil
 }
 
-// bigtableUpdateMemoryLayer enables the memory layer when enable is set and
-// disables it otherwise. A non-empty etag must be the layer's current one.
 // bigtableMemoryLayerWrites holds a memory layer's etag check and its write
 // together, so two updates carrying one etag cannot both pass.
 var bigtableMemoryLayerWrites sync.Mutex
 
+// bigtableUpdateMemoryLayer enables the memory layer when enable is set and
+// disables it otherwise. A non-empty etag must be the layer's current one.
 func bigtableUpdateMemoryLayer(name, etag string, maskPaths []string, enable bool) (bigtableMemoryLayer, error) {
 	clusterName, err := bigtableMemoryLayerCluster(name)
 	if err != nil {
@@ -75,7 +74,7 @@ func bigtableUpdateMemoryLayer(name, etag string, maskPaths []string, enable boo
 		return bigtableMemoryLayer{}, status.Error(codes.Aborted, "etag mismatch")
 	}
 	if enable {
-		// storageSizeGib is output-only; Bigtable owns the measured capacity.
+		// storageSizeGib is output-only: Cloud Bigtable measures it.
 		layer.MemoryConfig = &bigtableMemoryConfig{}
 		layer.State = "READY"
 	} else {

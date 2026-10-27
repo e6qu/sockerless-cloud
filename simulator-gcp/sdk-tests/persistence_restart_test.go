@@ -31,10 +31,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// freePersistentSimPorts picks the HTTP and gRPC ports for a dedicated
-// simulator process below the system's ephemeral port range. A restart binds
-// the same ports again, and a port from that range can go to any connection
-// the suite opens while the first process is down.
+// freePersistentSimPorts picks ports below the system's ephemeral range: a
+// restart binds the same ports again, and an ephemeral port can go to any
+// connection the suite opens while the first process is down.
 func freePersistentSimPorts(t *testing.T) (int, int) {
 	t.Helper()
 	first := ephemeralPortRangeStart(t)
@@ -57,8 +56,6 @@ func freePersistentSimPorts(t *testing.T) (int, int) {
 	}
 }
 
-// ephemeralPortRangeStart reads the first port the system hands out for a
-// bind to port 0 or an outgoing connection.
 func ephemeralPortRangeStart(t *testing.T) int {
 	t.Helper()
 	var raw string
@@ -79,17 +76,15 @@ func ephemeralPortRangeStart(t *testing.T) int {
 	return first
 }
 
-// startPersistentSimulator launches its own API-only simulator process with
-// SQLite persistence on stateDir, waiting for both the HTTP and gRPC
-// listeners.
+// startPersistentSimulator launches an API-only simulator process with SQLite
+// persistence on stateDir and waits for both listeners.
 func startPersistentSimulator(t *testing.T, stateDir string, httpPort, grpcPort int) *exec.Cmd {
 	t.Helper()
 	return startPersistentSimulatorOn(t, "process", stateDir, httpPort, grpcPort)
 }
 
-// startPersistentSimulatorOn launches a persistent simulator process whose
-// workloads run on runtime: "process" serves the APIs alone, "docker" runs
-// workloads on the container engine.
+// startPersistentSimulatorOn's runtime "process" serves the APIs alone;
+// "docker" runs workloads on the container engine.
 func startPersistentSimulatorOn(t *testing.T, runtime, stateDir string, httpPort, grpcPort int) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(binaryPath)
@@ -107,8 +102,8 @@ func startPersistentSimulatorOn(t *testing.T, runtime, stateDir string, httpPort
 	return cmd
 }
 
-// shutdownPersistentSimulator asks the process to exit via SIGTERM (the
-// signal the simulator's graceful-shutdown path handles) and waits for it.
+// shutdownPersistentSimulator sends SIGTERM, which the simulator's graceful
+// shutdown handles, and waits.
 func shutdownPersistentSimulator(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -131,9 +126,8 @@ func shutdownPersistentSimulator(cmd *exec.Cmd) error {
 	}
 }
 
-// persistentAuthHTTPClient returns an HTTP client that attaches an access
-// token minted by the dedicated simulator process at endpoint — the same
-// credential path simAuthHTTPClient provides for the shared process.
+// persistentAuthHTTPClient attaches an access token the dedicated process at
+// endpoint minted, as simAuthHTTPClient does for the shared process.
 func persistentAuthHTTPClient(endpoint string) *http.Client {
 	return &http.Client{Transport: &simAuthTransport{
 		base: http.DefaultTransport,
@@ -142,12 +136,10 @@ func persistentAuthHTTPClient(endpoint string) *http.Client {
 	}}
 }
 
-// TestGCPServiceStateSurvivesSimulatorRestart_SDK exercises cloud state that
-// must survive a simulator restart on the same data directory: GCS object
-// bytes, a committed Cloud Spanner row, a Cloud Bigtable row, a Cloud Pub/Sub
-// snapshot's captured backlog, a Compute Engine operation name, and a bearer
-// token minted before the restart. Everything runs through the official Go
-// SDKs, differing from the real cloud only in coordinates.
+// TestGCPServiceStateSurvivesSimulatorRestart_SDK: Cloud Storage object bytes,
+// a committed Cloud Spanner row, a Cloud Bigtable row, a Pub/Sub snapshot's
+// backlog, a Compute Engine operation name and a pre-restart bearer token all
+// survive a restart on the same data directory.
 func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	const project = "persist-proj"
 	stateDir := t.TempDir()
@@ -159,12 +151,10 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cmd := startPersistentSimulator(t, stateDir, httpPort, grpcPort)
 	t.Cleanup(func() { _ = shutdownPersistentSimulator(cmd) })
 
-	// The Cloud Storage client reads its endpoint from the variable it honors
-	// for Google's own emulator; the Spanner and Bigtable clients take theirs
-	// as an option.
+	// The Cloud Storage client reads the endpoint variable it honours for Google's
+	// own emulator; the Spanner and Bigtable clients take theirs as an option.
 	t.Setenv("STORAGE_EMULATOR_HOST", host)
 
-	// ── GCS: bucket + object bytes ────────────────────────────────────────
 	const (
 		bucketName    = "persist-bucket"
 		objectName    = "survivor.txt"
@@ -183,7 +173,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, objWriter.Close())
 	require.NoError(t, gcsClient.Close())
 
-	// ── Spanner: instance + database + committed row ──────────────────────
 	const (
 		spannerInstance = "persist-inst"
 		spannerDBID     = "persist-db"
@@ -216,7 +205,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err)
 	spannerClient.Close()
 
-	// ── Bigtable: instance + table + row ──────────────────────────────────
 	const (
 		btInstance = "persist-bt"
 		btTable    = "events"
@@ -244,7 +232,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, btClient.Open(btTable).Apply(ctx, "user#1", btMut))
 	require.NoError(t, btClient.Close())
 
-	// ── Pub/Sub: topic + subscription + snapshot capturing a backlog ──────
 	const (
 		psTopic    = "projects/" + project + "/topics/persist-topic"
 		psSub      = "projects/" + project + "/subscriptions/persist-sub"
@@ -266,8 +253,8 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		Messages: []*pubsubpb.PubsubMessage{{Data: []byte(psPayload)}},
 	})
 	require.NoError(t, err)
-	// Snapshot the outstanding backlog, then drain the queue so the only way
-	// the message can come back after the restart is a snapshot-seek replay.
+	// Snapshot the backlog, then drain the queue, so only a snapshot seek can
+	// bring the message back after the restart.
 	_, err = subscriber.CreateSnapshot(ctx, &pubsubpb.CreateSnapshotRequest{
 		Name: psSnapshot, Subscription: psSub,
 	})
@@ -283,7 +270,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, psConn.Close())
 
-	// ── Compute Engine: an operation to poll after the restart ────────────
 	computeSvc, err := compute.NewService(ctx,
 		option.WithEndpoint(endpoint+"/compute/v1/"),
 		option.WithTokenSource(simTokenSourceFor(endpoint)))
@@ -296,7 +282,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	operationName := firewallOp.Name
 	require.NotEmpty(t, operationName)
 
-	// ── Access token minted before the restart ────────────────────────────
 	preRestartToken, err := simTokenFetcher{base: endpoint}.Token()
 	require.NoError(t, err)
 
@@ -304,7 +289,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		"persistent simulator must exit cleanly before SQLite is reopened")
 	cmd = startPersistentSimulator(t, stateDir, httpPort, grpcPort)
 
-	// (a) The GCS object's BYTES are readable after the restart.
 	gcsClient, err = storage.NewClient(ctx, option.WithHTTPClient(persistentAuthHTTPClient(endpoint)))
 	require.NoError(t, err)
 	defer gcsClient.Close()
@@ -315,7 +299,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, objReader.Close())
 	assert.Equal(t, objectContent, string(persistedBytes))
 
-	// (b) The committed Spanner row is readable after the restart.
 	spannerClient, err = spanner.NewClientWithConfig(ctx, spannerDatabase, spannerClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer spannerClient.Close()
@@ -325,7 +308,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, row.Columns(&persistedName))
 	assert.Equal(t, "restart", persistedName)
 
-	// (c) The Bigtable row is readable after the restart.
 	btClient, err = bigtable.NewClientWithConfig(ctx, project, btInstance, bigtableClientConfig, simGRPCClientOptionsAt(myGRPCAddr, simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer btClient.Close()
@@ -334,7 +316,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Len(t, persistedRow[btFamily], 1, "the mutated row must survive the restart")
 	assert.Equal(t, "alice", string(persistedRow[btFamily][0].Value))
 
-	// (d) Seeking to the pre-restart snapshot replays its captured backlog.
 	psConn, err = grpc.NewClient(myGRPCAddr, simGRPCDialOptions(simTokenSourceFor(endpoint))...)
 	require.NoError(t, err)
 	defer psConn.Close()
@@ -351,7 +332,6 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.Len(t, replayed.GetReceivedMessages(), 1, "seek must replay the snapshot's captured backlog")
 	assert.Equal(t, psPayload, string(replayed.GetReceivedMessages()[0].GetMessage().GetData()))
 
-	// (e) Polling the pre-restart Compute Engine operation name succeeds.
 	computeSvc, err = compute.NewService(ctx,
 		option.WithEndpoint(endpoint+"/compute/v1/"),
 		option.WithTokenSource(simTokenSourceFor(endpoint)))
@@ -364,8 +344,8 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "DONE", waitedOp.Status)
 
-	// (f) The pre-restart access token is still authorized: the restarted
-	// simulator verifies it against the same persisted signing key.
+	// The restarted simulator verifies the pre-restart token against the same
+	// persisted signing key.
 	tokenReq, err := http.NewRequest(http.MethodGet, endpoint+"/storage/v1/b/"+bucketName, nil)
 	require.NoError(t, err)
 	tokenReq.Header.Set("Authorization", "Bearer "+preRestartToken.AccessToken)

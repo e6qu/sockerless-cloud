@@ -1194,6 +1194,7 @@ func TestStorageSDK_BlobServiceStatisticsAndAccountInfo(t *testing.T) {
 func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
 	t.Parallel()
 	account := "sdkudkacct"
+	blobTestSharedKey(t, account)
 	serviceClient, err := service.NewClient(storageSDKURL(t, account, "blob"), &fakeCredential{},
 		&service.ClientOptions{ClientOptions: azcore.ClientOptions{
 			Transport:                       storageSDKTransport{},

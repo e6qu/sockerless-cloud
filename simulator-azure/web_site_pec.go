@@ -9,18 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Private endpoint connections on an App Service site
-// (Microsoft.Web/sites/privateEndpointConnections) and the site's private link
-// resource catalog. A connection is created when a Microsoft.Network private
-// endpoint targets the site (network_privateendpoint.go writes THIS store —
-// the endpoint's view and the site owner's view are one object); the site
-// owner then approves or rejects it here, and deletes it with the LRO delete
-// the swagger declares.
+// A Microsoft.Network private endpoint that targets the site writes this
+// store (network_privateendpoint.go), so the endpoint's view and the site
+// owner's view are one object.
 
-// WebSitePrivateEndpointConnection is the stored representation of a site
-// private endpoint connection. Properties is the neutral property bag the
-// private-endpoint machinery writes; renderWebSitePEC projects exactly the
-// swagger RemotePrivateEndpointConnectionARMResource members onto the wire.
+// Properties is the property bag the private-endpoint machinery writes;
+// renderWebSitePEC projects the RemotePrivateEndpointConnectionARMResource
+// members onto the wire.
 type WebSitePrivateEndpointConnection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -30,9 +25,6 @@ type WebSitePrivateEndpointConnection struct {
 
 var webSitePECs sim.Store[WebSitePrivateEndpointConnection]
 
-// webSitePECType is the connection's ARM type at the addressed level: the
-// production site, one of its deployment slots, or the App Service
-// Environment the connection was opened on.
 func webSitePECType(id string) string {
 	switch {
 	case strings.Contains(strings.ToLower(id), "/hostingenvironments/"):
@@ -80,8 +72,8 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, renderWebSitePEC(pec))
 	})
 
-	// PUT — approve or reject the connection. The connection itself is opened
-	// by the private endpoint; the site owner only moves its state.
+	// The private endpoint opens the connection; the site owner only moves its
+	// state.
 	both("PUT", "/privateEndpointConnections/{privateEndpointConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -127,14 +119,13 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 				"Private endpoint connection '%s' not found.", sim.PathParam(r, "privateEndpointConnectionName"))
 			return
 		}
-		// The swagger declares a long-running delete; the simulator's removal
-		// completes synchronously, which an azcore poller reads as terminal.
+		// The removal completes synchronously, which an azcore poller reads as
+		// terminal for the declared long-running delete.
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// privateLinkResources — the site's private link group catalog. App
-	// Service publishes one group: "sites" on a production site, and the
-	// slot-scoped "sites-<slot>" group on a deployment slot.
+	// App Service publishes one group: "sites" on a production site, and
+	// "sites-<slot>" on a deployment slot.
 	both("GET", "/privateLinkResources", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -159,8 +150,6 @@ func registerWebSitePrivateEndpoints(srv *sim.Server) {
 	})
 }
 
-// renderWebSitePEC projects a stored connection onto the exact swagger
-// RemotePrivateEndpointConnectionARMResource members.
 func renderWebSitePEC(pec WebSitePrivateEndpointConnection) map[string]any {
 	props := map[string]any{
 		"provisioningState": "Succeeded",

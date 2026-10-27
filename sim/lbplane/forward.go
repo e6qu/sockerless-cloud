@@ -30,8 +30,8 @@ var ErrAnswerStarted = errors.New("the target's answer was cut off")
 // Forward wrote nothing and the caller may still answer the client.
 var ErrDeclined = errors.New("the target's answer was declined")
 
-// SendError is a forward that reached no answer from the target. Nothing has
-// been written to the client when Forward returns one.
+// SendError is a forward that reached no answer from the target. Forward has
+// written nothing to the client when it returns one.
 type SendError struct {
 	Address string
 	Err     error
@@ -88,7 +88,7 @@ type Upstream struct {
 	Admit func(client netip.Addr) error
 }
 
-// ErrNotAdmitted is wrapped when Upstream.Admit refuses the flow.
+// Forward wraps ErrNotAdmitted when Upstream.Admit refuses the flow.
 var ErrNotAdmitted = errors.New("the target's rules do not admit the flow")
 
 // clientAddr reads the address of a request's remote end.
@@ -100,8 +100,8 @@ func clientAddr(remote string) netip.Addr {
 	return addr.Unmap()
 }
 
-// hopByHopHeaders belong to one connection and are never forwarded (RFC 9110
-// section 7.6.1).
+// hopByHopHeaders belong to one connection, and a proxy never forwards them
+// (RFC 9110 section 7.6.1).
 var hopByHopHeaders = []string{
 	"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate",
 	"Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade",
@@ -127,10 +127,9 @@ func RemoveHopByHopHeaders(header http.Header) {
 // connection itself.
 //
 // A load balancer hands a target's redirect back to its client and never
-// follows it. Following one fetches the redirect's destination instead and,
-// since the forwarding client keeps no cookie jar, drops every Set-Cookie the
-// redirect carried, which breaks each OpenID Connect sign-in behind the load
-// balancer without an error to explain it.
+// follows it: the forwarding client keeps no cookie jar, so following one
+// would drop every Set-Cookie the redirect carried and break each OpenID
+// Connect sign-in behind the load balancer.
 func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 	ctx := r.Context()
 	if up.Admit != nil {
@@ -239,8 +238,8 @@ func Hostname(host string) string {
 	return strings.TrimSuffix(strings.ToLower(host), ".")
 }
 
-// unverifiedTransport is shared so connections to targets are pooled across
-// requests the way the default transport pools them.
+// One shared transport pools connections to targets across requests, as the
+// default transport does.
 var unverifiedTransport = newUnverifiedTransport()
 
 func newUnverifiedTransport() *http.Transport {

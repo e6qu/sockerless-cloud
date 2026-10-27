@@ -33,7 +33,6 @@ type MicroVMBackend struct {
 	macPrefix string
 }
 
-// NewMicroVMBackend places on agent.
 func NewMicroVMBackend(agent *nodeagent.Agent, macPrefix string) *MicroVMBackend {
 	if macPrefix == "" {
 		macPrefix = "02:fc:00"
@@ -43,7 +42,6 @@ func NewMicroVMBackend(agent *nodeagent.Agent, macPrefix string) *MicroVMBackend
 
 func (*MicroVMBackend) Kind() Kind { return MicroVM }
 
-// Agent is the node agent the backend places on.
 func (b *MicroVMBackend) Agent() *nodeagent.Agent { return b.agent }
 
 // Join makes the agent a member of an engine network at the address the
@@ -59,15 +57,16 @@ func (b *MicroVMBackend) Leave(ctx context.Context, network string) error {
 	return b.agent.Leave(ctx, network)
 }
 
-// ErrNoNetwork is returned for a workload that names no engine network or
-// no address: a guest has no engine-assigned address to fall back on.
+// The backend returns ErrNoNetwork for a workload that names no engine
+// network or no address: a guest has no engine-assigned address to fall
+// back on.
 var ErrNoNetwork = errors.New("a microVM workload needs a network the agent joined and an address on it")
 
-// ErrBindMounts is wrapped for a workload whose bind the backend cannot
-// serve to a guest: one that names no source or target, or a host path
-// that is not there. A host directory or file is served as a file share
-// the guest mounts, an engine volume from a share container, and the
-// backend refuses the rest rather than run the workload without them.
+// The backend wraps ErrBindMounts for a workload whose bind it cannot serve
+// to a guest: one that names no source or target, or a host path that is not
+// there. It serves a host directory or file as a file share the guest mounts
+// and an engine volume from a share container, and refuses the rest rather
+// than run the workload without them.
 var ErrBindMounts = errors.New("a microVM workload's bind names nothing a guest can mount")
 
 func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
@@ -378,8 +377,8 @@ func (b *MicroVMBackend) Capture(ctx context.Context, id, reference string) erro
 // uploadRootFS streams the image's filesystem, as the engine exports a
 // container created from it, through upload.
 func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, id, imageID string, w Workload, upload func(io.Reader) error) error {
-	// The container is created to be exported, never started, and the
-	// engine still wants a command: a captured image, imported from an
+	// Create the container to export it, never to start it; the engine
+	// still wants a command, and a captured image, imported from an
 	// archive, declares none.
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{Image: imageID, Cmd: []string{"/sbin/sockerless-init"}, Labels: map[string]string{"sockerless-sim-export": id}},

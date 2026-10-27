@@ -72,7 +72,6 @@ func TestKMSCLI_KeyRotation(t *testing.T) {
 	keyId := created.KeyMetadata.KeyId
 	require.NotEmpty(t, keyId)
 
-	// Default: rotation disabled.
 	statusOut := runCLI(t, awsCLI("kms", "get-key-rotation-status",
 		"--key-id", keyId, "--output", "json"))
 	var status struct {
@@ -82,7 +81,6 @@ func TestKMSCLI_KeyRotation(t *testing.T) {
 	parseJSON(t, statusOut, &status)
 	assert.False(t, status.KeyRotationEnabled)
 
-	// Enable, then verify the reported cadence.
 	runCLI(t, awsCLI("kms", "enable-key-rotation", "--key-id", keyId))
 	statusOut = runCLI(t, awsCLI("kms", "get-key-rotation-status",
 		"--key-id", keyId, "--output", "json"))
@@ -90,7 +88,6 @@ func TestKMSCLI_KeyRotation(t *testing.T) {
 	assert.True(t, status.KeyRotationEnabled)
 	assert.Equal(t, 365, status.RotationPeriodInDays)
 
-	// Disable reverts to false.
 	runCLI(t, awsCLI("kms", "disable-key-rotation", "--key-id", keyId))
 	statusOut = runCLI(t, awsCLI("kms", "get-key-rotation-status",
 		"--key-id", keyId, "--output", "json"))
@@ -128,7 +125,6 @@ func TestKMSCLI_Tagging(t *testing.T) {
 		return m
 	}
 
-	// CreateKey --tags must round-trip (not come back empty).
 	assert.Equal(t, "true", listTags()["edd:managed"],
 		"create-key --tags must round-trip through list-resource-tags")
 
@@ -154,7 +150,7 @@ func TestKMSCLI_GetKeyPolicy(t *testing.T) {
 	keyId := created.KeyMetadata.KeyId
 	require.NotEmpty(t, keyId)
 
-	// Default policy must be non-empty and reference "default" as the policy name.
+	// The default key policy is named "default".
 	out := runCLI(t, awsCLI("kms", "get-key-policy",
 		"--key-id", keyId,
 		"--policy-name", "default",

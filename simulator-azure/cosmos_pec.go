@@ -9,19 +9,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Private endpoint connections on a Cosmos DB account
-// (Microsoft.DocumentDB/databaseAccounts/privateEndpointConnections). A private
-// endpoint connection is created when an Azure Private Endpoint targets the
-// account; the account owner then approves or rejects it by PUTting a new
-// privateLinkServiceConnectionState. The simulator stores each connection by
-// its ARM id and serves the list/get/create-or-update/delete surface the
-// armcosmos PrivateEndpointConnectionsClient calls.
+// Private endpoint connections on an Azure Cosmos DB account: created when an
+// Azure Private Endpoint targets the account, and approved or rejected by a
+// PUT of privateLinkServiceConnectionState.
 
 const cosmosPECType = "Microsoft.DocumentDB/databaseAccounts/privateEndpointConnections"
 
-// CosmosPrivateEndpointConnection is the stored ARM representation of a private
-// endpoint connection, matching the swagger PrivateEndpointConnection shape
-// (ProxyResource id/name/type + flattened properties).
 type CosmosPrivateEndpointConnection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -42,9 +35,6 @@ func registerCosmosPEC(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+base+"/{name}", handleCosmosDeletePEC)
 }
 
-// cosmosPECAccountID is the ARM id of the account that owns the connection
-// addressed by the request path (the path with /privateEndpointConnections/...
-// stripped).
 func cosmosPECAccountID(r *http.Request) string {
 	return cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 }
@@ -89,8 +79,8 @@ func handleCosmosPutPEC(w http.ResponseWriter, r *http.Request) {
 	if props == nil {
 		props = map[string]any{}
 	}
-	// groupId defaults to the SQL (NoSQL) API sub-resource when the caller
-	// only sets the connection state to approve/reject the endpoint.
+	// groupId defaults to the NoSQL sub-resource when the caller sets only the
+	// connection state.
 	if existing, ok := cosmosPECs.Get(id); ok && props["groupId"] == nil {
 		if g, ok := existing.Properties["groupId"]; ok {
 			props["groupId"] = g

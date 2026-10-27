@@ -11,25 +11,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file completes four Amazon EC2 control-plane families:
-//
-//   - Local Gateway (AWS Outposts): the local gateway (lgw-…) is a pre-seeded
-//     Outpost resource; its route tables (lgw-rtb-…), virtual interfaces
-//     (lgw-vif-…) and groups (lgw-vif-grp-…), and the VPC / virtual-interface-
-//     group associations are real CRUD with state.
-//   - Capacity Manager: an account-level enable/disable plus monitored-tag-keys,
-//     data exports to S3, and metric reads computed from the existing
-//     capacity-reservation store.
-//   - Declarative Policies: org-account reports delivered to S3, transitioning
-//     running → complete.
-//   - AWS Network Performance: source/destination region metric subscriptions
-//     plus GetAwsNetworkPerformanceData returning real-shaped metric points.
+// Local gateways (AWS Outposts), Capacity Manager, declarative policies
+// reports and AWS Network Performance.
 
-// Resource types
-
-// EC2LocalGateway is an AWS Outposts local gateway (lgw-…). Real accounts get
-// one per Outpost; the sim seeds a single deterministic gateway so the
-// route-table / virtual-interface CRUD has a parent to hang off.
+// AWS provides one per Outpost; the simulator seeds a single deterministic
+// gateway as the parent of route tables and virtual interfaces.
 type EC2LocalGateway struct {
 	LocalGatewayId string
 	OutpostArn     string
@@ -38,7 +24,6 @@ type EC2LocalGateway struct {
 	Tags           []EC2Tag
 }
 
-// EC2LocalGatewayRouteTable is a local gateway route table (lgw-rtb-…).
 type EC2LocalGatewayRouteTable struct {
 	LocalGatewayRouteTableId string
 	LocalGatewayId           string
@@ -49,8 +34,6 @@ type EC2LocalGatewayRouteTable struct {
 	Tags                     []EC2Tag
 }
 
-// EC2LocalGatewayVirtualInterface is a local gateway virtual interface
-// (lgw-vif-…).
 type EC2LocalGatewayVirtualInterface struct {
 	LocalGatewayVirtualInterfaceId      string
 	LocalGatewayId                      string
@@ -66,8 +49,6 @@ type EC2LocalGatewayVirtualInterface struct {
 	Tags                                []EC2Tag
 }
 
-// EC2LocalGatewayVirtualInterfaceGroup is a local gateway virtual interface
-// group (lgw-vif-grp-…).
 type EC2LocalGatewayVirtualInterfaceGroup struct {
 	LocalGatewayVirtualInterfaceGroupId string
 	LocalGatewayVirtualInterfaceIds     []string
@@ -78,8 +59,6 @@ type EC2LocalGatewayVirtualInterfaceGroup struct {
 	Tags                                []EC2Tag
 }
 
-// EC2LocalGatewayRouteTableVigAssociation records a route-table ↔ virtual-
-// interface-group association (lgw-vif-grp-assoc-…).
 type EC2LocalGatewayRouteTableVigAssociation struct {
 	AssociationId                       string
 	LocalGatewayVirtualInterfaceGroupId string
@@ -90,8 +69,6 @@ type EC2LocalGatewayRouteTableVigAssociation struct {
 	Tags                                []EC2Tag
 }
 
-// EC2LocalGatewayRouteTableVpcAssociation records a route-table ↔ VPC
-// association (lgw-vpc-assoc-…).
 type EC2LocalGatewayRouteTableVpcAssociation struct {
 	AssociationId            string
 	LocalGatewayRouteTableId string
@@ -102,15 +79,12 @@ type EC2LocalGatewayRouteTableVpcAssociation struct {
 	Tags                     []EC2Tag
 }
 
-// EC2CapacityManagerState is the single account-level Capacity Manager record.
 type EC2CapacityManagerState struct {
-	Status              string // enabled | disabled
+	Status              string
 	OrganizationsAccess bool
 	EnabledAt           string
 }
 
-// EC2CapacityManagerDataExport is a Capacity Manager data export to S3
-// (cmde-…).
 type EC2CapacityManagerDataExport struct {
 	CapacityManagerDataExportId string
 	S3BucketName                string
@@ -121,16 +95,12 @@ type EC2CapacityManagerDataExport struct {
 	Tags                        []EC2Tag
 }
 
-// EC2CapacityManagerMonitoredTagKey is a monitored tag key registered for
-// Capacity Manager metric grouping.
 type EC2CapacityManagerMonitoredTagKey struct {
 	TagKey                  string
-	Status                  string // activating | activated | deactivating | suspended
+	Status                  string
 	CapacityManagerProvided bool
 }
 
-// EC2DeclarativePoliciesReport is a declarative-policies compliance report
-// delivered to S3 over an organization target.
 type EC2DeclarativePoliciesReport struct {
 	ReportId  string
 	S3Bucket  string
@@ -138,12 +108,11 @@ type EC2DeclarativePoliciesReport struct {
 	TargetId  string
 	StartTime string
 	EndTime   string
-	Status    string // running | cancelled | complete | error
+	Status    string
 	Tags      []EC2Tag
 }
 
-// EC2NetworkPerformanceSubscription is a source/destination region metric
-// subscription, keyed by source/destination/metric/statistic.
+// Keyed by source, destination, metric and statistic.
 type EC2NetworkPerformanceSubscription struct {
 	Source      string
 	Destination string
@@ -166,8 +135,7 @@ var (
 	ec2NetworkPerformanceSubscriptns sim.Store[EC2NetworkPerformanceSubscription]
 )
 
-// ec2CapacityManagerKey is the single-record key for the account-level Capacity
-// Manager state (real AWS keeps one per account-region).
+// AWS keeps one record per account and Region.
 const ec2CapacityManagerKey = "account"
 
 func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
@@ -184,7 +152,6 @@ func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	ec2NetworkPerformanceSubscriptns = sim.MakeStore[EC2NetworkPerformanceSubscription](srv.DB(), "ec2_network_performance_subscriptions")
 
 	for action, h := range map[string]http.HandlerFunc{
-		// Local Gateway (Outposts).
 		"DescribeLocalGateways":                                           handleDescribeLocalGateways,
 		"CreateLocalGatewayRouteTable":                                    handleCreateLocalGatewayRouteTable,
 		"DeleteLocalGatewayRouteTable":                                    handleDeleteLocalGatewayRouteTable,
@@ -202,7 +169,6 @@ func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
 		"DeleteLocalGatewayRouteTableVpcAssociation":                      handleDeleteLocalGatewayVpcAssociation,
 		"DescribeLocalGatewayRouteTableVpcAssociations":                   handleDescribeLocalGatewayVpcAssociations,
 
-		// Capacity Manager.
 		"EnableCapacityManager":                    handleEnableCapacityManager,
 		"DisableCapacityManager":                   handleDisableCapacityManager,
 		"GetCapacityManagerAttributes":             handleGetCapacityManagerAttributes,
@@ -215,13 +181,11 @@ func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
 		"UpdateCapacityManagerMonitoredTagKeys":    handleUpdateCapacityManagerMonitoredTagKeys,
 		"UpdateCapacityManagerOrganizationsAccess": handleUpdateCapacityManagerOrganizationsAccess,
 
-		// Declarative Policies.
 		"StartDeclarativePoliciesReport":      handleStartDeclarativePoliciesReport,
 		"CancelDeclarativePoliciesReport":     handleCancelDeclarativePoliciesReport,
 		"DescribeDeclarativePoliciesReports":  handleDescribeDeclarativePoliciesReports,
 		"GetDeclarativePoliciesReportSummary": handleGetDeclarativePoliciesReportSummary,
 
-		// AWS Network Performance.
 		"EnableAwsNetworkPerformanceMetricSubscription":    handleEnableAwsNetworkPerformanceMetricSubscription,
 		"DisableAwsNetworkPerformanceMetricSubscription":   handleDisableAwsNetworkPerformanceMetricSubscription,
 		"DescribeAwsNetworkPerformanceMetricSubscriptions": handleDescribeAwsNetworkPerformanceMetricSubscriptions,
@@ -231,12 +195,7 @@ func registerEC2LgwCapacity(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// Helpers
-
-// ensureSeedLocalGateway returns the account's deterministic seeded local
-// gateway, creating it on first use. Real accounts get one local gateway per
-// Outpost; the sim provides a single one so the route-table / virtual-interface
-// CRUD has a parent. Mirrors ensureSimDefaults' deterministic-ID convention.
+// Created on first use, with ensureSimDefaults' deterministic-ID convention.
 func ensureSeedLocalGateway() EC2LocalGateway {
 	const id = "lgw-sim00000000000000"
 	if g, ok := ec2LocalGateways.Get(id); ok {
@@ -250,10 +209,8 @@ func ensureSeedLocalGateway() EC2LocalGateway {
 	}
 	ec2LocalGateways.Put(id, g)
 
-	// A real Outpost local gateway ships with its virtual interface group and
-	// virtual interfaces already provisioned by AWS (they are not customer-
-	// created — only the route table and the associations are). Seed one of
-	// each deterministically so describe / association flows have them.
+	// AWS provisions an Outpost's virtual interface group and interfaces; only
+	// route tables and associations are customer-created. Seed one of each.
 	const vigID = "lgw-vif-grp-sim000000"
 	const vifID = "lgw-vif-sim0000000000"
 	if _, ok := ec2LocalGatewayVifGroups.Get(vigID); !ok {
@@ -282,7 +239,6 @@ func ensureSeedLocalGateway() EC2LocalGateway {
 	return g
 }
 
-// ec2ArnFor builds an EC2 resource ARN of the given type.
 func ec2ArnFor(resType, id string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:%s/%s", awsRegion(), ec2Owner(), resType, id)
 }
@@ -290,8 +246,6 @@ func ec2ArnFor(resType, id string) string {
 func lgwStateReasonXML() string {
 	return "<stateReason><code>resource-available</code><message>The resource is available</message></stateReason>"
 }
-
-// Local Gateway
 
 func lgwBodyXML(g EC2LocalGateway) string {
 	return fmt.Sprintf("<localGatewayId>%s</localGatewayId><outpostArn>%s</outpostArn><ownerId>%s</ownerId><state>%s</state>%s",
@@ -411,7 +365,7 @@ func handleCreateLocalGatewayVirtualInterface(w http.ResponseWriter, r *http.Req
 		Tags:                                parseTags(r),
 	}
 	ec2LocalGatewayVifs.Put(id, vif)
-	// Attach the new VIF to its group's id list, if one was named.
+	// Add the new interface to its group, if one was named.
 	if grpID != "" {
 		if grp, ok := ec2LocalGatewayVifGroups.Get(grpID); ok {
 			grp.LocalGatewayVirtualInterfaceIds = append(grp.LocalGatewayVirtualInterfaceIds, id)
@@ -631,8 +585,6 @@ func handleDescribeLocalGatewayVpcAssociations(w http.ResponseWriter, r *http.Re
 	tgwResponse(w, "DescribeLocalGatewayRouteTableVpcAssociations", fmt.Sprintf("<localGatewayRouteTableVpcAssociationSet>%s</localGatewayRouteTableVpcAssociationSet>", items.String()))
 }
 
-// Capacity Manager
-
 func capacityManagerState() EC2CapacityManagerState {
 	if s, ok := ec2CapacityManager.Get(ec2CapacityManagerKey); ok {
 		return s
@@ -669,7 +621,7 @@ func handleGetCapacityManagerAttributes(w http.ResponseWriter, r *http.Request) 
 	var b strings.Builder
 	fmt.Fprintf(&b, "<capacityManagerStatus>%s</capacityManagerStatus><organizationsAccess>%t</organizationsAccess><dataExportCount>%d</dataExportCount><ingestionStatus>%s</ingestionStatus>",
 		s.Status, s.OrganizationsAccess, len(ec2CapacityManagerDataExports.List()), ingestionStatus)
-	// Datapoint timestamps reflect the real reservation data window when enabled.
+	// Datapoint timestamps span the reservation data window when enabled.
 	if s.Status == "enabled" {
 		earliest, latest := capacityReservationWindow()
 		fmt.Fprintf(&b, "<earliestDatapointTimestamp>%s</earliestDatapointTimestamp><latestDatapointTimestamp>%s</latestDatapointTimestamp>", earliest, latest)
@@ -677,8 +629,7 @@ func handleGetCapacityManagerAttributes(w http.ResponseWriter, r *http.Request) 
 	tgwResponse(w, "GetCapacityManagerAttributes", b.String())
 }
 
-// capacityReservationWindow returns the earliest CreateDate across the existing
-// capacity reservations and the current time, as the honest datapoint window.
+// The earliest reservation CreateDate through now.
 func capacityReservationWindow() (earliest, latest string) {
 	now := time.Now().UTC()
 	earliestT := now
@@ -748,10 +699,8 @@ func handleDescribeCapacityManagerDataExports(w http.ResponseWriter, r *http.Req
 	tgwResponse(w, "DescribeCapacityManagerDataExports", fmt.Sprintf("<capacityManagerDataExportSet>%s</capacityManagerDataExportSet>", items.String()))
 }
 
-// ec2CapacityMetricValue computes an honest value for a Capacity Manager metric
-// from the existing reservation store. Count/size/utilization metrics are
-// derived from real reservation totals; cost/spot metrics for which the sim has
-// no underlying data return 0.
+// Count, size and utilization derive from the reservations; cost and Spot
+// metrics have no data and return 0.
 func ec2CapacityMetricValue(metric string, totalInst, availInst, totalVcpu int) float64 {
 	used := totalInst - availInst
 	switch metric {
@@ -780,8 +729,7 @@ func handleGetCapacityManagerMetricData(w http.ResponseWriter, r *http.Request) 
 	}
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	// Aggregate the real reservation store into per-reservation dimensions so the
-	// metric points carry honest counts/sizes/utilization.
+	// Aggregate the reservations into per-reservation dimensions.
 	var results strings.Builder
 	reservations := ec2CapacityReservations.List()
 	for _, cr := range reservations {
@@ -850,8 +798,6 @@ func handleUpdateCapacityManagerOrganizationsAccess(w http.ResponseWriter, r *ht
 	tgwResponse(w, "UpdateCapacityManagerOrganizationsAccess", fmt.Sprintf("<capacityManagerStatus>%s</capacityManagerStatus><organizationsAccess>%t</organizationsAccess>", s.Status, s.OrganizationsAccess))
 }
 
-// Declarative Policies
-
 func declarativePoliciesReportBodyXML(rp EC2DeclarativePoliciesReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<reportId>%s</reportId><s3Bucket>%s</s3Bucket><s3Prefix>%s</s3Prefix><targetId>%s</targetId><startTime>%s</startTime>",
@@ -900,8 +846,7 @@ func handleDescribeDeclarativePoliciesReports(w http.ResponseWriter, r *http.Req
 	} else {
 		reports = ec2DeclarativePoliciesReports.List()
 	}
-	// A running report transitions to complete on the next read, mirroring the
-	// real async report's running → complete lifecycle.
+	// A running report moves to complete on the next read.
 	var items strings.Builder
 	for i := range reports {
 		if reports[i].Status == "running" {
@@ -933,8 +878,6 @@ func handleGetDeclarativePoliciesReportSummary(w http.ResponseWriter, r *http.Re
 	b.WriteString("</regionName><numberOfMatchedAccounts>1</numberOfMatchedAccounts><numberOfUnmatchedAccounts>0</numberOfUnmatchedAccounts></item></regionalSummarySet></item></attributeSummarySet>")
 	tgwResponse(w, "GetDeclarativePoliciesReportSummary", b.String())
 }
-
-// AWS Network Performance
 
 func networkPerfSubKey(src, dst, metric, stat string) string {
 	return src + "/" + dst + "/" + metric + "/" + stat
@@ -1019,10 +962,8 @@ func handleGetAwsNetworkPerformanceData(w http.ResponseWriter, r *http.Request) 
 			period = "five-minutes"
 		}
 		var points strings.Builder
-		// One metric point per period bucket across the requested window. The
-		// value is the deterministic round-trip-latency for the region pair, in
-		// milliseconds — derived from the source/destination strings so it is
-		// stable and honest for the simulated topology.
+		// One point per period bucket; the latency is derived from the Region names,
+		// not measured.
 		step := networkPerfPeriodDuration(period)
 		val := networkPerfLatencyMs(src, dst)
 		for t := start; t.Before(end); t = t.Add(step) {
@@ -1035,7 +976,6 @@ func handleGetAwsNetworkPerformanceData(w http.ResponseWriter, r *http.Request) 
 	tgwResponse(w, "GetAwsNetworkPerformanceData", fmt.Sprintf("<dataResponseSet>%s</dataResponseSet>", responses.String()))
 }
 
-// networkPerfPeriodDuration maps the PeriodType enum to a time.Duration.
 func networkPerfPeriodDuration(period string) time.Duration {
 	switch period {
 	case "fifteen-minutes":
@@ -1053,10 +993,8 @@ func networkPerfPeriodDuration(period string) time.Duration {
 	}
 }
 
-// networkPerfLatencyMs returns a stable round-trip latency (ms) for a region
-// pair: 0 when same region, otherwise a deterministic value from the string
-// distance between the two region names. Real-shaped, deterministic, honest for
-// the simulated topology.
+// 0 within a Region, otherwise a value derived from the distance between the
+// two Region names.
 func networkPerfLatencyMs(src, dst string) float64 {
 	if src == dst {
 		return 0.5
@@ -1079,7 +1017,7 @@ func networkPerfLatencyMs(src, dst string) float64 {
 	return 10 + float64(sum%140)
 }
 
-// parseEC2Time parses an EC2 query timestamp (RFC3339), falling back to def.
+// Falls back to def.
 func parseEC2Time(s string, def time.Time) time.Time {
 	if s == "" {
 		return def
@@ -1093,7 +1031,6 @@ func parseEC2Time(s string, def time.Time) time.Time {
 	return def
 }
 
-// ec2NumberedList collects a 1-based numbered query list (prefix.1, prefix.2…).
 func ec2NumberedList(r *http.Request, prefix string) []string {
 	var out []string
 	for i := 1; ; i++ {

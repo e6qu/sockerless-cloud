@@ -57,8 +57,6 @@ type cliECServerlessCache struct {
 	ReaderEndpoint cliECEndpoint `json:"ReaderEndpoint"`
 }
 
-// ecCLIAwaitCluster waits with `aws elasticache wait cache-cluster-available`
-// and describes the cluster with its nodes.
 func ecCLIAwaitCluster(t *testing.T, id string) cliECCluster {
 	t.Helper()
 	runCLI(t, awsCLI("elasticache", "wait", "cache-cluster-available", "--cache-cluster-id", id))
@@ -70,8 +68,6 @@ func ecCLIAwaitCluster(t *testing.T, id string) cliECCluster {
 	return described.CacheClusters[0]
 }
 
-// ecCLIAwaitReplGroup waits with `aws elasticache wait
-// replication-group-available` and describes the group.
 func ecCLIAwaitReplGroup(t *testing.T, id string) cliECReplGroup {
 	t.Helper()
 	runCLI(t, awsCLI("elasticache", "wait", "replication-group-available", "--replication-group-id", id))
@@ -83,8 +79,8 @@ func ecCLIAwaitReplGroup(t *testing.T, id string) cliECReplGroup {
 	return described.ReplicationGroups[0]
 }
 
-// ecCLIAwaitServerless polls the serverless cache's own Status: the CLI has
-// no waiter for a serverless cache.
+// ecCLIAwaitServerless polls the serverless cache's Status: the CLI has no
+// waiter for a serverless cache.
 func ecCLIAwaitServerless(t *testing.T, name string) cliECServerlessCache {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Minute)
@@ -130,7 +126,7 @@ func ecCLIMemcached(t *testing.T, address, request string) string {
 	return strings.TrimSpace(line)
 }
 
-// A Memcached cluster and a replication group with cluster mode answer at the
+// A Memcached cluster and a cluster-mode replication group serve at the
 // endpoints the CLI reports.
 func TestElastiCacheCLI_MemcachedAndShardedGroupServe(t *testing.T) {
 	t.Parallel()

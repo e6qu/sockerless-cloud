@@ -14,11 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// dialExecDataChannel runs a long-lived exec-enabled task, issues
-// ExecuteCommand, and dials the returned SSM streamUrl. It returns the open
-// WebSocket connection plus the session's tokenValue so the caller drives the
-// OpenDataChannel handshake exactly as a real client (session-manager-plugin)
-// does against real AWS.
+// dialExecDataChannel runs an exec-enabled task, calls ExecuteCommand and dials
+// the returned streamUrl, returning the WebSocket and the session's tokenValue
+// for the caller to send OpenDataChannel as session-manager-plugin does.
 func dialExecDataChannel(t *testing.T, cluster, command string) (*websocket.Conn, string) {
 	t.Helper()
 	return dialExecDataChannelIn(t, cluster, command, "")
@@ -51,9 +49,9 @@ func dialExecDataChannelIn(t *testing.T, cluster, command, workingDirectory stri
 	return conn, tokenValue
 }
 
-// sendOpenDataChannel writes the OpenDataChannel handshake — the JSON document
-// a real SSM Session Manager client sends as the FIRST WebSocket frame to open
-// the data channel, carrying the TokenValue ExecuteCommand returned.
+// sendOpenDataChannel writes the OpenDataChannel handshake, the JSON document a
+// Session Manager client sends as the first WebSocket frame, carrying the
+// TokenValue ExecuteCommand returned.
 func sendOpenDataChannel(t *testing.T, conn *websocket.Conn, token string) {
 	t.Helper()
 	handshake, _ := json.Marshal(map[string]string{
@@ -65,19 +63,15 @@ func sendOpenDataChannel(t *testing.T, conn *websocket.Conn, token string) {
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, handshake))
 }
 
-// TestECS_ExecDataChannelHandshake covers the coordinate-only consumer path:
-// after ExecuteCommand, a real client opens the data channel by sending an
-// OpenDataChannel message with the session's TokenValue, then streams. With
-// the correct token the exec output ("hello") streams back; with a wrong token
-// the service rejects the channel. The sim must behave identically to real AWS
-// so one client works against both.
+// TestECS_ExecDataChannelHandshake opens the data channel with the session's
+// TokenValue, as a real client does: the correct token streams the exec output
+// ("hello") back, and a wrong one is rejected.
 func TestECS_ExecDataChannelHandshake(t *testing.T) {
 	t.Parallel()
 	conn, token := dialExecDataChannel(t, "exec-datachannel-ok", "echo hello")
 	sendOpenDataChannel(t, conn, token)
 
-	// After a valid handshake, the exec runs and its stdout streams back as
-	// SSM output_stream_data AgentMessage frames; the payload carries "hello".
+	// The exec's stdout streams back as output_stream_data AgentMessage frames.
 	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	gotHello := false
 	for {
@@ -93,10 +87,9 @@ func TestECS_ExecDataChannelHandshake(t *testing.T) {
 	assert.True(t, gotHello, "exec output must stream after a valid OpenDataChannel handshake")
 }
 
-// TestECS_ExecRunsInTaskWorkingDirectory covers the container definition's
-// workingDirectory at the runtime: Amazon ECS starts the container's process
-// in it, creating it when the image does not hold it, and an ExecuteCommand
-// session inherits it, so `pwd` over the data channel reports that directory.
+// TestECS_ExecRunsInTaskWorkingDirectory: Amazon ECS starts the container's
+// process in the definition's workingDirectory, creating it when the image
+// lacks it, and an ExecuteCommand session inherits it, so `pwd` reports it.
 func TestECS_ExecRunsInTaskWorkingDirectory(t *testing.T) {
 	t.Parallel()
 	const workDir = "/srv/sockerless-work"
@@ -118,10 +111,9 @@ func TestECS_ExecRunsInTaskWorkingDirectory(t *testing.T) {
 	assert.True(t, gotDir, "exec must run in the task definition's workingDirectory")
 }
 
-// TestECS_ExecDataChannelRejectsBadToken covers token validation: a client
-// that opens the data channel with the wrong TokenValue is rejected (the
-// channel closes without streaming) — matching real AWS, which validates the
-// token before any AgentMessage flows.
+// TestECS_ExecDataChannelRejectsBadToken expects a data channel opened with the
+// wrong TokenValue to close without streaming: AWS validates the token before
+// any AgentMessage flows.
 func TestECS_ExecDataChannelRejectsBadToken(t *testing.T) {
 	t.Parallel()
 	conn, _ := dialExecDataChannel(t, "exec-datachannel-badtoken", "echo hello")

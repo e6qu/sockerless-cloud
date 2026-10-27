@@ -34,11 +34,10 @@ func nicAddresses(nic armnetwork.Interface) map[string]string {
 	return out
 }
 
-// TestNetwork_InterfaceSecondaryIPConfigurations gives a network interface
-// secondary IP configurations and checks that each holds an address of its
-// own from the subnet, that an update keeps the addresses of the
-// configurations it keeps and returns the dropped ones to the subnet, and that
-// the subnet refuses an address another interface holds.
+// TestNetwork_InterfaceSecondaryIPConfigurations: each secondary IP
+// configuration holds its own subnet address, an update keeps the kept
+// configurations' addresses and returns the dropped ones, and the subnet
+// refuses an address another interface holds.
 func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	t.Parallel()
 	rg, vnet, nicName, otherName := uniquename.New("ipcfg-rg"), uniquename.New("ipcfg-vnet"), uniquename.New("ipcfg-nic"), uniquename.New("ipcfg-other")
@@ -113,8 +112,8 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, nicAddresses(nic), nicAddresses(read.Interface))
 
-	// Dropping ipconfig2 returns its address to the subnet before the new
-	// dynamic configuration takes the lowest free one.
+	// Dropping ipconfig2 frees its address before the new dynamic configuration
+	// takes the lowest free one.
 	nic, err = put(nicName, primary, nicIPConfig("ipconfig3", subnet, "10.71.1.20"), nicIPConfig("ipconfig4", subnet, ""))
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"ipconfig1": "10.71.1.4", "ipconfig3": "10.71.1.20", "ipconfig4": "10.71.1.5"}, nicAddresses(nic))

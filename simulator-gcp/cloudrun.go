@@ -9,16 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Run v1 services slice. Shipped for parity completeness — the
-// GCP simulator should cover every API surface sockerless's cloud
-// offers on the runner path. Sockerless uses v2 Cloud Run Jobs today;
-// services v1 (Knative-style) is here so `gcloud run services *` and
-// `google_cloud_run_v2_service` terraform resources round-trip against
-// the simulator. Real API (namespaces methods ride the
-// /apis/serving.knative.dev/v1/... path, per the cloudrun-v1 Discovery
-// document's flatPaths):
-//   https://cloud.google.com/run/docs/reference/rest/v1/namespaces.services
-
 // CRService represents a Cloud Run v1 service (Knative shape).
 type CRService struct {
 	APIVersion string            `json:"apiVersion"`
@@ -28,9 +18,9 @@ type CRService struct {
 	Status     *CRServiceStatus  `json:"status,omitempty"`
 }
 
-// crStatusTraffic derives status.traffic from the client-supplied spec.traffic
-// (echoing the requested split, resolving latestRevision→the new revision)
-// rather than discarding it; with no split requested it defaults to 100% latest.
+// crStatusTraffic echoes the requested spec.traffic split as status.traffic,
+// resolving latestRevision to the new revision; without a split, the latest
+// revision takes 100%.
 func crStatusTraffic(specTraffic []CRTraffic, latestRev string) []CRTraffic {
 	if len(specTraffic) == 0 {
 		return []CRTraffic{{RevisionName: latestRev, Percent: 100, LatestRevision: true}}
@@ -157,10 +147,9 @@ type CRServiceList struct {
 	Unreachable []string    `json:"unreachable,omitempty"`
 }
 
-// CRConfiguration is the Knative Configuration resource. Cloud Run
-// auto-creates one Configuration per Service (the Configuration owns the
-// rolling sequence of Revisions). Shape per the cloudrun-v1 Discovery
-// `Configuration`/`ConfigurationSpec`/`ConfigurationStatus` schemas.
+// CRConfiguration is the Knative Configuration Cloud Run creates per Service,
+// which owns the Service's sequence of Revisions; its shape follows the
+// cloudrun-v1 Discovery Configuration schemas.
 type CRConfiguration struct {
 	APIVersion string                 `json:"apiVersion"`
 	Kind       string                 `json:"kind"`
@@ -345,11 +334,9 @@ func registerCloudRun(srv *sim.Server) {
 		return namespace + "/" + name
 	}
 
-	// reconcileKnativeChildren mirrors Cloud Run's server-side Knative
-	// reconciliation: creating or replacing a Service materializes the
-	// owned Configuration, Route, and the new Revision. The sim records
-	// real child resources (rather than synthesizing them on read) so
-	// get/list over configurations/revisions/routes return faithful data.
+	// reconcileKnativeChildren stores the Configuration, Route and new Revision
+	// Cloud Run's reconciliation creates when a Service is created or replaced, so
+	// get and list over them answer real records.
 	reconcileKnativeChildren := func(namespace string, svc CRService, revName string) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		key := svcKey(namespace, svc.Metadata.Name)
@@ -439,7 +426,6 @@ func registerCloudRun(srv *sim.Server) {
 		}
 	}
 
-	// CreateService: POST /apis/serving.knative.dev/v1/namespaces/{namespace}/services
 	srv.HandleFunc("POST /apis/serving.knative.dev/v1/namespaces/{namespace}/services", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 
@@ -472,7 +458,6 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 
-	// GetService: GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}
 	srv.HandleFunc("GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -485,7 +470,6 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, svc)
 	})
 
-	// ListServices: GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services
 	srv.HandleFunc("GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services", func(w http.ResponseWriter, r *http.Request) {
 		page, next, ok := knativeCollectionPage(w, r, services.List(), sim.PathParam(r, "namespace"))
 		if !ok {
@@ -499,7 +483,6 @@ func registerCloudRun(srv *sim.Server) {
 		})
 	})
 
-	// ReplaceService: PUT /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}
 	srv.HandleFunc("PUT /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -532,7 +515,6 @@ func registerCloudRun(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 
-	// DeleteService: DELETE /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}
 	srv.HandleFunc("DELETE /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		name := sim.PathParam(r, "name")
@@ -551,15 +533,12 @@ func registerCloudRun(srv *sim.Server) {
 				revisions.Delete(svcKey(rev.Metadata.Namespace, rev.Metadata.Name))
 			}
 		}
-		// Knative DELETE returns a Status object. The cloudrun-v1
-		// Discovery Status schema declares no apiVersion/kind members —
-		// only code/details/message/metadata/reason/status.
+		// Knative DELETE returns a Status; the cloudrun-v1 Discovery Status schema
+		// declares no apiVersion or kind.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": "Success",
 		})
 	})
-
-	// --- Knative Configurations (read-only; auto-created with the Service) ---
 
 	getConfiguration := func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -651,8 +630,6 @@ func registerCloudRun(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/routes/{name}", getRoute)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/routes", listRoutes)
 
-	// --- Knative DomainMappings (create/get/list/delete; domains.cloudrun.com group) ---
-
 	createDomainMapping := func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		var dm CRDomainMapping
@@ -743,10 +720,8 @@ func registerCloudRun(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/authorizeddomains", listAuthorizedDomains)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/authorizeddomains", listAuthorizedDomains)
 
-	// --- Per-location Service mirrors (v1/projects/.../locations/.../services) ---
-	// Real Cloud Run exposes the same Knative Service surface under the
-	// regional path; the sim maps the {location} segment to the Knative
-	// namespace so a service created under either spelling round-trips.
+	// Cloud Run serves the Knative Service surface under the regional path too;
+	// the {location} segment is the Knative namespace.
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{namespace}/services", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -851,8 +826,6 @@ func registerCloudRun(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Success"})
 	})
-
-	// --- Service IAM verbs (getIamPolicy via {name}:verb GET; set/test via POST) ---
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{namespace}/services/{nameAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")

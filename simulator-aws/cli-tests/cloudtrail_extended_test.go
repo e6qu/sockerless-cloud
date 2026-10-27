@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// TestCloudTrailCLI_TrailLifecycle drives the trail control plane through the
-// aws CLI: create-trail → get-trail / describe-trails / list-trails →
-// start-logging / get-trail-status / stop-logging → update-trail →
-// put/get-event-selectors → put/get-insight-selectors → add/list/remove-tags →
-// delete-trail.
 func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 	t.Parallel()
 	const bucket = "cli-ct-ext-bucket"
@@ -43,7 +38,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 		t.Fatalf("list-trails missing trail (got %q)", got)
 	}
 
-	// Logging on/off via get-trail-status.
 	runCLI(t, awsCLI("cloudtrail", "start-logging", "--name", trail))
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-trail-status",
 		"--name", trail, "--query", "IsLogging", "--output", "text")))
@@ -57,7 +51,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 		t.Fatalf("after stop-logging IsLogging: got %q, want False", got)
 	}
 
-	// update-trail changes the key prefix.
 	runCLI(t, awsCLI("cloudtrail", "update-trail", "--name", trail, "--s3-key-prefix", "logs"))
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-trail",
 		"--name", trail, "--query", "Trail.S3KeyPrefix", "--output", "text")))
@@ -65,7 +58,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 		t.Fatalf("update-trail S3KeyPrefix: got %q, want logs", got)
 	}
 
-	// Event selectors round-trip.
 	runCLI(t, awsCLI("cloudtrail", "put-event-selectors", "--trail-name", trail,
 		"--event-selectors", `[{"ReadWriteType":"All","IncludeManagementEvents":true}]`))
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-event-selectors",
@@ -74,7 +66,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 		t.Fatalf("get-event-selectors ReadWriteType: got %q, want All", got)
 	}
 
-	// Insight selectors round-trip.
 	runCLI(t, awsCLI("cloudtrail", "put-insight-selectors", "--trail-name", trail,
 		"--insight-selectors", `[{"InsightType":"ApiCallRateInsight"}]`))
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-insight-selectors",
@@ -83,7 +74,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 		t.Fatalf("get-insight-selectors InsightType: got %q, want ApiCallRateInsight", got)
 	}
 
-	// Tags round-trip.
 	runCLI(t, awsCLI("cloudtrail", "add-tags", "--resource-id", arn,
 		"--tags-list", "Key=env,Value=test"))
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "list-tags",
@@ -102,8 +92,6 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 	}
 }
 
-// TestCloudTrailCLI_ChannelLifecycle drives CloudTrail Lake channel CRUD through
-// the aws CLI: create-channel → get-channel / list-channels → delete-channel.
 func TestCloudTrailCLI_ChannelLifecycle(t *testing.T) {
 	t.Parallel()
 	const name = "cli-ct-ext-channel"

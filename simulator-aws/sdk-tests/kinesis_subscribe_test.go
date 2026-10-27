@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// kinesisEventGuard bounds how long a test waits for an event the simulator
-// owes it; the wait itself ends on the event.
+// kinesisEventGuard bounds the wait for an event the simulator owes; the wait
+// ends on the event.
 const kinesisEventGuard = 30 * time.Second
 
 type kinesisSubscribeFixture struct {
@@ -85,8 +85,6 @@ func (f kinesisSubscribeFixture) subscribe(t *testing.T, consumerARN string, pos
 	return es
 }
 
-// nextKinesisEvent receives the next SubscribeToShardEvent; it fails the test
-// when the stream ends first.
 func nextKinesisEvent(t *testing.T, es *kinesis.SubscribeToShardEventStream) kinesistypes.SubscribeToShardEvent {
 	t.Helper()
 	select {
@@ -101,7 +99,6 @@ func nextKinesisEvent(t *testing.T, es *kinesis.SubscribeToShardEventStream) kin
 	return kinesistypes.SubscribeToShardEvent{}
 }
 
-// kinesisStreamEnd waits for the event stream to end and returns its error.
 func kinesisStreamEnd(t *testing.T, es *kinesis.SubscribeToShardEventStream) error {
 	t.Helper()
 	for {
@@ -125,8 +122,6 @@ func kinesisRecordData(records []kinesistypes.Record) []string {
 	return out
 }
 
-// TestKinesis_SubscribeToShard subscribes an enhanced fan-out consumer, then
-// puts records and receives them over the held event stream as they land.
 func TestKinesis_SubscribeToShard(t *testing.T) {
 	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-stream")
@@ -168,8 +163,6 @@ func TestKinesis_SubscribeToShard(t *testing.T) {
 	require.ErrorAs(t, err, &inUse, "DeleteStream must refuse a stream with registered consumers unless EnforceConsumerDeletion is set")
 }
 
-// TestKinesis_SubscribeToShardStartingPositions opens one subscription per
-// StartingPosition type and checks where each starts reading.
 func TestKinesis_SubscribeToShardStartingPositions(t *testing.T) {
 	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-positions")

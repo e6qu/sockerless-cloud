@@ -26,9 +26,8 @@ func ddbKey(v string) map[string]ddbtypes.AttributeValue {
 	return map[string]ddbtypes.AttributeValue{"PK": &ddbtypes.AttributeValueMemberS{Value: v}}
 }
 
-// TestDynamoDB_UpdateItemExpression exercises UpdateExpression — the path every
-// modern client uses (the legacy AttributeUpdates path was the only one
-// implemented, so update-item with an UpdateExpression was a silent no-op).
+// TestDynamoDB_UpdateItemExpression covers UpdateExpression, the path every
+// current client uses.
 func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 	t.Parallel()
 	table := uniquename.New("cov-update-expr")
@@ -45,7 +44,6 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 		return v.Value
 	}
 
-	// SET assignment.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(table),
 		Key:                       ddbKey("a"),
@@ -58,7 +56,6 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 	assert.Equal(t, "5", num(item, "cnt"))
 	assert.Equal(t, "hi", item["label"].(*ddbtypes.AttributeValueMemberS).Value)
 
-	// SET arithmetic increment.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:          aws.String("SET #c = #c + :i"),
@@ -68,7 +65,8 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "8", num(get(), "cnt"))
 
-	// ADD on a missing attribute starts from 0; if_not_exists keeps the existing value.
+	// ADD on a missing attribute starts from 0; if_not_exists keeps an existing
+	// value.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:          aws.String("ADD #v :d SET #c = if_not_exists(#c, :z)"),
@@ -80,7 +78,6 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 	assert.Equal(t, "10", num(item, "views"))
 	assert.Equal(t, "8", num(item, "cnt"), "if_not_exists keeps the existing value")
 
-	// REMOVE drops the attribute.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(table), Key: ddbKey("a"),
 		UpdateExpression:         aws.String("REMOVE #s"),
@@ -120,10 +117,9 @@ func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
 		cb.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus)
 }
 
-// TestDynamoDB_UpdateItemMalformedExpression verifies that a malformed
-// UpdateExpression is rejected with a ValidationException rather than crashing
-// the service. The unterminated-if_not_exists( forms previously panicked the
-// sim process with "slice bounds out of range".
+// TestDynamoDB_UpdateItemMalformedExpression expects a malformed
+// UpdateExpression, such as an unterminated if_not_exists(, to fail with
+// ValidationException while the service keeps running.
 func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 	t.Parallel()
 	table := uniquename.New("cov-update-malformed")
@@ -143,18 +139,14 @@ func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
 		requireAWSErrorCode(t, err, "ValidationException")
 	}
 
-	// A clause keyword preceded by an invalid-UTF-8 byte previously panicked the
-	// process (ddbSplitUpdateClauses sliced expr with strings.ToUpper indices).
-	// It must no longer crash — whether it is accepted or rejected, the service
-	// must keep responding (verified by the well-formed call below).
+	// A clause keyword after an invalid UTF-8 byte may be accepted or refused, but
+	// the service keeps responding, as the well-formed call below shows.
 	_, _ = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:        aws.String(table),
 		Key:              ddbKey("m"),
 		UpdateExpression: aws.String("\xcaREMOVE"),
 	})
 
-	// The service is still alive after the malformed requests: a well-formed
-	// UpdateItem still succeeds.
 	_, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(table),
 		Key:                       ddbKey("m"),

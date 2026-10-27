@@ -18,12 +18,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// A Container Apps revision runs its replicas as one replica set: each replica
-// is a pod of the revision's containers and the Dapr sidecar, in one network
-// namespace, ready once its main container listens on the ingress target
-// port. A replica whose main container exits restarts in place under its
-// name and address, backing off as Kubernetes does for a container that
-// keeps exiting.
+// A revision runs its replicas as one replica set: each replica is a pod of the
+// revision's containers and the Dapr sidecar in one network namespace, ready
+// once its main container listens on the ingress target port. A main container
+// that exits restarts in place, backing off as Kubernetes does.
 
 const (
 	acaRevisionLabel  = "sockerless-aca-revision"
@@ -31,7 +29,6 @@ const (
 	acaContainerLabel = "sockerless-aca-container"
 )
 
-// acaRevisionRun is a revision's running replicas.
 type acaRevisionRun struct {
 	set    *replicas.Set
 	scaler *acaScaler
@@ -65,7 +62,6 @@ func (run *acaRevisionRun) replica(name string) (*acaReplica, bool) {
 	return replica, ok
 }
 
-// remove forgets a replica that ended and releases its pod's address.
 func (run *acaRevisionRun) remove(name string) {
 	run.mu.Lock()
 	replica, ok := run.replicas[name]
@@ -76,7 +72,6 @@ func (run *acaRevisionRun) remove(name string) {
 	}
 }
 
-// acaCurrentReplicas lists a revision's running replicas, oldest first.
 func acaCurrentReplicas(revisionID string) []*acaReplica {
 	run, ok := acaRevisionRunOf(revisionID)
 	if !ok {
@@ -92,8 +87,6 @@ func acaCurrentReplicas(revisionID string) []*acaReplica {
 	return out
 }
 
-// acaRevisionWorkload is what a revision's replicas start with: the network
-// and the configuration they run under.
 type acaRevisionWorkload struct {
 	app         ContainerApp
 	rev         acaRevision
@@ -108,8 +101,8 @@ type acaRevisionWorkload struct {
 func newACARevisionWorkload(ctx context.Context, app ContainerApp, rev acaRevision) (acaRevisionWorkload, error) {
 	app.Properties.Template = rev.Template
 	envID := acaAppEnvironmentID(app)
-	// The environment's internal DNS resolves an app by its name and FQDNs,
-	// which the replica's network aliases answer on the environment's network.
+	// The environment's internal DNS resolves an app by its name and FQDNs, which
+	// the replica's network aliases answer on.
 	network, subnetID, err := acaWorkloadNetwork(ctx, envID)
 	if err != nil {
 		return acaRevisionWorkload{}, err
@@ -133,9 +126,8 @@ func newACARevisionWorkload(ctx context.Context, app ContainerApp, rev acaRevisi
 		netAliases: netAliases, metadataEnv: metadataEnv, secrets: secrets}, nil
 }
 
-// members are the containers of one replica, the app's own and the Dapr
-// sidecar, labelled with the revision and the replica they belong to. Each of
-// the app's containers starts once its startup and readiness probes pass.
+// Each of the app's containers starts once its startup and readiness probes
+// pass.
 func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 	containers := wl.app.Properties.Template.Containers
 	members := make([]workload.Member, 0, len(containers)+1)
@@ -160,7 +152,6 @@ func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 	return members
 }
 
-// newACARevisionRun is the replica set of a revision.
 func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionRun {
 	app, rev := wl.app, wl.rev
 	run := &acaRevisionRun{grace: acaAppStopGrace(app), replicas: map[string]*acaReplica{}}
@@ -191,8 +182,8 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 					fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
 			}
 			members := wl.members(replica)
-			// The pod holds its address across restarts in place; the
-			// replica's record releases it once the replica ends.
+			// The pod keeps its address across restarts in place; the replica's record
+			// releases it.
 			if !restarting {
 				address, release, err := azureWorkloadAddress(ctx, wl.network, wl.subnetID, members[0].Config.Name)
 				if err != nil {
@@ -208,7 +199,7 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 				return nil, nil, err
 			}
 			pod := func(cfg *sim.ContainerConfig) {
-				// A replica is a pod, and a pod's hostname is its name.
+				// A pod's hostname is its name.
 				cfg.Hostname = replica.name
 				cfg.Network = wl.network.Network
 				cfg.NetworkAliases = wl.netAliases
@@ -216,8 +207,7 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 				cfg.ExtraHosts = workloadhost.ExtraHosts()
 				cfg.IPv4Address = replica.address
 			}
-			// A pod runs its init containers once, not again when its
-			// containers restart in place.
+			// A pod runs its init containers once, not again on a restart in place.
 			if !restarting {
 				if err := wl.runInitContainers(ctx, backend, replica, pod); err != nil {
 					replica.release()
@@ -243,8 +233,8 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 					releaseAfterStartError(err, replica.release)
 					return nil, nil, err
 				}
-				// The next restart takes the pod's address again once the
-				// members this one placed have left it.
+				// The next restart takes the address again once this one's members have left
+				// it.
 				var startErr *workload.StartError
 				if errors.As(err, &startErr) {
 					<-startErr.Stopped()
@@ -265,8 +255,6 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 	return run
 }
 
-// releaseAfterStartError releases what a replica that failed to start held
-// once the members it placed have exited.
 func releaseAfterStartError(err error, release func()) {
 	var startErr *workload.StartError
 	if errors.As(err, &startErr) {
@@ -279,15 +267,14 @@ func releaseAfterStartError(err error, release func()) {
 	release()
 }
 
-// startACARevisionReplicas starts a revision's replicas: the revision's
-// template run under the app's current configuration, replacing the replicas
-// it ran before once the new ones run.
+// startACARevisionReplicas replaces the replicas the revision ran before once
+// the new ones run.
 func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
 	scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
 	want := scaling.baseline()
 	if want == 0 && !scaling.demandDriven() {
-		// Nothing can start a replica of a revision with no minimum and no
-		// rule its requests meet.
+		// Nothing can start a replica of a revision with no minimum and no rule its
+		// requests meet.
 		stopACAAppReplicas(rev.ID)
 		return nil
 	}
@@ -308,15 +295,11 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	return nil
 }
 
-// stop stops the revision's scaling and its replicas, and returns once they
-// have exited.
 func (run *acaRevisionRun) stop(ctx context.Context) {
 	run.scaler.close()
 	_ = run.set.Stop(ctx)
 }
 
-// stopACAAppReplicas stops the replicas of one revision in the background;
-// the revision holds none from here on.
 func stopACAAppReplicas(revisionID string) {
 	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
 		if run, ok := v.(*acaRevisionRun); ok {
@@ -325,8 +308,6 @@ func stopACAAppReplicas(revisionID string) {
 	}
 }
 
-// stopACAAppReplicasAndWait stops the replicas of one revision and returns
-// once they have exited.
 func stopACAAppReplicasAndWait(revisionID string) {
 	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
 		if run, ok := v.(*acaRevisionRun); ok {
@@ -335,7 +316,6 @@ func stopACAAppReplicasAndWait(revisionID string) {
 	}
 }
 
-// pick is the next ready replica of the revision in turn.
 func (run *acaRevisionRun) pick() (*workload.Group, bool) {
 	_, group, ok := run.set.Pick(func(r *replicas.Replica) bool {
 		replica, ok := run.replica(r.ID)
@@ -344,9 +324,8 @@ func (run *acaRevisionRun) pick() (*workload.Group, bool) {
 	return group, ok
 }
 
-// acaAcquireReplica is the replica the ingress forwards a request to: the
-// next ready one, or, for a revision the HTTP rule scaled to zero, one it
-// starts for the request, once it is ready.
+// acaAcquireReplica returns the next ready replica or, for a revision the HTTP
+// rule scaled to zero, one it starts for the request.
 func acaAcquireReplica(ctx context.Context, revisionID string) (*workload.Group, bool) {
 	run, ok := acaRevisionRunOf(revisionID)
 	if !ok {
@@ -369,8 +348,6 @@ func acaAcquireReplica(ctx context.Context, revisionID string) (*workload.Group,
 	}
 }
 
-// acaRevisionServes reports whether the ingress can send a revision requests:
-// it has a replica running, or its HTTP rule starts one for a request.
 func acaRevisionServes(revisionID string) bool {
 	run, ok := acaRevisionRunOf(revisionID)
 	if !ok {
@@ -387,12 +364,9 @@ func acaRevisionServes(revisionID string) bool {
 	return false
 }
 
-// adoptACAAppReplicas takes over, for every active revision of every stored
-// app, the replicas an earlier process of this persistent simulator left
-// running, and starts the rest the revision's template asks for in the
-// background. Containers
-// of revisions no longer active, and of replicas missing a member, are
-// removed.
+// adoptACAAppReplicas adopts the replicas an earlier process left running for
+// every active revision and starts the rest in the background. Containers of
+// inactive revisions and of incomplete replicas are removed.
 func adoptACAAppReplicas(ctx context.Context) {
 	if !sim.HasPersistentWorkloadIdentity() {
 		return
@@ -458,8 +432,6 @@ func removeACAContainers(ctx context.Context, backend placement.Backend, group [
 	}
 }
 
-// adoptACARevision adopts the complete, running replicas of a revision up to
-// its replica count, removes the others, and starts what is missing.
 func adoptACARevision(ctx context.Context, backend placement.Backend, app ContainerApp, rev acaRevision, groups map[string][]placement.Existing) error {
 	wl, err := newACARevisionWorkload(ctx, app, rev)
 	if err != nil {
@@ -514,8 +486,6 @@ func adoptACARevision(ctx context.Context, backend placement.Backend, app Contai
 	return nil
 }
 
-// adoptACAReplica takes over one replica's containers and the address its
-// pod holds.
 func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevisionWorkload, run *acaRevisionRun, replicaName string, byName map[string]placement.Existing) (*workload.Group, func(), error) {
 	app, rev := wl.app, wl.rev
 	names := make([]string, 0, len(app.Properties.Template.Containers))
@@ -527,7 +497,6 @@ func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevis
 		initNames = append(initNames, c.Name)
 	}
 	replica := newACAReplica(replicaName, rev.Name, names, initNames)
-	// The pod's init containers completed before its containers ran.
 	for _, c := range replica.initContainers {
 		c.terminated = true
 	}
@@ -577,20 +546,17 @@ func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevis
 	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, nil, nil
 }
 
-// acaReplicaName names a replica of revision as Container Apps does:
-// <revision>-<10 characters>-<5 characters>.
+// Container Apps names a replica <revision>-<10 characters>-<5 characters>.
 func acaReplicaName(revision string) string {
 	return fmt.Sprintf("%s-%s-%s", revision, randomSuffix(10), randomSuffix(5))
 }
 
-// acaIngressEnabled reports whether the app takes traffic through ingress.
 func acaIngressEnabled(app ContainerApp) bool {
 	return app.Properties.Configuration != nil && app.Properties.Configuration.Ingress != nil
 }
 
-// runInitContainers runs the template's init containers one after another
-// with the pod's address and hostname, each to a zero exit, before the app's
-// containers start.
+// runInitContainers runs each init container to a zero exit, in order, before
+// the app's containers start.
 func (wl acaRevisionWorkload) runInitContainers(ctx context.Context, backend placement.Backend, replica *acaReplica, pod func(*sim.ContainerConfig)) error {
 	for i, c := range wl.app.Properties.Template.InitContainers {
 		container := acaAppContainer(wl.app, c, replica.name, wl.envID, wl.metadataEnv, wl.secrets)

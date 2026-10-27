@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestELBv2_CapacityReservationOmitsUnsetMinimum verifies an ALB created
-// without a minimum-capacity configuration reports no MinimumLoadBalancerCapacity
-// from DescribeCapacityReservation. Returning CapacityUnits=0 makes the provider
-// read a configured 0 and plan "capacity_units = 0 -> null" every idempotency plan.
+// TestELBv2_CapacityReservationOmitsUnsetMinimum expects no
+// MinimumLoadBalancerCapacity for an ALB without one: CapacityUnits=0 makes the
+// provider plan "capacity_units = 0 -> null" on every plan.
 func TestELBv2_CapacityReservationOmitsUnsetMinimum(t *testing.T) {
 	t.Parallel()
 	lbName := uniquename.New("cap-res-lb")

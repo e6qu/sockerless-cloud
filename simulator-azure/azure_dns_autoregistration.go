@@ -13,11 +13,10 @@ const azureAutoRegistrationTTL = 10
 
 var azureAutoRegistrationMu sync.Mutex
 
-// azureReconcileAutoRegisteredRecords makes every private zone's
-// auto-registered A records match the virtual machines Azure registers: each
+// azureReconcileAutoRegisteredRecords registers, under its computer name, each
 // machine whose primary interface has an address in a virtual network linked
-// to the zone with registration enabled, under its computer name. A record
-// set someone created by hand keeps its name; Azure registers nothing over it.
+// to the zone with registration enabled. A hand-created record set keeps its
+// name; Azure registers nothing over it.
 func azureReconcileAutoRegisteredRecords() {
 	if azurePrivateDNSZones == nil || azurePrivateDNSVNetLinks == nil || azureVMs == nil || azureNICs == nil {
 		return
@@ -89,8 +88,7 @@ func azureReconcileAutoRegisteredRecords() {
 	}
 }
 
-// azureVMComputerName is the host name a machine registers under: its OS
-// profile's computer name, which defaults to the machine's name.
+// azureVMComputerName defaults to the machine's name.
 func azureVMComputerName(vm VirtualMachine) string {
 	if name, _ := vm.Properties.OSProfile["computerName"].(string); name != "" {
 		return name
@@ -98,8 +96,6 @@ func azureVMComputerName(vm VirtualMachine) string {
 	return vm.Name
 }
 
-// azureVMPrimaryAddress reads the virtual network and private address of the
-// machine's primary interface's primary IP configuration.
 func azureVMPrimaryAddress(vm VirtualMachine) (vnet, address string, ok bool) {
 	refs := vm.Properties.NetworkProfile.NetworkInterfaces
 	if len(refs) == 0 {

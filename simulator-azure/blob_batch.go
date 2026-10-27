@@ -147,6 +147,10 @@ func runBlobBatchSubRequest(parent *http.Request, account, container string, raw
 			"One of the request inputs is not valid: a batch may only contain Delete Blob or Set Blob Tier sub-requests.")
 	}
 
+	if caller, ok := storageBearerCaller(parent); ok && !storageBearerAuthorizes(req, "blob", account, caller) {
+		return blobBatchErrorResponse(http.StatusForbidden, "AuthorizationPermissionMismatch",
+			"This request is not authorized to perform this operation using this permission.")
+	}
 	rec := httptest.NewRecorder()
 	// The batch's outer request carried the credential and was authorized
 	// before this handler ran; its sub-requests run under that authorization,

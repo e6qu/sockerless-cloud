@@ -10,17 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
-// Cloud Run v2 Worker Pools slice. Worker pools are the v2 resource for
-// pull-based (non-request-serving) workloads — the SDK uses
-// run.NewWorkerPoolsRESTClient and the v2 REST surface
-// `/v2/projects/{project}/locations/{location}/workerPools`. terraform's
-// `google_cloud_run_v2_worker_pool` and `gcloud run worker-pools` wrap the
-// same endpoints.
-//
-// Real API: https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.workerPools
-
-// WorkerPoolV2 mirrors google.cloud.run.v2.WorkerPool (proto-JSON shape).
-// Generation is encoded as a JSON string per proto-JSON int64 rules.
+// WorkerPoolV2 mirrors google.cloud.run.v2.WorkerPool; Generation is an int64
+// and so a JSON string.
 type WorkerPoolV2 struct {
 	Name                  string                      `json:"name"`
 	UID                   string                      `json:"uid,omitempty"`
@@ -49,9 +40,8 @@ type WorkerPoolV2 struct {
 }
 
 // WorkerPoolRevisionTemplate mirrors
-// google.cloud.run.v2.WorkerPoolRevisionTemplate — the per-revision spec
-// for a worker pool. Unlike a Service's RevisionTemplate there is no
-// per-revision scaling (worker-pool scaling is manual, at the pool level).
+// google.cloud.run.v2.WorkerPoolRevisionTemplate; unlike a Service's
+// template it has no per-revision scaling.
 type WorkerPoolRevisionTemplate struct {
 	Labels                        map[string]string                           `json:"labels,omitempty"`
 	Annotations                   map[string]string                           `json:"annotations,omitempty"`
@@ -76,18 +66,11 @@ type NodeSelector struct {
 	Accelerator string `json:"accelerator,omitempty"`
 }
 
-// WorkerPoolScaling mirrors google.cloud.run.v2.WorkerPoolScaling — how many
-// instances a worker pool runs, either pinned (MANUAL) or autoscaled between a
-// floor and a ceiling (AUTOMATIC).
-//
-// The pinned Cloud Run Discovery document publishes only manualInstanceCount:
-// Google has not yet released the automatic-scaling members into the public
-// Discovery/REST reference, even though the API serves them and the official
-// google Terraform provider sends and reads them back as scaling.scalingMode,
-// scaling.minInstanceCount and scaling.maxInstanceCount. Dropping them would
-// make every worker pool configured for automatic scaling drift on the next
-// plan, so they are modelled from the wire the official clients speak. See
-// specs/SIM_SURFACE_TABLES/gcp-cloudrun.md for the revision mismatch.
+// WorkerPoolScaling mirrors google.cloud.run.v2.WorkerPoolScaling: MANUAL or
+// AUTOMATIC between a floor and a ceiling. The pinned Discovery document
+// publishes only manualInstanceCount, but the API serves, and the Terraform
+// provider sends and reads, scalingMode, minInstanceCount and maxInstanceCount;
+// see specs/SIM_SURFACE_TABLES/gcp-cloudrun.md.
 type WorkerPoolScaling struct {
 	ScalingMode         protoEnum[runScalingMode] `json:"scalingMode,omitempty"`
 	MinInstanceCount    int32                     `json:"minInstanceCount,omitempty"`
@@ -95,18 +78,16 @@ type WorkerPoolScaling struct {
 	ManualInstanceCount int32                     `json:"manualInstanceCount,omitempty"`
 }
 
-// InstanceSplit mirrors google.cloud.run.v2.InstanceSplit (and the
-// identical InstanceSplitStatus). Worker pools split instances across
-// revisions much as a Service splits request traffic.
+// InstanceSplit mirrors google.cloud.run.v2.InstanceSplit and the identical
+// InstanceSplitStatus.
 type InstanceSplit struct {
 	Type     instanceSplitTypeString `json:"type,omitempty"`
 	Revision string                  `json:"revision,omitempty"`
 	Percent  int32                   `json:"percent,omitempty"`
 }
 
-// instanceSplitTypeString is the InstanceSplitAllocationType enum. The Go REST
-// client sends a worker pool back with the numeric form, and a read answers
-// with the name.
+// instanceSplitTypeString is the InstanceSplitAllocationType enum: the Go REST
+// client sends its number, and a read answers the name.
 type instanceSplitTypeString string
 
 func (e *instanceSplitTypeString) UnmarshalJSON(data []byte) error {
@@ -135,11 +116,8 @@ func (e *instanceSplitTypeString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// crv2WorkerPools and crv2WorkerPoolRevisions are the Cloud Run worker-pool
-// stores. A worker pool is one resource addressable through two API versions —
-// the v2 resource-oriented collection and the v1 Knative `workerpools`
-// collection — so the stores are package-scoped rather than closed over by the
-// v2 handlers alone.
+// crv2WorkerPools and crv2WorkerPoolRevisions hold the worker pools the v2
+// collection and the v1 Knative `workerpools` collection both address.
 var (
 	crv2WorkerPools         sim.Store[WorkerPoolV2]
 	crv2WorkerPoolRevisions sim.Store[RevisionV2]
@@ -155,7 +133,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 
 	const wpType = cloudRunWorkerPoolType
 
-	// CreateWorkerPool: POST .../workerPools?workerPoolId=<id>
 	srv.HandleFunc("POST /v2/projects/{project}/locations/{location}/workerPools", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -183,13 +160,11 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
-	// GetWorkerPool (the {workerPool} wildcard also carries the GET-side
-	// `{workerPool}:getIamPolicy` verb).
+	// {workerPool} also carries the GET verb `{workerPool}:getIamPolicy`.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/workerPools/{workerPool}", func(w http.ResponseWriter, r *http.Request) {
 		cloudRunGetWithIAM(w, r, pools, "workerPool", "workerPools", "worker pool", workerPoolIAM)
 	})
 
-	// ListWorkerPools
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/workerPools", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -197,7 +172,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		gcpWritePage(w, r, pools, prefix, "workerPools", func(v WorkerPoolV2) string { return v.Name })
 	})
 
-	// UpdateWorkerPool (PATCH, honoring updateMask).
 	srv.HandleFunc("PATCH /v2/projects/{project}/locations/{location}/workerPools/{workerPool}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -213,13 +187,12 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// The etag is read off the request as sent, before any mask merge
-		// rewrites the body.
+		// Read the etag as sent, before the mask merge rewrites the body.
 		if !cloudRunEtagOK(w, "worker pool", existing.Name, existing.Etag, update.Etag) {
 			return
 		}
-		// A mask naming an unknown or output-only field is rejected with
-		// 400 INVALID_ARGUMENT, matching real Cloud Run v2.
+		// Cloud Run v2 answers 400 INVALID_ARGUMENT for a mask naming an unknown or
+		// output-only field.
 		if mask := r.URL.Query().Get("updateMask"); mask != "" {
 			merged, err := applyWorkerPoolUpdateMask(existing, update, mask)
 			if err != nil {
@@ -241,7 +214,6 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
 	})
 
-	// DeleteWorkerPool
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/workerPools/{workerPool}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -314,15 +286,9 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		}
 	})
 
-	// The Cloud Run Admin v1 API exposes the same worker pool resource's IAM
-	// policy under a lowercase `workerpools` collection
-	// (run.projects.locations.workerpools.{getIamPolicy,setIamPolicy,
-	// testIamPermissions}). It is the surface the gcloud CLI's
-	// `gcloud run worker-pools {get,set}-iam-policy` and
-	// `{add,remove}-iam-policy-binding` commands call. Both API versions
-	// address one resource, so the policy is stored under the v2 resource
-	// name and a policy written through either version reads back through
-	// the other.
+	// `gcloud run worker-pools` IAM commands use the Cloud Run Admin v1 lowercase
+	// `workerpools` collection. The policy lives under the v2 resource name, so
+	// either API version reads what the other wrote.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/workerpools/{workerPool}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -350,11 +316,9 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 	})
 }
 
-// workerPoolIAM serves an AIP-141 IAM verb against a worker pool. The policy
-// is keyed on the v2 resource name so the v1 (`workerpools`) and v2
-// (`workerPools`) collections address one resource's single policy. An IAM
-// verb on a worker pool that does not exist is NOT_FOUND, as on a real Cloud
-// Run project — never an empty policy for a name that was never deployed.
+// workerPoolIAM serves an AIP-141 IAM verb against a worker pool, keyed on the
+// v2 resource name. A worker pool that does not exist is NOT_FOUND, never an
+// empty policy.
 func workerPoolIAM(w http.ResponseWriter, r *http.Request, pools sim.Store[WorkerPoolV2], project, location, id, action string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, id)
 	if _, ok := pools.Get(name); !ok {
@@ -441,8 +405,8 @@ func carryCloudRunWorkerPoolStatus(update *WorkerPoolV2, existing WorkerPoolV2) 
 	update.ObservedGeneration = existing.ObservedGeneration
 }
 
-// reconcileWorkerPoolRevision materializes the immutable Revision a worker
-// pool deploy produces, mirroring reconcileServiceRevision for services.
+// reconcileWorkerPoolRevision stores the immutable Revision a worker pool
+// deploy produces, as reconcileServiceRevision does for services.
 func reconcileWorkerPoolRevision(store sim.Store[RevisionV2], poolName, revName string, pool WorkerPoolV2) {
 	now := nowTimestamp()
 	full := poolName + "/revisions/" + revName

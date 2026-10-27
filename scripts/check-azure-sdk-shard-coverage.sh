@@ -23,9 +23,9 @@ test_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file"' EXIT
 
 # Only the shared `sim` job's Azure SDK shards. Two suites in that job are
-# sharded now, so selecting on the regex shape alone would pull in the SDK
+# sharded, so selecting on the regex shape alone would pull in the CLI
 # suite's — the awk below tracks which matrix entry each `run:` belongs to and
-# keeps only the ones under `cloud: azure` + `suite: cli`.
+# keeps only the ones under `cloud: azure` + `suite: sdk`.
 job_block=$(awk '/^  sim:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
 # Each line is a shard: its run regex, a tab, and its skip regex (empty when the
 # shard skips nothing). A test belongs to a shard when run matches and skip does not.

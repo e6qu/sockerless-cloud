@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_NetworkInterfaceLifecycle covers the standalone ENI
-// lifecycle (create → describe → attach → modify source/dest check → detach →
-// delete), the fck-nat NAT-instance shape.
+// TestEC2_NetworkInterfaceLifecycle covers the fck-nat NAT-instance shape:
+// create, describe, attach, source/dest check off, detach, delete.
 func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -22,7 +21,6 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	sn, err := client.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.77.1.0/24")})
 	require.NoError(t, err)
 
-	// Create a standalone ENI.
 	eniOut, err := client.CreateNetworkInterface(ctx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId:    sn.Subnet.SubnetId,
 		Description: aws.String("fck-nat floating ENI"),
@@ -41,7 +39,6 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	assert.True(t, *desc.NetworkInterfaces[0].SourceDestCheck)
 	assert.Nil(t, desc.NetworkInterfaces[0].Attachment, "an unattached ENI must have no attachment")
 
-	// Run an instance to attach to.
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
@@ -62,7 +59,7 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(attachOut.AttachmentId))
 
-	// NAT instances disable source/dest check.
+	// A NAT instance disables the source/dest check.
 	_, err = client.ModifyNetworkInterfaceAttribute(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
 		NetworkInterfaceId: aws.String(eniID),
 		SourceDestCheck:    &types.AttributeBooleanValue{Value: aws.Bool(false)},
@@ -78,7 +75,6 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	require.NotNil(t, ni.Attachment)
 	assert.Equal(t, instID, aws.ToString(ni.Attachment.InstanceId))
 
-	// Assign a secondary private IP.
 	assignOut, err := client.AssignPrivateIpAddresses(ctx, &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId:             aws.String(eniID),
 		SecondaryPrivateIpAddressCount: aws.Int32(1),
@@ -86,14 +82,12 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, assignOut)
 
-	// Detach → available.
 	_, err = client.DetachNetworkInterface(ctx, &ec2.DetachNetworkInterfaceInput{AttachmentId: attachOut.AttachmentId})
 	require.NoError(t, err)
 	desc, err = client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{NetworkInterfaceIds: []string{eniID}})
 	require.NoError(t, err)
 	assert.Equal(t, types.NetworkInterfaceStatusAvailable, desc.NetworkInterfaces[0].Status)
 
-	// Delete.
 	_, err = client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{NetworkInterfaceId: aws.String(eniID)})
 	require.NoError(t, err)
 	_, err = client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{NetworkInterfaceIds: []string{eniID}})

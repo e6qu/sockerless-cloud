@@ -17,11 +17,8 @@ func kmsClient() *kms.Client {
 	})
 }
 
-// TestKMS_CreateEncryptDecryptCycle pins the canonical envelope flow:
-// CreateKey → Encrypt → Decrypt round-trips plaintext bytes through the
-// sim's structured ciphertext envelope. Real KMS uses HSM-protected key
-// material; the sim's envelope is opaque to SDK callers but reversible
-// — same wire shape.
+// TestKMS_CreateEncryptDecryptCycle round-trips plaintext through Encrypt and
+// Decrypt; the ciphertext is opaque to the caller.
 func TestKMS_CreateEncryptDecryptCycle(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -51,8 +48,6 @@ func TestKMS_CreateEncryptDecryptCycle(t *testing.T) {
 	assert.Contains(t, *decOut.KeyId, keyId, "Decrypt KeyId must reference the encrypting key")
 }
 
-// TestKMS_AliasResolution covers the alias path callers commonly use:
-// CreateAlias → Encrypt(KeyId=alias/...) → ListAliases → DeleteAlias.
 func TestKMS_AliasResolution(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -68,7 +63,6 @@ func TestKMS_AliasResolution(t *testing.T) {
 	require.NoError(t, err)
 	defer c.DeleteAlias(ctx, &kms.DeleteAliasInput{AliasName: aws.String("alias/runner-cache")})
 
-	// Encrypt addressed by alias should resolve to the target key.
 	encOut, err := c.Encrypt(ctx, &kms.EncryptInput{
 		KeyId:     aws.String("alias/runner-cache"),
 		Plaintext: []byte("test"),
@@ -76,7 +70,7 @@ func TestKMS_AliasResolution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, *encOut.KeyId, keyId)
 
-	// Duplicate alias must 400.
+	// A duplicate alias is a 400.
 	_, err = c.CreateAlias(ctx, &kms.CreateAliasInput{
 		AliasName:   aws.String("alias/runner-cache"),
 		TargetKeyId: aws.String(keyId),
@@ -95,9 +89,8 @@ func TestKMS_AliasResolution(t *testing.T) {
 	assert.True(t, found, "ListAliases must include the just-created alias")
 }
 
-// TestKMS_ListAliasesKeyIdFilter proves ListAliases honors the KeyId parameter,
-// returning only aliases pointing at that key. The sim used to ignore KeyId and
-// return every alias in the account.
+// TestKMS_ListAliasesKeyIdFilter expects ListAliases to return only the aliases
+// of the KeyId given.
 func TestKMS_ListAliasesKeyIdFilter(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -122,7 +115,6 @@ func TestKMS_ListAliasesKeyIdFilter(t *testing.T) {
 		assert.Equal(t, idA, aws.ToString(a.TargetKeyId),
 			"KeyId filter must return only aliases for key %s, got alias for %s", idA, aws.ToString(a.TargetKeyId))
 	}
-	// The filtered result must include filter-a and exclude filter-b.
 	var sawA, sawB bool
 	for _, a := range out.Aliases {
 		switch aws.ToString(a.AliasName) {
@@ -136,9 +128,8 @@ func TestKMS_ListAliasesKeyIdFilter(t *testing.T) {
 	assert.False(t, sawB, "KeyId=idA must not list alias/filter-b")
 }
 
-// TestKMS_GenerateDataKey covers envelope encryption — caller gets both
-// the plaintext data key (to use locally) and a wrapped ciphertext (to
-// store alongside the encrypted payload).
+// TestKMS_GenerateDataKey covers envelope encryption: the plaintext data key to
+// use locally and its wrapped ciphertext to store with the payload.
 func TestKMS_GenerateDataKey(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -155,7 +146,6 @@ func TestKMS_GenerateDataKey(t *testing.T) {
 	assert.Len(t, out.Plaintext, 32, "Plaintext must match requested NumberOfBytes")
 	assert.NotEmpty(t, out.CiphertextBlob, "CiphertextBlob must be present")
 
-	// Round-trip the wrapped data key.
 	decOut, err := c.Decrypt(ctx, &kms.DecryptInput{
 		CiphertextBlob: out.CiphertextBlob,
 	})
@@ -201,10 +191,9 @@ func TestKMS_DescribeAndScheduleDeletion(t *testing.T) {
 	assert.Equal(t, "PendingDeletion", string(delOut.KeyState))
 }
 
-// TestKMS_GetKeyPolicyRoundTrip exercises GetKeyPolicy and PutKeyPolicy.
-// terraform-provider-aws calls GetKeyPolicy on every key refresh to populate
-// the `policy` attribute; PutKeyPolicy is called when the operator sets a
-// custom policy document.
+// TestKMS_GetKeyPolicyRoundTrip: terraform-provider-aws reads GetKeyPolicy on
+// every key refresh for the `policy` attribute and calls PutKeyPolicy for a
+// custom document.
 func TestKMS_GetKeyPolicyRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -213,7 +202,7 @@ func TestKMS_GetKeyPolicyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	keyId := *createOut.KeyMetadata.KeyId
 
-	// Fresh key returns the default policy.
+	// A fresh key has the default policy.
 	getOut, err := c.GetKeyPolicy(ctx, &kms.GetKeyPolicyInput{
 		KeyId:      aws.String(keyId),
 		PolicyName: aws.String("default"),
@@ -222,7 +211,6 @@ func TestKMS_GetKeyPolicyRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, *getOut.Policy, "default policy must be non-empty")
 	assert.Equal(t, "default", *getOut.PolicyName)
 
-	// Put a custom policy and read it back.
 	customPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"kms:*","Resource":"*"}]}`
 	_, err = c.PutKeyPolicy(ctx, &kms.PutKeyPolicyInput{
 		KeyId:      aws.String(keyId),
@@ -271,10 +259,8 @@ func TestKMS_ListKeys_Pagination(t *testing.T) {
 	}
 }
 
-// TestKMS_KeyRotation pins the automatic-rotation lifecycle that
-// terraform-provider-aws drives for `aws_kms_key { enable_key_rotation
-// = true }`: GetKeyRotationStatus defaults false, EnableKeyRotation flips
-// it true and reports the rotation period, DisableKeyRotation reverts it.
+// TestKMS_KeyRotation covers the rotation lifecycle terraform-provider-aws
+// drives for `aws_kms_key { enable_key_rotation = true }`.
 func TestKMS_KeyRotation(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -283,12 +269,10 @@ func TestKMS_KeyRotation(t *testing.T) {
 	require.NoError(t, err)
 	keyId := *createOut.KeyMetadata.KeyId
 
-	// Fresh key: rotation disabled.
 	st, err := c.GetKeyRotationStatus(ctx, &kms.GetKeyRotationStatusInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 	assert.False(t, st.KeyRotationEnabled, "new key must default to rotation disabled")
 
-	// Enable with the default annual cadence.
 	_, err = c.EnableKeyRotation(ctx, &kms.EnableKeyRotationInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 
@@ -298,7 +282,6 @@ func TestKMS_KeyRotation(t *testing.T) {
 	require.NotNil(t, st.RotationPeriodInDays)
 	assert.EqualValues(t, 365, *st.RotationPeriodInDays, "default rotation cadence must be 365 days")
 
-	// Re-enable with a custom period.
 	_, err = c.EnableKeyRotation(ctx, &kms.EnableKeyRotationInput{
 		KeyId:                aws.String(keyId),
 		RotationPeriodInDays: aws.Int32(90),
@@ -309,14 +292,12 @@ func TestKMS_KeyRotation(t *testing.T) {
 	require.NotNil(t, st.RotationPeriodInDays)
 	assert.EqualValues(t, 90, *st.RotationPeriodInDays)
 
-	// An out-of-range period is rejected.
 	_, err = c.EnableKeyRotation(ctx, &kms.EnableKeyRotationInput{
 		KeyId:                aws.String(keyId),
 		RotationPeriodInDays: aws.Int32(10),
 	})
 	requireAWSErrorCode(t, err, "ValidationException")
 
-	// Disable reverts to false.
 	_, err = c.DisableKeyRotation(ctx, &kms.DisableKeyRotationInput{KeyId: aws.String(keyId)})
 	require.NoError(t, err)
 	st, err = c.GetKeyRotationStatus(ctx, &kms.GetKeyRotationStatusInput{KeyId: aws.String(keyId)})
@@ -324,12 +305,10 @@ func TestKMS_KeyRotation(t *testing.T) {
 	assert.False(t, st.KeyRotationEnabled, "rotation must report disabled after DisableKeyRotation")
 }
 
-// TestKMS_Tagging pins the tag round-trip that terraform-provider-aws drives
-// for `aws_kms_key { tags = {...} }`: CreateKey --tags must be readable via
-// ListResourceTags (the provider polls it until tags propagate), and
-// TagResource / UntagResource must mutate them. Pre-fix, CreateKey stored tags
-// under the Secrets Manager Key/Value shape so KMS TagKey/TagValue came back
-// empty, and TagResource/UntagResource were unregistered.
+// TestKMS_Tagging covers the tags terraform-provider-aws drives for
+// `aws_kms_key { tags = {...} }`: CreateKey's tags read back through
+// ListResourceTags, which the provider polls until they appear, and
+// TagResource and UntagResource change them.
 func TestKMS_Tagging(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -354,17 +333,15 @@ func TestKMS_Tagging(t *testing.T) {
 		return m
 	}
 
-	// CreateKey --tags must round-trip (the bug: came back as "").
 	got := tagMap()
 	assert.Equal(t, "true", got["edd:managed"], "CreateKey tags must round-trip through ListResourceTags")
 	assert.Equal(t, "dev", got["env"])
 
-	// TagResource adds/overwrites.
 	_, err = c.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(keyId),
 		Tags: []kmstypes.Tag{
 			{TagKey: aws.String("team"), TagValue: aws.String("platform")},
-			{TagKey: aws.String("env"), TagValue: aws.String("prod")}, // overwrite
+			{TagKey: aws.String("env"), TagValue: aws.String("prod")}, // overwrites
 		},
 	})
 	require.NoError(t, err)
@@ -373,7 +350,6 @@ func TestKMS_Tagging(t *testing.T) {
 	assert.Equal(t, "prod", got["env"], "TagResource must overwrite an existing key")
 	assert.Equal(t, "true", got["edd:managed"], "TagResource must preserve untouched tags")
 
-	// UntagResource removes by key.
 	_, err = c.UntagResource(ctx, &kms.UntagResourceInput{
 		KeyId:   aws.String(keyId),
 		TagKeys: []string{"edd:managed"},

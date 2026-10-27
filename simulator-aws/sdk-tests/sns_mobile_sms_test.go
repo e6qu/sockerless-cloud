@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSNS_PlatformApplicationLifecycle exercises the mobile-push platform
-// application CRUD (create → get/list → set → delete) plus the endpoint CRUD
-// nested under it.
+// TestSNS_PlatformApplicationLifecycle covers mobile push platform applications
+// and their endpoints.
 func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
@@ -73,7 +72,7 @@ func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
 	epARN := *ep.EndpointArn
 	assert.Contains(t, epARN, ":endpoint/GCM/sdk-gcm-app/")
 
-	// Idempotent on the same token.
+	// CreatePlatformEndpoint is idempotent on the same token.
 	ep2, err := c.CreatePlatformEndpoint(ctx, &sns.CreatePlatformEndpointInput{
 		PlatformApplicationArn: aws.String(appARN),
 		Token:                  aws.String("device-token-123"),
@@ -116,7 +115,6 @@ func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSNS_GetEndpointAttributes_NotFound confirms the canonical NotFound shape.
 func TestSNS_GetEndpointAttributes_NotFound(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
@@ -129,8 +127,8 @@ func TestSNS_GetEndpointAttributes_NotFound(t *testing.T) {
 		"expected NotFound, got %v", err)
 }
 
-// TestSNS_SMSSandboxFailsWithoutCarrier proves the cloud slice does not
-// manufacture or disclose an OTP when no telecommunications carrier exists.
+// TestSNS_SMSSandboxFailsWithoutCarrier expects no OTP to be made up or
+// disclosed when no telecommunications carrier exists.
 func TestSNS_SMSSandboxFailsWithoutCarrier(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
@@ -162,9 +160,6 @@ func sandboxStatusIs(nums []snstypes.SMSSandboxPhoneNumber, phone string, want s
 	return false
 }
 
-// TestSNS_SMSAttributesAndOptOut exercises the account-wide SMS attribute
-// store, the opt-out list (CheckIfPhoneNumberIsOptedOut / ListPhoneNumbersOptedOut /
-// OptInPhoneNumber), and ListOriginationNumbers.
 func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
 	t.Parallel()
 	c := snsClient()
@@ -182,7 +177,7 @@ func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
 	assert.Equal(t, "Transactional", getAll.Attributes["DefaultSMSType"])
 	assert.Equal(t, "10", getAll.Attributes["MonthlySpendLimit"])
 
-	// Filtered read returns only the requested attribute.
+	// A filtered read returns only the attribute asked for.
 	getOne, err := c.GetSMSAttributes(ctx, &sns.GetSMSAttributesInput{
 		Attributes: []string{"DefaultSMSType"},
 	})
@@ -191,14 +186,12 @@ func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
 	_, present := getOne.Attributes["MonthlySpendLimit"]
 	assert.False(t, present, "filtered GetSMSAttributes must not return unrequested attributes")
 
-	// A never-opted-out number reads back as not opted out.
 	check, err := c.CheckIfPhoneNumberIsOptedOut(ctx, &sns.CheckIfPhoneNumberIsOptedOutInput{
 		PhoneNumber: aws.String("+12065550199"),
 	})
 	require.NoError(t, err)
 	assert.False(t, check.IsOptedOut)
 
-	// The opt-out list starts empty; OptInPhoneNumber is idempotent.
 	listOut, err := c.ListPhoneNumbersOptedOut(ctx, &sns.ListPhoneNumbersOptedOutInput{})
 	require.NoError(t, err)
 	assert.NotContains(t, listOut.PhoneNumbers, "+12065550199")
@@ -208,14 +201,12 @@ func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// ListOriginationNumbers succeeds (a fresh account has none provisioned).
+	// A new account has no origination numbers.
 	orig, err := c.ListOriginationNumbers(ctx, &sns.ListOriginationNumbersInput{})
 	require.NoError(t, err)
 	assert.NotNil(t, orig)
 }
 
-// TestSNS_DataProtectionPolicy stores and reads back a per-topic
-// data-protection policy.
 func TestSNS_DataProtectionPolicy(t *testing.T) {
 	t.Parallel()
 	c := snsClient()

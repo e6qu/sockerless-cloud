@@ -114,11 +114,8 @@ func runEnginelessChild(t *testing.T, mode RuntimeMode) (string, error) {
 	return string(output), err
 }
 
-// TestResolveRuntimeModeRefusesAModeItDoesNotImplement covers the variable that
-// selects the mode. It is the only thing standing between a process that runs
-// workloads and one that cannot, so a value the simulator does not implement is
-// a misconfiguration to report at startup rather than to read as "not
-// API-only".
+// A value the simulator does not implement is a misconfiguration to report at
+// startup, never to read as "not API-only".
 func TestResolveRuntimeModeRefusesAModeItDoesNotImplement(t *testing.T) {
 	for _, mode := range []struct {
 		value string

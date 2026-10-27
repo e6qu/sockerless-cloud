@@ -9,10 +9,9 @@ import (
 	"sync"
 )
 
-// ec2DedicatedHostFacts is one Dedicated Host family as the vendored Price
-// List states it: the host's vCPUs and physical cores, and how many instances
-// of each instance type the host holds when it runs that type alone. A family
-// whose offer states no per-size capacity has an empty Capacity.
+// From the vendored Price List: the host's vCPUs and cores, and how many
+// instances of each type it holds running that type alone. An offer without
+// per-size capacity leaves Capacity empty.
 type ec2DedicatedHostFacts struct {
 	VCpus    int
 	Cores    int
@@ -47,8 +46,7 @@ var ec2DedicatedHostCatalog = sync.OnceValue(func() map[string]ec2DedicatedHostF
 			if err != nil {
 				panic(fmt.Sprintf("vendored Dedicated Host family %s states instanceCapacity-%s %q", h.InstanceFamily, size, value))
 			}
-			// The offer file capitalizes the sizes (`Large`, `Xlarge`,
-			// `Metal`) that instance type names spell in lower case.
+			// The offer file capitalizes the sizes (`Large`, `Xlarge`, `Metal`).
 			facts.Capacity[h.InstanceFamily+"."+strings.ToLower(size)] = count
 		}
 		catalog[h.InstanceFamily] = facts
@@ -56,8 +54,7 @@ var ec2DedicatedHostCatalog = sync.OnceValue(func() map[string]ec2DedicatedHostF
 	return catalog
 })
 
-// ec2HostFamily is the instance family a host was allocated for: the family
-// it names, or the family of the one instance type it names.
+// The family it names, or that of the one instance type it names.
 func ec2HostFamily(h EC2Host) string {
 	if h.InstanceFamily != "" {
 		return h.InstanceFamily
@@ -66,8 +63,7 @@ func ec2HostFamily(h EC2Host) string {
 	return family
 }
 
-// ec2HostInstances are the instances placed on the host that hold its
-// capacity: every one not terminated or terminating.
+// Every placed instance not terminated or terminating holds capacity.
 func ec2HostInstances(hostID string) []EC2Instance {
 	placed := ec2Instances.Filter(func(inst EC2Instance) bool {
 		return inst.Placement.HostId == hostID && inst.State != "terminated" && inst.State != "shutting-down"
@@ -76,18 +72,14 @@ func ec2HostInstances(hostID string) []EC2Instance {
 	return placed
 }
 
-// ec2HostTypeCapacity is one instance type's room on a host.
 type ec2HostTypeCapacity struct {
 	InstanceType string
 	Available    int
 	Total        int
 }
 
-// ec2HostCapacity is what is left on a host: its vCPUs less those of the
-// instances placed on it, and for each instance type the host runs, the
-// instances of that type still fitting, which is the Price List's count for
-// the type bounded by the vCPUs left. A host allocated for one instance type
-// runs that type only.
+// Per type, the Price List's count bounded by the vCPUs left. A host allocated
+// for one type runs only that type.
 func ec2HostCapacity(h EC2Host, placed []EC2Instance) (availableVCpus int, types []ec2HostTypeCapacity) {
 	facts, known := ec2DedicatedHostCatalog()[ec2HostFamily(h)]
 	if !known {
@@ -118,10 +110,9 @@ func ec2HostCapacity(h EC2Host, placed []EC2Instance) (availableVCpus int, types
 	return availableVCpus, types
 }
 
-// ec2HostRefusal is the message refusing an instance of instanceType a place
-// on the host, or "" when it fits: a host runs only its own family (only its
-// one type, when allocated for one), and an instance needs its vCPUs free and,
-// where the Price List states the type's count, a free slot of that type.
+// Returns "" when the instance fits: a host runs only its own family (or its
+// one type), and an instance needs its vCPUs free and, where the Price List
+// states a count, a free slot of its type.
 func ec2HostRefusal(h EC2Host, instanceType string) string {
 	if h.State != "available" {
 		return fmt.Sprintf("Host %s is %s and accepts no instances", h.HostId, h.State)
@@ -150,6 +141,5 @@ func ec2HostRefusal(h EC2Host, instanceType string) string {
 	return fmt.Sprintf("Host %s has no capacity left for instance type %s", h.HostId, instanceType)
 }
 
-// ec2HostPlacementMu serializes the capacity check and the placement it
-// admits, so two launches onto one host cannot both take its last slot.
+// Two launches onto one host must not both take its last slot.
 var ec2HostPlacementMu sync.Mutex

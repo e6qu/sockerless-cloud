@@ -10,13 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmAWSJSON posts an awsJson1.1 request to the SSM router directly. The
-// Session Manager StartSession/ResumeSession CLI commands shell out to the
-// session-manager-plugin (the WebSocket data plane, out of scope), so a
-// session is created here exactly as a faithful awsJson client would, then the
-// CLI exercises the metadata-only DescribeSessions/TerminateSession/
-// GetConnectionStatus reads. StartSession/ResumeSession's contract hook is
-// satisfied by the SDK test.
+// ssmAWSJSON posts an awsJson1.1 request to Systems Manager directly. The CLI's
+// start-session and resume-session hand the WebSocket data plane to the
+// session-manager-plugin, so the test starts the session as an awsJson client
+// would and the CLI covers the metadata reads; the SDK test covers
+// StartSession and ResumeSession.
 func ssmAWSJSON(t *testing.T, action string, in, out any) {
 	t.Helper()
 	body, err := json.Marshal(in)
@@ -35,7 +33,6 @@ func ssmAWSJSON(t *testing.T, action string, in, out any) {
 	}
 }
 
-// TestSSMCLI_OpsItemLifecycle pins the OpsCenter slice through the aws CLI.
 func TestSSMCLI_OpsItemLifecycle(t *testing.T) {
 	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-ops-item",
@@ -125,7 +122,6 @@ func TestSSMCLI_OpsItemLifecycle(t *testing.T) {
 	require.Empty(t, rel.Summaries)
 }
 
-// TestSSMCLI_MaintenanceWindowExecution pins the execution-side reads + updates.
 func TestSSMCLI_MaintenanceWindowExecution(t *testing.T) {
 	t.Parallel()
 	cwOut := runCLI(t, awsCLI("ssm", "create-maintenance-window",
@@ -288,10 +284,8 @@ func TestSSMCLI_MaintenanceWindowExecution(t *testing.T) {
 	require.Equal(t, execID, cancel.WindowExecutionId)
 }
 
-// TestSSMCLI_Session pins the metadata-only Session Manager reads. The session
-// is created via a faithful awsJson StartSession call (the CLI start-session
-// shells out to the session-manager-plugin for the WebSocket, out of scope);
-// the CLI then exercises GetConnectionStatus / DescribeSessions / TerminateSession.
+// TestSSMCLI_Session covers GetConnectionStatus, DescribeSessions and
+// TerminateSession on a session ssmAWSJSON starts.
 func TestSSMCLI_Session(t *testing.T) {
 	t.Parallel()
 	target := "i-cli" + ssmStamp()
@@ -353,7 +347,6 @@ func TestSSMCLI_Session(t *testing.T) {
 	require.True(t, foundHist)
 }
 
-// TestSSMCLI_Activation pins the hybrid-activation slice.
 func TestSSMCLI_Activation(t *testing.T) {
 	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-activation",

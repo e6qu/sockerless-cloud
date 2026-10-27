@@ -187,9 +187,8 @@ func handleDescribeInstances(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// MaxResults/NextToken pagination applies only to the list form (not when
-	// explicit InstanceIds are requested), matching real EC2. Sort by id for a
-	// stable offset cursor across pages.
+	// Paginate only the list form, not explicit InstanceIds; sort by id for a
+	// stable cursor.
 	nextToken := ""
 	if len(instanceIDs) == 0 {
 		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, instances, func(it EC2Instance) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
@@ -312,12 +311,8 @@ func handleStartInstances(w http.ResponseWriter, r *http.Request) {
 	writeInstanceStateChange(w, r, "running", false)
 }
 
-// ec2HaltInstance moves one instance to "stopped" or "terminated": a boot
-// still in progress is cancelled, and the modeled state, transition reason and
-// volume attachments change exactly as the StopInstances handler records
-// them. It exists as its own function because more than the
-// HTTP handler halts instances — an AWS Budgets SSM action stops instances
-// too, and a second copy of these semantics would drift.
+// A boot in progress is cancelled. An AWS Budgets SSM action halts instances
+// too, so the semantics live here once.
 func ec2HaltInstance(ctx context.Context, id, next string) error {
 	inst, ok := ec2Instances.Get(id)
 	if !ok {
@@ -336,8 +331,7 @@ func ec2HaltInstance(ctx context.Context, id, next string) error {
 	return nil
 }
 
-// ec2HaltTransition is the state an instance reports while its machine goes
-// down: stopping ahead of stopped, shutting-down ahead of terminated.
+// stopping ahead of stopped, shutting-down ahead of terminated.
 func ec2HaltTransition(next string) string {
 	if next == "terminated" {
 		return "shutting-down"
@@ -360,7 +354,7 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 		case next == "terminated" && (prev == "terminated" || prev == "shutting-down"),
 			next == "stopped" && (prev == "stopped" || prev == "stopping"),
 			next == "running" && (prev == "running" || prev == "pending"):
-			// The instance is already where the call takes it.
+			// Already in the target state.
 			current = prev
 		case next == "stopped" && (prev == "terminated" || prev == "shutting-down"),
 			next == "running" && prev != "stopped":
@@ -374,8 +368,7 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 			inst, _ = ec2Instances.Get(id)
 			current = inst.State
 		default:
-			// A stopped instance boots its kept machine again: pending until
-			// the init is ready, then running.
+			// pending until the init is ready, then running.
 			inst.State = "pending"
 			inst.StateTransitionReason = ""
 			inst.StateReasonCode = ""
@@ -405,15 +398,9 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 </%sResponse>`, action, ec2Xmlns(), sim.NewUUID(), items.String(), action)
 }
 
-// ec2UpdateVolumeAttachmentsForInstance restamps every volume attached to an
-// instance when that instance reaches a new state.
-//
-// The listing only chooses which rows to visit; whether a row is attached to
-// this instance is decided inside Update, under the store's write lock, against
-// the value as it is then. Deciding from the listed copy instead would let a
-// volume detached in the meantime be written back with its attachment intact —
-// the API having already reported the detach — and the DeleteVolume that
-// follows is then refused as VolumeInUse.
+// Decide attachment inside Update, under the write lock: a listed copy could
+// write back a volume detached meanwhile, and the following DeleteVolume would
+// fail VolumeInUse.
 func ec2UpdateVolumeAttachmentsForInstance(instanceID, attachmentState, volumeState string) {
 	for _, listed := range ec2Volumes.List() {
 		ec2Volumes.Update(listed.VolumeId, func(vol *EC2Volume) {
@@ -431,13 +418,8 @@ func ec2UpdateVolumeAttachmentsForInstance(instanceID, attachmentState, volumeSt
 	}
 }
 
-// ec2DeleteOnTerminationVolumes releases the volumes a terminating instance
-// held, deleting the ones it was told to delete with it and detaching the rest.
-//
-// Which attachments a volume has is read inside Update, for the same reason the
-// attachment restamp reads it there: a listed copy can already be out of date by
-// the time it is written back. The backing store is removed outside the lock,
-// since it is filesystem work and the row is gone by then either way.
+// Read attachments inside Update for the same reason. Remove the backing
+// store outside the lock; the row is gone either way.
 func ec2DeleteOnTerminationVolumes(instanceID string) {
 	for _, listed := range ec2Volumes.List() {
 		var dockerVolume, hostPath string
@@ -550,8 +532,7 @@ func ec2ValidShutdownBehavior(w http.ResponseWriter, value string) bool {
 	return false
 }
 
-// ec2ShutdownBehavior is the instance's InstanceInitiatedShutdownBehavior; an
-// instance recorded without one has EC2's default.
+// A record without one has Amazon EC2's default.
 func ec2ShutdownBehavior(inst EC2Instance) string {
 	if inst.ShutdownBehavior == "" {
 		return "stop"
@@ -569,8 +550,7 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	if shutdownBehavior != "" && !ec2ValidShutdownBehavior(w, shutdownBehavior) {
 		return
 	}
-	// Persist the modified attributes (previously a no-op: the set succeeded but
-	// DescribeInstances/DescribeInstanceAttribute still showed the old value).
+	// Persist the modified attributes.
 	var regrouped string
 	ec2Instances.Update(instanceID, func(inst *EC2Instance) {
 		if v := r.FormValue("SourceDestCheck.Value"); v != "" {
@@ -603,8 +583,7 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<ModifyInstanceAttributeResponse %s><requestId>%s</requestId><return>true</return></ModifyInstanceAttributeResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// handleModifyInstanceMetadataOptions updates an instance's metadata options in
-// place — the provider's path for an aws_instance.metadata_options change.
+// The provider's path for an aws_instance.metadata_options change.
 func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
@@ -640,9 +619,8 @@ func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request)
 		ec2Xmlns(), sim.NewUUID(), instanceID, inst.MetadataHttpTokens, hop, inst.MetadataHttpEndpoint, ec2MetadataHttpProtocolIpv6(inst), inst.MetadataInstanceTags)
 }
 
-// handleDescribeImages lists the AMIs the account can see: the public ones
-// the simulator publishes and the ones the account registered, created,
-// copied or imported, narrowed by ImageIds, Owners and the filters.
+// Published AMIs plus those the account registered, created, copied or
+// imported, narrowed by ImageIds, Owners and filters.
 func handleDescribeImages(w http.ResponseWriter, r *http.Request) {
 	imageIDs := ec2ParamList(r, "ImageId")
 	owners := ec2ParamList(r, "Owner")
@@ -667,9 +645,8 @@ func handleDescribeImages(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DescribeImagesResponse %s><requestId>%s</requestId><imagesSet>%s</imagesSet></DescribeImagesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// ec2ImageArchitecture is the architecture of the AMI an instance launches
-// from; an AMI the launch path could not find reports x86_64 until the boot
-// refuses it.
+// An AMI the launch path cannot find reports x86_64 until the boot refuses
+// it.
 func ec2ImageArchitecture(imageID string) string {
 	if img, ok := ec2LookupImage(imageID); ok && img.Architecture != "" {
 		return img.Architecture
@@ -677,10 +654,8 @@ func ec2ImageArchitecture(imageID string) string {
 	return "x86_64"
 }
 
-// handleDescribeInstanceTypeOfferings reports the instance types the
-// vendored catalog lists, each offered in every requested (or default)
-// location. Filters honoured: `instance-type`, with wildcards, and `location`;
-// LocationType selects region / availability-zone / -id scope.
+// Every catalog type is offered in every requested location. Filters:
+// `instance-type` with wildcards, and `location`.
 func handleDescribeInstanceTypeOfferings(w http.ResponseWriter, r *http.Request) {
 	locationType := r.FormValue("LocationType")
 	if locationType == "" {
@@ -702,7 +677,7 @@ func handleDescribeInstanceTypeOfferings(w http.ResponseWriter, r *http.Request)
 			locations = []string{awsAvailabilityZone()}
 		case "availability-zone-id":
 			locations = []string{awsRegion() + "-az1"}
-		default: // region
+		default:
 			locations = []string{awsRegion()}
 		}
 	}

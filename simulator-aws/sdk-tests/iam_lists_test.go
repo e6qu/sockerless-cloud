@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_ListRolesAndTags covers ListRoles + ListRoleTags: a role
-// created with tags is enumerable and its tags read back.
 func TestIAM_ListRolesAndTags(t *testing.T) {
 	t.Parallel()
 	roleName := uniquename.New("eddsim-list-role")
@@ -41,8 +39,6 @@ func TestIAM_ListRolesAndTags(t *testing.T) {
 	assert.Equal(t, "platform", aws.ToString(tags.Tags[0].Value))
 }
 
-// TestIAM_ListPolicyVersionsAndTags covers ListPolicyVersions and
-// ListPolicyTags.
 func TestIAM_ListPolicyVersionsAndTags(t *testing.T) {
 	t.Parallel()
 	policyName := uniquename.New("list-versions-policy")
@@ -66,7 +62,7 @@ func TestIAM_ListPolicyVersionsAndTags(t *testing.T) {
 	require.Len(t, tags.Tags, 1)
 	assert.Equal(t, "env", aws.ToString(tags.Tags[0].Key))
 
-	// Unknown policy ARN is a NoSuchEntity, not a 500.
+	// An unknown policy ARN is NoSuchEntity, not a 500.
 	_, err = c.ListPolicyVersions(ctx, &iam.ListPolicyVersionsInput{PolicyArn: aws.String("arn:aws:iam::000000000000:policy/does-not-exist")})
 	require.Error(t, err)
 }

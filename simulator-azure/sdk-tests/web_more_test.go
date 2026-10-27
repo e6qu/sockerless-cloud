@@ -12,14 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// web_more_test.go exercises the broadened Microsoft.Web slice in
-// simulator-azure/web_more*.go: App Service plan list/patch/usages, web-app
-// lifecycle + config sections + deployments / host-name bindings / source
-// control / site extensions, deployment slots and their config, the
-// subscription-global catalogs, and Static Web Apps. Every resource is read
-// back through GET + list-by-RG + list-by-subscription so the spec-shape
-// validator sees each response (single + collection) — a field leak that only
-// surfaces on a list path would otherwise slip through.
+// The broader Microsoft.Web slice: plan list, patch and usages; web app
+// lifecycle, config sections, deployments, host-name bindings, source control
+// and site extensions; deployment slots; the subscription-global catalogs; and
+// Static Web Apps. Each resource reads back through GET and both lists, so the
+// spec-shape validator sees single and collection responses: a field leak only
+// a list shows would otherwise slip through.
 
 func webMoreEnsurePlan(t *testing.T, rg, plan string) string {
 	t.Helper()
@@ -50,14 +48,12 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 	client, err := armappservice.NewPlansClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// PATCH the plan.
 	upd, err := client.Update(ctx, rg, "wm-plan", armappservice.PlanPatchResource{
 		Properties: &armappservice.PlanPatchResourceProperties{},
 	}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, upd.ID)
 
-	// List by resource group.
 	rgPager := client.NewListByResourceGroupPager(rg, nil)
 	foundRG := false
 	for rgPager.More() {
@@ -71,7 +67,6 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 	}
 	assert.True(t, foundRG, "plan must appear in list-by-resource-group")
 
-	// List by subscription.
 	subPager := client.NewListPager(nil)
 	foundSub := false
 	for subPager.More() {
@@ -85,7 +80,6 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 	}
 	assert.True(t, foundSub, "plan must appear in list-by-subscription")
 
-	// Usages + restart-web-apps + web-apps-by-plan.
 	usagePager := client.NewListWebAppsPager(rg, "wm-plan", nil)
 	for usagePager.More() {
 		_, err := usagePager.NextPage(ctx)
@@ -125,13 +119,11 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	name := "wm-site"
 	webMoreCreateSite(t, client, rg, name, planID)
 
-	// PATCH the site.
 	_, err = client.Update(ctx, rg, name, armappservice.SitePatchResource{
 		Properties: &armappservice.SitePatchResourceProperties{HTTPSOnly: to.Ptr(true)},
 	}, nil)
 	require.NoError(t, err)
 
-	// Lifecycle actions.
 	_, err = client.Stop(ctx, rg, name, nil)
 	require.NoError(t, err)
 	_, err = client.Start(ctx, rg, name, nil)
@@ -139,14 +131,12 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	_, err = client.Restart(ctx, rg, name, nil)
 	require.NoError(t, err)
 
-	// ListConfigurations.
 	cfgPager := client.NewListConfigurationsPager(rg, name, nil)
 	for cfgPager.More() {
 		_, err := cfgPager.NextPage(ctx)
 		require.NoError(t, err)
 	}
 
-	// Metadata round-trip.
 	_, err = client.UpdateMetadata(ctx, rg, name, armappservice.StringDictionary{
 		Properties: map[string]*string{"k1": to.Ptr("v1")},
 	}, nil)
@@ -156,7 +146,6 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	require.NotNil(t, md.Properties)
 	assert.Equal(t, "v1", *md.Properties["k1"])
 
-	// Auth settings (v1 + v2).
 	_, err = client.UpdateAuthSettings(ctx, rg, name, armappservice.SiteAuthSettings{
 		Properties: &armappservice.SiteAuthSettingsProperties{Enabled: to.Ptr(false)},
 	}, nil)
@@ -171,14 +160,12 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Backups (empty).
 	bkPager := client.NewListBackupsPager(rg, name, nil)
 	for bkPager.More() {
 		_, err := bkPager.NextPage(ctx)
 		require.NoError(t, err)
 	}
 
-	// Usages.
 	usagePager := client.NewListUsagesPager(rg, name, nil)
 	for usagePager.More() {
 		_, err := usagePager.NextPage(ctx)
@@ -199,7 +186,6 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	name := "wm-subres-site"
 	webMoreCreateSite(t, client, rg, name, planID)
 
-	// Deployment round-trip.
 	_, err = client.CreateDeployment(ctx, rg, name, "deploy1", armappservice.Deployment{
 		Properties: &armappservice.DeploymentProperties{
 			Status:  to.Ptr[int32](4),
@@ -221,7 +207,6 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	_, err = client.ListDeploymentLog(ctx, rg, name, "deploy1", nil)
 	require.NoError(t, err)
 
-	// Host-name binding round-trip.
 	_, err = client.CreateOrUpdateHostNameBinding(ctx, rg, name, "www.example.com", armappservice.HostNameBinding{
 		Properties: &armappservice.HostNameBindingProperties{
 			SiteName:     to.Ptr(name),
@@ -238,7 +223,6 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Source control round-trip.
 	repo := githttp.StartRepo(t, "webmore")
 	repo.Commit("main", "Initial content", map[string]string{"index.html": "webmore"})
 	scPoller, err := client.BeginCreateOrUpdateSourceControl(ctx, rg, name, armappservice.SiteSourceControl{
@@ -255,7 +239,6 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	require.NotNil(t, gotSC.Properties)
 	assert.Equal(t, "main", *gotSC.Properties.Branch)
 
-	// Site extension round-trip.
 	extPoller, err := client.BeginInstallSiteExtension(ctx, rg, name, "Monaco", nil)
 	require.NoError(t, err)
 	_, err = extPoller.PollUntilDone(ctx, nil)
@@ -268,7 +251,6 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Basic publishing-credentials policies.
 	policyPager := client.NewListBasicPublishingCredentialsPoliciesPager(rg, name, nil)
 	for policyPager.More() {
 		_, err := policyPager.NextPage(ctx)
@@ -280,13 +262,11 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ftp.Properties)
 
-	// Publishing profile XML.
 	_, err = client.ListPublishingProfileXMLWithSecrets(ctx, rg, name, armappservice.CsmPublishingProfileOptions{
 		Format: to.Ptr(armappservice.PublishingProfileFormatWebDeploy),
 	}, nil)
 	require.NoError(t, err)
 
-	// Function create/delete.
 	fnPoller, err := client.BeginCreateFunction(ctx, rg, name, "fn1", armappservice.FunctionEnvelope{
 		Properties: &armappservice.FunctionEnvelopeProperties{},
 	}, nil)
@@ -312,7 +292,6 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	name, slot := "wm-slot-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
 
-	// Create slot.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, slot, armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp,linux,container"),
@@ -339,7 +318,6 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, *got.Identity.PrincipalID, *byScope.Properties.PrincipalID)
 
-	// List slots.
 	slotPager := client.NewListSlotsPager(rg, name, nil)
 	found := false
 	for slotPager.More() {
@@ -349,7 +327,6 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	}
 	assert.True(t, found, "slot must appear in list-slots")
 
-	// Slot config: app settings + web.
 	_, err = client.UpdateApplicationSettingsSlot(ctx, rg, name, slot, armappservice.StringDictionary{
 		Properties: map[string]*string{"S1": to.Ptr("val")},
 	}, nil)
@@ -368,13 +345,11 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Slot lifecycle.
 	_, err = client.StopSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 	_, err = client.StartSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 
-	// Slot publishing credentials (LRO, secret-bearing).
 	credPoller, err := client.BeginListPublishingCredentialsSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 	creds, err := credPoller.PollUntilDone(ctx, nil)
@@ -383,7 +358,6 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	assert.Equal(t, "$"+name+"__"+slot, *creds.Properties.PublishingUserName,
 		"a slot publishes as $<app>__<slot>")
 
-	// Swap slot with production (LRO).
 	swapPoller, err := client.BeginSwapSlotWithProduction(ctx, rg, name, armappservice.CsmSlotEntity{
 		TargetSlot:   to.Ptr(slot),
 		PreserveVnet: to.Ptr(true),
@@ -392,7 +366,6 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	_, err = swapPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Delete slot.
 	_, err = client.DeleteSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 }
@@ -461,7 +434,6 @@ func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Subscription-global catalogs.
 	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	_, err = mgmt.GetSubscriptionDeploymentLocations(ctx, nil)
@@ -474,7 +446,6 @@ func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Deleted web apps (subscription-wide + by-location).
 	delClient, err := armappservice.NewDeletedWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	delPager := delClient.NewListPager(nil)

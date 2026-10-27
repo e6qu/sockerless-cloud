@@ -7,21 +7,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ValidateSecurityGroupQuotasForInterface answers whether a set of security
-// groups could all be attached to one network interface without crossing the
-// Amazon VPC quotas AWS documents: the rules a security group may carry, and
-// the security groups a network interface may have.
-//
-// Both are published defaults rather than anything the simulator invents, and
-// both are adjustable in a real account — a caller that has raised them will
-// read a stricter answer here than AWS would give. Recording them as the
-// documented defaults is the closest a reimplementation gets without the
-// account's own Service Quotas state, and it is a real computation over the
-// security groups the simulator holds rather than a canned Valid=true.
-//
-// AWS notes that only authorized AWS services may call this operation; the
-// authorization gate is the simulator's IAM path, not this handler, which
-// answers the question it is asked.
+// Check against the Amazon VPC quotas AWS documents: rules per security group
+// and security groups per network interface. Both are adjustable defaults, so
+// an account that raised them gets a stricter answer here than from AWS.
+// Only authorized AWS services may call the operation; the IAM path enforces
+// that.
 const (
 	// Inbound or outbound rules per security group.
 	ec2RulesPerSecurityGroupQuota = 60
@@ -29,9 +19,8 @@ const (
 	ec2SecurityGroupsPerInterfaceQuota = 5
 )
 
-// ec2SecurityGroupRuleCount counts rules the way AWS counts them against the
-// quota: one per source or destination in a permission, not one per permission.
-// A permission naming three CIDRs is three rules.
+// AWS counts one rule per source or destination, so a permission naming three
+// CIDRs is three rules.
 func ec2SecurityGroupRuleCount(permissions []EC2IpPermission) int {
 	n := 0
 	for _, p := range permissions {

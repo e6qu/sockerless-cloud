@@ -21,7 +21,6 @@ func TestAppInsights_ComponentCRUD(t *testing.T) {
 	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Create
 	createResp, err := client.CreateOrUpdate(ctx, rgName, componentName, armapplicationinsights.Component{
 		Location: ptrStr("eastus"),
 		Kind:     ptrStr("web"),
@@ -36,17 +35,14 @@ func TestAppInsights_ComponentCRUD(t *testing.T) {
 	assert.NotEmpty(t, *createResp.Properties.ConnectionString)
 	assert.Contains(t, *createResp.Properties.ConnectionString, "InstrumentationKey=")
 
-	// Get
 	getResp, err := client.Get(ctx, rgName, componentName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, componentName, *getResp.Name)
 	assert.Equal(t, *createResp.Properties.InstrumentationKey, *getResp.Properties.InstrumentationKey)
 
-	// Delete
 	_, err = client.Delete(ctx, rgName, componentName, nil)
 	require.NoError(t, err)
 
-	// Get after delete — must 404
 	_, err = client.Get(ctx, rgName, componentName, nil)
 	assert.Error(t, err, "Get after delete should fail with 404")
 }
@@ -71,7 +67,7 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Re-create (upsert) — instrumentation key must be stable across updates
+	// The instrumentation key stays stable across an upsert.
 	second, err := client.CreateOrUpdate(ctx, rgName, name, armapplicationinsights.Component{
 		Location: ptrStr("westus"),
 		Kind:     ptrStr("web"),
@@ -83,11 +79,8 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 	assert.Equal(t, *first.Properties.InstrumentationKey, *second.Properties.InstrumentationKey)
 }
 
-// TestAppInsights_BillingFeatures covers the currentbillingfeatures GET/PUT
-// surface via armapplicationinsights.ComponentCurrentBillingFeaturesClient.
-// The response must use Azure's camelCase wire shape — with PascalCase keys
-// the SDK silently deserialized CurrentBillingFeatures/DataVolumeCap to nil
-// , which this test would have caught.
+// TestAppInsights_BillingFeatures covers currentbillingfeatures GET and PUT.
+// Azure's wire shape is camelCase; the SDK reads PascalCase keys as nil.
 func TestAppInsights_BillingFeatures(t *testing.T) {
 	t.Parallel()
 	rgName, componentName := "insights-billing-rg", uniquename.New("billing-component")
@@ -123,12 +116,12 @@ func TestAppInsights_BillingFeatures(t *testing.T) {
 		}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, updateResp.CurrentBillingFeatures)
-	// PUT must echo the submitted cap, not a static value.
+	// PUT echoes the submitted cap.
 	require.NotNil(t, updateResp.DataVolumeCap)
 	require.NotNil(t, updateResp.DataVolumeCap.Cap)
 	assert.Equal(t, float32(200), *updateResp.DataVolumeCap.Cap)
 
-	// And a subsequent GET must return the persisted cap.
+	// A later GET returns the persisted cap.
 	afterGet, err := billing.Get(ctx, rgName, componentName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, afterGet.DataVolumeCap.Cap)
@@ -139,10 +132,8 @@ func ptrApplicationType(s armapplicationinsights.ApplicationType) *armapplicatio
 	return &s
 }
 
-// The plan a component starts on is shared by every component that has no
-// record of its own, so no request may be able to write to it. A PUT naming
-// the Enterprise plan used to decode straight into the default's own slice,
-// and every component created afterwards started on Enterprise.
+// Every component with no record of its own shares the default plan, so no
+// request may write to it.
 func TestAppInsights_OneComponentsPlanIsNotAnothersDefault(t *testing.T) {
 	t.Parallel()
 	const rgName = "insights-default-rg"

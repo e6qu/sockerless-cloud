@@ -9,12 +9,9 @@ import (
 	"time"
 )
 
-// GetLogEvents returns a bounded page anchored at the end of the stream the
-// caller asked for. With startFromHead unset — the documented default, and what
-// every CLI read that does not pass it sends — that end is the tail, so an
-// unbounded page is not a harmless superset: a reader of a busy stream is shown
-// the beginning of history where the service would have shown them the latest
-// lines, and concludes the workload is producing nothing.
+// Without startFromHead, the documented default, the page is anchored at the
+// tail; an unbounded page would show a busy stream's oldest lines instead of
+// its latest.
 func TestGetLogEventsReturnsABoundedPageFromTheRequestedEnd(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 	handler, ok := jsonRouter.Handler("Logs_20140328.GetLogEvents")
@@ -109,8 +106,7 @@ func TestGetLogEventsReturnsABoundedPageFromTheRequestedEnd(t *testing.T) {
 	})
 }
 
-// The 1 MB payload bound applies before the event-count bound, so a stream of
-// large messages returns fewer than the maximum event count.
+// The 1 MB payload bound applies before the event-count bound.
 func TestGetLogEventsDefaultPageHonoursThePayloadBound(t *testing.T) {
 	big := strings.Repeat("x", 64*1024)
 	events := make([]CWLogEvent, 64)

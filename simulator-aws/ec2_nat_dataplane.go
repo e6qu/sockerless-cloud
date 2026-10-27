@@ -17,19 +17,15 @@ import (
 )
 
 // A NAT gateway's data plane is an egress sidecar at the gateway's private
-// address on its VPC's network: an instance or task whose subnet's route
-// table sends 0.0.0.0/0 to the gateway has its default route pointed at
-// that address, so what it sends out of the VPC leaves from the gateway's
-// address, with the gateway's idle timeout, and counts in the gateway's
-// metrics. A regional gateway runs one sidecar in each zone it covers, at
-// its address in that zone, and a subnet leaves through its own zone's.
+// address on the VPC network. A workload whose route table sends 0.0.0.0/0 to
+// the gateway gets that address as default route, so its egress leaves from
+// the gateway with the gateway's idle timeout and counts in its metrics. A
+// regional gateway runs one sidecar per covered zone.
 
-// ec2NatGatewayIdleTimeout is how long a NAT gateway keeps an idle
-// connection: 350 seconds, after which it sends nothing on it.
+// Amazon VPC drops a NAT connection idle for 350 seconds.
 const ec2NatGatewayIdleTimeout = 350 * time.Second
 
-// ec2NatGatewayStopGrace is how long a gateway's sidecar gets to report what
-// its connections carried when the gateway goes.
+// Grace for the sidecar to report what its connections carried.
 const ec2NatGatewayStopGrace = 10 * time.Second
 
 type ec2NatEgress struct {
@@ -42,8 +38,7 @@ type ec2NatEgress struct {
 
 var (
 	ec2NatEgressMu sync.Mutex
-	// ec2NatEgresses holds the running sidecars by gateway id, and a
-	// regional gateway's by gateway id and zone.
+	// Keyed by gateway id, plus zone for a regional gateway.
 	ec2NatEgresses = map[string]*ec2NatEgress{}
 )
 
@@ -54,8 +49,7 @@ func ec2NatEgressKey(natID, zone string) string {
 	return natID + "/" + zone
 }
 
-// ec2EnsureVPCNatGateways runs the egress sidecar of every available NAT
-// gateway of the VPC on the VPC's network, which exists by now.
+// The VPC's network exists by now.
 func ec2EnsureVPCNatGateways(ctx context.Context, vpcID string, network awsWorkloadNetwork) error {
 	if ec2NatGateways == nil {
 		return nil
@@ -68,9 +62,8 @@ func ec2EnsureVPCNatGateways(ctx context.Context, vpcID string, network awsWorkl
 	return nil
 }
 
-// ec2EnsureNatGatewayEgress starts the gateway's sidecars once: a zonal
-// gateway's at its primary address, a regional gateway's at its address in
-// each zone it covers, and replaces one a zone's address moved away from.
+// A zonal gateway runs at its primary address, a regional one at its address
+// in each covered zone; a sidecar whose zone address moved is replaced.
 func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network awsWorkloadNetwork) error {
 	if natgw.State != "available" {
 		return nil
@@ -92,9 +85,8 @@ func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network
 	return nil
 }
 
-// ec2EnsureNatEgress starts one sidecar of the gateway; a container a
-// previous simulator process left for it is replaced, its token having died
-// with that process.
+// Replace a container a previous process left: its token died with that
+// process.
 func ec2EnsureNatEgress(ctx context.Context, natgw EC2NatGateway, zone, privateIP string, network awsWorkloadNetwork) error {
 	key := ec2NatEgressKey(natgw.NatGatewayId, zone)
 	ec2NatEgressMu.Lock()
@@ -162,7 +154,6 @@ func ec2EnsureNatEgress(ctx context.Context, natgw EC2NatGateway, zone, privateI
 	return nil
 }
 
-// ec2RemoveNatGatewayEgress stops every sidecar of the gateway.
 func ec2RemoveNatGatewayEgress(natID string) {
 	ec2NatEgressMu.Lock()
 	var keys []string
@@ -177,8 +168,6 @@ func ec2RemoveNatGatewayEgress(natID string) {
 	}
 }
 
-// ec2StopNatEgress stops one sidecar, with the grace it needs to report what
-// its connections carried.
 func ec2StopNatEgress(key string) {
 	ec2NatEgressMu.Lock()
 	e := ec2NatEgresses[key]
@@ -192,7 +181,6 @@ func ec2StopNatEgress(key string) {
 	sim.UnregisterSidecarToken(e.token)
 }
 
-// ec2StopNatGatewayEgresses stops every gateway's sidecar at shutdown.
 func ec2StopNatGatewayEgresses() {
 	ec2NatEgressMu.Lock()
 	keys := make([]string, 0, len(ec2NatEgresses))
@@ -205,8 +193,7 @@ func ec2StopNatGatewayEgresses() {
 	}
 }
 
-// ec2SubnetRouteTable is the route table the subnet uses: the one associated
-// with it, else the VPC's main table.
+// The subnet's associated table, else the VPC's main table.
 func ec2SubnetRouteTable(subnetID string) (EC2RouteTable, bool) {
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
@@ -227,13 +214,11 @@ func ec2SubnetRouteTable(subnetID string) (EC2RouteTable, bool) {
 	return main, hasMain
 }
 
-// ec2SubnetGateway is where a workload in the subnet sends what leaves the
-// VPC, in the terms of sim.ContainerConfig.Gateway: the private address of
-// the NAT gateway its route table's 0.0.0.0/0 route names (a regional
-// gateway's address in the subnet's zone), no route at all for one naming a
-// gateway that is gone or, regional, does not cover the zone, and the
-// network's own gateway for an internet gateway. A table with no route out leaves the workload on
-// the network's gateway too, the gap BUGS.md records.
+// Returns the NAT gateway's private address the 0.0.0.0/0 route names (a
+// regional gateway's address in the subnet's zone); no route when that gateway
+// is gone or does not cover the zone; and the network's own gateway for an
+// internet gateway. A table with no route out also leaves the workload on the
+// network's gateway.
 func ec2SubnetGateway(subnetID string) string {
 	rt, ok := ec2SubnetRouteTable(subnetID)
 	if !ok {
@@ -262,9 +247,7 @@ func ec2SubnetGateway(subnetID string) string {
 	return ""
 }
 
-// ec2ReapplyRoutes points every running instance and awsvpc task of the VPC
-// at what its subnet's route table says now. A backend that does not route
-// is left as it is.
+// A backend that does not route is left alone.
 func ec2ReapplyRoutes(vpcID string) {
 	if vpcID == "" {
 		return
@@ -308,18 +291,14 @@ func ec2SetGateway(ctx context.Context, what string, handle placement.Handle, ga
 	}
 }
 
-// ec2RouteTableVPC is the VPC a route table belongs to.
 func ec2RouteTableVPC(routeTableID string) string {
 	rt, _ := ec2RouteTables.Get(routeTableID)
 	return rt.VpcId
 }
 
-// ec2TakeNatEgressReport turns what a gateway's sidecar reports into the
-// gateway's Amazon CloudWatch metrics, in the AWS/NATGateway namespace under
-// the NatGatewayId dimension: every connection a source opens counts an
-// attempt, every one the destination accepts an establishment, every one
-// that ends its bytes in each direction and, when the gateway's idle timeout
-// ended it, an idle timeout, and each minute the connections open.
+// Publish AWS/NATGateway metrics under NatGatewayId: an attempt per opened
+// connection, an establishment per accepted one, bytes per direction and idle
+// timeouts per ended one, and active connections per minute.
 func ec2TakeNatEgressReport(network string, report egress.Report) {
 	natgw, ok := ec2NatGateways.Get(report.Gateway)
 	if !ok || ecsVPCNetworkName(natgw.VpcId) != network {

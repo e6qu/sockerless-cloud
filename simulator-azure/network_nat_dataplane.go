@@ -18,20 +18,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// An Azure NAT Gateway's data plane is an egress sidecar on its virtual
-// network, at the last address of the first subnet it is attached to, which
-// Azure reserves: a machine on an attached subnet has its default route
-// pointed there, so what it sends out of the network leaves from the
-// gateway's address, with the gateway's idle timeout, and counts in the
-// gateway's metrics.
+// A NAT gateway's data plane is an egress sidecar at the last address of the
+// first attached subnet, which Azure reserves: machines on attached subnets
+// route through it, so their outbound traffic leaves from the gateway's
+// address, with its idle timeout, and counts in its metrics.
 
-// azureNATGatewayUDPIdle is the UDP idle timeout of a NAT gateway, which
-// Azure fixes at four minutes; the TCP one is the gateway's
+// Azure fixes the UDP idle timeout at four minutes; TCP's is
 // idleTimeoutInMinutes.
 const azureNATGatewayUDPIdle = 4 * time.Minute
 
-// azureNATGatewayStopGrace is how long a gateway's sidecar gets to report
-// what its connections carried when the gateway goes.
+// How long the sidecar gets to report its connections when the gateway goes.
 const azureNATGatewayStopGrace = 10 * time.Second
 
 type azureNATEgress struct {
@@ -45,17 +41,14 @@ type azureNATEgress struct {
 
 var (
 	azureNATEgressMu sync.Mutex
-	// azureNATEgresses holds the running sidecar of each NAT gateway, by the
-	// gateway's lower-cased resource id.
+	// Keyed by lowercased gateway ID.
 	azureNATEgresses = map[string]*azureNATEgress{}
-	// azureVNetNetworksUp holds the lower-cased resource id of the virtual
-	// network behind every prefix network this process realized, by the
-	// engine network's name.
+	// The lowercased virtual network ID behind each prefix network this process
+	// realized, by engine network name.
 	azureVNetNetworksUp sync.Map
 )
 
-// azureNATGatewaySubnets are the subnets attached to the gateway, in a fixed
-// order, with the prefix of each.
+// In a fixed order, with each subnet's prefix.
 func azureNATGatewaySubnets(gatewayID string) ([]Subnet, []netip.Prefix) {
 	subnets := azureSubnets.Filter(func(sn Subnet) bool {
 		return sn.Properties.NatGateway != nil && strings.EqualFold(sn.Properties.NatGateway.ID, gatewayID)
@@ -78,9 +71,7 @@ func azureNATGatewaySubnets(gatewayID string) ([]Subnet, []netip.Prefix) {
 	return kept, prefixes
 }
 
-// azureSubnetLastAddress is the last address of a subnet's range, one Azure
-// reserves in every subnet, where the gateway's sidecar sits inside the
-// virtual network's engine network.
+// Azure reserves the last address of every subnet; the sidecar sits there.
 func azureSubnetLastAddress(prefix netip.Prefix) netip.Addr {
 	base := prefix.Masked().Addr().As4()
 	n := uint32(base[0])<<24 | uint32(base[1])<<16 | uint32(base[2])<<8 | uint32(base[3])
@@ -88,9 +79,8 @@ func azureSubnetLastAddress(prefix netip.Prefix) netip.Addr {
 	return netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)})
 }
 
-// azureEnsureNATGatewayEgress runs the gateway's sidecar on its virtual
-// network when that network is up, replaces it when the gateway's subnets or
-// timeout changed, and stops it when no subnet is attached any more.
+// Replace the sidecar when the subnets or timeout change, and stop it when no
+// subnet is attached.
 func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 	subnets, prefixes := azureNATGatewaySubnets(gw.ID)
 	key := strings.ToLower(gw.ID)
@@ -103,8 +93,7 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 	if !ok {
 		return fmt.Errorf("virtual network %s of NAT gateway %s not found", vnetID, gw.ID)
 	}
-	// The sidecar sits on the engine network of the prefix the gateway's
-	// first subnet lies in.
+	// The sidecar sits on the engine network of the first subnet's prefix.
 	prefix, first, err := azureVNetPrefixOfSubnet(vnet, subnets[0])
 	if err != nil {
 		return err
@@ -197,8 +186,6 @@ func azureStopNATEgresses() {
 	}
 }
 
-// azureEnsureVNetNATGateways runs the sidecar of every NAT gateway attached
-// to a subnet of the virtual network, once its network is up.
 func azureEnsureVNetNATGateways(ctx context.Context, vnetID string) error {
 	if azureNatGateways == nil {
 		return nil
@@ -215,8 +202,8 @@ func azureEnsureVNetNATGateways(ctx context.Context, vnetID string) error {
 	return nil
 }
 
-// azureReapplyNAT follows a gateway's or a subnet's change on every gateway,
-// and then points every machine where its subnet's gateway says.
+// Reconcile every gateway, then route every machine as its subnet's gateway
+// says.
 func azureReapplyNAT() {
 	if azureNatGateways == nil {
 		return
@@ -231,10 +218,8 @@ func azureReapplyNAT() {
 	azureReapplyRoutes()
 }
 
-// azureVMGateway is where a machine sends what leaves its virtual network,
-// in the terms of sim.ContainerConfig.Gateway: the sidecar of the NAT
-// gateway its subnet is attached to, and the network's own gateway
-// otherwise, as Azure's default outbound access.
+// In sim.ContainerConfig.Gateway terms: the sidecar of the subnet's NAT
+// gateway, else the network's own gateway, as Azure's default outbound access.
 func azureVMGateway(nic NetworkInterface) string {
 	ipcfg := azurePrimaryIPConfig(nic)
 	if ipcfg.Properties.Subnet == nil {
@@ -252,8 +237,7 @@ func azureVMGateway(nic NetworkInterface) string {
 	return ""
 }
 
-// azureReapplyRoutes points every running machine where its subnet's NAT
-// gateway says now. A backend that does not route is left as it is.
+// A backend that does not route is left as it is.
 func azureReapplyRoutes() {
 	if azureVMs == nil || azureNICs == nil {
 		return
@@ -275,11 +259,9 @@ func azureReapplyRoutes() {
 	}
 }
 
-// azureTakeNATEgressReport turns what a gateway's sidecar reports into the
-// gateway's Azure Monitor metrics: every connection a source opens is an
-// attempted SNAT connection, one the destination refuses a failed one, every
-// one that ends its bytes in each direction, and each minute the connections
-// open and the data path's availability.
+// Every connection opened is an attempted SNAT connection, one refused a
+// failed one; each ended connection adds its bytes per direction; each minute
+// adds open connections and data-path availability.
 func azureTakeNATEgressReport(network string, report egress.Report) {
 	key := strings.ToLower(report.Gateway)
 	azureNATEgressMu.Lock()

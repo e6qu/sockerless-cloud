@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_CapacityReservations covers the capacity-reservation and
-// capacity-reservation-fleet control planes via the aws CLI: create → describe
-// → modify → usage → cancel, and the fleet create → describe → modify → cancel.
 func TestEC2CLI_CapacityReservations(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -47,7 +44,6 @@ func TestEC2CLI_CapacityReservations(t *testing.T) {
 	if usage != "5" {
 		t.Fatalf("get-capacity-reservation-usage total: got %q, want 5", usage)
 	}
-	// GetGroupsForCapacityReservation read-back (empty).
 	q("ec2", "get-groups-for-capacity-reservation", "--capacity-reservation-id", id,
 		"--query", "length(CapacityReservationGroups)", "--output", "text")
 
@@ -78,9 +74,6 @@ func TestEC2CLI_CapacityReservations(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_Fleets covers the EC2 Fleet control plane via the aws CLI: a launch
-// template, create-fleet → describe-fleets → describe-fleet-instances →
-// describe-fleet-history → modify-fleet → delete-fleets.
 func TestEC2CLI_Fleets(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -129,10 +122,6 @@ func TestEC2CLI_Fleets(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_Spot covers the Spot families via the aws CLI: request-spot-instances
-// → describe → cancel; request-spot-fleet → describe → instances → history →
-// modify → cancel; the data feed subscription; and the read-only price-history /
-// placement-scores ops.
 func TestEC2CLI_Spot(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -211,9 +200,6 @@ func TestEC2CLI_Spot(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ScheduledAndHostReservations covers scheduled-instance availability
-// → purchase → describe → run, and the dedicated-host reservation offerings →
-// purchase-preview → purchase → describe.
 func TestEC2CLI_ScheduledAndHostReservations(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

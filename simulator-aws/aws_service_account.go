@@ -6,16 +6,13 @@ import (
 	"strings"
 )
 
-// awsServiceAccountID is the account the AWS services keep their own buckets
-// in: AWS Lambda's deployment packages, AWS Amplify's artifacts, AWS Glue's
-// system logs, Elastic Load Balancing's trust store contents. AWS does not
-// publish these accounts; the caller's account must merely differ from it.
+// AWS services keep their own buckets in an account AWS does not publish; the
+// caller's account need only differ from it.
 const awsServiceAccountID = "000000000000"
 
-// awsServiceCredential is the credential those services sign their presigned
-// URLs with. Its secret exists only in this process, so no caller can sign a
-// request into a service-owned bucket, and a URL signed before a restart stops
-// verifying the way an expired service session's URL does.
+// Its secret lives only in this process, so no caller can sign into a
+// service-owned bucket, and a URL signed before a restart stops verifying, as
+// an expired service session's would.
 var awsServiceCredential = func() struct{ accessKeyID, secretAccessKey string } {
 	id := make([]byte, 8)
 	secret := make([]byte, 30)

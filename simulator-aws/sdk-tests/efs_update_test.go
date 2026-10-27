@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEFS_UpdateFileSystem switches an existing file system to provisioned
-// throughput and back, asserting the FileSystemDescription round-trips the
-// updated ThroughputMode + ProvisionedThroughputInMibps.
+// TestEFS_UpdateFileSystem switches a file system to provisioned throughput
+// and back, expecting ThroughputMode and ProvisionedThroughputInMibps to follow.
 func TestEFS_UpdateFileSystem(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
@@ -35,7 +34,6 @@ func TestEFS_UpdateFileSystem(t *testing.T) {
 	assert.Equal(t, 64.0, *updOut.ProvisionedThroughputInMibps)
 	assert.Equal(t, fsID, aws.ToString(updOut.FileSystemId))
 
-	// The change is durable: DescribeFileSystems reflects provisioned mode.
 	desc, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{FileSystemId: aws.String(fsID)})
 	require.NoError(t, err)
 	require.Len(t, desc.FileSystems, 1)
@@ -51,9 +49,7 @@ func TestEFS_UpdateFileSystem(t *testing.T) {
 	assert.Nil(t, backOut.ProvisionedThroughputInMibps)
 }
 
-// TestEFS_UpdateFileSystemProtection toggles the file system's
-// ReplicationOverwriteProtection and asserts the returned
-// FileSystemProtectionDescription carries the new status.
+// TestEFS_UpdateFileSystemProtection toggles ReplicationOverwriteProtection.
 func TestEFS_UpdateFileSystemProtection(t *testing.T) {
 	t.Parallel()
 	client := efsClient()
@@ -72,7 +68,6 @@ func TestEFS_UpdateFileSystemProtection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, efstypes.ReplicationOverwriteProtectionDisabled, protOut.ReplicationOverwriteProtection)
 
-	// Re-enabling protection round-trips too.
 	protOut2, err := client.UpdateFileSystemProtection(ctx, &efs.UpdateFileSystemProtectionInput{
 		FileSystemId:                   aws.String(fsID),
 		ReplicationOverwriteProtection: efstypes.ReplicationOverwriteProtectionEnabled,

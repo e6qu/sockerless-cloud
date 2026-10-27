@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ddbCLICreateTableArn creates a simple hash-key table via the CLI and registers
-// cleanup. Returns the table ARN.
 func ddbCLICreateTableArn(t *testing.T, table string) string {
 	t.Helper()
 	out := runCLI(t, awsCLI("dynamodb", "create-table",

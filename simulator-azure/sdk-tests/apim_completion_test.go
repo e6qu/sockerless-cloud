@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAzureAPIM_CompletionSurfaces exercises the completion of the
-// Microsoft.ApiManagement APIs and Products surfaces: GraphQL API resolvers and
-// resolver policies, API issues with their comments and attachments, API tag
-// descriptions, the API and Product wikis, and the operations-by-tag listing.
+// TestAzureAPIM_CompletionSurfaces exercises GraphQL API resolvers and their
+// policies, API issues with comments and attachments, API tag descriptions,
+// the API and Product wikis, and the operations-by-tag listing.
 func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000011"

@@ -11,10 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// newTagsTestServer builds a simulator carrying the slices the tags surface
-// resolves a scope through: resource groups (a scope that keeps its tags on
-// its own record), Key Vault (a tracked resource type), and the tags routes
-// themselves.
+// Resource groups (tags on the record), Key Vault (a tracked type), and the
+// tags routes.
 func newTagsTestServer(t *testing.T) *sim.Server {
 	t.Helper()
 	t.Setenv("SIM_RUNTIME", "process")
@@ -54,10 +52,8 @@ func tagsTestDecode(t *testing.T, data []byte) TagsResource {
 
 const tagsTestAPI = "?api-version=2021-04-01"
 
-// TestTagsDefaultAndResourceAgreeOnOneSet holds the invariant Azure Resource
-// Manager guarantees: a scope has one set of tags, and tags/default and the
-// scope's own API are two spellings of it. A write through either surface is
-// visible through the other, and through the generic resource list.
+// A write through tags/default or the scope's own API is visible through the
+// other and through the resource list.
 func TestTagsDefaultAndResourceAgreeOnOneSet(t *testing.T) {
 	srv := newTagsTestServer(t)
 
@@ -129,8 +125,8 @@ func TestTagsDefaultAndResourceAgreeOnOneSet(t *testing.T) {
 		t.Errorf("Delete reported %v, want an empty set", got)
 	}
 
-	// The generic resource list reads the resource's own tags, so it agrees
-	// with tags/default in both directions.
+	// The resource list reads the resource's own tags, so it agrees with
+	// tags/default.
 	status, body = tagsTestServe(t, srv, http.MethodPut,
 		vaultPath+"/providers/Microsoft.Resources/tags/default"+tagsTestAPI,
 		`{"properties":{"tags":{"listed":"yes"}}}`)
@@ -152,7 +148,7 @@ func TestTagsDefaultAndResourceAgreeOnOneSet(t *testing.T) {
 		t.Fatalf("the resource list did not report the vault at all: %v", rows)
 	}
 
-	// A resource-scope DELETE clears the resource's tags on its own API too.
+	// A resource-scope DELETE clears the tags on the resource's own API too.
 	if status, body := tagsTestServe(t, srv, http.MethodDelete,
 		vaultPath+"/providers/Microsoft.Resources/tags/default"+tagsTestAPI, ""); status != http.StatusOK {
 		t.Fatalf("delete tags: status %d: %s", status, body)
@@ -170,9 +166,7 @@ func TestTagsDefaultAndResourceAgreeOnOneSet(t *testing.T) {
 	}
 }
 
-// TestTagsDefaultAtResourceGroupScopeWritesTheGroup pins the resource-group
-// scope onto the group's own record, so `az tag` and `az group show` report
-// the same tags.
+// So `az tag` and `az group show` report the same tags.
 func TestTagsDefaultAtResourceGroupScopeWritesTheGroup(t *testing.T) {
 	srv := newTagsTestServer(t)
 
@@ -209,10 +203,8 @@ func TestTagsDefaultAtResourceGroupScopeWritesTheGroup(t *testing.T) {
 	}
 }
 
-// TestTagsDefaultAtSubscriptionScopeIsItsOwnStore covers the one scope with no
-// record of its own: a subscription's tags live in the tags store, and a scope
-// carrying none reads back the empty set rather than a 404, because the
-// subscription itself always exists.
+// A subscription always exists, so a scope with no tags reads the empty set,
+// not a 404.
 func TestTagsDefaultAtSubscriptionScopeIsItsOwnStore(t *testing.T) {
 	srv := newTagsTestServer(t)
 
@@ -254,10 +246,8 @@ func TestTagsDefaultAtSubscriptionScopeIsItsOwnStore(t *testing.T) {
 	}
 }
 
-// TestTagsDefaultRefusesScopesThatHoldNoResource pins the 404 a scope naming no
-// resource answers with. A scope resolves to exactly one holder of its tags or
-// to none at all, so a write against a scope with no holder is refused rather
-// than accepted into a plane nothing else reads.
+// A write against a scope with no holder is refused rather than accepted into
+// a plane nothing reads.
 func TestTagsDefaultRefusesScopesThatHoldNoResource(t *testing.T) {
 	srv := newTagsTestServer(t)
 
@@ -268,11 +258,9 @@ func TestTagsDefaultRefusesScopesThatHoldNoResource(t *testing.T) {
 		t.Fatalf("create resource group: status %d: %s", status, body)
 	}
 
-	// The untracked-type case needs a vault that exists, so that the only
-	// reason its child scope has no tag holder is the type itself. Hanging it
-	// off a vault that was never created makes it indistinguishable from the
-	// case above — both would 404 for the missing parent, and the untracked
-	// type would go unexercised.
+	// The vault must exist, so the only reason its child scope has no holder is
+	// the untracked type; under a missing vault both cases would 404 for the
+	// parent.
 	vaultPath := rgPath + "/providers/Microsoft.KeyVault/vaults/tags-404-vault"
 	if status, body := tagsTestServe(t, srv, http.MethodPut, vaultPath+tagsTestAPI,
 		`{"location":"eastus","properties":{"tenantId":"11111111-1111-1111-1111-111111111111","sku":{"family":"A","name":"standard"}}}`); status != http.StatusOK {
@@ -322,9 +310,6 @@ func TestTagsDefaultRefusesScopesThatHoldNoResource(t *testing.T) {
 	}
 }
 
-// TestAzureResourceTypeKeyOfID pins the scope-to-registry-key reading the tags
-// surface resolves a resource scope with, including the nested spelling the
-// table uses for a child resource type.
 func TestAzureResourceTypeKeyOfID(t *testing.T) {
 	for _, tc := range []struct {
 		id   string
@@ -335,9 +320,8 @@ func TestAzureResourceTypeKeyOfID(t *testing.T) {
 		{id: "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/w/slots/staging", key: "microsoft.web/sites/slots", want: true},
 		{id: "/subscriptions/s/resourceGroups/rg", want: false},
 		{id: "/subscriptions/s", want: false},
-		// A management group is a provider resource by ID shape; the tags
-		// surface routes it to the tags store because the simulator keeps no
-		// record for one.
+		// A management group is a provider resource by ID shape; the tags surface
+		// routes it to tagsStore.
 		{id: "/providers/Microsoft.Management/managementGroups/mg", key: "microsoft.management/managementgroups", want: true},
 		// A trailing type with no name is not a resource scope.
 		{id: "/subscriptions/s/resourceGroups/rg/providers/Microsoft.KeyVault/vaults", want: false},

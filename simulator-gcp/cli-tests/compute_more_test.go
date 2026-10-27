@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Lean gcloud-compute coverage for the control-plane CRUD added in
-// compute_more.go: a global external address, a regional target pool, and
-// the regions catalog read — each round-trips through the real gcloud CLI.
-
 func TestGcloudComputeGlobalAddress_CRUD(t *testing.T) {
 	t.Parallel()
 	name := "sim-gaddr-cli-1"
@@ -60,14 +56,12 @@ func TestGcloudComputeRegions_List(t *testing.T) {
 	assert.True(t, strings.Contains(string(out), "us-central1"), "regions: %s", out)
 }
 
-// TestGcloudComputeSubnetsList_EmptyRegion exercises compute.subnetworks.list
-// on a region with no subnets — the regional list route
+// TestGcloudComputeSubnetsList_EmptyRegion lists the subnetworks of a region
+// that has none. With one --regions value gcloud calls the regional route
 //
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 //
-// which `gcloud compute networks subnets list --regions=<one region>` calls
-// directly (rather than the aggregated form it uses without --regions). The
-// create → list round trip lives in compute_nat_test.go.
+// rather than the aggregated one.
 func TestGcloudComputeSubnetsList_EmptyRegion(t *testing.T) {
 	t.Parallel()
 	out, err := gcloudCLI("compute", "networks", "subnets", "list",

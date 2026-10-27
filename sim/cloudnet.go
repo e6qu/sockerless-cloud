@@ -32,7 +32,7 @@ type CloudNetwork struct {
 	// takes the first host of CIDR, where Amazon VPC, Google Cloud VPC and
 	// Azure Virtual Network all put it.
 	Gateway netip.Addr
-	// Labels are added to the engine network beside the simulator's own.
+	// Labels go on the engine network beside the simulator's own.
 	Labels map[string]string
 	// DynamicRange, when set, is the part of CIDR the engine allocates
 	// addresses from; the simulator leases the rest itself, for workloads
@@ -40,10 +40,10 @@ type CloudNetwork struct {
 	DynamicRange netip.Prefix
 }
 
-// ErrAddressRangeInUse is wrapped by EnsureCloudNetwork when another live
-// engine network already holds a range overlapping the requested one. The
-// engine's IPAM admits one network per range, so two live cloud networks
-// sharing a CIDR do not coexist on one engine.
+// EnsureCloudNetwork wraps ErrAddressRangeInUse when another live engine
+// network already holds a range overlapping the requested one. The engine's
+// IPAM admits one network per range, so two live cloud networks sharing a
+// CIDR do not coexist on one engine.
 var ErrAddressRangeInUse = errors.New("address range held by another engine network")
 
 var cloudNetworkMu sync.Mutex
@@ -120,8 +120,8 @@ var platformRange = netip.MustParsePrefix("100.64.0.0/10")
 // allocates container addresses from the upper half of the /24; the lower
 // half is the simulator's to lease through LeasePlatformAddress, for the
 // sidecars, the node agent and the guests the engine does not place. A
-// platform network an earlier release created without that split is
-// recreated while nothing is attached to it.
+// platform network without that split is recreated once nothing is attached
+// to it.
 func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]string) (string, netip.Prefix, error) {
 	if err := RequireContainerRuntime("creating the platform network"); err != nil {
 		return "", netip.Prefix{}, err
@@ -328,24 +328,19 @@ func addressRangeInUseError(err error) bool {
 	return strings.Contains(msg, "already used") || strings.Contains(msg, "overlap")
 }
 
-// reclaimOrphanedRange removes simulator networks overlapping the range that
-// a dead simulator run created and that only that run's containers are
-// attached to, together with those containers, and reports whether it removed
-// any.
+// reclaimOrphanedRange removes the simulator networks overlapping cidr that a
+// dead simulator run created and that only that run's containers join,
+// together with those containers, and reports whether it removed any.
 //
-// All the conditions are load-bearing. The simulator label keeps the sweep
-// inside networks this project made. The overlap keeps it to what blocks the
-// caller. Attached containers that a dead run left — the network's own
-// sidecar, a workload its reaper never collected — use it no more than an
-// empty network; any other attached container means something still does. A
-// different run id means the process that made it is not this one, and only
-// that process being gone makes the network an orphan: another live simulator
-// on the same host has idle networks between two of its workloads too, and
-// they are its. So the owner recorded on the network and on each attached
-// container is checked — same hostname, hence the same pid namespace, and a
-// pid no process holds — and one whose owner cannot be checked (another
-// hostname, or one an older release created without an owner) is left where
-// it is.
+// Every condition is load-bearing. The simulator label keeps the sweep inside
+// networks this project made; the overlap keeps it to what blocks the caller.
+// Containers a dead run left attached — the network's own sidecar, a workload
+// its reaper never collected — use the network no more than an empty one; any
+// other attached container means something still does. Only a dead owner
+// makes a network an orphan: another live simulator on the host has idle
+// networks too. So check the owner recorded on the network and on each
+// attached container — same hostname, hence the same pid namespace, and a pid
+// no process holds — and leave one whose owner cannot be checked.
 func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Prefix) bool {
 	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
 		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
@@ -489,7 +484,6 @@ func ContainerNetworkAddresses(ctx context.Context, containerID string) (map[str
 	return out, nil
 }
 
-// ContainerEnvironment is the environment a container was created with.
 func ContainerEnvironment(ctx context.Context, containerID string) (map[string]string, error) {
 	cli := DockerClient()
 	if err := RequireContainerRuntime("inspecting a container's environment"); err != nil {

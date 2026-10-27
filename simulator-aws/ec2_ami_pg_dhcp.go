@@ -16,11 +16,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// EC2Image models a user-registered AMI. The sim has no real machine images, so
-// CreateImage / RegisterImage / CopyImage persist a deterministic metadata
-// record that DescribeImages then echoes back. Real EC2 AMIs are backed by
-// snapshots; CreateImage snapshots the instance's root volume, so we record the
-// backing snapshot id and root device.
+// CreateImage snapshots the instance's root volume, so the AMI records the
+// backing snapshot and root device.
 type EC2Image struct {
 	ImageId            string
 	Name               string
@@ -42,19 +39,18 @@ type EC2Image struct {
 	BlockDeviceName    string
 	Tags               []EC2Tag
 	// ImageLocation is the OCI image the AMI boots from: the reference a
-	// RegisterImage or ImportImage named, or the capture CreateImage took.
+	// RegisterImage or ImportImage named, or CreateImage's capture.
 	ImageLocation   string
 	OwnerAlias      string
 	PlatformDetails string
 	UsageOperation  string
 	BootMode        string
 	EnaSupport      bool
-	// ImdsSupport "v2.0" makes the instances launched from the AMI require
-	// IMDSv2 unless the launch says otherwise.
+	// ImdsSupport "v2.0" makes instances launched from the AMI require IMDSv2
+	// unless the launch says otherwise.
 	ImdsSupport string
 }
 
-// EC2PlacementGroup models an EC2 placement group (cluster/spread/partition).
 type EC2PlacementGroup struct {
 	GroupName      string
 	GroupId        string
@@ -65,8 +61,7 @@ type EC2PlacementGroup struct {
 	Tags           []EC2Tag
 }
 
-// EC2DhcpOptions models a DHCP options set. DhcpConfigurations is an ordered
-// list of (key, values) pairs (domain-name, domain-name-servers, etc.).
+// DhcpConfigurations keeps the request's key order.
 type EC2DhcpConfig struct {
 	Key    string
 	Values []string
@@ -90,27 +85,21 @@ func registerEC2AmiPlacementDhcp(r *AWSQueryRouter, srv *sim.Server) {
 	ec2PlacementGroups = sim.MakeStore[EC2PlacementGroup](srv.DB(), "ec2_placement_groups")
 	ec2DhcpOptions = sim.MakeStore[EC2DhcpOptions](srv.DB(), "ec2_dhcp_options")
 
-	// AMIs
 	r.Register("CreateImage", handleCreateImage)
 	r.Register("RegisterImage", handleRegisterImage)
 	r.Register("DeregisterImage", handleDeregisterImage)
 	r.Register("CopyImage", handleCopyImage)
 
-	// Placement groups
 	r.Register("CreatePlacementGroup", handleCreatePlacementGroup)
 	r.Register("DescribePlacementGroups", handleDescribePlacementGroups)
 	r.Register("DeletePlacementGroup", handleDeletePlacementGroup)
 
-	// DHCP option sets
 	r.Register("CreateDhcpOptions", handleCreateDhcpOptions)
 	r.Register("DescribeDhcpOptions", handleDescribeDhcpOptions)
 	r.Register("AssociateDhcpOptions", handleAssociateDhcpOptions)
 	r.Register("DeleteDhcpOptions", handleDeleteDhcpOptions)
 }
 
-// handleCreateImage creates an AMI from a running/stopped instance. It records
-// the instance's root device and a fresh backing snapshot id, mirroring real
-// EC2 (CreateImage snapshots the root volume and returns an AMI referencing it).
 func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	name := r.FormValue("Name")
@@ -167,10 +156,8 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		EnaSupport:         true,
 	}
 	ec2Images.Put(img.ImageId, img)
-	// The capture is an EBS snapshot of the root volume, as it is on EC2: the
-	// image's block device mapping names it, DescribeSnapshots lists it, and
-	// it outlives the image until DeleteSnapshot, which refuses it while an
-	// image still maps it.
+	// The capture is an EBS snapshot of the root volume: the image's block device
+	// mapping names it, and DeleteSnapshot refuses it while an image maps it.
 	now := time.Now().UTC()
 	ec2Snapshots.Put(img.SnapshotId, EC2Snapshot{
 		SnapshotId:    img.SnapshotId,
@@ -183,21 +170,18 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		Description:   fmt.Sprintf("Created by CreateImage(%s) for %s", instanceID, img.ImageId),
 		OwnerId:       ec2Owner(),
 	})
-	// The image is pending while the instance's root disk is captured and
-	// available once the capture holds it.
+	// The image stays pending until the root disk capture completes.
 	bg.Go(func() { ec2CaptureImage(img.ImageId, instanceID) })
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateImageResponse %s><requestId>%s</requestId><imageId>%s</imageId></CreateImageResponse>`,
 		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
-// ec2CapturedImageReference names the OCI image a CreateImage capture lands
-// in; the engine keeps it until the AMI is deregistered.
+// The engine keeps the capture until the AMI is deregistered.
 func ec2CapturedImageReference(imageID string) string {
 	return "sockerless-sim-aws-ami/" + imageID + ":latest"
 }
 
-// ec2RemoveCapturedImage drops a deregistered AMI's capture from the engine.
 func ec2RemoveCapturedImage(reference string) {
 	cli := sim.DockerClient()
 	if cli == nil {
@@ -210,8 +194,7 @@ func ec2RemoveCapturedImage(reference string) {
 	}
 }
 
-// ec2CaptureImage commits the instance's root disk into the AMI's image and
-// marks the AMI available, or failed with what went wrong.
+// Marks the AMI available, or failed with the cause.
 func ec2CaptureImage(imageID, instanceID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -237,11 +220,9 @@ func ec2CaptureImage(imageID, instanceID string) {
 	})
 }
 
-// ec2ImagesBySnapshot answers DeleteSnapshot's question of which image still
-// maps a snapshot.
+// DeleteSnapshot asks which image still maps a snapshot.
 var ec2ImagesBySnapshot sim.GenerationIndex[EC2Image]
 
-// handleRegisterImage registers an AMI from a manifest / block device mapping.
 func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("Name")
 	if name == "" {
@@ -260,10 +241,8 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 	if virtType == "" {
 		virtType = "hvm"
 	}
-	// A registered AMI may be EBS-backed (block device mapping with a snapshot)
-	// or instance-store-backed, where ImageLocation names the image's
-	// contents: the simulator takes an OCI image reference there, which is the
-	// root filesystem instances of the AMI boot from.
+	// An instance-store-backed AMI's ImageLocation names an OCI image reference,
+	// the root filesystem its instances boot from.
 	snapID := r.FormValue("BlockDeviceMapping.1.Ebs.SnapshotId")
 	rootType := "instance-store"
 	size := 0
@@ -310,8 +289,7 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
 
-// handleCopyImage copies a source AMI into a new AMI id, preserving its
-// metadata (real CopyImage is the cross-region AMI replication primitive).
+// CopyImage is the cross-Region AMI replication primitive.
 func handleCopyImage(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("SourceImageId")
 	name := r.FormValue("Name")
@@ -366,7 +344,6 @@ func handleDeregisterImage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeregisterImageResponse %s><requestId>%s</requestId><return>true</return></DeregisterImageResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2StoredImageXML renders a user-registered AMI as a DescribeImages item.
 func ec2StoredImageXML(img EC2Image) string {
 	bdm := ""
 	if img.SnapshotId != "" {
@@ -590,8 +567,6 @@ func handleDeletePlacementGroup(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeletePlacementGroupResponse %s><requestId>%s</requestId><return>true</return></DeletePlacementGroupResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2ParseDhcpConfigurations reads the indexed DhcpConfiguration.N.Key /
-// DhcpConfiguration.N.Value.M request params into ordered config entries.
 func ec2ParseDhcpConfigurations(r *http.Request) []EC2DhcpConfig {
 	var configs []EC2DhcpConfig
 	for i := 1; ; i++ {
@@ -742,8 +717,7 @@ func handleAssociateDhcpOptions(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidVpcID.NotFound", fmt.Sprintf("The vpc ID %q does not exist", vpcID), http.StatusBadRequest)
 		return
 	}
-	// "default" detaches the custom set and reverts the VPC to the default
-	// options set, matching real AssociateDhcpOptions semantics.
+	// "default" reverts the VPC to the default options set.
 	if optsID != "default" {
 		if _, ok := ec2DhcpOptions.Get(optsID); !ok {
 			ec2ErrorXML(w, "InvalidDhcpOptionID.NotFound", fmt.Sprintf("The DHCP options set %q does not exist", optsID), http.StatusBadRequest)
@@ -766,7 +740,7 @@ func handleDeleteDhcpOptions(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidDhcpOptionID.NotFound", fmt.Sprintf("The DHCP options set %q does not exist", optsID), http.StatusBadRequest)
 		return
 	}
-	// Real EC2 rejects deleting an options set still associated with a VPC.
+	// A set still associated with a VPC cannot be deleted.
 	for _, vpc := range ec2Vpcs.List() {
 		if vpc.DhcpOptionsId == optsID {
 			ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("The dhcpOptions %q has dependencies and cannot be deleted.", optsID), http.StatusBadRequest)

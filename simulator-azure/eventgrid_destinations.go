@@ -11,10 +11,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
 )
 
-// Event Grid delivers to a Storage queue, a Service Bus queue or a Service Bus
-// topic through that service's data plane, one event per message, writing as
-// the trusted Microsoft service it is: a queue message carries the event's
-// JSON as its text, and a Service Bus message carries it as its body.
+// Event Grid delivers to a Storage queue, a Service Bus queue or topic through
+// that service's data plane, one event per message, as a trusted Microsoft
+// service: a queue message's text, or a Service Bus message's body, is the
+// event's JSON.
 
 const (
 	eventGridWebHook         = "WebHook"
@@ -23,9 +23,7 @@ const (
 	eventGridServiceBusTopic = "ServiceBusTopic"
 )
 
-// eventGridDestination is the kind of an event subscription's destination and
-// the URL its events are posted to; the URL is empty for a destination Event
-// Grid cannot reach.
+// The target is empty for a destination Event Grid cannot reach.
 func eventGridDestination(es EventGridEventSubscription) (kind, target string) {
 	dest, _ := es.Properties["destination"].(map[string]any)
 	kind, _ = dest["endpointType"].(string)
@@ -67,8 +65,7 @@ func eventGridDestination(es EventGridEventSubscription) (kind, target string) {
 	return kind, ""
 }
 
-// eventGridDeliverToService posts one event to a Storage queue or a Service
-// Bus entity as Event Grid, and classifies the answer as a webhook's is.
+// The answer is classified as a webhook's is.
 func eventGridDeliverToService(ctx context.Context, es EventGridEventSubscription, d eventGridDelivery, classify delivery.Classifier) delivery.Outcome {
 	if len(d.Events) != 1 {
 		return delivery.Permanent(fmt.Errorf("a %s delivery carries one event, not %d", d.Destination, len(d.Events)))

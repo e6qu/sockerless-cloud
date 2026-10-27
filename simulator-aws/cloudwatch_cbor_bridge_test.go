@@ -6,8 +6,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Every operation the vendored Amazon CloudWatch model declares is served on
-// rpc-v2-cbor by an implementation, hand-written or through its JSON handler.
 // A newer model's operation fails here until it is implemented.
 func TestCloudWatchServesEveryModelOperationOverCBOR(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")

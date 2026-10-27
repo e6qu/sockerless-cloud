@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// A container's stop grace is its definition's stopTimeout; without one it is
-// the thirty seconds Amazon ECS waits by default. Zero is a real setting — kill
-// at once — and not the absence of one.
+// Without stopTimeout, Amazon ECS waits thirty seconds. Zero means kill at
+// once, not unset.
 func TestECSContainerStopGraceReadsTheDefinition(t *testing.T) {
 	two, zero := 2, 0
 	cases := map[string]struct {

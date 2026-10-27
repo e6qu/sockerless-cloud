@@ -16,9 +16,8 @@ import (
 const clientVpnCedarPolicy = `permit (principal, action, resource) when { context.posture.compliant == true };`
 
 // TestEC2_ClientVpnEndpointAuthorizationPolicy creates a Client VPN endpoint's
-// Cedar authorization policy, merges a change into it, and deletes it: each
-// change answers with the policy's transitional status and settles behind the
-// request.
+// Cedar authorization policy, merges a change into it and deletes it: each
+// change answers with a transitional status and settles in the background.
 func TestEC2_ClientVpnEndpointAuthorizationPolicy(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -89,9 +88,9 @@ func TestEC2_ClientVpnEndpointAuthorizationPolicy(t *testing.T) {
 	assert.Equal(t, "InvalidClientVpnEndpointId.NotFound", apiErr.ErrorCode())
 }
 
-// waitForClientVpnAuthorizationPolicy polls GetClientVpnEndpointAuthorizationPolicy
-// until the policy reaches want, or with want empty until it is gone: the SDK
-// has no waiter for the policy.
+// waitForClientVpnAuthorizationPolicy polls
+// GetClientVpnEndpointAuthorizationPolicy until the policy reaches want, or is
+// gone when want is empty: the SDK has no waiter for it.
 func waitForClientVpnAuthorizationPolicy(t *testing.T, c *ec2.Client, epID *string, want types.ClientVpnAuthorizationPolicyStatus) *ec2.GetClientVpnEndpointAuthorizationPolicyOutput {
 	t.Helper()
 	delay := waiterMinDelay

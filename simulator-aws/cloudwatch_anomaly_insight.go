@@ -7,16 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch anomaly detectors and Contributor Insights rules.
-//
-// Anomaly detectors are identified by (Namespace, MetricName, Stat, Dimensions)
-// — there is no name; PutAnomalyDetector creates one, DeleteAnomalyDetector
-// removes it, DescribeAnomalyDetectors lists with optional filters. Insight
-// rules are named resources with a definition and an ENABLED/DISABLED state.
-// Both are served on awsJson1.0, rpc-v2-cbor, and query.
+// Anomaly detectors have no name: (Namespace, MetricName, Stat, Dimensions)
+// identifies one. Insight rules are named, ENABLED or DISABLED.
 
-// CWAnomalyDetector holds a single-metric anomaly detector's identity. The sim
-// reports PENDING_TRAINING — it stores the detector but does not train a model.
+// The simulator trains no model, so a detector reports PENDING_TRAINING.
 type CWAnomalyDetector struct {
 	Namespace  string        `json:"Namespace"`
 	MetricName string        `json:"MetricName"`
@@ -87,8 +81,6 @@ func cwSetInsightRulesState(names []string, state string) {
 	}
 }
 
-// ── awsJson1.0 surface ──────────────────────────────────────────────────────
-
 func registerCloudWatchAnomalyInsightJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutAnomalyDetector", handleCWJSONPutAnomalyDetector)
 	r.Register("GraniteServiceVersion20100801.DescribeAnomalyDetectors", handleCWJSONDescribeAnomalyDetectors)
@@ -113,8 +105,8 @@ type cwAnomalyDetectorReq struct {
 	} `json:"SingleMetricAnomalyDetector"`
 }
 
-// resolve flattens the legacy top-level fields and the SingleMetricAnomalyDetector
-// nesting into one identity (newer SDKs send the nested form).
+// Newer SDKs send the SingleMetricAnomalyDetector nesting, older ones the
+// top-level fields.
 func (req cwAnomalyDetectorReq) resolve() CWAnomalyDetector {
 	d := CWAnomalyDetector{Namespace: req.Namespace, MetricName: req.MetricName, Stat: req.Stat, Dimensions: req.Dimensions}
 	if s := req.SingleMetricAnomalyDetector; s != nil {
@@ -305,8 +297,6 @@ func handleCWJSONDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Failures": []any{}})
 }
-
-// ── rpc-v2-cbor surface (Go SDK) ────────────────────────────────────────────
 
 func registerCloudWatchAnomalyInsightCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutAnomalyDetector", handleCWCBORPutAnomalyDetector)
@@ -504,8 +494,6 @@ func handleCWCBORDeleteInsightRules(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, map[string]any{"Failures": []any{}})
 }
 
-// ── query surface (older aws CLI) ───────────────────────────────────────────
-
 func registerCloudWatchAnomalyInsightQuery(r *AWSQueryRouter) {
 	r.Register("PutAnomalyDetector", handleCWQueryPutAnomalyDetector)
 	r.Register("DescribeAnomalyDetectors", handleCWQueryDescribeAnomalyDetectors)
@@ -517,9 +505,7 @@ func registerCloudWatchAnomalyInsightQuery(r *AWSQueryRouter) {
 	r.Register("DeleteInsightRules", handleCWQueryDeleteInsightRules)
 }
 
-// cwQueryAnomalyIdentity reads the anomaly detector identity from the query
-// form, honouring both the legacy top-level params and the
-// SingleMetricAnomalyDetector nesting.
+// Accept the top-level parameters and the SingleMetricAnomalyDetector nesting.
 func cwQueryAnomalyIdentity(r *http.Request) CWAnomalyDetector {
 	d := CWAnomalyDetector{
 		Namespace:  r.FormValue("Namespace"),

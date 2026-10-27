@@ -10,9 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for what an App Service app runs — its connection strings in
-// the environment, its persistent /home share, the stopped state — and for
-// swap with preview, as the Azure CLI drives them:
+// What an App Service app runs (its connection strings in the environment,
+// its persistent /home share, the stopped state) and swap with preview, as the
+// Azure CLI drives them. `slot swap --action preview` and `--action reset` send
+// applySlotConfig and resetSlotConfig.
 //
 //	az webapp config connection-string set (--settings, --slot-settings)
 //	az webapp restart
@@ -63,7 +64,6 @@ func TestWebAppRuntime_ConnectionStringsHomeStopAndSwapPreview(t *testing.T) {
 	assert.Equal(t, "Server=tcp:orders.database.windows.net", get(app, "/env/SQLAZURECONNSTR_Orders"))
 	assert.Equal(t, "host=events.postgres", get(app, "/env/POSTGRESQLCONNSTR_Events"))
 
-	// A file the app writes to /home survives a restart, and Kudu reads it.
 	runCLI(t, site(app, "PUT", "/files/notes/kept.txt", "--body", "written by the app"))
 	runCLI(t, az.command("webapp", "restart", "-g", rg, "-n", app))
 	assert.Equal(t, "written by the app", get(app, "/files/notes/kept.txt"))
@@ -71,7 +71,6 @@ func TestWebAppRuntime_ConnectionStringsHomeStopAndSwapPreview(t *testing.T) {
 	assert.Equal(t, "written by the app", strings.TrimSpace(runCLI(t, az.command("rest", "--method", "get",
 		"--url", scm+"/api/vfs/site/wwwroot/notes/kept.txt", "--resource", "https://appservice.azure.com"))))
 
-	// A stopped app answers the stopped-site page and runs nothing.
 	runCLI(t, az.command("webapp", "stop", "-g", rg, "-n", app))
 	var shown struct {
 		State string `json:"state"`
@@ -84,8 +83,8 @@ func TestWebAppRuntime_ConnectionStringsHomeStopAndSwapPreview(t *testing.T) {
 	runCLI(t, az.command("webapp", "start", "-g", rg, "-n", app))
 	assert.Equal(t, "files-http", get(app, "/"))
 
-	// Swap with preview: the slot runs on production's slot settings until
-	// the reset, and the swap completes the preview.
+	// With preview, the slot runs on production's slot settings until the reset;
+	// the swap completes the preview.
 	runCLI(t, az.command("webapp", "deployment", "slot", "create", "-g", rg, "-n", app, "-s", slot,
 		"--configuration-source", app, "-o", "json"))
 	runCLI(t, az.command("webapp", "config", "appsettings", "set", "-g", rg, "-n", app, "-s", slot,

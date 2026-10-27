@@ -17,10 +17,9 @@ func schedulerClient() *scheduler.Client {
 	})
 }
 
-// TestScheduler_ScheduleLifecycle pins the EventBridge Scheduler flow that
-// terraform-provider-aws drives for `aws_scheduler_schedule`: create in the
-// implicit "default" group, read back the round-tripped target + flexible
-// time window, update the expression, then delete.
+// TestScheduler_ScheduleLifecycle covers the flow terraform-provider-aws drives
+// for aws_scheduler_schedule: create in the implicit "default" group, read back
+// the target and flexible time window, update the expression, delete.
 func TestScheduler_ScheduleLifecycle(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
@@ -54,7 +53,7 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 	require.NotNil(t, getOut.FlexibleTimeWindow)
 	assert.Equal(t, schedtypes.FlexibleTimeWindowModeOff, getOut.FlexibleTimeWindow.Mode)
 
-	// Duplicate create must conflict.
+	// A duplicate create conflicts.
 	_, err = c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
 		Name:               aws.String(name),
 		ScheduleExpression: aws.String("rate(2 hours)"),
@@ -66,7 +65,6 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 	})
 	require.Error(t, err, "duplicate schedule must raise ConflictException")
 
-	// Update the expression and disable it.
 	_, err = c.UpdateSchedule(ctx, &scheduler.UpdateScheduleInput{
 		Name:               aws.String(name),
 		ScheduleExpression: aws.String("cron(0 2 * * ? *)"),
@@ -83,7 +81,6 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 	assert.Equal(t, "cron(0 2 * * ? *)", aws.ToString(getOut.ScheduleExpression))
 	assert.Equal(t, schedtypes.ScheduleStateDisabled, getOut.State)
 
-	// ListSchedules surfaces it.
 	listOut, err := c.ListSchedules(ctx, &scheduler.ListSchedulesInput{NamePrefix: aws.String("runner-")})
 	require.NoError(t, err)
 	found := false
@@ -100,8 +97,6 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 	require.Error(t, err, "deleted schedule must 404")
 }
 
-// TestScheduler_ScheduleGroups covers the custom-group path: create a group,
-// place a schedule in it, and list both group and schedule scoped to it.
 func TestScheduler_ScheduleGroups(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
@@ -136,7 +131,7 @@ func TestScheduler_ScheduleGroups(t *testing.T) {
 		})
 	})
 
-	// GetSchedule must be scoped by group — the default group does not see it.
+	// GetSchedule is scoped by group; the default group does not hold it.
 	_, err = c.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(name)})
 	require.Error(t, err, "schedule in a custom group must not resolve under the default group")
 
@@ -146,7 +141,6 @@ func TestScheduler_ScheduleGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, group, aws.ToString(getOut.GroupName))
 
-	// ListSchedules scoped to the group returns only its schedules.
 	listOut, err := c.ListSchedules(ctx, &scheduler.ListSchedulesInput{GroupName: aws.String(group)})
 	require.NoError(t, err)
 	require.Len(t, listOut.Schedules, 1)

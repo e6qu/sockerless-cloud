@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lambdaExtrasFunc creates a throwaway function for the subresource tests.
 func lambdaExtrasFunc(t *testing.T, lc *lambda.Client, name string) {
 	t.Helper()
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -130,7 +129,6 @@ func TestLambda_ConcurrencyAndUrlList(t *testing.T) {
 	_, err = lc.DeleteFunctionConcurrency(ctx, &lambda.DeleteFunctionConcurrencyInput{FunctionName: aws.String(fn)})
 	require.NoError(t, err)
 
-	// A function URL config + ListFunctionUrlConfigs.
 	_, err = lc.CreateFunctionUrlConfig(ctx, &lambda.CreateFunctionUrlConfigInput{
 		FunctionName: aws.String(fn), AuthType: lambdatypes.FunctionUrlAuthTypeNone,
 	})

@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sqsCLIQueueARN reads a queue's ARN via the CLI, the value needed to wire a
-// RedrivePolicy or to address a queue in a message-move task.
+// sqsCLIQueueARN reads the ARN a RedrivePolicy or a message-move task names a
+// queue by.
 func sqsCLIQueueARN(t *testing.T, queueURL string) string {
 	t.Helper()
 	out := runCLI(t, awsCLI("sqs", "get-queue-attributes",
@@ -23,8 +23,6 @@ func sqsCLIQueueARN(t *testing.T, queueURL string) string {
 	return arn
 }
 
-// TestSQSCLI_DeadLetterSourceQueues asserts `aws sqs list-dead-letter-source-queues`
-// returns the source queues wired to a dead-letter queue via their RedrivePolicy.
 func TestSQSCLI_DeadLetterSourceQueues(t *testing.T) {
 	t.Parallel()
 	dlqOut := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-dls-dlq"))
@@ -57,10 +55,9 @@ func TestSQSCLI_DeadLetterSourceQueues(t *testing.T) {
 	assert.Equal(t, []string{src.QueueUrl}, list.QueueUrls)
 }
 
-// TestSQSCLI_MessageMoveTask exercises the DLQ-redrive task lifecycle via the
-// CLI: a message in a dead-letter queue is redriven to its source queue with
-// `start-message-move-task`, then listed with `list-message-move-tasks`, and a
-// `cancel-message-move-task` against the settled task is rejected.
+// TestSQSCLI_MessageMoveTask redrives a dead-letter queue's message to its
+// source queue with start-message-move-task, lists the task, and expects
+// cancel-message-move-task on the finished task to be rejected.
 func TestSQSCLI_MessageMoveTask(t *testing.T) {
 	t.Parallel()
 	dlqOut := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-mmt-dlq"))
@@ -97,7 +94,6 @@ func TestSQSCLI_MessageMoveTask(t *testing.T) {
 	parseJSON(t, startOut, &start)
 	require.NotEmpty(t, start.TaskHandle)
 
-	// The redriven message is now on the source queue.
 	recvOut := runCLI(t, awsCLI("sqs", "receive-message", "--queue-url", src.QueueUrl,
 		"--max-number-of-messages", "10", "--message-system-attribute-names", "All"))
 	var recv struct {
@@ -128,7 +124,6 @@ func TestSQSCLI_MessageMoveTask(t *testing.T) {
 	assert.Equal(t, dlqARN, list.Results[0].SourceArn)
 	assert.Equal(t, int64(1), list.Results[0].ApproximateNumberOfMessagesMoved)
 
-	// Cancelling a COMPLETED task is rejected.
 	cancelErr := runCLIExpectError(t, awsCLI("sqs", "cancel-message-move-task",
 		"--task-handle", start.TaskHandle))
 	assert.Contains(t, cancelErr, "ResourceNotFoundException")

@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_UserLifecycle exercises the IAM user surface added for call-time
-// enforcement: CreateUser/GetUser/DeleteUser, CreateAccessKey/ListAccessKeys/
-// DeleteAccessKey, PutUserPolicy/GetUserPolicy/ListUserPolicies/DeleteUserPolicy,
-// and AttachUserPolicy/ListAttachedUserPolicies/DetachUserPolicy.
 func TestIAM_UserLifecycle(t *testing.T) {
 	t.Parallel()
 	managedPolicy := uniquename.New("managed-lifecycle")
@@ -49,7 +45,7 @@ func TestIAM_UserLifecycle(t *testing.T) {
 
 	gp, err := c.GetUserPolicy(ctx, &iam.GetUserPolicyInput{UserName: aws.String(user), PolicyName: aws.String("inline1")})
 	require.NoError(t, err)
-	// IAM returns PolicyDocument URL-encoded (RFC 3986), like GetRolePolicy.
+	// IAM returns PolicyDocument URL-encoded (RFC 3986), as GetRolePolicy does.
 	doc, _ := url.QueryUnescape(aws.ToString(gp.PolicyDocument))
 	assert.Contains(t, doc, "s3:GetObject")
 

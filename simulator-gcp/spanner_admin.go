@@ -12,16 +12,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Spanner instance/database administration beyond the core instance and
-// database CRUD in spanner.go: instance partitions, the four operation
-// collections, the AIP-141 IAM verbs, database roles, GetDatabaseDdl and
-// UpdateDatabase.
-//
-// Every handler here answers from the same state the data plane uses. The DDL
-// the schema store holds is the DDL the SQLite engine executed, so GetDatabaseDdl
-// reports the schema SQL actually sees; UpdateDatabase's drop protection is
-// enforced by DropDatabase and DeleteInstance; database roles are folded out of
-// the database's own CREATE ROLE / DROP ROLE statements.
+// Cloud Spanner administration beyond spanner.go's instance and database CRUD:
+// instance partitions, the four operation collections, the AIP-141 IAM verbs,
+// database roles, GetDatabaseDdl and UpdateDatabase. Each answers from the
+// data plane's own state: GetDatabaseDdl reports the DDL the SQLite engine
+// ran, and roles fold out of the database's CREATE ROLE and DROP ROLE.
 
 // spannerInstancePartition mirrors the Discovery InstancePartition schema — the
 // compute/storage subdivision an instance can be split into.
@@ -39,11 +34,9 @@ type spannerInstancePartition struct {
 	Etag                 string   `json:"etag,omitempty"`
 }
 
-// spannerQueryParam reads a query parameter under any of the spellings Google's
-// JSON transcoding accepts for it. A field declared `backup_schedule_id` in the
-// proto is spelled `backupScheduleId` by the Discovery-generated clients and
-// `backup_schedule_id` by the terraform google provider, and the real API
-// frontend answers to both.
+// spannerQueryParam reads a query parameter under any spelling Google's JSON
+// transcoding accepts: the Discovery-generated clients send
+// `backupScheduleId`, the Terraform provider `backup_schedule_id`.
 func spannerQueryParam(r *http.Request, names ...string) string {
 	query := r.URL.Query()
 	for _, name := range names {
@@ -53,8 +46,6 @@ func spannerQueryParam(r *http.Request, names ...string) string {
 	}
 	return ""
 }
-
-// operations: get / delete / cancel across every Cloud Spanner collection
 
 // spannerRouteOperation serves the google.longrunning.Operations methods on one
 // operation name: get, delete, and the ":cancel" custom method.
@@ -86,13 +77,10 @@ func spannerRouteOperation(w http.ResponseWriter, r *http.Request, verb, name st
 	return true
 }
 
-// handleSpannerCancelOperation implements CancelOperation. Cancellation is
-// best-effort in the long-running-operations contract: it asks the service to
-// stop the work and returns Empty, and the caller polls GetOperation to learn
-// the outcome. Every Cloud Spanner operation the simulator creates has already
-// reached done before the client can hold its name, so the ask always arrives
-// after completion and leaves the operation's recorded result untouched —
-// exactly what the real service does with a late cancel.
+// handleSpannerCancelOperation implements CancelOperation, which is best
+// effort: every Cloud Spanner operation the simulator records is done before a
+// client holds its name, so a cancel leaves the result alone and answers
+// Empty, as Cloud Spanner does with a late cancel.
 func handleSpannerCancelOperation(w http.ResponseWriter, name string) {
 	if _, ok := crOperations.Get(name); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
@@ -143,8 +131,6 @@ func handleSpannerListInstanceScopedOperations(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// instance custom methods: the IAM triple and MoveInstance
-
 func handleSpannerInstanceAction(w http.ResponseWriter, r *http.Request, instance, verb string) {
 	name := spannerInstanceName(sim.PathParam(r, "project"), instance)
 	switch verb {
@@ -161,10 +147,8 @@ func handleSpannerInstanceAction(w http.ResponseWriter, r *http.Request, instanc
 	}
 }
 
-// handleSpannerMoveInstance implements MoveInstance: the instance's own
-// configuration changes to the requested target, which is the state the move
-// leaves behind. The databases the instance holds keep their rows — a move
-// relocates the instance, it does not recreate its content.
+// handleSpannerMoveInstance moves the instance to the requested configuration;
+// its databases keep their rows.
 func handleSpannerMoveInstance(w http.ResponseWriter, r *http.Request, name string) {
 	inst, ok := spannerInstances.Get(name)
 	if !ok {
@@ -211,9 +195,8 @@ func newSpannerOperation(collection string, metadata, response map[string]any) O
 	return op
 }
 
-// newSpannerFailedOperation records a completed operation that carries an
-// error instead of a response — the shape a Cloud Spanner LRO takes when the
-// work it started could not be finished.
+// newSpannerFailedOperation records a completed operation carrying an error
+// instead of a response.
 func newSpannerFailedOperation(collection string, metadata map[string]any, code int, message string) Operation {
 	op := Operation{
 		Name:     strings.TrimRight(collection, "/") + "/_" + strings.ReplaceAll(sim.NewUUID(), "-", "_"),
@@ -225,12 +208,7 @@ func newSpannerFailedOperation(collection string, metadata map[string]any, code 
 	return op
 }
 
-// database custom methods, UpdateDatabase and GetDatabaseDdl
-
 // handleSpannerDatabaseAction is the colon-verb fan-in on a database resource.
-// The IAM triple is served; addSplitPoints and changequorum are reported as
-// unknown methods because the simulator holds no key-space split map and no
-// replication quorum for them to act on.
 func handleSpannerDatabaseAction(w http.ResponseWriter, r *http.Request, instance, database, verb string) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	switch verb {
@@ -249,9 +227,8 @@ func handleSpannerDatabaseAction(w http.ResponseWriter, r *http.Request, instanc
 	}
 }
 
-// handleSpannerAddSplitPoints records where a database is to be split. A split
-// point names a key in a table or index, so one naming neither describes no
-// split — and Spanner answers with an empty body, having taken the request.
+// handleSpannerAddSplitPoints records where a database is to be split. A
+// split point names a key in a table or index; Spanner answers an empty body.
 func handleSpannerAddSplitPoints(w http.ResponseWriter, r *http.Request, name string) {
 	if _, ok := spannerDatabases.Get(name); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
@@ -282,10 +259,8 @@ func handleSpannerAddSplitPoints(w http.ResponseWriter, r *http.Request, name st
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleSpannerChangeQuorum moves a database between quorum types, which is how
-// a dual-region database is failed over. The new quorum is recorded on the
-// database, so a read afterwards reports the quorum the database is actually
-// in.
+// handleSpannerChangeQuorum moves a database between quorum types, as a
+// dual-region failover does, and records the new quorum for reads.
 func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name string) {
 	var req struct {
 		QuorumType map[string]any `json:"quorumType"`
@@ -300,18 +275,15 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 			"changequorum needs the quorum type to move to")
 		return
 	}
-	// A database's quorum info is the record of the change — who asked for it,
-	// when, and the quorum type moved to — and the type sits inside it. Storing
-	// the type as the info put the type's own members at the top level, where
-	// the schema has none of them.
+	// QuorumInfo records the change (who asked, when, and the quorum type moved
+	// to), with the type inside it.
 	quorum := map[string]any{
 		"quorumType": req.QuorumType,
 		"initiator":  "USER",
 		"startTime":  time.Now().UTC().Format(time.RFC3339),
 	}
-	// The etag is the quorum info's own, and a request carrying one changes
-	// the quorum only while it still matches, so two concurrent changes
-	// cannot both apply.
+	// A request carrying the etag changes the quorum only while it matches, so two
+	// concurrent changes cannot both apply.
 	quorum["etag"] = gcpPolicyETag()
 	stale := false
 	if !spannerDatabases.Update(name, func(db *spannerDatabase) {
@@ -335,9 +307,8 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 	})
 }
 
-// handleSpannerGetDatabaseDdl reports the database's schema as the list of DDL
-// statements that built it — the same statements the SQLite engine executed, so
-// the answer describes the schema SQL actually sees.
+// handleSpannerGetDatabaseDdl answers the DDL statements the SQLite engine ran
+// to build the schema.
 func handleSpannerGetDatabaseDdl(w http.ResponseWriter, r *http.Request, instance, database string) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	if _, ok := spannerDatabases.Get(name); !ok {
@@ -355,9 +326,8 @@ func handleSpannerGetDatabaseDdl(w http.ResponseWriter, r *http.Request, instanc
 	sim.WriteJSON(w, http.StatusOK, body)
 }
 
-// handleSpannerUpdateDatabase implements UpdateDatabase, whose only writable
-// field is enableDropProtection. The flag is enforced: DropDatabase and
-// DeleteInstance both refuse while it is set.
+// handleSpannerUpdateDatabase sets enableDropProtection, UpdateDatabase's one
+// writable field, which DropDatabase and DeleteInstance enforce.
 func handleSpannerUpdateDatabase(w http.ResponseWriter, r *http.Request, instance, database string) {
 	name := spannerDatabaseName(sim.PathParam(r, "project"), instance, database)
 	db, ok := spannerDatabases.Get(name)
@@ -402,8 +372,6 @@ func spannerDatabaseResponse(db spannerDatabase) map[string]any {
 	return m
 }
 
-// database roles
-
 // spannerCreateRoleRe and spannerDropRoleRe recognize the fine-grained access
 // control DDL that defines a database's roles.
 var (
@@ -411,9 +379,8 @@ var (
 	spannerDropRoleRe   = regexp.MustCompile("(?is)^\\s*DROP\\s+ROLE\\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\\s*$")
 )
 
-// spannerDatabaseRoleNames folds the database's DDL history into the set of
-// roles that currently exist, in the order Cloud Spanner lists them (sorted,
-// with the built-in "public" role every database has).
+// spannerDatabaseRoleNames folds the DDL history into the roles that exist,
+// sorted as Cloud Spanner lists them, with the built-in "public" role.
 func spannerDatabaseRoleNames(dbName string) []string {
 	roles := map[string]bool{"public": true}
 	ddl, ok := spannerDDLs.Get(dbName)
@@ -473,8 +440,6 @@ func handleSpannerDatabaseRoleIAM(w http.ResponseWriter, r *http.Request, resour
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), resource, verb)
 }
-
-// instance partitions
 
 func spannerInstancePartitionName(project, instance, partition string) string {
 	return fmt.Sprintf("%s/instancePartitions/%s", spannerInstanceName(project, instance), partition)

@@ -16,8 +16,7 @@ import (
 
 type ASLaunchConfiguration struct {
 	Name string
-	// ARN carries the identifier AWS assigns beside the name, which is what
-	// makes it the resource's own ARN rather than a restatement of the name.
+	// ARN carries the identifier AWS assigns beside the name.
 	ARN                      string
 	ImageId                  string
 	InstanceType             string
@@ -45,8 +44,7 @@ type AutoScalingGroup struct {
 	LaunchTemplate          ASLaunchTemplateSpec
 	// DefaultInstanceWarmup is nil until set; -1 on update clears it.
 	DefaultInstanceWarmup *int
-	// InstanceSources records what each member was launched from.
-	InstanceSources map[string]ASLaunchSource
+	InstanceSources       map[string]ASLaunchSource
 }
 
 // ASLaunchTemplateSpec names a launch template and the version a group
@@ -61,9 +59,8 @@ func (s ASLaunchTemplateSpec) set() bool {
 	return s.LaunchTemplateId != "" || s.LaunchTemplateName != ""
 }
 
-// ASLaunchSource is what an instance launches from: a launch configuration or
-// a launch template. A member's source carries the version number it launched
-// from; a group's carries the version as configured.
+// A member's source carries the version number it launched from; a group's
+// carries the version selector as configured.
 type ASLaunchSource struct {
 	LaunchConfigurationName string
 	LaunchTemplate          ASLaunchTemplateSpec
@@ -347,8 +344,6 @@ func handleASUpdateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 	asEmptyResponse(w, "UpdateAutoScalingGroup")
 }
 
-// asLaunchTemplateParam reads a request's LaunchTemplate specification, which
-// names the template by ID or name and a version selector.
 func asLaunchTemplateParam(r *http.Request) ASLaunchTemplateSpec {
 	return ASLaunchTemplateSpec{
 		LaunchTemplateId:   r.FormValue("LaunchTemplate.LaunchTemplateId"),
@@ -416,9 +411,7 @@ func handleASDeleteAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 	asEmptyResponse(w, "DeleteAutoScalingGroup")
 }
 
-// asDeleteGroupChildren removes what AWS deletes along with a group: its
-// scaling policies, scheduled actions, lifecycle hooks and actions, instance
-// refreshes, and warm pool and instance settings.
+// asDeleteGroupChildren removes what AWS deletes with a group.
 func asDeleteGroupChildren(group string) {
 	for _, p := range asScalingPolicies.List() {
 		if p.AutoScalingGroupName == group {
@@ -513,9 +506,7 @@ func handleASDescribeTags(w http.ResponseWriter, r *http.Request) {
 	asResponse(w, "DescribeTags", fmt.Sprintf("<Tags>%s</Tags>", items.String()))
 }
 
-// asResourceKey composes the storage key for per-group child resources
-// (policies, scheduled actions, lifecycle hooks): the same name can exist
-// under different Auto Scaling groups, so the group name is part of the key.
+// The same child name can exist under different groups.
 func asResourceKey(groupName, resourceName string) string {
 	return groupName + "|" + resourceName
 }
@@ -543,7 +534,7 @@ func handleASPutScalingPolicy(w http.ResponseWriter, r *http.Request) {
 		Enabled:               r.FormValue("Enabled") != "false",
 	}
 	if existing, ok := asScalingPolicies.Get(key); ok {
-		policy.ARN = existing.ARN // ARN is stable across updates
+		policy.ARN = existing.ARN
 	}
 	if v := r.FormValue("ScalingAdjustment"); v != "" {
 		policy.ScalingAdjustment = asAtoiDefault(v, 0)
@@ -831,9 +822,8 @@ func handleASSetInstanceHealth(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
-	// SetInstanceHealth marks an instance Healthy/Unhealthy. An Unhealthy
-	// instance is replaced by the group on the next reconcile; we model that
-	// by terminating it and reconciling back to DesiredCapacity.
+	// The group replaces an Unhealthy instance: terminate it and reconcile back
+	// to DesiredCapacity.
 	if r.FormValue("HealthStatus") == "Unhealthy" {
 		for _, asg := range autoScalingGroups.List() {
 			if idx := indexOfString(asg.InstanceIds, instanceID); idx >= 0 {
@@ -880,8 +870,7 @@ func handleASTerminateInstanceInAutoScalingGroup(w http.ResponseWriter, r *http.
 	asResponse(w, "TerminateInstanceInAutoScalingGroup", fmt.Sprintf("<Activity>%s</Activity>", scalingActivityInnerXML(activity)))
 }
 
-// terminateASGInstance tears down the EC2 instance backing an Auto Scaling
-// group member, mirroring reconcileAutoScalingGroup's scale-in path.
+// terminateASGInstance mirrors reconcileAutoScalingGroup's scale-in path.
 func terminateASGInstance(instanceID string) {
 	inst, ok := ec2Instances.Get(instanceID)
 	if !ok {
@@ -1014,8 +1003,6 @@ func autoScalingInstanceXML(instanceID string, asg AutoScalingGroup) string {
 	return b.String()
 }
 
-// scalingActivityInnerXML emits the body of an <Activity> element (used by
-// TerminateInstanceInAutoScalingGroup's ActivityType output).
 func scalingActivityInnerXML(a ScalingActivity) string {
 	return fmt.Sprintf("<ActivityId>%s</ActivityId><AutoScalingGroupName>%s</AutoScalingGroupName><Description>%s</Description><Cause>%s</Cause><StartTime>%s</StartTime><StatusCode>%s</StatusCode><Progress>0</Progress>",
 		a.ActivityId, xmlEscape(a.AutoScalingGroupName), xmlEscape(a.Description), xmlEscape(a.Cause), a.StartTime, a.StatusCode)
@@ -1039,11 +1026,9 @@ func indexOfString(list []string, v string) int {
 	return -1
 }
 
-// reconcileAutoScalingGroup brings the group's membership to its desired
-// capacity and stores it. Amazon EC2 Auto Scaling answers the request that
-// changed the capacity at once: each launched instance joins the group Pending
-// and its scaling activity stays InProgress until the instance is running,
-// which happens behind the request in asLaunchInstance.
+// Amazon EC2 Auto Scaling answers the capacity change at once: each launched
+// member joins Pending, and its activity stays InProgress until
+// asLaunchInstance has the instance running.
 func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 	var launches []asLaunch
 	if missing := asg.DesiredCapacity - len(asg.InstanceIds); missing > 0 {
@@ -1078,8 +1063,7 @@ func reconcileAutoScalingGroup(asg *AutoScalingGroup, cause string) error {
 	return nil
 }
 
-// asLaunchMembers creates n Pending members from src and a launch activity for
-// each. The caller stores the group and then boots them with asStartLaunches.
+// The caller stores the group, then boots the members with asStartLaunches.
 func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause string) ([]asLaunch, error) {
 	spec, err := asResolveLaunchSource(src)
 	if err != nil {
@@ -1087,8 +1071,7 @@ func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause str
 	}
 	subnetID := strings.TrimSpace(strings.Split(asg.VPCZoneIdentifier, ",")[0])
 	if subnetID == "" {
-		// A group without VPCZoneIdentifier lands in the default VPC, as it
-		// does on AWS.
+		// Without VPCZoneIdentifier the group lands in the default VPC.
 		subnetID = defaultVPCSubnetID()
 	}
 	subnet, ok := ec2Subnets.Get(subnetID)
@@ -1134,8 +1117,6 @@ func asStartLaunches(group string, launches []asLaunch) {
 	}
 }
 
-// asTerminateMember takes an instance out of its group and terminates it,
-// recording the termination activity.
 func asTerminateMember(asg *AutoScalingGroup, instanceID, cause string) ScalingActivity {
 	if idx := indexOfString(asg.InstanceIds, instanceID); idx >= 0 {
 		asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
@@ -1156,7 +1137,7 @@ func asTerminateMember(asg *AutoScalingGroup, instanceID, cause string) ScalingA
 	return activity
 }
 
-// asMessage is an error whose text the service returns verbatim, as Amazon EC2
+// asMessage is an error the service returns verbatim, worded as Amazon EC2
 // words it.
 type asMessage string
 
@@ -1169,8 +1150,7 @@ type asLaunchSpec struct {
 	source       ASLaunchSource
 }
 
-// asResolveLaunchSource reads what src launches: a launch configuration, or
-// the launch template version its version selector picks now.
+// A launch template version selector resolves at call time.
 func asResolveLaunchSource(src ASLaunchSource) (asLaunchSpec, error) {
 	if !src.LaunchTemplate.set() {
 		lc, ok := asLaunchConfigurations.Get(src.LaunchConfigurationName)
@@ -1221,9 +1201,8 @@ func (asg AutoScalingGroup) launchSource() ASLaunchSource {
 	return ASLaunchSource{LaunchConfigurationName: asg.LaunchConfigurationName}
 }
 
-// asGroupLaunchSource is what the group launches from now: the desired
-// configuration of an instance refresh under way, which is what a scale-out
-// during the refresh launches, else the group's own.
+// A scale-out during an instance refresh launches the refresh's desired
+// configuration.
 func asGroupLaunchSource(asg AutoScalingGroup) ASLaunchSource {
 	if ref := asActiveRefresh(asg.Name); ref != nil && ref.Desired != nil && ref.Rollback == nil {
 		return *ref.Desired
@@ -1231,8 +1210,7 @@ func asGroupLaunchSource(asg AutoScalingGroup) ASLaunchSource {
 	return asg.launchSource()
 }
 
-// asMemberLaunchSource is what a member launched from; a member that predates
-// the record launched from the group's own configuration.
+// A member without a record launched from the group's own configuration.
 func asMemberLaunchSource(asg AutoScalingGroup, instanceID string) ASLaunchSource {
 	if src, ok := asg.InstanceSources[instanceID]; ok {
 		return src
@@ -1264,8 +1242,7 @@ func asLaunchTemplateSpecXML(spec ASLaunchTemplateSpec) string {
 	return b.String()
 }
 
-// asSetDefaultInstanceWarmup applies DefaultInstanceWarmup from a create or
-// update request; -1 removes a value set before.
+// -1 removes a value set before.
 func asSetDefaultInstanceWarmup(asg *AutoScalingGroup, r *http.Request) {
 	raw := r.FormValue("DefaultInstanceWarmup")
 	if raw == "" {
@@ -1284,9 +1261,8 @@ type asLaunch struct {
 	activityID string
 }
 
-// asLaunchInstance boots a Pending group member. The instance turns running,
-// and so InService, only once its VM is up; a failed boot fails the launch
-// activity and takes the instance out of the group.
+// The member turns InService only once its VM runs; a failed boot fails the
+// launch activity and removes the instance from the group.
 func asLaunchInstance(group string, l asLaunch) {
 	if _, ok := ec2Instances.Get(l.instanceID); !ok {
 		const reason = "The instance was deleted before it launched."
@@ -1294,9 +1270,8 @@ func asLaunchInstance(group string, l asLaunch) {
 		asRefreshInstanceSettled(group, l.instanceID, reason)
 		return
 	}
-	// The launch activity ends once EC2 has launched the instance, so it is
-	// Successful by the time a caller sees the instance running. A launch
-	// hook holds it at MidLifecycleAction until every hook has answered.
+	// The launch activity is Successful once the instance runs; a launch hook
+	// holds it at MidLifecycleAction until every hook answers.
 	hooks := asHooksFor(group, asLaunchingTransition)
 	launched, err := ec2LaunchInstance(l.instanceID, func() {
 		if len(hooks) > 0 {
@@ -1326,8 +1301,6 @@ func asLaunchInstance(group string, l asLaunch) {
 	}
 }
 
-// asActivityMemberXML renders an Activity; EndTime and StatusMessage appear
-// once the activity has them, and Progress reaches 100 when it ends.
 func asActivityMemberXML(a ScalingActivity) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<member><ActivityId>%s</ActivityId><AutoScalingGroupName>%s</AutoScalingGroupName><Description>%s</Description><Cause>%s</Cause><StartTime>%s</StartTime>",
@@ -1345,8 +1318,8 @@ func asActivityMemberXML(a ScalingActivity) string {
 	return b.String()
 }
 
-// asActivityTimeLayout carries milliseconds so activities started within one
-// second still order newest first, as DescribeScalingActivities returns them.
+// Milliseconds keep activities started within one second in newest-first
+// order.
 const asActivityTimeLayout = "2006-01-02T15:04:05.000Z"
 
 func asNewActivity(group, description, cause, status string) ScalingActivity {
@@ -1370,8 +1343,7 @@ func asFinishActivity(activityID, status, message string) {
 	})
 }
 
-// asInstanceLifecycleState reports a group member's lifecycle state from the
-// EC2 instance behind it: Pending until the instance runs, then InService.
+// Pending until the EC2 instance runs, then InService.
 func asInstanceLifecycleState(group, instanceID string) string {
 	if ex, ok := asGroupExtras.Get(group); ok && indexOfString(ex.StandbyInstances, instanceID) >= 0 {
 		return "Standby"
@@ -1394,11 +1366,8 @@ func asInstanceLifecycleState(group, instanceID string) string {
 	return "InService"
 }
 
-// launchConfigurationARN builds the ARN AWS publishes for a launch
-// configuration: an assigned identifier and then the name it is addressed by.
-// The identifier slot held the name before, which made the ARN a restatement of
-// the name rather than the resource's own — and a policy written against the
-// real ARN matched nothing.
+// The ARN carries an assigned identifier before the name, so a policy written
+// against the real ARN shape matches.
 func launchConfigurationARN(name string) string {
 	return fmt.Sprintf("arn:aws:autoscaling:%s:%s:launchConfiguration:%s:launchConfigurationName/%s",
 		awsRegion(), awsAccountID(), sim.NewUUID(), name)
@@ -1468,9 +1437,7 @@ type asFilter struct {
 	Values []string
 }
 
-// asDescribeFilters parses the DescribeAutoScalingGroups Filters.member.N.{Name,
-// Values.member.M} query structure. Supported names match the real API:
-// "tag-key", "tag-value", and "tag:<key>".
+// Supported names match the real API: "tag-key", "tag-value", "tag:<key>".
 func asDescribeFilters(r *http.Request) []asFilter {
 	var out []asFilter
 	for i := 1; ; i++ {
@@ -1486,8 +1453,7 @@ func asDescribeFilters(r *http.Request) []asFilter {
 	return out
 }
 
-// asgMatchesFilters reports whether asg satisfies every filter (AND across
-// filters; OR across a filter's values), matching real AWS filter semantics.
+// AND across filters, OR across a filter's values.
 func asgMatchesFilters(asg AutoScalingGroup, filters []asFilter) bool {
 	for _, f := range filters {
 		if !asgMatchesOneFilter(asg, f) {
@@ -1533,8 +1499,8 @@ func asgMatchesOneFilter(asg AutoScalingGroup, f asFilter) bool {
 		}
 		return false
 	default:
-		// Unknown filter name: real AWS rejects it, but a conservative
-		// no-match keeps the sim from silently returning everything.
+		// The real API rejects an unknown filter name; matching nothing at least
+		// never returns everything.
 		return false
 	}
 }

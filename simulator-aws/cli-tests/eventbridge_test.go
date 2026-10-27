@@ -63,7 +63,7 @@ func TestEventBridgeCLI_RuleTargetPutEvents(t *testing.T) {
 	runCLI(t, awsCLI("events", "put-targets",
 		"--rule", "eb-cli-rule",
 		"--targets", `[{"Id":"queue","Arn":"`+queueARN+`"}]`))
-	// EventBridge → SQS delivery is authorized by the queue's resource policy.
+	// The queue's resource policy authorizes the EventBridge delivery.
 	setEBQueuePolicyCLI(t, q.QueueUrl, queueARN, rule.RuleArn)
 
 	out = runCLI(t, awsCLI("events", "list-targets-by-rule", "--rule", "eb-cli-rule"))
@@ -216,8 +216,6 @@ func TestEventBridgeCLI_BusArchiveReplay(t *testing.T) {
 	require.Len(t, replays.Replays, 1)
 }
 
-// TestEventBridgeCLI_TestEventPattern exercises the test-event-pattern verb:
-// a matching event returns Result=true and a near-miss returns Result=false.
 func TestEventBridgeCLI_TestEventPattern(t *testing.T) {
 	t.Parallel()
 	pattern := `{"source":["sockerless.cli.tep"],"detail":{"code":[{"numeric":[">",200]}]}}`
@@ -241,8 +239,6 @@ func TestEventBridgeCLI_TestEventPattern(t *testing.T) {
 	assert.False(t, noMatch.Result)
 }
 
-// TestEventBridgeCLI_ListRuleNamesByTarget creates a rule with a target and
-// asserts list-rule-names-by-target returns that rule's name for the ARN.
 func TestEventBridgeCLI_ListRuleNamesByTarget(t *testing.T) {
 	t.Parallel()
 	targetARN := "arn:aws:sqs:us-east-1:000000000000:eb-cli-lrnbt-target"
@@ -265,8 +261,6 @@ func TestEventBridgeCLI_ListRuleNamesByTarget(t *testing.T) {
 	require.Contains(t, names.RuleNames, "eb-cli-lrnbt-rule")
 }
 
-// TestEventBridgeCLI_UpdateEventBus creates a custom bus and asserts
-// update-event-bus mutates its description, observable via describe-event-bus.
 func TestEventBridgeCLI_UpdateEventBus(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("events", "create-event-bus",
@@ -295,10 +289,9 @@ func TestEventBridgeCLI_UpdateEventBus(t *testing.T) {
 	assert.Equal(t, "updated description", described.Description)
 }
 
-// TestEventBridgeCLI_ContentFilterPattern exercises a content-filtering event
-// pattern over the CLI: nested detail-object matching plus the prefix and
-// numeric matchers. It asserts a matching event is delivered and a near-miss
-// (right source, wrong detail) is correctly rejected.
+// TestEventBridgeCLI_ContentFilterPattern matches nested detail objects with
+// the prefix and numeric matchers: a matching event is delivered and one with
+// the right source but wrong detail is not.
 func TestEventBridgeCLI_ContentFilterPattern(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "eb-cli-content-q"))
@@ -321,7 +314,6 @@ func TestEventBridgeCLI_ContentFilterPattern(t *testing.T) {
 	queueARN := attrs.Attributes["QueueArn"]
 	require.NotEmpty(t, queueARN)
 
-	// detail.state prefix "run" AND detail.code numeric > 200.
 	pattern := `{"source":["sockerless.cli.content"],"detail":{"state":[{"prefix":"run"}],"code":[{"numeric":[">",200]}]}}`
 	ruleOut := runCLI(t, awsCLI("events", "put-rule",
 		"--name", "eb-cli-content-rule",
@@ -346,7 +338,7 @@ func TestEventBridgeCLI_ContentFilterPattern(t *testing.T) {
 	require.NoError(t, err)
 	runCLI(t, awsCLI("events", "put-events", "--entries", string(entries)))
 
-	// Drain up to 10 messages; only the matching event must arrive.
+	// Receive up to ten messages; only the matching event arrives.
 	out = runCLI(t, awsCLI("sqs", "receive-message",
 		"--queue-url", q.QueueUrl,
 		"--max-number-of-messages", "10"))
@@ -361,8 +353,6 @@ func TestEventBridgeCLI_ContentFilterPattern(t *testing.T) {
 		map[string]any{"state": "running", "code": float64(500)})
 }
 
-// setEBQueuePolicyCLI attaches a queue policy authorizing EventBridge to deliver
-// from the given rule, so EventBridge → SQS delivery is admitted.
 func setEBQueuePolicyCLI(t *testing.T, queueURL, queueARN, ruleArn string) {
 	t.Helper()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
@@ -372,10 +362,10 @@ func setEBQueuePolicyCLI(t *testing.T, queueURL, queueARN, ruleArn string) {
 	runCLI(t, awsCLI("sqs", "set-queue-attributes", "--queue-url", queueURL, "--attributes", string(attrs)))
 }
 
-// TestEventBridgeCLI_CodeBuildTargetAndTargetParameters reads back the
-// Amazon Redshift Data API, SageMaker pipeline and AppSync parameters of
-// targets put with the AWS CLI, and proves an AWS CodeBuild project target
-// starts a build as the target's role when its rule matches an event.
+// TestEventBridgeCLI_CodeBuildTargetAndTargetParameters reads back the Amazon
+// Redshift Data API, SageMaker pipeline and AppSync parameters of targets, and
+// expects an AWS CodeBuild project target to start a build as the target's
+// role when its rule matches.
 func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
 	t.Parallel()
 	role := cliRoleAllowing(t, "events.amazonaws.com", "codebuild:StartBuild")
@@ -441,8 +431,8 @@ func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
 	entries, err := json.Marshal([]map[string]string{{"Source": buildRule, "DetailType": "build", "Detail": `{"cli":true}`}})
 	require.NoError(t, err)
 	runCLI(t, awsCLI("events", "put-events", "--entries", string(entries)))
-	// The build starts behind the delivery and list-builds-for-project is
-	// where it appears; AWS CodeBuild offers no waiter for a build to exist.
+	// The build starts after delivery and appears in list-builds-for-project; AWS
+	// CodeBuild has no waiter for a build to exist.
 	var builds struct {
 		IDs []string `json:"ids"`
 	}

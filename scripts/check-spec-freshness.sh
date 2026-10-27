@@ -15,14 +15,9 @@
 # main uses, and it is what keeps the vendored specifications from rotting.
 #
 # --baseline <ref> attributes each drift before failing on it. Upstream moves
-# continuously and independently of any branch: one unrelated branch absorbed
-# glue.smithy.json.gz at 16:44, vpcaccess-v1 and bigquery-v2 at 17:05, and
-# redis-v1 at 17:26 — three consecutive red runs in forty-two minutes, none of
-# them about the change under review. One of those was unsatisfiable, because
-# Google serves several Discovery revisions concurrently and the author's edge
-# answered the pinned revision however many times it probed while the runner's
-# edge answered a newer one; that pin is unchanged today and the gate is green,
-# so the runner's edge came back into line by itself.
+# continuously and independently of any branch, and Google serves several
+# Discovery revisions concurrently, so a branch can go red on drift that has
+# nothing to do with the change under review.
 #
 # With a baseline, a row whose pin is byte-identical to the baseline's carries
 # drift the baseline already carried — upstream moved under the branch rather
@@ -264,11 +259,9 @@ check_gcp() {
     for ((probe = 1; probe <= probes; probe++)); do
       candidate="$probe_dir/${file%.gz}-$probe.json"
       # The probes sample the edges Google serves concurrently, so they are
-      # deliberately separate requests rather than one. Fired back to back with
-      # no timeout they also sampled one instant, which is how a single
-      # throttling window took all three and turned "could not check" into a
-      # build failure. A failed probe waits, and waits longer each time; a
-      # probe that succeeds costs nothing extra.
+      # deliberately separate requests rather than one, spaced so one throttling
+      # window cannot take them all: a failed probe waits, and waits longer each
+      # time; a probe that succeeds costs nothing extra.
       if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$candidate" "$url" 2>/dev/null; then
         if [ "$probe" -lt "$probes" ]; then
           sleep "$((probe * 3))"

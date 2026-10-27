@@ -23,20 +23,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// Amplify Hosting SSR (WEB_COMPUTE) execution, per the published Amplify
-// Hosting deployment specification: a deployed bundle whose root carries
-// `deploy-manifest.json` (version 1) routes requests through routes[] to
-// "Static" targets (served from the bundle's `static/` directory) or
-// "Compute" targets (proxied to the compute resource's HTTP server). Each
-// computeResource is `compute/{name}/` in the bundle with a node entrypoint
-// that listens on PORT=3000 (the spec's compute port convention).
+// The AWS Amplify Hosting deployment specification: a bundle whose root
+// carries deploy-manifest.json (version 1) routes requests to Static targets
+// under static/ or to Compute targets, each a node entrypoint in
+// compute/{name}/ listening on port 3000.
 //
-// The sim runs one long-lived compute container per branch active
-// deployment, started lazily on the first request that routes to a Compute
-// target (deploys that are never browsed start no container). A new
-// deployment replaces the container on its next request; branch/app deletes
-// stop it. Persistent simulator restarts reclaim the same running compute
-// container, published port, and extracted deployment bundle.
+// Run one compute container per branch's active deployment, started lazily on
+// the first Compute-routed request and replaced on the first request after a
+// new deployment. A persistent simulator restart reclaims the running
+// container, its port and its extracted bundle.
 
 type amplifyDeployManifest struct {
 	Version          int                           `json:"version"`
@@ -44,9 +39,7 @@ type amplifyDeployManifest struct {
 	Routes           []amplifyManifestRoute        `json:"routes"`
 	ComputeResources []amplifyManifestComputeEntry `json:"computeResources,omitempty"`
 	ImageSettings    json.RawMessage               `json:"imageSettings,omitempty"`
-	// routeRegexps caches each route path pattern's compiled matcher, built
-	// once when the manifest is parsed instead of per request.
-	routeRegexps map[string]*regexp.Regexp
+	routeRegexps     map[string]*regexp.Regexp
 }
 
 type amplifyManifestFramework struct {
@@ -68,7 +61,7 @@ type amplifyManifestTarget struct {
 
 type amplifyManifestComputeEntry struct {
 	Name       string `json:"name"`
-	Runtime    string `json:"runtime"` // e.g. nodejs18.x
+	Runtime    string `json:"runtime"`
 	Entrypoint string `json:"entrypoint"`
 }
 
@@ -90,9 +83,7 @@ func amplifyParseDeployManifest(data []byte) (*amplifyDeployManifest, error) {
 	return &manifest, nil
 }
 
-// routeMatches matches a manifest route path pattern against a request path,
-// through the matcher compiled at parse time (compiling on the spot for a
-// pattern outside the manifest's routes).
+// routeMatches compiles on the spot a pattern outside the manifest's routes.
 func (m *amplifyDeployManifest) routeMatches(pattern, reqPath string) bool {
 	if re := m.routeRegexps[pattern]; re != nil {
 		return re.MatchString(reqPath)
@@ -109,10 +100,8 @@ func (m *amplifyDeployManifest) computeResource(name string) (amplifyManifestCom
 	return amplifyManifestComputeEntry{}, false
 }
 
-// amplifyCompileRoutePattern compiles a route path pattern. The spec's
-// patterns are simple globs ("/api/*", "/*.*", "/*") where `*` matches any
-// characters, including separators — the catch-all "/*" matches every path.
-// Every non-wildcard byte is quoted, so compilation cannot fail.
+// In the specification's globs ("/api/*", "/*.*", "/*") `*` also matches
+// separators. Quoting every other byte means compilation cannot fail.
 func amplifyCompileRoutePattern(pattern string) *regexp.Regexp {
 	var b strings.Builder
 	b.WriteString("^")
@@ -126,8 +115,6 @@ func amplifyCompileRoutePattern(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(b.String())
 }
 
-// amplifyComputePort is the container-side port the deployment spec requires
-// compute entrypoints to listen on.
 const amplifyComputePort = 3000
 
 type amplifyComputeInstance struct {
@@ -137,9 +124,8 @@ type amplifyComputeInstance struct {
 	handle    placement.Handle
 }
 
-// amplifyComputeBackend places compute containers; it forwards a container's
-// loopback, where the container credentials endpoint serves the compute's
-// role sessions.
+// amplifyComputeBackend forwards the container's loopback, where the
+// container credentials endpoint serves the compute role's sessions.
 var amplifyComputeBackend placement.Backend = placement.ContainerBackend{}
 
 var (
@@ -182,8 +168,8 @@ func recoverAmplifyComputeInstances() error {
 			return fmt.Errorf("adopt AWS Amplify Hosting compute container %s: %w", workload.ID, err)
 		}
 		if !workload.Running {
-			// A compute that went down starts again on the branch's next
-			// request, from the deployment that is active then.
+			// A compute that went down restarts on the branch's next request, from the
+			// deployment active then.
 			handle.Cancel()
 			revokeRoleCredentials(roleHolder("amplify", key))
 			if dir := workload.Labels["sockerless-amplify-bundle-dir"]; dir != "" {
@@ -209,8 +195,7 @@ func recoverAmplifyComputeInstances() error {
 	return nil
 }
 
-// amplifyStopCompute stops and forgets a branch's compute container. Called
-// on branch/app delete; simulator shutdown is covered by CleanupContainers.
+// CleanupContainers covers simulator shutdown.
 func amplifyStopCompute(appID, branch string) {
 	amplifyComputeMu.Lock()
 	defer amplifyComputeMu.Unlock()
@@ -232,15 +217,10 @@ func amplifyStopComputeLocked(key string) {
 	}
 }
 
-// amplifyComputeRuntimeImage maps the manifest's runtime ("nodejs18.x") to
-// the node container image (via mirror.gcr.io, Google's Docker Hub mirror —
-// repo policy: no direct Docker Hub pulls).
-//
-// The runtimes are listed rather than derived from the name. AWS Amplify
-// Hosting accepts a published set, so composing a tag out of any "nodejsNN.x"
-// would answer for versions the service rejects and name an image the mirror
-// does not carry. Spelling the images out also lets them be read off the
-// source, which is how CI knows what to warm.
+// List the runtimes AWS Amplify Hosting accepts rather than composing a tag
+// from any "nodejsNN.x": the service rejects other versions, and CI reads
+// this list to warm the images. Pull through mirror.gcr.io, never Docker Hub
+// directly.
 func amplifyComputeRuntimeImage(runtimeName string) (string, error) {
 	switch runtimeName {
 	case "nodejs18.x":
@@ -251,9 +231,6 @@ func amplifyComputeRuntimeImage(runtimeName string) (string, error) {
 	return "", fmt.Errorf("compute runtime %q not supported (expected nodejs18.x or nodejs20.x)", runtimeName)
 }
 
-// amplifyEnsureCompute returns the host port of the running compute
-// container for the branch's active deployment, starting (or replacing) it
-// if needed.
 func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHostedContent, compute amplifyManifestComputeEntry) (int, error) {
 	key := app.AppId + "/" + br.BranchName
 	amplifyComputeMu.Lock()
@@ -262,7 +239,6 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		if instance.jobID == content.JobID {
 			return instance.hostPort, nil
 		}
-		// New active deployment: replace the container.
 		amplifyStopComputeLocked(key)
 	}
 
@@ -282,9 +258,8 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		env[k] = v
 	}
 	env["PORT"] = strconv.Itoa(amplifyComputePort)
-	// The compute runs under the branch's compute role, or the app's when the
-	// branch names none: its SDKs read the role's sessions from the container
-	// credentials endpoint for as long as the compute lives.
+	// The branch's compute role wins over the app's; the compute's SDKs read the
+	// role's sessions from the container credentials endpoint.
 	computeRole := firstNonEmpty(br.ComputeRoleArn, app.ComputeRoleArn)
 	network, err := awsPlatformNetwork(context.Background())
 	if err != nil {
@@ -299,9 +274,8 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"node", compute.Entrypoint},
 		WorkingDir:   "/bundle/compute/" + compute.Name,
-		// The deployed bundle is immutable to compute. The shared SELinux
-		// relabel lets the confined workload read the real host directory on
-		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
+		// `:z` lets an SELinux-confined workload read the bundle; Docker ignores it
+		// elsewhere.
 		Binds:   []string{bundleDir + ":/bundle:ro,z"},
 		Env:     workloadhost.MergeEnv(env, credentials.Env),
 		Network: network.Name,
@@ -341,8 +315,6 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 	return hostPort, nil
 }
 
-// amplifyExtractBundle writes the unpacked deployment to a temp dir so the
-// compute container can bind-mount it.
 func amplifyExtractBundle(files map[string][]byte) (string, error) {
 	dir, err := os.MkdirTemp("", "sockerless-amplify-compute-*")
 	if err != nil {
@@ -366,12 +338,9 @@ func amplifyExtractBundle(files map[string][]byte) (string, error) {
 	return dir, nil
 }
 
-// amplifyWaitForPort blocks until the compute server answers an HTTP request,
-// the workload exits, or timeout passes. A bare TCP accept is not enough:
-// Podman's gvproxy binds the published host port immediately and resets
-// connections until the container backend listens, so the wait requires
-// actual response bytes from the entrypoint. A port that starts listening
-// raises no event, so a refused probe is retried every 100 ms.
+// Require response bytes, not a TCP accept: Podman's gvproxy binds the
+// published port at once and resets connections until the workload listens.
+// A listening port raises no event, so retry a refused probe every 100 ms.
 func amplifyWaitForPort(handle placement.Handle, port int, timeout time.Duration) error {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
@@ -409,10 +378,8 @@ func amplifyWaitForPort(handle placement.Handle, port int, timeout time.Duration
 	}
 }
 
-// amplifyServeManifestRoutes serves a WEB_COMPUTE request through the deploy
-// manifest's routes[]: first matching route wins; a target that produces a
-// 404 falls back to the route's fallback target (the spec supports fallbacks
-// for GET requests without a body).
+// The first matching route wins; on a 404 a GET without a body falls back to
+// the route's fallback target.
 func amplifyServeManifestRoutes(w http.ResponseWriter, r *http.Request, app AmplifyApp, br AmplifyBranch, content *amplifyHostedContent) {
 	for _, route := range content.Manifest.Routes {
 		if route.Target == nil || !content.Manifest.routeMatches(route.Path, r.URL.Path) {
@@ -431,14 +398,12 @@ func amplifyServeManifestRoutes(w http.ResponseWriter, r *http.Request, app Ampl
 	http.NotFound(w, r)
 }
 
-// amplifyServeManifestTarget attempts one route target; reports whether the
-// request was handled. With interceptNotFound, a target whose response would
-// be a 404 writes nothing and reports unhandled so the route's fallback
-// target applies.
+// With interceptNotFound, a target that would answer 404 writes nothing and
+// reports unhandled so the fallback target applies.
 func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app AmplifyApp, br AmplifyBranch, content *amplifyHostedContent, target *amplifyManifestTarget, interceptNotFound bool) bool {
 	switch target.Kind {
 	case "Static":
-		// The spec places compute-bundle static assets under static/.
+		// The specification places compute-bundle static assets under static/.
 		key, ok := amplifyResolveFile(content.Files, "static"+path.Clean("/"+r.URL.Path))
 		if !ok {
 			return false
@@ -468,10 +433,8 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 	}
 }
 
-// amplifyProxyToCompute forwards the request to the compute container. With
-// interceptNotFound, a 404 from compute is discarded and reported unserved
-// (nothing written) so the caller's fallback target applies; every other
-// response streams through untouched.
+// With interceptNotFound, discard a compute 404 and report it unserved so the
+// fallback target applies.
 func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) bool {
 	const exchangeTimeout = 30 * time.Second
 	sim.DeclareWait(r.Context(), exchangeTimeout)

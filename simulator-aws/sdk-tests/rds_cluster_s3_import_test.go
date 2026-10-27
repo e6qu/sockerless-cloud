@@ -41,9 +41,8 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 	t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "-f", volume).Run() })
 	docker("run", "-d", "--name", name, "-e", "MYSQL_ROOT_PASSWORD=source-root", "-v", volume+":/var/lib/mysql", xtraBackupSourceImage)
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
-	// The image's initialisation server listens on no TCP port, so a TCP
-	// client reaches only the server that stays; mysqld offers nothing to
-	// wait on until it answers one.
+	// The image's initialisation server listens on no TCP port, so a TCP client
+	// reaches only the final server.
 	client := []string{"exec", name, "mysql", "--protocol=TCP", "--host=127.0.0.1", "--user=root", "--password=source-root"}
 	for exec.Command("docker", append(client, "--execute=SELECT 1")...).Run() != nil {
 		time.Sleep(waiterMinDelay)
@@ -54,10 +53,10 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 		"--host=127.0.0.1", "--target-dir=/tmp")
 }
 
-// RestoreDBClusterFromS3 imports a Percona XtraBackup of a MySQL 8.0 server
-// from Amazon S3 into a new Aurora MySQL cluster, which serves the backup's
-// data to the master user the request names. A bucket the ingestion role
-// cannot read, or a prefix without objects, is refused.
+// RestoreDBClusterFromS3 imports a Percona XtraBackup of a MySQL 8.0 server from
+// Amazon S3 into an Aurora MySQL cluster serving the backup's data to the named
+// master user. A bucket the ingestion role cannot read, or an empty prefix, is
+// refused.
 func TestRDS_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

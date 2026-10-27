@@ -8,19 +8,15 @@ import (
 	"strings"
 )
 
-// elbv2FlowSource is where a load balancer's flow to a target comes from, as
-// the target's security group sees it: the load balancer's own security
-// groups and the subnets its nodes hold addresses in, or the client's address
-// when the load balancer preserves it.
+// The load balancer's groups and node subnets, or the client's address when
+// the load balancer preserves it.
 type elbv2FlowSource struct {
 	groups   []string
 	prefixes []netip.Prefix
 	client   netip.Addr
 }
 
-// elbv2TargetAdmission compiles what the target's security groups admit from
-// the load balancer on the flow's port: nil for a target with no security
-// group, which nothing filters.
+// nil for a target without security groups.
 func elbv2TargetAdmission(lb ELBv2LoadBalancer, tg ELBv2TargetGroup, target ELBv2TargetDescription, port int) func(client netip.Addr) error {
 	groups := elbv2TargetSecurityGroups(tg, target)
 	if len(groups) == 0 {
@@ -39,9 +35,8 @@ func elbv2TargetAdmission(lb ELBv2LoadBalancer, tg ELBv2TargetGroup, target ELBv
 	}
 }
 
-// elbv2TargetSecurityGroups are the security groups on the target's
-// interface: an instance's, or the elastic network interface in the target
-// group's VPC that holds an IP target's address.
+// An instance's groups, or those of the interface holding an IP target's
+// address in the group's VPC.
 func elbv2TargetSecurityGroups(tg ELBv2TargetGroup, target ELBv2TargetDescription) []string {
 	if strings.EqualFold(tg.TargetType, "instance") {
 		inst, ok := ec2Instances.Get(target.ID)
@@ -66,11 +61,9 @@ func elbv2TargetSecurityGroups(tg ELBv2TargetGroup, target ELBv2TargetDescriptio
 
 var ec2NetworkInterfacesByPrivateIP sim.GenerationIndex[EC2NetworkInterface]
 
-// elbv2LoadBalancerSource is how a target's rules see the load balancer. An
-// Application Load Balancer, and a Network Load Balancer with security
-// groups, reaches targets from its nodes, which carry its security groups
-// and addresses in its subnets; a Network Load Balancer without security
-// groups preserves the client's address, which the rules then see.
+// Application Load Balancers, and Network Load Balancers with security groups,
+// reach targets from nodes carrying their groups and subnet addresses; one
+// without groups preserves the client's address.
 func elbv2LoadBalancerSource(lb ELBv2LoadBalancer) elbv2FlowSource {
 	if !strings.EqualFold(lb.Type, "application") && len(lb.SecurityGroups) == 0 {
 		return elbv2FlowSource{}
@@ -88,10 +81,8 @@ func elbv2LoadBalancerSource(lb ELBv2LoadBalancer) elbv2FlowSource {
 	return source
 }
 
-// ec2SecurityGroupsAdmit reports whether any ingress permission of the groups
-// admits the protocol and port from the source: a CIDR permission admits a
-// client address it covers or a subnet it overlaps, and a group permission
-// admits a source holding that group.
+// A CIDR permission admits a covered client address or an overlapping subnet;
+// a group permission admits a source holding that group.
 func ec2SecurityGroupsAdmit(groupIDs []string, protocol string, port int, source elbv2FlowSource) bool {
 	for _, groupID := range groupIDs {
 		sg, ok := ec2SecurityGroups.Get(groupID)
@@ -131,8 +122,6 @@ func ec2SecurityGroupsAdmit(groupIDs []string, protocol string, port int, source
 	return false
 }
 
-// ec2PermissionCovers reports whether a permission's protocol and port range
-// include the flow's.
 func ec2PermissionCovers(perm EC2IpPermission, protocol string, port int) bool {
 	switch strings.ToLower(perm.IpProtocol) {
 	case "-1", "all":
@@ -156,8 +145,7 @@ func ec2PermissionCovers(perm EC2IpPermission, protocol string, port int) bool {
 	return perm.FromPort <= port && port <= perm.ToPort
 }
 
-// elbv2AdmitForwardedFlow is the admission of a request a listener forwards
-// to the target: nil when nothing filters the target.
+// nil when nothing filters the target.
 func elbv2AdmitForwardedFlow(listener ELBv2Listener, tg ELBv2TargetGroup, target ELBv2TargetDescription) func(client netip.Addr) error {
 	lb, ok := elbv2LoadBalancers.Get(listener.LoadBalancerArn)
 	if !ok {
@@ -170,9 +158,7 @@ func elbv2AdmitForwardedFlow(listener ELBv2Listener, tg ELBv2TargetGroup, target
 	return elbv2TargetAdmission(lb, tg, target, port)
 }
 
-// errELBv2HealthCheckBlocked is why a health check a security group drops
-// fails: the load balancer's probe times out, as it does on Elastic Load
-// Balancing when nothing answers.
+// A dropped probe times out, as on Elastic Load Balancing.
 type errELBv2HealthCheckBlocked struct{ reason error }
 
 func (e *errELBv2HealthCheckBlocked) Error() string {

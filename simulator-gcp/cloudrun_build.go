@@ -7,14 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cloud Run v2's hosted build path. Both verbs ride the /v2 locations segment
-// that Cloud Functions also claims, so they dispatch from its fan-in and fall
-// through when the verb is not theirs.
-//
-// The export family beside them stays unserved: exportImage, exportMetadata,
-// exportImageMetadata, exportProjectMetadata and exportStatus report Google's
-// own image-export pipeline, which this simulator does not run — there is no
-// export to report the status of.
+// cloudRunLocationVerbHandled serves Cloud Run v2's builds:submit,
+// uploadSource and exportImage, which ride the /v2 locations segment Cloud
+// Functions also claims, so they dispatch from its fan-in and fall through
+// when the verb is not theirs.
 func cloudRunLocationVerbHandled(w http.ResponseWriter, r *http.Request, collection, verb string) bool {
 	switch {
 	case collection == "builds" && verb == "submit":

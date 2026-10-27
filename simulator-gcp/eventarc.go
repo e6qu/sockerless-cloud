@@ -9,9 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Eventarc v1 REST surface. Triggers are regional resources and
-// mutating operations return AIP-151 long-running operations.
-
 // writeEventarcList sorts items by name, paginates by pageSize/pageToken, and
 // writes the AIP-132 list response under itemsKey with a nextPageToken when more
 // items remain.
@@ -117,9 +114,8 @@ func registerEventarc(srv *sim.Server) {
 	eventarcGoogleAPISources = sim.MakeStore[EventarcGoogleAPISource](srv.DB(), "eventarc_google_api_sources")
 	eventarcChannelConfigs = sim.MakeStore[EventarcGoogleChannelConfig](srv.DB(), "eventarc_channel_configs")
 
-	// Triggers. The GET/POST {trigger}/{triggerAction} handlers also fan in
-	// the AIP-141 IAM colon-verbs (getIamPolicy on GET, setIamPolicy /
-	// testIamPermissions on POST) since Go's mux can't spell `{id}:verb`.
+	// ServeMux cannot spell `{id}:verb`, so the {trigger} and {triggerAction}
+	// handlers also serve the AIP-141 IAM verbs.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/triggers", handleGCPRegionalTriggerCreate)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/triggers", handleGCPRegionalTriggerList)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/triggers/{trigger}", handleGCPRegionalTriggerGet)
@@ -140,7 +136,6 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/channelConnections/{connection}", handleEventarcDeleteChannelConnection)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/channelConnections/{connectionAction}", handleEventarcChannelConnectionIAMAction)
 
-	// Enrollments.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/enrollments", handleEventarcCreateEnrollment)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/enrollments", handleEventarcListEnrollments)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/enrollments/{enrollment}", handleEventarcGetEnrollment)
@@ -148,7 +143,6 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/enrollments/{enrollment}", handleEventarcDeleteEnrollment)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/enrollments/{enrollmentAction}", handleEventarcEnrollmentIAMAction)
 
-	// Message buses.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/messageBuses", handleEventarcCreateMessageBus)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/messageBuses", handleEventarcListMessageBuses)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/messageBuses/{bus}", handleEventarcMessageBusGet)
@@ -156,7 +150,6 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/messageBuses/{bus}", handleEventarcDeleteMessageBus)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/messageBuses/{busAction}", handleEventarcMessageBusIAMAction)
 
-	// Pipelines.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/pipelines", handleEventarcCreatePipeline)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/pipelines", handleEventarcListPipelines)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/pipelines/{pipeline}", handleEventarcGetPipeline)
@@ -164,7 +157,6 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/pipelines/{pipeline}", handleEventarcDeletePipeline)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/pipelines/{pipelineAction}", handleEventarcPipelineIAMAction)
 
-	// Google API sources.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/googleApiSources", handleEventarcCreateGoogleAPISource)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/googleApiSources", handleEventarcListGoogleAPISources)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/googleApiSources/{source}", handleEventarcGetGoogleAPISource)
@@ -172,11 +164,9 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/googleApiSources/{source}", handleEventarcDeleteGoogleAPISource)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/googleApiSources/{sourceAction}", handleEventarcGoogleAPISourceIAMAction)
 
-	// googleChannelConfig singleton.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/googleChannelConfig", handleEventarcGetGoogleChannelConfig)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/googleChannelConfig", handleEventarcUpdateGoogleChannelConfig)
 
-	// Locations meta-API.
 	srv.HandleFunc("GET /v1/projects/{project}/locations", handleEventarcListLocations)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}", handleEventarcGetLocation)
 }
@@ -689,7 +679,7 @@ func handleEventarcChannelConnectionIAMAction(w http.ResponseWriter, r *http.Req
 		func(id string) string { return eventarcChannelConnectionName(project, location, id) }, "channel connection")
 }
 
-// LoggingConfig mirrors google.cloud.eventarc.v1.LoggingConfig.
+// EventarcLoggingConfig mirrors google.cloud.eventarc.v1.LoggingConfig.
 type EventarcLoggingConfig struct {
 	LogSeverity string `json:"logSeverity,omitempty"`
 }
@@ -1175,7 +1165,7 @@ func handleEventarcGetGoogleChannelConfig(w http.ResponseWriter, r *http.Request
 	name := eventarcGoogleChannelConfigName(project, location)
 	cfg, ok := eventarcChannelConfigs.Get(name)
 	if !ok {
-		// The singleton always exists; return the default empty config.
+		// The singleton always exists, with an empty default config.
 		cfg = EventarcGoogleChannelConfig{Name: name, UpdateTime: nowTimestamp()}
 		eventarcChannelConfigs.Put(name, cfg)
 	}
@@ -1204,7 +1194,7 @@ func handleEventarcUpdateGoogleChannelConfig(w http.ResponseWriter, r *http.Requ
 	cfg.Name = name
 	cfg.UpdateTime = nowTimestamp()
 	eventarcChannelConfigs.Put(name, cfg)
-	// PATCH on the singleton returns the updated resource directly (no LRO).
+	// PATCH on the singleton answers the resource directly, not an operation.
 	sim.WriteJSON(w, http.StatusOK, cfg)
 }
 

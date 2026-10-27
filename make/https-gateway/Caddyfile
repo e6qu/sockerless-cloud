@@ -4,8 +4,7 @@
 	skip_install_trust
 	# Each gateway starts on an empty data directory, so there is nothing stale to
 	# check or clean, and the clean-up must not run: started alongside the first
-	# issuance, it deleted a certificate whose key was still being written, and
-	# the issuer's retry then came a minute later.
+	# issuance, it deletes a certificate whose key is still being written.
 	storage_check off
 	storage_clean_interval off
 	# Log each certificate entering the cache: the gateway serves a name only
@@ -31,7 +30,7 @@ https://*.dkr.ecr.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443}
 	}
 }
 
-# The second name is the Google Artifact Registry Docker endpoint,
+# The second name is the Artifact Registry Docker endpoint,
 # <location>-docker.pkg.dev, at this gateway's coordinate: a container engine
 # reaches a registry by the host in the image reference, so the Docker Registry
 # HTTP API v2 data plane needs a name shaped like one and a certificate issued

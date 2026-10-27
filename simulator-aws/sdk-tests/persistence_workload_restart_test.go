@@ -17,14 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// workloadRestartBudget is how long each half of this test waits for three
-// real container workloads — an Amazon ECS task, an AWS Batch job and an AWS
-// CodeBuild build whose buildspec sleeps eight seconds — to reach their state.
-// The budget is sized from measurement rather than from the idle case: the
-// whole test takes about fifteen seconds on an unloaded engine and about
-// twenty-five with one other container suite running beside it, so a thirty
-// second budget has almost no headroom on a host running two. It still fails
-// loudly on a recovery that never happens, which is what this test guards.
+// workloadRestartBudget bounds each half's wait for three real workloads (an
+// Amazon ECS task, an AWS Batch job and an AWS CodeBuild build sleeping eight
+// seconds) to reach their state. The test takes about fifteen seconds on an
+// idle engine and twenty-five beside another container suite, so the budget
+// leaves room for a busier host and still fails a recovery that never happens.
 const workloadRestartBudget = 90 * time.Second
 
 func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SDK(t *testing.T) {
@@ -52,8 +49,8 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	)
 	_, err := ecsAPI.CreateCluster(testCtx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
 	require.NoError(t, err)
-	// Each workload holds a role, so each serves its container credentials
-	// on its own loopback, which the restarted simulator takes over with it.
+	// Each workload holds a role and serves its container credentials on its own
+	// loopback, which the restarted simulator takes over.
 	_, err = ecsAPI.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
 		Family:      aws.String(familyName),
 		TaskRoleArn: aws.String(persistentServiceRole(t, endpoint, "persistent-ecs-task", "ecs-tasks.amazonaws.com")),
@@ -137,8 +134,8 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	}).Wait(testCtx, &ecs.DescribeTasksInput{
 		Cluster: aws.String(clusterName), Tasks: []string{taskARN},
 	}, workloadRestartBudget), "the Amazon ECS task never reached RUNNING")
-	// AWS Batch and AWS CodeBuild report progress only through the job's and
-	// the build's status, and neither SDK carries a waiter for it.
+	// AWS Batch and AWS CodeBuild report progress only through status, and neither
+	// SDK has a waiter for it.
 	require.Eventually(t, func() bool {
 		jobs, jobErr := batchAPI.DescribeJobs(testCtx, &batch.DescribeJobsInput{Jobs: []string{jobID}})
 		builds, buildErr := codeBuildAPI.BatchGetBuilds(testCtx, &codebuild.BatchGetBuildsInput{
@@ -186,11 +183,9 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	assert.Equal(t, "Essential container in task exited", aws.ToString(tasks.Tasks[0].StoppedReason))
 }
 
-// workloadObservation is the last state the restart test saw from AWS Batch and
-// AWS CodeBuild, so a wait that runs out of budget says what it was waiting on
-// rather than only that it waited. A timeout here has meant an engine too
-// loaded to start containers as often as it has meant a recovery that failed,
-// and the two read identically without this.
+// workloadObservation is the last AWS Batch and AWS CodeBuild state the test
+// saw, so a budget that runs out says what it waited on: an engine too loaded
+// to start containers reads the same as a failed recovery without it.
 type workloadObservation struct{ text string }
 
 func (o *workloadObservation) String() string {

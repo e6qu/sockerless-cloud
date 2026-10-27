@@ -10,16 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// CloudWatch Logs control-plane operations for account policies, query
-// definitions, resource policies, cross-account destinations, vended-log
-// deliveries (deliveries + delivery sources + delivery destinations + their
-// policies), log anomaly detectors, field-index policies, and the published
-// delivery configuration templates. Each operates on a real sim.Store at
-// CloudWatch Logs (awsJson1.1) API fidelity. There are no fakes: Put/Create
-// returns the id/arn, Get/Describe read it back, Delete removes it.
-
-// CWAccountPolicy mirrors the SDK AccountPolicy shape. Keyed by
-// policyType+":"+policyName, since a name is unique per policy type.
+// Keyed by policyType+":"+policyName; a name is unique per policy type.
 type CWAccountPolicy struct {
 	PolicyName        string `json:"policyName"`
 	PolicyDocument    string `json:"policyDocument"`
@@ -30,7 +21,7 @@ type CWAccountPolicy struct {
 	AccountId         string `json:"accountId,omitempty"`
 }
 
-// CWQueryDefinition mirrors the SDK QueryDefinition shape. Keyed by id.
+// Keyed by id.
 type CWQueryDefinition struct {
 	QueryLanguage     string   `json:"queryLanguage,omitempty"`
 	QueryDefinitionId string   `json:"queryDefinitionId"`
@@ -40,14 +31,14 @@ type CWQueryDefinition struct {
 	LogGroupNames     []string `json:"logGroupNames,omitempty"`
 }
 
-// CWResourcePolicy mirrors the SDK ResourcePolicy shape. Keyed by policyName.
+// Keyed by policyName.
 type CWResourcePolicy struct {
 	PolicyName      string `json:"policyName"`
 	PolicyDocument  string `json:"policyDocument"`
 	LastUpdatedTime int64  `json:"lastUpdatedTime"`
 }
 
-// CWDestination mirrors the SDK Destination shape. Keyed by destinationName.
+// Keyed by destinationName.
 type CWDestination struct {
 	DestinationName string            `json:"destinationName"`
 	TargetArn       string            `json:"targetArn,omitempty"`
@@ -58,7 +49,7 @@ type CWDestination struct {
 	Tags            map[string]string `json:"-"`
 }
 
-// CWDelivery mirrors the SDK Delivery shape. Keyed by id.
+// Keyed by id.
 type CWDelivery struct {
 	Id                      string            `json:"id"`
 	Arn                     string            `json:"arn"`
@@ -70,7 +61,7 @@ type CWDelivery struct {
 	Tags                    map[string]string `json:"tags,omitempty"`
 }
 
-// CWDeliverySource mirrors the SDK DeliverySource shape. Keyed by name.
+// Keyed by name.
 type CWDeliverySource struct {
 	Name         string            `json:"name"`
 	Arn          string            `json:"arn"`
@@ -80,7 +71,7 @@ type CWDeliverySource struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
-// CWDeliveryDestination mirrors the SDK DeliveryDestination shape. Keyed by name.
+// Keyed by name.
 type CWDeliveryDestination struct {
 	Name                             string                              `json:"name"`
 	Arn                              string                              `json:"arn"`
@@ -88,17 +79,15 @@ type CWDeliveryDestination struct {
 	OutputFormat                     string                              `json:"outputFormat,omitempty"`
 	DeliveryDestinationConfiguration *CWDeliveryDestinationConfiguration `json:"deliveryDestinationConfiguration,omitempty"`
 	Tags                             map[string]string                   `json:"tags,omitempty"`
-	// Policy holds the IAM policy attached via PutDeliveryDestinationPolicy.
+	// Policy is set by PutDeliveryDestinationPolicy.
 	Policy string `json:"-"`
 }
 
-// CWDeliveryDestinationConfiguration mirrors the SDK shape.
 type CWDeliveryDestinationConfiguration struct {
 	DestinationResourceArn string `json:"destinationResourceArn"`
 }
 
-// CWLogAnomalyDetector mirrors the SDK fields exposed by GetLogAnomalyDetector and
-// ListLogAnomalyDetectors. Keyed by anomalyDetectorArn.
+// Keyed by anomalyDetectorArn.
 type CWLogAnomalyDetector struct {
 	AnomalyDetectorArn    string   `json:"anomalyDetectorArn"`
 	DetectorName          string   `json:"detectorName,omitempty"`
@@ -110,8 +99,8 @@ type CWLogAnomalyDetector struct {
 	CreationTimeStamp     int64    `json:"creationTimeStamp"`
 	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp"`
 	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
-	// StatusBeforePause holds the status UpdateLogAnomalyDetector restores
-	// when it restarts a paused detector.
+	// UpdateLogAnomalyDetector restores this status when it restarts a paused
+	// detector.
 	StatusBeforePause string `json:"statusBeforePause,omitempty"`
 }
 
@@ -130,7 +119,7 @@ func (d CWLogAnomalyDetector) wire() map[string]any {
 	}
 }
 
-// CWIndexPolicy mirrors the SDK IndexPolicy shape. Keyed by logGroupIdentifier.
+// Keyed by logGroupIdentifier.
 type CWIndexPolicy struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 	LastUpdateTime     int64  `json:"lastUpdateTime"`
@@ -161,40 +150,33 @@ func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 	cwLogAnomalyDetectors = sim.MakeStore[CWLogAnomalyDetector](srv.DB(), "cw_log_anomaly_detectors")
 	cwIndexPolicies = sim.MakeStore[CWIndexPolicy](srv.DB(), "cw_index_policies")
 
-	// Account policies.
 	r.Register("Logs_20140328.PutAccountPolicy", handleCWPutAccountPolicy)
 	r.Register("Logs_20140328.DescribeAccountPolicies", handleCWDescribeAccountPolicies)
 	r.Register("Logs_20140328.DeleteAccountPolicy", handleCWDeleteAccountPolicy)
 
-	// Query definitions.
 	r.Register("Logs_20140328.PutQueryDefinition", handleCWPutQueryDefinition)
 	r.Register("Logs_20140328.DescribeQueryDefinitions", handleCWDescribeQueryDefinitions)
 	r.Register("Logs_20140328.DeleteQueryDefinition", handleCWDeleteQueryDefinition)
 
-	// Resource policies.
 	r.Register("Logs_20140328.PutResourcePolicy", handleCWPutResourcePolicy)
 	r.Register("Logs_20140328.DescribeResourcePolicies", handleCWDescribeResourcePolicies)
 	r.Register("Logs_20140328.DeleteResourcePolicy", handleCWDeleteResourcePolicy)
 
-	// Cross-account destinations.
 	r.Register("Logs_20140328.PutDestination", handleCWPutDestination)
 	r.Register("Logs_20140328.DescribeDestinations", handleCWDescribeDestinations)
 	r.Register("Logs_20140328.DeleteDestination", handleCWDeleteDestination)
 	r.Register("Logs_20140328.PutDestinationPolicy", handleCWPutDestinationPolicy)
 
-	// Vended-log deliveries.
 	r.Register("Logs_20140328.CreateDelivery", handleCWCreateDelivery)
 	r.Register("Logs_20140328.GetDelivery", handleCWGetDelivery)
 	r.Register("Logs_20140328.DeleteDelivery", handleCWDeleteDelivery)
 	r.Register("Logs_20140328.DescribeDeliveries", handleCWDescribeDeliveries)
 
-	// Delivery sources.
 	r.Register("Logs_20140328.PutDeliverySource", handleCWPutDeliverySource)
 	r.Register("Logs_20140328.GetDeliverySource", handleCWGetDeliverySource)
 	r.Register("Logs_20140328.DescribeDeliverySources", handleCWDescribeDeliverySources)
 	r.Register("Logs_20140328.DeleteDeliverySource", handleCWDeleteDeliverySource)
 
-	// Delivery destinations.
 	r.Register("Logs_20140328.PutDeliveryDestination", handleCWPutDeliveryDestination)
 	r.Register("Logs_20140328.GetDeliveryDestination", handleCWGetDeliveryDestination)
 	r.Register("Logs_20140328.DescribeDeliveryDestinations", handleCWDescribeDeliveryDestinations)
@@ -203,19 +185,17 @@ func registerCloudWatchLogsExtra2(r *AWSRouter, srv *sim.Server) {
 	r.Register("Logs_20140328.GetDeliveryDestinationPolicy", handleCWGetDeliveryDestinationPolicy)
 	r.Register("Logs_20140328.DeleteDeliveryDestinationPolicy", handleCWDeleteDeliveryDestinationPolicy)
 
-	// Log anomaly detectors.
 	r.Register("Logs_20140328.CreateLogAnomalyDetector", handleCWCreateLogAnomalyDetector)
 	r.Register("Logs_20140328.GetLogAnomalyDetector", handleCWGetLogAnomalyDetector)
 	r.Register("Logs_20140328.ListLogAnomalyDetectors", handleCWListLogAnomalyDetectors)
 	r.Register("Logs_20140328.DeleteLogAnomalyDetector", handleCWDeleteLogAnomalyDetector)
 
-	// Field-index policies.
 	r.Register("Logs_20140328.PutIndexPolicy", handleCWPutIndexPolicy)
 	r.Register("Logs_20140328.DeleteIndexPolicy", handleCWDeleteIndexPolicy)
 	r.Register("Logs_20140328.DescribeIndexPolicies", handleCWDescribeIndexPolicies)
 	r.Register("Logs_20140328.DescribeFieldIndexes", handleCWDescribeFieldIndexes)
 
-	// Delivery configuration templates (published static list).
+	// The published, static template list.
 	r.Register("Logs_20140328.DescribeConfigurationTemplates", handleCWDescribeConfigurationTemplates)
 }
 
@@ -534,7 +514,6 @@ func handleCWCreateDelivery(w http.ResponseWriter, r *http.Request) {
 			"The specified delivery source does not exist: %s", req.DeliverySourceName)
 		return
 	}
-	// Resolve the delivery destination type from the matching destination, if any.
 	destType := ""
 	for _, dd := range cwDeliveryDests.List() {
 		if dd.Arn == req.DeliveryDestinationArn {
@@ -542,9 +521,7 @@ func handleCWCreateDelivery(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	// A delivery id is alphanumeric — the model admits no hyphen — so the UUID
-	// is carried without its separators rather than in its dashed form, which a
-	// client could not send back to GetDelivery.
+	// The model admits no hyphen in a delivery id, so drop the UUID's dashes.
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
 	d := CWDelivery{
 		Id:                      id,
@@ -979,16 +956,13 @@ func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Field indexes are realized once an index policy is in effect and the log
-	// group has ingested matching events. With no ingested field-index events
-	// the published list is empty, matching real CloudWatch Logs.
+	// Field indexes appear once a policy is in effect and the group has ingested
+	// matching events; until then the list is empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"fieldIndexes": []any{}})
 }
 
-// handleCWDescribeConfigurationTemplates returns the delivery configuration
-// templates AWS publishes for vended-log delivery. The shape and values mirror
-// the real DescribeConfigurationTemplates response for two representative log
-// sources (Amazon Bedrock model-invocation logging and AWS WAF web-ACL logs).
+// The templates AWS publishes for Amazon Bedrock model-invocation logging and
+// AWS WAF web ACL logs.
 func handleCWDescribeConfigurationTemplates(w http.ResponseWriter, r *http.Request) {
 	templates := []map[string]any{
 		{

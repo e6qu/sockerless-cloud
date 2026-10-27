@@ -28,9 +28,9 @@ func kinesisRecordsPerShard(t *testing.T, client *kinesis.Client, streamName str
 	return perShard
 }
 
-// TestKinesisSDK_RecordDistributionStrategy holds the strategy to what it
-// means: USER_PARTITION_KEY, the default, keeps one partition key on one
-// shard; AUTO spreads records across every open shard whatever their key.
+// TestKinesisSDK_RecordDistributionStrategy: USER_PARTITION_KEY, the default,
+// keeps one partition key on one shard; AUTO spreads records across every open
+// shard whatever their key.
 func TestKinesisSDK_RecordDistributionStrategy(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -62,8 +62,8 @@ func TestKinesisSDK_RecordDistributionStrategy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ktypes.RecordDistributionStrategyAuto, summary.StreamDescriptionSummary.RecordDistributionStrategy)
 
-	// AUTO ignores the partition key and evens the shards out, starting with
-	// the ones the keyed records left behind.
+	// AUTO ignores the partition key and evens the shards out, filling the ones the
+	// keyed records left behind first.
 	totals := kinesisRecordsPerShard(t, client, streamName, 8*openShards)
 	for shard, count := range keyed {
 		totals[shard] += count

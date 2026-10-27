@@ -182,6 +182,10 @@ func TestEventGridPublisher_SDKCredentialContract(t *testing.T) {
 		// the Event Grid data-plane audience.
 		client, err := azeventgrid.NewClient(endpoint, &fakeCredential{}, eventGridPublisherOptions())
 		require.NoError(t, err)
+		// Owner of the subscription holds no data action; Event Grid admits the
+		// token once the principal holds EventGrid Data Sender on the topic.
+		assertEventGridUnauthorized(t, publish(t, client, "sdk-entra-unassigned"))
+		assignRole(t, *created.ID, eventGridDataSenderRoleID, simCallerObjectID)
 		require.NoError(t, publish(t, client, "sdk-entra"))
 	})
 

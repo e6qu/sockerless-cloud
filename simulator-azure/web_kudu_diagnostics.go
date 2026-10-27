@@ -20,31 +20,23 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// web_kudu_diagnostics.go serves the rest of Kudu's diagnostics surface on a
-// site's SCM host, over the site's /home, the storage its containers mount:
-// the zip API (/api/zip/{path}: a directory downloads as a zip and a zip
-// uploaded to one extracts into it), /api/dump (the deployment and LogFiles
-// directories zipped, which `az webapp log download` fetches at /dump),
-// /api/logs/docker (the current container log files, and /zip for them
-// zipped) and the process API (/api/processes, one process, and its dump),
-// backed by the same engine reads Azure Resource Manager's process
-// operations use. The sources are the vendored Kudu controllers
-// (kudu-zip-controller.cs, kudu-diagnostics-controller.cs,
-// kudu-process-controller.cs).
+// The rest of Kudu's diagnostics over the site's /home: the zip API
+// (/api/zip/{path}), /api/dump (deployment and LogFiles zipped, which `az webapp
+// log download` fetches at /dump), /api/logs/docker (and /zip), and the process
+// API (/api/processes), backed by the engine reads Azure Resource Manager's
+// process operations use. Sources: the vendored kudu-zip-controller.cs,
+// kudu-diagnostics-controller.cs and kudu-process-controller.cs.
 
-// webSiteMachineNames holds each site's current instance name, which its
-// container sees as its hostname and its docker log file carries.
+// The name the container sees as its hostname and its docker log file carries.
 var webSiteMachineNames sync.Map
 
-// webNewSiteMachineName names the instance a site's container is about to
-// become, the way App Service names a worker: twelve lowercase hex digits.
+// Twelve lowercase hex digits, as App Service names a worker.
 func webNewSiteMachineName(siteName string) string {
 	machine := sim.RandomHex(12)
 	webSiteMachineNames.Store(siteName, machine)
 	return machine
 }
 
-// webSiteMachineName is the instance name of the site's running container.
 func webSiteMachineName(siteName string) (string, bool) {
 	v, ok := webSiteMachineNames.Load(siteName)
 	if !ok {
@@ -54,12 +46,10 @@ func webSiteMachineName(siteName string) (string, bool) {
 	return machine, ok
 }
 
-// webDockerLogMu serializes appends to the docker log files.
 var webDockerLogMu sync.Mutex
 
-// webAppendDockerLogFile writes one line of a site's container output to the
-// day's docker log in the site's LogFiles directory,
-// YYYY_MM_DD_<machine>_docker.log, where App Service keeps it.
+// YYYY_MM_DD_<machine>_docker.log in the site's LogFiles, where App Service
+// keeps it.
 func webAppendDockerLogFile(siteID, at, message string) {
 	site, ok := webSiteRecord(siteID)
 	if !ok {
@@ -92,12 +82,11 @@ func webAppendDockerLogFile(siteID, at, message string) {
 	_, _ = fmt.Fprintf(f, "%s %s\n", at, message)
 }
 
-// kuduContainerLogName matches a container log file that has not been
-// rolled: YYYY_MM_DD_<machinename>_(docker|app|platform|console).log.
+// An unrolled container log file:
+// YYYY_MM_DD_<machinename>_(docker|app|platform|console).log.
 var kuduContainerLogName = regexp.MustCompile(`^\d{4}_\d{2}_\d{2}_.*_(docker|app|platform|console)\.log$`)
 
-// kuduCurrentContainerLogs lists the container log files of the latest day
-// in the site's LogFiles directory.
+// Of the latest day in LogFiles.
 func kuduCurrentContainerLogs(root *os.Root) ([]fs.DirEntry, error) {
 	entries, err := fs.ReadDir(root.FS(), "LogFiles")
 	if err != nil {
@@ -127,8 +116,7 @@ func kuduCurrentContainerLogs(root *os.Root) ([]fs.DirEntry, error) {
 	return current, nil
 }
 
-// kuduZipPath is the /home-relative path a zip API request addresses and
-// whether it named a directory (a trailing slash).
+// dir reports a trailing slash.
 func kuduZipPath(urlPath string) (rel string, dir bool, ok bool) {
 	lower := strings.ToLower(urlPath)
 	if !strings.HasPrefix(lower, "/api/zip/") && lower != "/api/zip" {
@@ -140,9 +128,8 @@ func kuduZipPath(urlPath string) (rel string, dir bool, ok bool) {
 	return rel, dir, true
 }
 
-// serveKuduZip is the zip API: GET on a directory answers its contents as a
-// zip, PUT on a directory extracts the uploaded zip over it, and a file is
-// not a thing the zip API serves.
+// GET on a directory answers it zipped, PUT extracts an uploaded zip over it,
+// and a file is not something the zip API serves.
 func serveKuduZip(w http.ResponseWriter, r *http.Request, site *Site, rel string, dir bool) {
 	home, err := kuduOpenHome(site)
 	if err != nil {
@@ -230,8 +217,7 @@ func serveKuduZip(w http.ResponseWriter, r *http.Request, site *Site, rel string
 	}
 }
 
-// kuduZipDirectory adds the files under dir to zw, named relative to dir
-// under prefix: a directory's own contents sit at the root of its zip.
+// A directory's own contents sit at the root of its zip.
 func kuduZipDirectory(buf *bytes.Buffer, root *os.Root, dir, prefix string) error {
 	zw := zip.NewWriter(buf)
 	if err := kuduAddDirectory(zw, root, dir, prefix, nil); err != nil {
@@ -240,8 +226,6 @@ func kuduZipDirectory(buf *bytes.Buffer, root *os.Root, dir, prefix string) erro
 	return zw.Close()
 }
 
-// kuduAddDirectory adds dir's files to zw under prefix, skipping the
-// top-level entries skip rejects.
 func kuduAddDirectory(zw *zip.Writer, root *os.Root, dir, prefix string, skip func(fs.DirEntry) bool) error {
 	return fs.WalkDir(root.FS(), dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -267,8 +251,7 @@ func kuduAddDirectory(zw *zip.Writer, root *os.Root, dir, prefix string, skip fu
 	})
 }
 
-// kuduAddFile adds the file at p to zw as name, with its own modification
-// time.
+// With the file's own modification time.
 func kuduAddFile(zw *zip.Writer, root *os.Root, p, name string) error {
 	info, err := root.Stat(p)
 	if err != nil {
@@ -293,7 +276,6 @@ func kuduAddFile(zw *zip.Writer, root *os.Root, p, name string) error {
 	return err
 }
 
-// kuduWriteZip answers with a zip attachment.
 func kuduWriteZip(w http.ResponseWriter, fileName string, data []byte) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
@@ -302,9 +284,8 @@ func kuduWriteZip(w http.ResponseWriter, fileName string, data []byte) {
 	_, _ = w.Write(data)
 }
 
-// kuduDump is GET /api/dump (and /dump): the site's deployments directory,
-// its LogFiles directory without the W3SVC request traces, and the npm debug
-// log in wwwroot, zipped as dump-MM-dd-HH-mm-ss.zip.
+// The deployments directory, LogFiles without the W3SVC request traces, and
+// wwwroot's npm debug log, zipped as dump-MM-dd-HH-mm-ss.zip.
 func kuduDump(w http.ResponseWriter, r *http.Request, site *Site) {
 	home, err := kuduOpenHome(site)
 	if err != nil {
@@ -347,9 +328,7 @@ func kuduDump(w http.ResponseWriter, r *http.Request, site *Site) {
 	kuduWriteZip(w, time.Now().UTC().Format("dump-01-02-15-04-05.zip"), buf.Bytes())
 }
 
-// kuduContainerLogs is GET /api/logs/docker: the current container log
-// files, each with its machine name and VFS link; /api/logs/docker/zip
-// answers the same files zipped.
+// Each file with its machine name and VFS link; /zip answers them zipped.
 func kuduContainerLogs(w http.ResponseWriter, r *http.Request, site *Site, zipped bool) {
 	home, err := kuduOpenHome(site)
 	if err != nil {
@@ -389,8 +368,8 @@ func kuduContainerLogs(w http.ResponseWriter, r *http.Request, site *Site, zippe
 		if err != nil {
 			continue
 		}
-		// YYYY_MM_DD_<machinename>_<kind>.log: the machine name follows the
-		// eleven characters of the day.
+		// YYYY_MM_DD_<machinename>_<kind>.log: the machine name follows the eleven
+		// characters of the day.
 		machine := e.Name()[11:]
 		machine = machine[:strings.IndexByte(machine, '_')]
 		out = append(out, map[string]any{
@@ -404,9 +383,8 @@ func kuduContainerLogs(w http.ResponseWriter, r *http.Request, site *Site, zippe
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// serveKuduProcesses is the process API: GET /api/processes lists the site
-// container's processes, GET /api/processes/{id} reads one, DELETE kills it,
-// and GET /api/processes/{id}/dump reads its memory image, raw or zipped.
+// GET lists the container's processes, GET /{id} reads one, DELETE kills it,
+// and GET /{id}/dump reads its memory image, raw or zipped.
 func serveKuduProcesses(w http.ResponseWriter, r *http.Request, site *Site, rest string) {
 	instance, running := webSiteInstanceContainer(*site)
 	var procs []webProcess
@@ -501,9 +479,8 @@ func serveKuduProcesses(w http.ResponseWriter, r *http.Request, site *Site, rest
 	}
 }
 
-// kuduProcessInfo is Kudu's ProcessInfo: the members Azure Resource Manager's
-// ProcessInfo carries, which proxies it, with the process's own id and name
-// and its links on the SCM host.
+// The members of Azure Resource Manager's ProcessInfo, which proxies it, with
+// the process's own id, name and SCM-host links.
 func kuduProcessInfo(base string, proc webProcess, procs []webProcess, readAt time.Time) map[string]any {
 	doc := webProcessDoc(base, "", proc, procs, readAt)
 	info, _ := doc["properties"].(map[string]any)

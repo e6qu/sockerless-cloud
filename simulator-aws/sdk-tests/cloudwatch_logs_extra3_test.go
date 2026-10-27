@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogs_IntegrationRoundTrip covers PutIntegration, GetIntegration,
-// ListIntegrations, and DeleteIntegration for an OpenSearch integration.
 func TestLogs_IntegrationRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -63,8 +61,6 @@ func TestLogs_IntegrationRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_LookupTableRoundTrip covers CreateLookupTable, GetLookupTable,
-// UpdateLookupTable, DescribeLookupTables, and DeleteLookupTable.
 func TestLogs_LookupTableRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -113,9 +109,6 @@ func TestLogs_LookupTableRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_ScheduledQueryRoundTrip covers CreateScheduledQuery, GetScheduledQuery,
-// UpdateScheduledQuery, ListScheduledQueries, GetScheduledQueryHistory, and
-// DeleteScheduledQuery.
 func TestLogs_ScheduledQueryRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -181,8 +174,6 @@ func TestLogs_ScheduledQueryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_TransformerRoundTrip covers PutTransformer, GetTransformer,
-// TestTransformer, and DeleteTransformer.
 func TestLogs_TransformerRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -219,8 +210,6 @@ func TestLogs_TransformerRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_ImportTaskRoundTrip covers CreateImportTask, DescribeImportTasks,
-// DescribeImportTaskBatches, and CancelImportTask.
 func TestLogs_ImportTaskRoundTrip(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -254,9 +243,8 @@ func TestLogs_ImportTaskRoundTrip(t *testing.T) {
 	assert.Equal(t, id, aws.ToString(cancel.ImportId))
 }
 
-// TestLogs_LogStructureReads covers GetLogGroupFields, GetLogRecord, and
-// PutLogGroupDeletionProtection. With no stored events the fields/record are
-// honestly empty.
+// TestLogs_LogStructureReads expects empty fields and record from a group with
+// no stored events.
 func TestLogs_LogStructureReads(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -284,8 +272,6 @@ func TestLogs_LogStructureReads(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_AnomalyOps covers UpdateLogAnomalyDetector, ListAnomalies, and
-// UpdateAnomaly over a real log anomaly detector.
 func TestLogs_AnomalyOps(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -345,8 +331,7 @@ func TestLogs_AnomalyOps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list.Anomalies, "fresh detector has no anomalies")
 
-	// UpdateAnomaly on a detector with no anomalies still validates the detector
-	// exists and returns successfully.
+	// UpdateAnomaly validates that the detector exists even with no anomalies.
 	_, err = cw.UpdateAnomaly(ctx, &cloudwatchlogs.UpdateAnomalyInput{
 		AnomalyDetectorArn: aws.String(arn),
 		PatternId:          aws.String("pattern-1"),
@@ -355,7 +340,6 @@ func TestLogs_AnomalyOps(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogs_ListLogGroupsOps covers ListLogGroups and ListAggregateLogGroupSummaries.
 func TestLogs_ListLogGroupsOps(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()

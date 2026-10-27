@@ -1938,15 +1938,11 @@ export const fetchCWLogEvents = async (logGroupName: string, logStreamName: stri
   return (described.events ?? []).map((event) => ({ timestamp: event.timestamp ?? 0, message: event.message ?? "" }));
 };
 
-// ---------------------------------------------------------------------------
-// The rest of the AWS services this simulator implements.
-//
-// Every reader below drives the same real AWS API its service's own console
-// page drives — the operation names, wire protocols, request shapes and
-// response shapes are AWS's, reached through the same federated, SigV4-signed
-// `awsFetch` the readers above use. Nothing here is a simulator-specific
-// endpoint or a sockerless-invented summary.
-// ---------------------------------------------------------------------------
+// The rest of the AWS services this simulator implements. Every reader below
+// drives the same real AWS API its service's own console page drives — the
+// operation names, wire protocols, request shapes and response shapes are
+// AWS's, reached through the same federated, SigV4-signed `awsFetch` the
+// readers above use.
 
 // awsJson10 is the awsjson1.0 variant of `awsJson` — the protocol Amazon
 // DynamoDB, Amazon SQS, and AWS Step Functions speak. The wire differs from
@@ -2029,10 +2025,8 @@ function xmlTags(element: Element): Record<string, string> {
   return tags;
 }
 
-// ---------------------------------------------------------------------------
 // Amazon Elastic Compute Cloud (EC2) — the Query protocol
 // (Action + Version=2016-11-15, form-encoded, XML responses).
-// ---------------------------------------------------------------------------
 
 const EC2_VERSION = "2016-11-15";
 
@@ -2276,9 +2270,7 @@ export const fetchEC2Volumes = async (): Promise<EC2Volume[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon EC2 Auto Scaling — the Query protocol (Version=2011-01-01).
-// ---------------------------------------------------------------------------
 
 export interface AutoScalingGroup {
   name: string;
@@ -2307,9 +2299,7 @@ export const fetchAutoScalingGroups = async (): Promise<AutoScalingGroup[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS Batch — the REST-JSON protocol (POST /v1/<operation>).
-// ---------------------------------------------------------------------------
 
 export interface BatchJobQueue {
   jobQueueName: string;
@@ -2500,9 +2490,7 @@ export const fetchBatchJobDefinitions = async (): Promise<BatchJobDefinition[]> 
   return definitions;
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Elastic File System (EFS) — the REST-JSON protocol.
-// ---------------------------------------------------------------------------
 
 export interface EFSFileSystem {
   fileSystemId: string;
@@ -2588,10 +2576,8 @@ export const fetchEFSMountTargets = async (fileSystemId: string): Promise<EFSMou
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Relational Database Service (RDS) — the Query protocol
 // (Version=2014-10-31).
-// ---------------------------------------------------------------------------
 
 const RDS_VERSION = "2014-10-31";
 
@@ -2702,9 +2688,7 @@ export const deleteRDSInstance = async (dbInstanceIdentifier: string): Promise<v
   });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon DynamoDB — awsjson1.0, X-Amz-Target DynamoDB_20120810.<Op>.
-// ---------------------------------------------------------------------------
 
 const DDB_TARGET_PREFIX = "DynamoDB_20120810.";
 
@@ -2800,9 +2784,7 @@ export const deleteDynamoDBTable = async (tableName: string): Promise<void> => {
   await ddbJson("DeleteTable", { TableName: tableName });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon ElastiCache — the Query protocol (Version=2015-02-02).
-// ---------------------------------------------------------------------------
 
 export interface ElastiCacheCluster {
   cacheClusterId: string;
@@ -2829,9 +2811,7 @@ export const fetchElastiCacheClusters = async (): Promise<ElastiCacheCluster[]> 
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon CloudFront — the REST-XML protocol (GET /2020-05-31/distribution).
-// ---------------------------------------------------------------------------
 
 export interface CloudFrontDistribution {
   id: string;
@@ -2868,9 +2848,7 @@ export const fetchCloudFrontDistributions = async (): Promise<CloudFrontDistribu
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Route 53 — the REST-XML protocol (GET /2013-04-01/hostedzone).
-// ---------------------------------------------------------------------------
 
 export interface Route53HostedZone {
   id: string;
@@ -2918,11 +2896,9 @@ export const fetchRoute53RecordSets = async (hostedZoneId: string): Promise<Rout
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon API Gateway — REST-JSON. The v1 (REST API) and v2 (HTTP and WebSocket
 // API) surfaces are separate AWS APIs on separate paths, which is why the
 // console reads both.
-// ---------------------------------------------------------------------------
 
 export interface APIGatewayRestApi {
   id: string;
@@ -2984,10 +2960,8 @@ export const fetchAPIGatewayV2Apis = async (): Promise<APIGatewayV2Api[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Elastic Load Balancing — the Query protocol (Version=2015-12-01), the API
 // behind Application, Network, and Gateway Load Balancers.
-// ---------------------------------------------------------------------------
 
 const ELBV2_VERSION = "2015-12-01";
 
@@ -3042,9 +3016,7 @@ export const fetchTargetGroups = async (): Promise<TargetGroup[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS Cloud Map — awsjson1.1, X-Amz-Target Route53AutoNaming_v20170314.<Op>.
-// ---------------------------------------------------------------------------
 
 const CLOUDMAP_TARGET_PREFIX = "Route53AutoNaming_v20170314.";
 
@@ -3104,9 +3076,7 @@ export const fetchCloudMapServices = async (): Promise<CloudMapService[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS CodeBuild — awsjson1.1, X-Amz-Target CodeBuild_20161006.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface CodeBuildProject {
   name: string;
@@ -3214,9 +3184,7 @@ export const fetchCodeBuildBuilds = async (): Promise<CodeBuildBuild[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS Amplify — the REST-JSON protocol (GET /apps).
-// ---------------------------------------------------------------------------
 
 export interface AmplifyApp {
   appId: string;
@@ -3357,9 +3325,7 @@ export const fetchAmplifyJobs = async (appId: string, branchName: string): Promi
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Kinesis Data Streams — awsjson1.1, X-Amz-Target Kinesis_20131202.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface KinesisStream {
   streamName: string;
@@ -3403,9 +3369,7 @@ export const fetchKinesisStreams = async (): Promise<KinesisStream[]> => {
   return streams;
 };
 
-// ---------------------------------------------------------------------------
 // AWS Glue — awsjson1.1, X-Amz-Target AWSGlue.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface GlueDatabase {
   name: string;
@@ -3519,10 +3483,8 @@ export const fetchGlueAssetTypes = async (): Promise<GlueAssetType[]> => {
   return items;
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Simple Notification Service (SNS) — the Query protocol
 // (Version=2010-03-31).
-// ---------------------------------------------------------------------------
 
 const SNS_VERSION = "2010-03-31";
 
@@ -3606,10 +3568,8 @@ export const fetchSNSSubscriptions = async (): Promise<SNSSubscription[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Simple Queue Service (SQS) — awsjson1.0, X-Amz-Target AmazonSQS.<Op>
 // (SQS moved off the Query protocol in 2023).
-// ---------------------------------------------------------------------------
 
 export interface SQSQueue {
   queueUrl: string;
@@ -3709,9 +3669,7 @@ export const setSQSQueueAttributes = async (
   await awsJson10("sqs", "AmazonSQS.SetQueueAttributes", { QueueUrl: queueUrl, Attributes: attributes });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon EventBridge — awsjson1.1, X-Amz-Target AWSEvents.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface EventBus {
   name: string;
@@ -3867,9 +3825,7 @@ export const deleteEventBus = async (name: string): Promise<void> => {
   await awsJson("events", "AWSEvents.DeleteEventBus", { Name: name });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon EventBridge Scheduler — the REST-JSON protocol (GET /schedules).
-// ---------------------------------------------------------------------------
 
 export interface Schedule {
   name: string;
@@ -3969,9 +3925,7 @@ export const deleteScheduleGroup = async (name: string): Promise<void> => {
   await restJson("scheduler", "DELETE", `/schedule-groups/${encodeURIComponent(name)}`);
 };
 
-// ---------------------------------------------------------------------------
 // AWS Step Functions — awsjson1.0, X-Amz-Target AWSStepFunctions.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface StateMachine {
   stateMachineArn: string;
@@ -4342,10 +4296,8 @@ export const deleteStateMachine = async (stateMachineArn: string): Promise<void>
   await awsJson10("states", "AWSStepFunctions.DeleteStateMachine", { stateMachineArn });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon CloudWatch — the Query protocol (Version=2010-08-01), the metrics and
 // alarms API that sits beside the separate CloudWatch Logs API above.
-// ---------------------------------------------------------------------------
 
 const CLOUDWATCH_VERSION = "2010-08-01";
 
@@ -4445,9 +4397,7 @@ export const fetchCWDashboards = async (): Promise<CWDashboard[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS CloudTrail — awsjson1.1, X-Amz-Target CloudTrail_20131101.<Op>.
-// ---------------------------------------------------------------------------
 
 const CLOUDTRAIL_TARGET_PREFIX = "CloudTrail_20131101.";
 
@@ -4550,12 +4500,10 @@ export const deleteCloudTrailTrail = async (name: string): Promise<void> => {
   await awsJson("cloudtrail", `${CLOUDTRAIL_TARGET_PREFIX}DeleteTrail`, { Name: name });
 };
 
-// ---------------------------------------------------------------------------
 // Amazon Data Firehose — awsjson1.1, X-Amz-Target
 // Firehose_20150804.<Op>. The browser uses the same control plane as the AWS
 // SDK and AWS CLI; delivered records travel through the configured cloud
 // destination rather than a console-only endpoint.
-// ---------------------------------------------------------------------------
 
 const FIREHOSE_TARGET_PREFIX = "Firehose_20150804.";
 
@@ -4665,11 +4613,9 @@ export const putFirehoseRecord = async (name: string, data: string): Promise<str
   return result.RecordId ?? "";
 };
 
-// ---------------------------------------------------------------------------
 // AWS Private Certificate Authority — awsjson1.1, X-Amz-Target
 // ACMPrivateCA.<Op>. Root activation deliberately follows AWS's public
 // CSR → IssueCertificate → GetCertificate → ImportCertificate chain.
-// ---------------------------------------------------------------------------
 
 const PRIVATE_CA_TARGET_PREFIX = "ACMPrivateCA.";
 
@@ -4780,9 +4726,7 @@ export const restorePrivateCertificateAuthority = async (arn: string): Promise<v
   await privateCAJson("RestoreCertificateAuthority", { CertificateAuthorityArn: arn });
 };
 
-// ---------------------------------------------------------------------------
 // AWS Systems Manager — awsjson1.1, X-Amz-Target AmazonSSM.<Op>.
-// ---------------------------------------------------------------------------
 
 const SSM_TARGET_PREFIX = "AmazonSSM.";
 
@@ -4867,9 +4811,7 @@ export const fetchSSMDocuments = async (): Promise<SSMDocument[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // AWS Secrets Manager — awsjson1.1, X-Amz-Target secretsmanager.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface Secret {
   arn: string;
@@ -4957,10 +4899,8 @@ export const removeSecretReplica = async (secretId: string, region: string): Pro
   });
 };
 
-// ---------------------------------------------------------------------------
 // AWS Key Management Service (KMS) — awsjson1.1, X-Amz-Target
 // TrentService.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface KMSKey {
   keyId: string;
@@ -5032,9 +4972,7 @@ export const setKMSKeyEnabled = async (keyId: string, enabled: boolean): Promise
   await awsJson("kms", `TrentService.${enabled ? "EnableKey" : "DisableKey"}`, { KeyId: keyId });
 };
 
-// ---------------------------------------------------------------------------
 // AWS Certificate Manager — awsjson1.1, X-Amz-Target CertificateManager.<Op>.
-// ---------------------------------------------------------------------------
 
 export interface ACMCertificate {
   certificateArn: string;
@@ -5283,11 +5221,9 @@ export const revokeACMAcmeAccount = async (acmeEndpointArn: string, accountUrl: 
   });
 };
 
-// ---------------------------------------------------------------------------
 // AWS WAF — awsjson1.1, X-Amz-Target AWSWAF_20190729.<Op>. Every WAF read takes
 // a Scope: REGIONAL resources and CloudFront distributions are separate
 // namespaces, which is why the real console makes an operator choose one.
-// ---------------------------------------------------------------------------
 
 export type WAFScope = "REGIONAL" | "CLOUDFRONT";
 
@@ -5344,11 +5280,9 @@ export const deleteWAFWebACL = async (acl: WAFWebACL, scope: WAFScope): Promise<
   });
 };
 
-// ---------------------------------------------------------------------------
 // AWS Security Token Service (STS) and AWS Budgets. Budgets is scoped to an
 // account id, and the console learns its own the way every AWS client does —
 // GetCallerIdentity — rather than being told one out of band.
-// ---------------------------------------------------------------------------
 
 export interface CallerIdentity {
   account: string;
@@ -5395,11 +5329,9 @@ export const fetchBudgets = async (): Promise<Budget[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // The Regions the header's Region selector lists — EC2 DescribeRegions, which
 // answers the Regions enabled for the account, the list the real console's
 // selector shows.
-// ---------------------------------------------------------------------------
 
 export interface EC2Region {
   regionName: string;
@@ -5414,9 +5346,7 @@ export const fetchEC2Regions = async (): Promise<EC2Region[]> => {
   }));
 };
 
-// ---------------------------------------------------------------------------
 // Amazon EC2 key pairs — DescribeKeyPairs, CreateKeyPair, DeleteKeyPair.
-// ---------------------------------------------------------------------------
 
 export interface EC2KeyPair {
   keyPairId: string;
@@ -5468,11 +5398,9 @@ export const deleteEC2SecurityGroup = async (groupId: string): Promise<void> => 
   await awsQuery("ec2", EC2_VERSION, "DeleteSecurityGroup", { GroupId: groupId });
 };
 
-// ---------------------------------------------------------------------------
 // AWS Identity and Access Management roles, policies, and identity providers.
 // IAM list operations page with Marker/IsTruncated, and the console reads every
 // page, the way the real console's tables fill.
-// ---------------------------------------------------------------------------
 
 async function iamListAll(action: string, params: Record<string, string>, container: string): Promise<Element[]> {
   const members: Element[] = [];

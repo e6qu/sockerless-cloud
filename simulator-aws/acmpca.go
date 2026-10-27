@@ -1080,8 +1080,8 @@ func privateCAWriteCRL(ca privateCA) error {
 	if err != nil {
 		return fmt.Errorf("signing the CRL of %s: %w", ca.ARN, err)
 	}
-	// AWS Private CA reports a CRL it could not write to its bucket through
-	// the MisconfiguredCRLBucket metric, not through the call that revoked.
+	// AWS Private CA reports an unwritable CRL bucket through the
+	// MisconfiguredCRLBucket metric, not through the revoking call.
 	metric := "CRLGenerated"
 	if _, err := s3PutServiceObject(revocation.CrlConfiguration.S3BucketName,
 		privateCAID(ca.ARN)+".crl", der, "application/pkix-crl", nil); err != nil {

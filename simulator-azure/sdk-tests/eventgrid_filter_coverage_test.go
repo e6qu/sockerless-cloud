@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventGrid_EventSubscriptionFilterRoundTrip covers the previously-untested
-// event-subscription filter surface (subject filter + advanced filter) that
-// azurerm_eventgrid_event_subscription configures and reads back.
+// TestEventGrid_EventSubscriptionFilterRoundTrip round-trips the subject and
+// advanced filters azurerm_eventgrid_event_subscription configures.
 func TestEventGrid_EventSubscriptionFilterRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-eg-filter-rg"

@@ -45,8 +45,8 @@ func configureAzurePlacement(spec string) error {
 	return nil
 }
 
-// azurePlacementTable is the table Configure read, or the all-containers
-// table for a simulator built without Configure.
+// azurePlacementTable falls back to the all-containers table for a simulator
+// built without configureAzurePlacement.
 func azurePlacementTable() *placement.Table {
 	azurePlacementMu.Lock()
 	defer azurePlacementMu.Unlock()
@@ -58,14 +58,12 @@ func azurePlacementTable() *placement.Table {
 	return azurePlacement
 }
 
-// azurePlacementBackend is the backend the service's workloads run on.
 func azurePlacementBackend(service placement.Service) (placement.Backend, error) {
 	return azurePlacementTable().For(service)
 }
 
-// startAzurePlacement logs the table and, when a service is configured onto
-// microVMs, starts the node agent on the platform network at the address
-// after the sidecar's and registers the microVM backend.
+// startAzurePlacement, when a service is configured onto microVMs, starts the
+// node agent on the platform network at the address after the sidecar's.
 func startAzurePlacement(ctx context.Context) error {
 	table := azurePlacementTable()
 	if services := table.Services(); len(services) > 0 {
@@ -111,9 +109,9 @@ func startAzurePlacement(ctx context.Context) error {
 	return nil
 }
 
-// stopAzurePlacement stops the node agent, if one runs, unless the
-// simulator persists: then the agent and its guests outlive the process as
-// containers do, for the next process to adopt.
+// stopAzurePlacement leaves the agent running when the simulator persists: the
+// agent and its guests outlive the process, as containers do, for the next
+// process to adopt.
 func stopAzurePlacement(persist bool) {
 	azurePlacementMu.Lock()
 	agent := azureNodeAgent
@@ -124,9 +122,8 @@ func stopAzurePlacement(persist bool) {
 	}
 }
 
-// azureJoinMicroVMNetwork attaches the node agent to a virtual network's
-// engine network at the address Azure reserves beside the resolver's, before
-// the first guest of a microVM service lands on it.
+// azureJoinMicroVMNetwork attaches the node agent at the address Azure reserves
+// beside the resolver's.
 func azureJoinMicroVMNetwork(ctx context.Context, service placement.Service, vnetID string, vnetPrefix netip.Prefix, network string) error {
 	table := azurePlacementTable()
 	azurePlacementMu.Lock()
@@ -138,9 +135,7 @@ func azureJoinMicroVMNetwork(ctx context.Context, service placement.Service, vne
 	return backend.Join(ctx, network, azureVNetMicroVMAgentAddress(vnetID, vnetPrefix))
 }
 
-// azureLeaveMicroVMNetwork takes the node agent off an engine network the
-// cloud is removing, whichever service joined it there: the engine removes
-// no network a container is still on.
+// The engine removes no network a container is still on.
 func azureLeaveMicroVMNetwork(ctx context.Context, network string) error {
 	azurePlacementMu.Lock()
 	backend := azureMicroVMBackend
@@ -151,11 +146,9 @@ func azureLeaveMicroVMNetwork(ctx context.Context, network string) error {
 	return backend.Leave(ctx, network)
 }
 
-// azureJoinMicroVMPlatformNetwork attaches the node agent to a network of
-// the platform's shape — a Container Apps environment's own — at an address
-// leased from the simulator's half of it, before the first guest of a
-// microVM service lands on it. The agent joined the platform network itself
-// when it started.
+// azureJoinMicroVMPlatformNetwork attaches the node agent to a platform-shaped
+// network, such as a Container Apps environment's, at an address leased from
+// the simulator's half of it.
 func azureJoinMicroVMPlatformNetwork(ctx context.Context, service placement.Service, network string) error {
 	table := azurePlacementTable()
 	azurePlacementMu.Lock()

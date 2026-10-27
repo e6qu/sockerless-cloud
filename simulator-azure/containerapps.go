@@ -14,7 +14,6 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// ContainerAppJob represents an Azure Container Apps Job resource.
 type ContainerAppJob struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -24,22 +23,18 @@ type ContainerAppJob struct {
 	Identity   *SiteIdentity     `json:"identity,omitempty"`
 	Properties JobProperties     `json:"properties"`
 	SystemData *SystemData       `json:"systemData,omitempty"`
-	// SystemIdentityClientID is the application ID of the job's
-	// system-assigned identity, which the directory reads and the identity's
-	// wire shape does not carry.
+	// SystemIdentityClientID is the system-assigned identity's application ID,
+	// which the directory reads and the wire shape does not carry.
 	SystemIdentityClientID string `json:"-"`
 }
 
-// SystemData holds Azure Resource Manager metadata. Real ARM stamps
-// `createdAt` once on resource creation and updates `lastModifiedAt` on
-// every write — the sim must preserve `createdAt` across PATCH/PUT
-// updates instead of restamping it.
+// Azure Resource Manager stamps createdAt once and lastModifiedAt on every
+// write.
 type SystemData struct {
 	CreatedAt      string `json:"createdAt,omitempty"`
 	LastModifiedAt string `json:"lastModifiedAt,omitempty"`
 }
 
-// JobProperties holds the properties of a Container Apps Job.
 type JobProperties struct {
 	ProvisioningState   string            `json:"provisioningState"`
 	EnvironmentID       string            `json:"environmentId,omitempty"`
@@ -48,7 +43,6 @@ type JobProperties struct {
 	Template            *JobTemplate      `json:"template,omitempty"`
 }
 
-// JobConfiguration holds the configuration of a Container Apps Job.
 type JobConfiguration struct {
 	ReplicaTimeout    int              `json:"replicaTimeout,omitempty"`
 	ReplicaRetryLimit int              `json:"replicaRetryLimit,omitempty"`
@@ -76,9 +70,8 @@ type EventTrigger struct {
 	ReplicaCompletionCount int `json:"replicaCompletionCount,omitempty"`
 }
 
-// JobSecret holds a secret of a Container Apps Job: a value, or the Key Vault
-// secret KeyVaultURL names, read as the managed identity Identity names
-// (containerapps_identity.go).
+// JobSecret is a value, or the Key Vault secret KeyVaultURL names, read as the
+// managed identity Identity names (containerapps_identity.go).
 type JobSecret struct {
 	Name        string `json:"name"`
 	Value       string `json:"value,omitempty"`
@@ -86,7 +79,6 @@ type JobSecret struct {
 	KeyVaultURL string `json:"keyVaultUrl,omitempty"`
 }
 
-// JobRegistry holds a container registry reference for a Container Apps Job.
 type JobRegistry struct {
 	Server            string `json:"server"`
 	Username          string `json:"username,omitempty"`
@@ -94,20 +86,15 @@ type JobRegistry struct {
 	Identity          string `json:"identity,omitempty"`
 }
 
-// JobTemplate holds the template of a Container Apps Job.
 type JobTemplate struct {
 	Containers     []JobContainer `json:"containers,omitempty"`
 	InitContainers []JobContainer `json:"initContainers,omitempty"`
 	Volumes        []JobVolume    `json:"volumes,omitempty"`
 }
 
-// jobExecutionTemplate narrows a job's template to the JobExecutionTemplate an
-// execution reports. Azure models the two separately: JobExecutionTemplate
-// declares only containers and initContainers, and its JobExecutionContainer
-// carries no volumeMounts or probes, so an execution never echoes the volumes,
-// mounts or probes
-// the job template configures. Returning the job template unchanged would put
-// fields on the wire that the real service does not send.
+// jobExecutionTemplate narrows to JobExecutionTemplate: it declares only
+// containers and initContainers, and JobExecutionContainer carries no
+// volumeMounts or probes, so an execution never echoes them.
 func jobExecutionTemplate(t *JobTemplate) *JobTemplate {
 	if t == nil {
 		return nil
@@ -130,7 +117,6 @@ func jobExecutionTemplate(t *JobTemplate) *JobTemplate {
 	}
 }
 
-// JobContainer holds a container definition for a Container Apps Job.
 type JobContainer struct {
 	Name         string                `json:"name"`
 	Image        string                `json:"image"`
@@ -142,8 +128,7 @@ type JobContainer struct {
 	Probes       []ContainerAppProbe   `json:"probes,omitempty"`
 }
 
-// ContainerAppProbe is a health check the platform runs against a
-// container, with Kubernetes' probe semantics.
+// ContainerAppProbe follows Kubernetes' probe semantics.
 type ContainerAppProbe struct {
 	Type                          string                      `json:"type,omitempty"`
 	HTTPGet                       *ContainerAppProbeHTTPGet   `json:"httpGet,omitempty"`
@@ -174,7 +159,6 @@ type ContainerAppProbeTCPSocket struct {
 	Host string `json:"host,omitempty"`
 }
 
-// EnvVar holds an environment variable.
 type EnvVar struct {
 	Name      string `json:"name"`
 	Value     string `json:"value,omitempty"`
@@ -193,17 +177,14 @@ type VolumeMount struct {
 	SubPath    string `json:"subPath,omitempty"`
 }
 
-// JobVolume holds a volume definition for a Container Apps Job.
 type JobVolume struct {
 	Name        string `json:"name"`
 	StorageType string `json:"storageType,omitempty"`
 	StorageName string `json:"storageName,omitempty"`
 }
 
-// JobExecution represents a running or completed execution of a Container
-// Apps Job. The wire shape nests status/startTime/endTime/template under
-// properties, matching the Microsoft.App jobs spec and the armappcontainers
-// v3 deserializer.
+// The wire shape nests status, startTime, endTime and template under
+// properties, as the Microsoft.App jobs spec declares.
 type JobExecution struct {
 	ID         string                 `json:"id"`
 	Name       string                 `json:"name"`
@@ -211,7 +192,6 @@ type JobExecution struct {
 	Properties JobExecutionProperties `json:"properties"`
 }
 
-// JobExecutionProperties holds the execution state of a JobExecution.
 type JobExecutionProperties struct {
 	Status    string       `json:"status"`
 	StartTime string       `json:"startTime"`
@@ -219,7 +199,6 @@ type JobExecutionProperties struct {
 	Template  *JobTemplate `json:"template,omitempty"`
 }
 
-// Package-level stores for dashboard access.
 var acaJobs sim.Store[ContainerAppJob]
 
 func registerContainerApps(srv *sim.Server) {
@@ -230,7 +209,6 @@ func registerContainerApps(srv *sim.Server) {
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
 
-	// PUT - Create or update job
 	srv.HandleFunc("PUT "+basePath+"/jobs/{jobName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -256,12 +234,8 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 
-		// Real ACA: Jobs go through Creating → Succeeded just like Apps.
-		// Mirror the Azure-AsyncOperation polling flow: store the resource
-		// with Succeeded directly + emit the shared ARM LRO headers so SDK
-		// pollers exercise the real path.
-		// Real ARM stamps SystemData.createdAt once and only updates
-		// lastModifiedAt on subsequent writes — preserve CreatedAt on update.
+		// Store the job Succeeded and emit the operation headers, so SDK pollers take
+		// the real path. Keep CreatedAt on update.
 		nowStamp := time.Now().UTC().Format(time.RFC3339Nano)
 		systemData := &SystemData{
 			CreatedAt:      nowStamp,
@@ -319,7 +293,6 @@ func registerContainerApps(srv *sim.Server) {
 		}
 	})
 
-	// GET - Get job
 	srv.HandleFunc("GET "+basePath+"/jobs/{jobName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -337,7 +310,6 @@ func registerContainerApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
-	// GET - List jobs
 	srv.HandleFunc("GET "+basePath+"/jobs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -352,7 +324,6 @@ func registerContainerApps(srv *sim.Server) {
 		})
 	})
 
-	// GET - List jobs by subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/jobs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		prefix := armSubscriptionID(sub) + "/"
@@ -364,9 +335,7 @@ func registerContainerApps(srv *sim.Server) {
 		})
 	})
 
-	// PATCH - Update job. Real ACA models this as a long-running
-	// operation that settles to provisioningState=Succeeded; the SDK's
-	// body poller reads the Succeeded state off the 200 body.
+	// The SDK's body poller reads Succeeded off the 200 body.
 	srv.HandleFunc("PATCH "+basePath+"/jobs/{jobName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -424,10 +393,8 @@ func registerContainerApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
-	// POST /jobs/{jobName}/listsecrets — same shape as the containerApps
-	// listsecrets handler: secrets aren't returned on GET; the dedicated
-	// POST returns them. Single lowercase registration; the middleware
-	// canonicalizes any client casing to lowercase before dispatch.
+	// GET omits secrets; listsecrets returns them. The middleware lowercases the
+	// action before dispatch.
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/listsecrets", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -440,18 +407,16 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 		secrets := []JobSecret{}
-		// SecretsCollection.value is a REQUIRED array — keep [] (not null) when a
-		// job has a configuration but no secrets.
+		// SecretsCollection.value is required: keep [] rather than null.
 		if job.Properties.Configuration != nil && job.Properties.Configuration.Secrets != nil {
 			secrets = job.Properties.Configuration.Secrets
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": secrets})
 	})
 
-	// DELETE - Delete job. Real Azure ARM returns 202 Accepted with the LRO
-	// headers and an empty body for an existing job (the resource stays in
-	// provisioningState=Deleting until the operation completes) and 204 No
-	// Content when the job does not exist.
+	// Azure answers 202 with the operation headers and an empty body for an
+	// existing job, which reads Deleting until the operation completes, and 204
+	// for an absent one.
 	srv.HandleFunc("DELETE "+basePath+"/jobs/{jobName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -482,7 +447,6 @@ func registerContainerApps(srv *sim.Server) {
 		w.WriteHeader(http.StatusAccepted)
 	})
 
-	// POST - Start execution
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/start", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -497,7 +461,6 @@ func registerContainerApps(srv *sim.Server) {
 			return
 		}
 
-		// Read optional override template
 		var override struct {
 			Containers     []JobContainer `json:"containers,omitempty"`
 			InitContainers []JobContainer `json:"initContainers,omitempty"`
@@ -517,9 +480,8 @@ func registerContainerApps(srv *sim.Server) {
 		exec := acaStartJobExecution(executions, job, template)
 		execName, execID := exec.Name, exec.ID
 
-		// Return 202 with Location header for LRO polling.
-		// The Azure SDK's BeginStart uses FinalStateViaLocation,
-		// so it polls the Location URL to get the final result.
+		// BeginStart uses FinalStateViaLocation, so it polls the Location URL for the
+		// result.
 		scheme := "http"
 		if r.TLS != nil {
 			scheme = "https"
@@ -533,8 +495,7 @@ func registerContainerApps(srv *sim.Server) {
 		})
 	})
 
-	// POST - Stop all executions of a job. Returns the collection of
-	// executions that were requested to be stopped (ContainerAppJobExecutions).
+	// Answers the executions it asked to stop (ContainerAppJobExecutions).
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/stop", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -560,7 +521,6 @@ func registerContainerApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": stopped})
 	})
 
-	// GET - List executions
 	srv.HandleFunc("GET "+basePath+"/jobs/{jobName}/executions", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -584,7 +544,6 @@ func registerContainerApps(srv *sim.Server) {
 		})
 	})
 
-	// GET - Get execution
 	srv.HandleFunc("GET "+basePath+"/jobs/{jobName}/executions/{execName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -603,7 +562,6 @@ func registerContainerApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, exec)
 	})
 
-	// POST - Stop execution
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/stop", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -625,18 +583,14 @@ func registerContainerApps(srv *sim.Server) {
 
 	startACAJobSchedules(srv, jobs, executions)
 
-	// POST - Console exec WebSocket. Backend's aca/exec_cloud.go dials
-	// this with the user command in the `command` query parameter.
-	// The handler upgrades to WebSocket and bridges to a `docker exec`
-	// against the running execution container — same pattern as
-	// simulator-aws/ecs.go's SSM ExecuteCommand handler, simpler
-	// frame format (raw binary in/out, no SSM AgentMessage wrapping).
+	// The exec WebSocket takes the command in the `command` query parameter and
+	// bridges to a `docker exec` against the execution's container.
 	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/exec", handleACAJobExec)
 }
 
-// acaSettleJobIdentity validates a job's secrets against its identity and
-// brings the directory in step with its system-assigned identity, answering
-// the request and restoring the directory when the secrets do not resolve.
+// acaSettleJobIdentity brings the directory in step with the job's
+// system-assigned identity; when the secrets do not resolve against it, it
+// answers the request and restores the directory.
 func acaSettleJobIdentity(w http.ResponseWriter, job, prev ContainerAppJob) bool {
 	secrets := acaJobSecrets(job)
 	var containers []JobContainer
@@ -656,10 +610,8 @@ func acaSettleJobIdentity(w http.ResponseWriter, job, prev ContainerAppJob) bool
 	return true
 }
 
-// handleACAJobExec serves the ACA jobs-exec WebSocket. The user
-// command arrives as `?command=<urlencoded>`; the main container of the
-// execution's first running replica is looked up; the WebSocket is then
-// bridged to a docker exec session against that container.
+// handleACAJobExec bridges to the main container of the execution's first
+// running replica.
 func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -697,8 +649,7 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run the command via `sh -c "<command>"` to match what real ACA's
-	// console exec does and to support arbitrary shell expressions.
+	// Run through `sh -c` so arbitrary shell expressions work.
 	execCfg := dockerclient.ExecCreateOptions{
 		Cmd:          []string{"sh", "-c", command},
 		AttachStdin:  true,
@@ -720,10 +671,8 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 	}
 	defer attach.Close()
 
-	// Bridge: WebSocket binary frames → exec stdin; exec stdout+stderr
-	// → WebSocket binary frames. ACA's real protocol does not split
-	// stdout/stderr at the wire level, so we let stdcopy demux upstream
-	// in the backend / matching client (or just merge to one stream).
+	// The protocol does not split stdout and stderr on the wire, so the client
+	// receives the engine's multiplexed stream.
 	done := make(chan struct{})
 
 	go func() {
@@ -765,7 +714,6 @@ var acaWSUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// randomSuffix generates a random alphanumeric suffix of the given length.
 func randomSuffix(n int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
@@ -776,8 +724,6 @@ func randomSuffix(n int) string {
 	return string(b)
 }
 
-// acaLogSink writes a job container's output to the job environment's
-// ContainerAppConsoleLogs_CL.
 type acaLogSink struct {
 	job ContainerAppJob
 }

@@ -12,20 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests exercise the CloudFront restXml surface added for distribution
-// tenants, connection groups, trust stores, resource policies, WebACL
-// associations, alias/domain conflicts, the ListDistributionsBy* projections,
-// and the CopyDistribution / UpdateDistributionWithStagingConfig /
-// UpdateAnycastIpList / GetManagedCertificateDetails variants — via the real
-// aws-sdk-go-v2 cloudfront client.
-
 func cfExtras3Caller() string {
 	return "sdk-extras3-" + time.Now().Format("150405.000000000")
 }
 
-// cfExtras3MakeDistribution creates a minimal enabled distribution and returns
-// its id + current ETag, registering a tolerant cleanup that disables then
-// deletes it.
+// cfExtras3MakeDistribution creates a minimal enabled distribution, returns
+// its id and ETag, and registers a cleanup that disables, then deletes it.
 func cfExtras3MakeDistribution(t *testing.T, c *cloudfront.Client, ctx context.Context) (string, string) {
 	t.Helper()
 	caller := cfExtras3Caller()
@@ -84,8 +76,6 @@ func cfExtras3MakeDistribution(t *testing.T, c *cloudfront.Client, ctx context.C
 	return id, etag
 }
 
-// TestCloudFront_CopyAndStaging covers CopyDistribution and
-// UpdateDistributionWithStagingConfig (promote-staging-config).
 func TestCloudFront_CopyAndStaging(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -118,7 +108,6 @@ func TestCloudFront_CopyAndStaging(t *testing.T) {
 		}
 	})
 
-	// Promote the staging config back onto the primary.
 	get, err := c.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(id)})
 	require.NoError(t, err)
 	pr, err := c.UpdateDistributionWithStagingConfig(ctx, &cloudfront.UpdateDistributionWithStagingConfigInput{
@@ -130,9 +119,6 @@ func TestCloudFront_CopyAndStaging(t *testing.T) {
 	assert.Equal(t, id, aws.ToString(pr.Distribution.Id))
 }
 
-// TestCloudFront_DistributionTenant covers the distribution-tenant CRUD,
-// by-domain lookup, list, WebACL associate/disassociate, the tenant
-// invalidation trio, and GetManagedCertificateDetails.
 func TestCloudFront_DistributionTenant(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -206,7 +192,6 @@ func TestCloudFront_DistributionTenant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tenantID, aws.ToString(disassoc.Id))
 
-	// Tenant invalidation trio.
 	inv, err := c.CreateInvalidationForDistributionTenant(ctx, &cloudfront.CreateInvalidationForDistributionTenantInput{
 		Id: aws.String(tenantID),
 		InvalidationBatch: &cftypes.InvalidationBatch{
@@ -234,8 +219,6 @@ func TestCloudFront_DistributionTenant(t *testing.T) {
 	require.NotNil(t, mc.ManagedCertificateDetails)
 }
 
-// TestCloudFront_ConnectionGroup covers connection-group CRUD, by-routing-endpoint
-// lookup, and list.
 func TestCloudFront_ConnectionGroup(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -286,8 +269,6 @@ func TestCloudFront_ConnectionGroup(t *testing.T) {
 	assert.True(t, found)
 }
 
-// TestCloudFront_TrustStore covers trust-store CRUD, list, and
-// ListDistributionsByTrustStore.
 func TestCloudFront_TrustStore(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -349,7 +330,6 @@ func TestCloudFront_TrustStore(t *testing.T) {
 	require.NotNil(t, byTS.DistributionList)
 }
 
-// TestCloudFront_ResourcePolicy covers Put/Get/DeleteResourcePolicy.
 func TestCloudFront_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -377,9 +357,6 @@ func TestCloudFront_ResourcePolicy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCloudFront_DistributionWebACLAndAlias covers the distribution WebACL
-// associate/disassociate, AssociateAlias, ListConflictingAliases,
-// ListDomainConflicts, UpdateDomainAssociation, and VerifyDnsConfiguration.
 func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -411,8 +388,8 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A second distribution claiming the same alias yields a conflict, and the
-	// conflict names the alias and the distribution already holding it.
+	// A second distribution claiming the alias conflicts, and the conflict names
+	// the alias and the distribution holding it.
 	other, _ := cfExtras3MakeDistribution(t, c, ctx)
 	conf, err := c.ListConflictingAliases(ctx, &cloudfront.ListConflictingAliasesInput{
 		DistributionId: aws.String(other),
@@ -460,12 +437,10 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 	require.NotNil(t, vdc.DnsConfigurationList)
 }
 
-// TestCloudFront_ListDistributionsByResource covers the ListDistributionsBy*
-// projections. Every projection is asserted twice: against the resource the
-// distribution really carries, which must return it, and against one it does
-// not, which must not. A projection that ignores its filter fails one arm or
-// the other, and each list's Quantity is asserted against the items in it,
-// which is the wire contract a paginating client reads.
+// TestCloudFront_ListDistributionsByResource asserts each ListDistributionsBy*
+// projection against the resource the distribution carries and against one it
+// does not, so a projection ignoring its filter fails one arm. Each list's
+// Quantity matches its items, the wire contract a paginating client reads.
 func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -557,9 +532,8 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, summariesOf(byOtherWebACL.DistributionList), id)
 
-	// The distribution is tenant-only, so it appears under that mode and not
-	// under direct: the mode selects, rather than the distribution merely
-	// existing.
+	// The distribution is tenant-only, so it appears under that mode and not under
+	// direct.
 	byTenantOnly, err := c.ListDistributionsByConnectionMode(ctx, &cloudfront.ListDistributionsByConnectionModeInput{ConnectionMode: cftypes.ConnectionModeTenantOnly})
 	require.NoError(t, err)
 	assert.Contains(t, summariesOf(byTenantOnly.DistributionList), id)
@@ -567,8 +541,8 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, summariesOf(byDirect.DistributionList), id)
 
-	// It names no VPC origin and no real-time log configuration, and owns no
-	// resource of another account, so none of those three projects it.
+	// It names no VPC origin or real-time log configuration and owns no other
+	// account's resource, so none of those three projects it.
 	byVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String("vo-" + stamp)})
 	require.NoError(t, err)
 	assert.NotContains(t, idsOf(byVpc.DistributionIdList), id)
@@ -586,9 +560,8 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	}
 }
 
-// cfExtras3MakeReferencingDistribution creates a distribution whose
-// configuration carries the references the caller supplies, on top of the
-// minimal origin every distribution in this file uses, and returns its id.
+// cfExtras3MakeReferencingDistribution creates a distribution carrying the
+// caller's references over the minimal origin and returns its id.
 func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ctx context.Context, overrides cftypes.DistributionConfig) string {
 	t.Helper()
 	config := &cftypes.DistributionConfig{
@@ -640,8 +613,6 @@ func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ct
 	return id
 }
 
-// TestCloudFront_UpdateAnycastIpList covers UpdateAnycastIpList over a created
-// Anycast IP list.
 func TestCloudFront_UpdateAnycastIpList(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -667,8 +638,8 @@ func TestCloudFront_UpdateAnycastIpList(t *testing.T) {
 	require.NotNil(t, create.AnycastIpList)
 	assert.Len(t, create.AnycastIpList.AnycastIps, 2, "IpCount addresses are allocated")
 
-	// The update carries a change, so the response and a later read both have
-	// to show it: an update that echoed the stored list would pass neither.
+	// The update carries a change, so an update that echoed the stored list fails
+	// both the response and the later read.
 	upd, err := c.UpdateAnycastIpList(ctx, &cloudfront.UpdateAnycastIpListInput{
 		Id:            aws.String(id),
 		IfMatch:       aws.String(etag),
@@ -684,8 +655,7 @@ func TestCloudFront_UpdateAnycastIpList(t *testing.T) {
 	assert.Equal(t, cftypes.IpAddressTypeDualStack, reread.AnycastIpList.IpAddressType,
 		"the change must be what a later read returns")
 
-	// The stale entity tag is refused, which is what makes the concurrency
-	// control real rather than decorative.
+	// A stale entity tag is refused.
 	_, err = c.UpdateAnycastIpList(ctx, &cloudfront.UpdateAnycastIpListInput{
 		Id:            aws.String(id),
 		IfMatch:       aws.String(etag),

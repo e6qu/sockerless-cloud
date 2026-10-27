@@ -9,15 +9,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 Site-to-Site VPN family (customer gateways, VPN
-// gateways, VPN connections with two IPsec tunnels) and the Client VPN family
-// (Client VPN endpoints, routes, authorization rules, target-network
-// associations, connections). Every operation is faithful CRUD on real
-// sim.Stores, with ec2Query XML responses matching the EC2 wire shapes the AWS
-// SDK Go v2 and aws CLI parse.
-
-// EC2CustomerGateway models a customer gateway: the on-premises side of a
-// Site-to-Site VPN connection, identified by a public IP and a BGP ASN.
+// The on-premises side, identified by public IP and BGP ASN.
 type EC2CustomerGateway struct {
 	CustomerGatewayId string
 	BgpAsn            string
@@ -30,8 +22,7 @@ type EC2CustomerGateway struct {
 	Tags              []EC2Tag
 }
 
-// EC2VpnGateway models a virtual private gateway: the AWS side of a
-// Site-to-Site VPN connection, attachable to a VPC.
+// The AWS side, attachable to a VPC.
 type EC2VpnGateway struct {
 	VpnGatewayId     string
 	Type             string
@@ -42,13 +33,11 @@ type EC2VpnGateway struct {
 	Tags             []EC2Tag
 }
 
-// EC2VpcAttachment records a VPN gateway's attachment to a VPC.
 type EC2VpcAttachment struct {
 	VpcId string
 	State string
 }
 
-// EC2VpnTunnel models one of the two IPsec tunnels of a VPN connection.
 type EC2VpnTunnel struct {
 	OutsideIpAddress string
 	TunnelInsideCidr string
@@ -56,16 +45,14 @@ type EC2VpnTunnel struct {
 	Status           string
 }
 
-// EC2VpnStaticRoute models a static route programmed onto a VPN connection by
-// CreateVpnConnectionRoute (only valid when StaticRoutesOnly is set).
+// Valid only when StaticRoutesOnly is set.
 type EC2VpnStaticRoute struct {
 	DestinationCidrBlock string
 	Source               string
 	State                string
 }
 
-// EC2VpnConnection models a Site-to-Site VPN connection between a customer
-// gateway and a VPN gateway (or transit gateway), with two IPsec tunnels.
+// Between a customer gateway and a VPN gateway or transit gateway.
 type EC2VpnConnection struct {
 	VpnConnectionId   string
 	CustomerGatewayId string
@@ -82,7 +69,6 @@ type EC2VpnConnection struct {
 	Tags              []EC2Tag
 }
 
-// EC2ClientVpnAuth models one authentication method of a Client VPN endpoint.
 type EC2ClientVpnAuth struct {
 	Type                       string
 	ClientRootCertificateChain string
@@ -91,8 +77,6 @@ type EC2ClientVpnAuth struct {
 	SelfServiceSamlProviderArn string
 }
 
-// EC2ClientVpnEndpoint models a Client VPN endpoint: the managed endpoint
-// remote clients connect to, with a client CIDR and authentication options.
 type EC2ClientVpnEndpoint struct {
 	ClientVpnEndpointId  string
 	Description          string
@@ -117,7 +101,6 @@ type EC2ClientVpnEndpoint struct {
 	Tags                 []EC2Tag
 }
 
-// EC2ClientVpnRoute models a route on a Client VPN endpoint.
 type EC2ClientVpnRoute struct {
 	ClientVpnEndpointId string
 	DestinationCidr     string
@@ -128,8 +111,7 @@ type EC2ClientVpnRoute struct {
 	Description         string
 }
 
-// EC2ClientVpnAuthRule models an authorization (ingress) rule on a Client VPN
-// endpoint, granting access to a destination CIDR for a group or for all users.
+// Grants a destination CIDR to a group or to all users.
 type EC2ClientVpnAuthRule struct {
 	ClientVpnEndpointId string
 	Description         string
@@ -139,8 +121,7 @@ type EC2ClientVpnAuthRule struct {
 	StatusCode          string
 }
 
-// EC2ClientVpnAssoc models a target-network association: the subnet a Client
-// VPN endpoint is wired into.
+// The subnet the endpoint is wired into.
 type EC2ClientVpnAssoc struct {
 	AssociationId       string
 	ClientVpnEndpointId string
@@ -160,7 +141,6 @@ var (
 	ec2ClientVpnAssocs   sim.Store[EC2ClientVpnAssoc]
 )
 
-// registerEC2VPN registers the Site-to-Site VPN and Client VPN ec2Query actions.
 func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 	ec2CustomerGateways = sim.MakeStore[EC2CustomerGateway](srv.DB(), "ec2_customer_gateways")
 	ec2VpnGateways = sim.MakeStore[EC2VpnGateway](srv.DB(), "ec2_vpn_gateways")
@@ -170,19 +150,16 @@ func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ClientVpnAuth = sim.MakeStore[EC2ClientVpnAuthRule](srv.DB(), "ec2_client_vpn_auth_rules")
 	ec2ClientVpnAssocs = sim.MakeStore[EC2ClientVpnAssoc](srv.DB(), "ec2_client_vpn_assocs")
 
-	// Customer gateways
 	r.Register("CreateCustomerGateway", handleCreateCustomerGateway)
 	r.Register("DescribeCustomerGateways", handleDescribeCustomerGateways)
 	r.Register("DeleteCustomerGateway", handleDeleteCustomerGateway)
 
-	// VPN gateways
 	r.Register("CreateVpnGateway", handleCreateVpnGateway)
 	r.Register("DescribeVpnGateways", handleDescribeVpnGateways)
 	r.Register("AttachVpnGateway", handleAttachVpnGateway)
 	r.Register("DetachVpnGateway", handleDetachVpnGateway)
 	r.Register("DeleteVpnGateway", handleDeleteVpnGateway)
 
-	// VPN connections
 	r.Register("CreateVpnConnection", handleCreateVpnConnection)
 	r.Register("DescribeVpnConnections", handleDescribeVpnConnections)
 	r.Register("ModifyVpnConnection", handleModifyVpnConnection)
@@ -195,7 +172,6 @@ func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ModifyVpnTunnelOptions", handleModifyVpnTunnelOptions)
 	r.Register("GetActiveVpnTunnelStatus", handleGetActiveVpnTunnelStatus)
 
-	// Client VPN
 	r.Register("CreateClientVpnEndpoint", handleCreateClientVpnEndpoint)
 	r.Register("DescribeClientVpnEndpoints", handleDescribeClientVpnEndpoints)
 	r.Register("ModifyClientVpnEndpoint", handleModifyClientVpnEndpoint)
@@ -218,7 +194,7 @@ func registerEC2VPN(r *AWSQueryRouter, srv *sim.Server) {
 func handleCreateCustomerGateway(w http.ResponseWriter, r *http.Request) {
 	ip := r.FormValue("IpAddress")
 	if ip == "" {
-		// Older SDKs/CLIs use PublicIp; AWS accepts both, IpAddress is canonical.
+		// IpAddress is canonical; older SDKs and CLIs send PublicIp.
 		ip = r.FormValue("PublicIp")
 	}
 	gwType := r.FormValue("Type")
@@ -420,7 +396,7 @@ func handleAttachVpnGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	att := EC2VpcAttachment{VpcId: vpcID, State: "attached"}
-	// Replace any existing attachment to the same VPC; a VGW attaches to one VPC.
+	// A VPN gateway attaches to one VPC; replace an existing attachment.
 	updated := false
 	for i, a := range vgw.VpcAttachments {
 		if a.VpcId == vpcID {
@@ -522,9 +498,8 @@ func handleCreateVpnConnection(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
 }
 
-// ec2VpnConnectionConfig builds the customerGatewayConfiguration payload: a
-// self-contained XML document describing the tunnels, returned to the caller as
-// an escaped string (matching real EC2, which emits a full IKE/IPsec config).
+// Amazon EC2 returns a full IKE/IPsec configuration document as an escaped
+// string.
 func ec2VpnConnectionConfig(conn EC2VpnConnection) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><vpn_connection id="`)
@@ -554,7 +529,6 @@ func ec2VpnConnectionFieldsXML(conn EC2VpnConnection) string {
 	if conn.Category != "" {
 		fmt.Fprintf(&b, "<category>%s</category>", conn.Category)
 	}
-	// options
 	b.WriteString("<options>")
 	fmt.Fprintf(&b, "<enableAcceleration>false</enableAcceleration><staticRoutesOnly>%t</staticRoutesOnly>", conn.StaticRoutesOnly)
 	if conn.LocalIpv4Cidr != "" {
@@ -570,14 +544,13 @@ func ec2VpnConnectionFieldsXML(conn EC2VpnConnection) string {
 	}
 	b.WriteString("</tunnelOptionSet>")
 	b.WriteString("</options>")
-	// routes
 	b.WriteString("<routes>")
 	for _, rt := range conn.Routes {
 		fmt.Fprintf(&b, "<item><destinationCidrBlock>%s</destinationCidrBlock><source>%s</source><state>%s</state></item>",
 			xmlEscape(rt.DestinationCidrBlock), rt.Source, rt.State)
 	}
 	b.WriteString("</routes>")
-	// vgwTelemetry: one entry per tunnel
+	// One vgwTelemetry entry per tunnel.
 	b.WriteString("<vgwTelemetry>")
 	for _, t := range conn.Tunnels {
 		fmt.Fprintf(&b, "<item><outsideIpAddress>%s</outsideIpAddress><status>%s</status><acceptedRouteCount>0</acceptedRouteCount><lastStatusChange>%s</lastStatusChange><statusMessage>%s</statusMessage></item>",
@@ -588,7 +561,6 @@ func ec2VpnConnectionFieldsXML(conn EC2VpnConnection) string {
 	return b.String()
 }
 
-// statusToTelemetry maps a tunnel UP/DOWN status to the vgwTelemetry status enum.
 func statusToTelemetry(status string) string {
 	if status == "UP" {
 		return "UP"
@@ -687,7 +659,7 @@ func handleModifyVpnTunnelOptions(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidVpnConnectionID.NotFound", fmt.Sprintf("The vpnConnection ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// The targeted tunnel is identified by its outside IP address.
+	// The outside IP address identifies the tunnel.
 	outside := r.FormValue("VpnTunnelOutsideIpAddress")
 	if cidr := r.FormValue("TunnelOptions.TunnelInsideCidr"); cidr != "" {
 		for i := range conn.Tunnels {
@@ -781,9 +753,7 @@ func handleDeleteVpnConnectionRoute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<DeleteVpnConnectionRouteResponse %s><requestId>%s</requestId><return>true</return></DeleteVpnConnectionRouteResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2VpnDeviceTypes is the real-shaped list of supported customer gateway
-// devices GetVpnConnectionDeviceTypes returns (vendor / platform / software
-// triples, each with a stable device-type id).
+// Vendor, platform and software triples, each with a stable id.
 var ec2VpnDeviceTypes = []struct {
 	ID, Vendor, Platform, Software string
 }{
@@ -865,7 +835,6 @@ func handleCreateClientVpnEndpoint(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ep.ClientVpnEndpointId, ep.StatusCode, ep.DnsName)
 }
 
-// ec2ParseClientVpnAuth reads the indexed Authentication.N request params.
 func ec2ParseClientVpnAuth(r *http.Request) []EC2ClientVpnAuth {
 	var auths []EC2ClientVpnAuth
 	for i := 1; ; i++ {
@@ -908,7 +877,6 @@ func ec2ClientVpnEndpointFieldsXML(ep EC2ClientVpnEndpoint) string {
 	fmt.Fprintf(&b, "<splitTunnel>%t</splitTunnel>", ep.SplitTunnel)
 	fmt.Fprintf(&b, "<vpnProtocol>%s</vpnProtocol><transportProtocol>%s</transportProtocol><vpnPort>%d</vpnPort>", ep.VpnProtocol, ep.TransportProtocol, ep.VpnPort)
 	fmt.Fprintf(&b, "<serverCertificateArn>%s</serverCertificateArn>", xmlEscape(ep.ServerCertificateArn))
-	// authenticationOptions
 	b.WriteString("<authenticationOptions>")
 	for _, a := range ep.AuthenticationOpts {
 		b.WriteString("<item>")
@@ -1085,7 +1053,7 @@ func handleDeleteClientVpnRoute(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidClientVpnEndpointId.NotFound", fmt.Sprintf("The Client VPN endpoint '%s' does not exist", epID), http.StatusBadRequest)
 		return
 	}
-	// Delete every matching route regardless of which subnet recorded it.
+	// Delete every matching route regardless of its subnet.
 	for _, rt := range ec2ClientVpnRoutes.List() {
 		if rt.ClientVpnEndpointId == epID && rt.DestinationCidr == cidr && (subnet == "" || rt.TargetSubnet == subnet) {
 			ec2ClientVpnRoutes.Delete(epID + "|" + rt.DestinationCidr + "|" + rt.TargetSubnet)
@@ -1181,7 +1149,7 @@ func handleAssociateClientVpnTargetNetwork(w http.ResponseWriter, r *http.Reques
 	vpcID := ep.VpcId
 	if subnet, ok := ec2Subnets.Get(subnetID); ok {
 		vpcID = subnet.VpcId
-		// Associating the first target network sets the endpoint's VPC.
+		// The first target network sets the endpoint's VPC.
 		if ep.VpcId == "" {
 			ep.VpcId = subnet.VpcId
 			ec2ClientVpnEndpoint.Put(epID, ep)
@@ -1256,7 +1224,7 @@ func handleApplySecurityGroupsToClientVpnTargetNetwork(w http.ResponseWriter, r 
 		return
 	}
 	sgs := ec2ParamList(r, "SecurityGroupId")
-	// Record the applied groups on every target-network association in this VPC.
+	// Record the groups on every association in this VPC.
 	for _, assoc := range ec2ClientVpnAssocs.List() {
 		if assoc.ClientVpnEndpointId == epID && (vpcID == "" || assoc.VpcId == vpcID) {
 			assoc.SecurityGroups = sgs
@@ -1278,8 +1246,7 @@ func handleDescribeClientVpnConnections(w http.ResponseWriter, r *http.Request) 
 		ec2ErrorXML(w, "InvalidClientVpnEndpointId.NotFound", fmt.Sprintf("The Client VPN endpoint '%s' does not exist", epID), http.StatusBadRequest)
 		return
 	}
-	// No clients connect to the simulated endpoint, so the connection set is
-	// empty — matching a real endpoint with no active sessions.
+	// No client connects to the simulated endpoint.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeClientVpnConnectionsResponse %s><requestId>%s</requestId><connections/></DescribeClientVpnConnectionsResponse>`,
 		ec2Xmlns(), sim.NewUUID())

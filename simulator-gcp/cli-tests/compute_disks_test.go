@@ -8,16 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gcloud compute disks against the sim — verifies the Compute Disks
-// endpoints (Insert / Get / List / Delete / Resize) round-trip through
-// the real gcloud CLI (external-validation principle).
-
 func TestGcloudComputeDisks_CRUD(t *testing.T) {
 	t.Parallel()
 	zone := "us-central1-a"
 	name := "sim-disk-cli-1"
 
-	// Create
 	out, err := gcloudCLI("compute", "disks", "create", name,
 		"--zone="+zone,
 		"--size=10",
@@ -25,8 +20,6 @@ func TestGcloudComputeDisks_CRUD(t *testing.T) {
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "create: %s", out)
 
-	// Describe — the disk carries the size and type the create asked for, not
-	// just the name it was addressed by.
 	described := computeDiskJSON(t, name, zone)
 	assert.Equal(t, name, described.Name)
 	assert.Equal(t, "10", described.SizeGb)
@@ -34,15 +27,14 @@ func TestGcloudComputeDisks_CRUD(t *testing.T) {
 		"the disk is the type the create asked for: %q", described.Type)
 	assert.Equal(t, "READY", described.Status)
 
-	// List
 	out, err = gcloudCLI("compute", "disks", "list",
 		"--filter=zone:("+zone+")",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "list: %s", out)
 	assert.Contains(t, string(out), name)
 
-	// Resize — the new size is read back off the disk, so a resize that
-	// answered DONE without growing the disk fails here.
+	// Read the size back so a resize that answered DONE without growing the disk
+	// fails.
 	out, err = gcloudCLI("compute", "disks", "resize", name,
 		"--zone="+zone,
 		"--size=20",
@@ -51,7 +43,6 @@ func TestGcloudComputeDisks_CRUD(t *testing.T) {
 	assert.Equal(t, "20", computeDiskJSON(t, name, zone).SizeGb,
 		"the resize moved the disk's size")
 
-	// Delete
 	out, err = gcloudCLI("compute", "disks", "delete", name,
 		"--zone="+zone,
 		"--quiet").CombinedOutput()
@@ -62,9 +53,7 @@ func TestGcloudComputeDisks_CRUD(t *testing.T) {
 	require.Error(t, err, "describing a deleted disk must fail: %s", out)
 }
 
-// computeDisk is the subset of compute#disk this suite reads back. sizeGb is
-// int64-as-string on the wire, the way the Compute Engine discovery document
-// declares it.
+// sizeGb is an int64 the Compute Engine Discovery document encodes as a string.
 type computeDisk struct {
 	Name   string `json:"name"`
 	SizeGb string `json:"sizeGb"`
@@ -72,7 +61,6 @@ type computeDisk struct {
 	Status string `json:"status"`
 }
 
-// computeDiskJSON describes one persistent disk through the CLI.
 func computeDiskJSON(t *testing.T, name, zone string) computeDisk {
 	t.Helper()
 	out, err := gcloudCLI("compute", "disks", "describe", name,

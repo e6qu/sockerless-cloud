@@ -13,14 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// openReadyTail opens a TailLogEntries stream on project for filter and
-// returns it once it streams, with the matching entries it streamed first.
-// A tail streams what is ingested after Cloud Logging reads its request, which
-// can be after the caller's next call, so the caller cannot tell from Send
-// returning that the tail has started. The tail also follows a log of its own
-// and waits for a marker written there to arrive: everything ingested after
-// that marker reaches the stream, and a listing made after this returns sees
-// everything ingested before it.
+// openReadyTail returns the stream once it streams, with the matching entries
+// it streamed first. A tail streams what is ingested after Cloud Logging reads
+// its request, which can follow the caller's next call, so Send returning says
+// nothing. The tail also follows a log of its own and waits for a marker
+// written there: everything ingested after the marker reaches the stream, and a
+// listing made after this returns sees everything ingested before.
 func openReadyTail(t *testing.T, tailCtx context.Context, client *vkit.Client, project, filter string) (loggingpb.LoggingServiceV2_TailLogEntriesClient, []*loggingpb.LogEntry) {
 	t.Helper()
 	markerLog := "projects/" + project + "/logs/tail-ready-" + uniquename.New("t")

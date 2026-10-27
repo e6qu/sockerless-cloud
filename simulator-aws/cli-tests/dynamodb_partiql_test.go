@@ -17,7 +17,6 @@ func ddbCLICreateTable(t *testing.T, table string) {
 	t.Cleanup(func() { _ = awsCLI("dynamodb", "delete-table", "--table-name", table).Run() })
 }
 
-// TestDynamoDBCLI_PartiQL drives ExecuteStatement (INSERT/SELECT/UPDATE/DELETE).
 func TestDynamoDBCLI_PartiQL(t *testing.T) {
 	t.Parallel()
 	table := "cli-partiql"
@@ -51,7 +50,6 @@ func TestDynamoDBCLI_PartiQL(t *testing.T) {
 	assert.Empty(t, sel.Items)
 }
 
-// TestDynamoDBCLI_PartiQLBatch drives BatchExecuteStatement.
 func TestDynamoDBCLI_PartiQLBatch(t *testing.T) {
 	t.Parallel()
 	table := "cli-partiql-batch"
@@ -77,7 +75,6 @@ func TestDynamoDBCLI_PartiQLBatch(t *testing.T) {
 	assert.Equal(t, "DuplicateItem", batch.Responses[1].Error.Code)
 }
 
-// TestDynamoDBCLI_PartiQLTransaction drives ExecuteTransaction.
 func TestDynamoDBCLI_PartiQLTransaction(t *testing.T) {
 	t.Parallel()
 	table := "cli-partiql-tx"

@@ -13,11 +13,11 @@ import (
 )
 
 // TestEC2_SubnetBlocksAndZones covers what a subnet's blocks and zone are held
-// to: CreateVpc with AmazonProvidedIpv6CidrBlock gives the VPC a /56 that
-// DescribeVpcs lists, a subnet's IPv4 block is a /16 to /28 within the VPC's
-// blocks that overlaps no other subnet, its IPv6 block a /64 of the VPC's, and
-// its zone one of the Region's; DescribeAvailabilityZones answers by zone name,
-// zone id and the filters it declares.
+// to: AmazonProvidedIpv6CidrBlock gives the VPC a /56 DescribeVpcs lists, a
+// subnet's IPv4 block is a /16 to /28 within the VPC's blocks overlapping no
+// other subnet, its IPv6 block a /64 of the VPC's, and its zone one of the
+// Region's; DescribeAvailabilityZones answers by zone name, zone id and its
+// declared filters.
 func TestEC2_SubnetBlocksAndZones(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -115,7 +115,8 @@ func TestEC2_SubnetBlocksAndZones(t *testing.T) {
 	require.NoError(t, err, "the secondary block takes subnets")
 	assert.Equal(t, aws.ToString(zoneB.ZoneId), aws.ToString(inSecondary.AvailabilityZoneId))
 
-	// Disassociating the IPv6 block answers the association as the VPC listed it.
+	// Disassociating the IPv6 block answers with the association DescribeVpcs
+	// listed.
 	assocID := aws.ToString(described.Vpcs[0].Ipv6CidrBlockAssociationSet[0].AssociationId)
 	_, err = c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: first.SubnetId})
 	require.NoError(t, err)

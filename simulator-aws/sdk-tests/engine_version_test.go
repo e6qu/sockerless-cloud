@@ -12,10 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_EngineVersionDefault verifies CreateDBInstance populates
-// EngineVersion with the engine's GA default when the client omits it.
-// terraform-provider-aws stores the resolved version in state and
-// drifts on the next plan if the sim echoes empty.
+// TestRDS_EngineVersionDefault expects CreateDBInstance to fill EngineVersion
+// with the engine's default when omitted: terraform-provider-aws stores the
+// resolved version and drifts on an empty one.
 func TestRDS_EngineVersionDefault(t *testing.T) {
 	t.Parallel()
 	explicitID := uniquename.New("explicit-engine-pg")
@@ -38,7 +37,6 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 	require.NotEmpty(t, got, "EngineVersion default must be populated")
 	assert.Equal(t, "16.15", got, "postgres default must be the canonical sim value")
 
-	// Explicit EngineVersion still wins.
 	out2, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(explicitID),
 		DBInstanceClass:      aws.String("db.t3.micro"),
@@ -53,7 +51,7 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 		"explicit EngineVersion must win over default")
 }
 
-// TestElastiCache_EngineVersionDefault — same shape for redis cluster.
+// TestElastiCache_EngineVersionDefault is the same for a Redis cluster.
 func TestElastiCache_EngineVersionDefault(t *testing.T) {
 	t.Parallel()
 	explicitID := uniquename.New("explicit-engine-redis")

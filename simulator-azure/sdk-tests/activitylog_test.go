@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Activity Logs - List, GET
-// /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values:
-// every ARM write, delete and action leaves a BeginRequest and an EndRequest
-// event, which the list returns newest first for the time span and the scope
-// the filter names.
+// Every ARM write, delete and action leaves a BeginRequest and an EndRequest
+// event in the Activity Log, which Activity Logs - List returns newest first
+// for the time span and scope its filter names.
 func TestActivityLog_RecordsResourceGroupOperations(t *testing.T) {
 	t.Parallel()
 	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())

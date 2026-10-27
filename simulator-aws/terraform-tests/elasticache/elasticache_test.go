@@ -62,8 +62,8 @@ func TestElastiCacheTerraform(t *testing.T) {
 	require.Equal(t, "replication group", value)
 
 	require.Equal(t, "6379", outputs.must(t, "serverless_endpoint_port"))
-	// ElastiCache presents a certificate a public root signs; the client
-	// checks encryption, not the chain.
+	// ElastiCache presents a certificate a public root signs; the client checks
+	// encryption, not the chain.
 	serverless := goredis.NewClusterClient(&goredis.ClusterOptions{
 		Addrs:     []string{net.JoinHostPort(outputs.must(t, "serverless_endpoint_address"), outputs.must(t, "serverless_endpoint_port"))},
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}, //nolint:gosec // see above

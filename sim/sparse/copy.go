@@ -11,10 +11,10 @@ import (
 )
 
 // Clear makes [offset, offset+length) of f stop holding data. A zero-filled
-// extent is still an allocated one, and DataExtents would go on reporting it,
-// so the whole allocation units inside the range are deallocated; the partial
-// units at its edges are zeroed in place, which is what the kernel does for
-// the unaligned edges of a hole punch.
+// extent is still an allocated one, which DataExtents would go on reporting,
+// so Clear deallocates the whole allocation units inside the range and zeroes
+// the partial units at its edges in place, as the kernel does for the
+// unaligned edges of a hole punch.
 func Clear(f *os.File, offset, length int64) error {
 	if length <= 0 {
 		return nil

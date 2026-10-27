@@ -12,8 +12,8 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// settledCapabilityConfig reads the CapabilityConfig a settled long-running
-// Operation carries in its response envelope, taking a call's two results.
+// settledCapabilityConfig reads the CapabilityConfig from a settled operation's
+// response.
 func settledCapabilityConfig(t *testing.T) func(*crm.Operation, error) *crm.CapabilityConfig {
 	return func(op *crm.Operation, err error) *crm.CapabilityConfig {
 		t.Helper()
@@ -26,8 +26,6 @@ func settledCapabilityConfig(t *testing.T) func(*crm.Operation, error) *crm.Capa
 	}
 }
 
-// requireCapabilityConfigRefusal asserts a call failed with the HTTP status
-// and, when contains is not empty, a message naming it.
 func requireCapabilityConfigRefusal(t *testing.T, err error, status int, contains string) {
 	t.Helper()
 	var gerr *googleapi.Error
@@ -38,9 +36,6 @@ func requireCapabilityConfigRefusal(t *testing.T, err error, status int, contain
 	}
 }
 
-// TestResourceManagerV3_CapabilityConfigsOnAFolder drives the whole collection
-// under a folder: create, get, list, patch and delete, plus the refusals that
-// make the stored record one the service would have accepted.
 func TestResourceManagerV3_CapabilityConfigsOnAFolder(t *testing.T) {
 	t.Parallel()
 	svc := crmV3Service(t)
@@ -56,7 +51,7 @@ func TestResourceManagerV3_CapabilityConfigsOnAFolder(t *testing.T) {
 	name := folder + "/capabilityConfigs/capcfg-folder"
 
 	// An id that breaks the documented shape is refused before anything is
-	// stored: a config the service would never have named must not exist here.
+	// stored.
 	for _, id := range []string{"", "short", "Capability", "capability-"} {
 		_, err := configs.Create(folder, &crm.CapabilityConfig{Types: []string{"AGENT_MANAGEMENT"}}).CapabilityConfigId(id).Do()
 		requireCapabilityConfigRefusal(t, err, 400, "INVALID_ARGUMENT")
@@ -79,9 +74,8 @@ func TestResourceManagerV3_CapabilityConfigsOnAFolder(t *testing.T) {
 	assert.Equal(t, []string{"AGENT_MANAGEMENT"}, created.Types)
 	assert.NotEmpty(t, created.Etag)
 
-	// The management project the create was not given is one Cloud Resource
-	// Manager made, and it is a project this deployment holds — not a name
-	// pointing at nothing.
+	// Cloud Resource Manager makes the management project the create did not
+	// name, and it must be a project the simulator holds.
 	require.NotEmpty(t, created.ManagementProject)
 	management, err := svc.Projects.Get(created.ManagementProject).Do()
 	require.NoError(t, err)

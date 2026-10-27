@@ -23,9 +23,6 @@ type eventGridHook struct {
 	attempts atomic.Int32
 }
 
-// eventGridAnswerValidation answers a SubscriptionValidationEvent the way a
-// webhook that accepts the subscription does, echoing its validationCode, and
-// reports whether body was one.
 func eventGridAnswerValidation(w http.ResponseWriter, r *http.Request, body []byte) bool {
 	if r.Header.Get("aeg-event-type") != "SubscriptionValidation" {
 		return false
@@ -44,8 +41,6 @@ func eventGridAnswerValidation(w http.ResponseWriter, r *http.Request, body []by
 	return true
 }
 
-// newEventGridHook answers the validation handshake by echoing its code and
-// every notification with status.
 func newEventGridHook(t *testing.T, status int) *eventGridHook {
 	t.Helper()
 	hook := &eventGridHook{received: make(chan []map[string]any, 16), headers: make(chan http.Header, 16)}
@@ -76,8 +71,6 @@ func (h *eventGridHook) next(t *testing.T) ([]map[string]any, http.Header) {
 	}
 }
 
-// eventGridTopicWithSubscription creates a topic and one webhook
-// subscription with the given extra properties, returning the topic.
 func eventGridTopicWithSubscription(t *testing.T, srv *sim.Server, name, hookURL string, extra map[string]any) EventGridTopic {
 	t.Helper()
 	topicURL := "http://localhost:4568/subscriptions/sub/resourceGroups/rg/providers/Microsoft.EventGrid/topics/" + name + "?api-version=2021-12-01"
@@ -97,8 +90,6 @@ func eventGridTopicWithSubscription(t *testing.T, srv *sim.Server, name, hookURL
 	return topic
 }
 
-// eventGridAwaitProvisioned waits out a webhook subscription's validation
-// handshake and requires that it succeeded.
 func eventGridAwaitProvisioned(t *testing.T, srv *sim.Server, subURL string) {
 	t.Helper()
 	bg.Await()
@@ -186,10 +177,8 @@ func TestEventGridRetryScheduleAndStatusWaits(t *testing.T) {
 	}
 }
 
-// TestEventGridDeadLettersToBlobStorage proves both dead-letter paths: a 400
-// is not retried when a dead-letter destination exists, and a retryable
-// failure dead-letters once maxDeliveryAttempts is spent. Each lands as a blob
-// under <TOPIC>/<SUBSCRIPTION>/ carrying why it was dead-lettered.
+// A 400 is not retried when a dead-letter destination exists, and a retryable
+// failure dead-letters once maxDeliveryAttempts is spent.
 func TestEventGridDeadLettersToBlobStorage(t *testing.T) {
 	srv := newEventGridTestServer(t)
 	registerBlobDataPlane(srv)
@@ -216,8 +205,8 @@ func TestEventGridDeadLettersToBlobStorage(t *testing.T) {
 		})
 		eventGridPublish(t, srv, topic, `[{"id":"`+c.topic+`","eventType":"t","subject":"/s","eventTime":"2026-06-02T00:00:00Z","data":{"n":1},"dataVersion":"1"}]`)
 		hook.next(t)
-		// The attempt that answered and its dead-lettering run in one piece of
-		// background work.
+		// The answering attempt and its dead-lettering run in one piece of background
+		// work.
 		bg.Await()
 		var blob BlobObject
 		for _, b := range blobsUnderPrefix("dlacct", "deadletters", strings.ToUpper(c.topic)+"/SUB1/") {

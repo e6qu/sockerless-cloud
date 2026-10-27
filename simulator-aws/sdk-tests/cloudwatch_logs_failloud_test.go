@@ -12,11 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatchLogs_FilterAndQueryFailLoud is the CloudWatch arm of the #652
-// "silent incompleteness" prevention work (BUG-2170): a malformed FilterLogEvents
-// filterPattern raises InvalidParameterException, and a malformed StartQuery
-// query string raises MalformedQueryException — never a silently empty result
-// that a consumer reads as "no matching logs".
+// TestCloudWatchLogs_FilterAndQueryFailLoud expects a malformed FilterLogEvents
+// filterPattern to raise InvalidParameterException and a malformed StartQuery
+// query string MalformedQueryException, never an empty result a consumer reads
+// as "no matching logs".
 func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -33,7 +32,7 @@ func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
 		return ""
 	}
 
-	// Malformed structured filter pattern (comparison missing its value).
+	// The comparison lacks its value.
 	_, err = cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName:  aws.String(group),
 		FilterPattern: aws.String(`{ $.level = }`),
@@ -41,14 +40,13 @@ func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
 	require.Error(t, err, "a malformed filterPattern must fail, not match nothing")
 	assert.Equal(t, "InvalidParameterException", errCode(err))
 
-	// A well-formed pattern that matches nothing is NOT an error.
 	_, err = cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName:  aws.String(group),
 		FilterPattern: aws.String(`{ $.level = "NOPE" }`),
 	})
 	assert.NoError(t, err)
 
-	// Malformed Insights query (unbalanced parenthesis in the filter stage).
+	// The filter stage has an unbalanced parenthesis.
 	_, err = cw.StartQuery(ctx, &cloudwatchlogs.StartQueryInput{
 		LogGroupName: aws.String(group),
 		QueryString:  aws.String(`fields @message | filter (level = "ERROR"`),
@@ -59,9 +57,9 @@ func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
 	assert.Equal(t, "MalformedQueryException", errCode(err))
 }
 
-// TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern verifies that
-// PutMetricFilter validates its FilterPattern up front, matching the
-// InvalidParameterException error shape in the CloudWatch Logs Smithy model.
+// TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern expects
+// PutMetricFilter to validate FilterPattern up front with
+// InvalidParameterException.
 func TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()
@@ -85,7 +83,6 @@ func TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern(t *testing.T) {
 	require.True(t, errors.As(err, &ae), "expected smithy API error, got %T", err)
 	assert.Equal(t, "InvalidParameterException", ae.ErrorCode())
 
-	// Valid pattern must still succeed.
 	_, err = cw.PutMetricFilter(ctx, &cloudwatchlogs.PutMetricFilterInput{
 		LogGroupName:  aws.String(group),
 		FilterName:    aws.String("good-filter"),
@@ -99,8 +96,6 @@ func TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestCloudWatchLogs_PutSubscriptionFilterRejectsInvalidPattern verifies the
-// same validation is applied to PutSubscriptionFilter.
 func TestCloudWatchLogs_PutSubscriptionFilterRejectsInvalidPattern(t *testing.T) {
 	t.Parallel()
 	cw := cwLogsClient()

@@ -89,7 +89,7 @@ type machine struct {
 	// id is the backend's identifier of the machine, which outlives the
 	// handle of a stopped machine: its kept root disk.
 	id string
-	// halted marks a stop; a handle that lands afterwards is cancelled at
+	// halted marks a stop; attach cancels a handle that lands afterwards at
 	// once, so a boot still placing the machine cannot leave it running.
 	halted bool
 	// cancelBoot ends the boot in flight, so a stop never waits one out;
@@ -99,7 +99,6 @@ type machine struct {
 	booting    chan struct{}
 }
 
-// New is a manager placing machines on backend.
 func New(backend placement.Backend, hooks Hooks) *Manager {
 	return &Manager{backend: backend, hooks: hooks, machines: map[string]*machine{}}
 }
@@ -127,8 +126,8 @@ func call(hook func(string), key string) {
 
 // Boot brings key's machine up and returns once its init is ready: the kept
 // root disk of a stopped machine boots again, any other is placed from
-// workload, and a machine that runs already is left as it is. A machine that
-// never becomes ready is stopped with its disk kept and Boot returns a
+// workload, and a machine that runs already is left as it is. Boot stops a
+// machine that never becomes ready, keeping its disk, and returns a
 // *NotReadyError; whether to discard the disk is the cloud's decision.
 func (m *Manager) Boot(ctx context.Context, key string, workload placement.Workload) error {
 	m.mu.Lock()
@@ -384,7 +383,6 @@ func (m *Manager) DiskID(key string) (string, bool) {
 	return mc.id, mc.id != ""
 }
 
-// RunningMachine is a machine that runs now.
 type RunningMachine struct {
 	Key    string
 	Handle placement.Handle
@@ -448,8 +446,8 @@ const (
 )
 
 // Adopt takes over key's machine from what the backend holds of it,
-// existing being the backend's listing for key, if any. A running machine is
-// watched again with workload; Ready, when non-nil, reports once it is ready.
+// existing being the backend's listing for key, if any. It watches a running
+// machine again with workload; Ready, when non-nil, reports once it is ready.
 func (m *Manager) Adopt(ctx context.Context, key string, existing *placement.Existing, workload placement.Workload) (Found, <-chan error, error) {
 	if existing == nil {
 		return Gone, nil, nil

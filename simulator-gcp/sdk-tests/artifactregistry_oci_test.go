@@ -45,9 +45,8 @@ func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
 	require.NotNil(t, created.RemoteRepositoryConfig.DockerRepository)
 	require.Equal(t, "DOCKER_HUB", created.RemoteRepositoryConfig.DockerRepository.PublicRepository)
 
-	// The remote repository hydrates from the local Docker daemon, so the
-	// reference this pull names is the harness's own workload image — repository
-	// and tag both — rather than a tag some other suite happens to have built.
+	// The remote repository hydrates from the local Docker daemon, so the pull
+	// names the harness's own workload image.
 	localRepo, localTag, _ := strings.Cut(evalImageName, ":")
 	imageName := "test-project/" + repoID + "/" + localRepo
 	manifestURL := baseURL + "/v2/" + imageName + "/manifests/" + localTag

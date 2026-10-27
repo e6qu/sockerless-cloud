@@ -5,18 +5,15 @@ import (
 	"testing"
 )
 
-// Capacity Manager operations (enable-capacity-manager,
-// get-capacity-manager-attributes, *-data-export, get-capacity-manager-metric-*,
-// *-monitored-tag-keys, update-capacity-manager-organizations-access) are absent
-// from aws CLI 2.26.6 (a newer EC2 feature), so they are exercised only through
-// the SDK suite (TestEC2_CapacityManager), which satisfies the testing contract
-// hook for those ops. The Local Gateway, Declarative Policies, and AWS Network
-// Performance families are present in the CLI and covered below.
+// aws CLI 2.26.6 lacks the Capacity Manager operations (enable-capacity-manager,
+// get-capacity-manager-attributes, *-data-export,
+// get-capacity-manager-metric-*, *-monitored-tag-keys,
+// update-capacity-manager-organizations-access); TestEC2_CapacityManager in
+// the SDK suite covers them.
 
-// TestEC2CLI_LocalGateway drives the AWS Outposts local gateway control plane
-// over the aws CLI: discover the seeded gateway, then route-table,
-// virtual-interface-group, virtual-interface, and the VPC + virtual-interface-
-// group associations.
+// TestEC2CLI_LocalGateway discovers the AWS Outposts local gateway the
+// account holds, then drives its route table, virtual interfaces and the VPC
+// and virtual-interface-group associations.
 func TestEC2CLI_LocalGateway(t *testing.T) {
 	t.Parallel()
 	lgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-local-gateways",
@@ -42,11 +39,9 @@ func TestEC2CLI_LocalGateway(t *testing.T) {
 		t.Fatalf("expected describe to return %q, got %q", rtID, descRT)
 	}
 
-	// create/delete-local-gateway-virtual-interface[-group] are absent from aws
-	// CLI 2.26.6 (only the describe variants exist), so those creates are
-	// exercised through the SDK suite (TestEC2_LocalGateway). A real Outpost
-	// local gateway ships with its virtual interface group already provisioned,
-	// so describe returns one here, which the VIG-association below uses.
+	// aws CLI 2.26.6 has only the describe variants of the local gateway virtual
+	// interface commands; TestEC2_LocalGateway covers the creates. An Outpost's
+	// local gateway ships with its virtual interface group provisioned.
 	vifID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-local-gateway-virtual-interfaces",
 		"--query", "LocalGatewayVirtualInterfaces[0].LocalGatewayVirtualInterfaceId", "--output", "text")))
 	if !strings.HasPrefix(vifID, "lgw-vif-") {
@@ -71,7 +66,6 @@ func TestEC2CLI_LocalGateway(t *testing.T) {
 		t.Fatalf("expected vif %q in group id set, got %q", vifID, descVig)
 	}
 
-	// VPC association.
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.81.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("ec2", "delete-vpc", "--vpc-id", vpcID)) })
@@ -91,7 +85,6 @@ func TestEC2CLI_LocalGateway(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "delete-local-gateway-route-table-vpc-association",
 		"--local-gateway-route-table-vpc-association-id", vpcAssocID))
 
-	// Virtual interface group association.
 	vigAssocID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-local-gateway-route-table-virtual-interface-group-association",
 		"--local-gateway-route-table-id", rtID,
 		"--local-gateway-virtual-interface-group-id", vigID,
@@ -109,9 +102,8 @@ func TestEC2CLI_LocalGateway(t *testing.T) {
 		"--local-gateway-route-table-virtual-interface-group-association-id", vigAssocID))
 }
 
-// TestEC2CLI_DeclarativePolicies drives the declarative-policies report
-// lifecycle over the aws CLI: start → describe (running → complete) → summary,
-// plus the cancel path.
+// TestEC2CLI_DeclarativePolicies covers the declarative-policies report
+// lifecycle (running to complete, then the summary) and the cancel path.
 func TestEC2CLI_DeclarativePolicies(t *testing.T) {
 	t.Parallel()
 	reportID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "start-declarative-policies-report",
@@ -145,8 +137,6 @@ func TestEC2CLI_DeclarativePolicies(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_NetworkPerformance drives the AWS Network Performance metric
-// subscription lifecycle and the GetAwsNetworkPerformanceData read over the CLI.
 func TestEC2CLI_NetworkPerformance(t *testing.T) {
 	t.Parallel()
 	enOut := strings.TrimSpace(runCLI(t, awsCLI("ec2", "enable-aws-network-performance-metric-subscription",

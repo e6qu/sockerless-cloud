@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_NatGatewayConnectivityType verifies ConnectivityType round-trips
-// through DescribeNatGateways. connectivity_type is ForceNew in the provider;
-// an absent value vs the configured "public" forces destroy+create every plan.
-// An omitted connectivity type defaults to "public" (matching real AWS).
+// TestEC2_NatGatewayConnectivityType expects ConnectivityType back from
+// DescribeNatGateways, defaulting to "public" when omitted: connectivity_type is
+// ForceNew in the provider.
 func TestEC2_NatGatewayConnectivityType(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -48,7 +47,6 @@ func TestEC2_NatGatewayConnectivityType(t *testing.T) {
 	require.Len(t, desc.NatGateways, 1)
 	assert.Equal(t, types.ConnectivityTypePublic, desc.NatGateways[0].ConnectivityType)
 
-	// Omitted connectivity type defaults to public.
 	def := mkNat("")
 	descDef, err := c.DescribeNatGateways(ctx, &ec2.DescribeNatGatewaysInput{
 		NatGatewayIds: []string{aws.ToString(def.NatGatewayId)},

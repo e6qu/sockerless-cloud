@@ -2,8 +2,8 @@
 # Puts a set of base images on the host without asking a registry twice for the
 # same bytes.
 #
-# The registries these images come from throttle anonymous pulls, and the ECR
-# Public Gallery, which serves the images AWS publishes, caps them by data
+# The registries these images come from throttle anonymous pulls, and the
+# Amazon ECR Public Gallery, which serves the images AWS publishes, caps them by data
 # volume: that cap is not a transient failure, and retrying inside a job does
 # not recover it. A cached tarball is the only thing that removes the
 # request.

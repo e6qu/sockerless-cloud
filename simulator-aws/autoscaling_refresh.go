@@ -34,8 +34,7 @@ const (
 	asRefreshStandbyProtectedTimeout = time.Hour
 )
 
-// ASRefreshPreferences holds an instance refresh's RefreshPreferences; a nil
-// pointer is a preference the request left out.
+// A nil pointer is a preference the request left out.
 type ASRefreshPreferences struct {
 	MinHealthyPercentage      int
 	MaxHealthyPercentage      *int
@@ -57,10 +56,9 @@ type ASRefreshRollback struct {
 	InstancesToUpdateOnRollback  int
 }
 
-// ASInstanceRefresh is an instance refresh and the progress of its rolling
-// replacement. Forward, it replaces ToReplace with instances launched from
-// Desired (or the group's configuration); rolling back, it replaces the
-// instances it launched with ones from Previous.
+// Forward, a refresh replaces ToReplace with instances from Desired (or the
+// group's configuration); rolling back, it replaces its own launches with
+// instances from Previous.
 type ASInstanceRefresh struct {
 	InstanceRefreshId    string
 	AutoScalingGroupName string
@@ -87,10 +85,8 @@ type ASInstanceRefresh struct {
 }
 
 var (
-	// asRefreshMu serializes every change to a refresh, whether a request, a
-	// launch settling or a timer firing drives it.
-	asRefreshMu sync.Mutex
-	// asRefreshStored hears every change stored to a refresh.
+	// Requests, settling launches and timers all change refreshes.
+	asRefreshMu     sync.Mutex
 	asRefreshStored = func(ASInstanceRefresh) {}
 )
 
@@ -206,9 +202,8 @@ func asParseRefreshPreferences(r *http.Request) (ASRefreshPreferences, string) {
 	return prefs, ""
 }
 
-// asRefreshReversible reports whether a refresh can be rolled back: it needs a
-// desired configuration, and a group configuration to return to that names a
-// launch template version rather than $Latest or $Default.
+// Rollback needs a desired configuration and a previous one that names a
+// launch template version, not $Latest or $Default.
 func asRefreshReversible(desired *ASLaunchSource, previous ASLaunchSource) bool {
 	if desired == nil {
 		return false
@@ -226,9 +221,8 @@ func asIrreversibleRefresh(w http.ResponseWriter) {
 	asError(w, "IrreversibleInstanceRefresh", "The request failed because a desired configuration was not found or an incompatible launch template (uses a Systems Manager parameter instead of an AMI ID) or launch template version ($Latest or $Default) is present on the Auto Scaling group.", http.StatusBadRequest)
 }
 
-// asRefreshCandidates lists the members a refresh replaces: all of them except
-// the Standby and scale-in protected members its preferences ignore, and, with
-// skip matching, those that already launched from the target configuration.
+// Skip Standby and scale-in protected members and, with skip matching, those
+// already launched from the target configuration.
 func asRefreshCandidates(asg AutoScalingGroup, prefs ASRefreshPreferences, target ASLaunchSource) []string {
 	ex := asxExtras(asg.Name)
 	var matching *ASLaunchSource
@@ -307,8 +301,8 @@ func handleASXRollbackInstanceRefresh(w http.ResponseWriter, r *http.Request) {
 	asResponse(w, "RollbackInstanceRefresh", fmt.Sprintf("<InstanceRefreshId>%s</InstanceRefreshId>", xmlEscape(id)))
 }
 
-// asRefreshBeginRollback turns a refresh around: the instances it launched so
-// far become the ones to replace, from the configuration the group had before.
+// Rolling back replaces the refresh's launches with the group's previous
+// configuration.
 func asRefreshBeginRollback(ref *ASInstanceRefresh, asg AutoScalingGroup) {
 	ref.Rollback = &ASRefreshRollback{
 		StartTime:                    time.Now().UTC().Format(asActivityTimeLayout),
@@ -327,8 +321,7 @@ func asRefreshBeginRollback(ref *ASInstanceRefresh, asg AutoScalingGroup) {
 	}
 }
 
-// asRefreshKick lets a refresh waiting on Standby or scale-in protected
-// members look again once they changed.
+// Let a refresh waiting on Standby or protected members look again.
 func asRefreshKick(group string) {
 	if ref := asActiveRefresh(group); ref != nil {
 		id := ref.InstanceRefreshId
@@ -347,8 +340,7 @@ func asRefreshAdvance(id string) {
 	asRefreshPut(ref)
 }
 
-// asRefreshPut stores a refresh unless its group, and with it the refresh, was
-// deleted meanwhile.
+// Do not resurrect a refresh whose group was deleted meanwhile.
 func asRefreshPut(ref ASInstanceRefresh) {
 	if _, ok := asInstanceRefreshes.Get(ref.InstanceRefreshId); ok {
 		asInstanceRefreshes.Put(ref.InstanceRefreshId, ref)
@@ -356,9 +348,6 @@ func asRefreshPut(ref ASInstanceRefresh) {
 	}
 }
 
-// asRefreshStep moves a refresh on as far as it can without waiting: it ends
-// the refresh, or replaces the next batch, or leaves it waiting on launches in
-// flight or on a timer.
 func asRefreshStep(ref *ASInstanceRefresh) {
 	asg, ok := autoScalingGroups.Get(ref.AutoScalingGroupName)
 	if !ok {
@@ -376,8 +365,8 @@ func asRefreshStep(ref *ASInstanceRefresh) {
 	default:
 		return
 	}
-	// The wait on Standby and protected members is a deadline, not a pause:
-	// a member leaving either state lets the refresh go on at once.
+	// The wait on Standby and protected members is a deadline: a member leaving
+	// either state lets the refresh go on at once.
 	if len(ref.InFlight) > 0 || (ref.TimerKind != "" && ref.TimerKind != asRefreshTimerWait) {
 		return
 	}
@@ -428,9 +417,7 @@ func asRefreshStep(ref *ASInstanceRefresh) {
 	}
 }
 
-// asRefreshEligible drops the members that left the group from those left to
-// replace, and returns the ones it can replace now: all but the Standby and
-// scale-in protected members it waits for.
+// Drop members that left the group; return those replaceable now.
 func asRefreshEligible(ref *ASInstanceRefresh, asg AutoScalingGroup) []string {
 	remaining := ref.ToReplace[:0]
 	for _, id := range ref.ToReplace {
@@ -453,12 +440,9 @@ func asRefreshEligible(ref *ASInstanceRefresh, asg AutoScalingGroup) []string {
 	return eligible
 }
 
-// asRefreshBatch sizes a replacement batch from the healthy-percentage bounds
-// on the desired capacity: how many instances to launch, and how many of the
-// instances they replace to terminate before launching. Without
-// MaxHealthyPercentage the service terminates and launches together; with it,
-// it launches first whatever the minimum does not allow it to take out of
-// service, up to the maximum. A batch replaces at least one instance.
+// Without MaxHealthyPercentage the service terminates and launches together;
+// with it, it launches first whatever MinHealthyPercentage does not let it
+// take out of service. A batch replaces at least one instance.
 func asRefreshBatch(prefs ASRefreshPreferences, desired int) (launch, terminateFirst int) {
 	minInService := int(math.Ceil(float64(desired*prefs.MinHealthyPercentage) / 100))
 	if prefs.MaxHealthyPercentage == nil {
@@ -470,8 +454,7 @@ func asRefreshBatch(prefs ASRefreshPreferences, desired int) (launch, terminateF
 	return launch, min(launch, max(0, desired-minInService))
 }
 
-// asRefreshWarmup is the instance warmup the refresh waits after a batch is
-// InService: the preference, else the group's DefaultInstanceWarmup, else its
+// The preference wins, then DefaultInstanceWarmup, then
 // HealthCheckGracePeriod.
 func asRefreshWarmup(ref ASInstanceRefresh, asg AutoScalingGroup) time.Duration {
 	seconds := asg.HealthCheckGracePeriod
@@ -523,10 +506,8 @@ func asRefreshTimerFired(id, kind, until string) {
 	asRefreshPut(ref)
 }
 
-// asRefreshBatchWarmed finishes a batch once its instances have warmed up: the
-// instances it launched ahead of their replacements take those out of
-// service, the batch counts as updated, and a checkpoint reached pauses the
-// refresh for its delay.
+// Instances launched ahead of their replacements now take those out of
+// service; a reached checkpoint pauses the refresh for its delay.
 func asRefreshBatchWarmed(ref *ASInstanceRefresh, asg *AutoScalingGroup) {
 	if len(ref.Deferred) > 0 {
 		cause := fmt.Sprintf("At %s an instance was taken out of service in response to an instance refresh.", time.Now().UTC().Format(time.RFC3339))
@@ -560,8 +541,7 @@ func asRefreshBatchWarmed(ref *ASInstanceRefresh, asg *AutoScalingGroup) {
 	}
 }
 
-// asRefreshComplete ends a refresh with nothing left to replace. Forward, it
-// waits out BakeTime and then gives the group the desired configuration.
+// Forward, wait out BakeTime, then give the group the desired configuration.
 func asRefreshComplete(ref *ASInstanceRefresh, asg *AutoScalingGroup) {
 	if ref.Rollback != nil {
 		asRefreshEnd(ref, asRefreshRollbackSuccessful, "")
@@ -583,8 +563,6 @@ func asRefreshComplete(ref *ASInstanceRefresh, asg *AutoScalingGroup) {
 	asRefreshEnd(ref, asRefreshSuccessful, "")
 }
 
-// asRefreshFail ends a refresh that cannot go on, or rolls it back when it
-// asked for auto rollback.
 func asRefreshFail(ref *ASInstanceRefresh, asg AutoScalingGroup, reason string) {
 	switch {
 	case ref.Rollback != nil:
@@ -606,9 +584,8 @@ func asRefreshEnd(ref *ASInstanceRefresh, status, reason string) {
 	ref.EndTime = time.Now().UTC().Format(asActivityTimeLayout)
 }
 
-// asRefreshInstanceSettled hears that an instance a refresh launched entered
-// service, or failed to (reason says why). The last of a batch to enter
-// service starts its warmup; a failure fails the refresh.
+// The last of a batch to enter service starts its warmup; a failure fails the
+// refresh.
 func asRefreshInstanceSettled(group, instanceID, reason string) {
 	asRefreshMu.Lock()
 	defer asRefreshMu.Unlock()
@@ -640,9 +617,8 @@ func asRefreshInstanceSettled(group, instanceID, reason string) {
 	asRefreshPut(*ref)
 }
 
-// asRefreshPercentage is the share of the instances to update that the
-// refresh has replaced and warmed up; rolling back, the share of its instances
-// still in the group, which falls back to zero.
+// Rolling back, report the share of the refresh's instances still in the
+// group, which falls to zero.
 func asRefreshPercentage(ref ASInstanceRefresh, asg AutoScalingGroup) int {
 	if ref.Total == 0 {
 		if ref.Status == asRefreshSuccessful {
@@ -669,8 +645,6 @@ func asRefreshInstancesToUpdate(ref ASInstanceRefresh) int {
 	return ref.Total - ref.Updated
 }
 
-// asResumeInstanceRefreshes picks up the refreshes a previous run left under
-// way: it re-arms their timers and settles launches that finished meanwhile.
 func asResumeInstanceRefreshes() {
 	for _, ref := range asInstanceRefreshes.List() {
 		if !asRefreshActive(ref.Status) {

@@ -8,12 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.EventGrid Partner Events control plane — partner registrations,
-// partner namespaces (+ channels and SAS keys), partner configurations
-// (the per-resource-group "default" singleton with partner authorization),
-// and the tenant-level verified-partners catalog. These are the resources a
-// partner publisher provisions to deliver events into a customer's partner
-// topics.
+// Microsoft.EventGrid Partner Events control plane: partner registrations,
+// partner namespaces with channels and keys, partner configurations (the
+// per-resource-group "default" singleton), and the verified-partners catalog.
 
 var (
 	eventGridPartnerRegistrations  sim.Store[EventGridTopic]
@@ -32,7 +29,6 @@ func registerEventGridPartner(srv *sim.Server) {
 	const nsBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/partnerNamespaces"
 	const cfgBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.EventGrid/partnerConfigurations"
 
-	// Partner registrations.
 	srv.HandleFunc("PUT "+regBase+"/{partnerRegistrationName}", handleEventGridPutPartnerRegistration)
 	srv.HandleFunc("GET "+regBase+"/{partnerRegistrationName}", handleEventGridGetPartnerRegistration)
 	srv.HandleFunc("PATCH "+regBase+"/{partnerRegistrationName}", handleEventGridUpdatePartnerRegistration)
@@ -40,7 +36,6 @@ func registerEventGridPartner(srv *sim.Server) {
 	srv.HandleFunc("GET "+regBase, handleEventGridListPartnerRegistrationsByRG)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.EventGrid/partnerRegistrations", handleEventGridListPartnerRegistrationsBySub)
 
-	// Partner namespaces (+ keys).
 	srv.HandleFunc("PUT "+nsBase+"/{partnerNamespaceName}", handleEventGridPutPartnerNamespace)
 	srv.HandleFunc("GET "+nsBase+"/{partnerNamespaceName}", handleEventGridGetPartnerNamespace)
 	srv.HandleFunc("PATCH "+nsBase+"/{partnerNamespaceName}", handleEventGridUpdatePartnerNamespace)
@@ -50,7 +45,6 @@ func registerEventGridPartner(srv *sim.Server) {
 	srv.HandleFunc("POST "+nsBase+"/{partnerNamespaceName}/listKeys", handleEventGridListPartnerNamespaceKeys)
 	srv.HandleFunc("POST "+nsBase+"/{partnerNamespaceName}/regenerateKey", handleEventGridRegeneratePartnerNamespaceKey)
 
-	// Channels under a partner namespace.
 	srv.HandleFunc("PUT "+nsBase+"/{partnerNamespaceName}/channels/{channelName}", handleEventGridPutChannel)
 	srv.HandleFunc("GET "+nsBase+"/{partnerNamespaceName}/channels/{channelName}", handleEventGridGetChannel)
 	srv.HandleFunc("PATCH "+nsBase+"/{partnerNamespaceName}/channels/{channelName}", handleEventGridUpdateChannel)
@@ -58,7 +52,6 @@ func registerEventGridPartner(srv *sim.Server) {
 	srv.HandleFunc("GET "+nsBase+"/{partnerNamespaceName}/channels", handleEventGridListChannels)
 	srv.HandleFunc("POST "+nsBase+"/{partnerNamespaceName}/channels/{channelName}/getFullUrl", handleEventGridGetChannelFullURL)
 
-	// Partner configurations (the per-resource-group "default" singleton).
 	srv.HandleFunc("PUT "+cfgBase+"/default", handleEventGridPutPartnerConfiguration)
 	srv.HandleFunc("GET "+cfgBase+"/default", handleEventGridGetPartnerConfiguration)
 	srv.HandleFunc("PATCH "+cfgBase+"/default", handleEventGridUpdatePartnerConfiguration)
@@ -68,7 +61,6 @@ func registerEventGridPartner(srv *sim.Server) {
 	srv.HandleFunc("POST "+cfgBase+"/default/authorizePartner", handleEventGridAuthorizePartner)
 	srv.HandleFunc("POST "+cfgBase+"/default/unauthorizePartner", handleEventGridUnauthorizePartner)
 
-	// Tenant-level verified partners catalog (read only).
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/verifiedPartners", handleEventGridListVerifiedPartners)
 	srv.HandleFunc("GET /providers/Microsoft.EventGrid/verifiedPartners/{verifiedPartnerName}", handleEventGridGetVerifiedPartner)
 }
@@ -244,8 +236,7 @@ func handleEventGridListPartnerConfigurationsBySub(w http.ResponseWriter, r *htt
 	armList(w, eventGridResources(eventGridPartnerConfigurations, ""), armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/resourceGroups/")
 }
 
-// eventGridPartnerAuthorization returns the mutable partnerAuthorization
-// container and its authorizedPartnersList, creating the container if absent.
+// Creates the partnerAuthorization container if absent.
 func eventGridPartnerAuthorization(cfg *EventGridTopic) (map[string]any, []any) {
 	if cfg.Properties == nil {
 		cfg.Properties = map[string]any{}
@@ -304,9 +295,8 @@ func handleEventGridUnauthorizePartner(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, cfg)
 }
 
-// eventGridVerifiedPartners is the Azure-curated catalog of verified Event Grid
-// partners. Auth0 is a real verified partner; its registration immutable id is
-// deterministic per the simulator so reads are stable.
+// Auth0 is a real verified partner; its registration immutable id is fixed so
+// reads are stable.
 func eventGridVerifiedPartners() []EventGridTopic {
 	return []EventGridTopic{{
 		ID:   "/providers/Microsoft.EventGrid/verifiedPartners/Auth0",

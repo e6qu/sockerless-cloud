@@ -18,9 +18,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// fetchDiscoveryDocument sends GET /$discovery/rest?version=… to the
-// simulator under host, as a client whose requests reach it through a proxy
-// names the API's own host.
+// fetchDiscoveryDocument names the API's own host, as a client whose requests
+// reach the simulator through a proxy does.
 func fetchDiscoveryDocument(t *testing.T, host, version string) (int, []byte) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/$discovery/rest?version="+url.QueryEscape(version), nil)
@@ -36,9 +35,8 @@ func fetchDiscoveryDocument(t *testing.T, host, version string) (int, []byte) {
 	return resp.StatusCode, body
 }
 
-// Every API the simulator implements serves the Discovery document vendored
-// for it, byte for byte, under the host its name names; the document reads as
-// the Discovery service's RestDescription.
+// Every API the simulator implements serves its vendored Discovery document,
+// byte for byte, under its own host:
 //
 //	GET /$discovery/rest
 func TestDiscovery_EachAPIServesItsVendoredDocument(t *testing.T) {
@@ -77,8 +75,8 @@ func TestDiscovery_EachAPIServesItsVendoredDocument(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, status, "a version the API does not publish has no document")
 }
 
-// The Discovery service's directory lists the APIs the simulator serves and
-// hands out their documents, to a client that presents no credential.
+// The Discovery directory lists the APIs and hands out their documents to a
+// client presenting no credential:
 //
 //	GET /discovery/v1/apis
 //	GET /discovery/v1/apis/{api}/{version}/rest

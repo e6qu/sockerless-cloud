@@ -15,15 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_AlarmActionsDispatchedToSNS locks the fix for issue #705:
-// when a metric alarm transitions into ALARM, the simulator's background
-// evaluator publishes the canonical CloudWatch alarm notification to each
-// AlarmActions SNS topic, which a real SQS subscriber then receives.
-//
-// The path under test is the real one clients depend on: PutMetricAlarm →
-// PutMetricData → evaluator tick → SNS fan-out → SQS ReceiveMessage. There
-// are no short-circuits; the notification travels the same SNS publish
-// pipeline a client-side Publish uses.
+// TestCloudWatch_AlarmActionsDispatchedToSNS expects a metric alarm entering
+// ALARM to publish the CloudWatch alarm notification to each AlarmActions
+// topic through the ordinary Amazon SNS publish path, which an Amazon SQS
+// subscriber receives.
 func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
 	t.Parallel()
 	cw := cloudwatchClient()
@@ -82,13 +77,10 @@ func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DescribeAlarms re-derives state from the live metric data, so the alarm
-	// listed under StateValue ALARM proves the same input the evaluator sees
-	// has crossed the threshold.
+	// DescribeAlarms derives state from the live metric data, so ALARM there means
+	// the evaluator's input crossed the threshold.
 	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should transition to ALARM after breaching datapoint")
 
-	// Poll the SQS subscriber for the alarm notification envelope. The
-	// evaluator ticks every ~2s, so allow a wide margin.
 	deadline := time.Now().Add(15 * time.Second)
 	var notification map[string]any
 	for time.Now().Before(deadline) {
@@ -130,19 +122,17 @@ func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
 	assert.Equal(t, "cpu above 50 \"adversarial\" line1\nline2 \x01", notification["AlarmDescription"])
 }
 
-// TestCloudWatch_OKActionsDispatchedToSNS verifies the OK transition path:
-// after an alarm has fired ALARM, a non-breaching datapoint in a fresh
-// evaluation period transitions the evaluator to OK and dispatches the
-// OKActions topics.
+// TestCloudWatch_OKActionsDispatchedToSNS expects a non-breaching datapoint in
+// a later evaluation period to move a fired alarm to OK and dispatch its
+// OKActions.
 func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	t.Parallel()
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
-	// A namespace of its own per run. Metric data outlives the alarm that read
-	// it, so a shared namespace lets one run's recovery datapoint satisfy the
-	// next run's breach precondition — which is a test poisoning itself, and
-	// reads as a flake in whichever run loses.
+	// A namespace per run: metric data outlives the alarm that read it, so a
+	// shared namespace lets one run's recovery datapoint satisfy the next run's
+	// breach precondition.
 	ns := fmt.Sprintf("Custom/AlarmOKSDK-%d", nextCloudWatchProbeID())
 	alarmName := fmt.Sprintf("sdk-alarm-ok-%s-%d", t.Name(), nextCloudWatchProbeID())
 
@@ -168,13 +158,10 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The two datapoints are placed in different evaluation buckets by their
-	// timestamps, below, so the breach is followed by a recovery rather than
-	// averaged with it. The period is a minute because that also sets how long
-	// the recovered state lasts: TreatMissingData=breaching turns the bucket
-	// after the recovery back into a breach, and a one-second period would
-	// leave the OK state alive for under a second — a window a poll can miss
-	// through no fault of the behaviour under test.
+	// The datapoints' timestamps put the breach and the recovery in different
+	// evaluation buckets. The one-minute period also sets how long OK lasts:
+	// TreatMissingData=breaching turns the bucket after the recovery back into a
+	// breach, and a one-second period would leave OK alive for under a second.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
 		Namespace:          aws.String(ns),
@@ -184,10 +171,9 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 		Period:             aws.Int32(60),
 		Threshold:          aws.Float64(100),
 		Statistic:          cwtypes.StatisticAverage,
-		// TreatMissingData=breaching pins the alarm to ALARM once the
-		// breaching datapoint ages out, so the subsequent non-breaching
-		// datapoint produces an ALARM → OK transition (rather than
-		// INSUFFICIENT_DATA → OK).
+		// TreatMissingData=breaching keeps the alarm in ALARM once the breaching
+		// datapoint ages out, so the recovery transitions ALARM to OK rather than
+		// INSUFFICIENT_DATA to OK.
 		TreatMissingData: aws.String("breaching"),
 		ActionsEnabled:   aws.Bool(true),
 		OKActions:        []string{topicARN},
@@ -197,11 +183,8 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 		_, _ = cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
 	})
 
-	// The breach goes two periods back, so it and the recovery below cannot
-	// land in one bucket and average into a single still-breaching period.
-	// Stamping them is what separates them: sleeping between the two puts
-	// would separate them too, but only by spending the time and only as
-	// reliably as the machine's timing.
+	// The breach goes two periods back, so it and the recovery cannot average into
+	// one still-breaching bucket.
 	breachAt := time.Now().UTC().Add(-2 * time.Minute)
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
@@ -211,11 +194,9 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// DescribeAlarms reports the state the evaluator recorded, so seeing ALARM
-	// is seeing the transition the OK below has to follow.
 	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should reach ALARM with the breaching datapoint")
-	// The recovery below has to follow a recorded ALARM, or the transition it
-	// produces skips a state and the notification reports the wrong one.
+	// The recovery must follow a recorded ALARM, or its transition skips a state
+	// and the notification reports the wrong one.
 	awaitRecordedTransition(ctx, t, cw, alarmName, "ALARM")
 
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
@@ -227,7 +208,6 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	require.NoError(t, err)
 	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueOk, "alarm should return to OK after the non-breaching datapoint")
 
-	// Drain the queue for the OK notification.
 	deadline := time.Now().Add(15 * time.Second)
 	var okNotification map[string]any
 	for time.Now().Before(deadline) {
@@ -262,9 +242,8 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 	assert.Equal(t, "ALARM", okNotification["OldStateValue"], "OK must follow an ALARM transition")
 }
 
-// TestCloudWatch_ActionsDisabledSkipsDispatch verifies that when
-// ActionsEnabled is false, state transitions do not publish to action
-// topics. This guards the real-CloudWatch invariant the evaluator honours.
+// TestCloudWatch_ActionsDisabledSkipsDispatch expects no action dispatch on
+// transitions while ActionsEnabled is false.
 func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
 	t.Parallel()
 	cw := cloudwatchClient()
@@ -322,8 +301,7 @@ func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
 
 	awaitAlarmState(ctx, t, cw, alarmName, cwtypes.StateValueAlarm, "alarm should still transition to ALARM (state evaluation is independent of ActionsEnabled)")
 
-	// The alarm has transitioned, so the dispatch that must not happen would
-	// have happened by now; this watches for it and fails the moment one shows.
+	// The alarm has transitioned, so a dispatch would have happened by now.
 	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl,
 		"no notification should be delivered when ActionsEnabled is false")
 }

@@ -17,24 +17,24 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/locations/{location}/secrets` | ✓ `simulator-gcp/secretmanager.go:128::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/secrets` | ✓ `simulator-gcp/secretmanager.go:128::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/secrets` | ✓ `simulator-gcp/secretmanager.go:133::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/secrets` | ✓ `simulator-gcp/secretmanager.go:133::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:142::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:142::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/{location}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:147::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:147::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/{location}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:152::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:152::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:158::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:158::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/secrets/{secret}/versions` | ✓ `simulator-gcp/secretmanager.go:163::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/secrets/{secret}/versions` | ✓ `simulator-gcp/secretmanager.go:163::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:169::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:169::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:175::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:175::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/secrets` | ✓ `simulator-gcp/secretmanager.go:107::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/secrets` | ✓ `simulator-gcp/secretmanager.go:107::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/secrets` | ✓ `simulator-gcp/secretmanager.go:111::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/secrets` | ✓ `simulator-gcp/secretmanager.go:111::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/{location}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:121::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:121::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/{location}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/secrets/{secret}` | ✓ `simulator-gcp/secretmanager.go:125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:130::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/secrets/{secretAction}` | ✓ `simulator-gcp/secretmanager.go:130::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/secrets/{secret}/versions` | ✓ `simulator-gcp/secretmanager.go:134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/secrets/{secret}/versions` | ✓ `simulator-gcp/secretmanager.go:134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:139::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:139::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:144::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/secrets/{secret}/versions/{versionAction}` | ✓ `simulator-gcp/secretmanager.go:144::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

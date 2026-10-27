@@ -29,7 +29,6 @@ type Image struct {
 	Architecture string
 }
 
-// Spec describes one instance to run.
 type Spec struct {
 	// Name is the container's name; ID the instance's own identifier.
 	Name, ID string
@@ -53,7 +52,7 @@ type Spec struct {
 	// Env reaches the init and everything it runs: the metadata endpoint
 	// variables a cloud's SDKs honour.
 	Env map[string]string
-	// Seed files are placed beside the init before the instance starts.
+	// Launch places the Seed files beside the init before the instance starts.
 	Seed      []sim.SeedFile
 	VCPUs     int
 	MemoryMiB int
@@ -72,7 +71,7 @@ type Spec struct {
 
 // Startup is a script the instance runs at every boot.
 type Startup struct {
-	// Path is where the script is placed; Script what it holds.
+	// Path is where the script goes; Script what it holds.
 	Path   string
 	Script []byte
 }
@@ -106,17 +105,16 @@ var Sandbox = sim.SandboxProfile{
 	DenyHostNetwork:  true,
 }
 
-// ErrNoImage is returned for a spec that names no image.
+// Workload refuses a spec that names no image with ErrNoImage.
 var ErrNoImage = errors.New("the instance names no image")
 
 // Init renders the instance's init: it runs cloud-init's stages when the
 // image carries them, with their output on the console and in cloud-init's
 // log, then the startup script at its path, if any, by its interpreter line,
-// with its output on the console, and then stays up until the machine is
-// stopped. The init waits
-// for each stage's process and not for its output's end: a daemon a script
-// leaves behind keeps the output open, and the tee relays it for as long as
-// the daemon runs.
+// with its output on the console, and then stays up until the machine
+// stops. The init waits for each stage's process and not for its output's
+// end: a daemon a script leaves behind keeps the output open, and the tee
+// relays it for as long as the daemon runs.
 func Init(startupPath string) string {
 	lines := []string{
 		"#!/bin/sh",

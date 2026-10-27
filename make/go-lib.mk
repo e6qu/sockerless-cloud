@@ -13,7 +13,7 @@ REPO_ROOT     := $(abspath $(CURDIR)/$(REPO_ROOT_REL))
 include $(REPO_ROOT)/make/help.mk
 include $(REPO_ROOT)/make/colors.mk
 
-.PHONY: install build build-api test test-integration lint clean
+.PHONY: install build build-api test lint clean
 
 # Build for a library means "compile-check": no binary output.
 install: ## install Go module deps
@@ -26,12 +26,6 @@ build-api: build ## compile-check alias for the top-level fan-out
 
 test: ## run unit tests
 	$(GO_ENV) go test $(GO_TEST_FLAGS) ./...
-
-test-integration: ## run integration tests against the local simulator
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -v -timeout 15m ./...
-
-test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend env vars)
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -v -timeout 30m ./...
 
 # This repository's own modules are excluded, for the reason go-app.mk records:
 # a release pins them by commit, and `@latest` walks that pin backwards to a
@@ -53,16 +47,15 @@ upgrade-deps: ## bump every direct require in go.mod to its latest (this reposit
 	done; \
 	$(GO_ENV) go mod tidy
 
-lint: ## go vet + gofmt check (golangci-lint when available)
+lint: ## go vet, gofmt and golangci-lint
 	$(GO_ENV) go vet ./...
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
 	  printf "$(COLOR_RED)gofmt -l .$(COLOR_RESET)\n%s\n" "$$unformatted"; \
 	  exit 1; \
 	fi
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-	  $(GO_ENV) golangci-lint run ./...; \
-	fi
+	@command -v golangci-lint >/dev/null 2>&1 || { printf "$(COLOR_RED)golangci-lint is not on PATH: install v2.15.0, the version CI runs$(COLOR_RESET)\n"; exit 1; }
+	$(GO_ENV) golangci-lint run ./...
 
 clean: ## clean go test cache
 	$(GO_ENV) go clean -testcache 2>/dev/null || true

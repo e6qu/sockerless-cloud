@@ -7,9 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSCLI_RestoreAndReserved covers the cluster/instance restore
-// family and the reserved-instance catalog/purchase flow through the
-// aws CLI. Grouped because appdata2 carries RDS.
+// TestRDSCLI_RestoreAndReserved covers the restore family and the reserved
+// instance catalog and purchase in one test for the appdata2 shard.
 func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 	t.Parallel()
 	srcCluster := "cli-rext-src-cluster"
@@ -153,8 +152,6 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 	require.Len(t, desc.ReservedDBInstances, 1)
 }
 
-// TestRDSCLI_DeploymentsAndIntegrations covers zero-ETL integrations, tenant
-// databases, and Aurora Limitless shard groups through the aws CLI.
 func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 	t.Parallel()
 	intSrc := "arn:aws:rds:us-east-1:123456789012:cluster:cli-int-source"
@@ -293,9 +290,9 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 		"--db-shard-group-identifier", sgID))
 }
 
-// TestRDSCLI_ClusterOpsAndStatics covers activity streams, backtrack,
-// export tasks, the assorted cluster operations, snapshot attributes,
-// and the static catalog describes through the aws CLI.
+// TestRDSCLI_ClusterOpsAndStatics covers activity streams, backtrack, export
+// tasks, cluster operations, snapshot attributes and the static catalog
+// describes.
 func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	t.Parallel()
 	dasArn := "arn:aws:rds:us-east-1:123456789012:cluster:cli-das"
@@ -369,7 +366,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 		runCLI(t, awsCLI("rds", "disable-http-endpoint", "--resource-arn", clusterArn))
 	}
 
-	// Reset cluster parameter group.
 	pgName := "cli-rext-cluster-pg"
 	runCLI(t, awsCLI("rds", "create-db-cluster-parameter-group",
 		"--db-cluster-parameter-group-name", pgName,
@@ -383,7 +379,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 		"--db-cluster-parameter-group-name", pgName,
 		"--reset-all-parameters"))
 
-	// Modify cluster endpoint.
 	epID := "cli-rext-custom-ep"
 	runCLI(t, awsCLI("rds", "create-db-cluster-endpoint",
 		"--db-cluster-identifier", clusterID,
@@ -397,7 +392,6 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 		"--db-cluster-endpoint-identifier", epID,
 		"--endpoint-type", "ANY"))
 
-	// Global cluster failover/remove.
 	gcID := "cli-rext-global"
 	runCLI(t, awsCLI("rds", "create-global-cluster",
 		"--global-cluster-identifier", gcID,
@@ -512,9 +506,8 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 	parseJSON(t, ogo, &ogoR)
 	require.NotEmpty(t, ogoR.OptionGroupOptions)
 
-	// describe-engine-default-parameters is a paginated operation; the
-	// CLI's client-side pagination flattens EngineDefaults so we assert
-	// on the Parameters list (the family lands on the top-level result).
+	// The CLI's client-side pagination flattens EngineDefaults to the Parameters
+	// list.
 	edp := runCLI(t, awsCLI("rds", "describe-engine-default-parameters",
 		"--db-parameter-group-family", "mysql8.0"))
 	var edpR struct {

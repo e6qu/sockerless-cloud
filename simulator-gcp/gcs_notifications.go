@@ -13,7 +13,6 @@ import (
 	"strings"
 )
 
-// Cloud Storage notification event types.
 const (
 	gcsEventFinalize       = "OBJECT_FINALIZE"
 	gcsEventMetadataUpdate = "OBJECT_METADATA_UPDATE"

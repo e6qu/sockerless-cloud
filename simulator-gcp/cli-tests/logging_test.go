@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogging_Wire_WriteAndRead drives entries:write and entries:list on the
-// wire, where a batch of entries can be written in one request and the list
-// request body can carry an arbitrary filter — neither of which `gcloud
-// logging write` and `gcloud logging read` expose. The CLI round trip over the
-// same two routes is TestLogging_CLI_WriteAndRead.
+// TestLogging_Wire_WriteAndRead drives entries:write and entries:list with a
+// multi-entry batch and an arbitrary filter, neither of which `gcloud logging
+// write` and `gcloud logging read` expose.
 func TestLogging_Wire_WriteAndRead(t *testing.T) {
 	t.Parallel()
 	writeURL := fmt.Sprintf("%s/v2/entries:write", baseURL)
@@ -28,7 +26,6 @@ func TestLogging_Wire_WriteAndRead(t *testing.T) {
 		]
 	}`, project))
 
-	// Read log entries
 	listURL := fmt.Sprintf("%s/v2/entries:list", baseURL)
 	out := httpDoJSON(t, "POST", listURL, fmt.Sprintf(`{
 		"resourceNames": ["projects/%s"],
@@ -52,10 +49,8 @@ func TestLogging_Wire_WriteAndRead(t *testing.T) {
 	assert.Contains(t, messages, "Second log message")
 }
 
-// TestLogging_CLI_WriteAndRead drives the same two routes through the vendor
-// CLI. `gcloud logging write` and `gcloud logging read` both ride the
-// CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING coordinate, so the write and the
-// read that finds it are real gcloud invocations.
+// TestLogging_CLI_WriteAndRead drives the same two routes through gcloud, over
+// the CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING coordinate.
 func TestLogging_CLI_WriteAndRead(t *testing.T) {
 	t.Parallel()
 	const logID = "cli-gcloud-write-log"
@@ -66,8 +61,8 @@ func TestLogging_CLI_WriteAndRead(t *testing.T) {
 		"--payload-type=text",
 	))
 
-	// Ingestion is asynchronous, so the read is polled; the assertion is on an
-	// entry whose textPayload is the message that was written.
+	// Ingestion is asynchronous, so poll for an entry whose textPayload is the
+	// written message.
 	logName := fmt.Sprintf("projects/%s/logs/%s", project, logID)
 	var out string
 	var payloads []string
@@ -82,7 +77,6 @@ func TestLogging_CLI_WriteAndRead(t *testing.T) {
 		"the entry gcloud wrote never came back from gcloud logging read")
 	assert.Contains(t, payloads, payload, "read output: %s", out)
 
-	// The severity the write carried survives the round trip.
 	var entries []struct {
 		LogName     string `json:"logName"`
 		Severity    string `json:"severity"`

@@ -22,7 +22,6 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 		"--cpu", "256", "--memory", "512",
 		"--container-definitions", `[{"name":"app","image":"`+containerCommandImage+`","stopTimeout":2,"command":["hold"],"essential":true}]`))
 
-	// PutClusterCapacityProviders → DescribeClusters echoes them.
 	runCLI(t, awsCLI("ecs", "put-cluster-capacity-providers",
 		"--cluster", cluster,
 		"--capacity-providers", "FARGATE", "FARGATE_SPOT",
@@ -37,7 +36,6 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 	require.Len(t, cl.Clusters, 1)
 	assert.ElementsMatch(t, []string{"FARGATE", "FARGATE_SPOT"}, cl.Clusters[0].CapacityProviders)
 
-	// CreateService → ACTIVE.
 	createOut := runCLI(t, awsCLI("ecs", "create-service",
 		"--cluster", cluster, "--service-name", "cli-svc",
 		"--task-definition", "cli-svc-task", "--desired-count", "2",
@@ -52,7 +50,7 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 	}
 	parseJSON(t, createOut, &created)
 	assert.Equal(t, "ACTIVE", created.Service.Status)
-	// RunningCount converges asynchronously via the service scheduler; the
+	// The service scheduler converges RunningCount asynchronously; the
 	// synchronous read-back is DesiredCount.
 	assert.Equal(t, 2, created.Service.DesiredCount)
 
@@ -77,8 +75,8 @@ func TestECS_CLI_ServiceFamily(t *testing.T) {
 	require.Len(t, running.TaskArns, 2, "service did not launch two real tasks")
 	stoppedArn := running.TaskArns[0]
 	runCLI(t, awsCLI("ecs", "stop-task", "--cluster", cluster, "--task", stoppedArn))
-	// Once the stopped task has left RUNNING, the service is steady again only
-	// after its scheduler has launched a replacement.
+	// The service is steady again only once its scheduler replaces the stopped
+	// task.
 	runCLI(t, awsCLI("ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks", stoppedArn))
 	runCLI(t, awsCLI("ecs", "wait", "services-stable", "--cluster", cluster, "--services", "cli-svc"))
 	parseJSON(t, runCLI(t, awsCLI("ecs", "list-tasks",
@@ -111,10 +109,8 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-cluster", "10.142.0.0/16")
 
-	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-cluster"))
 
-	// Register task definition with echo command and awslogs
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-ecs-task",
 		"--requires-compatibilities", "FARGATE",
@@ -145,7 +141,6 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	parseJSON(t, out, &tdResult)
 	require.NotEmpty(t, tdResult.TaskDefinition.TaskDefinitionArn)
 
-	// Run task
 	out = runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", "cli-ecs-cluster",
 		"--task-definition", tdResult.TaskDefinition.TaskDefinitionArn,
@@ -165,8 +160,6 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	taskArn := runResult.Tasks[0].TaskArn
 	cleanupCLIECSTask(t, "cli-ecs-cluster", taskArn)
 
-	// Poll until the task reaches STOPPED; task provisioning on CI can make a
-	// fixed sleep race the real container lifecycle.
 	out = waitECSTaskStoppedCLI(t, "cli-ecs-cluster", taskArn)
 
 	var descResult struct {
@@ -184,7 +177,6 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	require.NotNil(t, descResult.Tasks[0].Containers[0].ExitCode)
 	assert.Equal(t, 0, *descResult.Tasks[0].Containers[0].ExitCode)
 
-	// Verify CloudWatch logs contain the real output
 	out = runCLI(t, awsCLI("logs", "filter-log-events",
 		"--log-group-name", "/ecs/cli-task",
 		"--output", "json",
@@ -457,12 +449,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--cpu", "256",
 		"--memory", "512",
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
-		// alpine, not the eval image: that one is built FROM scratch and has no
-		// shell, so both containers of this round trip failed to start with
-		// 'exec: "sh": executable file not found', and the test still passed
-		// because the simulator seeded each log stream with the joined
-		// entrypoint+command text, which contains CLI_EBS_ROUNDTRIP_OK. The
-		// seed is gone; the round trip has to happen.
+		// alpine: the eval image is built FROM scratch and has no shell.
 		"--container-definitions", `[{
 			"name": "writer",
 			"image": "mirror.gcr.io/library/alpine:latest",
@@ -598,10 +585,8 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-fail-cluster", "10.144.0.0/16")
 
-	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-fail-cluster"))
 
-	// Register task definition with exit 1
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-ecs-fail-task",
 		"--requires-compatibilities", "FARGATE",
@@ -631,7 +616,6 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	}
 	parseJSON(t, out, &tdResult)
 
-	// Run task
 	out = runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", "cli-ecs-fail-cluster",
 		"--task-definition", tdResult.TaskDefinition.TaskDefinitionArn,
@@ -651,8 +635,6 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	taskArn := runResult.Tasks[0].TaskArn
 	cleanupCLIECSTask(t, "cli-ecs-fail-cluster", taskArn)
 
-	// Poll until the task reaches STOPPED; task provisioning on CI can make a
-	// fixed sleep race the real container lifecycle.
 	out = waitECSTaskStoppedCLI(t, "cli-ecs-fail-cluster", taskArn)
 
 	var descResult struct {
@@ -671,7 +653,6 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	assert.Equal(t, 1, *descResult.Tasks[0].Containers[0].ExitCode)
 }
 
-// CLI-level coverage for the ECS Tag/Untag handlers.
 func TestECS_CLI_TagAndUntagTask(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-tag-cluster"))
@@ -740,8 +721,6 @@ func TestECS_CLI_TagAndUntagTask(t *testing.T) {
 	}
 }
 
-// waitCLITaskStatus waits for RUNNING or STOPPED with `aws ecs wait
-// tasks-running` or `aws ecs wait tasks-stopped`.
 func waitCLITaskStatus(t *testing.T, clusterName, taskArn, want string) {
 	t.Helper()
 	waiter := map[string]string{"RUNNING": "tasks-running", "STOPPED": "tasks-stopped"}[want]

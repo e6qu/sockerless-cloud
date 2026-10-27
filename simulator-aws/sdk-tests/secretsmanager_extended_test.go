@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// smCreate creates a secret with a single value and registers a force-delete
-// cleanup. Returns the ARN.
+// smCreate creates a secret with one value, registers a force-delete cleanup,
+// and returns the ARN.
 func smCreate(t *testing.T, c *secretsmanager.Client, name, value string) string {
 	t.Helper()
 	out, err := c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -95,7 +95,7 @@ func TestSecretsManager_DeleteRestore(t *testing.T) {
 	name := uniquename.New("restore")
 	smCreate(t, c, name, "v1")
 
-	// Soft-delete with a recovery window: the value can no longer be read.
+	// Deleting with a recovery window makes the value unreadable.
 	del, err := c.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
 		SecretId:             aws.String(name),
 		RecoveryWindowInDays: aws.Int64(7),
@@ -191,7 +191,7 @@ func TestSecretsManager_BatchGetSecretValue(t *testing.T) {
 	assert.Equal(t, "secret-one", values[n1])
 	assert.Equal(t, "secret-two", values[n2])
 
-	// The missing secret is reported in Errors, not a top-level failure.
+	// A missing secret goes in Errors rather than failing the call.
 	require.NotEmpty(t, out.Errors)
 	foundErr := false
 	for _, e := range out.Errors {
@@ -216,7 +216,7 @@ func TestSecretsManager_UpdateSecretVersionStage(t *testing.T) {
 		SecretString: aws.String("v2"),
 	})
 	require.NoError(t, err)
-	// v2 is now AWSCURRENT, v1 is AWSPREVIOUS. Move AWSCURRENT back to v1.
+	// v2 is AWSCURRENT and v1 AWSPREVIOUS; move AWSCURRENT back to v1.
 	upd, err := c.UpdateSecretVersionStage(ctx, &secretsmanager.UpdateSecretVersionStageInput{
 		SecretId:            aws.String(name),
 		VersionStage:        aws.String("AWSCURRENT"),

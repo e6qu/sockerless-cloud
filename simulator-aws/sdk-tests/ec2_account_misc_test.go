@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_IdFormatRoundTripSDK covers the account-level ID-format settings:
-// DescribeIdFormat, ModifyIdFormat, DescribeIdentityIdFormat,
-// ModifyIdentityIdFormat, DescribeAggregateIdFormat, DescribePrincipalIdFormat.
 func TestEC2_IdFormatRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -57,8 +54,8 @@ func TestEC2_IdFormatRoundTripSDK(t *testing.T) {
 	assert.NotEmpty(t, pr.Principals[0].Statuses)
 }
 
-// TestEC2_AddressAttributeRoundTripSDK covers ModifyAddressAttribute /
-// ResetAddressAttribute (the PTR/reverse-DNS record on an Elastic IP).
+// TestEC2_AddressAttributeRoundTripSDK covers the PTR record on an Elastic IP
+// address.
 func TestEC2_AddressAttributeRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -86,9 +83,8 @@ func TestEC2_AddressAttributeRoundTripSDK(t *testing.T) {
 	assert.Equal(t, allocID, aws.ToString(rst.Address.AllocationId))
 }
 
-// TestEC2_MovingAddressesRoundTripSDK covers MoveAddressToVpc,
-// RestoreAddressToClassic, and DescribeMovingAddresses (EC2-Classic ↔ VPC EIP
-// domain transitions).
+// TestEC2_MovingAddressesRoundTripSDK covers the EC2-Classic and VPC domain
+// transitions of an Elastic IP address.
 func TestEC2_MovingAddressesRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -114,8 +110,6 @@ func TestEC2_MovingAddressesRoundTripSDK(t *testing.T) {
 	assert.Equal(t, types.StatusInVpc, back.Status)
 }
 
-// TestEC2_ClassicLinkRoundTripSDK covers AttachClassicLinkVpc /
-// DetachClassicLinkVpc on an existing instance + VPC.
 func TestEC2_ClassicLinkRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -153,8 +147,6 @@ func TestEC2_ClassicLinkRoundTripSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(det.Return))
 }
 
-// TestEC2_EnclaveCertificateRoundTripSDK covers AssociateEnclaveCertificateIamRole,
-// GetAssociatedEnclaveCertificateIamRoles, and DisassociateEnclaveCertificateIamRole.
 func TestEC2_EnclaveCertificateRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -190,9 +182,6 @@ func TestEC2_EnclaveCertificateRoundTripSDK(t *testing.T) {
 	assert.Empty(t, get2.AssociatedRoles)
 }
 
-// TestEC2_ClientVpnExportRoundTripSDK covers ExportClientVpnClientConfiguration,
-// ImportClientVpnClientCertificateRevocationList, and
-// ExportClientVpnClientCertificateRevocationList.
 func TestEC2_ClientVpnExportRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -236,8 +225,6 @@ func TestEC2_ClientVpnExportRoundTripSDK(t *testing.T) {
 	assert.Equal(t, types.ClientCertificateRevocationListStatusCodeActive, exp.Status.Code)
 }
 
-// TestEC2_TgwConnectPeerRoundTripSDK covers CreateTransitGatewayConnectPeer,
-// DescribeTransitGatewayConnectPeers, and DeleteTransitGatewayConnectPeer.
 func TestEC2_TgwConnectPeerRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -298,9 +285,6 @@ func TestEC2_TgwConnectPeerRoundTripSDK(t *testing.T) {
 	assert.Equal(t, peerID, aws.ToString(del.TransitGatewayConnectPeer.TransitGatewayConnectPeerId))
 }
 
-// TestEC2_TgwClientVpnAttachmentSDK covers AcceptTransitGatewayClientVpnAttachment,
-// RejectTransitGatewayClientVpnAttachment, DeleteTransitGatewayClientVpnAttachment,
-// and DescribeTransitGatewayMeteringPolicies.
 func TestEC2_TgwClientVpnAttachmentSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -330,8 +314,6 @@ func TestEC2_TgwClientVpnAttachmentSDK(t *testing.T) {
 	assert.Empty(t, pol.TransitGatewayMeteringPolicies)
 }
 
-// TestEC2_VpcPeeringOptionsRoundTripSDK covers ModifyVpcPeeringConnectionOptions
-// and RejectVpcPeeringConnection on an existing peering connection.
 func TestEC2_VpcPeeringOptionsRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -360,8 +342,8 @@ func TestEC2_VpcPeeringOptionsRoundTripSDK(t *testing.T) {
 	require.NotNil(t, opts.RequesterPeeringConnectionOptions)
 	assert.True(t, aws.ToBool(opts.RequesterPeeringConnectionOptions.AllowDnsResolutionFromRemoteVpc))
 
-	// A second, independent peering to reject (rejecting the one above would
-	// leave it in a non-deletable state for the deferred cleanup).
+	// Reject a separate peering: rejecting the one above would leave it
+	// undeletable for the cleanup.
 	d, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.93.0.0/16")})
 	require.NoError(t, err)
 	defer func() { _, _ = c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: d.Vpc.VpcId}) }()
@@ -379,8 +361,8 @@ func TestEC2_VpcPeeringOptionsRoundTripSDK(t *testing.T) {
 	_, _ = c.DeleteVpcPeeringConnection(ctx, &ec2.DeleteVpcPeeringConnectionInput{VpcPeeringConnectionId: aws.String(pcxID)})
 }
 
-// TestEC2_NetworkAclAssociationRoundTripSDK covers ReplaceNetworkAclAssociation,
-// swapping a subnet's network-ACL association to a new ACL.
+// TestEC2_NetworkAclAssociationRoundTripSDK swaps a subnet's network ACL
+// association to a new ACL.
 func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -403,9 +385,8 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	acl2ID := aws.ToString(acl2.NetworkAcl.NetworkAclId)
 	defer func() { _, _ = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: aws.String(acl2ID)}) }()
 
-	// Seed an association on acl1 bound to the subnet (associating a brand-new
-	// ACL to a subnet that has no prior custom association uses a synthetic
-	// placeholder id), then verify the real id round-trips via DescribeNetworkAcls.
+	// Seed with an association ID made up from the subnet ID, which the simulator
+	// accepts, then check the real ID round-trips through DescribeNetworkAcls.
 	seedAssoc, err := c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{
 		AssociationId: aws.String("aclassoc-seed-" + subnetID),
 		NetworkAclId:  aws.String(acl1ID),
@@ -414,7 +395,6 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	assocID := aws.ToString(seedAssoc.NewAssociationId)
 	require.NotEmpty(t, assocID)
 
-	// Now swap that association onto acl2.
 	repl, err := c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{
 		AssociationId: aws.String(assocID),
 		NetworkAclId:  aws.String(acl2ID),
@@ -423,7 +403,6 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(repl.NewAssociationId))
 	assert.NotEqual(t, assocID, aws.ToString(repl.NewAssociationId))
 
-	// The new association now lives on acl2.
 	desc, err := c.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{NetworkAclIds: []string{acl2ID}})
 	require.NoError(t, err)
 	require.Len(t, desc.NetworkAcls, 1)
@@ -436,9 +415,6 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	assert.True(t, found, "new association must live on the target ACL")
 }
 
-// TestEC2_VpnTunnelReplacementSDK covers GetVpnTunnelReplacementStatus,
-// ModifyVpnTunnelCertificate, and ReplaceVpnTunnel against an existing
-// Site-to-Site VPN connection.
 func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -496,8 +472,8 @@ func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(repl.Return))
 }
 
-// TestEC2_OutpostLagsAndFlowLogsTemplateSDK covers DescribeOutpostLags (too new
-// for the local aws CLI, so SDK-only) and GetFlowLogsIntegrationTemplate.
+// TestEC2_OutpostLagsAndFlowLogsTemplateSDK covers DescribeOutpostLags, which
+// the local aws CLI lacks, and GetFlowLogsIntegrationTemplate.
 func TestEC2_OutpostLagsAndFlowLogsTemplateSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -506,8 +482,7 @@ func TestEC2_OutpostLagsAndFlowLogsTemplateSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, lags.OutpostLags)
 
-	// GetFlowLogsIntegrationTemplate needs a flow-log id; create one against the
-	// account's default VPC.
+	// GetFlowLogsIntegrationTemplate needs a flow log, here on the default VPC.
 	vpcs, err := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
 	require.NoError(t, err)
 	require.NotEmpty(t, vpcs.Vpcs)
@@ -539,13 +514,12 @@ func TestEC2_OutpostLagsAndFlowLogsTemplateSDK(t *testing.T) {
 	assert.Contains(t, aws.ToString(tmpl.Result), "AWSTemplateFormatVersion")
 }
 
-// TestEC2_MiscHonestEmptySDK covers the read-only / honest-empty and account
-// settings operations: DescribeVpcEndpointAssociations, DescribeElasticGpus,
-// DescribeSecondaryInterfaces, DescribeServiceLinkVirtualInterfaces,
+// TestEC2_MiscHonestEmptySDK covers DescribeVpcEndpointAssociations,
+// DescribeElasticGpus, DescribeSecondaryInterfaces,
+// DescribeServiceLinkVirtualInterfaces,
 // EnableReachabilityAnalyzerOrganizationSharing,
-// GetVpcResourcesBlockingEncryptionEnforcement, GetManagedResourceVisibility,
-// and ModifyManagedResourceVisibility. The latter six lack an aws CLI 2.26.6
-// verb, so the SDK suite owns the simulator-test-contract hook for them.
+// GetVpcResourcesBlockingEncryptionEnforcement, GetManagedResourceVisibility
+// and ModifyManagedResourceVisibility. aws CLI 2.26.6 lacks the last six.
 func TestEC2_MiscHonestEmptySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -589,7 +563,7 @@ func TestEC2_MiscHonestEmptySDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, mod.Visibility)
 	assert.Equal(t, types.ManagedResourceDefaultVisibilityHidden, mod.Visibility.DefaultVisibility)
-	// Restore the default so the shared-DB setting doesn't leak into other tests.
+	// Restore the default so the account setting stays out of other tests.
 	_, _ = c.ModifyManagedResourceVisibility(ctx, &ec2.ModifyManagedResourceVisibilityInput{
 		DefaultVisibility: types.ManagedResourceDefaultVisibilityVisible,
 	})

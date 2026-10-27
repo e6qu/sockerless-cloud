@@ -31,11 +31,9 @@ func ecsGatewayTestRoutes(t *testing.T, srv *AWSRouter, filter map[string]any) [
 	return routes
 }
 
-// TestECSGatewayRouteLifecycle drives gateways through the simulator's own
-// request chain: two services share one load balancer through routes whose
-// listener rules and target groups Elastic Load Balancing holds, a gateway
-// whose infrastructure role may not create load balancers fails its route,
-// and disconnecting the services removes every resource the routes made.
+// Two services share one load balancer; a gateway whose role may not create
+// load balancers fails its route; disconnecting removes everything the routes
+// made.
 func TestECSGatewayRouteLifecycle(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	t.Setenv("SIM_DNS_PORT", "0")

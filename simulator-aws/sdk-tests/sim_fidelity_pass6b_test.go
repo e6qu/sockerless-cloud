@@ -17,11 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSQS_MessageAttributesAndFirstReceive covers ReceiveMessage's
-// MessageAttributeNames (custom attributes were never stored/returned) and the
-// ApproximateFirstReceiveTimestamp system attribute (previously omitted). The
-// aws-sdk-go-v2 client validates MD5OfMessageAttributes, so a wrong digest here
-// would error — this also pins the MD5 algorithm.
+// TestSQS_MessageAttributesAndFirstReceive expects ReceiveMessage to return the
+// custom attributes MessageAttributeNames asks for and the
+// ApproximateFirstReceiveTimestamp system attribute. aws-sdk-go-v2 validates
+// MD5OfMessageAttributes, which holds the digest algorithm.
 func TestSQS_MessageAttributesAndFirstReceive(t *testing.T) {
 	t.Parallel()
 	c := sqsClient()
@@ -54,8 +53,8 @@ func TestSQS_MessageAttributesAndFirstReceive(t *testing.T) {
 		"ApproximateFirstReceiveTimestamp system attribute must be present")
 }
 
-// TestDynamoDB_ProjectionExpression covers GetItem/Query/Scan honoring
-// ProjectionExpression (previously the whole item came back).
+// TestDynamoDB_ProjectionExpression expects GetItem, Query and Scan to return
+// only the attributes ProjectionExpression names.
 func TestDynamoDB_ProjectionExpression(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -132,8 +131,8 @@ func TestCloudWatch_GetLogEventsStartFromHead(t *testing.T) {
 	assert.Equal(t, "b", aws.ToString(head.Events[1].Message))
 }
 
-// TestEC2_NetworkInterfaceFilters covers DescribeNetworkInterfaces filters
-// (previously every filter was ignored).
+// TestEC2_NetworkInterfaceFilters expects DescribeNetworkInterfaces' filters to
+// apply.
 func TestEC2_NetworkInterfaceFilters(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

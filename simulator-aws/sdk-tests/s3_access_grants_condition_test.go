@@ -19,14 +19,11 @@ import (
 
 // TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant covers
 // s3:AccessGrantsInstanceArn, which names the S3 Access Grants instance that
-// issued the credentials a request is signed with. A policy uses it to admit
-// data access that came through Access Grants and refuse the same principal
-// reaching the object any other way.
-//
-// The negative control is the point: the refused call is made by the same role,
-// under the same policy, holding credentials from a plain AssumeRole. Nothing
-// differs but how the credentials were obtained, which is exactly what the key
-// describes.
+// issued a request's credentials, so a policy admits access through Access
+// Grants and refuses the same principal reaching the object any other way. The
+// refused call comes from the same role under the same policy with credentials
+// from a plain AssumeRole: only how the credentials were obtained differs,
+// which is what the key describes.
 func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 	control := s3ControlClient()
 	admin := s3Client()

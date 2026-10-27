@@ -12,14 +12,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.Resources control-plane surface beyond resource groups and the
-// tags/default scope endpoint: resource-provider registration/listing, the
-// legacy predefined tagNames catalog, the operations metadata list, resource
-// group template export, and the cross-group move-resources LROs.
+// Microsoft.Resources beyond resource groups and tags/default: provider
+// registration and listing, the legacy tagNames catalog, operations, template
+// export, and the move operations.
 
-// PredefinedTag is one row in the subscription's legacy predefined-tag catalog
-// (Microsoft.Resources tagNames). It carries the tag name and its known values;
-// the wire shape (TagDetails / TagValue) is assembled on read.
+// The TagDetails and TagValue wire shape is assembled on read.
 type PredefinedTag struct {
 	ID      string   `json:"id"`
 	TagName string   `json:"tagName"`
@@ -33,11 +30,9 @@ func registerResourcesARM(srv *sim.Server) {
 	azureUnregisteredProviders = sim.MakeStore[azureProviderRegistration](
 		srv.DB(), "azure_unregistered_providers")
 
-	// Operations metadata (tenant scope, shared by the resources +
-	// subscriptions Swagger documents).
+	// Shared by the resources and subscriptions Swagger documents.
 	srv.HandleFunc("GET /providers/Microsoft.Resources/operations", handleResourcesOperations)
 
-	// Resource provider registration + listing.
 	srv.HandleFunc("GET /providers", handleProvidersListTenant)
 	srv.HandleFunc("GET /providers/{resourceProviderNamespace}", handleProviderGetTenant)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{resourceProviderNamespace}", handleProviderGet)
@@ -46,51 +41,33 @@ func registerResourcesARM(srv *sim.Server) {
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/{resourceProviderNamespace}/register", handleProviderRegister)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/{resourceProviderNamespace}/unregister", handleProviderUnregister)
 
-	// Resource group: PATCH (update tags / managedBy) + exportTemplate LRO.
 	srv.HandleFunc("PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", handleResourceGroupUpdate)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/exportTemplate", handleResourceGroupExportTemplate)
 
-	// Cross-group move LROs.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources", handleMoveResources)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources", handleMoveResources)
 
-	// Resource-provider registration at management-group scope.
 	srv.HandleFunc("POST /providers/Microsoft.Management/managementGroups/{groupId}/providers/{resourceProviderNamespace}/register", handleProviderRegisterAtMG)
 
-	// The generic-resource operations. Their real request URLs ARE the typed
-	// resource paths — Resources_GetById's {resourceId} is "/subscriptions/…/
-	// providers/{ns}/{type}/{name}", so a client calling the by-ID or
-	// provider-path spelling puts the same bytes on the wire as the typed
-	// operation and Go's mux precedence dispatches it to the typed provider
-	// route. That precedence IS the generic dispatch; what these patterns add
-	// is Azure Resource Manager's own answer for the instances no typed route
-	// serves:
+	// The generic-resource operations' request URLs are the typed resource paths,
+	// so Go's mux precedence dispatches them to the typed routes. These patterns
+	// add Azure Resource Manager's answer where no typed route serves:
 	//
-	//   - "/{resourceId}" catches the single-segment spelling. One URL segment
-	//     can never be a valid ARM identifier (every resource ID and every
-	//     tenant-level provider path spans several segments), and real ARM
-	//     refuses such a request with 404 MissingSubscription. The same
-	//     pattern is the routing arm for the by-full-resource-ID templates of
-	//     the Microsoft.Authorization role-assignment and role-definition
-	//     documents ("/{roleAssignmentId}", "/{roleId}"), whose multi-segment
-	//     spellings the scoped RBAC routes and middleware already serve.
-	//   - The parent-scoped provider path catches addresses whose provider or
-	//     type the simulator mounts no typed route for: an unknown namespace
-	//     gets ARM's InvalidResourceNamespace refusal, a namespace the
-	//     simulator does implement gets a declared 501 naming the unserved
-	//     resource path rather than a bare mux 404.
-	// Azure Resource Manager's existence checks — ResourceGroups_
-	// CheckExistence, Resources_CheckExistence and Resources_CheckExistenceById
-	// — are HEAD requests on the resource's own address, and each declares
-	// exactly 204 or 404. Go routes a HEAD to the GET handler, which answers
-	// the read's 200, so the check would report a status ARM never returns.
-	// This maps the read's verdict onto the check's vocabulary: anything the
-	// GET would answer 2xx becomes 204, and the read's own 404 passes through.
-	// It is scoped to management-plane paths, and skips the providers whose
-	// own swagger declares HEAD operations: API Management answers entity-tag
-	// reads with 200 and an ETag, and Azure Cosmos DB has one such read too.
-	// The storage and registry data planes are outside the prefix entirely
-	// and keep HEAD's own meaning (blob and blob-exists).
+	//   - "/{resourceId}": one segment is never a valid resource ID, and Azure
+	//     answers 404 MissingSubscription. It also routes the by-ID
+	//     role-assignment and role-definition templates, whose multi-segment
+	//     spellings the RBAC routes serve.
+	//   - The parent-scoped provider path: an unknown namespace gets
+	//     InvalidResourceNamespace; an implemented namespace gets a declared 501
+	//     naming the unserved path.
+	//
+	// The existence checks (ResourceGroups_CheckExistence,
+	// Resources_CheckExistence, Resources_CheckExistenceById) are HEADs declaring
+	// only 204 or 404, but Go routes HEAD to the GET handler, which answers 200.
+	// This middleware maps a 2xx read onto 204 and passes the 404 through, on
+	// management-plane paths only, skipping providers whose swagger declares its
+	// own HEAD (API Management's entity-tag reads, one Cosmos DB read). The storage
+	// and registry data planes lie outside the prefix and keep HEAD's own meaning.
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodHead || !strings.HasPrefix(strings.ToLower(r.URL.Path), "/subscriptions/") ||
@@ -130,7 +107,6 @@ func registerResourcesARM(srv *sim.Server) {
 	srv.HandleFunc("PATCH "+genericResource, handleGenericProviderResource)
 	srv.HandleFunc("DELETE "+genericResource, handleGenericProviderResource)
 
-	// Legacy predefined tagNames catalog.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/tagNames", handleTagNamesList)
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/tagNames/{tagName}", handleTagNameCreate)
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}", handleTagNameDelete)
@@ -138,22 +114,14 @@ func registerResourcesARM(srv *sim.Server) {
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/tagNames/{tagName}/tagValues/{tagValue}", handleTagValueDelete)
 }
 
-// azureProviderOwnsHEADNamespaces are the resource providers whose vendored
-// swagger declares HEAD operations of its own. Their HEAD is a read with its
-// own status vocabulary — API Management's entity-tag reads answer 200 with
-// an ETag — not Azure Resource Manager's existence check, so the 204 mapping
-// leaves them alone.
-//
-// TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers derives the same set
-// from the specs, so a re-vendor that gives another provider a HEAD
-// operation fails until this list agrees.
+// Their HEAD is a read with its own status vocabulary, not the existence
+// check. TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers derives the set
+// from the specs, so a re-vendor adding a HEAD fails until this agrees.
 var azureProviderOwnsHEADNamespaces = []string{
 	"microsoft.apimanagement",
 	"microsoft.documentdb",
 }
 
-// azureProviderOwnsHEAD reports whether the path addresses a provider that
-// serves HEAD itself.
 func azureProviderOwnsHEAD(path string) bool {
 	lower := strings.ToLower(path)
 	for _, ns := range azureProviderOwnsHEADNamespaces {
@@ -164,14 +132,9 @@ func azureProviderOwnsHEAD(path string) bool {
 	return false
 }
 
-// handleGenericProviderResource answers the parent-scoped generic-resource
-// spellings (Resources_{CheckExistence,Get,CreateOrUpdate,Update,Delete}) for
-// the only addresses that reach it: those no typed provider route matched,
-// because Go's mux always prefers the typed route's literal segments. An
-// address under a namespace the simulator does not implement gets Azure
-// Resource Manager's own refusal; an address under an implemented namespace
-// names a resource path the simulator serves no handler for, which is
-// declared as a 501 gap rather than disguised as a routing 404.
+// Only addresses no typed route matched reach this handler. An unimplemented
+// namespace gets Azure Resource Manager's refusal; an implemented one names an
+// unserved path, declared as a 501 rather than a routing 404.
 func handleGenericProviderResource(w http.ResponseWriter, r *http.Request) {
 	requested := sim.PathParam(r, "resourceProviderNamespace")
 	ns, known := azureKnownProvider(requested)
@@ -207,12 +170,8 @@ func handleResourcesOperations(w http.ResponseWriter, _ *http.Request) {
 	}})
 }
 
-// azureProviderObject builds a Provider wire object. When scope is empty the ID
-// is tenant-scoped (/providers/{ns}); otherwise it is subscription-scoped.
-// azureProviderRegistration records a namespace a subscription has
-// unregistered. Registration is the default and the common case, so the store
-// holds the exception: an entry means Unregistered, and its absence means
-// Registered.
+// Registration is the default, so the store holds the exception: an entry
+// means Unregistered.
 type azureProviderRegistration struct {
 	Subscription string `json:"subscription"`
 	Namespace    string `json:"namespace"`
@@ -229,9 +188,7 @@ func azureProviderObject(sub, ns string) map[string]any {
 	state := "Registered"
 	if sub != "" {
 		id = armSubscriptionResourceID(sub, ns)
-		// Registration is per subscription, so only a subscription-scoped read
-		// can report one as unregistered. The tenant listing has no
-		// subscription to be registered against.
+		// Registration is per subscription; the tenant listing has none to report.
 		if _, unregistered := azureUnregisteredProviders.Get(
 			azureProviderRegistrationKey(sub, ns)); unregistered {
 			state = "Unregistered"
@@ -245,8 +202,7 @@ func azureProviderObject(sub, ns string) map[string]any {
 	}
 }
 
-// azureKnownProvider reports whether ns is one of the catalogued providers,
-// matched case-insensitively (the namespace casing real clients send varies).
+// Matched case-insensitively; clients vary the namespace casing.
 func azureKnownProvider(ns string) (string, bool) {
 	for _, known := range resourceProviderNamespaces {
 		if strings.EqualFold(known, ns) {
@@ -301,8 +257,7 @@ func handleProviderRegister(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))
 		return
 	}
-	// Registering is what makes the state Registered, and the state has to
-	// survive the call: a client registers precisely so the read that follows
+	// Registration must persist: a client registers so the read that follows
 	// says so, and Terraform polls that read.
 	sub := sim.PathParam(r, "subscriptionId")
 	azureUnregisteredProviders.Delete(azureProviderRegistrationKey(sub, ns))
@@ -364,15 +319,11 @@ func handleResourceGroupExportTemplate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"template": template})
 }
 
-// handleMoveResources serves both Resources_MoveResources and
-// Resources_ValidateMoveResources: the validate spelling runs every check the
-// move runs — the resources exist, the target resource group exists, the
-// resource type supports a cross-group move — without mutating anything,
-// while the move spelling re-homes the resources (and their whole child
-// subtree) into the target resource group in the real stores. The simulator
-// completes the work inside the request and answers 204 No Content, the
-// synchronous completion both move contracts document; a failed check
-// answers the ARM error envelope directly.
+// handleMoveResources serves Resources_MoveResources and
+// Resources_ValidateMoveResources: validate runs every check the move runs —
+// the resources and target group exist, the type moves — without mutating,
+// and move re-homes the resources and their subtrees. Both complete in the
+// request with 204, the synchronous completion both contracts document.
 func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	var req struct {
@@ -395,12 +346,10 @@ func handleMoveResources(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// azureMoveErrorStatus maps a move-validation error code onto the HTTP
-// status Azure Resource Manager pairs it with: absent resources and groups
-// are 404s, malformed input is a 400, and an unsupported move or a failed
-// provider validation is the 409 Conflict a real move-validation failure
-// reports — "if validation fails, it returns HTTP response code 409
-// (Conflict) with an error message" (Resources - Validate Move Resources).
+// Absent resources and groups are 404, malformed input 400, and an unsupported
+// move or failed provider validation 409: "if validation fails, it returns
+// HTTP response code 409 (Conflict) with an error message" (Resources -
+// Validate Move Resources).
 func azureMoveErrorStatus(code string) int {
 	switch code {
 	case "ResourceGroupNotFound", "ResourceNotFound":
@@ -412,12 +361,9 @@ func azureMoveErrorStatus(code string) int {
 	}
 }
 
-// writeAzureMoveValidationError writes the nested error a provider validation
-// failure carries. Azure Resource Manager reports one of these as a
-// ResourceMoveProviderValidationFailed whose message states only that
-// validation failed and carries the diagnostic coordinates of the attempt,
-// with the per-resource reason in a `details` entry targeted at the resource
-// type — the shape of the failed-move bodies Azure returns.
+// ResourceMoveProviderValidationFailed, whose message says only that
+// validation failed, with the per-resource reason in a `details` entry
+// targeted at the resource type, as Azure's failed-move bodies carry.
 func writeAzureMoveValidationError(w http.ResponseWriter, sub string, moveErr *AsyncOperationError) {
 	message := fmt.Sprintf(
 		"Resource move validation failed. Please see details. Diagnostic information: timestamp '%s', subscription id '%s', tracking id '%s', request correlation id '%s'.",
@@ -433,11 +379,8 @@ func writeAzureMoveValidationError(w http.ResponseWriter, sub string, moveErr *A
 	})
 }
 
-// moveAzureResources validates (and, unless validateOnly, performs) a
-// cross-resource-group move. targetResourceGroup arrives either as a bare
-// name or as the full resource-group ID, as real clients send both. The
-// per-type work is dispatched through resourceMoveHooks (resource_move.go);
-// a type no provider slice has hooked answers ARM's ResourceMoveNotSupported.
+// targetResourceGroup arrives as a bare name or a full group ID; clients send
+// both.
 func moveAzureResources(sub, targetResourceGroup string, resources []string, validateOnly bool) *AsyncOperationError {
 	targetRG := targetResourceGroup
 	if i := sim.CaseInsensitiveLastIndex(targetRG, "/resourcegroups/"); i >= 0 {
@@ -470,8 +413,7 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 			return &AsyncOperationError{Code: "ResourceNotFound",
 				Message: fmt.Sprintf("The resource '%s' was not found.", resID)}
 		}
-		// A few types are movable only for some of their instances, which ARM
-		// can only decide once it has the resource in front of it.
+		// A few types are movable only for some instances.
 		if hook.supported != nil {
 			if ok, reason := hook.supported(resID); !ok {
 				return &AsyncOperationError{Code: "ResourceMoveNotSupported",
@@ -479,11 +421,8 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 			}
 		}
 		newID := strings.Replace(resID, "/resourceGroups/"+rg+"/", "/resourceGroups/"+targetRG+"/", 1)
-		// A resource keeps its name across a move, so the destination group
-		// must not already hold one of the same type under that name: the
-		// destination identifier would address two resources, and re-homing
-		// onto it would destroy the one already there. Azure Resource Manager
-		// refuses the whole request instead.
+		// A resource keeps its name, so a destination holding one of that type and
+		// name is refused outright: re-homing would destroy it.
 		if !strings.EqualFold(newID, resID) && hook.exists(newID) {
 			return azureMoveNameConflict(resID)
 		}
@@ -492,14 +431,10 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 	if validateOnly {
 		return nil
 	}
-	// A resource's tags live on the resource itself, so re-keying the record
-	// carries them into the destination group, which is what real Azure
-	// Resource Manager does with a moved resource's tags.
-	//
-	// Each hook re-homes what its own slice addresses by name and pins the
-	// credential material the resource ID derives; the repointing pass then
-	// re-homes everything stored beneath the moved ID anywhere else and
-	// re-points every reference held to it from outside the moved set.
+	// Tags live on the resource, so re-keying carries them, as Azure does. Each
+	// hook re-homes what its slice addresses by name and pins derived credentials;
+	// the repointing pass then handles everything else beneath or referencing the
+	// moved ID.
 	for _, m := range plan {
 		m.hook.move(m.oldID, m.newID, targetRG)
 		azureRepointMovedResource(m.oldID, m.newID)
@@ -507,27 +442,14 @@ func moveAzureResources(sub, targetResourceGroup string, resources []string, val
 	return nil
 }
 
-// azureMoveProviderValidationFailed is the code Azure Resource Manager reports
-// a move that a resource provider's validation refused under.
 const azureMoveProviderValidationFailed = "ResourceMoveProviderValidationFailed"
 
-// azureMoveNameConflict is the refusal for a move whose destination group
-// already holds a resource of the same type and name.
-//
-// Microsoft publishes no error code for this case: the move-support and
-// move-resource-group documentation never states the constraint, and the REST
-// reference documents only that a failed validation "returns HTTP response
-// code 409 (Conflict) with an error message" in the CloudError envelope. What
-// the service answers is attested by a report of a real failed move
-// (learn.microsoft.com/answers/questions/2080196), which carries the
-// ResourceMoveProviderValidationFailed code and the message below naming the
-// resources that "have the same name as a resource in the target resource
-// group". That message is reproduced verbatim, in the nesting Azure's failed
-// moves use — the provider-validation code outside, a CannotMoveResource entry
-// targeted at the resource type, and the reason inside it. The innermost entry
-// carries no code of its own because none is published or attested, and
-// inventing one would put a code on the wire that no client could have seen
-// from the service.
+// No error code is published for a destination holding the same name. A real
+// failed move (learn.microsoft.com/answers/questions/2080196) shows
+// ResourceMoveProviderValidationFailed with the message below verbatim, nested
+// as Azure nests failed moves: a CannotMoveResource entry targeted at the type,
+// the reason inside it. The innermost entry carries no code, as none is
+// published or attested.
 func azureMoveNameConflict(resID string) *AsyncOperationError {
 	return &AsyncOperationError{
 		Code:    azureMoveProviderValidationFailed,
@@ -545,9 +467,7 @@ func azureMoveNameConflict(resID string) *AsyncOperationError {
 	}
 }
 
-// azureResourceTypeOf is the fully qualified type of a resource-group-scoped
-// resource ID, in the casing the identifier carries — the target a move
-// failure names.
+// In the identifier's casing, the target a move failure names.
 func azureResourceTypeOf(resID string) string {
 	segs := strings.Split(strings.Trim(resID, "/"), "/")
 	if len(segs) < 7 {
@@ -556,8 +476,6 @@ func azureResourceTypeOf(resID string) string {
 	return segs[5] + "/" + segs[6]
 }
 
-// parseMovableResourceID splits a resource-group-scoped ARM resource ID into
-// its lowercased provider/type key and its resource-group name.
 func parseMovableResourceID(resID string) (typeKey, rg string, ok bool) {
 	segs := strings.Split(strings.Trim(resID, "/"), "/")
 	// subscriptions/{sub}/resourceGroups/{rg}/providers/{ns}/{type}/{name}
@@ -568,9 +486,7 @@ func parseMovableResourceID(resID string) (typeKey, rg string, ok bool) {
 	return strings.ToLower(segs[5] + "/" + segs[6]), segs[3], true
 }
 
-// handleProviderRegisterAtMG registers a resource provider at management-group
-// scope (Providers_RegisterAtManagementGroupScope). The operation returns no
-// body; the registration is reflected on subsequent provider reads.
+// Providers_RegisterAtManagementGroupScope returns no body.
 func handleProviderRegisterAtMG(w http.ResponseWriter, r *http.Request) {
 	if _, ok := azureKnownProvider(sim.PathParam(r, "resourceProviderNamespace")); !ok {
 		AzureErrorf(w, "InvalidResourceNamespace", http.StatusNotFound, "The resource namespace %q is invalid.", sim.PathParam(r, "resourceProviderNamespace"))

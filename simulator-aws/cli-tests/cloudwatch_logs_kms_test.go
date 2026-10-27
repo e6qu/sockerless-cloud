@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestCloudWatchLogsCLI_KmsKey drives CreateLogGroup --kms-key-id round-trip
-// via the aws CLI.
 func TestCloudWatchLogsCLI_KmsKey(t *testing.T) {
 	t.Parallel()
 	name := "/probe/cli-kms-test"

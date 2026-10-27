@@ -6,21 +6,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformSubscriptionApplyDestroy provisions subscriptions through the
-// Microsoft.Subscription alias API with `azurerm_subscription`, covering both
-// creation modes the resource supports: creation under a billing scope (the
-// alias PUT + provisioning-state poll, then the provider's wait for the
-// subscription to settle Enabled) and adoption of an existing subscription
-// id. Destroy deletes the aliases and cancels the subscriptions, waiting for
-// the Disabled state.
-//
-// This runs against the standalone subscription/ configuration as its own CI
-// shard (`tf (azure subscription)`): each create and cancel sits through the
-// provider's fixed 60s StateChangeConf delay plus four 10s confirmation
-// polls, which does not fit the shared stack's budget under the repo-wide
-// 15-minute job ceiling. Unlike the shared stack, none of its resources need
-// real-execution network capabilities, so it runs wherever the simulator and
-// the HTTPS gateway do.
+// TestTerraformSubscriptionApplyDestroy covers both azurerm_subscription
+// creation modes, under a billing scope and by adopting an existing
+// subscription; destroy deletes the aliases and cancels the subscriptions,
+// waiting for Disabled. It runs as its own CI shard: each create and cancel
+// sits through the provider's fixed 60s StateChangeConf delay and four 10s
+// polls.
 func TestTerraformSubscriptionApplyDestroy(t *testing.T) {
 	dir := tfSubscriptionWorkspace(t)
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))
@@ -29,9 +20,8 @@ func TestTerraformSubscriptionApplyDestroy(t *testing.T) {
 	out, err = runTimed(t, "terraform apply", terraformCmd(dir, "apply", "-auto-approve"))
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
-	// Idempotency: a second plan must show no drift. -detailed-exitcode makes
-	// terraform exit 2 (non-zero) on any drift, which runTimed surfaces as an
-	// error — so a clean plan (exit 0) is the only pass.
+	// A second plan must show no drift: -detailed-exitcode exits 2 on drift, which
+	// runTimed surfaces as an error.
 	out, err = runTimed(t, "terraform plan", terraformCmd(dir, "plan", "-detailed-exitcode"))
 	require.NoError(t, err, "terraform plan showed drift after apply (not idempotent):\n%s", out)
 
@@ -62,8 +52,6 @@ func TestTerraformSubscriptionApplyDestroy(t *testing.T) {
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
 
-// tfSubscriptionWorkspace copies the standalone Microsoft.Subscription
-// configuration into a working directory private to this run.
 func tfSubscriptionWorkspace(t *testing.T) string {
 	t.Helper()
 	return tfWorkspaceFrom(t, tfSubscriptionDir())

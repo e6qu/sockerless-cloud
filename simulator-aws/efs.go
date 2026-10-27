@@ -15,25 +15,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// efsHostRoot returns the on-disk backing directory for the whole
-// simulated EFS slice. Each filesystem + access point becomes a
-// subdirectory so Docker tasks the ECS slice launches can bind-mount
-// a real host path and observe the same files across tasks.
-// Resolution order: SIM_EFS_DATA_DIR (explicit override), then
-// <SIM_DATA_DIR>/efs (so file contents survive a simulator restart
-// alongside the SQLite control-plane state), then a temp directory.
+// Each file system and access point is a subdirectory, so Amazon ECS task
+// containers bind-mount a real path and share files. SIM_EFS_DATA_DIR, else
+// <SIM_DATA_DIR>/efs so contents survive a restart, else a temporary
+// directory.
 func efsHostRoot() string {
 	return sim.ScopedDataDir("SIM_EFS_DATA_DIR", "efs", "sockerless-sim-efs")
 }
 
-// EFSFileSystemHostDir returns the on-disk directory backing a simulated EFS
-// filesystem, creating it on first use. Exported for use by the ECS task
-// runner.
+// Created on first use.
 func EFSFileSystemHostDir(fsID string) (string, error) {
 	dir := filepath.Join(efsHostRoot(), fsID)
-	// A directly-mounted filesystem must be writable by a non-root or
-	// uid-mapped workload; only a new directory gets the mode, so a workload's
-	// own chmod of the root persists.
+	// Non-root and uid-mapped workloads must be able to write a directly mounted
+	// file system; only a new directory gets the mode, so a workload's own chmod
+	// persists.
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		if err := sim.EnsureWritableDir(dir); err != nil {
 			return "", fmt.Errorf("file system %s directory: %w", fsID, err)
@@ -44,15 +39,12 @@ func EFSFileSystemHostDir(fsID string) (string, error) {
 	return dir, nil
 }
 
-// efsAccessPointRootLocks serializes the first-mount creation of an access
-// point's root directory, so two tasks mounting it at once create it once.
+// Two tasks mounting at once create the root once.
 var efsAccessPointRootLocks = sim.NewKeyedLocks()
 
-// EFSAccessPointHostDir returns the on-disk directory that an EFS access
-// point exposes (the file system's directory plus RootDirectory.Path),
-// creating it from CreationInfo on the first mount as Amazon EFS does when a
-// client connects. It fails the mount the way EFS does when the path does not
-// exist and the access point carries no CreationInfo to create it.
+// The file system's directory plus RootDirectory.Path, created from
+// CreationInfo on first mount as Amazon EFS does; without CreationInfo a
+// missing path fails the mount.
 func EFSAccessPointHostDir(apID string) (string, error) {
 	ap, ok := efsAccessPoints.Get(apID)
 	if !ok {
@@ -73,11 +65,8 @@ func EFSAccessPointHostDir(apID string) (string, error) {
 	return root, nil
 }
 
-// ensureAccessPointRootDir creates an access point's root directory with the
-// RootDirectory.CreationInfo owner and permissions, only when the directory
-// does not exist yet, so a workload that later changes them keeps its change.
-// Without CreationInfo EFS creates nothing, and a mount of a path that does
-// not exist fails.
+// Only when the directory does not exist yet, so a workload's later changes
+// stick.
 func ensureAccessPointRootDir(root string, rd *EFSRootDirectory) error {
 	if _, err := os.Stat(root); err == nil {
 		return nil
@@ -111,9 +100,8 @@ func efsRootDirectoryPath(rd *EFSRootDirectory) string {
 	return rd.Path
 }
 
-// efsError writes an Amazon EFS error: restJson1 names the error in the
-// X-Amzn-ErrorType header, and every EFS error shape carries its code in the
-// ErrorCode member beside its Message.
+// restJson1 names the error in X-Amzn-ErrorType, and every EFS error shape
+// carries ErrorCode beside Message.
 func efsError(w http.ResponseWriter, code, message string, status int) {
 	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: "efs"}, status, code, message, "")
 }
@@ -122,11 +110,9 @@ func efsErrorf(w http.ResponseWriter, code string, status int, format string, ar
 	efsError(w, code, fmt.Sprintf(format, args...), status)
 }
 
-// efsPermissionsPattern is the Smithy model's pattern for CreationInfo.Permissions.
+// The Smithy model's pattern for CreationInfo.Permissions.
 var efsPermissionsPattern = regexp.MustCompile(`^[0-7]{3,4}$`)
 
-// efsCreationInfoMode parses CreationInfo.Permissions, an octal mode of three
-// or four digits.
 func efsCreationInfoMode(permissions string) (os.FileMode, error) {
 	if !efsPermissionsPattern.MatchString(permissions) {
 		return 0, fmt.Errorf("1 validation error detected: Value '%s' at 'rootDirectory.creationInfo.permissions' failed to satisfy constraint: Member must satisfy regular expression pattern: %s", permissions, efsPermissionsPattern)
@@ -135,8 +121,8 @@ func efsCreationInfoMode(permissions string) (os.FileMode, error) {
 	if err != nil {
 		return 0, err
 	}
-	// os.FileMode keeps the setuid, setgid and sticky bits apart from the
-	// POSIX octal ones, so os.Chmod ignores them unless they are moved.
+	// os.FileMode keeps setuid, setgid and sticky apart from the octal bits, so
+	// os.Chmod ignores them unless moved.
 	mode := os.FileMode(parsed & 0o777)
 	for bit, flag := range map[uint64]os.FileMode{0o4000: os.ModeSetuid, 0o2000: os.ModeSetgid, 0o1000: os.ModeSticky} {
 		if parsed&bit != 0 {
@@ -145,8 +131,6 @@ func efsCreationInfoMode(permissions string) (os.FileMode, error) {
 	}
 	return mode, nil
 }
-
-// EFS types
 
 type EFSFileSystem struct {
 	FileSystemId    string `json:"FileSystemId"`
@@ -158,22 +142,17 @@ type EFSFileSystem struct {
 	OwnerId         string `json:"OwnerId"`
 	PerformanceMode string `json:"PerformanceMode"`
 	ThroughputMode  string `json:"ThroughputMode"`
-	// ProvisionedThroughputInMibps is only present when ThroughputMode is
-	// "provisioned"; AWS omits it otherwise. *float64 so it round-trips a
-	// 0-vs-unset distinction the SDK reads back.
+	// Present only in provisioned mode; a pointer keeps 0 apart from unset.
 	ProvisionedThroughputInMibps *float64 `json:"ProvisionedThroughputInMibps,omitempty"`
 	NumberOfMountTargets         int      `json:"NumberOfMountTargets"`
 	SizeInBytes                  struct {
 		Value int64 `json:"Value"`
 	} `json:"SizeInBytes"`
-	// FileSystemProtection carries the replication-overwrite-protection status,
-	// set by UpdateFileSystemProtection and echoed on the FileSystemDescription.
+	// Set by UpdateFileSystemProtection.
 	FileSystemProtection *EFSFileSystemProtection `json:"FileSystemProtection,omitempty"`
 	Tags                 []EFSTag                 `json:"Tags,omitempty"`
 }
 
-// EFSFileSystemProtection mirrors the wire FileSystemProtectionDescription the
-// SDK reads from both UpdateFileSystemProtection and the FileSystemDescription.
 type EFSFileSystemProtection struct {
 	ReplicationOverwriteProtection string `json:"ReplicationOverwriteProtection"`
 }
@@ -233,9 +212,7 @@ type EFSLifecyclePolicy struct {
 	TransitionToArchive             string `json:"TransitionToArchive,omitempty"`
 }
 
-// EFSReplicationConfig is the stored form of a replication configuration,
-// keyed by source file-system id. It mirrors the wire
-// ReplicationConfigurationDescription the SDK reads back.
+// Keyed by source file-system id.
 type EFSReplicationConfig struct {
 	SourceFileSystemId          string               `json:"SourceFileSystemId"`
 	SourceFileSystemRegion      string               `json:"SourceFileSystemRegion"`
@@ -255,7 +232,6 @@ type EFSReplicationDest struct {
 	RoleArn                 string `json:"RoleArn,omitempty"`
 }
 
-// State stores
 var (
 	efsFileSystems        sim.Store[EFSFileSystem]
 	efsMountTargets       sim.Store[EFSMountTarget]
@@ -263,7 +239,7 @@ var (
 	efsLifecyclePolicies  sim.Store[[]EFSLifecyclePolicy]
 	efsFileSystemPolicies sim.Store[string]               // fsID -> JSON policy
 	efsBackupPolicies     sim.Store[string]               // fsID -> backup status
-	efsReplications       sim.Store[EFSReplicationConfig] // source fsID -> config
+	efsReplications       sim.Store[EFSReplicationConfig] // source fsID -> configuration
 	efsAccountPref        sim.Store[string]               // account -> ResourceIdType
 )
 
@@ -304,42 +280,35 @@ func registerEFS(srv *sim.Server) {
 	mux.HandleFunc("GET /2015-02-01/access-points", cloudTrailRecordedREST("DescribeAccessPoints", "elasticfilesystem.amazonaws.com", nil, handleEFSDescribeAccessPoints))
 	mux.HandleFunc("DELETE /2015-02-01/access-points/{id}", cloudTrailRecordedREST("DeleteAccessPoint", "elasticfilesystem.amazonaws.com", apResource, handleEFSDeleteAccessPoint))
 
-	// File system policy
 	mux.HandleFunc("PUT /2015-02-01/file-systems/{id}/policy", cloudTrailRecordedREST("PutFileSystemPolicy", "elasticfilesystem.amazonaws.com", fsResource, handleEFSPutFileSystemPolicy))
 	mux.HandleFunc("GET /2015-02-01/file-systems/{id}/policy", cloudTrailRecordedREST("DescribeFileSystemPolicy", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDescribeFileSystemPolicy))
 	mux.HandleFunc("DELETE /2015-02-01/file-systems/{id}/policy", cloudTrailRecordedREST("DeleteFileSystemPolicy", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDeleteFileSystemPolicy))
 
-	// Backup policy
 	mux.HandleFunc("PUT /2015-02-01/file-systems/{id}/backup-policy", cloudTrailRecordedREST("PutBackupPolicy", "elasticfilesystem.amazonaws.com", fsResource, handleEFSPutBackupPolicy))
 	mux.HandleFunc("GET /2015-02-01/file-systems/{id}/backup-policy", cloudTrailRecordedREST("DescribeBackupPolicy", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDescribeBackupPolicy))
 
-	// Replication. The list route must register before the {id} route so
-	// "/file-systems/replication-configurations" doesn't bind {id}.
+	// Register the list route before the {id} route so
+	// "/file-systems/replication-configurations" does not bind {id}.
 	mux.HandleFunc("GET /2015-02-01/file-systems/replication-configurations", cloudTrailRecordedREST("DescribeReplicationConfigurations", "elasticfilesystem.amazonaws.com", nil, handleEFSDescribeReplicationConfigurations))
 	mux.HandleFunc("POST /2015-02-01/file-systems/{id}/replication-configuration", cloudTrailRecordedREST("CreateReplicationConfiguration", "elasticfilesystem.amazonaws.com", fsResource, handleEFSCreateReplicationConfiguration))
 	mux.HandleFunc("DELETE /2015-02-01/file-systems/{id}/replication-configuration", cloudTrailRecordedREST("DeleteReplicationConfiguration", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDeleteReplicationConfiguration))
 
-	// Account preferences
 	mux.HandleFunc("PUT /2015-02-01/account-preferences", cloudTrailRecordedREST("PutAccountPreferences", "elasticfilesystem.amazonaws.com", nil, handleEFSPutAccountPreferences))
 	mux.HandleFunc("GET /2015-02-01/account-preferences", cloudTrailRecordedREST("DescribeAccountPreferences", "elasticfilesystem.amazonaws.com", nil, handleEFSDescribeAccountPreferences))
 
-	// Resource-ARN tagging API (file systems + access points)
 	apTagResource := cloudTrailRESTResource("AWS::EFS::FileSystem", "id")
 	mux.HandleFunc("POST /2015-02-01/resource-tags/{id}", cloudTrailRecordedREST("TagResource", "elasticfilesystem.amazonaws.com", apTagResource, handleEFSTagResource))
 	mux.HandleFunc("GET /2015-02-01/resource-tags/{id}", cloudTrailRecordedREST("ListTagsForResource", "elasticfilesystem.amazonaws.com", apTagResource, handleEFSListTagsForResource))
 	mux.HandleFunc("DELETE /2015-02-01/resource-tags/{id}", cloudTrailRecordedREST("UntagResource", "elasticfilesystem.amazonaws.com", apTagResource, handleEFSUntagResource))
 
-	// Legacy file-system tagging API
 	mux.HandleFunc("POST /2015-02-01/create-tags/{id}", cloudTrailRecordedREST("CreateTags", "elasticfilesystem.amazonaws.com", fsResource, handleEFSCreateTags))
 	mux.HandleFunc("GET /2015-02-01/tags/{id}", cloudTrailRecordedREST("DescribeTags", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDescribeTags))
-	mux.HandleFunc("GET /2015-02-01/tags/{id}/", cloudTrailRecordedREST("DescribeTags", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDescribeTags)) // CLI appends a trailing slash
+	mux.HandleFunc("GET /2015-02-01/tags/{id}/", cloudTrailRecordedREST("DescribeTags", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDescribeTags)) // The CLI appends a trailing slash.
 	mux.HandleFunc("POST /2015-02-01/delete-tags/{id}", cloudTrailRecordedREST("DeleteTags", "elasticfilesystem.amazonaws.com", fsResource, handleEFSDeleteTags))
 }
 
-// efsResourceTags returns a pointer-style accessor for the tags of a
-// resource-tags ResourceId (a file system OR an access point id), so the
-// resource-ARN tagging API can mutate whichever store owns the resource.
-// Returns (getTags, setTags, true) when the id resolves; (_,_,false) otherwise.
+// Resolves a file system or access point id to accessors on whichever store
+// owns it.
 func efsResourceTags(id string) (func() []EFSTag, func([]EFSTag), bool) {
 	if _, ok := efsFileSystems.Get(id); ok {
 		get := func() []EFSTag {
@@ -364,8 +333,7 @@ func efsResourceTags(id string) (func() []EFSTag, func([]EFSTag), bool) {
 	return nil, nil, false
 }
 
-// efsMergeTags upserts the given tags into the existing slice by key (real EFS
-// TagResource/CreateTags overwrite the value of an existing key).
+// TagResource and CreateTags overwrite an existing key's value.
 func efsMergeTags(existing, incoming []EFSTag) []EFSTag {
 	idx := map[string]int{}
 	out := append([]EFSTag(nil), existing...)
@@ -474,7 +442,7 @@ func handleEFSDescribeBackupPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	status, ok := efsBackupPolicies.Get(fsId)
 	if !ok {
-		// EFS returns DISABLED when no policy has been set on the file system.
+		// DISABLED when no policy has been set.
 		status = "DISABLED"
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -522,7 +490,7 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 		}
 		destFsId := d.FileSystemId
 		if destFsId == "" {
-			// No destination specified: EFS creates a new destination file system.
+			// Without a destination, Amazon EFS creates a new destination file system.
 			destFsId = "fs-" + sim.NewUUID()[:8]
 			destFs := EFSFileSystem{
 				FileSystemId:    destFsId,
@@ -562,7 +530,7 @@ func handleEFSDescribeReplicationConfigurations(w http.ResponseWriter, r *http.R
 	fsId := r.URL.Query().Get("FileSystemId")
 	var reps []EFSReplicationConfig
 	if fsId != "" {
-		// EFS matches when the id is either the source or a destination.
+		// The id may be the source or a destination.
 		for _, c := range efsReplications.List() {
 			if c.SourceFileSystemId == fsId {
 				reps = append(reps, c)
@@ -660,7 +628,7 @@ func handleEFSTagResource(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// efsTagKey pages a resource's tags by key, which is unique on a resource.
+// Keys are unique on a resource.
 func efsTagKey(t EFSTag) string { return t.Key }
 
 func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
@@ -804,7 +772,6 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 
 	fsId := "fs-" + sim.NewUUID()[:8]
 
-	// Extract name from tags
 	var name string
 	for _, tag := range req.Tags {
 		if tag.Key == "Name" {
@@ -837,7 +804,6 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 	if fsId != "" {
 		fs, ok := efsFileSystems.Get(fsId)
 		if ok {
-			// Update mount target count
 			count := 0
 			for _, mt := range efsMountTargets.List() {
 				if mt.FileSystemId == fsId {
@@ -849,8 +815,7 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		fileSystems = efsFileSystems.List()
-		// Refresh each file system's live mount-target count so the list path
-		// matches the by-id path (real EFS always reports the current count).
+		// Refresh each live mount-target count so the list matches the by-id path.
 		for i := range fileSystems {
 			count := 0
 			for _, mt := range efsMountTargets.List() {
@@ -896,10 +861,7 @@ func handleEFSDeleteFileSystem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleEFSUpdateFileSystem updates the throughput mode and/or provisioned
-// throughput of an existing file system, returning the full
-// FileSystemDescription with the live mount-target count (HTTP 202, matching
-// real EFS).
+// Answers 202 with the full FileSystemDescription.
 func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
@@ -928,7 +890,7 @@ func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 		if fs.ThroughputMode == "provisioned" {
 			fs.ProvisionedThroughputInMibps = req.ProvisionedThroughputInMibps
 		} else {
-			// Leaving provisioned mode clears the provisioned value, as real EFS does.
+			// Leaving provisioned mode clears the provisioned value.
 			fs.ProvisionedThroughputInMibps = nil
 		}
 	})
@@ -943,8 +905,6 @@ func handleEFSUpdateFileSystem(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusAccepted, fs)
 }
 
-// handleEFSUpdateFileSystemProtection sets the file system's
-// ReplicationOverwriteProtection and returns the FileSystemProtectionDescription.
 func handleEFSUpdateFileSystemProtection(w http.ResponseWriter, r *http.Request) {
 	fsId := sim.PathParam(r, "id")
 	if _, ok := efsFileSystems.Get(fsId); !ok {
@@ -1038,8 +998,7 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IpAddress == "" {
-		// Real EFS allocates the mount target IP from the subnet's CIDR
-		// block — not from a global counter. Match that contract.
+		// Amazon EFS allocates the mount target address from the subnet's CIDR.
 		ip, ipErr := AllocateSubnetIP(req.SubnetId)
 		if ipErr != nil {
 			efsError(w, "SubnetNotFound", ipErr.Error(), http.StatusBadRequest)
@@ -1071,11 +1030,8 @@ func handleEFSCreateMountTarget(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, mt)
 }
 
-// efsDescribeList renders the common EFS describe-list shape: optional
-// single-id lookup, else optional FileSystemId filter, else list-all; a
-// deterministic sort; explicit-page-size pagination; a token-keyed body.
-// Shared by DescribeMountTargets and DescribeAccessPoints (which differ only
-// in element type, id field, and the marker/token query+response key names).
+// Shared by DescribeMountTargets and DescribeAccessPoints, which differ only in
+// element type, id field and the marker/token names.
 func efsDescribeList[T any](
 	w http.ResponseWriter,
 	r *http.Request,
@@ -1190,7 +1146,6 @@ func handleEFSDescribeAccessPoints(w http.ResponseWriter, r *http.Request) {
 func handleEFSDeleteAccessPoint(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	if id == "" {
-		// Try extracting from path manually
 		parts := strings.Split(r.URL.Path, "/")
 		if len(parts) > 0 {
 			id = parts[len(parts)-1]

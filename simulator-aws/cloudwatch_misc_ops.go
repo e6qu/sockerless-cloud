@@ -9,12 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch GetMetricData (awsJson / query — the cbor surface lives in
-// cloudwatch_metrics.go), alarm mute rules, and the cross-resource tagging API
-// (TagResource / UntagResource / ListTagsForResource over alarms, metric
-// streams, and insight rules).
-
-// CWMuteSchedule mirrors the Schedule shape on a mute rule's Rule.
 type CWMuteSchedule struct {
 	Expression string `json:"Expression,omitempty" cbor:"Expression,omitempty"`
 	Duration   string `json:"Duration,omitempty" cbor:"Duration,omitempty"`
@@ -40,8 +34,8 @@ func cwAlarmMuteRuleArn(name string) string {
 	return "arn:aws:cloudwatch:" + awsRegion() + ":" + awsAccountID() + ":alarm-mute-rule:" + name
 }
 
-// cwMuteRuleStatus derives the rule's lifecycle status from its expiry: EXPIRED
-// once past ExpireDate, ACTIVE when the window has started, otherwise SCHEDULED.
+// EXPIRED past ExpireDate, ACTIVE once the window has started, otherwise
+// SCHEDULED.
 func cwMuteRuleStatus(r CWAlarmMuteRule) string {
 	now := time.Now().UTC().Unix()
 	if r.ExpireDate != 0 && now >= r.ExpireDate {
@@ -73,8 +67,6 @@ func cwListAlarmMuteRules(alarmName string) []CWAlarmMuteRule {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-
-// ── GetMetricData (awsJson) ─────────────────────────────────────────────────
 
 func registerCloudWatchMiscJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.GetMetricData", handleCWJSONGetMetricData)
@@ -131,9 +123,8 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// Emit the recorded datapoints; an empty result set when nothing was
-		// pushed (no fabricated points). Values are Doubles — render with a
-		// decimal so the awsJson deserializer reads them as floats, not ints.
+		// Values are Doubles: render a decimal point so the awsJson deserializer
+		// reads floats.
 		valNums := make([]any, 0, len(values))
 		for _, v := range values {
 			valNums = append(valNums, cwJSONStat(v))
@@ -183,8 +174,7 @@ func handleCWJSONPutAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func cwPutAlarmMuteRule(name, description string, schedule CWMuteSchedule, alarmNames []string, startDate, expireDate int64, tags []cwTagKV) {
-	// MuteType is RECURRING for a cron-based schedule (no fixed end), SINGLE for a
-	// one-time window — real CloudWatch classifies by the schedule expression.
+	// A cron schedule is RECURRING, a one-time window SINGLE.
 	muteType := "SINGLE"
 	if expireDate == 0 {
 		muteType = "RECURRING"
@@ -252,7 +242,7 @@ func handleCWJSONDeleteAlarmMuteRule(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	// DeleteAlarmMuteRule is idempotent — deleting an absent rule succeeds.
+	// Deleting an absent rule succeeds.
 	cwAlarmMuteRules.Delete(req.AlarmMuteRuleName)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -281,11 +271,7 @@ func handleCWJSONListAlarmMuteRules(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"AlarmMuteRuleSummaries": summaries})
 }
 
-// ── cross-resource tagging (awsJson) ────────────────────────────────────────
-
-// cwResourceTags returns the tag map for any CloudWatch ARN the tagging API
-// covers (metric alarm, composite alarm, metric stream, insight rule, alarm
-// mute rule, dataset), and a setter that writes the updated map back.
+// The setter writes the updated map back.
 func cwResourceTags(arn string) (map[string]string, func(map[string]string), bool) {
 	if a, ok := cwAlarmByArn(arn); ok {
 		return a.Tags, func(m map[string]string) { cwAlarms.Update(a.AlarmName, func(x *CWAlarm) { x.Tags = m }) }, true
@@ -389,12 +375,8 @@ func handleCWJSONListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags})
 }
 
-// ── rpc-v2-cbor surface (Go SDK) ────────────────────────────────────────────
-
-// GetMetricData, TagResource, UntagResource and ListTagsForResource already have
-// cbor routes (registered by cloudwatch_metrics.go / cloudwatch_alarms.go); the
-// tag handlers there resolve every CloudWatch resource through cwResourceTags, so
-// the cbor surface only needs the mute-rule operations registered here.
+// The cbor tag handlers already resolve every resource through
+// cwResourceTags, so only the mute-rule operations register here.
 func registerCloudWatchMiscCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutAlarmMuteRule", handleCWCBORPutAlarmMuteRule)
 	cwCBOR(srv, "GetAlarmMuteRule", handleCWCBORGetAlarmMuteRule)
@@ -522,8 +504,6 @@ func handleCWCBORListAlarmMuteRules(w http.ResponseWriter, r *http.Request) {
 	}
 	cwWriteCBOR(w, map[string]any{"AlarmMuteRuleSummaries": summaries})
 }
-
-// ── query surface (older aws CLI) ───────────────────────────────────────────
 
 func registerCloudWatchMiscQuery(r *AWSQueryRouter) {
 	r.Register("GetMetricData", handleCWQueryGetMetricData)

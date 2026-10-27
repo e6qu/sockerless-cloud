@@ -110,8 +110,8 @@ func TestSDK_CloudRunV2Services_NoAvailableInstance(t *testing.T) {
 	require.NoError(t, warm.err)
 	require.Equal(t, http.StatusOK, warm.status, "body=%q", warm.body)
 
-	// The pending queue holds a request for at least 10 seconds, or 3.5 times
-	// the instances' average startup, so one held for 30 keeps the only place
+	// The pending queue holds a request for at least 10 seconds, or 3.5 times the
+	// instances' average startup, so one held for 30 seconds keeps the only place
 	// past it unless the instance took more than 8.5 seconds to start.
 	answers := invokeConcurrently(svc.Uri, 2, 30000)
 	var statuses []int

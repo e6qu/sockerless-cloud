@@ -15,7 +15,7 @@ import (
 // waitForRDSInstanceStatus polls until the instance reports status: a
 // lifecycle action answers its transitional status (StopDBInstance answers
 // stopping) and settles once the engine has made the transition, and the SDK
-// carries no waiter for a stopped instance.
+// has no waiter for a stopped instance.
 func waitForRDSInstanceStatus(t *testing.T, c *rds.Client, ctx context.Context, id, status string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -35,8 +35,8 @@ func waitForRDSInstanceAvailable(t *testing.T, c *rds.Client, ctx context.Contex
 		"DB instance %s must become available", id)
 }
 
-// waitForRDSClusterStatus polls until the cluster reports status; the SDK
-// carries no waiter for a stopped cluster.
+// waitForRDSClusterStatus polls until the cluster reports status; the SDK has
+// no waiter for a stopped cluster.
 func waitForRDSClusterStatus(t *testing.T, c *rds.Client, ctx context.Context, id, status string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -45,9 +45,6 @@ func waitForRDSClusterStatus(t *testing.T, c *rds.Client, ctx context.Context, i
 	}, 2*time.Minute, 100*time.Millisecond, "DB cluster %s must reach %s", id, status)
 }
 
-// TestRDS_InstanceClusterState exercises the instance/cluster state
-// transition ops (Start/Stop instance, Start/Stop/Failover cluster) and
-// PromoteReadReplica end-to-end through the AWS SDK for Go v2.
 func TestRDS_InstanceClusterState(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -113,7 +110,6 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	waitForRDSInstanceAvailable(t, c, ctx, replicaID)
 	promoted, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(replicaID)})
 	require.NoError(t, err)
-	// After promotion the replica has no source.
 	assert.Empty(t, aws.ToString(promoted.DBInstances[0].ReadReplicaSourceDBInstanceIdentifier))
 
 	clusterID := "state-aurora-cluster"
@@ -187,8 +183,6 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 	assert.Equal(t, clusterID, aws.ToString(foCl.DBCluster.DBClusterIdentifier))
 }
 
-// TestRDS_GlobalClusterLifecycle exercises the Aurora global cluster
-// family: Create → Describe → Modify → Delete.
 func TestRDS_GlobalClusterLifecycle(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -237,8 +231,6 @@ func TestRDS_GlobalClusterLifecycle(t *testing.T) {
 	assert.Equal(t, gid, aws.ToString(delOut.GlobalCluster.GlobalClusterIdentifier))
 }
 
-// TestRDS_EventSubscriptionLifecycle exercises the event subscription
-// family: Create → Describe → Modify → Delete.
 func TestRDS_EventSubscriptionLifecycle(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -288,10 +280,6 @@ func TestRDS_EventSubscriptionLifecycle(t *testing.T) {
 	assert.Equal(t, name, aws.ToString(delOut.EventSubscription.CustSubscriptionId))
 }
 
-// TestRDS_ParameterDetailAndSnapshotAttributes exercises parameter
-// detail ops (Describe/Modify/Reset DB parameters and DB cluster
-// parameters) plus snapshot attribute sharing (Modify/Describe
-// DBSnapshotAttribute).
 func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -439,7 +427,6 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 	assert.Equal(t, "restore", aws.ToString(attr.AttributeName))
 	assert.ElementsMatch(t, []string{"123456789012", "210987654321"}, attr.AttributeValues)
 
-	// Remove one shared account.
 	_, err = c.ModifyDBSnapshotAttribute(ctx, &rds.ModifyDBSnapshotAttributeInput{
 		DBSnapshotIdentifier: aws.String(snapID),
 		AttributeName:        aws.String("restore"),
@@ -454,9 +441,6 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 		attrOut2.DBSnapshotAttributesResult.DBSnapshotAttributes[0].AttributeValues)
 }
 
-// TestRDS_ClusterEndpointAndCopyClusterSnapshot exercises custom DB
-// cluster endpoints (Create → Describe → Delete) and
-// CopyDBClusterSnapshot.
 func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()

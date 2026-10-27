@@ -5,27 +5,13 @@ import (
 	"strings"
 )
 
-// A Query addresses one partition. DynamoDB requires the key condition to fix
-// the partition key with an equality — "The condition must perform an equality
-// test on a single partition key value" — and the item store is keyed
-// `<table>/<hash>` or `<table>/<hash>|<range>`, so the items a query can
-// possibly return are a contiguous run of that sorted key space.
-//
-// Examining the whole table instead is what made a query cost the table rather
-// than the partition: every item read from the store, and under the item lock.
-// A workload with many partitions paid for all of them on every query, which
-// is how forty-four concurrent queries left every request over a minute old.
-//
-// Narrowing is an optimisation over the same answer, never a different one:
-// the key condition is still evaluated against every candidate, so a partition
-// this cannot determine simply yields the full candidate set and the query
-// behaves exactly as before.
+// DynamoDB requires a key condition to fix the partition key by equality, so
+// a query's candidates are a contiguous run of the sorted key space. The key
+// condition is still evaluated on every candidate; when the partition cannot
+// be determined, the full candidate set applies.
 
-// ddbQueryPartitionPrefix returns the item-key prefix a query is confined to,
-// and whether one could be determined. It reads the partition-key equality out
-// of the compiled key condition rather than the request text, so an aliased
-// name (#pk) and a value reference (:v) resolve the way the evaluator resolves
-// them.
+// Read the equality from the compiled condition so aliases and value
+// references resolve as the evaluator resolves them.
 func ddbQueryPartitionPrefix(t DDBTable, keyExpr *ddbCompiledExpr) (string, bool) {
 	if keyExpr == nil {
 		return "", false
@@ -47,15 +33,12 @@ func ddbQueryPartitionPrefix(t DDBTable, keyExpr *ddbCompiledExpr) (string, bool
 	if scalar == "" {
 		return "", false
 	}
-	// Both key shapes start with the hash: a hash-only table's key is exactly
-	// `<table>/<hash>`, and a composite key continues `|<range>`.
+	// Both key shapes start with the hash.
 	return t.TableName + "/" + scalar, true
 }
 
-// ddbEqualityValueFor finds `attr = <value>` for the named attribute within the
-// condition. Only conjunctions are walked: a key condition is the partition
-// equality optionally AND-ed with a sort-key condition, and an equality under
-// an OR or a NOT does not confine the query to that partition.
+// Walk only conjunctions: an equality under OR or NOT does not confine the
+// query.
 func ddbEqualityValueFor(node ddbCond, attr string, names map[string]string, values map[string]any) (any, bool) {
 	switch n := node.(type) {
 	case ddbCondAnd:
@@ -79,8 +62,6 @@ func ddbEqualityValueFor(node ddbCond, attr string, names map[string]string, val
 	return nil, false
 }
 
-// ddbComparedValueFor reports the value reference compared against attr when
-// path names that attribute and other is a value reference.
 func ddbComparedValueFor(path, other ddbOperand, attr string, names map[string]string) (string, bool) {
 	p, ok := path.(ddbOperandPath)
 	if !ok {
@@ -100,8 +81,7 @@ func ddbComparedValueFor(path, other ddbOperand, attr string, names map[string]s
 	return v.ref, true
 }
 
-// ddbKeysInPartition narrows an ascending, sorted set of a table's item keys to
-// the ones inside the partition, preserving order. keys must be ascending.
+// keys must be ascending.
 func ddbKeysInPartition(keys []string, prefix string) []string {
 	start := sort.SearchStrings(keys, prefix)
 	end := start
@@ -111,9 +91,8 @@ func ddbKeysInPartition(keys []string, prefix string) []string {
 	return keys[start:end]
 }
 
-// ddbKeyInPartition reports whether an item key belongs to the partition the
-// prefix names. `tbl/a` must not claim `tbl/ab`: the key either is the prefix
-// exactly (a hash-only table) or continues with the key separator.
+// `tbl/a` must not claim `tbl/ab`: the key equals the prefix or continues with
+// the separator.
 func ddbKeyInPartition(key, prefix string) bool {
 	if key == prefix {
 		return true

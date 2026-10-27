@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// acrEnsureRegistry creates a resource group and an ACR registry so the child
-// sub-resource round-trips below have a parent to hang off of.
 func acrEnsureRegistry(t *testing.T, rg, registryName string) {
 	t.Helper()
 	ensureRG(t, rg)
@@ -25,8 +23,6 @@ func acrEnsureRegistry(t *testing.T, rg, registryName string) {
 	require.NoError(t, err)
 }
 
-// TestACR_ReplicationCRUD round-trips the `replications` sub-resource via
-// armcontainerregistry.ReplicationsClient against the simulator.
 func TestACR_ReplicationCRUD(t *testing.T) {
 	t.Parallel()
 	const (
@@ -87,9 +83,8 @@ func TestACR_ReplicationCRUD(t *testing.T) {
 	assert.Error(t, err, "Get after delete must fail")
 }
 
-// TestACR_WebhookCRUD round-trips the `webhooks` sub-resource, including the
-// write-only serviceUri the response schema must NOT echo (getCallbackConfig
-// returns it instead).
+// TestACR_WebhookCRUD: the response never echoes the write-only serviceUri;
+// getCallbackConfig returns it.
 func TestACR_WebhookCRUD(t *testing.T) {
 	t.Parallel()
 	const (
@@ -122,7 +117,6 @@ func TestACR_WebhookCRUD(t *testing.T) {
 	require.Len(t, created.Properties.Actions, 1)
 	assert.Equal(t, armcontainerregistry.WebhookActionPush, *created.Properties.Actions[0])
 
-	// The callback config (not the Webhook response) carries the secret URI.
 	cb, err := client.GetCallbackConfig(ctx, rg, registryName, webhookName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.com/hook", *cb.ServiceURI)
@@ -143,8 +137,8 @@ func TestACR_WebhookCRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestACR_ScopeMapAndTokenCRUD round-trips the `scopeMaps` and `tokens`
-// sub-resources, which back ACR's repository-scoped token authentication.
+// TestACR_ScopeMapAndTokenCRUD round-trips the scopeMaps and tokens behind
+// repository-scoped token authentication.
 func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
 	t.Parallel()
 	const (
@@ -212,8 +206,6 @@ func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestACR_TaskAndTaskRunCRUD round-trips the registry-tasks `tasks` and
-// `taskRuns` children via armcontainerregistry.{TasksClient,TaskRunsClient}.
 func TestACR_TaskAndTaskRunCRUD(t *testing.T) {
 	t.Parallel()
 	const (

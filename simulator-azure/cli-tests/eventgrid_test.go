@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newEventGridCLIWebhook serves a webhook the way an Event Grid subscriber
-// does: it echoes the subscription validation code and hands every
-// notification's events to the channel.
+// newEventGridCLIWebhook serves an Event Grid subscriber: it echoes the
+// subscription validation code and hands every delivery's events to the channel.
 func newEventGridCLIWebhook(t *testing.T) (*httptest.Server, chan []map[string]any) {
 	t.Helper()
 	deliveries := make(chan []map[string]any, 16)
@@ -85,10 +84,9 @@ func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
 	assert.Equal(t, "cli-sub", list.Value[0].Name)
 
 	publishBody := `[{"id":"cli-evt","eventType":"sockerless.cli","subject":"/cli","eventTime":"2026-05-27T00:00:00Z","data":{"ok":true},"dataVersion":"1"}]`
-	// The topic endpoint is a `<topic>.eventgrid.localhost` subdomain URL; the
-	// sim routes /api/events by the Host header (.eventgrid.), so publish to the
-	// loopback base URL with Host set to the subdomain. This avoids depending on
-	// `*.localhost` resolving to 127.0.0.1, which Linux does but macOS does not.
+	// Publish to the loopback address with the topic endpoint's
+	// `<topic>.eventgrid.localhost` host in the Host header: macOS does not resolve
+	// `*.localhost` to 127.0.0.1.
 	ep, err := url.Parse(topic.Properties.Endpoint)
 	require.NoError(t, err)
 	runCLI(t, azRest("POST", baseURL+ep.Path+"?api-version=2018-01-01", publishBody,

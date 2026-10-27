@@ -28,32 +28,18 @@
 
 set -euo pipefail
 
-# --- Adoption quarantine ---------------------------------------------------
+# Adoption quarantine. "Latest" means the newest version public for at least
+# this long, not the newest that exists: a compromised, hijacked or broken
+# release is most dangerous in its first hours, before registry yanks,
+# advisories and "we shipped a broken tag" reports land. A newer version
+# inside the window is reported as HELD and adopted by a later run once it has
+# aged out, never as drift. Do not shorten the window, and do not delete it to
+# turn a red gate green: the delay is the mitigation.
 #
-# Dependencies are kept current AND kept at arm's length for their first day in
-# the world. A release published minutes ago has had no time to be noticed,
-# yanked, or flagged: a compromised, hijacked, or accidentally-broken version is
-# at its most dangerous in the hours right after publication, when nobody has
-# looked at it yet. This project should not be the one that finds out.
-#
-# So "latest" here does not mean "the newest version that exists"; it means "the
-# newest version that has been public for at least this long". A newer version
-# inside the window is reported as HELD — visible, explained, and adopted by a
-# later run once it has aged out — never as drift, and never a failure.
-#
-# The window is a whole day rather than an hour because that is the timescale on
-# which the mitigation actually operates: registry yanks, advisory publication,
-# and "we just shipped a broken tag" reports land in hours, not minutes. Do not
-# shorten this, and do not delete it to turn a red gate green — the delay IS the
-# mitigation, and a gate that adopts a release the instant it appears provides
-# none of it.
-#
-# This reasoning is specific to code this repository installs and executes. It
-# is deliberately NOT applied to the vendored cloud specifications checked by
-# scripts/check-spec-freshness.sh: those documents are inert reference data
-# validated by our own suites, never executed, so there is no window in which a
-# bad one can hurt us — and delaying their pins would only hide rot from the
-# scheduled freshness run whose whole job is to catch it.
+# The quarantine covers code this repository installs and executes, not the
+# vendored cloud specifications scripts/check-spec-freshness.sh checks: those
+# are inert reference data, and delaying their pins would only hide rot from
+# the scheduled freshness run.
 readonly ADOPTION_QUARANTINE_FLOOR_SECONDS=86400 # 24 hours
 
 # The effective window may be LENGTHENED (a stricter local policy, or a test
@@ -94,22 +80,17 @@ docker_hub=${DEPS_DOCKER_HUB_URL:-https://hub.docker.com}
 gcr_mirror=${DEPS_GCR_MIRROR_URL:-https://mirror.gcr.io}
 readonly terraform_registry github_api docker_hub gcr_mirror
 
-# --- Baseline attribution --------------------------------------------------
-#
 # Usage: scripts/check-latest-deps.sh [--baseline <ref>]
 #
-# Without --baseline every drift fails. That is the form the scheduled run on
-# main uses, and it is what keeps the dependencies from rotting.
+# Without --baseline every drift fails. The scheduled run on main uses that
+# form, which keeps the dependencies from rotting.
 #
-# --baseline <ref> attributes each drift before failing on it, the same way
-# scripts/check-spec-freshness.sh already does for the vendored specifications.
-# Upstream publishes continuously and independently of any branch, and the
-# quarantine guarantees a steady drip: a version becomes drift exactly 86400s
-# after it appears, whether or not anybody pushed. On main over one day that
-# turned five of six consecutive runs red on dependencies nothing had touched
-# --- docker/setup-buildx-action v4.3.0, google.golang.org/grpc v1.83.1,
-# aws-sdk-go-v2/service/organizations v1.54.0 --- and a permanently red main is
-# not a gate, it is noise that hides the run which matters.
+# --baseline <ref> attributes each drift before failing on it, as
+# scripts/check-spec-freshness.sh does for the vendored specifications.
+# Upstream publishes continuously, and the quarantine guarantees a steady
+# drip: a version becomes drift exactly 86400s after it appears, whether or
+# not anybody pushed, and a branch red for drift it did not cause hides the
+# run that matters.
 #
 # With a baseline, a pin byte-identical to the baseline's carries drift the
 # baseline already carried: upstream moved under the branch rather than the
@@ -152,26 +133,31 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 exec 3>&2
 
-# go_proxy runs one `go list -m` query, which is a request to the module proxy
-# that the Go toolchain puts no deadline on: a single stalled connection once
-# held a CI run until the job's own time limit cancelled it, with nothing in
-# the log to say what it was waiting for. Each attempt gets its own deadline and
-# a stalled one is retried; any other failure is the query's answer, returned
-# as is. A query that stalls every time fails the run, closed, rather than
+# go_proxy runs one `go list -m` query, a request to the module proxy the Go
+# toolchain puts no deadline on. Each attempt gets its own deadline, and a
+# stalled attempt or one the network failed (a TLS handshake or connection that
+# timed out or reset) is retried; any other failure is the query's answer,
+# returned as is. A query that stalls every time fails the run rather than
 # reading as a module with no versions: the callers skip what they cannot look
 # up, and a lookup that never answered is not a clean result.
 go_proxy() {
   local attempt outcome
   for attempt in 1 2 3; do
-    if GOFLAGS='' timeout "$go_proxy_deadline" go list -m "$@"; then
+    if GOFLAGS='' timeout "$go_proxy_deadline" go list -m "$@" 2>"$work/go-proxy.err"; then
+      cat "$work/go-proxy.err" >&2
       return 0
     else
       outcome=$?
     fi
-    [[ $outcome -eq 124 ]] || return "$outcome"
+    if [[ $outcome -ne 124 ]] && ! grep -qE 'TLS handshake timeout|i/o timeout|connection reset by peer|connection refused|unexpected EOF' "$work/go-proxy.err"; then
+      cat "$work/go-proxy.err" >&2
+      return "$outcome"
+    fi
     # To the run's own stderr (fd 3): callers discard the query's stderr.
-    echo "  ..    go list -m $* stalled for ${go_proxy_deadline}s (attempt $attempt of 3)" >&3
+    echo "  ..    go list -m $* failed on the network or stalled for ${go_proxy_deadline}s (attempt $attempt of 3)" >&3
   done
+  cat "$work/go-proxy.err" >&2
+  [[ $outcome -eq 124 ]] || return "$outcome"
   printf 'go list -m %s\n' "$*" >> "$work/go-proxy-stalled"
   return 124
 }
@@ -369,7 +355,7 @@ report_version_state() {
   fi
 }
 
-# 1. Go modules -------------------------------------------------------
+# 1. Go modules.
 # The module proxy records when each version was published and the Go toolchain
 # surfaces it: `go list -m -json <module>@<version>` prints the `Time` field
 # proxy.golang.org serves at /<module>/@v/<version>.info, resolved through
@@ -437,7 +423,7 @@ while IFS= read -r mod_file; do
   popd >/dev/null
 done < <(git ls-files 'go.mod' '*/go.mod' | sort)
 
-# 2. Terraform providers ---------------------------------------------
+# 2. Terraform providers.
 # The public registry publishes per-version metadata at
 # /v1/providers/<namespace>/<type>/<version>, whose `published_at` is the
 # moment that provider build became downloadable. The index at
@@ -487,23 +473,17 @@ while IFS= read -r tf; do
   while IFS='|' read -r name source ver_constraint; do
     [[ -z "$source" ]] && continue
     # A provider entry with no version installs whatever is newest at `terraform
-    # init`, which walks straight past the adoption quarantine this check
-    # exists to enforce: hashicorp/google 8.0.0 was published at 19:15Z on
-    # 2026-08-26 and CI installed it 77 minutes later, breaking the Google
-    # Cloud Terraform job on main. It was invisible here because the parser
-    # only emitted entries that carried a version, so the one provider that
-    # could not be held was also the one nobody was told about.
+    # init`, walking straight past the adoption quarantine this check exists to
+    # enforce, so it fails here rather than as a broken build.
     if [[ -z "$ver_constraint" ]]; then
       echo "  FAIL  $tf: $name ($source) declares no version — an unpinned provider installs the newest release at init, ignoring the ${quarantine_seconds}s adoption quarantine; pin it so a major shows up here as drift instead of as a broken build"
       fail=$((fail + 1))
       continue
     fi
     index="$work/tf-index.json"
-    # A registry that will not answer is not evidence of a stale pin, and this
-    # check reported it as drift — two fixtures failed a CI run that way while
-    # every other fixture read the same provider fine. Retry first: the answer
-    # is the same document each time, so a read that fails once and succeeds on
-    # the next attempt was a transport failure and nothing else.
+    # A registry that will not answer is not evidence of a stale pin. Retry
+    # first: the answer is the same document each time, so a read that fails once
+    # and succeeds on the next attempt was a transport failure.
     tf_index_read=1
     for attempt in 1 2 3; do
       if curl -fsSL --max-time 30 --retry 3 --retry-delay 3 --retry-all-errors -o "$index" "$terraform_registry/v1/providers/${source}" 2>/dev/null; then
@@ -539,11 +519,10 @@ while IFS= read -r tf; do
       continue
     fi
     # An exact pin names the one version Terraform may install, so it is behind
-    # the moment a newer one is adoptable. Comparing its major only would let a
-    # pin sit ten minor versions back and still read as current, which is what
-    # every AWS provider pin in this repository was doing. A constraint carrying
-    # an operator ("~> 6.0", ">= 6.1.0") admits newer versions by itself, so
-    # only its major has to keep up.
+    # the moment a newer one is adoptable; comparing its major only would let a
+    # pin sit ten minor versions back and still read as current. A constraint
+    # carrying an operator ("~> 6.0", ">= 6.1.0") admits newer versions by
+    # itself, so only its major has to keep up.
     exact_pin=$(echo "$ver_constraint" | sed -E 's/^[[:space:]]*=?[[:space:]]*//')
     if [[ "$exact_pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       if [[ "$exact_pin" == "$ADOPTABLE" ]]; then
@@ -590,12 +569,11 @@ while IFS= read -r tf; do
     fi
   done <<<"$parsed"
   # Every .tf file, because a required_providers block lives wherever the
-  # configuration puts it. Scanning only versions.tf matched no file in this
-  # repository at all, and a section that reads nothing reports nothing and
-  # passes — the one failure mode a freshness gate cannot afford.
+  # configuration puts it; a section that reads nothing reports nothing and
+  # passes.
 done < <(git ls-files '*.tf' | sort)
 
-# 3. GitHub Actions ---------------------------------------------------
+# 3. GitHub Actions.
 echo
 echo "=== GitHub Actions freshness (adoption quarantine ${quarantine_seconds}s) ==="
 # Unauthenticated requests to the GitHub API are rate limited, and a throttled
@@ -740,7 +718,7 @@ if [[ -d .github/workflows ]]; then
   done <<<"$actions"
 fi
 
-# 4. Go tools installed by workflows ----------------------------------
+# 4. Go tools installed by workflows.
 # `go install <pkg>@latest` resolves at job time, so a release published
 # minutes earlier runs in CI with no quarantine and no commit — the same hole
 # an unpinned Terraform provider opens. It also makes the download
@@ -749,10 +727,8 @@ fi
 #
 # `go install` takes a package path, and the version belongs to the module
 # containing it, so walk the path upwards until a module resolves.
-# go_tool_module_error carries why the last attempt failed. Without it the
-# caller could only say "no module resolves", which is a verdict with its
-# evidence thrown away: the same three tools resolve by hand and fail in CI,
-# and the reason went to /dev/null both times.
+# go_tool_module_error carries why the last attempt failed, so the caller
+# reports the evidence rather than only "no module resolves".
 go_tool_module_error=""
 
 # Every prefix the walk tries short of the module is a path no proxy holds, and
@@ -768,21 +744,17 @@ go_tool_proxies=$(GOFLAGS='' GOTOOLCHAIN=local go env GOPROXY | tr ',|' '\n' | {
 [[ -n "$go_tool_proxies" ]] || go_tool_proxies=$(GOFLAGS='' GOTOOLCHAIN=local go env GOPROXY)
 
 go_tool_module() {
-  # NOT named `path`. In zsh `path` is tied to `PATH` as an array, so a
+  # NOT named `path`: in zsh `path` is tied to `PATH` as an array, so a
   # function-local `path=github.com/mibk/dupl` replaces the command search
-  # path with that string and every command in the function stops resolving.
-  # CI runs this script under bash AND zsh; the bash pass reported nothing
-  # while the zsh pass reported "no module resolves" for all three tools,
-  # because inside this function zsh could no longer find `go` at all. The
-  # modules were fine the whole time.
+  # path and every command in the function stops resolving. CI runs this
+  # script under bash and zsh.
   local candidate=$1
   local errfile
   go_tool_module_error=""
   errfile=$(mktemp)
   while [[ $candidate == *.*/* ]]; do
     # stderr to a file rather than `2>&1 >/dev/null`: under zsh's MULTIOS that
-    # idiom does not mean what it means in bash, and it swallowed the very
-    # error this was added to surface.
+    # idiom does not mean what it means in bash.
     if GOPROXY=$go_tool_proxies go_proxy -versions "$candidate" >/dev/null 2>"$errfile"; then
       rm -f "$errfile"
       printf '%s\n' "$candidate"
@@ -844,19 +816,13 @@ if [[ -d .github/workflows ]]; then
 fi
 
 
-# ---------------------------------------------------------------------------
-# npm package freshness (the console user interface).
+# npm package freshness (the console user interface): the console packages
+# are held to their newest release that has cleared the adoption quarantine,
+# like every other class here, against npm's own publication metadata.
 #
-# The three console SPAs are a dependency tree nothing here watched. Every
-# other class in this script — Go modules, Terraform providers, GitHub Actions,
-# workflow Go tools — is held to its newest release that has cleared the
-# adoption quarantine, and the user interface was simply outside that, so its
-# packages drifted by however long nobody happened to look. They are checked
-# the same way now, against npm's own publication metadata.
-#
-# npm_packument caches one package document per run, because a package appears
-# in several of the four package.json files and the document is the same each
-# time.
+# npm_packument caches one package document per run, because a package
+# appears in several of the four package.json files and the document is the
+# same each time.
 npm_packument() {
   local name=$1 cache
   cache="$work/npm-$(printf '%s' "$name" | tr '/@' '__').json"
@@ -888,33 +854,11 @@ npm_release_versions() {
     | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV
 }
 
-
-# npm_hold_reason names a package deliberately kept behind its newest release,
-# and prints why. A hold is not a version nobody looked at: each of these
-# breaks something here, and ui/README.md carries the evidence. Drop a branch
-# the moment the upstream release that broke it is superseded.
-#
-# A case rather than an associative array: this script runs under the bash
-# macOS ships, which is 3.2 and has none, and under zsh in its own CI job.
-npm_hold_reason() {
-  case $1 in
-    "@tanstack/react-table")
-      printf '%s\n' "v9 is an API redesign — createColumnHelper takes feature generics and the table is built from a feature set — so adopting it is a migration of every console's tables. See ui/README.md."
-      ;;
-    *) return 1 ;;
-  esac
-}
-
 echo "=== npm package freshness (adoption quarantine ${quarantine_seconds}s) ==="
 while IFS= read -r manifest; do
   [[ -z "$manifest" ]] && continue
   while IFS='|' read -r name constraint; do
     [[ -z "$name" ]] && continue
-    if hold_reason=$(npm_hold_reason "$name"); then
-      echo "  HELD  $manifest: $name pinned at $constraint — $hold_reason"
-      held=$((held + 1))
-      continue
-    fi
     versions=$(npm_release_versions "$name") || {
       echo "  FAIL  $manifest: $name could not be read from the npm registry after three attempts — this is the registry being unreachable, not a stale pin"
       fail=$((fail + 1))
@@ -941,9 +885,7 @@ while IFS= read -r manifest; do
       continue
     fi
     # Attributed like every other class: a pin byte-identical to the baseline's
-    # is drift the baseline already carried, not this branch's. This branch
-    # failed on exactly that twice in one day before the npm half went through
-    # report_version_state like the Go, Terraform and Actions halves do.
+    # is drift the baseline already carried, not this branch's.
     report_version_state "$manifest: $name" "$pinned" "$manifest" "\"$name\""
   done < <(jq -r '
       [(.dependencies // {}), (.devDependencies // {})]
@@ -953,7 +895,7 @@ while IFS= read -r manifest; do
       | "\(.key)|\(.value)"' "$manifest")
 done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 
-# 5. Container image pins -------------------------------------------------
+# 5. Container image pins.
 # Every image this repository pins is pulled from mirror.gcr.io, Google's copy
 # of Docker Hub, by tag and digest, because Docker Hub limits anonymous pulls
 # per address and the shared runners exhaust it. A digest that never moves rots

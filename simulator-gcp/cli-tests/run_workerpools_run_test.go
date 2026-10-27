@@ -60,10 +60,9 @@ func startedHosts(out, prefix string) []string {
 // A worker pool runs as many instances as its manual instance count, with its
 // Cloud Storage volume mounted, and `gcloud run worker-pools logs read` reads
 // what they log. Lowering the count stops the surplus with the stop signal
-// before the update answers, and deleting the pool stops the rest. gcloud's
-// deploy and update commands speak Cloud Run v2 over gRPC, which the
-// simulator does not serve, so the pool is deployed over the v2 REST
-// collection.
+// before the update answers, and deleting the pool stops the rest. gcloud
+// deploys over Cloud Run v2 gRPC, which the simulator does not serve, so deploy
+// the pool over the v2 REST collection.
 func TestCloudRunWorkerPools_CLI_LogsAndVolumeOfRunningInstances(t *testing.T) {
 	t.Parallel()
 	const bucket = "cli-run-wp-volume"
@@ -92,8 +91,8 @@ func TestCloudRunWorkerPools_CLI_LogsAndVolumeOfRunningInstances(t *testing.T) {
 		}
 	})
 
-	// Cloud Logging offers the CLI no wait on an entry, so the log is read
-	// until both instances' start lines are in it.
+	// Cloud Logging offers the CLI no wait on an entry, so read the log until both
+	// instances' start lines are in it.
 	var out string
 	require.Eventually(t, func() bool {
 		out = runCLI(t, gcloudCLI("run", "worker-pools", "logs", "read", pool, "--region="+location, "--limit=100"))

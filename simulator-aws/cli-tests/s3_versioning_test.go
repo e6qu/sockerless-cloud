@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// s3PutVersionCLI writes body to bucket/key through `aws s3api put-object` and
-// returns the version id S3 reports.
 func s3PutVersionCLI(t *testing.T, bucket, key, body string) string {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "body")
@@ -24,7 +22,7 @@ func s3PutVersionCLI(t *testing.T, bucket, key, body string) string {
 	return out.VersionId
 }
 
-// s3GetVersionCLI reads one version of bucket/key ("" for the current object).
+// s3GetVersionCLI reads one version of bucket/key, the current object for "".
 func s3GetVersionCLI(t *testing.T, bucket, key, version string) string {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "out")
@@ -51,10 +49,9 @@ type s3VersionListingCLI struct {
 	} `json:"DeleteMarkers"`
 }
 
-// TestS3_ObjectVersioningCLI drives a versioning-enabled bucket through the
-// aws CLI: versions accumulate, a delete leaves a delete marker, version ids
-// address reads, copies and deletes, and a suspended bucket writes the null
-// version.
+// TestS3_ObjectVersioningCLI expects versions to accumulate, a delete to leave
+// a delete marker, version ids to address reads, copies and deletes, and a
+// suspended bucket to write the null version.
 func TestS3_ObjectVersioningCLI(t *testing.T) {
 	t.Parallel()
 	const bucket = "cli-object-versioning"
@@ -120,7 +117,7 @@ func TestS3_ObjectVersioningCLI(t *testing.T) {
 }
 
 // TestS3_DeleteObjectsRefusesEntriesCLI deletes two keys as a caller that may
-// delete one: delete-objects succeeds and reports the other as AccessDenied.
+// delete one: delete-objects succeeds and reports the other AccessDenied.
 func TestS3_DeleteObjectsRefusesEntriesCLI(t *testing.T) {
 	t.Parallel()
 	const bucket = "cli-delete-objects-partial"

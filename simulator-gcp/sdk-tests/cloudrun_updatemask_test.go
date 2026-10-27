@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudRun_UpdateServiceHonorsUpdateMask pins Cloud Run v2 UpdateService
-// field-mask semantics: a PATCH with updateMask=labels updates only the labels
-// and preserves every unmasked field (e.g. the template/image), even when the
-// request body carries a different value for them. Before the fix the handler
-// did a wholesale replace, dropping unmasked fields → terraform drift.
+// TestCloudRun_UpdateServiceHonorsUpdateMask: a PATCH with updateMask=labels
+// changes only the labels and keeps every unmasked field, even one the body
+// sends a different value for; Terraform drifts otherwise.
 func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
@@ -44,8 +42,6 @@ func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 	require.Less(t, resp.StatusCode, 300, "create: %d %s", resp.StatusCode, body)
 
 	svcURL := base + "/" + sid
-	// updateMask=labels: change the label, and send a DIFFERENT image that must
-	// be ignored because template is not in the mask.
 	resp, body = doJSON("PATCH", svcURL+"?updateMask=labels",
 		`{"labels":{"k":"v2"},"template":{"containers":[{"image":"img-b"}]}}`)
 	require.Less(t, resp.StatusCode, 300, "patch: %d %s", resp.StatusCode, body)
@@ -67,11 +63,9 @@ func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 		"unmasked field (template) preserved despite img-b in the request body")
 }
 
-// TestCloudRun_UpdateServiceSubPathMask verifies that a sub-path
-// updateMask (e.g. "template.containers") merges only that leaf into
-// the template, preserving other template sub-fields like volumes and
-// scaling. Before the fix the handler swapped the whole template when
-// any "template.*" mask path appeared.
+// TestCloudRun_UpdateServiceSubPathMask: a sub-path updateMask such as
+// "template.containers" merges only that leaf and keeps the template's volumes
+// and scaling.
 func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
@@ -94,14 +88,12 @@ func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 		return resp, b
 	}
 
-	// Create with containers + volumes + scaling.
 	resp, body := doJSON("POST", base+"?serviceId="+sid,
 		`{"template":{"containers":[{"image":"img-a","name":"c1"}],"volumes":[{"name":"data","emptyDir":{}}],"scaling":{"minInstanceCount":1,"maxInstanceCount":3}}}`)
 	require.Less(t, resp.StatusCode, 300, "create: %d %s", resp.StatusCode, body)
 
 	svcURL := base + "/" + sid
 
-	// PATCH with updateMask=template.containers — only containers change.
 	resp, body = doJSON("PATCH", svcURL+"?updateMask=template.containers",
 		`{"template":{"containers":[{"image":"img-b","name":"c1"}]}}`)
 	require.Less(t, resp.StatusCode, 300, "patch: %d %s", resp.StatusCode, body)
@@ -124,24 +116,20 @@ func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(body, &svc))
 
-	// Containers updated to img-b.
 	require.NotEmpty(t, svc.Template.Containers)
 	assert.Equal(t, "img-b", svc.Template.Containers[0].Image,
 		"masked sub-path template.containers must be updated")
 
-	// Volumes preserved.
 	require.NotEmpty(t, svc.Template.Volumes, "unmasked template.volumes must be preserved")
 	assert.Equal(t, "data", svc.Template.Volumes[0].Name)
 
-	// Scaling preserved.
 	assert.Equal(t, 3, svc.Template.Scaling.MaxInstanceCount,
 		"unmasked template.scaling must be preserved")
 }
 
-// TestCloudRun_UpdateServiceRejectsUnknownMaskPath pins the real Cloud Run
-// v2 contract for a bad field mask: an updateMask naming a field that does
-// not exist on the Service resource fails with 400 INVALID_ARGUMENT and
-// leaves the service untouched — it is not silently ignored.
+// TestCloudRun_UpdateServiceRejectsUnknownMaskPath: Cloud Run v2 answers an
+// updateMask naming no Service field with 400 INVALID_ARGUMENT and leaves the
+// service untouched.
 func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
@@ -198,10 +186,9 @@ func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 		"a rejected updateMask must not bump the generation or spawn a revision")
 }
 
-// TestCloudRun_UpdateServiceTemplateFieldMask pins the member-wise template
-// merge: updateMask=template.service_account (in snake_case, as protojson
-// masks arrive) must update the service account while preserving the rest of
-// the template — never discard the submitted template wholesale.
+// TestCloudRun_UpdateServiceTemplateFieldMask: updateMask=template.service_account,
+// snake_case as protojson masks arrive, updates the service account and keeps
+// the rest of the template.
 func TestCloudRun_UpdateServiceTemplateFieldMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"

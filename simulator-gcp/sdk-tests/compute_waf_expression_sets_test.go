@@ -7,14 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog covers
-// securityPolicies.listPreconfiguredExpressionSets, which used to decline as a
-// catalogue only Google can publish. It is published, and it is vendored from
-// that publication.
-//
-// This is the read a caller makes before writing evaluatePreconfiguredExpr into
-// a Cloud Armor rule, so the answer has to carry the signature identifiers a
-// rule would name and the sensitivity each is filed under.
+// TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog: a caller reads
+// securityPolicies.listPreconfiguredExpressionSets, vendored from Google's
+// publication, before writing evaluatePreconfiguredExpr into a Cloud Armor
+// rule, so the answer carries the signature identifiers and their sensitivity.
 func TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -56,9 +52,8 @@ func TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog(t *testing.T) 
 	}
 	assert.True(t, sqli.found, "the libinjection signature is in the CRS 4.22 SQLi set")
 
-	// The JSON SQLi set is the one whose identifier carries no CRS-version
-	// segment. Composing it by analogy with every other id on the page gives a
-	// string that exists nowhere, so it is read rather than built.
+	// The JSON SQLi set's identifier carries no CRS-version segment, so read it
+	// rather than compose it by analogy.
 	assert.Equal(t, []string{"owasp-crs-id942550-sqli"}, byID["json-sqli-canary"])
 	assert.Len(t, byID["cve-canary"], 6, "four OWASP Log4j signatures and two google-mrs React ones")
 }

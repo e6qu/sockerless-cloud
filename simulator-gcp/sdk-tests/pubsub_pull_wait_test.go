@@ -13,8 +13,6 @@ import (
 	pubsub "google.golang.org/api/pubsub/v1"
 )
 
-// psGapicClients builds the generated cloud.google.com/go/pubsub/apiv1
-// Publisher and Subscriber clients against the simulator's gRPC endpoint.
 func psGapicClients(t *testing.T) (*vkit.PublisherClient, *vkit.SubscriberClient) {
 	t.Helper()
 	opts := append(simGRPCClientOptions(), option.WithTelemetryDisabled())

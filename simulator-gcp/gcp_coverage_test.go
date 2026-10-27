@@ -13,56 +13,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// GCP operation-coverage gate — the Discovery-document analogue of the AWS
-// service-conformance ratchet (simulator-aws/service_conformance_test.go).
-//
-// For each vendored Google Discovery document it counts how many of the
-// service's REST methods the simulator actually SERVES. Coverage is measured
-// by probing the running simulator: every documented method is rendered into a
-// concrete request URI (path parameters filled from the document's own
-// parameter patterns), sent through the same handler chain main() serves —
-// bearer middleware included — and the response is classified by
-// gcpClassifyProbe. A method counts only when a mounted handler answered it.
-// The count is locked by gcpMethodFloor: a drop is a regression, an increase
-// is a ratchet-up that must bump the floor. This makes GCP coverage a
-// measured, gated number rather than something discovered later by a consumer.
-//
-// Probing is what makes the number honest. Matching a documented method
-// against the registered route patterns by shape alone counts a method as
-// covered whenever ANY pattern could spell its URI — a {+name} template landing
-// under an unrelated mounted pattern, or a colon-verb fan-in handler that
-// matches every custom method on a resource and then rejects the verb. Those
-// are phantoms: no handler serves the method. Only the response says whether
-// one does.
-//
-// The bulk of Compute Engine's ~2000-method surface (and other large
-// data-plane/admin surfaces) is intentionally far from 100% — the floor records
-// the honest implemented count, not an aspiration.
+// The Google Cloud operation-coverage gate, the Discovery-document analogue of
+// simulator-aws/service_conformance_test.go. It renders every documented method
+// of each vendored Discovery document into a concrete request URI, sends it
+// through the handler chain main() serves, bearer middleware included, and
+// counts the method served only when a mounted handler answered it
+// (gcpClassifyProbe). gcpMethodFloor locks the count: a drop is a regression,
+// a rise must raise the floor. Matching routes by shape alone would count a
+// method whose URI lands under an unrelated pattern or a fan-in that rejects
+// its verb; only the response shows whether a handler serves it.
 
-// gcpMethodFloor locks the served-method COUNT per Discovery document (keyed by
-// file name without the .discovery.json.gz suffix). Serve a method (or grow the
-// vendored doc) and the matching floor must move with it.
-//
-// A count moves for one of two reasons, and both must be spelled out where the
-// count changes: the simulator started (or stopped) serving a method, or the
-// vendored document itself added or withdrew one. Google withdraws methods — a
-// count that drops purely because a method left the document is not a simulator
-// regression, and the comment on that entry says which method left.
-//
-// A document's count is over method SPELLINGS: Discovery describes most methods
-// twice, as an expanded flatPath and as a {+name} template, and both are real
-// descriptions of the same URI. Both render to the same concrete URI and are
-// probed the same way, so a served method contributes both of its spellings and
-// an unserved one contributes neither.
 // gcpDeclaredMethodTotals locks each vendored Discovery document's declared
-// method-spelling count. The served floor above cannot see the failure mode
-// this closes: a re-vendored document that ADDS methods leaves every served
-// count unchanged, so the floors stay green while the new methods sit
-// silently unserved — exactly how forty-three AWS operations drifted
-// unnoticed between 2026-08-12 and 2026-08-23 before that simulator's model
-// drift gate existed. A changed total fails here and forces the decision:
-// serve the new methods, or record why not in the floor comment — then
-// update both tables together.
+// method-spelling count. A re-vendor that adds methods leaves every served
+// count unchanged, so without this the new methods would sit unserved behind
+// green floors; a changed total forces serving them or recording why not.
 var gcpDeclaredMethodTotals = map[string]int{
 	"apigateway-v1":           60,
 	"artifactregistry-v1":     149,
@@ -99,229 +63,51 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"vpcaccess-v1":            16,
 }
 
+// gcpMethodFloor locks the served count per Discovery document, keyed by file
+// name without .discovery.json.gz. Discovery spells most methods twice, as a
+// flatPath and a {+name} template; both render to one URI, so a served method
+// counts both spellings and an unserved one neither.
 var gcpMethodFloor = map[string]int{
-	// Compute Engine serves 2,004 of the document's 2,016 method spellings.
-	//
-	// The twelve that remain are two catalogues Google publishes, and the
-	// reason they are unserved is not that they cannot be answered — this
-	// project vendors a published catalogue when it can, and
-	// network_appgateway_waf_rule_sets.go on the Azure slice is the template:
-	// an embedded JSON file, its sources cited by URL and retrieval date, and a
-	// test locking the per-group counts so a partial vendor fails loudly. The
-	// reason is that the vendoring has not been done and cannot be done
-	// accurately from what is reachable here.
-	//
-	// securityPolicies.listPreconfiguredExpressionSets is all but ready to
-	// vendor, and what is written here should be read before the next attempt.
-	//
-	// Google's own documentation carries the whole catalogue in HTML tables at
-	// https://docs.cloud.google.com/armor/docs/waf-rules, and it parses
-	// deterministically — fetched with curl and read with a regular expression,
-	// no summarising in between. Measured on 2026-09-04: 477 signature rows of
-	// `<td><code>owasp-crs-vNNNNNN-idNNNNNN-cat</code></td><td>sensitivity</td>`,
-	// all distinct, across 35 groups of CRS version × category; and a status
-	// table naming all 72 expression sets, each stable one declared "In sync
-	// with" its canary, so the two hold the same signatures by the page's own
-	// statement rather than by inference. Three CRS families are offered: 4.22
-	// as `<cat>-v422-stable`, 3.3 as `<cat>-v33-stable`, and 3.0 under the
-	// unversioned `<cat>-stable`.
-	//
-	// An earlier note here said a reconstruction from the OWASP rule files gave
-	// 60 signatures for CRS 4.22 SQL injection where Google documented 59, and
-	// declined on that one-rule disagreement. The 59 was wrong — it came from a
-	// summary of the page rather than the page — and Google's table says 60,
-	// which is what the rule files say too. There is no disagreement.
-	//
-	// What stops it is one set of the seventy-two. The category sets and
-	// `cve-canary` are enumerated in tables, but `json-sqli-canary` is
-	// described only in prose, which names its signature as "942550-sqli"
-	// rather than as a full identifier.
-	//
-	// Composing the identifier from that would have been wrong, and it is worth
-	// recording how wrong. The obvious composition by analogy with every id in
-	// the tables is `owasp-crs-v030001-id942550-sqli`, and a GitHub code search
-	// finds that string in no repository anywhere. The spelling that does occur
-	// — five repositories, including Google's own
-	// GoogleCloudPlatform/terraform-google-waap — is `owasp-crs-id942550-sqli`,
-	// with no CRS-version segment at all. So the two forms coexist and the
-	// tables' form is not universal, which is exactly the kind of thing a
-	// recorded response settles and an analogy does not.
-	//
-	// None of those five is an API response; they are Terraform configurations
-	// and a log filter. Confirm the id against a recorded
-	// listPreconfiguredExpressionSets response — the way the Azure catalogue
-	// settled its wire spellings — and the rest is mechanical. Answering with
-	// 71 sets where the service answers with 72 is a wrong answer of another
-	// shape, so the set is not offered until its contents are known.
-	//
-	// interconnectLocations is served: Google publishes the colocation
-	// facilities, and they are vendored from that publication in
-	// compute_interconnect_locations.go.
-	//
-	// interconnectRemoteLocations is the Cross-Cloud Interconnect catalogue —
-	// the third-party facilities Google peers with — and it is a harder vendor
-	// than the colocation one, for reasons worth writing down so the next
-	// attempt does not rediscover them.
-	//
-	// There is no single list. The remote locations are documented per cloud
-	// provider, on a "Choose your locations" page each for Amazon Web Services,
-	// Microsoft Azure, Oracle Cloud Infrastructure and Alibaba Cloud, so the
-	// catalogue is four parses rather than one. Each page does carry what the
-	// resource needs — measured on the AWS page on 2026-09-04, the remote
-	// location name (`aws-tejb1`), the facility provider's own id (`TEJB1`),
-	// the metropolitan area, and the Google locations it may connect to, which
-	// is permittedConnections.
-	//
-	// What makes it harder is that the association, not the enumeration, is
-	// what can go wrong, and a count check cannot catch it. The tables lean on
-	// rowspans and the markup drops rows — a content-shaped parse recovered 27
-	// entries cleanly and still attributed no metropolitan area to `aws-lgknx`,
-	// whose city is rowspanned from the entry above it. The names are not a
-	// simple pattern either: `aws-eqse2-eq` carries a sublocation suffix that a
-	// `aws-[a-z0-9]+` pattern rejects, so a parse can be both over- and
-	// under-inclusive at once. A remote location filed under the wrong city, or
-	// offering the wrong permittedConnections, is a wrong answer that nothing
-	// in the vendored file would reveal.
-	//
-	// Serve it with a rowspan-aware parse whose associations are checked
-	// against the page rather than assumed, over all four provider pages, and
-	// with the name pattern taken from a recorded response rather than from the
-	// examples.
-	//
-	// interconnects.getDiagnostics used to be listed here as hardware
-	// reporting on itself. Most of what it reports is on the interconnect's own
-	// record and it is served now; only the optical power, the negotiated LACP
-	// state and the ARP caches are off the equipment, and the schema requires
-	// none of them.
-	//
-	// An empty list is the right answer for a catalogue of something this
-	// platform genuinely offers none of — it is what App Service's runtime
-	// stacks, billing meters and App Service Environment regions answer, and
-	// what makes it right there is that the rest of the platform agrees: a
-	// site configured with a built-in stack is refused, so the catalogue and
-	// the behaviour cannot come apart.
-	//
-	// These fourteen fail that test. Compute Engine here accepts an
-	// `interconnects.insert` naming any location and a security-policy rule
-	// naming any preconfigured expression set, so a catalogue answering "none"
-	// would contradict what the same simulator lets a client do. Serving the
-	// real content instead means Google's facility addresses and peering
-	// identifiers, or a WAF rule set's expression ids — data a client cannot
-	// tell from a real catalogue once invented. Between two wrong answers the
-	// declared 501 is the one that misleads nobody.
-	//
-	// Discovery spells most methods twice, so twelve spellings are six methods:
-	// a list and a read for each of the two location catalogues, and the
-	// preconfigured WAF expression sets at the project and organization scopes.
-	//
-	// A licence code is no longer among them. It is not Google's catalogue
-	// when the licence is one this project created: Compute Engine assigns the
-	// code on insert, and reading the code is a read of the licence it was
-	// issued for. A code this project was never issued is not found, which is
-	// what a read of something that does not exist says.
-	//
-	// A re-vendor on 2026-09-04 added regions.projectViews.get and
-	// regions.advice.capacity/capacityHistory (three methods, six spellings):
-	// a regional read-replica of project metadata whose only reason to exist
-	// is the asynchronous lag behind the canonical write path this simulator
-	// does not model, and Google's own capacity forecast and observed
-	// history for a region, which is an analysis this simulator does not
-	// run. Declared unserved in compute_catalogs.go for the same reason as
-	// the catalogues above: the alternative is inventing exactly what a
-	// client cannot tell from the real thing.
-	//
-	// Lower this floor by one and the gate prints the unserved list, which is
-	// the work list whenever that changes.
-	// 2,016 → 2,036 spellings on the 2026-09-16 re-vendor (revision 20260910),
-	// and 2,004 → 2,022 served. Served: regionNetworkFirewallPolicies
-	// .patchAssociation, which edits an association the policy already holds,
-	// beside the add/get/remove verbs — and ONLY that collection declares it;
-	// and imageViews.get/.list, a read-only view of the same global images
-	// this simulator already stores ("the specified global ImageView
-	// resource, with a regional context"), unlike regions.projectViews, whose
-	// whole purpose is a replica's lag and which stays unserved. Unserved,
-	// each answering a declared 501: managedRulesets.get/.list, Cloud Armor's
-	// own managed rule catalogue, every field generated by Google; and
-	// globalFrontendSettings.get/.patch, a project's frontend billing bundle,
-	// a fact about a real billing account this deployment does not have.
+	// Compute Engine: the unserved methods answer declared 501s in
+	// compute_catalogs.go: regions.projectViews.get, regions.advice.capacity and
+	// .capacityHistory, managedRulesets.get and .list, and
+	// globalFrontendSettings.get and .patch, each Google's own replica, forecast,
+	// rule catalogue or billing state the simulator does not hold. Lower the floor
+	// by one and the gate prints the unserved list.
 	"compute-v1": 2022,
 
-	// Cloud Resource Manager v3: every documented method is served.
-	//
-	// 126 → 156 spellings on the 2026-09-18 re-vendor, and the same 30 are
-	// served: Google published the capabilityConfigs collection — create,
-	// get, list, patch and delete — on each of the three hierarchy nodes that
-	// carries it (organizations, folders, projects), five methods spelled
-	// twice on each. A CapabilityConfig is resource-hierarchy configuration:
-	// which capabilities are enabled over a node and its sub-tree, over which
-	// boundaries, and in which management project. It is served from one
-	// store in cloudresourcemanager_capability_configs.go, the way the
-	// folders/{folder}/capabilities toggle beside it is, and the management
-	// project a create is documented to make when the caller supplies none is
-	// a real project in the store every other Cloud Resource Manager read
-	// serves — not a name pointing at nothing.
-	// Unserved, each answering a declared 501: the folders' and organizations'
-	// boundaries collection and boundaryConfig singleton, whose Management
-	// Project provisioning and CREATING-to-ACTIVE progression no vendored
-	// source states and no client exposes.
+	// Cloud Resource Manager v3: the folders' and organizations' boundaries
+	// collection and boundaryConfig singleton answer a declared 501: no vendored
+	// source states their Management Project provisioning or CREATING-to-ACTIVE
+	// progression.
 	"cloudresourcemanager-v3": 156,
 
-	// Cloud Resource Manager v2: every documented method is served. v2's only
-	// collection is folders — the wire gcloud's `resource-manager folders`
-	// group speaks — over the same folder store v3 serves; its operations.get
-	// is spelled at the v1 path, which the v1 routes already answer.
+	// Cloud Resource Manager v2: folders, over the store v3 serves; its
+	// operations.get is the v1 route.
 	"cloudresourcemanager-v2": 24,
 	"bigtableadmin-v2":        164,
 
-	// Cloud Run Admin v1: every documented method is served. The Knative
-	// services family and its children, the jobs / executions / tasks family,
-	// and the instances and workerpools collections all address the same
-	// records the v2 collections own, projected into the Knative shape; the
-	// operations poll/delete/wait and the IAM reads complete the surface.
+	// Cloud Run Admin v1: the Knative services, jobs, executions, tasks,
+	// instances and workerpools all address the v2 records.
 	"cloudrun-v1": 152,
 
-	// Dataflow: the vendored document grew from 84 spellings to 114 at the
-	// 2026-08-18 revision, and the thirty it gained are unserved. They are a
-	// new surface Google published, not a regression: the served count is
-	// unchanged, and this simulator's Dataflow slice is the job surface its
-	// consumers drive.
 	"dataflow-v1b3": 114,
 
-	// Cloud Run Admin v2: builds.submit hands the request to the Cloud Build
-	// this simulator serves, and sourceUploads.upload names the Cloud Storage
-	// location a client uploads to. Both ride the /v2 locations segment Cloud
-	// Functions also claims, so they dispatch from its fan-in; that service's
-	// count is unmoved at 42, which is what proves neither shadows the other.
-	//
-	// Fifteen spellings remain: the export family (exportImage,
-	// exportImageMetadata, exportMetadata, exportProjectMetadata and the two
-	// exportStatus spellings) reports Google's own image-export pipeline, which
-	// this simulator does not run — there is no export whose status to report.
+	// Cloud Run Admin v2: builds.submit, sourceUploads and the export verbs ride
+	// the /v2 locations segment Cloud Functions also claims and dispatch from its
+	// fan-in; cloudfunctions-v2's count shows neither shadows the other.
 	"cloudrun-v2": 119,
 
-	// BigQuery v2: the whole document is served. jobs.insert declares a JSON
-	// path, the /upload media path that carries a load job's bytes, and the
-	// /resumable/upload path apitools begins a resumable session on; the media
-	// paths run the load.
+	// BigQuery v2: jobs.insert declares a JSON path, the /upload media path that
+	// carries a load job's bytes, and the /resumable/upload path apitools uses.
 	"bigquery-v2": 96,
 
-	// Cloud DNS: every documented method but the locations, operations and
-	// outboundEndpoints collections is served; those eleven answer a declared
-	// 501 in dns.go. The managed-zone IAM triple (getIamPolicy, setIamPolicy,
-	// testIamPermissions) rides the same per-resource policy store every other
-	// AIP-141 resource uses, behind the managedZones colon-verb fan-in.
+	// Cloud DNS: the locations, operations and outboundEndpoints collections
+	// answer a declared 501 in dns.go.
 	"dns-v1": 80,
 
-	// Discovery: apis.list and apis.getRest serve the directory of the
-	// documents the simulator embeds.
 	"discovery-v1": 2,
 
-	// Cloud KMS: the two Key Access Justifications reads
-	// (showEffectiveKeyAccessJustificationsPolicyConfig and
-	// ...EnrollmentConfig) report an organization-policy product the
-	// simulator does not model; the projects colon-verb fan-in rejects them
-	// as unknown verbs. The document grew by two spellings at the 2026-08-14
-	// revision; both belong to that same Key Access Justifications family.
 	"cloudkms-v1": 174,
 
 	"eventarc-v1":       132,
@@ -330,206 +116,75 @@ var gcpMethodFloor = map[string]int{
 	"apigateway-v1":     60,
 	"iamcredentials-v1": 14,
 	"vpcaccess-v1":      16,
-	// Cloud Scheduler: the jobs collection, and the locations and operations
-	// collections the v1 surface shares. getCmekConfig and updateCmekConfig
-	// answer a declared 501 in cloudscheduler.go: no job is encrypted with a
-	// customer-managed key here.
+	// Cloud Scheduler: getCmekConfig and updateCmekConfig answer a declared 501:
+	// no job is encrypted with a customer-managed key.
 	"cloudscheduler-v1": 28,
-	// Cloud Tasks: queues, tasks, the batch verbs and the locations and
-	// operations collections the v2 surface shares. getCmekConfig and
-	// updateCmekConfig answer a declared 501 (no queue is encrypted with a
-	// customer-managed key here), and so does tasks.buffer, whose request body
-	// binding — raw bytes, as the guide's curl example sends, or a
-	// BufferTaskRequest, as the generated clients send — no vendored source
+	// Cloud Tasks: getCmekConfig and updateCmekConfig answer a declared 501, as
+	// does tasks.buffer, whose body binding (raw bytes in the guide's curl
+	// example, BufferTaskRequest in the generated clients) no vendored source
 	// settles.
 	"cloudtasks-v2": 42,
-	// Cloud Logging: every documented method is served. locations.get shares
-	// its URI shape with Cloud Run's locations/{location}:exportProjectMetadata,
-	// because a wildcard segment matches one carrying a colon; the handler
-	// splits on it, so a location is answered and a custom method is still
-	// reported unknown. Cloud Run's count is unmoved by the mount, which is
-	// what proves the split works.
+	// Cloud Logging: locations.get shares its URI shape with Cloud Run's
+	// locations/{location}:exportProjectMetadata; the handler splits on the colon,
+	// and cloudrun-v2's count shows the split works.
 	"logging-v2": 508,
 
-	// Cloud Billing: the account collection, its sub-accounts, the
-	// organization-scoped spellings, the project links (updateBillingInfo
-	// writing the store getBillingInfo reads), the IAM triple, and the
-	// installation's own service catalog — whose SKU lists are empty because
-	// this deployment publishes no price sheet, which is that catalog's
-	// truth — are served.
-	//
-	// A re-vendor on 2026-09-04 added a conversational agent task surface
-	// (tasks, their push notification configs, message send/stream) and a
-	// payment card read: twenty spellings across ten methods, all declared
-	// unserved in cloudbilling.go. A task's state is that agent's own
-	// tracking of work it is doing, sending or streaming a message hands the
-	// call to the LLM-backed agent behind it, and the card is a real
-	// financial instrument on file with Google — none of it state this
-	// simulator holds or could honestly invent.
+	// Cloud Billing: the agent task surface (tasks, push notification configs,
+	// message send and stream) and the payment card read answer a declared 501 in
+	// cloudbilling.go: an LLM-backed agent and a real payment instrument hold that
+	// state.
 	"cloudbilling-v1": 36,
 
-	// Cloud Resource Manager v1: every documented method is served — the
-	// projects lifecycle and its getAncestry hierarchy read, the IAM triple,
-	// the organizations and liens collections, the operations poll, and the
-	// org-policy family on all three hierarchy nodes.
 	"cloudresourcemanager-v1": 76,
 
-	// Cloud Storage: the whole document is served.
-	//
-	// Read a count that moves by one with suspicion. objectAccessControls'
-	// five reads and writes counted as served with no handler behind them —
-	// `/o/{object}/acl` matched the `{object...}` catch-all serving
-	// objects.get, whose JSON 404 the probe reads as an answer. Only .insert
-	// looked missing, because POST had no catch-all to swallow it. Check the
-	// siblings of any collection sitting under a multi-segment wildcard.
-	//
-	// objects.insert counts three spellings: its JSON path, its /upload media
-	// path and its /resumable/upload path.
+	// Cloud Storage: a collection under a multi-segment wildcard can count as
+	// served with no handler behind it, as objectAccessControls once did under
+	// `{object...}`; gcp_phantom_coverage_test.go catches that. objects.insert
+	// counts three spellings: JSON, /upload media and /resumable/upload.
 	"storage-v1": 90,
 
-	// Artifact Registry: the whole document is served. Raised from 125 by the
-	// prewarmed-artifact family and the plain /v1 spellings of the media
-	// publish methods.
-	//
-	// A media method declares two paths — /upload/v1 for the bytes and /v1 —
-	// and the service answers both, so registering only the upload one left
-	// seven methods unserved. The prewarm family is real state: prewarmArtifact
-	// records the artifact against a stream location with an expiry, check and
-	// remove read and delete that record, list reports it (it previously
-	// answered a hardcoded empty array), and exportArtifact writes the version
-	// into the Cloud Storage bucket the request names. files.upload and
-	// genericArtifacts.upload declare a /resumable/upload path too, counted
-	// as two more spellings.
+	// Artifact Registry: a media method declares both /upload/v1 and /v1, and
+	// files.upload and genericArtifacts.upload a /resumable/upload path too; each
+	// spelling counts.
 	"artifactregistry-v1": 149,
 
-	// Cloud Build: the whole document is served. Raised from 86 by the
-	// regional build create, builds.retry and .approve, triggers.run and
-	// .webhook, the three webhook receivers, and the Bitbucket Server
-	// connected-repository pair.
-	//
-	// Eventarc owns projects/{p}/locations/{l}/triggers under the same /v1
-	// prefix, so Cloud Build's trigger verbs are offered that fan-in before
-	// Eventarc's IAM ones. Eventarc's count is unmoved, which is what proves
-	// neither shadows the other.
-	//
-	// Declared fell from 130 to 114 at Discovery revision 20260814, when Google
-	// withdrew the whole gitLabConfigs collection.
+	// Cloud Build: Eventarc owns projects/{p}/locations/{l}/triggers under the
+	// same /v1 prefix and offers Cloud Build's trigger verbs its fan-in first;
+	// eventarc-v1's count shows neither shadows the other.
 	"cloudbuild-v1": 114,
 
-	// Memorystore for Redis: instance CRUD, upgrade, failover,
-	// rescheduleMaintenance and operations.cancel are served, and ACL policy
-	// revision get/list read immutable policy snapshots.
-	//
-	// export and import stay unserved, and not for want of routing: both move
-	// an RDB snapshot of the instance's keyspace, and this slice models the
-	// control plane only — no Redis runs behind an instance, so there are no
-	// bytes to write out and nothing an import could load. Serving them would
-	// fabricate an RDB.
 	"redis-v1": 94,
 
-	// Firestore: document CRUD, the transaction verbs, and the custom methods
-	// on a document parent — listCollectionIds, runAggregationQuery and
-	// partitionQuery, which share CreateDocument's URI shape and route through
-	// its dispatcher — plus documents:write and the databases clone/restore
-	// pair. Raised from 96.
-	//
-	// Twelve spellings remain, all of them the streaming surface: documents.listen
-	// and documents.executePipeline, and the changeStreams collection (create,
-	// get, list, delete) whose deliveries need that same plumbing. REST cannot
-	// carry a bidirectional stream, and a change stream with no listener to
-	// deliver to would be a record nothing reads.
 	"firestore-v1": 120,
 
-	// Identity and Access Management: every documented method is served —
-	// service accounts, keys (including upload's caller-supplied public key
-	// and the enable/disable bit the token endpoint honors), roles and the
-	// grantable-roles query over the sim's own catalog, the iamPolicies lint
-	// and auditable-services queries, workload/workforce identity pools with
-	// their subjects' delete/undelete pair, and the IAM policy verbs.
 	"iam-v1": 274,
 
-	// Secret Manager: secrets and versions CRUD, addVersion, access, enable,
-	// disable, destroy and the IAM verbs are served on both the global and the
-	// regional (locations/{location}) surface. Typed Cloud SQL secrets support
-	// enableManagedRotation and rotateSecret through the Cloud SQL Admin API,
-	// preserving the real managed-version lifecycle.
 	"secretmanager-v1": 72,
 
-	// Service Usage: every documented method is served —
-	// services.list/.get/.batchGet/.enable/.disable/.batchEnable and the
-	// operations collection's get/delete/cancel.
 	"serviceusage-v1": 20,
 
-	// Cloud SQL Admin: every documented method is served on both the v1 and
-	// the v1beta4 spelling — instances, databases, users, backups, SSL
-	// certs, flags, tiers, the connect resource including the DNS-name
-	// resolve, and instances.pointInTimeRestore. The point-in-time restore's
-	// /v1 URI has the shape of Cloud Resource Manager's project
-	// custom-method pattern; that dispatcher recognizes the verb as Cloud
-	// SQL Admin's and forwards it, while the /sql/v1beta4 spelling is
-	// mounted by the Cloud SQL module itself.
-	//
-	// 150 → 160 on the 2026-08-29 re-vendor: Google published the
-	// blueGreenDeployments collection — create, get, list, delete and the
-	// switchover verb, five methods on each spelling. All ten are served. The
-	// green instance is a real instance in the same store every other Cloud SQL
-	// read serves, and switchover promotes it into the source's name while the
-	// source is retired under one `deleteOldSource` can delete.
-	//
-	// The v1beta4 document grew from 160 to 170 spellings on the 2026-09-15
-	// re-vendor (revision 20260908): the workloadCaptures collection — list,
-	// start, stop, startReplay and stopReplay, each spelled twice. None is
-	// served, and each answers a declared 501. Capturing a workload records
-	// the SQL an instance executes so it can be replayed elsewhere; the data
-	// plane's front proxy relays the engine's wire protocol as bytes and never
-	// reads a query, so a capture or replay reported as RUNNING or COMPLETED
-	// would be invented.
-	//
-	// The v1 document caught up on the 2026-09-18 re-vendor, 160 → 170
-	// declared spellings, with the same five methods and the same reason not
-	// to serve them. Neither floor moves: registerCloudSQLPrefix mounts the
-	// module on /v1 and /sql/v1beta4 alike, so the declarations the v1beta4
-	// re-vendor brought already answer at the v1 spelling.
+	// Cloud SQL Admin, on both the v1 and the v1beta4 spelling: the
+	// workloadCaptures collection answers a declared 501, since the data plane
+	// relays the engine's wire protocol as bytes and never reads a query to
+	// capture or replay. instances.pointInTimeRestore's /v1 URI has the shape of
+	// Cloud Resource Manager's project custom methods; that dispatcher forwards
+	// the verb.
 	"sqladmin-v1":      160,
 	"sqladmin-v1beta4": 160,
 
-	// Cloud Spanner: instances, instance configs, instance partitions,
-	// databases, backups, backup schedules, database roles, the IAM triple on
-	// every resource that exposes it, all five operation collections, and the
-	// complete public session data plane except adapter/adaptMessage are served
-	// over REST; the same data plane is served over gRPC. Five methods are
-	// deliberately unserved because the simulator holds nothing for them to
-	// report or act on, and a served answer would have to be invented:
-	//   - databases.getScans — Key Visualizer scan data is a read/write heatmap
-	//     the service derives from production traffic; the simulator measures no
-	//     per-key traffic, so it has no scan to return.
-	//   - databases.addSplitPoints — split points partition a database's key
-	//     space across servers; the backing engine is a single SQLite database
-	//     with no key-range splits to add them to.
-	//   - databases.changequorum — the quorum type of a dual-region database;
-	//     the simulator keeps one replica and models no quorum.
-	//   - sessions.adapter / sessions.adaptMessage — the adapter tunnels raw
-	//     PostgreSQL and Cassandra wire-protocol messages, which the simulator
-	//     does not speak.
-	// The "instances/{rest...}" mount that routes this surface has the shape of
-	// every path in the document, so only its answer — a method-not-found for
-	// each tail it does not route — distinguishes the two.
+	// Cloud Spanner: the "instances/{rest...}" mount has the shape of every path in
+	// the document, so only its method-not-found for a tail it does not route
+	// tells served from unserved.
 	"spanner-v1": 198,
 }
 
-// gcpProbePrincipal is the subject of the access token every probe presents.
-// The simulator's data-plane middleware verifies the token it minted itself,
-// exactly as it does for a real client, so a probe reaches the same handlers a
-// real client reaches.
+// gcpProbePrincipal is the subject of the token every probe presents, which
+// the data-plane middleware verifies as it does a real client's.
 const gcpProbePrincipal = "coverage-probe@sockerless.iam.gserviceaccount.com"
 
-// gcpProbeBody is the request body every write probe (POST/PUT/PATCH) carries:
-// deliberately malformed JSON. The probe asks one question — "does a handler
-// serve this method+URI?" — and a body no handler can decode answers it without
-// letting any handler mutate simulator or host state: sim.ReadJSON fails, the
-// handler returns INVALID_ARGUMENT, and the request never reaches the code that
-// would create an engine network, boot an instance, or shell out to a
-// container build. A 400 is a served answer, so nothing is lost.
+// gcpProbeBody is the malformed JSON every write probe carries: a handler that
+// serves the method answers INVALID_ARGUMENT, a served answer, before it can
+// create a network, boot an instance or run a build.
 const gcpProbeBody = `{"sockerless-coverage-probe"`
 
 // gcpProbeResult is one method's verdict plus the evidence behind it.
@@ -544,7 +199,6 @@ type gcpProbeResult struct {
 	status int
 }
 
-// gcpCoverageProbe drives the in-process simulator.
 type gcpCoverageProbe struct {
 	handler http.Handler
 	token   string
@@ -573,12 +227,10 @@ func newGCPCoverageProbe(t *testing.T) *gcpCoverageProbe {
 }
 
 const (
-	// gcpMuxMissBody is what Go's own ServeMux writes when no registered
-	// pattern matches the request: plain text, not a Google error envelope.
-	// The simulator's own catch-all subtrees — the Cloud Storage XML data
-	// plane, the Compute load-balancer data plane, the generic IAM verb
-	// route — call http.NotFound for a request they do not own, so they
-	// produce the identical body and mean the identical thing.
+	// gcpMuxMissBody is what ServeMux writes when no pattern matches. The
+	// simulator's catch-all subtrees (the Cloud Storage XML data plane, the
+	// Compute load-balancer data plane, the generic IAM verb route) call
+	// http.NotFound for a request they do not own, so they mean the same.
 	gcpMuxMissBody = "404 page not found"
 	// gcpMuxMethodMissBody is what Go's ServeMux writes when patterns exist
 	// for the path but none for this HTTP method.
@@ -586,13 +238,9 @@ const (
 )
 
 var (
-	// gcpUnknownMethodError matches the structured errors that report the
-	// METHOD as unknown rather than the resource as absent: real Google's API
-	// frontend answers an undefined method with "Method not found.", and the
-	// simulator's colon-verb fan-in handlers — one handler mounted on
-	// "{resource}" that dispatches every AIP-136 custom method on it — answer
-	// an unrecognised verb with "unknown … action/verb". Both mean no handler
-	// serves the method.
+	// gcpUnknownMethodError matches errors that report the method, not the
+	// resource, as unknown: Google's "Method not found." and the colon-verb
+	// fan-ins' "unknown … action/verb". Either means no handler serves the method.
 	gcpUnknownMethodError = regexp.MustCompile(`(?i)method not found|(unknown|unsupported|unrecognized|unrecognised) [^"]*\b(action|verb|method)\b`)
 )
 
@@ -798,13 +446,6 @@ func gcpPatternLiterals(seg string) ([]string, bool) {
 	return branches, true
 }
 
-// gcpPatternSamples renders the candidate values of a reserved-expansion path
-// parameter ({+name}) from the Discovery pattern that describes it: literal
-// segments are kept, and each value segment is filled from the collection name
-// that precedes it ("^projects/[^/]+/locations/[^/]+/secrets/[^/]+$" renders
-// "projects/sim-project/locations/us-central1/secrets/sim-secret"). Index 0 is
-// the primary rendering; later indices vary the segments that offer
-// alternatives.
 // gcpPatternNamesSegments reports whether a path-parameter pattern names at
 // least one literal collection segment, which makes it a shape other
 // parameters of the same collection can be rendered from.
@@ -841,6 +482,12 @@ func gcpPatternIsShapeless(pattern string) bool {
 	return false
 }
 
+// gcpPatternSamples renders the candidate values of a reserved-expansion path
+// parameter ({+name}) from its Discovery pattern: literal segments stay, and
+// each value segment is filled from the collection name before it
+// ("^projects/[^/]+/locations/[^/]+/secrets/[^/]+$" renders
+// "projects/sim-project/locations/us-central1/secrets/sim-secret"). Index 0 is
+// the primary rendering; later ones vary the segments that offer alternatives.
 func gcpPatternSamples(pattern string) []string {
 	pattern = strings.TrimSuffix(strings.TrimPrefix(pattern, "^"), "$")
 	segs := gcpSplitPatternSegments(pattern)
@@ -974,7 +621,6 @@ func (p *gcpCoverageProbe) methodServed(d *discoveryDoc, m discoveryMethod) gcpP
 	return last
 }
 
-// docCoverage returns the served count for one Discovery document.
 func (p *gcpCoverageProbe) docCoverage(d *discoveryDoc) (served int, unserved []string) {
 	served, unserved, _ = p.docCoverageDetail(d)
 	return served, unserved
@@ -1028,8 +674,7 @@ func TestServiceConformance_GCPCoverageProbeIsSound(t *testing.T) {
 }
 
 // TestServiceConformance_GCPCoverageFloor locks each Discovery document's
-// served-method count: an exact-equality ratchet (a drop is a regression;
-// more requires bumping the floor).
+// served count exactly.
 func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 	docs := loadDiscoveryDocs(t)
 	p := newGCPCoverageProbe(t)
@@ -1085,15 +730,11 @@ func TestServiceConformance_GCPCoverageFloor(t *testing.T) {
 	t.Logf("TOTAL: %d/%d GCP Discovery method spellings served", totalServed, totalSpellings)
 }
 
-// The reserved-expansion shape rule, pinned by the three patterns Google
-// writes: one that names its segments, one that constrains a single segment,
-// and one that permits a resource path while describing none of it.
-// Every method spelling this simulator does not serve says so with a 501
+// Every method spelling the simulator does not serve says so with a 501
 // naming what is missing. The floor counts unserved spellings without caring
-// why, so a gap that stopped declaring itself — a route that went away and now
-// answers the mux's 404, or a verb the dispatcher no longer knows — would hold
-// the count and lose the declaration, and a client cannot tell a routing 404
-// from a resource that does not exist.
+// why, so a gap that stopped declaring itself (a route gone to the mux's 404,
+// a verb the dispatcher no longer knows) would keep the count while a client
+// mistook the routing 404 for an absent resource.
 func TestServiceConformance_GCPUnservedMethodsDeclareThemselves(t *testing.T) {
 	p := newGCPCoverageProbe(t)
 	var silent []string
@@ -1110,6 +751,9 @@ func TestServiceConformance_GCPUnservedMethodsDeclareThemselves(t *testing.T) {
 	}
 }
 
+// The reserved-expansion shape rule, pinned by the three patterns Google
+// writes: one that names its segments, one that constrains a single segment,
+// and one that permits a resource path while describing none of it.
 func TestServiceConformance_GCPShapelessPatternsAreOnlyTheSlashPermittingOnes(t *testing.T) {
 	shapeless := []string{
 		// compute reservationSubBlocks {+parentResource}

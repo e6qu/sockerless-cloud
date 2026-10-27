@@ -8,24 +8,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Service endpoint policies (Microsoft.Network/serviceEndpointPolicies) narrow
-// a subnet's service endpoint so traffic leaving it can reach only the listed
-// Azure resources. The policy is the list; the enforcement point is the subnet
-// that applies it. Both halves are real here: a policy definition names a
-// service and the resource ids allowed for it, and the policy's read-only
-// subnets property is resolved from the subnets that actually reference the
-// policy, so attaching a policy to a subnet shows up on the policy and
-// detaching it takes it away again.
+// A service endpoint policy narrows a subnet's service endpoint to the listed
+// resources; the subnet applying it enforces it. The read-only subnets property
+// resolves from the subnets that reference the policy.
 
-// ServiceEndpointPolicy mirrors Microsoft.Network/serviceEndpointPolicies.
 type ServiceEndpointPolicy struct {
 	azureNetworkResourceHeader
 	Kind       string                          `json:"kind,omitempty"`
 	Properties ServiceEndpointPolicyProperties `json:"properties"`
 }
 
-// ServiceEndpointPolicyProperties holds the policy's definitions and the
-// subnets enforcing it.
 type ServiceEndpointPolicyProperties struct {
 	ServiceEndpointPolicyDefinitions  []ServiceEndpointPolicyDefinition `json:"serviceEndpointPolicyDefinitions,omitempty"`
 	Subnets                           []Subnet                          `json:"subnets,omitempty"`
@@ -35,7 +27,6 @@ type ServiceEndpointPolicyProperties struct {
 	ContextualServiceEndpointPolicies []string                          `json:"contextualServiceEndpointPolicies,omitempty"`
 }
 
-// ServiceEndpointPolicyDefinition is one allowed-resource rule of a policy.
 type ServiceEndpointPolicyDefinition struct {
 	ID         string                                    `json:"id,omitempty"`
 	Name       string                                    `json:"name,omitempty"`
@@ -44,8 +35,6 @@ type ServiceEndpointPolicyDefinition struct {
 	Properties ServiceEndpointPolicyDefinitionProperties `json:"properties"`
 }
 
-// ServiceEndpointPolicyDefinitionProperties names the service and the resources
-// traffic to it is confined to.
 type ServiceEndpointPolicyDefinitionProperties struct {
 	Description       string   `json:"description,omitempty"`
 	Service           string   `json:"service,omitempty"`
@@ -62,8 +51,8 @@ func registerNetworkServiceEndpointPolicies(srv *sim.Server) {
 
 	registerAzureNetworkResource(srv, azureNetworkResourceSpec[ServiceEndpointPolicy]{
 		collection: "serviceEndpointPolicies",
-		// Microsoft.Network spells the subscription-wide list with a capital S,
-		// and the SDK sends exactly that spelling.
+		// Microsoft.Network capitalizes the subscription-wide list, and the SDK sends
+		// exactly that.
 		subCollection: "ServiceEndpointPolicies",
 		nameParam:     "serviceEndpointPolicyName",
 		resourceType:  "Microsoft.Network/serviceEndpointPolicies",
@@ -97,8 +86,6 @@ func normalizeServiceEndpointPolicyDefinition(policyID string, def *ServiceEndpo
 	def.Properties.ProvisioningState = "Succeeded"
 }
 
-// subnetsApplyingServiceEndpointPolicy returns the subnets that reference the
-// policy, which is where it is enforced.
 func subnetsApplyingServiceEndpointPolicy(policyID string) []Subnet {
 	if azureSubnets == nil {
 		return nil
@@ -113,9 +100,8 @@ func subnetsApplyingServiceEndpointPolicy(policyID string) []Subnet {
 	})
 }
 
-// registerServiceEndpointPolicyDefinitions mounts the definition sub-resource.
-// Each definition is stored inline on its policy, so the policy's own read
-// always reports the definitions the sub-resource client wrote.
+// Definitions are stored inline on the policy, so the policy's read reports
+// what the sub-resource client wrote.
 func registerServiceEndpointPolicyDefinitions(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	base := armBase + "/serviceEndpointPolicies/{serviceEndpointPolicyName}/serviceEndpointPolicyDefinitions"

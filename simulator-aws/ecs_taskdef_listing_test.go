@@ -11,9 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// A revision written before revisions recorded a status is ACTIVE to both
-// listings, and a family prefix is read as the families it names, not as a
-// prefix of the "<family>:<revision>" key.
+// A revision stored without a status is ACTIVE to both listings, and a family
+// prefix names families, not a key prefix.
 func TestECSTaskDefinitionListingsAgreeOnStatusAndPrefix(t *testing.T) {
 	bg.Await()
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")

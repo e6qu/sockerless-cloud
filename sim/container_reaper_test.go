@@ -84,11 +84,9 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dockerClient.Close()
-	// Poll until the reaper has removed both resources. A single query that
-	// does not come back inside its own budget is a busy engine, not a verdict
-	// on the reaper — the 20-second deadline is what decides this test, so an
-	// attempt that errors is retried and only the last error is reported if the
-	// deadline runs out.
+	// Poll until the reaper has removed both resources. A query that overruns its
+	// own budget is a busy engine, not a verdict on the reaper: the 20-second
+	// deadline decides, so retry a failed attempt and report the last error.
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -118,15 +116,10 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 		resources.ContainerID, resources.NetworkID, resources.VolumeName)
 }
 
-// The reaper test pulls a real image, so it depends on a registry being
-// reachable from the runner. It reads from mirror.gcr.io, Google's copy of
-// Docker Hub, rather than Docker Hub itself, which is what the rest of the
-// repository does: an unauthenticated Hub pull is rate-limited per source
-// address, and a runner that has exhausted that budget — or cannot reach Hub
-// at all — fails this test for a reason that has nothing to do with the
-// reaper. Both this test and
-// the startup sweep lost a CI run to
-// `Get "https://registry-1.docker.io/v2/": context deadline exceeded`.
+// Read from mirror.gcr.io, Google's copy of Docker Hub, as the rest of the
+// repository does: Docker Hub rate-limits unauthenticated pulls per source
+// address, and a runner past that budget would fail this test for a reason
+// unrelated to the reaper.
 const containerReaperTestImage = "mirror.gcr.io/library/alpine:3.22"
 
 func runContainerReaperTestChild(t *testing.T) {

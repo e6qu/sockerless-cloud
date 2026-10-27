@@ -13,7 +13,7 @@ func TestEBApplyInput_StaticAndPath(t *testing.T) {
 		t.Errorf("static Input: got %q", got)
 	}
 
-	// No input transform → the complete EventBridge event envelope.
+	// Without a transform, the whole event envelope.
 	got := ebApplyInput(EBTarget{}, EBEventRecord{ID: "e1", Source: "src", DetailType: "dt", Detail: detail})
 	var event map[string]any
 	if err := json.Unmarshal([]byte(got), &event); err != nil {

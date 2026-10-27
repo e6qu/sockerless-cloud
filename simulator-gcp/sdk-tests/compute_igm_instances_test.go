@@ -8,13 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A managed instance group's instances, per-instance configurations and resize
-// requests.
-//
-// Every verb here answers with an Operation, which says nothing about whether
-// anything changed, so each assertion reads the group back: the instances it
-// manages after a create, their status after a stop, that a deleted one is gone
-// and an abandoned one has left the group.
+// Every managed instance group verb answers with an Operation, which says
+// nothing about what changed, so each assertion reads the group back.
 
 func createManagedGroup(t *testing.T, svc *compute.Service, project, zone, name string) {
 	t.Helper()

@@ -7,13 +7,9 @@ import (
 	"testing"
 )
 
-// TestSMPayloadPersistenceRoundTrip asserts that smPayloadRecord
-// preserves its Data field through a json.Marshal + json.Unmarshal
-// round-trip. sim.Store uses json.Marshal internally; the Data
-// field must be exported so persistence keeps the payload bytes
-// across SIM_PERSIST=true restarts.
-//
-// Regression check: secret payloads must survive a sim restart.
+// TestSMPayloadPersistenceRoundTrip checks smPayloadRecord keeps Data through
+// a JSON round-trip, as sim.Store persists it, so payloads survive a
+// SIM_PERSIST=true restart.
 func TestSMPayloadPersistenceRoundTrip(t *testing.T) {
 	original := []byte("super-secret-payload-bytes-that-must-survive-restart")
 	rec := smPayloadRecord{Data: original}
@@ -30,18 +26,10 @@ func TestSMPayloadPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSMVersionWireShapeIsPayloadFree asserts the SecretVersion wire
-// shape carries no payload bytes. Real GCP's GetSecretVersion +
-// ListSecretVersions return metadata only; the raw payload appears
-// only in `:access` responses (constructed manually as
-// `{"name":..., "payload":{"data":"<base64>"}}`). Leaking payload
-// bytes from GetSecretVersion would be both a wire drift and a
-// security issue (the SDK caches list responses).
-// The check is over the TYPE, not over one instance: marshalling a
-// SecretVersion whose payload members happen to be empty proves nothing,
-// because the leak this guards against is a member added to the struct, which
-// carries bytes on the first version that has any. Walking the declared JSON
-// tags catches that the moment the field appears.
+// TestSMVersionWireShapeIsPayloadFree checks the SecretVersion type carries no
+// payload: GetSecretVersion and ListSecretVersions return metadata only. It
+// walks the declared JSON tags, since a payload-free instance proves nothing
+// about a member added later.
 func TestSMVersionWireShapeIsPayloadFree(t *testing.T) {
 	assertTypeHasNoJSONKeys(t, reflect.TypeOf(SecretVersion{}), "payload", "secretData", "data")
 

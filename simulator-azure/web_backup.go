@@ -17,20 +17,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// web_backup.go implements the Microsoft.Web backup, restore and snapshot
-// family: the backup configuration, on-demand backups, the backup list and
-// status reads, backup deletion, backup discovery, and every restore spelling
-// (from a backup item, from a backup blob, from a snapshot, from a deleted
-// app) — at both the production-site and the deployment-slot scope.
+// The Microsoft.Web backup, restore and snapshot family, at site and slot
+// scope. A backup ZIPs the site's /home/site/wwwroot into the Blob data plane
+// of the account `storageAccountUrl` names; a restore reads the blob back and
+// replaces the site's content, so deleting the blob makes the restore fail.
 //
-// A backup does real work. The archive is built from the site's deployed
-// content (its /home/site/wwwroot) and written into the Blob data plane of the storage
-// account the request's `storageAccountUrl` names, which is the same surface a
-// client downloads it from; a restore reads that blob back and replaces the
-// site's content with what the archive holds. Deleting the blob through the
-// Blob API therefore makes the restore fail, because the blob IS the backup.
-//
-// Microsoft's published contract the shapes here follow
+// The shapes follow Microsoft's contract
 // (https://learn.microsoft.com/azure/app-service/manage-backup):
 //
 //   - "In the storage account, each backup consists of a ZIP file that
@@ -54,7 +46,6 @@ import (
 //     (CannotResolveStorageAccount)" and "Storage access failed." are the ones
 //     the handlers emit for those three conditions.
 
-// WebBackupSchedule mirrors the swagger BackupSchedule definition.
 type WebBackupSchedule struct {
 	FrequencyInterval     int32  `json:"frequencyInterval"`
 	FrequencyUnit         string `json:"frequencyUnit"`
@@ -64,8 +55,7 @@ type WebBackupSchedule struct {
 	LastExecutionTime     string `json:"lastExecutionTime,omitempty"`
 }
 
-// WebDatabaseBackupSetting mirrors the swagger DatabaseBackupSetting
-// definition. `databaseType` is the only required member.
+// `databaseType` is the only required member.
 type WebDatabaseBackupSetting struct {
 	DatabaseType         string `json:"databaseType"`
 	Name                 string `json:"name,omitempty"`
@@ -73,9 +63,8 @@ type WebDatabaseBackupSetting struct {
 	ConnectionString     string `json:"connectionString,omitempty"`
 }
 
-// WebBackupConfigRow is a site's or slot's stored backup configuration — the
-// BackupRequestProperties written by WebApps_UpdateBackupConfiguration. Keyed
-// by the canonical resource ID.
+// The BackupRequestProperties WebApps_UpdateBackupConfiguration writes, keyed
+// by canonical resource ID.
 type WebBackupConfigRow struct {
 	ID                string                     `json:"id"`
 	BackupName        string                     `json:"backupName,omitempty"`
@@ -85,8 +74,7 @@ type WebBackupConfigRow struct {
 	Databases         []WebDatabaseBackupSetting `json:"databases,omitempty"`
 }
 
-// WebBackupItemRow is one completed (or failed) backup —
-// BackupItemProperties. Keyed by "<resID>/backups/<backupId>".
+// BackupItemProperties, keyed by "<resID>/backups/<backupId>".
 type WebBackupItemRow struct {
 	ID                   string                     `json:"id"`
 	SiteID               string                     `json:"siteId"`
@@ -106,10 +94,8 @@ type WebBackupItemRow struct {
 	Databases            []WebDatabaseBackupSetting `json:"databases,omitempty"`
 }
 
-// WebAppSnapshotRow is one platform snapshot of an app: the complete archive
-// of its content at that instant plus the site configuration, which is what
-// SnapshotRestoreRequest.recoverConfiguration reverts. Keyed by
-// "<resID>/snapshots/<time>".
+// The app's content archive and site configuration at one instant, which
+// recoverConfiguration reverts. Keyed by "<resID>/snapshots/<time>".
 type WebAppSnapshotRow struct {
 	ID      string      `json:"id"`
 	SiteID  string      `json:"siteId"`
@@ -118,9 +104,8 @@ type WebAppSnapshotRow struct {
 	Config  *SiteConfig `json:"config,omitempty"`
 }
 
-// WebDeletedSiteRow is a deleted app retained for WebApps_RestoreFromDeletedApp
-// and the deletedSites reads — DeletedSiteProperties plus the content archive
-// and configuration the restore replays.
+// Retained for WebApps_RestoreFromDeletedApp and the deletedSites reads, with
+// the content archive and configuration the restore replays.
 type WebDeletedSiteRow struct {
 	ID               string      `json:"id"`
 	DeletedSiteID    int32       `json:"deletedSiteId"`
@@ -134,20 +119,17 @@ type WebDeletedSiteRow struct {
 	Archive          []byte      `json:"archive"`
 	Config           *SiteConfig `json:"config,omitempty"`
 	HostNames        []string    `json:"hostNames,omitempty"`
-	// Snapshots is the app's platform snapshot history, retained with it:
-	// Global_GetDeletedWebAppSnapshots enumerates it, and
-	// DeletedAppRestoreRequest.snapshotTime selects one of its points.
+	// Global_GetDeletedWebAppSnapshots enumerates these, and
+	// DeletedAppRestoreRequest.snapshotTime selects one.
 	Snapshots []WebAppSnapshotRow `json:"snapshots,omitempty"`
 }
 
 var (
 	webBackupConfigs sim.Store[WebBackupConfigRow]
 	webBackupItems   sim.Store[WebBackupItemRow]
-	// webAppSnapshots is the primary region's snapshot store;
-	// webAppSnapshotsDR is the geo-redundant secondary the
-	// ListSnapshotsFromDRSecondary reads and `useDRSecondary` restores from.
-	// A snapshot is replicated into the secondary as it is taken, which is
-	// what a healthy geo-redundant pair holds.
+	// webAppSnapshotsDR is the geo-redundant secondary ListSnapshotsFromDRSecondary
+	// and `useDRSecondary` read; each snapshot replicates into it as taken, as in
+	// a healthy pair.
 	webAppSnapshots   sim.Store[WebAppSnapshotRow]
 	webAppSnapshotsDR sim.Store[WebAppSnapshotRow]
 	webDeletedSites   sim.Store[WebDeletedSiteRow]
@@ -161,11 +143,8 @@ func initWebBackupStores(srv *sim.Server) {
 	webDeletedSites = sim.MakeStore[WebDeletedSiteRow](srv.DB(), "web_deleted_sites")
 }
 
-// webCleanupBackups removes the backup configuration, backup items and
-// snapshots recorded under a deleted site or slot. The archives already
-// written into a customer storage account are NOT removed: they are the
-// customer's blobs, and Azure keeps them after the app is gone (which is what
-// makes RestoreFromBackupBlob into a new app possible).
+// Archives already in a customer storage account stay: they are the customer's
+// blobs, which is what makes RestoreFromBackupBlob into a new app possible.
 func webCleanupBackups(resID string) {
 	webBackupConfigs.Delete(resID)
 	prefix := resID + "/"
@@ -180,13 +159,11 @@ func webCleanupBackups(resID string) {
 	}
 }
 
-// webBackupContentRoot is where an App Service backup archive holds the app's
-// file system: the same `site/wwwroot` layout the platform's own file system
-// uses, so a caller who unzips the archive browses the paths they know.
+// The platform's own `site/wwwroot` layout, so an unzipped archive shows
+// familiar paths.
 const webBackupContentRoot = "site/wwwroot"
 
-// webBackupManifest is the XML manifest written beside the archive: the list
-// of the ZIP's contents and the app's custom domains.
+// The ZIP's contents and the app's custom domains.
 type webBackupManifest struct {
 	XMLName   xml.Name                  `xml:"websitebackup"`
 	SiteName  string                    `xml:"siteName,attr"`
@@ -209,27 +186,23 @@ type webBackupManifestDBRow struct {
 	ConnectionStringName string `xml:"connectionStringName,attr,omitempty"`
 }
 
-// webBackupManifestSiteCfg records the site configuration members the manifest
-// carries so a restore into a different app can report what the source ran.
+// Lets a restore into a different app report what the source ran.
 type webBackupManifestSiteCfg struct {
 	LinuxFxVersion string `xml:"linuxFxVersion,attr,omitempty"`
 	MinTLSVersion  string `xml:"minTlsVersion,attr,omitempty"`
 }
 
-// webBackupArchive is the pair of blobs one backup writes.
 type webBackupArchive struct {
 	zip      []byte
 	manifest []byte
 	files    int
-	// contentBytes is the uncompressed size of the app content, which is what
-	// BackupItemProperties.websiteSizeInBytes reports.
+	// The uncompressed content size, BackupItemProperties.websiteSizeInBytes.
 	contentBytes int64
 }
 
 var webHostNameBindingsBySite sim.GenerationIndex[WebHostNameBinding]
 
-// webChildParent returns the resource ID a child resource ID names under
-// segment, or "" when it holds no such segment.
+// "" when the ID holds no such segment.
 func webChildParent(id, segment string) string {
 	if i := strings.LastIndex(id, segment); i >= 0 {
 		return id[:i]
@@ -237,9 +210,8 @@ func webChildParent(id, segment string) string {
 	return ""
 }
 
-// webCustomHostNames lists the custom domains bound to a site or slot, sorted.
-// These — not the platform's own `<app>.azurewebsites.net` hostnames — are what
-// Microsoft documents the backup manifest listing and a restore reconciling.
+// Custom domains, not the platform's `<app>.azurewebsites.net`, are what the
+// manifest lists and a restore reconciles.
 func webCustomHostNames(resID string) []string {
 	prefix := resID + "/hostNameBindings/"
 	var out []string
@@ -252,8 +224,6 @@ func webCustomHostNames(resID string) []string {
 	return out
 }
 
-// webBuildBackupArchive packs a site's deployed content into the ZIP an App
-// Service backup writes, and renders the XML manifest that lists it.
 func webBuildBackupArchive(resID, siteName, backupName, created string, hostNames []string,
 	databases []WebDatabaseBackupSetting, cfg *SiteConfig) (webBackupArchive, error) {
 	files, err := webSiteContentFiles(resID)
@@ -315,10 +285,8 @@ func webBuildBackupArchive(resID, siteName, backupName, created string, hostName
 	}, nil
 }
 
-// webReadBackupArchive unpacks a backup ZIP into the site-relative content it
-// holds. Entries outside `site/wwwroot` are the database export the archive
-// root can carry, which the content restore does not write into the file
-// system.
+// Entries outside `site/wwwroot` are the database export, which the content
+// restore does not write.
 func webReadBackupArchive(data []byte) ([]WebSiteContentFile, error) {
 	var out []WebSiteContentFile
 	err := archive.ReadZip(data, webSiteContentLimit, func(f archive.File) error {
@@ -333,33 +301,22 @@ func webReadBackupArchive(data []byte) ([]WebSiteContentFile, error) {
 	return out, nil
 }
 
-// webBackupStorageTarget is the storage account and container a
-// `storageAccountUrl` addresses.
 type webBackupStorageTarget struct {
 	account   string
 	container string
 }
 
-// webSASRequiredParams are the query members Azure requires of every service
-// Shared Access Signature: the signed version, the signed resource, the signed
-// permissions, the expiry and the signature itself. A `storageAccountUrl`
-// missing any of them draws the documented "Missing mandatory parameters for
-// valid Shared Access Signature." refusal.
-//
-// The signature itself is verified against the account's keys, which the Blob
-// data plane now does for every request it serves (blob_authorization.go). A
-// `storageAccountUrl` this refuses is one the plane it writes through would
-// refuse too. Both signature shapes are accepted, because real Azure accepts
-// both: a service SAS carries a signedResource, and an account SAS — the shape
-// `data.azurerm_storage_account_sas` emits, which the azurerm provider's own
-// backup example feeds into `storage_account_url` — carries the services and
-// resource-types pair instead.
+// Azure requires the signed version, permissions, expiry and signature of every
+// SAS; a URL missing one draws "Missing mandatory parameters for valid Shared
+// Access Signature." The signature itself is verified against the account's
+// keys, as the Blob data plane does (blob_authorization.go). A service SAS
+// carries a signedResource; an account SAS — what
+// `data.azurerm_storage_account_sas` emits for `storage_account_url` — carries
+// services and resource types instead, and both are accepted.
 var webSASRequiredParams = []string{"sv", "sp", "se", "sig"}
 
-// webParseBackupStorageURL resolves a `storageAccountUrl` into the account and
-// container it names and checks the SAS parameters Azure requires. It returns
-// an ARM error code and message on refusal, matching the failures Microsoft
-// documents for App Service backup.
+// Returns an error code and message on refusal, matching the failures
+// Microsoft documents for App Service backup.
 func webParseBackupStorageURL(raw string) (webBackupStorageTarget, string, string) {
 	if strings.TrimSpace(raw) == "" {
 		return webBackupStorageTarget{}, "InvalidRequestContent",
@@ -395,18 +352,15 @@ func webParseBackupStorageURL(raw string) (webBackupStorageTarget, string, strin
 	if _, exists := blobContainersData.Get(blobContainerKey(account, container)); !exists {
 		return webBackupStorageTarget{}, "StorageAccessFailed", "Storage access failed."
 	}
-	// The signature has to be the account's. App Service writes the backup
-	// through this URL, so one the Blob plane would refuse is one the backup
-	// cannot be written with — and until the plane verified anything, this
-	// could only check that the parameters were present.
+	// App Service writes through this URL, so a signature the Blob plane would
+	// refuse cannot write the backup.
 	if ok, _ := blobSASAuthorizes("blob", account, container, "", q, http.MethodPut); !ok {
 		return webBackupStorageTarget{}, "StorageAccessFailed", "Storage access failed."
 	}
 	return webBackupStorageTarget{account: account, container: container}, "", ""
 }
 
-// webPutBackupBlob writes one backup artifact into the Blob data plane of the
-// account the backup targets — the same plane the customer downloads it from.
+// The same plane the customer downloads it from.
 func webPutBackupBlob(target webBackupStorageTarget, name string, data []byte, contentType string) error {
 	now := time.Now().UTC().Format(http.TimeFormat)
 	return putBlobWithContents(BlobObject{
@@ -421,7 +375,6 @@ func webPutBackupBlob(target webBackupStorageTarget, name string, data []byte, c
 	}, data)
 }
 
-// webGetBackupBlob reads one backup artifact back out of the Blob data plane.
 func webGetBackupBlob(target webBackupStorageTarget, name string) ([]byte, bool, error) {
 	obj, ok := blobObjects.Get(blobObjectKey(target.account, target.container, name))
 	if !ok || obj.Deleted {
@@ -431,14 +384,10 @@ func webGetBackupBlob(target webBackupStorageTarget, name string) ([]byte, bool,
 	return data, true, err
 }
 
-// webCaptureAppSnapshot records a platform snapshot of the app: the complete
-// archive of its content plus its configuration at this instant, replicated
-// into the geo-redundant secondary as it is written.
-//
-// Azure's automatic backups run on a timer and capture whatever the app holds
-// at each tick, so the set of app states they can ever recover is the set of
-// states the app was actually in. The simulator captures exactly those states:
-// one snapshot at each point the app's content or configuration really changed.
+// Azure's automatic backups capture whatever the app holds at each tick, so
+// the states they can recover are states the app was in. Capture one snapshot
+// at each real change of content or configuration, replicated into the
+// geo-redundant secondary.
 func webCaptureAppSnapshot(resID string) {
 	site, ok := webSiteRecord(resID)
 	if !ok {
@@ -462,9 +411,7 @@ func webCaptureAppSnapshot(resID string) {
 	webAppSnapshotsDR.Put(row.ID, row)
 }
 
-// webSnapshotStore selects the endpoint a snapshot read or restore addresses:
-// the geo-redundant secondary when the request sets `useDRSecondary`, the
-// primary otherwise.
+// The secondary when the request sets `useDRSecondary`, the primary otherwise.
 func webSnapshotStore(useDRSecondary bool) sim.Store[WebAppSnapshotRow] {
 	if useDRSecondary {
 		return webAppSnapshotsDR
@@ -481,8 +428,7 @@ func webSnapshotsFor(resID string, useDRSecondary bool) []WebAppSnapshotRow {
 	return rows
 }
 
-// webSiteRecord reads a site or slot by resource ID: the /slots/ segment
-// decides which store owns it.
+// The /slots/ segment decides which store owns the ID.
 func webSiteRecord(resID string) (Site, bool) {
 	if strings.Contains(resID, "/slots/") {
 		return webSlots.Get(resID)
@@ -497,8 +443,7 @@ func webSiteStoreFor(resID string) sim.Store[Site] {
 	return azfSites
 }
 
-// webSiteNameFromID reads the site name (the slot name for a slot) out of a
-// canonical Microsoft.Web resource ID.
+// The slot name for a slot.
 func webSiteNameFromID(resID string) string {
 	parts := strings.Split(strings.Trim(resID, "/"), "/")
 	if len(parts) == 0 {
@@ -507,8 +452,6 @@ func webSiteNameFromID(resID string) string {
 	return parts[len(parts)-1]
 }
 
-// fileModeFromPerm converts a stored permission bitmask into the io/fs mode a
-// zip header carries.
 func fileModeFromPerm(perm uint32) fs.FileMode { return fs.FileMode(perm & 0o777) }
 
 func backupConfigWire(r *http.Request, row WebBackupConfigRow) map[string]any {
@@ -533,9 +476,8 @@ func backupConfigWire(r *http.Request, row WebBackupConfigRow) map[string]any {
 	}
 }
 
-// backupItemWire renders a BackupItem. `withSecrets` decides whether the
-// storage SAS URL travels: only WebApps_ListBackupStatusSecrets returns it,
-// which is the distinction that operation exists for.
+// Only WebApps_ListBackupStatusSecrets returns the SAS URL, the distinction
+// that operation exists for.
 func backupItemWire(r *http.Request, row WebBackupItemRow, withSecrets bool) map[string]any {
 	props := map[string]any{
 		"id":                 row.BackupID,
@@ -609,10 +551,7 @@ func deletedSiteWire(row WebDeletedSiteRow) map[string]any {
 	return out
 }
 
-// webRecordDeletedSite retains a just-deleted app so it can be restored into
-// another app (WebApps_RestoreFromDeletedApp) and enumerated by the
-// deletedSites reads. Called with the site record still in hand, before its
-// content is cleaned up.
+// Called with the site record in hand, before its content is cleaned up.
 func webRecordDeletedSite(resID string, site Site) {
 	parts := strings.Split(strings.Trim(resID, "/"), "/")
 	var sub, rg string
@@ -660,8 +599,7 @@ func webRecordDeletedSite(resID string, site Site) {
 	webDeletedSites.Put(row.ID, row)
 }
 
-// webDeletedSitesIn lists the retained deleted apps of one subscription,
-// oldest first, optionally narrowed to the region they ran in.
+// Oldest first, optionally narrowed to a region.
 func webDeletedSitesIn(subscription, location string) []any {
 	rows := webDeletedSites.Filter(func(row WebDeletedSiteRow) bool {
 		if !strings.EqualFold(row.Subscription, subscription) {
@@ -678,10 +616,9 @@ func webDeletedSitesIn(subscription, location string) []any {
 	return out
 }
 
-// webDeletedSiteByRequest resolves a DeletedAppRestoreRequest's deletedSiteId,
-// which the specification documents as the deleted app's ARM resource ID
-// ("/subscriptions/{subId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}")
-// and which callers also pass as the bare numeric id.
+// The specification documents deletedSiteId as the deleted app's resource ID
+// ("/subscriptions/{subId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}");
+// callers also pass the bare numeric ID.
 func webDeletedSiteByRequest(deletedSiteID string) (WebDeletedSiteRow, bool) {
 	id := strings.Trim(deletedSiteID, "/")
 	if idx := strings.LastIndex(id, "/"); idx >= 0 {
@@ -690,11 +627,9 @@ func webDeletedSiteByRequest(deletedSiteID string) (WebDeletedSiteRow, bool) {
 	return webDeletedSites.Get(id)
 }
 
-// webApplyManifestHostNames reconciles the destination app's custom domains
-// with the manifest's list, which is what Microsoft documents a custom-backup
-// restore doing: domains in the manifest are added when nothing else already
-// binds them, and domains the destination holds that the manifest does not
-// list are removed.
+// As Microsoft documents a custom-backup restore: manifest domains are added
+// when nothing else binds them, and destination domains the manifest omits are
+// removed.
 func webApplyManifestHostNames(resID string, manifestHosts []string) {
 	want := map[string]bool{}
 	for _, h := range manifestHosts {
@@ -715,8 +650,7 @@ func webApplyManifestHostNames(resID string, manifestHosts []string) {
 			continue
 		}
 		if webHostNameBoundElsewhere(resID, h) {
-			// A DNS conflict: the domain is already bound to another app, so
-			// the restore leaves it alone.
+			// A DNS conflict: another app binds the domain, so the restore leaves it.
 			continue
 		}
 		webHostNameBindings.Put(id, WebHostNameBinding{
@@ -732,8 +666,6 @@ func webApplyManifestHostNames(resID string, manifestHosts []string) {
 	}
 }
 
-// webHostNameBoundElsewhere reports a custom domain already bound to a
-// different app, which is the DNS conflict that stops a restore adopting it.
 func webHostNameBoundElsewhere(resID, host string) bool {
 	suffix := "/hostNameBindings/" + host
 	for _, b := range webHostNameBindings.List() {
@@ -744,7 +676,6 @@ func webHostNameBoundElsewhere(resID, host string) bool {
 	return false
 }
 
-// webManifestHostNames reads the custom-domain list out of a stored manifest.
 func webManifestHostNames(manifestXML []byte) []string {
 	var m webBackupManifest
 	if xml.Unmarshal(manifestXML, &m) != nil {
@@ -753,8 +684,7 @@ func webManifestHostNames(manifestXML []byte) []string {
 	return m.HostNames
 }
 
-// webManifestDatabases reads the database settings a manifest records, which
-// is what WebApps_DiscoverBackup reports.
+// What WebApps_DiscoverBackup reports.
 func webManifestDatabases(manifestXML []byte) []WebDatabaseBackupSetting {
 	var m webBackupManifest
 	if xml.Unmarshal(manifestXML, &m) != nil {
@@ -769,10 +699,7 @@ func webManifestDatabases(manifestXML []byte) []WebDatabaseBackupSetting {
 	return out
 }
 
-// webManifestBlobName derives the manifest blob name from the archive blob
-// name: the same base with the .xml extension, which is the pairing Microsoft
-// documents ("a ZIP file that contains the backup data and an XML file that
-// contains a manifest of the ZIP file contents").
+// The archive's base name with .xml, the pairing Microsoft documents.
 func webManifestBlobName(blobName string) string {
 	return strings.TrimSuffix(blobName, ".zip") + ".xml"
 }

@@ -11,16 +11,14 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// The Compute Engine project resource, the verbs that write it, and Shared VPC.
-
 func TestCompute_ProjectDefaultsAndSetVerbs(t *testing.T) {
 	svc := computeService(t)
 	const project = "project-verbs"
 	number := requireProject(t, project)
 
-	// A project is not created through Compute Engine: a read of a project
-	// Cloud Resource Manager holds before any write is the defaults, named
-	// for the project's number, whichever of its ID or number it addresses.
+	// Compute Engine does not create projects: before any write, a project Cloud
+	// Resource Manager holds reads as the defaults, named for its number, whether
+	// addressed by ID or number.
 	got, err := svc.Projects.Get(project).Do()
 	require.NoError(t, err)
 	assert.Equal(t, project, got.Name)
@@ -150,21 +148,8 @@ func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 	assert.NotEqual(t, "HOST", got.XpnProjectStatus)
 }
 
-// TestCompute_GooglePublishedCatalogsAreDeclaredGaps stood here and is gone:
-// every read it guarded is served now. Two of them — the colocation facilities
-// and the Cross-Cloud Interconnect remote locations — are catalogues Google
-// publishes, and a published catalogue is vendored here rather than declined;
-// the third, interconnects.getDiagnostics, turned out to report mostly from the
-// interconnect's own record. Their tests are
-// TestCompute_InterconnectLocationsAreTheVendoredCatalog,
-// TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog and
-// TestCompute_InterconnectDiagnosticsComeFromTheInterconnect, and each holds
-// the fields its source does not state to being absent rather than invented. A
-// loop over an empty list of cases proves nothing, so it is not kept for shape.
-
-// A move re-homes a resource onto another zone. It is the same resource
-// afterwards — same name, same contents — so it has to be gone from the zone it
-// left, which is the half a re-create would get wrong.
+// A move keeps the resource, its name and contents, so it must be gone from
+// the zone it left, which a re-create would get wrong.
 func TestCompute_MoveDiskBetweenZones(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -277,9 +262,9 @@ func TestCompute_ProjectVerbsResolveThroughResourceManager(t *testing.T) {
 	notFound("GetXpnResources", err)
 }
 
-// The service account a project's Compute Engine resource names as its default
-// exists in IAM once the project does, under the project and through the -
-// wildcard, which is how terraform-provider-google reads it back.
+// The project's Compute Engine default service account exists in IAM once the
+// project does, under the project and the - wildcard, which is how
+// terraform-provider-google reads it back.
 func TestCompute_DefaultServiceAccountIsAnIAMServiceAccount(t *testing.T) {
 	t.Parallel()
 	const project = "compute-default-sa"

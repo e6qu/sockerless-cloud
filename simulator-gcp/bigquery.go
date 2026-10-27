@@ -14,10 +14,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// BigQuery v2 REST surface. The simulator implements dataset/table
-// lifecycle, streaming inserts, query jobs, synchronous queries, and
-// tabledata paging against persisted rows.
-
 type BQDataset struct {
 	Kind             string            `json:"kind"`
 	Etag             string            `json:"etag,omitempty"`
@@ -108,11 +104,8 @@ type BQJob struct {
 	UserEmail     string         `json:"user_email,omitempty"`
 }
 
-// storedBQJob is the persisted row backing a query job: the wire-shape
-// Job (which has no result member — query results ride GetQueryResults)
-// plus the materialized result rows the GetQueryResults handler serves.
-// The embedding flattens on json.Marshal, so sim.Store persistence keeps
-// the same row shape the result has always been recovered from.
+// storedBQJob is the persisted query job: the wire Job, which has no result
+// member, plus the result rows GetQueryResults serves.
 type storedBQJob struct {
 	BQJob
 	// Result is the evaluated query result served by GetQueryResults.
@@ -261,30 +254,25 @@ func registerBigQuery(srv *sim.Server) {
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/insertAll", handleBQInsertAll)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/data", handleBQTableDataList)
 
-	// Models — list/get/patch/delete (no insert: models are produced by ML
-	// query jobs, not created directly via REST).
+	// Models have no insert: ML query jobs produce them.
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/models", handleBQListModels)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/models/{model}", handleBQGetModel)
 	srv.HandleFunc("PATCH /bigquery/v2/projects/{project}/datasets/{dataset}/models/{model}", handleBQPatchModel)
 	srv.HandleFunc("DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/models/{model}", handleBQDeleteModel)
 
-	// Routines — list/insert/get/update/delete + IAM verbs.
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/routines", handleBQListRoutines)
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/routines", handleBQInsertRoutine)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routine}", handleBQGetRoutine)
 	srv.HandleFunc("PUT /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routine}", handleBQUpdateRoutine)
 	srv.HandleFunc("DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routine}", handleBQDeleteRoutine)
-	// Routine IAM verbs ("<routine>:getIamPolicy" etc.) fan in on {routineVerb}.
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/routines/{routineVerb}", handleBQRoutineVerb)
 
-	// Row access policies — list/insert(+batchDelete)/get/update/delete + IAM.
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies", handleBQListRAPs)
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies", handleBQInsertRAP)
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies:batchDelete", handleBQBatchDeleteRAP)
 	srv.HandleFunc("GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies/{policy}", handleBQGetRAP)
 	srv.HandleFunc("PUT /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies/{policy}", handleBQUpdateRAP)
 	srv.HandleFunc("DELETE /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies/{policy}", handleBQDeleteRAP)
-	// Row-access-policy IAM verbs ("<policy>:getIamPolicy"/":testIamPermissions").
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/datasets/{dataset}/tables/{table}/rowAccessPolicies/{policyVerb}", handleBQRAPVerb)
 
 	srv.HandleFunc("POST /bigquery/v2/projects/{project}/queries", handleBQQuery)
@@ -753,9 +741,8 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rowSet, _ := bqRows.Get(bqTableKey(project, dataset, table))
-	// Absent params take their defaults (startIndex 0, all rows); a present but
-	// non-numeric/negative value is rejected, as real BigQuery does, rather than
-	// silently parsing to 0.
+	// Absent params take their defaults (startIndex 0, all rows); BigQuery
+	// rejects a non-numeric or negative value.
 	start := 0
 	if s := r.URL.Query().Get("startIndex"); s != "" {
 		v, err := strconv.Atoi(s)
@@ -1057,11 +1044,7 @@ func bqParseTableRef(defaultProject, ref string) (string, string, string, error)
 	if project == "" || dataset == "" || table == "" {
 		return "", "", "", fmt.Errorf("invalid table reference %q", ref)
 	}
-	// Trimming quotes from the ends of the whole reference leaves any backtick
-	// inside it in place, so "0.`0" parsed to a table literally named "`0" — an
-	// identifier BigQuery cannot have, addressing a table that can never exist
-	// while looking to the caller like a reference that parsed. A backtick
-	// delimits a reference; it is never part of one.
+	// A backtick delimits a reference; it is never part of a component.
 	for _, component := range []string{project, dataset, table} {
 		if strings.Contains(component, "`") {
 			return "", "", "", fmt.Errorf("invalid table reference %q", ref)
@@ -1071,8 +1054,6 @@ func bqParseTableRef(defaultProject, ref string) (string, string, string, error)
 }
 
 func handleBQListProjects(w http.ResponseWriter, r *http.Request) {
-	// Enumerate every project referenced by an existing dataset so the list
-	// reflects real persisted state rather than a fabricated catalog.
 	seen := map[string]bool{}
 	for _, d := range bqDatasets.List() {
 		if p := d.DatasetReference.ProjectID; p != "" {

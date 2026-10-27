@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestIAMSimulateCustomPolicyCLI exercises SimulateCustomPolicy via the aws CLI — the exact
-// shape a consumer uses to assert least-privilege locally.
+// TestIAMSimulateCustomPolicyCLI checks least privilege locally, as a
+// consumer does with simulate-custom-policy.
 func TestIAMSimulateCustomPolicyCLI(t *testing.T) {
 	t.Parallel()
 	denyPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"ec2:DeleteVolume","Resource":"*"}]}`
@@ -27,7 +27,7 @@ func TestIAMSimulateCustomPolicyCLI(t *testing.T) {
 		t.Fatalf("expected allowed, got %q", decision)
 	}
 
-	// Unmatched action → implicit deny.
+	// An unmatched action is an implicit deny.
 	decision = strings.TrimSpace(runCLI(t, awsCLI("iam", "simulate-custom-policy",
 		"--policy-input-list", allowPolicy,
 		"--action-names", "s3:PutObject",

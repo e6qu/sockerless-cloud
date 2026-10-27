@@ -13,24 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDNS_CrossJobResolution_CLI mirrors the SDK cross-job DNS test through
-// the gcloud CLI: a VPC network and subnetwork, a private zone visible to the
-// network, and two Cloud Run jobs with direct VPC egress onto the
-// subnetwork. One job's task holds an address of the subnetwork, the zone's
-// A record names it, and the other job resolves the record through the
-// resolver its network hands it.
+// TestDNS_CrossJobResolution_CLI builds a VPC network and subnetwork, a private
+// zone visible to the network, and two Cloud Run jobs with direct VPC egress
+// onto the subnetwork. The zone's A record names one job's task address, and
+// the other job resolves it through its network's resolver.
 func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
 	}
 
-	// 1. The network the jobs egress into, with one subnetwork.
 	runCLI(t, gcloudCLI("compute", "networks", "create", "cli-xjob-net", "--subnet-mode=custom"))
 	runCLI(t, gcloudCLI("compute", "networks", "subnets", "create", "cli-xjob-net",
 		"--network=cli-xjob-net", "--region="+location, "--range=10.85.0.0/24"))
 
-	// 2. The private zone, visible to that network.
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "cli-xjob-zone",
 		"--dns-name=cli-xjob.local.",
 		"--description=CLI cross-job DNS test",
@@ -55,10 +51,8 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	require.Len(t, zone.PrivateVisibilityConfig.Networks, 1, "the zone is visible to the network: %s", out)
 	require.Contains(t, zone.PrivateVisibilityConfig.Networks[0].NetworkUrl, "/global/networks/cli-xjob-net")
 
-	// 3. Two Cloud Run jobs with direct VPC egress, created and run over the
-	// v2 REST surface (gcloud run jobs create against the simulator's v2
-	// endpoint is not reliably supported; the SDK/REST path is the gcloud
-	// back-door).
+	// Create and run the jobs over the v2 REST surface; this test does not drive
+	// `gcloud run jobs create` against the simulator.
 	createJob := func(name string, args []string) string {
 		argsJSON, err := json.Marshal(args)
 		require.NoError(t, err)
@@ -73,8 +67,8 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 			baseURL, project, location, name)
 		_ = httpDoJSON(t, "POST", createURL, body)
 
-		// The workload keeps running while the test wires DNS around it, so
-		// the execution comes from the RunJob operation's Execution metadata.
+		// The workload keeps running while the test wires DNS around it, so take the
+		// execution from the RunJob operation's metadata.
 		return runJob(t, name).Execution
 	}
 
@@ -93,8 +87,7 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		return true
 	}, 30*time.Second, 300*time.Millisecond, "Docker containers should be running (alpha=%s, beta=%s)", alphaContainer, betaContainer)
 
-	// The tasks' containers hold addresses of the subnetwork, which the test
-	// reads off the engine: Cloud Run reports no address for a task.
+	// Cloud Run reports no address for a task, so read it off the engine.
 	subnet := netip.MustParsePrefix("10.85.0.0/24")
 	alphaIP := containerIP(t, alphaContainer)
 	betaIP := containerIP(t, betaContainer)
@@ -102,8 +95,6 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		require.True(t, subnet.Contains(netip.MustParseAddr(ip)), "%s is not an address of the subnetwork the jobs egress into", ip)
 	}
 
-	// 4. The A record naming beta (direct REST — gcloud record-sets create
-	// has inconsistent endpoint-override handling).
 	rrURL := fmt.Sprintf("%s/dns/v1/projects/%s/managedZones/cli-xjob-zone/rrsets", baseURL, project)
 	httpDoJSON(t, "POST", rrURL, fmt.Sprintf(
 		`{"name":"beta.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, betaIP))
@@ -111,7 +102,6 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	// deletes a zone only once its own records are gone.
 	defer runCLI(t, gcloudCLI("dns", "record-sets", "delete", "beta.cli-xjob.local.", "--zone=cli-xjob-zone", "--type=A"))
 
-	// 5. alpha resolves beta's record through its network's resolver.
 	var logs []byte
 	require.Eventually(t, func() bool {
 		var err error
@@ -121,7 +111,6 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	assert.Contains(t, string(logs), "gcp-cli-cross-job-dns-ok")
 }
 
-// jobContainerName + containerIP mirror the SDK-test helpers.
 func jobContainerName(executionName string) string {
 	last := executionName
 	if idx := strings.LastIndex(executionName, "/"); idx >= 0 {

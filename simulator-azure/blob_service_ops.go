@@ -101,42 +101,9 @@ func handleGetUserDelegationKey(w http.ResponseWriter, r *http.Request, account 
 		return
 	}
 
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		writeStorageError(w, "AuthenticationFailed",
-			"Get User Delegation Key requires OAuth authentication with a Microsoft Entra token.",
-			http.StatusUnauthorized)
+	key, ok := storageIssueUserDelegationKey(w, r, account, "b", info.Start, info.Expiry)
+	if !ok {
 		return
-	}
-	claims, err := verifyAzureSimJWT(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
-	if err != nil {
-		writeStorageError(w, "AuthenticationFailed",
-			"Server failed to authenticate the request: "+err.Error(),
-			http.StatusUnauthorized)
-		return
-	}
-	oid, _ := claims["oid"].(string)
-	if oid == "" {
-		oid, _ = claims["sub"].(string)
-	}
-	tid, _ := claims["tid"].(string)
-
-	version := r.Header.Get("x-ms-version")
-	key := BlobUserDelegationKey{
-		Account:       account,
-		SignedOID:     oid,
-		SignedTID:     tid,
-		SignedStart:   info.Start,
-		SignedExpiry:  info.Expiry,
-		SignedService: "b",
-		SignedVersion: version,
-	}
-	storeKey := strings.Join([]string{account, oid, tid, info.Start, info.Expiry, version}, "|")
-	if existing, ok := blobDelegationKeys.Get(storeKey); ok {
-		key.Value = existing.Value
-	} else {
-		key.Value = blobRandomKeyMaterial()
-		blobDelegationKeys.Put(storeKey, key)
 	}
 
 	writeStorageXML(w, http.StatusOK, blobUserDelegationKeyDocument{
@@ -148,4 +115,36 @@ func handleGetUserDelegationKey(w http.ResponseWriter, r *http.Request, account 
 		SignedVersion: key.SignedVersion,
 		Value:         key.Value,
 	})
+}
+
+// storageIssueUserDelegationKey issues a user delegation key for the Microsoft
+// Entra identity the request authenticates as, bound to the service named by
+// its letter and to the requested window, and retains it so the same
+// coordinates read the same key back and a signature made with it verifies.
+func storageIssueUserDelegationKey(w http.ResponseWriter, r *http.Request, account, service, start, expiry string) (BlobUserDelegationKey, bool) {
+	caller, ok := storageBearerCaller(r)
+	if !ok || caller.oid == "" {
+		writeStorageError(w, "AuthenticationFailed",
+			"Get User Delegation Key requires OAuth authentication with a Microsoft Entra token.",
+			http.StatusUnauthorized)
+		return BlobUserDelegationKey{}, false
+	}
+	version := r.Header.Get("x-ms-version")
+	key := BlobUserDelegationKey{
+		Account:       account,
+		SignedOID:     caller.oid,
+		SignedTID:     caller.tid,
+		SignedStart:   start,
+		SignedExpiry:  expiry,
+		SignedService: service,
+		SignedVersion: version,
+	}
+	storeKey := strings.Join([]string{account, caller.oid, caller.tid, start, expiry, version, service}, "|")
+	if existing, ok := blobDelegationKeys.Get(storeKey); ok {
+		key.Value = existing.Value
+	} else {
+		key.Value = blobRandomKeyMaterial()
+		blobDelegationKeys.Put(storeKey, key)
+	}
+	return key, true
 }

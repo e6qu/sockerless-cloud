@@ -13,9 +13,7 @@
 # "complete" once BOTH per-arch tags exist, so a publish that has pushed one of
 # them and not yet the other looks exactly like an obsolete remnant — and this
 # prune is triggered by the *completion of another publish*, so it runs while
-# siblings are mid-flight. It deleted them: six publishes dispatched together
-# left three with `ERROR: …:<sha>-amd64: not found` at the manifest step, having
-# pushed that tag minutes earlier. Nothing about the listing distinguishes a
+# siblings are mid-flight. Nothing about the listing distinguishes a
 # half-pushed release from an abandoned one, so age does: a version younger than
 # the grace window is left alone, and the next prune — scheduled daily, and
 # triggered by every publish — collects it once it is old enough to judge.

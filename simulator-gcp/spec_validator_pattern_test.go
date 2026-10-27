@@ -7,11 +7,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A Discovery schema's `pattern` is part of the contract, and it is where the
-// identity-bearing strings are pinned: a resource name, a fingerprint, an
-// address. Checking only that a member is a string accepts a value no client
-// could send back. These tests hold the check itself, so deleting it fails here
-// rather than going unnoticed because the simulator happens to be clean today.
+// These tests hold the pattern check itself, so removing it fails here even
+// while the simulator's responses all match.
 
 // gcpPatternSchema is the shape of a Google Compute Engine resource name, taken
 // verbatim from the vendored Discovery documents.
@@ -51,10 +48,8 @@ func TestDiscoveryValidatorAcceptsAValueThePatternAdmits(t *testing.T) {
 	}
 }
 
-// The anchoring is the whole point on Discovery: its patterns are written
-// without ^ and $ but describe an entire value, so a substring match would
-// admit any text that merely contains one. An address pattern is the clearest
-// case — "garbage 10.0.0.1 garbage" is not an address.
+// Discovery patterns describe a whole value, so the validator anchors them:
+// "garbage 10.0.0.1 garbage" is not an address.
 func TestDiscoveryValidatorAnchorsThePattern(t *testing.T) {
 	address := `[0-9]{1,3}(?:\.[0-9]{1,3}){3}`
 	if v := gcpValidate(t, gcpStringSchema(address), "10.0.0.1"); len(v) != 0 {

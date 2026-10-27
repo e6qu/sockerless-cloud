@@ -16,11 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_Service_ReconcilesRealTasks proves that Amazon ECS services own real
-// task-definition workloads. It covers initial placement, replacement after a
-// service task is stopped, rolling task-definition replacement, a forced
-// deployment of the same task definition, scale-out, scale-in, and
-// delete-time draining through the official ECS client.
+// TestECS_Service_ReconcilesRealTasks covers placement, replacement of a
+// stopped task, rolling task-definition replacement, a forced deployment of the
+// same task definition, scale-out, scale-in and draining at delete.
 func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -99,8 +97,8 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		Reason: aws.String("prove service replacement"),
 	})
 	require.NoError(t, err)
-	// Once the stopped task has left RUNNING, the service is steady again only
-	// after its scheduler has launched a replacement.
+	// The service is steady again only once its scheduler replaces the stopped
+	// task.
 	waitTaskStopped(t, client, cluster, beforeStop[0])
 	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
 	after := runningTasks()
@@ -127,8 +125,8 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 		assert.Equal(t, secondRevision, aws.ToString(task.TaskDefinitionArn), "rolling deployment did not replace every task")
 	}
 
-	// A new deployment of the same task definition replaces every task too:
-	// a task belongs to the deployment that started it.
+	// A new deployment of the same task definition replaces every task: a task
+	// belongs to the deployment that started it.
 	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
 		Cluster: aws.String(cluster), Service: aws.String(serviceName), ForceNewDeployment: true,
 	})
@@ -163,10 +161,9 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 	waitForECSServiceInactive(t, client, cluster, serviceName)
 }
 
-// TestECS_Service_RegistersRunningTasksInCloudMap proves that service
-// discovery is scheduler-owned state: Amazon ECS registered the real elastic
-// network interface address of a running task, replaced that registration when
-// the task was replaced, and deregistered it when the service was deleted.
+// TestECS_Service_RegistersRunningTasksInCloudMap expects Amazon ECS to register
+// a running task's ENI address, replace the registration with the task, and
+// deregister it when the service is deleted.
 func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	t.Parallel()
 	family := uniquename.New("discovery-scheduler-task")
@@ -298,12 +295,9 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond, "service deletion did not deregister Cloud Map instances")
 }
 
-// TestECS_ServiceTaskStreamsLogsLive proves the awslogs contract for the tasks
-// an Amazon ECS service owns. A service task never exits, so its stdout is only
-// diagnosable if the log driver forwards each line while the task is RUNNING —
-// the post-exit drain that covers one-shot RunTask workloads never runs for it.
-// Regression: service tasks reached CloudWatch with nothing but the synthetic
-// "container started" event, which made every service in the simulator opaque.
+// TestECS_ServiceTaskStreamsLogsLive: a service task never exits, so its stdout
+// is diagnosable only if the awslogs driver forwards each line while the task
+// is RUNNING; the post-exit drain one-shot tasks get never runs for it.
 func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 	t.Parallel()
 	family := uniquename.New("svc-live-logs-task")
@@ -377,13 +371,10 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 		return count
 	}
 
-	// A service task's stdout must stream to CloudWatch while the task is
-	// RUNNING.
 	waitForECSServicesStable(t, client, cluster, 60*time.Second, serviceName)
 	awaitLogLine(t, cw, logGroup, marker, 60*time.Second)
 
-	// The line is observable while the service is still holding the task, so
-	// an operator can diagnose a running service without stopping it.
+	// The line is visible while the service still holds the task.
 	described, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
 		Cluster: aws.String(cluster), Services: []string{serviceName},
 	})
@@ -395,9 +386,8 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 		3*time.Second, 250*time.Millisecond,
 		"the live stream must not deliver a line more than once")
 
-	// DescribeLogStreams must report the ingestion, not just the creation, of
-	// the stream: ordering a service's streams by LastEventTime is how an
-	// operator finds the task that is still writing.
+	// DescribeLogStreams reports the ingestion, not only the stream's creation:
+	// sorting by LastEventTime finds the task still writing.
 	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 	})
@@ -411,9 +401,8 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 }
 
 // A deployment whose maximumPercent leaves no room above the desired count
-// rolls in batches: the scheduler stops a previous task down to
-// minimumHealthyPercent before it starts each replacement, so the service
-// never runs more tasks than maximumPercent allows.
+// rolls in batches: the scheduler stops tasks down to minimumHealthyPercent
+// before starting each replacement, never exceeding maximumPercent.
 func TestECS_Service_DeploymentRollsWithinItsBounds(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -468,8 +457,8 @@ func TestECS_Service_DeploymentRollsWithinItsBounds(t *testing.T) {
 		assert.NotContains(t, before, arn)
 	}
 
-	// Each replacement started only after a previous task had stopped, so the
-	// service never held more than two tasks.
+	// Each replacement started after a previous task stopped, so the service never
+	// held more than two tasks.
 	old, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: before})
 	require.NoError(t, err)
 	replacements, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: after})

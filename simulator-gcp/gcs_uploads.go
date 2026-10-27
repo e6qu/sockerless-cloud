@@ -12,7 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// registerGCSUploads mounts the simple, multipart and resumable uploads.
 func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	// A resumable session's chunks are PUTs to its session URI and its
 	// cancellation a DELETE there, on whichever media path the session began.
@@ -75,18 +74,13 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			return
 		}
 
-		// Resumable upload session initiation. Real GCS accepts the
-		// metadata (including `name`) as JSON in the body and returns
-		// 200 + a Location header containing an opaque session ID;
-		// the SDK then PUTs chunks at that session URL with
-		// Content-Range headers. Each PUT either returns 308 Resume
-		// Incomplete (with a Range header naming the bytes received)
-		// or 200 with the finalized object metadata.
+		// A resumable session begins with the object resource as JSON and answers 200
+		// with the session URI in Location; each chunk PUT then answers 308 with the
+		// Range received, or 200 with the object once complete.
 		if uploadType == "resumable" {
 			var meta gcsObjectResource
-			// Resumable-init body is a JSON object resource. The Go SDK
-			// does not gzip-encode this control-plane request; chunk
-			// uploads at the session URL carry the streaming envelope.
+			// Clients send the session-initiation body unencoded; only chunk PUTs carry
+			// the streaming envelope.
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
@@ -128,12 +122,9 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 
 		if mediaType == "multipart/related" {
 			boundary := gcsMultipartBoundary(ct)
-			// Multipart upload: first part is metadata JSON
-			// (including `name` when not in query), second part is
-			// data. Real GCS multipart/related bodies are not
-			// content-encoded — gzip travels on the resumable
-			// session chunk PUT instead (handled in
-			// handleGCSResumableChunk via openStreamingBody).
+			// A multipart upload's first part is the metadata JSON, which may carry the
+			// name, and its second the data. Clients do not content-encode multipart
+			// bodies; gzip travels on resumable chunk PUTs.
 			mr := multipart.NewReader(r.Body, boundary)
 			metaPart, err := mr.NextPart()
 			if err != nil {
@@ -165,7 +156,6 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 					"name is required (in query or multipart metadata)", "INVALID_ARGUMENT")
 				return
 			}
-			// Read data part
 			dataPart, err := mr.NextPart()
 			if err != nil {
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read data part: %v", err)
@@ -185,7 +175,7 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 					"name query parameter is required", "INVALID_ARGUMENT")
 				return
 			}
-			// Simple upload (streaming-aware: handles gzip).
+			// A simple upload may be gzip-encoded.
 			rc, err := openStreamingBody(r)
 			if err != nil {
 				GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
@@ -206,12 +196,8 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			return
 		}
 
-		// Real GCS object responses include `kind` + `id` + `selfLink` +
-		// `mediaLink` (https-hard-coded — GCS' JSON API is HTTPS-only).
-		// terraform-provider-google's `google_storage_bucket_object`
-		// reads `selfLink` into the resource's `self_link` attribute
-		// on apply, so missing it means the attribute is empty
-		// downstream.
+		// terraform-provider-google reads selfLink into google_storage_bucket_object's
+		// self_link on apply.
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
 	}
 
@@ -220,13 +206,10 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 	srv.HandleFunc("POST /resumable/upload/storage/v1/b/{bucket}/o", uploadObject)
 }
 
-// handleGCSResumableChunk processes a chunk PUT during a resumable
-// upload. The client sends `Content-Range: bytes <start>-<end>/<total>`
-// (or `bytes <start>-<end>/*` if total unknown). When `end+1 == total`,
-// the upload is complete: the session bytes get persisted as a real
-// GCS object and the canonical 200 + object-metadata response goes back.
-// Otherwise the sim returns 308 Resume Incomplete with a `Range` header
-// naming the bytes received so the client knows where to resume.
+// handleGCSResumableChunk handles a chunk PUT, `Content-Range: bytes
+// <start>-<end>/<total>` (total `*` while unknown). The chunk that reaches the
+// total makes the object and answers 200 with its metadata; any other answers
+// 308 with a `Range` naming the bytes received.
 func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID string, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	sess, ok := gcsResumableSessions.Get(uploadID)
 	if !ok {
@@ -241,11 +224,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	}
 
 	defer r.Body.Close()
-	// Wrap the chunk body through openStreamingBody so a
-	// Content-Encoding: gzip chunk decodes transparently — real GCS
-	// resumable uploads can carry gzip-encoded chunks when the SDK
-	// sets Object.ContentEncoding = "gzip" alongside the streamed
-	// upload.
+	// Clients may gzip-encode a resumable chunk, which openStreamingBody decodes.
 	chunkReader, err := openStreamingBody(r)
 	if err != nil {
 		GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT",

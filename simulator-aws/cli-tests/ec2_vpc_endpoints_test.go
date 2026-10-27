@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_VpcEndpointsRoundTrip drives create-vpc-endpoint /
-// describe-vpc-endpoints / delete-vpc-endpoints through the aws CLI, covering a
-// gateway endpoint (route tables) and an interface endpoint (subnets + security
-// groups + DNS).
 func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -21,7 +17,6 @@ func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
 		"--group-name", "vpce-cli-sg", "--description", "vpce cli sg", "--vpc-id", vpc,
 		"--query", "GroupId", "--output", "text")))
 
-	// Gateway endpoint.
 	gw := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc-endpoint",
 		"--vpc-id", vpc, "--service-name", "com.amazonaws.us-east-1.s3",
 		"--vpc-endpoint-type", "Gateway", "--route-table-ids", rt,
@@ -30,7 +25,6 @@ func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
 		t.Fatal("gateway endpoint id empty")
 	}
 
-	// Interface endpoint.
 	iface := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc-endpoint",
 		"--vpc-id", vpc, "--service-name", "com.amazonaws.us-east-1.ecr.api",
 		"--vpc-endpoint-type", "Interface", "--subnet-ids", sub,
@@ -52,7 +46,6 @@ func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
 		t.Fatalf("gateway endpoint state = %q, want Available", gotState)
 	}
 
-	// Filter by vpc-id returns both.
 	count := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-vpc-endpoints",
 		"--filters", "Name=vpc-id,Values="+vpc,
 		"--query", "length(VpcEndpoints)", "--output", "text")))
@@ -60,7 +53,7 @@ func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
 		t.Fatalf("vpc-id filter returned %q endpoints, want 2", count)
 	}
 
-	// Delete both; a successful delete reports an empty Unsuccessful set.
+	// A successful delete reports an empty Unsuccessful set.
 	unsucc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "delete-vpc-endpoints",
 		"--vpc-endpoint-ids", gw, iface, "--query", "length(Unsuccessful)", "--output", "text")))
 	if unsucc != "0" {

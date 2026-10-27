@@ -18,7 +18,6 @@ const (
 	Reject
 )
 
-// Classifier maps a receiver's HTTP status to a Class.
 type Classifier func(status int) Class
 
 // Success2xx accepts 2xx and retries everything else.
@@ -29,7 +28,6 @@ func Success2xx(status int) Class {
 	return Retry
 }
 
-// Request is one push request.
 type Request struct {
 	// Method is the HTTP method; empty sends POST.
 	Method  string

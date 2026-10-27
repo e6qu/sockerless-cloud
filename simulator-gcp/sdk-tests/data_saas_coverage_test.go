@@ -24,8 +24,6 @@ func bqService(t *testing.T) *bigquery.Service {
 	return svc
 }
 
-// TestBQCoverage_DatasetReadUpdateDelete covers the untested dataset ops:
-// list, get, patch (incl. labels round-trip), delete.
 func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
 	t.Parallel()
 	svc := bqService(t)
@@ -67,8 +65,6 @@ func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
 	assert.Error(t, err, "dataset gone after delete")
 }
 
-// TestBQCoverage_TableReadUpdateDeleteLabels covers the untested table ops:
-// get, list, patch, delete — and the table labels round-trip.
 func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
 	t.Parallel()
 	svc := bqService(t)
@@ -107,8 +103,6 @@ func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
 	assert.Error(t, err, "table gone after delete")
 }
 
-// TestBQCoverage_TabledataAndJobs covers tabledata.list, jobs.insert,
-// jobs.list, jobs.get, and jobs.getQueryResults.
 func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	t.Parallel()
 	svc := bqService(t)
@@ -130,13 +124,11 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// tabledata.list returns the persisted rows.
 	td, err := svc.Tabledata.List(proj, "job_ds", "evt").Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), td.TotalRows)
 	require.Len(t, td.Rows, 2)
 
-	// jobs.insert with a query configuration runs the query.
 	googleSQL := false
 	job, err := svc.Jobs.Insert(proj, &bigquery.Job{
 		Configuration: &bigquery.JobConfiguration{
@@ -152,12 +144,10 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	require.NotEmpty(t, jobID)
 	assert.Equal(t, "DONE", job.Status.State)
 
-	// jobs.get round-trips the job.
 	gotJob, err := svc.Jobs.Get(proj, jobID).Do()
 	require.NoError(t, err)
 	assert.Equal(t, jobID, gotJob.JobReference.JobId)
 
-	// jobs.list includes the job.
 	jl, err := svc.Jobs.List(proj).Do()
 	require.NoError(t, err)
 	var jobFound bool
@@ -169,7 +159,6 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	}
 	assert.True(t, jobFound, "inserted job must appear in jobs.list")
 
-	// getQueryResults returns the query rows for the job.
 	qr, err := svc.Jobs.GetQueryResults(proj, jobID).Do()
 	require.NoError(t, err)
 	require.True(t, qr.JobComplete)
@@ -178,11 +167,11 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	assert.Equal(t, "b", qr.Rows[0].F[0].V)
 	assert.Equal(t, "bigquery#getQueryResultsResponse", qr.Kind)
 
-	// GetQueryResultsResponse and QueryResponse are different schemas over the
-	// same result: getQueryResults declares totalBytesProcessed and no
-	// totalBytesBilled, so the member set is checked on the wire — the
-	// generated struct cannot express a member it does not declare, and a
-	// numeric member's zero value cannot distinguish "sent as 0" from "absent".
+	// GetQueryResultsResponse and QueryResponse are different schemas over one
+	// result: getQueryResults declares totalBytesProcessed and no
+	// totalBytesBilled. Check the member set on the wire, since the generated
+	// struct cannot express an undeclared member and a numeric zero cannot tell
+	// "sent as 0" from "absent".
 	members := bqGetQueryResultsMembers(t, proj, jobID)
 	assert.Contains(t, members, "totalBytesProcessed",
 		"getQueryResults must carry the totalBytesProcessed member it declares")
@@ -190,9 +179,6 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 		"totalBytesBilled is a QueryResponse member; GetQueryResultsResponse does not declare it")
 }
 
-// bqGetQueryResultsMembers reads jobs.getQueryResults over raw HTTP and returns
-// the member names of the response object. The Discovery-generated struct drops
-// anything it does not declare, so only the wire shows which members were sent.
 func bqGetQueryResultsMembers(t *testing.T, project, jobID string) []string {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("%s/bigquery/v2/projects/%s/queries/%s", baseURL, project, jobID))
@@ -209,8 +195,6 @@ func bqGetQueryResultsMembers(t *testing.T, project, jobID string) []string {
 	return members
 }
 
-// TestFSCoverage_CreateUpdateDeleteBatchWrite covers the untested firestore
-// ops: createDocument (POST), patch (update), delete, and batchWrite.
 func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
 	t.Parallel()
 	svc, err := firestore.NewService(ctx,
@@ -221,7 +205,6 @@ func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
 
 	parent := "projects/cov-project/databases/(default)/documents"
 
-	// CreateDocument (POST collection) with an explicit documentId.
 	created, err := svc.Projects.Databases.Documents.CreateDocument(parent, "cov-users", &firestore.Document{
 		Fields: map[string]firestore.Value{"name": {StringValue: "carol"}},
 	}).DocumentId("carol").Do()
@@ -240,7 +223,6 @@ func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
 	assert.Equal(t, "admin", after.Fields["role"].StringValue)
 	assert.Equal(t, "carol", after.Fields["name"].StringValue, "masked patch preserves unmentioned fields")
 
-	// batchWrite a second document, then delete the first.
 	_, err = svc.Projects.Databases.Documents.BatchWrite("projects/cov-project/databases/(default)", &firestore.BatchWriteRequest{
 		Writes: []*firestore.Write{{
 			Update: &firestore.Document{
@@ -254,7 +236,6 @@ func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "dave", dave.Fields["name"].StringValue)
 
-	// Delete carol.
 	_, err = svc.Projects.Databases.Documents.Delete(docName).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Databases.Documents.Get(docName).Do()

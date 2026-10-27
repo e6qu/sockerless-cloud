@@ -17,11 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gcsRESTProject is the project the advanced tests list and create buckets in.
 const gcsRESTProject = "gcs-rest-project"
 
-// gcsRESTCreate creates a bucket via raw REST (used by the advanced
-// tests that need to drive multipart / resumable / compose directly).
+// gcsRESTCreate creates a bucket over raw REST for the tests that drive
+// multipart, resumable and compose uploads directly.
 func gcsRESTCreate(t *testing.T, bucket string) {
 	t.Helper()
 	requireProject(t, gcsRESTProject)
@@ -46,7 +45,6 @@ func gcsRESTDelete(t *testing.T, path string) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "DELETE %s: %s", path, body)
 }
 
-// gcsObjectMetadataRaw fetches GCS object metadata via the JSON API.
 func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 	t.Helper()
 	resp, err := http.Get(baseURL + "/storage/v1/b/" + bucket + "/o/" + object)
@@ -58,8 +56,8 @@ func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 	return m
 }
 
-// TestGCS_EmittedURLsHTTPS asserts the JSON API emits selfLink +
-// mediaLink with https://, matching real GCS (HTTPS-only).
+// TestGCS_EmittedURLsHTTPS: Cloud Storage emits selfLink and mediaLink over
+// https://.
 func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("https-bucket")
@@ -89,11 +87,9 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 		"GET mediaLink must be https://; got %q", getMeta["mediaLink"])
 }
 
-// TestGCS_ResumableUpload exercises the full resumable upload contract:
-// 1. POST init with metadata in body → 200 + Location with upload_id
-// 2. PUT partial chunk with Content-Range → 308 Resume Incomplete
-// 3. PUT final chunk → 200 + object metadata
-// 4. GET on the destination returns the concatenated payload
+// TestGCS_ResumableUpload: the init POST carries the metadata and answers 200
+// with a Location naming upload_id, a partial PUT with Content-Range answers 308,
+// the final PUT answers 200 with the object, and a GET returns the whole payload.
 //
 //	POST /upload/storage/v1/b/{bucket}/o
 //	PUT /upload/storage/v1/b/{bucket}/o
@@ -156,8 +152,8 @@ func TestGCS_ResumableUpload(t *testing.T) {
 	assert.Equal(t, payload, got, "object bytes must equal concatenated chunks")
 }
 
-// TestGCS_MultipartUploadBodyName exercises name-in-multipart-metadata
-// (the form the Go SDK uses when Object.Name is set on the struct).
+// TestGCS_MultipartUploadBodyName: the Go SDK names the object in the
+// multipart metadata when Object.Name is set.
 func TestGCS_MultipartUploadBodyName(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("multipart-bucket")
@@ -192,7 +188,7 @@ func TestGCS_MultipartUploadBodyName(t *testing.T) {
 		"multipart upload selfLink must be https://")
 }
 
-// TestGCS_ObjectsCompose exercises POST /storage/v1/b/{bucket}/o/{name}/compose.
+// POST /storage/v1/b/{bucket}/o/{name}/compose.
 func TestGCS_ObjectsCompose(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("compose-bucket")
@@ -296,7 +292,6 @@ func TestGCS_BucketIAMPolicyShape(t *testing.T) {
 	require.NoError(t, err, "IAM etag must be base64, not raw hex")
 }
 
-// bucketIAMGet / bucketIAMSet drive the bucket IAM data plane via raw REST.
 func bucketIAMGet(t *testing.T, bucket string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest("GET", baseURL+"/storage/v1/b/"+bucket+"/iam", nil)
@@ -321,10 +316,9 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 	return resp.StatusCode
 }
 
-// TestGCS_BucketIAMEtagConflict — the bucket setIamPolicy enforces the same
-// optimistic-concurrency contract as project IAM: a stale etag is rejected
-// (409), an empty etag is a blind overwrite, and the default-policy etag is
-// stable across reads.
+// TestGCS_BucketIAMEtagConflict: bucket setIamPolicy refuses a stale etag with
+// 409, treats an empty etag as a blind overwrite, and keeps the default
+// policy's etag stable across reads.
 func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("iam-etag-bucket")
@@ -336,7 +330,6 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	p2 := bucketIAMGet(t, bucket)
 	assert.Equal(t, etag1, p2["etag"], "default bucket-policy etag must persist across reads")
 
-	// Set with the current etag → succeeds.
 	code := bucketIAMSet(t, bucket, map[string]any{
 		"etag": etag1,
 		"bindings": []map[string]any{
@@ -345,7 +338,6 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, code)
 
-	// Re-set with the stale etag → 409.
 	code = bucketIAMSet(t, bucket, map[string]any{
 		"etag": etag1, // stale
 		"bindings": []map[string]any{
@@ -354,7 +346,6 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	})
 	require.Equal(t, http.StatusConflict, code, "stale etag must be rejected with 409")
 
-	// Empty etag → blind overwrite, allowed.
 	code = bucketIAMSet(t, bucket, map[string]any{
 		"bindings": []map[string]any{
 			{"role": "roles/storage.objectViewer", "members": []string{"user:blind@example.com"}},
@@ -363,8 +354,6 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "empty etag is a permitted blind overwrite")
 }
 
-// TestGCS_BucketIAMInvalidMember — bucket setIamPolicy rejects a malformed
-// member with 400 INVALID_ARGUMENT.
 func TestGCS_BucketIAMInvalidMember(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("iam-bad-member-bucket")
@@ -559,10 +548,8 @@ func TestGCS_ObjectMetadataValidation(t *testing.T) {
 	}
 }
 
-// gcsListPage fetches one page of a GCS JSON API list, returning the item names
-// in wire order and the page's nextPageToken. listURL must already carry a query
-// string; the page size rides on it as `maxResults`, the parameter the GCS JSON
-// API and the Go storage client's BucketIterator/ObjectIterator PageSize send.
+// gcsListPage sends the page size as `maxResults`, as the JSON API and the Go
+// client's iterators do; listURL must already carry a query string.
 func gcsListPage(t *testing.T, listURL, pageToken string) (names []string, next string) {
 	t.Helper()
 	u := listURL
@@ -587,10 +574,9 @@ func gcsListPage(t *testing.T, listURL, pageToken string) (names []string, next 
 	return names, decoded.NextPageToken
 }
 
-// gcsWalkOnePerPage walks a maxResults=1 list to exhaustion and asserts the full
-// pagination contract: exactly one item per page, a nextPageToken on every page
-// but the last, none on the last, and no item on two pages. It returns the items
-// in page order, which must equal the unpaginated listing.
+// gcsWalkOnePerPage walks a maxResults=1 list to exhaustion: one item per page,
+// a nextPageToken on every page but the last, no item twice, and the whole walk
+// equal to the unpaginated listing.
 func gcsWalkOnePerPage(t *testing.T, listURL string, wantPages int) []string {
 	t.Helper()
 	require.Positive(t, wantPages, "a one-per-page walk needs at least one item")
@@ -613,9 +599,8 @@ func gcsWalkOnePerPage(t *testing.T, listURL string, wantPages int) []string {
 	return order
 }
 
-// gcsRequireBadPageToken asserts the service rejects a token it never issued.
-// Accepting one would silently restart the walk at the first page and make a
-// caller re-read rows it already processed.
+// gcsRequireBadPageToken: accepting a token never issued would restart the
+// walk and make a caller re-read rows it already processed.
 func gcsRequireBadPageToken(t *testing.T, listURL string) {
 	t.Helper()
 	resp, err := http.Get(listURL + "&pageToken=not-a-token-this-service-issued")
@@ -628,8 +613,8 @@ func gcsRequireBadPageToken(t *testing.T, listURL string) {
 
 func TestGCS_ListBuckets_Pagination(t *testing.T) {
 	t.Parallel()
-	// Other tests create and delete buckets in the same project meanwhile, so
-	// the walk lists only this test's own, under a prefix of its own.
+	// Other tests create buckets in the same project, so list under this test's
+	// own prefix.
 	prefix := uniquename.New("pag-bucket")
 	names := []string{prefix + "-a", prefix + "-b", prefix + "-c"}
 	for _, n := range names {
@@ -639,8 +624,6 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 
 	listURL := baseURL + "/storage/v1/b?project=" + gcsRESTProject + "&prefix=" + prefix
 
-	// An unpaginated list is the ground truth: it must return every bucket and
-	// no token at all.
 	all, next := gcsListPage(t, listURL, "")
 	require.Empty(t, next, "a list without maxResults returns everything and no token")
 	require.Equal(t, names, all, "the list holds exactly the buckets under the prefix, by name")

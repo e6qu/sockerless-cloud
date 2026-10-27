@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeInstanceTypesReportsPublishedFacts reads instance types'
-// vCPUs, memory, architecture and network performance as AWS publishes them,
-// refuses an instance type that does not exist, filters over the facts, and
-// pages through the whole catalog.
+// TestEC2_DescribeInstanceTypesReportsPublishedFacts expects the vCPUs, memory,
+// architecture and network performance AWS publishes, refuses a type that does
+// not exist, filters over the facts, and pages the whole catalog.
 func TestEC2_DescribeInstanceTypesReportsPublishedFacts(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

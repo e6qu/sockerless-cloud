@@ -14,11 +14,9 @@ import (
 // signs with, the key a snapshot is re-encrypted under, and moving an address
 // between scopes.
 
-// registerComputeRouterNamedSets serves the named sets a router carries. A
-// named set is a list of prefixes or communities a route policy matches
-// against, addressed by name inside the router that holds it — so it lives in
-// the router rather than in a collection of its own, which is why the verbs are
-// on the router.
+// registerComputeRouterNamedSets serves a router's named sets: lists of
+// prefixes or communities a route policy matches, addressed by name inside
+// the router that holds them.
 func registerComputeRouterNamedSets(srv *sim.Server) {
 	const base = "/compute/v1/projects/{project}/regions/{region}/routers"
 	namedSets := sim.MakeStore[map[string]any](srv.DB(), "compute_router_named_sets")

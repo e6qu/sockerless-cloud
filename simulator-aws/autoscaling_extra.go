@@ -10,12 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// ASGroupExtras holds the per-group attachment / configuration state introduced
-// by the extended Auto Scaling operations (attach/detach of load balancers,
-// target groups, traffic sources; warm pool config; notification configs;
-// suspended processes; enabled metrics; standby/protection per-instance flags).
-// It is keyed by Auto Scaling group name in its own store so the core
-// AutoScalingGroup shape stays the wire-faithful subset autoscaling.go emits.
+// Keep the extended per-group state in its own store so AutoScalingGroup
+// stays the wire subset autoscaling.go emits.
 type ASGroupExtras struct {
 	GroupName           string
 	LoadBalancerNames   []string
@@ -43,9 +39,8 @@ type ASNotificationConfig struct {
 	TopicARN         string
 }
 
-// ASLifecycleAction tracks a pending lifecycle action created when an instance
-// enters a Pending:Wait / Terminating:Wait transition gated by a lifecycle
-// hook. CompleteLifecycleAction / RecordLifecycleActionHeartbeat advance it.
+// A lifecycle hook gates the Pending:Wait or Terminating:Wait transition with
+// an ASLifecycleAction.
 type ASLifecycleAction struct {
 	Token                string
 	AutoScalingGroupName string
@@ -76,14 +71,12 @@ func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 		r.RegisterVersioned("2011-01-01", action, h)
 	}
 
-	// Instance attach / standby / protection
 	reg("AttachInstances", handleASXAttachInstances)
 	reg("DetachInstances", handleASXDetachInstances)
 	reg("EnterStandby", handleASXEnterStandby)
 	reg("ExitStandby", handleASXExitStandby)
 	reg("SetInstanceProtection", handleASXSetInstanceProtection)
 
-	// Load balancers / target groups / traffic sources
 	reg("AttachLoadBalancers", handleASXAttachLoadBalancers)
 	reg("DetachLoadBalancers", handleASXDetachLoadBalancers)
 	reg("DescribeLoadBalancers", handleASXDescribeLoadBalancers)
@@ -94,43 +87,34 @@ func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 	reg("DetachTrafficSources", handleASXDetachTrafficSources)
 	reg("DescribeTrafficSources", handleASXDescribeTrafficSources)
 
-	// Instance refreshes
 	reg("StartInstanceRefresh", handleASXStartInstanceRefresh)
 	reg("CancelInstanceRefresh", handleASXCancelInstanceRefresh)
 	reg("RollbackInstanceRefresh", handleASXRollbackInstanceRefresh)
 	reg("DescribeInstanceRefreshes", handleASXDescribeInstanceRefreshes)
 
-	// Warm pools
 	reg("PutWarmPool", handleASXPutWarmPool)
 	reg("DeleteWarmPool", handleASXDeleteWarmPool)
 	reg("DescribeWarmPool", handleASXDescribeWarmPool)
 
-	// Notifications
 	reg("PutNotificationConfiguration", handleASXPutNotificationConfiguration)
 	reg("DeleteNotificationConfiguration", handleASXDeleteNotificationConfiguration)
 	reg("DescribeNotificationConfigurations", handleASXDescribeNotificationConfigurations)
 
-	// Metrics collection
 	reg("EnableMetricsCollection", handleASXEnableMetricsCollection)
 	reg("DisableMetricsCollection", handleASXDisableMetricsCollection)
 
-	// Process suspension
 	reg("SuspendProcesses", handleASXSuspendProcesses)
 	reg("ResumeProcesses", handleASXResumeProcesses)
 
-	// Lifecycle actions
 	reg("CompleteLifecycleAction", handleASXCompleteLifecycleAction)
 	reg("RecordLifecycleActionHeartbeat", handleASXRecordLifecycleActionHeartbeat)
 
-	// Batch scheduled actions
 	reg("BatchPutScheduledUpdateGroupAction", handleASXBatchPutScheduledAction)
 	reg("BatchDeleteScheduledAction", handleASXBatchDeleteScheduledAction)
 
-	// Predictive scaling + instance launch
 	reg("GetPredictiveScalingForecast", handleASXGetPredictiveScalingForecast)
 	reg("LaunchInstances", handleASXLaunchInstances)
 
-	// Static description / enumeration operations
 	reg("DescribeAccountLimits", handleASXDescribeAccountLimits)
 	reg("DescribeAdjustmentTypes", handleASXDescribeAdjustmentTypes)
 	reg("DescribeAutoScalingNotificationTypes", handleASXDescribeNotificationTypes)
@@ -140,7 +124,6 @@ func registerAutoScalingExtra(r *AWSQueryRouter, srv *sim.Server) {
 	reg("DescribeTerminationPolicyTypes", handleASXDescribeTerminationPolicyTypes)
 }
 
-// asxExtras returns the extras row for a group, creating an empty one if absent.
 func asxExtras(group string) ASGroupExtras {
 	if e, ok := asGroupExtras.Get(group); ok {
 		return e
@@ -157,7 +140,6 @@ func asxRequireGroup(w http.ResponseWriter, group string) (AutoScalingGroup, boo
 	return asg, true
 }
 
-// asxActivity builds and stores a scaling activity, returning its XML <member>.
 func asxActivity(group, description, cause string) ScalingActivity {
 	now := time.Now().UTC().Format(time.RFC3339)
 	a := ScalingActivity{
@@ -530,8 +512,7 @@ func handleASXPutNotificationConfiguration(w http.ResponseWriter, r *http.Reques
 	topic := r.FormValue("TopicARN")
 	types := autoscalingParamList(r, "NotificationTypes.member")
 	ex := asxExtras(group)
-	// PutNotificationConfiguration replaces the set of notification types for the
-	// given topic, matching the real API (one topic, the listed types).
+	// Replace the topic's notification types with the listed ones.
 	kept := ex.Notifications[:0]
 	for _, n := range ex.Notifications {
 		if n.TopicARN != topic {
@@ -811,9 +792,8 @@ func handleASXLaunchInstances(w http.ResponseWriter, r *http.Request) {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
-	// LaunchInstancesResult.Instances is a list of InstanceCollection, each
-	// grouping the launched instance IDs by AZ/subnet/type. The sim launches a
-	// single collection (one subnet) so we emit all IDs under one member.
+	// The simulator launches into one subnet, so all IDs go under one
+	// InstanceCollection.
 	var ids strings.Builder
 	for _, id := range asg.InstanceIds {
 		fmt.Fprintf(&ids, "<member>%s</member>", xmlEscape(id))

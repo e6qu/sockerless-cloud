@@ -834,7 +834,7 @@ func handleBlobServiceLevel(w http.ResponseWriter, r *http.Request, account, res
 	case r.Method == http.MethodGet && restype == "service" && comp == "stats":
 		handleGetBlobServiceStatistics(w, r, account)
 	case r.Method == http.MethodPost && restype == "service" && comp == "userdelegationkey":
-		if !RequireStorageOAuthBearer(w, r) {
+		if !RequireStorageOAuthBearer(w, r, "blob", account) {
 			return
 		}
 		handleGetUserDelegationKey(w, r, account)

@@ -2,13 +2,8 @@
 # check-readonly-locks.sh — hold the number of read-only critical sections that
 # take an exclusive lock to a count that may only fall.
 #
-# The same defect arrived three times from one service in two days: a Query
-# that read the whole table under a per-item lock (#37), a Scan copying under
-# one acquisition per item (#39), and every single-item read queueing behind
-# every other operation because the store's lock was exclusive (#43). Each was
-# found by a user watching a page time out. They are one shape — a lock taken
-# for reading, so a service's read concurrency is one — and the shape is what
-# this counts.
+# A lock taken for reading leaves a service's read concurrency at one; this
+# counts that shape.
 #
 # Converting a service is not a mechanical edit and must not be done as one.
 # Every site holding that lock has to be classified first: a section that reads
@@ -38,12 +33,8 @@ readonly SCAN_DIRS=(
 	ui-auth
 )
 
-# Zero, and it stays zero. Every read-only critical section in the tree takes a
-# read lock: Amazon DynamoDB's item store, the Glue catalog, Lambda's durable
-# executions, the ECS revision index and all three clouds' real-execution
-# fabric maps. A new one is a new defect, not a number to raise — a read path
-# that takes an exclusive lock makes a service's read concurrency one, which is
-# what three separate bug reports turned out to be.
+# Zero, and it stays zero: every read-only critical section in the tree takes
+# a read lock. A new one is a new defect, not a number to raise.
 readonly READONLY_LOCK_FLOOR=0
 
 report=$(mktemp)

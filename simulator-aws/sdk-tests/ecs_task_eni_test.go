@@ -12,11 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_AwsvpcTaskHoldsItsSubnet proves an awsvpc task owns an elastic
-// network interface from RunTask on: the attachment reports PRECREATED with
-// the interface already in the subnet, EC2 refuses DeleteSubnet with
-// DependencyViolation while the task holds it, and the interface is gone once
-// the task has stopped.
+// TestECS_AwsvpcTaskHoldsItsSubnet expects an awsvpc task to own its ENI from
+// RunTask on: the attachment reports PRECREATED with the interface in the
+// subnet, Amazon EC2 refuses DeleteSubnet with DependencyViolation while the
+// task holds it, and the interface is gone once the task stops.
 func TestECS_AwsvpcTaskHoldsItsSubnet(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()

@@ -46,8 +46,6 @@ func bqReadQuery(t *testing.T, client *bigquery.Client, sql string) []map[string
 	}
 }
 
-// bqRunQuery runs a statement as a job through the client's waiter and
-// returns its final status.
 func bqRunQuery(t *testing.T, client *bigquery.Client, sql string) (*bigquery.Job, *bigquery.QueryStatistics) {
 	t.Helper()
 	job, err := client.Query(sql).Run(ctx)

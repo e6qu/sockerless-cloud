@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_InstanceConnectEndpoint covers the EC2 Instance Connect Endpoint
-// control plane via the aws CLI: create-instance-connect-endpoint in a subnet,
-// describe-instance-connect-endpoints read-back, modify, and delete.
 func TestEC2CLI_InstanceConnectEndpoint(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -29,8 +26,8 @@ func TestEC2CLI_InstanceConnectEndpoint(t *testing.T) {
 		t.Fatalf("describe-instance-connect-endpoints: got %q, want 'create-complete %s True'", got, subnet)
 	}
 
-	// ModifyInstanceConnectEndpoint is exercised via the SDK test; older aws CLI
-	// builds lack the subcommand, so it is not invoked here.
+	// Older aws CLI builds lack modify-instance-connect-endpoint; the SDK test
+	// covers it.
 
 	runCLI(t, awsCLI("ec2", "delete-instance-connect-endpoint", "--instance-connect-endpoint-id", eice))
 	gone := q("ec2", "describe-instance-connect-endpoints",
@@ -40,9 +37,6 @@ func TestEC2CLI_InstanceConnectEndpoint(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_SerialConsoleAndMetadataDefaults covers the account-level
-// serial-console flag (enable/get/disable) and the IMDS account defaults
-// (modify/get) via the aws CLI.
 func TestEC2CLI_SerialConsoleAndMetadataDefaults(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
@@ -68,9 +62,6 @@ func TestEC2CLI_SerialConsoleAndMetadataDefaults(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_InstanceEventNotificationAttributes covers the account-level set
-// of tag keys registered for instance-event notifications via the aws CLI:
-// register, describe, deregister.
 func TestEC2CLI_InstanceEventNotificationAttributes(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -95,9 +86,6 @@ func TestEC2CLI_InstanceEventNotificationAttributes(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_MonitorAndInstanceOps covers detailed-monitoring toggling plus the
-// reboot/report-status/reset-attribute instance-management ops on a launched
-// instance, and the honest-empty describe-classic-link-instances.
 func TestEC2CLI_MonitorAndInstanceOps(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -127,7 +115,7 @@ func TestEC2CLI_MonitorAndInstanceOps(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "report-instance-status", "--instances", inst,
 		"--status", "impaired", "--reason-codes", "unresponsive"))
 
-	// Disable then reset sourceDestCheck; it must return to the default (true).
+	// Resetting sourceDestCheck restores its default, true.
 	runCLI(t, awsCLI("ec2", "modify-instance-attribute", "--instance-id", inst, "--no-source-dest-check"))
 	runCLI(t, awsCLI("ec2", "reset-instance-attribute", "--instance-id", inst, "--attribute", "sourceDestCheck"))
 	sdc := q("ec2", "describe-instance-attribute", "--instance-id", inst, "--attribute", "sourceDestCheck",

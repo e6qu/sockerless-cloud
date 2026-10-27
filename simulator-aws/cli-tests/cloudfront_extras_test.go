@@ -9,9 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudFront_OriginAccessIdentity_Lifecycle exercises the legacy
-// pre-OAC origin access identity via the aws CLI:
-// create → get → get-config → update → list → delete.
 func TestCloudFront_OriginAccessIdentity_Lifecycle(t *testing.T) {
 	t.Parallel()
 	caller := "cli-oai-" + time.Now().Format("150405.000000")
@@ -79,8 +76,6 @@ func TestCloudFront_OriginAccessIdentity_Lifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-cloud-front-origin-access-identity", "--id", id, "--if-match", updResult.ETag))
 }
 
-// TestCloudFront_ContinuousDeploymentPolicy_Lifecycle exercises CDP via
-// the aws CLI: create → get → get-config → update → list → delete.
 func TestCloudFront_ContinuousDeploymentPolicy_Lifecycle(t *testing.T) {
 	t.Parallel()
 	cfgJSON := `{
@@ -161,9 +156,6 @@ func TestCloudFront_ContinuousDeploymentPolicy_Lifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-continuous-deployment-policy", "--id", id, "--if-match", updResult.ETag))
 }
 
-// TestCloudFront_MonitoringSubscription_Lifecycle exercises the
-// per-distribution monitoring subscription via the aws CLI:
-// create → get → delete.
 func TestCloudFront_MonitoringSubscription_Lifecycle(t *testing.T) {
 	t.Parallel()
 	distID := cliCreateTestDistribution(t)
@@ -189,8 +181,6 @@ func TestCloudFront_MonitoringSubscription_Lifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-monitoring-subscription", "--distribution-id", distID))
 }
 
-// cliCreateTestDistribution provisions a minimal distribution via the aws
-// CLI and returns its id, for the monitoring-subscription test.
 func cliCreateTestDistribution(t *testing.T) string {
 	t.Helper()
 	caller := "cli-ms-dist-" + time.Now().Format("150405.000000")

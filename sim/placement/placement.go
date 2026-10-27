@@ -93,12 +93,12 @@ type Handle interface {
 	SetGateway(ctx context.Context, gateway string) error
 }
 
-// ErrNoIngressFilter is returned by a handle whose backend cannot filter
-// what the workload receives.
+// A handle whose backend cannot filter what the workload receives returns
+// ErrNoIngressFilter.
 var ErrNoIngressFilter = errors.New("the backend does not filter what the workload receives")
 
-// ErrNoRouteControl is returned by a backend that cannot choose where a
-// workload's default route goes: a container's is the engine's.
+// A backend that cannot choose where a workload's default route goes returns
+// ErrNoRouteControl: a container's is the engine's.
 var ErrNoRouteControl = errors.New("the backend does not route the workload")
 
 // Existing is a workload a backend holds from an earlier simulator process:
@@ -198,8 +198,8 @@ func (t *Table) KindFor(s Service) Kind {
 	return Container
 }
 
-// ErrOwnNetwork is wrapped when a member names a network, aliases or hosts
-// of its own: it joins the owner's namespace and takes those from it.
+// PlaceMember wraps ErrOwnNetwork when a member names a network, aliases or
+// hosts of its own: it joins the owner's namespace and takes those from it.
 var ErrOwnNetwork = errors.New("a member names its own network; it joins the owner's")
 
 // memberShape checks that w names no network of its own.
@@ -224,8 +224,8 @@ type Forwarding interface {
 	PlaceForwarded(ctx context.Context, w Workload, forwards []Forward, sink sim.LogSink) (Handle, error)
 }
 
-// ErrNoBackend is wrapped when a service is configured onto a backend the
-// simulator has not been given.
+// For wraps ErrNoBackend when the configuration puts a service onto a
+// backend the simulator was not given.
 var ErrNoBackend = errors.New("no backend of that kind is registered")
 
 // For is the backend the service's workloads run on.

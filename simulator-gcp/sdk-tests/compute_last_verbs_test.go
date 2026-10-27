@@ -8,10 +8,6 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The last of the Compute verbs: moving a reserved address, replacing a
-// resource whole, growing a subnetwork, and the reads that report what a health
-// check has observed.
-
 func TestCompute_AddressMoveBetweenScopes(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -177,10 +173,9 @@ func TestCompute_InterconnectGroupCreateMembers(t *testing.T) {
 	assert.Contains(t, err.Error(), "describing the members")
 }
 
-// calendarMode advises when a future reservation could be met. The advice is
-// the window the caller asked about: the simulator has no capacity forecast to
-// narrow it with, and a narrower window would be a forecast invented out of
-// nothing.
+// calendarMode advises the window the caller asked about: the simulator has no
+// capacity forecast to narrow it, and a narrower window would be an invented
+// forecast.
 func TestCompute_AdviceCalendarMode(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

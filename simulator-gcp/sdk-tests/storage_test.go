@@ -21,9 +21,8 @@ import (
 
 func storageClient(t *testing.T) *storage.Client {
 	t.Helper()
-	// TestMain points STORAGE_EMULATOR_HOST at the simulator for download URL
-	// construction; a simulator-minted token authenticates the client against
-	// the data plane the way it does against Google.
+	// TestMain points STORAGE_EMULATOR_HOST at the simulator for download URLs; a
+	// simulator-minted token authenticates the client, as against Google.
 	client, err := storage.NewClient(ctx, option.WithHTTPClient(simAuthHTTPClient()))
 	require.NoError(t, err)
 	return client
@@ -67,14 +66,12 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 	err := client.Bucket(bucketUploadBucket).Create(ctx, "test-project", &storage.BucketAttrs{StorageClass: "NEARLINE"})
 	require.NoError(t, err)
 
-	// Upload
 	w := client.Bucket(bucketUploadBucket).Object("hello.txt").NewWriter(ctx)
 	_, err = w.Write([]byte("hello world"))
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 	assert.Equal(t, "NEARLINE", w.Attrs().StorageClass, "an object takes the bucket's default storage class")
 
-	// Download
 	r, err := client.Bucket(bucketUploadBucket).Object("hello.txt").NewReader(ctx)
 	require.NoError(t, err)
 	defer r.Close()
@@ -173,10 +170,8 @@ func TestGCS_ListObjects(t *testing.T) {
 	assert.Equal(t, []string{"a.txt", "b.txt", "c.txt"}, names)
 }
 
-// TestGCS_ListObjectsPaged verifies the GCS object list honors the page-size
-// limit the storage client sends as the "maxResults" query parameter. A single
-// page must be capped at the requested size, and paging through must still yield
-// every object exactly once.
+// TestGCS_ListObjectsPaged: the client sends the page size as maxResults; one
+// page holds at most that many, and paging yields every object once.
 func TestGCS_ListObjectsPaged(t *testing.T) {
 	t.Parallel()
 	bucketPagedObjBucket := uniquename.New("paged-obj-bucket")
@@ -198,8 +193,6 @@ func TestGCS_ListObjectsPaged(t *testing.T) {
 	var firstPage []*storage.ObjectAttrs
 	nextTok, err := pager.NextPage(&firstPage)
 	require.NoError(t, err)
-	// maxResults=2 must cap the first page; if the sim ignored it (read
-	// "pageSize") the whole listing would come back in one page.
 	require.Len(t, firstPage, 2, "first page must honor maxResults=2")
 	require.NotEmpty(t, nextTok, "more objects remain, expected a nextPageToken")
 
@@ -306,26 +299,20 @@ func TestGCS_DeleteObject(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	// The object exists before the delete, so the delete below has something to
-	// remove.
 	attrs, err := object.Attrs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(len("temp")), attrs.Size)
 
 	require.NoError(t, object.Delete(ctx))
 
-	// The delete removed the object: a read of its metadata reports it gone.
 	_, err = object.Attrs(ctx)
 	assert.ErrorIs(t, err, storage.ErrObjectNotExist)
 
-	// A second delete has nothing left to remove.
 	assert.ErrorIs(t, object.Delete(ctx), storage.ErrObjectNotExist)
 }
 
-// TestGCS_CreateBucketTwiceConflicts pins the answer Cloud Storage gives when a
-// bucket is created a second time: 409 ALREADY_EXISTS, not a silent success.
-// The build helpers treat that conflict as "the bucket is there", so the
-// simulator has to keep reporting it for that reading to stay true.
+// TestGCS_CreateBucketTwiceConflicts: a second create answers 409
+// ALREADY_EXISTS, which the build helpers read as "the bucket is there".
 func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
@@ -342,9 +329,9 @@ func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, apiErr.Code)
 }
 
-// TestGCS_DeleteNonEmptyBucketConflicts pins that Cloud Storage refuses to
-// delete a bucket that still holds a live object, and keeps both, while a
-// bucket whose only objects are soft-deleted deletes.
+// TestGCS_DeleteNonEmptyBucketConflicts: Cloud Storage refuses to delete a
+// bucket holding a live object and keeps both, while a bucket holding only
+// soft-deleted objects deletes.
 func TestGCS_DeleteNonEmptyBucketConflicts(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)

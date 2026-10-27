@@ -10,12 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Resource metrics configurations — detailed metric collection for one
-// resource — and the include/exclude filters of vended-metric OTel enrichment.
 // https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_CreateResourceMetricsConfiguration.html
 // https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_UpdateOTelEnrichment.html
 
-// CWResourceMetricsConfiguration is the one configuration a resource may have.
+// A resource may have one configuration.
 type CWResourceMetricsConfiguration struct {
 	ResourceArn    string
 	IncludeMetrics []string // nil: every available detailed metric
@@ -23,15 +21,12 @@ type CWResourceMetricsConfiguration struct {
 	UpdatedAt      int64
 }
 
-// CWOTelSelector selects metrics of one namespace; no metric names selects the
-// whole namespace.
+// No metric names selects the whole namespace.
 type CWOTelSelector struct {
 	Namespace   string   `json:"Namespace" cbor:"Namespace"`
 	MetricNames []string `json:"MetricNames,omitempty" cbor:"MetricNames,omitempty"`
 }
 
-// CWOTelEnrichment is the account's enrichment: whether it runs, and the
-// filters that choose what it enriches.
 type CWOTelEnrichment struct {
 	Status         string
 	IncludeFilters []CWOTelSelector
@@ -57,7 +52,6 @@ const (
 
 var cwResourceArnPattern = regexp.MustCompile(`^arn:[a-zA-Z0-9-]+:[a-zA-Z0-9-]+:[a-zA-Z0-9-]*:\d{12}:.+$`)
 
-// cwFailure is a refusal, independent of the protocol that reports it.
 type cwFailure struct {
 	code    string
 	message string
@@ -90,9 +84,8 @@ func registerCloudWatchResourceMetrics(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// cwResourceExists reports whether the simulator holds the resource an ARN
-// names. The simulator is the whole account, so a resource of a type it does
-// not model, or in another account or Region, does not exist here.
+// The simulator is the whole account, so an unmodelled type, another account
+// or another Region does not exist here.
 func cwResourceExists(arn string) bool {
 	parts := strings.SplitN(arn, ":", 6)
 	if len(parts) != 6 || parts[3] != awsRegion() || parts[4] != awsAccountID() {
@@ -161,8 +154,8 @@ func cwCheckResourceArn(arn string) *cwFailure {
 	return nil
 }
 
-// cwIncludeMetrics reads MetricSelections: absent is every metric, and present
-// it holds exactly one selection of 1 to 500 metric names.
+// Absent means every metric; present holds exactly one selection of 1 to 500
+// names.
 func cwIncludeMetrics(selections []cwMetricSelection) ([]string, *cwFailure) {
 	if selections == nil {
 		return nil, nil
@@ -210,8 +203,7 @@ func cwExistingResourceMetricsConfiguration(arn string) (CWResourceMetricsConfig
 	return config, nil
 }
 
-// cwUpdateResourceMetricsConfiguration replaces the selections; omitting them
-// removes the filter and collects every available metric again.
+// Omitting selections removes the filter.
 func cwUpdateResourceMetricsConfiguration(arn string, selections []cwMetricSelection) (CWResourceMetricsConfiguration, *cwFailure) {
 	config, failure := cwExistingResourceMetricsConfiguration(arn)
 	if failure != nil {
@@ -274,8 +266,7 @@ func cwStopOTelEnrichment() {
 	cwOTelEnrichmentState.Put(cwOTelEnrichmentKey, CWOTelEnrichment{Status: cwOTelStopped})
 }
 
-// cwUpdateOTelEnrichment replaces both filter lists as a pair; enrichment must
-// already be running.
+// Both lists are replaced as a pair; enrichment must already be running.
 func cwUpdateOTelEnrichment(include, exclude []CWOTelSelector) (CWOTelEnrichment, *cwFailure) {
 	state := cwOTel()
 	if state.Status != cwOTelRunning {
@@ -289,8 +280,6 @@ func cwUpdateOTelEnrichment(include, exclude []CWOTelSelector) (CWOTelEnrichment
 	cwOTelEnrichmentState.Put(cwOTelEnrichmentKey, state)
 	return state, nil
 }
-
-// ── awsJson1.0 surface ─────────────────────────────────────────────────────
 
 func cwJSONFail(w http.ResponseWriter, failure *cwFailure) {
 	AWSError(w, failure.code, failure.message, failure.status)
@@ -428,8 +417,6 @@ func handleCWJSONUpdateOTelEnrichment(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, cwJSONOTel(state, false))
 }
-
-// ── rpc-v2-cbor surface ────────────────────────────────────────────────────
 
 func cwCBORFail(w http.ResponseWriter, failure *cwFailure) {
 	cwWriteCBORError(w, failure.code, failure.message, failure.status)

@@ -11,18 +11,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A served count can hide an unserved method. The coverage probe asks whether
-// a handler answered, and a multi-segment `{x...}` route answers for every path
-// beneath it — including a sibling collection nobody implemented. Cloud
-// Storage's five per-object ACL methods counted as covered for as long as the
-// gate existed: `/o/{object}/acl/{entity}` reached objects.get, which replied
-// `object "doc.txt/acl/user-a" not found`, a structured 404 from a handler that
-// ran. Indistinguishable, to the probe, from a served read of an absent object.
-//
-// The mux knows what the probe cannot: http.ServeMux.Handler reports which
-// pattern matched. A Discovery path's literal segments are structural — Google
-// routes on them — so a matched pattern missing one of them did not route the
-// method; something above it swallowed the tail.
+// A multi-segment `{x...}` route answers for every path beneath it, including
+// a sibling collection nobody implemented, and the coverage probe reads the
+// handler's structured 404 as a served answer. ServeMux.Handler reports which
+// pattern matched, and a Discovery path's literal segments are what Google
+// routes on, so a matched pattern missing one of them did not route the
+// method.
 
 var gcpPhantomLabel = regexp.MustCompile(`\{[^}]+\}`)
 
@@ -54,14 +48,10 @@ func gcpPatternHasLiteral(pattern, literal string) bool {
 	return false
 }
 
-// gcpFanInPatterns are the routes that own a whole subtree and dispatch inside
-// the handler rather than through the mux, so a literal missing from the
-// pattern is not a missing route.
-//
-// Each entry needs evidence that the handler reads the tail and rejects what it
-// does not route — the coverage probe already reads such a rejection as
-// unserved, so the method count stays honest. An entry that merely silences the
-// gate reinstates the blind spot the gate exists to close.
+// gcpFanInPatterns are the routes that own a subtree and dispatch inside the
+// handler, so a literal missing from the pattern is not a missing route. Each
+// entry's handler must reject what it does not route, which the probe reads
+// as unserved; an entry that only silences the gate reopens its blind spot.
 var gcpFanInPatterns = map[string]string{
 	// The two Compute Engine image methods a path router cannot separate. The
 	// handler routes the family lookup on its literal segment and the IAM read
@@ -90,15 +80,10 @@ var gcpFanInPatterns = map[string]string{
 	"POST /v2/projects/{project}/instances/{instance}/clusters/{cluster}/{backupsColl}":                                              "Cloud Bigtable backup custom methods",
 	"POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/{cryptoKeyVersionsCollectionAction}": "Cloud KMS crypto-key-version custom methods",
 
-	// Compute Engine's host methods address the host through an association
-	// that is a whole path inside one Discovery parameter, declared without
-	// reserved expansion — so a client sends it as one escaped segment, and no
-	// per-segment pattern can name it: a lone wildcard there is ambiguous
-	// against machineTypes/{machineType} and every other zone collection. The
-	// handler routes the tail and answers a method-not-found for every tail it
-	// does not own, which the probe reads as unserved: mounting it moved
-	// compute-v1 by exactly the six host spellings and left every other zone
-	// method where it was.
+	// Compute Engine's host methods take the association as one escaped segment
+	// holding a path, which no per-segment pattern can name without colliding
+	// with machineTypes/{machineType}. The handler routes the tail and answers
+	// method-not-found for every tail it does not own.
 	"GET /compute/v1/projects/{project}/zones/{zone}/{rest...}":  "Compute Engine host association subtree",
 	"POST /compute/v1/projects/{project}/zones/{zone}/{rest...}": "Compute Engine host association subtree",
 

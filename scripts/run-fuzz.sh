@@ -107,12 +107,9 @@ is_fuzztime_shutdown_race() {
 	[[ -z "$(git ls-files --others --exclude-standard -- "$package_dir/testdata/fuzz" 2>/dev/null)" ]] || return 1
 }
 
-# The nightly job has died mid-batch since 2026-09-02, the runner reporting a
-# shutdown signal roughly five minutes into the first batch, and nothing
-# survives to say why: a target's output is held in its own log and only
-# replayed once the whole batch has been waited on, so a runner that goes away
-# takes every line of it. These report while the batch is still in flight, which
-# on a job that never reaches the end of one is the only window there is.
+# A target's output is held in its own log and replayed only once the whole
+# batch has been waited on, so a runner that goes away mid-batch takes every
+# line with it. These report while the batch is still in flight.
 report_resources() {
 	local phase="$1"
 	{
@@ -177,18 +174,12 @@ wait_batch() {
 
 report_resources "before fuzzing"
 
-# Compile each package's test binary once, serially, before any fuzzing starts.
-#
-# Without this the first batch is `target_concurrency` cold `go test -fuzz`
-# invocations against the same package, each compiling it from scratch at the
-# same time, so the build peaks at N simultaneous copies of the largest module.
-# The aws group is the biggest (25 targets against one package) and is the one
-# that died: three nightlies and a manual re-run in a row were killed about
-# seven minutes in, the runner reporting a shutdown signal, before a single
-# target had reported. A warm cache makes those parallel invocations near-free.
-#
-# This also makes a build failure say so, instead of surfacing as 25 fuzz
-# targets failing at once.
+# Compile each package's test binary once, serially, before any fuzzing
+# starts: otherwise the first batch is `target_concurrency` cold `go test
+# -fuzz` invocations each compiling the same package at once, which peaks at
+# N simultaneous copies of the largest module and can exhaust the runner.
+# This also makes a build failure say so, instead of surfacing as every fuzz
+# target failing at once.
 prebuild_packages() {
 	local dir relative first_target
 	while IFS=$'\t' read -r dir relative; do
@@ -199,14 +190,9 @@ prebuild_packages() {
 			exit_status=1
 			continue
 		fi
-		# `go test -fuzz` links a fuzz-instrumented binary, and that is a
-		# different build cache entry from the plain one above. Warming only the
-		# plain one left every target in a batch missing the instrumented entry
-		# at the same instant, so each of them compiled the whole package graph
-		# itself: four `compile` processes at about 3.1GB each on simulator-aws,
-		# which is roughly 12.4GB of a 16GB runner, and the machine went down
-		# before a single target printed a line. Warming it here, serially, is
-		# one compile instead of four.
+		# `go test -fuzz` links a fuzz-instrumented binary, a different build cache
+		# entry from the plain one above; warm it here too, or every target in a
+		# batch compiles the whole package graph itself at the same instant.
 		#
 		# A failure is not fatal: -fuzztime=1x runs a single execution, and if
 		# that finds something the real invocation below finds it too and
@@ -265,10 +251,9 @@ while IFS=$'\t' read -r dir relative function_name; do
 	if [[ "$relative" != "." ]]; then
 		package_dir="$dir/${relative#./}"
 	fi
-	# Announce before forking. Each target's own output is buffered to a file
-	# and only replayed once its whole batch has been waited on, so a job that
-	# dies mid-batch otherwise leaves no trace of how far it got -- which is
-	# exactly what made the aws failures unreadable.
+	# Announce before forking: each target's own output is buffered to a file
+	# and replayed only once its whole batch has been waited on, so a job that
+	# dies mid-batch otherwise leaves no trace of how far it got.
 	echo "--- starting [$dir] $relative $function_name ---"
 	run_target "$dir" "$relative" "$function_name" "$log_file" &
 	batch_pids+=("$!")

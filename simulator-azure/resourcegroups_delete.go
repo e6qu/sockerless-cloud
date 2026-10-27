@@ -16,19 +16,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ResourceGroups_Delete runs as an Azure Resource Manager long-running
-// operation: ARM answers 202 with a Location under the subscription's
-// operationresults, deletes every resource the group holds through the
-// resource's own provider, and removes the group once it is empty. A group
-// whose resources cannot all be deleted stays, and the operation fails.
+// ResourceGroups_Delete is a long-running operation: 202 with a Location under
+// the subscription's operationresults, then each resource deleted through its
+// own provider, then the empty group removed. A group whose resources cannot
+// all be deleted stays, and the operation fails.
 //
 // Real API:
 //
 //	https://learn.microsoft.com/en-us/rest/api/resources/resource-groups/delete
 
-// azureResourceGroupDeletes maps the lowercased ID of each group being deleted
-// to its operation, so a repeated DELETE answers with the operation already
-// running.
+// A repeated DELETE answers with the operation already running.
 var (
 	azureResourceGroupDeletesMu sync.Mutex
 	azureResourceGroupDeletes   = map[string]string{}
@@ -77,9 +74,7 @@ func handleResourceGroupDelete(srv *sim.Server, w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// handleSubscriptionOperationResult answers the Location poll of a
-// subscription-scoped operation: 202 while it runs, 200 once it succeeded, and
-// the operation's error once it failed.
+// 202 while it runs, 200 once it succeeded, its error once it failed.
 func handleSubscriptionOperationResult(w http.ResponseWriter, r *http.Request) {
 	opID := sim.PathParam(r, "operationId")
 	op, ok := azureAsyncOps.Get(opID)
@@ -103,11 +98,9 @@ func handleSubscriptionOperationResult(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// deleteAzureResourceGroupResources deletes every resource the group holds
-// through its own provider. A resource whose provider refuses — because
-// another resource still depends on it — is retried once a pass has deleted
-// others, so the deletes land in dependency order; a pass that deletes nothing
-// ends the operation with the refusals.
+// A provider refusing because another resource depends on the resource is
+// retried after a pass deletes others, so deletes land in dependency order; a
+// pass deleting nothing ends with the refusals.
 func deleteAzureResourceGroupResources(srv *sim.Server, sub, group, apiVersion, host string) *AsyncOperationError {
 	ctx := srv.RequestContext(context.Background())
 	for {
@@ -153,9 +146,6 @@ func deleteAzureResourceGroupResources(srv *sim.Server, sub, group, apiVersion, 
 	}
 }
 
-// deleteAzureResourceThroughProvider sends the resource's own DELETE to the
-// provider that serves it and follows the provider's long-running operation
-// to its end.
 func deleteAzureResourceThroughProvider(ctx context.Context, srv *sim.Server, id, apiVersion, host string) *AsyncOperationError {
 	target := &url.URL{Path: id, RawQuery: url.Values{"api-version": {apiVersion}}.Encode()}
 	resp := serveAzureInternal(ctx, srv, http.MethodDelete, target, host)
@@ -169,9 +159,7 @@ func deleteAzureResourceThroughProvider(ctx context.Context, srv *sim.Server, id
 	}
 }
 
-// followAzureProviderOperation polls the operation a provider's 202 names —
-// its Azure-AsyncOperation status when it gives one, its Location otherwise —
-// until the operation ends.
+// Polls Azure-AsyncOperation when given, Location otherwise.
 func followAzureProviderOperation(ctx context.Context, srv *sim.Server, accepted *httptest.ResponseRecorder, host string) *AsyncOperationError {
 	raw := accepted.Header().Get("Azure-AsyncOperation")
 	statusPoll := raw != ""
@@ -224,8 +212,7 @@ func followAzureProviderOperation(ctx context.Context, srv *sim.Server, accepted
 		}
 		var retry <-chan time.Time
 		if settled == nil {
-			// The provider tracks the operation in a store of its own, so
-			// poll on the cadence its Retry-After asks for.
+			// Poll on the cadence the provider's Retry-After asks for.
 			retryAfter, err := strconv.Atoi(poll.Header().Get("Retry-After"))
 			if err != nil || retryAfter < 1 {
 				retryAfter = 1
@@ -242,8 +229,7 @@ func followAzureProviderOperation(ctx context.Context, srv *sim.Server, accepted
 	}
 }
 
-// serveAzureInternal routes a request ARM sends a provider on its own behalf
-// through the server's mux, with the path folding every routed request gets.
+// With the path folding every routed request gets.
 func serveAzureInternal(ctx context.Context, srv *sim.Server, method string, target *url.URL, host string) *httptest.ResponseRecorder {
 	req := httptest.NewRequestWithContext(ctx, method, target.RequestURI(), nil)
 	req.Host = host
@@ -253,7 +239,6 @@ func serveAzureInternal(ctx context.Context, srv *sim.Server, method string, tar
 	return recorder
 }
 
-// azureProviderRefusal reads the ARM error envelope a provider answered with.
 func azureProviderRefusal(resp *httptest.ResponseRecorder) *AsyncOperationError {
 	var envelope struct {
 		Error *AsyncOperationError `json:"error"`

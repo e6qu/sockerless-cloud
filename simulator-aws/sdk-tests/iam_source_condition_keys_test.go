@@ -29,11 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The condition keys in this file describe a resource the request reads rather
-// than names outright: the daemon task definition a daemon runs, the version
-// each entry of a DeleteObjects names, the database a blue/green deployment
-// clones, the session an AssumeRole is chained from. A policy written on one of
-// them must hold the request to what that resource is.
+// These condition keys describe a resource the request reads rather than names:
+// the daemon task definition a daemon runs, the version each DeleteObjects entry
+// names, the database a blue/green deployment clones, the session an AssumeRole
+// chains from. A policy on one holds the request to what that resource is.
 
 // notAuthorized reports whether err is the gate's refusal, as opposed to a
 // failure of the request after it was authorized.
@@ -75,9 +74,8 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 }
 
 // TestS3_DeleteObjectsVersionScopesEachEntry covers s3:versionid on the
-// s3:DeleteObjectVersion a DeleteObjects entry is authorized as: each entry is
-// held to the version it names, and a refused entry is that entry's
-// AccessDenied in the DeleteResult.
+// s3:DeleteObjectVersion each DeleteObjects entry authorizes as: a refused
+// entry is that entry's AccessDenied in the DeleteResult.
 func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 	t.Parallel()
 	admin := s3Client()
@@ -145,11 +143,11 @@ func TestS3Control_GetAccessPointResourceTagScopesTheGrant(t *testing.T) {
 	assert.True(t, notAuthorized(get(other)), "an access point tagged otherwise is refused")
 }
 
-// TestRDS_SourceConditionKeysScopeTheGrant covers the Amazon RDS keys a
-// request settles from the source it copies: the engine, name, encryption and
-// tags of the DB cluster a blue/green deployment clones, the tags of the
-// parameter groups it names, the backup target of the DB instance a snapshot
-// is taken of, and the storage of the DB cluster a point-in-time restore reads.
+// TestRDS_SourceConditionKeysScopeTheGrant covers the Amazon RDS keys a request
+// takes from its source: the engine, name, encryption and tags of the DB
+// cluster a blue/green deployment clones, its parameter groups' tags, the
+// backup target of a snapshot's DB instance and the storage of the DB cluster a
+// point-in-time restore reads.
 func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := rdsClient()
@@ -248,8 +246,8 @@ func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
 }
 
 // TestOrganizations_PolicyTypeAndTransferTypeScopeTheGrant covers the policy
-// type a listing filters on and the type of the responsibility transfer a
-// request names by id.
+// type a listing filters on and the type of a responsibility transfer named by
+// id.
 func TestOrganizations_PolicyTypeAndTransferTypeScopeTheGrant(t *testing.T) {
 	akid, secret := restrictedCredential(t, "org-scp-billing",
 		`{"Version":"2012-10-17","Statement":[
@@ -314,10 +312,9 @@ func TestGlue_IntegrationResourceTagScopesTheGrant(t *testing.T) {
 	assert.True(t, notAuthorized(describe(web)))
 }
 
-// TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant covers the default
-// metrics dataset, the only one CloudWatch supports: it exists without being
-// created, it carries the tags TagResource gives it, and aws:ResourceTag on
-// GetDataset reports them.
+// TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant: the default metrics
+// dataset, the only one CloudWatch supports, exists uncreated, carries the tags
+// TagResource gives it, and aws:ResourceTag on GetDataset reports them.
 func TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := cloudwatchClient()
@@ -350,9 +347,9 @@ func TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant(t *testing.T) {
 	assert.NoError(t, get(), "once tagged, the dataset is the one the grant names")
 }
 
-// TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject covers the SAML claims AWS STS
-// keeps on a session for the AssumeRole it chains to: a role trusting the first
-// role only for one SAML subject admits that person's session and no other's.
+// TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject expects AWS STS to keep the
+// SAML claims on a session for the AssumeRole it chains to: a role trusting the
+// first role for one SAML subject admits that person's session only.
 func TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject(t *testing.T) {
 	t.Parallel()
 	idp, err := samlidp.New("https://idp.chain.example.test/saml")

@@ -11,25 +11,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_more.go broadens the Microsoft.Web (App Service / Web Apps) ARM slice
-// beyond the function-app core in functions.go: deployment slots, deployments,
-// host-name bindings, source control, site extensions, site config sections
-// (metadata / logs / auth settings), lifecycle actions (start / stop /
-// restart / slot swap), App Service plan list/patch/usages, the
-// subscription-global list + check-name + geo/sku catalogs, and Static Web
-// Apps. Slots are real Azure resources (a Microsoft.Web/sites child); they are
-// stored in their own store and every slot sub-resource operation shares the
-// same handler as its production-site counterpart, keyed by a resource ID that
-// carries the /slots/{slot} segment.
+// The Microsoft.Web slice beyond functions.go's core: deployment slots,
+// deployments, host-name bindings, source control, site extensions, config
+// sections, lifecycle actions, App Service plan list, patch and usages, the
+// subscription-global catalogs, and Static Web Apps. Slots live in their own
+// store, and each slot operation shares its site counterpart's handler, keyed
+// by a resource ID carrying /slots/{slot}.
 
-// Deployment slots reuse the Site shape (a slot is a Microsoft.Web/sites
-// child with the same schema). They live in a separate store so the
-// production-site list (WebApps_List / ListByResourceGroup) never enumerates
-// them.
+// A slot has the Site schema but its own store, so WebApps_List and
+// ListByResourceGroup never enumerate slots.
 var webSlots sim.Store[Site]
 
-// WebDeployment mirrors armappservice.Deployment — a publishing-activity
-// record under a site/slot.
+// A publishing-activity record under a site or slot.
 type WebDeployment struct {
 	ID         string                  `json:"id,omitempty"`
 	Name       string                  `json:"name,omitempty"`
@@ -37,8 +30,7 @@ type WebDeployment struct {
 	Properties WebDeploymentProperties `json:"properties"`
 }
 
-// WebDeploymentProperties mirrors armappservice.DeploymentProperties. Field
-// names are the wire spelling (snake_case) the spec defines.
+// Field names are the spec's snake_case wire spelling.
 type WebDeploymentProperties struct {
 	Status      int    `json:"status"`
 	Active      bool   `json:"active"`
@@ -53,7 +45,6 @@ type WebDeploymentProperties struct {
 
 var webDeployments sim.Store[WebDeployment]
 
-// WebHostNameBinding mirrors armappservice.HostNameBinding.
 type WebHostNameBinding struct {
 	ID         string                       `json:"id,omitempty"`
 	Name       string                       `json:"name,omitempty"`
@@ -61,7 +52,6 @@ type WebHostNameBinding struct {
 	Properties WebHostNameBindingProperties `json:"properties"`
 }
 
-// WebHostNameBindingProperties mirrors armappservice.HostNameBindingProperties.
 type WebHostNameBindingProperties struct {
 	SiteName                    string `json:"siteName,omitempty"`
 	HostNameType                string `json:"hostNameType,omitempty"`
@@ -76,7 +66,6 @@ type WebHostNameBindingProperties struct {
 
 var webHostNameBindings sim.Store[WebHostNameBinding]
 
-// WebSourceControl mirrors armappservice.SiteSourceControl.
 type WebSourceControl struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -84,7 +73,6 @@ type WebSourceControl struct {
 	Properties WebSourceControlProperties `json:"properties"`
 }
 
-// WebSourceControlProperties mirrors armappservice.SiteSourceControlProperties.
 type WebSourceControlProperties struct {
 	RepoURL                   string `json:"repoUrl,omitempty"`
 	Branch                    string `json:"branch,omitempty"`
@@ -96,7 +84,6 @@ type WebSourceControlProperties struct {
 
 var webSourceControls sim.Store[WebSourceControl]
 
-// WebSiteExtension mirrors armappservice.SiteExtensionInfo.
 type WebSiteExtension struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -104,8 +91,6 @@ type WebSiteExtension struct {
 	Properties WebSiteExtensionProperties `json:"properties"`
 }
 
-// WebSiteExtensionProperties mirrors armappservice.SiteExtensionInfoProperties
-// (the subset the simulator round-trips).
 type WebSiteExtensionProperties struct {
 	ExtensionID   string `json:"extension_id,omitempty"`
 	Title         string `json:"title,omitempty"`
@@ -116,11 +101,9 @@ type WebSiteExtensionProperties struct {
 
 var webSiteExtensions sim.Store[WebSiteExtension]
 
-// webConfigExtra holds the site/slot config sections that aren't part of the
-// SiteConfig (web) block: metadata, diagnostic logs, and the two Easy Auth
-// shapes. Keyed by the canonical resource ID (production site or slot). The
-// secret-bearing app-settings / connection-strings stay in siteConfigStore,
-// never here.
+// The config sections outside SiteConfig: metadata, diagnostic logs, and both
+// Easy Auth shapes. Keyed by canonical site or slot ID. App settings and
+// connection strings stay in siteConfigStore.
 type webConfigExtra struct {
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	Logs           map[string]any    `json:"logs,omitempty"`
@@ -160,26 +143,16 @@ func registerWebMore(srv *sim.Server) {
 	registerWebWorkflows(srv)
 }
 
-// webCleanupSiteResources removes every child record stored under a deleted
-// site or slot: deployment slots (a production-site delete removes its whole
-// subtree, as real Azure does), deployments, host-name bindings, source
-// controls, site extensions, sitecontainers, config sections, public
-// certificates, domain ownership identifiers, premier add-ons, push settings,
-// Functions host and function keys, webjobs (their containers stopped) and
-// run history, deployed site content and deployment operation records,
-// deployed workflow artifacts and the workflows they materialized, VNet
-// connections and their gateways, hybrid connections (both spellings),
-// private endpoint connections, and the private access record. Without
-// this, a site recreated under the same name would inherit the deleted
-// site's children.
+// Without this a site recreated under the same name would inherit the deleted
+// site's children. A production-site delete removes its slots' subtrees too,
+// as Azure does.
 func webCleanupSiteResources(resID string) {
 	ids := []string{resID}
 	slotPrefix := resID + "/slots/"
 	for _, s := range webSlots.Filter(func(row Site) bool { return strings.HasPrefix(row.ID, slotPrefix) }) {
 		ids = append(ids, s.ID)
-		// A slot deleted with its parent app is retained the same way a
-		// directly deleted slot is — DeletedSiteProperties carries the slot
-		// name for exactly this case.
+		// A slot deleted with its app is retained like a directly deleted one;
+		// DeletedSiteProperties carries the slot name for this case.
 		webRecordDeletedSite(s.ID, s)
 		webSyncSiteIdentityPrincipal(&s, nil)
 		webSlots.Delete(s.ID)
@@ -250,8 +223,7 @@ func webCleanupSiteResources(resID string) {
 	}
 }
 
-// webResourceID builds the canonical resource ID for the addressed site or
-// slot (the /slots/{slot} segment is appended when present).
+// Appends /slots/{slot} when present.
 func webResourceID(r *http.Request) string {
 	id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "sites", sim.PathParam(r, "siteName"))
 	if slot := sim.PathParam(r, "slot"); slot != "" {
@@ -271,8 +243,7 @@ func webResource(r *http.Request) (Site, bool) {
 	return webResourceStore(r).Get(webResourceID(r))
 }
 
-// webMissing writes the canonical ARM 404 when the addressed site/slot does
-// not exist; returns true when it wrote a response.
+// Returns true when it wrote the 404.
 func webMissing(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := webResource(r); ok {
 		return false
@@ -288,10 +259,8 @@ func webMissing(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// registerWebSiteAndSlotHandlers wires every operation that exists identically
-// on a production site and on a deployment slot. `both` registers a handler at
-// both levels; `slot` only at the slot level (the production-site spelling is
-// already served by functions.go); `site` only at the production-site level.
+// `both` registers at site and slot level, `slot` at slot level only
+// (functions.go serves the site spelling), `site` at site level only.
 func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	both := func(method, suffix string, h http.HandlerFunc) {
 		srv.HandleFunc(method+" "+webProvider+"/sites/{siteName}"+suffix, h)
@@ -328,15 +297,13 @@ func registerWebSiteAndSlotHandlers(srv *sim.Server) {
 	registerWebBackups(both)
 	registerWebProviderGlobal(srv, site)
 
-	// PATCH a production site — merge tags/properties. (Slot PATCH lives in
-	// registerWebSlotCRUD.)
+	// Slot PATCH lives in registerWebSlotCRUD.
 	site("PATCH", "", func(w http.ResponseWriter, r *http.Request) {
 		patchWebSite(w, r, azfSites)
 	})
 }
 
-// configResource is the standard {id,name,type,properties} envelope every
-// Microsoft.Web/sites/config sub-resource shares.
+// The {id,name,type,properties} envelope every config sub-resource shares.
 func configResource(resID, name string, props any) map[string]any {
 	return map[string]any{
 		"id":         resID + "/config/" + name,
@@ -347,8 +314,7 @@ func configResource(resID, name string, props any) map[string]any {
 }
 
 func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)) {
-	// GET /config — list every config sub-resource (the SiteConfig "web"
-	// block is the one the simulator persists).
+	// Only the SiteConfig "web" block persists.
 	both("GET", "/config", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -363,7 +329,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		})
 	})
 
-	// /config/metadata — a StringDictionary. PUT stores, POST /list returns.
+	// A StringDictionary: PUT stores, POST /list returns.
 	both("PUT", "/config/metadata", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -388,8 +354,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "metadata", nonNilStrMap(extra.Metadata)))
 	})
 
-	// /config/logs — diagnostic logs config. GET (slot only; the production
-	// site GET is in functions.go), PUT (both).
+	// GET at slot level (functions.go serves the site's), PUT at both.
 	logsDefault := func() map[string]any {
 		return map[string]any{
 			"applicationLogs":       map[string]any{"fileSystem": map[string]any{"level": "Off"}},
@@ -432,7 +397,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "logs", props))
 	})
 
-	// /config/authsettings — Easy Auth (v1). PUT (both), POST /list (slot only).
+	// Easy Auth v1: PUT at both, POST /list at slot level.
 	both("PUT", "/config/authsettings", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -457,8 +422,8 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(extra.AuthSettings)))
 	})
 
-	// /config/authsettingsV2 — Easy Auth (v2). GET + PUT (both), GET /list
-	// (slot only; the production-site /list is in functions.go).
+	// Easy Auth v2: GET and PUT at both, GET /list at slot level (functions.go
+	// serves the site's).
 	authV2Default := func() map[string]any {
 		return map[string]any{
 			"platform":          map[string]any{"enabled": false},
@@ -502,16 +467,13 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	})
 
-	// PATCH /config/web — partial SiteConfig update (both levels): the fields
-	// the request carries replace the stored ones. GET/PUT
-	// for the production site are in functions.go.
+	// The request's fields replace the stored ones. functions.go serves the site's
+	// GET and PUT.
 	both("PATCH", "/config/web", webConfigWebPatch)
 	slot("GET", "/config/web", webConfigWebGet)
 	slot("PUT", "/config/web", webConfigWebPut)
 
-	// Slot-level mirrors of the production-site config sections functions.go
-	// already serves: app settings, connection strings, azure storage
-	// accounts, publishing credentials, backup config.
+	// Slot mirrors of the config sections functions.go serves for sites.
 	slot("PUT", "/config/appsettings", webSlotStringDictPut)
 	slot("POST", "/config/appsettings/list", webSlotStringDictList)
 	slot("PUT", "/config/connectionstrings", webSlotConnStringsPut)
@@ -555,11 +517,10 @@ func webConfigWebPatch(w http.ResponseWriter, r *http.Request) {
 	webConfigWebWrite(w, r, true)
 }
 
-// webConfigWebWrite stores a SiteConfig write. A PUT replaces the
-// configuration and a PATCH decodes onto the stored one; either keeps the
+// A PUT replaces the configuration and a PATCH decodes onto it; both keep the
 // app settings when the request carries none, as they are their own resource.
-// The app's or slot's workload restarts on the change, as App Service
-// restarts an app whose configuration changed.
+// The workload restarts, as App Service restarts an app whose configuration
+// changed.
 func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 	if webMissing(w, r) {
 		return
@@ -589,8 +550,8 @@ func webConfigWebWrite(w http.ResponseWriter, r *http.Request, merge bool) {
 }
 
 func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
-	// Each lifecycle operation records what it did in the site's event
-	// journal, which is what the restart detectors report from.
+	// Each lifecycle operation records itself in the journal the restart
+	// detectors read.
 	setState := func(state, operation string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if webMissing(w, r) {
@@ -610,9 +571,7 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 	}
 	both("POST", "/start", setState("Running", "Start"))
 	both("POST", "/stop", setState("Stopped", "Stop"))
-	// A restart restarts: the site's workload container is torn down, and the
-	// next request to the site brings a new one up. Without that the operation
-	// would report success while the same process kept running.
+	// Tear the workload container down; the next request brings a new one up.
 	both("POST", "/restart", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -628,11 +587,10 @@ func registerWebLifecycle(both func(string, string, http.HandlerFunc)) {
 	both("POST", "/resetSlotConfig", webResetSlotConfig)
 	both("POST", "/slotsdiffs", webListSlotDifferences)
 
-	// /usages — resource usage quotas (empty for a sim site).
+	// Answers an empty collection.
 	both("GET", "/usages", emptyValueIfExists)
 
-	// /publishxml — publishing profile (FileZilla/WebDeploy/FTP XML). The
-	// response is a raw XML document, not a JSON resource.
+	// The response is a raw XML publishing profile, not a JSON resource.
 	both("POST", "/publishxml", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -822,8 +780,7 @@ func registerWebSiteExtensions(both func(string, string, http.HandlerFunc)) {
 	})
 }
 
-// registerWebFunctionsRW adds the write half of the functions sub-resource
-// (functions list/get are served by functions.go for the production site).
+// functions.go serves the site's list and get.
 func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 	funcID := func(r *http.Request) string {
 		return webResourceID(r) + "/functions/" + sim.PathParam(r, "functionName")
@@ -843,7 +800,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		req.Type = "Microsoft.Web/sites/functions"
 		req.FunctionName = name
 		azfFunctionConfigs.Put(req.ID, req)
-		// Real Azure provisions a "default" function key with the function.
+		// Azure provisions a "default" function key with the function.
 		ensureWebFunctionKeys(req.ID)
 		if !functionsHostSecretsOut(w, r) {
 			return
@@ -865,7 +822,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// Slot mirror of the read half (production-site list/get is in functions.go).
+	// Slot mirror of the read half.
 	slot("GET", "/functions", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -888,9 +845,7 @@ func registerWebFunctionsRW(both, slot func(string, string, http.HandlerFunc)) {
 	})
 }
 
-// WebBasicPublishingPolicy is a site's or slot's basic publishing
-// credentials policy for one protocol (ftp, scm). A site with no row allows
-// basic auth, as a newly created site does.
+// A site with no row allows basic auth, as a new site does.
 type WebBasicPublishingPolicy struct {
 	ID    string `json:"id"`
 	Allow bool   `json:"allow"`
@@ -902,8 +857,6 @@ func webBasicPublishingPolicyID(resID, name string) string {
 	return armChildID(resID, "basicPublishingCredentialsPolicies", name)
 }
 
-// webBasicPublishingAllowed reports whether the site's policy for the
-// protocol admits basic auth with publishing credentials.
 func webBasicPublishingAllowed(resID, name string) bool {
 	if webBasicPublishingPolicies == nil {
 		return true
@@ -934,8 +887,8 @@ func registerWebBasicPubCreds(both, slot func(string, string, http.HandlerFunc))
 			sim.WriteJSON(w, http.StatusOK, basicPubCredsResource(webResourceID(r), name))
 		}
 	}
-	// GET list (both); GET ftp/scm for the production site are in functions.go,
-	// so add those only for slots. PUT ftp/scm on both.
+	// functions.go serves the site's ftp and scm GET, so those mount for slots
+	// only.
 	both("GET", "/basicpublishingcredentialspolicies", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -973,14 +926,9 @@ func registerWebBasicPubCreds(both, slot func(string, string, http.HandlerFunc))
 	both("PUT", "/basicpublishingcredentialspolicies/scm", put("scm"))
 }
 
-// patchWebSite merges a PATCH body's tags/properties into the stored row.
-//
-// ARM PATCH is a merge, not a replace: a field the client omits keeps its
-// stored value. Presence is therefore decided by whether the JSON key is
-// present in the request body, not by whether the decoded Go value is
-// non-zero — the two disagree for every field whose zero value is meaningful
-// (`httpsOnly: false`, `enabled: false`), and a struct-only decode would let a
-// tags-only PATCH silently clear them.
+// Azure Resource Manager PATCH merges: presence is decided by whether the JSON
+// key is in the body, not by a non-zero decoded value, or a tags-only PATCH
+// would clear `httpsOnly: false` and `enabled: false`.
 func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site]) {
 	id := webResourceID(r)
 	row, ok := store.Get(id)
@@ -1002,9 +950,7 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		}
 	}
 
-	// applyIfPresent decodes one key into dst only when the client sent it, so
-	// an absent key leaves the stored value untouched and a present key is
-	// applied even when its value is the type's zero.
+	// Decode a key only when sent, applying it even when its value is zero.
 	bad := false
 	applyIfPresent := func(body map[string]json.RawMessage, key string, dst any) {
 		if bad {
@@ -1045,14 +991,13 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		webSyncSiteIdentityPrincipal(&prev, &row)
 	}
 
-	// The sku member derives from the associated App Service plan, so a
-	// patched serverFarmId re-derives it.
+	// sku derives from the plan, so a patched serverFarmId re-derives it.
 	if _, present := props["serverFarmId"]; present {
 		row.Properties.SKU = webPlanSKUFor(row.Properties.ServerFarmID)
 	}
 
-	// An explicit JSON null detaches the VNet integration (json.Unmarshal
-	// leaves the destination untouched on null, so it is handled here).
+	// An explicit null detaches the VNet integration; json.Unmarshal leaves the
+	// destination untouched on null.
 	vnsRaw, vnsPresent := props["virtualNetworkSubnetId"]
 	if vnsPresent && string(vnsRaw) == "null" {
 		row.Properties.VirtualNetworkSubnetID = ""
@@ -1063,9 +1008,8 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		restartAzureFunctionInstance(row)
 	}
 
-	// virtualNetworkSubnetId is the modern spelling of regional VNet
-	// integration: a patched value joins (or detaches) the site's containers
-	// for real, and the stored row ends up reflecting the resulting state.
+	// A patched value joins or detaches the site's containers, and the stored row
+	// reflects the result.
 	if vnsPresent {
 		if err := applySiteVirtualNetworkSubnetID(r, row, row.Properties.VirtualNetworkSubnetID); err != nil {
 			writeVnetIntegrationError(w, row.Name, err)

@@ -7,12 +7,7 @@ import (
 	"time"
 )
 
-// Amazon ECS stops returning a stopped task from ListTasks about an hour after
-// it stops, and keeps it behind DescribeTasks only briefly after that. A
-// simulator that retains them forever diverges in a way that compounds: the
-// reported cluster held 6,129 stopped tasks, the oldest a week old, so
-// ListTasks paged through thousands of ARNs to answer an ordinary question and
-// the cluster read at a glance like a crash loop (GitHub issue #908).
+// Amazon ECS drops a stopped task from ListTasks about an hour after it stops.
 
 func ecsStoppedAt(t time.Time) *float64 {
 	seconds := float64(t.UnixMilli()) / 1000
@@ -34,14 +29,12 @@ func TestStoppedTaskExpiresAfterTheRetentionWindow(t *testing.T) {
 		task:    ECSTask{LastStatus: ECSTaskStatusStopped, StoppedAt: ecsStoppedAt(now.Add(-2 * time.Hour))},
 		expired: true,
 	}, {
-		// The window is a property of being stopped. A running task is not old
-		// enough to remove however long it has been running.
+		// A running task never ages out.
 		name:    "a running task never ages out",
 		task:    ECSTask{LastStatus: ECSTaskStatusRunning, StoppedAt: ecsStoppedAt(now.Add(-72 * time.Hour))},
 		expired: false,
 	}, {
-		// Absence of a timestamp is not evidence of age; removing such a task
-		// would delete something whose stop time is merely unrecorded.
+		// No timestamp is no evidence of age.
 		name:    "a stopped task with no stop time is kept",
 		task:    ECSTask{LastStatus: ECSTaskStatusStopped},
 		expired: false,
@@ -54,8 +47,7 @@ func TestStoppedTaskExpiresAfterTheRetentionWindow(t *testing.T) {
 	}
 }
 
-// The retention is a bound on what the simulator holds, not only on what it
-// reports: a filter alone would leave the records accumulating behind it.
+// Retention bounds what the simulator holds, not just what it reports.
 func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 	buildConformanceSimulator(t)
 	now := time.Now()
@@ -77,7 +69,7 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 		ClusterArn: ecsArn("cluster", "retention"),
 		LastStatus: ECSTaskStatusRunning,
 	}
-	// Store the tasks the way RunTask does, under their ID.
+	// Under their ID, as RunTask stores them.
 	for _, task := range []ECSTask{aged, recent, running} {
 		ecsCommitPlacement(task.TaskID(), task)
 	}
@@ -117,8 +109,7 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 	}
 }
 
-// The window is what a caller sees: an aged-out task must be absent from
-// ListTasks, which is the surface the accumulation actually hurt.
+// An aged-out task is absent from ListTasks.
 func TestListTasksOmitsTasksThatAgedOut(t *testing.T) {
 	srv, _, _ := buildConformanceSimulator(t)
 	now := time.Now()

@@ -10,46 +10,30 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Private endpoints (Microsoft.Network/privateEndpoints) are the consumer half
-// of Azure Private Link. Creating one does four things in the real service, and
-// does all four here:
+// Private endpoints, the consumer half of Azure Private Link. A create:
 //
-//  1. It takes an address out of the subnet it names and puts a network
-//     interface there — the same interface type a caller creates directly, in
-//     the same subnet fabric, so the address it gets is genuinely allocated and
-//     cannot collide with anything else in that subnet.
-//  2. For each requested connection it opens a private endpoint connection ON
-//     THE TARGET RESOURCE. That connection is not a copy: it is written into
-//     the very collection the target's own privateEndpointConnections surface
-//     serves, so a Key Vault, a storage account, a Cosmos DB account, a
-//     PostgreSQL flexible server, an Event Hubs namespace or another private
-//     link service lists the connection the endpoint opened, and the approval
-//     decision the target's owner makes there is what the endpoint reads back.
-//  3. It publishes the target's private address under a custom DNS
-//     configuration, and — when a private DNS zone group is attached — as real
-//     A records in the referenced private DNS zone, which the zone's own record
-//     surface then serves.
-//  4. Connections opened against a target that auto-approves the caller start
-//     Approved; everything else starts Pending until the target's owner acts.
+//  1. leases an address in its subnet for an ordinary network interface;
+//  2. opens each requested connection in the target's own
+//     privateEndpointConnections collection, so the target lists it and the
+//     owner's approval is what the endpoint reads back;
+//  3. publishes the target's private address in its custom DNS configuration
+//     and, with a private DNS zone group, as A records in the zone;
+//  4. starts a connection Approved when the target auto-approves the caller,
+//     Pending otherwise.
 
-// PrivateEndpoint mirrors Microsoft.Network/privateEndpoints.
 type PrivateEndpoint struct {
 	azureNetworkResourceHeader
 	ExtendedLocation *azureExtendedLocation    `json:"extendedLocation,omitempty"`
 	Properties       PrivateEndpointProperties `json:"properties"`
 }
 
-// PrivateEndpointProperties holds the endpoint's configuration and the
-// read-only state the Microsoft.Network resource provider computes for it.
 type PrivateEndpointProperties struct {
 	Subnet            *SubResource  `json:"subnet,omitempty"`
 	NetworkInterfaces []SubResource `json:"networkInterfaces,omitempty"`
 	ProvisioningState string        `json:"provisioningState,omitempty"`
 	IPVersionType     string        `json:"ipVersionType,omitempty"`
-	// Both connection collections are always present, empty when unused: the
-	// service reports them unconditionally, and a client that walks them
-	// without checking for absence — the HashiCorp provider does exactly that
-	// on delete — faults on a document that omits either.
+	// Always present, empty when unused: the service reports both, and the azurerm
+	// provider walks them on delete without checking for absence.
 	PrivateLinkServiceConnections       []PrivateLinkServiceConnection   `json:"privateLinkServiceConnections"`
 	ManualPrivateLinkServiceConnections []PrivateLinkServiceConnection   `json:"manualPrivateLinkServiceConnections"`
 	CustomDNSConfigs                    []PrivateEndpointCustomDNSConfig `json:"customDnsConfigs,omitempty"`
@@ -58,8 +42,6 @@ type PrivateEndpointProperties struct {
 	CustomNetworkInterfaceName          string                           `json:"customNetworkInterfaceName,omitempty"`
 }
 
-// PrivateLinkServiceConnection is one requested connection from an endpoint to
-// a linkable resource.
 type PrivateLinkServiceConnection struct {
 	ID         string                                 `json:"id,omitempty"`
 	Name       string                                 `json:"name,omitempty"`
@@ -68,9 +50,7 @@ type PrivateLinkServiceConnection struct {
 	Properties PrivateLinkServiceConnectionProperties `json:"properties"`
 }
 
-// PrivateLinkServiceConnectionProperties holds the target and the approval
-// state of one connection. The state is read-only on this surface: it belongs
-// to the target resource, and is rendered from there on every read.
+// The state belongs to the target and is rendered from there on every read.
 type PrivateLinkServiceConnectionProperties struct {
 	ProvisioningState                 string                             `json:"provisioningState,omitempty"`
 	PrivateLinkServiceID              string                             `json:"privateLinkServiceId,omitempty"`
@@ -79,15 +59,12 @@ type PrivateLinkServiceConnectionProperties struct {
 	PrivateLinkServiceConnectionState *PrivateLinkServiceConnectionState `json:"privateLinkServiceConnectionState,omitempty"`
 }
 
-// PrivateEndpointCustomDNSConfig maps a target's fully-qualified name onto the
-// addresses the endpoint made it reachable at.
 type PrivateEndpointCustomDNSConfig struct {
 	Fqdn        string   `json:"fqdn,omitempty"`
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 }
 
-// PrivateEndpointIPConfiguration pins one group member of the target to a
-// specific address in the endpoint's subnet.
+// Pins one group member of the target to an address in the subnet.
 type PrivateEndpointIPConfiguration struct {
 	Name       string                                   `json:"name,omitempty"`
 	Type       string                                   `json:"type,omitempty"`
@@ -95,7 +72,6 @@ type PrivateEndpointIPConfiguration struct {
 	Properties PrivateEndpointIPConfigurationProperties `json:"properties"`
 }
 
-// PrivateEndpointIPConfigurationProperties holds one pinned group member.
 type PrivateEndpointIPConfigurationProperties struct {
 	GroupID          string `json:"groupId,omitempty"`
 	MemberName       string `json:"memberName,omitempty"`
@@ -126,8 +102,6 @@ func registerNetworkPrivateEndpoints(srv *sim.Server) {
 	registerAvailablePrivateEndpointTypes(srv)
 }
 
-// validatePrivateEndpoint applies the request-validation rules: an endpoint
-// needs a subnet that exists, and every requested connection must name a target.
 func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *PrivateEndpoint) bool {
 	subnetID := ""
 	if pe.Properties.Subnet != nil {
@@ -137,8 +111,8 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 	if !ok {
 		return false
 	}
-	// A subnet whose private-endpoint network policies are enabled rejects the
-	// endpoint, exactly as the real resource provider does.
+	// A subnet with private-endpoint network policies enabled rejects the
+	// endpoint, as Azure does.
 	if strings.EqualFold(subnet.Properties.PrivateEndpointNetworkPolicies, "Enabled") {
 		AzureErrorf(w, "PrivateEndpointCannotBeCreatedInSubnetThatHasNetworkPoliciesEnabled",
 			http.StatusBadRequest,
@@ -152,9 +126,8 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 				"The request format was unexpected: privateLinkServiceId is required on connection %q.", conn.Name)
 			return false
 		}
-		// A resource type that publishes no private-link surface can never
-		// terminate an endpoint. Azure rejects that during request validation,
-		// which is a permanent client error rather than a retryable one.
+		// A type with no private-link surface can never terminate an endpoint; Azure
+		// rejects it at request validation, a permanent client error.
 		if _, ok := privateLinkTargetFor(conn.Properties.PrivateLinkServiceID); !ok {
 			AzureErrorf(w, "PrivateLinkServiceIdNotValid", http.StatusBadRequest,
 				"The resource %q does not support private endpoint connections.",
@@ -165,9 +138,8 @@ func validatePrivateEndpoint(w http.ResponseWriter, _ *http.Request, pe *Private
 	return true
 }
 
-// privateEndpointRequestedConnections returns the automatic and manual
-// connections in one list; both carry the same shape and differ only in whether
-// the target's owner has to act on them.
+// Automatic and manual connections share a shape and differ only in whether
+// the owner has to act.
 func privateEndpointRequestedConnections(pe *PrivateEndpoint) []PrivateLinkServiceConnection {
 	out := make([]PrivateLinkServiceConnection, 0,
 		len(pe.Properties.PrivateLinkServiceConnections)+len(pe.Properties.ManualPrivateLinkServiceConnections))
@@ -176,8 +148,6 @@ func privateEndpointRequestedConnections(pe *PrivateEndpoint) []PrivateLinkServi
 	return out
 }
 
-// provisionPrivateEndpoint puts the endpoint's interface in the subnet and
-// opens a connection on every target it names.
 func provisionPrivateEndpoint(ctx context.Context, pe *PrivateEndpoint, previous *PrivateEndpoint) error {
 	pe.Properties.ProvisioningState = "Succeeded"
 	if pe.Properties.IPVersionType == "" {
@@ -200,7 +170,6 @@ func provisionPrivateEndpoint(ctx context.Context, pe *PrivateEndpoint, previous
 	pe.Properties.NetworkInterfaces = []SubResource{{ID: nicID}}
 	address := nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 
-	// Stamp identity on each requested connection and open it on its target.
 	stamp := func(conns []PrivateLinkServiceConnection, manual bool) error {
 		for i := range conns {
 			conn := &conns[i]
@@ -230,8 +199,8 @@ func provisionPrivateEndpoint(ctx context.Context, pe *PrivateEndpoint, previous
 		ipcfg.Etag = azureNetworkEtag()
 	}
 
-	// Close the connections an update dropped, so a target never keeps a
-	// connection the endpoint no longer requests.
+	// Close the connections an update dropped, so no target keeps one the
+	// endpoint no longer requests.
 	if previous != nil {
 		live := map[string]bool{}
 		for _, conn := range privateEndpointRequestedConnections(pe) {
@@ -247,9 +216,8 @@ func provisionPrivateEndpoint(ctx context.Context, pe *PrivateEndpoint, previous
 	return nil
 }
 
-// projectPrivateEndpoint refreshes what the resource provider recomputes on
-// every read: the address the subnet allocated, the custom DNS configuration it
-// publishes, and each connection's approval state as the target now reports it.
+// Recompute on every read: the subnet's address, the custom DNS configuration,
+// and each connection's state as the target reports it.
 func projectPrivateEndpoint(pe *PrivateEndpoint) {
 	if pe.Properties.PrivateLinkServiceConnections == nil {
 		pe.Properties.PrivateLinkServiceConnections = []PrivateLinkServiceConnection{}
@@ -276,9 +244,6 @@ func projectPrivateEndpoint(pe *PrivateEndpoint) {
 	refresh(pe.Properties.ManualPrivateLinkServiceConnections)
 }
 
-// deletePrivateEndpointResources releases the endpoint's interface, closes
-// every connection it opened, and removes the DNS records its zone groups
-// published.
 func deletePrivateEndpointResources(ctx context.Context, id string, deleted PrivateEndpoint) {
 	for _, group := range privateEndpointDNSZoneGroups(id) {
 		deletePrivateEndpointDNSRecords(group)
@@ -292,9 +257,8 @@ func deletePrivateEndpointResources(ctx context.Context, id string, deleted Priv
 	}
 }
 
-// privateEndpointNICID is the ARM id of the interface the endpoint owns. Azure
-// names it after the endpoint unless the caller asked for a specific name, and
-// the name never changes once the endpoint exists.
+// Azure names the interface after the endpoint unless the caller named it, and
+// the name never changes.
 func privateEndpointNICID(pe *PrivateEndpoint, previous *PrivateEndpoint) string {
 	if previous != nil && len(previous.Properties.NetworkInterfaces) > 0 {
 		return previous.Properties.NetworkInterfaces[0].ID
@@ -307,8 +271,6 @@ func privateEndpointNICID(pe *PrivateEndpoint, previous *PrivateEndpoint) string
 	return rgScope + "/providers/Microsoft.Network/networkInterfaces/" + name
 }
 
-// privateEndpointRequestedIP is the address the caller pinned through an IP
-// configuration, if any.
 func privateEndpointRequestedIP(pe *PrivateEndpoint) string {
 	for _, ipcfg := range pe.Properties.IPConfigurations {
 		if ipcfg.Properties.PrivateIPAddress != "" {
@@ -325,25 +287,16 @@ func privateEndpointAllocationMethod(pe *PrivateEndpoint) string {
 	return "Dynamic"
 }
 
-// Target-side private endpoint connections
-
-// azurePrivateLinkTarget describes how one resource provider records the
-// private endpoint connections opened against its resources. Each target reads
-// and writes the SAME store its own privateEndpointConnections surface serves,
-// so the endpoint's view and the target owner's view are one object rather than
-// two that have to be kept in step.
+// Each target reads and writes the same store its own
+// privateEndpointConnections surface serves, so both views are one object.
 type azurePrivateLinkTarget struct {
-	// armType is the target's ARM resource type, e.g.
-	// "Microsoft.KeyVault/vaults". It is both what the available-type catalog
-	// reports and what a resource id is matched against.
-	armType string
-	// childType is the ARM type of the connection resource.
+	// armType is what the available-type catalog reports and what a resource ID
+	// matches against.
+	armType   string
 	childType string
-	// groupIDs are the private-link groups the resource publishes.
-	groupIDs []string
-	// dnsSuffixes returns the public fully-qualified suffix a group is normally
-	// reached at, and the private-link DNS zone Azure publishes its private
-	// address in.
+	groupIDs  []string
+	// The public suffix a group is normally reached at, and the private-link zone
+	// Azure publishes its private address in.
 	dnsSuffixes func(groupID string) (public string, zone string)
 
 	put func(id, name string, props map[string]any)
@@ -351,9 +304,8 @@ type azurePrivateLinkTarget struct {
 	del func(id string)
 }
 
-// azurePrivateLinkTargets is the set of resource types this simulator can
-// terminate a private endpoint on. Each entry's accessors are evaluated when a
-// request runs, so they read whatever store the owning service registered.
+// Accessors run at request time, so they read whatever store the owning
+// service registered.
 var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 	{
 		armType:   "Microsoft.KeyVault/vaults",
@@ -473,10 +425,8 @@ var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 	{
 		armType:   "Microsoft.Web/hostingEnvironments",
 		childType: aseResourceType + "/privateEndpointConnections",
-		// An App Service Environment publishes no named private-link group: an
-		// endpoint reaches the environment itself rather than one of several
-		// sub-resources, which is why its private-link resource wrapper is
-		// empty in the specification's own example.
+		// An App Service Environment publishes no named group: an endpoint reaches the
+		// environment itself, as the specification's example shows.
 		dnsSuffixes: func(string) (string, string) {
 			return "appserviceenvironment.net", "privatelink.appserviceenvironment.net"
 		},
@@ -494,8 +444,8 @@ var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 	{
 		armType:   "Microsoft.Network/privateLinkServices",
 		childType: azurePLSConnectionType,
-		// A private link service publishes no named groups: a consumer reaches
-		// the whole service, and its DNS name is the consumer's to choose.
+		// A private link service publishes no named groups: a consumer reaches the
+		// whole service, and names its DNS itself.
 		put: func(id, name string, props map[string]any) {
 			conn := NetworkPrivateEndpointConnection{
 				ID: id, Name: name, Type: azurePLSConnectionType, Etag: azureNetworkEtag(),
@@ -514,8 +464,6 @@ var azurePrivateLinkTargets = []azurePrivateLinkTarget{
 	},
 }
 
-// applyNetworkConnectionProperties copies the neutral property bag onto a
-// private-link-service connection record.
 func applyNetworkConnectionProperties(conn *NetworkPrivateEndpointConnection, props map[string]any) {
 	conn.Properties.ProvisioningState = azureMapString(props, "provisioningState")
 	conn.Properties.LinkIdentifier = azureMapString(props, "linkIdentifier")
@@ -534,8 +482,6 @@ func applyNetworkConnectionProperties(conn *NetworkPrivateEndpointConnection, pr
 	}
 }
 
-// networkConnectionProperties renders a private-link-service connection back as
-// the neutral property bag every other target speaks.
 func networkConnectionProperties(conn NetworkPrivateEndpointConnection) map[string]any {
 	props := map[string]any{
 		"provisioningState": conn.Properties.ProvisioningState,
@@ -561,8 +507,7 @@ func azureMapString(m map[string]any, key string) string {
 	return ""
 }
 
-// privateLinkTargetFor resolves the target descriptor for a resource id. ARM
-// resource ids are case-insensitive, so the type is matched that way.
+// Resource IDs are case-insensitive.
 func privateLinkTargetFor(resourceID string) (azurePrivateLinkTarget, bool) {
 	lower := strings.ToLower(resourceID)
 	for _, target := range azurePrivateLinkTargets {
@@ -573,15 +518,13 @@ func privateLinkTargetFor(resourceID string) (azurePrivateLinkTarget, bool) {
 	return azurePrivateLinkTarget{}, false
 }
 
-// privateEndpointConnectionID is the ARM id of the connection on the target
-// resource. Azure names it after the private endpoint that opened it.
+// Azure names the connection after the endpoint that opened it.
 func privateEndpointConnectionID(conn PrivateLinkServiceConnection, endpointName string) string {
 	return armChildID(conn.Properties.PrivateLinkServiceID, "privateEndpointConnections", endpointName)
 }
 
-// openPrivateEndpointConnection writes the connection into the target's own
-// collection. An endpoint whose target auto-approves the caller's subscription
-// is connected immediately; every other connection waits for the target owner.
+// Connected immediately when the target auto-approves the caller's
+// subscription; otherwise it waits for the owner.
 func openPrivateEndpointConnection(pe PrivateEndpoint, conn PrivateLinkServiceConnection, address string, manual bool) error {
 	target, ok := privateLinkTargetFor(conn.Properties.PrivateLinkServiceID)
 	if !ok {
@@ -593,8 +536,8 @@ func openPrivateEndpointConnection(pe PrivateEndpoint, conn PrivateLinkServiceCo
 	if !manual && privateEndpointAutoApproved(pe, conn) {
 		status, description = "Approved", "Auto-Approved"
 	}
-	// An existing connection keeps whatever the target's owner already decided:
-	// re-writing the endpoint must not silently re-approve a rejected link.
+	// Keep the owner's decision: rewriting the endpoint must not re-approve a
+	// rejected link.
 	if existing, found := target.get(id); found {
 		if state, ok := existing["privateLinkServiceConnectionState"].(map[string]any); ok {
 			if s := azureMapString(state, "status"); s != "" {
@@ -620,11 +563,8 @@ func openPrivateEndpointConnection(pe PrivateEndpoint, conn PrivateLinkServiceCo
 	return nil
 }
 
-// privateEndpointAutoApproved reports whether the target connects the endpoint
-// without the owner acting. A private link service answers from its own
-// auto-approval subscription list; every other resource type auto-approves a
-// connection whose caller owns the resource, which in this simulator means the
-// endpoint and the target sit in the same subscription.
+// A private link service answers from its auto-approval list; every other type
+// auto-approves a caller owning the resource, here the same subscription.
 func privateEndpointAutoApproved(pe PrivateEndpoint, conn PrivateLinkServiceConnection) bool {
 	targetID := conn.Properties.PrivateLinkServiceID
 	if pls, ok := azurePrivateLinkServices.Get(targetID); ok {
@@ -633,7 +573,6 @@ func privateEndpointAutoApproved(pe PrivateEndpoint, conn PrivateLinkServiceConn
 	return strings.EqualFold(azureSubscriptionOf(pe.ID), azureSubscriptionOf(targetID))
 }
 
-// azureSubscriptionOf extracts the subscription id from an ARM resource id.
 func azureSubscriptionOf(resourceID string) string {
 	parts := strings.Split(strings.TrimPrefix(resourceID, "/"), "/")
 	if len(parts) >= 2 && strings.EqualFold(parts[0], "subscriptions") {
@@ -642,9 +581,8 @@ func azureSubscriptionOf(resourceID string) string {
 	return ""
 }
 
-// readPrivateEndpointConnectionState renders the connection state from the
-// target resource, which owns it. A connection whose target-side object is gone
-// reads as Disconnected — what Azure reports once the owner removes it.
+// A connection whose target-side object is gone reads Disconnected, as Azure
+// reports once the owner removes it.
 func readPrivateEndpointConnectionState(conn PrivateLinkServiceConnection, endpointName string) *PrivateLinkServiceConnectionState {
 	target, ok := privateLinkTargetFor(conn.Properties.PrivateLinkServiceID)
 	if !ok {
@@ -674,16 +612,13 @@ func closePrivateEndpointConnection(conn PrivateLinkServiceConnection, endpointN
 	}
 }
 
-// privateEndpointLinkIdentifier is the consumer link id Azure reports on a
-// connection: a stable number derived from the connection itself.
+// A stable number derived from the connection.
 func privateEndpointLinkIdentifier(connectionID string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(strings.ToLower(connectionID)))
 	return fmt.Sprintf("%d", 536870912+int64(h.Sum32()%1_000_000))
 }
 
-// privateEndpointTargetFqdn is the fully-qualified name the endpoint makes the
-// target reachable at, used for the endpoint's custom DNS configuration.
 func privateEndpointTargetFqdn(conn PrivateLinkServiceConnection) string {
 	target, ok := privateLinkTargetFor(conn.Properties.PrivateLinkServiceID)
 	if !ok || target.dnsSuffixes == nil {
@@ -698,12 +633,8 @@ func privateEndpointTargetFqdn(conn PrivateLinkServiceConnection) string {
 	return name + "." + public
 }
 
-// Available private endpoint types
-
-// registerAvailablePrivateEndpointTypes reports which resource types a private
-// endpoint can terminate on in a region. The list is the set of targets this
-// simulator can actually connect an endpoint to, so the catalog and the
-// behaviour cannot drift apart.
+// The catalog is the set of targets an endpoint can actually connect to, so it
+// cannot drift from the behavior.
 func registerAvailablePrivateEndpointTypes(srv *sim.Server) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")

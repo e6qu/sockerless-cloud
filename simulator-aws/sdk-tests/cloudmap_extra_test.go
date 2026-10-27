@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cmNamespaceIDFromOp resolves a Create*Namespace operation's NAMESPACE target.
 func cmNamespaceIDFromOp(t *testing.T, client *servicediscovery.Client, opID *string) string {
 	t.Helper()
 	opOut, err := client.GetOperation(ctx, &servicediscovery.GetOperationInput{OperationId: opID})
@@ -24,8 +23,8 @@ func cmNamespaceIDFromOp(t *testing.T, client *servicediscovery.Client, opID *st
 }
 
 // awaitCloudMapOperation polls GetOperation until the operation leaves
-// SUBMITTED and PENDING: Cloud Map reports an asynchronous operation's progress
-// only through that status and offers no waiter for it.
+// SUBMITTED and PENDING: Cloud Map reports progress only through that status
+// and has no waiter for it.
 func awaitCloudMapOperation(t *testing.T, client *servicediscovery.Client, opID *string) {
 	t.Helper()
 	var operation *sdtypes.Operation
@@ -60,14 +59,10 @@ func awaitCustomHealth(t *testing.T, client *servicediscovery.Client, serviceID 
 	}, 45*time.Second, time.Second, "instance %s stayed %s", instanceID, last)
 }
 
-// TestCloudMap_HttpAndPublicNamespaceLifecycle exercises CreateHttpNamespace,
-// CreatePublicDnsNamespace, UpdateHttpNamespace, UpdatePublicDnsNamespace and
-// UpdatePrivateDnsNamespace round-tripped through GetNamespace.
 func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
 
-	// HTTP namespace.
 	httpOut, err := client.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
 		Name:        aws.String("extra-http-ns"),
 		Description: aws.String("http ns"),
@@ -94,7 +89,6 @@ func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated http", aws.ToString(httpNs.Namespace.Description))
 
-	// Public DNS namespace.
 	pubOut, err := client.CreatePublicDnsNamespace(ctx, &servicediscovery.CreatePublicDnsNamespaceInput{
 		Name:        aws.String("extra-public.example.com"),
 		Description: aws.String("public ns"),
@@ -125,7 +119,6 @@ func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated public", aws.ToString(pubNs.Namespace.Description))
 
-	// Private DNS namespace update.
 	privOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("extra-private.local"),
 		Vpc:  aws.String("vpc-extra123"),
@@ -148,8 +141,6 @@ func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
 	assert.Equal(t, "updated private", aws.ToString(privNs.Namespace.Description))
 }
 
-// TestCloudMap_ServiceUpdateAndAttributes exercises UpdateService,
-// GetServiceAttributes, UpdateServiceAttributes and DeleteServiceAttributes.
 func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -173,7 +164,6 @@ func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
 		_, _ = client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: aws.String(svcID)})
 	}()
 
-	// UpdateService changes the description.
 	updOut, err := client.UpdateService(ctx, &servicediscovery.UpdateServiceInput{
 		Id: aws.String(svcID),
 		Service: &sdtypes.ServiceChange{
@@ -186,7 +176,6 @@ func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated svc desc", aws.ToString(gotSvc.Service.Description))
 
-	// Update + Get + Delete service attributes.
 	_, err = client.UpdateServiceAttributes(ctx, &servicediscovery.UpdateServiceAttributesInput{
 		ServiceId:  aws.String(svcID),
 		Attributes: map[string]string{"k1": "v1", "k2": "v2"},
@@ -216,9 +205,6 @@ func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
 	assert.Equal(t, "v2", attrOut.ServiceAttributes.Attributes["k2"])
 }
 
-// TestCloudMap_InstanceHealthAndRevision exercises GetInstance,
-// UpdateInstanceCustomHealthStatus, GetInstancesHealthStatus,
-// DiscoverInstancesRevision and ListOperations.
 func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -232,8 +218,8 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 		_, _ = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(nsID)})
 	}()
 
-	// UpdateInstanceCustomHealthStatus only applies to a service whose health
-	// is caller-reported, so the service carries a HealthCheckCustomConfig.
+	// UpdateInstanceCustomHealthStatus applies only to a service whose health is
+	// caller-reported.
 	svcOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:                    aws.String("health-svc"),
 		NamespaceId:             aws.String(nsID),
@@ -245,7 +231,6 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 		_, _ = client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: aws.String(svcID)})
 	}()
 
-	// Revision starts at 0 (no instances yet).
 	revOut, err := client.DiscoverInstancesRevision(ctx, &servicediscovery.DiscoverInstancesRevisionInput{
 		NamespaceName: aws.String("inst-health-ns"),
 		ServiceName:   aws.String("health-svc"),
@@ -266,7 +251,7 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 		})
 	}()
 
-	// Revision bumped after a registration.
+	// A registration bumps the revision.
 	revOut, err = client.DiscoverInstancesRevision(ctx, &servicediscovery.DiscoverInstancesRevisionInput{
 		NamespaceName: aws.String("inst-health-ns"),
 		ServiceName:   aws.String("health-svc"),
@@ -274,7 +259,6 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), aws.ToInt64(revOut.InstancesRevision))
 
-	// GetInstance.
 	instOut, err := client.GetInstance(ctx, &servicediscovery.GetInstanceInput{
 		ServiceId:  aws.String(svcID),
 		InstanceId: aws.String("inst-1"),
@@ -284,7 +268,7 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 	assert.Equal(t, "inst-1", aws.ToString(instOut.Instance.Id))
 	assert.Equal(t, "10.0.0.5", instOut.Instance.Attributes["AWS_INSTANCE_IPV4"])
 
-	// Health defaults HEALTHY, then a custom status flips it.
+	// Health starts HEALTHY until a custom status changes it.
 	healthOut, err := client.GetInstancesHealthStatus(ctx, &servicediscovery.GetInstancesHealthStatusInput{
 		ServiceId: aws.String(svcID),
 	})
@@ -305,7 +289,7 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 	assert.Equal(t, sdtypes.HealthStatusHealthy, healthOut.Status["inst-1"], "Cloud Map waits 30 seconds before it applies the status")
 	awaitCustomHealth(t, client, aws.String(svcID), "inst-1", sdtypes.HealthStatusUnhealthy)
 
-	// Health updates do NOT bump the revision.
+	// Health updates leave the revision alone.
 	revOut, err = client.DiscoverInstancesRevision(ctx, &servicediscovery.DiscoverInstancesRevisionInput{
 		NamespaceName: aws.String("inst-health-ns"),
 		ServiceName:   aws.String("health-svc"),
@@ -313,7 +297,6 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), aws.ToInt64(revOut.InstancesRevision))
 
-	// ListOperations with a NAMESPACE_ID filter returns this namespace's ops.
 	opsOut, err := client.ListOperations(ctx, &servicediscovery.ListOperationsInput{
 		Filters: []sdtypes.OperationFilter{{
 			Name:   sdtypes.OperationFilterNameNamespaceId,

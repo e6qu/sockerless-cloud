@@ -54,8 +54,8 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 	list, err := client.ListStreams(ctx, &kinesis.ListStreamsInput{})
 	require.NoError(t, err)
 	assert.Contains(t, list.StreamNames, streamName)
-	// StreamSummaries entries are the StreamSummary shape — identity +
-	// status + mode only (retention/shards/monitoring ride the describes).
+	// StreamSummaries entries are the StreamSummary shape, identity, status and
+	// mode only; the describes carry retention, shards and monitoring.
 	var streamSummary *ktypes.StreamSummary
 	for i := range list.StreamSummaries {
 		if aws.ToString(list.StreamSummaries[i].StreamName) == streamName {
@@ -166,8 +166,8 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, shards.Shards)
-	// PutRecord and PutRecords answer once the records are stored, so one pass
-	// of GetRecords over every shard reads all three.
+	// PutRecord and PutRecords answer once the records are stored, so one
+	// GetRecords pass over every shard reads all three.
 	bodies := map[string]bool{}
 	for _, shard := range shards.Shards {
 		iter, err := client.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
@@ -189,9 +189,8 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 	assert.Equal(t, map[string]bool{"one": true, "two": true, "three": true}, bodies)
 }
 
-// TestKinesisSDK_ListShardsPagination drives ListShards across multiple pages
-// via MaxResults + NextToken, asserting the page caps, the truncation token,
-// the strictly-after resume, and that the union covers every shard exactly once.
+// TestKinesisSDK_ListShardsPagination covers the page cap, the truncation
+// token, the strictly-after resume, and every shard exactly once across pages.
 func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -206,7 +205,6 @@ func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 		_, _ = client.DeleteStream(ctx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
 	})
 
-	// First page: cap at 2, expect a NextToken because 5 > 2.
 	page1, err := client.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamName: aws.String(streamName),
 		MaxResults: aws.Int32(2),
@@ -215,8 +213,7 @@ func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 	require.Len(t, page1.Shards, 2)
 	require.NotEmpty(t, aws.ToString(page1.NextToken), "ListShards must return NextToken when truncated")
 
-	// Resume strictly after the first page; per the SDK contract, NextToken is
-	// specified WITHOUT StreamName.
+	// NextToken goes without StreamName, as the SDK contract requires.
 	page2, err := client.ListShards(ctx, &kinesis.ListShardsInput{
 		MaxResults: aws.Int32(2),
 		NextToken:  page1.NextToken,
@@ -244,7 +241,7 @@ func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 		assert.Equal(t, 1, n, "shard %s must not repeat across pages", id)
 	}
 
-	// ExclusiveStartShardId resumes after a given shard id (legacy cursor).
+	// ExclusiveStartShardId resumes after a given shard id.
 	exclusive, err := client.ListShards(ctx, &kinesis.ListShardsInput{
 		StreamName:            aws.String(streamName),
 		ExclusiveStartShardId: page1.Shards[1].ShardId,
@@ -254,8 +251,8 @@ func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 	assert.Greater(t, aws.ToString(exclusive.Shards[0].ShardId), aws.ToString(page1.Shards[1].ShardId))
 }
 
-// TestKinesisSDK_ListStreamsPagination drives ListStreams across pages via
-// Limit + NextToken and asserts HasMoreStreams + the cursor advance.
+// TestKinesisSDK_ListStreamsPagination covers Limit, NextToken and
+// HasMoreStreams.
 func TestKinesisSDK_ListStreamsPagination(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()
@@ -276,9 +273,8 @@ func TestKinesisSDK_ListStreamsPagination(t *testing.T) {
 		})
 	}
 
-	// Page through ALL streams two-at-a-time, collecting only our three names
-	// (other tests' streams may coexist). Verify our trio appears once each and
-	// that pagination terminates.
+	// Other tests' streams coexist, so page through all of them two at a time
+	// and expect this test's three once each.
 	collected := map[string]int{}
 	var token *string
 	pages := 0
@@ -306,9 +302,8 @@ func TestKinesisSDK_ListStreamsPagination(t *testing.T) {
 	}
 }
 
-// TestKinesisSDK_DescribeStreamShardPagination pins that DescribeStream honors
-// Limit + ExclusiveStartShardId and sets HasMoreShards (it previously returned
-// every shard with HasMoreShards hardcoded false).
+// TestKinesisSDK_DescribeStreamShardPagination expects DescribeStream to honour
+// Limit and ExclusiveStartShardId and set HasMoreShards.
 func TestKinesisSDK_DescribeStreamShardPagination(t *testing.T) {
 	t.Parallel()
 	client := kinesisClient()

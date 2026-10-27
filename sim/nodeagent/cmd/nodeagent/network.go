@@ -347,9 +347,8 @@ func interfaceHolding(address string) (string, netip.Prefix, error) {
 	return "", netip.Prefix{}, fmt.Errorf("no interface holds %s: the agent's container is not on that network", address)
 }
 
-// defaultGatewayFor is the first host of the agent's own range, where the
-// engine's bridge answers; the agent keeps its route out through it after its
-// interface moved onto the guests' bridge.
+// shortName derives an interface name from id under prefix, within the
+// kernel's 15-byte limit.
 func shortName(prefix, id string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(id))

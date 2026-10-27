@@ -103,25 +103,17 @@ func startContainerReaper(provider string) error {
 	return command.Process.Release()
 }
 
-// A run's workloads are collectable from their labels alone.
+// sweepOrphanedWorkloads collects the workloads an earlier run over the same
+// state directory left. The detached reaper above is the fast path and not
+// enough: it dies with the harness container it lives in and with the
+// machine, and leaked workloads keep consuming the host until
+// `ContainerList(All: true)` fails outright.
 //
-// The reaper above is a detached child that waits for its parent and then
-// collects that run. It is the fast path and it is not enough: the child dies
-// with the harness container it lives in, and it dies with the machine. Runs
-// were observed leaking workloads for two days — twenty-two containers, five of
-// them still running between two and twenty-five hours after the runs that made
-// them ended — which consumes the host continuously and accumulates into the
-// engine state that makes `ContainerList(All: true)` fail outright.
-//
-// So the next simulator over the same state collects what the last one left. A
-// simulator's state directory is the one thing that cannot be shared: two
-// simulators over one state directory are not two runs, they are a mistake.
-// Sweeping by that identity is therefore precise — it never touches a
-// concurrent suite's workloads, which is what a sweep by provider alone would
-// do, and CI runs the SDK, CLI and Terraform suites of one cloud at once.
-//
-// A run with no state directory is not swept, because nothing identifies its
-// successor; its detached reaper stays its only collector.
+// The state directory is the identity to sweep by: two simulators over one
+// state directory are a mistake, not two runs, so the sweep never touches a
+// concurrent suite's workloads — CI runs the SDK, CLI and Terraform suites of
+// one cloud at once. The sweep skips a run with no state directory, since
+// nothing identifies its successor; its detached reaper is its only collector.
 func sweepOrphanedWorkloads(engine *client.Client) {
 	if engine == nil || simulatorStateID == "" {
 		return

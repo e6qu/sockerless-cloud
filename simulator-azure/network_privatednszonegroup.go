@@ -8,23 +8,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A private DNS zone group attaches a private endpoint to one or more private
-// DNS zones. Attaching it is what makes the linked resource's name resolve to
-// the endpoint's private address inside the virtual network, and Azure does
-// that by writing A records into the referenced zone. The simulator writes the
-// same records into the same private DNS zone store its own record-set surface
-// serves, so a record published by a zone group is a record `az network
-// private-dns record-set a show` returns and a resolver in the zone's linked
-// virtual network answers with. Removing the group — or the endpoint — takes
-// those records back out.
+// A private DNS zone group makes the linked resource's name resolve to the
+// endpoint's private address by writing A records into the referenced zones.
+// They land in the same store the private DNS record-set surface serves, so
+// `az network private-dns record-set a show` returns them and the zone's linked
+// virtual networks resolve them. Removing the group or the endpoint removes
+// them.
 
-// PrivateDNSZoneGroup mirrors
-// Microsoft.Network/privateEndpoints/privateDnsZoneGroups.
 type PrivateDNSZoneGroup struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
-	// PrivateDnsZoneGroup declares id, name, etag and properties; the ARM
-	// resource carries no `type` member.
+	// PrivateDnsZoneGroup declares id, name, etag and properties; it carries no
+	// `type`.
 	Etag       string                        `json:"etag,omitempty"`
 	Properties PrivateDNSZoneGroupProperties `json:"properties"`
 }
@@ -34,20 +29,17 @@ type PrivateDNSZoneGroupProperties struct {
 	PrivateDNSZoneConfigs []PrivateDNSZoneConfig `json:"privateDnsZoneConfigs,omitempty"`
 }
 
-// PrivateDNSZoneConfig binds the endpoint to one private DNS zone.
 type PrivateDNSZoneConfig struct {
 	Name       string                         `json:"name,omitempty"`
 	Properties PrivateDNSZoneConfigProperties `json:"properties"`
 }
 
-// PrivateDNSZoneConfigProperties names the zone and reports the records the
-// binding produced.
+// The zone, and the records the binding produced.
 type PrivateDNSZoneConfigProperties struct {
 	PrivateDNSZoneID string                     `json:"privateDnsZoneId,omitempty"`
 	RecordSets       []PrivateEndpointRecordSet `json:"recordSets,omitempty"`
 }
 
-// PrivateEndpointRecordSet describes one record the group published.
 type PrivateEndpointRecordSet struct {
 	RecordType        string   `json:"recordType,omitempty"`
 	RecordSetName     string   `json:"recordSetName,omitempty"`
@@ -59,8 +51,7 @@ type PrivateEndpointRecordSet struct {
 
 var azurePEDNSZoneGroups sim.Store[PrivateDNSZoneGroup]
 
-// azurePrivateEndpointRecordTTL is the time-to-live Azure Private Link gives
-// the A records a private DNS zone group publishes.
+// The TTL Azure Private Link gives the published A records.
 const azurePrivateEndpointRecordTTL = 10
 
 func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
@@ -90,8 +81,7 @@ func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
 		}
 		id := groupID(r)
 		if previous, found := azurePEDNSZoneGroups.Get(id); found {
-			// A rewrite republishes from scratch, so records for zones the new
-			// configuration dropped do not linger.
+			// Republish from scratch, so records for dropped zones do not linger.
 			deletePrivateEndpointDNSRecords(previous)
 		}
 		group := PrivateDNSZoneGroup{
@@ -149,9 +139,7 @@ func privateEndpointDNSZoneGroups(endpointID string) []PrivateDNSZoneGroup {
 	})
 }
 
-// publishPrivateEndpointDNSRecords writes an A record into each referenced zone
-// for every name the endpoint's connections make private, and records what it
-// wrote on the configuration.
+// Record what was written on the configuration.
 func publishPrivateEndpointDNSRecords(group *PrivateDNSZoneGroup, pe PrivateEndpoint) error {
 	address := ""
 	if len(pe.Properties.NetworkInterfaces) > 0 {
@@ -202,11 +190,9 @@ func recordAddresses(address string) []string {
 	return []string{address}
 }
 
-// privateEndpointRecordNames returns the record names the endpoint publishes in
-// one zone: the linked resource's own name where the zone is the private-link
-// zone Azure defines for that resource type, and the endpoint's name where the
-// consumer brought a zone of its own (a private link service target, which has
-// no Azure-defined zone).
+// The linked resource's own name in its Azure-defined private-link zone, or the
+// endpoint's name in a zone the consumer brought (a private link service
+// target has no Azure-defined zone).
 func privateEndpointRecordNames(pe PrivateEndpoint, zoneName string) []string {
 	var names []string
 	seen := map[string]bool{}
@@ -236,8 +222,7 @@ func privateEndpointRecordNames(pe PrivateEndpoint, zoneName string) []string {
 	return names
 }
 
-// privateEndpointGroupsFor returns the groups a connection asked for, falling
-// back to every group the target publishes when the request named none.
+// Every group the target publishes when the request named none.
 func privateEndpointGroupsFor(conn PrivateLinkServiceConnection, target azurePrivateLinkTarget) []string {
 	if len(conn.Properties.GroupIDs) > 0 {
 		return conn.Properties.GroupIDs
@@ -245,7 +230,6 @@ func privateEndpointGroupsFor(conn PrivateLinkServiceConnection, target azurePri
 	return target.groupIDs
 }
 
-// deletePrivateEndpointDNSRecords removes the records a group published.
 func deletePrivateEndpointDNSRecords(group PrivateDNSZoneGroup) {
 	for _, cfg := range group.Properties.PrivateDNSZoneConfigs {
 		for _, record := range cfg.Properties.RecordSets {

@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Compose and verify one simulator image's multi-architecture manifest list from
-# its two per-architecture images. publish-container-images.yml (commit tags) and
-# release.yml (version tags) composed it identically inline; both call this now.
+# its two per-architecture images, for publish-container-images.yml (commit
+# tags) and release.yml (version tags) alike.
 #
-# `docker buildx imagetools create` reads the per-architecture images' blobs from
-# GHCR's blob storage, and one TCP reset there failed 0.32.2's release manifest
-# job (`read: connection reset by peer`) — which skipped the release-complete
-# check — although both per-architecture images were whole. Composing is
-# idempotent: the same two digests always yield the same index. So a failure that
-# is a broken connection is composed again, at most three times; anything else —
-# a missing per-architecture image, an authorization refusal, a wrong media type —
-# fails at once, exactly as before.
+# `docker buildx imagetools create` reads the per-architecture images' blobs
+# from GHCR's blob storage, where a TCP reset (`read: connection reset by peer`)
+# can fail a compose although both images are whole. Composing is idempotent:
+# the same two digests always yield the same index. So a broken connection is
+# composed again, at most three times; anything else — a missing
+# per-architecture image, an authorization refusal, a wrong media type — fails
+# at once.
 #
 # Usage: scripts/compose-multiarch-manifest.sh <tag>
 set -euo pipefail

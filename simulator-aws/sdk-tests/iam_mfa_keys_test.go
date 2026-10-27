@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// iamMFAUser creates a throwaway IAM user the credential families attach to,
-// registering a tolerant cleanup.
 func iamMFAUser(t *testing.T, c *iam.Client, name string) {
 	t.Helper()
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(name)})
@@ -20,10 +18,8 @@ func iamMFAUser(t *testing.T, c *iam.Client, name string) {
 	t.Cleanup(func() { c.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(name)}) })
 }
 
-// TestIAM_VirtualMFADevice exercises the MFA-device family: CreateVirtualMFADevice
-// (real base32 seed + PNG QR), EnableMFADevice, GetMFADevice, ListMFADevices,
-// ListVirtualMFADevices (Assigned/Unassigned filter), the tag ops, ResyncMFADevice,
-// DeactivateMFADevice, and DeleteVirtualMFADevice.
+// TestIAM_VirtualMFADevice covers the MFA device family, with a real base32
+// seed and PNG QR code, and the Assigned and Unassigned filter.
 func TestIAM_VirtualMFADevice(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -41,15 +37,13 @@ func TestIAM_VirtualMFADevice(t *testing.T) {
 		c.DeleteVirtualMFADevice(ctx, &iam.DeleteVirtualMFADeviceInput{SerialNumber: aws.String(serial)})
 	})
 
-	// Base32StringSeed is a blob whose content (after the SDK's base64 transport
-	// decode) is the base32-encoded TOTP secret; QRCodePNG is the PNG bytes. Both
-	// must decode to real material (no fakes).
+	// After the SDK's base64 transport decode, Base32StringSeed is the
+	// base32-encoded TOTP secret and QRCodePNG the PNG bytes.
 	_, err = base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(string(created.VirtualMFADevice.Base32StringSeed))
 	require.NoError(t, err, "Base32StringSeed must be valid base32")
 	require.NotEmpty(t, created.VirtualMFADevice.QRCodePNG)
 	assert.Equal(t, []byte{0x89, 'P', 'N', 'G'}, created.VirtualMFADevice.QRCodePNG[:4], "QRCodePNG must be a real PNG")
 
-	// Before enable, it's an Unassigned virtual MFA device.
 	un, err := c.ListVirtualMFADevices(ctx, &iam.ListVirtualMFADevicesInput{AssignmentStatus: types.AssignmentStatusTypeUnassigned})
 	require.NoError(t, err)
 	assert.True(t, containsSerial(un.VirtualMFADevices, serial))
@@ -134,9 +128,8 @@ func hasTag(tags []types.Tag, k, v string) bool {
 	return false
 }
 
-// TestIAM_SSHPublicKey exercises UploadSSHPublicKey (id + MD5 fingerprint),
-// GetSSHPublicKey (SSH + PEM encoding), ListSSHPublicKeys, UpdateSSHPublicKey,
-// and DeleteSSHPublicKey.
+// TestIAM_SSHPublicKey covers an uploaded key's id, MD5 fingerprint and SSH
+// and PEM encodings.
 func TestIAM_SSHPublicKey(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -193,8 +186,6 @@ func TestIAM_SSHPublicKey(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_SigningCertificate exercises UploadSigningCertificate (CertificateId),
-// ListSigningCertificates, UpdateSigningCertificate, DeleteSigningCertificate.
 func TestIAM_SigningCertificate(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -234,9 +225,8 @@ func TestIAM_SigningCertificate(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestIAM_ServiceSpecificCredential exercises CreateServiceSpecificCredential
-// (username + password + id), ListServiceSpecificCredentials, ResetServiceSpecificCredential
-// (new password), UpdateServiceSpecificCredential, DeleteServiceSpecificCredential.
+// TestIAM_ServiceSpecificCredential covers a credential's username, password
+// and id, and the new password a reset issues.
 func TestIAM_ServiceSpecificCredential(t *testing.T) {
 	t.Parallel()
 	c := iamClient()

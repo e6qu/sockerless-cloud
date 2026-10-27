@@ -1,6 +1,6 @@
 ---
 name: dead-code-silencer-scan
-description: Specialist scan for the dead-code-silencer pattern — `var _ = pkg.Fn` import silencers, `//nolint:unused` directives without consumer references, and `_ = someVar` "keep for later" pins. Distilled from BUGS 1020 / 1021 / 1022 / 1024 / 1034 — five bug IDs across the same shape, where code was held for hypothetical future use and the silencer became the load-bearing artifact. Use before merging any Go change and periodically across the codebase.
+description: Specialist scan for the dead-code-silencer pattern — `var _ = pkg.Fn` import silencers, `//nolint:unused` directives without consumer references, and `_ = someVar` "keep for later" pins. Code held for hypothetical future use leaves the silencer as the only thing keeping it alive. Use before merging any Go change and periodically across the codebase.
 ---
 
 # Dead-code-silencer scan

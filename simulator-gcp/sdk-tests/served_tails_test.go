@@ -27,10 +27,6 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
-// The methods that used to be mux misses across Cloud DNS, IAM, Cloud SQL,
-// Cloud Storage and Service Usage, each driven here by the client a real
-// caller uses.
-
 // A managed zone carries an IAM policy like every other AIP-141 resource:
 // the policy set on it is the policy read back, and testIamPermissions
 // answers against it.
@@ -76,9 +72,9 @@ func TestDNS_ManagedZoneIAM(t *testing.T) {
 	assert.NotNil(t, tested)
 }
 
-// The IAM tail: a caller-supplied public key becomes a real user-managed
-// key, disable and enable flip the stored key's state, and the three
-// catalog reads answer from what this installation actually holds.
+// The IAM key and catalog methods: an uploaded public key becomes a
+// user-managed key, disable and enable flip its stored state, and the catalog
+// reads answer from what the simulator holds.
 func TestIAM_ServiceAccountKeyUploadEnableDisableAndCatalogs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -94,8 +90,8 @@ func TestIAM_ServiceAccountKeyUploadEnableDisableAndCatalogs(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Projects.ServiceAccounts.Delete(account.Name).Do() })
 
-	// A user-managed key the caller supplies: the API stores the public key
-	// it was handed rather than minting a private one.
+	// The API stores the public key the caller supplies rather than minting a
+	// private one.
 	uploaded, err := svc.Projects.ServiceAccounts.Keys.Upload(account.Name,
 		&iamv1.UploadServiceAccountKeyRequest{
 			PublicKeyData: iamUploadCertificatePEM(t),
@@ -118,8 +114,7 @@ func TestIAM_ServiceAccountKeyUploadEnableDisableAndCatalogs(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.Disabled, "enabling clears the state disabling set")
 
-	// A policy with no condition has nothing to lint; the empty finding list
-	// is the honest answer.
+	// A policy with no condition has nothing to lint.
 	lint, err := svc.IamPolicies.LintPolicy(&iamv1.LintPolicyRequest{
 		FullResourceName: "//cloudresourcemanager.googleapis.com/projects/" + project,
 	}).Do()
@@ -139,9 +134,8 @@ func TestIAM_ServiceAccountKeyUploadEnableDisableAndCatalogs(t *testing.T) {
 	assert.NotEmpty(t, grantable.Roles, "the grantable roles come from the role catalog the simulator holds")
 }
 
-// iamUploadCertificatePEM builds what the API demands of an uploaded
-// user-managed key: an RSA public key wrapped in an X.509 v3 certificate,
-// PEM-encoded, base64 on the wire.
+// iamUploadCertificatePEM wraps an RSA public key in an X.509 v3 certificate,
+// PEM-encoded and base64 on the wire, as the API requires.
 func iamUploadCertificatePEM(t *testing.T) string {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -158,9 +152,9 @@ func iamUploadCertificatePEM(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(pemBytes)
 }
 
-// Cloud SQL's two remaining methods: the connect-settings resolve a
-// connector performs before dialling, and the point-in-time restore that
-// creates a new instance from the backup covering the requested moment.
+// Cloud SQL's connect-settings resolve a connector performs before dialling,
+// and the point-in-time restore that creates an instance from the backup
+// covering the requested moment.
 func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -185,9 +179,8 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs.Items, 1)
 	require.Equal(t, "SUCCESSFUL", runs.Items[0].Status)
-	// A restore names a moment the backups cover: the instant this backup
-	// finished is the earliest such moment, and the one a caller restoring
-	// "to the last backup" asks for.
+	// The instant the backup finished is the earliest moment it covers, the one a
+	// caller restoring "to the last backup" asks for.
 	restorePoint := runs.Items[0].EndTime
 
 	restoreOp, err := svc.Instances.PointInTimeRestore("projects/"+project,
@@ -206,9 +199,8 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 	assert.Equal(t, "POSTGRES_15", restored.DatabaseVersion,
 		"the restored instance carries the source's engine")
 
-	// The connector's resolve, addressed by the DNS name the instance's
-	// connect settings advertise — the coordinate a connector reads before
-	// it dials.
+	// The connector resolves by the DNS name the instance's connect settings
+	// advertise.
 	connect, err := svc.Connect.Get(project, source).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, connect.DnsName, "connect settings must advertise the instance's DNS name")
@@ -221,16 +213,15 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 
 // Cloud Storage's rapid caches are bucket-scoped control-plane state, and a
 // managed folder's rapid-cache configuration is patchable. The generated Go
-// client has no rapidCaches collection yet, so these speak the JSON API
-// directly — the same wire a client will speak once it does.
+// client has no rapidCaches collection, so these speak the JSON API directly.
 func TestGCS_RapidCachesAndManagedFolderPatch(t *testing.T) {
 	t.Parallel()
 	bucket := uniquename.New("rapid-cache-bucket")
 	gcpRawJSON(t, http.MethodPost, "/storage/v1/b?project=test-project",
 		map[string]any{"name": bucket}, http.StatusOK)
 
-	// insert, update and disable each answer with a long-running operation,
-	// exactly as the Discovery document declares their response type.
+	// insert, update and disable each answer with an operation, as the Discovery
+	// document declares.
 	created := gcpRawJSON(t, http.MethodPost, "/storage/v1/b/"+bucket+"/rapidCaches",
 		map[string]any{"rapidCacheId": "cache-1", "zone": "us-central1-a"}, http.StatusOK)
 	assert.Equal(t, "storage#operation", created["kind"])
@@ -292,8 +283,7 @@ func TestServiceUsage_BatchGet(t *testing.T) {
 		"a service the project never enabled is DISABLED")
 }
 
-// gcpRawJSON issues a JSON API request the generated client cannot express
-// and returns the decoded body.
+// gcpRawJSON sends a JSON API request the generated client cannot express.
 func gcpRawJSON(t *testing.T, method, path string, body any, wantStatus int) map[string]any {
 	t.Helper()
 	var reader io.Reader
@@ -321,8 +311,7 @@ func gcpRawJSON(t *testing.T, method, path string, body any, wantStatus int) map
 	return out
 }
 
-// simBearerToken mints the access token a raw request carries, from the
-// same token source the generated clients use.
+// simBearerToken mints from the token source the generated clients use.
 func simBearerToken(t *testing.T) string {
 	t.Helper()
 	token, err := simTokenSource().Token()

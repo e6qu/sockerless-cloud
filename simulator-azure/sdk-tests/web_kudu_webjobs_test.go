@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for Kudu's WebJobs API on a web app's SCM site, which reads and
-// writes the same jobs and run history as the Microsoft.Web webjob resources:
+// Kudu's WebJobs API on a web app's SCM site reads and writes the same jobs
+// and run history as the Microsoft.Web webjob resources.
 //
 //	GET /api/webjobs
 //	GET /api/triggeredwebjobs
@@ -53,9 +53,8 @@ type kuduWebJobRun struct {
 	Trigger   string `json:"trigger"`
 }
 
-// kuduAwait polls a Kudu job URL until done reports the decoded body
-// finished; Kudu exposes no long-poll for a job's state, so the test reads
-// the job's own status field.
+// kuduAwait polls a Kudu job URL until done: Kudu exposes no long poll for a
+// job's state, so read its own status field.
 func kuduAwait[T any](t *testing.T, rawURL string, auth func(*http.Request), done func(T) bool) T {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
@@ -163,7 +162,7 @@ func TestSDK_WebApps_KuduWebJobsAPI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armappservice.ContinuousWebJobStatusRunning, *armWorker.Properties.Status)
 
-	// A run answers 202 with its history entry as Location; its arguments
+	// A run answers 202 with its history entry as Location, and its arguments
 	// reach the run file's command line.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scm+"/api/triggeredwebjobs/report/run?arguments=one", nil)
 	require.NoError(t, err)
@@ -208,7 +207,6 @@ func TestSDK_WebApps_KuduWebJobsAPI(t *testing.T) {
 	resp, _ = kuduRequest(t, http.MethodDelete, scm+"/api/triggeredwebjobs/slow", nil, "", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// settings.job.
 	resp, body = kuduRequest(t, http.MethodPut, scm+"/api/triggeredwebjobs/report/settings",
 		[]byte(`{"is_singleton":true}`), "application/json", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
@@ -220,7 +218,6 @@ func TestSDK_WebApps_KuduWebJobsAPI(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &report))
 	assert.Equal(t, map[string]any{"is_singleton": true}, report.Settings)
 
-	// Stop and start the continuous job.
 	resp, body = kuduRequest(t, http.MethodPost, scm+"/api/continuouswebjobs/worker/stop", nil, "", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
 	kuduAwait(t, scm+"/api/continuouswebjobs/worker", auth, func(j kuduWebJob) bool { return j.Status == "Stopped" })

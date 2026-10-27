@@ -18,15 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS CodeBuild — extended control-plane surface (build batches, compute fleets,
-// sandboxes, webhooks, report test cases / code coverage / trends, resource
-// policies, command executions, curated images, project visibility, cache
-// invalidation, and shared-resource listings). All AWS JSON 1.1
-// (X-Amz-Target: CodeBuild_20161006.<Op>), matching the real wire shapes the
-// AWS SDK Go v2 and the `aws` CLI parse.
-
-// CBFleet mirrors the CodeBuild Fleet shape (a compute fleet resource keyed by
-// ARN). A fleet settles ACTIVE on create.
+// A fleet settles ACTIVE on create.
 type CBFleet struct {
 	Arn                  string         `json:"arn"`
 	Name                 string         `json:"name"`
@@ -44,8 +36,7 @@ type CBFleet struct {
 	Tags                 []CBTag        `json:"tags,omitempty"`
 }
 
-// CBSandbox mirrors the CodeBuild Sandbox shape. A sandbox settles RUNNING on
-// start (the real terminal session state for an interactive sandbox).
+// A sandbox settles RUNNING on start.
 type CBSandbox struct {
 	ID               string            `json:"id"`
 	Arn              string            `json:"arn"`
@@ -61,7 +52,6 @@ type CBSandbox struct {
 	Seq              int64             `json:"-"`
 }
 
-// CBSandboxSession mirrors the SandboxSession shape carried inside a sandbox.
 type CBSandboxSession struct {
 	ID           string         `json:"id"`
 	Status       string         `json:"status"`
@@ -70,8 +60,7 @@ type CBSandboxSession struct {
 	Logs         map[string]any `json:"logs,omitempty"`
 }
 
-// CBCommandExecution mirrors the CommandExecution shape: a command run inside a
-// sandbox, settling SUCCEEDED from the local process exit status.
+// A command execution settles from the process exit status.
 type CBCommandExecution struct {
 	ID                    string  `json:"id"`
 	SandboxID             string  `json:"sandboxId"`
@@ -88,9 +77,6 @@ type CBCommandExecution struct {
 	Seq                   int64   `json:"-"`
 }
 
-// CBWebhook mirrors the Webhook shape attached to a project. The real API never
-// echoes the secret back beyond import; the sim stores it and returns the
-// url/payloadUrl/secret per the shape.
 type CBWebhook struct {
 	URL          string             `json:"url,omitempty"`
 	PayloadURL   string             `json:"payloadUrl,omitempty"`
@@ -99,8 +85,7 @@ type CBWebhook struct {
 	FilterGroups [][]map[string]any `json:"filterGroups,omitempty"`
 	BuildType    string             `json:"buildType,omitempty"`
 	Status       string             `json:"status,omitempty"`
-	// ProjectName keys the webhook to its project; sim-internal, not wire.
-	ProjectName string `json:"-"`
+	ProjectName  string             `json:"-"`
 }
 
 var (
@@ -126,10 +111,8 @@ func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
 	cbResourcePols = sim.MakeStore[IAMResourcePolicy](srv.DB(), "codebuild_resource_policies")
 	cbRebuildSequences()
 
-	// Builds
 	r.Register("CodeBuild_20161006.BatchDeleteBuilds", handleCBBatchDeleteBuilds)
 
-	// Build batches
 	r.Register("CodeBuild_20161006.StartBuildBatch", handleCBStartBuildBatch)
 	r.Register("CodeBuild_20161006.StopBuildBatch", handleCBStopBuildBatch)
 	r.Register("CodeBuild_20161006.RetryBuildBatch", handleCBRetryBuildBatch)
@@ -138,14 +121,12 @@ func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
 	r.Register("CodeBuild_20161006.ListBuildBatches", handleCBListBuildBatches)
 	r.Register("CodeBuild_20161006.ListBuildBatchesForProject", handleCBListBuildBatchesForProject)
 
-	// Fleets
 	r.Register("CodeBuild_20161006.CreateFleet", handleCBCreateFleet)
 	r.Register("CodeBuild_20161006.UpdateFleet", handleCBUpdateFleet)
 	r.Register("CodeBuild_20161006.DeleteFleet", handleCBDeleteFleet)
 	r.Register("CodeBuild_20161006.BatchGetFleets", handleCBBatchGetFleets)
 	r.Register("CodeBuild_20161006.ListFleets", handleCBListFleets)
 
-	// Sandboxes
 	r.Register("CodeBuild_20161006.StartSandbox", handleCBStartSandbox)
 	r.Register("CodeBuild_20161006.StopSandbox", handleCBStopSandbox)
 	r.Register("CodeBuild_20161006.StartSandboxConnection", handleCBStartSandboxConnection)
@@ -153,28 +134,23 @@ func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
 	r.Register("CodeBuild_20161006.ListSandboxes", handleCBListSandboxes)
 	r.Register("CodeBuild_20161006.ListSandboxesForProject", handleCBListSandboxesForProject)
 
-	// Command executions
 	r.Register("CodeBuild_20161006.StartCommandExecution", handleCBStartCommandExecution)
 	r.Register("CodeBuild_20161006.BatchGetCommandExecutions", handleCBBatchGetCommandExecutions)
 	r.Register("CodeBuild_20161006.ListCommandExecutionsForSandbox", handleCBListCommandExecutionsForSandbox)
 
-	// Webhooks
 	r.Register("CodeBuild_20161006.CreateWebhook", handleCBCreateWebhook)
 	r.Register("CodeBuild_20161006.UpdateWebhook", handleCBUpdateWebhook)
 	r.Register("CodeBuild_20161006.DeleteWebhook", handleCBDeleteWebhook)
 
-	// Reports
 	r.Register("CodeBuild_20161006.DeleteReport", handleCBDeleteReport)
 	r.Register("CodeBuild_20161006.DescribeTestCases", handleCBDescribeTestCases)
 	r.Register("CodeBuild_20161006.DescribeCodeCoverages", handleCBDescribeCodeCoverages)
 	r.Register("CodeBuild_20161006.GetReportGroupTrend", handleCBGetReportGroupTrend)
 
-	// Resource policy
 	r.Register("CodeBuild_20161006.PutResourcePolicy", handleCBPutResourcePolicy)
 	r.Register("CodeBuild_20161006.GetResourcePolicy", handleCBGetResourcePolicy)
 	r.Register("CodeBuild_20161006.DeleteResourcePolicy", handleCBDeleteResourcePolicy)
 
-	// Project visibility / cache / curated images / shared listings
 	r.Register("CodeBuild_20161006.UpdateProjectVisibility", handleCBUpdateProjectVisibility)
 	r.Register("CodeBuild_20161006.InvalidateProjectCache", handleCBInvalidateProjectCache)
 	r.Register("CodeBuild_20161006.ListCuratedEnvironmentImages", handleCBListCuratedEnvironmentImages)
@@ -409,7 +385,6 @@ func handleCBListFleets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cbResolveFleet finds a fleet by ARN or name.
 func cbResolveFleet(nameOrARN string) (CBFleet, bool) {
 	if f, ok := cbFleets.Get(nameOrARN); ok {
 		return f, true
@@ -514,8 +489,7 @@ func handleCBStartSandboxConnection(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Sandbox not found: "+req.SandboxID)
 		return
 	}
-	// StartSandboxConnection returns the SSM session connection details a client
-	// uses to attach to the sandbox, shaped exactly like the real SSMSession.
+	// Shaped like the real SSMSession; the simulator runs no Session Manager.
 	sessionID := sb.ID + "-" + uuid.New().String()
 	cbWriteJSON(w, http.StatusOK, map[string]any{
 		"ssmSession": map[string]any{
@@ -658,9 +632,7 @@ func handleCBStartCommandExecution(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, map[string]any{"commandExecution": ce})
 }
 
-// cbRunCommandExecution runs the command in the sandbox's build environment
-// container — the same image a build of the sandbox's project runs in — and
-// records the real terminal status, exit code and captured output.
+// Run in the same image a build of the sandbox's project uses.
 func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 	image := cbString(sandbox.Environment["image"])
 	if image == "" {
@@ -850,9 +822,7 @@ func handleCBCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		BranchFilter: req.BranchFilter,
 		BuildType:    req.BuildType,
 		FilterGroups: req.FilterGroups,
-		// WebhookStatus is ACTIVE, CREATING, CREATE_FAILED or DELETING. A
-		// webhook this call just created and that is receiving events is
-		// ACTIVE; "NORMAL" is not a status the service has.
+		// WebhookStatus has no "NORMAL"; a webhook just created is ACTIVE.
 		Status:      "ACTIVE",
 		ProjectName: req.ProjectName,
 	}
@@ -933,10 +903,8 @@ func handleCBDeleteReport(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleCBDescribeTestCases answers with the test cases the report's raw data
-// files held. A report whose build produced no matching result file — or one
-// produced by a CODE_COVERAGE report group — has no test cases, and the answer
-// is the empty list the service returns for it.
+// A report without a matching result file, or from a CODE_COVERAGE group, has
+// no test cases.
 func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportArn  string `json:"reportArn"`
@@ -980,9 +948,7 @@ func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, resp)
 }
 
-// handleCBDescribeCodeCoverages answers with the per-file coverage the report's
-// raw data files held. A TEST report, or one whose build produced no matching
-// coverage file, has none.
+// A TEST report, or one without a matching coverage file, has none.
 func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportArn       string   `json:"reportArn"`
@@ -1016,8 +982,7 @@ func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 		}
 		coverages = append(coverages, recorded{pos, coverage})
 	}
-	// sortBy is FILE_PATH or LINE_COVERAGE_PERCENTAGE; the default order is by
-	// file path, which is the order ingestion recorded. Ties keep that order.
+	// FILE_PATH order is the ingestion order; ties keep it.
 	byPercentage := strings.EqualFold(req.SortBy, "LINE_COVERAGE_PERCENTAGE")
 	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
 	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, coverages, func(c recorded) string {
@@ -1056,7 +1021,6 @@ func handleCBGetReportGroupTrend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// GetReportGroupTrend aggregates the trend field across the group's reports.
 	var reports []CBReport
 	for _, rep := range cbReports.List() {
 		if rep.ReportGroupArn == req.ReportGroupArn {
@@ -1110,9 +1074,7 @@ func handleCBGetReportGroupTrend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cbReportTrendValue is one report's value for a ReportGroupTrendFieldType,
-// measured from the raw result files that report ingested. Reports false for a
-// field the service does not define.
+// false for a field the service does not define.
 func cbReportTrendValue(report CBReport, trendField string) (float64, bool) {
 	results, _ := cbReportResults.Get(report.Arn)
 	switch strings.ToUpper(trendField) {
@@ -1186,8 +1148,7 @@ func handleCBPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	defer cbMu.Unlock()
 
 	cbResourcePols.Put(req.ResourceArn, IAMResourcePolicy{ARN: req.ResourceArn, Policy: req.Policy})
-	// Mirror into the central IAM resource-policy store so the enforcement gate
-	// sees it, exactly as SQS/SNS/DynamoDB do.
+	// The IAM enforcement gate reads the central resource-policy store.
 	iamPutResourcePolicy(req.ResourceArn, req.Policy)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"resourceArn": req.ResourceArn})
 }
@@ -1263,14 +1224,11 @@ func handleCBInvalidateProjectCache(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
 		return
 	}
-	// InvalidateProjectCache clears the project's build cache; the sim holds no
-	// cache artifacts, so success with an empty body is the faithful response.
+	// The simulator keeps no build cache.
 	cbWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleCBListCuratedEnvironmentImages returns AWS's real curated image
-// platforms (Amazon Linux / Ubuntu standard images), in the EnvironmentPlatform
-// shape. This is a known static-but-real set published by AWS.
+// The curated image platforms AWS publishes.
 func handleCBListCuratedEnvironmentImages(w http.ResponseWriter, r *http.Request) {
 	platforms := []map[string]any{
 		{
@@ -1317,9 +1275,8 @@ func handleCBListCuratedEnvironmentImages(w http.ResponseWriter, r *http.Request
 	cbWriteJSON(w, http.StatusOK, map[string]any{"platforms": platforms})
 }
 
-// handleCBListSharedProjects returns the projects shared with the account via a
-// resource policy. The sim has no cross-account sharing, so it returns the set
-// of project ARNs that carry a resource policy — a real, derivable shared set.
+// The simulator has no cross-account sharing; it lists the projects that carry
+// a resource policy.
 func handleCBListSharedProjects(w http.ResponseWriter, r *http.Request) {
 	cbListSortedARNs(w, r, "projects", func() []string {
 		var arns []string
@@ -1332,8 +1289,7 @@ func handleCBListSharedProjects(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleCBListSharedReportGroups returns the report groups shared via a resource
-// policy (the report-group ARNs carrying a policy).
+// The report groups that carry a resource policy.
 func handleCBListSharedReportGroups(w http.ResponseWriter, r *http.Request) {
 	cbListSortedARNs(w, r, "reportGroups", func() []string {
 		var arns []string

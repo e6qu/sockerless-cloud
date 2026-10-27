@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-required-status-checks.sh — guard against required-check drift (BUG-2633).
+# check-required-status-checks.sh — guard against required-check drift.
 #
 # Every context in .github/required-status-checks.txt must be emittable by some
 # job in .github/workflows/*.yml. A matrix job rename or removal that leaves a

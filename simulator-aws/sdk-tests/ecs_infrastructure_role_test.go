@@ -66,8 +66,8 @@ func TestECS_InfrastructureRolesMustBeAssumable(t *testing.T) {
 		assert.Equal(t, "InvalidParameterException", errCode(t, err), "RunTask with a %s volume role", name)
 	}
 
-	// A service's role lets Amazon ECS reach the load balancer; the model
-	// permits it only with a load balancer and outside the awsvpc network mode.
+	// A service's role lets Amazon ECS reach the load balancer; the model allows it
+	// only with a load balancer and outside awsvpc.
 	bridgeTask, err := ecsc.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:      aws.String("infra-role-bridge"),
 		NetworkMode: ecstypes.NetworkModeBridge,
@@ -123,10 +123,9 @@ func TestECS_InfrastructureRolesMustBeAssumable(t *testing.T) {
 	}
 }
 
-// An Express service's infrastructure role is what Amazon ECS provisions the
-// service's resources as: a role allowed none of them leaves every managed
-// resource FAILED, with the refusal as its statusReason, while the service
-// itself is created.
+// An Express service's infrastructure role is what Amazon ECS provisions as: a
+// role allowed none of it leaves every managed resource FAILED with the refusal
+// as statusReason, while the service itself is created.
 func TestECSExpress_ManagedResourcesFailAsTheInfrastructureRole(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()

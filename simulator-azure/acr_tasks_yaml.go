@@ -14,9 +14,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// An ACR Tasks task file, as the ACR Tasks YAML reference documents it and as
-// the service's open-source run engine (Azure/acr-builder) reads it: Go
-// templates over the run's variables and values, then aliases, then the steps.
+// An ACR Tasks task file as the YAML reference documents it and Azure/acr-builder
+// reads it: Go templates over the run's variables and values, then aliases, then
+// the steps.
 
 const (
 	acrTaskDefaultVersion     = "v1.0.0"
@@ -43,8 +43,6 @@ type acrSetValue struct {
 	IsSecret bool   `json:"isSecret"`
 }
 
-// acrRunVariables are the `Run` template variables, named as the run engine
-// names them.
 type acrRunVariables struct {
 	ID           string
 	SharedVolume string
@@ -75,7 +73,6 @@ func (v acrRunVariables) template() map[string]any {
 	}
 }
 
-// aliases are the predefined variable aliases a `$` directive expands.
 func (v acrRunVariables) aliases() map[string]string {
 	t := v.template()
 	out := map[string]string{}
@@ -168,8 +165,8 @@ func (s *acrTaskStep) kind() string {
 	}
 }
 
-// acrRenderTemplate renders a task or values file the way the run engine's
-// default mode does: a missing value renders empty.
+// acrRenderTemplate renders a missing value empty, as the run engine's default
+// mode does.
 func acrRenderTemplate(name, text string, data map[string]any) (string, error) {
 	t, err := template.New(name).Option("missingkey=zero").Parse(text)
 	if err != nil {
@@ -227,9 +224,8 @@ func acrVersionAtLeast(version, floor string) bool {
 	return true
 }
 
-// acrExpandAliases replaces each directive-prefixed alias the table knows and
-// leaves every other directive alone, so a shell's own `$HOME` survives. A
-// doubled directive is a literal one.
+// acrExpandAliases leaves unknown directives alone, so a shell's `$HOME`
+// survives. A doubled directive is a literal one.
 func acrExpandAliases(text string, directive rune, aliases map[string]string) string {
 	var out strings.Builder
 	runes := []rune(text)
@@ -257,7 +253,6 @@ func acrExpandAliases(text string, directive rune, aliases map[string]string) st
 	return out.String()
 }
 
-// acrLoadTaskFile renders, expands and validates a task file.
 func acrLoadTaskFile(content, valuesFile []byte, set []acrSetValue, run acrRunVariables) (*acrTaskFile, error) {
 	values, err := acrTaskValues(valuesFile, set)
 	if err != nil {
@@ -405,8 +400,6 @@ func (t *acrTaskFile) initialize() error {
 	return t.checkAcyclic()
 }
 
-// checkAcyclic refuses a task whose `when` dependencies form a cycle, which
-// no order of execution satisfies.
 func (t *acrTaskFile) checkAcyclic() error {
 	const (
 		visiting = 1
@@ -438,8 +431,8 @@ func (t *acrTaskFile) checkAcyclic() error {
 	return nil
 }
 
-// checkSupported refuses the step properties this run engine does not carry
-// out, rather than running the step without them.
+// checkSupported refuses step properties this engine does not carry out rather
+// than running the step without them.
 func (s *acrTaskStep) checkSupported() error {
 	unsupported := []struct {
 		name string
@@ -480,7 +473,6 @@ func (s *acrTaskStep) checkSupported() error {
 	return nil
 }
 
-// acrMergeEnv overlays a step's environment on the task's, keyed by name.
 func acrMergeEnv(task, step []string) []string {
 	if len(task) == 0 {
 		return step
@@ -500,8 +492,7 @@ func acrMergeEnv(task, step []string) []string {
 	return out
 }
 
-// acrSplitArgs splits a step's command line into words the way a POSIX shell
-// does for quotes and backslashes, without expanding anything.
+// acrSplitArgs honours POSIX shell quotes and backslashes and expands nothing.
 func acrSplitArgs(line string) ([]string, error) {
 	var words []string
 	var cur strings.Builder

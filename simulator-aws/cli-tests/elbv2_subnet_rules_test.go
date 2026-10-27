@@ -6,14 +6,12 @@ import (
 	"testing"
 )
 
-// elbv2VPCIpv6BlockCLI gives the VPC an Amazon-provided IPv6 CIDR block.
 func elbv2VPCIpv6BlockCLI(t *testing.T, vpcID string) string {
 	t.Helper()
 	return strings.TrimSpace(runCLI(t, awsCLI("ec2", "associate-vpc-cidr-block", "--vpc-id", vpcID,
 		"--amazon-provided-ipv6-cidr-block", "--query", "Ipv6CidrBlockAssociation.Ipv6CidrBlock", "--output", "text")))
 }
 
-// elbv2Ipv6SubnetRangeCLI returns the index'th /64 of a VPC's IPv6 block.
 func elbv2Ipv6SubnetRangeCLI(t *testing.T, block string, index int) string {
 	t.Helper()
 	prefix, err := netip.ParsePrefix(block)
@@ -25,11 +23,10 @@ func elbv2Ipv6SubnetRangeCLI(t *testing.T, block string, index int) string {
 	return netip.PrefixFrom(netip.AddrFrom16(addr), 64).String()
 }
 
-// TestELBv2CLI_SubnetRules drives what create-load-balancer, set-subnets and
-// set-ip-address-type refuse through the AWS CLI: an Application Load Balancer
-// in one Availability Zone, two subnets in one zone, and a dualstack load
-// balancer on a subnet with no IPv6 CIDR block; a Network Load Balancer takes
-// one zone.
+// TestELBv2CLI_SubnetRules expects create-load-balancer, set-subnets and
+// set-ip-address-type to refuse an Application Load Balancer in one
+// Availability Zone, two subnets in one zone, and a dualstack load balancer on
+// a subnet without an IPv6 CIDR block; a Network Load Balancer takes one zone.
 func TestELBv2CLI_SubnetRules(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

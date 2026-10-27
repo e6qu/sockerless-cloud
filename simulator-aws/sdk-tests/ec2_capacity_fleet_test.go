@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createFleetLaunchTemplate creates a launch template the EC2 Fleet / Spot
-// Fleet tests reference, returning its id.
 func createFleetLaunchTemplate(t *testing.T, c *ec2.Client, name string) string {
 	t.Helper()
 	out, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
@@ -27,10 +25,9 @@ func createFleetLaunchTemplate(t *testing.T, c *ec2.Client, name string) string 
 	return aws.ToString(out.LaunchTemplate.LaunchTemplateId)
 }
 
-// TestEC2_CapacityReservationLifecycle covers the capacity-reservation control
-// plane: a reservation reserves N instances of a type/AZ and settles "active"
-// with AvailableInstanceCount == count; Describe reads it back; Modify changes
-// the count; usage and groups read back; Cancel transitions it to "cancelled".
+// TestEC2_CapacityReservationLifecycle expects a reservation of N instances
+// of a type and zone to settle active with AvailableInstanceCount N, change
+// count on Modify, and move to cancelled on Cancel.
 func TestEC2_CapacityReservationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -65,7 +62,6 @@ func TestEC2_CapacityReservationLifecycle(t *testing.T) {
 	require.Len(t, got.Tags, 1)
 	assert.Equal(t, "team", aws.ToString(got.Tags[0].Key))
 
-	// Filter by instance-type.
 	byType, err := c.DescribeCapacityReservations(ctx, &ec2.DescribeCapacityReservationsInput{
 		Filters: []types.Filter{{Name: aws.String("instance-type"), Values: []string{"t3.micro"}}},
 	})
@@ -108,9 +104,8 @@ func TestEC2_CapacityReservationLifecycle(t *testing.T) {
 	assert.Equal(t, types.CapacityReservationStateCancelled, desc3.CapacityReservations[0].State)
 }
 
-// TestEC2_CapacityReservationFleetLifecycle covers the capacity-reservation
-// fleet control plane: a fleet aggregates per-instance-type reservations toward
-// a target, settles "active", reads back, modifies, and cancels.
+// TestEC2_CapacityReservationFleetLifecycle expects a fleet to aggregate
+// per-type reservations toward its target and settle active.
 func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -159,10 +154,8 @@ func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
 	assert.Equal(t, fleetID, aws.ToString(cancel.SuccessfulFleetCancellations[0].CapacityReservationFleetId))
 }
 
-// TestEC2_FleetLifecycle covers the EC2 Fleet control plane: CreateFleet
-// requests target capacity from a launch template and settles active with
-// backing instances; Describe / DescribeFleetInstances / DescribeFleetHistory
-// read it back; ModifyFleet adjusts target; DeleteFleets removes it.
+// TestEC2_FleetLifecycle expects CreateFleet to settle active with instances
+// backing the target capacity from a launch template.
 func TestEC2_FleetLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -228,9 +221,9 @@ func TestEC2_FleetLifecycle(t *testing.T) {
 	assert.Equal(t, fleetID, aws.ToString(del.SuccessfulFleetDeletions[0].FleetId))
 }
 
-// TestEC2_SpotInstanceRequestLifecycle covers spot instance requests: a request
-// settles active/fulfilled with a backing instance and spot price; Describe
-// reads it back; Cancel transitions it to cancelled.
+// TestEC2_SpotInstanceRequestLifecycle expects a request to settle
+// active/fulfilled with a backing instance and spot price, and Cancel to move
+// it to cancelled.
 func TestEC2_SpotInstanceRequestLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -272,9 +265,8 @@ func TestEC2_SpotInstanceRequestLifecycle(t *testing.T) {
 	assert.Equal(t, types.CancelSpotInstanceRequestStateCancelled, cancel.CancelledSpotInstanceRequests[0].State)
 }
 
-// TestEC2_SpotFleetLifecycle covers spot fleets: RequestSpotFleet settles
-// active/fulfilled against its target; Describe / instances / history read it
-// back; Modify adjusts target; Cancel transitions it to cancelled.
+// TestEC2_SpotFleetLifecycle expects RequestSpotFleet to settle
+// active/fulfilled against its target.
 func TestEC2_SpotFleetLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -332,9 +324,9 @@ func TestEC2_SpotFleetLifecycle(t *testing.T) {
 	assert.Equal(t, sfrID, aws.ToString(cancel.SuccessfulFleetRequests[0].SpotFleetRequestId))
 }
 
-// TestEC2_SpotDatafeedAndReadOnly covers the spot data feed subscription
-// (create/describe/delete) plus the read-only spot price history and placement
-// scores, and the scheduled-instance + host-reservation read/purchase ops.
+// TestEC2_SpotDatafeedAndReadOnly covers the spot data feed subscription, spot
+// price history, placement scores, and the scheduled-instance and
+// host-reservation reads and purchases.
 func TestEC2_SpotDatafeedAndReadOnly(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -371,8 +363,6 @@ func TestEC2_SpotDatafeedAndReadOnly(t *testing.T) {
 	assert.Equal(t, "us-east-1", aws.ToString(scores.SpotPlacementScores[0].Region))
 }
 
-// TestEC2_ScheduledInstances covers the scheduled-instance ops: availability,
-// purchase, describe read-back, and run.
 func TestEC2_ScheduledInstances(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -421,8 +411,6 @@ func TestEC2_ScheduledInstances(t *testing.T) {
 	require.Len(t, run.InstanceIdSet, 1)
 }
 
-// TestEC2_HostReservations covers the Dedicated Host Reservation ops: offerings,
-// purchase preview, purchase, and describe read-back.
 func TestEC2_HostReservations(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

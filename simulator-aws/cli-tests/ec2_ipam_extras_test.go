@@ -5,16 +5,9 @@ import (
 	"testing"
 )
 
-// The IPAM policy (create-ipam-policy, …) and prefix-list resolver
-// (create-ipam-prefix-list-resolver, …) command families, plus
-// modify-ipam-pool-allocation, are absent from the aws CLI 2.26.6 bundled here
-// (they ship in newer botocore), so they are exercised only via the SDK test
-// (which provides the simulator-test-contract hook). The BYOASN,
-// external-resource-verification-token, and discovered-resource families are in
-// CLI 2.26.6 and are covered end-to-end below.
+// aws CLI 2.26.6 lacks the IPAM policy and prefix-list resolver command
+// families and modify-ipam-pool-allocation; the SDK test covers them.
 
-// ec2cliIpamExtrasFixture creates an IPAM and returns its ID plus a pool ID
-// under its private default scope, with tolerant cleanup.
 func ec2cliIpamExtrasFixture(t *testing.T) (ipamID, poolID string) {
 	t.Helper()
 	ipamID = strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-ipam",
@@ -41,9 +34,6 @@ func ec2cliIpamExtrasFixture(t *testing.T) (ipamID, poolID string) {
 	return ipamID, poolID
 }
 
-// TestEC2CLI_IpamByoasn drives the BYOASN family through the aws CLI:
-// provision-ipam-byoasn, describe-ipam-byoasn, associate/disassociate, and
-// move-byoip-cidr-to-ipam.
 func TestEC2CLI_IpamByoasn(t *testing.T) {
 	t.Parallel()
 	ipamID, poolID := ec2cliIpamExtrasFixture(t)
@@ -88,8 +78,6 @@ func TestEC2CLI_IpamByoasn(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_IpamExternalResourceVerificationToken drives the token family
-// through the aws CLI: create, describe read-back, delete.
 func TestEC2CLI_IpamExternalResourceVerificationToken(t *testing.T) {
 	t.Parallel()
 	ipamID, _ := ec2cliIpamExtrasFixture(t)
@@ -113,8 +101,8 @@ func TestEC2CLI_IpamExternalResourceVerificationToken(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_IpamDiscoveredResources drives the read-only discovery probes
-// through the aws CLI; each returns an honest-empty result set.
+// TestEC2CLI_IpamDiscoveredResources expects each read-only discovery probe
+// to return an empty result set.
 func TestEC2CLI_IpamDiscoveredResources(t *testing.T) {
 	t.Parallel()
 	ipamID, _ := ec2cliIpamExtrasFixture(t)

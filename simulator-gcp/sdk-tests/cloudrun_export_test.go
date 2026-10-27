@@ -16,16 +16,12 @@ func cloudRunV2Service(t *testing.T) *run.Service {
 	return svc
 }
 
-// Cloud Run's source uploads and image exports. A client deploying from source
-// asks where to put it; going the other way it asks Cloud Run to export a
-// service's image and then polls for how that went.
 func TestCloudRunV2_UploadSourceAndExportImage(t *testing.T) {
 	t.Parallel()
 	svc := cloudRunV2Service(t)
 	const project, location = "run-export", "us-central1"
 	parent := "projects/" + project + "/locations/" + location
 
-	// Where to upload source before deploying from it.
 	upload, err := svc.Projects.Locations.SourceUploads.Upload(parent,
 		&run.GoogleCloudRunV2UploadSourceRequest{Service: parent + "/services/web"}).Do()
 	require.NoError(t, err)

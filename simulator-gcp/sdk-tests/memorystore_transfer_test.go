@@ -20,8 +20,7 @@ func redisEndpoint(host string, port int64) string {
 	return net.JoinHostPort(host, strconv.FormatInt(port, 10))
 }
 
-// deleteRedisOnCleanup deletes a Memorystore instance or cluster when the test
-// ends, which stops its engine and removes its volume.
+// deleteRedisOnCleanup's delete stops the engine and removes its volume.
 func deleteRedisOnCleanup(t *testing.T, svc *redis.Service, name string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -38,8 +37,6 @@ func deleteRedisOnCleanup(t *testing.T, svc *redis.Service, name string) {
 	})
 }
 
-// createRedisInstance creates an instance, waits for its operation and returns
-// the instance as the service reports it.
 func createRedisInstance(t *testing.T, svc *redis.Service, parent, id string, instance *redis.Instance) *redis.Instance {
 	t.Helper()
 	op, err := svc.Projects.Locations.Instances.Create(parent, instance).InstanceId(id).Do()

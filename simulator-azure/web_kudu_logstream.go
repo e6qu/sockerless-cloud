@@ -15,30 +15,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_kudu_logstream.go serves Kudu's log stream on a site's SCM host: GET
-// /logstream (and /api/logstream) holds the response open and writes, after
-// a welcome line, each line appended to a .txt, .log or .htm file under the
-// site's /home/LogFiles — the docker log among them — as it is appended;
-// /logstream/{path} narrows that to the files under LogFiles/{path}, and a
-// `filter` query keeps the lines containing it. Kudu on Linux watches the
-// files by polling them (kudu-naive-file-system-watcher.cs), and so does
-// this. While nothing is logged it writes a line each minute saying so, and
-// it ends the stream once SCM_LOGSTREAM_TIMEOUT passes.
+// Kudu's log stream: GET /logstream (and /api/logstream) holds the response
+// open and, after a welcome line, writes each line appended to a .txt, .log or
+// .htm file under /home/LogFiles; /logstream/{path} narrows to LogFiles/{path},
+// and `filter` keeps matching lines. Kudu on Linux polls the files
+// (kudu-naive-file-system-watcher.cs), as this does. It writes a line each idle
+// minute and ends once SCM_LOGSTREAM_TIMEOUT passes.
 
-// kuduLogStreamInterval is the cadence Kudu's Linux watcher reads the log
-// files at.
+// The cadence Kudu's Linux watcher reads the files at.
 const kuduLogStreamInterval = 1500 * time.Millisecond
 
-// kuduLogFileExtensions are the files the log stream follows.
 var kuduLogFileExtensions = map[string]bool{".txt": true, ".log": true, ".htm": true}
 
-// kuduLogStreamTime is the timestamp Kudu prefixes its own stream lines with.
 func kuduLogStreamTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05")
 }
 
-// kuduLogStreamPath is the LogFiles-relative directory a log stream request
-// addresses, and whether the request is one.
 func kuduLogStreamPath(urlPath string) (string, bool) {
 	lower := strings.ToLower(strings.TrimSuffix(urlPath, "/"))
 	for _, prefix := range []string{"/api/logstream", "/logstream"} {
@@ -52,7 +44,6 @@ func kuduLogStreamPath(urlPath string) (string, bool) {
 	return "", false
 }
 
-// kuduLogFiles are the log files under dir, with their sizes.
 func kuduLogFiles(root *os.Root, dir string) map[string]int64 {
 	sizes := map[string]int64{}
 	_ = fs.WalkDir(root.FS(), dir, func(p string, d fs.DirEntry, err error) error {
@@ -100,8 +91,8 @@ func kuduLogStream(w http.ResponseWriter, r *http.Request, site *Site, rel strin
 		kuduLogStreamTime(time.Now()))) {
 		return
 	}
-	// The stream carries what is appended from here on; what the files held
-	// at connection is not replayed.
+	// The stream carries what is appended from here on; existing content is not
+	// replayed.
 	offsets := kuduLogFiles(root, dir)
 	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
@@ -137,9 +128,8 @@ func kuduLogStream(w http.ResponseWriter, r *http.Request, site *Site, rel strin
 	}
 }
 
-// kuduNewLogLines reads what the log files under dir gained since offsets
-// recorded them, advancing offsets, and returns the complete lines that pass
-// filter. A file that shrank is read from its start again, as Kudu does.
+// Returns the complete lines gained since offsets that pass filter, advancing
+// offsets. A file that shrank is read from its start, as Kudu does.
 func kuduNewLogLines(root *os.Root, dir string, offsets map[string]int64, filter string) []string {
 	sizes := kuduLogFiles(root, dir)
 	names := make([]string, 0, len(sizes))

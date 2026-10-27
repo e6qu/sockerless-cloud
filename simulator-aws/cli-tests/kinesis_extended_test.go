@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// kinesisStreamARNCLI creates a stream and returns its ARN via the CLI.
 func kinesisStreamARNCLI(t *testing.T, stream string) string {
 	t.Helper()
 	runCLI(t, awsCLI("kinesis", "create-stream", "--stream-name", stream, "--shard-count", "1"))
@@ -27,8 +26,6 @@ func kinesisStreamARNCLI(t *testing.T, stream string) string {
 	return sum.StreamDescriptionSummary.StreamARN
 }
 
-// TestKinesisCLI_Consumers drives the enhanced fan-out consumer lifecycle over
-// the CLI: register, describe, list, deregister.
 func TestKinesisCLI_Consumers(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-consumers"
@@ -78,8 +75,8 @@ func TestKinesisCLI_Consumers(t *testing.T) {
 }
 
 // waitForKinesisConsumerCLI polls describe-stream-consumer until the consumer
-// reaches want, or with want empty until it is gone: the CLI has no waiter for
-// a consumer.
+// reaches want, or is gone when want is empty: the CLI has no waiter for a
+// consumer.
 func waitForKinesisConsumerCLI(t *testing.T, consumerARN, want string) {
 	t.Helper()
 	delay := 250 * time.Millisecond
@@ -104,8 +101,8 @@ func waitForKinesisConsumerCLI(t *testing.T, consumerARN, want string) {
 	t.Fatalf("consumer %s reported %q, want %q", consumerARN, observed, want)
 }
 
-// TestKinesisCLI_DryRun passes --dry-run to the data-plane commands that take
-// it: each answers DryRunOperationException instead of acting.
+// TestKinesisCLI_DryRun expects each data-plane command that takes --dry-run to
+// answer DryRunOperationException instead of acting.
 func TestKinesisCLI_DryRun(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-dry-run"
@@ -132,7 +129,6 @@ func TestKinesisCLI_DryRun(t *testing.T) {
 	assert.Equal(t, "0", count, "dry-run puts store no record")
 }
 
-// TestKinesisCLI_ResourcePolicy round-trips a stream resource policy.
 func TestKinesisCLI_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-resource-policy"
@@ -154,7 +150,6 @@ func TestKinesisCLI_ResourcePolicy(t *testing.T) {
 	runCLIExpectError(t, awsCLI("kinesis", "get-resource-policy", "--resource-arn", streamARN))
 }
 
-// TestKinesisCLI_MergeAndSplitShards exercises split-then-merge over the CLI.
 func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-merge-split"
@@ -209,7 +204,6 @@ func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
 	require.Len(t, openOf(afterMerge.StreamDescription.Shards), 1, "merge collapses to one open shard")
 }
 
-// TestKinesisCLI_TagResource covers the resource-ARN tagging trio.
 func TestKinesisCLI_TagResource(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-tag-resource"
@@ -242,7 +236,6 @@ func TestKinesisCLI_TagResource(t *testing.T) {
 	assert.Equal(t, map[string]string{"team": "data"}, listTags())
 }
 
-// TestKinesisCLI_UpdateStreamMode toggles capacity mode over the CLI.
 func TestKinesisCLI_UpdateStreamMode(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-stream-mode"
@@ -264,7 +257,6 @@ func TestKinesisCLI_UpdateStreamMode(t *testing.T) {
 	assert.Equal(t, "ON_DEMAND", sum.StreamDescriptionSummary.StreamModeDetails.StreamMode)
 }
 
-// TestKinesisCLI_AccountSettings round-trips the billing commitment.
 func TestKinesisCLI_AccountSettings(t *testing.T) {
 	updJSON := runCLI(t, awsCLI("kinesis", "update-account-settings",
 		"--minimum-throughput-billing-commitment", "Status=ENABLED"))
@@ -285,13 +277,10 @@ func TestKinesisCLI_AccountSettings(t *testing.T) {
 	parseJSON(t, descJSON, &desc)
 	assert.Equal(t, "ENABLED", desc.MinimumThroughputBillingCommitment.Status)
 
-	// Reset to disabled.
 	runCLI(t, awsCLI("kinesis", "update-account-settings",
 		"--minimum-throughput-billing-commitment", "Status=DISABLED"))
 }
 
-// TestKinesisCLI_UpdateMaxRecordSize sets the per-record size and rejects
-// out-of-range values.
 func TestKinesisCLI_UpdateMaxRecordSize(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-max-record-size"

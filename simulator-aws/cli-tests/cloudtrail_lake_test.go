@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// TestCloudTrailCLI_EventDataStoreLifecycle drives the CloudTrail Lake event
-// data store control plane through the aws CLI: create-event-data-store →
-// get-event-data-store / list-event-data-stores → update-event-data-store →
-// stop/start-event-data-store-ingestion → enable/disable-federation →
-// delete-event-data-store → restore-event-data-store.
 func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
 	t.Parallel()
 	const name = "cli-ct-eds"
@@ -73,9 +68,6 @@ func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
 	}
 }
 
-// TestCloudTrailCLI_LakeQuery drives the Lake query surface through the aws CLI:
-// start-query → describe-query / get-query-results / list-queries →
-// cancel-query, plus generate-query and search-sample-queries.
 func TestCloudTrailCLI_LakeQuery(t *testing.T) {
 	t.Parallel()
 	eds := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-event-data-store",
@@ -141,10 +133,6 @@ func TestCloudTrailCLI_LakeQuery(t *testing.T) {
 	}
 }
 
-// TestCloudTrailCLI_DashboardAndImport drives the dashboard and import surfaces:
-// create-dashboard → update-dashboard → start-dashboard-refresh →
-// delete-dashboard; start-import → get-import → list-imports /
-// list-import-failures → stop-import.
 func TestCloudTrailCLI_DashboardAndImport(t *testing.T) {
 	t.Parallel()
 	const dash = "cli-ct-dashboard"
@@ -212,8 +200,9 @@ func TestCloudTrailCLI_DashboardAndImport(t *testing.T) {
 	}
 }
 
-// TestCloudTrailCLI_Governance drives the resource-policy, org delegated-admin,
-// event-configuration, public-keys, insight-metric, and update-channel surfaces.
+// TestCloudTrailCLI_Governance covers the resource-policy, organization
+// delegated-admin, event-configuration, public-keys, insight-metric and
+// update-channel surfaces.
 func TestCloudTrailCLI_Governance(t *testing.T) {
 	t.Parallel()
 	const channelArn = "arn:aws:cloudtrail:us-east-1:123456789012:channel/cli-gov-channel"
@@ -250,9 +239,8 @@ func TestCloudTrailCLI_Governance(t *testing.T) {
 		_ = awsCLI("cloudtrail", "delete-event-data-store", "--event-data-store", edsArn).Run()
 	})
 
-	// PutEventConfiguration / GetEventConfiguration are exercised via the SDK
-	// test (TestCloudTrail_GovernanceSDK); their CLI subcommands postdate the
-	// aws CLI pinned in this environment, so they are not driven here.
+	// The pinned aws CLI predates put-event-configuration and
+	// get-event-configuration; TestCloudTrail_GovernanceSDK covers them.
 
 	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "list-public-keys",
 		"--query", "length(PublicKeyList)", "--output", "text")))
@@ -260,12 +248,10 @@ func TestCloudTrailCLI_Governance(t *testing.T) {
 		t.Fatalf("list-public-keys count: got %q, want 0", got)
 	}
 
-	// list-insights-metric-data returns a real (empty) series.
 	runCLI(t, awsCLI("cloudtrail", "list-insights-metric-data",
 		"--event-name", "PutBucketPolicy", "--event-source", "s3.amazonaws.com",
 		"--insight-type", "ApiCallRateInsight"))
 
-	// update-channel renames a Lake channel.
 	chArn := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-channel",
 		"--name", "cli-gov-update-channel", "--source", "Custom",
 		"--destinations", `[{"Type":"EVENT_DATA_STORE","Location":"`+edsArn+`"}]`,

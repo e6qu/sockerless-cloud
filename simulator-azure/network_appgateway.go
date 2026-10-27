@@ -10,24 +10,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// Application gateways (Microsoft.Network/applicationGateways) are Azure's
-// layer-7 load balancer. The resource is a routing program: a frontend IP
-// configuration and a frontend port define where clients arrive, an HTTP
-// listener binds the two (optionally narrowed to a set of host names), a
-// request routing rule sends the listener's traffic either straight at a
-// backend address pool with a set of backend HTTP settings or through a URL
-// path map that picks a different pool per path, and a probe decides which
-// members of a pool are healthy enough to receive it.
-//
-// Everything in that paragraph is executed, not merely stored:
-// network_appgateway_dataplane.go binds the gateway's frontend address as an
-// HTTP data plane, resolves the listener, evaluates the routing rules and
-// redirect configurations, applies the rewrite rule sets, and forwards the
-// request to a pool member it has just probed. BackendHealth reports what those
-// same probes found, so a gateway that says a server is Up is a gateway that
-// just reached it.
+// Application gateways are Azure's layer-7 load balancer. A frontend IP
+// configuration and port define where clients arrive, an HTTP listener binds
+// the two (optionally narrowed to host names), a request routing rule sends
+// the listener's traffic to a backend pool with backend HTTP settings or
+// through a URL path map, and a probe decides which pool members are healthy.
+// network_appgateway_dataplane.go executes all of it, and BackendHealth reports
+// what those same probes found.
 
-// ApplicationGateway mirrors Microsoft.Network/applicationGateways.
 type ApplicationGateway struct {
 	azureNetworkResourceHeader
 	Zones      []string                     `json:"zones,omitempty"`
@@ -75,7 +65,6 @@ type ApplicationGatewayProperties struct {
 	DefaultPredefinedSslPolicy          string                                                 `json:"defaultPredefinedSslPolicy,omitempty"`
 }
 
-// ApplicationGatewaySku is the gateway's SKU envelope.
 type ApplicationGatewaySku struct {
 	Name     string `json:"name,omitempty"`
 	Tier     string `json:"tier,omitempty"`
@@ -83,7 +72,6 @@ type ApplicationGatewaySku struct {
 	Family   string `json:"family,omitempty"`
 }
 
-// ApplicationGatewaySslPolicy is the TLS policy of a gateway or SSL profile.
 type ApplicationGatewaySslPolicy struct {
 	DisabledSslProtocols []string `json:"disabledSslProtocols,omitempty"`
 	PolicyType           string   `json:"policyType,omitempty"`
@@ -92,8 +80,6 @@ type ApplicationGatewaySslPolicy struct {
 	MinProtocolVersion   string   `json:"minProtocolVersion,omitempty"`
 }
 
-// applicationGatewayChild is the identity envelope every child collection
-// member of an application gateway carries.
 type applicationGatewayChild struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
@@ -101,26 +87,20 @@ type applicationGatewayChild struct {
 	Etag string `json:"etag,omitempty"`
 }
 
-// child returns the envelope itself. Every collection member embeds
-// applicationGatewayChild, so each of them satisfies
-// applicationGatewayChildRef through method promotion and the shared stamping
-// below reaches its identity without a per-type accessor.
+// Every collection member embeds applicationGatewayChild, so each satisfies
+// applicationGatewayChildRef through method promotion.
 func (c *applicationGatewayChild) child() *applicationGatewayChild { return c }
 
-// applicationGatewayChildRef is anything carrying an application gateway child
-// identity envelope.
 type applicationGatewayChildRef interface {
 	child() *applicationGatewayChild
 }
 
-// ApplicationGatewayIPConfiguration is one gatewayIPConfigurations member — the
-// subnet the gateway's instances are deployed into.
+// The subnet the gateway's instances are deployed into.
 type ApplicationGatewayIPConfiguration struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayIPConfigurationProperties `json:"properties"`
 }
 
-// ApplicationGatewayIPConfigurationProperties holds the deployment subnet.
 type ApplicationGatewayIPConfigurationProperties struct {
 	Subnet            *SubResource `json:"subnet,omitempty"`
 	ProvisioningState string       `json:"provisioningState,omitempty"`
@@ -131,8 +111,7 @@ type ApplicationGatewayFrontendIPConfiguration struct {
 	Properties ApplicationGatewayFrontendIPConfigurationProperties `json:"properties"`
 }
 
-// ApplicationGatewayFrontendIPConfigurationProperties holds either a public IP
-// reference or a private address taken from a subnet.
+// A public IP reference, or a private address taken from a subnet.
 type ApplicationGatewayFrontendIPConfigurationProperties struct {
 	PrivateIPAddress          string       `json:"privateIPAddress,omitempty"`
 	PrivateIPAllocationMethod string       `json:"privateIPAllocationMethod,omitempty"`
@@ -157,8 +136,8 @@ type ApplicationGatewayBackendAddressPool struct {
 	Properties ApplicationGatewayBackendAddressPoolProperties `json:"properties"`
 }
 
-// ApplicationGatewayBackendAddressPoolProperties holds the pool's declared
-// addresses and the interface IP configurations that joined it.
+// The pool's declared addresses and the interface IP configurations that
+// joined it.
 type ApplicationGatewayBackendAddressPoolProperties struct {
 	BackendIPConfigurations []NetworkInterfaceIPConfiguration  `json:"backendIPConfigurations,omitempty"`
 	BackendAddresses        []ApplicationGatewayBackendAddress `json:"backendAddresses,omitempty"`
@@ -170,15 +149,11 @@ type ApplicationGatewayBackendAddress struct {
 	IPAddress string `json:"ipAddress,omitempty"`
 }
 
-// ApplicationGatewayBackendHTTPSettings is one backendHttpSettingsCollection
-// member — how the gateway talks to a pool.
 type ApplicationGatewayBackendHTTPSettings struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayBackendHTTPSettingsProperties `json:"properties"`
 }
 
-// ApplicationGatewayBackendHTTPSettingsProperties holds the backend protocol,
-// port, host-header handling, path override and probe reference.
 type ApplicationGatewayBackendHTTPSettingsProperties struct {
 	Port                           int32                                 `json:"port,omitempty"`
 	Protocol                       string                                `json:"protocol,omitempty"`
@@ -200,22 +175,17 @@ type ApplicationGatewayBackendHTTPSettingsProperties struct {
 	ProvisioningState              string                                `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayConnectionDraining is the connection-draining policy of a
-// backend settings member.
 type ApplicationGatewayConnectionDraining struct {
 	Enabled           bool  `json:"enabled"`
 	DrainTimeoutInSec int32 `json:"drainTimeoutInSec"`
 }
 
-// ApplicationGatewayBackendSettings is one backendSettingsCollection member —
-// the layer-4 counterpart of backend HTTP settings.
+// The layer-4 counterpart of backend HTTP settings.
 type ApplicationGatewayBackendSettings struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayBackendSettingsProperties `json:"properties"`
 }
 
-// ApplicationGatewayBackendSettingsProperties holds the layer-4 backend
-// protocol, port and probe reference.
 type ApplicationGatewayBackendSettingsProperties struct {
 	Port                           int32         `json:"port,omitempty"`
 	Protocol                       string        `json:"protocol,omitempty"`
@@ -228,14 +198,11 @@ type ApplicationGatewayBackendSettingsProperties struct {
 	ProvisioningState              string        `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayHTTPListener is one httpListeners member.
 type ApplicationGatewayHTTPListener struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayHTTPListenerProperties `json:"properties"`
 }
 
-// ApplicationGatewayHTTPListenerProperties binds a frontend address and port,
-// optionally narrowed to a set of host names.
 type ApplicationGatewayHTTPListenerProperties struct {
 	FrontendIPConfiguration     *SubResource                    `json:"frontendIPConfiguration,omitempty"`
 	FrontendPort                *SubResource                    `json:"frontendPort,omitempty"`
@@ -250,15 +217,12 @@ type ApplicationGatewayHTTPListenerProperties struct {
 	HostNames                   []string                        `json:"hostNames,omitempty"`
 }
 
-// ApplicationGatewayListener is one listeners member — the layer-4 counterpart
-// of an HTTP listener.
+// The layer-4 counterpart of an HTTP listener.
 type ApplicationGatewayListener struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayListenerProperties `json:"properties"`
 }
 
-// ApplicationGatewayListenerProperties binds a frontend address and port for a
-// layer-4 routing rule.
 type ApplicationGatewayListenerProperties struct {
 	FrontendIPConfiguration *SubResource `json:"frontendIPConfiguration,omitempty"`
 	FrontendPort            *SubResource `json:"frontendPort,omitempty"`
@@ -269,14 +233,13 @@ type ApplicationGatewayListenerProperties struct {
 	HostNames               []string     `json:"hostNames,omitempty"`
 }
 
-// ApplicationGatewayRequestRoutingRule is one requestRoutingRules member.
 type ApplicationGatewayRequestRoutingRule struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayRequestRoutingRuleProperties `json:"properties"`
 }
 
-// ApplicationGatewayRequestRoutingRuleProperties routes a listener's traffic to
-// a pool, a URL path map or a redirect configuration.
+// Routes a listener's traffic to a pool, a URL path map or a redirect
+// configuration.
 type ApplicationGatewayRequestRoutingRuleProperties struct {
 	RuleType                 string       `json:"ruleType,omitempty"`
 	Priority                 int32        `json:"priority,omitempty"`
@@ -291,14 +254,12 @@ type ApplicationGatewayRequestRoutingRuleProperties struct {
 	ProvisioningState        string       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayRoutingRule is one routingRules member — the layer-4
-// counterpart of a request routing rule.
+// The layer-4 counterpart of a request routing rule.
 type ApplicationGatewayRoutingRule struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayRoutingRuleProperties `json:"properties"`
 }
 
-// ApplicationGatewayRoutingRuleProperties routes a layer-4 listener's traffic.
 type ApplicationGatewayRoutingRuleProperties struct {
 	RuleType           string       `json:"ruleType,omitempty"`
 	Priority           int32        `json:"priority,omitempty"`
@@ -308,14 +269,11 @@ type ApplicationGatewayRoutingRuleProperties struct {
 	ProvisioningState  string       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayURLPathMap is one urlPathMaps member — path-based routing.
 type ApplicationGatewayURLPathMap struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayURLPathMapProperties `json:"properties"`
 }
 
-// ApplicationGatewayURLPathMapProperties holds the path rules and the defaults
-// used when no path rule matches.
 type ApplicationGatewayURLPathMapProperties struct {
 	DefaultBackendAddressPool     *SubResource                 `json:"defaultBackendAddressPool,omitempty"`
 	DefaultBackendHTTPSettings    *SubResource                 `json:"defaultBackendHttpSettings,omitempty"`
@@ -326,14 +284,11 @@ type ApplicationGatewayURLPathMapProperties struct {
 	ProvisioningState             string                       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayPathRule is one member of a URL path map.
 type ApplicationGatewayPathRule struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayPathRuleProperties `json:"properties"`
 }
 
-// ApplicationGatewayPathRuleProperties holds the path patterns the rule matches
-// and where matching requests go.
 type ApplicationGatewayPathRuleProperties struct {
 	Paths                  []string     `json:"paths,omitempty"`
 	BackendAddressPool     *SubResource `json:"backendAddressPool,omitempty"`
@@ -345,15 +300,11 @@ type ApplicationGatewayPathRuleProperties struct {
 	FirewallPolicy         *SubResource `json:"firewallPolicy,omitempty"`
 }
 
-// ApplicationGatewayProbe is one probes member — the health check a backend
-// settings member applies to its pool.
 type ApplicationGatewayProbe struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayProbeProperties `json:"properties"`
 }
 
-// ApplicationGatewayProbeProperties holds the probe request and the response
-// criterion that classifies a server as healthy.
 type ApplicationGatewayProbeProperties struct {
 	Protocol                            string                                      `json:"protocol,omitempty"`
 	Host                                string                                      `json:"host,omitempty"`
@@ -370,21 +321,16 @@ type ApplicationGatewayProbeProperties struct {
 	Port                                int32                                       `json:"port,omitempty"`
 }
 
-// ApplicationGatewayProbeHealthResponseMatch is the criterion that classifies a
-// probe response as healthy.
 type ApplicationGatewayProbeHealthResponseMatch struct {
 	Body        string   `json:"body,omitempty"`
 	StatusCodes []string `json:"statusCodes,omitempty"`
 }
 
-// ApplicationGatewayRedirectConfiguration is one redirectConfigurations member.
 type ApplicationGatewayRedirectConfiguration struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayRedirectConfigurationProperties `json:"properties"`
 }
 
-// ApplicationGatewayRedirectConfigurationProperties holds the redirect target
-// and how the incoming path and query are carried over.
 type ApplicationGatewayRedirectConfigurationProperties struct {
 	RedirectType        string        `json:"redirectType,omitempty"`
 	TargetListener      *SubResource  `json:"targetListener,omitempty"`
@@ -396,7 +342,6 @@ type ApplicationGatewayRedirectConfigurationProperties struct {
 	PathRules           []SubResource `json:"pathRules,omitempty"`
 }
 
-// ApplicationGatewayRewriteRuleSet is one rewriteRuleSets member.
 type ApplicationGatewayRewriteRuleSet struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayRewriteRuleSetProperties `json:"properties"`
@@ -407,8 +352,7 @@ type ApplicationGatewayRewriteRuleSetProperties struct {
 	ProvisioningState string                          `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayRewriteRule is one rewrite rule: a set of conditions and the
-// header and URL changes applied when they all hold.
+// Conditions, and the header and URL changes applied when they all hold.
 type ApplicationGatewayRewriteRule struct {
 	Name         string                                   `json:"name,omitempty"`
 	RuleSequence int32                                    `json:"ruleSequence,omitempty"`
@@ -423,48 +367,40 @@ type ApplicationGatewayRewriteRuleCondition struct {
 	Negate     bool   `json:"negate,omitempty"`
 }
 
-// ApplicationGatewayRewriteRuleActionSet holds the header and URL rewrites a
-// rule applies.
 type ApplicationGatewayRewriteRuleActionSet struct {
 	RequestHeaderConfigurations  []ApplicationGatewayHeaderConfiguration `json:"requestHeaderConfigurations,omitempty"`
 	ResponseHeaderConfigurations []ApplicationGatewayHeaderConfiguration `json:"responseHeaderConfigurations,omitempty"`
 	URLConfiguration             *ApplicationGatewayURLConfiguration     `json:"urlConfiguration,omitempty"`
 }
 
-// ApplicationGatewayHeaderConfiguration sets or deletes one header. An empty
-// header value deletes the header, exactly as the real rewrite engine does.
+// An empty header value deletes the header, as the rewrite engine does.
 type ApplicationGatewayHeaderConfiguration struct {
 	HeaderName         string                                `json:"headerName,omitempty"`
 	HeaderValue        string                                `json:"headerValue,omitempty"`
 	HeaderValueMatcher *ApplicationGatewayHeaderValueMatcher `json:"headerValueMatcher,omitempty"`
 }
 
-// ApplicationGatewayHeaderValueMatcher narrows a header rewrite to values
-// matching a pattern.
 type ApplicationGatewayHeaderValueMatcher struct {
 	Pattern    string `json:"pattern,omitempty"`
 	IgnoreCase bool   `json:"ignoreCase,omitempty"`
 	Negate     bool   `json:"negate,omitempty"`
 }
 
-// ApplicationGatewayURLConfiguration rewrites the request path and query.
 type ApplicationGatewayURLConfiguration struct {
 	ModifiedPath        string `json:"modifiedPath,omitempty"`
 	ModifiedQueryString string `json:"modifiedQueryString,omitempty"`
 	Reroute             bool   `json:"reroute,omitempty"`
 }
 
-// ApplicationGatewayCertificate is the shared shape of the four certificate
-// collections: authentication, trusted-root, trusted-client and SSL. Each
-// collection keeps only the members the specification declares for it, so the
-// read-only fields stay empty on the collections that have none.
+// The shared shape of the authentication, trusted-root, trusted-client and SSL
+// certificate collections; each keeps only the members the specification
+// declares for it.
 type ApplicationGatewayCertificate struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayCertificateProperties `json:"properties"`
 }
 
-// ApplicationGatewayCertificateProperties holds certificate material, either
-// inline or as a Key Vault secret reference.
+// Inline material, or a Key Vault secret reference.
 type ApplicationGatewayCertificateProperties struct {
 	Data               string `json:"data,omitempty"`
 	Password           string `json:"password,omitempty"`
@@ -475,14 +411,11 @@ type ApplicationGatewayCertificateProperties struct {
 	ProvisioningState  string `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewaySslProfile is one sslProfiles member.
 type ApplicationGatewaySslProfile struct {
 	applicationGatewayChild
 	Properties ApplicationGatewaySslProfileProperties `json:"properties"`
 }
 
-// ApplicationGatewaySslProfileProperties holds a per-listener TLS policy and
-// client-authentication configuration.
 type ApplicationGatewaySslProfileProperties struct {
 	TrustedClientCertificates []SubResource                              `json:"trustedClientCertificates,omitempty"`
 	SslPolicy                 *ApplicationGatewaySslPolicy               `json:"sslPolicy,omitempty"`
@@ -490,23 +423,18 @@ type ApplicationGatewaySslProfileProperties struct {
 	ProvisioningState         string                                     `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayClientAuthConfiguration is the mutual-TLS configuration of
-// an SSL profile.
 type ApplicationGatewayClientAuthConfiguration struct {
 	VerifyClientCertIssuerDN bool   `json:"verifyClientCertIssuerDN,omitempty"`
 	VerifyClientRevocation   string `json:"verifyClientRevocation,omitempty"`
 	VerifyClientAuthMode     string `json:"verifyClientAuthMode,omitempty"`
 }
 
-// ApplicationGatewayPrivateLinkConfiguration is one privateLinkConfigurations
-// member — the private-link projection of a frontend IP configuration.
+// The private-link projection of a frontend IP configuration.
 type ApplicationGatewayPrivateLinkConfiguration struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayPrivateLinkConfigurationProperties `json:"properties"`
 }
 
-// ApplicationGatewayPrivateLinkConfigurationProperties holds the private-link
-// IP configurations.
 type ApplicationGatewayPrivateLinkConfigurationProperties struct {
 	IPConfigurations  []ApplicationGatewayPrivateLinkIPConfiguration `json:"ipConfigurations,omitempty"`
 	ProvisioningState string                                         `json:"provisioningState,omitempty"`
@@ -517,8 +445,6 @@ type ApplicationGatewayPrivateLinkIPConfiguration struct {
 	Properties ApplicationGatewayPrivateLinkIPConfigurationProperties `json:"properties"`
 }
 
-// ApplicationGatewayPrivateLinkIPConfigurationProperties holds one private-link
-// address taken from a subnet.
 type ApplicationGatewayPrivateLinkIPConfigurationProperties struct {
 	PrivateIPAddress          string       `json:"privateIPAddress,omitempty"`
 	PrivateIPAllocationMethod string       `json:"privateIPAllocationMethod,omitempty"`
@@ -527,43 +453,33 @@ type ApplicationGatewayPrivateLinkIPConfigurationProperties struct {
 	ProvisioningState         string       `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayLoadDistributionPolicy is one loadDistributionPolicies
-// member — how traffic is spread across several pools.
 type ApplicationGatewayLoadDistributionPolicy struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayLoadDistributionPolicyProperties `json:"properties"`
 }
 
-// ApplicationGatewayLoadDistributionPolicyProperties holds the weighted pools
-// and the distribution algorithm.
 type ApplicationGatewayLoadDistributionPolicyProperties struct {
 	LoadDistributionTargets   []ApplicationGatewayLoadDistributionTarget `json:"loadDistributionTargets,omitempty"`
 	LoadDistributionAlgorithm string                                     `json:"loadDistributionAlgorithm,omitempty"`
 	ProvisioningState         string                                     `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayLoadDistributionTarget is one weighted pool of a load
-// distribution policy.
 type ApplicationGatewayLoadDistributionTarget struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayLoadDistributionTargetProperties `json:"properties"`
 }
 
-// ApplicationGatewayLoadDistributionTargetProperties holds one pool weight.
 type ApplicationGatewayLoadDistributionTargetProperties struct {
 	WeightPerServer    int32        `json:"weightPerServer,omitempty"`
 	BackendAddressPool *SubResource `json:"backendAddressPool,omitempty"`
 }
 
-// ApplicationGatewayEntraJWTValidationConfig is one entraJWTValidationConfigs
-// member — Microsoft Entra JSON Web Token validation for a routing rule.
+// Microsoft Entra JSON Web Token validation for a routing rule.
 type ApplicationGatewayEntraJWTValidationConfig struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayEntraJWTValidationConfigProperties `json:"properties"`
 }
 
-// ApplicationGatewayEntraJWTValidationConfigProperties holds the tenant, client
-// and audiences a token must carry.
 type ApplicationGatewayEntraJWTValidationConfigProperties struct {
 	UnAuthorizedRequestAction string   `json:"unAuthorizedRequestAction,omitempty"`
 	TenantID                  string   `json:"tenantId,omitempty"`
@@ -572,28 +488,21 @@ type ApplicationGatewayEntraJWTValidationConfigProperties struct {
 	ProvisioningState         string   `json:"provisioningState,omitempty"`
 }
 
-// ApplicationGatewayCustomError maps a status code to a custom error page.
 type ApplicationGatewayCustomError struct {
 	StatusCode         string `json:"statusCode,omitempty"`
 	CustomErrorPageURL string `json:"customErrorPageUrl,omitempty"`
 }
 
-// ApplicationGatewayAutoscaleConfiguration is the gateway's instance-count
-// range.
 type ApplicationGatewayAutoscaleConfiguration struct {
 	MinCapacity int32 `json:"minCapacity"`
 	MaxCapacity int32 `json:"maxCapacity,omitempty"`
 }
 
-// ApplicationGatewayGlobalConfiguration holds the gateway-wide buffering
-// switches.
 type ApplicationGatewayGlobalConfiguration struct {
 	EnableRequestBuffering  bool `json:"enableRequestBuffering,omitempty"`
 	EnableResponseBuffering bool `json:"enableResponseBuffering,omitempty"`
 }
 
-// ApplicationGatewayWebApplicationFirewallConfiguration is the gateway's
-// built-in web application firewall configuration.
 type ApplicationGatewayWebApplicationFirewallConfiguration struct {
 	Enabled                bool             `json:"enabled"`
 	FirewallMode           string           `json:"firewallMode,omitempty"`
@@ -607,16 +516,13 @@ type ApplicationGatewayWebApplicationFirewallConfiguration struct {
 	Exclusions             []map[string]any `json:"exclusions,omitempty"`
 }
 
-// ApplicationGatewayPrivateEndpointConnection is one private endpoint
-// connection on an application gateway.
 type ApplicationGatewayPrivateEndpointConnection struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayPrivateEndpointConnectionProperties `json:"properties"`
 }
 
-// ApplicationGatewayPrivateEndpointConnectionProperties holds the connection's
-// approval state. The private endpoint itself is stored as a bare reference and
-// rendered from the live endpoint record on read.
+// The private endpoint is stored as a bare reference and rendered from the live
+// endpoint record on read.
 type ApplicationGatewayPrivateEndpointConnectionProperties struct {
 	PrivateEndpoint                   *PrivateEndpoint                   `json:"privateEndpoint,omitempty"`
 	PrivateLinkServiceConnectionState *PrivateLinkServiceConnectionState `json:"privateLinkServiceConnectionState,omitempty"`
@@ -624,15 +530,12 @@ type ApplicationGatewayPrivateEndpointConnectionProperties struct {
 	LinkIdentifier                    string                             `json:"linkIdentifier,omitempty"`
 }
 
-// ApplicationGatewayPrivateLinkResource is one privateLinkResources member —
-// the group a consumer's private endpoint asks for when it connects.
+// The group a consumer's private endpoint asks for.
 type ApplicationGatewayPrivateLinkResource struct {
 	applicationGatewayChild
 	Properties ApplicationGatewayPrivateLinkResourceProperties `json:"properties"`
 }
 
-// ApplicationGatewayPrivateLinkResourceProperties holds the group identifier
-// and its required members.
 type ApplicationGatewayPrivateLinkResourceProperties struct {
 	GroupID           string   `json:"groupId,omitempty"`
 	RequiredMembers   []string `json:"requiredMembers,omitempty"`
@@ -641,9 +544,8 @@ type ApplicationGatewayPrivateLinkResourceProperties struct {
 
 var (
 	azureApplicationGateways sim.Store[ApplicationGateway]
-	// azureAppGatewayPEConnections holds every private endpoint connection on an
-	// application gateway, keyed by the connection's ARM id, so the gateway's own
-	// collection and the connection surface read one object.
+	// Keyed by connection ID, so the gateway's collection and the connection
+	// surface read one object.
 	azureAppGatewayPEConnections sim.Store[ApplicationGatewayPrivateEndpointConnection]
 )
 
@@ -667,12 +569,9 @@ func registerNetworkApplicationGateways(srv *sim.Server) {
 		afterDelete: deleteApplicationGatewayResources,
 	})
 
-	// An application gateway terminates private endpoints like every other
-	// private-link target: the consumer's endpoint opens the connection in the
-	// gateway's own collection, so the endpoint's view and the gateway owner's
-	// view are one object. The groups a gateway publishes are the names of its
-	// own private link configurations rather than a fixed set, which is why the
-	// entry declares none.
+	// The consumer's endpoint opens the connection in the gateway's own
+	// collection, so both sides see one object. A gateway's groups are its private
+	// link configurations' names, not a fixed set, so the entry declares none.
 	azurePrivateLinkTargets = append(azurePrivateLinkTargets, azurePrivateLinkTarget{
 		armType:   azureAppGatewayType,
 		childType: azureAppGatewayType + "/privateEndpointConnections",
@@ -734,10 +633,8 @@ func registerNetworkApplicationGateways(srv *sim.Server) {
 	})
 }
 
-// validateApplicationGateway applies the request validation the resource
-// provider applies before it provisions anything: every child collection member
-// must be named, and every reference to a resource outside the gateway — the
-// deployment subnet, a frontend's subnet or public IP address — must resolve.
+// Every child collection member must be named, and every outside reference —
+// the deployment subnet, a frontend's subnet or public IP — must resolve.
 func validateApplicationGateway(w http.ResponseWriter, _ *http.Request, gw *ApplicationGateway) bool {
 	named := func(name, collection string) bool {
 		if name != "" {
@@ -814,8 +711,6 @@ func validateApplicationGateway(w http.ResponseWriter, _ *http.Request, gw *Appl
 	return true
 }
 
-// applicationGatewayNames collects the names of a child collection through the
-// identity envelope every member embeds.
 func applicationGatewayNames[T any, PT interface {
 	*T
 	applicationGatewayChildRef
@@ -827,10 +722,9 @@ func applicationGatewayNames[T any, PT interface {
 	return names
 }
 
-// applicationGatewayStamp gives every member of one child collection the
-// identity the resource provider assigns it — the ARM id composed from the
-// gateway and the collection, the child resource type, a fresh etag — and then
-// lets the collection apply its own defaults and provisioning state.
+// applicationGatewayStamp assigns each member the ID composed from the gateway
+// and collection, the child type and a fresh etag, then applies the
+// collection's defaults and provisioning state.
 func applicationGatewayStamp[T any, PT interface {
 	*T
 	applicationGatewayChildRef
@@ -847,8 +741,6 @@ func applicationGatewayStamp[T any, PT interface {
 	}
 }
 
-// stampApplicationGatewayChildren assigns identity, defaults and provisioning
-// state across every child collection of the gateway.
 func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 	p := &gw.Properties
 	applicationGatewayStamp(gw.ID, "gatewayIPConfigurations", p.GatewayIPConfigurations, func(c *ApplicationGatewayIPConfiguration) {
@@ -868,8 +760,8 @@ func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 		})
 	}
 	applicationGatewayStamp(gw.ID, "frontendIPConfigurations", p.FrontendIPConfigurations, func(c *ApplicationGatewayFrontendIPConfiguration) {
-		// The service reports an allocation method on every frontend, public
-		// or private; a frontend that named no static address is dynamic.
+		// The service reports an allocation method on every frontend; one naming no
+		// static address is dynamic.
 		if c.Properties.PrivateIPAllocationMethod == "" {
 			if c.Properties.PrivateIPAddress != "" {
 				c.Properties.PrivateIPAllocationMethod = "Static"
@@ -925,8 +817,7 @@ func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 		c.Properties.ProvisioningState = "Succeeded"
 	})
 	applicationGatewayStamp(gw.ID, "urlPathMaps", p.URLPathMaps, func(c *ApplicationGatewayURLPathMap) {
-		// A path rule is addressed under the map that owns it, so its identity
-		// is composed from the map's id rather than the gateway's.
+		// A path rule's ID is composed from its map's ID.
 		applicationGatewayStamp(c.ID, "pathRules", c.Properties.PathRules, func(rule *ApplicationGatewayPathRule) {
 			rule.Type = azureAppGatewayType + "/urlPathMaps/pathRules"
 			rule.Properties.ProvisioningState = "Succeeded"
@@ -947,7 +838,7 @@ func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 	})
 	applicationGatewayStamp(gw.ID, "rewriteRuleSets", p.RewriteRuleSets, func(c *ApplicationGatewayRewriteRuleSet) {
 		// ApplicationGatewayRewriteRuleSet declares only id, name, etag and
-		// properties — unlike its sibling collections it carries no `type`.
+		// properties; unlike its siblings it carries no `type`.
 		c.Type = ""
 		c.Properties.ProvisioningState = "Succeeded"
 	})
@@ -970,12 +861,11 @@ func stampApplicationGatewayChildren(gw *ApplicationGateway) {
 	})
 }
 
-// provisionApplicationGateway stamps every child collection member's identity,
-// assigns the read-only state the resource provider computes, and takes a real
-// address out of the subnet for each dynamically-addressed private frontend.
+// provisionApplicationGateway leases a real subnet address for each
+// dynamically addressed private frontend.
 func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, previous *ApplicationGateway) error {
-	// The resource GUID and the operational state are assigned once, at
-	// creation: an update of a stopped gateway must not silently restart it.
+	// Assigned once, at creation: an update of a stopped gateway must not restart
+	// it.
 	gw.Properties.ResourceGUID = sim.NewUUID()
 	gw.Properties.OperationalState = "Running"
 	if previous != nil {
@@ -993,19 +883,15 @@ func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, pr
 	}
 	stampApplicationGatewayChildren(gw)
 
-	// Every private frontend takes its address out of its subnet's ledger,
-	// the same one a network interface leases from, so a gateway frontend and
-	// a workload interface can never be handed the same address. A frontend
-	// that names its own static address leases that one, and a public frontend
-	// takes the address of the public IP it references.
+	// Private frontends lease from the subnet's ledger, the one network interfaces
+	// use, so a frontend and an interface can never share an address. A static
+	// frontend leases its own address; a public frontend takes its public IP's.
 	live := map[string]string{}
 	for i := range gw.Properties.FrontendIPConfigurations {
 		fe := &gw.Properties.FrontendIPConfigurations[i]
 		if fe.Properties.PublicIPAddress != nil && fe.Properties.PublicIPAddress.ID != "" {
-			// A public frontend holds no private address, but it still reports
-			// the allocation method every frontend carries — the HashiCorp
-			// provider reads it back on refresh and re-plans the gateway when
-			// it is absent.
+			// A public frontend still reports an allocation method: the azurerm provider
+			// re-plans the gateway when it is absent.
 			fe.Properties.PrivateIPAddress = ""
 			continue
 		}
@@ -1044,8 +930,7 @@ func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, pr
 	return nil
 }
 
-// applicationGatewayStoredFrontendAddress is the address a gateway's frontend held
-// in its stored state when it sat in the same subnet, so an update keeps it.
+// The address a frontend held in the same subnet, so an update keeps it.
 func applicationGatewayStoredFrontendAddress(gw ApplicationGateway, frontendName, subnetID string) net.IP {
 	for _, fe := range gw.Properties.FrontendIPConfigurations {
 		if fe.Name == frontendName && fe.Properties.Subnet != nil && strings.EqualFold(fe.Properties.Subnet.ID, subnetID) {
@@ -1055,17 +940,12 @@ func applicationGatewayStoredFrontendAddress(gw ApplicationGateway, frontendName
 	return nil
 }
 
-// applicationGatewayFrontendNICID names the platform-owned interface that holds
-// a private frontend's address. It is scoped to the frontend configuration
-// rather than exposed as a Microsoft.Network/networkInterfaces resource,
-// because Azure does not surface the gateway's own interfaces — only the
-// address they hold, on the frontend configuration itself.
+// Azure does not surface the gateway's own interfaces, only the address they
+// hold, so the platform interface is scoped to the frontend configuration.
 func applicationGatewayFrontendNICID(gatewayID, frontendName string) string {
 	return armChildID(armChildID(gatewayID, "frontendIPConfigurations", frontendName), "networkInterface")
 }
 
-// applicationGatewaySkuTier is the tier a SKU name implies when the request
-// leaves it out.
 func applicationGatewaySkuTier(name string) string {
 	switch {
 	case name == "":
@@ -1083,9 +963,7 @@ func applicationGatewaySkuTier(name string) string {
 	}
 }
 
-// applicationGatewayDefaultSslPolicy reports the predefined TLS policy the
-// gateway applies when its SSL policy leaves one unset. The v2 generation
-// defaults to the 2022 policy; the original generation to the 2015 one.
+// The v2 generation defaults to the 2022 policy, the original one to 2015.
 func applicationGatewayDefaultSslPolicy(sku *ApplicationGatewaySku) string {
 	tier := ""
 	if sku != nil {
@@ -1102,9 +980,9 @@ func applicationGatewayDefaultSslPolicy(sku *ApplicationGatewaySku) string {
 	}
 }
 
-// projectApplicationGateway refreshes the read-only properties the resource
-// provider recomputes on every read: the interface IP configurations that
-// joined each backend pool, and the live private endpoint connections.
+// Refresh what the resource provider recomputes on every read: each pool's
+// joined interface IP configurations and the live private endpoint
+// connections.
 func projectApplicationGateway(gw *ApplicationGateway) {
 	for i := range gw.Properties.BackendAddressPools {
 		pool := &gw.Properties.BackendAddressPools[i]
@@ -1113,10 +991,8 @@ func projectApplicationGateway(gw *ApplicationGateway) {
 	gw.Properties.PrivateEndpointConnections = applicationGatewayConnections(gw.ID)
 }
 
-// applicationGatewayPoolMemberIPConfigurations lists the network interface IP
-// configurations that declared membership in the pool. A virtual machine joins
-// an application gateway's backend the same way it joins a load balancer's:
-// through its interface, not through the gateway's own configuration.
+// A virtual machine joins the backend through its interface, as with a load
+// balancer, not through the gateway's configuration.
 func applicationGatewayPoolMemberIPConfigurations(poolID string) []NetworkInterfaceIPConfiguration {
 	if azureNICs == nil || poolID == "" {
 		return nil
@@ -1134,8 +1010,6 @@ func applicationGatewayPoolMemberIPConfigurations(poolID string) []NetworkInterf
 	return members
 }
 
-// deleteApplicationGatewayResources releases the addresses the gateway's
-// private frontends held and drops the private endpoint connections it owned.
 func deleteApplicationGatewayResources(_ context.Context, id string, deleted ApplicationGateway) {
 	for _, fe := range deleted.Properties.FrontendIPConfigurations {
 		if fe.Properties.Subnet == nil {
@@ -1151,9 +1025,8 @@ func deleteApplicationGatewayResources(_ context.Context, id string, deleted App
 var azureAppGatewayConnectionsByPrefix sim.GenerationIndex[ApplicationGatewayPrivateEndpointConnection]
 
 func applicationGatewayConnections(gatewayID string) []ApplicationGatewayPrivateEndpointConnection {
-	// Copied out of the index: each connection's private-endpoint reference is
-	// rendered from the live endpoint record below, and the index's rows must
-	// not be written through.
+	// Copy out of the index: each connection's endpoint reference is rendered
+	// below, and the index's rows must not be written through.
 	conns := append([]ApplicationGatewayPrivateEndpointConnection(nil),
 		azureAppGatewayConnectionsByPrefix.LookupAll(azureAppGatewayPEConnections,
 			gatewayID+"/privateEndpointConnections/",
@@ -1166,9 +1039,8 @@ func applicationGatewayConnections(gatewayID string) []ApplicationGatewayPrivate
 	return conns
 }
 
-// projectApplicationGatewayConnection renders the stored connection's private
-// endpoint reference from the live endpoint record, so a connection can never
-// report an endpoint that has since changed or been deleted.
+// Render from the live endpoint record, so a connection never reports an
+// endpoint that has changed or been deleted.
 func projectApplicationGatewayConnection(conn *ApplicationGatewayPrivateEndpointConnection) {
 	if conn.Properties.PrivateEndpoint == nil || conn.Properties.PrivateEndpoint.ID == "" || azurePrivateEndpoints == nil {
 		return
@@ -1181,9 +1053,6 @@ func projectApplicationGatewayConnection(conn *ApplicationGatewayPrivateEndpoint
 	conn.Properties.PrivateEndpoint = &pe
 }
 
-// registerApplicationGatewayOperations mounts the lifecycle and diagnostic
-// operations: starting and stopping the gateway's data plane, and the two
-// backend-health reads.
 func registerApplicationGatewayOperations(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	base := armBase + "/applicationGateways/{applicationGatewayName}"
@@ -1202,8 +1071,8 @@ func registerApplicationGatewayOperations(srv *sim.Server) {
 			w.WriteHeader(http.StatusOK)
 		}
 	}
-	// A stopped gateway answers nothing on its frontend; a started one resumes
-	// serving, which is what the data plane reads back from operationalState.
+	// A stopped gateway answers nothing on its frontend; the data plane reads
+	// operationalState.
 	srv.HandleFunc("POST "+base+"/start", setState("Running"))
 	srv.HandleFunc("POST "+base+"/stop", setState("Stopped"))
 
@@ -1218,9 +1087,8 @@ func registerApplicationGatewayOperations(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, applicationGatewayBackendHealth(r.Context(), gw))
 	})
 
-	// BackendHealthOnDemand runs one probe the caller describes, against the
-	// pool and backend settings it names, instead of the probes the gateway is
-	// configured with.
+	// BackendHealthOnDemand runs the caller's probe instead of the configured
+	// ones.
 	srv.HandleFunc("POST "+base+"/getBackendHealthOnDemand", func(w http.ResponseWriter, r *http.Request) {
 		gw, ok := azureApplicationGateways.Get(applicationGatewayID(r))
 		if !ok {
@@ -1243,9 +1111,6 @@ func registerApplicationGatewayOperations(srv *sim.Server) {
 	})
 }
 
-// ApplicationGatewayOnDemandProbe is the body of a backend-health-on-demand
-// request: a probe description plus the pool and backend settings to run it
-// against.
 type ApplicationGatewayOnDemandProbe struct {
 	Protocol                            string                                      `json:"protocol,omitempty"`
 	Host                                string                                      `json:"host,omitempty"`
@@ -1258,16 +1123,12 @@ type ApplicationGatewayOnDemandProbe struct {
 	BackendHTTPSettings                 *SubResource                                `json:"backendHttpSettings,omitempty"`
 }
 
-// registerApplicationGatewayPrivateLink mounts the gateway's private-link
-// surface: the group a consumer connects to, and the connections consumers
-// opened.
 func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	base := armBase + "/applicationGateways/{applicationGatewayName}"
 
-	// A gateway offers one private link resource per private link configuration,
-	// and the group a consumer's private endpoint asks for is that
-	// configuration's name.
+	// One private link resource per private link configuration; its name is the
+	// group a consumer asks for.
 	srv.HandleFunc("GET "+base+"/privateLinkResources", func(w http.ResponseWriter, r *http.Request) {
 		gw, ok := azureApplicationGateways.Get(applicationGatewayID(r))
 		if !ok {
@@ -1287,9 +1148,8 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 				Properties: ApplicationGatewayPrivateLinkResourceProperties{
 					GroupID:         plc.Name,
 					RequiredMembers: applicationGatewayPrivateLinkMembers(gw, plc),
-					// A private endpoint onto an application gateway resolves the
-					// gateway's own name inside the consumer's virtual network, so
-					// the zone it needs is the application gateway private zone.
+					// The endpoint resolves the gateway's name inside the consumer's virtual
+					// network, so it needs the application gateway private zone.
 					RequiredZoneNames: []string{"privatelink.azure.com"},
 				},
 			})
@@ -1322,8 +1182,7 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// The gateway's owner approves or rejects a pending connection here; only
-	// the connection state is writable, the endpoint reference belongs to the
+	// Only the connection state is writable; the endpoint reference belongs to the
 	// consumer side.
 	srv.HandleFunc("PUT "+connBase+"/{connectionName}", func(w http.ResponseWriter, r *http.Request) {
 		var req ApplicationGatewayPrivateEndpointConnection
@@ -1359,9 +1218,6 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 	})
 }
 
-// applicationGatewayPrivateLinkMembers lists the frontend IP configurations a
-// private link configuration projects — the members a consumer's private
-// endpoint connects to.
 func applicationGatewayPrivateLinkMembers(gw ApplicationGateway, plc ApplicationGatewayPrivateLinkConfiguration) []string {
 	var members []string
 	for _, fe := range gw.Properties.FrontendIPConfigurations {

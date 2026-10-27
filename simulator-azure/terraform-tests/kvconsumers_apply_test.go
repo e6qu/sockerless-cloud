@@ -20,15 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets provisions one
-// vault whose access policies grant App Service's first-party service
-// principal, a user-assigned identity and the caller, each through its own
-// azurerm_key_vault_access_policy, and the resources that read the vault: an
-// azurerm_app_service_certificate imported from it, and an
-// azurerm_container_app and azurerm_container_app_job whose secrets reference
-// it through the user-assigned identity. The certificate carries the
-// thumbprint of the certificate the vault holds, and the app answers with the
-// secret's value and the token its identity endpoint issues the identity.
+// TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets: the imported
+// azurerm_app_service_certificate carries the vault certificate's thumbprint,
+// and the container app answers with the secret's value and the token its
+// identity endpoint issues the user-assigned identity.
 func TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets(t *testing.T) {
 	t.Parallel()
 	bundle, thumbprint := kvConsumersCertificate(t)
@@ -78,9 +73,9 @@ func TestTerraformWebAppKeyVaultCertificateAndContainerAppSecrets(t *testing.T) 
 	run("terraform destroy", "destroy", "-auto-approve")
 }
 
-// kvConsumersCertificate issues a self-signed certificate and returns the PEM
-// bundle of it and its key, as the secret of a Key Vault certificate with the
-// application/x-pem-file content type holds it, and its SHA-1 thumbprint.
+// kvConsumersCertificate returns a self-signed certificate and key as the PEM
+// bundle an application/x-pem-file Key Vault certificate's secret holds, and
+// its SHA-1 thumbprint.
 func kvConsumersCertificate(t *testing.T) (string, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

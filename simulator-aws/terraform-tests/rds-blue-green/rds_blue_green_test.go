@@ -18,10 +18,10 @@ import (
 )
 
 // An aws_db_instance with blue_green_update applies a DB parameter group
-// change through a blue/green deployment: the instance keeps
-// its identifier and endpoint, now served by the green instance with a new
-// DbiResourceId and every row the blue instance held, and the provider
-// deletes the blue instance the switchover renamed and the deployment.
+// change through a blue/green deployment: the instance keeps its identifier
+// and endpoint, served by the green instance with a new DbiResourceId and
+// every row the blue instance held, and the provider deletes the renamed blue
+// instance and the deployment.
 func TestRDSBlueGreenTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")
@@ -43,8 +43,8 @@ func TestRDSBlueGreenTerraform(t *testing.T) {
 	}
 
 	env.Terraform(t, append([]string{"apply", "-auto-approve"}, vars("8.0.46", "green")...)...)
-	// The outputs were planned before the switchover replaced the instance's
-	// resource ID; a refresh reads the instance now in production.
+	// The outputs predate the switchover's new resource ID; a refresh reads the
+	// instance in production.
 	env.Terraform(t, append([]string{"apply", "-refresh-only", "-auto-approve"}, vars("8.0.46", "green")...)...)
 	green := readOutputs(t, env)
 	require.Equal(t, "8.0.46", green.must(t, "engine_version"))

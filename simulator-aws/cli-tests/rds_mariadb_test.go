@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cliConnectMySQLAs opens a MySQL-protocol session to an RDS endpoint over
-// TLS as user.
 func cliConnectMySQLAs(t *testing.T, host string, port int, user, password string) *sql.DB {
 	t.Helper()
 	config := mysql.Config{
@@ -44,10 +42,10 @@ func cliMySQLLedger(t *testing.T, ctx context.Context, db *sql.DB) []string {
 	return entries
 }
 
-// aws rds restore-db-instance-to-point-in-time --restore-time returns an RDS
-// for MariaDB instance to the rows its binary log dates before that time.
-// MariaDB dates a transaction in whole seconds, so the restore time falls on
-// the second the later row was committed in.
+// restore-db-instance-to-point-in-time --restore-time returns an RDS for
+// MariaDB instance to the rows its binary log dates before that time. MariaDB
+// dates a transaction in whole seconds, so the restore time falls on the
+// second the later row committed in.
 func TestRDSCLI_MariaDBInstanceRestoresToAPointInTime(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -100,9 +98,9 @@ func TestRDSCLI_MariaDBInstanceRestoresToAPointInTime(t *testing.T) {
 }
 
 // On RDS for MySQL and RDS for MariaDB a user identified with
-// AWSAuthenticationPlugin signs in with the token aws rds
-// generate-db-auth-token makes for it, as itself, and never with a password;
-// a token for any other user, the master user's included, is refused.
+// AWSAuthenticationPlugin signs in as itself with the token
+// generate-db-auth-token makes for it, never with a password; a token for any
+// other user, the master user's included, is refused.
 func TestRDSCLI_MySQLIAMDatabaseUsers(t *testing.T) {
 	t.Parallel()
 	for _, engine := range []string{"mysql", "mariadb"} {

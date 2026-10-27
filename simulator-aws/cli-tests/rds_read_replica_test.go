@@ -44,12 +44,11 @@ func cliDescribeReplicaInstance(t *testing.T, instanceID string) cliReplicaInsta
 	return described.DBInstances[0]
 }
 
-// aws rds create-db-instance-read-replica provisions an RDS for MySQL replica
-// that holds its source's rows, serves them read-only, applies the source's
-// later writes, and reports its read replication status and its ReplicaLag
-// metric; aws rds promote-read-replica ends the replication and reopens the
-// replica for writes. The instances use their engine family's default DB
-// parameter group.
+// create-db-instance-read-replica provisions an RDS for MySQL replica that
+// holds its source's rows, serves them read-only, applies later writes, and
+// reports its read replication status and ReplicaLag metric;
+// promote-read-replica ends the replication and opens the replica for writes.
+// The instances use their engine family's default DB parameter group.
 func TestRDSCLI_ReadReplicaReplicatesAndPromotes(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -138,10 +137,10 @@ func TestRDSCLI_ReadReplicaReplicatesAndPromotes(t *testing.T) {
 	assert.Equal(t, []string{"after-replica", "before-replica", "written-to-promoted"}, cliMySQLLedger(t, ctx, promotedDB))
 }
 
-// aws rds create-db-instance runs the engine release of the version it names
-// and refuses a version Amazon RDS does not offer; aws rds modify-db-instance
-// upgrades the engine in place, and describe-db-engine-versions names the
-// default version an instance created without one runs.
+// create-db-instance runs the engine release of the version it names and
+// refuses a version Amazon RDS does not offer; modify-db-instance upgrades the
+// engine in place, and describe-db-engine-versions names the default version
+// an instance created without one runs.
 func TestRDSCLI_ReleasedEngineVersions(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

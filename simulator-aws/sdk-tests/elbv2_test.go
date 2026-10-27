@@ -187,12 +187,10 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 		Targets:        []elbtypes.TargetDescription{target, unreachableTarget},
 	})
 	require.NoError(t, err)
-	// Registering a target is not on its own enough to have it health-checked:
-	// "Before the load balancer sends a health check request to a target, you
-	// must register it with a target group, specify its target group in a
-	// listener rule, and ensure that the Availability Zone of the target is
-	// enabled for the load balancer." Until then its targets are `unused` with
-	// `Target.NotInUse`.
+	// A registered target is health-checked only once "you ... register it with a
+	// target group, specify its target group in a listener rule, and ensure that
+	// the Availability Zone of the target is enabled for the load balancer." Until
+	// then it is `unused` with `Target.NotInUse`.
 	unused, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(tgArn),
 	})
@@ -217,10 +215,9 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listenerOut.Listeners, 1)
 
-	// Naming the target group in the listener's default rule is what puts it
-	// under the checker. The checker then puts the reachable target in service
-	// on its first successful check and takes the unreachable one out of
-	// service after UnhealthyThresholdCount consecutive failures.
+	// Naming the target group in the listener's default rule puts it under the
+	// checker, which puts the reachable target in service on its first good check
+	// and takes the unreachable one out after UnhealthyThresholdCount failures.
 	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
 	waitForELBv2TargetHealth(t, tgArn, unreachableTarget, elbtypes.TargetHealthStateEnumUnhealthy)
 	health, err := elb.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{
@@ -242,10 +239,9 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, unhealthy.TargetHealthDescriptions, 1)
 	assert.Equal(t, elbtypes.TargetHealthStateEnumUnhealthy, unhealthy.TargetHealthDescriptions[0].TargetHealth.State)
-	// A target that is not healthy carries a documented reason code and the
-	// description Elastic Load Balancing publishes for it. Which of the
-	// connection-failure codes an unroutable address produces is the host
-	// network's to decide; the exact mapping is pinned by the unit tests.
+	// An unhealthy target carries a documented reason code and description; which
+	// connection-failure code an unroutable address yields is the host network's to
+	// decide, and unit tests pin the mapping.
 	assert.Contains(t,
 		[]elbtypes.TargetHealthReasonEnum{
 			elbtypes.TargetHealthReasonEnumTimeout,
@@ -315,8 +311,8 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.Len(t, untagged.TagDescriptions, 1)
 	assert.Empty(t, untagged.TagDescriptions[0].Tags)
 
-	// Tagging a resource that does not exist is refused with the error of its
-	// type, and tags nothing the request also names.
+	// Tagging a missing resource fails with its type's error and tags nothing else
+	// the request names.
 	missingListener := listenerArn[:strings.LastIndex(listenerArn, "/")+1] + "0000000000000000"
 	_, err = elb.AddTags(ctx, &elbv2.AddTagsInput{
 		ResourceArns: []string{tgArn, missingListener},
@@ -334,12 +330,9 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, limits.Limits)
 
-	// Deregistering does not remove a target at once: "The load balancer stops
-	// routing requests to a target as soon as it is deregistered. The target
-	// enters the `draining` state until in-flight requests have completed."
-	// This target group's deregistration_delay.timeout_seconds is 60, set
-	// above, so the targets report `draining` with
-	// `Target.DeregistrationInProgress` rather than disappearing.
+	// "The target enters the `draining` state until in-flight requests have
+	// completed." The deregistration delay set above is 60 seconds, so the targets
+	// report `draining` with `Target.DeregistrationInProgress`.
 	_, err = elb.DeregisterTargets(ctx, &elbv2.DeregisterTargetsInput{
 		TargetGroupArn: aws.String(tgArn),
 		Targets:        []elbtypes.TargetDescription{target, unreachableTarget},
@@ -373,13 +366,10 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 }
 
 // TestELBv2_HealthCheckMatcherGradesTheResponseCode holds the health check to
-// the target group's Matcher: "The codes to use when checking for a successful
-// response from a target ... The default value is 200." A target that answers
-// outside those codes is unhealthy with `Target.ResponseCodeMismatch` — "The
-// health checks did not return an expected HTTP code" — and the description
-// names the code it answered with. The target group is reached through a
-// listener rule rather than the listener's default action, which is the other
-// way a target group is "specified in a listener rule".
+// the target group's Matcher ("The default value is 200"): a target answering
+// outside it is unhealthy with `Target.ResponseCodeMismatch`, and the
+// description names its code. A listener rule, rather than the default action,
+// puts the target group under the checker.
 //
 // Actions exercised: CreateTargetGroup (Matcher), CreateRule,
 // DescribeTargetHealth, DeleteRule.
@@ -421,9 +411,8 @@ func TestELBv2_HealthCheckMatcherGradesTheResponseCode(t *testing.T) {
 	require.NoError(t, err)
 	lbArn := *lbOut.LoadBalancers[0].LoadBalancerArn
 
-	// One target group counts the target's 418 a failure, the other counts it a
-	// success. They watch the same target on the same port, so the only thing
-	// that can separate their verdicts is the Matcher.
+	// Both target groups watch the same target on the same port, one counting its
+	// 418 a failure and the other a success, so only the Matcher separates them.
 	targetGroupArns := map[string]string{}
 	for name, matcher := range map[string]string{
 		"sdk-matcher-strict": "200",

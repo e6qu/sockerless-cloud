@@ -31,13 +31,10 @@ func ecsTaskMemory(td ECSTaskDefinition, overrides *ECSTaskOverride) string {
 	return td.Memory
 }
 
-// ecsContainerResourceLimits translates the advertised ECS sizing into Docker
-// cgroup limits so the launched container is actually bounded the way the task
-// metadata reports (a Fargate task advertising 512 CPU / 1024 MiB should see a
-// matching cpu.max / memory.max, not the host's full capacity). Container-level
-// cpu/memory refine the task-level size (matching ECS, where per-container
-// limits sit under the task size); the task size is the fallback. CPU is in ECS
-// units (1024 == 1 vCPU); memory is in MiB.
+// Bound the container by its advertised sizing, so a task advertising 512 CPU
+// / 1024 MiB sees matching cpu.max and memory.max. Container-level values
+// refine the task size, which is the fallback. CPU is in ECS units (1024 = 1
+// vCPU), memory in MiB.
 func ecsContainerResourceLimits(td ECSTaskDefinition, cd ECSContainerDefinition) (memBytes, nanoCPU int64) {
 	memMiB := cd.Memory
 	if memMiB == 0 {
@@ -61,14 +58,9 @@ func ecsContainerResourceLimits(td ECSTaskDefinition, cd ECSContainerDefinition)
 	return memBytes, nanoCPU
 }
 
-// ecsTaskSandbox returns the isolation profile a task's containers run under.
-// The AWS Fargate profile denies host networking because Fargate never offers
-// it — Fargate requires the awsvpc network mode. A task definition that asks
-// for the host network mode is by definition running on the EC2 or EXTERNAL
-// launch type, where Amazon ECS does give the task the container instance's own
-// network stack, so the denial does not apply to it. A container definition's
-// `privileged` is accepted and not granted: the simulator starts no privileged
-// container.
+// The AWS Fargate profile denies host networking, which Fargate never offers;
+// a host-mode task runs on EC2 or EXTERNAL, where Amazon ECS shares the
+// instance's network stack. `privileged` is accepted but not granted.
 func ecsTaskSandbox(launchType string) sim.SandboxProfile {
 	if strings.EqualFold(launchType, "FARGATE") {
 		return SandboxFargate
@@ -76,33 +68,27 @@ func ecsTaskSandbox(launchType string) sim.SandboxProfile {
 	return sim.SandboxProfile{}
 }
 
-// ecsResolvedImage is a container definition's image as the local runtime
-// knows it: the workload reference mapped to a pullable name, and the
-// platform the pulled image reports.
+// The workload reference mapped to a pullable name, and the pulled image's
+// platform.
 type ecsResolvedImage struct {
 	Image    string
 	Platform string
-	// Digest is the manifest digest Amazon ECS reports as the container's
-	// imageDigest.
-	Digest string
-	// RegistryAuth is the credential the host pulls Image with.
+	// Reported as the container's imageDigest.
+	Digest       string
 	RegistryAuth string
 }
 
-// ecsEpochSeconds is the ECS API's timestamp shape (seconds since the epoch,
-// fractional), as createdAt already is.
+// Fractional epoch seconds, like createdAt.
 func ecsEpochSeconds() float64 {
 	return float64(time.Now().UnixMilli()) / 1000
 }
 
-// ecsEpochTime is the inverse of ecsEpochSeconds.
 func ecsEpochTime(seconds float64) time.Time {
 	return time.UnixMilli(int64(seconds * 1000))
 }
 
-// ecsResourceInitializationError is a task start that failed while preparing
-// the task's resources, before any container ran: Amazon ECS stops such a task
-// with TaskFailedToStart and a ResourceInitializationError reason.
+// Amazon ECS stops such a task with TaskFailedToStart and a
+// ResourceInitializationError reason.
 type ecsResourceInitializationError struct{ err error }
 
 func (e *ecsResourceInitializationError) Error() string {
@@ -111,10 +97,8 @@ func (e *ecsResourceInitializationError) Error() string {
 
 func (e *ecsResourceInitializationError) Unwrap() error { return e.err }
 
-// ecsEFSVolumeHost resolves an Amazon EFS volume to the host directory the
-// task mounts: the access point's root when the volume names one, otherwise
-// the file system's rootDirectory, which must exist, as an NFS mount of a
-// missing path fails.
+// The access point's root, else rootDirectory, which must exist, as an NFS
+// mount of a missing path fails.
 func ecsEFSVolumeHost(cfg *ECSEfsVolumeConfig) (string, error) {
 	if cfg.AuthorizationConfig != nil && cfg.AuthorizationConfig.AccessPointId != "" {
 		return EFSAccessPointHostDir(cfg.AuthorizationConfig.AccessPointId)
@@ -173,8 +157,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			volMap[v.Name] = v.Host.SourcePath
 			continue
 		}
-		// A volume with no configuration is the task's own ephemeral
-		// storage, shared by its containers and gone with it.
+		// An unconfigured volume is the task's ephemeral storage, gone with it.
 		volMap[v.Name] = ecsTaskVolumePrefix(taskID) + v.Name
 	}
 
@@ -187,9 +170,8 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	if err != nil {
 		return nil, err
 	}
-	// fail releases what the start created. A start the shutdown interrupted
-	// is not a failed task, so its containers are removed at once rather than
-	// given their stop timeout, and the caller leaves the task PENDING.
+	// A start interrupted by shutdown is not a failed task: remove its containers
+	// at once and leave the task PENDING.
 	fail := func(err error) (*ecsTaskProcesses, error) {
 		if ctx.Err() != nil {
 			ecsAbandonTaskStart(taskID, processes)
@@ -198,23 +180,17 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		cleanupECSTaskProcesses(context.Background(), taskID, processes)
 		return nil, err
 	}
-	// The task definition's networkMode decides the network every container in
-	// the task lands on: awsvpc gets the task its own elastic network interface
-	// in the VPC, host shares the container instance's network stack, none has
-	// no connectivity, and bridge uses the container instance's default Docker
-	// bridge.
+	// awsvpc gets the task its own ENI in the VPC, host shares the instance's
+	// network stack, none has no connectivity, bridge uses the default bridge.
 	networkMode := ecsEffectiveNetworkMode(td)
 	if _, _, hasENI := ecsTaskENIInfo(taskID); networkMode == ecsNetworkModeAwsvpc && !hasENI {
 		return nil, fmt.Errorf("awsvpc task %s has no elastic network interface attachment", taskID)
 	}
 	phases.Mark("volumes")
-	// The task's network decides where its containers resolve names and read
-	// their metadata: through the VPC's sidecar for an awsvpc task, the
-	// platform network's for a bridge task, and the simulator's own listener
-	// for a task sharing the container instance's network stack. A none task
-	// has no network to read anything over. The credentials of an awsvpc or
-	// bridge task are on each network namespace's own loopback, which the
-	// task's awsvpc containers share and each bridge container has alone.
+	// awsvpc tasks resolve and read metadata through the VPC's sidecar, bridge
+	// tasks through the platform network's, host tasks through the simulator's
+	// listener; none has nothing. Credentials are on each network namespace's own
+	// loopback.
 	var (
 		taskNetwork awsWorkloadNetwork
 		eniAddress  string
@@ -242,13 +218,9 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	}
 	var mainDockerID string
 
-	// Pull every container image before any container starts, the way the
-	// ECS agent does, and report the window on the task: pullStartedAt when
-	// the first pull begins, pullStoppedAt when the last image is present.
-	// Amazon ECS populates both even when every image is cached, and it is
-	// how a caller attributes a slow start to the pull rather than to the
-	// container. Without it a 6 GB first pull read as three minutes of
-	// nothing between createdAt and startedAt.
+	// Pull every image before any container starts, as the agent does, recording
+	// pullStartedAt and pullStoppedAt; Amazon ECS sets both even when cached, and
+	// callers use them to attribute a slow start to the pull.
 	pullStartedAt := ecsEpochSeconds()
 	ecsTasks.Update(taskID, func(t *ECSTask) { t.PullStartedAt = &pullStartedAt })
 	images := make(map[string]ecsResolvedImage, len(td.ContainerDefinitions))
@@ -274,7 +246,6 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	pullStoppedAt := ecsEpochSeconds()
 	ecsTasks.Update(taskID, func(t *ECSTask) {
 		t.PullStoppedAt = &pullStoppedAt
-		// The agent knows each container's digest once its image is present.
 		for j := range t.Containers {
 			if img, ok := images[t.Containers[j].Name]; ok {
 				t.Containers[j].ImageDigest = img.Digest
@@ -292,9 +263,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		for _, ev := range cd.Environment {
 			cmdEnv[ev.Name] = ev.Value
 		}
-		// Resolve the container definition's `secrets` (valueFrom →
-		// SecretsManager/SSM) at launch and inject them as env vars, exactly as
-		// real ECS does — indistinguishable from `environment` to the container.
+		// Inject secrets as environment variables at launch, as Amazon ECS does.
 		for name, val := range resolveECSContainerSecrets(cd.Secrets) {
 			cmdEnv[name] = val
 		}
@@ -304,13 +273,8 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		var binds []string
 		for _, mp := range cd.MountPoints {
 			if src, ok := volMap[mp.SourceVolume]; ok {
-				// `z` = SELinux shared relabel: on an SELinux-enforcing host
-				// (e.g. a local podman machine) the sim-spawned task container
-				// runs confined as `container_t`, which cannot write to the EFS
-				// host dir's default label even at mode 0777 — relabeling the
-				// bind to a shared container label lets the workload access it.
-				// Ignored on hosts without SELinux (Docker on CI), so safe
-				// everywhere.
+				// `z` relabels for SELinux so a confined task container can write the EFS
+				// directory; hosts without SELinux ignore it.
 				opts := "z"
 				if mp.ReadOnly {
 					opts = "ro,z"
@@ -349,14 +313,10 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Binds:     binds,
 			Sandbox:   ecsTaskSandbox(launchType),
 		}
-		// Docker Desktop does not route a Linux VM's user-defined bridge
-		// addresses back to the host process. Publish the task definition's
-		// declared listener ports on random loopback ports so host-resident
-		// Elastic Load Balancing can reach the same real container listener.
-		// The public Amazon ECS/ENI coordinate remains the task IP; the
-		// mapping is rediscovered from Docker on restart. The task's
-		// containers share one namespace, which the first owns, so it
-		// publishes every container's ports.
+		// Docker Desktop does not route a VM's bridge addresses to the host, so
+		// publish the declared ports on loopback for Elastic Load Balancing. The task
+		// IP stays the public coordinate. The first container owns the shared
+		// namespace and publishes every container's ports.
 		if networkMode == ecsNetworkModeAwsvpc && i == 0 {
 			for _, each := range td.ContainerDefinitions {
 				for _, mapping := range each.PortMappings {
@@ -369,16 +329,12 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		cfg.MemoryBytes, cfg.NanoCPU = ecsContainerResourceLimits(td, cd)
 		switch {
 		case networkMode == ecsNetworkModeHost:
-			// host mode: the containers use the container instance's network
-			// stack directly, so they share its interfaces and its loopback.
 			cfg.NetworkMode = "host"
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 		case networkMode == ecsNetworkModeNone:
-			// none mode: the containers have no external connectivity.
 			cfg.NetworkMode = "none"
 		case networkMode == ecsNetworkModeAwsvpc && i > 0:
-			// Every container in an awsvpc task shares the task ENI: the
-			// others join the first as members of its namespace.
+			// Every container joins the first's namespace and shares the task ENI.
 		case networkMode == ecsNetworkModeAwsvpc:
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			cfg.Network = taskNetwork.Name
@@ -392,8 +348,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 				cfg.Gateway = ec2SubnetGateway(subnetID)
 			}
 		default:
-			// bridge mode: each container gets its own address on the
-			// container instance's network, the platform network.
+			// Each container gets its own address on the platform network.
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			cfg.Network = taskNetwork.Name
 			cfg.DNS = taskNetwork.DNS()
@@ -414,8 +369,8 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if i == 0 {
 			mainDockerID = handle.ID()
 			if networkMode == ecsNetworkModeAwsvpc {
-				// The task's interface is a member of its groups now, which
-				// the permissions naming them expand over on its neighbours.
+				// The interface now belongs to its groups, which neighbours' permissions
+				// expand over.
 				if _, vpcID, ok := ecsTaskENIGroups(taskID); ok {
 					ec2ReapplyIngress(vpcID)
 				}
@@ -443,10 +398,7 @@ func ecsContainerOverrideFor(overrides *ECSTaskOverride, containerName string) E
 	return ECSContainerOverride{}
 }
 
-// ecsTaskENIInfo reads a task's awsvpc ENI IP + subnet from its attachment.
-// Returns ok=false for tasks without an awsvpc ENI.
-// ecsTaskENIDetail is one detail of the task's elastic network interface
-// attachment.
+// Returns "" when the attachment lacks the detail.
 func ecsTaskENIDetail(taskID, name string) string {
 	task, found := ecsTasks.Get(taskID)
 	if !found {
@@ -460,6 +412,7 @@ func ecsTaskENIDetail(taskID, name string) string {
 	return ""
 }
 
+// ok is false for a task without an awsvpc ENI.
 func ecsTaskENIInfo(taskID string) (eniIP, subnetID string, ok bool) {
 	task, found := ecsTasks.Get(taskID)
 	if !found {
@@ -596,11 +549,8 @@ func ecsContainerMetadataV4(taskID string) (map[string]any, bool) {
 	return ecsTaskContainerMetadata(taskID, task, td, td.ContainerDefinitions[0], eniIP)
 }
 
-// ecsTaskVPCNetwork resolves the engine network realizing an awsvpc task's
-// VPC, creating it at the first attach, and the task's elastic network
-// interface address on it. Every failure is returned so an awsvpc launch
-// fails rather than landing the task on the container instance's default
-// bridge with an address that is not its ENI's.
+// Creates the VPC network at the first attach. Every failure is returned so an
+// awsvpc launch never lands on the default bridge with a non-ENI address.
 func ecsTaskVPCNetwork(ctx context.Context, taskID string) (network awsWorkloadNetwork, eniAddress string, err error) {
 	eniIP, subnetID, ok := ecsTaskENIInfo(taskID)
 	if !ok {

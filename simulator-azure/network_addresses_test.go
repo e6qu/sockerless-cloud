@@ -11,8 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// Azure hands a subnet's first four addresses to itself, so the first
-// interface address it leases is the fifth.
+// Azure keeps a subnet's first four addresses, so the first lease is the
+// fifth.
 func TestAzureSubnetLeasesPastTheReservedAddresses(t *testing.T) {
 	ledger, err := ipam.NewIPAMWithReserved("10.0.1.0/24", net.ParseIP("10.0.1.1"), azureSubnetReservation)
 	if err != nil {
@@ -36,12 +36,9 @@ func TestAzureNICMACSeparatesPermutedIDs(t *testing.T) {
 	}
 }
 
-// A network interface leases its addresses from its subnet's ledger: a
-// dynamic configuration takes the next free address past the reserved ones, a
-// static one takes the address it names, an address another interface holds
-// is refused, a rewrite keeps the addresses of the configurations it keeps and
-// frees the ones it drops first, and the ledger rebuilds from the stored
-// interfaces.
+// Dynamic takes the next free address, static the one it names; another
+// interface's address is refused; a rewrite keeps kept configurations'
+// addresses and frees dropped ones first; the ledger rebuilds from the store.
 func TestAzureNICLeasesFollowTheSubnetLedger(t *testing.T) {
 	priorSubnets, priorNICs, priorGateways := azureSubnets, azureNICs, azureApplicationGateways
 	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")
@@ -121,10 +118,8 @@ func TestAzureNICLeasesFollowTheSubnetLedger(t *testing.T) {
 	}
 }
 
-// A virtual network's resolver sits at the second usable address of its
-// lowest subnet, the address Azure reserves for Azure DNS there, and two
-// virtual networks of one name in different resource groups realize two
-// engine networks.
+// The resolver sits at the second usable address of the lowest subnet, and
+// same-named virtual networks in different groups realize two engine networks.
 func TestAzureVNetResolverAddressAndNetworkNames(t *testing.T) {
 	prior := azureSubnets
 	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")
@@ -151,8 +146,6 @@ func TestAzureVNetResolverAddressAndNetworkNames(t *testing.T) {
 	}
 }
 
-// A connection that names a whole virtual network leases from the network's
-// first subnet, and from none when the network has no subnet.
 func TestAzureWholeVNetConnectionLeasesFromTheFirstSubnet(t *testing.T) {
 	priorSubnets := azureSubnets
 	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")

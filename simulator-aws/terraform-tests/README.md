@@ -1,39 +1,32 @@
-# simulator-aws-terraform-tests
+# simulator-aws Terraform tests
 
-Integration tests that run `terraform apply` and `terraform destroy` against the AWS simulator. Verifies that the simulator implements enough of the AWS API surface for the Terraform AWS provider to provision and tear down resources.
+Integration tests that run the `hashicorp/aws` provider against the AWS
+simulator: `terraform init`, `apply`, assertions on the state and outputs, a
+`plan` that expects no changes where a stack checks it, and `destroy`. The root
+package applies `main.tf`; each subdirectory is a stack of its own, and CI
+assigns every package to one `tf (aws …)` shard in `.github/workflows/ci.yml`.
 
 ## Running
 
 ```sh
-cd simulator-aws/terraform-tests
-go test -v ./...
+make simulator-aws/terraform-test                                    # every package
+make simulator-aws/terraform-test TERRAFORM_TEST_PACKAGES=./tutorial # one stack
+make simulator-aws/terraform-https-test                              # through the HTTPS gateway
 ```
 
-To run the same provider flow through the optional Caddy HTTPS gateway:
+The targets build the simulator once and pass it to every package through
+`SOCKERLESS_AWS_SIMULATOR_BINARY`; `go test ./...` in this directory builds it
+itself. Each package starts its own simulator on a free port, through
+`helpers_test.go` in the root package and `internal/tfsim` in the stacks.
 
-```sh
-cd simulator-aws
-make terraform-https-test
-```
+You need `terraform` on `PATH`, a container engine, and for the HTTPS target
+`caddy` on `PATH` (or `CADDY=/path/to/caddy`).
 
-The HTTPS target uses Caddy's `https://localhost:<ephemeral-port>` single-simulator route so the test does not depend on wildcard `.localhost` DNS support. It still uses Caddy TLS and passes the generated root CA to Terraform through `SSL_CERT_FILE`. On macOS the Make target runs the same test inside the shared Linux simulator test image so the real provider honors that CA file.
+## The HTTPS gateway
 
-The root test harness (`helpers_test.go`) and the subpackage harness (`internal/tfsim`) handle simulator binary selection, port allocation, server startup, Terraform init/apply/destroy, and shutdown. No external cloud services are required.
-
-## Prerequisites
-
-- The Go toolchain this module's `go.mod` names
-- `terraform` CLI installed and on `PATH`
-- The `simulator-aws/` parent module. `make terraform-test` and `make terraform-https-test` build it once and pass the real binary to every Terraform package.
-- `caddy` installed and on `PATH` for `make terraform-https-test`
-
-## How it works
-
-1. The Make target builds the AWS simulator binary once and passes it to every Terraform package through `SOCKERLESS_AWS_SIMULATOR_BINARY`
-2. Each package starts an isolated simulator process on a free port
-3. `terraform init` downloads the AWS provider
-4. `terraform apply -auto-approve` provisions resources against the simulator
-5. Test assertions verify the Terraform state
-6. `terraform destroy -auto-approve` tears down resources
-
-When `SOCKERLESS_TF_HTTPS_GATEWAY=1`, both the root package and the RDS/ElastiCache subpackages start Caddy with isolated state, trust its generated root CA through `SSL_CERT_FILE`, and point Terraform at `https://localhost:<ephemeral-port>`.
+With `SOCKERLESS_TF_HTTPS_GATEWAY=1`, which the HTTPS target sets, each package
+starts Caddy with its own state, trusts Caddy's root through `SSL_CERT_FILE`,
+and points the provider at `https://localhost:<port>`, the Caddyfile's
+single-simulator route, so no wildcard `.localhost` resolution is needed. On
+macOS the target runs inside the Linux test image, where the provider honours
+`SSL_CERT_FILE`.

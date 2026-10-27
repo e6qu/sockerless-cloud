@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// armBody reads, closes, and JSON-decodes an ARM response into a generic map.
 func armBody(t *testing.T, resp *http.Response) map[string]any {
 	t.Helper()
 	defer resp.Body.Close()
@@ -36,9 +35,9 @@ func armBody(t *testing.T, resp *http.Response) map[string]any {
 	return out
 }
 
-// TestConformance_ServiceBusQueueServerDefaults verifies the ARM queue create
-// path stamps the server-assigned defaults (lockDuration, defaultMessageTimeToLive,
-// etc.) real Azure returns on GET when the client omits them.
+// TestConformance_ServiceBusQueueServerDefaults: a queue created without them
+// reads back the server-assigned defaults (lockDuration,
+// defaultMessageTimeToLive, …).
 func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 	t.Parallel()
 	rg := "conf-sb-rg"
@@ -61,7 +60,6 @@ func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 	_, err = nsPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Create a queue with only the name (empty properties).
 	_, err = queues.CreateOrUpdate(ctx, rg, ns, "confqueue", armservicebus.SBQueue{
 		Properties: &armservicebus.SBQueueProperties{},
 	}, nil)
@@ -78,9 +76,9 @@ func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 	assert.Equal(t, int32(10), *got.Properties.MaxDeliveryCount)
 }
 
-// TestConformance_StorageAccountWritableProperties verifies the storage account
-// PUT carries accessTier, allowBlobPublicAccess, and minimumTlsVersion through
-// to GET (terraform-provider-azurerm drift source otherwise).
+// TestConformance_StorageAccountWritableProperties: accessTier,
+// allowBlobPublicAccess and minimumTlsVersion round-trip from PUT to GET, or
+// terraform-provider-azurerm sees drift.
 func TestConformance_StorageAccountWritableProperties(t *testing.T) {
 	t.Parallel()
 	rg := "conf-storage-rg"
@@ -112,8 +110,8 @@ func TestConformance_StorageAccountWritableProperties(t *testing.T) {
 	assert.Equal(t, "TLS1_2", props["minimumTlsVersion"], "minimumTlsVersion must round-trip")
 }
 
-// TestConformance_ACRRegistryRoundTrip verifies the registry honors a client's
-// publicNetworkAccess and echoes sku.tier == sku.name when only the name is sent.
+// TestConformance_ACRRegistryRoundTrip: the registry honours publicNetworkAccess
+// and echoes sku.tier equal to sku.name when only the name is sent.
 func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "conf-acr-rg"
@@ -144,9 +142,8 @@ func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 	assert.Equal(t, armcontainerregistry.PublicNetworkAccessDisabled, *got.Properties.PublicNetworkAccess)
 }
 
-// TestConformance_VMAdminPasswordStripped verifies the write-only
-// osProfile.adminPassword is never echoed back on GET. Host-gated because VM
-// create requires the real-execution network host.
+// TestConformance_VMAdminPasswordStripped: GET never echoes the write-only
+// osProfile.adminPassword.
 func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	t.Parallel()
 	rg := "conf-vm-rg"
@@ -245,8 +242,8 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	assert.Nil(t, got.Properties.OSProfile.AdminPassword, "GET must not echo adminPassword")
 }
 
-// TestConformance_ACISecureValueStripped verifies env secureValue is accepted on
-// create but never returned on GET.
+// TestConformance_ACISecureValueStripped: create accepts an env secureValue and
+// GET never returns it.
 func TestConformance_ACISecureValueStripped(t *testing.T) {
 	t.Parallel()
 	rg := "conf-aci-rg"
@@ -304,10 +301,8 @@ func TestConformance_ACISecureValueStripped(t *testing.T) {
 	assertNoSecureValue(got.ContainerGroup)
 }
 
-// TestConformance_PrivateDNSAutoSOA verifies the auto-created SOA record set
-// carries a populated soaRecord (terraform-provider-azurerm reads minimum_ttl
-// off it). The record-set provisioningState is not exposed by the armprivatedns
-// SDK model, so it is not asserted here.
+// TestConformance_PrivateDNSAutoSOA: the automatic SOA record set carries a
+// soaRecord, from which terraform-provider-azurerm reads minimum_ttl.
 func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
 	t.Parallel()
 	rg := "conf-dns-rg"
@@ -334,8 +329,8 @@ func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
 	assert.Greater(t, *gotSOA.Properties.SoaRecord.MinimumTTL, int64(0))
 }
 
-// TestConformance_CosmosDefaultConsistencyPolicy verifies a create without a
-// consistencyPolicy reads back the default Session policy.
+// TestConformance_CosmosDefaultConsistencyPolicy: an account created without a
+// consistencyPolicy reads back Session.
 func TestConformance_CosmosDefaultConsistencyPolicy(t *testing.T) {
 	t.Parallel()
 	rg := "conf-cosmos-rg"
@@ -359,8 +354,8 @@ func TestConformance_CosmosDefaultConsistencyPolicy(t *testing.T) {
 	assert.Equal(t, "Session", cp["defaultConsistencyLevel"])
 }
 
-// TestConformance_RedisDefaultVersion verifies a Basic Redis without an explicit
-// redisVersion reads back 6.0 (the real Basic/Standard default).
+// TestConformance_RedisDefaultVersion: a Basic cache without redisVersion
+// reads back 6.0, the Basic/Standard default.
 func TestConformance_RedisDefaultVersion(t *testing.T) {
 	t.Parallel()
 	rg := "conf-redis-rg"
@@ -385,8 +380,8 @@ func TestConformance_RedisDefaultVersion(t *testing.T) {
 	assert.Equal(t, "6.0", props["redisVersion"], "Basic Redis default version must be 6.0")
 }
 
-// TestConformance_EventHubDefaultRetention verifies a hub created without an
-// explicit messageRetentionInDays reads back 7 (the real default).
+// TestConformance_EventHubDefaultRetention: an event hub without
+// messageRetentionInDays reads back 7.
 func TestConformance_EventHubDefaultRetention(t *testing.T) {
 	t.Parallel()
 	rg := "conf-eh-rg"
@@ -418,8 +413,8 @@ func TestConformance_EventHubDefaultRetention(t *testing.T) {
 	assert.Equal(t, int64(7), *got.Properties.MessageRetentionInDays, "default messageRetentionInDays must be 7")
 }
 
-// TestConformance_EventGridTopicDefaultsAndValidation verifies the topic create
-// defaults publicNetworkAccess to Enabled and rejects an invalid inputSchema.
+// TestConformance_EventGridTopicDefaultsAndValidation: publicNetworkAccess
+// defaults to Enabled, and an invalid inputSchema is refused.
 func TestConformance_EventGridTopicDefaultsAndValidation(t *testing.T) {
 	t.Parallel()
 	rg := "conf-eg-rg"
@@ -440,10 +435,8 @@ func TestConformance_EventGridTopicDefaultsAndValidation(t *testing.T) {
 	bad.Body.Close()
 }
 
-// TestConformance_ACRRegistryList verifies the registry list-by-resource-group
-// pager (armcontainerregistry.RegistriesClient.NewListByResourceGroupPager) and
-// the subscription-level pager surface a registry that was just created. Both
-// 404 without the list routes.
+// TestConformance_ACRRegistryList: the resource-group and subscription pagers
+// list a just-created registry.
 func TestConformance_ACRRegistryList(t *testing.T) {
 	t.Parallel()
 	rg := "conf-acr-list-rg"
@@ -479,7 +472,6 @@ func TestConformance_ACRRegistryList(t *testing.T) {
 	assert.Contains(t, subNames, registry, "list-by-subscription must contain the created registry")
 }
 
-// acrRegistryNames extracts the names from a slice of ACR registries.
 func acrRegistryNames(regs []*armcontainerregistry.Registry) []string {
 	var names []string
 	for _, reg := range regs {
@@ -490,9 +482,9 @@ func acrRegistryNames(regs []*armcontainerregistry.Registry) []string {
 	return names
 }
 
-// TestConformance_ACRListCredentials verifies the admin-credential endpoint
-// (RegistriesClient.ListCredentials, az acr credential show) returns the
-// username and two passwords terraform reads into admin_username/admin_password.
+// TestConformance_ACRListCredentials: ListCredentials (`az acr credential
+// show`) returns the username and two passwords Terraform reads into
+// admin_username and admin_password.
 func TestConformance_ACRListCredentials(t *testing.T) {
 	t.Parallel()
 	rg := "conf-acr-cred-rg"
@@ -523,9 +515,9 @@ func TestConformance_ACRListCredentials(t *testing.T) {
 	}
 }
 
-// TestConformance_StorageBlobServicesPut verifies a PUT of blobServices/default
-// with isVersioningEnabled reads back through GET (azurerm blob_properties
-// otherwise drifts). Raw armReq to mirror the existing storage conformance test.
+// TestConformance_StorageBlobServicesPut: isVersioningEnabled on
+// blobServices/default reads back through GET, or azurerm blob_properties
+// drifts.
 func TestConformance_StorageBlobServicesPut(t *testing.T) {
 	t.Parallel()
 	rg := "conf-blobsvc-rg"
@@ -567,10 +559,9 @@ func TestConformance_StorageBlobServicesPut(t *testing.T) {
 	assert.Equal(t, true, drp["enabled"])
 }
 
-// TestConformance_TableEntityNotFoundODataError verifies a GetEntity on a
-// missing row surfaces an *azcore.ResponseError carrying the OData error code
-// EntityNotFound (real Azure Tables uses the {"odata.error":{...}} envelope; the
-// ARM {"error":{...}} envelope yields the wrong code).
+// TestConformance_TableEntityNotFoundODataError: GetEntity on a missing row
+// carries EntityNotFound in Azure Table Storage's {"odata.error":{...}}
+// envelope, not the ARM {"error":{...}} one.
 func TestConformance_TableEntityNotFoundODataError(t *testing.T) {
 	t.Parallel()
 	account := "conftableerracct"
@@ -597,9 +588,8 @@ func TestConformance_TableEntityNotFoundODataError(t *testing.T) {
 	assert.Equal(t, string(aztables.TableNotFound), respErr.ErrorCode)
 }
 
-// TestConformance_EventGridGetTopicPure verifies GET topic does not mutate
-// persisted state when called with different Host headers — the stored
-// properties must not accumulate or flip across reads.
+// TestConformance_EventGridGetTopicPure: reads with different Host headers
+// leave the stored topic unchanged.
 func TestConformance_EventGridGetTopicPure(t *testing.T) {
 	t.Parallel()
 	rg := "conf-eg-pure-rg"
@@ -633,9 +623,7 @@ func TestConformance_EventGridGetTopicPure(t *testing.T) {
 		return ep
 	}
 
-	// The endpoint is a stable create-time property: a GET with an arbitrary
-	// Host header must return the create-time value, not one derived from the
-	// request Host, and must not corrupt stored state for later reads.
+	// The endpoint is fixed at create time, whatever Host a GET carries.
 	assert.Equal(t, createdEndpoint, getEndpoint("first.example.localhost"),
 		"GET must return the create-time endpoint regardless of request Host")
 	assert.Equal(t, createdEndpoint, getEndpoint("second.example.localhost"),
@@ -644,8 +632,8 @@ func TestConformance_EventGridGetTopicPure(t *testing.T) {
 		"GET must not persist a request-Host-derived endpoint into stored state")
 }
 
-// TestConformance_ServiceBusTopicListPagination verifies the ARM topic list
-// honors $top and emits a nextLink that walks the remaining topics.
+// TestConformance_ServiceBusTopicListPagination: the ARM topic list honours
+// $top and emits a nextLink to the rest.
 func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 	t.Parallel()
 	rg := "conf-sb-page-rg"
@@ -675,8 +663,7 @@ func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// $top=1 → exactly one topic per page; the pager must walk the nextLink to
-	// reach the second.
+	// $top=1 gives one topic per page; the pager walks the nextLink.
 	pager := topics.NewListByNamespacePager(rg, ns, &armservicebus.TopicsClientListByNamespaceOptions{
 		Top: to.Ptr(int32(1)),
 	})
@@ -697,10 +684,8 @@ func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 	assert.Contains(t, got, "page-topic-b")
 }
 
-// TestConformance_ListBlobsHierarchyPrefixDelimiter verifies the blob data-plane
-// honors prefix filtering and delimiter virtual-directory rollup
-// (NewListBlobsHierarchyPager): with a/1, a/2, b in a container, delimiter="/"
-// yields one BlobPrefix "a/" plus the blob "b".
+// TestConformance_ListBlobsHierarchyPrefixDelimiter: with a/1, a/2 and b in a
+// container, delimiter "/" yields the BlobPrefix "a/" and the blob "b".
 func TestConformance_ListBlobsHierarchyPrefixDelimiter(t *testing.T) {
 	t.Parallel()
 	account := "confhieracct"
@@ -741,7 +726,7 @@ func TestConformance_ListBlobsHierarchyPrefixDelimiter(t *testing.T) {
 	assert.Equal(t, []string{"b"}, blobNames, "top-level blob list must be just b")
 	assert.Equal(t, []string{"a/"}, prefixes, "a/1 and a/2 must roll up under the a/ BlobPrefix")
 
-	// prefix="a/" with the same delimiter lists the two blobs under a/ directly.
+	// prefix "a/" lists the two blobs under a/.
 	prefixPager := containerClient.NewListBlobsHierarchyPager("/", &container.ListBlobsHierarchyOptions{
 		Prefix: to.Ptr("a/"),
 	})

@@ -11,13 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront extra resources, part 3 — distribution tenants, connection groups,
-// trust stores, resource policies, WebACL associations, alias/domain conflict
-// queries, the ListDistributionsBy* projections, plus the CopyDistribution /
-// UpdateDistributionWithStagingConfig / UpdateAnycastIpList variants and
-// GetManagedCertificateDetails. Same REST + restXml wire as the rest of the
-// CloudFront slice: each named resource carries an Id + ARN + an ETag returned
-// in the response header and required as If-Match on Update/Delete.
+// Distribution tenants, connection groups, trust stores, resource policies,
+// web ACL associations, alias conflicts and the ListDistributionsBy*
+// projections. Each named resource carries an Id, an ARN and an ETag.
 
 type CFDomainResult struct {
 	Domain string `xml:"Domain"`
@@ -39,7 +35,6 @@ type CFDistributionTenant struct {
 	Status            string           `xml:"Status,omitempty"`
 }
 
-// CFDistributionTenantCreateRequest mirrors CreateDistributionTenantRequest.
 type CFDistributionTenantCreateRequest struct {
 	XMLName           xml.Name        `xml:"CreateDistributionTenantRequest"`
 	DistributionId    string          `xml:"DistributionId"`
@@ -49,12 +44,10 @@ type CFDistributionTenantCreateRequest struct {
 	Enabled           *bool           `xml:"Enabled,omitempty"`
 }
 
-// CFDomainInput is the DomainItem request shape (just a Domain string).
 type CFDomainInput struct {
 	Domain string `xml:"Domain"`
 }
 
-// CFDistributionTenantUpdateRequest mirrors UpdateDistributionTenantRequest.
 type CFDistributionTenantUpdateRequest struct {
 	XMLName           xml.Name        `xml:"UpdateDistributionTenantRequest"`
 	DistributionId    string          `xml:"DistributionId,omitempty"`
@@ -77,9 +70,7 @@ type CFDistributionTenantSummary struct {
 	Status            string           `xml:"Status,omitempty"`
 }
 
-// CFListDistributionTenantsResult is the ListDistributionTenants output
-// envelope. DistributionTenantList is a flat list whose member element is
-// <DistributionTenantSummary>.
+// DistributionTenantList is a flat list of <DistributionTenantSummary>.
 type CFListDistributionTenantsResult struct {
 	XMLName                xml.Name                      `xml:"ListDistributionTenantsResult"`
 	Xmlns                  string                        `xml:"xmlns,attr,omitempty"`
@@ -87,9 +78,7 @@ type CFListDistributionTenantsResult struct {
 	DistributionTenantList []CFDistributionTenantSummary `xml:"DistributionTenantList>DistributionTenantSummary,omitempty"`
 }
 
-// CFListDistributionTenantsByCustomizationResult is the
-// ListDistributionTenantsByCustomization output envelope — same body shape but
-// a distinct result root element.
+// Same body as ListDistributionTenants under a distinct root element.
 type CFListDistributionTenantsByCustomizationResult struct {
 	XMLName                xml.Name                      `xml:"ListDistributionTenantsByCustomizationResult"`
 	Xmlns                  string                        `xml:"xmlns,attr,omitempty"`
@@ -119,7 +108,6 @@ type CFConnectionGroup struct {
 	IsDefault        bool     `xml:"IsDefault"`
 }
 
-// CFConnectionGroupCreateRequest mirrors CreateConnectionGroupRequest.
 type CFConnectionGroupCreateRequest struct {
 	XMLName         xml.Name `xml:"CreateConnectionGroupRequest"`
 	Name            string   `xml:"Name"`
@@ -128,7 +116,6 @@ type CFConnectionGroupCreateRequest struct {
 	Enabled         *bool    `xml:"Enabled,omitempty"`
 }
 
-// CFConnectionGroupUpdateRequest mirrors UpdateConnectionGroupRequest.
 type CFConnectionGroupUpdateRequest struct {
 	XMLName         xml.Name `xml:"UpdateConnectionGroupRequest"`
 	Ipv6Enabled     *bool    `xml:"Ipv6Enabled,omitempty"`
@@ -176,8 +163,7 @@ type CFTrustStore struct {
 	UseClientCertificateOCSPEndpoint bool     `xml:"UseClientCertificateOCSPEndpoint"`
 }
 
-// CFCaCertificatesBundleSource mirrors the CaCertificatesBundleSource union;
-// the S3-location member is the only variant CloudFront accepts today.
+// The S3-location member is the only variant CloudFront accepts.
 type CFCaCertificatesBundleSource struct {
 	S3Location *CFTrustStoreS3Source `xml:"CaCertificatesBundleS3Location,omitempty"`
 }
@@ -189,7 +175,6 @@ type CFTrustStoreS3Source struct {
 	Version string `xml:"Version,omitempty"`
 }
 
-// CFTrustStoreCreateRequest mirrors CreateTrustStoreRequest.
 type CFTrustStoreCreateRequest struct {
 	XMLName                          xml.Name                      `xml:"CreateTrustStoreRequest"`
 	Name                             string                        `xml:"Name"`
@@ -197,11 +182,8 @@ type CFTrustStoreCreateRequest struct {
 	UseClientCertificateOCSPEndpoint *bool                         `xml:"UseClientCertificateOCSPEndpoint,omitempty"`
 }
 
-// CFTrustStoreUpdateRequest mirrors UpdateTrustStoreRequest. Note:
-// UseClientCertificateOCSPEndpoint is bound to an HTTP header on update.
-// CFTrustStoreUpdateRequest decodes the UpdateTrustStore body, whose root is the
-// CaCertificatesBundleSource payload (it is the operation's httpPayload member;
-// the other inputs ride path/header bindings).
+// The UpdateTrustStore root is the CaCertificatesBundleSource payload
+// (httpPayload); UseClientCertificateOCSPEndpoint rides a header.
 type CFTrustStoreUpdateRequest struct {
 	XMLName    xml.Name              `xml:"CaCertificatesBundleSource"`
 	S3Location *CFTrustStoreS3Source `xml:"CaCertificatesBundleS3Location,omitempty"`
@@ -231,8 +213,7 @@ type cfStoredTrustStore struct {
 	Tags  []CFTag
 }
 
-// CFResourcePolicyRequest covers Get/Put/DeleteResourcePolicy bodies. The SDK
-// wraps the input fields under the operation-named request root.
+// The SDK wraps the inputs under the operation-named request root.
 type CFGetResourcePolicyRequest struct {
 	XMLName     xml.Name `xml:"GetResourcePolicyRequest"`
 	ResourceArn string   `xml:"ResourceArn"`
@@ -362,8 +343,7 @@ type CFVerifyDnsConfigurationResult struct {
 	DnsConfigurationList []CFDnsConfiguration `xml:"DnsConfigurationList>DnsConfiguration,omitempty"`
 }
 
-// CFDistributionIdList projects matching distribution IDs (the DistributionIdList
-// output shape — a flat list of <DistributionId> strings).
+// A flat list of <DistributionId>.
 type CFDistributionIdList struct {
 	XMLName     xml.Name `xml:"DistributionIdList"`
 	Xmlns       string   `xml:"xmlns,attr,omitempty"`
@@ -418,9 +398,7 @@ func cfTrustStoreARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:trust-store/%s", awsAccountID(), id)
 }
 
-// cfDomainResultsFrom projects request DomainItem inputs into DomainResult
-// response shapes (status starts as "active" — the sim has no DNS-verification
-// async lifecycle, so the domain is immediately associated).
+// The simulator models no domain verification, so a domain starts "active".
 func cfDomainResultsFrom(in []CFDomainInput) []CFDomainResult {
 	out := make([]CFDomainResult, 0, len(in))
 	for _, d := range in {
@@ -429,12 +407,6 @@ func cfDomainResultsFrom(in []CFDomainInput) []CFDomainResult {
 	return out
 }
 
-// registerCloudFrontExtras3 mounts the distribution-tenant, connection-group,
-// trust-store, resource-policy, WebACL-association, alias/domain-conflict, the
-// ListDistributionsBy* projections, and the CopyDistribution /
-// UpdateDistributionWithStagingConfig / UpdateAnycastIpList /
-// GetManagedCertificateDetails endpoints onto the same mux. Invoked from
-// registerCloudFront in cloudfront.go.
 func registerCloudFrontExtras3(srv *sim.Server) {
 	cfTenants = sim.MakeStore[cfStoredTenant](srv.DB(), "cloudfront_distribution_tenants")
 	cfConnectionGroups = sim.MakeStore[cfStoredConnectionGroup](srv.DB(), "cloudfront_connection_groups")
@@ -450,13 +422,10 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	tsRes := cloudTrailRESTResource("AWS::CloudFront::TrustStore", "Id")
 	anycastRes := cloudTrailRESTResource("AWS::CloudFront::AnycastIpList", "Id")
 
-	// Distribution variants (CreateDistribution/GetDistribution already live in
-	// cloudfront.go via the dynamic dispatcher; only the copy/promote variants
-	// are added here).
+	// CreateDistribution and GetDistribution live in cloudfront.go.
 	mux.HandleFunc("POST /"+v+"/distribution/{PrimaryDistributionId}/copy", cloudTrailRecordedREST("CopyDistribution", "cloudfront.amazonaws.com", distRes, handleCFCopyDistribution))
 	mux.HandleFunc("PUT /"+v+"/distribution/{id}/promote-staging-config", cloudTrailRecordedREST("UpdateDistributionWithStagingConfig", "cloudfront.amazonaws.com", distRes, handleCFPromoteStagingConfig))
 
-	// Distribution Tenants
 	mux.HandleFunc("POST /"+v+"/distribution-tenant", cloudTrailRecordedREST("CreateDistributionTenant", "cloudfront.amazonaws.com", nil, handleCFCreateTenant))
 	mux.HandleFunc("GET /"+v+"/distribution-tenant", cloudTrailRecordedREST("GetDistributionTenantByDomain", "cloudfront.amazonaws.com", nil, handleCFGetTenantByDomain))
 	mux.HandleFunc("GET /"+v+"/distribution-tenant/{Identifier}", cloudTrailRecordedREST("GetDistributionTenant", "cloudfront.amazonaws.com", tenantRes, handleCFGetTenant))
@@ -470,7 +439,6 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("GET /"+v+"/distribution-tenant/{DistributionTenantId}/invalidation/{Id}", cloudTrailRecordedREST("GetInvalidationForDistributionTenant", "cloudfront.amazonaws.com", tenantRes, handleCFGetTenantInvalidation))
 	mux.HandleFunc("GET /"+v+"/distribution-tenant/{Id}/invalidation", cloudTrailRecordedREST("ListInvalidationsForDistributionTenant", "cloudfront.amazonaws.com", tenantRes, handleCFListTenantInvalidations))
 
-	// Connection Groups
 	mux.HandleFunc("POST /"+v+"/connection-group", cloudTrailRecordedREST("CreateConnectionGroup", "cloudfront.amazonaws.com", nil, handleCFCreateConnectionGroup))
 	mux.HandleFunc("GET /"+v+"/connection-group", cloudTrailRecordedREST("GetConnectionGroupByRoutingEndpoint", "cloudfront.amazonaws.com", nil, handleCFGetConnectionGroupByRoutingEndpoint))
 	mux.HandleFunc("GET /"+v+"/connection-group/{Identifier}", cloudTrailRecordedREST("GetConnectionGroup", "cloudfront.amazonaws.com", cgRes, handleCFGetConnectionGroup))
@@ -478,7 +446,6 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("DELETE /"+v+"/connection-group/{Id}", cloudTrailRecordedREST("DeleteConnectionGroup", "cloudfront.amazonaws.com", cgRes, handleCFDeleteConnectionGroup))
 	mux.HandleFunc("POST /"+v+"/connection-groups", cloudTrailRecordedREST("ListConnectionGroups", "cloudfront.amazonaws.com", nil, handleCFListConnectionGroups))
 
-	// Trust Stores
 	mux.HandleFunc("POST /"+v+"/trust-store", cloudTrailRecordedREST("CreateTrustStore", "cloudfront.amazonaws.com", nil, handleCFCreateTrustStore))
 	mux.HandleFunc("GET /"+v+"/trust-store/{Identifier}", cloudTrailRecordedREST("GetTrustStore", "cloudfront.amazonaws.com", tsRes, handleCFGetTrustStore))
 	mux.HandleFunc("PUT /"+v+"/trust-store/{Id}", cloudTrailRecordedREST("UpdateTrustStore", "cloudfront.amazonaws.com", tsRes, handleCFUpdateTrustStore))
@@ -486,23 +453,19 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("POST /"+v+"/trust-stores", cloudTrailRecordedREST("ListTrustStores", "cloudfront.amazonaws.com", nil, handleCFListTrustStores))
 	mux.HandleFunc("GET /"+v+"/distributionsByTrustStore", cloudTrailRecordedREST("ListDistributionsByTrustStore", "cloudfront.amazonaws.com", nil, handleCFListDistributionsByTrustStore))
 
-	// Resource Policy
 	mux.HandleFunc("POST /"+v+"/get-resource-policy", cloudTrailRecordedREST("GetResourcePolicy", "cloudfront.amazonaws.com", nil, handleCFGetResourcePolicy))
 	mux.HandleFunc("POST /"+v+"/put-resource-policy", cloudTrailRecordedREST("PutResourcePolicy", "cloudfront.amazonaws.com", nil, handleCFPutResourcePolicy))
 	mux.HandleFunc("POST /"+v+"/delete-resource-policy", cloudTrailRecordedREST("DeleteResourcePolicy", "cloudfront.amazonaws.com", nil, handleCFDeleteResourcePolicy))
 
-	// Distribution WebACL associations
 	mux.HandleFunc("PUT /"+v+"/distribution/{id}/associate-web-acl", cloudTrailRecordedREST("AssociateDistributionWebACL", "cloudfront.amazonaws.com", distRes, handleCFAssociateDistributionWebACL))
 	mux.HandleFunc("PUT /"+v+"/distribution/{id}/disassociate-web-acl", cloudTrailRecordedREST("DisassociateDistributionWebACL", "cloudfront.amazonaws.com", distRes, handleCFDisassociateDistributionWebACL))
 
-	// Aliases + conflicts
 	mux.HandleFunc("PUT /"+v+"/distribution/{TargetDistributionId}/associate-alias", cloudTrailRecordedREST("AssociateAlias", "cloudfront.amazonaws.com", distRes, handleCFAssociateAlias))
 	mux.HandleFunc("GET /"+v+"/conflicting-alias", cloudTrailRecordedREST("ListConflictingAliases", "cloudfront.amazonaws.com", nil, handleCFListConflictingAliases))
 	mux.HandleFunc("POST /"+v+"/domain-conflicts", cloudTrailRecordedREST("ListDomainConflicts", "cloudfront.amazonaws.com", nil, handleCFListDomainConflicts))
 	mux.HandleFunc("POST /"+v+"/domain-association", cloudTrailRecordedREST("UpdateDomainAssociation", "cloudfront.amazonaws.com", nil, handleCFUpdateDomainAssociation))
 	mux.HandleFunc("POST /"+v+"/verify-dns-configuration", cloudTrailRecordedREST("VerifyDnsConfiguration", "cloudfront.amazonaws.com", nil, handleCFVerifyDnsConfiguration))
 
-	// ListDistributionsBy* projections over the existing distribution store.
 	mux.HandleFunc("GET /"+v+"/distributionsByCachePolicyId/{CachePolicyId}", cloudTrailRecordedREST("ListDistributionsByCachePolicyId", "cloudfront.amazonaws.com", nil, cfDistsByIDListHandler("CachePolicyId", cfDistMatchesCachePolicy)))
 	mux.HandleFunc("GET /"+v+"/distributionsByOriginRequestPolicyId/{OriginRequestPolicyId}", cloudTrailRecordedREST("ListDistributionsByOriginRequestPolicyId", "cloudfront.amazonaws.com", nil, cfDistsByIDListHandler("OriginRequestPolicyId", cfDistMatchesOriginRequestPolicy)))
 	mux.HandleFunc("GET /"+v+"/distributionsByResponseHeadersPolicyId/{ResponseHeadersPolicyId}", cloudTrailRecordedREST("ListDistributionsByResponseHeadersPolicyId", "cloudfront.amazonaws.com", nil, cfDistsByIDListHandler("ResponseHeadersPolicyId", cfDistMatchesResponseHeadersPolicy)))
@@ -514,7 +477,6 @@ func registerCloudFrontExtras3(srv *sim.Server) {
 	mux.HandleFunc("GET /"+v+"/distributionsByConnectionMode/{ConnectionMode}", cloudTrailRecordedREST("ListDistributionsByConnectionMode", "cloudfront.amazonaws.com", nil, cfDistsByListHandler("ConnectionMode", cfDistMatchesConnectionMode)))
 	mux.HandleFunc("GET /"+v+"/distributionsByOwnedResource/{ResourceArn}", cloudTrailRecordedREST("ListDistributionsByOwnedResource", "cloudfront.amazonaws.com", nil, handleCFListDistributionsByOwnedResource))
 
-	// Anycast IP List update + managed certificate details
 	mux.HandleFunc("PUT /"+v+"/anycast-ip-list/{Id}", cloudTrailRecordedREST("UpdateAnycastIpList", "cloudfront.amazonaws.com", anycastRes, handleCFUpdateAnycastIpList))
 	mux.HandleFunc("GET /"+v+"/managed-certificate/{Identifier}", cloudTrailRecordedREST("GetManagedCertificateDetails", "cloudfront.amazonaws.com", nil, handleCFGetManagedCertificateDetails))
 }
@@ -713,8 +675,8 @@ func handleCFListTenantsByCustomization(w http.ResponseWriter, r *http.Request) 
 		CertificateArn string   `xml:"CertificateArn"`
 	}
 	_ = xml.NewDecoder(r.Body).Decode(&req)
-	// The sim models no customization blocks on tenants, so a customization
-	// filter matches nothing (honest empty); an unfiltered call lists all.
+	// Tenants carry no customizations in the simulator, so a customization filter
+	// matches nothing.
 	stored := cfTenants.List()
 	if req.WebACLArn != "" || req.CertificateArn != "" {
 		stored = nil
@@ -725,7 +687,6 @@ func handleCFListTenantsByCustomization(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// cfTenantSummaries projects stored tenants into their list-summary shape.
 func cfTenantSummaries(stored []cfStoredTenant) []CFDistributionTenantSummary {
 	items := []CFDistributionTenantSummary{}
 	for _, s := range stored {
@@ -1072,8 +1033,7 @@ func handleCFListTrustStores(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleCFListDistributionsByTrustStore(w http.ResponseWriter, r *http.Request) {
-	// No distribution references a trust store in the sim model, so this is an
-	// honest empty distribution list (the trust store must exist).
+	// No distribution references a trust store in the simulator.
 	cfWriteDistributionList(w, nil)
 }
 
@@ -1265,8 +1225,6 @@ func handleCFVerifyDnsConfiguration(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cfWriteDistributionList renders the full DistributionList shape for the
-// matching distributions.
 func cfWriteDistributionList(w http.ResponseWriter, matches []cfStoredDistribution) {
 	items := []CFDistributionSummary{}
 	for _, stored := range matches {
@@ -1280,7 +1238,6 @@ func cfWriteDistributionList(w http.ResponseWriter, matches []cfStoredDistributi
 	})
 }
 
-// cfDistributionSummaryOf projects a Distribution into its list summary shape.
 func cfDistributionSummaryOf(d CFDistribution) CFDistributionSummary {
 	c := d.DistributionConfig
 	s := CFDistributionSummary{
@@ -1316,11 +1273,8 @@ func cfDistributionSummaryOf(d CFDistribution) CFDistributionSummary {
 	return s
 }
 
-// cfDistMatcher reports whether a distribution references the given resource id.
 type cfDistMatcher func(id string, d CFDistribution) bool
 
-// cfDistsByIDListHandler builds a handler that projects matching distributions
-// into the DistributionIdList shape, keyed on the named path value.
 func cfDistsByIDListHandler(pathParam string, match cfDistMatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue(pathParam)
@@ -1340,8 +1294,6 @@ func cfDistsByIDListHandler(pathParam string, match cfDistMatcher) http.HandlerF
 	}
 }
 
-// cfDistsByListHandler builds a handler that projects matching distributions
-// into the full DistributionList shape, keyed on the named path value.
 func cfDistsByListHandler(pathParam string, match cfDistMatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue(pathParam)
@@ -1355,7 +1307,7 @@ func cfDistsByListHandler(pathParam string, match cfDistMatcher) http.HandlerFun
 	}
 }
 
-// cfBehaviors iterates the default cache behavior plus every ordered behavior.
+// The default cache behavior first, then the ordered ones.
 func cfBehaviors(d CFDistribution) []CFCacheBehavior {
 	out := []CFCacheBehavior{d.DistributionConfig.DefaultCacheBehavior}
 	if cb := d.DistributionConfig.CacheBehaviors; cb != nil {
@@ -1406,9 +1358,7 @@ func cfDistMatchesKeyGroup(id string, d CFDistribution) bool {
 }
 
 func cfDistMatchesVpcOrigin(id string, d CFDistribution) bool {
-	// The distribution Origin shape the sim models does not carry a
-	// VpcOriginConfig block, so no stored distribution references a VPC origin
-	// by id — an honest empty projection.
+	// The modelled Origin carries no VpcOriginConfig, so nothing matches.
 	_ = id
 	_ = d
 	return false
@@ -1418,15 +1368,11 @@ func cfDistMatchesWebACL(id string, d CFDistribution) bool {
 	return d.DistributionConfig.WebACLId == id
 }
 
-// cfDistMatchesAnycastIpList selects the distributions served from one Anycast
-// static IP list, which a distribution names in its own configuration.
 func cfDistMatchesAnycastIpList(id string, d CFDistribution) bool {
 	return d.DistributionConfig.AnycastIpListId == id
 }
 
-// cfDistMatchesConnectionMode selects the distributions in one connection mode.
-// A configuration that names no mode is direct, which is the service's default,
-// so an unset mode is matched by "direct" and by nothing else.
+// An unset mode is the service default, "direct".
 func cfDistMatchesConnectionMode(mode string, d CFDistribution) bool {
 	configured := d.DistributionConfig.ConnectionMode
 	if configured == "" {
@@ -1455,8 +1401,7 @@ func handleCFListDistributionsByRealtimeLogConfig(w http.ResponseWriter, r *http
 }
 
 func handleCFListDistributionsByOwnedResource(w http.ResponseWriter, r *http.Request) {
-	// No distribution in the sim is owned through a delegated resource, so this
-	// is an honest empty owner list.
+	// No distribution is owned through a delegated resource in the simulator.
 	cfWriteXML(w, http.StatusOK, CFDistributionIdOwnerList{
 		Xmlns:    cfNamespace,
 		Marker:   "",
@@ -1480,8 +1425,7 @@ func handleCFUpdateAnycastIpList(w http.ResponseWriter, r *http.Request) {
 		XMLName       xml.Name `xml:"UpdateAnycastIpListRequest"`
 		IpAddressType string   `xml:"IpAddressType"`
 	}
-	// Every body field is optional; the CLI sends an empty body when only the
-	// path Id + If-Match header change, so an EOF (empty body) is valid.
+	// The CLI sends an empty body when only the Id and If-Match change.
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateAnycastIpListRequest: "+err.Error())
 		return

@@ -55,10 +55,9 @@ case "$SOURCE" in
     UPSTREAM_PATH="\$discovery/rest?version=$VERSION"
     ;;
   central)
-    # The service name, not the host: a document the central index alone serves
-    # is fetched with the host already set to www.googleapis.com, and deriving
-    # the service from that asks for `apis/www/<version>`. Compute Engine is
-    # exactly that shape, and the 404 aborted every scheduled Google refresh.
+    # The service name, not the host: a document only the central index serves
+    # is fetched with the host set to www.googleapis.com (Compute Engine), and
+    # deriving the service from that would ask for `apis/www/<version>`.
     SVC="${NAME:-${HOST%%.googleapis.com}}"
     URL="https://www.googleapis.com/discovery/v1/apis/$SVC/$VERSION/rest"
     UPSTREAM_HOST="www.googleapis.com"

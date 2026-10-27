@@ -5,12 +5,10 @@ import (
 	"testing"
 )
 
-// TestDynamoDBCLI_ExpressionsFailLoud is lever 2 of the #652 "silent
-// incompleteness" prevention work, exercised through the aws CLI: a malformed
-// expression, or one referencing an undefined :value, must fail with a
-// ValidationException rather than returning an empty result that reads as "no
-// data". Uses CombinedOutput directly because the calls are expected to exit
-// non-zero (runCLI fatals on a non-zero exit).
+// TestDynamoDBCLI_ExpressionsFailLoud expects a malformed expression, or one
+// naming an undefined :value, to fail with ValidationException rather than
+// return an empty result. runCLI fails the test on a non-zero exit, so the
+// calls use CombinedOutput.
 func TestDynamoDBCLI_ExpressionsFailLoud(t *testing.T) {
 	t.Parallel()
 	table := "cli-ddb-failloud"
@@ -23,7 +21,6 @@ func TestDynamoDBCLI_ExpressionsFailLoud(t *testing.T) {
 		_ = awsCLI("dynamodb", "delete-table", "--table-name", table).Run()
 	})
 
-	// Malformed FilterExpression.
 	out, err := awsCLI("dynamodb", "scan",
 		"--table-name", table,
 		"--filter-expression", "PK ==").CombinedOutput()
@@ -34,8 +31,6 @@ func TestDynamoDBCLI_ExpressionsFailLoud(t *testing.T) {
 		t.Fatalf("expected ValidationException; got:\n%s", out)
 	}
 
-	// FilterExpression referencing an undefined :value would otherwise silently
-	// return zero items.
 	out, err = awsCLI("dynamodb", "scan",
 		"--table-name", table,
 		"--filter-expression", "PK = :missing").CombinedOutput()

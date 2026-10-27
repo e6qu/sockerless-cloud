@@ -8,9 +8,9 @@ the credentials. Behind the APIs the work is real: a Lambda function runs in
 its own execution environment, a Cloud Run job runs one container per task, an
 Azure virtual machine boots, a Cloud SQL instance is a real PostgreSQL.
 
-Three clouds built side by side show what a cloud is made of. The same dozen
-mechanisms turn up under every vendor's names, and once a mechanism exists
-once, each cloud's service on top of it is mostly wire shapes. This post
+Building three clouds side by side shows what a cloud is made of. The same
+dozen mechanisms turn up under every vendor's names, and once a mechanism
+exists, each cloud's service on top of it is mostly wire shapes. This post
 covers, in order:
 - how a cloud's own API specification becomes the contract;
 - the services a cloud cannot do without, and the APIs to build first;
@@ -255,7 +255,7 @@ The glue between services, and the place where three clouds look most alike.
 - **Logs**: Amazon CloudWatch Logs, Cloud Logging, Azure Monitor Logs (Log
   Analytics). Library: `sim/logstore`.
 - **Metrics and alarms**: Amazon CloudWatch metrics and alarms, Azure Monitor
-  metrics. Cloud Monitoring is not served yet.
+  metrics. Cloud Monitoring is not served.
 - **Audit**: AWS CloudTrail, Cloud Audit Logs, the Azure Activity Log.
 
 ### Beyond the core
@@ -296,7 +296,7 @@ pages** (every `Describe*` and `list` call, and every data source).
 
 ## The library map
 
-The 35 packages under `sim/`, by the layer they serve:
+The packages under `sim/`, by the layer they serve:
 
 | Layer | Packages |
 |---|---|
@@ -311,8 +311,8 @@ The 35 packages under `sim/`, by the layer they serve:
 
 [`sim/README.md`](../sim/README.md) describes each one, and
 [Architecture](architecture.md) shows how they fit together. Each package
-states its contract in its package documentation and proves it
-in unit tests without a simulator. Each consumer keeps its SDK, CLI and
+states its contract in its package documentation and proves it in unit tests
+without a simulator. Each consumer keeps its SDK, CLI and
 Terraform tests, which show that moving a cloud onto a library changed no
 wire behaviour.
 
@@ -374,13 +374,14 @@ flowchart LR
 - **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric
   alert rules, so nothing on Azure can alarm on a metric.
 - **Filestore.** Google Cloud has no managed file share.
-- **Authorization outside AWS.** Every simulator verifies every credential,
-  but only AWS evaluates its policy language on every call. Google Cloud
-  applies IAM policies in four places and Azure applies Azure RBAC to Key
-  Vault data actions only ([Identity and access](iam.md) lists where). The
-  fix is the gate AWS has: derive each operation's permission or action from
-  the specification, evaluate the resource hierarchy's policies or role
-  assignments, and refuse.
+- **Authorization on Google Cloud.** Every simulator verifies every
+  credential, but Google Cloud applies IAM policies in four places only
+  ([Identity and access](iam.md) lists where). AWS evaluates its policy
+  language on every call and Azure evaluates Azure RBAC on every Azure
+  Resource Manager operation and on the Storage, Key Vault and Event Grid
+  data actions. The fix is the gate those two have: derive each method's
+  permission from the specification, evaluate the resource hierarchy's
+  policies, and refuse.
 
 ### Extractions, ranked by value over effort
 
@@ -395,7 +396,7 @@ Mechanisms two or three clouds still implement separately (`PLAN.md`, M3):
 3. **Time-bounded soft delete.** Key Vault, AWS KMS pending deletion, Secrets
    Manager recovery windows, Cloud Storage soft delete, Cloud KMS version
    destruction, Blob and Files soft delete, the EC2 Recycle Bin.
-4. **Simulated certificate authority.** Nine sites call
+4. **Simulated certificate authority.** Ten sites call
    `x509.CreateCertificate` on their own.
 5. **Versioned secrets.** Versions, stages and password generation shared by
    Secrets Manager, Parameter Store, Secret Manager and Key Vault.
@@ -430,7 +431,7 @@ relying on a row.
 | **License and cost** | AGPL-3.0, no account or token | One image, which needs an account and an auth token since 23 March 2026; a free Hobby tier for non-commercial use, paid Base, Ultimate and Enterprise tiers for commercial use | MIT, no account or token |
 | **Clouds** | AWS, Google Cloud and Azure, one Go binary each | AWS; LocalStack for Azure in public preview; Snowflake | AWS (`floci`), with sibling emulators for Azure (`floci-az`), Google Cloud (`floci-gcp`) and Oracle Cloud (`floci-oci`) |
 | **Built with** | Go, on a shared `sim` framework | Python | Java on Quarkus, compiled to a GraalVM native image |
-| **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
+| **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,678 of 2,685 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
 | **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
 | **Authentication** | SigV4 verified on AWS requests and an IAM gate on every operation; Google Cloud and Azure verify every token, and enforce authorization in fewer places ([Identity and access](iam.md)) | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
 | **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Valkey, Redis and Memcached for the managed caches, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
@@ -560,9 +561,10 @@ Where each one fits:
   features such as Cloud Pods, and per-tier services. Commercial use needs a
   paid plan.
 - **Floci** is the fast, MIT-licensed AWS stand-in with a wide AWS service
-  list and a small native-image footprint. It runs more of AWS's
-  heavy services on real engines than sockerless-cloud does today. Its compatibility tests check the SDK and
-  IaC calls they exercise; by default it accepts any credentials.
+  list and a small native-image footprint. It runs more of AWS's heavy
+  services on real engines than sockerless-cloud does. Its compatibility tests
+  check the SDK and IaC calls they exercise; by default it accepts any
+  credentials.
 - **sockerless-cloud** is narrower per cloud and trades breadth for a contract:
   each operation it serves is checked against the cloud's own specification,
   signed and authorized as the cloud would, exercised through three real

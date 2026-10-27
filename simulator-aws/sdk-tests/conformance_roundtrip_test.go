@@ -46,8 +46,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CreateAutoScalingGroup then DescribeAutoScalingGroups must surface the
-// group ARN and the (defaulted) HealthCheckType, which terraform reads back.
+// DescribeAutoScalingGroups returns the group ARN and the defaulted
+// HealthCheckType terraform reads back.
 func TestConformanceAutoScalingGroupARNAndHealthCheck(t *testing.T) {
 	t.Parallel()
 	c := autoScalingClient()
@@ -104,8 +104,7 @@ func TestConformanceAutoScalingGroupARNAndHealthCheck(t *testing.T) {
 	assert.Equal(t, "EC2", aws.ToString(g.HealthCheckType))
 }
 
-// SubmitJob then DescribeJobs must return the same jobArn DescribeJobs is
-// expected to echo (terraform/SDK read it back).
+// DescribeJobs returns the jobArn SubmitJob answered with.
 func TestConformanceBatchDescribeJobsArn(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
@@ -168,8 +167,8 @@ func TestConformanceBatchDescribeJobsArn(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(desc.Jobs[0].JobArn), "DescribeJobs must return jobArn")
 }
 
-// CreateRestApi must surface the auto-created root resource id, and that id
-// must be usable as a CreateResource ParentId.
+// CreateRestApi returns the root resource id it creates, which CreateResource
+// takes as ParentId.
 func TestConformanceAPIGatewayRootResourceId(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
@@ -199,7 +198,6 @@ func TestConformanceAPIGatewayRootResourceId(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(child.Id))
 }
 
-// CreateApi (HTTP) must return ApiEndpoint.
 func TestConformanceAPIGatewayV2ApiEndpoint(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
@@ -217,8 +215,8 @@ func TestConformanceAPIGatewayV2ApiEndpoint(t *testing.T) {
 	assert.Contains(t, aws.ToString(create.ApiEndpoint), apiId)
 }
 
-// RequestCertificate without Options must default CT logging to ENABLED, and
-// DescribeCertificate must return it.
+// RequestCertificate without Options defaults CT logging to ENABLED, as
+// DescribeCertificate reports.
 func TestConformanceACMDefaultCertificateOptions(t *testing.T) {
 	t.Parallel()
 	c := acmClient()
@@ -242,8 +240,7 @@ func TestConformanceACMDefaultCertificateOptions(t *testing.T) {
 		desc.Certificate.Options.CertificateTransparencyLoggingPreference)
 }
 
-// CreateStream (unencrypted) then DescribeStreamSummary must report
-// EncryptionType=NONE, not the empty stored value.
+// An unencrypted stream reports EncryptionType=NONE, not an empty value.
 func TestConformanceKinesisEncryptionTypeNone(t *testing.T) {
 	t.Parallel()
 	c := kinesisClient()
@@ -266,9 +263,8 @@ func TestConformanceKinesisEncryptionTypeNone(t *testing.T) {
 	assert.Empty(t, strings.TrimSpace(aws.ToString(summary.StreamDescriptionSummary.KeyId)))
 }
 
-// CreateFunction (Image package) with ImageConfig then GetFunction must
-// surface the image config under ImageConfigResponse, the field the SDK
-// FunctionConfiguration shape reads.
+// GetFunction returns an Image function's image config under
+// ImageConfigResponse, the field the SDK's FunctionConfiguration reads.
 func TestConformanceLambdaImageConfigResponse(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
@@ -301,9 +297,9 @@ func TestConformanceLambdaImageConfigResponse(t *testing.T) {
 	assert.Equal(t, []string{"x"}, out.Configuration.ImageConfigResponse.ImageConfig.EntryPoint)
 }
 
-// UpdateItem must honor ReturnValues: default NONE returns no Attributes,
-// ALL_NEW the full new item, UPDATED_NEW only the changed attrs, ALL_OLD
-// the pre-update item.
+// UpdateItem honours ReturnValues: the default NONE returns no Attributes,
+// ALL_NEW the new item, UPDATED_NEW the changed attributes, ALL_OLD the
+// pre-update item.
 func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -337,7 +333,6 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 		"id": &ddbtypes.AttributeValueMemberS{Value: "k1"},
 	}
 
-	// Default ReturnValues (NONE) -> no Attributes.
 	noneOut, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       key,
@@ -348,7 +343,6 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, noneOut.Attributes, "default ReturnValues NONE must return no Attributes")
 
-	// ALL_NEW -> full new item.
 	allNewOut, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       key,
@@ -364,7 +358,6 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "n2", valNew.Value)
 
-	// UPDATED_NEW -> only the changed attr (val), with the new value.
 	updNewOut, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       key,
@@ -381,7 +374,7 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "n3", valUpd.Value)
 
-	// ALL_OLD -> pre-update item (val == n3 before this update).
+	// val was n3 before this update.
 	allOldOut, err := c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       key,
@@ -396,8 +389,8 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 	assert.Equal(t, "n3", valOld.Value, "ALL_OLD must return the pre-update value")
 }
 
-// PutTargets with structured target parameters then ListTargetsByRule must
-// round-trip EcsParameters and RetryPolicy, which terraform reads back.
+// ListTargetsByRule returns the EcsParameters and RetryPolicy terraform reads
+// back.
 func TestConformanceEventBridgeTargetParameters(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -460,10 +453,9 @@ func TestConformanceEventBridgeTargetParameters(t *testing.T) {
 	assert.Equal(t, int32(2), aws.ToInt32(tgt.RetryPolicy.MaximumRetryAttempts))
 }
 
-// DescribeLoadBalancers/TargetGroups/Listeners with an explicit identifier
-// that does not exist must raise the typed NotFound exception, not return an
-// empty 200. A no-filter Describe (list all) must still succeed with whatever
-// is present.
+// Describing a load balancer, target group or listener by an identifier that
+// does not exist raises the typed NotFound exception, not an empty 200, while
+// an unfiltered Describe succeeds.
 func TestConformanceELBv2DescribeMissingExplicitIdentifier(t *testing.T) {
 	t.Parallel()
 	c := elbv2Client()
@@ -498,7 +490,6 @@ func TestConformanceELBv2DescribeMissingExplicitIdentifier(t *testing.T) {
 	require.True(t, errors.As(err, &lsnNotFound),
 		"DescribeListeners with a missing ARN must raise ListenerNotFoundException, got %v", err)
 
-	// A no-filter Describe (list all) must NOT error even when nothing matches.
 	_, err = c.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{})
 	require.NoError(t, err, "DescribeLoadBalancers with no filter must not error")
 	_, err = c.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{})
@@ -509,8 +500,8 @@ func TestConformanceELBv2DescribeMissingExplicitIdentifier(t *testing.T) {
 	require.NoError(t, err, "DescribeListeners filtered by LoadBalancerArn must not error")
 }
 
-// DescribeServices against a cluster that does not exist must short-circuit
-// with ClusterNotFoundException, not return per-service MISSING failures.
+// DescribeServices on a missing cluster raises ClusterNotFoundException rather
+// than per-service MISSING failures.
 func TestConformanceECSDescribeServicesGhostCluster(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -525,8 +516,6 @@ func TestConformanceECSDescribeServicesGhostCluster(t *testing.T) {
 		"DescribeServices against a missing cluster must raise ClusterNotFoundException, got %v", err)
 }
 
-// CreateRole with a name that already exists must raise
-// EntityAlreadyExistsException on the second call.
 func TestConformanceIAMCreateRoleDuplicate(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -552,8 +541,8 @@ func TestConformanceIAMCreateRoleDuplicate(t *testing.T) {
 		"CreateRole with a duplicate name must raise EntityAlreadyExistsException, got %v", err)
 }
 
-// Batch client errors must be typed as ClientException so the restJson1 SDK
-// classifies them rather than falling back to a generic error.
+// AWS Batch client errors are typed ClientException, which the restJson1 SDK
+// classifies.
 func TestConformanceBatchTypedClientException(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
@@ -582,8 +571,8 @@ func TestConformanceBatchTypedClientException(t *testing.T) {
 		"Batch client error must be typed as ClientException, got %v", err)
 }
 
-// servicediscovery GetService for a missing id must return HTTP 400 (modeled
-// awsJson1.1 exception) and deserialize to the typed ServiceNotFound.
+// GetService for a missing id answers HTTP 400 with the modeled awsJson1.1
+// exception, which deserializes to ServiceNotFound.
 func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
 	t.Parallel()
 	c := cmClient()
@@ -603,8 +592,6 @@ func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
 		"servicediscovery modeled errors must be HTTP 400, not 404")
 }
 
-// CreateWebACL with a name+scope that already exists must raise
-// WAFDuplicateItemException on the second call.
 func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -635,15 +622,14 @@ func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 		"CreateWebACL with a duplicate name+scope must raise WAFDuplicateItemException, got %v", err)
 }
 
-// Each list op below honors an explicit page-size param (MaxItems / MaxResults
-// / MaxRecords / Limit): page-size=1 returns exactly one item plus a non-empty
-// continuation token, following that token returns the rest and clears it, and
-// omitting the page-size returns the full list with no token. Where the op's
-// result set is process-global, the token-clear assertion is replaced by a
-// "more on the next page" assertion to stay deterministic under parallel tests.
+// Each list operation below honours its page-size parameter: a page of one
+// returns one item and a continuation token, following the token returns the
+// rest and clears it, and no page size returns the whole list without a token.
+// Where the result set is process-global, the parallel suite allows only a
+// "more on the next page" assertion in place of the token clearing.
 
-// IAM ListAttachedRolePolicies is role-scoped, so the two attachments are the
-// whole result set and pagination round-trips exactly.
+// ListAttachedRolePolicies is role-scoped, so the two attachments are the
+// whole result set.
 func TestConformanceIAMListAttachedRolePoliciesPagination(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -670,7 +656,6 @@ func TestConformanceIAMListAttachedRolePoliciesPagination(t *testing.T) {
 		})
 	}
 
-	// Guardrail: no MaxItems => full list, no marker.
 	full, err := c.ListAttachedRolePolicies(ctx, &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(role)})
 	require.NoError(t, err)
 	require.Len(t, full.AttachedPolicies, 2)
@@ -698,7 +683,7 @@ func TestConformanceIAMListAttachedRolePoliciesPagination(t *testing.T) {
 		"the second page must surface the other attachment")
 }
 
-// IAM ListPolicies is account-global; assert the structural page-size contract.
+// ListPolicies is account-global, so assert the structural contract.
 func TestConformanceIAMListPoliciesPagination(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -728,7 +713,7 @@ func TestConformanceIAMListPoliciesPagination(t *testing.T) {
 	assert.NotEqual(t, aws.ToString(page1.Policies[0].Arn), aws.ToString(page2.Policies[0].Arn))
 }
 
-// IAM ListInstanceProfiles is account-global; assert the structural contract.
+// ListInstanceProfiles is account-global, so assert the structural contract.
 func TestConformanceIAMListInstanceProfilesPagination(t *testing.T) {
 	t.Parallel()
 	c := iamClient()
@@ -755,8 +740,8 @@ func TestConformanceIAMListInstanceProfilesPagination(t *testing.T) {
 		aws.ToString(page2.InstanceProfiles[0].InstanceProfileName))
 }
 
-// EventBridge ListRules is event-bus-scoped, so a fresh bus with two rules is
-// the whole result set and pagination round-trips exactly.
+// ListRules is event-bus-scoped, so a fresh bus's two rules are the whole
+// result set.
 func TestConformanceEventBridgeListRulesPagination(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -777,7 +762,6 @@ func TestConformanceEventBridgeListRulesPagination(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = eb.DeleteEventBus(ctx, &eventbridge.DeleteEventBusInput{Name: aws.String(bus)}) })
 
-	// Guardrail: no Limit => full list, no token.
 	full, err := eb.ListRules(ctx, &eventbridge.ListRulesInput{EventBusName: aws.String(bus)})
 	require.NoError(t, err)
 	require.Len(t, full.Rules, 2)
@@ -797,8 +781,8 @@ func TestConformanceEventBridgeListRulesPagination(t *testing.T) {
 	assert.NotEqual(t, aws.ToString(page1.Rules[0].Name), aws.ToString(page2.Rules[0].Name))
 }
 
-// Batch DescribeComputeEnvironments list-all path is process-global; assert the
-// structural page-size contract.
+// DescribeComputeEnvironments lists process-global results, so assert the
+// structural contract.
 func TestConformanceBatchDescribeComputeEnvironmentsPagination(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
@@ -835,8 +819,8 @@ func TestConformanceBatchDescribeComputeEnvironmentsPagination(t *testing.T) {
 		aws.ToString(page2.ComputeEnvironments[0].ComputeEnvironmentName))
 }
 
-// EC2 Auto Scaling DescribeAutoScalingGroups list-all path is process-global;
-// assert the structural MaxRecords/NextToken contract.
+// DescribeAutoScalingGroups lists process-global results, so assert the
+// structural MaxRecords and NextToken contract.
 func TestConformanceAutoScalingDescribeGroupsPagination(t *testing.T) {
 	t.Parallel()
 	c := autoScalingClient()
@@ -881,8 +865,8 @@ func TestConformanceAutoScalingDescribeGroupsPagination(t *testing.T) {
 		aws.ToString(page2.AutoScalingGroups[0].AutoScalingGroupName))
 }
 
-// Application Auto Scaling DescribeScalableTargets is namespace+resource
-// scoped, so the two targets are the whole result set and round-trip exactly.
+// DescribeScalableTargets is namespace and resource scoped, so the two targets
+// are the whole result set.
 func TestConformanceAppAutoScalingDescribeTargetsPagination(t *testing.T) {
 	t.Parallel()
 	c := appAutoScalingClient()
@@ -930,8 +914,8 @@ func TestConformanceAppAutoScalingDescribeTargetsPagination(t *testing.T) {
 		aws.ToString(page2.ScalableTargets[0].ResourceId))
 }
 
-// EFS DescribeAccessPoints is file-system-scoped, so the two access points are
-// the whole result set and pagination round-trips exactly (NextToken scheme).
+// DescribeAccessPoints is file-system-scoped, so the two access points are the
+// whole result set.
 func TestConformanceEFSDescribeAccessPointsPagination(t *testing.T) {
 	t.Parallel()
 	c := efsClient()
@@ -973,8 +957,8 @@ func TestConformanceEFSDescribeAccessPointsPagination(t *testing.T) {
 		aws.ToString(page2.AccessPoints[0].AccessPointId))
 }
 
-// EFS DescribeFileSystems list-all path is process-global; assert the
-// structural Marker/MaxItems/NextMarker contract.
+// DescribeFileSystems lists process-global results, so assert the structural
+// Marker, MaxItems and NextMarker contract.
 func TestConformanceEFSDescribeFileSystemsPagination(t *testing.T) {
 	t.Parallel()
 	c := efsClient()
@@ -1003,8 +987,8 @@ func TestConformanceEFSDescribeFileSystemsPagination(t *testing.T) {
 		aws.ToString(page2.FileSystems[0].FileSystemId))
 }
 
-// CloudTrail LookupEvents draws on a process-global, time-ordered event log;
-// assert the structural MaxResults/NextToken contract.
+// LookupEvents reads a process-global, time-ordered event log, so assert the
+// structural MaxResults and NextToken contract.
 func TestConformanceCloudTrailLookupEventsPagination(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()

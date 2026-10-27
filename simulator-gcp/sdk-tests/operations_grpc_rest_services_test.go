@@ -19,10 +19,9 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// grpcOperation reads an operation over the google.longrunning.Operations gRPC
-// service and unwraps its response and metadata into the messages the method's
-// operation_info declares — which fails unless the operation carries exactly
-// those.
+// grpcOperation unwraps the response and metadata into the messages the
+// method's operation_info declares, which fails unless the operation carries
+// exactly those.
 func grpcOperation(t *testing.T, ops longrunningpb.OperationsClient, name string, response, metadata proto.Message) {
 	t.Helper()
 	op, err := ops.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: name})
@@ -33,10 +32,9 @@ func grpcOperation(t *testing.T, ops longrunningpb.OperationsClient, name string
 }
 
 // TestOperations_RESTServiceOperationsReadOverGRPC starts operations through
-// the REST surfaces of Memorystore for Redis, Memorystore for Redis Cluster,
-// Artifact Registry and API Gateway, and reads each back over gRPC with the
-// response and metadata messages its method declares — naming the method it
-// ran and the resource it acted on, for deletes too.
+// the REST surfaces of Memorystore for Redis and Redis Cluster, Artifact
+// Registry and API Gateway, and reads each over gRPC with the declared response
+// and metadata, naming the method and its resource, deletes included.
 func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 	t.Parallel()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)

@@ -11,7 +11,7 @@ import (
 )
 
 // createStackWebApp creates a Linux plan and a Linux web app on the built-in
-// runtime stack linuxFxVersion names, with the given app settings.
+// stack linuxFxVersion names.
 func createStackWebApp(t *testing.T, rg, name, linuxFxVersion string, appSettings map[string]string) *armappservice.WebAppsClient {
 	t.Helper()
 	ensureRG(t, rg)
@@ -52,10 +52,9 @@ func createStackWebApp(t *testing.T, rg, name, linuxFxVersion string, appSetting
 	return client
 }
 
-// A Linux web app on NODE|20-lts runs the platform's Node image. With nothing
-// deployed it serves the platform's default page; once an MSDeploy package
-// lands, the deployment restarts the site and the image runs the deployed
-// server.js.
+// A Linux web app on NODE|20-lts runs the platform's Node image: with nothing
+// deployed it serves the default page, and an MSDeploy package restarts the
+// site to run the deployed server.js.
 func TestSDK_WebApps_NodeStackRunsTheDeployedContent(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-node-stack-rg", "sdk-node-stack-app"
@@ -82,8 +81,8 @@ func TestSDK_WebApps_NodeStackRunsTheDeployedContent(t *testing.T) {
 }
 
 // A Linux web app on PYTHON|3.12 whose WEBSITE_RUN_FROM_PACKAGE names a
-// package URL runs that package: the image detects app.py and serves its WSGI
-// app with gunicorn.
+// package URL runs that package: the image finds app.py and serves its WSGI app
+// with gunicorn.
 func TestSDK_WebApps_PythonStackRunsFromPackage(t *testing.T) {
 	t.Parallel()
 	pkg := makeJobsZip(t, map[string]string{
@@ -102,9 +101,8 @@ func TestSDK_WebApps_PythonStackRunsFromPackage(t *testing.T) {
 	assert.Equal(t, "python 3.12 /run-from-package", string(body))
 }
 
-// A site the simulator has nothing to run for — a function app that names
-// neither a built-in stack nor a container image, here — answers 503 naming
-// what it lacks, never a made-up success.
+// A function app naming neither a built-in stack nor a container image has
+// nothing to run, and answers 503 naming what it lacks.
 func TestSDK_WebApps_SiteWithNothingToRunAnswersServiceUnavailable(t *testing.T) {
 	t.Parallel()
 	rg, name := "func-nothing-rg", "nothing-func-app"

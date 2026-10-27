@@ -12,13 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// A subnet declared inline on a virtual network is created, not dropped.
-//
-// Real Azure creates the subnets supplied in the `subnets` member of a virtual
-// network PUT — it is what `az network vnet create --subnet-name` sends — and
-// the simulator only re-collected rows that already existed, so an inline
-// subnet was silently dropped and a later read 404ed while the create had
-// answered 200.
+// A subnet declared inline on a virtual network PUT, as `az network vnet create
+// --subnet-name` sends it, is created.
 func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
@@ -29,7 +24,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	t.Cleanup(bg.Await)
 
 	now := time.Now().UTC()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint an ARM token: %v", err)
 	}
@@ -48,7 +43,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 		return rec
 	}
 
-	const base = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/inline-subnet-rg"
+	const base = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/inline-subnet-rg"
 	if rec := arm(http.MethodPut, base+"?api-version=2023-07-01", `{"location":"eastus"}`); rec.Code >= 300 {
 		t.Fatalf("create resource group: status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -61,8 +56,7 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 
 	created := arm(http.MethodPut, vnetURL, payload)
 
-	// The network comes back with its subnet embedded, and the subnet stands
-	// on its own resource exactly as if its standalone PUT had created it.
+	// The subnet stands on its own resource as if its standalone PUT created it.
 	if created.Code != http.StatusOK {
 		t.Fatalf("create the network with its inline subnet: status %d: %s", created.Code, created.Body.String())
 	}

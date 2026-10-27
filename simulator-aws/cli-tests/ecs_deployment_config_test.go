@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECSCLI_DeploymentConfiguration drives the deployment-configuration
-// runtime via the AWS CLI: a real failed task trips a count-based circuit
-// breaker, and the service returns to its last completed task definition.
+// TestECSCLI_DeploymentConfiguration expects a failed task to trip a
+// count-based circuit breaker that returns the service to its last completed
+// task definition.
 func TestECSCLI_DeploymentConfiguration(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-deploycfg-cluster"

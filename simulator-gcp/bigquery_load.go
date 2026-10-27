@@ -405,7 +405,6 @@ func bqInsertURILoadJob(r *http.Request, project string, req BQJob) (storedBQJob
 	})
 }
 
-// bqSplitGCSURI splits a gs:// URI into its bucket and object name.
 func bqSplitGCSURI(uri string) (bucket, object string, ok bool) {
 	rest, found := strings.CutPrefix(uri, "gs://")
 	if !found {

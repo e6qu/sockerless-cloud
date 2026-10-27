@@ -9,14 +9,11 @@ import (
 	"testing"
 )
 
-// The cap these tests exercise is two gibibytes, and reaching it costs that
-// much memory: proving it at full size peaked at 7.7 GiB of resident memory
-// under the race detector, more than the 7 GiB a hosted runner has, which is
-// what had been killing the race job. The property is the boundary — a body of
-// exactly the cap is returned whole, one byte more is refused rather than
-// truncated, on the plain path and after inflation alike — and a boundary is
-// proved at any size, so these supply a small cap and assert both of its sides
-// exactly, which the full-size version could never afford to do.
+// The served cap is two gibibytes, and proving it at full size takes that
+// much memory and more under the race detector. The property is the boundary
+// — a body of exactly the cap returns whole, one byte more is refused rather
+// than truncated, on the plain path and after inflation alike — so these
+// tests supply a small cap and assert both of its sides exactly.
 const ociTestBodyLimit = 1 << 16 // 64 KiB
 
 // TestOCIReadBodyRejectsGzipBomb verifies the gunzip path is bounded: a tiny

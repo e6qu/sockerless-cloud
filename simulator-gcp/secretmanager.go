@@ -16,17 +16,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// errSecretVersionNotEnabled signals an access attempt on a DISABLED or
-// DESTROYED version — real GCP returns FAILED_PRECONDITION (400), not 404.
+// errSecretVersionNotEnabled is an access to a DISABLED or DESTROYED version,
+// which Secret Manager answers with FAILED_PRECONDITION (400), not 404.
 var errSecretVersionNotEnabled = errors.New("secret version is not enabled")
 
-// Secret Manager v1 slice. A build references secret versions through
-// `availableSecrets.secretManager[].versionName`, so the simulator returns the
-// secret payload for Cloud Build to expand into env vars before executing the
-// build
-// step. Real API: https://cloud.google.com/secret-manager/docs/reference/rest
-
-// Secret represents a Cloud Secret Manager secret resource.
 type Secret struct {
 	Name           string            `json:"name"`
 	CreateTime     string            `json:"createTime"`
@@ -36,19 +29,16 @@ type Secret struct {
 	Ttl            string            `json:"ttl,omitempty"`
 	ExpireTime     string            `json:"expireTime,omitempty"`
 	Replication    map[string]any    `json:"replication,omitempty"`
-	// Nested writable objects the sim persists verbatim so create→get
-	// round-trips byte-exact for the terraform-provider-google read path.
+	// Nested writable objects, stored verbatim so terraform-provider-google reads
+	// back what it wrote.
 	Rotation   json.RawMessage `json:"rotation,omitempty"`
 	Topics     json.RawMessage `json:"topics,omitempty"`
 	SecretType string          `json:"secretType,omitempty"`
 }
 
-// SecretVersion is the wire shape for a single secret version —
-// metadata only. Real GCP's GetSecretVersion + ListSecretVersions
-// return this shape (no payload bytes); the raw payload appears
-// only in `:access` responses. The sim stores payload bytes in a
-// parallel `smSecretPayloads` store keyed by version name so this
-// struct stays payload-free even after sim.Store JSON round-trips.
+// SecretVersion is a version's metadata: GetSecretVersion and
+// ListSecretVersions carry no payload, which appears only in `:access`
+// answers. The payload lives in smSecretPayloads, keyed by version name.
 type SecretVersion struct {
 	Name                           string `json:"name"`
 	CreateTime                     string `json:"createTime"`
@@ -56,30 +46,26 @@ type SecretVersion struct {
 	ClientSpecifiedPayloadChecksum bool   `json:"clientSpecifiedPayloadChecksum,omitempty"`
 }
 
-// smPayloadRecord stores raw secret bytes keyed by full version name.
-// Separate from SecretVersion so the wire-shaped struct stays
-// payload-free (real GCP only returns payloads from :access).
+// smPayloadRecord holds a version's raw secret bytes, apart from the
+// payload-free SecretVersion.
 type smPayloadRecord struct {
 	Data       []byte `json:"data"`
 	DataCrc32c int64  `json:"dataCrc32c"`
 }
 
-// Package-level stores so cloudbuild.go can resolve secret versions
-// during build-step env expansion.
+// Package-level so Cloud Build resolves secret versions for build steps.
 var (
 	smSecrets        sim.Store[Secret]
 	smSecretVersions sim.Store[SecretVersion]
 	smSecretPayloads sim.Store[smPayloadRecord]
-	// smVersionSeq holds the monotonic per-secret version counter, keyed by
-	// secret name. AddSecretVersion bumps it atomically (store Update holds the
-	// write lock) so concurrent adds never collide on a version ID. Kept out of
-	// the Secret wire shape because GCP's Secret resource has no such field.
+	// smVersionSeq holds each secret's version counter; AddSecretVersion bumps it
+	// under the store write lock so concurrent adds never collide. The Secret
+	// resource has no such field.
 	smVersionSeq      sim.Store[smSeqRecord]
 	smManagedRotation sim.Store[smManagedRotationRecord]
 	smCRC32CTable     = crc32.MakeTable(crc32.Castagnoli)
 )
 
-// smSeqRecord is the persisted monotonic version counter for one secret.
 type smSeqRecord struct {
 	Next int `json:"next"`
 }
@@ -98,80 +84,63 @@ func registerSecretManager(srv *sim.Server) {
 	smVersionSeq = sim.MakeStore[smSeqRecord](srv.DB(), "sm_version_seq")
 	smManagedRotation = sim.MakeStore[smManagedRotationRecord](srv.DB(), "sm_managed_rotation")
 
-	// Global secret surface: secrets live directly under the project.
+	// The global surface: secrets live directly under the project.
 	registerSecretManagerSecretRoutes(srv, "/v1/projects/{project}/secrets", smSecretParentGlobal)
-	// Regional secret surface: secrets live under a location. The same
-	// stores back both surfaces, keyed by the full (location-qualified)
-	// resource name, so regional and global secrets never collide.
+	// The regional surface: secrets live under a location. One set of stores
+	// keyed by full resource name backs both, so they never collide.
 	registerSecretManagerSecretRoutes(srv, "/v1/projects/{project}/locations/{location}/secrets", smSecretParentRegional)
 }
 
-// smSecretParentGlobal builds the `projects/{p}/secrets` parent for a
-// request against the global secret surface.
 func smSecretParentGlobal(r *http.Request) string {
 	return fmt.Sprintf("projects/%s/secrets", sim.PathParam(r, "project"))
 }
 
-// smSecretParentRegional builds the `projects/{p}/locations/{loc}/secrets`
-// parent for a request against the regional secret surface.
 func smSecretParentRegional(r *http.Request) string {
 	return fmt.Sprintf("projects/%s/locations/%s/secrets",
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"))
 }
 
-// registerSecretManagerSecretRoutes mounts the full secrets + versions +
-// IAM surface under the given mux prefix. The global and regional surfaces
-// are identical except for the parent path, so both register through here;
-// parentFor derives the `…/secrets` resource-name parent from the request.
+// registerSecretManagerSecretRoutes mounts the secrets, versions and IAM
+// surface under prefix; parentFor derives the `…/secrets` parent from the
+// request.
 func registerSecretManagerSecretRoutes(srv *sim.Server, prefix string, parentFor func(*http.Request) string) {
-	// CreateSecret: POST {prefix}?secretId=X
 	srv.HandleFunc("POST "+prefix, func(w http.ResponseWriter, r *http.Request) {
 		secretManagerCreateSecret(w, r, parentFor(r))
 	})
 
-	// ListSecrets: GET {prefix}
 	srv.HandleFunc("GET "+prefix, func(w http.ResponseWriter, r *http.Request) {
 		secretManagerListSecrets(w, r, parentFor(r))
 	})
 
-	// GetSecret + GetIamPolicy share a single GET handler on {secretAction}.
-	// GetSecret is plain "{secret}"; getIamPolicy arrives as the colon-verb
-	// "{secret}:getIamPolicy" — Go's ServeMux can't spell `{secret}:verb` as
-	// a separate pattern, and it would collide with this one, so the handler
-	// fans in on the optional colon suffix.
+	// GetSecret and getIamPolicy share the GET on {secretAction}: ServeMux cannot
+	// spell `{secret}:verb`, so the handler fans in on the colon suffix.
 	srv.HandleFunc("GET "+prefix+"/{secretAction}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerSecretGetAction(w, r, parentFor(r))
 	})
 
-	// UpdateSecret: PATCH {prefix}/{secret}?updateMask=labels
 	srv.HandleFunc("PATCH "+prefix+"/{secret}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerPatchSecret(w, r, parentFor(r))
 	})
 
-	// DeleteSecret: DELETE {prefix}/{secret}
 	srv.HandleFunc("DELETE "+prefix+"/{secret}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerDeleteSecret(w, r, parentFor(r))
 	})
 
-	// AddVersion / SetIamPolicy / TestIamPermissions:
-	//   POST {prefix}/{secretAction} where secretAction is "{secret}:verb".
+	// secretAction is "{secret}:verb" for addVersion and the IAM verbs.
 	srv.HandleFunc("POST "+prefix+"/{secretAction}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerSecretPostAction(w, r, parentFor(r))
 	})
 
-	// ListSecretVersions: GET {prefix}/{secret}/versions
 	srv.HandleFunc("GET "+prefix+"/{secret}/versions", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerListVersions(w, r, parentFor(r))
 	})
 
-	// GetSecretVersion / AccessSecretVersion:
-	//   GET {prefix}/{secret}/versions/{versionAction}
+	// versionAction is the version, or "{version}:access".
 	srv.HandleFunc("GET "+prefix+"/{secret}/versions/{versionAction}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerVersionGetAction(w, r, parentFor(r))
 	})
 
-	// Enable / Disable / Destroy secret versions:
-	//   POST {prefix}/{secret}/versions/{versionAction}
+	// versionAction is "{version}:enable", ":disable" or ":destroy".
 	srv.HandleFunc("POST "+prefix+"/{secret}/versions/{versionAction}", func(w http.ResponseWriter, r *http.Request) {
 		secretManagerVersionPostAction(w, r, parentFor(r))
 	})
@@ -224,9 +193,6 @@ func secretManagerCreateSecret(w http.ResponseWriter, r *http.Request, parent st
 	sim.WriteJSON(w, http.StatusOK, secret)
 }
 
-// ListSecrets is registered explicitly because the global GCS catch-all at
-// the same path prefix used to swallow this request and return a GCS-shaped
-// 404 with `bucket "v1"` error message.
 func secretManagerListSecrets(w http.ResponseWriter, r *http.Request, parent string) {
 	prefix := parent + "/"
 	var all []Secret
@@ -239,8 +205,7 @@ func secretManagerListSecrets(w http.ResponseWriter, r *http.Request, parent str
 		all = []Secret{}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	// Honor the `filter` query param (e.g. labels.env=prod) the Secret
-	// Manager ListSecrets API supports.
+	// ListSecrets supports `filter` (labels.env=prod).
 	listed, listOK := gcpApplyListParams(w, r, all)
 	if !listOK {
 		return
@@ -337,7 +302,6 @@ func secretManagerSecretGetAction(w http.ResponseWriter, r *http.Request, parent
 	secretAction := sim.PathParam(r, "secretAction")
 	secretID, action, found := strings.Cut(secretAction, ":")
 	if !found {
-		// Plain GetSecret (no `:action` suffix).
 		secretManagerGetSecret(w, parent+"/"+secretAction)
 		return
 	}
@@ -353,14 +317,12 @@ func secretManagerSecretGetAction(w http.ResponseWriter, r *http.Request, parent
 	handleResourceIAM(w, r, gcpResourceIAMStore(), secretName, "getIamPolicy")
 }
 
-// secretManagerSecretPostAction fans in the POST colon-verbs on a secret
-// resource.
 func secretManagerSecretPostAction(w http.ResponseWriter, r *http.Request, parent string) {
 	secretAction := sim.PathParam(r, "secretAction")
 	secretID, action, found := gcpCustomMethod(secretAction)
-	// The method is resolved before the secret, the way Google's frontend
-	// resolves it: a POST custom method this handler does not serve is a
-	// method-routing failure, not a statement about the secret.
+	// Resolve the method before the secret, as Google's frontend does: an
+	// unserved POST custom method is a routing failure, not a statement about the
+	// secret.
 	if !found || !secretManagerSecretPOSTMethods[action] {
 		gcpMethodNotFound(w)
 		return
@@ -472,9 +434,8 @@ func smApplyManagedRotation(secretName string, record smManagedRotationRecord, p
 		sqlUserKey(record.Project, record.InstanceID, user.Host, user.Name),
 		sqlUserCredential{Sealed: sealed},
 	)
-	// A rotated credential reaches the running engine the same way a
-	// users.update does, so the database accepts the new password the
-	// secret version now carries.
+	// The rotated credential reaches the running engine as a users.update does,
+	// so the database accepts the new password.
 	if err := sqlReconcileIfRunning(record.Project, record.InstanceID); err != nil {
 		return SecretVersion{}, fmt.Errorf("apply rotated credential to the database engine: %w", err)
 	}
@@ -518,13 +479,10 @@ func secretManagerAddVersion(w http.ResponseWriter, r *http.Request, secretName 
 	sim.WriteJSON(w, http.StatusOK, ver)
 }
 
-// smAddVersionPayload appends a new ENABLED SecretVersion to the named secret,
-// storing the supplied payload bytes and computing the CRC32C checksum the API
-// reports back from AccessSecretVersion. When hasCRC is true, the supplied
-// checksum is validated against the computed value. Version IDs are reserved
-// atomically by bumping the per-secret counter under the store write lock, so
-// concurrent AddSecretVersion calls never collide on an ID. Both the REST
-// :addVersion handler and the gRPC AddSecretVersion RPC go through here.
+// smAddVersionPayload appends an ENABLED version holding data, with the CRC32C
+// AccessSecretVersion reports, validating the client's checksum when hasCRC.
+// Version IDs come from the per-secret counter under the store write lock.
+// The REST :addVersion and gRPC AddSecretVersion both use it.
 func smAddVersionPayload(secretName string, data []byte, hasCRC bool, suppliedCRC32C int64) (SecretVersion, error) {
 	checksum := int64(crc32.Checksum(data, smCRC32CTable))
 	if hasCRC && suppliedCRC32C != checksum {
@@ -606,16 +564,15 @@ func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent st
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// secretManagerVersionGetAction handles GetSecretVersion (no suffix) and
-// AccessSecretVersion (`:access`). Same Go mux workaround as AddVersion.
+// secretManagerVersionGetAction serves GetSecretVersion and
+// AccessSecretVersion (`:access`).
 func secretManagerVersionGetAction(w http.ResponseWriter, r *http.Request, parent string) {
 	secretName := parent + "/" + sim.PathParam(r, "secret")
 	versionAction := sim.PathParam(r, "versionAction")
 	versionID, action, found := strings.Cut(versionAction, ":")
 	if !found {
-		// Plain GetSecretVersion (no `:action` suffix): return the
-		// version metadata. tf-google reads back the version after
-		// create to populate the resource state.
+		// GetSecretVersion answers the version metadata, which terraform reads back
+		// after create.
 		versionID = versionAction
 		if versionID == "latest" {
 			resolved, ok := resolveLatestVersionIDForSecret(secretName)
@@ -648,9 +605,8 @@ func secretManagerVersionGetAction(w http.ResponseWriter, r *http.Request, paren
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s", err.Error())
 		return
 	}
-	// Real GCP resolves `latest` to the concrete version number in the
-	// response `name` so clients can pin downstream calls, detect
-	// rotation, and log the exact version that served a request.
+	// Secret Manager answers `latest` with the concrete version in `name`, so
+	// clients can pin it, detect rotation and log what served them.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"name": fmt.Sprintf("%s/versions/%s", secretName, resolvedID),
 		"payload": map[string]string{
@@ -660,10 +616,9 @@ func secretManagerVersionGetAction(w http.ResponseWriter, r *http.Request, paren
 	})
 }
 
-// secretManagerVersionPostAction handles :enable / :disable / :destroy.
-// The terraform-provider-google secret_version resource POSTs :enable after
-// creating a version. Versions default to ENABLED on create, so an explicit
-// enable is an idempotent state transition that still returns the version.
+// secretManagerVersionPostAction serves :enable, :disable and :destroy.
+// google_secret_version POSTs :enable after create; versions start ENABLED,
+// so it answers the version unchanged.
 func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, parent string) {
 	secretName := parent + "/" + sim.PathParam(r, "secret")
 	versionAction := sim.PathParam(r, "versionAction")
@@ -672,9 +627,8 @@ func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, pare
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "missing :action suffix on version %q", versionAction)
 		return
 	}
-	// Resolve `latest` alias to the concrete version number per real GCP
-	// behaviour — :enable/:disable/:destroy on `latest` act on the
-	// resolved version, and the response `name` carries that version.
+	// :enable, :disable and :destroy on `latest` act on the version it resolves
+	// to, which the answer's `name` carries.
 	if versionID == "latest" {
 		resolved, ok := resolveLatestVersionIDForSecret(secretName)
 		if !ok {
@@ -702,13 +656,9 @@ func secretManagerVersionPostAction(w http.ResponseWriter, r *http.Request, pare
 	sim.WriteJSON(w, http.StatusOK, updated)
 }
 
-// smSetVersionState transitions a SecretVersion to the requested state. The
-// action is one of "enable" / "disable" / "destroy" (matching the REST colon
-// verbs). Destroying a version also drops its stored payload bytes — the
-// version's metadata is retained but the data is irretrievable, matching real
-// Secret Manager. Both the REST :enable/:disable/:destroy handlers and the
-// gRPC Enable/Disable/Destroy RPCs go through here. The returned bool is false
-// when the action verb is unrecognized so callers can surface the right error.
+// smSetVersionState moves a version to enable, disable or destroy; destroy
+// also drops the payload, keeping the metadata, as Secret Manager does. The
+// REST and gRPC verbs both use it; ok is false for an unknown action.
 func smSetVersionState(versionName string, ver SecretVersion, action string) (SecretVersion, bool, error) {
 	switch action {
 	case "enable":
@@ -745,10 +695,8 @@ func secretVersionNumber(name, prefix string) (int, bool) {
 // secretManagerMaxPageSize is the largest page ListSecretVersions returns.
 const secretManagerMaxPageSize = 25000
 
-// accessSecretPayload resolves a secret-version reference to its raw
-// payload. Handles both explicit versions (e.g. "3") and the special
-// "latest" alias. Exported for cloudbuild.go's build-step secretEnv
-// expansion.
+// accessSecretPayload resolves a version reference, a number or "latest", to
+// its payload, for Cloud Build's secretEnv expansion.
 func accessSecretPayload(project, secretID, version string) ([]byte, error) {
 	secretName := fmt.Sprintf("projects/%s/secrets/%s", project, secretID)
 	payload, _, err := accessSecretPayloadResolvedForSecret(secretName, version)
@@ -758,19 +706,14 @@ func accessSecretPayload(project, secretID, version string) ([]byte, error) {
 	return payload.Data, nil
 }
 
-// accessSecretPayloadResolvedForSecret is like accessSecretPayload but
-// keyed by the full secret resource name (so it serves both the global and
-// the regional surface) and also returns the concrete version identifier
-// that "latest" resolved to. Real GCP Secret Manager echoes the resolved
-// version number in every `:access` response's `name` field — without that,
-// rotation-tracking + audit-logging clients see `"latest"` forever and
-// can't detect when the underlying version changes.
+// accessSecretPayloadResolvedForSecret is accessSecretPayload keyed by full
+// secret name, for both surfaces, and also returns the version "latest"
+// resolved to, which Secret Manager echoes in every `:access` name.
 func accessSecretPayloadResolvedForSecret(secretName, version string) (smPayloadRecord, string, error) {
 	resolvedID := version
 	if version == "latest" {
-		// "latest" is an alias for the highest version number — regardless of
-		// state. Accessing it when that version is DISABLED/DESTROYED fails
-		// (it does NOT fall back to an older enabled version).
+		// "latest" is the highest version whatever its state; accessing it when it is
+		// DISABLED or DESTROYED fails rather than falling back.
 		id, ok := resolveLatestVersionIDForSecret(secretName)
 		if !ok {
 			return smPayloadRecord{}, "", fmt.Errorf("no versions for secret %s", secretName)
@@ -804,8 +747,8 @@ func resolveLatestVersionIDForSecret(secretName string) (string, bool) {
 		idStr := strings.TrimPrefix(v.Name, secretName+"/versions/")
 		n, err := strconv.Atoi(idStr)
 		if err != nil {
-			// Version IDs are sim-assigned integers; a non-numeric one is corrupt
-			// own-state, not a version to silently skip past when picking "latest".
+			// The simulator assigns integer version IDs; a non-numeric one is corrupt
+			// state, not one to skip.
 			continue
 		}
 		if n > latestN {
@@ -818,10 +761,9 @@ func resolveLatestVersionIDForSecret(secretName string) (string, bool) {
 	return fmt.Sprintf("%d", latestN), true
 }
 
-// resolveSecretManagerReference parses a `projects/{p}/secrets/{s}/versions/{v}`
-// reference (as used in Cloud Build's availableSecrets.secretManager[].versionName)
-// and returns the resolved payload. Returns an error if the reference is
-// malformed or the version doesn't exist.
+// resolveSecretManagerReference resolves a
+// `projects/{p}/secrets/{s}/versions/{v}` reference, as in Cloud Build's
+// availableSecrets, to its payload.
 func resolveSecretManagerReference(ref string) ([]byte, error) {
 	parts := strings.Split(ref, "/")
 	if len(parts) != 6 || parts[0] != "projects" || parts[2] != "secrets" || parts[4] != "versions" {

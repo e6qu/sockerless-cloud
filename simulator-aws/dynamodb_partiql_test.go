@@ -2,10 +2,8 @@ package main
 
 import "testing"
 
-// TestPartiQLInListTakesEitherDelimiter proves the IN list form AWS documents
-// parses. The PartiQL SELECT reference writes it in brackets -- "WHERE OrderID
-// IN [100, 300, 234]" -- and this parser accepted only parentheses, so a client
-// sending the documented statement was answered with a ValidationException.
+// AWS documents the IN list in brackets ("WHERE OrderID IN [100, 300, 234]")
+// and accepts parentheses too.
 func TestPartiQLInListTakesEitherDelimiter(t *testing.T) {
 	for _, statement := range []string{
 		`SELECT * FROM "orders" WHERE "id" IN [100, 300, 234]`,
@@ -24,8 +22,7 @@ func TestPartiQLInListTakesEitherDelimiter(t *testing.T) {
 		}
 	}
 
-	// A list that closes with the other delimiter is not a statement AWS
-	// accepts either, so it must still be refused rather than guessed at.
+	// Mismatched delimiters are refused.
 	for _, statement := range []string{
 		`SELECT * FROM "orders" WHERE "id" IN [100, 300)`,
 		`SELECT * FROM "orders" WHERE "id" IN (100, 300]`,

@@ -14,40 +14,32 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// These tests enforce the simulator's core fidelity invariant: every HTTP
-// route the GCP simulator serves must be a REAL Google API method — the
-// simulator must not invent paths under the Google API namespace. The
-// registered route table (built in-process via buildSimulator) is
-// validated against the official API Discovery documents vendored
-// (gzipped, pinned by revision) under specs/cloud-api/gcp/. Refresh a
-// document with scripts/fetch-gcp-discovery.sh.
+// Every route the Google Cloud simulator serves must be a real Google API
+// method: buildSimulator's route table is checked against the Discovery
+// documents vendored under specs/cloud-api/gcp/, which
+// scripts/fetch-gcp-discovery.sh refreshes.
 
 // discoveryMethod is one REST method from a vendored Discovery document.
 type discoveryMethod struct {
 	HTTPMethod string
 	Path       string // basePath-joined flatPath (preferred) or path
-	// PathParams maps each path parameter of the method to the Discovery
-	// document's "pattern" for it (empty when the document constrains none).
-	// A reserved-expansion parameter ({+name}) stands for several URI
-	// segments and the pattern is the document's only description of that
-	// shape, so rendering a concrete request URI for the coverage probe
-	// needs it.
+	// PathParams maps each path parameter to its Discovery "pattern" (empty when
+	// unconstrained). A reserved-expansion parameter ({+name}) spans several
+	// segments, and its pattern is the only description of that shape the
+	// coverage probe can render a URI from.
 	PathParams map[string]string
 }
 
 type discoveryDoc struct {
 	File string
-	// Host is the service's own API host from the document's rootUrl
-	// (run.googleapis.com, redis.googleapis.com, …). Real Google gives each
-	// service its own hostname and the simulator resolves the two services
-	// that share a URI path by the Host header a real client sends, so a
-	// probe must send the document's host to reach that document's service.
+	// Host is the service's own API host from the document's rootUrl. The
+	// simulator resolves services that share a URI path by the Host header, so a
+	// probe sends the document's host.
 	Host    string
 	Methods []discoveryMethod
-	// ResumableSessionPaths are the media paths of the methods that declare
-	// the resumable upload protocol. A session's chunks are PUTs to its
-	// session URI on one of them and its cancellation a DELETE there; the
-	// protocol, not the document, describes both.
+	// ResumableSessionPaths are the media paths of methods that declare the
+	// resumable protocol, whose chunk PUTs and cancelling DELETE address the
+	// session URI there; the protocol, not the document, describes both.
 	ResumableSessionPaths []string
 }
 
@@ -126,22 +118,17 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 			for name, param := range m.Parameters {
 				if param.Location == "path" {
 					pattern := param.Pattern
-					// A reserved-expansion parent whose pattern is a bare
-					// character class ("[a-z](?:[-a-zA-Z0-9/]{0,255}...)")
-					// permits slashes but describes no segments to render.
-					// Its siblings in the same collection denote the same
-					// parent and do name their segments, so the collection's
-					// shape stands in — which is what a client fills the
-					// parameter with.
+					// A reserved-expansion parent whose pattern is a bare character class permits
+					// slashes but describes no segments; its siblings in the collection name the
+					// same parent's segments, so the collection's shape stands in.
 					if parentShape != "" && strings.Contains(m.Path, "{+"+name+"}") && gcpPatternIsShapeless(pattern) {
 						pattern = parentShape
 					}
 					pathParams[name] = pattern
 				}
 			}
-			// Both the expanded flatPath and the {+param} template path
-			// are real, equivalent descriptions of the method URI;
-			// index both so either spelling matches.
+			// The flatPath and the {+param} path are equivalent descriptions of the URI;
+			// index both.
 			for _, rel := range []string{m.FlatPath, m.Path} {
 				if rel == "" {
 					continue
@@ -153,12 +140,9 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 					d.Methods = append(d.Methods, discoveryMethod{HTTPMethod: m.HTTPMethod, Path: "/download" + join(rel), PathParams: pathParams})
 				}
 			}
-			// Each media-upload protocol rides its own absolute path
-			// (/upload/storage/v1/b/{bucket}/o for simple,
-			// /resumable/upload/storage/v1/b/{bucket}/o for resumable). A
-			// resumable session begun on either addresses its session URI
-			// there, so both are session paths when the method declares the
-			// resumable protocol.
+			// Each media-upload protocol has its own absolute path (/upload/... for
+			// simple, /resumable/upload/... for resumable); a resumable session begun on
+			// either addresses its session URI there.
 			if m.MediaUpload != nil {
 				simple, resumable := m.MediaUpload.Protocols.Simple.Path, m.MediaUpload.Protocols.Resumable.Path
 				for _, path := range []string{simple, resumable} {
@@ -208,11 +192,9 @@ func loadDiscoveryDocs(t *testing.T) []*discoveryDoc {
 
 var gcpParamSegment = regexp.MustCompile(`\{[^}]+\}`)
 
-// normalizeGCPPath collapses path parameters so simulator mux patterns
-// ({project}, {object...}) compare equal to Discovery templates
-// ({projectsId}, {+name}) regardless of label naming. Greedy labels
-// ({+x} / {x...}) normalize to {+}, plain labels to {}; a single
-// trailing slash is dropped.
+// normalizeGCPPath collapses path parameters so mux patterns ({project},
+// {object...}) compare equal to Discovery templates ({projectsId}, {+name}):
+// greedy labels become {+}, plain labels {}, and a trailing slash is dropped.
 func normalizeGCPPath(p string) string {
 	p = gcpParamSegment.ReplaceAllStringFunc(p, func(s string) string {
 		inner := s[1 : len(s)-1]
@@ -227,104 +209,80 @@ func normalizeGCPPath(p string) string {
 	return p
 }
 
-// gcpMountPrefixes maps simulator-local mount prefixes to the service
-// they disambiguate. Real GCP separates services by hostname
-// (spanner.googleapis.com vs sqladmin.googleapis.com); the collapsed
-// single-port simulator cannot, and Spanner's "/v1/projects/{p}/instances"
-// would otherwise collide with Cloud SQL's identical path. The prefix is
-// stripped before Discovery matching; the remainder must still be a real
-// method path of that service.
+// gcpMountPrefixes maps the simulator's mount prefixes to the service they
+// disambiguate. Google separates services by host; on one port Spanner's
+// "/v1/projects/{p}/instances" would collide with Cloud SQL's. The prefix is
+// stripped before matching, and the rest must be a real method path.
 var gcpMountPrefixes = map[string]string{
 	"/spanner": "spanner-v1.discovery.json.gz",
 }
 
-// allowedNonSpecGCPRoutes lists registered patterns that are real,
-// documented Google wire surfaces NOT described by any Discovery
-// document, plus the simulator's own control surface. Each entry MUST be
-// justified — never a place to hide an invented Google path.
+// allowedNonSpecGCPRoutes lists the registered patterns no Discovery document
+// describes: documented Google wire surfaces and the simulator's own control
+// surface. Each entry carries its justification.
 var allowedNonSpecGCPRoutes = map[string]string{
 	// The simulator's own channel from a Cloud NAT's egress sidecar, under
 	// the token the simulator minted for it; no cloud client ever sees it.
 	"POST /sockerless/sidecar/egress": "egress sidecar reports (simulator-internal, token-bound)",
-	// The Discovery document endpoint every Google API serves under its own
-	// host. Client generators and the bq tool, whenever its API root is not
-	// Google's, build their clients from it, and no API's Discovery document
-	// describes the endpoint that serves those documents.
+	// Every Google API serves its Discovery document under its own host, and no
+	// document describes that endpoint; client generators and the bq tool build
+	// from it.
 	"GET /$discovery/rest": "each implemented API's Discovery document, under that API's host",
-	// Cloud Run's uploadSource has a media-upload spelling on its own absolute
-	// path, which the document declares as "/upload/v2/{+parent}:uploadSource".
-	// The colon sits on the parent's last segment, so the route that receives
-	// it ends at that segment and the declared path — colon and all — is what
-	// a client sends to it.
+	// The document declares uploadSource's media spelling as
+	// "/upload/v2/{+parent}:uploadSource"; the colon sits on the parent's last
+	// segment, where this route ends.
 	"POST /upload/v2/projects/{project}/locations/{location}": "Cloud Run uploadSource, media-upload spelling",
-	// Compute Engine describes an image's family lookup and its IAM policy
-	// read as two methods — "images/family/{family}" and
-	// "images/{resource}/getIamPolicy" — that are one shape to a path router,
-	// so a single route serves both and resolves them the way Compute Engine's
-	// own templates do: the literal family segment first. Both documented
-	// spellings are served through it; neither is invented.
+	// Compute Engine's "images/family/{family}" and
+	// "images/{resource}/getIamPolicy" are one shape to a path router; this route
+	// serves both, resolving the literal family segment first.
 	"GET /compute/v1/projects/{project}/global/images/{first}/{second}": "image family lookup and image IAM policy read, which a path router cannot separate",
 	// The JSON API's batch endpoint, which Cloud Storage documents on its own
 	// page (cloud.google.com/storage/docs/batch) and its Discovery document
 	// names only as batchPath, not as a method.
 	"POST /batch/storage/v1": "Cloud Storage JSON API batch endpoint (the document's batchPath)",
-	// OAuth2 token endpoints — real Google auth surface
-	// (oauth2.googleapis.com /token; legacy www.googleapis.com/oauth2/v4/token),
-	// not part of any service Discovery document.
+	// OAuth 2.0 token endpoints (oauth2.googleapis.com /token, and
+	// www.googleapis.com/oauth2/v4/token), outside every service's document.
 	"POST /token":           "OAuth2 token endpoint (oauth2.googleapis.com)",
 	"POST /oauth2/v4/token": "legacy OAuth2 token endpoint",
 	"POST /o/oauth2/token":  "original OAuth2 token endpoint (accounts.google.com/o/oauth2/token)",
-	// Security Token Service token exchange (sts.googleapis.com /v1/token) —
-	// the Workforce Identity Federation surface, described by the STS service's
-	// own Discovery rather than any resource service's document.
+	// Security Token Service token exchange (sts.googleapis.com /v1/token), for
+	// Workforce Identity Federation.
 	"POST /v1/token": "Security Token Service token exchange (sts.googleapis.com)",
-	// Security Token Service token introspection (sts.googleapis.com
-	// /v1/introspect, RFC 7662) — the endpoint gcloud resolves a federated
-	// workforce principal against after `gcloud auth login --cred-file`; same
-	// STS surface as /v1/token, outside any resource service's Discovery.
+	// Security Token Service introspection (sts.googleapis.com /v1/introspect,
+	// RFC 7662), which gcloud resolves a federated workforce principal against
+	// after `gcloud auth login --cred-file`.
 	"POST /v1/introspect": "Security Token Service token introspection (sts.googleapis.com)",
 
-	// The metadata server's own version directory, addressed without its
-	// trailing slash so the server answers the 301 real Google answers. The
-	// rest of the tree sits under the /computeMetadata/ prefix allowlist
-	// below; this one pattern is the prefix itself, minus the slash.
+	// The metadata server's version directory without its trailing slash, which
+	// answers the 301 Google answers; the rest of the tree is under the
+	// /computeMetadata/ prefix below.
 	"GET /computeMetadata": "GCE metadata server version directory (documented Google surface; no Discovery document)",
 
-	// OpenID Connect discovery + JSON Web Key Set publishing the simulator's
-	// access-token signing key — the well-known material a resource server uses
-	// to verify tokens, served at the standard OIDC well-known paths rather than
-	// any service Discovery document.
+	// OpenID Connect discovery and the JSON Web Key Set publishing the
+	// simulator's access-token signing key, at the standard well-known paths.
 	"GET /.well-known/openid-configuration": "OpenID Connect discovery for the simulator's access-token signing key",
 	"GET /.well-known/jwks.json":            "JSON Web Key Set for the simulator's access-token signing key",
 
-	// GCS XML API / signed-URL data plane: requests address the object
-	// directly under the bucket host/path. Real surface (XML API),
-	// described by the XML API docs rather than the JSON Discovery doc.
+	// The Cloud Storage XML API and V4 signed-URL data plane, addressing the
+	// object under the bucket path; the XML API docs describe it.
 	"/{bucket}/{object...}": "GCS XML API / V4 signed-URL data plane",
 	"GET /{path...}":        "GCS XML API bucket-host read path",
 	"/{path...}":            "GCS XML API bucket-host data plane",
 
-	// Artifact Registry Docker/OCI registry data plane: the shared OCI
-	// registry mounts one per-method subtree at /v2/ and dispatches the
-	// repository/blob/manifest paths itself (the OCI distribution spec, not
-	// Discovery). Only these five subtree mounts are outside Discovery —
-	// every other /v2/… route the simulator serves (Cloud Run v2, Cloud
-	// Functions v2, Cloud Logging v2, …) is a real Discovery method and is
-	// checked as one.
+	// The Artifact Registry Docker/OCI data plane: the shared registry mounts one
+	// subtree per method at /v2/ and routes repository, blob and manifest paths
+	// itself, per the OCI distribution spec. Every other /v2/ route is a
+	// Discovery method and is checked as one.
 	"GET /v2/":    "OCI distribution data plane subtree (Artifact Registry)",
 	"POST /v2/":   "OCI distribution data plane subtree (Artifact Registry)",
 	"PUT /v2/":    "OCI distribution data plane subtree (Artifact Registry)",
 	"PATCH /v2/":  "OCI distribution data plane subtree (Artifact Registry)",
 	"DELETE /v2/": "OCI distribution data plane subtree (Artifact Registry)",
 
-	// The Docker token service Artifact Registry names in the `realm` of every
-	// Bearer challenge its data plane sends
-	// (`Bearer realm="https://us-central1-docker.pkg.dev/v2/token"`). It belongs
-	// to the same OCI data plane as the subtree above and is likewise outside
-	// Discovery, which describes the Artifact Registry JSON admin API rather
-	// than the Docker Registry HTTP API v2. The non-GET verbs are mounted so the
-	// endpoint answers 405 the way the live service does, instead of falling
-	// through the /v2/ subtree to a 404.
+	// The Docker token service Artifact Registry names in every Bearer challenge's
+	// realm (`Bearer realm="https://us-central1-docker.pkg.dev/v2/token"`), part
+	// of the same OCI data plane. The non-GET verbs answer 405 as the live service
+	// does, rather than falling through the /v2/ subtree to a 404.
 	"GET /v2/token":    "Artifact Registry Docker token service (challenge realm)",
 	"POST /v2/token":   "Artifact Registry Docker token service (405: GET-only)",
 	"PUT /v2/token":    "Artifact Registry Docker token service (405: GET-only)",
@@ -374,20 +332,14 @@ func matchesAnySpec(specs []specPath, method, path string) bool {
 	return false
 }
 
-// matchSegs reports whether a simulator mux pattern is a valid spelling
-// of a Discovery method URI. Rules:
-//   - spec "{+}" (reserved expansion, e.g. {+name}) consumes one or more
-//     simulator segments of any kind;
-//   - spec "{}" consumes exactly one simulator segment of any kind — a
-//     simulator literal there (e.g. hardcoded "global") narrows the spec
-//     parameter, which is valid;
-//   - a spec literal requires the identical simulator literal, or a
-//     simulator "{}" / "{+}" in final position when the spec segment is a
-//     ":verb" form ("{}:addVersion", "documents:runQuery") — Go's mux
-//     cannot spell colon verbs as separate patterns, so handlers fan in
-//     on a parameter that also captures the ":verb" suffix;
-//   - a simulator trailing "{+}" consumes any remaining spec segments
-//     (greedy fan-in accepts a superset of the spec path).
+// matchSegs reports whether a mux pattern spells a Discovery method URI:
+//   - spec "{+}" consumes one or more simulator segments;
+//   - spec "{}" consumes exactly one, and a simulator literal there ("global")
+//     narrows the parameter;
+//   - a spec literal requires the same literal, or, for a final ":verb" form
+//     ("{}:addVersion"), a final simulator "{}" or "{+}", since ServeMux
+//     cannot spell colon verbs and handlers fan in on a parameter;
+//   - a trailing simulator "{+}" consumes any remaining spec segments.
 func matchSegs(sim, spec []string) bool {
 	if len(spec) == 0 {
 		return len(sim) == 0
@@ -405,7 +357,6 @@ func matchSegs(sim, spec []string) bool {
 		if specLast {
 			return true // spec reserved expansion swallows the rest
 		}
-		// consume 1..n simulator segments
 		for i := 1; i <= len(sim); i++ {
 			if matchSegs(sim[i:], spec[1:]) {
 				return true
@@ -506,9 +457,8 @@ func TestRoutesExistInDiscoveryDocs(t *testing.T) {
 	}
 }
 
-// TestVendoredDiscoveryDocsAreConsumed flags vendored Discovery documents
-// no registered route references — a stale vendor is either a removed
-// service or a fetch of the wrong document/version.
+// TestVendoredDiscoveryDocsAreConsumed flags a vendored Discovery document no
+// route references: a removed service, or the wrong document fetched.
 func TestVendoredDiscoveryDocsAreConsumed(t *testing.T) {
 	docs := loadDiscoveryDocs(t)
 	t.Setenv("SIM_RUNTIME", "process")

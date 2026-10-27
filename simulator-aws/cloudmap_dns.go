@@ -12,8 +12,7 @@ import (
 // Map creates.
 const cmServicePrincipal = "servicediscovery.amazonaws.com"
 
-// cmCreateHostedZone creates the Route 53 hosted zone a DNS namespace owns: a
-// private zone associated with the namespace's VPC, or a public one.
+// A private zone is associated with the namespace's VPC.
 func cmCreateHostedZone(ns CMNamespace, vpcID string, soa *cmSOAProperties) *CMDnsProperties {
 	id := r53RandomID()
 	name := r53NormalizeName(ns.Name)
@@ -43,8 +42,7 @@ func cmCreateHostedZone(ns CMNamespace, vpcID string, soa *cmSOAProperties) *CMD
 	return dns
 }
 
-// cmSetSOATTL sets the TTL of the apex SOA record, which resolvers use for
-// negative caching.
+// Resolvers use the SOA TTL for negative caching.
 func cmSetSOATTL(records []R53ResourceRecordSet, ttl int64) {
 	for i := range records {
 		if records[i].Type == "SOA" {
@@ -74,9 +72,7 @@ func cmDeleteHostedZone(ns CMNamespace) {
 	r53DNSSEC.Delete(id)
 }
 
-// cmSyncNamespaceRecords rewrites the record sets Cloud Map keeps in a
-// namespace's hosted zone from the namespace's services and their registered
-// instances, leaving the apex NS and SOA as they are.
+// Leave the apex NS and SOA as they are.
 func cmSyncNamespaceRecords(namespaceID string) {
 	ns, ok := cmNamespaces.Get(namespaceID)
 	if !ok {
@@ -110,10 +106,9 @@ func cmSyncNamespaceRecords(namespaceID string) {
 	})
 }
 
-// cmServiceRecords are the record sets Cloud Map writes for a service's
-// instances: one per instance and record type under the service's name, with
-// the service's routing policy and the instance ID as SetIdentifier, plus the
-// A and AAAA records an SRV target names.
+// One record per instance and type under the service's name, with the
+// instance ID as SetIdentifier, plus the A and AAAA records an SRV target
+// names.
 func cmServiceRecords(ns CMNamespace, svc CMService) []R53ResourceRecordSet {
 	if svc.DnsConfig == nil || len(svc.DnsConfig.DnsRecords) == 0 || strings.EqualFold(svc.Type, "HTTP") {
 		return nil
@@ -192,8 +187,7 @@ func cmRecordSet(name, rtype string, ttl int64, value string) R53ResourceRecordS
 	}
 }
 
-// cmAliasHostedZoneID is the canonical hosted zone of the Elastic Load
-// Balancing load balancer an alias names.
+// The canonical hosted zone of the load balancer an alias names.
 func cmAliasHostedZoneID(dnsName string) string {
 	if lb, ok := elbv2LoadBalancerFromDataPlaneHost(strings.TrimSuffix(dnsName, ".")); ok {
 		return lb.CanonicalZone
@@ -201,10 +195,8 @@ func cmAliasHostedZoneID(dnsName string) string {
 	return ""
 }
 
-// r53LinkedServiceHealth is the health Cloud Map gives the record sets in a
-// namespace's hosted zone: an instance of a service with a custom health
-// check answers only while the instance is healthy. A zone Cloud Map does not
-// own has no such health.
+// An instance of a service with a custom health check answers only while
+// healthy. A zone AWS Cloud Map does not own has no such health.
 func r53LinkedServiceHealth(zone R53HostedZone) func(R53ResourceRecordSet) bool {
 	if zone.LinkedService == nil || zone.LinkedService.ServicePrincipal != cmServicePrincipal {
 		return nil
@@ -231,9 +223,8 @@ func r53LinkedServiceHealth(zone R53HostedZone) func(R53ResourceRecordSet) bool 
 	}
 }
 
-// cmCreateInstanceHealthCheck creates the Route 53 health check a service's
-// HealthCheckConfig asks for, probing the instance's IPv4 address and port,
-// and returns its ID. An instance without an IPv4 address gets none.
+// Probe the instance's IPv4 address and port; an instance without IPv4 gets
+// no health check.
 func cmCreateInstanceHealthCheck(svc CMService, attrs map[string]string) string {
 	cfg := svc.HealthCheckConfig
 	if cfg == nil || attrs["AWS_INSTANCE_IPV4"] == "" {

@@ -13,20 +13,18 @@ import (
 	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
-// Cloud SQL blue-green deployments, through the same authenticated transport
-// the generated client uses.
+// Cloud SQL blue-green deployments, through the generated client's
+// authenticated transport:
 //
-//	POST   /v1/projects/{p}/locations/{l}/blueGreenDeployments
-//	GET    /v1/projects/{p}/locations/{l}/blueGreenDeployments
-//	GET    /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}
-//	POST   /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}:switchover
-//	DELETE /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}
+//   POST   /v1/projects/{p}/locations/{l}/blueGreenDeployments
+//   GET    /v1/projects/{p}/locations/{l}/blueGreenDeployments
+//   GET    /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}
+//   POST   /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}:switchover
+//   DELETE /v1/projects/{p}/locations/{l}/blueGreenDeployments/{d}
 //
-// Google published the collection in the Discovery document ahead of the
-// generated Go client, which carries no BlueGreenDeployment type at
-// google.golang.org/api v0.295.0. The requests therefore go over the wire
-// directly, with the same bearer the client presents — the coordinate and the
-// credential are unchanged, only the typed wrapper is missing. Swap these for
+// The Discovery document publishes the collection, but google.golang.org/api
+// v0.295.0 generates no BlueGreenDeployment type, so the requests go on the
+// wire with the client's bearer. Switch to
 // svc.Projects.Locations.BlueGreenDeployments once the client generates it.
 
 func sqlBlueGreenCall(t *testing.T, method, path string, body any) (*http.Response, []byte) {
@@ -57,8 +55,6 @@ func sqlBlueGreenCall(t *testing.T, method, path string, body any) (*http.Respon
 	return resp, out.Bytes()
 }
 
-// seedCloudSQLInstance creates the source instance a deployment copies, through
-// the generated client, so the blue-green surface acts on real instance state.
 func seedCloudSQLInstance(t *testing.T, project, name string) *sqladmin.Service {
 	t.Helper()
 	svc, err := sqladmin.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -86,8 +82,8 @@ func TestCloudSQL_BlueGreenDeploymentSwitchover(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 
-	// The green instance is real: every other Cloud SQL read sees it, and it
-	// carries the database version the request asked for.
+	// The green instance is real: every Cloud SQL read sees it, with the requested
+	// database version.
 	green, err := svc.Instances.Get(project, "upgrade-16-green").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "POSTGRES_16", green.DatabaseVersion)
@@ -152,18 +148,15 @@ func TestCloudSQL_BlueGreenDeploymentReportsWhatIsWrong(t *testing.T) {
 	seedCloudSQLInstance(t, project, "present-db")
 	base := fmt.Sprintf("/v1/projects/%s/locations/%s/blueGreenDeployments", project, location)
 
-	// A source instance that does not exist.
 	resp, body := sqlBlueGreenCall(t, http.MethodPost, base+"?blueGreenDeploymentId=d1",
 		map[string]any{"sourceInstance": "absent-db"})
 	require.Equal(t, http.StatusNotFound, resp.StatusCode, string(body))
 
-	// A missing deployment id.
 	resp, body = sqlBlueGreenCall(t, http.MethodPost, base,
 		map[string]any{"sourceInstance": "present-db"})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
 	assert.Contains(t, string(body), "blueGreenDeploymentId")
 
-	// The same id twice.
 	resp, body = sqlBlueGreenCall(t, http.MethodPost, base+"?blueGreenDeploymentId=d2",
 		map[string]any{"sourceInstance": "present-db"})
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
@@ -178,7 +171,6 @@ func TestCloudSQL_BlueGreenDeploymentReportsWhatIsWrong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
 	assert.Contains(t, string(body), "SWITCHOVER_READY")
 
-	// A deployment that does not exist.
 	resp, body = sqlBlueGreenCall(t, http.MethodGet, base+"/absent", nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode, string(body))
 }

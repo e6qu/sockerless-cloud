@@ -12,7 +12,7 @@ lives.
 - [`SIM_TEST_COVERAGE_MATRIX.md`](SIM_TEST_COVERAGE_MATRIX.md) records, per
   surface, the official SDK, vendor CLI and Terraform provider flows that
   exercise it. `scripts/check-simulator-coverage-matrix.sh` holds its rows to
-  exactly the set of surface tables and holds this inventory to every AWS
+  exactly the set of surface tables and holds this inventory to every
   surface.
 - Which slices a simulator covers is this project's choice; nothing downstream
   defines it. The inventory is exhaustive rather than consumer-driven.
@@ -72,7 +72,7 @@ lives.
 | AWS Security Token Service (STS) | [`aws-sts`](SIM_SURFACE_TABLES/aws-sts.md) | [`aws-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS WAF | [`aws-wafv2`](SIM_SURFACE_TABLES/aws-wafv2.md) | [`aws-wafv2`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-## Google Cloud — 56 surfaces
+## Google Cloud — 65 surfaces
 
 | Google Cloud surface | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -86,6 +86,7 @@ lives.
 | `gcp-cloudfunctions` | [`gcp-cloudfunctions`](SIM_SURFACE_TABLES/gcp-cloudfunctions.md) | [`gcp-cloudfunctions`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudkms` | [`gcp-cloudkms`](SIM_SURFACE_TABLES/gcp-cloudkms.md) | [`gcp-cloudkms`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudresourcemanager` | [`gcp-cloudresourcemanager`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager.md) | [`gcp-cloudresourcemanager`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudresourcemanager_capability_configs` | [`gcp-cloudresourcemanager_capability_configs`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager_capability_configs.md) | [`gcp-cloudresourcemanager_capability_configs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudresourcemanager_folders_v2` | [`gcp-cloudresourcemanager_folders_v2`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager_folders_v2.md) | [`gcp-cloudresourcemanager_folders_v2`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudrun` | [`gcp-cloudrun`](SIM_SURFACE_TABLES/gcp-cloudrun.md) | [`gcp-cloudrun`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudscheduler` | [`gcp-cloudscheduler`](SIM_SURFACE_TABLES/gcp-cloudscheduler.md) | [`gcp-cloudscheduler`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -105,6 +106,7 @@ lives.
 | `gcp-compute_lb_more_verbs` | [`gcp-compute_lb_more_verbs`](SIM_SURFACE_TABLES/gcp-compute_lb_more_verbs.md) | [`gcp-compute_lb_more_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_lb_verbs` | [`gcp-compute_lb_verbs`](SIM_SURFACE_TABLES/gcp-compute_lb_verbs.md) | [`gcp-compute_lb_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_loadbalancing` | [`gcp-compute_loadbalancing`](SIM_SURFACE_TABLES/gcp-compute_loadbalancing.md) | [`gcp-compute_loadbalancing`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_loadbalancing_dataplane` | [`gcp-compute_loadbalancing_dataplane`](SIM_SURFACE_TABLES/gcp-compute_loadbalancing_dataplane.md) | [`gcp-compute_loadbalancing_dataplane`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_members` | [`gcp-compute_members`](SIM_SURFACE_TABLES/gcp-compute_members.md) | [`gcp-compute_members`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_nested_prefixes` | [`gcp-compute_nested_prefixes`](SIM_SURFACE_TABLES/gcp-compute_nested_prefixes.md) | [`gcp-compute_nested_prefixes`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_policies` | [`gcp-compute_policies`](SIM_SURFACE_TABLES/gcp-compute_policies.md) | [`gcp-compute_policies`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -116,6 +118,7 @@ lives.
 | `gcp-compute_reservation_verbs` | [`gcp-compute_reservation_verbs`](SIM_SURFACE_TABLES/gcp-compute_reservation_verbs.md) | [`gcp-compute_reservation_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_settings` | [`gcp-compute_settings`](SIM_SURFACE_TABLES/gcp-compute_settings.md) | [`gcp-compute_settings`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-dataflow` | [`gcp-dataflow`](SIM_SURFACE_TABLES/gcp-dataflow.md) | [`gcp-dataflow`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-discovery_service` | [`gcp-discovery_service`](SIM_SURFACE_TABLES/gcp-discovery_service.md) | [`gcp-discovery_service`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-dns` | [`gcp-dns`](SIM_SURFACE_TABLES/gcp-dns.md) | [`gcp-dns`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-eventarc` | [`gcp-eventarc`](SIM_SURFACE_TABLES/gcp-eventarc.md) | [`gcp-eventarc`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-firestore` | [`gcp-firestore`](SIM_SURFACE_TABLES/gcp-firestore.md) | [`gcp-firestore`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -124,6 +127,7 @@ lives.
 | `gcp-gcs` | [`gcp-gcs`](SIM_SURFACE_TABLES/gcp-gcs.md) | [`gcp-gcs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_batch` | [`gcp-gcs_batch`](SIM_SURFACE_TABLES/gcp-gcs_batch.md) | [`gcp-gcs_batch`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_acls` | [`gcp-gcs_object_acls`](SIM_SURFACE_TABLES/gcp-gcs_object_acls.md) | [`gcp-gcs_object_acls`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-gcs_object_contexts` | [`gcp-gcs_object_contexts`](SIM_SURFACE_TABLES/gcp-gcs_object_contexts.md) | [`gcp-gcs_object_contexts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_iam` | [`gcp-gcs_object_iam`](SIM_SURFACE_TABLES/gcp-gcs_object_iam.md) | [`gcp-gcs_object_iam`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-gcs_object_restore` | [`gcp-gcs_object_restore`](SIM_SURFACE_TABLES/gcp-gcs_object_restore.md) | [`gcp-gcs_object_restore`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-iam` | [`gcp-iam`](SIM_SURFACE_TABLES/gcp-iam.md) | [`gcp-iam`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -138,7 +142,7 @@ lives.
 | `gcp-sts` | [`gcp-sts`](SIM_SURFACE_TABLES/gcp-sts.md) | [`gcp-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-vpcaccess` | [`gcp-vpcaccess`](SIM_SURFACE_TABLES/gcp-vpcaccess.md) | [`gcp-vpcaccess`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-## Azure — 45 surfaces
+## Azure — 50 surfaces
 
 | Azure surface | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -174,6 +178,7 @@ lives.
 | `azure-kv-data-plane` | [`azure-kv-data-plane`](SIM_SURFACE_TABLES/azure-kv-data-plane.md) | [`azure-kv-data-plane`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-logicapps` | [`azure-logicapps`](SIM_SURFACE_TABLES/azure-logicapps.md) | [`azure-logicapps`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-monitor` | [`azure-monitor`](SIM_SURFACE_TABLES/azure-monitor.md) | [`azure-monitor`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-monitor_dcr` | [`azure-monitor_dcr`](SIM_SURFACE_TABLES/azure-monitor_dcr.md) | [`azure-monitor_dcr`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-network` | [`azure-network`](SIM_SURFACE_TABLES/azure-network.md) | [`azure-network`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-postgresql-flexible-server` | [`azure-postgresql-flexible-server`](SIM_SURFACE_TABLES/azure-postgresql-flexible-server.md) | [`azure-postgresql-flexible-server`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-private-dns` | [`azure-private-dns`](SIM_SURFACE_TABLES/azure-private-dns.md) | [`azure-private-dns`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -190,3 +195,4 @@ lives.
 | `azure-subscription_operations` | [`azure-subscription_operations`](SIM_SURFACE_TABLES/azure-subscription_operations.md) | [`azure-subscription_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-subscription_ownership` | [`azure-subscription_ownership`](SIM_SURFACE_TABLES/azure-subscription_ownership.md) | [`azure-subscription_ownership`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-subscription_policy` | [`azure-subscription_policy`](SIM_SURFACE_TABLES/azure-subscription_policy.md) | [`azure-subscription_policy`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-workload_identity` | [`azure-workload_identity`](SIM_SURFACE_TABLES/azure-workload_identity.md) | [`azure-workload_identity`](SIM_TEST_COVERAGE_MATRIX.md) |

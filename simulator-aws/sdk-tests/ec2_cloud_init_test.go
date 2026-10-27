@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Amazon Linux 2023 instance's cloud-init runs its #cloud-config user
-// data: it writes the files, creates the users, gives the default user
-// ec2-user the key pair's key the instance metadata service lists, runs
-// runcmd as root, and writes its final message to the console.
+// An Amazon Linux 2023 instance's cloud-init runs its #cloud-config user data:
+// it writes the files, creates the users, gives ec2-user the key pair's key the
+// instance metadata service lists, runs runcmd as root and writes its final
+// message to the console.
 func TestEC2_InstanceRunsItsCloudConfig(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

@@ -8,16 +8,13 @@ import (
 	"github.com/miekg/dns"
 )
 
-// elbv2DNSTTL is the TTL of a load balancer's DNS record, 60 seconds as the
-// Elastic Load Balancing user guides' target group health pages state. Route
-// 53 answers an alias to a load balancer with it: an alias to an AWS resource
-// takes the resource's TTL.
+// 60 seconds, per the Elastic Load Balancing guides; a Route 53 alias to the
+// load balancer takes this TTL.
 const elbv2DNSTTL = 60
 
-// elbv2DNSName is the DNS name Elastic Load Balancing gives a load balancer.
-// An Application Load Balancer's is "<name>-<number>.<region>.elb.amazonaws.com",
-// prefixed "internal-" when internal; a Network or Gateway Load Balancer's is
-// "<name>-<id>.elb.<region>.amazonaws.com", where id ends its ARN.
+// Application: "<name>-<number>.<region>.elb.amazonaws.com", prefixed
+// "internal-" when internal. Network and Gateway:
+// "<name>-<id>.elb.<region>.amazonaws.com", id ending the ARN.
 func elbv2DNSName(name, id, lbType, scheme string) string {
 	if lbType != "application" {
 		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, id, awsRegion())
@@ -30,8 +27,7 @@ func elbv2DNSName(name, id, lbType, scheme string) string {
 	return fmt.Sprintf("%s%s-%d.%s.elb.amazonaws.com", prefix, name, number, awsRegion())
 }
 
-// elbv2DNSRecords are the A records that answer each load balancer's DNS name
-// with the address its listeners are bound at.
+// Each load balancer's name answers with its listeners' bound address.
 func elbv2DNSRecords() []dns.RR {
 	var out []dns.RR
 	for _, entry := range elbv2NLBHostEntries() {
@@ -47,10 +43,8 @@ func elbv2DNSRecords() []dns.RR {
 	return append(out, ecsGatewayRouteDNSRecords()...)
 }
 
-// ecsGatewayRouteDNSRecords answer each Amazon ECS gateway route's and Express
-// service's hostname with the address of the load balancer that carries it, as
-// the on.aws names Amazon ECS manages do, until the route or service is torn
-// down.
+// Each gateway route's and Express service's on.aws hostname answers with its
+// load balancer's address until torn down.
 func ecsGatewayRouteDNSRecords() []dns.RR {
 	if ecsGatewayRoutes == nil {
 		return nil

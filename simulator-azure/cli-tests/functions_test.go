@@ -18,7 +18,6 @@ func funcURL(path string) string {
 
 func TestFunctionApp_CreateAndShow(t *testing.T) {
 	t.Parallel()
-	// Create an app service plan first
 	planURL := aspURL("serverfarms/func-test-plan")
 	runCLI(t, azRest("PUT", planURL, `{"location":"eastus","sku":{"name":"Y1","tier":"Dynamic"}}`))
 
@@ -76,11 +75,10 @@ func TestFunctionApp_CreateAndShow(t *testing.T) {
 	runCLI(t, azRest("DELETE", planURL, ""))
 }
 
-// TestFunctionApp_CLI_InvokeReachesTheContainer invokes a function app that
-// runs a container image through its hostname: the container answers, and its
-// access-log line for the request reaches the AppTraces of the Application
-// Insights component its connection string names, in that component's
-// workspace.
+// TestFunctionApp_CLI_InvokeReachesTheContainer invokes a container function
+// app through its hostname: the container answers, and its access-log line
+// reaches AppTraces in the workspace of the Application Insights component its
+// connection string names.
 func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
 	t.Parallel()
 	wsID, customerID := cliLogWorkspace(t, "cli-invoke-ws")
@@ -109,16 +107,14 @@ func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
 	runCLI(t, azRest("PUT", url, body))
 	defer runCLI(t, azRest("DELETE", url, ""))
 
-	// Real Azure routes by per-site hostname <site>.azurewebsites.net; the sim
-	// hosts every site on one port, so connect to the sim's TCP address and
-	// pin the Host header, which az rest's --headers flag carries through.
+	// Azure routes by the per-site hostname <site>.azurewebsites.net; the
+	// simulator serves every site on one port, so dial it and pin the Host header.
 	invokeURL := baseURL + "/api/function"
 	out := runCLI(t, azRest("POST", invokeURL, "{}", "--headers", "Host=cli-invoke-funcapp.azurewebsites.net"))
 	assert.Equal(t, "cli-invoked", strings.TrimSpace(out))
 
-	// The engine's log stream delivers the container's line after the
-	// response, and App Service offers no event for its arrival, so read the
-	// table until it does.
+	// The engine's log stream delivers the line after the response, and App
+	// Service offers no event for its arrival, so read the table until it does.
 	deadline := time.Now().Add(30 * time.Second)
 	for !strings.Contains(cliQueryWorkspace(t, customerID, `AppTraces | where AppRoleName == "cli-invoke-funcapp"`), "POST /api/function") {
 		require.True(t, time.Now().Before(deadline), "the container's access-log line should reach AppTraces")

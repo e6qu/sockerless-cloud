@@ -16,17 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_AlarmSNSActionToSQS_ProcessMode is the regression test for
-// issue #741. It starts a fresh simulator-aws subprocess with SIM_RUNTIME=process
-// and exercises the same shape as the adversarial CLI probe:
-//   - SQS queue policy with Principal "*" and no aws:SourceArn condition
-//   - a short settle window between Subscribe and PutMetricAlarm
-//   - PutMetricData breaching the threshold
-//   - DescribeAlarms surfacing ALARM
-//   - SQS ReceiveMessage returning the alarm notification
-//
-// This proves delivery works in API-only process mode, independent of the
-// shared TestMain simulator's runtime.
+// TestCloudWatch_AlarmSNSActionToSQS_ProcessMode runs, against a simulator in
+// SIM_RUNTIME=process, an alarm whose action reaches an Amazon SQS queue whose
+// policy allows Principal "*" with no aws:SourceArn condition: a breaching
+// metric drives the alarm to ALARM and the queue receives the notification.
 func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -63,8 +56,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	require.NoError(t, err)
 	queueARN := queueAttrs.Attributes["QueueArn"]
 
-	// Same permissive shape as the failing CLI probe: Principal "*", no
-	// aws:SourceArn condition. Real AWS allows this; the sim must too.
+	// AWS accepts a Principal "*" policy with no aws:SourceArn condition.
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"sqs:SendMessage","Resource":"%s"}]}`, queueARN)
 	_, err = sqsC.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
 		QueueUrl: q.QueueUrl,
@@ -129,11 +121,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 	assert.Equal(t, "123456789012", body["AWSAccountId"])
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState is the
-// regression test for issue #749. Re-creating (PutMetricAlarm) an alarm that
-// previously reached ALARM must reset the evaluator's remembered state so the
-// new incarnation transitions from INSUFFICIENT_DATA and dispatches its
-// AlarmActions again.
+// TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState expects
+// PutMetricAlarm over an alarm that reached ALARM to restart it from
+// INSUFFICIENT_DATA, so it dispatches its AlarmActions again.
 func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -224,8 +214,8 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first transition should deliver one notification")
 
-	// Re-create the same alarm without deleting it, simulating churn from
-	// repeated Terraform apply cycles that reuse alarm names.
+	// Re-create the alarm without deleting it, as repeated Terraform applies that
+	// reuse alarm names do.
 	_, err = sqsC.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: q.QueueUrl})
 	require.NoError(t, err)
 
@@ -255,10 +245,8 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	assert.Equal(t, "INSUFFICIENT_DATA", body["OldStateValue"])
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm is the regression
-// test for issue #753. A panic while evaluating or dispatching one alarm must
-// not kill the background evaluator goroutine; subsequent alarms must still
-// dispatch their AlarmActions.
+// TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm expects other
+// alarms to keep dispatching after one alarm's action fails.
 func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -314,9 +302,8 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 
 	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
-	// Create a "bad" alarm whose action target is an ARN the evaluator cannot
-	// resolve to a known SNS topic. Real CloudWatch would silently drop the
-	// action; the sim must not panic and must continue evaluating other alarms.
+	// The bad alarm's action names an ARN that resolves to no SNS topic; CloudWatch
+	// drops such an action and keeps evaluating other alarms.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(badAlarmName),
 		Namespace:          aws.String(ns),
@@ -332,7 +319,6 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create the "good" alarm pointing at the real topic.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(goodAlarmName),
 		Namespace:          aws.String(ns),
@@ -351,7 +337,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 		_, _ = cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{badAlarmName, goodAlarmName}})
 	})
 
-	// Breach the good alarm only; the bad alarm has no datapoints and stays OK.
+	// Breach only the good alarm; the bad one has no datapoints.
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(ns),
 		MetricData: []cwtypes.MetricDatum{
@@ -366,10 +352,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 	require.Len(t, recv.Messages, 1, "good alarm must still deliver even when a sibling alarm has an invalid action target")
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms is the regression test
-// for issue #758. It seeds the simulator with leftover alarms whose action
-// targets no longer exist (a common result of Terraform apply/destroy churn),
-// then creates a fresh alarm and asserts its AlarmActions still dispatch.
+// TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms leaves alarms whose
+// action topics are deleted, as incomplete Terraform destroys do, and expects
+// a new alarm's AlarmActions to dispatch.
 func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -384,8 +369,6 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 		o.BaseEndpoint = aws.String(url)
 	})
 
-	// Seed dangling alarms: alarms whose SNS topics have been deleted but the
-	// alarms themselves remain. This mirrors incomplete Terraform destroys.
 	for i := 1; i <= 10; i++ {
 		_, err := cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 			AlarmName:          aws.String(fmt.Sprintf("dangling-alarm-%d", i)),
@@ -410,12 +393,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The evaluator has to survive the dangling alarms: a panic there would
-	// kill its goroutine. Nothing is waited for here, because the probe below
-	// is what proves the goroutine is still running — it would never reach
-	// ALARM otherwise.
+	// The probe below reaches ALARM only if the evaluator survived the dangling
+	// alarms.
 
-	// Now run the standard probe.
 	ns := "Custom/AlarmAfterDanglingRepro"
 	alarmName := "alarm-after-dangling"
 
@@ -502,9 +482,8 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 	assert.Equal(t, "INSUFFICIENT_DATA", body["OldStateValue"])
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate verifies that
-// deleting an alarm and then recreating it with the same name does not leave
-// stale evaluator state that prevents the new alarm from dispatching.
+// TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate expects an alarm
+// deleted and recreated under its name to dispatch again.
 func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -559,7 +538,6 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 
 	awaitSubscription(ctx, t, snsC, topicARN, queueARN)
 
-	// First incarnation: create alarm, breach it, receive notification.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
 		Namespace:          aws.String(ns),
@@ -588,16 +566,14 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first incarnation must deliver")
 
-	// Delete the alarm, then recreate it with the same name.
 	_, err = cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
 	require.NoError(t, err)
 
 	_, err = sqsC.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: q.QueueUrl})
 	require.NoError(t, err)
 
-	// Recreate with a higher threshold and a fresh metric name so the first
-	// incarnation's datapoint cannot pollute the second alarm's 60-second
-	// evaluation bucket.
+	// A higher threshold and a fresh metric keep the first incarnation's datapoint
+	// out of the second alarm's 60-second bucket.
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
 		Namespace:          aws.String(ns),
@@ -637,9 +613,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 	assert.Equal(t, "INSUFFICIENT_DATA", body2["OldStateValue"])
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_NoSubscription verifies that an alarm
-// whose action topic has no subscribers delivers nothing, and that the fan-out
-// path logs the empty subscription set rather than silently doing nothing.
+// TestCloudWatch_AlarmSNSActionToSQS_NoSubscription expects an alarm whose
+// topic has no subscribers to deliver nothing, and the fan-out to log the
+// empty subscription set.
 func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -670,7 +646,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 		_, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
 	})
 
-	// Intentionally no subscription — there is nothing to wait for.
+	// No subscription, so nothing to wait for.
 
 	_, err = cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String(alarmName),
@@ -703,9 +679,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 	requireQueueStaysEmpty(ctx, t, sqsC, q.QueueUrl, "alarm with no topic subscriptions must not deliver")
 }
 
-// TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied verifies that an alarm whose
-// subscriber queue policy denies sns:SendMessage delivers nothing. Real AWS
-// drops the message; the sim must do the same and must log the denial.
+// TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied expects nothing delivered to
+// a queue whose policy denies the topic's sqs:SendMessage, with the denial
+// logged.
 func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -742,7 +718,6 @@ func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
 	require.NoError(t, err)
 	queueARN := queueAttrs.Attributes["QueueArn"]
 
-	// Policy explicitly denies sns:SendMessage from the action topic.
 	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"sqs:SendMessage","Resource":"%s","Condition":{"ArnEquals":{"aws:SourceArn":"%s"}}}]}`, queueARN, topicARN)
 	_, err = sqsC.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
 		QueueUrl: q.QueueUrl,

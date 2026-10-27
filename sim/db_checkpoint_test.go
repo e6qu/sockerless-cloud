@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// TestCheckpointResetsAnOversizedWAL proves the half journal_size_limit does
-// not cover. The limit only applies when SQLite resets the log, and under
-// sustained writes the automatic checkpoint never gets to: a deployed
-// simulator's log sat at 64 MiB while it was quiet and reached 1.2 GiB once the
-// retention sweeps started deleting. Asking for the reset brings it back.
+// journal_size_limit applies only when SQLite resets the log, which the
+// automatic checkpoint never gets to under sustained writes; asking for the
+// reset brings the log back under it.
 func TestCheckpointResetsAnOversizedWAL(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(dir)

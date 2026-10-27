@@ -10,7 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch Logs Insights `filter` expression grammar:
+// The CloudWatch Logs Insights `filter` grammar:
 //
 //	expr   = or
 //	or     = and { "or" and }
@@ -21,8 +21,8 @@ import (
 //	restriction = field                       (bare field → present & truthy)
 //	value  = "string" | number | /regex/ | [ v, v, … ]   (in)
 //
-// Evaluated against a flattened record, whose field names may hold dots, so a
-// comparison reads its field by exact name.
+// Flattened field names may hold dots, so a comparison reads its field by
+// exact name.
 
 type cwInsCmp struct {
 	field string
@@ -304,8 +304,7 @@ func (p *cwInsParser) parseTerm() listq.Node {
 		}
 		return cwInsCmp{field: field, op: "in", list: list}
 	}
-	// A bare field with no operator is a valid Insights filter (presence/truthy
-	// test), so this is not an error.
+	// A bare field is a valid presence test.
 	return cwInsCmp{field: field, op: ""}
 }
 

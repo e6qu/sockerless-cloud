@@ -16,10 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// s3ControlClient talks to the S3 control plane, where access points live.
-// CreateAccessPoint and its siblings carry a modeled host prefix — the account
-// id — so the endpoint has to be a name the prefix can attach to rather than
-// an IP literal.
+// s3ControlClient's operations carry the account id as a modeled host prefix,
+// so the endpoint must be a name, not an IP literal.
 func s3ControlClient() *s3control.Client {
 	return s3control.NewFromConfig(sdkConfig(), func(o *s3control.Options) {
 		o.BaseEndpoint = aws.String(simEndpoint("s3-control"))
@@ -27,10 +25,10 @@ func s3ControlClient() *s3control.Client {
 }
 
 // s3ObjectLambdaS3Client reads through Object Lambda access points and posts
-// the transformation callback. Both are host-addressed — the access point by
-// its own alias, WriteGetObjectResponse by the request route — so this client
-// takes a named endpoint and leaves path-style addressing off, which the SDK
-// refuses to combine with an ARN bucket anyway.
+// the transformation callback, both host-addressed (the access point by its
+// alias, WriteGetObjectResponse by its request route), so it takes a named
+// endpoint without path-style addressing, which the SDK refuses with an ARN
+// bucket.
 func s3ObjectLambdaS3Client() *s3.Client {
 	return s3.NewFromConfig(sdkConfig(), func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(simEndpoint("s3"))
@@ -39,8 +37,8 @@ func s3ObjectLambdaS3Client() *s3.Client {
 
 const s3ObjectLambdaAccount = "123456789012"
 
-// TestS3_AccessPointLifecycle covers the standard access point an Object
-// Lambda access point is built on: create, read, list, its policy, and delete.
+// TestS3_AccessPointLifecycle covers the standard access point an Object Lambda
+// access point is built on.
 func TestS3_AccessPointLifecycle(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -109,8 +107,8 @@ func TestS3_AccessPointLifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestS3_CreateAccessPointRejectsMissingBucket holds the create to a bucket
-// that exists: an access point over nothing would serve reads of nothing.
+// TestS3_CreateAccessPointRejectsMissingBucket expects CreateAccessPoint to
+// require an existing bucket.
 func TestS3_CreateAccessPointRejectsMissingBucket(t *testing.T) {
 	t.Parallel()
 	_, err := s3ControlClient().CreateAccessPoint(ctx, &s3control.CreateAccessPointInput{
@@ -122,11 +120,10 @@ func TestS3_CreateAccessPointRejectsMissingBucket(t *testing.T) {
 	assert.Contains(t, err.Error(), "NoSuchBucket")
 }
 
-// TestS3_ObjectLambdaGetObject is the whole Object Lambda loop: a read
-// addressed to the Object Lambda access point runs the transformation
-// function, which fetches the stored object and posts a transformed body back
-// through WriteGetObjectResponse. The caller receives what the function wrote
-// — never the stored bytes.
+// TestS3_ObjectLambdaGetObject expects a read addressed to the Object Lambda
+// access point to run the transformation function, which fetches the object
+// and posts a transformed body through WriteGetObjectResponse; the caller
+// receives what the function wrote.
 func TestS3_ObjectLambdaGetObject(t *testing.T) {
 	t.Parallel()
 	sc, s3c, lc := s3ControlClient(), s3Client(), lambdaClient()
@@ -204,9 +201,9 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 	require.Len(t, listed.ObjectLambdaAccessPointList, 1)
 	assert.Equal(t, olapName, aws.ToString(listed.ObjectLambdaAccessPointList[0].Name))
 
-	// The read goes to the Object Lambda access point by its ARN, which is how
-	// a client addresses one. The SDK resolves it to the access point's own
-	// endpoint, so the request never names the bucket.
+	// A client addresses an Object Lambda access point by ARN, which the SDK
+	// resolves to the access point's endpoint, so the request never names the
+	// bucket.
 	got, err := s3ObjectLambdaS3Client().GetObject(ctx, &s3.GetObjectInput{
 		Bucket: createdOLAP.ObjectLambdaAccessPointArn,
 		Key:    aws.String(key),
@@ -220,8 +217,7 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 	assert.Equal(t, "text/plain", aws.ToString(got.ContentType),
 		"x-amz-fwd-header-Content-Type reaches the caller as Content-Type")
 
-	// The stored object is untouched: the transformation happens on the way
-	// out, not in the bucket.
+	// The transformation happens on the way out; the stored object is untouched.
 	direct, err := s3c.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String(key)})
 	require.NoError(t, err)
@@ -231,8 +227,9 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 	assert.Equal(t, stored, string(original))
 }
 
-// TestS3_CreateObjectLambdaRejectsDanglingConfiguration holds the create to a
-// supporting access point and a transformation function that both exist.
+// TestS3_CreateObjectLambdaRejectsDanglingConfiguration expects
+// CreateAccessPointForObjectLambda to require an existing supporting access
+// point and transformation function.
 func TestS3_CreateObjectLambdaRejectsDanglingConfiguration(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
@@ -259,9 +256,8 @@ func TestS3_CreateObjectLambdaRejectsDanglingConfiguration(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not exist")
 }
 
-// TestS3_WriteGetObjectResponseRejectsUnknownRoute holds the callback to a
-// read that is actually in flight. The route token is what proves the caller
-// is the function that read was routed to.
+// TestS3_WriteGetObjectResponseRejectsUnknownRoute expects the callback to name
+// a read in flight: the route token identifies the function the read went to.
 func TestS3_WriteGetObjectResponseRejectsUnknownRoute(t *testing.T) {
 	t.Parallel()
 	_, err := s3ObjectLambdaS3Client().WriteGetObjectResponse(ctx, &s3.WriteGetObjectResponseInput{

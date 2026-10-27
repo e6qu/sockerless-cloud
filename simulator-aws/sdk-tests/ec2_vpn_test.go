@@ -10,16 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_VPNSiteToSite covers the full Site-to-Site VPN control plane:
-// customer gateway + VPN gateway + VPN connection (with two IPsec tunnels and a
-// static route), the Describe read-backs, ModifyVpnConnectionOptions /
-// ModifyVpnTunnelOptions, GetActiveVpnTunnelStatus, the device-type catalog and
-// sample-configuration generator, and the tolerant teardown.
 func TestEC2_VPNSiteToSite(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 
-	// Customer gateway.
 	cgwOut, err := c.CreateCustomerGateway(ctx, &ec2.CreateCustomerGatewayInput{
 		BgpAsn:    aws.Int32(65000),
 		IpAddress: aws.String("198.51.100.7"),
@@ -48,7 +42,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	require.Len(t, dcgw.CustomerGateways[0].Tags, 1)
 	assert.Equal(t, "Name", aws.ToString(dcgw.CustomerGateways[0].Tags[0].Key))
 
-	// VPN gateway + VPC attachment.
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.200.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
@@ -79,7 +72,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	require.Len(t, dvgw.VpnGateways[0].VpcAttachments, 1)
 	assert.Equal(t, vpcID, aws.ToString(dvgw.VpnGateways[0].VpcAttachments[0].VpcId))
 
-	// VPN connection with static routing.
 	connOut, err := c.CreateVpnConnection(ctx, &ec2.CreateVpnConnectionInput{
 		CustomerGatewayId: aws.String(cgwID),
 		VpnGatewayId:      aws.String(vgwID),
@@ -102,7 +94,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 		_, _ = c.DeleteVpnConnection(ctx, &ec2.DeleteVpnConnectionInput{VpnConnectionId: aws.String(connID)})
 	})
 
-	// Static route add + read-back.
 	_, err = c.CreateVpnConnectionRoute(ctx, &ec2.CreateVpnConnectionRouteInput{
 		VpnConnectionId: aws.String(connID), DestinationCidrBlock: aws.String("172.16.0.0/16"),
 	})
@@ -114,7 +105,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	require.Len(t, dconn.VpnConnections[0].Routes, 1)
 	assert.Equal(t, "172.16.0.0/16", aws.ToString(dconn.VpnConnections[0].Routes[0].DestinationCidrBlock))
 
-	// Modify options + tunnel options.
 	_, err = c.ModifyVpnConnectionOptions(ctx, &ec2.ModifyVpnConnectionOptionsInput{
 		VpnConnectionId:       aws.String(connID),
 		LocalIpv4NetworkCidr:  aws.String("10.0.0.0/16"),
@@ -130,7 +120,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, tunOut.VpnConnection)
 
-	// Active tunnel status.
 	st, err := c.GetActiveVpnTunnelStatus(ctx, &ec2.GetActiveVpnTunnelStatusInput{
 		VpnConnectionId:           aws.String(connID),
 		VpnTunnelOutsideIpAddress: conn.VgwTelemetry[0].OutsideIpAddress,
@@ -139,19 +128,17 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	require.NotNil(t, st.ActiveVpnTunnelStatus)
 	assert.NotEmpty(t, st.ActiveVpnTunnelStatus.Phase1EncryptionAlgorithm)
 
-	// Modify the connection (re-point to the same gateway is a no-op-shaped path).
+	// Re-pointing to the same gateway changes nothing.
 	_, err = c.ModifyVpnConnection(ctx, &ec2.ModifyVpnConnectionInput{
 		VpnConnectionId: aws.String(connID), VpnGatewayId: aws.String(vgwID),
 	})
 	require.NoError(t, err)
 
-	// Route delete.
 	_, err = c.DeleteVpnConnectionRoute(ctx, &ec2.DeleteVpnConnectionRouteInput{
 		VpnConnectionId: aws.String(connID), DestinationCidrBlock: aws.String("172.16.0.0/16"),
 	})
 	require.NoError(t, err)
 
-	// Device-type catalog + sample configuration.
 	devs, err := c.GetVpnConnectionDeviceTypes(ctx, &ec2.GetVpnConnectionDeviceTypesInput{})
 	require.NoError(t, err)
 	require.NotEmpty(t, devs.VpnConnectionDeviceTypes)
@@ -166,11 +153,6 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(sample.VpnConnectionDeviceSampleConfiguration))
 }
 
-// TestEC2_ClientVPNLifecycle covers the Client VPN family: endpoint create with
-// mutual authentication, the Describe read-back, ModifyClientVpnEndpoint, routes,
-// authorization (ingress) rules, target-network associations,
-// ApplySecurityGroupsToClientVpnTargetNetwork, the connection list +
-// terminate, and a tolerant teardown.
 func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -218,7 +200,6 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	require.Len(t, got.Tags, 1)
 	assert.Equal(t, "team", aws.ToString(got.Tags[0].Key))
 
-	// Modify.
 	_, err = c.ModifyClientVpnEndpoint(ctx, &ec2.ModifyClientVpnEndpointInput{
 		ClientVpnEndpointId: aws.String(epID),
 		Description:         aws.String("updated description"),
@@ -226,7 +207,6 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Associate a target network (subnet).
 	assoc, err := c.AssociateClientVpnTargetNetwork(ctx, &ec2.AssociateClientVpnTargetNetworkInput{
 		ClientVpnEndpointId: aws.String(epID), SubnetId: aws.String(subnetID),
 	})
@@ -241,7 +221,6 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	require.Len(t, dtn.ClientVpnTargetNetworks, 1)
 	assert.Equal(t, subnetID, aws.ToString(dtn.ClientVpnTargetNetworks[0].TargetNetworkId))
 
-	// Authorization (ingress) rule.
 	_, err = c.AuthorizeClientVpnIngress(ctx, &ec2.AuthorizeClientVpnIngressInput{
 		ClientVpnEndpointId: aws.String(epID),
 		TargetNetworkCidr:   aws.String("0.0.0.0/0"),
@@ -258,7 +237,7 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	assert.Equal(t, "0.0.0.0/0", aws.ToString(dar.AuthorizationRules[0].DestinationCidr))
 	assert.True(t, aws.ToBool(dar.AuthorizationRules[0].AccessAll))
 
-	// Route (depends on the association being in place).
+	// A route needs the association in place.
 	_, err = c.CreateClientVpnRoute(ctx, &ec2.CreateClientVpnRouteInput{
 		ClientVpnEndpointId:  aws.String(epID),
 		DestinationCidrBlock: aws.String("0.0.0.0/0"),
@@ -275,7 +254,6 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	assert.Equal(t, "0.0.0.0/0", aws.ToString(drt.Routes[0].DestinationCidr))
 	assert.Equal(t, subnetID, aws.ToString(drt.Routes[0].TargetSubnet))
 
-	// Apply security groups to the target network.
 	sg, err := c.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
 		GroupName: aws.String("clientvpn-sg"), Description: aws.String("cvpn"), VpcId: vpc.Vpc.VpcId,
 	})
@@ -288,7 +266,7 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, applied.SecurityGroupIds, aws.ToString(sg.GroupId))
 
-	// Connections list (empty for a freshly created endpoint) + terminate.
+	// A new endpoint has no connections.
 	conns, err := c.DescribeClientVpnConnections(ctx, &ec2.DescribeClientVpnConnectionsInput{
 		ClientVpnEndpointId: aws.String(epID),
 	})
@@ -301,7 +279,6 @@ func TestEC2_ClientVPNLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, epID, aws.ToString(term.ClientVpnEndpointId))
 
-	// Tear the routes/rules/associations down (tolerant).
 	_, _ = c.DeleteClientVpnRoute(ctx, &ec2.DeleteClientVpnRouteInput{
 		ClientVpnEndpointId: aws.String(epID), DestinationCidrBlock: aws.String("0.0.0.0/0"), TargetVpcSubnetId: aws.String(subnetID),
 	})

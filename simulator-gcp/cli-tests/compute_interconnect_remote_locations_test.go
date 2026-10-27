@@ -8,10 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gcloud compute interconnects remote-locations against the simulator. The
-// catalogue is vendored from the four "Choose your locations" pages Google
-// publishes, one per cloud provider, and this drives the read an operator makes
-// when picking where to land a Cross-Cloud Interconnect.
+// TestGcloudComputeInterconnectRemoteLocations reads the Cross-Cloud
+// Interconnect remote locations, vendored from the four "Choose your locations"
+// pages Google publishes, one per cloud provider.
 func TestGcloudComputeInterconnectRemoteLocations(t *testing.T) {
 	t.Parallel()
 	out, err := gcloudCLI("compute", "interconnects", "remote-locations", "list",

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
-	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
@@ -1032,29 +1031,19 @@ func handleFilesGetUserDelegationKey(w http.ResponseWriter, r *http.Request, acc
 	if start == "" {
 		start = time.Now().UTC().Format(time.RFC3339)
 	}
-	material := account + "|" + simTenantID + "|" + start + "|" + keyInfo.Expiry
-	sum := sha256.Sum256([]byte(material))
-	key := filesUserDelegationKey{
-		SignedOID:     generateUUIDFromSeed(material),
-		SignedTID:     simTenantID,
-		SignedStart:   start,
-		SignedExpiry:  keyInfo.Expiry,
-		SignedService: "f",
-		SignedVersion: r.Header.Get("x-ms-version"),
-		Value:         hex.EncodeToString(sum[:]),
+	key, ok := storageIssueUserDelegationKey(w, r, account, "f", start, keyInfo.Expiry)
+	if !ok {
+		return
 	}
-	writeStorageXML(w, http.StatusOK, key)
-}
-
-// generateUUIDFromSeed derives a stable RFC 4122 version-4-shaped identifier
-// from a seed, so the same inputs name the same object across calls and across
-// a restart.
-func generateUUIDFromSeed(seed string) string {
-	sum := sha256.Sum256([]byte(seed))
-	b := sum[:16]
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	writeStorageXML(w, http.StatusOK, filesUserDelegationKey{
+		SignedOID:     key.SignedOID,
+		SignedTID:     key.SignedTID,
+		SignedStart:   key.SignedStart,
+		SignedExpiry:  key.SignedExpiry,
+		SignedService: key.SignedService,
+		SignedVersion: key.SignedVersion,
+		Value:         key.Value,
+	})
 }
 
 // ── Entry helpers shared by directories and files ───────────────────

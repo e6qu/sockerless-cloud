@@ -14,9 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the rest of a web app's SCM site — Kudu's VFS, command,
-// settings and log stream APIs — and for the logs and schedules of its
-// webjobs:
+// Kudu's VFS, command, settings and log stream APIs on a web app's SCM site,
+// and the logs and schedules of its webjobs.
 //
 //	GET+PUT+DELETE /api/vfs/{path}
 //	GET /vfs/{path}
@@ -32,7 +31,7 @@ import (
 const kuduAlpineImage = "mirror.gcr.io/library/alpine:latest"
 
 // kuduSCM returns a site's SCM base URL and a Microsoft Entra bearer for App
-// Service, the way az rest reaches the SCM site.
+// Service, as az rest reaches the SCM site.
 func kuduSCM(t *testing.T, client *armappservice.WebAppsClient, rg, name string) (string, func(*http.Request)) {
 	t.Helper()
 	site, err := client.Get(ctx, rg, name, nil)
@@ -132,9 +131,8 @@ func TestSDK_WebApps_KuduVFSCommandAndSettings(t *testing.T) {
 	resp, _ = kuduRequest(t, http.MethodPut, scm+"/api/vfs/data/scratch/", nil, "", auth)
 	assert.Equal(t, http.StatusConflict, resp.StatusCode, "the directory exists")
 
-	// The command runs in the site's image with /home mounted and the app
-	// settings in its environment; what it writes to wwwroot is the site's
-	// content, so a webjob it writes there is discovered.
+	// The command runs in the site's image with /home mounted and the app settings
+	// in its environment; a webjob it writes to wwwroot is discovered.
 	command := func(cmd, dir string) (int, kuduCommandResult, string) {
 		payload, err := json.Marshal(map[string]string{"command": cmd, "dir": dir})
 		require.NoError(t, err)
@@ -157,8 +155,8 @@ func TestSDK_WebApps_KuduVFSCommandAndSettings(t *testing.T) {
 	assert.Equal(t, "/home/data/scratch\n", out.Output)
 	assert.Equal(t, 3, out.ExitCode)
 
-	// Settings: Kudu's defaults under the settings written here, under the
-	// app settings; SCM_COMMAND_IDLE_TIMEOUT bounds a silent command.
+	// Kudu's defaults, overridden by settings written here, overridden by app
+	// settings; SCM_COMMAND_IDLE_TIMEOUT bounds a silent command.
 	resp, body = kuduRequest(t, http.MethodGet, scm+"/api/settings", nil, "", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
 	var settings map[string]string
@@ -214,7 +212,7 @@ func TestSDK_WebApps_KuduLogStream(t *testing.T) {
 	require.True(t, lines.Scan(), "the stream opens with its welcome line")
 	assert.Contains(t, lines.Text(), "Welcome, you are now connected to log-streaming service.")
 
-	// The serving workload logs one line per request it answers.
+	// The serving workload logs one line per request.
 	status, body := azureSiteRequest(t, name, http.MethodGet, "/streamed-request", "")
 	require.Equal(t, http.StatusOK, status, "%s", body)
 	for lines.Scan() {

@@ -26,8 +26,8 @@ func TestCloudRun_CLI_JobWritesThroughCloudStorageVolume(t *testing.T) {
 		runCLI(t, gcloudCLI("storage", "cp", source, "gs://"+bucket+"/"+name))
 	}
 
-	// The script holds commas, so the list flag takes another delimiter
-	// (gcloud topic escaping).
+	// The script holds commas, so the list flag takes another delimiter (see
+	// `gcloud topic escaping`).
 	script := strings.Join([]string{
 		"set -e",
 		"cat /mnt/bucket/seed.txt > /mnt/results/copy.txt",

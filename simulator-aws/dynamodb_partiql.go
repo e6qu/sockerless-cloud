@@ -1,22 +1,9 @@
 package main
 
-// DynamoDB PartiQL — ExecuteStatement / BatchExecuteStatement / ExecuteTransaction.
-//
-// PartiQL is DynamoDB's SQL-compatible query language; the three awsJson1.0 ops
-// (target prefix DynamoDB_20120810.) let SDK / CLI / Terraform clients drive the
-// same reads and writes they otherwise issue as GetItem/Query/Scan/PutItem/
-// UpdateItem/DeleteItem. This slice is a faithful translation layer: it parses a
-// PartiQL statement into an AST and maps each form onto the EXISTING item engine
-// in dynamodb.go (ddbTables / ddbItems / ddbItemNames, ddbItemKey, the
-// ddbEvalExpr/ddbMatchesExpression predicate evaluator, and
-// ddbApplyUpdateExpression). No separate storage, no synthetic shortcuts — the
-// observable result of a PartiQL statement is identical to the equivalent
-// classic API call against the same table.
-//
-// WHERE predicates are translated into the DynamoDB ConditionExpression /
-// FilterExpression string form (generated #n / :v placeholders + a values map)
-// and handed to ddbEvalExpr — the predicate evaluator is reused, never
-// reimplemented.
+// PartiQL statements translate onto the item engine in dynamodb.go: WHERE
+// clauses render to ConditionExpression form for ddbEvalExpr, and UPDATE to an
+// UpdateExpression, so a statement's result equals the equivalent classic API
+// call.
 
 import (
 	"encoding/base64"
@@ -30,8 +17,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// registerDDBPartiQL mounts the three PartiQL operations on the shared awsJson
-// router. The parent adds the single registerDDBPartiQL(awsRouter) call.
 func registerDDBPartiQL(r *AWSRouter) {
 	reg := func(target string, h http.HandlerFunc) {
 		op := strings.TrimPrefix(target, "DynamoDB_20120810.")
@@ -42,18 +27,12 @@ func registerDDBPartiQL(r *AWSRouter) {
 	reg("DynamoDB_20120810.ExecuteTransaction", handleDDBExecuteTransaction)
 }
 
-// ── parse budget ─────────────────────────────────────────────────────────────
-
-// partiQLMaxDepth bounds nested-paren / nested-literal recursion so a
-// pathological statement (thousands of "(" or "{") can't overflow the goroutine
-// stack — a Go stack overflow is a fatal error recover() can't catch.
-// partiQLMaxNodes bounds total parse work so a huge flat statement can't hang.
+// A Go stack overflow is fatal and cannot be recovered, so bound nesting
+// depth; bound total work so a huge flat statement cannot hang.
 const (
 	partiQLMaxDepth = 500
 	partiQLMaxNodes = 200000
 )
-
-// ── AST ──────────────────────────────────────────────────────────────────────
 
 type partiQLKind int
 
@@ -64,49 +43,38 @@ const (
 	pqlDelete
 )
 
-// partiQLStmt is the parsed statement. Only the fields relevant to its Kind are
-// populated.
+// Only the fields of its Kind are set.
 type partiQLStmt struct {
 	Kind  partiQLKind
 	Table string
 	Index string // SELECT ... FROM "table"."index"
 
-	// SELECT
 	SelectAll  bool
 	SelectCols []string // top-level attribute names (resolved literals)
 	Where      partiQLExpr
 	OrderByKey string
 	OrderDesc  bool
 
-	// INSERT
 	InsertValue map[string]any // attribute-value map (wire shape)
 
-	// UPDATE
 	Sets    []partiQLSet
 	Removes []string // top-level attribute names to remove
 
-	// DELETE / UPDATE
-	Returning string // normalized: "ALLOLD" / "ALLNEW" / "MODIFIEDOLD" / "MODIFIEDNEW" / ""
+	Returning string // "ALLOLD", "ALLNEW", "MODIFIEDOLD", "MODIFIEDNEW" or "".
 }
 
-// partiQLSet is one `path = value` assignment in an UPDATE ... SET list.
 type partiQLSet struct {
 	Path  string // top-level attribute name
 	Value partiQLTermVal
 }
 
-// partiQLTermVal is a resolved literal/parameter attribute value, carried so the
-// executor can build an UpdateExpression values map.
+// The executor builds an UpdateExpression values map from these.
 type partiQLTermVal struct {
 	AV map[string]any // attribute-value wire shape, e.g. {"S":"x"} / {"N":"1"}
 }
 
-// ── WHERE AST ────────────────────────────────────────────────────────────────
-//
-// The WHERE tree is intentionally small: it captures exactly the SQL operators
-// DynamoDB PartiQL supports, then renders to a DynamoDB condition string so the
-// existing ddbEvalExpr does the actual matching. Each leaf records the column
-// names and literal values it references; rendering allocates #n / :v
+// The WHERE tree holds exactly the operators DynamoDB PartiQL supports and
+// renders to a condition string for ddbEvalExpr, allocating #n / :v
 // placeholders into shared maps.
 
 type partiQLExpr interface {
@@ -151,7 +119,6 @@ func (e partiQLNot) render(c *partiQLRenderCtx) string {
 	return "(NOT " + e.inner.render(c) + ")"
 }
 
-// partiQLCompare is `col <op> literal` where op is one of = <> < <= > >=.
 type partiQLCompare struct {
 	col string
 	op  string
@@ -162,7 +129,6 @@ func (e partiQLCompare) render(c *partiQLRenderCtx) string {
 	return c.name(e.col) + " " + e.op + " " + c.value(e.val)
 }
 
-// partiQLBetween is `col BETWEEN lo AND hi`.
 type partiQLBetween struct {
 	col    string
 	lo, hi map[string]any
@@ -172,7 +138,6 @@ func (e partiQLBetween) render(c *partiQLRenderCtx) string {
 	return c.name(e.col) + " BETWEEN " + c.value(e.lo) + " AND " + c.value(e.hi)
 }
 
-// partiQLIn is `col IN (v1, v2, ...)`.
 type partiQLIn struct {
 	col  string
 	vals []map[string]any
@@ -186,9 +151,7 @@ func (e partiQLIn) render(c *partiQLRenderCtx) string {
 	return c.name(e.col) + " IN (" + strings.Join(parts, ", ") + ")"
 }
 
-// partiQLFunc is a boolean function call: begins_with / contains /
-// attribute_exists / attribute_type, plus IS [NOT] MISSING (rendered as
-// attribute_not_exists / attribute_exists).
+// IS [NOT] MISSING renders as attribute_not_exists / attribute_exists.
 type partiQLFunc struct {
 	name string // attribute_exists / attribute_not_exists / begins_with / contains / attribute_type
 	col  string
@@ -202,8 +165,6 @@ func (e partiQLFunc) render(c *partiQLRenderCtx) string {
 	}
 	return e.name + "(" + n + ", " + c.value(*e.arg) + ")"
 }
-
-// ── tokenizer ────────────────────────────────────────────────────────────────
 
 type pqlTokKind int
 
@@ -232,9 +193,8 @@ type pqlTok struct {
 	text string
 }
 
-// pqlTokenize lexes a PartiQL statement. It uses sim.Scanner so an index can
-// never panic regardless of input. An unterminated string/quoted-ident yields a
-// token spanning to EOF (the parser then fails cleanly on the unexpected shape).
+// sim.Scanner keeps indexing safe on any input. An unterminated string runs to
+// EOF and the parser fails on the shape.
 func pqlTokenize(s string) []pqlTok {
 	var toks []pqlTok
 	sc := sim.NewScanner(s)
@@ -309,9 +269,8 @@ func pqlTokenize(s string) []pqlTok {
 			if pqlIsIdentStart(c) {
 				toks = append(toks, pqlTok{pqlIdent, pqlScanIdent(sc)})
 			} else {
-				// Unknown byte — consume it so the cursor always advances; emit
-				// nothing (the parser will fail on the resulting token stream if
-				// it mattered).
+				// Consume an unknown byte so the cursor advances; the parser fails on the
+				// result if it mattered.
 				sc.Next()
 			}
 		}
@@ -322,16 +281,14 @@ func pqlTokenize(s string) []pqlTok {
 	return append(toks, pqlTok{pqlEOF, ""})
 }
 
-// pqlScanQuoted consumes a quote-delimited token (the opening quote at the
-// cursor) and returns the unescaped content. Real PartiQL escapes the delimiter
-// by doubling it (” inside a '…' string, "" inside a "…" identifier).
+// PartiQL escapes the delimiter by doubling it.
 func pqlScanQuoted(sc *sim.Scanner, q byte) string {
-	sc.Next() // opening quote
+	sc.Next()
 	var b strings.Builder
 	for !sc.Eof() {
 		ch := sc.Next()
 		if ch == q {
-			if sc.Peek() == q { // doubled delimiter → literal
+			if sc.Peek() == q {
 				sc.Next()
 				b.WriteByte(q)
 				continue
@@ -343,9 +300,7 @@ func pqlScanQuoted(sc *sim.Scanner, q byte) string {
 	return b.String()
 }
 
-// pqlScanNumber consumes a numeric literal (optional sign, digits, decimal
-// point, exponent). The exact string is preserved for the {"N": …} value so
-// DynamoDB's number fidelity is retained.
+// Keep the exact text for the {"N": …} value.
 func pqlScanNumber(sc *sim.Scanner) string {
 	start := sc.Pos()
 	if c := sc.Peek(); c == '-' || c == '+' {
@@ -378,14 +333,11 @@ func pqlScanIdent(sc *sim.Scanner) string {
 	return sc.Slice(start, sc.Pos())
 }
 
-// ── parser ───────────────────────────────────────────────────────────────────
-
 type pqlParser struct {
 	toks  []pqlTok
 	pos   int
 	guard *sim.ParseGuard
-	// params are the positional Parameters (already AttributeValue maps); next
-	// is the index of the next ? to bind.
+	// next indexes the next ? to bind.
 	params []map[string]any
 	pnext  int
 	err    error
@@ -412,8 +364,7 @@ func (p *pqlParser) next() pqlTok {
 	return t
 }
 
-// kwEq reports whether the current token is a bare identifier equal to kw
-// (case-insensitive). Quoted identifiers never match keywords.
+// Quoted identifiers never match keywords.
 func (p *pqlParser) kwEq(kw string) bool {
 	t := p.peek()
 	return t.kind == pqlIdent && strings.EqualFold(t.text, kw)
@@ -427,10 +378,8 @@ func (p *pqlParser) eatKw(kw string) bool {
 	return false
 }
 
-// parsePartiQL is the parser entrypoint: it lexes and parses a statement,
-// binding ? parameters positionally from params. It never panics — the
-// ParseGuard caps recursion/work and sim.Scanner makes the lexer index-safe. A
-// malformed statement returns a non-nil error.
+// Binds ? parameters positionally. ParseGuard and sim.Scanner keep it from
+// panicking.
 func parsePartiQL(statement string, params []map[string]any) (*partiQLStmt, error) {
 	p := &pqlParser{
 		toks:   pqlTokenize(statement),
@@ -465,8 +414,7 @@ func (p *pqlParser) parseStatement() *partiQLStmt {
 	return nil
 }
 
-// parseTableRef consumes a table reference: a quoted or bare identifier,
-// optionally followed by `."index"` selecting a secondary index.
+// An optional `."index"` selects a secondary index.
 func (p *pqlParser) parseTableRef() (table, index string) {
 	t := p.next()
 	switch t.kind {
@@ -490,9 +438,8 @@ func (p *pqlParser) parseTableRef() (table, index string) {
 }
 
 func (p *pqlParser) parseSelect() *partiQLStmt {
-	p.next() // SELECT
+	p.next()
 	st := &partiQLStmt{Kind: pqlSelect}
-	// projection list: * or attr[, attr...]
 	if p.peekIsStar() {
 		p.next()
 		st.SelectAll = true
@@ -540,13 +487,12 @@ func (p *pqlParser) parseSelect() *partiQLStmt {
 	return st
 }
 
-// peekIsStar reports whether the current token is the SELECT-projection '*'.
 func (p *pqlParser) peekIsStar() bool {
 	return p.peek().kind == pqlStar
 }
 
 func (p *pqlParser) parseInsert() *partiQLStmt {
-	p.next() // INSERT
+	p.next()
 	if !p.eatKw("INTO") {
 		p.fail("expected INTO after INSERT")
 		return nil
@@ -572,7 +518,7 @@ func (p *pqlParser) parseInsert() *partiQLStmt {
 }
 
 func (p *pqlParser) parseUpdate() *partiQLStmt {
-	p.next() // UPDATE
+	p.next()
 	st := &partiQLStmt{Kind: pqlUpdate}
 	st.Table, st.Index = p.parseTableRef()
 	if st.Index != "" {
@@ -595,7 +541,7 @@ func (p *pqlParser) parseUpdate() *partiQLStmt {
 					p.fail("expected '=' in SET assignment")
 					return st
 				}
-				p.next() // =
+				p.next()
 				av, ok := p.parseScalarAV()
 				if !ok {
 					p.fail("expected value in SET assignment")
@@ -642,7 +588,7 @@ doneClauses:
 }
 
 func (p *pqlParser) parseDelete() *partiQLStmt {
-	p.next() // DELETE
+	p.next()
 	if !p.eatKw("FROM") {
 		p.fail("expected FROM after DELETE")
 		return nil
@@ -662,9 +608,7 @@ func (p *pqlParser) parseDelete() *partiQLStmt {
 	return st
 }
 
-// parseReturning consumes an optional `RETURNING (ALL|MODIFIED) (OLD|NEW) *`
-// clause and returns the normalized form ("ALLOLD"/"ALLNEW"/"MODIFIEDOLD"/
-// "MODIFIEDNEW") or "" when absent.
+// Returns "ALLOLD", "ALLNEW", "MODIFIEDOLD", "MODIFIEDNEW", or "" when absent.
 func (p *pqlParser) parseReturning() string {
 	if !p.eatKw("RETURNING") {
 		return ""
@@ -688,14 +632,11 @@ func (p *pqlParser) parseReturning() string {
 		p.fail("expected OLD or NEW in RETURNING")
 		return ""
 	}
-	// optional trailing '*'
 	if p.peekIsStar() {
 		p.next()
 	}
 	return scope + when
 }
-
-// ── WHERE-expression parser (recursive descent, guarded) ─────────────────────
 
 func (p *pqlParser) parseExpr() partiQLExpr { return p.parseOr() }
 
@@ -757,7 +698,6 @@ func (p *pqlParser) parsePrimary() partiQLExpr {
 		}
 	}
 
-	// column <op> value | BETWEEN | IN | IS [NOT] MISSING
 	colTok := p.next()
 	if colTok.kind != pqlIdent && colTok.kind != pqlQuotedIdent {
 		p.fail("expected attribute name in WHERE predicate")
@@ -789,11 +729,9 @@ func (p *pqlParser) parsePrimary() partiQLExpr {
 		return partiQLBetween{col: col, lo: lo, hi: hi}
 	case p.kwEq("IN"):
 		p.next()
-		// AWS writes the IN list in brackets -- "WHERE OrderID IN [100, 300,
-		// 234]" in the PartiQL SELECT reference -- and the console and SDKs
-		// accept parentheses too. This parser took only parentheses, so the
-		// documented form was answered with a ValidationException. Both open
-		// the list; the closing delimiter must match the one that opened it.
+		// AWS documents the IN list in brackets ("WHERE OrderID IN [100, 300, 234]")
+		// and accepts parentheses too; the closing delimiter must match the opening
+		// one.
 		var closing pqlTokKind
 		switch p.peek().kind {
 		case pqlLBracket:
@@ -861,7 +799,6 @@ func (p *pqlParser) parseFuncCol() string {
 	return col.text
 }
 
-// parseFuncColArg consumes `( col , value )`.
 func (p *pqlParser) parseFuncColArg() (string, *map[string]any) {
 	if p.peek().kind != pqlLParen {
 		p.fail("expected '(' after function")
@@ -890,10 +827,6 @@ func (p *pqlParser) parseFuncColArg() (string, *map[string]any) {
 	return col.text, &av
 }
 
-// ── value parsing ────────────────────────────────────────────────────────────
-
-// parseScalarAV parses a scalar value position: a string/number/bool/null
-// literal or a ? parameter, returning its AttributeValue wire shape.
 func (p *pqlParser) parseScalarAV() (map[string]any, bool) {
 	v := p.parseValue()
 	if v == nil {
@@ -903,9 +836,7 @@ func (p *pqlParser) parseScalarAV() (map[string]any, bool) {
 	return av, ok
 }
 
-// parseValue parses any PartiQL value: literal scalar, ? parameter, map literal
-// {'k': v, …}, or list literal [v, …]. It returns the AttributeValue wire shape
-// (a map[string]any like {"S":…}/{"N":…}/{"M":…}/{"L":…}).
+// Returns the AttributeValue wire shape.
 func (p *pqlParser) parseValue() any {
 	if !p.guard.Enter() {
 		p.fail("PartiQL value too deep")
@@ -953,9 +884,8 @@ func (p *pqlParser) parseValue() any {
 	return nil
 }
 
-// parseMapLiteral parses {'k': v, …} into a {"M": {…}} AttributeValue.
 func (p *pqlParser) parseMapLiteral() any {
-	p.next() // {
+	p.next()
 	m := map[string]any{}
 	for p.peek().kind != pqlRBrace && p.peek().kind != pqlEOF {
 		keyTok := p.next()
@@ -990,9 +920,8 @@ func (p *pqlParser) parseMapLiteral() any {
 	return map[string]any{"M": m}
 }
 
-// parseListLiteral parses [v, …] into a {"L": [...]} AttributeValue.
 func (p *pqlParser) parseListLiteral() any {
-	p.next() // [
+	p.next()
 	var lst []any
 	for p.peek().kind != pqlRBracket && p.peek().kind != pqlEOF {
 		v := p.parseValue()
@@ -1016,12 +945,7 @@ func (p *pqlParser) parseListLiteral() any {
 	return map[string]any{"L": lst}
 }
 
-// ── executor ─────────────────────────────────────────────────────────────────
-
-// pqlResult is the outcome of executing one statement. Items is set for SELECT;
-// Item is the single returned/affected item for write RETURNING (and for the
-// per-statement Item in a batch read). NextToken/LastEvaluatedKey are set for a
-// paginated SELECT.
+// Items is set for SELECT; Item for a write's RETURNING and a batch read.
 type pqlResult struct {
 	Items            []map[string]any
 	Item             map[string]any
@@ -1030,8 +954,6 @@ type pqlResult struct {
 	hasLastKey       bool
 }
 
-// pqlError carries a DynamoDB error code so handlers can map an execution
-// failure to the right awsJson error shape (and batch entries to a BatchStatementError).
 type pqlError struct {
 	Code    string // ValidationException / ResourceNotFoundException / DuplicateItemException / ConditionalCheckFailedException
 	Message string
@@ -1042,10 +964,8 @@ func pqlErrf(code, format string, a ...any) *pqlError {
 	return &pqlError{Code: code, Message: fmt.Sprintf(format, a...)}
 }
 
-// executePartiQL runs one parsed statement against the item engine. The caller
-// must hold the statement's table stripe for the duration (read-modify-write
-// atomicity). limit and
-// nextToken apply to SELECT only.
+// The caller holds the statement's table stripe for read-modify-write
+// atomicity. limit and nextToken apply to SELECT only.
 func executePartiQL(st *partiQLStmt, limit int, nextToken string) (*pqlResult, *pqlError) {
 	t, ok := ddbTables.Get(st.Table)
 	if !ok {
@@ -1065,8 +985,6 @@ func executePartiQL(st *partiQLStmt, limit int, nextToken string) (*pqlResult, *
 	return nil, pqlErrf("ValidationException", "unsupported statement")
 }
 
-// pqlWhereToExpr renders the WHERE tree into a DynamoDB condition string + the
-// #n/:v placeholder maps that ddbEvalExpr consumes.
 func pqlWhereToExpr(where partiQLExpr) (string, map[string]string, map[string]any) {
 	if where == nil {
 		return "", nil, nil
@@ -1076,10 +994,8 @@ func pqlWhereToExpr(where partiQLExpr) (string, map[string]string, map[string]an
 	return expr, ctx.names, ctx.values
 }
 
-// pqlKeyEqualities extracts column→value equalities from a WHERE tree that is a
-// pure conjunction of `col = literal` comparisons (the only shape that can
-// resolve to a point read / partition-key Query). Any OR/NOT/non-equality makes
-// it return ok=false.
+// Only a pure conjunction of `col = literal` can resolve to a point read or a
+// partition query; anything else returns ok=false.
 func pqlKeyEqualities(where partiQLExpr) (map[string]map[string]any, bool) {
 	out := map[string]map[string]any{}
 	var walk func(e partiQLExpr) bool
@@ -1103,18 +1019,15 @@ func pqlKeyEqualities(where partiQLExpr) (map[string]map[string]any, bool) {
 	return out, true
 }
 
-// pqlExecSelect implements SELECT. It chooses a point read when the WHERE clause
-// supplies a full primary key by equality, otherwise scans the table's keys
-// applying the rendered predicate as a filter. ORDER BY (the sort key) and
-// Limit/NextToken pagination are applied to the scan result.
+// A full primary key by equality is a point read; anything else scans with the
+// predicate as filter, then applies ORDER BY and pagination.
 func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*pqlResult, *pqlError) {
 	if st.Index != "" && !ddbHasIndex(t, st.Index) {
 		return nil, pqlErrf("ValidationException", "The table does not have the specified index: %s", st.Index)
 	}
 	expr, names, values := pqlWhereToExpr(st.Where)
 
-	// Point read: WHERE is exactly the full primary key by equality (only valid
-	// against the base table, where KeySchema is the primary key).
+	// Only the base table's KeySchema is the primary key.
 	if st.Index == "" {
 		if eqs, ok := pqlKeyEqualities(st.Where); ok && pqlCoversKey(t, eqs) {
 			key := map[string]any{}
@@ -1129,7 +1042,6 @@ func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*p
 		}
 	}
 
-	// Otherwise scan all of the table's items applying the predicate as a filter.
 	filterExpr, cerr := ddbCompileExpr("WHERE clause", expr, names, values)
 	if cerr != nil {
 		return nil, pqlErrf("ValidationException", "%v", cerr)
@@ -1148,7 +1060,6 @@ func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*p
 		matched = append(matched, it)
 	}
 
-	// ORDER BY <sort key>: reorder the matched items by the named attribute.
 	if st.OrderByKey != "" {
 		pqlSortItems(matched, st.OrderByKey, st.OrderDesc)
 	}
@@ -1160,9 +1071,7 @@ func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*p
 	res := &pqlResult{}
 	if next != "" {
 		res.NextToken = next
-		// LastEvaluatedKey mirrors NextToken's stopping point: the primary key of
-		// the last item on this page (real DynamoDB returns both for a truncated
-		// SELECT page).
+		// DynamoDB returns LastEvaluatedKey beside NextToken for a truncated page.
 		if len(page) > 0 {
 			res.LastEvaluatedKey = ddbExtractKey(t, page[len(page)-1])
 			res.hasLastKey = true
@@ -1175,7 +1084,6 @@ func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*p
 	return res, nil
 }
 
-// pqlCoversKey reports whether eqs supplies every primary-key attribute of t.
 func pqlCoversKey(t DDBTable, eqs map[string]map[string]any) bool {
 	if len(t.KeySchema) == 0 {
 		return false
@@ -1188,8 +1096,7 @@ func pqlCoversKey(t DDBTable, eqs map[string]map[string]any) bool {
 	return true
 }
 
-// pqlProject restricts an item to the SELECT projection list (top-level
-// attributes). SELECT * returns the item unchanged.
+// SELECT * returns the item unchanged.
 func pqlProject(item map[string]any, st *partiQLStmt) map[string]any {
 	if st.SelectAll || len(st.SelectCols) == 0 {
 		return item
@@ -1203,9 +1110,8 @@ func pqlProject(item map[string]any, st *partiQLStmt) map[string]any {
 	return out
 }
 
-// pqlSortItems orders items by the named attribute's scalar value. Numeric when
-// both sides parse as numbers, lexicographic otherwise — matching DynamoDB's
-// sort-key ordering for N vs S keys.
+// Numeric when both parse as numbers, lexicographic otherwise, as DynamoDB
+// orders N and S sort keys.
 func pqlSortItems(items []map[string]any, attr string, desc bool) {
 	less := func(a, b map[string]any) bool {
 		av := ddbScalarString(a[attr])
@@ -1217,8 +1123,7 @@ func pqlSortItems(items []map[string]any, attr string, desc bool) {
 		}
 		return av < bv
 	}
-	// insertion sort keeps it stable and dependency-free for the small result
-	// sets a sim serves.
+	// Insertion sort keeps the order stable.
 	for i := 1; i < len(items); i++ {
 		for j := i; j > 0; j-- {
 			swap := less(items[j], items[j-1])
@@ -1233,14 +1138,12 @@ func pqlSortItems(items []map[string]any, attr string, desc bool) {
 	}
 }
 
-// pqlExecInsert implements INSERT ... VALUE {…}.
 func pqlExecInsert(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	item := pqlMapAVToItem(st.InsertValue)
 	if item == nil {
 		return nil, pqlErrf("ValidationException", "INSERT VALUE must be a non-empty map")
 	}
-	// Every primary-key attribute is present and of its declared type, and the
-	// secondary indexes' keys fit them; the wording is DynamoDB Local's.
+	// The wording is DynamoDB Local's.
 	for _, ks := range t.KeySchema {
 		value, ok := item[ks.AttributeName]
 		if !ok {
@@ -1275,8 +1178,6 @@ func pqlExecInsert(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	return &pqlResult{}, nil
 }
 
-// pqlMapAVToItem unwraps an {"M": {…}} AttributeValue into the bare item map the
-// engine stores (attribute → AttributeValue).
 func pqlMapAVToItem(av map[string]any) map[string]any {
 	m, ok := av["M"].(map[string]any)
 	if !ok {
@@ -1292,8 +1193,7 @@ func pqlMapAVToItem(av map[string]any) map[string]any {
 	return out
 }
 
-// pqlExecUpdate implements UPDATE ... SET/REMOVE ... WHERE <key>. The WHERE must
-// resolve to a single primary key by equality.
+// The WHERE must resolve to one primary key by equality.
 func pqlExecUpdate(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	key, perr := pqlResolveKeyFromWhere(t, st.Where)
 	if perr != nil {
@@ -1301,18 +1201,16 @@ func pqlExecUpdate(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	}
 	itemKey := ddbItemKey(t, key)
 	item, existed := ddbItems.Get(itemKey)
-	// Real PartiQL UPDATE fails when the item does not exist (no upsert).
+	// PartiQL UPDATE does not upsert.
 	if !existed {
 		return nil, &pqlError{Code: "ConditionalCheckFailedException",
 			Message: "The conditional request failed"}
 	}
 	old := ddbCloneItem(item)
-	// Work on a copy and publish that, as UpdateItem does: a stored item is never
-	// changed in place, which is what lets readers hold the maps they read.
+	// Update a copy and publish it, as UpdateItem does.
 	item = ddbCloneItem(item)
 
-	// Translate SET/REMOVE into an UpdateExpression and reuse the engine's
-	// applier so nested-path + value semantics stay identical to UpdateItem.
+	// Reuse UpdateItem's applier so path and value semantics match.
 	updExpr, exprNames, exprValues := pqlBuildUpdateExpression(st)
 	if updExpr != "" {
 		if err := ddbApplyUpdateExpression(item, updExpr, exprNames, exprValues); err != nil {
@@ -1338,8 +1236,7 @@ func pqlExecUpdate(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	return res, nil
 }
 
-// pqlModifiedAttrs returns the attributes that changed between old and new. When
-// wantOld, the old values are returned; otherwise the new values.
+// wantOld returns the old values, otherwise the new.
 func pqlModifiedAttrs(old, newItem map[string]any, wantOld bool) map[string]any {
 	out := map[string]any{}
 	for attr, nv := range newItem {
@@ -1354,7 +1251,7 @@ func pqlModifiedAttrs(old, newItem map[string]any, wantOld bool) map[string]any 
 		}
 	}
 	if wantOld {
-		// attributes removed entirely also count as modified
+		// Removed attributes count as modified.
 		for attr, ov := range old {
 			if _, ok := newItem[attr]; !ok {
 				out[attr] = ov
@@ -1364,8 +1261,6 @@ func pqlModifiedAttrs(old, newItem map[string]any, wantOld bool) map[string]any 
 	return out
 }
 
-// pqlBuildUpdateExpression renders an UPDATE's SET/REMOVE clauses into a
-// DynamoDB UpdateExpression string + #n/:v maps for ddbApplyUpdateExpression.
 func pqlBuildUpdateExpression(st *partiQLStmt) (string, map[string]string, map[string]any) {
 	names := map[string]string{}
 	values := map[string]any{}
@@ -1400,7 +1295,6 @@ func pqlBuildUpdateExpression(st *partiQLStmt) (string, map[string]string, map[s
 	return strings.Join(parts, " "), names, values
 }
 
-// pqlExecDelete implements DELETE FROM ... WHERE <key>.
 func pqlExecDelete(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	key, perr := pqlResolveKeyFromWhere(t, st.Where)
 	if perr != nil {
@@ -1409,7 +1303,7 @@ func pqlExecDelete(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	itemKey := ddbItemKey(t, key)
 	old, existed := ddbItems.Get(itemKey)
 	if !existed {
-		// Real PartiQL DELETE of a non-existent item fails the implicit condition.
+		// Deleting an absent item fails the implicit condition.
 		return nil, &pqlError{Code: "ConditionalCheckFailedException",
 			Message: "The conditional request failed"}
 	}
@@ -1421,8 +1315,6 @@ func pqlExecDelete(t DDBTable, st *partiQLStmt) (*pqlResult, *pqlError) {
 	return res, nil
 }
 
-// pqlResolveKeyFromWhere extracts the full primary key from an UPDATE/DELETE
-// WHERE clause that is a conjunction of `keyattr = literal` equalities.
 func pqlResolveKeyFromWhere(t DDBTable, where partiQLExpr) (map[string]any, *pqlError) {
 	eqs, ok := pqlKeyEqualities(where)
 	if !ok || !pqlCoversKey(t, eqs) {
@@ -1436,8 +1328,7 @@ func pqlResolveKeyFromWhere(t DDBTable, where partiQLExpr) (map[string]any, *pql
 	return key, nil
 }
 
-// pqlNextTokens spells an ExecuteStatement NextToken: the next page's offset
-// into the statement's matches, as base64 JSON.
+// The next page's offset into the matches, as base64 JSON.
 var pqlNextTokens = listq.Tokens{
 	Encode: func(offset int) string {
 		raw, _ := json.Marshal(pqlNextToken{Offset: offset})
@@ -1460,8 +1351,6 @@ var pqlNextTokens = listq.Tokens{
 type pqlNextToken struct {
 	Offset int `json:"o"`
 }
-
-// ── handlers ─────────────────────────────────────────────────────────────────
 
 func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1486,8 +1375,7 @@ func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
 		return
 	}
-	// The parsed statement names its table, so only that table's stripe is
-	// taken. A SELECT reads; everything else writes.
+	// Take only the named table's stripe; SELECT reads, everything else writes.
 	release := ddbItemLocks.Lock(st.Kind != pqlSelect, st.Table)
 	res, perr := executePartiQL(st, req.Limit, req.NextToken)
 	release()
@@ -1510,9 +1398,8 @@ func handleDDBExecuteStatement(w http.ResponseWriter, r *http.Request) {
 			out["LastEvaluatedKey"] = res.LastEvaluatedKey
 		}
 	default:
-		// Write ops with RETURNING surface the affected item under Items (the SDK
-		// ExecuteStatementOutput has no dedicated single-item member — RETURNING
-		// rows come back in Items).
+		// ExecuteStatementOutput has no single-item member, so RETURNING rows go in
+		// Items.
 		if res.Item != nil {
 			out["Items"] = []map[string]any{res.Item}
 		}
@@ -1540,13 +1427,11 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// Each statement runs independently; a per-statement failure is reported in
-	// its Responses entry's Error and does NOT fail the batch (HTTP 200).
+	// A statement's failure goes in its Responses entry; the batch still answers
+	// 200.
 	responses := make([]map[string]any, len(req.Statements))
-	// Parsing happens before any stripe is taken, because the tables a batch
-	// touches are only knowable from the parsed statements — and the stripes
-	// have to be acquired together, in one ordered call, or two batches naming
-	// the same tables in different orders could deadlock.
+	// Parse before locking: only parsed statements name their tables, and the
+	// stripes must be taken in one ordered call to avoid deadlock.
 	parsed := make([]*partiQLStmt, len(req.Statements))
 	parseErrs := make([]*pqlError, len(req.Statements))
 	batchTables := make([]string, 0, len(req.Statements))
@@ -1578,8 +1463,7 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 			responses[i] = entry
 			continue
 		}
-		// Batch SELECT returns at most one item (each read statement must specify a
-		// full key); surface it as Item. Writes return no Item.
+		// A batch read names a full key, so it returns at most one Item.
 		if st.Kind == pqlSelect && len(res.Items) > 0 {
 			entry["Item"] = res.Items[0]
 		} else if res.Item != nil {
@@ -1590,8 +1474,6 @@ func handleDDBBatchExecuteStatement(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{"Responses": responses})
 }
 
-// pqlParseForBatch parses a batch statement, mapping a parse error to a pqlError
-// so the batch entry can carry a ValidationError.
 func pqlParseForBatch(statement string, params []map[string]any) (*partiQLStmt, *pqlError) {
 	if strings.TrimSpace(statement) == "" {
 		return nil, pqlErrf("ValidationException", "Statement is required")
@@ -1623,9 +1505,9 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	// All-or-nothing: parse + validate every statement, evaluate every implicit
-	// condition, and only then apply. On any failure, mutate nothing and return
-	// TransactionCanceledException with one CancellationReason per statement.
+	// All or nothing: validate every statement and implicit condition, then apply;
+	// on any failure mutate nothing and return one CancellationReason per
+	// statement.
 	stmts := make([]*partiQLStmt, len(req.TransactStatements))
 	for i, s := range req.TransactStatements {
 		if strings.TrimSpace(s.Statement) == "" {
@@ -1640,16 +1522,13 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 		stmts[i] = st
 	}
 
-	// Every statement is parsed by now, so the transaction's tables are known
-	// and their stripes are taken together — the validate pass and the apply
-	// pass have to be atomic against anything else touching those tables.
+	// Take every table's stripe together so validate and apply are atomic.
 	transactTables := make([]string, 0, len(stmts))
 	for _, st := range stmts {
 		transactTables = append(transactTables, st.Table)
 	}
 	defer ddbItemLocks.Lock(true, transactTables...)()
 
-	// Validation pass: confirm each statement would succeed without mutating.
 	reasons := make([]map[string]any, len(stmts))
 	cancelled := false
 	for i, st := range stmts {
@@ -1664,12 +1543,11 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply pass: every statement validated, so each executes successfully.
 	responses := make([]map[string]any, len(stmts))
 	for i, st := range stmts {
 		res, perr := executePartiQL(st, 0, "")
 		if perr != nil {
-			// Should not happen after validation, but stay faithful: cancel.
+			// Validation passed, so this cannot fail; cancel if it does.
 			reasons[i] = map[string]any{"Code": pqlTxCancelCode(perr.Code), "Message": perr.Message}
 			writeDDBTransactionCancelled(w, reasons)
 			return
@@ -1685,9 +1563,7 @@ func handleDDBExecuteTransaction(w http.ResponseWriter, r *http.Request) {
 	writeDDBJSON(w, http.StatusOK, map[string]any{"Responses": responses})
 }
 
-// pqlValidateForTransaction checks, without mutating, whether a statement would
-// succeed: the table exists, INSERT keys don't collide, UPDATE/DELETE keys
-// resolve and exist, SELECT keys resolve. It mirrors the executor's checks.
+// Mirrors the executor's checks without mutating.
 func pqlValidateForTransaction(st *partiQLStmt) *pqlError {
 	t, ok := ddbTables.Get(st.Table)
 	if !ok {
@@ -1746,8 +1622,6 @@ func pqlValidateForTransaction(st *partiQLStmt) *pqlError {
 	return nil
 }
 
-// pqlTxCancelCode maps a pqlError code to the CancellationReasons code real
-// DynamoDB uses for ExecuteTransaction.
 func pqlTxCancelCode(code string) string {
 	switch code {
 	case "ConditionalCheckFailedException":
@@ -1760,8 +1634,6 @@ func pqlTxCancelCode(code string) string {
 		return "ValidationError"
 	}
 }
-
-// ── error writing ────────────────────────────────────────────────────────────
 
 func pqlWriteError(w http.ResponseWriter, perr *pqlError) {
 	if perr.Code == "ConditionalCheckFailedException" {
@@ -1778,9 +1650,6 @@ func pqlWriteError(w http.ResponseWriter, perr *pqlError) {
 	AWSErrorf(w, perr.Code, http.StatusBadRequest, "%s", perr.Message)
 }
 
-// pqlBatchError renders a pqlError as a BatchStatementError ({Code, Message})
-// using the BatchStatementErrorCodeEnum values (e.g. ValidationError,
-// ConditionalCheckFailed, DuplicateItem, ResourceNotFound).
 func pqlBatchError(perr *pqlError) map[string]any {
 	code := "ValidationError"
 	switch perr.Code {

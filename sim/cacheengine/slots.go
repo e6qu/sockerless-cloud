@@ -17,7 +17,7 @@ const ClusterSlots = 16384
 // directions of the connection well inside the socket buffers.
 const slotBatch = 512
 
-// keysPerMigrate is the COUNT a slot's keys are listed and migrated in.
+// keysPerMigrate is the COUNT a migration lists and moves a slot's keys in.
 const keysPerMigrate = 1000
 
 // SlotRange is the hash-slot range shard s of n owns, the slots split evenly.
@@ -54,7 +54,6 @@ func crc16(data []byte) uint16 {
 	return crc
 }
 
-// SlotMove moves a set of slots from one primary to another.
 type SlotMove struct {
 	From, To int
 	Slots    []int

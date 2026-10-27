@@ -6,11 +6,9 @@ import (
 	"time"
 )
 
-// TestCloudWatchCLI_QueryMetrics exercises the CloudWatch query-protocol
-// metrics surface used by botocore: PutMetricData,
-// GetMetricStatistics, ListMetrics. The Go SDK uses rpc-v2-cbor for these;
-// the aws CLI uses the legacy query protocol, which previously returned
-// InvalidAction.
+// TestCloudWatchCLI_QueryMetrics covers PutMetricData, GetMetricStatistics and
+// ListMetrics over the query protocol the aws CLI speaks; the Go SDK uses
+// rpc-v2-cbor for them.
 func TestCloudWatchCLI_QueryMetrics(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("cloudwatch", "put-metric-data",

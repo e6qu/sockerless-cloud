@@ -8,15 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// b64 encodes a string as standard base64. The aws CLI's default binary format
-// expects blob inputs (Message, Signature, Mac) base64-encoded, so the test
-// passes already-base64 message values and the base64 Signature/Mac the prior
-// op returned — avoiding the raw-in/base64-in ambiguity of mixing both blob
-// kinds on one command.
+// b64 encodes standard base64. The aws CLI takes blob inputs (Message,
+// Signature, Mac) base64-encoded, so the tests pass base64 messages and the
+// base64 Signature or Mac the previous call returned, never mixing raw and
+// base64 blobs on one command.
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
-// kmsCLICreateKey creates a KMS key with the given extra flags and returns its
-// KeyId, scheduling a tolerant cleanup.
 func kmsCLICreateKey(t *testing.T, extraFlags ...string) string {
 	t.Helper()
 	args := append([]string{"kms", "create-key", "--output", "json"}, extraFlags...)
@@ -36,8 +33,8 @@ func kmsCLICreateKey(t *testing.T, extraFlags ...string) string {
 	return keyId
 }
 
-// TestKMSCLI_SignVerifyAndGetPublicKey exercises Sign → Verify → GetPublicKey
-// over the aws CLI with real RSA crypto, and confirms a tampered message fails.
+// TestKMSCLI_SignVerifyAndGetPublicKey signs and verifies with RSA, and a
+// tampered message fails verification.
 func TestKMSCLI_SignVerifyAndGetPublicKey(t *testing.T) {
 	t.Parallel()
 	keyId := kmsCLICreateKey(t,
@@ -82,7 +79,6 @@ func TestKMSCLI_SignVerifyAndGetPublicKey(t *testing.T) {
 	parseJSON(t, verifyOut, &verify)
 	assert.True(t, verify.SignatureValid, "Verify of a real signature must succeed")
 
-	// A tampered message must fail verification (CLI exits non-zero).
 	err := awsCLI("kms", "verify",
 		"--key-id", keyId,
 		"--message", b64("cli-message-TAMPERED"),
@@ -92,8 +88,6 @@ func TestKMSCLI_SignVerifyAndGetPublicKey(t *testing.T) {
 	require.Error(t, err, "Verify of a tampered message must fail")
 }
 
-// TestKMSCLI_GenerateVerifyMac covers GenerateMac → VerifyMac over the CLI with
-// real HMAC, plus a tampered-message failure.
 func TestKMSCLI_GenerateVerifyMac(t *testing.T) {
 	t.Parallel()
 	keyId := kmsCLICreateKey(t,
@@ -134,8 +128,6 @@ func TestKMSCLI_GenerateVerifyMac(t *testing.T) {
 		"the MAC must be refused as invalid, not fail some other way: %s", out)
 }
 
-// TestKMSCLI_DataKeyPair covers generate-data-key-pair and
-// generate-data-key-pair-without-plaintext over the CLI.
 func TestKMSCLI_DataKeyPair(t *testing.T) {
 	t.Parallel()
 	keyId := kmsCLICreateKey(t)
@@ -167,8 +159,8 @@ func TestKMSCLI_DataKeyPair(t *testing.T) {
 	require.NotEmpty(t, noPlain.PrivateKeyCiphertextBlob)
 }
 
-// TestKMSCLI_DeriveSharedSecret asserts a KEY_AGREEMENT EC key derives a shared
-// secret against its own public key (a self-ECDH still yields a valid secret).
+// TestKMSCLI_DeriveSharedSecret derives a shared secret from a KEY_AGREEMENT
+// EC key against its own public key, which ECDH allows.
 func TestKMSCLI_DeriveSharedSecret(t *testing.T) {
 	t.Parallel()
 	keyId := kmsCLICreateKey(t,
@@ -199,8 +191,8 @@ func TestKMSCLI_DeriveSharedSecret(t *testing.T) {
 	assert.Equal(t, "ECDH", derived.KeyAgreementAlgorithm)
 }
 
-// TestKMSCLI_CustomKeyStores covers the custom-key-store CRUD + connection-state
-// machine over the CLI.
+// TestKMSCLI_CustomKeyStores covers the custom key store CRUD and its
+// connection-state machine.
 func TestKMSCLI_CustomKeyStores(t *testing.T) {
 	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-custom-key-store",
@@ -247,9 +239,6 @@ func TestKMSCLI_CustomKeyStores(t *testing.T) {
 	runCLI(t, awsCLI("kms", "delete-custom-key-store", "--custom-key-store-id", cksId))
 }
 
-// TestKMSCLI_MultiRegionAndRetireGrant covers the multi-region key lifecycle
-// (create → replicate → update-primary-region → get-key-last-usage) plus grant
-// retirement (retire-grant + list-retirable-grants) over the CLI.
 func TestKMSCLI_MultiRegionAndRetireGrant(t *testing.T) {
 	t.Parallel()
 	keyId := kmsCLICreateKey(t, "--multi-region")
@@ -272,7 +261,6 @@ func TestKMSCLI_MultiRegionAndRetireGrant(t *testing.T) {
 		"--key-id", keyId,
 		"--primary-region", "us-west-2"))
 
-	// Grant retirement.
 	grantKey := kmsCLICreateKey(t)
 	retiring := "arn:aws:iam::000000000000:role/cli-retirer"
 	grantOut := runCLI(t, awsCLI("kms", "create-grant",

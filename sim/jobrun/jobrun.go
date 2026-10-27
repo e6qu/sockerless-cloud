@@ -8,9 +8,8 @@
 // task has retries left and the cloud's Retry hook agrees. An attempt timeout
 // bounds each attempt, and a task timeout bounds a task across all of its
 // attempts. The execution's Policy turns the tasks' counts into a verdict;
-// once it is decided, pending tasks never start and running ones are stopped.
-// Cancel stops the execution: tasks not yet started never start, and running
-// ones are stopped.
+// once it is decided, pending tasks never start and the execution stops the
+// running ones. Cancel stops the execution the same way.
 //
 // The package holds no wire shapes and no store. The cloud starts each
 // attempt's workload through Hooks.Start and writes every change of a task
@@ -217,12 +216,12 @@ type Spec struct {
 	Parallelism int
 	// MaxRetries is how many times a task runs again after a failed attempt.
 	MaxRetries int
-	// AttemptTimeout bounds each attempt; an attempt that outlives it is
-	// stopped and counts as failed. Zero sets no bound.
+	// AttemptTimeout bounds each attempt; the execution stops an attempt that
+	// outlives it, which counts as failed. Zero sets no bound.
 	AttemptTimeout time.Duration
 	// TaskTimeout bounds a task across all of its attempts, from its first
-	// start; a task that outlives it is stopped and fails without a retry.
-	// Zero sets no bound.
+	// start; the execution stops a task that outlives it, which fails without
+	// a retry. Zero sets no bound.
 	TaskTimeout time.Duration
 	// Policy decides the verdict; nil is AllSucceed.
 	Policy Policy
@@ -387,7 +386,6 @@ func (e *Execution) taskLocked(i int) Task {
 	return t
 }
 
-// Counts returns the execution's counts.
 func (e *Execution) Counts() Counts {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -401,9 +399,8 @@ func (e *Execution) Verdict() Verdict {
 	return e.verdict
 }
 
-// Cancel stops the execution: pending tasks never start and running ones are
-// stopped, and each ends Cancelled. It does nothing once the verdict is
-// decided.
+// Cancel stops the execution: pending tasks never start, running ones stop,
+// and each ends Cancelled. It does nothing once the verdict is decided.
 func (e *Execution) Cancel() {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_CustomEngineVersions covers the custom DB engine version
-// (CEV) lifecycle: CreateCustomDBEngineVersion → ModifyCustomDBEngineVersion
-// → DeleteCustomDBEngineVersion, all of which return a DBEngineVersion.
+// TestRDS_CustomEngineVersions expects Create, Modify and
+// DeleteCustomDBEngineVersion each to answer a DBEngineVersion.
 func TestRDS_CustomEngineVersions(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -58,9 +57,9 @@ func TestRDS_CustomEngineVersions(t *testing.T) {
 	assert.Equal(t, version, aws.ToString(deleted.EngineVersion))
 }
 
-// TestRDS_DBRecommendations covers DescribeDBRecommendations (which
-// surfaces a recommendation scoped to a DB instance ARN) and
-// ModifyDBRecommendation (which flips the recommendation status).
+// TestRDS_DBRecommendations expects DescribeDBRecommendations to hold a
+// recommendation scoped to a DB instance ARN and ModifyDBRecommendation to
+// change its status.
 func TestRDS_DBRecommendations(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -105,9 +104,8 @@ func TestRDS_DBRecommendations(t *testing.T) {
 	assert.Equal(t, "dismissed", aws.ToString(mod.DBRecommendation.Status))
 }
 
-// TestRDS_SnapshotTenantDatabases covers
-// DescribeDBSnapshotTenantDatabases — it reads the tenant databases off
-// the source instance of a stored snapshot.
+// TestRDS_SnapshotTenantDatabases expects DescribeDBSnapshotTenantDatabases to
+// read the tenant databases of a snapshot's source instance.
 func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -161,9 +159,8 @@ func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 	assert.Equal(t, instID, aws.ToString(td.DBInstanceIdentifier))
 }
 
-// TestRDS_ServerlessV2PlatformVersions covers
-// DescribeServerlessV2PlatformVersions, returning AWS's real default
-// platform-version shape.
+// TestRDS_ServerlessV2PlatformVersions expects AWS's default platform-version
+// shape.
 func TestRDS_ServerlessV2PlatformVersions(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -178,9 +175,8 @@ func TestRDS_ServerlessV2PlatformVersions(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(pv.ServerlessV2PlatformVersion))
 }
 
-// TestRDS_ValidDBInstanceModifications covers
-// DescribeValidDBInstanceModifications — it returns the real storage
-// envelopes (gp2 / io1) for an existing DB instance.
+// TestRDS_ValidDBInstanceModifications expects the gp2 and io1 storage ranges
+// for an existing DB instance.
 func TestRDS_ValidDBInstanceModifications(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -213,8 +209,6 @@ func TestRDS_ValidDBInstanceModifications(t *testing.T) {
 	assert.Equal(t, int32(20), aws.ToInt32(storage[0].StorageSize[0].From))
 }
 
-// TestRDS_CurrentDBClusterCapacity covers ModifyCurrentDBClusterCapacity
-// on a Serverless v1 cluster.
 func TestRDS_CurrentDBClusterCapacity(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -243,8 +237,6 @@ func TestRDS_CurrentDBClusterCapacity(t *testing.T) {
 	assert.Equal(t, int32(8), aws.ToInt32(out.CurrentCapacity))
 }
 
-// TestRDS_ModifyOptionGroup covers ModifyOptionGroup adding then
-// removing an option on an existing option group.
 func TestRDS_ModifyOptionGroup(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -339,8 +331,8 @@ func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_SwitchoverReadReplica covers SwitchoverReadReplica swapping the
-// primary and standby roles of an RDS for Oracle read replica.
+// TestRDS_SwitchoverReadReplica expects SwitchoverReadReplica to swap the
+// primary and replica roles of an RDS for Oracle read replica.
 func TestRDS_SwitchoverReadReplica(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -378,10 +370,10 @@ func TestRDS_SwitchoverReadReplica(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DBInstance)
-	// The former replica is now a standalone primary (no source).
+	// The former replica is a standalone primary.
 	assert.Empty(t, aws.ToString(out.DBInstance.ReadReplicaSourceDBInstanceIdentifier))
 
-	// The former primary now points at the new primary as its source.
+	// The former primary replicates from the new one.
 	desc, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(primaryID),
 	})
@@ -390,8 +382,6 @@ func TestRDS_SwitchoverReadReplica(t *testing.T) {
 	assert.Equal(t, replicaID, aws.ToString(desc.DBInstances[0].ReadReplicaSourceDBInstanceIdentifier))
 }
 
-// TestRDS_SwitchoverGlobalCluster covers SwitchoverGlobalCluster
-// promoting a secondary regional cluster to writer.
 func TestRDS_SwitchoverGlobalCluster(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -433,10 +423,8 @@ func TestRDS_SwitchoverGlobalCluster(t *testing.T) {
 		SourceDBClusterIdentifier: secOut.DBCluster.DBClusterArn,
 	})
 	require.NoError(t, err)
-	// Adopt the writer cluster as a second member so there is a target to
-	// switch over to. Re-create the global cluster with both members via
-	// ModifyGlobalCluster is unavailable; instead build the global cluster
-	// from the writer and switch over to the secondary's ARN.
+	// The global cluster's one member is the cluster it was built from, and the
+	// switchover targets it.
 	out, err := c.SwitchoverGlobalCluster(ctx, &rds.SwitchoverGlobalClusterInput{
 		GlobalClusterIdentifier:   aws.String(globalID),
 		TargetDbClusterIdentifier: aws.String(secArn),
@@ -445,6 +433,5 @@ func TestRDS_SwitchoverGlobalCluster(t *testing.T) {
 	require.NotNil(t, out.GlobalCluster)
 	assert.Equal(t, globalID, aws.ToString(out.GlobalCluster.GlobalClusterIdentifier))
 	require.NotEmpty(t, out.GlobalCluster.GlobalClusterMembers)
-	// The target is now the writer (first member, IsWriter=true).
 	assert.True(t, aws.ToBool(out.GlobalCluster.GlobalClusterMembers[0].IsWriter))
 }

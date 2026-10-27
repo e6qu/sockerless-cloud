@@ -19,11 +19,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2KeyPair models an EC2 key pair. CreateKeyPair generates a real RSA or
-// ED25519 key and returns the private material; ImportKeyPair stores a
-// caller-supplied OpenSSH public key. The fingerprint is the digest the
-// CreateKeyPair and ImportKeyPair references name for the key's origin and
-// type.
+// CreateKeyPair generates a real RSA or ED25519 key and returns the private
+// material; ImportKeyPair stores a caller's OpenSSH public key. The
+// fingerprint follows the digest the API reference names for the key's origin
+// and type.
 type EC2KeyPair struct {
 	KeyName        string
 	KeyPairId      string
@@ -43,8 +42,8 @@ func ec2ColonHex(sum []byte) string {
 	return strings.Join(parts, ":")
 }
 
-// ec2ED25519Fingerprint is the base64 SHA-256 digest of an ED25519 public
-// key, which EC2 reports for created and imported ED25519 key pairs alike.
+// Amazon EC2 reports the base64 SHA-256 digest for created and imported
+// ED25519 keys alike.
 func ec2ED25519Fingerprint(pub ssh.PublicKey) string {
 	sum := sha256.Sum256(pub.Marshal())
 	return base64.StdEncoding.EncodeToString(sum[:])
@@ -78,8 +77,8 @@ func handleCreateKeyPair(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		material = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
-		// An RSA key pair EC2 creates is fingerprinted by the SHA-1 digest of
-		// its DER-encoded private key.
+		// A created RSA key is fingerprinted by the SHA-1 digest of its DER private
+		// key.
 		pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
 		if err != nil {
 			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
@@ -137,8 +136,7 @@ func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidKeyPair.Duplicate", fmt.Sprintf("The keypair %q already exists.", name), http.StatusBadRequest)
 		return
 	}
-	// The SDK base64-encodes the OpenSSH public key; the CLI's fileb:// sends
-	// it raw.
+	// The SDK base64-encodes the public key; the CLI's fileb:// sends it raw.
 	text := material
 	if decoded, err := base64.StdEncoding.DecodeString(material); err == nil {
 		text = string(decoded)
@@ -151,8 +149,8 @@ func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
 	var keyType, fingerprint string
 	switch pub.Type() {
 	case ssh.KeyAlgoRSA:
-		// An imported RSA key is fingerprinted by the MD5 digest of its
-		// public key, as RFC 4716 section 4 defines it.
+		// An imported RSA key is fingerprinted by the MD5 digest of its public key,
+		// per RFC 4716 section 4.
 		keyType = "rsa"
 		sum := md5.Sum(pub.Marshal())
 		fingerprint = ec2ColonHex(sum[:])

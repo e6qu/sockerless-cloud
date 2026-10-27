@@ -23,11 +23,10 @@ func sbReceiveOne(t *testing.T, receiver *azservicebus.Receiver) *azservicebus.R
 	return messages[0]
 }
 
-// TestServiceBus_AMQPPeekLockSettlement proves peek-lock over AMQP: a
-// message stays in the queue under the queue's lockDuration until the
-// receiver settles it, an abandon redelivers it with a higher DeliveryCount,
-// maxDeliveryCount moves it to the dead-letter sub-queue, and an explicit
-// dead-letter carries its reason there.
+// TestServiceBus_AMQPPeekLockSettlement: a message stays locked for the queue's
+// lockDuration until settled, an abandon redelivers it with a higher
+// DeliveryCount, maxDeliveryCount dead-letters it, and an explicit dead-letter
+// carries its reason.
 func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("sdk-amqp-peeklock")
@@ -90,8 +89,8 @@ func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
 	assert.Equal(t, int64(0), props.TotalMessageCount)
 }
 
-// TestServiceBus_DuplicateDetection proves a queue that requires duplicate
-// detection accepts one message per MessageId inside its history window.
+// TestServiceBus_DuplicateDetection: a queue requiring duplicate detection
+// accepts one message per MessageId within its history window.
 func TestServiceBus_DuplicateDetection(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("sdk-amqp-dedup")

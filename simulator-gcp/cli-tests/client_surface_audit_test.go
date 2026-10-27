@@ -135,8 +135,6 @@ func TestCLI_LoggingSinkCRUD(t *testing.T) {
 
 	runCLI(t, gcloudCLI("logging", "sinks", "delete", "cli-audit-sink", "--quiet"))
 
-	// The delete removed the sink: describing it fails and the list no longer
-	// carries it.
 	gone, err := gcloudCLI("logging", "sinks", "describe", "cli-audit-sink", "--format=json").CombinedOutput()
 	require.Error(t, err, "describing a deleted sink must fail: %s", gone)
 	assert.NotContains(t,
@@ -197,7 +195,6 @@ func TestCLI_LoggingMetricCRUD(t *testing.T) {
 }
 
 func TestCLI_ProjectIAMPolicy(t *testing.T) {
-	// get-iam-policy returns the current policy (initially empty bindings).
 	out := runCLI(t, gcloudCLI("projects", "get-iam-policy", "test-project", "--format=json"))
 	var policy struct {
 		Bindings []struct {
@@ -209,7 +206,6 @@ func TestCLI_ProjectIAMPolicy(t *testing.T) {
 	parseJSON(t, out, &policy)
 	assert.NotEmpty(t, policy.Etag)
 
-	// add-iam-policy-binding adds a binding.
 	bound := runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", "test-project",
 		"--member=serviceAccount:robot@test-project.iam.gserviceaccount.com",
 		"--role=roles/viewer",
@@ -217,8 +213,7 @@ func TestCLI_ProjectIAMPolicy(t *testing.T) {
 		"--quiet"))
 	assert.Contains(t, bound, "roles/viewer")
 
-	// The echo the add printed is the response body, not proof of a write —
-	// a fresh get-iam-policy has to report the binding as well.
+	// The add prints the response body; a fresh get-iam-policy proves the write.
 	out = runCLI(t, gcloudCLI("projects", "get-iam-policy", "test-project", "--format=json"))
 	var reread struct {
 		Bindings []struct {
@@ -239,24 +234,20 @@ func TestCLI_ProjectIAMPolicy(t *testing.T) {
 
 func TestCLI_IAMServiceAccountKeys(t *testing.T) {
 	t.Parallel()
-	// Create a service account to own the keys.
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", "cli-key-sa",
 		"--display-name=CLI Key SA",
 		"--format=json",
 		"--quiet"))
 	saEmail := "cli-key-sa@test-project.iam.gserviceaccount.com"
 
-	// Create a key. gcloud decodes privateKeyData and writes the JSON key file
-	// an application would authenticate with.
+	// gcloud decodes privateKeyData and writes the JSON key file an application
+	// authenticates with.
 	keyFile := filepath.Join(tmpDir, "sa-key.json")
 	runCLI(t, gcloudCLI("iam", "service-accounts", "keys", "create", keyFile,
 		"--iam-account="+saEmail,
 		"--format=json",
 		"--quiet"))
 
-	// The written file is the whole point of the command: it has to be a
-	// service-account key document carrying a usable private key, not an
-	// empty or truncated file.
 	keyBytes, err := os.ReadFile(keyFile)
 	require.NoError(t, err, "keys create must write the key file it was given")
 	var key struct {
@@ -279,7 +270,6 @@ func TestCLI_IAMServiceAccountKeys(t *testing.T) {
 	_, err = x509.ParsePKCS8PrivateKey(block.Bytes)
 	require.NoError(t, err, "private_key must be a parseable PKCS#8 key")
 
-	// List keys — the key just minted is there, user-managed.
 	list := runCLI(t, gcloudCLI("iam", "service-accounts", "keys", "list",
 		"--iam-account="+saEmail,
 		"--format=json"))
@@ -287,22 +277,18 @@ func TestCLI_IAMServiceAccountKeys(t *testing.T) {
 	assert.Contains(t, list, key.PrivateKeyID,
 		"the listing must hold the key the create minted")
 
-	// Cleanup.
 	runCLI(t, gcloudCLI("iam", "service-accounts", "delete",
 		saEmail, "--quiet"))
 }
 
 func TestCLI_ComputeInstanceTemplate(t *testing.T) {
 	t.Parallel()
-	// Create instance template.
 	created := runCLI(t, gcloudCLI("compute", "instance-templates", "create", "cli-audit-tmpl",
 		"--machine-type=n1-standard-1",
 		"--format=json",
 		"--quiet"))
 	assert.Contains(t, created, "cli-audit-tmpl")
 
-	// List instance templates — by the resource's own name field, not by the
-	// string appearing anywhere in the document.
 	list := runCLI(t, gcloudCLI("compute", "instance-templates", "list", "--format=json"))
 	var listed []struct {
 		Name string `json:"name"`
@@ -314,8 +300,7 @@ func TestCLI_ComputeInstanceTemplate(t *testing.T) {
 	}
 	assert.Contains(t, names, "cli-audit-tmpl")
 
-	// Describe — the template carries the machine type the CLI built into its
-	// properties, which is the whole of what --machine-type does.
+	// --machine-type sets the template's properties.machineType.
 	desc := runCLI(t, gcloudCLI("compute", "instance-templates", "describe", "cli-audit-tmpl",
 		"--format=json"))
 	var described struct {
@@ -333,7 +318,6 @@ func TestCLI_ComputeInstanceTemplate(t *testing.T) {
 	assert.True(t, strings.HasSuffix(described.SelfLink, "/global/instanceTemplates/cli-audit-tmpl"),
 		"selfLink addresses the template: %s", described.SelfLink)
 
-	// Delete.
 	runCLI(t, gcloudCLI("compute", "instance-templates", "delete", "cli-audit-tmpl",
 		"--quiet"))
 

@@ -7,29 +7,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Application security groups (Microsoft.Network/applicationSecurityGroups)
-// name a set of network interfaces so a network security group rule can be
-// written against workload identity instead of against addresses. The group
-// itself carries no configuration — its whole meaning is the membership other
-// resources declare by referencing it, and the effect that membership has when
-// a security rule names it. Membership is resolved on demand from the network
-// interfaces and private endpoints that reference the group, which is why the
-// group's own record holds nothing but its resource GUID and provisioning
-// state, exactly as the real resource does.
-//
-// azureApplicationSecurityGroupMemberIPs is the resolution that makes the group
-// real: the addresses it returns become the source addresses of the packet
-// filter the simulator programs for a rule that names the group, and
-// azureNICInApplicationSecurityGroups decides whether a rule scoped to a
-// destination group applies to a given interface at all.
+// An application security group names a set of network interfaces so a
+// security rule can target workload identity instead of addresses. The group
+// holds only its resource GUID and provisioning state; its membership resolves
+// on demand from the interfaces and private endpoints referencing it. Rules
+// naming a source group filter on azureApplicationSecurityGroupMemberIPs, and
+// azureNICInApplicationSecurityGroups decides whether a destination-scoped
+// rule applies to an interface.
 
-// ApplicationSecurityGroup mirrors Microsoft.Network/applicationSecurityGroups.
 type ApplicationSecurityGroup struct {
 	azureNetworkResourceHeader
 	Properties ApplicationSecurityGroupProperties `json:"properties"`
 }
 
-// ApplicationSecurityGroupProperties holds the group's read-only state.
 type ApplicationSecurityGroupProperties struct {
 	ResourceGUID      string `json:"resourceGuid,omitempty"`
 	ProvisioningState string `json:"provisioningState,omitempty"`
@@ -49,8 +39,7 @@ func registerNetworkApplicationSecurityGroups(srv *sim.Server) {
 			return &asg.azureNetworkResourceHeader
 		},
 		provision: func(_ context.Context, asg *ApplicationSecurityGroup, previous *ApplicationSecurityGroup) error {
-			// The resource GUID is assigned once, at creation, and survives
-			// every later update of the same resource.
+			// Assigned once, at creation.
 			asg.Properties.ResourceGUID = sim.NewUUID()
 			if previous != nil && previous.Properties.ResourceGUID != "" {
 				asg.Properties.ResourceGUID = previous.Properties.ResourceGUID
@@ -61,12 +50,9 @@ func registerNetworkApplicationSecurityGroups(srv *sim.Server) {
 	})
 }
 
-// azureApplicationSecurityGroupMemberIPs returns the private addresses of every
-// interface and private endpoint that belongs to any of the referenced groups,
-// as host CIDRs ready for a packet filter. Group references that name a group
-// with no members contribute nothing, so a rule written against an empty group
-// matches no traffic — the real behavior, and the opposite of the "any address"
-// default an absent address prefix carries.
+// As host CIDRs ready for a packet filter. A group with no members contributes
+// nothing, so a rule against it matches no traffic, unlike the "any address"
+// default of an absent prefix.
 func azureApplicationSecurityGroupMemberIPs(refs []SubResource) []string {
 	if len(refs) == 0 {
 		return nil
@@ -109,8 +95,6 @@ func azureApplicationSecurityGroupMemberIPs(refs []SubResource) []string {
 	return out
 }
 
-// azureNICInApplicationSecurityGroups reports whether any IP configuration of
-// the interface belongs to one of the referenced groups.
 func azureNICInApplicationSecurityGroups(nic NetworkInterface, refs []SubResource) bool {
 	wanted := map[string]bool{}
 	for _, ref := range refs {
@@ -140,8 +124,7 @@ var (
 	azurePrivateEndpointsByApplicationSecurityGroup sim.GenerationIndex[PrivateEndpoint]
 )
 
-// azureNICApplicationSecurityGroupKeys are the lower-cased ids of every
-// application security group an interface's IP configurations reference.
+// Lowercased.
 func azureNICApplicationSecurityGroupKeys(nic NetworkInterface) []string {
 	var keys []string
 	for _, ipcfg := range nic.Properties.IPConfigurations {

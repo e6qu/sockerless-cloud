@@ -14,16 +14,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// registerContainerAppsIngress implements Azure Container Apps ingress: an app
-// with ingress is reached at its FQDN (`properties.latestRevisionFqdn`), a
-// labelled traffic entry at its label's FQDN and an active revision at its own,
-// and the platform routes that hostname to one of the revision's ready
-// replicas.
+// registerContainerAppsIngress routes an app's FQDN
+// (`properties.latestRevisionFqdn`), a traffic label's FQDN and an active
+// revision's own to one of the revision's ready replicas.
 func registerContainerAppsIngress(srv *sim.Server) {
 	srv.WrapHandler(lbplane.HostRouter{Route: acaIngressRoute}.Wrap)
 }
 
-// acaIngressRoute finds the app or revision a hostname names.
 func acaIngressRoute(_ *http.Request, host string) (http.Handler, bool) {
 	if app, ok := acaAppByIngressFqdn(host); ok {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,8 +40,8 @@ func acaIngressRoute(_ *http.Request, host string) (http.Handler, bool) {
 	return nil, false
 }
 
-// acaIngressServesHost reports whether a request carrying host reaches a
-// container app or one of its revisions rather than the simulator's own APIs.
+// acaIngressServesHost reports a host that reaches a container app or revision
+// rather than the simulator's own APIs.
 func acaIngressServesHost(host string) bool {
 	host = lbplane.Hostname(host)
 	if _, ok := acaAppByIngressFqdn(host); ok {
@@ -54,9 +51,7 @@ func acaIngressServesHost(host string) bool {
 	return ok && rev.Active
 }
 
-// acaIngressTargetPort returns the App's configured ingress target port — the
-// container port ACA ingress forwards to. Defaults to 8080 (the sockerless
-// bootstrap's listener) when ingress declares no explicit port.
+// Defaults to 8080 when ingress declares no port.
 func acaIngressTargetPort(app ContainerApp) int32 {
 	if app.Properties.Configuration != nil &&
 		app.Properties.Configuration.Ingress != nil &&
@@ -67,12 +62,9 @@ func acaIngressTargetPort(app ContainerApp) int32 {
 	return 8080
 }
 
-// acaAppsByIngressFqdn indexes container apps by the FQDN their ingress
-// answers on. The lookup below runs in a handler wrapper, so every request into
-// the simulator pays it before any handler runs.
+// A handler wrapper runs this lookup ahead of every request.
 var acaAppsByIngressFqdn sim.GenerationIndex[ContainerApp]
 
-// acaAppByIngressFqdn returns the App whose ingress FQDN equals host.
 func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 	if host == "" {
 		return ContainerApp{}, false
@@ -87,14 +79,11 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 	})
 }
 
-// acaLabelFqdn is the FQDN a labelled traffic entry answers on: the app's,
-// with three dashes and the label after the app's name.
+// The app's FQDN with three dashes and the label after the app's name.
 func acaLabelFqdn(appName, appFqdn, label string) string {
 	return appName + "---" + label + strings.TrimPrefix(appFqdn, appName)
 }
 
-// acaTrafficLabels maps each label of the app's traffic entries to the
-// revision it names.
 func acaTrafficLabels(app ContainerApp) map[string]string {
 	labels := map[string]string{}
 	if app.Properties.Configuration == nil || app.Properties.Configuration.Ingress == nil {
@@ -113,8 +102,7 @@ func acaTrafficLabels(app ContainerApp) map[string]string {
 	return labels
 }
 
-// acaRequestRevision is the revision a request to the app goes to: a
-// label's for the label's FQDN, else one by traffic weight.
+// A label's FQDN goes to its revision, anything else by traffic weight.
 func acaRequestRevision(app ContainerApp, host string) (acaRevision, bool) {
 	fqdn := acaAppFqdn(app)
 	for label, name := range acaTrafficLabels(app) {
@@ -130,14 +118,12 @@ func acaRequestRevision(app ContainerApp, host string) (acaRevision, bool) {
 	return acaPickRevision(app)
 }
 
-// acaIngressRequestTimeout is the documented limit Container Apps ingress puts
-// on an HTTP request: it cancels one not complete within 240 seconds.
+// Container Apps ingress cancels a request not complete within 240 seconds.
 const acaIngressRequestTimeout = 240 * time.Second
 
-// acaIngressForwardedHeaders adds the headers the ingress documents: the
-// client's IP appended to X-Forwarded-For, X-Forwarded-Proto overwritten
-// with the protocol the client used, and the client certificate as
-// X-Forwarded-Client-Cert when the ingress accepts or requires one.
+// The ingress appends the client's IP to X-Forwarded-For, overwrites
+// X-Forwarded-Proto with the client's protocol, and passes the client
+// certificate as X-Forwarded-Client-Cert when it accepts or requires one.
 func acaIngressForwardedHeaders(r *http.Request, app ContainerApp) func(http.Header) {
 	clientIP, _ := lbplane.ClientAddress(r)
 	proto := lbplane.ClientProto(r)
@@ -152,10 +138,8 @@ func acaIngressForwardedHeaders(r *http.Request, app ContainerApp) func(http.Hea
 	}
 }
 
-// proxyACAIngress forwards the request to a running replica container of the
-// revision's target port (8080), preserving method, path, query, headers and
-// body, and copies the response back — the App-ingress equivalent of Azure's
-// managed front-end.
+// proxyACAIngress forwards to a running replica of the revision and copies the
+// response back, as Azure's managed front end does.
 func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, rev acaRevision) {
 	pickCtx, cancel := context.WithTimeout(r.Context(), acaIngressRequestTimeout)
 	defer cancel()
@@ -177,9 +161,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		return
 	}
 
-	// Route to the App's configured ingress target port — exactly what real
-	// ACA ingress forwards to (the container's listening port). Ingress passes
-	// the client's Host header and carries WebSocket upgrades through.
+	// Ingress passes the client's Host header and carries WebSocket upgrades.
 	up := lbplane.Upstream{
 		Scheme:        "http",
 		Address:       net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),

@@ -27,8 +27,24 @@ type tableTestClient struct {
 func newTableTestClient(t *testing.T, account string) *tableTestClient {
 	t.Helper()
 	srv := newMoveTestServer(t)
-	token, err := mintAzureSimJWTForUser(EntraUser{OID: "table-test-oid", Sub: "table-test-sub"},
-		"table-test-tenant", "https://storage.azure.com/", time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	// The caller reaches entities through Storage Table Data Contributor on
+	// the account, as Azure RBAC requires of a Microsoft Entra caller.
+	group := "table-" + account
+	createTestResourceGroup(t, srv, azureDefaultSubscriptionID, group)
+	accountID := "/subscriptions/" + azureDefaultSubscriptionID + "/resourceGroups/" + group +
+		"/providers/Microsoft.Storage/storageAccounts/" + account
+	if status, body := moveARM(t, srv, http.MethodPut, accountID+"?api-version=2023-01-01",
+		`{"location":"eastus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`); status != http.StatusOK && status != http.StatusAccepted {
+		t.Fatalf("create storage account %s: status %d: %s", account, status, body)
+	}
+	if status, body := moveARM(t, srv, http.MethodPut,
+		accountID+"/providers/Microsoft.Authorization/roleAssignments/0a9a7e1f-0000-4000-8000-"+fmt.Sprintf("%012x", len(account))+"?api-version=2022-04-01",
+		`{"properties":{"roleDefinitionId":"/subscriptions/`+azureDefaultSubscriptionID+
+			`/providers/Microsoft.Authorization/roleDefinitions/0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3","principalId":"`+
+			entraBootstrapSPObjectID+`"}}`); status != http.StatusCreated {
+		t.Fatalf("assign Storage Table Data Contributor: status %d: %s", status, body)
+	}
+	token, err := mintBootstrapSimJWT("https://storage.azure.com/", time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint storage token: %v", err)
 	}

@@ -16,15 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// `gcloud run services replace` and `gcloud run jobs executions cancel` — two
-// real CLI invocations against the Cloud Run Admin v1 (Knative) surface.
-//
-// Both resolve the regional Cloud Run host (`{region}-run.googleapis.com`),
-// which gcloud builds by prefixing the region onto the configured endpoint. The
-// coordinate that carries those bytes to a loopback simulator is gcloud's own
-// HTTP proxy setting, so the CLI, the URL it builds, the body it sends and the
-// credential it presents are all unmodified — only where the bytes are
-// delivered differs. TestGCloudRegionPrefixedEndpointHost pins that coordinate.
+// `gcloud run services replace` and `gcloud run jobs executions cancel` resolve
+// the regional Cloud Run host, `{region}-run.googleapis.com`. gcloud's own HTTP
+// proxy setting carries those bytes to a loopback simulator, so the URL, the
+// body and the credential stay unmodified; TestGCloudRegionPrefixedEndpointHost
+// pins that coordinate.
 
 // gcloudRegionalRunCLI is gcloudCLI with the proxy coordinate that delivers the
 // region-prefixed Cloud Run host to the simulator.
@@ -38,13 +34,10 @@ func knativeServiceURL(name string) string {
 	return fmt.Sprintf("%s/apis/serving.knative.dev/v1/namespaces/%s/services/%s", baseURL, project, name)
 }
 
-// TestCloudRunV1_CLI_ServicesReplaceSendsResourceVersion drives the real
-// `gcloud run services replace`. gcloud reads the service, copies the
-// resourceVersion it read into the replace body, and PUTs it — so the command
-// exercises the enforced path with the version the service is actually at, and
-// the replace must succeed and move the version on. The other half of the
-// contract — the version a concurrent client is still holding — is the same PUT
-// with the version from before that replace.
+// TestCloudRunV1_CLI_ServicesReplaceSendsResourceVersion: gcloud reads the
+// service, copies its resourceVersion into the replace body and PUTs it, so the
+// replace must succeed and move the version on. A PUT carrying the version from
+// before that replace, as a concurrent client holds it, must be refused.
 func TestCloudRunV1_CLI_ServicesReplaceSendsResourceVersion(t *testing.T) {
 	t.Parallel()
 	const name = "cli-rv-service"
@@ -94,8 +87,6 @@ spec:
 	assert.NotEqual(t, before.Metadata.ResourceVersion, moved,
 		"the replace gcloud sent was accepted and moved the service on")
 
-	// The version the CLI read before that replace is now stale, and a client
-	// still holding it is refused rather than overwriting the service.
 	stale := fmt.Sprintf(`{
 		"apiVersion": "serving.knative.dev/v1",
 		"kind": "Service",
@@ -118,19 +109,15 @@ spec:
 	assert.Contains(t, conflict.Error.Message, "resourceVersion")
 }
 
-// TestCloudRunV1_CLI_ExecutionsCancel drives the published verb on the
-// executions collection through the real CLI. The simulator serves the
-// collection's custom methods from one handler per API version, so the CLI's
-// own call is the proof that tightening those handlers to the verbs Cloud Run
-// publishes left the published one working.
+// TestCloudRunV1_CLI_ExecutionsCancel drives the published cancel verb on the
+// executions collection through gcloud.
 func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	t.Parallel()
 	// Cloud Logging keeps a deleted job's entries, so a reused job name would
 	// read an earlier run's lines.
 	jobID := fmt.Sprintf("cli-verb-job-%d", time.Now().UnixNano())
-	// The step outlives this test by a wide margin, so nothing settles the
-	// execution except the cancel the CLI sends. It says when its SIGTERM
-	// handler is in place, and exits through that handler.
+	// Nothing but the cancel settles the execution: the step outlives the test,
+	// announces its SIGTERM handler and exits through it.
 	httpDoJSON(t, "POST", jobsBaseURL()+"?jobId="+jobID, `{
 		"template": {"template": {"containers": [
 			{"image": "`+cliWorkloadImage+`", "command": ["sh", "-c"],
@@ -147,8 +134,6 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	run := runJob(t, jobID)
 	execID := run.Execution[strings.LastIndex(run.Execution, "/")+1:]
 
-	// The task has to be genuinely in flight when the cancel lands, otherwise
-	// the cancelled count the cancel records would be zero.
 	type v2Execution struct {
 		RunningCount   int    `json:"runningCount"`
 		CancelledCount int    `json:"cancelledCount"`
@@ -166,9 +151,8 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, ""), &execution)
 		return execution
 	}
-	// The container's own line in Cloud Logging is what says it is up with its
-	// SIGTERM handler in place. Match the whole line: the job's log also holds
-	// lines the service writes, and those say nothing about the container.
+	// The container's own log line says its SIGTERM handler is in place. Match the
+	// whole line: the job's log also holds lines the service writes.
 	require.Eventually(t, func() bool {
 		out := runCLI(t, gcloudCLI("logging", "read",
 			`resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`,
@@ -189,10 +173,8 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	settled := readExecution()
 	require.NotEmpty(t, settled.CompletionTime, "the cancel the CLI sent must settle the execution")
 
-	// A cancelled execution is not merely finished: the task it stopped is
-	// counted as cancelled, none succeeded or failed on their own, and both
-	// terminal conditions carry the cancellation reason. A step that ran to
-	// completion by itself would settle with a succeeded count instead.
+	// A cancelled execution counts its stopped task as cancelled, none succeeded
+	// or failed, and both terminal conditions carry the cancellation reason.
 	assert.Equal(t, 1, settled.CancelledCount, "the running task is counted as cancelled")
 	assert.Equal(t, 0, settled.RunningCount)
 	assert.Equal(t, 0, settled.SucceededCount, "nothing succeeded — the task was stopped")
@@ -204,8 +186,7 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	assert.Equal(t, "CONDITION_FAILED/Cancelled", byType["Ready"])
 	assert.Equal(t, "CONDITION_FAILED/Cancelled", byType["Completed"])
 
-	// Rewriting the record is not cancelling: the workload container the
-	// execution owned has to be stopped too, or an hour of `sleep 3600` keeps
+	// Cancelling must also stop the workload container, or `sleep 3600` keeps
 	// running behind an execution both API versions call cancelled. The task
 	// settles from the container's exit, with the code its SIGTERM handler
 	// returned.
@@ -226,9 +207,8 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 	assert.Equal(t, 143, task.LastAttemptResult.ExitCode,
 		"the cancel must stop the workload container through its SIGTERM handler, not just the record")
 
-	// A verb the service does not publish is refused on the same collection
-	// rather than silently cancelling: no CLI spells an unpublished method, so
-	// the request a client of one would send is put on the wire directly.
+	// No CLI spells an unpublished verb, so send it on the wire: the collection
+	// refuses it rather than cancelling.
 	resp, err := httpDo("POST", fmt.Sprintf(
 		"%s/apis/run.googleapis.com/v1/namespaces/%s/executions/%s:teleport", baseURL, project, execID), "{}")
 	require.NoError(t, err)

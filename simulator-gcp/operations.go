@@ -28,12 +28,9 @@ func registerOperations(srv *sim.Server) {
 	// operation collection.
 	registerOperationsCancel(srv)
 
-	// operations.get takes the whole remaining path, not one segment: the
-	// documents declare it as `v2/{+name}` over names matching `^operations/.*$`,
-	// and a real operation name carries its resource's own path inside it —
-	// "operations/projects/{project}/operations/{id}" for Cloud Bigtable admin.
-	// Matching one segment answers the flat names and 404s the rest, which is
-	// what a client polling a create hits.
+	// operations.get takes the whole remaining path: the documents declare
+	// `v2/{+name}` over names matching `^operations/.*$`, and a Cloud Bigtable
+	// admin operation is named "operations/projects/{project}/operations/{id}".
 	srv.HandleFunc("GET /v2/operations/{operation...}", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("operations/%s", sim.PathParam(r, "operation"))
 		if op, ok := gcpLookupOperation(name); ok {
@@ -48,8 +45,7 @@ func registerOperations(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v1"))
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v2"))
 
-	// Get operation - v1 prefix. Cloud Build's regional build operations are
-	// a view of the build record rather than a stored operation, so the
+	// Cloud Build's regional build operations view the build record, so the
 	// location's builds are searched after the operation stores.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -65,15 +61,13 @@ func registerOperations(srv *sim.Server) {
 			cbWriteBuildOperation(w, project, build)
 			return
 		}
-		// Real GCP returns NOT_FOUND when an operation doesn't exist; a
-		// synthetic done=true response would mask a client-side bug.
+		// An operation that does not exist is NOT_FOUND, as Google Cloud answers.
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 
-	// Get operation - v2 prefix. Cloud Logging's scope-parented operations
-	// share this URI with the services that record into crOperations, and
-	// CancelOperation already resolves a name across both stores, so a read
-	// that searched only one would refuse a name its own cancel accepts.
+	// Cloud Logging's scope-parented operations share this URI with the services
+	// recording into crOperations, and CancelOperation resolves names across both
+	// stores, so the read searches both too.
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -180,7 +174,7 @@ func handleLocationOperationDelete(version string) http.HandlerFunc {
 			return
 		}
 		crOperations.Delete(name)
-		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
+		// DeleteOperation answers google.protobuf.Empty.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	}
 }

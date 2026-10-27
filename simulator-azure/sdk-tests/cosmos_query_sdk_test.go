@@ -13,15 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The Cosmos data plane uses Shared-Key auth + endpoint discovery the azcosmos
-// SDK's globalEndpointManager performs against `*.documents.azure.com`; pointing
-// that at the single-port sim isn't expressible as a plain coordinate. These
-// tests therefore drive the data plane over raw HTTP using the EXACT wire shape
-// azcosmos emits — the same `x-ms-documentdb-isquery` / `x-ms-documentdb-is-upsert`
-// headers, the `application/query+json` body with `{query, parameters}`, and the
-// patch `{operations:[{op,path,value}]}` envelope (verified against
-// azure-sdk-for-go/sdk/data/azcosmos@v1.4.2). This matches the established
-// pattern in cosmos_test.go / storage_dataplanes_test.go.
+// cosmosDoc drives the Azure Cosmos DB data plane over raw HTTP in the wire
+// shape azcosmos v1.4.2 emits: the `x-ms-documentdb-isquery` and
+// `x-ms-documentdb-is-upsert` headers, the `application/query+json` body
+// `{query, parameters}`, and the patch envelope `{operations:[{op,path,value}]}`.
 
 func cosmosDoc(t *testing.T, method, account, path, body string, headers map[string]string) *http.Response {
 	t.Helper()
@@ -66,10 +61,8 @@ func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]
 	return out.Documents
 }
 
-// TestCosmosQuery_RealGrammar drives the SQL-subset engine over the data plane:
-// parameterized WHERE with AND + numeric range, ORDER BY, and CONTAINS — each of
-// which previously fell through the equality-only matcher and returned the whole
-// collection.
+// TestCosmosQuery_RealGrammar drives the SQL engine: a parameterized WHERE with
+// AND and a numeric range, ORDER BY, CONTAINS, and COUNT.
 func TestCosmosQuery_RealGrammar(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmosquery")
@@ -86,33 +79,28 @@ func TestCosmosQuery_RealGrammar(t *testing.T) {
 		resp.Body.Close()
 	}
 
-	// WHERE c.team = @p AND c.score > @q.
 	got := cosmosQuery(t, account, coll,
 		"SELECT * FROM c WHERE c.team = @p AND c.score > @q",
 		[]map[string]any{{"name": "@p", "value": "platform"}, {"name": "@q", "value": 5}})
 	require.Len(t, got, 1, "want only bob (platform, score>5)")
 	assert.Equal(t, "b", got[0]["id"])
 
-	// ORDER BY c.score DESC.
 	got = cosmosQuery(t, account, coll, "SELECT c.id FROM c ORDER BY c.score DESC", nil)
 	require.Len(t, got, 3)
 	assert.Equal(t, "b", got[0]["id"], "highest score first")
 	assert.Equal(t, "a", got[2]["id"], "lowest score last")
 
-	// CONTAINS.
 	got = cosmosQuery(t, account, coll, "SELECT * FROM c WHERE CONTAINS(c.name, 'ar')", nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "c", got[0]["id"], "only carol contains 'ar'")
 
-	// COUNT aggregate.
 	got = cosmosQuery(t, account, coll, "SELECT VALUE COUNT(1) FROM c WHERE c.team = 'platform'", nil)
 	require.Len(t, got, 1)
 	assert.EqualValues(t, 2, got[0]["$1"])
 }
 
-// TestCosmosUpsertAndConflict pins the create/upsert semantics: a plain re-create
-// of an existing id is a 409 Conflict; an upsert (x-ms-documentdb-is-upsert)
-// replaces it and returns 200.
+// TestCosmosUpsertAndConflict: re-creating an existing id is 409 Conflict; an
+// upsert (x-ms-documentdb-is-upsert) replaces it with 200.
 func TestCosmosUpsertAndConflict(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmosupsert")
@@ -122,12 +110,10 @@ func TestCosmosUpsertAndConflict(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// Plain create of the same id → 409.
 	resp = cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":2}`, nil)
 	require.Equal(t, http.StatusConflict, resp.StatusCode, "duplicate-id create must 409")
 	resp.Body.Close()
 
-	// Upsert of the same id → 200, replaces the document.
 	resp = cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":3}`,
 		map[string]string{"x-ms-documentdb-is-upsert": "true"})
 	require.Equal(t, http.StatusOK, resp.StatusCode, "upsert of existing id returns 200")
@@ -135,7 +121,6 @@ func TestCosmosUpsertAndConflict(t *testing.T) {
 	resp.Body.Close()
 	assert.Contains(t, string(body), `"v":3`)
 
-	// Confirm the stored doc reflects the upsert.
 	resp = cosmosDoc(t, "GET", account, docs+"/dup", "", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	body, _ = io.ReadAll(resp.Body)
@@ -145,9 +130,8 @@ func TestCosmosUpsertAndConflict(t *testing.T) {
 	assert.EqualValues(t, 3, stored["v"])
 }
 
-// TestCosmosPatchIncrement pins the Cosmos partial-document PATCH route
-// "PATCH /dbs/{database}/colls/{container}/docs/{doc}" applying an increment op
-// to a stored document (the azcosmos PatchOperations wire shape).
+// TestCosmosPatchIncrement applies an increment op through the azcosmos
+// PatchOperations wire shape.
 func TestCosmosPatchIncrement(t *testing.T) {
 	t.Parallel()
 	account := uniquename.Alnum("sdkcosmospatch")

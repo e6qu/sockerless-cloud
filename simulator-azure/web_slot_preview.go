@@ -14,16 +14,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_slot_preview.go implements swap with preview (multi-phase swap) and the
-// slot differences read. applySlotConfig is the first phase: the slot the
-// request addresses takes the target slot's slot-specific app settings and
-// connection strings and restarts on them, so it runs as it will after the
-// swap. The swap that follows completes the phase; resetSlotConfig cancels it
-// and gives the slot its own settings back.
+// applySlotConfig is the first phase of a swap with preview: the addressed
+// slot takes the target's slot-specific app settings and connection strings
+// and restarts on them. The swap completes the phase; resetSlotConfig cancels
+// it and gives the slot its own settings back.
 
-// WebSlotPreview is an app's pending swap with preview: the slot whose
-// configuration took the target's sticky settings, the target, and the
-// settings the source held before. Keyed by the app's resource ID.
+// WebSlotPreview is keyed by the app's resource ID.
 type WebSlotPreview struct {
 	ID                string                              `json:"id"`
 	SourceID          string                              `json:"sourceId"`
@@ -38,8 +34,7 @@ func initWebSlotPreviewStore(srv *sim.Server) {
 	webSlotPreviews = sim.MakeStore[WebSlotPreview](srv.DB(), "web_slot_previews")
 }
 
-// webSlotPair resolves the slot a slot-entity request addresses and its
-// targetSlot, writing the error response when either is missing.
+// webSlotPair writes the error response when either slot is missing.
 func webSlotPair(w http.ResponseWriter, r *http.Request) (appID string, current, target Site, ok bool) {
 	if webMissing(w, r) {
 		return "", Site{}, Site{}, false
@@ -76,8 +71,6 @@ func webSlotPair(w http.ResponseWriter, r *http.Request) (appID string, current,
 	return appID, current, target, true
 }
 
-// webSlotSticky is the app's slot-setting rule for app settings and for
-// connection strings, given the two slots' app settings.
 func webSlotSticky(appID string, a, b map[string]string) (appSetting, connString func(string) bool) {
 	appCfg, _ := siteConfigStore.Get(appID)
 	sticky := SlotConfigNames{}
@@ -87,7 +80,6 @@ func webSlotSticky(appID string, a, b map[string]string) (appSetting, connString
 	return webStickyAppSetting(sticky, a, b), webNameSet(sticky.ConnectionStringNames)
 }
 
-// webSetSlotSettings stores a slot's app settings and connection strings.
 func webSetSlotSettings(id string, settings map[string]string, conns map[string]AzureSiteConnStringValue) {
 	if row, ok := webJobSite(id); ok {
 		if row.Properties.SiteConfig == nil {
@@ -102,20 +94,15 @@ func webSetSlotSettings(id string, settings map[string]string, conns map[string]
 	siteConfigStore.Put(id, cfg)
 }
 
-// webRestoreSlotPreview gives a preview's source slot back the settings it
-// held before the preview and forgets the preview.
 func webRestoreSlotPreview(p WebSlotPreview) {
 	webSetSlotSettings(p.SourceID, p.AppSettings, p.ConnectionStrings)
 	webSlotPreviews.Delete(p.ID)
 }
 
-// webSlotPreviewPair reports whether a pending preview is between slots a and
-// b, in either order.
 func webSlotPreviewPair(p WebSlotPreview, a, b string) bool {
 	return (p.SourceID == a && p.TargetID == b) || (p.SourceID == b && p.TargetID == a)
 }
 
-// webApplySlotConfig is the first phase of a swap with preview.
 func webApplySlotConfig(w http.ResponseWriter, r *http.Request) {
 	appID, source, target, ok := webSlotPair(w, r)
 	if !ok {
@@ -169,8 +156,6 @@ func webApplySlotConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// webResetSlotConfig cancels the app's swap with preview when the slot the
-// request addresses takes part in it; otherwise there is nothing to reset.
 func webResetSlotConfig(w http.ResponseWriter, r *http.Request) {
 	if webMissing(w, r) {
 		return
@@ -195,7 +180,6 @@ func webSlotNameByID(id string) string {
 	return "production"
 }
 
-// webSlotDifference is one SlotDifference.
 type webSlotDifference struct {
 	Level              string `json:"level"`
 	SettingType        string `json:"settingType"`
@@ -206,8 +190,7 @@ type webSlotDifference struct {
 	Description        string `json:"description"`
 }
 
-// webSlotDiff describes how a swap treats a setting the two slots hold
-// differently: a swappable one moves with the content, a slot setting stays.
+// A swappable setting moves with the content; a slot setting stays.
 func webSlotDiff(settingType, kind, name, current, target string, sticky bool) webSlotDifference {
 	d := webSlotDifference{
 		Level:              "Information",
@@ -226,8 +209,6 @@ func webSlotDiff(settingType, kind, name, current, target string, sticky bool) w
 	return d
 }
 
-// webListSlotDifferences answers the settings the slot the request addresses
-// holds differently from its targetSlot.
 func webListSlotDifferences(w http.ResponseWriter, r *http.Request) {
 	appID, current, target, ok := webSlotPair(w, r)
 	if !ok {
@@ -267,8 +248,6 @@ func webListSlotDifferences(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
-// webGeneralSettingDiffs lists the siteConfig general settings the two slots
-// hold differently.
 func webGeneralSettingDiffs(current, target *SiteConfig) ([]webSlotDifference, error) {
 	flat := func(c *SiteConfig) (map[string]json.RawMessage, error) {
 		out := map[string]json.RawMessage{}
@@ -332,8 +311,7 @@ func webUnionKeys[V any](a, b map[string]V) []string {
 	return keys
 }
 
-// webCleanupSlotPreview ends the swap with preview a deleted app or slot took
-// part in: a source that outlives its target gets its own settings back.
+// A source that outlives its target gets its own settings back.
 func webCleanupSlotPreview(resID string) {
 	appID, _, isSlot := strings.Cut(resID, "/slots/")
 	p, pending := webSlotPreviews.Get(appID)

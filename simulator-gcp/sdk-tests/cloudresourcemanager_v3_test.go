@@ -24,8 +24,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// crmOpResourceName extracts the embedded resource's name field from a settled
-// long-running Operation's response envelope (a json.RawMessage in the SDK).
+// crmOpResourceName reads the resource's name from a settled operation's
+// response, a json.RawMessage in the SDK.
 func crmOpResourceName(t *testing.T, op *crm.Operation) string {
 	t.Helper()
 	require.NotEmpty(t, op.Response, "operation must carry a response")
@@ -35,10 +35,9 @@ func crmOpResourceName(t *testing.T, op *crm.Operation) string {
 	return name
 }
 
-// requireProject makes sure Cloud Resource Manager holds the project, as a
-// project must exist before Cloud Storage accepts a bucket in it, and returns
-// its project number. An ALREADY_EXISTS answer satisfies the caller, so the
-// test re-runs in one process.
+// requireProject makes sure Cloud Resource Manager holds the project, which
+// Cloud Storage requires before it accepts a bucket, and returns its number.
+// ALREADY_EXISTS satisfies it, so the test reruns in one process.
 func requireProject(t *testing.T, projectID string) string {
 	t.Helper()
 	svc := crmV3Service(t)
@@ -62,11 +61,9 @@ func crmV3Service(t *testing.T) *crm.Service {
 	return svc
 }
 
-// TestResourceManagerV3_FetchResourceSemanticsNameValidation pins how
-// fetchResourceSemantics reads its fullResourceName. Semantics are optional
-// metadata no API in this cloud slice assigns, so every resource answers with
-// its own name and an empty map; what the method decides is whether the name it
-// was handed is a full resource name at all, and that is what this covers.
+// TestResourceManagerV3_FetchResourceSemanticsNameValidation: no API in this
+// slice assigns semantics, so every resource answers its own name and an empty
+// map; the method decides only whether its argument is a full resource name.
 func TestResourceManagerV3_FetchResourceSemanticsNameValidation(t *testing.T) {
 	t.Parallel()
 	const fullName = "//cloudresourcemanager.googleapis.com/projects/735298346210"
@@ -82,9 +79,8 @@ func TestResourceManagerV3_FetchResourceSemanticsNameValidation(t *testing.T) {
 	assert.Equal(t, fullName, got.FullResourceName)
 	assert.Empty(t, got.Semantics, "no API in this slice assigns semantics, so none come back")
 
-	// A full resource name is "//{service}/{resource path}". Each of these
-	// breaks one part of that shape and must be refused rather than answered
-	// with an empty semantics map.
+	// A full resource name is "//{service}/{resource path}"; each case breaks one
+	// part and must be refused.
 	for _, tc := range []struct {
 		name  string
 		query string
@@ -115,7 +111,6 @@ func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := crmV3Service(t)
 
-	// Create returns a settled long-running Operation embedding the project.
 	op, err := svc.Projects.Create(&crm.Project{
 		ProjectId:   "crm-proj-lifecycle",
 		DisplayName: "CRM Lifecycle",
@@ -129,7 +124,6 @@ func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
 	assert.Equal(t, "crm-proj-lifecycle", got.ProjectId)
 	assert.Equal(t, "ACTIVE", got.State)
 
-	// Patch displayName via updateMask.
 	pop, err := svc.Projects.Patch(got.Name, &crm.Project{DisplayName: "Renamed"}).
 		UpdateMask("displayName").Do()
 	require.NoError(t, err)
@@ -138,14 +132,12 @@ func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed", got.DisplayName)
 
-	// Move to a new parent.
 	mop, err := svc.Projects.Move(got.Name, &crm.MoveProjectRequest{
 		DestinationParent: "folders/000000000001",
 	}).Do()
 	require.NoError(t, err)
 	assert.True(t, mop.Done)
 
-	// List under the new parent surfaces the project.
 	list, err := svc.Projects.List().Parent("folders/000000000001").Do()
 	require.NoError(t, err)
 	var found bool
@@ -156,7 +148,6 @@ func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "moved project should appear under new parent")
 
-	// Search returns all projects.
 	sr, err := svc.Projects.Search().Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, sr.Projects)
@@ -266,7 +257,6 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 	_, err = svc.Folders.Undelete(name, &crm.UndeleteFolderRequest{}).Do()
 	require.NoError(t, err)
 
-	// Folder IAM.
 	_, err = svc.Folders.SetIamPolicy(name, &crm.SetIamPolicyRequest{
 		Policy: &crm.Policy{Bindings: []*crm.Binding{{
 			Role: "roles/resourcemanager.folderViewer", Members: []string{"user:bob@example.com"},
@@ -340,7 +330,6 @@ func TestResourceManagerV3_TagKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", got.Description)
 
-	// TagKey IAM.
 	_, err = svc.TagKeys.SetIamPolicy(name, &crm.SetIamPolicyRequest{
 		Policy: &crm.Policy{Bindings: []*crm.Binding{{
 			Role: "roles/resourcemanager.tagAdmin", Members: []string{"user:tag@example.com"},
@@ -385,7 +374,6 @@ func TestResourceManagerV3_TagValues(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, list.TagValues)
 
-	// TagValue IAM.
 	_, err = svc.TagValues.SetIamPolicy(name, &crm.SetIamPolicyRequest{
 		Policy: &crm.Policy{Bindings: []*crm.Binding{{
 			Role: "roles/resourcemanager.tagUser", Members: []string{"user:tv@example.com"},
@@ -397,11 +385,8 @@ func TestResourceManagerV3_TagValues(t *testing.T) {
 	require.Len(t, pol.Bindings, 1)
 }
 
-// TestResourceManagerV3_TagsInForceAreTheOnesBound drives the reads that report
-// which tags apply to a resource. Each of them answered a fixed empty answer:
-// effectiveTags for a resource with a binding, a binding collection whose
-// PATCH stored nothing, and a folder capability whose read always said false.
-// Every one of those contradicts the write that came before it.
+// TestResourceManagerV3_TagsInForceAreTheOnesBound: effectiveTags, a binding
+// collection and a folder capability each report what the preceding write set.
 func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 	t.Parallel()
 	svc := crmV3Service(t)
@@ -465,15 +450,12 @@ func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 	assert.True(t, got.Value, "a capability read must report the value a patch set")
 }
 
-// TestIAMCredentials_SignBlobAndJwt drives the two IAM Credentials signing
-// methods the way a relying party drives them: sign, then fetch the public half
-// of the named key from the IAM service-account keys surface and verify the
-// signature against it. That is the whole point of a signature — a caller that
-// only checked the encoding of the bytes would accept any bytes at all.
+// TestIAMCredentials_SignBlobAndJwt verifies each signature against the public
+// half of the named key, fetched from the IAM service-account keys surface, as
+// a relying party does: checking the encoding alone accepts any bytes.
 func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
 	t.Parallel()
-	// The credential ops require the service account to exist; create it via
-	// the IAM SDK first (same flow a real caller's IaC would have run).
+	// The credential methods need the service account to exist.
 	iamSvc := iamService(t)
 	_, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{
@@ -534,8 +516,8 @@ func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
 	assert.Equal(t, jwt.KeyId, header.Kid,
 		"the header's kid must name the key the response reports, so a verifier can find the public half")
 
-	// The claim set is the caller's, passed through untouched: signJwt signs
-	// what it was given rather than composing claims of its own.
+	// signJwt signs the caller's claim set untouched rather than composing its
+	// own.
 	claimsSegment, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err, "the JWS claims must be base64url without padding")
 	var roundTripped map[string]string
@@ -551,12 +533,9 @@ func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
 		"signedJwt must verify as RS256 over its own signing input, under the reported keyId")
 }
 
-// systemManagedPublicKey resolves the public half of a service account's
-// system-managed key from the IAM keys surface — list the account's
-// system-managed keys, find the one the signature named, and read its
-// publicKeyData. This is the route a relying party takes to verify a signature
-// it was handed, and it is the only way to tell a real signature from arbitrary
-// bytes.
+// systemManagedPublicKey lists the account's system-managed keys, finds the
+// one the signature named and reads its publicKeyData: the route a relying
+// party takes to verify a signature.
 func systemManagedPublicKey(t *testing.T, svc *iam.Service, saName, keyID string) *rsa.PublicKey {
 	t.Helper()
 
@@ -574,8 +553,7 @@ func systemManagedPublicKey(t *testing.T, svc *iam.Service, saName, keyID string
 	require.NotEmpty(t, keyName,
 		"the signature's keyId %q must name one of the account's published keys", keyID)
 
-	// publicKeyData is served only when the caller names the encoding it wants,
-	// as the real API serves it.
+	// The API serves publicKeyData only when the caller names the encoding.
 	key, err := svc.Projects.ServiceAccounts.Keys.Get(keyName).PublicKeyType("TYPE_RAW_PUBLIC_KEY").Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, key.PublicKeyData, "the published key must carry its public half")

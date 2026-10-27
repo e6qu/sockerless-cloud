@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ensureCosmosAccount provisions a Cosmos DB account via the ARM REST surface
-// the existing handlers serve, returning the account name.
+// ensureCosmosAccount provisions an Azure Cosmos DB account over ARM REST.
 func ensureCosmosAccount(t *testing.T, rg, account string) {
 	t.Helper()
 	ensureRG(t, rg)
@@ -51,7 +50,7 @@ func TestAzureCosmosDB_MongoDBResourcesSDKLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(400), *dbThroughput.Properties.Resource.Throughput)
 
-	// Manual -> autoscale migration sets autoscaleSettings.maxThroughput.
+	// Migrating to autoscale sets autoscaleSettings.maxThroughput.
 	migPoller, err := client.BeginMigrateMongoDBDatabaseToAutoscale(ctx, rg, account, db, nil)
 	require.NoError(t, err)
 	migrated, err := migPoller.PollUntilDone(ctx, nil)
@@ -137,7 +136,7 @@ func TestAzureCosmosDB_CassandraResourcesSDKLifecycle(t *testing.T) {
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Cascading delete removed the keyspace's tables.
+	// Deleting the keyspace cascades to its tables.
 	_, err = client.GetCassandraTable(ctx, rg, account, keyspace, table, nil)
 	require.Error(t, err)
 }
@@ -180,7 +179,6 @@ func TestAzureCosmosDB_GremlinResourcesSDKLifecycle(t *testing.T) {
 	require.NotNil(t, graphThroughput.Properties.Resource.AutoscaleSettings)
 	assert.Equal(t, int32(4000), *graphThroughput.Properties.Resource.AutoscaleSettings.MaxThroughput)
 
-	// Autoscale -> manual migration.
 	migPoller, err := client.BeginMigrateGremlinGraphToManualThroughput(ctx, rg, account, db, graph, nil)
 	require.NoError(t, err)
 	migrated, err := migPoller.PollUntilDone(ctx, nil)
@@ -303,7 +301,7 @@ func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
 	assert.Equal(t, int32(4000), *back.Properties.Resource.Throughput)
 }
 
-// A SQL database created without dedicated throughput has no offer to read or
+// A SQL database without dedicated throughput has no offer to read or
 // migrate; armcosmos surfaces the resource provider's 404 NotFound.
 func TestAzureCosmosDB_SQLThroughputWithoutAnOfferIsNotFoundSDK(t *testing.T) {
 	t.Parallel()
@@ -344,7 +342,6 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 	client, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Update tags.
 	updPoller, err := client.BeginUpdate(ctx, rg, account, armcosmos.DatabaseAccountUpdateParameters{
 		Tags: map[string]*string{"env": to.Ptr("test")},
 	}, nil)
@@ -353,13 +350,11 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test", *updated.Tags["env"])
 
-	// Read-only keys (GET).
 	roKeys, err := client.GetReadOnlyKeys(ctx, rg, account, nil)
 	require.NoError(t, err)
 	require.NotNil(t, roKeys.PrimaryReadonlyMasterKey)
 	assert.NotEmpty(t, *roKeys.PrimaryReadonlyMasterKey)
 
-	// List accounts in the subscription.
 	listPager := client.NewListPager(nil)
 	listPage, err := listPager.NextPage(ctx)
 	require.NoError(t, err)
@@ -371,7 +366,7 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 	}
 	assert.True(t, found, "ListBySubscription should include the created account")
 
-	// Name existence: created account name is taken; a random name is not.
+	// The created name is taken; a random one is not.
 	exists, err := client.CheckNameExists(ctx, account, nil)
 	require.NoError(t, err)
 	assert.True(t, exists.Success)
@@ -379,7 +374,7 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, missing.Success)
 
-	// Regenerate the primary key, then confirm listKeys reports new material.
+	// Regenerating the primary key changes what listKeys reports.
 	keysBefore, err := client.ListKeys(ctx, rg, account, nil)
 	require.NoError(t, err)
 	regenPoller, err := client.BeginRegenerateKey(ctx, rg, account, armcosmos.DatabaseAccountRegenerateKeyParameters{
@@ -415,9 +410,8 @@ func TestAzureCosmosDB_OperationsAndLocationsSDK(t *testing.T) {
 	assert.Equal(t, "eastus", *got.Name)
 }
 
-// TestAzureCosmosDB_ClientEncryptionKeysREST exercises the client-encryption-key
-// control plane (the armcosmos v1.0.0 release predates a typed client for it, so
-// the REST surface the SDK would call is driven directly).
+// TestAzureCosmosDB_ClientEncryptionKeysREST drives the client encryption key
+// REST surface directly: armcosmos v1.0.0 has no typed client for it.
 func TestAzureCosmosDB_ClientEncryptionKeysREST(t *testing.T) {
 	t.Parallel()
 	rg, account, db, cek := "sdk-cosmos-cek-rg", "sdkcosmoscek", "appdb", "cek1"

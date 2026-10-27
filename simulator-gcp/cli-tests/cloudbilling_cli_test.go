@@ -22,9 +22,7 @@ func TestCloudBillingCLI_AccountsAndProjectLink(t *testing.T) {
 	}
 	parseJSON(t, out, &before)
 
-	// gcloud has no accounts-create surface (Google provisions accounts), so
-	// the account arrives the way an operator's tooling makes it: through
-	// the API the CLI itself then reads.
+	// gcloud cannot create billing accounts, so create one through the API.
 	created := billingCreateAccountViaAPI(t, "cli-spend")
 
 	out = runCLI(t, gcloudCLI("billing", "accounts", "list", "--format=json"))
@@ -84,9 +82,6 @@ func TestCloudBillingCLI_AccountsAndProjectLink(t *testing.T) {
 	assert.False(t, info.BillingEnabled, "unlinking must disable billing")
 }
 
-// billingCreateAccountViaAPI provisions a billing account through the API —
-// the way an account exists before gcloud ever sees one — and returns its
-// resource name.
 func billingCreateAccountViaAPI(t *testing.T, displayName string) string {
 	t.Helper()
 	body := strings.NewReader(`{"displayName":"` + displayName + `"}`)

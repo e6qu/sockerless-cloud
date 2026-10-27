@@ -12,15 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A valid SAML 2.0 IdP metadata document — stored and echoed verbatim. The
-// X509 certificate blob is padded so the document exceeds the 1000-character
-// minimum the SAMLMetadataDocumentType length constraint imposes.
+// A valid SAML 2.0 IdP metadata document, stored and echoed verbatim; the padded
+// certificate blob takes it past the 1000-character minimum of
+// SAMLMetadataDocumentType.
 var samlMetadataDoc = `<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com/saml"><md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>` +
 	strings.Repeat("MIIC", 300) +
 	`</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor></md:IDPSSODescriptor></md:EntityDescriptor>`
 
-// A self-signed PEM cert + key pair. The body/key contents are opaque to the
-// sim; only that they round-trip verbatim matters.
+// A self-signed PEM certificate and key, which need only round-trip verbatim.
 const (
 	testCertBody = `-----BEGIN CERTIFICATE-----
 MIIBkTCB+wIJANaELjMYBOEOMA0GCSqGSIb3DQEBCwUAMA0xCzAJBgNVBAYTAlVT

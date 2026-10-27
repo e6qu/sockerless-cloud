@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// countLogMessages reports how many of messages are exactly line.
 func countLogMessages(messages []string, line string) int {
 	n := 0
 	for _, m := range messages {
@@ -264,10 +263,9 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 
 // A simulator restarted on the same state directory keeps running the
 // instances of the worker pools, Cloud Run instances and services it stored,
-// and the tasks of the job executions still running, as Cloud Run's control
-// plane never restarts the instances it runs: the containers the earlier
-// process started go on serving, under the new process's management, and none
-// of their output reaches Cloud Logging twice.
+// and the tasks of running job executions, as Cloud Run's control plane never
+// restarts its instances: the new process adopts the containers, and none of
+// their output reaches Cloud Logging twice.
 func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -428,8 +426,8 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	_, err = jobDeleted.Wait(ctx)
 	require.NoError(t, err)
 
-	// The deletions stop the containers the earlier process started, which only
-	// a process that adopted them can do; their start lines stay logged once.
+	// Only a process that adopted the containers can stop them; their start lines
+	// stay logged once.
 	poolMessages := followLogMessagesAt(t, logsAt, simTokenSourceFor(endpoint), poolLogs, func(messages []string) bool {
 		return countLogMessages(messages, "stopping pool worker "+poolHost) == 1
 	})

@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// r53MoreZone creates a hosted zone and returns its bare id, registering a
-// tolerant cleanup that deletes the zone after stripping any user records.
+// r53MoreZone creates a hosted zone and returns its bare id; the cleanup strips
+// user records before deleting the zone.
 func r53MoreZone(t *testing.T, c *route53.Client, ctx context.Context, name string) string {
 	t.Helper()
 	caller := "sdk-more-" + time.Now().Format("150405.000000000")
@@ -92,7 +92,7 @@ func TestRoute53_CidrCollections(t *testing.T) {
 	id := aws.ToString(createOut.Collection.Id)
 	require.NotEmpty(t, id)
 	t.Cleanup(func() {
-		// Remove blocks first so the collection becomes deletable.
+		// A CIDR collection with blocks cannot be deleted.
 		_, _ = c.ChangeCidrCollection(context.Background(), &route53.ChangeCidrCollectionInput{
 			Id: aws.String(id),
 			Changes: []r53types.CidrCollectionChange{{
@@ -201,7 +201,6 @@ func TestRoute53_TrafficPolicyInstances(t *testing.T) {
 		_, _ = c.DeleteTrafficPolicy(context.Background(), &route53.DeleteTrafficPolicyInput{Id: aws.String(tpID), Version: aws.Int32(tpVer)})
 	})
 
-	// UpdateTrafficPolicyComment
 	commentOut, err := c.UpdateTrafficPolicyComment(ctx, &route53.UpdateTrafficPolicyCommentInput{
 		Id:      aws.String(tpID),
 		Version: aws.Int32(tpVer),
@@ -343,7 +342,6 @@ func TestRoute53_HealthCheckLastFailureAndTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, lastFail.HealthCheckObservations)
 
-	// Tag the health check then read it via the batched ListTagsForResources.
 	_, err = c.ChangeTagsForResource(ctx, &route53.ChangeTagsForResourceInput{
 		ResourceType: r53types.TagResourceTypeHealthcheck,
 		ResourceId:   aws.String(hcID),
@@ -369,7 +367,6 @@ func TestRoute53_TestDNSAnswerAndZoneUpdates(t *testing.T) {
 
 	zoneID := r53MoreZone(t, c, ctx, "sdk-dnsanswer.local")
 
-	// Create an A record we can resolve via TestDNSAnswer.
 	_, err := c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		ChangeBatch: &r53types.ChangeBatch{

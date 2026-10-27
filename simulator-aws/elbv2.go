@@ -28,8 +28,7 @@ type ELBv2LoadBalancer struct {
 	State         string
 	VpcID         string
 	Subnets       []string
-	// SubnetMappings holds the addresses a request's SubnetMappings named per
-	// subnet; a request that named Subnets leaves it empty.
+	// Empty when the request named Subnets.
 	SubnetMappings            []ELBv2SubnetMapping
 	SecurityGroups            []string
 	IpAddressType             string
@@ -38,10 +37,9 @@ type ELBv2LoadBalancer struct {
 	CreatedTime               string
 	Tags                      map[string]string
 	Attributes                map[string]string
-	// MinimumCapacityUnits is the reserved minimum capacity configured via
-	// ModifyCapacityReservation (empty = none reserved).
+	// Set by ModifyCapacityReservation; empty means none reserved.
 	MinimumCapacityUnits string
-	// Ipv4IpamPoolId is the IPAM pool assigned via ModifyIpPools.
+	// Set by ModifyIpPools.
 	Ipv4IpamPoolId string
 }
 
@@ -84,8 +82,8 @@ type ELBv2Listener struct {
 	Protocol        string
 	Port            int
 	DefaultActions  []ELBv2Action
-	Certificates    []string // the default certificate(s) set at create / ModifyListener
-	SNICertificates []string // extra SNI certs added via AddListenerCertificates
+	Certificates    []string // Set at create and by ModifyListener.
+	SNICertificates []string // Added by AddListenerCertificates.
 	SslPolicy       string
 	AlpnPolicy      []string
 	MutualAuth      *ELBv2MutualAuth
@@ -111,9 +109,8 @@ type ELBv2Action struct {
 	AuthCognito    *ELBv2AuthCognitoConfig
 }
 
-// ELBv2ForwardConfig is the weighted multi-target-group forward (the
-// `forward {}` block on aws_lb_listener / aws_lb_listener_rule). Distinct from
-// the single top-level TargetGroupArn shorthand.
+// The weighted `forward {}` block, distinct from the single TargetGroupArn
+// shorthand.
 type ELBv2ForwardConfig struct {
 	TargetGroups []ELBv2TargetGroupTuple
 	Stickiness   *ELBv2TargetGroupStickiness
@@ -129,9 +126,7 @@ type ELBv2TargetGroupStickiness struct {
 	DurationSeconds *int
 }
 
-// ELBv2AuthOidcConfig backs the `authenticate-oidc` action (the Pomerium/IAP
-// proxy ALB shape). ClientSecret is intentionally never stored or echoed — real
-// ELBv2 treats it as write-only and never returns it from Describe*.
+// ClientSecret is write-only: never stored or returned by Describe*.
 type ELBv2AuthOidcConfig struct {
 	Issuer                           string
 	AuthorizationEndpoint            string
@@ -145,7 +140,6 @@ type ELBv2AuthOidcConfig struct {
 	AuthenticationRequestExtraParams map[string]string
 }
 
-// ELBv2AuthCognitoConfig backs the `authenticate-cognito` action.
 type ELBv2AuthCognitoConfig struct {
 	UserPoolArn                      string
 	UserPoolClientId                 string
@@ -176,13 +170,10 @@ type ELBv2TargetDescription struct {
 	ID               string
 	Port             int
 	AvailabilityZone string
-	// DeregisteringAt is when DeregisterTargets was called for this target, and
-	// is the zero time for a registered one. Deregistering does not remove a
-	// target at once — "Elastic Load Balancing stops sending requests to
-	// targets that are deregistering. By default, Elastic Load Balancing waits
-	// 300 seconds before completing the deregistration process, which can help
-	// in-flight requests to the target to complete" — so the target group holds
-	// it, reporting `draining`, until the delay elapses.
+	// The zero time for a registered target. "By default, Elastic Load Balancing
+	// waits 300 seconds before completing the deregistration process", so the
+	// group keeps a deregistering target, reporting `draining`, until the delay
+	// elapses.
 	DeregisteringAt time.Time
 }
 
@@ -294,15 +285,16 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		SubnetMappings: mappings,
 		SecurityGroups: queryList(r, "SecurityGroups"),
 		IpAddressType:  ipType,
-		// NLBs default this to "on"; ALBs don't carry it. Honour the request.
+		// Network Load Balancers default this to "on"; Application Load Balancers do
+		// not carry it.
 		EnforceSGInboundOnPrivate: elbv2DefaultEnforceSG(lbType, r.FormValue("EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic")),
 		CustomerOwnedIpv4Pool:     r.FormValue("CustomerOwnedIpv4Pool"),
 		CreatedTime:               time.Now().UTC().Format(time.RFC3339),
 		Tags:                      parseELBv2Tags(r, "Tags"),
 		Attributes:                defaultELBv2LoadBalancerAttributes(lbType, scheme),
 	}
-	// An application load balancer created with no group joins the VPC's
-	// default group, as Elastic Load Balancing does.
+	// An Application Load Balancer created without a group joins the VPC's
+	// default group.
 	if lbType == "application" && len(lb.SecurityGroups) == 0 {
 		lb.SecurityGroups = ec2DefaultSecurityGroupIDs(lb.VpcID)
 	}
@@ -327,9 +319,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
 }
 
-// elbv2SameLoadBalancerSettings reports whether a create request that built
-// candidate asked for the load balancer existing already is. A subnet mapping
-// whose source NAT prefix the request left to the load balancer matches any
+// A source NAT prefix the request left to the load balancer matches any
 // prefix the existing one was assigned.
 func elbv2SameLoadBalancerSettings(existing, candidate ELBv2LoadBalancer) bool {
 	sorted := func(values []string) []string { return slices.Sorted(slices.Values(values)) }
@@ -421,10 +411,9 @@ func handleELBv2ModifyLoadBalancerAttributes(w http.ResponseWriter, r *http.Requ
 	elbv2XMLResponse(w, "ModifyLoadBalancerAttributes", elbv2AttributesXML("Attributes", attrs), sim.RequestID(r.Context()))
 }
 
-// elbv2InvalidLoadBalancerAttribute returns the message ELB refuses modified
-// with, or "" when every key belongs to the load balancer type and every value
-// is one the key accepts. An Application Load Balancer's cross-zone load
-// balancing "is true, and can't be changed".
+// Returns "" when every key belongs to the type and every value is accepted.
+// An Application Load Balancer's cross-zone load balancing "is true, and can't
+// be changed".
 func elbv2InvalidLoadBalancerAttribute(lbType string, modified map[string]string) string {
 	valid := defaultELBv2LoadBalancerAttributes(lbType, "")
 	for _, key := range slices.Sorted(maps.Keys(modified)) {
@@ -480,10 +469,8 @@ func handleELBv2DescribeCapacityReservation(w http.ResponseWriter, r *http.Reque
 		fmt.Fprintf(&states, "<member><State><Code>provisioned</Code></State><AvailabilityZone>%s</AvailabilityZone><EffectiveCapacityUnits>0</EffectiveCapacityUnits></member>", xmlEscape(az))
 	}
 	states.WriteString("</CapacityReservationState>")
-	// MinimumLoadBalancerCapacity is omitted unless a minimum was actually
-	// configured (via ModifyCapacityReservation, which the sim doesn't model).
-	// Emitting CapacityUnits=0 makes the provider read a configured 0 and plan
-	// "capacity_units = 0 -> null" on every idempotency check.
+	// Omit MinimumLoadBalancerCapacity unless a minimum is configured; emitting 0
+	// makes the provider plan "capacity_units = 0 -> null" every time.
 	body := fmt.Sprintf("<LastModifiedTime>%s</LastModifiedTime><DecreaseRequestsRemaining>10</DecreaseRequestsRemaining>%s",
 		xmlEscape(lb.CreatedTime), states.String())
 	elbv2XMLResponse(w, "DescribeCapacityReservation", body, sim.RequestID(r.Context()))
@@ -531,14 +518,10 @@ func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(lb)+"</AvailabilityZones><IpAddressType>"+xmlEscape(ipType)+"</IpAddressType>", sim.RequestID(r.Context()))
 }
 
-// elbv2SourceNatPrefixAutoAssigned is the SourceNatIpv6Prefix value that
-// leaves the prefix to the load balancer.
+// The SourceNatIpv6Prefix that leaves the prefix to the load balancer.
 const elbv2SourceNatPrefixAutoAssigned = "auto_assigned"
 
-// elbv2RequestSubnets reads the subnets a request names through Subnets or
-// SubnetMappings, with each mapping's addresses, and answers the refusal a
-// load balancer of lbType, scheme and ipType meets on them: "You must specify
-// either subnets or subnet mappings, but not both."
+// "You must specify either subnets or subnet mappings, but not both."
 func elbv2RequestSubnets(r *http.Request, lbType, scheme, ipType string) (subnets []string, mappings []ELBv2SubnetMapping, code, message string) {
 	subnets = queryList(r, "Subnets")
 	for i := 1; ; i++ {
@@ -570,12 +553,11 @@ func elbv2RequestSubnets(r *http.Request, lbType, scheme, ipType string) (subnet
 	return subnets, mappings, "", ""
 }
 
-// elbv2SubnetMappingsRefusal checks each mapping's addresses against the
-// member documentation: the address members are "[Network Load Balancers]"
-// only, an Elastic IP address is "for an internet-facing load balancer" and
-// a private IPv4 address "for an internal load balancer" from "the IPv4
-// range of the subnet", and a source NAT prefix is "an IPv6 prefix (/80
-// netmask) from the subnet CIDR block or auto_assigned".
+// The address members are "[Network Load Balancers]" only; an Elastic IP is
+// "for an internet-facing load balancer", a private IPv4 address "for an
+// internal load balancer" from "the IPv4 range of the subnet", and a source
+// NAT prefix "an IPv6 prefix (/80 netmask) from the subnet CIDR block or
+// auto_assigned".
 func elbv2SubnetMappingsRefusal(lbType, scheme string, mappings []ELBv2SubnetMapping) (code, message string) {
 	for _, mapping := range mappings {
 		subnet, _ := ec2Subnets.Get(mapping.SubnetId)
@@ -625,8 +607,8 @@ func elbv2AddressInBlock(address, block string) bool {
 	return err == nil && prefixErr == nil && prefix.Contains(addr)
 }
 
-// elbv2AssignSourceNatPrefixes replaces each auto_assigned source NAT prefix
-// with "an IPv6 prefix selected at random from the subnet CIDR block".
+// Each auto_assigned prefix becomes "an IPv6 prefix selected at random from
+// the subnet CIDR block".
 func elbv2AssignSourceNatPrefixes(mappings []ELBv2SubnetMapping) []ELBv2SubnetMapping {
 	assigned := slices.Clone(mappings)
 	for i, mapping := range assigned {
@@ -651,10 +633,9 @@ func elbv2AssignSourceNatPrefixes(mappings []ELBv2SubnetMapping) []ELBv2SubnetMa
 	return assigned
 }
 
-// elbv2SubnetsRefusal answers the error Elastic Load Balancing returns for a
-// load balancer of lbType and ipType on subnets, or an empty code when they
-// fit: one subnet per Availability Zone, an Application Load Balancer in at
-// least two zones, and an IPv6 CIDR block on every subnet of a dualstack one.
+// One subnet per zone, an Application Load Balancer in at least two zones, and
+// an IPv6 CIDR on every subnet of a dualstack one; an empty code means they
+// fit.
 func elbv2SubnetsRefusal(lbType, ipType string, subnets []string) (code, message string) {
 	zones := map[string]bool{}
 	for _, id := range subnets {
@@ -673,8 +654,7 @@ func elbv2SubnetsRefusal(lbType, ipType string, subnets []string) (code, message
 	return elbv2IpAddressTypeRefusal(ipType, subnets)
 }
 
-// elbv2IpAddressTypeRefusal refuses a dualstack load balancer a subnet with no
-// IPv6 CIDR block.
+// A dualstack load balancer needs an IPv6 CIDR on every subnet.
 func elbv2IpAddressTypeRefusal(ipType string, subnets []string) (code, message string) {
 	if !strings.HasPrefix(ipType, "dualstack") {
 		return "", ""
@@ -756,8 +736,6 @@ func handleELBv2DescribeTargetGroups(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DescribeTargetGroups", b.String(), sim.RequestID(r.Context()))
 }
 
-// elbv2TargetGroupReferenced reports whether a listener's default actions or
-// a rule's actions forward to the target group.
 func elbv2TargetGroupReferenced(arn string) bool {
 	for _, listener := range elbv2Listeners.List() {
 		if slices.Contains(elbv2ActionForwardTargets(listener.DefaultActions), arn) {
@@ -817,11 +795,9 @@ func handleELBv2ModifyTargetGroup(w http.ResponseWriter, r *http.Request) {
 		if v := r.FormValue("Matcher.GrpcCode"); v != "" {
 			tg.MatcherGrpcCode = v
 		}
-		// Keep the HTTP-only attributes consistent with the (possibly changed)
-		// health-check protocol. HTTP/HTTPS: AWS supplies the "200" Matcher and "/"
-		// path defaults when none were set. TCP/etc.: neither attribute applies, so
-		// clear any value carried over from a prior HTTP health check (otherwise a
-		// stale Matcher/HealthCheckPath leaks and breaks terraform idempotency).
+		// HTTP and HTTPS health checks default Matcher to "200" and the path to "/";
+		// other protocols take neither, so clear values left from a prior HTTP check
+		// or terraform drifts.
 		if elbv2HTTPHealthCheck(tg.HealthCheckProtocol) {
 			if tg.MatcherHttpCode == "" && tg.MatcherGrpcCode == "" {
 				tg.MatcherHttpCode = elbv2DefaultMatcher()
@@ -890,13 +866,9 @@ func handleELBv2RegisterTargets(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "RegisterTargets", "", sim.RequestID(r.Context()))
 }
 
-// handleELBv2DeregisterTargets starts a target's deregistration rather than
-// finishing it: "The load balancer stops routing requests to a target as soon
-// as it is deregistered. The target enters the `draining` state until in-flight
-// requests have completed." The target group keeps the target for its
-// deregistration delay, after which the target loop drops it — immediately
-// here when the delay is zero, so a caller that turned the delay off sees the
-// target gone the moment the call returns.
+// "The target enters the `draining` state until in-flight requests have
+// completed." The group keeps the target for its deregistration delay; with a
+// zero delay it goes before the call returns.
 func handleELBv2DeregisterTargets(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TargetGroupArn")
 	targets := parseELBv2Targets(r)
@@ -920,8 +892,7 @@ func handleELBv2DeregisterTargets(w http.ResponseWriter, r *http.Request) {
 		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	// The checker stops maintaining a verdict for a target the moment it starts
-	// draining, so the verdict it had reached goes with it.
+	// A draining target loses its verdict at once.
 	for _, target := range draining {
 		elbv2ForgetTargetHealth(arn, target)
 	}
@@ -1018,17 +989,10 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "CreateListener", "<Listeners>"+elbv2ListenerXML(listener)+"</Listeners>", sim.RequestID(r.Context()))
 }
 
-// elbv2StartListenerDataPlane brings up the listener's proxy, if it has one.
-//
-// A bind the host refuses does NOT fail the call. Amazon ELBv2 never rejects
-// CreateListener because some unrelated process on some machine holds a port,
-// and the simulator answering 400 for that made a whole class of deployment
-// untestable: a simulator sharing a network namespace with its host (the
-// container-mode topology CI runs) cannot bind port 22 for an SSH NLB, because
-// the host's own sshd already holds it on every loopback address — no
-// per-load-balancer address lease can avoid that. The listener is recorded and
-// serves its control plane; what is lost is only the same-host convenience of
-// connecting through it, and the log says so at the moment it happens.
+// A bind the host refuses does not fail the call: Elastic Load Balancing never
+// rejects CreateListener because another process holds a port, and a simulator
+// sharing its host's network namespace cannot bind port 22 next to sshd. The
+// listener serves its control plane and the log reports the lost bind.
 func elbv2StartListenerDataPlane(listener ELBv2Listener) error {
 	if err := elbv2StartListenerProxy(listener); err != nil {
 		if !elbv2HostCannotOfferAddress(err) {
@@ -1092,7 +1056,6 @@ func handleELBv2DeleteListener(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DeleteListener", "", sim.RequestID(r.Context()))
 }
 
-// elbv2DeleteListener deletes a listener and its rules and stops serving it.
 func elbv2DeleteListener(arn string) {
 	elbv2Listeners.Delete(arn)
 	for _, rule := range elbv2Rules.Filter(func(rule ELBv2Rule) bool { return rule.ListenerArn == arn }) {
@@ -1101,9 +1064,7 @@ func elbv2DeleteListener(arn string) {
 	elbv2StopListenerProxy(arn)
 }
 
-// elbv2TaggedResourcesExist writes the not-found error of the first ARN a
-// tagging request names that no load balancer, target group, listener, rule
-// or trust store holds, and reports whether every one exists.
+// Writes the not-found error of the first ARN no resource holds.
 func elbv2TaggedResourcesExist(w http.ResponseWriter, r *http.Request, arns []string) bool {
 	for _, arn := range arns {
 		if _, ok := elbv2ResourceTags(arn); ok {
@@ -1176,8 +1137,7 @@ func handleELBv2DescribeAccountLimits(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DescribeAccountLimits", body, sim.RequestID(r.Context()))
 }
 
-// elbv2NotFound names the typed error a Describe must raise when an explicit
-// identifier in the request is absent from the store.
+// The typed error a Describe raises for an absent explicit identifier.
 type elbv2NotFound struct {
 	code    string
 	message string
@@ -1240,9 +1200,8 @@ func filterELBv2Listeners(r *http.Request) ([]ELBv2Listener, *elbv2NotFound) {
 	return elbv2Listeners.List(), nil
 }
 
-// elbv2DefaultEnforceSG: NLBs carry
-// enforce_security_group_inbound_rules_on_private_link_traffic (default "on");
-// ALBs don't expose it.
+// Network Load Balancers carry the attribute (default "on");
+// Application Load Balancers do not expose it.
 func elbv2DefaultEnforceSG(lbType, requested string) string {
 	if requested != "" {
 		return requested
@@ -1271,8 +1230,7 @@ func elbv2LoadBalancerXML(lb ELBv2LoadBalancer) string {
 		elbv2StringMembersXMLInner(lb.SecurityGroups), xmlEscape(lb.IpAddressType), extra)
 }
 
-// handleELBv2SetIpAddressType changes an existing load balancer's ip_address_type
-// in place.
+// In place.
 func handleELBv2SetIpAddressType(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
 	ipType := r.FormValue("IpAddressType")
@@ -1297,10 +1255,8 @@ func handleELBv2SetIpAddressType(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "SetIpAddressType", fmt.Sprintf("<IpAddressType>%s</IpAddressType>", xmlEscape(lb.IpAddressType)), sim.RequestID(r.Context()))
 }
 
-// elbv2AvailabilityZonesXML renders the load balancer's subnets with the
-// addresses its subnet mappings gave each: an Elastic IP address by its
-// allocation, a private IPv4 address, an IPv6 address, and the source NAT
-// prefix.
+// With each mapping's Elastic IP allocation, private IPv4, IPv6 address and
+// source NAT prefix.
 func elbv2AvailabilityZonesXML(lb ELBv2LoadBalancer) string {
 	var b strings.Builder
 	for _, subnet := range lb.Subnets {
@@ -1336,12 +1292,9 @@ func elbv2AvailabilityZonesXML(lb ELBv2LoadBalancer) string {
 	return b.String()
 }
 
-// elbv2HTTPHealthCheck reports whether the target group's health check is
-// HTTP/HTTPS. The HTTP-only health-check attributes — Matcher (response codes)
-// and HealthCheckPath — are part of the target group only when this is true;
-// for TCP/TLS/UDP/TCP_UDP/GENEVE health checks AWS omits both (the API rejects
-// them on those protocols, and Describe* returns neither), so emitting them
-// breaks terraform-provider-aws idempotency.
+// Matcher and HealthCheckPath belong to HTTP and HTTPS health checks only; AWS
+// rejects and omits them for other protocols, and emitting them breaks
+// terraform idempotency.
 func elbv2HTTPHealthCheck(healthCheckProtocol string) bool {
 	switch healthCheckProtocol {
 	case "HTTP", "HTTPS":
@@ -1351,17 +1304,12 @@ func elbv2HTTPHealthCheck(healthCheckProtocol string) bool {
 	}
 }
 
-// elbv2DefaultMatcher returns the AWS default health-check success codes for an
-// HTTP/HTTPS health check ("200"). It is only meaningful when the health check
-// is HTTP/HTTPS (see elbv2HTTPHealthCheck); callers must gate on the protocol.
+// Gate on elbv2HTTPHealthCheck.
 func elbv2DefaultMatcher() string {
 	return "200"
 }
 
-// elbv2DefaultedMatcher returns the stored Matcher.HttpCode for a target group:
-// the requested value if supplied, otherwise the AWS default for an HTTP/HTTPS
-// health check. For TCP/UDP/etc. health checks no Matcher applies, so it stays
-// empty unless the caller explicitly supplied one.
+// For non-HTTP checks it stays empty unless supplied.
 func elbv2DefaultedMatcher(healthCheckProtocol, requested string) string {
 	if requested != "" {
 		return requested
@@ -1372,12 +1320,8 @@ func elbv2DefaultedMatcher(healthCheckProtocol, requested string) string {
 	return ""
 }
 
-// elbv2DefaultedHealthCheckPath returns the stored HealthCheckPath for a target
-// group: the requested value if supplied, otherwise the AWS default ("/") for an
-// HTTP/HTTPS health check. For TCP/UDP/etc. health checks no path applies, so it
-// stays empty unless the caller explicitly supplied one — defaulting it to "/"
-// there is what leaked a HealthCheckPath onto TCP target groups and broke
-// terraform-provider-aws idempotency.
+// For non-HTTP checks it stays empty unless supplied; a "/" default there
+// breaks terraform idempotency.
 func elbv2DefaultedHealthCheckPath(healthCheckProtocol, requested string) string {
 	if requested != "" {
 		return requested
@@ -1388,8 +1332,7 @@ func elbv2DefaultedHealthCheckPath(healthCheckProtocol, requested string) string
 	return ""
 }
 
-// elbv2DefaultProtocolVersion: HTTP/HTTPS target groups default protocol_version
-// to HTTP1 (unless requested); TCP/etc. carry none.
+// HTTP and HTTPS target groups default to HTTP1; others carry none.
 func elbv2DefaultProtocolVersion(protocol, requested string) string {
 	if requested != "" {
 		return requested
@@ -1401,10 +1344,8 @@ func elbv2DefaultProtocolVersion(protocol, requested string) string {
 }
 
 func elbv2TargetGroupXML(tg ELBv2TargetGroup) string {
-	// Real ELBv2 returns a Matcher only for HTTP/HTTPS health checks (or a gRPC
-	// health check carrying GrpcCode). For TCP/TLS/UDP/TCP_UDP/GENEVE health
-	// checks AWS omits Matcher entirely; emitting one makes
-	// terraform-provider-aws plan a perpetual "matcher" diff.
+	// Return a Matcher only for HTTP/HTTPS checks, or a gRPC check's GrpcCode;
+	// otherwise terraform plans a perpetual diff.
 	var matcher string
 	switch {
 	case tg.MatcherGrpcCode != "":
@@ -1416,10 +1357,7 @@ func elbv2TargetGroupXML(tg ELBv2TargetGroup) string {
 		}
 		matcher = fmt.Sprintf("<Matcher><HttpCode>%s</HttpCode></Matcher>", xmlEscape(code))
 	}
-	// HealthCheckPath, like Matcher, is an HTTP-only attribute: real ELBv2 returns
-	// it only for HTTP/HTTPS health checks and omits the element for TCP/TLS/UDP/
-	// TCP_UDP/GENEVE. Emitting it on a TCP target group made terraform-provider-aws
-	// plan a perpetual "health_check.path" diff.
+	// HTTP-only, like Matcher.
 	healthCheckPath := ""
 	if elbv2HTTPHealthCheck(tg.HealthCheckProtocol) {
 		p := tg.HealthCheckPath
@@ -1488,9 +1426,8 @@ func elbv2MutualAuthXML(m *ELBv2MutualAuth) string {
 	return b.String()
 }
 
-// parseELBv2MutualAuth reads the listener's mutual_authentication block. The
-// `off` mode (the ELBv2 default) carries no trust store; only model it when a
-// non-empty mode or trust store is actually supplied.
+// The default `off` mode carries no trust store; model the block only when a
+// mode or trust store is supplied.
 func parseELBv2MutualAuth(r *http.Request) *ELBv2MutualAuth {
 	mode := r.FormValue("MutualAuthentication.Mode")
 	trustStore := r.FormValue("MutualAuthentication.TrustStoreArn")
@@ -1575,10 +1512,7 @@ func parseELBv2Actions(r *http.Request) []ELBv2Action {
 	return parseELBv2ActionsPrefix(r, "DefaultActions")
 }
 
-// parseELBv2ActionsPrefix parses an action list flattened under prefix
-// (`DefaultActions` for listeners, `Actions` for rules), including the typed
-// fixed-response / redirect configs so they round-trip back to Terraform and
-// the SDK.
+// prefix is DefaultActions for listeners and Actions for rules.
 func parseELBv2ActionsPrefix(r *http.Request, prefix string) []ELBv2Action {
 	var actions []ELBv2Action
 	for i := 1; ; i++ {
@@ -1623,9 +1557,8 @@ func parseELBv2ActionsPrefix(r *http.Request, prefix string) []ELBv2Action {
 	return actions
 }
 
-// elbv2ActionsRefusal answers the refusal a listener's or rule's actions meet:
-// a forward's target group stickiness "range is 1-604800 seconds (7 days). You
-// must specify this value when enabling target group stickiness."
+// Stickiness duration's "range is 1-604800 seconds (7 days). You must specify
+// this value when enabling target group stickiness."
 func elbv2ActionsRefusal(actions []ELBv2Action) (code, message string) {
 	for _, action := range actions {
 		if action.Forward == nil || action.Forward.Stickiness == nil || !action.Forward.Stickiness.Enabled {
@@ -1642,9 +1575,6 @@ func elbv2ActionsRefusal(actions []ELBv2Action) (code, message string) {
 	return "", ""
 }
 
-// elbv2ActionsXML renders an action list under the given wrapper element
-// (DefaultActions / Actions), emitting the typed fixed-response / redirect
-// configs when present.
 func elbv2ActionsXML(wrapper string, actions []ELBv2Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<%s>", wrapper)
@@ -1695,7 +1625,6 @@ func elbv2ActionsXML(wrapper string, actions []ELBv2Action) string {
 	return b.String()
 }
 
-// parseELBv2ForwardConfig parses the weighted multi-target-group forward block.
 func parseELBv2ForwardConfig(r *http.Request, base string) *ELBv2ForwardConfig {
 	var tgs []ELBv2TargetGroupTuple
 	for i := 1; ; i++ {
@@ -1772,7 +1701,7 @@ func parseELBv2AuthCognito(r *http.Request, base string) *ELBv2AuthCognitoConfig
 	return cfg
 }
 
-// parseELBv2ExtraParams reads the query-protocol map (`.entry.N.key/.value`).
+// The query-protocol map `.entry.N.key/.value`.
 func parseELBv2ExtraParams(r *http.Request, base string) map[string]string {
 	out := map[string]string{}
 	for i := 1; ; i++ {
@@ -1853,8 +1782,7 @@ func elbv2AuthCognitoXML(c *ELBv2AuthCognitoConfig) string {
 	return b.String()
 }
 
-// elbv2ExtraParamsXML renders the auth extra-params map in deterministic key
-// order as `<entry><key/><value/></entry>` members.
+// In key order.
 func elbv2ExtraParamsXML(params map[string]string) string {
 	if len(params) == 0 {
 		return ""
@@ -1897,34 +1825,31 @@ func elbv2StringMembersXMLInner(values []string) string {
 	return b.String()
 }
 
-// An Application Load Balancer's idle_timeout.timeout_seconds: "The valid
-// range is 1-4000 seconds. The default is 60 seconds."
+// idle_timeout.timeout_seconds: "The valid range is 1-4000 seconds. The
+// default is 60 seconds."
 const (
 	elbv2DefaultIdleTimeoutSeconds = 60
 	elbv2MinIdleTimeoutSeconds     = 1
 	elbv2MaxIdleTimeoutSeconds     = 4000
 )
 
-// elbv2EnumeratedLoadBalancerAttributes lists the values each load balancer
-// attribute with a closed set of values beyond true and false accepts.
+// Attributes with a closed value set beyond true and false.
 var elbv2EnumeratedLoadBalancerAttributes = map[string][]string{
 	"routing.http.xff_header_processing.mode": {"append", "preserve", "remove"},
 	"routing.http.desync_mitigation_mode":     {"monitor", "defensive", "strictest"},
 	"dns_record.client_routing_policy":        {"availability_zone_affinity", "partial_availability_zone_affinity", "any_availability_zone"},
 }
 
-// elbv2RangedLoadBalancerAttributes holds the inclusive integer range each
-// numeric load balancer attribute accepts.
+// Inclusive ranges.
 var elbv2RangedLoadBalancerAttributes = map[string][2]int{
 	"idle_timeout.timeout_seconds":           {elbv2MinIdleTimeoutSeconds, elbv2MaxIdleTimeoutSeconds},
 	"client_keep_alive.seconds":              {60, 604800},
 	"secondary_ips.auto_assigned.per_subnet": {0, 7},
 }
 
-// defaultELBv2LoadBalancerAttributes holds every attribute the LoadBalancerAttribute
-// reference lists for the load balancer type, at its stated default; a bucket
-// or prefix with no default is empty. ipv6.deny_all_igw_traffic is true only
-// on an internal load balancer.
+// Every attribute the reference lists for the type, at its default; a bucket
+// or prefix without default is empty. ipv6.deny_all_igw_traffic is true only
+// when internal.
 func defaultELBv2LoadBalancerAttributes(lbType, scheme string) map[string]string {
 	attrs := map[string]string{
 		"deletion_protection.enabled":       "false",
@@ -2019,9 +1944,7 @@ func elbv2LoadBalancerID(arn string) string {
 	return arn[strings.LastIndex(arn, "/")+1:]
 }
 
-// elbv2SetResourceTags adds entries to, or with remove deletes their keys
-// from, the tags of the load balancer, target group, listener, rule or trust
-// store arn names.
+// remove deletes the entries' keys instead.
 func elbv2SetResourceTags(arn string, entries map[string]string, remove bool) {
 	apply := func(tags *map[string]string) {
 		if *tags == nil {
@@ -2042,8 +1965,6 @@ func elbv2SetResourceTags(arn string, entries map[string]string, remove bool) {
 		elbv2TrustStores.Update(arn, func(ts *ELBv2TrustStore) { apply(&ts.Tags) })
 }
 
-// elbv2ResourceTags is the tag set of the resource arn names, and whether
-// the simulator holds one.
 func elbv2ResourceTags(arn string) (map[string]string, bool) {
 	if lb, ok := elbv2LoadBalancers.Get(arn); ok {
 		return lb.Tags, true
@@ -2108,9 +2029,7 @@ func atoiDefault(s string, def int) int {
 	return n
 }
 
-// elbv2FindByARNOrName returns the resources the request names by ARN under
-// arnParam or by name under Names, refusing one that does not exist, or every
-// resource when it names none.
+// Refuse a named resource that does not exist; with none named, return all.
 func elbv2FindByARNOrName[T any](r *http.Request, arnParam string, store sim.Store[T], name func(T) string, notFoundCode, what string) ([]T, *elbv2NotFound) {
 	if arns := queryList(r, arnParam); len(arns) > 0 {
 		var out []T

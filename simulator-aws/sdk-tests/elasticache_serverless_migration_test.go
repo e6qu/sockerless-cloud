@@ -14,10 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCache_ServerlessMigration migrates a Redis OSS cache cluster's
-// data into a serverless cache through PrepareMigration, StartMigration,
-// StopMigration and CompleteMigration, with the errors each answers out of
-// turn.
+// TestElastiCache_ServerlessMigration migrates a Redis OSS cache cluster's data
+// into a serverless cache, with the error each step answers out of turn.
 func TestElastiCache_ServerlessMigration(t *testing.T) {
 	t.Parallel()
 	c := ecClient()

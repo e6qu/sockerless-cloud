@@ -19,57 +19,29 @@ import (
 // App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
 // Environments (Microsoft.Web/kubeEnvironments).
 //
-// An App Service Environment here is a real placement scope, not a label: it
-// occupies a Microsoft.Network subnet that must exist in the simulator's own
-// network slice, it leases its inbound and outbound addresses from the same
-// public-IPv4 lease pool Microsoft.Network/publicIPAddresses reserves from and
-// derives its internal address from that subnet's prefix, and the App Service
-// plans and sites that name it are read back through it. Everything the
-// environment reports about itself is either what the client configured or
-// what the simulator computed from those resources:
+// An App Service Environment is a real placement scope: it occupies a stored
+// Microsoft.Network subnet, leases its addresses from the public-IPv4 pool
+// publicIPAddresses uses, derives its internal address from the subnet's
+// prefix, and reads back the plans and sites naming it. What it reports is
+// configured or computed:
 //
 //   - multiRoleCount is the front-end pool's worker count;
-//   - hasLinuxWorkers is true when an App Service plan placed in the
-//     environment is a Linux (reserved) plan;
-//   - the stamp capacities are the pools' worker counts less the capacity the
-//     plans placed in the environment have already taken;
-//   - the inbound network dependencies are the addresses and ports the
-//     environment's own networking configuration exposes.
-//
-// Five documented operations are not served, and each answers a declared
-// 501 gap naming the reason rather than falling through to a bare mux 404:
-//
-//   - ListMultiRoleMetricDefinitions, ListMultiRolePoolInstanceMetricDefinitions,
-//     ListWebWorkerMetricDefinitions and ListWorkerPoolInstanceMetricDefinitions.
-//     A metric definition is a promise that the named metric exists and can be
-//     read at the declared time grains. The simulator publishes no
-//     Microsoft.Insights metric series for a front-end or worker pool — the
-//     pools are a placement model here, not a fleet of virtual machines
-//     emitting counters — so declaring definitions would advertise series no
-//     client could ever read.
-//   - GetOutboundNetworkDependenciesEndpoints. Its answer is Microsoft's
-//     published catalog of the platform endpoints an environment reaches
-//     outbound (App Service management, Azure SQL, Azure Storage, Azure
-//     Monitor, …, with their per-region address ranges). That is somebody
-//     else's published data, exactly like the Provider_*Stacks runtime-stack
-//     catalog this repository has declined to invent; a partial list would be
-//     a fabricated network contract. The inbound half IS served, because it is
-//     computed from the environment's own subnet, addresses and feature flags.
+//   - hasLinuxWorkers is true when a Linux (reserved) plan is placed in it;
+//   - stamp capacities are the pools' worker counts less what placed plans
+//     take;
+//   - inbound dependencies are the addresses and ports its networking
+//     configuration exposes; outbound ones are measured
+//     (web_environment_outbound.go).
 
-// wire types
-
-// HostingEnvironmentProfile is the App Service Environment reference an App
-// Service plan or a site carries (the swagger's HostingEnvironmentProfile:
-// a settable id plus the read-only name and type the service resolves).
+// A settable id plus the read-only name and type the service resolves.
 type HostingEnvironmentProfile struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
 }
 
-// VirtualNetworkProfile is the swagger VirtualNetworkProfile: the subnet (or
-// virtual network) resource id the environment occupies, plus the read-only
-// name and type the service resolves from it.
+// The subnet or virtual network ID the environment occupies, plus the
+// read-only name and type the service resolves.
 type VirtualNetworkProfile struct {
 	ID     string `json:"id,omitempty"`
 	Name   string `json:"name,omitempty"`
@@ -77,8 +49,6 @@ type VirtualNetworkProfile struct {
 	Subnet string `json:"subnet,omitempty"`
 }
 
-// AppServiceEnvironmentResource is the swagger AppServiceEnvironmentResource:
-// a tracked ARM resource whose properties describe the environment.
 type AppServiceEnvironmentResource struct {
 	ID         string                          `json:"id,omitempty"`
 	Name       string                          `json:"name,omitempty"`
@@ -89,11 +59,9 @@ type AppServiceEnvironmentResource struct {
 	Properties AppServiceEnvironmentProperties `json:"properties"`
 }
 
-// AppServiceEnvironmentProperties holds exactly the members the swagger's
-// AppServiceEnvironment definition declares. Members the simulator does not
-// model — the maximum machine count it enforces no limit for, the front-end VM
-// size it runs no front-end machines for — are absent rather than invented, so
-// a client reads back only what was configured or genuinely computed.
+// Exactly the AppServiceEnvironment members declared; the maximum machine
+// count and front-end VM size, which the simulator does not model, are absent
+// rather than invented.
 type AppServiceEnvironmentProperties struct {
 	ProvisioningState         string                 `json:"provisioningState,omitempty"`
 	Status                    string                 `json:"status,omitempty"`
@@ -117,10 +85,9 @@ type AppServiceEnvironmentProperties struct {
 	UpgradeAvailability          string                    `json:"upgradeAvailability,omitempty"`
 }
 
-// ASEConfigurationResource is the shared envelope of the two configuration
-// children an environment carries inline on its own read — the swagger's
-// CustomDnsSuffixConfiguration and AseV3NetworkingConfiguration, both
-// ProxyResources whose properties are flattened by the SDK.
+// The envelope of the CustomDnsSuffixConfiguration and
+// AseV3NetworkingConfiguration children an environment carries inline, both
+// ProxyResources the SDK flattens.
 type ASEConfigurationResource struct {
 	ID         string `json:"id,omitempty"`
 	Name       string `json:"name,omitempty"`
@@ -129,10 +96,8 @@ type ASEConfigurationResource struct {
 	Properties any    `json:"properties,omitempty"`
 }
 
-// ASENetworkingProperties is the swagger AseV3NetworkingConfigurationProperties.
-// The four address lists are read-only: the simulator fills them from the
-// leases it reserved for the environment and the address it derived from its
-// subnet, never from client input.
+// The four address lists are read-only, filled from the environment's leases
+// and its subnet-derived address, never from the client.
 type ASENetworkingProperties struct {
 	WindowsOutboundIPAddresses         []string `json:"windowsOutboundIpAddresses"`
 	LinuxOutboundIPAddresses           []string `json:"linuxOutboundIpAddresses"`
@@ -144,8 +109,6 @@ type ASENetworkingProperties struct {
 	InboundIPAddressOverride           string   `json:"inboundIpAddressOverride,omitempty"`
 }
 
-// ASECustomDNSSuffixProperties is the swagger
-// CustomDnsSuffixConfigurationProperties.
 type ASECustomDNSSuffixProperties struct {
 	ProvisioningState         string `json:"provisioningState,omitempty"`
 	ProvisioningDetails       string `json:"provisioningDetails,omitempty"`
@@ -154,8 +117,7 @@ type ASECustomDNSSuffixProperties struct {
 	KeyVaultReferenceIdentity string `json:"keyVaultReferenceIdentity,omitempty"`
 }
 
-// WebWorkerPoolResource is the swagger WorkerPoolResource — the front-end
-// ("multiRolePools/default") and worker pools of an environment.
+// The front-end ("multiRolePools/default") and worker pools.
 type WebWorkerPoolResource struct {
 	ID         string                  `json:"id,omitempty"`
 	Name       string                  `json:"name,omitempty"`
@@ -165,9 +127,8 @@ type WebWorkerPoolResource struct {
 	Properties WebWorkerPoolProperties `json:"properties"`
 }
 
-// WebWorkerPoolProperties is the swagger WorkerPool. instanceNames is
-// read-only and reports the pool's instances, which the simulator names the
-// way the App Service platform does.
+// instanceNames is read-only, named as the App Service platform names
+// instances.
 type WebWorkerPoolProperties struct {
 	WorkerSizeID  *int32   `json:"workerSizeId,omitempty"`
 	ComputeMode   string   `json:"computeMode,omitempty"`
@@ -176,7 +137,6 @@ type WebWorkerPoolProperties struct {
 	InstanceNames []string `json:"instanceNames,omitempty"`
 }
 
-// KubeEnvironmentResource is the swagger KubeEnvironment.
 type KubeEnvironmentResource struct {
 	ID               string                    `json:"id,omitempty"`
 	Name             string                    `json:"name,omitempty"`
@@ -188,16 +148,13 @@ type KubeEnvironmentResource struct {
 	Properties       KubeEnvironmentProperties `json:"properties"`
 }
 
-// KubeExtendedLocation is the swagger ExtendedLocation.
 type KubeExtendedLocation struct {
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
 }
 
-// KubeEnvironmentProperties is the swagger KubeEnvironmentProperties. The
-// cluster-configuration documents are carried as property bags so every member
-// a client sends round-trips unchanged; the Arc kubeConfig is a declared
-// secret and is dropped on read.
+// The cluster-configuration documents are property bags, so every member
+// round-trips; the Arc kubeConfig is a declared secret, dropped on read.
 type KubeEnvironmentProperties struct {
 	ProvisioningState           string         `json:"provisioningState,omitempty"`
 	DeploymentErrors            string         `json:"deploymentErrors,omitempty"`
@@ -211,8 +168,6 @@ type KubeEnvironmentProperties struct {
 	AksResourceID               string         `json:"aksResourceID,omitempty"`
 }
 
-// stores
-
 var (
 	webHostingEnvironments sim.Store[AppServiceEnvironmentResource]
 	webEnvironmentPools    sim.Store[WebWorkerPoolResource]
@@ -223,8 +178,7 @@ var (
 const (
 	aseResourceType  = "Microsoft.Web/hostingEnvironments"
 	kubeResourceType = "Microsoft.Web/kubeEnvironments"
-	// multiRolePoolName is the only name the front-end pool has: the
-	// specification pins the path segment to the literal "default".
+	// The specification pins the front-end pool's path segment to "default".
 	multiRolePoolName = "default"
 )
 
@@ -238,8 +192,6 @@ func int32Value(p *int32) int32 {
 	return *p
 }
 
-// identifiers and lookups
-
 func aseResourceID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "hostingEnvironments", sim.PathParam(r, "name"))
 }
@@ -248,8 +200,7 @@ func kubeResourceID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "kubeEnvironments", sim.PathParam(r, "name"))
 }
 
-// aseLookup resolves the environment the request addresses, writing ARM's 404
-// when it does not exist.
+// Writes the 404 when the environment does not exist.
 func aseLookup(w http.ResponseWriter, r *http.Request) (AppServiceEnvironmentResource, bool) {
 	ase, ok := webHostingEnvironments.Get(aseResourceID(r))
 	if !ok {
@@ -261,8 +212,7 @@ func aseLookup(w http.ResponseWriter, r *http.Request) (AppServiceEnvironmentRes
 	return ase, true
 }
 
-// aseByID resolves an environment by resource id, case-insensitively as ARM
-// compares resource ids.
+// Case-insensitive, as Azure Resource Manager compares IDs.
 func aseByID(id string) (AppServiceEnvironmentResource, bool) {
 	if id == "" {
 		return AppServiceEnvironmentResource{}, false
@@ -278,8 +228,7 @@ func aseByID(id string) (AppServiceEnvironmentResource, bool) {
 	return AppServiceEnvironmentResource{}, false
 }
 
-// asePlans are the App Service plans placed in the environment: the plans
-// whose hostingEnvironmentProfile names it.
+// The plans whose hostingEnvironmentProfile names the environment.
 func asePlans(aseID string) []AppServicePlan {
 	return azureAppServicePlans.Filter(func(p AppServicePlan) bool {
 		return p.Properties.HostingEnvironmentProfile != nil &&
@@ -287,8 +236,7 @@ func asePlans(aseID string) []AppServicePlan {
 	})
 }
 
-// aseSites are the apps running in the environment: the sites that name it
-// directly, plus the sites whose App Service plan is placed in it.
+// The sites naming it directly, plus the sites whose plan is placed in it.
 func aseSites(aseID string) []Site {
 	planIDs := map[string]bool{}
 	for _, plan := range asePlans(aseID) {
@@ -303,10 +251,8 @@ func aseSites(aseID string) []Site {
 	})
 }
 
-// webResolveHostingEnvironmentProfile resolves the App Service Environment an
-// App Service plan or a site is placed in, filling the read-only name and type
-// the service reports beside the id. A reference to an environment that does
-// not exist is refused rather than stored.
+// Fills the read-only name and type beside the id; a reference to a missing
+// environment is refused rather than stored.
 func webResolveHostingEnvironmentProfile(req *HostingEnvironmentProfile) (*HostingEnvironmentProfile, error) {
 	if req == nil || req.ID == "" {
 		return nil, nil
@@ -318,13 +264,8 @@ func webResolveHostingEnvironmentProfile(req *HostingEnvironmentProfile) (*Hosti
 	return &HostingEnvironmentProfile{ID: ase.ID, Name: ase.Name, Type: ase.Type}, nil
 }
 
-// addresses
-
-// aseInternalInboundAddress is the address an internal-load-balancing
-// environment answers on inside its own subnet. Azure reserves the first four
-// addresses of every subnet, so the first address it can assign is the fifth —
-// and an App Service Environment subnet is delegated to the environment alone,
-// so nothing else is competing for it.
+// Azure reserves a subnet's first four addresses, so the first assignable is
+// the fifth, and the environment's subnet is delegated to it alone.
 func aseInternalInboundAddress(subnetPrefix string) (string, error) {
 	prefix, err := netip.ParsePrefix(strings.TrimSpace(subnetPrefix))
 	if err != nil {
@@ -340,8 +281,6 @@ func aseInternalInboundAddress(subnetPrefix string) (string, error) {
 	return addr.String(), nil
 }
 
-// aseSubnetPrefix reads the address prefix of the subnet the environment
-// occupies out of the simulator's own Microsoft.Network store.
 func aseSubnetPrefix(subnet Subnet) string {
 	if subnet.Properties.AddressPrefix != "" {
 		return subnet.Properties.AddressPrefix
@@ -352,23 +291,20 @@ func aseSubnetPrefix(subnet Subnet) string {
 	return ""
 }
 
-// aseIsInternal reports an environment whose endpoints are served inside its
-// virtual network — every load-balancing mode other than "None" publishes at
-// least one endpoint internally.
+// Every load-balancing mode but "None" publishes at least one endpoint
+// internally.
 func aseIsInternal(ase AppServiceEnvironmentResource) bool {
 	mode := strings.TrimSpace(ase.Properties.InternalLoadBalancingMode)
 	return mode != "" && !strings.EqualFold(mode, "None")
 }
 
-// aseNetworkingProperties reads the environment's networking configuration
-// off its own record.
 func aseNetworkingProperties(ase AppServiceEnvironmentResource) ASENetworkingProperties {
 	var props ASENetworkingProperties
 	if ase.Properties.NetworkingConfiguration == nil {
 		return props
 	}
-	// The record round-trips through the store's JSON encoding, so the
-	// property bag comes back as a decoded document rather than the struct.
+	// The record round-trips through the store's JSON, so the property bag comes
+	// back decoded rather than as the struct.
 	raw, err := json.Marshal(ase.Properties.NetworkingConfiguration.Properties)
 	if err != nil {
 		return props
@@ -377,8 +313,7 @@ func aseNetworkingProperties(ase AppServiceEnvironmentResource) ASENetworkingPro
 	return props
 }
 
-// aseInboundAddresses are the addresses clients reach the environment at:
-// its internal subnet address when it load-balances internally, its leased
+// The internal subnet address when it load-balances internally, the leased
 // public address otherwise.
 func aseInboundAddresses(ase AppServiceEnvironmentResource) []string {
 	net := aseNetworkingProperties(ase)
@@ -388,12 +323,8 @@ func aseInboundAddresses(ase AppServiceEnvironmentResource) []string {
 	return net.ExternalInboundIPAddresses
 }
 
-// projection
-
-// aseDNSSuffix is the domain the apps in the environment are published under.
-// An internal-load-balancing environment gets Microsoft's default internal
-// suffix `<name>.appserviceenvironment.net`; an externally load-balanced one
-// gets `<name>.p.azurewebsites.net`, the suffix the specification's own
+// An internal-load-balancing environment gets `<name>.appserviceenvironment.net`;
+// an external one `<name>.p.azurewebsites.net`, as the specification's
 // AppServiceEnvironments_Get example carries.
 func aseDNSSuffix(name string, internal bool) string {
 	if internal {
@@ -402,9 +333,7 @@ func aseDNSSuffix(name string, internal bool) string {
 	return name + ".p.azurewebsites.net"
 }
 
-// aseProject fills the read-only members the service computes, so a read
-// reports the environment's current truth rather than the state frozen at
-// create time.
+// Fills the computed read-only members, so a read reports the current state.
 func aseProject(ase AppServiceEnvironmentResource) AppServiceEnvironmentResource {
 	ase.Properties.MultiRoleCount = nil
 	if pool, ok := webEnvironmentPools.Get(ase.ID + "/multiRolePools/" + multiRolePoolName); ok {
@@ -421,8 +350,6 @@ func aseProject(ase AppServiceEnvironmentResource) AppServiceEnvironmentResource
 	return ase
 }
 
-// aseConfigurationChild renders one of the environment's configuration
-// children at its own resource coordinates.
 func aseConfigurationChild(aseID, segment, name string, props any) *ASEConfigurationResource {
 	return &ASEConfigurationResource{
 		ID:         aseID + "/configurations/" + segment,
@@ -431,8 +358,6 @@ func aseConfigurationChild(aseID, segment, name string, props any) *ASEConfigura
 		Properties: props,
 	}
 }
-
-// registration
 
 func registerWebEnvironments(srv *sim.Server) {
 	webHostingEnvironments = sim.MakeStore[AppServiceEnvironmentResource](srv.DB(), "web_hosting_environments")
@@ -455,8 +380,6 @@ func registerWebEnvironments(srv *sim.Server) {
 	registerWebKubeEnvironments(srv)
 }
 
-// registerWebEnvironmentCRUD mounts AppServiceEnvironments_CreateOrUpdate,
-// _Get, _Update, _Delete, _List and _ListByResourceGroup.
 func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.HandlerFunc)) {
 	ase("PUT", "", func(w http.ResponseWriter, r *http.Request) {
 		var req AppServiceEnvironmentResource
@@ -524,9 +447,8 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 			return
 		}
 		webHostingEnvironments.Put(id, next)
-		// Every App Service Environment has a front-end pool; the worker pools
-		// are created by the client. A create that omits it still reads back
-		// the pool the platform always has.
+		// Every environment has a front-end pool; a create that omits it still reads
+		// it back.
 		aseEnsureMultiRolePool(id, next.Kind)
 		sim.WriteJSON(w, http.StatusOK, aseProject(next))
 	})
@@ -539,8 +461,8 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 		sim.WriteJSON(w, http.StatusOK, aseProject(row))
 	})
 
-	// PATCH — AppServiceEnvironments_Update merges the members the envelope
-	// carries onto the environment; everything it omits keeps its value.
+	// AppServiceEnvironments_Update merges the envelope's members; omitted ones
+	// keep their values.
 	ase("PATCH", "", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -604,13 +526,11 @@ func registerWebEnvironmentCRUD(srv *sim.Server, ase func(string, string, http.H
 	ase("DELETE", "", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := webHostingEnvironments.Get(aseResourceID(r))
 		if !ok {
-			// A delete of an environment that is not there is the operation's
-			// documented no-content outcome, not an error.
+			// The documented no-content outcome for a missing environment.
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// An environment still hosting App Service plans cannot be deleted;
-		// the resource provider refuses rather than orphaning them.
+		// The resource provider refuses to orphan hosted plans.
 		if plans := asePlans(row.ID); len(plans) > 0 && !strings.EqualFold(r.URL.Query().Get("forceDelete"), "true") {
 			AzureErrorf(w, "Conflict", http.StatusConflict,
 				"App Service Environment '%s' cannot be deleted because %d App Service plan(s) are still deployed in it. Delete them first, or repeat the request with forceDelete=true.",
@@ -653,15 +573,12 @@ func writeASECollection(w http.ResponseWriter, r *http.Request, prefix string) {
 	writeARMCollection(w, r, out, func(a AppServiceEnvironmentResource) string { return a.ID })
 }
 
-// writeARMCollection writes one page of an ARM collection, ordered by key,
-// with the nextLink the specification's paged collections carry.
+// Ordered by key, with the nextLink paged collections carry.
 func writeARMCollection[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) {
 	page, token, pageOK := armPage(w, r, items, key)
 	writeARMCollectionPage(w, r, page, token, pageOK)
 }
 
-// writeARMFixedCollection writes one page of an ARM collection the service
-// computes in a fixed order.
 func writeARMFixedCollection[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	page, token, pageOK := armSeqPage(w, r, items)
 	writeARMCollectionPage(w, r, page, token, pageOK)
@@ -678,15 +595,12 @@ func writeARMCollectionPage[T any](w http.ResponseWriter, r *http.Request, page 
 	sim.WriteJSON(w, http.StatusOK, body)
 }
 
-// aseResolveVirtualNetwork resolves the virtual-network profile against the
-// simulator's Microsoft.Network store and returns it with the read-only name
-// and type the service fills in, plus the address prefix of the subnet the
-// environment will occupy.
+// Returns the profile with its read-only name and type, plus the occupied
+// subnet's prefix.
 func aseResolveVirtualNetwork(req VirtualNetworkProfile) (VirtualNetworkProfile, string, error) {
 	out := VirtualNetworkProfile{ID: req.ID, Subnet: req.Subnet}
-	// The id names either the subnet itself (the modern spelling every
-	// example uses) or the virtual network, with `subnet` naming the subnet
-	// inside it.
+	// The id names the subnet (the modern spelling every example uses) or the
+	// virtual network, with `subnet` naming the subnet in it.
 	subnetID := req.ID
 	if !strings.Contains(strings.ToLower(req.ID), "/subnets/") {
 		if req.Subnet == "" {
@@ -712,7 +626,6 @@ func aseResolveVirtualNetwork(req VirtualNetworkProfile) (VirtualNetworkProfile,
 	return out, prefix, nil
 }
 
-// azureVnetByID resolves a virtual network by resource id, case-insensitively.
 func azureVnetByID(id string) (VirtualNetwork, bool) {
 	if vnet, ok := azureVnets.Get(id); ok {
 		return vnet, true
@@ -725,7 +638,6 @@ func azureVnetByID(id string) (VirtualNetwork, bool) {
 	return VirtualNetwork{}, false
 }
 
-// azureSubnetByID resolves a subnet by resource id, case-insensitively.
 func azureSubnetByID(id string) (Subnet, bool) {
 	if subnet, ok := azureSubnets.Get(id); ok {
 		return subnet, true
@@ -740,18 +652,16 @@ func azureSubnetByID(id string) (Subnet, bool) {
 
 var azureSubnetsByLowerID sim.GenerationIndex[Subnet]
 
-// aseAssignAddresses gives the environment its addresses: a lease from the
-// same public-IPv4 pool Microsoft.Network/publicIPAddresses reserves from for
-// the address it is reached at from outside and the address it leaves from,
-// and an address derived from its own subnet when it load-balances internally.
-// An update keeps the addresses the environment already holds.
+// A lease from the publicIPAddresses pool for the address it is reached at
+// from outside and leaves from, and a subnet-derived address when it
+// load-balances internally. An update keeps held addresses.
 func aseAssignAddresses(next *AppServiceEnvironmentResource, existing AppServiceEnvironmentResource, updating bool, subnetPrefix string) error {
 	current := ASENetworkingProperties{}
 	if updating {
 		current = aseNetworkingProperties(existing)
 	}
-	// The client-settable half of the networking configuration travels on the
-	// create envelope too, so honor it there.
+	// The settable half of the networking configuration travels on the create
+	// envelope too.
 	requested := aseNetworkingProperties(*next)
 	settings := ASENetworkingProperties{
 		AllowNewPrivateEndpointConnections: current.AllowNewPrivateEndpointConnections,
@@ -768,8 +678,7 @@ func aseAssignAddresses(next *AppServiceEnvironmentResource, existing AppService
 	if requested.RemoteDebugEnabled != nil {
 		settings.RemoteDebugEnabled = requested.RemoteDebugEnabled
 	}
-	// inboundIpAddressOverride is settable on create only, exactly as the
-	// specification's description says.
+	// Settable on create only, as the specification says.
 	if !updating && requested.InboundIPAddressOverride != "" {
 		settings.InboundIPAddressOverride = requested.InboundIPAddressOverride
 	}
@@ -798,17 +707,15 @@ func aseAssignAddresses(next *AppServiceEnvironmentResource, existing AppService
 		}
 		settings.InternalInboundIPAddresses = []string{internal}
 	} else {
-		// An externally load-balanced environment answers on the same address
-		// it leaves from, which is what the specification's own
-		// AppServiceEnvironments_GetVipInfo example reports.
+		// An external environment answers on the address it leaves from, as the
+		// specification's AppServiceEnvironments_GetVipInfo example reports.
 		settings.ExternalInboundIPAddresses = outbound
 	}
 	next.Properties.NetworkingConfiguration = aseConfigurationChild(next.ID, "networking", "networking", settings)
 	return nil
 }
 
-// aseRederiveInternalAddress recomputes the internal inbound address after the
-// environment moved to another subnet.
+// After the environment moved to another subnet.
 func aseRederiveInternalAddress(row *AppServiceEnvironmentResource, subnetPrefix string) error {
 	settings := aseNetworkingProperties(*row)
 	if !aseIsInternal(*row) {
@@ -830,8 +737,6 @@ func aseRederiveInternalAddress(row *AppServiceEnvironmentResource, subnetPrefix
 	return nil
 }
 
-// aseReleaseAddresses returns the environment's public lease to the pool a
-// delete frees it from.
 func aseReleaseAddresses(row AppServiceEnvironmentResource) {
 	for _, addr := range aseNetworkingProperties(row).WindowsOutboundIPAddresses {
 		if ip := net.ParseIP(addr); ip != nil {
@@ -840,9 +745,8 @@ func aseReleaseAddresses(row AppServiceEnvironmentResource) {
 	}
 }
 
-// aseEnsureMultiRolePool materializes the front-end pool every environment
-// has. Its worker count is the environment's front-end instance count, which
-// is what AppServiceEnvironment.multiRoleCount reports.
+// Its worker count is the environment's front-end instance count, what
+// multiRoleCount reports.
 func aseEnsureMultiRolePool(aseID, kind string) {
 	id := aseID + "/multiRolePools/" + multiRolePoolName
 	if _, ok := webEnvironmentPools.Get(id); ok {
@@ -860,10 +764,7 @@ func aseEnsureMultiRolePool(aseID, kind string) {
 	})
 }
 
-// networking configuration, custom domain suffix, addresses and dependencies
-
 func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)) {
-	// AppServiceEnvironments_GetAseV3NetworkingConfiguration
 	ase("GET", "/configurations/networking", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -872,9 +773,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, aseConfigurationChild(row.ID, "networking", "networking", aseNetworkingProperties(row)))
 	})
 
-	// AppServiceEnvironments_UpdateAseNetworkingConfiguration — the three
-	// settable switches; the address lists are the platform's and are not
-	// taken from the request.
+	// Only the three settable switches; the address lists are the platform's.
 	ase("PUT", "/configurations/networking", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -905,7 +804,6 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, child)
 	})
 
-	// AppServiceEnvironments_GetAseCustomDnsSuffixConfiguration
 	ase("GET", "/configurations/customdnssuffix", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -913,15 +811,13 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		}
 		child := row.Properties.CustomDNSSuffixConfiguration
 		if child == nil {
-			// No custom domain suffix has been configured; the resource
-			// exists with an empty configuration, which is what the service
-			// answers before one is set.
+			// Before a suffix is set the resource exists with an empty configuration, as
+			// the service answers.
 			child = aseCustomDNSSuffixChild(row.ID, ASECustomDNSSuffixProperties{})
 		}
 		sim.WriteJSON(w, http.StatusOK, child)
 	})
 
-	// AppServiceEnvironments_UpdateAseCustomDnsSuffixConfiguration
 	ase("PUT", "/configurations/customdnssuffix", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -950,7 +846,6 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		sim.WriteJSON(w, http.StatusOK, child)
 	})
 
-	// AppServiceEnvironments_DeleteAseCustomDnsSuffixConfiguration
 	ase("DELETE", "/configurations/customdnssuffix", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -961,8 +856,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// AppServiceEnvironments_GetVipInfo — the addresses the environment is
-	// reached at and leaves from.
+	// The addresses the environment is reached at and leaves from.
 	ase("GET", "/capacities/virtualip", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -978,8 +872,8 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		} else if len(settings.ExternalInboundIPAddresses) > 0 {
 			props["serviceIpAddress"] = settings.ExternalInboundIPAddresses[0]
 		}
-		// vipMappings is absent: the simulator reserves no additional virtual
-		// IPs for IP-based SSL bindings, so there are none to map.
+		// The simulator reserves no extra virtual IPs for IP-based SSL, so there are
+		// no vipMappings.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":         row.ID + "/capacities/virtualip",
 			"name":       row.Name,
@@ -988,10 +882,8 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		})
 	})
 
-	// AppServiceEnvironments_GetInboundNetworkDependenciesEndpoints — computed
-	// from the environment's own networking: the addresses it answers on, the
-	// subnet it occupies, and the inbound features it has enabled. An endpoint
-	// whose feature is off is absent rather than listed.
+	// Computed from the environment's addresses, subnet and enabled inbound
+	// features; a disabled feature's endpoint is absent.
 	ase("GET", "/inboundNetworkDependenciesEndpoints", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1007,8 +899,8 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 			}
 			ports := []string{"80", "443"}
 			if settings.FtpEnabled != nil && *settings.FtpEnabled {
-				// The App Service Environment FTP endpoint: the control
-				// connection and its passive data-channel range.
+				// The App Service Environment FTP endpoint: the control connection and its
+				// passive data-channel range.
 				ports = append(ports, "21", "990", "10001-10020")
 			}
 			if settings.RemoteDebugEnabled != nil && *settings.RemoteDebugEnabled {
@@ -1038,8 +930,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 	})
 }
 
-// aseSubnetIDOf is the subnet resource id the environment occupies, in the
-// spelling the client used.
+// In the spelling the client used.
 func aseSubnetIDOf(row AppServiceEnvironmentResource) string {
 	profile := row.Properties.VirtualNetwork
 	if profile == nil {
@@ -1059,11 +950,9 @@ func aseCustomDNSSuffixChild(aseID string, props ASECustomDNSSuffixProperties) *
 	return child
 }
 
-// front-end and worker pools
-
 func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
-	// multiRolePools — the front-end pool. Its path segment is the literal
-	// "default"; the worker pools are named by the client.
+	// The front-end pool's segment is the literal "default"; worker pools are
+	// client-named.
 	ase("GET", "/multiRolePools", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1090,8 +979,7 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 	ase("GET", "/workerPools/{workerPoolName}/skus", asePoolSKUs("workerPools"))
 	ase("GET", "/workerPools/{workerPoolName}/usages", asePoolUsages())
 
-	// AppServiceEnvironments_ListCapacities — the environment's stamp
-	// capacity, computed from its pools and the plans placed in it.
+	// Computed from the pools and the plans placed in the environment.
 	ase("GET", "/capacities/compute", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1102,8 +990,6 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 	})
 }
 
-// asePoolName is the pool the request addresses: the literal front-end pool
-// or the named worker pool.
 func asePoolName(r *http.Request, collection string) string {
 	if collection == "multiRolePools" {
 		return multiRolePoolName
@@ -1123,8 +1009,7 @@ func asePoolsUnder(aseID, collection string) []WebWorkerPoolResource {
 	return pools
 }
 
-// asePoolProject fills the pool's read-only instanceNames — one name per
-// worker the pool runs, in the platform's own numbering.
+// One name per worker, in the platform's numbering.
 func asePoolProject(pool WebWorkerPoolResource) WebWorkerPoolResource {
 	count := int32Value(pool.Properties.WorkerCount)
 	names := make([]string, 0, count)
@@ -1152,8 +1037,6 @@ func asePoolRead(collection string) http.HandlerFunc {
 	}
 }
 
-// asePoolWrite serves both the create-or-update (PUT) and the merge (PATCH)
-// spelling of a pool write.
 func asePoolWrite(collection string, merge bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
@@ -1232,12 +1115,9 @@ func asePoolWrite(collection string, merge bool) http.HandlerFunc {
 	}
 }
 
-// asePoolSKUs serves AppServiceEnvironments_ListMultiRolePoolSkus and
-// _ListWorkerPoolSkus. It reports the SKU the pool actually runs — the one
-// discovery answer the simulator can give from real state. The SkuInfo carries
-// no capacity envelope: the simulator enforces no minimum, maximum or default
-// worker count for a pool, so declaring one would invent a scale limit that
-// nothing here applies.
+// Reports the SKU the pool runs. The SkuInfo carries no capacity envelope: the
+// simulator enforces no worker-count limits, so declaring them would invent
+// one.
 func asePoolSKUs(collection string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
@@ -1267,10 +1147,8 @@ func asePoolSKUs(collection string) http.HandlerFunc {
 	}
 }
 
-// asePoolUsages serves AppServiceEnvironments_ListMultiRoleUsages and
-// _ListWebWorkerUsages. The simulator meters no pool quota — it applies no
-// limit a usage could be reported against — so the collection is empty, the
-// same truthful answer the per-site and per-location usage lists give.
+// The simulator meters no pool quota, so the collection is empty, as the
+// per-site and per-location usage lists answer.
 func asePoolUsages() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := aseLookup(w, r); !ok {
@@ -1280,10 +1158,8 @@ func asePoolUsages() http.HandlerFunc {
 	}
 }
 
-// aseStampWorkerSizes are the machine sizes the StampCapacity `workerSize`
-// member can name — the swagger's WorkerSizeOptions enumeration. A pool
-// configured with a size outside it reports its capacity without the member
-// rather than with a value the enumeration does not allow.
+// The swagger's WorkerSizeOptions; a pool sized outside it reports its
+// capacity without the member.
 var aseStampWorkerSizes = map[string]string{
 	"small": "Small", "medium": "Medium", "large": "Large",
 	"d1": "D1", "d2": "D2", "d3": "D3",
@@ -1292,12 +1168,9 @@ var aseStampWorkerSizes = map[string]string{
 	"default": "Default",
 }
 
-// aseStampCapacities computes the environment's capacity: for every pool, the
-// workers it runs, less the capacity the App Service plans placed in the
-// environment on that pool have already taken.
-// Each capacity pages by its pool, multi-role pools ahead of worker pools and
-// worker pools in their numeric order, so a pool removed between two calls
-// moves no other capacity across the page boundary.
+// Per pool, its workers less what placed plans take. Pages by pool, multi-role
+// ahead of worker pools in numeric order, so a pool removed between calls
+// shifts no other capacity across the page boundary.
 func aseStampCapacities(row AppServiceEnvironmentResource) []azureKeyed[map[string]any] {
 	plans := asePlans(row.ID)
 	out := []azureKeyed[map[string]any]{}
@@ -1354,10 +1227,7 @@ func aseStampCapacities(row AppServiceEnvironmentResource) []azureKeyed[map[stri
 	return out
 }
 
-// inventory: the plans and apps placed in the environment
-
 func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc)) {
-	// AppServiceEnvironments_ListAppServicePlans
 	ase("GET", "/serverfarms", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1367,7 +1237,6 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		writeARMCollection(w, r, plans, func(p AppServicePlan) string { return p.ID })
 	})
 
-	// AppServiceEnvironments_ListWebApps
 	ase("GET", "/sites", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1376,8 +1245,7 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		writeARMCollection(w, r, aseSites(row.ID), webSiteID)
 	})
 
-	// AppServiceEnvironments_ListUsages — the environment enforces no quota
-	// in the simulator, so it has none to report.
+	// The environment enforces no quota, so it has none to report.
 	ase("GET", "/usages", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := aseLookup(w, r); !ok {
 			return
@@ -1385,10 +1253,8 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		writeARMFixedCollection(w, r, []map[string]any{})
 	})
 
-	// AppServiceEnvironments_ListOperations — the operations currently
-	// running on the environment. Every operation this simulator serves on an
-	// environment completes before its response is written, so none is ever
-	// in flight; the specification's own example reports the same empty list.
+	// Every environment operation completes before its response, so none is in
+	// flight; the specification's example reports the same empty list.
 	ase("GET", "/operations", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := aseLookup(w, r); !ok {
 			return
@@ -1407,18 +1273,14 @@ func aseSortedSites(aseID string) []Site {
 	return sites
 }
 
-// lifecycle
-
 func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc)) {
-	// AppServiceEnvironments_Suspend / _Resume — suspending an environment
-	// stops the apps running in it and resuming starts them again, which is
-	// why both answer with the apps they moved.
+	// Suspending stops the environment's apps and resuming starts them, so both
+	// answer with the apps they moved.
 	ase("POST", "/suspend", aseSetSuspended(true))
 	ase("POST", "/resume", aseSetSuspended(false))
 
-	// AppServiceEnvironments_ChangeVnet — move the environment into another
-	// subnet. The apps it hosts come with it, which is the collection the
-	// operation answers with.
+	// The hosted apps move with the environment, the collection the operation
+	// answers with.
 	ase("POST", "/changeVirtualNetwork", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1447,9 +1309,8 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 		aseAcceptedCollection(w, r, row, aseSites(row.ID))
 	})
 
-	// AppServiceEnvironments_Reboot — reboot the machines of the environment.
-	// The apps running on them restart, so their site containers are torn
-	// down; the next request to an app starts it again.
+	// The apps restart: their containers are torn down, and the next request
+	// starts each again.
 	ase("POST", "/reboot", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1466,12 +1327,9 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 		aseAccepted(w, r, row, opID)
 	})
 
-	// AppServiceEnvironments_TestUpgradeAvailableNotification — announce that
-	// an upgrade is available for the environment. The simulator runs no
-	// platform-upgrade schedule of its own, so this notification is the only
-	// thing that can make one available: it moves upgradeAvailability from
-	// None to Ready, which is the state the documented Manual upgrade
-	// preference requires before an upgrade can be started by hand.
+	// The simulator runs no upgrade schedule, so this notification is what makes
+	// an upgrade available: upgradeAvailability goes None → Ready, which the Manual
+	// preference requires before an upgrade starts.
 	ase("POST", "/testUpgradeAvailableNotification", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1482,9 +1340,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// AppServiceEnvironments_Upgrade — initiate the available upgrade. An
-	// environment with no upgrade available is refused, exactly as an upgrade
-	// can only be initiated once one is ready.
+	// Refused with no upgrade available.
 	ase("POST", "/upgrade", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1506,24 +1362,15 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 	})
 }
 
-// aseAccepted answers the two operations the specification declares with a
-// 202-only contract, with the poll coordinates ARM puts on an accepted
-// long-running operation.
+// aseAccepted answers the two operations the specification declares 202-only,
+// with the poll coordinates of an accepted operation.
 
-// aseAcceptedCollection answers an App Service Environment operation that is
-// long-running with its final state via Location and whose result is a
-// collection of the apps it moved. The collection is recorded as the
-// operation's result, so the Location poll serves it once the operation
-// completes.
-//
-// Answering the collection synchronously instead is a shape the generated
-// client cannot read: for an operation declared both long-running and
-// pageable, the SDK builds a pager, hands it to the poller as the response to
-// fill, and — on the synchronous branch — its no-op poller unmarshals the
-// terminal body into a fresh zero-valued pager and assigns that over the one
-// it built, so every read calls through a nil handler and panics. The service
-// answers 202 here, and the specification documents it; matching that is what
-// makes the operation readable.
+// For an operation long-running via Location whose result is the collection of
+// apps it moved: the collection becomes the operation's result, served by the
+// Location poll. A synchronous answer is unreadable: for a long-running pageable
+// operation the SDK's no-op poller replaces the pager it built with a
+// zero-valued one, whose reads panic on a nil handler. The service answers 202,
+// as the specification documents.
 func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, sites []Site) {
 	page, token, pageOK := armPage(w, r, sites, webSiteID)
 	if !pageOK {
@@ -1554,8 +1401,6 @@ func aseAccepted(w http.ResponseWriter, r *http.Request, row AppServiceEnvironme
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// aseSetSuspended stops or starts every app in the environment and records the
-// environment's own suspended state.
 func aseSetSuspended(suspended bool) http.HandlerFunc {
 	state, operation := "Running", "Start"
 	if suspended {
@@ -1582,10 +1427,7 @@ func aseSetSuspended(suspended bool) http.HandlerFunc {
 	}
 }
 
-// private endpoint connections
-
 func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.HandlerFunc)) {
-	// AppServiceEnvironments_GetPrivateEndpointConnectionList
 	ase("GET", "/privateEndpointConnections", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := aseLookup(w, r)
 		if !ok {
@@ -1603,7 +1445,6 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 		writeARMCollectionPage(w, r, out, token, pageOK)
 	})
 
-	// AppServiceEnvironments_GetPrivateEndpointConnection
 	ase("GET", "/privateEndpointConnections/{privateEndpointConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		conn, ok := aseLookupPEC(w, r)
 		if !ok {
@@ -1612,9 +1453,7 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 		sim.WriteJSON(w, http.StatusOK, renderWebSitePEC(conn))
 	})
 
-	// AppServiceEnvironments_ApproveOrRejectPrivateEndpointConnection — the
-	// environment's owner moves the state of a connection a private endpoint
-	// opened; the connection itself is created by that endpoint.
+	// The owner moves the state of a connection a private endpoint opened.
 	ase("PUT", "/privateEndpointConnections/{privateEndpointConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		conn, ok := aseLookupPEC(w, r)
 		if !ok {
@@ -1644,7 +1483,6 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 		sim.WriteJSON(w, http.StatusOK, renderWebSitePEC(conn))
 	})
 
-	// AppServiceEnvironments_DeletePrivateEndpointConnection
 	ase("DELETE", "/privateEndpointConnections/{privateEndpointConnectionName}", func(w http.ResponseWriter, r *http.Request) {
 		conn, ok := aseLookupPEC(w, r)
 		if !ok {
@@ -1654,12 +1492,10 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": conn.ID})
 	})
 
-	// AppServiceEnvironments_GetPrivateLinkResources — an App Service
-	// Environment publishes no named private-link group: a private endpoint
-	// reaches the environment itself rather than one of several sub-resources,
-	// which is why Microsoft's private-link resource table names no group-id
-	// token for Microsoft.Web/hostingEnvironments and the specification's own
-	// example answers with an empty wrapper.
+	// An App Service Environment publishes no named group: an endpoint reaches the
+	// environment itself, so Microsoft's table names no group-id for
+	// Microsoft.Web/hostingEnvironments and the specification's example is an
+	// empty wrapper.
 	ase("GET", "/privateLinkResources", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := aseLookup(w, r); !ok {
 			return
@@ -1683,21 +1519,9 @@ func aseLookupPEC(w http.ResponseWriter, r *http.Request) (WebSitePrivateEndpoin
 	return conn, true
 }
 
-// pool metric definitions
-
-// registerWebEnvironmentPoolMetrics mounts the metric definitions of an App
-// Service Environment's pools. No operation of this resource is a declared gap
-// any more: the outbound network dependencies, which used to be one on the
-// grounds that they are Microsoft's published catalog, are measured instead —
-// the document asks what an address resolves to, whether a connection can be
-// made and how long making it takes, which are findings rather than a list.
 func registerWebEnvironmentPoolMetrics(ase func(string, string, http.HandlerFunc)) {
-	// A pool's metric definitions are the metric series Microsoft.Insights
-	// publishes about it, and this simulator publishes none for an App Service
-	// Environment pool. There being none is the answer, and an empty collection
-	// is how the document says it — the same reading the recommendation lists
-	// and a stopped site's performance counters already take. Declining to
-	// answer would withhold something the simulator does know.
+	// Microsoft.Insights publishes no metric series for these pools here, so the
+	// definitions are an empty collection, which is the answer.
 	definitions := func(w http.ResponseWriter, r *http.Request) {
 		if webEnvironmentMissing(w, r) {
 			return
@@ -1711,8 +1535,6 @@ func registerWebEnvironmentPoolMetrics(ase func(string, string, http.HandlerFunc
 	// Measured, not catalogued — see web_environment_outbound.go.
 	ase("GET", "/outboundNetworkDependenciesEndpoints", handleASEOutboundNetworkDependencies)
 }
-
-// Kubernetes environments
 
 func registerWebKubeEnvironments(srv *sim.Server) {
 	kube := func(method, suffix string, h http.HandlerFunc) {
@@ -1746,8 +1568,7 @@ func registerWebKubeEnvironments(srv *sim.Server) {
 			next.Location = existing.Location
 		}
 		if next.ExtendedLocation != nil && next.ExtendedLocation.Name != "" && next.ExtendedLocation.Type == "" {
-			// The extended location's type is read-only; an Arc-connected
-			// cluster is a custom location.
+			// The type is read-only; an Arc-connected cluster is a custom location.
 			next.ExtendedLocation.Type = "CustomLocation"
 		}
 		next.Properties.ProvisioningState = "Succeeded"
@@ -1853,9 +1674,8 @@ func writeKubeCollection(w http.ResponseWriter, r *http.Request, prefix string) 
 	writeARMCollection(w, r, out, func(k KubeEnvironmentResource) string { return k.ID })
 }
 
-// kubeDefaultDomain is the domain the apps in a Kubernetes environment are
-// published under: the cluster's own name under the address it answers on,
-// the shape App Service uses for an Arc-connected cluster.
+// The cluster's name under the address it answers on, as App Service shapes an
+// Arc-connected cluster's domain.
 func kubeDefaultDomain(name, staticIP string) string {
 	if staticIP == "" {
 		return ""
@@ -1863,8 +1683,7 @@ func kubeDefaultDomain(name, staticIP string) string {
 	return fmt.Sprintf("%s.%s.k4apps.io", name, strings.ReplaceAll(staticIP, ".", "-"))
 }
 
-// kubeProject drops the members a read never carries: the Arc kubeConfig is
-// declared a secret, so the service does not hand it back.
+// The Arc kubeConfig is a declared secret, never handed back.
 func kubeProject(row KubeEnvironmentResource) KubeEnvironmentResource {
 	if row.Properties.ArcConfiguration == nil {
 		return row

@@ -32,8 +32,8 @@ import (
 )
 
 // TestSSM_DocumentTypeConditionKeyScopesTheGrant covers ssm:DocumentType, read
-// from the document a request names — the key a policy uses to allow one kind
-// of document and refuse another.
+// from the document a request names, which a policy uses to allow one kind of
+// document.
 func TestSSM_DocumentTypeConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := ssmClient()
@@ -101,8 +101,8 @@ func restrictedEventBridge(t *testing.T, user, account string) *eventbridge.Clie
 }
 
 // TestECS_PropagateTagsConditionKeyScopesTheGrant covers ecs:propagate-tags,
-// where a request asks Amazon ECS to copy tags from — the key a policy uses to
-// require that they come from the service rather than the task definition.
+// where a request copies tags from, which a policy uses to require the service
+// rather than the task definition.
 func TestECS_PropagateTagsConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	akid, secret := restrictedCredential(t, "ecs-service-tags-only",
@@ -112,9 +112,9 @@ func TestECS_PropagateTagsConditionKeyScopesTheGrant(t *testing.T) {
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
 		func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// The grant is what is under test, so the call is judged by whether it was
-	// authorized: a request that clears IAM fails afterwards on the cluster or
-	// task definition it names, which is a different error.
+	// The grant is under test, so judge the call by its authorization: a request
+	// that clears IAM fails afterwards on its cluster or task definition with a
+	// different error.
 	_, err := restricted.CreateService(ctx, &ecs.CreateServiceInput{
 		ServiceName: aws.String("cond-tagged-service"), Cluster: aws.String("cond-absent-cluster"),
 		TaskDefinition: aws.String("cond-absent-task"),
@@ -133,8 +133,8 @@ func TestECS_PropagateTagsConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant covers
-// rds:ManageMasterUserPassword, which a policy uses to require that a master
-// password be managed in AWS Secrets Manager rather than supplied by hand.
+// rds:ManageMasterUserPassword, which a policy uses to require a master password
+// managed in AWS Secrets Manager.
 func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	akid, secret := restrictedCredential(t, "rds-managed-passwords-only",
@@ -144,8 +144,8 @@ func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
 		func(o *rds.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Authorization is what is under test: a request that clears it fails on
-	// the instance it names, which is a different error from a refusal.
+	// Authorization is under test: a request that clears it fails on its instance
+	// with a different error.
 	_, err := restricted.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{
 		DBInstanceIdentifier:     aws.String("cond-absent-instance"),
 		ManageMasterUserPassword: aws.Bool(true)})
@@ -160,8 +160,8 @@ func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestSFN_StateMachineQualifierConditionKeyScopesTheGrant covers
-// states:StateMachineQualifier, the version or alias a request names — the key
-// a policy uses to allow a call against one published version and not another.
+// states:StateMachineQualifier, the version or alias a request names, which a
+// policy uses to allow one published version and not another.
 func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	machineName := uniquename.New("cond-qualifier-sm")
@@ -198,8 +198,8 @@ func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestLambda_FunctionArnConditionKeyScopesTheGrant covers lambda:FunctionArn,
-// the function an event-source mapping or a function URL is about — the key a
-// policy uses to let a principal wire up one function and not another.
+// the function an event source mapping or function URL is about, which a
+// policy uses to let a principal wire up one function only.
 func TestLambda_FunctionArnConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := lambdaClient()
@@ -223,8 +223,6 @@ func TestLambda_FunctionArnConditionKeyScopesTheGrant(t *testing.T) {
 	assert.Contains(t, err.Error(), "not authorized")
 }
 
-// lambdaConditionFunction creates a function for the condition-key tests and
-// returns its ARN.
 func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) string {
 	t.Helper()
 	created, err := client.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -285,7 +283,7 @@ func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T
 }
 
 // TestDynamoDB_SelectConditionKeyScopesTheGrant covers dynamodb:Select, how
-// much of a matched item a read returns — the key a policy pins so a caller can
+// much of a matched item a read returns, which a policy pins so a caller can
 // count rows without reading them.
 func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
@@ -320,9 +318,8 @@ func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant covers
-// acm:CertificateKeyPairOrigin, which says who made a certificate's key pair —
-// CUSTOMER_PROVIDED for one the caller imported, AWS_MANAGED for one ACM
-// issued. AddTagsToCertificate is one of the actions that declare it.
+// acm:CertificateKeyPairOrigin: CUSTOMER_PROVIDED for an imported certificate's
+// key pair, AWS_MANAGED for one ACM issued. AddTagsToCertificate declares it.
 func TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := acmClient()

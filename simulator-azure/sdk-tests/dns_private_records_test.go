@@ -8,11 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPrivateDNS_NonARecordTypes exercises armprivatedns.RecordSetsClient for
-// every non-A record type the sim registers via its generic record-type loop
-// (AAAA / CNAME / MX / PTR / SRV / TXT). A-records have a dedicated handler and
-// were already covered; these types share a separate code path that maps each
-// type's distinct properties, so they each need a round-trip assertion.
+// TestPrivateDNS_NonARecordTypes round-trips AAAA, CNAME, MX, PTR, SRV and TXT
+// record sets, each with its own properties.
 func TestPrivateDNS_NonARecordTypes(t *testing.T) {
 	t.Parallel()
 	const rg = "dns-rs-nonA-rg"
@@ -148,7 +145,6 @@ func TestPrivateDNS_NonARecordTypes(t *testing.T) {
 		require.Len(t, got.Properties.TxtRecords[0].Value, 1)
 		assert.Equal(t, "v=spf1 -all", *got.Properties.TxtRecords[0].Value[0])
 
-		// ListByType should include the TXT record.
 		pager := rsClient.NewListByTypePager(rg, zoneName, armprivatedns.RecordTypeTXT, nil)
 		var found bool
 		for pager.More() {

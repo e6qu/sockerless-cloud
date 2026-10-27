@@ -9,9 +9,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// API Gateway v1 — REST surface scoped to Api / ApiConfig / Gateway
-// CRUD. Real API: https://apigateway.googleapis.com/$discovery/rest?version=v1
-
 type APIGWApi struct {
 	Name        string            `json:"name"` // projects/{p}/locations/global/apis/{api}
 	DisplayName string            `json:"displayName,omitempty"`
@@ -59,32 +56,26 @@ func registerGCPAPIGateway(srv *sim.Server) {
 	apigwGateways = sim.MakeStore[APIGWGateway](srv.DB(), "gcp_apigw_gateways")
 	apigwIamPolicies = sim.MakeStore[GCPAPIGWIamPolicy](srv.DB(), "gcp_apigw_iam_policies")
 
-	// Apis (always under locations/global per real GCP).
 	srv.HandleFunc("POST /v1/projects/{project}/locations/global/apis", handleGCPAPIGWCreateApi)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/global/apis/{api}", handleGCPAPIGWGetApi)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/global/apis", handleGCPAPIGWListApis)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/global/apis/{api}", handleGCPAPIGWPatchApi)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/global/apis/{api}", handleGCPAPIGWDeleteApi)
 
-	// ApiConfigs (under Apis).
 	srv.HandleFunc("POST /v1/projects/{project}/locations/global/apis/{api}/configs", handleGCPAPIGWCreateConfig)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}", handleGCPAPIGWGetConfig)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/global/apis/{api}/configs", handleGCPAPIGWListConfigs)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}", handleGCPAPIGWPatchConfig)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/global/apis/{api}/configs/{cfg}", handleGCPAPIGWDeleteConfig)
 
-	// Gateways (regional).
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/gateways", handleGCPAPIGWCreateGateway)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/gateways/{gw}", handleGCPAPIGWGetGateway)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/gateways", handleGCPAPIGWListGateways)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/gateways/{gw}", handleGCPAPIGWPatchGateway)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/gateways/{gw}", handleGCPAPIGWDeleteGateway)
 
-	// IAM v1 per AIP-130. Empty default policy until setIamPolicy lands a real
-	// one; testIamPermissions answers from that policy.
-	//
-	// Go ServeMux can't parse `{gw}:getIamPolicy`; capture the action
-	// suffix in a single wildcard and split on `:` in the handler.
+	// ServeMux cannot match `{gw}:getIamPolicy`, so one wildcard captures the
+	// gateway and its verb and the handler splits them on `:`.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/gateways/{gwAction}", handleGCPAPIGWIamAction)
 }
 

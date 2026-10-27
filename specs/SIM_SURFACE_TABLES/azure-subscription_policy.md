@@ -17,10 +17,10 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /providers/Microsoft.Billing/billingAccounts/{billingAccountId}/providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:109::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `PUT /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:62::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:86::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /providers/Microsoft.Subscription/policies` | ✓ `simulator-azure/subscription_policy.go:97::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `PUT /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:47::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:70::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Subscription/policies` | ✓ `simulator-azure/subscription_policy.go:80::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Billing/billingAccounts/{billingAccountId}/providers/Microsoft.Subscription/policies/default` | ✓ `simulator-azure/subscription_policy.go:91::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -1,8 +1,8 @@
 package main
 
-// Fuzz target for the GCS Content-Range header parser — untrusted client input
-// (a resumable-upload range line). Contract: never panic; a malformed range
-// returns an error rather than out-of-order/negative offsets with nil error.
+// parseGCSContentRange reads untrusted client input, a resumable-upload range
+// line: it must never panic, and a malformed range returns an error, never a
+// negative or out-of-order offset.
 
 import "testing"
 
@@ -16,9 +16,8 @@ func FuzzParseGCSContentRange(f *testing.F) {
 		f.Add(s, int64(100))
 	}
 	f.Fuzz(func(t *testing.T, s string, chunkLen int64) {
-		// end and total use -1 as the legitimate "unknown" sentinel (a `*` in
-		// the range or total, per the resumable-upload protocol). The starting
-		// offset, however, is always a concrete non-negative byte position.
+		// end and total use -1 for a `*` in the range or total, as the resumable-upload
+		// protocol allows; the starting offset is always a concrete byte position.
 		start, _, _, err := parseGCSContentRange(s, chunkLen)
 		if err == nil && start < 0 {
 			t.Fatalf("parseGCSContentRange(%q,%d) ok but start=%d < 0", s, chunkLen, start)

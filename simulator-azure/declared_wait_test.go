@@ -12,9 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// An Application Gateway holds a request open for as long as its backend
-// settings' requestTimeout lets the backend take, so that is the wait it
-// declares.
+// An Application Gateway holds a request open for its backend settings'
+// requestTimeout, so that is the wait it declares.
 func TestApplicationGatewayForwardDeclaresTheRequestTimeout(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

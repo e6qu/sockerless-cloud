@@ -14,9 +14,8 @@ import (
 // against its own routing, and invalidating cached content behind one.
 
 // computeTypedWrite applies a client's body to a stored resource of a typed
-// collection. A patch keeps the members the client left out; an update drops
-// them, keeping only the resource's identity — which is the whole difference
-// between the two verbs.
+// collection: a patch keeps the members the client left out, an update drops
+// them and keeps only the resource's identity.
 func computeTypedWrite[T any](store sim.Store[T], key string, body map[string]any, replace bool) (bool, error) {
 	current, ok := store.Get(key)
 	if !ok {
@@ -59,9 +58,8 @@ func computeTypedWrite[T any](store sim.Store[T], key string, body map[string]an
 	return true, nil
 }
 
-// registerComputeTypedWriteVerbs serves the patch and update a typed global
-// collection declares. The two share a body reader and differ only in whether
-// the members the client left out survive.
+// registerComputeTypedWriteVerbs serves a typed global collection's patch and
+// update.
 func registerComputeTypedWriteVerbs[T any](srv *sim.Server, collection string, store sim.Store[T], verbs map[string]string) {
 	base := "/compute/v1/projects/{project}/global/" + collection
 	for method, verb := range verbs {

@@ -5,13 +5,8 @@
 //
 //	go run scripts/check-readonly-locks.go <dir>...
 //
-// This exists because the same defect arrived three times from one service in
-// two days — a Query that read the whole table under a per-item lock, a Scan
-// that copied under one acquisition per item, and finally every single-item
-// read queueing behind every other operation because the lock guarding the
-// item store was exclusive. Each was found by a user watching a page time out,
-// and each was reported as its own bug. They are one shape: a process-wide
-// lock taken for reading, so the service's read concurrency is one.
+// A process-wide lock taken for reading leaves a service's read concurrency
+// at one: every single-item read queues behind every other operation.
 //
 // The detector decides from the syntax tree. A function is reported when it
 // takes `X.Lock()` and its critical section writes nothing: no call to a
@@ -35,12 +30,10 @@ import (
 // mutatingMethods are the methods that write state a lock could be guarding. A
 // critical section calling any of them is doing more than reading.
 //
-// Writing an HTTP response is deliberately absent. Including Write and Flush
-// made every request handler a writer, which silently emptied the largest true
-// cluster this detector had found — a dozen read-only Glue handlers — because
-// they all answer with a response body. What matters is whether the section
-// mutates the state the lock guards, not whether it eventually says something
-// to the caller.
+// Writing an HTTP response is deliberately absent: every request handler
+// answers with a body, and counting that as a write would hide every
+// read-only handler. What matters is whether the section mutates the state
+// the lock guards.
 var mutatingMethods = map[string]bool{
 	"Put": true, "Delete": true, "Update": true, "Upsert": true, "Set": true,
 	"Add": true, "Store": true, "Remove": true, "Clear": true, "Reset": true,
@@ -93,10 +86,8 @@ func main() {
 			}
 		}
 		// A section that calls a function which writes is writing, however
-		// many calls deep. Without this the detector reported functions whose
-		// whole purpose is mutation — configuring a host route, reapplying a
-		// security group, publishing a version — as read-only, because the
-		// write was one call away.
+		// many calls deep: configuring a host route, reapplying a security
+		// group or publishing a version is a write one call away.
 		writers := writingFuncs(files)
 		paths := make([]string, 0, len(files))
 		for path := range files {
@@ -129,10 +120,9 @@ func scan(fset *token.FileSet, file *ast.File, path string, writers map[string]b
 			continue
 		}
 		// Only sections that read a store are reported. A lock held over a
-		// small bookkeeping map costs a handful of nanoseconds and reporting
+		// small bookkeeping map costs a handful of nanoseconds, and reporting
 		// it would bury the class this exists for: a service's data plane
-		// serialised behind one lock, which is what made single-item reads
-		// take thirteen seconds.
+		// serialised behind one lock.
 		if !readsAStore(fn.Body) {
 			continue
 		}
@@ -224,19 +214,16 @@ func writesSomething(body *ast.BlockStmt, writers map[string]bool) bool {
 		case *ast.CallExpr:
 			if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
 				// A call on the response writer mutates the response, not the
-				// state the lock guards. Counting w.Header().Set as a write
-				// excluded every request handler that answers with a header —
-				// which is all of them — and emptied the detector of exactly
-				// the read paths it exists to find.
+				// state the lock guards; counting w.Header().Set as a write would
+				// exclude every handler, and with them the read paths this
+				// detector exists to find.
 				if !onResponseWriter(sel.X) &&
 					(mutatingMethods[sel.Sel.Name] || writers[sel.Sel.Name]) {
 					writes = true
 				}
 			}
-			// The builtins that mutate are calls to a plain identifier, not to
-			// a method, and missing them made the detector report functions
-			// whose whole job is removal — "unregister", "cancel" — as
-			// read-only on its first run.
+			// The builtins that mutate are calls to a plain identifier, not
+			// to a method.
 			if id, ok := node.Fun.(*ast.Ident); ok {
 				switch id.Name {
 				case "delete", "clear", "copy", "panic":

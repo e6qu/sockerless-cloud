@@ -28,8 +28,6 @@ func amplifyClient() *amplify.Client {
 	})
 }
 
-// amplifyWaitJobStatus polls GetJob until the job reaches the wanted status
-// while real builds and direct deployments drive PENDING → RUNNING → terminal.
 func amplifyWaitJobStatus(t *testing.T, ctx context.Context, c *amplify.Client, appID, branch, jobID string, want amplifytypes.JobStatus) *amplifytypes.Job {
 	t.Helper()
 	var job *amplifytypes.Job
@@ -271,12 +269,11 @@ func TestAmplifyAppLifecycle(t *testing.T) {
 	require.NotEmpty(t, appID)
 	assert.Equal(t, name, aws.ToString(createOut.App.Name))
 	assert.Equal(t, appID+".amplifyapp.com", aws.ToString(createOut.App.DefaultDomain))
-	// Documented defaults applied at create.
 	require.NotNil(t, createOut.App.CacheConfig)
 	assert.Equal(t, amplifytypes.CacheConfigTypeAmplifyManaged, createOut.App.CacheConfig.Type)
 	require.NotNil(t, createOut.App.JobConfig)
 	assert.Equal(t, amplifytypes.BuildComputeTypeStandard8gb, createOut.App.JobConfig.BuildComputeType)
-	// Clone method derived from the repository host.
+	// Amplify derives the clone method from the repository host.
 	assert.Equal(t, amplifytypes.RepositoryCloneMethodToken, createOut.App.RepositoryCloneMethod)
 
 	getOut, err := c.GetApp(ctx, &amplify.GetAppInput{AppId: aws.String(appID)})
@@ -289,11 +286,10 @@ func TestAmplifyAppLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated", aws.ToString(updOut.App.Description))
-	// Members absent from the update request stay untouched.
 	assert.Equal(t, name, aws.ToString(updOut.App.Name))
 	assert.Equal(t, "https://github.com/acme/site", aws.ToString(updOut.App.Repository))
 
-	// An explicit empty value clears the member (presence-based updates).
+	// An explicit empty value clears the member.
 	updOut, err = c.UpdateApp(ctx, &amplify.UpdateAppInput{
 		AppId:       aws.String(appID),
 		Description: aws.String(""),
@@ -301,7 +297,6 @@ func TestAmplifyAppLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, aws.ToString(updOut.App.Description))
 
-	// enableAutoBranchCreation + config are accepted by UpdateApp.
 	updOut, err = c.UpdateApp(ctx, &amplify.UpdateAppInput{
 		AppId:                      aws.String(appID),
 		EnableAutoBranchCreation:   aws.Bool(true),
@@ -362,7 +357,7 @@ func TestAmplifyBranchLifecycle(t *testing.T) {
 	br, err := c.CreateBranch(ctx, &amplify.CreateBranchInput{
 		AppId:                aws.String(appID),
 		BranchName:           aws.String("main"),
-		Stage:                amplifytypes.StagePullRequest, // any valid enum
+		Stage:                amplifytypes.StagePullRequest,
 		EnableAutoBuild:      aws.Bool(true),
 		EnableSkewProtection: aws.Bool(true),
 		Backend: &amplifytypes.Backend{
@@ -375,7 +370,6 @@ func TestAmplifyBranchLifecycle(t *testing.T) {
 	require.NotNil(t, br.Branch.Backend)
 	assert.Contains(t, aws.ToString(br.Branch.Backend.StackArn), "amplify-be")
 
-	// Duplicate create
 	_, err = c.CreateBranch(ctx, &amplify.CreateBranchInput{
 		AppId: aws.String(appID), BranchName: aws.String("main"),
 	})
@@ -393,11 +387,9 @@ func TestAmplifyBranchLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated branch", aws.ToString(updBr.Branch.Description))
-	// Members absent from the update stay untouched.
 	assert.True(t, aws.ToBool(updBr.Branch.EnableSkewProtection))
 	require.NotNil(t, updBr.Branch.Backend)
 
-	// Explicit empty values clear.
 	updBr, err = c.UpdateBranch(ctx, &amplify.UpdateBranchInput{
 		AppId: aws.String(appID), BranchName: aws.String("main"),
 		Description:          aws.String(""),
@@ -446,7 +438,6 @@ func TestAmplifyWebhookLifecycle(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(wh.Webhook.WebhookUrl))
 	assert.Equal(t, appID, aws.ToString(wh.Webhook.AppId))
 
-	// The app reflects that a webhook exists.
 	appOut, err := c.GetApp(ctx, &amplify.GetAppInput{AppId: aws.String(appID)})
 	require.NoError(t, err)
 	require.NotNil(t, appOut.App.WebhookCreateTime)
@@ -533,7 +524,6 @@ test:
 	require.NotEmpty(t, jobID)
 	_, err = strconv.ParseUint(jobID, 10, 64)
 	require.NoError(t, err, "Amplify job IDs must be numeric")
-	// The job starts PENDING and settles only after the real repository build.
 	assert.Contains(t, []amplifytypes.JobStatus{
 		amplifytypes.JobStatusPending, amplifytypes.JobStatusRunning, amplifytypes.JobStatusSucceed,
 	}, startOut.JobSummary.Status)
@@ -557,8 +547,8 @@ test:
 	require.NoError(t, err)
 	require.Len(t, listJobs.JobSummaries, 1)
 
-	// ListArtifacts is specifically the end-to-end test artifact surface.
-	// The hosted build bundle is exposed separately on GetJob's BUILD step.
+	// ListArtifacts holds only end-to-end test outputs; GetJob's BUILD step holds
+	// the hosted build bundle.
 	var artifactID string
 	require.Eventually(t, func() bool {
 		artifacts, err := c.ListArtifacts(ctx, &amplify.ListArtifactsInput{
@@ -643,8 +633,7 @@ test:
 	require.NoError(t, err)
 	require.Len(t, listJobs.JobSummaries, 2)
 
-	// Stopping the finished job is rejected (real Amplify only stops jobs
-	// that are in progress).
+	// Amplify stops only a job in progress.
 	_, err = c.StopJob(ctx, &amplify.StopJobInput{
 		AppId:      aws.String(appID),
 		BranchName: aws.String("main"),
@@ -799,8 +788,7 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 
 	deploymentJob := amplifyWaitJobStatus(t, ctx, c, appID, "main", depJobID, amplifytypes.JobStatusSucceed)
 
-	// The uploaded build bundle is exposed through GetJob's DEPLOY step.
-	// ListArtifacts remains reserved for end-to-end test outputs.
+	// GetJob's DEPLOY step holds the uploaded build bundle.
 	deployStep := amplifyRequireJobStep(t, deploymentJob, "DEPLOY")
 	require.NotEmpty(t, aws.ToString(deployStep.ArtifactsUrl))
 	artifacts, err := c.ListArtifacts(ctx, &amplify.ListArtifactsInput{
@@ -816,7 +804,7 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, zipBytes, gotBytes, "artifact must round-trip the uploaded zip content")
 
-	// A successful job on the PRODUCTION-stage branch populates the app's
+	// A successful job on the PRODUCTION-stage branch sets the app's
 	// productionBranch.
 	require.Eventually(t, func() bool {
 		out, err := c.GetApp(ctx, &amplify.GetAppInput{AppId: aws.String(appID)})
@@ -829,14 +817,14 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 			pb.LastDeployTime != nil
 	}, 15*time.Second, 100*time.Millisecond, "productionBranch never populated")
 
-	// The pending deployment is consumed by StartDeployment.
+	// StartDeployment consumes the pending deployment.
 	_, err = c.StartDeployment(ctx, &amplify.StartDeploymentInput{
 		AppId: aws.String(appID), BranchName: aws.String("main"),
 		JobId: aws.String(depJobID),
 	})
 	require.ErrorAs(t, err, &notFound)
 
-	// sourceUrl-style deployment fetches real bytes from the external source.
+	// A sourceUrl deployment fetches its bytes from the external source.
 	sourceBytes := amplifyZipBytes(t, map[string][]byte{"index.html": []byte("<h1>external deployment archive</h1>")})
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
@@ -999,7 +987,6 @@ func TestAmplifyListPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Page size 1 + token walk over branches.
 	seenBranches := map[string]bool{}
 	token := (*string)(nil)
 	pages := 0
@@ -1022,13 +1009,12 @@ func TestAmplifyListPagination(t *testing.T) {
 	assert.Equal(t, 3, pages)
 	assert.Len(t, seenBranches, 3)
 
-	// Unset maxResults: full list, no token.
+	// Without maxResults the list is whole and carries no token.
 	all, err := c.ListBranches(ctx, &amplify.ListBranchesInput{AppId: aws.String(appID)})
 	require.NoError(t, err)
 	assert.Len(t, all.Branches, 3)
 	assert.Empty(t, aws.ToString(all.NextToken))
 
-	// Webhook walk via the same contract.
 	whOut, err := c.ListWebhooks(ctx, &amplify.ListWebhooksInput{
 		AppId:      aws.String(appID),
 		MaxResults: 2,

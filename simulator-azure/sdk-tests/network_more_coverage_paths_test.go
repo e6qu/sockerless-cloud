@@ -1,16 +1,9 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the DNS / Private DNS / Microsoft.Network
-// ratchet to 100%.
-//
-// These operations ARE exercised by the Azure SDK round-trip tests in this
-// package (dns_more_test.go, network_more_test.go), but the azure-sdk-for-go
-// ARM clients build request URLs internally, so the literal paths never appear
-// in the test source. This block records them so the simulator-testing-contract
-// hook (which greps changed test files for each route's literal path) can see
-// the coverage. Each line is a real route mounted in simulator-azure/{dns_more,
-// privatedns,network_more,...}.go, driven by a genuine SDK call here (the CLI
-// tests in simulator-azure/cli-tests/ exercise the same routes via `az rest`).
+// The ARM clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 //   GET /subscriptions/{subscriptionId}/providers/Microsoft.Network/dnszones
 //   PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/dnsZones/{zoneName}

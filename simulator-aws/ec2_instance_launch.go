@@ -17,20 +17,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// ec2ConsoleLimit is how much of the console EC2 keeps: the most recent 64 KB.
+// Amazon EC2 keeps the most recent 64 KB of console output.
 const ec2ConsoleLimit = 64 * 1024
 
 var (
 	ec2MachinesMu sync.Mutex
 	ec2Machines   *machine.Manager
-	// ec2MachineAddresses is the private address each machine booted at, which
-	// the metadata service forgets the machine by once it is down.
+	// The metadata service forgets a machine by this address once it is down.
 	ec2MachineAddresses sync.Map
 )
 
-// ec2MachineManager is the manager of the instances' machines, on the
-// backend the placement table gives Amazon EC2. The manager is made at the
-// first boot or recovery, once the backends are registered.
+// Created at the first boot or recovery, once the backends are registered.
 func ec2MachineManager() (*machine.Manager, error) {
 	ec2MachinesMu.Lock()
 	defer ec2MachinesMu.Unlock()
@@ -54,15 +51,14 @@ func ec2MachineManager() (*machine.Manager, error) {
 	return ec2Machines, nil
 }
 
-// ec2MachinesIfAny is the manager when a machine was ever booted or adopted.
+// nil until a machine was booted or adopted.
 func ec2MachinesIfAny() *machine.Manager {
 	ec2MachinesMu.Lock()
 	defer ec2MachinesMu.Unlock()
 	return ec2Machines
 }
 
-// ec2MachineBooting lets the metadata service answer the instance from its
-// first instruction: the user data reads it before the init reports ready.
+// The user data reads metadata before the init reports ready.
 func ec2MachineBooting(instanceID string) {
 	inst := ec2InstanceRecord(instanceID)
 	ec2MachineAddresses.Store(instanceID, inst.PrivateIpAddress)
@@ -77,9 +73,8 @@ func ec2MachineDown(instanceID string) {
 	}
 }
 
-// ec2InstanceShutDown records an instance whose init exited on its own: the
-// instance shut itself down, and its InstanceInitiatedShutdownBehavior turns
-// that into a stop or a termination.
+// The init exited on its own; InstanceInitiatedShutdownBehavior makes that a
+// stop or a termination.
 func ec2InstanceShutDown(instanceID string) {
 	halted, terminating := false, false
 	var eni string
@@ -111,10 +106,8 @@ func ec2InstanceShutDown(instanceID string) {
 	}
 }
 
-// ec2ConsoleOutput is what GetConsoleOutput reports for an instance: the
-// machine's whole console as its backend keeps it, a stopped machine's
-// included, and the most recent 64 KB of it. An instance that has no machine
-// has none.
+// Includes a stopped machine's console. An instance without a machine has
+// none.
 func ec2ConsoleOutput(ctx context.Context, instanceID string) (string, error) {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -133,9 +126,9 @@ func ec2ConsoleOutput(ctx context.Context, instanceID string) (string, error) {
 	return console, nil
 }
 
-// ec2InstanceSpec is what the instance runs as: its AMI's root filesystem on
-// its subnet's VPC network at its private address, resolving through the
-// VPC's sidecar, with the user data and the metadata endpoint the SDKs read.
+// The AMI's root filesystem on the VPC network at the private address,
+// resolving through the VPC's sidecar, with the user data and metadata
+// endpoint.
 func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, awsWorkloadNetwork, error) {
 	img, ok := ec2LookupImage(inst.ImageId)
 	if !ok {
@@ -186,7 +179,6 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 	return spec, network, nil
 }
 
-// ec2InstanceMAC is the MAC address of the instance's primary interface.
 func ec2InstanceMAC(inst EC2Instance) string {
 	if inst.NetworkInterfaceId == "" {
 		return ""
@@ -194,8 +186,7 @@ func ec2InstanceMAC(inst EC2Instance) string {
 	return ec2InterfaceMAC(inst.NetworkInterfaceId)
 }
 
-// ec2PrivateDNSName is the private DNS name of an interface address: under
-// ec2.internal in us-east-1 and under {region}.compute.internal elsewhere.
+// ec2.internal in us-east-1, {region}.compute.internal elsewhere.
 func ec2PrivateDNSName(ip string) string {
 	if awsRegion() == "us-east-1" {
 		return ec2PrivateDNSHostname(ip) + ".ec2.internal"
@@ -203,9 +194,9 @@ func ec2PrivateDNSName(ip string) string {
 	return ec2PrivateDNSHostname(ip) + "." + awsRegion() + ".compute.internal"
 }
 
-// ec2PublicDNSName is the public DNS name of an instance with a public
-// address in a VPC whose DNS hostnames are on: under compute-1.amazonaws.com
-// in us-east-1 and under {region}.compute.amazonaws.com elsewhere.
+// Only with a public address in a VPC with DNS hostnames on:
+// compute-1.amazonaws.com in us-east-1, {region}.compute.amazonaws.com
+// elsewhere.
 func ec2PublicDNSName(inst EC2Instance) string {
 	if inst.PublicIpAddress == "" {
 		return ""
@@ -220,14 +211,13 @@ func ec2PublicDNSName(inst EC2Instance) string {
 	return name + "." + awsRegion() + ".compute.amazonaws.com"
 }
 
-// ec2PrivateDNSHostname is the hostname an instance gets from its private
-// address, ip-10-0-0-7 for 10.0.0.7.
+// ip-10-0-0-7 for 10.0.0.7.
 func ec2PrivateDNSHostname(ip string) string {
 	return "ip-" + strings.ReplaceAll(ip, ".", "-")
 }
 
-// ec2CloudInit is the AMI's cloud-init as Amazon EC2's datasource feeds it:
-// the instance's id, and its key pair's public key for the default user.
+// Fed as Amazon EC2's cloud-init datasource does: the instance id and the key
+// pair's public key for the default user.
 func ec2CloudInit(inst EC2Instance) *vminstance.CloudInit {
 	ci := &vminstance.CloudInit{Platform: "ec2", Datasource: "DataSourceEc2Local", InstanceID: inst.InstanceId}
 	if inst.KeyName != "" {
@@ -238,7 +228,6 @@ func ec2CloudInit(inst EC2Instance) *vminstance.CloudInit {
 	return ci
 }
 
-// ec2InstanceWorkload is the placement workload an instance runs as.
 func ec2InstanceWorkload(ctx context.Context, inst EC2Instance) (placement.Workload, error) {
 	spec, _, err := ec2InstanceSpec(ctx, inst)
 	if err != nil {
@@ -247,10 +236,8 @@ func ec2InstanceWorkload(ctx context.Context, inst EC2Instance) (placement.Workl
 	return vminstance.Workload(spec)
 }
 
-// ec2BootInstance boots an instance's machine and returns once it is up: the
-// kept root disk of a stopped instance boots again, any other instance is
-// placed from its AMI. A variable so a unit test of the launch state machine
-// supplies the boot.
+// A stopped instance's kept root disk boots again; any other instance is
+// placed from its AMI. A unit test of the launch state machine replaces it.
 var ec2BootInstance = func(ctx context.Context, inst EC2Instance) error {
 	workload, err := ec2InstanceWorkload(ctx, inst)
 	if err != nil {
@@ -268,7 +255,6 @@ func ec2InstanceRecord(instanceID string) EC2Instance {
 	return inst
 }
 
-// ec2HasKeptDisk reports whether a stopped instance keeps its root disk.
 func ec2HasKeptDisk(instanceID string) bool {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -278,8 +264,7 @@ func ec2HasKeptDisk(instanceID string) bool {
 	return kept
 }
 
-// ec2StopWorkload stops an instance's machine and keeps its root disk; a
-// boot in flight ends rather than being waited out.
+// Keeps the root disk; a boot in flight ends rather than being waited out.
 func ec2StopWorkload(ctx context.Context, instanceID string) {
 	if machines := ec2MachinesIfAny(); machines != nil {
 		if err := machines.Halt(ctx, instanceID); err != nil {
@@ -288,7 +273,6 @@ func ec2StopWorkload(ctx context.Context, instanceID string) {
 	}
 }
 
-// ec2DiscardWorkload stops an instance's machine and discards its root disk.
 func ec2DiscardWorkload(ctx context.Context, instanceID string) {
 	if machines := ec2MachinesIfAny(); machines != nil {
 		if err := machines.Discard(ctx, instanceID); err != nil {
@@ -297,8 +281,7 @@ func ec2DiscardWorkload(ctx context.Context, instanceID string) {
 	}
 }
 
-// ec2WorkloadHandle is the handle of an instance's running machine, for a
-// command Systems Manager runs on it.
+// Systems Manager runs commands through this handle.
 func ec2WorkloadHandle(instanceID string) (placement.Handle, bool) {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -307,7 +290,6 @@ func ec2WorkloadHandle(instanceID string) (placement.Handle, bool) {
 	return machines.Handle(instanceID)
 }
 
-// ec2RunningMachines lists the instances whose machines run.
 func ec2RunningMachines() []machine.RunningMachine {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -316,8 +298,7 @@ func ec2RunningMachines() []machine.RunningMachine {
 	return machines.Running()
 }
 
-// ec2RebootWorkload restarts an instance's machine in place: the init stops
-// and boots again on the same root disk while the instance stays running.
+// The instance stays running while the init restarts on the same root disk.
 func ec2RebootWorkload(ctx context.Context, instanceID string) error {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -336,8 +317,7 @@ func ec2RebootWorkload(ctx context.Context, instanceID string) error {
 	return machines.Boot(ctx, instanceID, workload)
 }
 
-// ec2CommitWorkload captures an instance's root disk as an OCI image under
-// reference: the image an AMI created from the instance boots.
+// An AMI created from the instance boots this image.
 func ec2CommitWorkload(ctx context.Context, instanceID, reference string) error {
 	machines := ec2MachinesIfAny()
 	if machines == nil {
@@ -352,8 +332,7 @@ func ec2CommitWorkload(ctx context.Context, instanceID, reference string) error 
 	return nil
 }
 
-// ec2Boot is a pending instance's boot, which stopping or terminating the
-// instance cancels rather than waits out.
+// Stopping or terminating cancels the boot rather than waiting it out.
 type ec2Boot struct {
 	cancel context.CancelFunc
 }
@@ -363,8 +342,7 @@ var (
 	ec2Boots  = map[string]*ec2Boot{}
 )
 
-// ec2CancelBoot cancels the boot of an instance still launching, as EC2 stops
-// a pending instance without waiting for it to come up.
+// Amazon EC2 stops a pending instance without waiting for it to come up.
 func ec2CancelBoot(instanceID string) {
 	ec2BootMu.Lock()
 	defer ec2BootMu.Unlock()
@@ -373,12 +351,10 @@ func ec2CancelBoot(instanceID string) {
 	}
 }
 
-// ec2LaunchInstance boots a pending instance and reports it running only once
-// its machine is up, calling booted just before. A failed launch terminates
-// the instance with the Server.InternalError state reason EC2 reports for it;
-// a failed start leaves a stopped instance stopped with its root disk. Either
-// returns the boot error. launched is false when the instance is gone or was
-// stopped or terminated while it booted.
+// Reports running only once the machine is up, calling booted just before. A
+// failed launch terminates with the Server.InternalError state reason; a
+// failed start leaves a stopped instance stopped with its root disk. launched
+// is false when the instance is gone, or was stopped or terminated meanwhile.
 func ec2LaunchInstance(instanceID string, booted func()) (launched bool, err error) {
 	inst, ok := ec2Instances.Get(instanceID)
 	if !ok {
@@ -436,8 +412,7 @@ func ec2LaunchInstance(instanceID string, booted func()) (launched bool, err err
 	return true, nil
 }
 
-// ec2StartInstance boots a stopped instance again: pending while its machine
-// boots, running once the init is ready.
+// pending while the machine boots, running once the init is ready.
 func ec2StartInstance(instanceID string) {
 	bg.Go(func() {
 		if _, err := ec2LaunchInstance(instanceID, nil); err != nil {
@@ -446,8 +421,7 @@ func ec2StartInstance(instanceID string) {
 	})
 }
 
-// ec2FinishHalt stops or terminates an instance's machine in the background
-// and records the final state once the machine is down.
+// Records the final state once the machine is down.
 func ec2FinishHalt(instanceID, next string) {
 	bg.Go(func() {
 		ctx := context.Background()
@@ -468,8 +442,7 @@ func ec2FinishHalt(instanceID, next string) {
 	})
 }
 
-// recoverEC2Instances adopts the machines a previous simulator process left
-// for the instances the store keeps, and settles the instances whose
+// Adopt the machines a previous process left and settle instances whose
 // machines are gone.
 func recoverEC2Instances() error {
 	if !sim.HasPersistentWorkloadIdentity() {
@@ -522,10 +495,8 @@ func ec2SettleInstanceWithoutMachine(inst EC2Instance) {
 	}
 }
 
-// ec2AdoptInstanceMachine takes over a machine the previous process placed: a
-// running one keeps the instance running, a stopped one is the kept root disk
-// of a stopped instance, and a machine of an instance that was terminating
-// is discarded.
+// A running machine keeps the instance running, a stopped one is the kept
+// root disk, and a terminating instance's machine is discarded.
 func ec2AdoptInstanceMachine(ctx context.Context, machines *machine.Manager, inst EC2Instance, existing placement.Existing) error {
 	workload, err := ec2InstanceWorkload(ctx, inst)
 	if err != nil {

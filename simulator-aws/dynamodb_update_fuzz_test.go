@@ -2,9 +2,7 @@ package main
 
 import "testing"
 
-// FuzzDDBUpdateExpression fuzzes the DynamoDB UpdateExpression parser+applier
-// (SET/REMOVE/ADD/DELETE) with hostile expressions against well-formed and
-// malformed items. It must return an error or apply, never panic, hang, or OOM.
+// It must return an error or apply, never panic, hang or exhaust memory.
 func FuzzDDBUpdateExpression(f *testing.F) {
 	seeds := []string{
 		"",

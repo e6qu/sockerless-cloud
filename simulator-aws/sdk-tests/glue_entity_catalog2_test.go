@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_CustomEntityType_SDK round-trips a custom entity type through
-// Create/Get/List/Delete.
 func TestGlue_CustomEntityType_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -51,8 +49,6 @@ func TestGlue_CustomEntityType_SDK(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestGlue_UsageProfile_SDK round-trips a usage profile through
-// Create/Get/List/Update/Delete.
 func TestGlue_UsageProfile_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -112,10 +108,6 @@ func TestGlue_UsageProfile_SDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestGlue_SchemaMetadata_SDK exercises ListSchemas, UpdateSchema,
-// UpdateRegistry, CheckSchemaVersionValidity, schema-version metadata
-// (Put/Query/Remove), and GetSchemaVersionsDiff against the schema/registry
-// stores.
 func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -143,7 +135,7 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	versionID := aws.ToString(createSchema.SchemaVersionId)
 	require.NotEmpty(t, versionID)
 
-	// RegisterSchemaVersion adds version 2 so the diff has two versions.
+	// Version 2 gives the diff two versions.
 	reg2, err := c.RegisterSchemaVersion(ctx, &glue.RegisterSchemaVersionInput{
 		SchemaId:         &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		SchemaDefinition: aws.String(`{"type":"record","name":"r","fields":[{"name":"x","type":"string"}]}`),
@@ -151,7 +143,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, aws.ToInt64(reg2.VersionNumber))
 
-	// ListSchemas finds the schema in the registry.
 	listSchemas, err := c.ListSchemas(ctx, &glue.ListSchemasInput{
 		RegistryId: &gluetypes.RegistryId{RegistryName: aws.String(reg)},
 	})
@@ -164,7 +155,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	}
 	assert.True(t, foundSchema)
 
-	// UpdateSchema changes the compatibility + description.
 	updSchema, err := c.UpdateSchema(ctx, &glue.UpdateSchemaInput{
 		SchemaId:      &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		Compatibility: gluetypes.CompatibilityFull,
@@ -179,7 +169,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, gluetypes.CompatibilityFull, getSchema.Compatibility)
 
-	// UpdateRegistry sets the registry description.
 	updReg, err := c.UpdateRegistry(ctx, &glue.UpdateRegistryInput{
 		RegistryId:  &gluetypes.RegistryId{RegistryName: aws.String(reg)},
 		Description: aws.String("registry desc"),
@@ -187,7 +176,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, reg, aws.ToString(updReg.RegistryName))
 
-	// CheckSchemaVersionValidity for a valid + invalid definition.
 	valid, err := c.CheckSchemaVersionValidity(ctx, &glue.CheckSchemaVersionValidityInput{
 		DataFormat:       gluetypes.DataFormatAvro,
 		SchemaDefinition: aws.String(`{"type":"record"}`),
@@ -203,7 +191,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	assert.False(t, invalid.Valid)
 	assert.NotEmpty(t, aws.ToString(invalid.Error))
 
-	// PutSchemaVersionMetadata + QuerySchemaVersionMetadata + Remove.
 	put, err := c.PutSchemaVersionMetadata(ctx, &glue.PutSchemaVersionMetadataInput{
 		SchemaVersionId: aws.String(versionID),
 		MetadataKeyValue: &gluetypes.MetadataKeyValuePair{
@@ -232,7 +219,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "owner", aws.ToString(rem.MetadataKey))
 
-	// GetSchemaVersionsDiff between version 1 and 2.
 	diff, err := c.GetSchemaVersionsDiff(ctx, &glue.GetSchemaVersionsDiffInput{
 		SchemaId:                  &gluetypes.SchemaId{RegistryName: aws.String(reg), SchemaName: aws.String(sch)},
 		FirstSchemaVersionNumber:  &gluetypes.SchemaVersionNumber{VersionNumber: aws.Int64(1)},
@@ -243,7 +229,6 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(diff.Diff))
 }
 
-// TestGlue_SearchTables_SDK creates tables and searches the catalog store.
 func TestGlue_SearchTables_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -279,7 +264,6 @@ func TestGlue_SearchTables_SDK(t *testing.T) {
 	}
 	assert.True(t, foundLink)
 
-	// Filter by DatabaseName narrows to the two tables we created.
 	byDB, err := c.SearchTables(ctx, &glue.SearchTablesInput{
 		Filters: []gluetypes.PropertyPredicate{
 			{Key: aws.String("databaseName"), Value: aws.String(db)},
@@ -289,10 +273,6 @@ func TestGlue_SearchTables_SDK(t *testing.T) {
 	assert.GreaterOrEqual(t, len(byDB.TableList), 2)
 }
 
-// TestGlue_CodeGen_SDK exercises the code-generation helpers (GetMapping,
-// GetPlan, GetDataflowGraph, CreateScript, GetDashboardUrl), source-control
-// sync (UpdateJobFromSourceControl / UpdateSourceControlFromJob),
-// UpdateUserDefinedFunction, and GetResourcePolicies.
 func TestGlue_CodeGen_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -324,7 +304,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// GetMapping derives a 1:1 column mapping from the source table.
 	mapping, err := c.GetMapping(ctx, &glue.GetMappingInput{
 		Source: &gluetypes.CatalogEntry{DatabaseName: aws.String(db), TableName: aws.String(srcTable)},
 	})
@@ -332,7 +311,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.Len(t, mapping.Mapping, 2)
 	assert.Equal(t, "id", aws.ToString(mapping.Mapping[0].SourcePath))
 
-	// GetPlan produces a Python script from the mapping.
 	plan, err := c.GetPlan(ctx, &glue.GetPlanInput{
 		Mapping:  mapping.Mapping,
 		Source:   &gluetypes.CatalogEntry{DatabaseName: aws.String(db), TableName: aws.String(srcTable)},
@@ -341,14 +319,12 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(plan.PythonScript), "glueContext")
 
-	// GetDataflowGraph parses the script back to a DAG.
 	graph, err := c.GetDataflowGraph(ctx, &glue.GetDataflowGraphInput{
 		PythonScript: plan.PythonScript,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, graph.DagNodes)
 
-	// CreateScript generates a script from a DAG.
 	script, err := c.CreateScript(ctx, &glue.CreateScriptInput{
 		DagNodes: []gluetypes.CodeGenNode{
 			{Id: aws.String("source0"), NodeType: aws.String("DataSource"), Args: []gluetypes.CodeGenNodeArg{
@@ -360,7 +336,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(script.PythonScript), "source0")
 
-	// GetDashboardUrl returns a shaped URL.
 	url, err := c.GetDashboardUrl(ctx, &glue.GetDashboardUrlInput{
 		ResourceId:   aws.String("session-1"),
 		ResourceType: gluetypes.GlueResourceTypeSession,
@@ -368,7 +343,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(url.Url), "session-1")
 
-	// A job for source-control sync.
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-codegen-job"),
 		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
@@ -399,7 +373,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "glue-sdk-codegen-job", aws.ToString(updToSC.JobName))
 
-	// UpdateUserDefinedFunction on an existing UDF.
 	_, err = c.CreateUserDefinedFunction(ctx, &glue.CreateUserDefinedFunctionInput{
 		DatabaseName: aws.String(db),
 		FunctionInput: &gluetypes.UserDefinedFunctionInput{
@@ -430,7 +403,6 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "com.example.New", aws.ToString(getUDF.UserDefinedFunction.ClassName))
 
-	// GetResourcePolicies returns the stored catalog resource policy.
 	glueCatalogPolicy.Lock()
 	t.Cleanup(glueCatalogPolicy.Unlock)
 	_, err = c.PutResourcePolicy(ctx, &glue.PutResourcePolicyInput{
@@ -444,8 +416,8 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	assert.GreaterOrEqual(t, len(pols.GetResourcePoliciesResponseList), 1)
 }
 
-// TestGlue_IdentityCenter_SDK round-trips the singleton Glue Identity Center
-// configuration through Create/Get/Update/Delete.
+// TestGlue_IdentityCenter_SDK round-trips the account's single AWS Glue
+// Identity Center configuration.
 func TestGlue_IdentityCenter_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()

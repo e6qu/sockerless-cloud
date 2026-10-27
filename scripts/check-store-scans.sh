@@ -2,22 +2,11 @@
 # check-store-scans.sh — hold the number of full store reads on a path that
 # every request pays to a count that may only fall.
 #
-# A CPU profile of the deployed AWS simulator, taken while twelve concurrent
-# requests were in flight against one load-balanced application, attributed
-# 84.8% of all its CPU to one function and 99.7% of that to a single
-# `ecsTasks.List()` — JSON-decoding every stored Amazon ECS task, stopped ones
-# included, once per proxied request, to find the one holding a target's ENI
-# address. The guest has two vCPUs, so the data plane ran at an effective
-# concurrency of two and the symptom was thirty-second browser timeouts rather
-# than ordinary slowness.
-#
-# It was reported as one function's problem. It was a class: the load
-# balancer's own hostname match had the identical shape on a hotter path — a
-# handler wrapper, so every request into the simulator paid it before any
-# handler ran, an Amazon DynamoDB call as much as a proxied page load — and it
-# was invisible only because a deployment holds a handful of load balancers
-# against a few hundred tasks. Nothing but a profile of a live deployment would
-# have found either, which is why this counts the shape instead.
+# A List decodes every row it holds, so a full store read on a path every
+# request pays makes each request cost the whole store: a proxied request that
+# decoded every stored Amazon ECS task to find one target's address capped the
+# data plane at the guest's vCPU count. Profiles of live deployments find these
+# one at a time; this counts the shape instead.
 #
 # The fix is an index keyed by the store's Generation: see
 # sim/index.go for the shared implementation, and
@@ -45,53 +34,9 @@ readonly SCAN_DIRS=(
 	ui-auth
 )
 
-# What the floor holds, and what it no longer counts.
-#
-# The analyzer stopped counting a scan whose function also reads the same
-# store's Generation() — that is the amortized rebuild of a generation-keyed
-# index, the fix itself, and counting it meant the floor could never reach
-# zero however completely the class was converted.
-#
-# Every single-row-by-stable-key lookup on a request path is converted: the
-# handler wrappers, the AWS WAF ARN resolutions (web ACL, IP set, regex set,
-# rule group), the Azure storage-account-by-name lookups behind the storage
-# data plane's authorization, the resource-group and Service Bus namespace
-# resolutions, and the managed-identity principal check.
-#
-# The parent-scoped collections are converted too. A resource identifier's
-# every "/"-terminated prefix is a key -- sim.PathPrefixes builds them -- so one
-# index per store answers a direct child collection and a cascading delete
-# alike: the Service Bus admin listings and their deletes, the Key Vault
-# per-vault listings, the Azure Files share families (objects, directories,
-# leases, permissions, snapshots, deleted shares), the Table service's entity
-# query and table deletion, the AWS Amplify hosted job
-# and artifact lookups, and the Route 53 CNAME searches that AWS Certificate
-# Manager and Amplify domain verification both make. The Shared Access
-# Signature rules the messaging host authenticates against are keyed by every
-# `/namespaces/` suffix of their identifier, which is exactly the HasSuffix
-# question the scan asked.
-#
-# The backend-address-pool joins converted as well, on the observation that a
-# pool identifier is a stable key: a workload joins a load balancer's backend
-# and an application gateway's the same way, through its own network
-# interface, so one index over the interfaces answers both. The same
-# observation took the ELBv2 listener a proxied request lands on (keyed by
-# load balancer and port), the target-group-in-use check (listeners and rules
-# keyed by the target groups their actions forward to), and Event Grid
-# delivery (subscriptions keyed by the scopes they belong to).
-#
-# The class is closed: the last seven fell to the same re-examination the
-# floor's own warning demanded. The five AWS Certificate Manager ACME scans
-# were keyed lookups after all — accounts and key changes by endpoint + JWK
-# thumbprint, external bindings by endpoint + key identifier, prevalidated
-# domains by endpoint + base domain (with reconciliation applied to the rows
-# the key narrows to, not to every row), and revocation by the digest of the
-# presented certificate's DER. CloudTrail delivery reads a constant-keyed
-# index of logging trails, made stable by moving the per-delivery
-# LatestDelivery timestamp into its own store, so delivering an event stops
-# re-keying the trails. The role-assignment listing reads the whole
-# collection from a constant-keyed index, decoding the store once per
-# mutation instead of once per request.
+# The analyzer does not count a scan whose function also reads the same
+# store's Generation(): that is the amortized rebuild of a generation-keyed
+# index, the fix itself.
 #
 # The floor is zero. A new scan on a request path is a regression, not a
 # candidate for an exemption paragraph here: every exemption this file ever

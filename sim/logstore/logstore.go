@@ -50,7 +50,6 @@ type Log[V any] struct {
 	locks   *sim.KeyedLocks
 }
 
-// New returns a Log over the given stores.
 func New[V any](entries sim.Store[Entry[V]], heads sim.Store[Head]) *Log[V] {
 	return &Log[V]{entries: entries, heads: heads, locks: sim.NewKeyedLocks()}
 }
@@ -136,7 +135,6 @@ func (l *Log[V]) Values(scope string) []V {
 	return out
 }
 
-// Head returns scope's bookkeeping.
 func (l *Log[V]) Head(scope string) Head {
 	h, _ := l.heads.Get(scope)
 	return h

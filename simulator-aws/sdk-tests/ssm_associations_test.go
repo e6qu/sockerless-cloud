@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmEnsureDoc creates a Command document the association/automation/command
-// flows reference and registers tolerant cleanup.
+// ssmEnsureDoc creates a Command document and registers its cleanup.
 func ssmEnsureDoc(t *testing.T, c *ssm.Client, name string) {
 	t.Helper()
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
@@ -30,10 +29,9 @@ func ssmEnsureDoc(t *testing.T, c *ssm.Client, name string) {
 	})
 }
 
-// TestSSM_AssociationLifecycle pins the State Manager association control
-// plane: create a binding, describe it (settles to Success), list it, version
-// it via update, read execution history + targets + effective-instance views,
-// run it once, and delete.
+// TestSSM_AssociationLifecycle covers a State Manager association: it settles
+// to Success, versions on update, records executions, targets and effective
+// instance views, runs once on demand, and deletes.
 func TestSSM_AssociationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -58,13 +56,12 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 		_, _ = c.DeleteAssociation(ctx, &ssm.DeleteAssociationInput{AssociationId: aws.String(assocID)})
 	})
 
-	// Describe settles Pending -> Success.
+	// The association settles from Pending to Success.
 	desc, err := c.DescribeAssociation(ctx, &ssm.DescribeAssociationInput{AssociationId: aws.String(assocID)})
 	require.NoError(t, err)
 	require.NotNil(t, desc.AssociationDescription.Status)
 	assert.Equal(t, ssmtypes.AssociationStatusNameSuccess, desc.AssociationDescription.Status.Name)
 
-	// List includes our association.
 	list, err := c.ListAssociations(ctx, &ssm.ListAssociationsInput{})
 	require.NoError(t, err)
 	found := false
@@ -75,7 +72,7 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "ListAssociations must include the created association")
 
-	// Update bumps the version to 2.
+	// Update makes version 2.
 	upd, err := c.UpdateAssociation(ctx, &ssm.UpdateAssociationInput{
 		AssociationId:      aws.String(assocID),
 		ScheduleExpression: aws.String("rate(60 minutes)"),
@@ -83,12 +80,10 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2", aws.ToString(upd.AssociationDescription.AssociationVersion))
 
-	// Version history has both 1 and 2.
 	vers, err := c.ListAssociationVersions(ctx, &ssm.ListAssociationVersionsInput{AssociationId: aws.String(assocID)})
 	require.NoError(t, err)
 	assert.Len(t, vers.AssociationVersions, 2)
 
-	// UpdateAssociationStatus by (Name, InstanceId).
 	_, err = c.UpdateAssociationStatus(ctx, &ssm.UpdateAssociationStatusInput{
 		Name:       aws.String(docName),
 		InstanceId: aws.String(instanceID),
@@ -100,13 +95,11 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// StartAssociationsOnce produces an execution.
 	_, err = c.StartAssociationsOnce(ctx, &ssm.StartAssociationsOnceInput{
 		AssociationIds: []string{assocID},
 	})
 	require.NoError(t, err)
 
-	// Execution history.
 	execs, err := c.DescribeAssociationExecutions(ctx, &ssm.DescribeAssociationExecutionsInput{
 		AssociationId: aws.String(assocID),
 	})
@@ -114,7 +107,6 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	require.NotEmpty(t, execs.AssociationExecutions)
 	execID := aws.ToString(execs.AssociationExecutions[0].ExecutionId)
 
-	// Execution targets.
 	tgts, err := c.DescribeAssociationExecutionTargets(ctx, &ssm.DescribeAssociationExecutionTargetsInput{
 		AssociationId: aws.String(assocID),
 		ExecutionId:   aws.String(execID),
@@ -123,7 +115,6 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	require.NotEmpty(t, tgts.AssociationExecutionTargets)
 	assert.Equal(t, instanceID, aws.ToString(tgts.AssociationExecutionTargets[0].ResourceId))
 
-	// Effective instance associations.
 	eff, err := c.DescribeEffectiveInstanceAssociations(ctx, &ssm.DescribeEffectiveInstanceAssociationsInput{
 		InstanceId: aws.String(instanceID),
 	})
@@ -131,7 +122,6 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	require.NotEmpty(t, eff.Associations)
 	assert.Equal(t, assocID, aws.ToString(eff.Associations[0].AssociationId))
 
-	// Instance association status.
 	st, err := c.DescribeInstanceAssociationsStatus(ctx, &ssm.DescribeInstanceAssociationsStatusInput{
 		InstanceId: aws.String(instanceID),
 	})
@@ -139,8 +129,8 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 	require.NotEmpty(t, st.InstanceAssociationStatusInfos)
 }
 
-// TestSSM_AssociationBatch pins CreateAssociationBatch — one entry referencing
-// a real document succeeds, one referencing a missing document fails.
+// TestSSM_AssociationBatch expects an entry naming an existing document to
+// succeed and one naming a missing document to fail.
 func TestSSM_AssociationBatch(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -168,9 +158,9 @@ func TestSSM_AssociationBatch(t *testing.T) {
 	})
 }
 
-// TestSSM_AutomationLifecycle pins the Automation control plane: start an
-// execution against a document, read it back (Success with a step), list,
-// inspect step executions, signal, stop, plus a change-request execution.
+// TestSSM_AutomationLifecycle covers an Automation execution that settles
+// Success with a step, its step executions, a signal and a stop, and a
+// change-request execution.
 func TestSSM_AutomationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -232,8 +222,6 @@ func TestSSM_AutomationLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(cr.AutomationExecutionId))
 }
 
-// TestSSM_AutomationExecutionPreview pins StartExecutionPreview /
-// GetExecutionPreview.
 func TestSSM_AutomationExecutionPreview(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -255,10 +243,9 @@ func TestSSM_AutomationExecutionPreview(t *testing.T) {
 	require.NotNil(t, get.ExecutionPreview)
 }
 
-// TestSSM_CommandLifecycle pins Run Command: send a command to a managed
-// instance, list it, list invocations, fetch the per-instance invocation with
-// the output the command wrote, then cancel. A target that is no managed
-// node fails the request.
+// TestSSM_CommandLifecycle sends a command to a managed instance, reads the
+// invocation with the output the command wrote, and cancels; a target that is
+// no managed node fails the request.
 func TestSSM_CommandLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -271,9 +258,9 @@ func TestSSM_CommandLifecycle(t *testing.T) {
 	})
 	requireAWSErrorCode(t, err, "InvalidInstanceId")
 
-	// A running instance whose profile does not let SSM Agent register it is
-	// no managed node: Run Command refuses it and DescribeInstanceInformation
-	// does not list it.
+	// A running instance whose profile does not let SSM Agent register it is no
+	// managed node: Run Command refuses it and DescribeInstanceInformation does
+	// not list it.
 	ec2c := ec2Client()
 	unmanaged := launchInstanceFor(t, ec2c, "10.168.0.0/16")
 	waitForEC2InstanceRunning(t, ec2c, unmanaged)
@@ -369,8 +356,7 @@ func waitForSSMCommandExecuted(t *testing.T, c *ssm.Client, commandID, instanceI
 		o.MaxDelay = waiterMaxDelay
 	}).WaitForOutput(ctx, &ssm.GetCommandInvocationInput{CommandId: aws.String(commandID), InstanceId: aws.String(instanceID)}, 2*time.Minute)
 	if err != nil {
-		// The waiter stops on Failed too, which is a result to read, not an
-		// error to fail on.
+		// The waiter stops on Failed too, which is a result to read, not an error.
 		got, getErr := c.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{CommandId: aws.String(commandID), InstanceId: aws.String(instanceID)})
 		require.NoError(t, getErr)
 		require.Contains(t, []ssmtypes.CommandInvocationStatus{ssmtypes.CommandInvocationStatusFailed, ssmtypes.CommandInvocationStatusTimedOut}, got.Status, "waiter: %v", err)

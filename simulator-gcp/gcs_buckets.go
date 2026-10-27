@@ -10,9 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/blobstore"
 )
 
-// registerGCSBuckets mounts the bucket resource of the JSON API.
 func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
-	// Create bucket
 	srv.HandleFunc("POST /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
 		var data map[string]any
 		if err := sim.ReadJSON(r, &data); err != nil {
@@ -49,7 +47,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		data["etag"] = "CAE="
 		data["timeCreated"] = now
 		data["updated"] = now
-		// GCS normalizes bucket locations to upper-case on read; echo that or
+		// Cloud Storage reads locations back in upper case; echo that or
 		// terraform-provider-google replaces the bucket (location is ForceNew).
 		location := "US"
 		if loc, ok := data["location"].(string); ok && loc != "" {
@@ -75,11 +73,9 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		sim.WriteJSON(w, http.StatusOK, data)
 	})
 
-	// Get bucket
 	srv.HandleFunc("GET /storage/v1/b/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 
-		// Don't match if the path continues with /o (objects)
 		if strings.Contains(r.URL.Path, "/o/") || strings.HasSuffix(r.URL.Path, "/o") {
 			return
 		}
@@ -92,12 +88,9 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		sim.WriteJSON(w, http.StatusOK, bucket.Data)
 	})
 
-	// Patch / Update bucket. The Go storage client's BucketHandle.Update
-	// and terraform-provider-google send PATCH (PUT for full Update) to
-	// mutate versioning/lifecycle/labels/iamConfiguration/retentionPolicy.
-	// The bucket stores its JSON verbatim, so apply the patch body as a
-	// top-level field merge into that map. `labels` honours GCS null-value-
-	// deletes semantics (a null label value removes the key).
+	// BucketHandle.Update and terraform-provider-google send PATCH (PUT for a
+	// full update) to change versioning, lifecycle, labels, iamConfiguration and
+	// retentionPolicy; merge the body into the stored JSON.
 	patchBucket := func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		if strings.Contains(r.URL.Path, "/o/") || strings.HasSuffix(r.URL.Path, "/o") {
@@ -123,7 +116,6 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}", patchBucket)
 
-	// Get bucket storage layout
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/storageLayout", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 		bucket, ok := buckets.Get(bucketName)
@@ -151,7 +143,6 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		})
 	})
 
-	// Delete bucket
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}", func(w http.ResponseWriter, r *http.Request) {
 		bucketName := sim.PathParam(r, "bucket")
 
@@ -172,7 +163,6 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// List buckets
 	srv.HandleFunc("GET /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		if project == "" {
@@ -356,7 +346,7 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 }
 
 func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject], bucketExists func(http.ResponseWriter, string) bool) {
-	// bucket IAM testPermissions (getIamPolicy/setIamPolicy already live in iam.go)
+	// iam.go serves the bucket's getIamPolicy and setIamPolicy.
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {
@@ -366,7 +356,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			gcsIAMResource(bucket, "projects/_/buckets/"+bucket, "storage.googleapis.com/Bucket"))
 	})
 
-	// lockRetentionPolicy / restore both return the Bucket resource.
+	// lockRetentionPolicy and restore answer the Bucket resource.
 	returnBucket := func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		b, ok := buckets.Get(bucket)
@@ -402,8 +392,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			destination = "US"
 		}
 		if !request.ValidateOnly {
-			// GCS normalizes a bucket's location to upper case, the same way
-			// the create path does.
+			// Cloud Storage reads a location back in upper case, as on create.
 			bucket.Data["location"] = strings.ToUpper(destination)
 			bucket.Data["locationType"] = gcsLocationType(destination)
 			if request.DestinationCustomPlacementConfig != nil {
@@ -422,10 +411,8 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, name, nil))
 	})
 
-	// Bucket operations: list / get / cancel / advanceRelocateBucket. Every
-	// answer here is about a record the bucket's long-running methods wrote —
-	// an identifier no method minted is NOT_FOUND, as it is in real Cloud
-	// Storage.
+	// The bucket operations answer only for records the bucket's long-running
+	// methods wrote; any other identifier is NOT_FOUND, as in Cloud Storage.
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/operations", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {
@@ -460,21 +447,17 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		}
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
-	// The method's own description is that cancellation is best effort and
-	// that a client polls the operation to learn whether it succeeded or the
-	// operation completed anyway. Every operation this simulator records is
-	// already complete when its name reaches a client, so the completed
-	// outcome is the honest one: the record stands and the empty body the
-	// document declares comes back.
+	// Cancellation is best effort, and every operation the simulator records is
+	// complete before a client sees its name, so the record stands and the
+	// declared empty body comes back.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/operations/{operationId}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := gcsLookupOperation(w, r, bucketExists); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	// Advancing a relocation is best effort for the same reason: the write
-	// downtime it schedules belongs to a relocation still in flight, and this
-	// simulator's relocations finish inside the request that starts them.
+	// Advancing a relocation is best effort too: the simulator's relocations
+	// finish inside the request that starts them.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/operations/{operationId}/advanceRelocateBucket", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := gcsLookupOperation(w, r, bucketExists); !ok {
 			return
@@ -487,8 +470,8 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Metadata-only object insert (objects.insert with no media upload).
-	// Creates a zero-length object from the supplied resource fields.
+	// objects.insert without media creates a zero-length object from the
+	// resource fields.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/o", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {

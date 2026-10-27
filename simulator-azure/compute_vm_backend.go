@@ -19,22 +19,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/vminstance"
 )
 
-// A virtual machine runs as an instance on the backend the placement table
-// names for virtualmachines: the OCI image its imageReference resolves to,
-// its primary interface's leased address on its virtual network's engine
-// network, that network's sidecar as resolver and metadata endpoint, and the
-// instance init that runs its customData once and keeps the machine up. The
-// instance's filesystem is the machine's OS disk: a stop or deallocate keeps
-// it for the next start, a capture commits it, a delete discards it unless
-// the disk's deleteOption says Detach.
+// A virtual machine runs as an instance on the placement backend for
+// virtualmachines: its resolved OCI image, its primary interface's address on
+// its virtual network's engine network, the sidecar as resolver and metadata
+// endpoint, and an instance init that runs customData once. The instance's
+// filesystem is the OS disk: stop and deallocate keep it, a capture commits
+// it, a delete discards it unless its deleteOption says Detach.
 
 const (
 	azureVMLabelType = "azure-vm"
 	azureVMLabelID   = "sockerless-azure-vm"
 )
 
-// azureVMMachine is what a machine booted with: the address and the record
-// the instance metadata service answers it by.
+// azureVMMachine is the address and record the Instance Metadata Service
+// answers the machine by.
 type azureVMMachine struct {
 	vmID     string
 	address  string
@@ -44,15 +42,13 @@ type azureVMMachine struct {
 var (
 	azureVMMachinesMu sync.Mutex
 	azureVMMachines   *machine.Manager
-	// azureVMBooted is the azureVMMachine of each machine by its key.
-	azureVMBooted sync.Map
+	azureVMBooted     sync.Map
 )
 
 func azureVMKey(vmID string) string { return strings.ToLower(vmID) }
 
-// azureVMManager is the manager of the machines, on the backend the placement
-// table gives virtual machines; it is made at the first boot or adoption,
-// once the backends are registered.
+// azureVMManager is made at the first boot or adoption, once the backends are
+// registered.
 func azureVMManager() (*machine.Manager, error) {
 	azureVMMachinesMu.Lock()
 	defer azureVMMachinesMu.Unlock()
@@ -71,7 +67,6 @@ func azureVMManager() (*machine.Manager, error) {
 	return azureVMMachines, nil
 }
 
-// azureVMManagerIfAny is the manager when a machine was ever booted or adopted.
 func azureVMManagerIfAny() *machine.Manager {
 	azureVMMachinesMu.Lock()
 	defer azureVMMachinesMu.Unlock()
@@ -87,8 +82,8 @@ func azureVMBootedAs(key string) (*azureVMMachine, bool) {
 	return booted, ok
 }
 
-// azureVMBooting lets the instance metadata service answer the machine from
-// its first instruction, as cloud-init reads it before the guest is ready.
+// The Instance Metadata Service answers from the first instruction, as
+// cloud-init reads it before the guest is ready.
 func azureVMBooting(key string) {
 	if booted, ok := azureVMBootedAs(key); ok {
 		azureMetadataVMsByIP.Store(booted.address, booted.metadata)
@@ -101,14 +96,12 @@ func azureVMDown(key string) {
 	}
 }
 
-// azureVMShutDown moves a machine whose guest ended on its own to stopped.
 func azureVMShutDown(key string) {
 	if booted, ok := azureVMBootedAs(key); ok {
 		azureVMStates.Update(booted.vmID, func(state *string) { *state = "PowerState/stopped" })
 	}
 }
 
-// azureRunningVM is a machine that runs, with what it booted with.
 type azureRunningVM struct {
 	booted *azureVMMachine
 	handle placement.Handle
@@ -128,7 +121,6 @@ func azureRunningVMs() []azureRunningVM {
 	return out
 }
 
-// azureVMHandle is the handle of a machine's running instance.
 func azureVMHandle(vmID string) (placement.Handle, bool) {
 	machines := azureVMManagerIfAny()
 	if machines == nil {
@@ -137,7 +129,6 @@ func azureVMHandle(vmID string) (placement.Handle, bool) {
 	return machines.Handle(azureVMKey(vmID))
 }
 
-// azureVMSizeSpec is the cores and memory of a size the catalogue offers.
 func azureVMSizeSpec(name string) (cores, memoryMB int, ok bool) {
 	for _, size := range azureVMSizeCatalogue() {
 		if sizeName, _ := size["name"].(string); strings.EqualFold(sizeName, name) {
@@ -149,9 +140,8 @@ func azureVMSizeSpec(name string) (cores, memoryMB int, ok bool) {
 	return 0, 0, false
 }
 
-// azureValidateVMRequest applies the request-validation rules a machine write
-// meets before the Compute resource provider provisions it: its network
-// profile, its image and its size.
+// azureValidateVMRequest applies the request validation a machine write meets
+// before provisioning.
 func azureValidateVMRequest(ctx context.Context, vm VirtualMachine) *azureVMRequestFault {
 	if fault := azureValidateVMNetworkProfile(vm); fault != nil {
 		return fault
@@ -172,8 +162,7 @@ func azureValidateVMRequest(ctx context.Context, vm VirtualMachine) *azureVMRequ
 	return nil
 }
 
-// azureVMCustomData is the script osProfile.customData carries, which
-// cloud-init runs once at first boot.
+// cloud-init runs osProfile.customData once at first boot.
 func azureVMCustomData(vm VirtualMachine) ([]byte, error) {
 	encoded, _ := vm.Properties.OSProfile["customData"].(string)
 	if encoded == "" {
@@ -186,9 +175,8 @@ func azureVMCustomData(vm VirtualMachine) ([]byte, error) {
 	return data, nil
 }
 
-// azureVMCloudInit is the image's cloud-init as Azure's datasource feeds it:
-// the machine's vmId, and its osProfile's adminUsername as the default user
-// with the linuxConfiguration's public keys.
+// azureVMCloudInit feeds cloud-init as Azure's datasource does: the vmId, and
+// adminUsername as the default user with the linuxConfiguration's public keys.
 func azureVMCloudInit(vm VirtualMachine) *vminstance.CloudInit {
 	ci := &vminstance.CloudInit{Platform: "azure", Datasource: "DataSourceAzure [seed=/dev/sr0]", InstanceID: vm.Properties.VMID}
 	ci.DefaultUser, _ = vm.Properties.OSProfile["adminUsername"].(string)
@@ -204,8 +192,8 @@ func azureVMCloudInit(vm VirtualMachine) *vminstance.CloudInit {
 	return ci
 }
 
-// azureVMInstanceSpec builds the instance the machine runs as, realizing its
-// virtual network's engine network and sidecar on the way.
+// azureVMInstanceSpec realizes the virtual network's engine network and
+// sidecar on the way.
 func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spec, azureMetadataVM, error) {
 	if fault := azureValidateVMNetworkProfile(vm); fault != nil {
 		return vminstance.Spec{}, azureMetadataVM{}, fault
@@ -258,10 +246,8 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 	return spec, azureMetadataVM{VM: vm, NIC: nic, SubnetID: subnetID}, nil
 }
 
-// azureBootVMWorkload places the machine, or starts its kept OS disk again,
-// and reports it running once the instance init is ready. A machine already
-// running stays as it is. A guest that never becomes ready is stopped with
-// its OS disk kept.
+// azureBootVMWorkload reports the machine running once the instance init is
+// ready. A guest that never becomes ready stops with its OS disk kept.
 func azureBootVMWorkload(ctx context.Context, vm VirtualMachine) error {
 	if _, running := azureVMHandle(vm.ID); running {
 		return nil
@@ -289,8 +275,6 @@ func azureBootVMWorkload(ctx context.Context, vm VirtualMachine) error {
 	return err
 }
 
-// azureHaltVMWorkload stops the machine's instance and keeps its OS disk. A
-// machine with no running instance is already stopped.
 func azureHaltVMWorkload(ctx context.Context, vmID string) error {
 	machines := azureVMManagerIfAny()
 	if machines == nil {
@@ -299,8 +283,6 @@ func azureHaltVMWorkload(ctx context.Context, vmID string) error {
 	return machines.Halt(ctx, azureVMKey(vmID))
 }
 
-// azureDiscardVMDisk stops the machine and removes its OS disk, for a machine
-// that is deleted or reimaged rather than stopped.
 func azureDiscardVMDisk(ctx context.Context, vmID string) error {
 	machines := azureVMManagerIfAny()
 	if machines == nil {
@@ -314,8 +296,7 @@ func azureDiscardVMDisk(ctx context.Context, vmID string) error {
 	return nil
 }
 
-// azureDestroyVMWorkload stops the machine and discards its OS disk, unless
-// the disk's deleteOption detaches it to outlive the machine.
+// azureDestroyVMWorkload keeps the OS disk when its deleteOption detaches it.
 func azureDestroyVMWorkload(ctx context.Context, vm VirtualMachine) error {
 	osDisk, _ := vm.Properties.StorageProfile["osDisk"].(map[string]any)
 	if option, _ := osDisk["deleteOption"].(string); !strings.EqualFold(option, "Detach") {
@@ -331,7 +312,6 @@ func azureDestroyVMWorkload(ctx context.Context, vm VirtualMachine) error {
 	return nil
 }
 
-// azureGuestExecInWorkload runs a shell command in the running instance.
 func azureGuestExecInWorkload(ctx context.Context, vmID, command string) (stdout, stderr []byte, exitCode int, err error) {
 	handle, ok := azureVMHandle(vmID)
 	if !ok {
@@ -344,8 +324,7 @@ func azureGuestExecInWorkload(ctx context.Context, vmID, command string) (stdout
 	return []byte(result.Stdout), []byte(result.Stderr), result.ExitCode, nil
 }
 
-// azureGuestConsoleOfWorkload reads what the instance wrote to its console,
-// across the stops of its OS disk.
+// azureGuestConsoleOfWorkload reads the console across the OS disk's stops.
 func azureGuestConsoleOfWorkload(ctx context.Context, vmID string) ([]byte, error) {
 	machines := azureVMManagerIfAny()
 	if machines == nil {
@@ -361,8 +340,7 @@ func azureGuestConsoleOfWorkload(ctx context.Context, vmID string) ([]byte, erro
 	return []byte(console), nil
 }
 
-// azureCommitVMImage commits the machine's OS disk as an OCI image under a
-// reference of the simulator's own, quiescing a running guest first.
+// azureCommitVMImage quiesces a running guest first.
 func azureCommitVMImage(ctx context.Context, vm VirtualMachine, purpose string) (vminstance.Image, error) {
 	source, err := azureResolveVMImage(ctx, vm)
 	if err != nil {
@@ -382,8 +360,7 @@ func azureCommitVMImage(ctx context.Context, vm VirtualMachine, purpose string) 
 	return vminstance.Image{OCI: reference, Architecture: source.Architecture}, nil
 }
 
-// azureExportImage reads an OCI image's bytes off the engine, which is what a
-// capture writes into the storage account as the disk.
+// A capture writes the image's bytes into the storage account as the disk.
 func azureExportImage(ctx context.Context, reference string) ([]byte, error) {
 	cli := sim.DockerClient()
 	if err := sim.RequireContainerRuntime("exporting an image"); err != nil {
@@ -401,9 +378,9 @@ func azureExportImage(ctx context.Context, reference string) ([]byte, error) {
 	return data, nil
 }
 
-// azureAdoptVMWorkloads takes over the instances a previous process of this
-// persistent simulator placed: a running one is adopted, a stopped one is the
-// machine's kept OS disk, and one whose machine is gone is removed.
+// azureAdoptVMWorkloads takes over a previous process's instances: a running
+// one is adopted, a stopped one is the kept OS disk, and one whose machine is
+// gone is removed.
 func azureAdoptVMWorkloads(ctx context.Context) {
 	if !sim.HasPersistentWorkloadIdentity() {
 		return
@@ -463,10 +440,8 @@ func azureAdoptVM(ctx context.Context, machines *machine.Manager, vm VirtualMach
 	return nil
 }
 
-// azureReleaseVMWorkloads discards what a simulator with no persistent state
-// would otherwise leave on the engine: every machine and kept OS disk,
-// detached ones included, and every image a capture committed. A persistent
-// simulator keeps both for its next run.
+// azureReleaseVMWorkloads runs only without persistent state: it discards
+// every machine, kept OS disk (detached included) and captured image.
 func azureReleaseVMWorkloads(ctx context.Context) {
 	if sim.HasPersistentWorkloadIdentity() {
 		return

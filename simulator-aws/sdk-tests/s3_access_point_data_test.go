@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An access point is an addressable front door onto one bucket, reached at
+// An access point fronts one bucket at
 // <name>-<account>.s3-accesspoint.<region>.amazonaws.com. The SDK resolves that
 // host from the access point ARN a caller passes as the bucket, so these tests
-// pass the ARN and let it, with resolution pointed at the simulator.
+// pass the ARN, with name resolution pointed at the simulator.
 
-// TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt covers the data
-// plane: an object read through the access point is the bucket's object, and
-// the access point's scope refuses what it does not name — whatever the
-// caller's own policies allow on the bucket behind it.
+// TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt expects an
+// object read through the access point to be the bucket's object, and the
+// access point's scope to refuse what it does not name, whatever the caller's
+// policies allow on the bucket.
 func TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt(t *testing.T) {
 	t.Parallel()
 	bucket := "ap-data-bucket"
@@ -76,17 +76,15 @@ func TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt(t *testing.T) 
 	require.Error(t, err, "an operation the scope does not permit is refused")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 
-	// The bucket itself is unaffected: the access point narrows the door, not
-	// the bucket behind it.
+	// The access point narrows its own path, not the bucket.
 	_, err = admin.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("private/keys")})
 	assert.NoError(t, err, "the bucket still serves what its own policies allow")
 }
 
-// TestS3_DataAccessPointConditionKeysScopeTheGrant covers
-// s3:DataAccessPointArn: a policy that grants a read only when it arrives
-// through one access point, which is how an administrator requires that data be
-// reached through a front door rather than at the bucket.
+// TestS3_DataAccessPointConditionKeysScopeTheGrant covers s3:DataAccessPointArn:
+// a policy granting a read only through one access point, which is how an
+// administrator requires data be reached through it rather than at the bucket.
 func TestS3_DataAccessPointConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	bucket := "ap-condition-bucket"

@@ -42,11 +42,10 @@ func TestCloudFront_Function_Lifecycle(t *testing.T) {
 
 	runCLI(t, awsCLI("cloudfront", "describe-function", "--name", name, "--output", "json"))
 
-	// publish
 	runCLI(t, awsCLI("cloudfront", "publish-function",
 		"--name", name, "--if-match", etag, "--output", "json"))
 
-	// describe again to get fresh ETag
+	// Publishing changed the ETag.
 	descOut := runCLI(t, awsCLI("cloudfront", "describe-function", "--name", name, "--output", "json"))
 	var descResult struct {
 		ETag string `json:"ETag"`

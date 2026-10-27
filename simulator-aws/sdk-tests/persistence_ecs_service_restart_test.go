@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK proves that the
-// durable service and task stores remain authoritative across a hard
-// control-plane replacement. The restarted simulator adopts the original
-// workload container and does not launch a duplicate replacement task.
+// TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK expects the
+// service and task stores to stay authoritative across a hard control-plane
+// replacement: the restarted simulator adopts the workload container and
+// launches no duplicate task.
 func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -87,8 +87,8 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 		Cluster: aws.String(cluster), Service: aws.String(service), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
-	// A persistent simulator leaves its workloads running when it stops, so
-	// the task stops before the cleanup stops the simulator.
+	// A persistent simulator leaves its workloads running when it stops, so stop
+	// the task before the cleanup stops the simulator.
 	require.NoError(t, ecs.NewTasksStoppedWaiter(client, func(o *ecs.TasksStoppedWaiterOptions) {
 		o.MinDelay = waiterMinDelay
 		o.MaxDelay = waiterMaxDelay
@@ -97,10 +97,10 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 	}, 30*time.Second))
 }
 
-// TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK proves
-// that deleting a restarted Fargate service removes the adopted workload from
-// its VPC network. The official Amazon EC2 client must then delete the subnet
-// and VPC instead of remaining in DependencyViolation retries.
+// TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK expects
+// deleting a restarted Fargate service to remove the adopted workload from its
+// VPC network, so Amazon EC2 deletes the subnet and VPC without
+// DependencyViolation.
 func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -170,8 +170,8 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 		Cluster: aws.String(cluster), Service: aws.String(service), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
-	// The deleted service's tasks hold network interfaces in the subnet until
-	// they have stopped, and EC2 refuses DeleteSubnet while they do.
+	// The deleted service's tasks hold interfaces in the subnet until they stop,
+	// and Amazon EC2 refuses DeleteSubnet meanwhile.
 	stopECSTasksInSubnet(t, ecsAPI, aws.ToString(subnet.Subnet.SubnetId))
 	_, err = ec2API.DeleteSubnet(testCtx, &ec2.DeleteSubnetInput{SubnetId: subnet.Subnet.SubnetId})
 	require.NoError(t, err)
@@ -183,10 +183,9 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 }
 
 // TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK
-// proves that deployment failure accounting and the pending retry deadline are
-// durable control-plane state. A hard replacement between the first and second
-// failed launch still reaches the configured threshold exactly once and rolls
-// back to the last completed task definition.
+// expects deployment failure counts and the pending retry deadline to survive:
+// a hard replacement between the first and second failed launch still reaches
+// the threshold once and rolls back to the last completed task definition.
 func TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()

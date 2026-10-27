@@ -507,7 +507,15 @@ func TestEntra_AppRegistrationSecretAuthenticatesAzRest(t *testing.T) {
 	accessToken, _ := body["access_token"].(string)
 	require.NotEmpty(t, accessToken)
 
-	// The az CLI reads the ARM control plane with the minted-credential token.
+	// The az CLI reads the ARM control plane with the minted-credential token,
+	// through the Reader role the operator assigns the service principal.
+	spObjectID, err := jwtStringClaim(accessToken, "oid")
+	require.NoError(t, err)
+	runCLI(t, azRest("PUT", fmt.Sprintf(
+		"%s/subscriptions/%s/providers/Microsoft.Authorization/roleAssignments/%s?api-version=2022-04-01",
+		baseURL, subscriptionID, cliRBACGUID()),
+		fmt.Sprintf(`{"properties":{"roleDefinitionId":"/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7","principalId":"%s","principalType":"ServicePrincipal"}}`,
+			subscriptionID, spObjectID)))
 	out := runCLI(t, azRest("GET",
 		fmt.Sprintf("%s/subscriptions/%s/resourcegroups?api-version=2021-04-01", baseURL, subscriptionID),
 		"", "--headers", "Authorization=Bearer "+accessToken))

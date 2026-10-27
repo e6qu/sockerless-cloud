@@ -7,15 +7,7 @@ import (
 )
 
 func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Site]) {
-	// PUT - Update site's azurestorageaccounts mapping. Backend's
-	// volumes.go uses WebApps.UpdateAzureStorageAccounts to bind named
-	// docker volumes to Azure Files shares on the function app site.
-	// Wire format: AzureStoragePropertyDictionaryResource —
-	// `{ "properties": { "<volname>": { "type": "AzureFiles",
-	// "accountName": "...", "shareName": "...", "accessKey": "...",
-	// "mountPath": "/mnt/<vol>" }, ... } }`. The sim stores the dict
-	// onto the site's AzureStorageAccounts field so subsequent GETs
-	// round-trip the mapping.
+	// Store the dictionary on the site so later reads round-trip the mapping.
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/azurestorageaccounts", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -39,13 +31,10 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		sites.Put(resourceID, site)
 		restartAzureFunctionInstance(site)
 
-		// ARM convention: respond with the resource shape that was PUT.
 		props := site.AzureStorageAccounts
 		if props == nil {
-			// Real Azure always returns `properties: {}` (empty object,
-			// not absent). terraform-provider-azurerm panics with
-			// nil-deref in FlattenStorageAccounts when properties is
-			// absent. Emit empty map.
+			// terraform-provider-azurerm dereferences a nil in FlattenStorageAccounts
+			// when properties is absent; Azure always answers `properties: {}`.
 			props = map[string]*AzureStorageInfoValue{}
 		}
 		sim.WriteJSON(w, http.StatusOK, AzureStoragePropertyDictionaryResource{
@@ -56,9 +45,8 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		})
 	})
 
-	// POST /list — real Azure uses POST for `/list` actions because the
-	// response contains storage account keys (kept out of GET URLs).
-	// terraform-provider-azurerm reads via this endpoint on every plan.
+	// Azure reads this through POST because the response carries storage
+	// account keys.
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/azurestorageaccounts/list", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -72,10 +60,8 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		}
 		props := site.AzureStorageAccounts
 		if props == nil {
-			// Real Azure always returns `properties: {}` (empty object,
-			// not absent). terraform-provider-azurerm panics with
-			// nil-deref in FlattenStorageAccounts when properties is
-			// absent. Emit empty map.
+			// terraform-provider-azurerm dereferences a nil in FlattenStorageAccounts
+			// when properties is absent; Azure always answers `properties: {}`.
 			props = map[string]*AzureStorageInfoValue{}
 		}
 		sim.WriteJSON(w, http.StatusOK, AzureStoragePropertyDictionaryResource{
@@ -86,12 +72,6 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		})
 	})
 
-	// GET /sites/{name}/basicPublishingCredentialsPolicies/{ftp|scm} —
-	// the per-protocol allow flag for FTP / SCM basic auth on the
-	// site's publishing endpoints. Real Azure: `properties.allow`
-	// true/false. terraform-provider-azurerm reads both on every plan
-	// refresh; either error blocks state convergence. Sim returns
-	// true (allowed, the real Azure default for newly-created sites).
 	basicPubCredsHandler := func(policyName string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -109,10 +89,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/basicpublishingcredentialspolicies/ftp", basicPubCredsHandler("ftp"))
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/basicpublishingcredentialspolicies/scm", basicPubCredsHandler("scm"))
 
-	// GET /config/logs — App Service diagnostic logs configuration
-	// (application logging, http logging, detailed errors, failed
-	// request tracing): what PUT /config/logs stored, else every category
-	// disabled.
+	// What PUT /config/logs stored, else every category disabled.
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/logs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -140,11 +117,6 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		})
 	})
 
-	// POST /config/authsettings/list — Easy Auth configuration. The
-	// sim doesn't model App Service authentication, so the truthful
-	// response is `enabled: false` + default empty fields (no auth
-	// providers configured). terraform-provider-azurerm reads on
-	// every plan refresh; an error here blocks state convergence.
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/authsettings/list", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -165,9 +137,6 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		})
 	})
 
-	// GET /config/authsettingsV2/list — Auth V2 (the newer Easy Auth
-	// shape introduced in API 2020-12-01). Same truthful default:
-	// authentication is not enabled on this sim site.
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/authsettingsv2/list", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -192,19 +161,9 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 		})
 	})
 
-	// Also add to lowercase canonicalization map so /authsettingsV2 →
-	// /authsettingsv2 in the middleware. Done via the package-level
-	// middleware.
-
-	// POST /config/publishingcredentials/list — real Azure returns the
-	// SCM publishing user/password for App Service deployment + Kudu
-	// console access. terraform-provider-azurerm reads via this endpoint
-	// on every plan refresh.
-	//
-	// The password derives deterministically from the resource ID and the
-	// site's rotation counter: stable across reads, distinct per site, and
-	// rotated by `POST .../newpassword`
-	// (WebApps_GenerateNewSitePublishingPassword).
+	// The password derives from the resource ID and the site's rotation counter:
+	// stable across reads, distinct per site, and rotated by
+	// WebApps_GenerateNewSitePublishingPassword.
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/publishingcredentials/list", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -232,9 +191,8 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 	})
 }
 
-// AzureSiteAppSettings is the canonical StringDictionary wire shape
-// real Azure emits at /sites/{name}/config/appsettings — a flat
-// map of setting name → value wrapped in {properties:{...}}.
+// AzureSiteAppSettings is the StringDictionary at
+// /sites/{name}/config/appsettings.
 type AzureSiteAppSettings struct {
 	ID         string            `json:"id,omitempty"`
 	Name       string            `json:"name,omitempty"`
@@ -242,15 +200,11 @@ type AzureSiteAppSettings struct {
 	Properties map[string]string `json:"properties"`
 }
 
-// AzureSiteConnStringValue is the per-entry wire shape — connection
-// string value plus the protocol type (MySql / SQLServer / Custom / …).
 type AzureSiteConnStringValue struct {
 	Value string `json:"value"`
 	Type  string `json:"type"`
 }
 
-// AzureSiteConnectionStrings is the wire shape at
-// /sites/{name}/config/connectionstrings.
 type AzureSiteConnectionStrings struct {
 	ID         string                              `json:"id,omitempty"`
 	Name       string                              `json:"name,omitempty"`
@@ -258,17 +212,15 @@ type AzureSiteConnectionStrings struct {
 	Properties map[string]AzureSiteConnStringValue `json:"properties"`
 }
 
-// siteConfigPayload persists per-section site config alongside the
-// Site struct. Keyed by the canonical resource ID.
+// siteConfigPayload is keyed by the canonical resource ID.
 type siteConfigPayload struct {
 	AppSettings       map[string]string                   `json:"appSettings,omitempty"`
 	ConnectionStrings map[string]AzureSiteConnStringValue `json:"connectionStrings,omitempty"`
 	SlotConfigNames   *SlotConfigNames                    `json:"slotConfigNames,omitempty"`
 }
 
-// SlotConfigNames mirrors the real Microsoft.Web/sites/config/slotconfignames
-// shape: the lists of app-setting / connection-string / azure-storage
-// names that are pinned to a deployment slot during slot swap.
+// SlotConfigNames are the app-setting, connection-string and azure-storage
+// names a slot swap leaves with their slot.
 type SlotConfigNames struct {
 	AppSettingNames         []string `json:"appSettingNames,omitempty"`
 	ConnectionStringNames   []string `json:"connectionStringNames,omitempty"`
@@ -291,7 +243,6 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		return ok
 	}
 
-	// PUT /sites/{name}/config/appsettings
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/appsettings", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
@@ -307,8 +258,8 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		cfg, _ := siteConfigStore.Get(resourceID)
 		cfg.AppSettings = req.Properties
 		siteConfigStore.Put(resourceID, cfg)
-		// The site's workload reads its settings from siteConfig.appSettings,
-		// and a settings change restarts it, as it restarts an App Service app.
+		// The workload reads its settings from its environment, and a change
+		// restarts it, as on App Service.
 		if site, ok := sites.Get(resourceID); ok {
 			if site.Properties.SiteConfig == nil {
 				site.Properties.SiteConfig = &SiteConfig{}
@@ -325,11 +276,8 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		})
 	})
 
-	// POST /sites/{name}/config/appsettings/list — real Azure uses POST
-	// for `/list` actions because the response contains secrets (kept
-	// out of GET URLs / proxy logs). Single lowercase registration;
-	// AzurePathNormalizationMiddleware canonicalizes any client casing
-	// (`appSettings` / `AppSettings`) to lowercase before dispatch.
+	// AzurePathNormalizationMiddleware lowercases any client casing before
+	// dispatch.
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/appsettings/list", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
@@ -350,9 +298,8 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		})
 	})
 
-	// PUT + POST /list for /config/connectionstrings — single lowercase
-	// registration; AzurePathNormalizationMiddleware canonicalizes
-	// camelCase variants to lowercase before dispatch.
+	// AzurePathNormalizationMiddleware lowercases any client casing before
+	// dispatch.
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/connectionstrings", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
@@ -372,8 +319,8 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		cfg, _ := siteConfigStore.Get(resourceID)
 		cfg.ConnectionStrings = req.Properties
 		siteConfigStore.Put(resourceID, cfg)
-		// The workload reads its connection strings from its environment, so
-		// a change restarts it.
+		// The workload reads its connection strings from its environment, so a
+		// change restarts it.
 		if site, ok := sites.Get(resourceID); ok {
 			restartAzureFunctionInstance(site)
 		}
@@ -404,10 +351,8 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		})
 	})
 
-	// GET /sites/{name}/config/slotconfignames — the "sticky settings": the
-	// app-setting, connection-string and azure-storage names a slot swap
-	// leaves with their slot. terraform-provider-azurerm reads it on every
-	// plan refresh, even for a resource with no `sticky_settings` block.
+	// terraform-provider-azurerm reads this on every plan refresh, even for a
+	// resource with no `sticky_settings` block.
 	slotConfigNamesGet := func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		if !siteExists(resourceID) {
@@ -448,9 +393,6 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		slotConfigNamesGet(w, r)
 	})
 
-	// GET /sites/{name}/config/web — reads the full SiteConfig from
-	// the site row. The siteConfig embedded in SiteProperties is the
-	// canonical persistence; this endpoint just projects it out.
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/web", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		site, ok := sites.Get(resourceID)
@@ -471,7 +413,6 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 		})
 	})
 
-	// PUT /sites/{name}/config/web
 	srv.HandleFunc("PUT "+armBase+"/sites/{siteName}/config/web", func(w http.ResponseWriter, r *http.Request) {
 		resourceID := siteResourceID(r)
 		site, ok := sites.Get(resourceID)
@@ -503,27 +444,19 @@ func registerSiteConfigHandlers(srv *sim.Server, armBase string, sites sim.Store
 	})
 }
 
-// AzureStoragePropertyDictionaryResource is the wire shape for
-// WebApps.UpdateAzureStorageAccounts. Mirrors
-// armappservice.AzureStoragePropertyDictionaryResource — a flat
-// dictionary of volume-name → Azure Files mount info.
 type AzureStoragePropertyDictionaryResource struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
-	// Properties is always emitted (no omitempty) — real Azure returns
-	// `properties: {}` even with no storage accounts, and
-	// terraform-provider-azurerm nil-derefs when absent.
+	// Always emit properties: terraform-provider-azurerm dereferences a nil when
+	// it is absent.
 	Properties map[string]*AzureStorageInfoValue `json:"properties"`
 }
 
-// siteAzureStorageBinds realizes a single-container site's attached Azure Files
-// shares (the site record's AzureStorageAccounts dictionary, set via
-// WebApps.UpdateAzureStorageAccounts) as Docker host binds
-// `<host-share-dir>:<mountPath>`, so the persistent container mounts the same
-// shared share that other containers mounting the same named volume see. This
-// is the App Service `azureStorageAccounts` mount contract, mirroring the ACA
-// App replica's volume binds.
+// siteAzureStorageBinds binds each attached Azure Files share at its
+// mountPath, so the site mounts the same share every other container mounting
+// that named volume sees, as an Azure Container Apps replica's volume binds
+// do.
 func siteAzureStorageBinds(site *Site) []string {
 	if site == nil {
 		return nil
@@ -538,7 +471,6 @@ func siteAzureStorageBinds(site *Site) []string {
 	return binds
 }
 
-// AzureStorageInfoValue mirrors armappservice.AzureStorageInfoValue.
 type AzureStorageInfoValue struct {
 	Type        string `json:"type,omitempty"`
 	AccountName string `json:"accountName,omitempty"`

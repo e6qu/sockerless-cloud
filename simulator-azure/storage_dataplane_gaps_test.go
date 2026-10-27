@@ -109,12 +109,12 @@ func storageTestEnsureAccount(t *testing.T, srv *sim.Server, account string) {
 	if _, ok := storageAccountKeys(account); ok {
 		return
 	}
-	const subscription = "00000000-0000-0000-0000-000000000000"
+	const subscription = "00000000-0000-0000-0000-000000000001"
 	base := "/subscriptions/" + subscription + "/resourceGroups/storage-plane-rg"
 	// Azure Resource Manager takes only a bearer this simulator minted, which is
 	// what an SDK holds by the time it creates anything.
 	now := time.Now().UTC()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint an ARM token: %v", err)
 	}

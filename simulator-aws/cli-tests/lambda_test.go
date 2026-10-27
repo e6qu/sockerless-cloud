@@ -67,7 +67,6 @@ func TestLambda_CreateAndGetFunction(t *testing.T) {
 	assert.Equal(t, "cli-test-func", createResult.FunctionName)
 	assert.Equal(t, "nodejs18.x", createResult.Runtime)
 
-	// Get function
 	out = runCLI(t, awsCLI("lambda", "get-function",
 		"--function-name", "cli-test-func",
 		"--output", "json",
@@ -82,13 +81,12 @@ func TestLambda_CreateAndGetFunction(t *testing.T) {
 	parseJSON(t, out, &getResult)
 	assert.Equal(t, "cli-test-func", getResult.Configuration.FunctionName)
 
-	// Cleanup
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", "cli-test-func"))
 }
 
-// TestLambda_CheckpointAndCallbackOperationsCLI exercises the AWS CLI
-// CheckpointDurableExecution, SendDurableExecutionCallbackHeartbeat, and
-// SendDurableExecutionCallbackSuccess operations against a running function.
+// TestLambda_CheckpointAndCallbackOperationsCLI covers
+// CheckpointDurableExecution, SendDurableExecutionCallbackHeartbeat and
+// SendDurableExecutionCallbackSuccess against a running function.
 func TestLambda_CheckpointAndCallbackOperationsCLI(t *testing.T) {
 	t.Parallel()
 	const fn = "cli-durable-callback-fn"
@@ -295,7 +293,6 @@ func TestLambda_ListFunctions(t *testing.T) {
 	}
 	assert.True(t, found, "Expected to find list-test-func in list")
 
-	// Cleanup
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", "list-test-func"))
 }
 
@@ -325,7 +322,6 @@ func TestLambda_InvokeFunction(t *testing.T) {
 	parseJSON(t, out, &invokeResult)
 	assert.Equal(t, 200, invokeResult.StatusCode)
 
-	// Cleanup
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", "invoke-test-func"))
 }
 
@@ -356,7 +352,6 @@ func TestLambda_UpdateFunctionConfiguration(t *testing.T) {
 	assert.Equal(t, 256, result.MemorySize)
 	assert.Equal(t, 30, result.Timeout)
 
-	// Cleanup
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", "update-test-func"))
 }
 
@@ -374,7 +369,6 @@ func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
 		"--zip-file", "fileb://"+zipPath,
 	))
 
-	// Invoke the function
 	outFile := filepath.Join(tmpDir, "cli-log-invoke-output.json")
 	runCLI(t, awsCLI("lambda", "invoke",
 		"--function-name", fnName,
@@ -382,7 +376,6 @@ func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
 		"--output", "json",
 	))
 
-	// Query CloudWatch logs for this function
 	logGroupName := "/aws/lambda/" + fnName
 	out := runCLI(t, awsCLI("logs", "filter-log-events",
 		"--log-group-name", logGroupName,
@@ -397,7 +390,6 @@ func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
 	parseJSON(t, out, &logResult)
 	require.NotEmpty(t, logResult.Events, "expected log events for Lambda invocation")
 
-	// Verify START/END/REPORT log entries
 	var messages []string
 	for _, e := range logResult.Events {
 		messages = append(messages, e.Message)
@@ -416,14 +408,12 @@ func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
 	assert.True(t, hasStart, "expected START log entry, got: %v", messages)
 	assert.True(t, hasEnd, "expected END log entry, got: %v", messages)
 
-	// Cleanup
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", fnName))
 }
 
-// TestLambda_InvokeRuntimeAPI_CLI exercises the Runtime API invoke
-// path through the aws CLI: creates an Image-package function whose
-// image speaks the real Lambda Runtime API, invokes with a payload,
-// and verifies the payload round-trips via /next + /response.
+// TestLambda_InvokeRuntimeAPI_CLI invokes an image function that speaks the
+// Lambda Runtime API, and the payload round-trips through /next and
+// /response.
 func TestLambda_InvokeRuntimeAPI_CLI(t *testing.T) {
 	t.Parallel()
 	fnName := "cli-runtime-api-fn"
@@ -486,9 +476,9 @@ func TestLambda_InvokeRuntimeAPI_CLI(t *testing.T) {
 		"handler should echo payload back via Runtime API /response")
 }
 
-// TestLambda_InvokeRuntimeAPIError_CLI exercises the /error path via
-// the aws CLI. Payload with "cause":"error" triggers the handler to
-// POST /invocation/{id}/error; caller sees FunctionError=Unhandled.
+// TestLambda_InvokeRuntimeAPIError_CLI sends "cause":"error", which makes the
+// handler POST /invocation/{id}/error, and the caller sees
+// FunctionError=Unhandled.
 func TestLambda_InvokeRuntimeAPIError_CLI(t *testing.T) {
 	t.Parallel()
 	fnName := "cli-runtime-api-error-fn"
@@ -540,7 +530,6 @@ func TestLambda_DeleteFunction(t *testing.T) {
 
 	runCLI(t, awsCLI("lambda", "delete-function", "--function-name", "delete-test-func"))
 
-	// Verify deletion
 	out := runCLI(t, awsCLI("lambda", "list-functions", "--output", "json"))
 	var result struct {
 		Functions []struct {
@@ -554,9 +543,9 @@ func TestLambda_DeleteFunction(t *testing.T) {
 }
 
 // TestLambda_AsyncDestinationDeliversAsTheRole_CLI configures an Amazon SQS
-// OnSuccess destination with put-function-event-invoke-config, invokes the
-// function asynchronously and receives the invocation record, which AWS
-// Lambda sends as the execution role, whose policy allows sqs:SendMessage.
+// OnSuccess destination and invokes asynchronously; AWS Lambda sends the
+// invocation record as the execution role, whose policy allows
+// sqs:SendMessage.
 func TestLambda_AsyncDestinationDeliversAsTheRole_CLI(t *testing.T) {
 	t.Parallel()
 	fnName := uniquename.New("cli-async-destination")
@@ -602,9 +591,8 @@ func TestLambda_AsyncDestinationDeliversAsTheRole_CLI(t *testing.T) {
 	parseJSON(t, out, &invoked)
 	assert.Equal(t, 202, invoked.StatusCode)
 
-	// receive-message long-polls the queue; the record arrives once the
-	// asynchronous invocation ran, which a cold runtime may take longer than
-	// one poll's twenty seconds to do.
+	// The record arrives once the asynchronous invocation ran, which a cold
+	// runtime may stretch past one twenty-second long poll.
 	var received struct {
 		Messages []struct {
 			Body string `json:"Body"`

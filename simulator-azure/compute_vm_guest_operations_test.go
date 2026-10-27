@@ -9,17 +9,13 @@ import (
 	"time"
 )
 
-// The parts of the in-guest operations that can be asserted without a booted
-// machine: how the guest's own output is read, which requests are refused
-// before anything runs, and what is never returned. Running a command inside a
-// guest needs nested KVM, so the paths that do are covered by the official-SDK
-// suite on a capable host — but reading apt's plan, matching a package mask,
-// and refusing an unknown handler are all decisions made here, and leaving them
-// to CI alone would put them out of reach of anyone developing this.
+// The in-guest decisions assertable without a booted machine: reading the
+// guest's output, refusing requests before anything runs, and withholding what
+// is never returned. Running a command in a guest needs nested KVM; the SDK
+// suite covers that on a capable host.
 
-// A real `apt-get --simulate upgrade` plan. The archive on each Inst line is
-// what says whether an update is a security update, which is the only place
-// that classification can honestly come from.
+// A real `apt-get --simulate upgrade` plan. The archive on each Inst line marks
+// a security update.
 const aptUpgradePlan = `NOTE: This is only a simulation!
       apt-get needs root privileges for real execution.
 Inst libssl3 [3.0.2-0ubuntu1.10] (3.0.2-0ubuntu1.15 Ubuntu:22.04/jammy-security [amd64])
@@ -51,8 +47,6 @@ func TestParseAptUpgradePlan(t *testing.T) {
 	}
 }
 
-// A guest with nothing to upgrade reports nothing, which is a truthful
-// assessment rather than an empty one to be filled in.
 func TestParseAptUpgradePlanWithNothingToUpgrade(t *testing.T) {
 	plan := "NOTE: This is only a simulation!\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n"
 	if patches := azureParseAptUpgradePlan(plan, time.Now().UTC()); len(patches) != 0 {
@@ -108,7 +102,7 @@ func vmGuestOpsRequest(t *testing.T, srv interface {
 }, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
@@ -120,9 +114,6 @@ func vmGuestOpsRequest(t *testing.T, srv interface {
 	return rec
 }
 
-// An extension whose handler this simulator does not run is refused. Reporting
-// it as provisioned would be indistinguishable from one that ran, which is the
-// whole failure mode these operations exist to avoid.
 func TestVirtualMachineExtensionRefusesAnUnknownHandler(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "ext-vm", "eastus", nil)
@@ -142,9 +133,7 @@ func TestVirtualMachineExtensionRefusesAnUnknownHandler(t *testing.T) {
 	}
 }
 
-// A Custom Script extension on a machine that is not running fails the way a
-// guest that could not process the extension fails, because there is nowhere
-// for its command to run; it is never recorded as provisioned.
+// With no running guest there is nowhere for the command to run.
 func TestVirtualMachineExtensionRefusesAMachineWithNoGuest(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "ext-noguest-vm", "eastus", nil)
@@ -164,8 +153,6 @@ func TestVirtualMachineExtensionRefusesAMachineWithNoGuest(t *testing.T) {
 	}
 }
 
-// A Custom Script extension carrying no command is refused: there is nothing
-// for the handler to do, and recording it as succeeded would claim otherwise.
 func TestVirtualMachineExtensionRefusesAnEmptyCommand(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "ext-empty-vm", "eastus", nil)
@@ -182,8 +169,6 @@ func TestVirtualMachineExtensionRefusesAnEmptyCommand(t *testing.T) {
 	}
 }
 
-// Protected settings are write-only by contract: handing them back would return
-// a secret the caller entrusted to the machine.
 func TestVirtualMachineExtensionNeverReturnsProtectedSettings(t *testing.T) {
 	stored := VirtualMachineExtension{
 		ID:   vmOpsID("ext-secret-vm") + "/extensions/script",
@@ -206,15 +191,13 @@ func TestVirtualMachineExtensionNeverReturnsProtectedSettings(t *testing.T) {
 	if strings.Contains(string(encoded), "DEPLOY_TOKEN") {
 		t.Fatalf("a protected value reached the response body: %s", encoded)
 	}
-	// The public settings still come back — only the protected half is withheld.
 	if response.Properties.Settings == nil {
 		t.Error("public settings were withheld along with the protected ones")
 	}
 }
 
-// Capturing an image from a machine that was never generalized is refused: the
-// image would carry that machine's host name, keys and logs into every machine
-// created from it.
+// The image would carry the machine's host name, keys and logs into every
+// machine created from it.
 func TestVirtualMachineCaptureRequiresGeneralization(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "capture-vm", "eastus", nil)
@@ -229,8 +212,6 @@ func TestVirtualMachineCaptureRequiresGeneralization(t *testing.T) {
 	}
 }
 
-// The capture parameters name where the image goes, so a request missing them
-// is refused before anything is copied.
 func TestVirtualMachineCaptureRequiresItsDestination(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	vm := putVMOpsMachine(t, "capture-dest-vm", "eastus", nil)
@@ -243,8 +224,8 @@ func TestVirtualMachineCaptureRequiresItsDestination(t *testing.T) {
 	}
 }
 
-// installPatches must be told what to do about a restart, because a patch that
-// needs one leaves the machine in a state the caller has to have chosen.
+// A patch needing a restart leaves the machine in a state the caller has to
+// have chosen.
 func TestVirtualMachineInstallPatchesRequiresARebootSetting(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "patch-vm", "eastus", nil)

@@ -8,9 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// awslogsTaskDefinition is a one-container task definition wired to the
-// awslogs driver, the configuration every long-running Amazon ECS service in
-// the simulator uses to make its workload observable.
 func awslogsTaskDefinition(logGroup, streamPrefix string) ECSTaskDefinition {
 	return ECSTaskDefinition{
 		ContainerDefinitions: []ECSContainerDefinition{{
@@ -28,8 +25,7 @@ func awslogsTaskDefinition(logGroup, streamPrefix string) ECSTaskDefinition {
 }
 
 func resetCloudWatchLogStoresForTest() {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")
@@ -40,12 +36,8 @@ func resetCloudWatchLogStoresForTest() {
 	cwMetricStreams = sim.MakeStore[CWMetricStream](nil, "cw_metric_streams")
 }
 
-// TestECSTaskLogSinkAdvancesLogStreamIngestionState proves a container's
-// stdout is a first-class CloudWatch ingestion. A service task never exits, so
-// DescribeLogStreams is the only way to tell an actively writing task from a
-// silent one; when the sink appended events without touching the stream
-// record, every running service reported the instant its stream was created
-// and ordering streams by LastEventTime ranked live tasks as stale.
+// A service task never exits, so DescribeLogStreams is the only way to tell a
+// writing task from a silent one; the sink must advance the stream record.
 func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	resetCloudWatchLogStoresForTest()
 
@@ -62,10 +54,7 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	if !ok {
 		t.Fatal("awslogs configuration did not create the task's log stream")
 	}
-	// Nothing has written yet, so the stream has nothing: Amazon ECS never
-	// seeds a task's stream. A synthetic "container started" stamped at
-	// RunTask time made a three-minute provisioning window read as the
-	// entrypoint's own silence.
+	// Amazon ECS never seeds a task's stream.
 	if seeded, _ := cwStreamEvents(key); len(seeded) != 0 {
 		t.Fatalf("log stream holds %d events before the container wrote anything: %+v", len(seeded), seeded)
 	}
@@ -110,11 +99,7 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	}
 }
 
-// TestECSTaskLogSinkFiresLogGroupMetricFilters proves a metric filter on the
-// task's log group matches the container's own output. Alarming on a running
-// service's error lines is the reason the group is monitored at all, and a
-// filter that only sees PutLogEvents callers never fires for a workload whose
-// lines arrive through the awslogs driver.
+// A filter that only saw PutLogEvents would never fire for awslogs output.
 func TestECSTaskLogSinkFiresLogGroupMetricFilters(t *testing.T) {
 	resetCloudWatchLogStoresForTest()
 

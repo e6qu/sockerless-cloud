@@ -23,7 +23,7 @@ import (
 
 // createECSGatewayInfrastructureRole creates the role a gateway provisions its
 // load balancers, listeners, rules, target groups, security groups and
-// certificates as: trusted by ecs.amazonaws.com, and allowed those services.
+// certificates as: trusted by ecs.amazonaws.com and allowed those services.
 func createECSGatewayInfrastructureRole(t *testing.T, name string) string {
 	t.Helper()
 	iamC := iamClient()
@@ -82,12 +82,10 @@ func awaitECSGatewayStatus(t *testing.T, client *ecs.Client, gateway string, wan
 }
 
 // TestECSGateway_ServiceConnectsThroughSharedLoadBalancer walks a gateway's
-// whole lifecycle through the ECS client: a gateway, its association with a
-// cluster, a service whose gateway connector gives it a route with a
-// hostname, certificate, target group and listener rule on a shared
-// Application Load Balancer the Elastic Load Balancing client describes, an
-// update the load balancer takes, and the disconnection, disassociation and
-// deletion that remove all of it.
+// lifecycle: association with a cluster, a service whose gateway connector
+// gets a route with a hostname, certificate, target group and listener rule on
+// a shared Application Load Balancer, an update the load balancer takes, and
+// the disconnection, disassociation and deletion that remove it all.
 func TestECSGateway_ServiceConnectsThroughSharedLoadBalancer(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
@@ -229,10 +227,9 @@ func TestECSGateway_ServiceConnectsThroughSharedLoadBalancer(t *testing.T) {
 	hostname := strings.TrimPrefix(serviceURL, "https://")
 	require.NotEmpty(t, rules.Rules[0].Conditions)
 	assert.Equal(t, []string{hostname}, rules.Rules[0].Conditions[0].HostHeaderConfig.Values)
-	// The route's hostname resolves to its load balancer, whose HTTPS
-	// listener routes a request naming it by the route's rule — to the
-	// service's target group, which holds no task — where any other host
-	// meets the listener's default 404.
+	// The route's hostname resolves to its load balancer, whose HTTPS listener
+	// sends a request naming it to the service's empty target group; any other
+	// host meets the listener's default 404.
 	answer := dnsQuery(t, hostname, dnsmessage.TypeA)
 	require.NotEmpty(t, answer.Answers, "the route's hostname resolves")
 	address, ok := answer.Answers[0].Body.(*dnsmessage.AResource)
@@ -240,8 +237,8 @@ func TestECSGateway_ServiceConnectsThroughSharedLoadBalancer(t *testing.T) {
 	request := func(host string) int {
 		t.Helper()
 		client := &http.Client{Transport: &http.Transport{
-			// The simulator's AWS Certificate Manager signs the route's
-			// certificate with a CA no system trusts.
+			// The simulator's ACM signs the route's certificate with a CA no system
+			// trusts.
 			TLSClientConfig: &tls.Config{ServerName: host, InsecureSkipVerify: true},
 			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(net.IP(address.A[:]).String(), "443"))

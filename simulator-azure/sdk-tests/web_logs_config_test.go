@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A site's logs configuration reads back as it was written, and a site that
-// sets file-system retention still serves the container output it keeps.
+// A site's logs configuration reads back as written, and a site with
+// file-system retention still serves the container output it keeps.
 func TestWebApps_LogsConfigurationRoundTripsAndKeepsTheDockerLog(t *testing.T) {
 	t.Parallel()
 	rg, name := "web-logs-cfg-rg", "logs-cfg-app"

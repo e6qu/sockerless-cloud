@@ -6,17 +6,11 @@ import (
 	"net/http"
 )
 
-// Several Microsoft.Network resources own network interfaces they did not ask
-// the caller to create: a private endpoint gets one interface in the subnet it
-// projects the linked service into, and a private link service gets one per NAT
-// IP configuration. Azure exposes those interfaces under the ordinary
-// Microsoft.Network/networkInterfaces type — they answer Get, they appear in
-// the interface list, and their addresses come out of the subnet's own address
-// space. The simulator leases them from the subnet's ledger exactly as it
-// leases a caller-created interface's, so a platform interface and a customer
-// interface can never be handed the same one.
+// A private endpoint gets an interface in its subnet, and a private link
+// service one per NAT IP configuration. Azure exposes these platform-owned
+// interfaces as ordinary Microsoft.Network/networkInterfaces, and the
+// simulator leases their addresses from the subnet's ledger like any other.
 
-// azurePlatformNICSpec describes one platform-owned network interface.
 type azurePlatformNICSpec struct {
 	ID                        string
 	Name                      string
@@ -28,10 +22,7 @@ type azurePlatformNICSpec struct {
 	ApplicationSecurityGroups []SubResource
 }
 
-// azureCreatePlatformNIC leases the interface's address from its subnet and
-// records it under Microsoft.Network/networkInterfaces. It returns the stored
-// interface, whose primary IP configuration carries the address the subnet
-// allocated; an interface already stored keeps the address it holds.
+// An interface already stored keeps its address.
 func azureCreatePlatformNIC(_ context.Context, spec azurePlatformNICSpec) (NetworkInterface, error) {
 	allocation := spec.AllocationMethod
 	if allocation == "" {
@@ -80,8 +71,6 @@ func azureCreatePlatformNIC(_ context.Context, spec azurePlatformNICSpec) (Netwo
 	return nic, nil
 }
 
-// azureDeletePlatformNIC releases the interface and its address back to the
-// subnet.
 func azureDeletePlatformNIC(_ context.Context, nicID string) error {
 	if nic, ok := azureNICs.Get(nicID); ok {
 		azureReleaseNICAddresses(nic)
@@ -90,8 +79,7 @@ func azureDeletePlatformNIC(_ context.Context, nicID string) error {
 	return nil
 }
 
-// azurePlatformNICPrivateIP reports the address of a platform interface's
-// primary IP configuration, or the empty string when the interface is gone.
+// Empty when the interface is gone.
 func azurePlatformNICPrivateIP(nicID string) string {
 	nic, ok := azureNICs.Get(nicID)
 	if !ok {
@@ -105,9 +93,8 @@ func azurePlatformNICPrivateIP(nicID string) string {
 	return ""
 }
 
-// azureRequireSubnet resolves a subnet reference the way the Microsoft.Network
-// resource provider does: a write naming a subnet that does not exist is
-// rejected with the subnet's own ResourceNotFound.
+// A write naming an absent subnet fails with the subnet's own
+// ResourceNotFound, as the resource provider does.
 func azureRequireSubnet(w http.ResponseWriter, subnetID string) (Subnet, bool) {
 	if subnetID == "" {
 		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,

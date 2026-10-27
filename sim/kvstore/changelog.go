@@ -56,7 +56,6 @@ func changeID(stream string, seq uint64) string {
 	return fmt.Sprintf("%s/%020d", stream, seq)
 }
 
-// Append records change in stream.
 func (l *ChangeLog[T]) Append(stream string, change Change[T]) {
 	l.store.Put(changeID(stream, change.Seq), change)
 }

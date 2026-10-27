@@ -1,9 +1,8 @@
 package main
 
-// Fuzz targets for untrusted-input Azure parsers that previously had no fuzz
-// coverage: a blob copy-source URL (x-ms-copy-source header), an Azure Container
-// Registry image reference, and an AMQP Event Hub address. Contract: never
-// panic on any input.
+// Fuzz targets for untrusted-input parsers: a blob copy-source URL
+// (x-ms-copy-source), an Azure Container Registry image reference, and an AMQP
+// Event Hubs address. None may panic on any input.
 
 import "testing"
 

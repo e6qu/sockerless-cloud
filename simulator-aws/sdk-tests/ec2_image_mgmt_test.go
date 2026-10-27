@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ec2RootSnapshot snapshots a fresh volume for an AMI's root device mapping.
 func ec2RootSnapshot(t *testing.T, c *ec2.Client) string {
 	t.Helper()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -27,8 +26,6 @@ func ec2RootSnapshot(t *testing.T, c *ec2.Client) string {
 	return aws.ToString(snap.SnapshotId)
 }
 
-// registerImageMgmtAMI registers a user AMI (from a block device mapping) the
-// image-management ops then operate on, returning its id.
 func registerImageMgmtAMI(t *testing.T, c *ec2.Client, name string) string {
 	t.Helper()
 	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
@@ -44,10 +41,9 @@ func registerImageMgmtAMI(t *testing.T, c *ec2.Client, name string) string {
 	return aws.ToString(reg.ImageId)
 }
 
-// TestEC2_ImageUsageReportSDK covers CreateImageUsageReport over an AMI, the
-// DescribeImageUsageReports read-back (state available, the scanned resource
-// types, the scoped account), DescribeImageUsageReportEntries (per-resource-type
-// usage counts), and DeleteImageUsageReport.
+// TestEC2_ImageUsageReportSDK expects a report on an AMI to settle available
+// with the scanned resource types and account, and its entries to count usage
+// per resource type.
 func TestEC2_ImageUsageReportSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -98,9 +94,9 @@ func TestEC2_ImageUsageReportSDK(t *testing.T) {
 	require.Error(t, err, "deleting an already-deleted report must fail")
 }
 
-// TestEC2_FastLaunchSDK covers EnableFastLaunch on an AMI (state settles to
-// enabled, snapshot/launch-template config echoed), the DescribeFastLaunchImages
-// read-back, and DisableFastLaunch (the config leaves the describe set).
+// TestEC2_FastLaunchSDK expects EnableFastLaunch to settle enabled and echo its
+// snapshot and launch-template configuration, and DisableFastLaunch to drop it
+// from DescribeFastLaunchImages.
 func TestEC2_FastLaunchSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -142,8 +138,8 @@ func TestEC2_FastLaunchSDK(t *testing.T) {
 	assert.Empty(t, gone.FastLaunchImages, "disabled fast-launch must leave the describe set")
 }
 
-// TestEC2_ImageDeprecationSDK covers EnableImageDeprecation (set a future
-// deprecation time) and DisableImageDeprecation (clear it, idempotent).
+// TestEC2_ImageDeprecationSDK sets a future deprecation time and clears it;
+// clearing twice succeeds.
 func TestEC2_ImageDeprecationSDK(t *testing.T) {
 	c := ec2Client()
 	amiID := registerImageMgmtAMI(t, c, "deprecation-ami")
@@ -159,14 +155,11 @@ func TestEC2_ImageDeprecationSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(dis.Return))
 
-	// Idempotent: disabling again still succeeds.
 	dis2, err := c.DisableImageDeprecation(ctx, &ec2.DisableImageDeprecationInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(dis2.Return))
 }
 
-// TestEC2_ImageWatermarkSDK covers AttachImageWatermark (returns a watermark
-// key), DetachImageWatermark, and CancelImageLaunchPermission on an AMI.
 func TestEC2_ImageWatermarkSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -193,16 +186,14 @@ func TestEC2_ImageWatermarkSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(cancel.Return))
 
-	// Unknown AMI must fail the standard way.
 	_, err = c.AttachImageWatermark(ctx, &ec2.AttachImageWatermarkInput{
 		ImageId: aws.String("ami-00000000deadbeef"), WatermarkName: aws.String("x"),
 	})
 	requireAWSErrorCode(t, err, "InvalidAMIID.NotFound")
 }
 
-// TestEC2_ImageReferencesSDK covers DescribeImageReferences (instances that
-// reference an AMI) and DescribeInstanceImageMetadata, derived from the
-// instance + AMI stores.
+// TestEC2_ImageReferencesSDK covers DescribeImageReferences and
+// DescribeInstanceImageMetadata.
 func TestEC2_ImageReferencesSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -211,8 +202,8 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.150.1.0/24")
 
-	// An instance-store AMI whose ImageLocation names the image the instance
-	// boots from; the simulator takes an OCI image reference there.
+	// An instance-store AMI whose ImageLocation names the image the instance boots
+	// from; the simulator takes an OCI image reference there.
 	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
 		Name:          aws.String("references-ami"),
 		Architecture:  types.ArchitectureValuesX8664,
@@ -249,8 +240,8 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 	assert.Equal(t, instID, aws.ToString(meta.InstanceImageMetadata[0].InstanceId))
 }
 
-// TestEC2_ImageAncestrySDK covers GetImageAncestry: a CopyImage chain walks back
-// to the root AMI through the sourceImageId entries.
+// TestEC2_ImageAncestrySDK expects GetImageAncestry to walk a CopyImage chain
+// back to the root AMI through sourceImageId.
 func TestEC2_ImageAncestrySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -271,8 +262,8 @@ func TestEC2_ImageAncestrySDK(t *testing.T) {
 	assert.Equal(t, rootID, aws.ToString(anc.ImageAncestryEntries[0].SourceImageId))
 }
 
-// TestEC2_ImagesInRecycleBinSDK covers ListImagesInRecycleBin, which is
-// honest-empty when no AMI has been sent to the Recycle Bin.
+// TestEC2_ImagesInRecycleBinSDK expects no images while none was sent to the
+// Recycle Bin.
 func TestEC2_ImagesInRecycleBinSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -281,8 +272,8 @@ func TestEC2_ImagesInRecycleBinSDK(t *testing.T) {
 	assert.Empty(t, out.Images, "no AMIs in the recycle bin -> honest-empty list")
 }
 
-// TestEC2_ExportImageTasksSDK covers ExportImage and the DescribeExportImageTasks
-// read-back; DescribeImportImageTasks is honest-empty unless an import ran.
+// TestEC2_ExportImageSDK covers ExportImage and DescribeExportImageTasks;
+// DescribeImportImageTasks is empty unless an import ran.
 func TestEC2_ExportImageSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -301,9 +292,7 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(exp.ExportImageTaskId))
 	assert.Equal(t, amiID, aws.ToString(exp.ImageId))
 
-	// The task just started is the one the read side returns, described by the
-	// image and destination it was started for. An empty list would execute no
-	// assertion at all, so the task is looked for by its identifier.
+	// Look the task up by its identifier: an empty list would run no assertion.
 	tasks, err := c.DescribeExportImageTasks(ctx, &ec2.DescribeExportImageTasksInput{})
 	require.NoError(t, err)
 	var exported *types.ExportImageTask
@@ -317,7 +306,6 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 	require.NotNil(t, exported.S3ExportLocation)
 	assert.Equal(t, "export-bucket", aws.ToString(exported.S3ExportLocation.S3Bucket))
 
-	// Filtering by the identifier returns that task and only that task.
 	byID, err := c.DescribeExportImageTasks(ctx, &ec2.DescribeExportImageTasksInput{
 		ExportImageTaskIds: []string{aws.ToString(exp.ExportImageTaskId)},
 	})
@@ -326,9 +314,9 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 	assert.Equal(t, aws.ToString(exp.ExportImageTaskId), aws.ToString(byID.ExportImageTasks[0].ExportImageTaskId))
 }
 
-// TestEC2_ImportImageSDK imports a RAW disk image from Amazon S3 into an AMI:
-// the task converts the disk into a snapshot and registers an EBS-backed image
-// whose root device restores from it.
+// TestEC2_ImportImageSDK imports a RAW disk image from Amazon S3: the task
+// converts the disk into a snapshot and registers an EBS-backed image whose
+// root device restores from it.
 func TestEC2_ImportImageSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -359,8 +347,8 @@ func TestEC2_ImportImageSDK(t *testing.T) {
 	taskID := aws.ToString(imp.ImportTaskId)
 	require.NotEmpty(t, taskID)
 
-	// EC2 offers no waiter for ImportImage, so read the task's own status
-	// until it leaves active.
+	// Amazon EC2 has no waiter for ImportImage, so poll the task's status until it
+	// leaves active.
 	var task types.ImportImageTask
 	for deadline := time.Now().Add(time.Minute); ; {
 		out, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{ImportTaskIds: []string{taskID}})

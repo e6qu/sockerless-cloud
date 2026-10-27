@@ -6,11 +6,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ECS attributes — name/value labels applied to a resource (typically a
-// container instance) and used by task-placement constraints. PutAttributes
-// applies them, DeleteAttributes removes them, ListAttributes reads them back
-// for a cluster filtered by targetType. The sim stores each attribute keyed by
-// cluster + targetId + name.
+// Keyed by cluster, targetId and name.
 
 var ecsAttributes sim.Store[ECSAttribute]
 

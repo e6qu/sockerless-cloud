@@ -1,11 +1,11 @@
 # simulator-gcp
 
-`simulator-gcp` is one binary that serves a slice of Google Cloud on one port,
+`simulator-gcp` serves a slice of Google Cloud from one binary on one port,
 `4567`, where every REST API answers on its own paths. The services whose
 client libraries speak gRPC (Cloud Logging, Bigtable, Firestore, Pub/Sub,
 Spanner, Cloud Key Management Service and Secret Manager) also answer on a
 gRPC port, `4569` by default, which `SIM_GCP_GRPC_PORT` moves. The simulator
-verifies the OAuth 2.0 access token on every REST request and runs Compute
+verifies the OAuth 2.0 access token on every REST and gRPC request and runs Compute
 Engine instances, Cloud Run workloads, Cloud Build steps and database engines
 as real containers. Unit tests check every registered route against the
 Discovery documents vendored in [`specs/cloud-api/gcp/`](../specs/cloud-api/gcp/),
@@ -44,10 +44,11 @@ simulator shares (`SIM_LISTEN_ADDR`, `SIM_GCP_PORT`, `SIM_TLS_CERT`,
 | Variable | Default | Effect |
 |---|---|---|
 | `SIM_GCP_GRPC_PORT` | the HTTP port plus two | The gRPC port |
+| `SIM_GCP_GRPC_TLS_CERT`, `SIM_GCP_GRPC_TLS_KEY` | unset | Serve the gRPC port over TLS with this certificate and key, as a front end for gRPC and REST. Google's client libraries send a credential only over TLS. |
 | `SIM_DNS_PORT` | a kernel-chosen port | The UDP and TCP port where Cloud DNS answers public managed zones for the host. Workloads reach the resolver through their network's sidecar. |
 | `SIM_DNS_UPSTREAM` | the host's `resolv.conf` | Resolvers, `host[:port]` comma-separated, for names no zone holds |
 | `SIM_GCS_DATA_DIR` | `<SIM_DATA_DIR>/gcs` | Where Cloud Storage object contents live |
-| `SIM_GCP_CPU_QUOTA_PER_REGION`, `SIM_GCP_CPU_QUOTA_WINDOW` | `0` (no quota), `1m` | A Cloud Run CPU budget per project and region over a sliding window; a deploy that would exceed it fails with Cloud Run's quota error |
+| `SIM_GCP_CPU_QUOTA_PER_REGION`, `SIM_GCP_CPU_QUOTA_WINDOW` | `0` (no quota), `1m` | A Cloud Run CPU budget per project and region over a sliding window; a deploy that would exceed it fails with Cloud Run's quota error. Google Cloud sets this budget through Cloud Quotas, not a variable, so this is an open bug. |
 | `SOCKERLESS_CONSOLE_CLOUD_API_ENDPOINT`, `_FEDERATION_ENDPOINT`, `_FEDERATION_AUDIENCE` | the console's origin | The API endpoint the console reads and the Security Token Service it federates operators through |
 | `SOCKERLESS_SPEC_VALIDATE`, `SOCKERLESS_SPEC_DIR` | unset | Validate every response against the Discovery documents in `SOCKERLESS_SPEC_DIR`, writing violations to the file `SOCKERLESS_SPEC_VALIDATE` names |
 
@@ -132,22 +133,23 @@ Use the `New…RESTClient` constructor where a library has both: Cloud Run,
 Eventarc, Cloud Scheduler, Cloud Tasks, Memorystore for Redis and Cloud
 Resource Manager serve REST only. The Pub/Sub, Firestore, Spanner, Bigtable
 and Cloud Logging clients, and the gRPC constructors of Cloud KMS and Secret
-Manager, dial the gRPC port in plaintext:
+Manager, dial the gRPC port. They send their access token only over TLS, so
+serve that port with `SIM_GCP_GRPC_TLS_CERT` and `SIM_GCP_GRPC_TLS_KEY` and
+trust its certificate:
 
 ```go
 client, err := pubsub.NewClient(ctx, "sockerless",
 	option.WithEndpoint("localhost:4569"),
-	option.WithoutAuthentication(),
-	option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	option.WithTokenSource(ts), // tokens from the simulator's token endpoint
+	option.WithGRPCDialOption(grpc.WithTransportCredentials(
+		credentials.NewClientTLSFromCert(roots, "")))) // roots: the port's authority
 ```
 
-Spanner and Bigtable also read `SPANNER_EMULATOR_HOST` and
-`BIGTABLE_EMULATOR_HOST=localhost:4569`. The SDK suite mints its tokens from
-the same file through `simTokenSource` in
-[`sdk-tests/helpers_test.go`](sdk-tests/helpers_test.go) and passes them with
-`option.WithTokenSource`; `newPSGRPCClient` in
-[`sdk-tests/pubsub_grpc_test.go`](sdk-tests/pubsub_grpc_test.go) builds the
-gRPC client above.
+The SDK suite mints its tokens from the credential file through
+`simTokenSource` in [`sdk-tests/helpers_test.go`](sdk-tests/helpers_test.go)
+and passes them with `option.WithTokenSource`; `simGRPCClientOptions` in
+[`sdk-tests/grpc_credentials_test.go`](sdk-tests/grpc_credentials_test.go)
+builds the gRPC options above.
 
 ### Terraform
 
@@ -173,13 +175,15 @@ provider "google" {
 
 `google_service_account` reaches IAM through `iam_beta_custom_endpoint`, and
 Cloud SQL takes `http://localhost:4567/sql/v1beta4/`. The Bigtable resources
-dial gRPC through `BIGTABLE_EMULATOR_HOST=localhost:4569`.
-[`terraform-tests/main.tf`](terraform-tests/main.tf) carries the full block,
+dial the gRPC port over TLS: `bigtable_custom_endpoint` is
+`https://localhost:4569/v2/`, with the port's authority added through
+`SSL_CERT_DIR`. [`terraform-tests/main.tf`](terraform-tests/main.tf) carries
+the full block,
 [`fixtures/tutorial/main.tf`](terraform-tests/fixtures/tutorial/main.tf) a
 small one, and `terraformCmd` in
 [`terraform-tests/helpers_test.go`](terraform-tests/helpers_test.go) runs
-every command with `TF_VAR_endpoint`, `TF_VAR_credentials` and
-`BIGTABLE_EMULATOR_HOST`. [Part 2 of the tutorial](../docs/tutorial.md#part-2-google-cloud)
+every command with `TF_VAR_endpoint`, `TF_VAR_credentials`,
+`TF_VAR_bigtable_endpoint` and `SSL_CERT_DIR`. [Part 2 of the tutorial](../docs/tutorial.md#part-2-google-cloud)
 walks through it by hand. Without `SIM_PERSIST=true`, a restart leaves
 Terraform state describing resources that no longer exist.
 
@@ -365,8 +369,9 @@ HTTPS gateway, which needs `caddy` (or `CADDY=/path/to/caddy`).
 
 ## Limits
 
-- The gRPC port serves plaintext and verifies no credential: a call without a
-  valid token acts as the owner.
+- Without `SIM_GCP_GRPC_TLS_CERT` the gRPC port serves plaintext, over which
+  Google's client libraries send no credential, so their calls answer
+  `UNAUTHENTICATED`.
 - The REST APIs accept only access tokens the token endpoint minted. A client
   that signs its own JWT for an API audience, as the Cloud Client Libraries
   for Python generated from protocol buffers do, gets 401.

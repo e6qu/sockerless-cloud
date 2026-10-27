@@ -1,10 +1,9 @@
 # Maintaining
 
-How the project is developed, checked, recorded and released. The rules
-themselves are in [`AGENTS.md`](../AGENTS.md), which every contributor, human or
-agent, follows. This page shows the machinery that enforces them.
-[`tutorial-contributing.md`](tutorial-contributing.md) walks through one change
-end to end.
+The machinery that develops, checks, records and releases the project. The
+rules it enforces are in [`AGENTS.md`](../AGENTS.md), which every contributor,
+human or agent, follows; [`tutorial-contributing.md`](tutorial-contributing.md)
+walks one change through it end to end.
 
 ## The loop
 
@@ -33,12 +32,13 @@ make build          # builds the consoles, then every binary
 You need:
 - Go at the version `go.mod` names;
 - a Docker or Podman engine;
-- Terraform;
+- Terraform, the Azure CLI and Caddy, for the suites that drive them;
 - `pre-commit`;
 - Bun, for the consoles.
 
-The SDK, CLI and Terraform suites install their cloud's CLI themselves in
-`TestMain` when it's absent.
+The AWS and Google Cloud CLI suites install `aws` and `gcloud` in `TestMain`
+when they're absent; the Azure CLI suite and the Terraform suites need `az`
+and `terraform` on `PATH` and fail without them.
 
 ## Make targets
 
@@ -53,7 +53,7 @@ out to them, and [`MAKEFILE_STANDARD.md`](MAKEFILE_STANDARD.md) defines them.
 | `make simulator-<cloud>/docker-test` | All of one cloud's suites inside the shared `Dockerfile.test` image |
 | `make -C sim test`, `make -C sim race-test` | The framework's tests, which start real containers |
 | `make node-agent-test` | A Firecracker guest through the node agent, on a host with `/dev/kvm` |
-| `make lint`, `make lint-ui`, `make lint-all` | golangci-lint over the Go modules; the consoles' linters (needs Bun); both |
+| `make lint`, `make lint-ui`, `make lint-all` | `go vet`, `gofmt` and golangci-lint over the Go modules; the consoles' linters (needs Bun); both |
 | `make upgrade-deps`, `make check-deps` | Bring every dependency current; report drift |
 
 Pass extra `go test` arguments through `SDK_TEST_ARGS`, `CLI_TEST_ARGS` or
@@ -74,7 +74,7 @@ commit that registers it:
 - `scripts/check-simulator-tests.sh` (the `simulator-testing-contract` hook) blocks a commit that adds `r.Register("Op", …)` without a test that names the operation. An operation no client exposes goes on `simulator-<cloud>/tests-exempt.txt`, with its reason.
 - A test differs from a test against the real cloud only in coordinates. No `if sim` branch, no simulator-only header or variable.
 - A test waits on the event it cares about: the SDK's waiter, the operation's completion, a long poll. It never sleeps a fixed time. A flaky or slow test is a bug with a `BUGS.md` row until it's fixed at its cause.
-- A test never skips because a tool is missing. `TestMain` installs what the suite needs.
+- A test never skips because a tool is missing: the suite installs it or fails.
 
 ## The hooks
 
@@ -83,7 +83,7 @@ commit that registers it:
 
 | Group | Hooks |
 |---|---|
-| Formatting and lint | `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `shellcheck`, `gofmt`, `terraform-fmt`, `golangci-lint` (changed files) |
+| Formatting and lint | `trailing-whitespace`, `end-of-file-fixer`, `check-merge-conflict`, `check-yaml`, `shellcheck`, `gofmt`, `terraform-fmt`, `golangci-lint` (changed files) |
 | Testing contract | `simulator-testing-contract`, `fake-tests` (no test passes without exercising what it names), `no-tool-absent-skips`, `parallel-tests`, `test-network-ranges` |
 | Coverage records | `simulator-coverage-matrix`, `simulator-surface-table-generation`, `behavioral-coverage` |
 | CI sharding | `cli-shard-coverage`, `sdk-shard-coverage`, `azure-cli-shard-coverage`, `azure-sdk-shard-coverage`, `tf-shard-coverage`, `azure-tf-shard-coverage`: every test runs in exactly one CI shard |

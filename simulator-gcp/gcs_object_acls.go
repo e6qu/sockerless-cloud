@@ -7,10 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Routes take a single-segment {object} so they beat the `{object...}`
-// catch-all serving objects.get, which otherwise swallows `/o/{object}/acl`
-// and answers "object \"<name>/acl\" not found". Object names arrive
-// percent-encoded, so a name holding "/" is still one segment.
+// Routes take a single-segment {object}, so they beat the `{object...}`
+// catch-all serving objects.get. Object names arrive percent-encoded, so a
+// name holding "/" is still one segment.
 
 var gcsObjectACLs sim.Store[GCSObjectACL]
 
@@ -32,10 +31,9 @@ func gcsUniformBucketLevelAccess(bucket Bucket) bool {
 	return enabled
 }
 
-// An object's ACL is never empty in the real service, and that matters:
-// `gcloud storage objects update --remove-acl-grant` omits the acl member
-// entirely when its computed list comes out empty, so a lone grant would
-// otherwise be unremovable.
+// Cloud Storage never leaves an object's ACL empty, which matters: `gcloud
+// storage objects update --remove-acl-grant` omits an empty acl member, so a
+// lone grant would be unremovable.
 func gcsProjectPrivateObjectACL(bucket Bucket) []GCSObjectACL {
 	projectNumber, _ := bucket.Data["projectNumber"].(string)
 	if projectNumber == "" {
@@ -85,8 +83,8 @@ func gcsSeedObjectACL(bucket, object, generation string) {
 	}
 }
 
-// The objects.patch door onto the collection's state. The resource carries
-// the whole ACL, so naming it replaces the set rather than merging into it.
+// objects.patch carries the whole ACL, so it replaces the set rather than
+// merging.
 func gcsReplaceObjectACL(bucket, object, generation string, entries []GCSObjectACL) {
 	gcsDropObjectACL(bucket, object)
 	for _, entry := range entries {

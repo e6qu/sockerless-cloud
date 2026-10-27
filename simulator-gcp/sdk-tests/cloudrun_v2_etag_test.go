@@ -9,20 +9,17 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// The etag every Cloud Run v2 resource whose schema declares one reports, and
-// the optimistic concurrency it buys. The shape is one contract across the
-// family: a read carries the fingerprint of the version the store holds, any
-// write mints a new one, a request naming the fingerprint the client last read
-// proceeds, a request naming one the resource has moved past is a modification
-// conflict answered ABORTED, and a request naming none is unconditional.
+// Every Cloud Run v2 resource whose schema declares an etag holds one contract:
+// a read carries the stored version's fingerprint, any write mints a new one, a
+// request naming the fingerprint the client last read proceeds, one naming a
+// fingerprint the resource has moved past is a conflict answered ABORTED, and
+// one naming none is unconditional.
 //
-// Where the fingerprint travels differs by resource, and follows the document:
 // Service, WorkerPool and Instance declare a writable etag, so it rides the
-// update body and the start/stop bodies as well as the delete's query
-// parameter; Revision, Execution and Task declare it output-only, so a client
-// can only send it back on the delete.
+// update body, the start and stop bodies and the delete's query parameter;
+// Revision, Execution and Task declare it output-only, so only the delete
+// sends it back.
 
-// requireEtagRotates asserts that a write moved the resource's fingerprint on.
 func requireEtagRotates(t *testing.T, before, after string) {
 	t.Helper()
 	require.NotEmpty(t, before, "the resource must report a fingerprint a client can send back")
@@ -30,8 +27,6 @@ func requireEtagRotates(t *testing.T, before, after string) {
 	require.NotEqual(t, before, after, "a write mints a new fingerprint")
 }
 
-// TestSDK_RunV2REST_Service_EtagOptimisticConcurrency covers Service and,
-// through the revision each deploy materializes, Revision.
 func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -98,8 +93,6 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	awaitRunV2Operation(t, svc, delOp)
 }
 
-// TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency covers WorkerPool and
-// its revisions.
 func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -161,8 +154,6 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	awaitRunV2Operation(t, svc, delOp)
 }
 
-// TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency covers Instance,
-// including the etag StartInstanceRequest and StopInstanceRequest carry.
 func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -234,18 +225,14 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 	awaitRunV2Operation(t, svc, delOp)
 }
 
-// TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency covers Execution
-// and Task — both output-only-etag resources — and the etag
-// CancelExecutionRequest carries.
 func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniquename.New("etag-exec-job")
 	jobName := crV2Parent + "/jobs/" + id
 
-	// The container holds for the length of the test: every etag below is read
-	// from a running execution and spent on it, and an execution that finished
-	// in between would have rotated its fingerprint under the client.
+	// The container holds for the whole test: an execution that finished between a
+	// read and a write would rotate its fingerprint under the client.
 	op, err := svc.Projects.Locations.Jobs.Create(crV2Parent, &runv2.GoogleCloudRunV2Job{
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{
 			Template: &runv2.GoogleCloudRunV2TaskTemplate{

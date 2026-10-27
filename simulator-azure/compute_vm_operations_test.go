@@ -13,13 +13,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// These drive the virtual-machine operations in-process against a machine put
-// straight into the store. Everything that does not depend on a running guest
-// is asserted here — routing, the state each operation refuses or produces, the
-// disk conversion, and where boot diagnostics land — because booting a guest
-// needs nested KVM and a host without it would otherwise leave this logic
-// untested rather than merely unbooted. The guest-moving half is covered by the
-// official-SDK suite on a capable host.
+// The operations against a machine put straight into the store, without a
+// guest: booting one needs nested KVM. The SDK suite covers the guest moves on
+// a capable host.
 
 const (
 	vmOpsSubscription  = "00000000-0000-0000-0000-000000000001"
@@ -34,9 +30,8 @@ func vmOpsSimulator(t *testing.T) *sim.Server {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 	createTestResourceGroup(t, srv, vmOpsSubscription, vmOpsResourceGroup)
 	return srv
@@ -47,8 +42,6 @@ func vmOpsID(name string) string {
 		"/providers/Microsoft.Compute/virtualMachines/" + name
 }
 
-// putVMOpsMachine stores a machine without booting a guest, which is what lets
-// the operations be exercised on a host that cannot boot one.
 func putVMOpsMachine(t *testing.T, name, location string, mutate func(*VirtualMachine)) VirtualMachine {
 	t.Helper()
 	vm := VirtualMachine{
@@ -83,10 +76,9 @@ func putVMOpsMachine(t *testing.T, name, location string, mutate func(*VirtualMa
 
 func vmOpsRequest(t *testing.T, srv *sim.Server, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	// The ARM plane requires a valid bearer; mint one the way a client acquires
-	// it from the token endpoint so the request reaches the handler under test.
+	// The plane requires a simulator-minted bearer.
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
@@ -133,7 +125,6 @@ func TestVirtualMachineListAvailableSizes(t *testing.T) {
 		}
 	}
 
-	// A machine that does not exist has no sizes, rather than the catalogue.
 	rec = vmOpsRequest(t, srv, http.MethodGet, vmOpsPath("absent-vm", "vmSizes"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status for an absent machine = %d, want 404", rec.Code)
@@ -184,10 +175,8 @@ func TestVirtualMachineGeneralize(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	vm := putVMOpsMachine(t, "generalize-vm", "eastus", nil)
 
-	// The refusal for a RUNNING machine needs a live guest, which needs nested
-	// KVM; the official-SDK suite covers it on a capable host. What is asserted
-	// here is the path that does not: a stopped machine generalizes, and the
-	// state is readable back where a caller looks for it.
+	// Refusing a running machine needs a live guest (nested KVM); the SDK suite
+	// covers it.
 	azureVMStates.Put(vm.ID, "PowerState/stopped")
 	rec := vmOpsRequest(t, srv, http.MethodPost, vmOpsPath("generalize-vm", "generalize"))
 	if rec.Code != http.StatusOK {
@@ -197,7 +186,6 @@ func TestVirtualMachineGeneralize(t *testing.T) {
 		t.Fatal("the machine was not recorded as generalized")
 	}
 
-	// The instance view is where a caller reads it back.
 	stored, _ := azureVMs.Get(vm.ID)
 	var codes []string
 	for _, status := range virtualMachineWithInstanceView(stored).Properties.InstanceView.Statuses {
@@ -208,9 +196,8 @@ func TestVirtualMachineGeneralize(t *testing.T) {
 	}
 }
 
-// SimulateEviction applies only to Spot machines, and the eviction policy
-// decides what the eviction leaves behind. The guest moves here are the real
-// ones, which have no guest to stop on a machine that was never booted.
+// The guest moves are the real ones, with no guest to stop on a machine that
+// never booted.
 func TestVirtualMachineSimulateEviction(t *testing.T) {
 	srv := vmOpsSimulator(t)
 
@@ -233,7 +220,6 @@ func TestVirtualMachineSimulateEviction(t *testing.T) {
 		t.Fatalf("an evicted Spot machine is in %q, want PowerState/deallocated", state)
 	}
 
-	// A Delete policy removes the machine, which is what Azure does.
 	deleted := putVMOpsMachine(t, "spot-delete-vm", "eastus", func(vm *VirtualMachine) {
 		vm.Properties.Priority = "Spot"
 		vm.Properties.EvictionPolicy = "Delete"
@@ -248,8 +234,6 @@ func TestVirtualMachineSimulateEviction(t *testing.T) {
 	}
 }
 
-// The conversion rewrites unmanaged disks to managed ones and leaves a machine
-// already on managed disks alone.
 func TestVirtualMachineConvertToManagedDisks(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	vm := putVMOpsMachine(t, "unmanaged-vm", "eastus", func(vm *VirtualMachine) {
@@ -301,8 +285,6 @@ func TestVirtualMachineConvertToManagedDisksLeavesManagedDisksAlone(t *testing.T
 	}
 }
 
-// Boot diagnostics resolves the storage account the machine names, and refuses
-// clearly when there is none to resolve.
 func TestVirtualMachineBootDiagnosticsAccountResolution(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -363,15 +345,9 @@ func TestVirtualMachineBootDiagnosticsPath(t *testing.T) {
 	}
 }
 
-// A machine that never booted has produced no console output, and the refusal
-// says so rather than returning an empty log that a caller could not
-// distinguish from a guest that booted silently.
-//
-// Both halves are asserted. "An error came back" alone is satisfied by any
-// failure at all — including one from a later line of the function — so the
-// refusal is required to name the missing backend as its reason, and the
-// console bytes are required to be absent rather than an empty slice a caller
-// might hand on as a real, silent log.
+// A machine that never booted has no console output. Require the refusal to
+// name the missing backend, so an unrelated failure cannot pass, and the bytes
+// to be nil rather than an empty log.
 func TestVirtualMachineBootDiagnosticsRefusesWithoutAGuest(t *testing.T) {
 	console, err := azureGuestConsole(context.Background(), vmOpsID("no-guest"))
 	if err == nil {
@@ -385,9 +361,8 @@ func TestVirtualMachineBootDiagnosticsRefusesWithoutAGuest(t *testing.T) {
 	}
 }
 
-// listsMachine reports whether a listing contains an exact entry. The package's
-// own `contains` tests substring containment, which would match a name that
-// merely shares a prefix.
+// The package's `contains` matches substrings, which would match a shared
+// prefix.
 func listsMachine(values []string, want string) bool {
 	for _, v := range values {
 		if v == want {

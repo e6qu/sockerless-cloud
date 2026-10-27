@@ -6,20 +6,13 @@
 //
 //	go run scripts/check-lock-pairing.go <dir>...
 //
-// This exists because sync.RWMutex answers a mismatch with `fatal error: sync:
-// Unlock of unlocked RWMutex`, which is not a panic a handler can recover: it
-// takes the whole process down. In a simulator that means the crash is not one
-// failing test but every test after it, all reporting `connection refused` at a
-// port nothing is listening on any more — a failure whose symptom points
-// nowhere near its cause. That is exactly how it arrived: converting a service
-// to read locks changed an acquire from Lock to RLock and left the matching
-// Unlock behind, and the first request to reach that handler killed the
-// simulator.
-//
-// Neither the compiler nor `go vet` sees it, because both calls are valid
-// methods on the same valid receiver. Only executing the path finds it, so a
-// handler no test exercises can carry the defect indefinitely. The syntax tree,
-// though, shows it plainly.
+// sync.RWMutex answers a mismatch with `fatal error: sync: Unlock of unlocked
+// RWMutex`, which no handler can recover: it takes the whole process down, and
+// every later test reports `connection refused` at a port nothing listens on
+// any more — a symptom pointing nowhere near its cause. Neither the compiler
+// nor `go vet` sees it, because both calls are valid methods on the same
+// receiver, and only executing the path finds it; the syntax tree shows it
+// plainly.
 //
 // The detector reports a function when, for one lock, it takes a read lock and
 // calls Unlock without ever taking the write lock — the Unlock has nothing to

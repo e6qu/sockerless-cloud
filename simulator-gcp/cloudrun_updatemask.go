@@ -5,13 +5,10 @@ import (
 	"strings"
 )
 
-// Validated updateMask application for the Cloud Run v2 PATCH handlers.
-// Real Cloud Run v2 merges only the masked fields into the existing
-// resource and rejects a mask naming an unknown or output-only field with
-// 400 INVALID_ARGUMENT — a silent skip would hide caller bugs (a typo in
-// updateMask would persist as a no-op the caller assumed applied). Mask
-// paths arrive in proto (snake_case) or JSON (camelCase) form; both are
-// accepted, matching protojson field-mask parsing.
+// Cloud Run v2 merges only the masked fields into the existing resource and
+// answers 400 INVALID_ARGUMENT for a mask naming an unknown or output-only
+// field. Mask paths arrive in proto (snake_case) or JSON (camelCase) form, as
+// protojson field-mask parsing accepts.
 
 // canonicalMaskPath converts each dot-separated segment of a field-mask
 // path from snake_case to the camelCase JSON name.

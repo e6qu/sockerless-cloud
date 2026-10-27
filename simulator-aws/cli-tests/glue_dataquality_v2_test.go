@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlueDataQualityResultsV2CLI publishes a data quality result and reads it
-// back through get-, batch-get- and list-data-quality-results-v2.
 func TestGlueDataQualityResultsV2CLI(t *testing.T) {
 	t.Parallel()
 	evaluationContext := "dq-v2-cli-context"

@@ -117,7 +117,7 @@ type Instance struct {
 	Labels   map[string]string
 	Sandbox  sim.SandboxProfile
 	Platform func(ctx context.Context, image string) (string, error)
-	// Environment is read at every engine start.
+	// Environment is read afresh at every engine start.
 	Environment func() (map[string]string, error)
 	// Ready runs once the engine accepts clients and before the first client
 	// is relayed, to reconcile what the control plane recorded while the
@@ -152,8 +152,8 @@ type Instance struct {
 	attempted bool
 	startErr  error
 
-	// output keeps the engine container's last lines, which an engine that
-	// stops before it accepts clients is reported with.
+	// output keeps the engine container's last lines, which a failed start
+	// reports for an engine that stops before it accepts clients.
 	output engineOutput
 }
 

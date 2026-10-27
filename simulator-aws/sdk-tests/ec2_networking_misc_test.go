@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_AddressTransferLifecycleSDK covers EnableAddressTransfer (offer an
-// Elastic IP to another account), DescribeAddressTransfers, AcceptAddressTransfer,
-// and DisableAddressTransfer.
 func TestEC2_AddressTransferLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -47,7 +44,6 @@ func TestEC2_AddressTransferLifecycleSDK(t *testing.T) {
 	require.NotNil(t, acc.AddressTransfer)
 	assert.Equal(t, types.AddressTransferStatusAccepted, acc.AddressTransfer.AddressTransferStatus)
 
-	// Re-enable then disable to exercise DisableAddressTransfer.
 	_, err = c.EnableAddressTransfer(ctx, &ec2.EnableAddressTransferInput{
 		AllocationId:      aws.String(allocID),
 		TransferAccountId: aws.String("999988887777"),
@@ -59,9 +55,8 @@ func TestEC2_AddressTransferLifecycleSDK(t *testing.T) {
 	assert.Equal(t, allocID, aws.ToString(dis.AddressTransfer.AllocationId))
 }
 
-// TestEC2_ByoipCidrLifecycleSDK covers ProvisionByoipCidr (own CIDR ->
-// provisioned), AdvertiseByoipCidr (-> advertised), DescribeByoipCidrs,
-// WithdrawByoipCidr (-> provisioned), and DeprovisionByoipCidr.
+// TestEC2_ByoipCidrLifecycleSDK walks a BYOIP CIDR through provisioned,
+// advertised, provisioned again and deprovisioned.
 func TestEC2_ByoipCidrLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -99,9 +94,6 @@ func TestEC2_ByoipCidrLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_PublicIpv4PoolLifecycleSDK covers CreatePublicIpv4Pool,
-// ProvisionPublicIpv4PoolCidr, DescribePublicIpv4Pools (range read-back),
-// DeprovisionPublicIpv4PoolCidr, and DeletePublicIpv4Pool.
 func TestEC2_PublicIpv4PoolLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -141,9 +133,6 @@ func TestEC2_PublicIpv4PoolLifecycleSDK(t *testing.T) {
 	assert.Contains(t, deprov.DeprovisionedAddresses, "10.0.0.0/28")
 }
 
-// TestEC2_NatGatewayAddressLifecycleSDK covers AssignPrivateNatGatewayAddress,
-// AssociateNatGatewayAddress, DisassociateNatGatewayAddress, and
-// UnassignPrivateNatGatewayAddress against a real NAT gateway.
 func TestEC2_NatGatewayAddressLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -172,7 +161,6 @@ func TestEC2_NatGatewayAddressLifecycleSDK(t *testing.T) {
 	assert.Equal(t, aws.ToString(natID), aws.ToString(assign.NatGatewayId))
 	require.GreaterOrEqual(t, len(assign.NatGatewayAddresses), 2, "primary + one assigned secondary")
 
-	// The assigned secondary's private IP, to unassign later.
 	var secondaryIP string
 	for _, a := range assign.NatGatewayAddresses {
 		if !aws.ToBool(a.IsPrimary) {
@@ -210,9 +198,6 @@ func TestEC2_NatGatewayAddressLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_TrunkInterfaceLifecycleSDK covers AssociateTrunkInterface (trunk +
-// branch ENI), DescribeTrunkInterfaceAssociations, and
-// DisassociateTrunkInterface.
 func TestEC2_TrunkInterfaceLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -251,8 +236,6 @@ func TestEC2_TrunkInterfaceLifecycleSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(dis.Return))
 }
 
-// TestEC2_CarrierGatewayLifecycleSDK covers CreateCarrierGateway,
-// DescribeCarrierGateways, and DeleteCarrierGateway.
 func TestEC2_CarrierGatewayLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -286,8 +269,6 @@ func TestEC2_CarrierGatewayLifecycleSDK(t *testing.T) {
 	assert.Equal(t, types.CarrierGatewayStateDeleted, del.CarrierGateway.State)
 }
 
-// TestEC2_CoipPoolLifecycleSDK covers CreateCoipPool, DescribeCoipPools,
-// GetCoipPoolUsage, and DeleteCoipPool.
 func TestEC2_CoipPoolLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -313,9 +294,6 @@ func TestEC2_CoipPoolLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_NetworkInterfacePermissionLifecycleSDK covers
-// CreateNetworkInterfacePermission, DescribeNetworkInterfacePermissions, and
-// DeleteNetworkInterfacePermission.
 func TestEC2_NetworkInterfacePermissionLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -353,8 +331,6 @@ func TestEC2_NetworkInterfacePermissionLifecycleSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(del.Return))
 }
 
-// TestEC2_VgwRoutePropagationSDK covers EnableVgwRoutePropagation and
-// DisableVgwRoutePropagation against a route table + virtual private gateway.
 func TestEC2_VgwRoutePropagationSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -389,8 +365,7 @@ func TestEC2_VgwRoutePropagationSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Enabling propagation puts the gateway's route on the table, which is the
-	// whole effect of the operation.
+	// Enabling propagation puts the gateway's route on the table.
 	enabled := propagatedRoutes()
 	require.Len(t, enabled, 1)
 	assert.Equal(t, aws.ToString(vgw.VpnGateway.VpnGatewayId), aws.ToString(enabled[0].GatewayId))
@@ -404,8 +379,6 @@ func TestEC2_VgwRoutePropagationSDK(t *testing.T) {
 	assert.Empty(t, propagatedRoutes(), "disabling propagation withdraws the route it added")
 }
 
-// TestEC2_VpnConcentratorLifecycleSDK covers CreateVpnConcentrator,
-// DescribeVpnConcentrators, and DeleteVpnConcentrator.
 func TestEC2_VpnConcentratorLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -429,8 +402,8 @@ func TestEC2_VpnConcentratorLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEC2_ModifyManagedPrefixListSDK covers ModifyManagedPrefixList: adding and
-// removing entries and bumping the version on an existing managed prefix list.
+// TestEC2_ModifyManagedPrefixListSDK expects adding and removing entries to bump
+// the list's version.
 func TestEC2_ModifyManagedPrefixListSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

@@ -10,22 +10,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Additional Microsoft.DocumentDB ARM control-plane surfaces beyond the SQL
-// (core) account/database/container family in cosmos.go: the MongoDB,
-// Cassandra and Gremlin API resource families, SQL stored-procedure /
-// user-defined-function / trigger / client-encryption-key sub-resources,
-// throughput autoscale↔manual migration, account update / failover /
-// key-regeneration / name-existence operations, and the provider-level
-// operations and locations lists. Every child resource shares the
-// {resource, options} GetResults envelope, so a single generic store and a
-// handful of generic handlers serve them all at cloud-API fidelity.
+// Microsoft.DocumentDB surfaces beyond the SQL family in cosmos.go: the
+// MongoDB, Cassandra and Gremlin families, SQL script sub-resources and
+// client-encryption keys, throughput migration, account update, failover, key
+// regeneration and name existence, and the provider operations and locations
+// lists. Every child shares the {resource, options} GetResults envelope, so
+// one generic store serves them all.
 
 const cosmosTypeBase = "Microsoft.DocumentDB/databaseAccounts"
 
-// CosmosResource is a generic Microsoft.DocumentDB child resource addressed by
-// its full ARM id. Type distinguishes the family (mongodbDatabases,
-// cassandraKeyspaces/tables, gremlinDatabases/graphs, the SQL script
-// sub-resources, client-encryption keys).
 type CosmosResource struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -35,12 +28,8 @@ type CosmosResource struct {
 	Properties map[string]any    `json:"properties,omitempty"`
 }
 
-// cosmosKeyGenRow tracks how many times a given account key role has been
-// regenerated so RegenerateKey yields genuinely new key material. Key holds
-// material pinned onto the role rather than derived from the account's
-// resource ID, which is what carries an account's keys unchanged across a
-// cross-resource-group move; the next RegenerateKey clears the pin and returns
-// the role to derived material.
+// cosmosKeyGenRow: Key holds material pinned onto the role by a
+// cross-resource-group move; the next RegenerateKey clears it.
 type cosmosKeyGenRow struct {
 	N   int    `json:"n"`
 	Key string `json:"key,omitempty"`
@@ -57,7 +46,6 @@ func registerCosmosAPIs(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DocumentDB/databaseAccounts"
 
-	// Account-level operations.
 	srv.HandleFunc("PATCH "+armBase+"/{account}", handleCosmosUpdateAccount)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/databaseAccounts", handleCosmosListAccountsBySubscription)
 	srv.HandleFunc("POST "+armBase+"/{account}/failoverPriorityChange", handleCosmosFailoverPriorityChange)
@@ -65,13 +53,10 @@ func registerCosmosAPIs(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/{account}/readonlykeys", handleCosmosListReadOnlyKeys)
 	srv.HandleFunc("HEAD /providers/Microsoft.DocumentDB/databaseAccountNames/{account}", handleCosmosCheckNameExists)
 
-	// Provider-level operations.
 	srv.HandleFunc("GET /providers/Microsoft.DocumentDB/operations", handleCosmosOperations)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations", handleCosmosLocations)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.DocumentDB/locations/{location}", handleCosmosLocationGet)
 
-	// MongoDB / Cassandra / Gremlin resource families (CRUD + dedicated
-	// throughput + autoscale/manual migration).
 	cosmosRegisterFamily(srv, armBase+"/{account}/mongodbDatabases", cosmosTypeBase+"/mongodbDatabases", true)
 	cosmosRegisterFamily(srv, armBase+"/{account}/mongodbDatabases/{database}/collections", cosmosTypeBase+"/mongodbDatabases/collections", true)
 	cosmosRegisterFamily(srv, armBase+"/{account}/cassandraKeyspaces", cosmosTypeBase+"/cassandraKeyspaces", true)
@@ -79,28 +64,22 @@ func registerCosmosAPIs(srv *sim.Server) {
 	cosmosRegisterFamily(srv, armBase+"/{account}/gremlinDatabases", cosmosTypeBase+"/gremlinDatabases", true)
 	cosmosRegisterFamily(srv, armBase+"/{account}/gremlinDatabases/{database}/graphs", cosmosTypeBase+"/gremlinDatabases/graphs", true)
 
-	// SQL script sub-resources (no dedicated throughput).
+	// SQL script sub-resources carry no dedicated throughput.
 	cosmosRegisterFamily(srv, armBase+"/{account}/sqlDatabases/{database}/containers/{container}/storedProcedures", cosmosTypeBase+"/sqlDatabases/containers/storedProcedures", false)
 	cosmosRegisterFamily(srv, armBase+"/{account}/sqlDatabases/{database}/containers/{container}/userDefinedFunctions", cosmosTypeBase+"/sqlDatabases/containers/userDefinedFunctions", false)
 	cosmosRegisterFamily(srv, armBase+"/{account}/sqlDatabases/{database}/containers/{container}/triggers", cosmosTypeBase+"/sqlDatabases/containers/triggers", false)
 
-	// SQL client-encryption keys: list + get + create/update (the API exposes
-	// no delete).
+	// The API exposes no delete for client-encryption keys.
 	cekType := cosmosTypeBase + "/sqlDatabases/clientEncryptionKeys"
 	srv.HandleFunc("GET "+armBase+"/{account}/sqlDatabases/{database}/clientEncryptionKeys", cosmosListHandler(cekType))
 	srv.HandleFunc("GET "+armBase+"/{account}/sqlDatabases/{database}/clientEncryptionKeys/{name}", handleCosmosGetResource)
 	srv.HandleFunc("PUT "+armBase+"/{account}/sqlDatabases/{database}/clientEncryptionKeys/{name}", cosmosPutHandler(cekType))
 
-	// Throughput autoscale/manual migration for the pre-existing SQL database,
-	// SQL container and Table API throughput resources.
 	cosmosRegisterMigrate(srv, armBase+"/{account}/sqlDatabases/{database}/throughputSettings/default")
 	cosmosRegisterMigrate(srv, armBase+"/{account}/sqlDatabases/{database}/containers/{container}/throughputSettings/default")
 	cosmosRegisterMigrate(srv, armBase+"/{account}/tables/{table}/throughputSettings/default")
 }
 
-// cosmosRegisterFamily mounts the CRUD + list routes for a child resource
-// family, plus its dedicated throughput resource and migration routes when the
-// family supports per-resource throughput.
 func cosmosRegisterFamily(srv *sim.Server, base, resType string, throughput bool) {
 	srv.HandleFunc("PUT "+base+"/{name}", cosmosPutHandler(resType))
 	srv.HandleFunc("GET "+base+"/{name}", handleCosmosGetResource)
@@ -118,9 +97,6 @@ func cosmosRegisterMigrate(srv *sim.Server, throughputBase string) {
 	srv.HandleFunc("POST "+throughputBase+"/migrateToManualThroughput", handleCosmosMigrateToManual)
 }
 
-// cosmosParentExists reports whether the ARM id of a resource's parent (the
-// account for a top-level family, or the owning database/keyspace/container for
-// a nested resource) currently exists across any Cosmos store.
 func cosmosParentExists(id string) bool {
 	if _, ok := cosmosAccounts.Get(id); ok {
 		return true
@@ -142,9 +118,7 @@ func cosmosParentExists(id string) bool {
 
 func cosmosPutHandler(resType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// The parent id is the request path with the family segment and the
-		// resource name stripped (".../mongodbDatabases/{db}" -> the account;
-		// ".../collections/{coll}" -> the mongodb database).
+		// The parent ID is the path with the family segment and name stripped.
 		parent := path.Dir(path.Dir(r.URL.Path))
 		if !cosmosParentExists(parent) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "parent resource not found: %s", parent)
@@ -214,10 +188,8 @@ func cosmosListHandler(resType string) http.HandlerFunc {
 	}
 }
 
-// cosmosStoreThroughputFromProps provisions the dedicated throughput resource
-// for a family member created with options.throughput or
-// options.autoscaleSettings (real Azure: a member created without a throughput
-// option shares its database/account throughput and has no dedicated offer).
+// A member created without a throughput option shares its database's or
+// account's and has no dedicated offer.
 func cosmosStoreThroughputFromProps(props map[string]any, resID, resType string) {
 	opts, _ := props["options"].(map[string]any)
 	if opts == nil {
@@ -243,18 +215,12 @@ func cosmosStoreThroughputFromProps(props map[string]any, resID, resType string)
 	})
 }
 
-// cosmosFriendly turns an ARM resource type into a short human description for
-// error messages (".../mongodbDatabases/collections" -> "collections").
 func cosmosFriendly(resType string) string {
 	return path.Base(resType)
 }
 
-// ── Throughput type resolution + autoscale/manual migration ──────────────────
-
-// cosmosThroughputTypeFromPath maps a throughputSettings path to the ARM type
-// of its owning family. Cassandra-table and Gremlin-graph paths are checked
-// before the bare tables/graphs cases because their paths also contain those
-// segments.
+// Cassandra-table and Gremlin-graph paths go before the bare tables and graphs
+// cases, whose segments they contain.
 func cosmosThroughputTypeFromPath(p string) string {
 	switch {
 	case strings.Contains(p, "/cassandraKeyspaces/") && strings.Contains(p, "/tables/"):
@@ -340,8 +306,6 @@ func cosmosToFloat(v any) float64 {
 	return 0
 }
 
-// ── Account update / failover / key regeneration / name existence ────────────
-
 func handleCosmosUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	a, ok := cosmosAccounts.Get(id)
@@ -387,8 +351,7 @@ func handleCosmosListAccountsBySubscription(w http.ResponseWriter, r *http.Reque
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// handleCosmosFailoverPriorityChange reorders an account's regional failover
-// priorities. The new priority-0 region becomes the write region.
+// The new priority-0 region becomes the write region.
 func handleCosmosFailoverPriorityChange(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	a, ok := cosmosAccounts.Get(id)
@@ -423,9 +386,6 @@ func handleCosmosFailoverPriorityChange(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-// cosmosApplyFailoverPriorities rewrites the locations / readLocations /
-// writeLocations arrays so each region carries its new failover priority and
-// the priority-0 region is the sole write region.
 func cosmosApplyFailoverPriorities(props map[string]any, priorityByLocation map[string]int) {
 	locations := cosmosLocationMaps(props["locations"])
 	writeLocations := make([]map[string]any, 0, 1)
@@ -445,9 +405,8 @@ func cosmosApplyFailoverPriorities(props map[string]any, priorityByLocation map[
 	}
 }
 
-// cosmosLocationMaps coerces a stored locations array (either []map[string]any
-// fresh from cosmosNormalizeLocations or []any after a JSON store round-trip)
-// to a slice of maps.
+// A stored locations array is []map[string]any fresh from
+// cosmosNormalizeLocations, or []any after a store round-trip.
 func cosmosLocationMaps(v any) []map[string]any {
 	switch arr := v.(type) {
 	case []map[string]any:
@@ -464,8 +423,6 @@ func cosmosLocationMaps(v any) []map[string]any {
 	return nil
 }
 
-// handleCosmosRegenerateKey rotates one of an account's four keys so subsequent
-// listKeys/listConnectionStrings return new material for that role.
 func handleCosmosRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	if _, ok := cosmosAccounts.Get(id); !ok {
@@ -488,11 +445,8 @@ func handleCosmosRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// cosmosKeyRoles are the four master-key roles a Cosmos DB account serves
-// through listKeys and rotates individually through regenerateKey.
 var cosmosKeyRoles = []string{"primary", "secondary", "primary-readonly", "secondary-readonly"}
 
-// cosmosKeyRole maps the KeyKind enum the SDK sends to the internal key role.
 func cosmosKeyRole(kind string) string {
 	switch strings.ToLower(kind) {
 	case "primary":
@@ -511,8 +465,7 @@ func cosmosBumpKeyGen(accountID, role string) {
 	key := accountID + "|" + role
 	g, _ := cosmosKeyGens.Get(key)
 	g.N++
-	// A regenerate always yields derived material: it clears any pin a
-	// cross-resource-group move left on the role.
+	// A regenerate clears any pin a move left, returning to derived material.
 	g.Key = ""
 	cosmosKeyGens.Put(key, g)
 }
@@ -530,11 +483,8 @@ func cosmosKeyMaterial(accountID, role string) string {
 	return simListKey32(accountID, fmt.Sprintf("%s-gen%d", role, g.N))
 }
 
-// pinCosmosKeys carries an account's four key roles onto the resource ID a
-// cross-resource-group move is about to create. The material is seeded by the
-// account's resource ID, which embeds the resource group, so a move that only
-// re-keyed the record would silently rotate every master key an application
-// holds — which real Azure Cosmos DB never does.
+// The material derives from the resource ID, which embeds the resource group;
+// Azure Cosmos DB never rotates keys on a move.
 func pinCosmosKeys(oldID, newID string) {
 	for _, role := range cosmosKeyRoles {
 		pinned := cosmosKeyMaterial(oldID, role)
@@ -545,8 +495,7 @@ func pinCosmosKeys(oldID, newID string) {
 	}
 }
 
-// handleCosmosCheckNameExists serves HEAD .../databaseAccountNames/{accountName}
-// — 200 if an account with that name exists (name taken), 404 if available.
+// 200 if the name is taken, 404 if available.
 func handleCosmosCheckNameExists(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "account")
 	for _, a := range cosmosAccounts.List() {
@@ -558,12 +507,9 @@ func handleCosmosCheckNameExists(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 }
 
-// ── Provider operations + locations ──────────────────────────────────────────
-
 func handleCosmosOperations(w http.ResponseWriter, _ *http.Request) {
-	// The Cosmos DB OperationDisplay schema spells its keys with leading
-	// capitals (Provider/Resource/Operation/Description), unlike most ARM
-	// providers — match the vendored swagger exactly.
+	// The Cosmos DB OperationDisplay schema capitalizes its keys
+	// (Provider/Resource/Operation/Description), unlike most providers.
 	op := func(name, op, desc string) map[string]any {
 		return map[string]any{
 			"name": name,

@@ -1,13 +1,10 @@
 package gcp_sdk_test
 
-// Project-lifecycle round-trips over both Cloud Resource Manager API
-// versions, driven by the two official Go clients real consumers use:
-// cloud.google.com/go/resourcemanager/apiv3 (the GAPIC ProjectsClient with
-// its long-running-operation poller) and google.golang.org/api/
-// cloudresourcemanager/v1 (the wire gcloud's `projects` commands and
-// terraform-provider-google's google_project resource speak), plus the
-// Cloud Billing project billing-info read google_project's terraform Read
-// performs.
+// Project lifecycles over both Cloud Resource Manager versions, through
+// cloud.google.com/go/resourcemanager/apiv3 (with its operation poller) and
+// google.golang.org/api/cloudresourcemanager/v1 (the wire gcloud's `projects`
+// commands and terraform-provider-google's google_project speak), plus the
+// Cloud Billing billing-info read google_project's Read performs.
 
 import (
 	"errors"
@@ -68,7 +65,7 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	assert.Regexp(t, crmProjectNumberName, created.GetName(),
 		"v3 resource name must be the projects/{projectNumber} form")
 
-	// Resuming the LRO by name polls GET /v3/operations/{operation}.
+	// Resuming the operation by name polls GET /v3/operations/{operation}.
 	resumed := c.CreateProjectOperation(op.Name())
 	polled, err := resumed.Poll(ctx)
 	require.NoError(t, err)
@@ -95,7 +92,6 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, 409, gerr.Code)
 
-	// ListProjects under the org surfaces the project.
 	var listed []string
 	it := c.ListProjects(ctx, &resourcemanagerpb.ListProjectsRequest{Parent: crmTestOrg})
 	for {
@@ -108,7 +104,6 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	}
 	assert.Contains(t, listed, projectID)
 
-	// SearchProjects finds it by ID query.
 	sit := c.SearchProjects(ctx, &resourcemanagerpb.SearchProjectsRequest{Query: "id:apiv3-proj-*"})
 	found := false
 	for {
@@ -123,8 +118,6 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "SearchProjects should match id:apiv3-proj-*")
 
-	// The created project's {project} path segment works against an
-	// existing per-service route: create a service account in it.
 	iamSvc, err := iam.NewService(ctx,
 		option.WithEndpoint(baseURL),
 		option.WithTokenSource(simTokenSource()),
@@ -138,7 +131,6 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	assert.Equal(t, projectID, sa.ProjectId)
 	assert.True(t, strings.HasPrefix(sa.Email, "apiv3-proj-sa@"+projectID+"."), "SA email carries the new project ID: %s", sa.Email)
 
-	// Delete soft-deletes into DELETE_REQUESTED with a deleteTime.
 	dop, err := c.DeleteProject(ctx, &resourcemanagerpb.DeleteProjectRequest{Name: "projects/" + projectID})
 	require.NoError(t, err)
 	deleted, err := dop.Wait(ctx)
@@ -184,7 +176,6 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, 400, gerr.Code)
 
-	// Undelete restores ACTIVE.
 	uop, err := c.UndeleteProject(ctx, &resourcemanagerpb.UndeleteProjectRequest{Name: "projects/" + projectID})
 	require.NoError(t, err)
 	restored, err := uop.Wait(ctx)
@@ -224,8 +215,8 @@ func TestResourceManagerProjects_V1Lifecycle(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	// gcloud's create waiter and terraform's ResourceManagerOperationWaiter
-	// poll the operation by name.
+	// gcloud's create waiter and terraform's ResourceManagerOperationWaiter poll
+	// the operation by name.
 	polled, err := svc.Operations.Get(op.Name).Do()
 	require.NoError(t, err)
 	assert.True(t, polled.Done)

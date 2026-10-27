@@ -6,17 +6,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_private_access.go serves two site/slot network views:
+// Two site and slot network views:
 //
-//   - privateAccess/virtualNetworks — the Private Site Access record (which
-//     Virtual Networks may reach the site privately), round-tripped exactly
-//     per the swagger PrivateAccess contract;
-//   - networkFeatures/{view} — the read-only summary of the site's network
-//     features, assembled from the REAL connection state the simulator holds:
-//     the VNet connection the site actually has (sites_vnet.go) and its two
-//     hybrid connection families (web_hybrid.go).
+//   - privateAccess/virtualNetworks — the Private Site Access record, per the
+//     PrivateAccess contract;
+//   - networkFeatures/{view} — a read-only summary of the site's VNet connection
+//     (sites_vnet.go) and its two hybrid connection families (web_hybrid.go).
 
-// WebPrivateAccess mirrors the swagger PrivateAccess resource.
 type WebPrivateAccess struct {
 	ID         string                     `json:"id,omitempty"`
 	Name       string                     `json:"name,omitempty"`
@@ -24,15 +20,13 @@ type WebPrivateAccess struct {
 	Properties WebPrivateAccessProperties `json:"properties"`
 }
 
-// WebPrivateAccessProperties mirrors the swagger PrivateAccessProperties.
-// virtualNetworks is always present: the contract reads an empty array (not
-// null) as "all subnets allowed within this Virtual Network".
+// virtualNetworks is always present: the contract reads an empty array as "all
+// subnets allowed within this Virtual Network".
 type WebPrivateAccessProperties struct {
 	Enabled         bool                             `json:"enabled"`
 	VirtualNetworks []WebPrivateAccessVirtualNetwork `json:"virtualNetworks"`
 }
 
-// WebPrivateAccessVirtualNetwork mirrors the swagger PrivateAccessVirtualNetwork.
 type WebPrivateAccessVirtualNetwork struct {
 	Name       string                   `json:"name,omitempty"`
 	Key        int32                    `json:"key,omitempty"`
@@ -40,13 +34,11 @@ type WebPrivateAccessVirtualNetwork struct {
 	Subnets    []WebPrivateAccessSubnet `json:"subnets,omitempty"`
 }
 
-// WebPrivateAccessSubnet mirrors the swagger PrivateAccessSubnet.
 type WebPrivateAccessSubnet struct {
 	Name string `json:"name,omitempty"`
 	Key  int32  `json:"key,omitempty"`
 }
 
-// WebNetworkFeatures mirrors the swagger NetworkFeatures resource.
 type WebNetworkFeatures struct {
 	ID         string                       `json:"id,omitempty"`
 	Name       string                       `json:"name,omitempty"`
@@ -54,7 +46,6 @@ type WebNetworkFeatures struct {
 	Properties WebNetworkFeaturesProperties `json:"properties"`
 }
 
-// WebNetworkFeaturesProperties mirrors the swagger NetworkFeaturesProperties.
 type WebNetworkFeaturesProperties struct {
 	VirtualNetworkName       string                      `json:"virtualNetworkName,omitempty"`
 	VirtualNetworkConnection *WebVnetInfo                `json:"virtualNetworkConnection,omitempty"`
@@ -78,8 +69,7 @@ func registerWebPrivateAccess(srv *sim.Server) {
 		}
 		pa, ok := webPrivateAccess.Get(webResourceID(r))
 		if !ok {
-			// A site never configured for private access reads as disabled
-			// with no Virtual Networks — the state it genuinely is in.
+			// A site never configured reads as disabled with no Virtual Networks.
 			pa = WebPrivateAccess{Properties: WebPrivateAccessProperties{}}
 		}
 		writePrivateAccess(w, r, pa)
@@ -115,8 +105,7 @@ func registerWebPrivateAccess(srv *sim.Server) {
 			props.HybridConnections = []WebRelayServiceConnection{}
 		}
 		if conns := siteVnetConnections(resID); len(conns) > 0 {
-			// The summary names the site's VNet integration; the regional
-			// (swift) connection wins when both spellings exist.
+			// The regional (swift) connection wins when both spellings exist.
 			conn := conns[0]
 			if swift, ok := swiftConnectionFor(resID); ok {
 				conn = swift
@@ -135,8 +124,6 @@ func registerWebPrivateAccess(srv *sim.Server) {
 	})
 }
 
-// writePrivateAccess renders a PrivateAccess record at its canonical id with
-// the always-present virtualNetworks member.
 func writePrivateAccess(w http.ResponseWriter, r *http.Request, pa WebPrivateAccess) {
 	pa.ID = webResourceID(r) + "/privateAccess/virtualNetworks"
 	pa.Name = "virtualNetworks"

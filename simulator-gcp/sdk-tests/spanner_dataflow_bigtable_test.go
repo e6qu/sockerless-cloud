@@ -16,10 +16,9 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 )
 
-// awaitSpannerLRO reads a Cloud Spanner long-running operation to its terminal
-// state through the operations collection its own name addresses, and returns
-// the finished record. That is how a client learns the outcome, and it holds
-// whether the service settles the work inside the request or later.
+// awaitSpannerLRO reads the operation to its terminal state through the
+// collection its name addresses, as a client learns the outcome whether the
+// service settles inside the request or later.
 func awaitSpannerLRO(t *testing.T, name string, get func() (*spanner.Operation, error)) *spanner.Operation {
 	t.Helper()
 	require.NotEmpty(t, name, "a long-running method answers with the operation it started")
@@ -183,10 +182,9 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 	assert.Contains(t, collOpNames, op.Name,
 		"the project-wide instanceConfigOperations collection sees the configuration's operations")
 
-	// The ssdCaches operations sub-collection is a different collection: the
-	// configuration's own operations are not in it. Its emptiness here is the
-	// scoping assertion — a handler that answered with the parent's operations
-	// would return the two above.
+	// The ssdCaches operations collection holds none of the configuration's own
+	// operations; a handler that answered with the parent's would return the two
+	// above.
 	ssdOps, err := svc.Projects.InstanceConfigs.SsdCaches.Operations.List(cfg.Name + "/ssdCaches/cache-1/operations").Do()
 	require.NoError(t, err)
 	for _, o := range ssdOps.Operations {
@@ -206,11 +204,9 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 	}
 }
 
-// scans.list is the one Cloud Spanner collection with no method that creates a
-// member: a scan is produced by the service's own key-visualizer analysis, which
-// this simulator does not run, so an empty listing is the whole of the observable
-// behaviour. The assertion here is the route and the response shape the generated
-// client has to decode.
+// TestSpanner_ScansListSDK: Spanner's key-visualizer analysis produces scans
+// and this simulator runs none, so the listing is empty; the test pins the
+// route and the response shape.
 func TestSpanner_ScansListSDK(t *testing.T) {
 	t.Parallel()
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
@@ -251,9 +247,8 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "JOB_STATE_CANCELLED", updated.CurrentState)
 
-	// Messages, metrics and execution details are all about the job they name:
-	// each resolves the job id and reports NOT_FOUND for one no create minted,
-	// rather than answering the same way whatever it is asked about.
+	// Messages, metrics and execution details each resolve the job id and answer
+	// NOT_FOUND for one no create minted.
 	msgs, err := svc.Projects.Locations.Jobs.Messages.List("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, msgs.JobMessages)
@@ -366,7 +361,6 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
-	// Classic template launch (regional) → a Job inside LaunchTemplateResponse.
 	launch, err := svc.Projects.Locations.Templates.Launch("tmpl-project", "us-central1", &dataflow.LaunchTemplateParameters{
 		JobName: "tmpl-job",
 	}).GcsPath("gs://dataflow-templates/word-count").Do()
@@ -379,17 +373,15 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	assert.Equal(t, "tmpl-job", launched.Name)
 	assert.Equal(t, "JOB_STATE_RUNNING", launched.CurrentState)
 
-	// Classic template launch (global).
 	glaunch, err := svc.Projects.Templates.Launch("tmpl-project", &dataflow.LaunchTemplateParameters{
 		JobName: "tmpl-job-global",
 	}).GcsPath("gs://dataflow-templates/word-count").Do()
 	require.NoError(t, err)
 	require.NotNil(t, glaunch.Job)
 
-	// GetTemplate reads the template the caller staged, and its metadata from
-	// the sibling file Dataflow's tooling writes beside it. A path nothing was
-	// staged at is not a template — answering one for whatever path was asked
-	// about described a template nobody had.
+	// GetTemplate reads the staged template and its metadata from the sibling
+	// file Dataflow's tooling writes beside it; a path nothing was staged at is
+	// not a template.
 	storage := storageService(t)
 	requireProject(t, "tmpl-project")
 	_, err = storage.Buckets.Insert("tmpl-project", &storageapi.Bucket{Name: "staged-templates"}).Do()
@@ -418,7 +410,6 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	require.Len(t, tmpl.Metadata.Parameters, 1)
 	assert.Equal(t, "inputFile", tmpl.Metadata.Parameters[0].Name)
 
-	// Flex template launch → a Job inside LaunchFlexTemplateResponse.
 	flex, err := svc.Projects.Locations.FlexTemplates.Launch("tmpl-project", "us-central1", &dataflow.LaunchFlexTemplateRequest{
 		LaunchParameter: &dataflow.LaunchFlexTemplateParameter{
 			JobName:              "flex-job",
@@ -481,13 +472,11 @@ func TestBigtable_InstanceClusterTableSDK(t *testing.T) {
 	assert.Equal(t, table.Name, list.Tables[0].Name)
 }
 
-// TestBigtable_AdminSurfaceSDK exercises the wider Bigtable Admin REST surface
-// — instance IAM + PUT update, cluster partial-update / hot tablets / memory
-// layer, app profiles, backups (+ copy + IAM), table colon verbs
-// (modifyColumnFamilies / generateConsistencyToken / checkConsistency /
-// dropRowRange / undelete / restore / IAM), authorized views, schema bundles,
-// logical & materialized views, and locations / operations — via the official
-// bigtableadmin/v2 SDK against the simulator.
+// TestBigtable_AdminSurfaceSDK drives the wider Bigtable Admin REST surface
+// through bigtableadmin/v2: instance IAM and PUT update; cluster partial
+// update, hot tablets and memory layer; app profiles; backups with copy and
+// IAM; the table colon verbs; authorized views; schema bundles; logical and
+// materialized views; locations and operations.
 func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	t.Parallel()
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
@@ -497,7 +486,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	const inst = project + "/instances/bt-admin-i"
 	const clusterName = inst + "/clusters/bt-admin-c1"
 
-	// Instance + cluster.
 	op, err := svc.Projects.Instances.Create(project, &bigtableadmin.CreateInstanceRequest{
 		InstanceId: "bt-admin-i",
 		Instance:   &bigtableadmin.Instance{DisplayName: "Admin", Type: "PRODUCTION"},
@@ -508,9 +496,8 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, op.Done)
 
-	// Locations + project operations. Bigtable admin files its long-running
-	// operations in the flat operations/{id} collection, and the create above
-	// is one of them, so the listing has to contain it.
+	// Bigtable admin files its operations in the flat operations/{id} collection,
+	// so the listing must contain the create above.
 	locs, err := svc.Projects.Locations.List(project).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, locs.Locations)
@@ -525,7 +512,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	}
 	assert.Contains(t, opNames, op.Name, "the create's own operation is in the listing")
 
-	// Instance PUT update + IAM round-trip.
 	upd, err := svc.Projects.Instances.Update(inst, &bigtableadmin.Instance{DisplayName: "Admin2", Type: "PRODUCTION"}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "Admin2", upd.DisplayName)
@@ -542,7 +528,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"bigtable.tables.list"}, perms.Permissions)
 
-	// Cluster partial-update + hot tablets + memory layer.
 	_, err = svc.Projects.Instances.Clusters.PartialUpdateCluster(clusterName, &bigtableadmin.Cluster{ServeNodes: 3}).
 		UpdateMask("serveNodes").Do()
 	require.NoError(t, err)
@@ -561,11 +546,10 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.Len(t, memoryLayers.MemoryLayers, 1)
 	assert.Equal(t, "DISABLED", memoryLayers.MemoryLayers[0].State)
 
-	// updateMemoryLayer was published in Discovery before the generated Go
-	// client acquired a call type. Drive its exact
+	// The generated Go client has no call for updateMemoryLayer, which Discovery
+	// publishes, so send
 	// PATCH /v2/projects/{project}/instances/{instance}/clusters/{cluster}/memoryLayer
-	// route through the same authenticated OAuth2 transport used by the
-	// official SDK.
+	// through the SDK's authenticated transport.
 	enableBody := `{"name":"` + clusterName + `/memoryLayer","memoryConfig":{},"etag":"` + ml.Etag + `"}`
 	enableReq, err := http.NewRequestWithContext(ctx, http.MethodPatch,
 		baseURL+"/v2/"+clusterName+"/memoryLayer?updateMask=memoryConfig", strings.NewReader(enableBody))
@@ -612,7 +596,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	assert.Equal(t, "DISABLED", ml.State)
 	assert.Nil(t, ml.MemoryConfig)
 
-	// App profile.
 	ap, err := svc.Projects.Instances.AppProfiles.Create(inst, &bigtableadmin.AppProfile{
 		Description:               "ap",
 		MultiClusterRoutingUseAny: &bigtableadmin.MultiClusterRoutingUseAny{},
@@ -629,14 +612,12 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ap2", apGet.Description)
 
-	// Table for the table-scoped surfaces.
 	tbl, err := svc.Projects.Instances.Tables.Create(inst, &bigtableadmin.CreateTableRequest{
 		TableId: "bt_admin_t",
 		Table:   &bigtableadmin.Table{ColumnFamilies: map[string]bigtableadmin.ColumnFamily{"cf": {}}},
 	}).Do()
 	require.NoError(t, err)
 
-	// Table colon verbs.
 	mcfTbl, err := svc.Projects.Instances.Tables.ModifyColumnFamilies(tbl.Name, &bigtableadmin.ModifyColumnFamiliesRequest{
 		Modifications: []*bigtableadmin.Modification{{Id: "cf2", Create: &bigtableadmin.ColumnFamily{}}},
 	}).Do()
@@ -650,8 +631,7 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	assert.True(t, chk.Consistent)
 	_, err = svc.Projects.Instances.Tables.DropRowRange(tbl.Name, &bigtableadmin.DropRowRangeRequest{DeleteAllDataFromTable: true}).Do()
 	require.NoError(t, err)
-	// The drop is about the table it names, and it leaves the table and its
-	// schema in place — it removes rows, not the table.
+	// The drop removes rows, not the table or its schema.
 	afterDrop, err := svc.Projects.Instances.Tables.Get(tbl.Name).Do()
 	require.NoError(t, err)
 	assert.Contains(t, afterDrop.ColumnFamilies, "cf")
@@ -685,14 +665,12 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.Len(t, tablePol.Bindings, 1, "the table's policy is the one that was set on it")
 	assert.Equal(t, "roles/bigtable.reader", tablePol.Bindings[0].Role)
 	assert.Equal(t, []string{"user:b@example.com"}, tablePol.Bindings[0].Members)
-	// The table's policy is its own: setting it did not overwrite the
-	// instance's.
+	// The table's policy is its own; the instance's is unchanged.
 	instPolAfter, err := svc.Projects.Instances.GetIamPolicy(inst, &bigtableadmin.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
 	require.Len(t, instPolAfter.Bindings, 1)
 	assert.Equal(t, "roles/bigtable.user", instPolAfter.Bindings[0].Role)
 
-	// Authorized views (table-scoped).
 	avOp, err := svc.Projects.Instances.Tables.AuthorizedViews.Create(tbl.Name, &bigtableadmin.AuthorizedView{
 		DeletionProtection: false,
 	}).AuthorizedViewId("av1").Do()
@@ -716,7 +694,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	assert.Equal(t, "roles/bigtable.viewer", avPol.Bindings[0].Role)
 	assert.Equal(t, []string{"user:av@example.com"}, avPol.Bindings[0].Members)
 
-	// Schema bundles (table-scoped).
 	sbOp, err := svc.Projects.Instances.Tables.SchemaBundles.Create(tbl.Name, &bigtableadmin.SchemaBundle{}).
 		SchemaBundleId("sb1").Do()
 	require.NoError(t, err)
@@ -728,7 +705,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sbList.SchemaBundles, 1)
 
-	// Logical & materialized views (instance-scoped).
 	lvOp, err := svc.Projects.Instances.LogicalViews.Create(inst, &bigtableadmin.LogicalView{Query: "SELECT 1"}).
 		LogicalViewId("lv1").Do()
 	require.NoError(t, err)
@@ -744,7 +720,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mvList.MaterializedViews, 1)
 
-	// Backups (cluster-scoped) + copy + IAM.
 	bkOp, err := svc.Projects.Instances.Clusters.Backups.Create(clusterName, &bigtableadmin.Backup{
 		SourceTable: tbl.Name,
 		ExpireTime:  "2099-01-01T00:00:00Z",
@@ -799,9 +774,8 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, copyPol.Bindings, "nothing was bound on the copy")
 
-	// Restore a table from the backup. The restored table is a table of the
-	// instance: it is gettable by the name the request asked for and it shows
-	// up in the instance's listing alongside the one it was backed up from.
+	// The restored table is gettable by the requested name and listed beside its
+	// source.
 	restoreOp, err := svc.Projects.Instances.Tables.Restore(inst, &bigtableadmin.RestoreTableRequest{
 		TableId: "bt_admin_restored",
 		Backup:  bkName,
@@ -833,7 +807,6 @@ func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	require.Error(t, err, "restore resolves the instance it restores into")
 	assert.Contains(t, err.Error(), "404")
 
-	// Deletes across the new families.
 	for _, del := range []func() error{
 		func() error { _, e := svc.Projects.Instances.Tables.AuthorizedViews.Delete(avName).Do(); return e },
 		func() error { _, e := svc.Projects.Instances.Tables.SchemaBundles.Delete(sbName).Do(); return e },

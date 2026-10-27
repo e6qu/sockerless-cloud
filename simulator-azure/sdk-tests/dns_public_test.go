@@ -64,8 +64,7 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	require.NotNil(t, recordResp.Properties.Fqdn)
 	assert.Equal(t, "api."+zone+".", *recordResp.Properties.Fqdn)
 
-	// Azure DNS serves the zone: the record answers over DNS as soon as it is
-	// written.
+	// Azure DNS answers the record over DNS as soon as it is written.
 	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	addresses, err := azureDNSResolver().LookupHost(lookupCtx, "api."+zone)

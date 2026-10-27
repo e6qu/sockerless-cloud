@@ -11,15 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
-// namespaces.jobs, namespaces.executions and namespaces.tasks, plus the
-// projects.locations.jobs IAM read.
-//
-// Every method here addresses the SAME resource the v2 handlers in
-// cloudrunjobs.go own — the records in crjJobs / crjExecutions / crjTasks —
-// and renders it through cloudrun_v1_jobs_projection.go. There is no v1 store.
-//
-// Real API: https://cloud.google.com/run/docs/reference/rest/v1/namespaces.jobs
+// The Cloud Run Admin v1 (Knative) jobs, executions and tasks address the
+// records the v2 handlers in cloudrunjobs.go own (crjJobs, crjExecutions,
+// crjTasks) through cloudrun_v1_jobs_projection.go; there is no v1 store.
 
 // CRJobList mirrors the Discovery ListJobsResponse schema.
 type CRJobList struct {
@@ -325,9 +319,8 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		knativeDeleteStatus(w)
 	})
 
-	// RunJob: POST .../jobs/{job}:run. The Knative method answers with the
-	// Execution it started — where the v2 method wraps the same Execution in a
-	// long-running operation. One execution lifecycle, two response shapes.
+	// The Knative RunJob answers with the Execution it started, where v2 wraps the
+	// same Execution in an operation.
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs/{nameAction}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
@@ -401,11 +394,8 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		knativeDeleteStatus(w)
 	})
 
-	// CancelExecution: POST .../executions/{execution}:cancel. Cancelling goes
-	// through the shared cancel path, so the workload containers the execution
-	// owns are actually stopped — a cancel that only rewrote the record would
-	// leave a container running behind an execution both API versions report
-	// as cancelled.
+	// CancelExecution takes the shared cancel path, so the execution's containers
+	// stop rather than only its record changing.
 	srv.HandleFunc("POST /apis/run.googleapis.com/v1/namespaces/{namespace}/executions/{nameAction}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		id, action, found := strings.Cut(sim.PathParam(r, "nameAction"), ":")
@@ -484,12 +474,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		})
 	})
 
-	// The Cloud Run Admin v1 API publishes the job's IAM policy read at the
-	// global `run.googleapis.com/v1/projects/{p}/locations/{l}/jobs/{id}:getIamPolicy`
-	// path — the one `gcloud run jobs get-iam-policy` calls. Both API versions
-	// address one resource, so the policy is stored under the v2 resource name
-	// and a policy written through either version reads back through the other,
-	// the same rule the worker-pool and instance v1 IAM aliases follow.
+	// `gcloud run jobs get-iam-policy` reads a job's policy at this global v1
+	// path. The policy is stored under the v2 resource name, so either API version
+	// reads what the other wrote.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/jobs/{jobAction}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -500,9 +487,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			return
 		}
 		if !found || action != "getIamPolicy" {
-			// getIamPolicy is the whole of the Cloud Run Admin v1 jobs GET
-			// surface: anything else on that path is a method
-			// run.googleapis.com does not publish.
+			// getIamPolicy is the only GET verb run.googleapis.com publishes on this path.
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on job %q", action, id)
 			return
 		}
@@ -548,11 +533,9 @@ func deleteCloudRunExecutionCascade(name string) {
 	}
 }
 
-// cloudRunV1JobIAM serves an AIP-141 IAM verb against a Cloud Run job. The
-// policy is keyed on the v2 resource name so the v1 and v2 collections address
-// one resource's single policy. An IAM verb on a job that does not exist is
-// NOT_FOUND, as on a real Cloud Run project — never an empty policy for a name
-// that was never deployed.
+// cloudRunV1JobIAM serves an AIP-141 IAM verb against a Cloud Run job, keyed
+// on the v2 resource name. A job that does not exist is NOT_FOUND, never an
+// empty policy.
 func cloudRunV1JobIAM(w http.ResponseWriter, r *http.Request, project, location, id, action string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/jobs/%s", project, location, id)
 	if _, ok := crjJobs.Get(name); !ok {

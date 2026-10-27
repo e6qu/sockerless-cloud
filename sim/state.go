@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 )
 
-// Store is the interface for a typed key-value store.
-// Implemented by MemoryStore (in-memory) and SQLiteStore (persistent).
+// Store is a typed key-value store: MemoryStore keeps it in memory and
+// SQLiteStore persists it.
 type Store[T any] interface {
 	Get(id string) (T, bool)
 	Put(id string, item T)
@@ -33,18 +33,11 @@ type Store[T any] interface {
 	// that index until the generation moves instead of rebuilding it per
 	// request. It says nothing about *what* changed.
 	//
-	// The values are drawn from one counter shared by every store in the
-	// process, so a generation identifies a state of a particular store and
-	// not merely a number of writes. A per-store counter starting at zero
-	// looked equivalent and was not: tests replace a package-level store
-	// between cases, the replacement began at zero too, and an index built
-	// from the old store matched the new one's generation and was served for
-	// it — a load balancer that no longer existed still answering on its
-	// hostname. Two stores never share a generation now.
-	//
-	// It remains meaningless across processes: a restarted simulator restores
-	// its rows but starts counting from wherever the new process's counter
-	// begins.
+	// Every store in the process draws from one counter, so a generation
+	// identifies a state of a particular store: tests replace a package-level
+	// store between cases, and a per-store counter would let an index built
+	// from the old store match the new one's generation. It is meaningless
+	// across processes.
 	Generation() uint64
 }
 
@@ -89,7 +82,7 @@ type MemoryStore[T any] struct {
 	generation uint64
 }
 
-// NewStateStore creates a new in-memory store. Returns Store[T] for interface compatibility.
+// NewStateStore returns an empty in-memory store.
 func NewStateStore[T any]() *MemoryStore[T] {
 	return &MemoryStore[T]{
 		items:      make(map[string]T),

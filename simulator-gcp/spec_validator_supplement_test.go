@@ -11,12 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A supplement declares members the API serves that its published Discovery
-// document does not. It exists so those members stay validated: listing each as
-// an accepted violation instead would tolerate any value at all for it. These
-// tests hold the two properties that make the mechanism safe — a supplemented
-// member is type-checked like any other, and a supplement that has outlived the
-// gap it filled fails loudly rather than shadowing the published truth.
+// These tests hold the supplement mechanism's two safety properties: a
+// supplemented member is type-checked like any other, and a supplement that
+// outlived its gap fails loudly rather than shadowing the published document.
 
 // writeSupplementedDoc lays down a one-schema Discovery document and, when
 // supplement is non-empty, its supplement beside it, then loads the pair.
@@ -109,8 +106,7 @@ func TestSpecSupplement_DeclaresTheMemberRatherThanTolerating(t *testing.T) {
 		t.Fatalf("a supplemented member with a well-typed value is not a violation, got %+v", clean)
 	}
 
-	// And — the whole point — a wrong-typed value is still caught. An
-	// allowlist entry would have accepted this.
+	// A wrong-typed value is still caught, which an allowlist entry would accept.
 	var wrong []sim.SpecViolation
 	validateDiscoveryValue(doc, "test.op", &discoverySchema{Ref: "Scaling"}, "Scaling", "$",
 		map[string]any{"maxInstanceCount": "four"}, &wrong)
@@ -120,9 +116,7 @@ func TestSpecSupplement_DeclaresTheMemberRatherThanTolerating(t *testing.T) {
 }
 
 func TestSpecSupplement_RefusesToShadowThePublishedDocument(t *testing.T) {
-	// Once the document declares the member itself, the supplement entry has
-	// outlived its gap and has to go — silently overriding would let a stale
-	// supplement hide what the cloud now publishes.
+	// Once the document declares the member, the supplement entry must go.
 	published := sampleScalingDoc()
 	published["schemas"].(map[string]any)["Scaling"].(map[string]any)["properties"].(map[string]any)["maxInstanceCount"] =
 		map[string]any{"type": "integer", "format": "int32"}

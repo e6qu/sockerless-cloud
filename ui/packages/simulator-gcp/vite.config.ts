@@ -25,9 +25,13 @@ export default defineConfig({
     },
   },
   server: {
+    // Serve the bundle under /ui/ and forward the rest of the console's origin
+    // to the simulator: /ui/config.json, the auth layer under /auth/, the
+    // Security Token Service, and the Google Cloud APIs, which the console
+    // reaches at its own origin when the cloud coordinates are empty.
     proxy: {
-      "/health": "http://localhost:4567",
-      "/sim": "http://localhost:4567",
+      "/ui/config.json": "http://localhost:4567",
+      "^/(?!ui(?:/|$))": "http://localhost:4567",
     },
   },
 });

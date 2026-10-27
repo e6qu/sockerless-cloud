@@ -19,13 +19,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// A batch build starts the builds its buildspec's batch section names
-// (specs/cloud-api/aws/codebuild-batch-build-buildspec.md.gz) through
-// StartBuild, StopBuild and RetryBuild, as the role its project's
-// buildBatchConfig names (specs/cloud-api/aws/codebuild-batch-build.md.gz),
-// and follows those builds to its own outcome.
+// A batch build starts the builds its buildspec's batch section names through
+// StartBuild, StopBuild and RetryBuild, as the role in buildBatchConfig
+// (specs/cloud-api/aws/codebuild-batch-build*.md.gz).
 
-// CBBuildBatch mirrors the CodeBuild BuildBatch shape.
 type CBBuildBatch struct {
 	ID                      string           `json:"id"`
 	Arn                     string           `json:"arn"`
@@ -54,15 +51,13 @@ type CBBuildBatch struct {
 	BuildGroups             []CBBuildGroup   `json:"buildGroups,omitempty"`
 	DebugSessionEnabled     *bool            `json:"debugSessionEnabled,omitempty"`
 	Phases                  []CBPhase        `json:"phases,omitempty"`
-	// Seq orders ListBuildBatches by start order; sim-internal, not wire.
+	// Seq orders ListBuildBatches by start order.
 	Seq int64 `json:"-"`
-	// Request is the StartBuildBatch request; each build of the batch starts
-	// with its overrides.
+	// Each build of the batch starts with the request's overrides.
 	Request cbStartBuildBatchInput `json:"-"`
-	// Project is the project as the batch runs it, the request's overrides
-	// applied.
+	// Project carries the request's overrides.
 	Project CBProject `json:"-"`
-	// Tasks holds the batch section's build tasks, BuildGroups' order.
+	// In BuildGroups order.
 	Tasks    []cbBatchTask `json:"-"`
 	FastFail bool          `json:"-"`
 }
@@ -120,8 +115,8 @@ type cbBatchspec struct {
 	} `yaml:"batch"`
 }
 
-// cbBatchMu serializes changes to build batches. A holder may call the
-// CodeBuild API, whose handlers take cbMu, so cbMu holders never take it.
+// A holder may call the AWS CodeBuild API, whose handlers take cbMu, so cbMu
+// holders never take this.
 var cbBatchMu sync.Mutex
 
 type cbProjectSettings struct {
@@ -158,15 +153,11 @@ func (s cbProjectSettings) apply(p *CBProject) {
 	}
 }
 
-// cbCanAssumeBatchRole writes CodeBuild's refusal of a buildBatchConfig whose
-// service role it cannot assume.
 func cbCanAssumeBatchRole(w http.ResponseWriter, config map[string]any, sourceArn string) bool {
 	role := cbString(config["serviceRole"])
 	return role == "" || cbCanAssumeRole(w, role, sourceArn)
 }
 
-// cbParseBatchspec reads a buildspec's batch section into the build tasks it
-// defines.
 func cbParseBatchspec(buildspec string) ([]cbBatchTask, bool, error) {
 	var spec cbBatchspec
 	if err := yaml.Unmarshal([]byte(buildspec), &spec); err != nil {
@@ -248,8 +239,7 @@ func cbValidateBatchTasks(tasks []cbBatchTask) error {
 	return nil
 }
 
-// cbExpandBuildMatrix creates a build for each combination of the dynamic
-// values, the static ones applying to every build.
+// The static values apply to every build of the matrix.
 func cbExpandBuildMatrix(ignoreFailure bool, static cbBatchTaskEnv, buildspecs, images, computeTypes []string, variables map[string][]string) []cbBatchTask {
 	orEmpty := func(values []string) []string {
 		if len(values) == 0 {
@@ -294,8 +284,6 @@ func cbExpandBuildMatrix(ignoreFailure bool, static cbBatchTaskEnv, buildspecs, 
 	return tasks
 }
 
-// cbCheckBatchRestrictions holds a batch's tasks to its buildBatchConfig's
-// restrictions.
 func cbCheckBatchRestrictions(batch CBBuildBatch, tasks []cbBatchTask) error {
 	restrictions, _ := batch.BuildBatchConfig["restrictions"].(map[string]any)
 	if maximum, ok := cbInt(restrictions["maximumBuildsAllowed"]); ok && len(tasks) > maximum {
@@ -322,8 +310,6 @@ func cbBuildIDFromArn(arn string) (string, bool) {
 	return strings.CutPrefix(arn, cbARN("build/"))
 }
 
-// cbNotifyBuildBatch tells the batch a build belongs to that the build
-// settled.
 func cbNotifyBuildBatch(build CBBuild) {
 	if batchID, ok := cbBatchIDFromArn(build.BuildBatchArn); ok {
 		go cbAdvanceBuildBatch(batchID)
@@ -334,8 +320,6 @@ func cbBatchActor(batch CBBuildBatch) awsActor {
 	return awsActor{Service: "codebuild.amazonaws.com", Source: batch.Arn, Role: cbString(batch.BuildBatchConfig["serviceRole"])}
 }
 
-// cbCallCodeBuild calls a CodeBuild operation as the batch's service role and
-// decodes its answer into out.
 func cbCallCodeBuild(batch CBBuildBatch, operation string, input, out any) error {
 	status, body, err := awsCallJSON(context.Background(), cbBatchActor(batch), "codebuild",
 		"CodeBuild_20161006."+operation, "application/x-amz-json-1.1", input)
@@ -353,8 +337,7 @@ func cbCallCodeBuild(batch CBBuildBatch, operation string, input, out any) error
 	return json.Unmarshal(body, out)
 }
 
-// cbBatchMemberInput is the StartBuild request for one task of the batch:
-// the batch's overrides, then the task's own.
+// The batch's overrides apply first, then the task's.
 func cbBatchMemberInput(batch CBBuildBatch, task cbBatchTask) cbStartBuildInput {
 	input := cbStartBuildInput{cbBuildOverrides: batch.Request.cbBuildOverrides}
 	input.IdempotencyToken = ""
@@ -405,8 +388,7 @@ func cbAnyList(items []map[string]any) []any {
 	return list
 }
 
-// cbEndBatchPhase ends the batch's running phase with status and opens next,
-// or ends the batch on status when next is empty.
+// An empty next ends the batch on status.
 func cbEndBatchPhase(batch *CBBuildBatch, status, next string, contexts ...CBPhaseContext) {
 	now := cbEpochNow()
 	if last := len(batch.Phases) - 1; last >= 0 && batch.Phases[last].PhaseStatus == "IN_PROGRESS" {
@@ -420,8 +402,8 @@ func cbEndBatchPhase(batch *CBBuildBatch, status, next string, contexts ...CBPha
 		batch.CurrentPhase = next
 		return
 	}
-	// BuildBatchPhaseType has no COMPLETED: a batch ends on a phase named by
-	// its outcome.
+	// BuildBatchPhaseType has no COMPLETED: the batch ends on a phase named by its
+	// outcome.
 	batch.Phases = append(batch.Phases, CBPhase{PhaseType: status, PhaseStatus: status, StartTime: now, EndTime: now})
 	batch.CurrentPhase = status
 	batch.BuildBatchStatus = status
@@ -429,8 +411,7 @@ func cbEndBatchPhase(batch *CBBuildBatch, status, next string, contexts ...CBPha
 	batch.Complete = true
 }
 
-// cbRefreshBuildGroups brings each group's current build summary up to date
-// with its build, following the automatic retries CodeBuild made of it.
+// Follow the automatic retries AWS CodeBuild made of each group's build.
 func cbRefreshBuildGroups(batch *CBBuildBatch) {
 	for i := range batch.BuildGroups {
 		group := &batch.BuildGroups[i]
@@ -459,14 +440,12 @@ func cbGroupSettled(group CBBuildGroup) bool {
 	return group.CurrentBuildSummary != nil && group.CurrentBuildSummary.BuildStatus != "IN_PROGRESS"
 }
 
-// cbGroupFailed reports a settled group whose failure fails the batch.
 func cbGroupFailed(group CBBuildGroup) bool {
 	return cbGroupSettled(group) && group.CurrentBuildSummary.BuildStatus != "SUCCEEDED" && !group.IgnoreFailure
 }
 
-// cbAdvanceBuildBatch moves a running batch on: it stops its builds when one
-// fails a fast-fail batch, starts each build whose dependencies completed, and
-// settles the batch once none runs.
+// Stop the builds when one fails a fast-fail batch, start each build whose
+// dependencies completed, and settle once none runs.
 func cbAdvanceBuildBatch(batchID string) {
 	cbBatchMu.Lock()
 	defer cbBatchMu.Unlock()
@@ -495,8 +474,7 @@ func cbAdvanceBuildBatch(batchID string) {
 			}
 			summary, err := cbStartBatchBuild(batch, *group, batch.Tasks[i])
 			if err != nil {
-				// A build the batch cannot start fails the batch, as a
-				// failed build of a fast-fail batch does.
+				// A build the batch cannot start fails the batch.
 				contexts = append(contexts, CBPhaseContext{StatusCode: "CLIENT_ERROR", Message: err.Error()})
 				failed = true
 				break
@@ -525,8 +503,7 @@ func cbAdvanceBuildBatch(batchID string) {
 	cbBuildBatches.Put(batchID, batch)
 }
 
-// cbStopRunningBatchBuilds stops, as the batch's service role, each of its
-// builds still running, and returns why any could not be stopped.
+// Returns why any build could not be stopped.
 func cbStopRunningBatchBuilds(batch *CBBuildBatch) []CBPhaseContext {
 	var contexts []CBPhaseContext
 	for _, group := range batch.BuildGroups {
@@ -545,9 +522,7 @@ func cbStopRunningBatchBuilds(batch *CBBuildBatch) []CBPhaseContext {
 	return contexts
 }
 
-// cbDependenciesCompleted reports whether every build a group depends on
-// completed in a way that lets it run: succeeded, or failed with its failure
-// ignored.
+// A dependency must have succeeded, or failed with its failure ignored.
 func cbDependenciesCompleted(group CBBuildGroup, byIdentifier map[string]CBBuildGroup) bool {
 	for _, dependency := range group.DependsOn {
 		other := byIdentifier[dependency]
@@ -558,8 +533,7 @@ func cbDependenciesCompleted(group CBBuildGroup, byIdentifier map[string]CBBuild
 	return true
 }
 
-// cbStartBatchBuild starts a group's build: StartBuild for its first, and
-// RetryBuild of its last build when the batch is retried.
+// A retried batch retries the group's last build.
 func cbStartBatchBuild(batch CBBuildBatch, group CBBuildGroup, task cbBatchTask) (CBBuildSummary, error) {
 	var started struct {
 		Build CBBuild `json:"build"`
@@ -577,8 +551,6 @@ func cbStartBatchBuild(batch CBBuildBatch, group CBBuildGroup, task cbBatchTask)
 	return CBBuildSummary{Arn: started.Build.Arn, RequestedOn: started.Build.StartTime, BuildStatus: started.Build.BuildStatus}, nil
 }
 
-// cbDownloadBatchspec reads the batch's buildspec, inline or from its source,
-// and lays out the batch's build groups from its batch section.
 func cbDownloadBatchspec(batchID string) {
 	batch, ok := cbBuildBatches.Get(batchID)
 	if !ok {
@@ -646,8 +618,6 @@ func cbReadBatchspec(batch CBBuildBatch) ([]cbBatchTask, bool, error) {
 	return cbParseBatchspec(buildspec)
 }
 
-// cbApplyBatchOverrides is cbApplyOverrides plus the members only
-// StartBuildBatch carries.
 func cbApplyBatchOverrides(project CBProject, input cbStartBuildBatchInput) (CBProject, error) {
 	if err := cbValidateRange("buildTimeoutInMinutesOverride", input.BuildTimeoutInMinutesOverride, 5, 2160); err != nil {
 		return CBProject{}, err
@@ -772,8 +742,6 @@ func handleCBStopBuildBatch(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, map[string]any{"buildBatch": batch})
 }
 
-// cbStopBuildBatchByID stops a running batch and, as its service role, each of
-// its builds still running.
 func cbStopBuildBatchByID(batchID string) CBBuildBatch {
 	cbBatchMu.Lock()
 	defer cbBatchMu.Unlock()
@@ -869,8 +837,7 @@ func handleCBDeleteBuildBatch(w http.ResponseWriter, r *http.Request) {
 
 	batch, ok := cbResolveBuildBatch(req.ID)
 	if !ok {
-		// DeleteBuildBatch on a missing batch returns the unmatched id in
-		// buildsNotDeleted, not an error (matches real CodeBuild).
+		// A missing batch comes back in buildsNotDeleted, not as an error.
 		cbWriteJSON(w, http.StatusOK, map[string]any{
 			"statusCode": "BUILD_BATCH_NOT_FOUND",
 			"buildsNotDeleted": []map[string]any{
@@ -978,7 +945,6 @@ func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project
 	cbWriteJSON(w, http.StatusOK, resp)
 }
 
-// cbResolveBuildBatch finds a batch by id or ARN.
 func cbResolveBuildBatch(idOrARN string) (CBBuildBatch, bool) {
 	if id, ok := cbBatchIDFromArn(idOrARN); ok {
 		idOrARN = id
@@ -986,9 +952,8 @@ func cbResolveBuildBatch(idOrARN string) (CBBuildBatch, bool) {
 	return cbBuildBatches.Get(idOrARN)
 }
 
-// cbRecoverBuildBatches resumes the batches a restart interrupted: one still
-// reading its buildspec reads it again, and one running its builds moves on
-// from where its builds are.
+// A batch still reading its buildspec reads it again; one running moves on
+// from its builds' state.
 func cbRecoverBuildBatches() error {
 	for _, batch := range cbBuildBatches.List() {
 		if batch.BuildBatchStatus != "IN_PROGRESS" {

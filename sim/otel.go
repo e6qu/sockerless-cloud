@@ -24,20 +24,16 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// Observability bundles trace + log SDK shutdown + a zerolog Writer
-// that mirrors entries to the OTel logs SDK. Mirror of
-// `backends/core.Observability` — bleephub is a separate Go module
-// without backend-core as a dep, so the bridge lives here.
+// Observability holds the trace and log SDK shutdown and a zerolog writer
+// that mirrors entries to the OpenTelemetry logs SDK.
 type Observability struct {
 	LogWriter *OTelLogWriter
 	Shutdown  func(context.Context) error
 }
 
-// InitObservability sets up both tracer + logger providers when
-// OTEL_EXPORTER_OTLP_ENDPOINT is set. Returns a zero-value
-// Observability with a no-op Shutdown when OTel is disabled.
-//
-// Components-decoupled invariant intact.
+// InitObservability sets up the OpenTelemetry providers when
+// OTEL_EXPORTER_OTLP_ENDPOINT is set, and otherwise returns an Observability
+// whose Shutdown does nothing.
 func InitObservability(serviceName string) (*Observability, error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
 		return &Observability{
@@ -95,8 +91,8 @@ func InitObservability(serviceName string) (*Observability, error) {
 	}, nil
 }
 
-// OTelLogWriter — zerolog → OTel logs bridge. Implements io.Writer so
-// it slots into zerolog.MultiLevelWriter alongside ConsoleWriter.
+// OTelLogWriter bridges zerolog to OpenTelemetry logs, as an io.Writer that
+// slots into zerolog.MultiLevelWriter beside the ConsoleWriter.
 type OTelLogWriter struct {
 	logger otellog.Logger
 }

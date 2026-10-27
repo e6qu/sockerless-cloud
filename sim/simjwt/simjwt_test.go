@@ -86,9 +86,8 @@ func TestJWKMatchesTheSigningKey(t *testing.T) {
 	}
 }
 
-// A key a simulator persisted before the shared signer existed — PKCS#1 PEM
-// under its own id — must keep its key id and keep verifying the tokens it
-// signed.
+// A key persisted as PKCS#1 PEM under its own id keeps its key id and keeps
+// verifying the tokens it signed.
 func TestLoadOrCreateKeepsAPreviouslyPersistedKey(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

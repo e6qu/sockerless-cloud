@@ -14,11 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerApps_CrossJobDNS exercises cross-job DNS on Azure:
-// ACA environments back themselves with a real Docker user-defined
-// network; jobs in the same environment are connected to that network
-// at execution-start time with the job short name as DNS alias. Two
-// jobs in the same env resolve each other via Docker's embedded DNS.
+// TestContainerApps_CrossJobDNS: two jobs of one managed environment resolve
+// each other by job name.
 func TestContainerApps_CrossJobDNS(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -28,18 +25,14 @@ func TestContainerApps_CrossJobDNS(t *testing.T) {
 	rg := "xjob-aca-rg"
 	env := "xjob-aca-env"
 
-	// 1. Resource group.
 	rgBody := `{"location":"eastus"}`
 	doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=2023-07-01",
 		baseURL, subscriptionID, rg), rgBody)
 
-	// 2. Managed environment — simulator auto-backs it with a Docker network.
 	envBody := `{"location":"eastus","properties":{"zoneRedundant":false}}`
 	envEcho := doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s?api-version=2024-03-01",
 		baseURL, subscriptionID, rg, env), envBody)
-	// The Docker network that backs the env is sim-internal wiring; it
-	// must never leak onto the ARM wire (ManagedEnvironment has no such
-	// member).
+	// ManagedEnvironment has no member naming its backing network.
 	require.NotContains(t, envEcho, "dockerNetworkName")
 	defer doDELETE(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s?api-version=2024-03-01",
 		baseURL, subscriptionID, rg, env))
@@ -47,7 +40,7 @@ func TestContainerApps_CrossJobDNS(t *testing.T) {
 	envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 		subscriptionID, rg, env)
 
-	// 3. Two jobs in that env running sleep 30 so we can exec into them.
+	// The jobs sleep so the test can exec into them.
 	createJob := func(jobName string) {
 		body := map[string]any{
 			"location": "eastus",
@@ -74,33 +67,18 @@ func TestContainerApps_CrossJobDNS(t *testing.T) {
 	createJob("alpha")
 	createJob("beta")
 
-	// 4. Start both executions.
 	startJob := func(jobName string) string {
 		resp := doPOST(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/start?api-version=2024-03-01",
 			baseURL, subscriptionID, rg, jobName), "")
-		// Start returns 202 with Location header pointing at the LRO
-		// poller. For our test we derive the exec name from the
-		// returned execution body if present, else poll the job's
-		// executions endpoint. Simpler: list executions and pick the
-		// latest one matching the job.
 		_ = resp
 		return jobName
 	}
 	startJob("alpha")
 	startJob("beta")
 
-	// 5. Wait for containers to exist. Azure exec container name
-	// convention: sockerless-sim-azure-execution-<executionName>.
-	// Easier path: filter docker ps by label sockerless-sim-type=
-	// aca-job-execution and the sockerless-sim-job label (we added
-	// none, but the jobs are distinguishable by their entry in the
-	// `containerName` prefix we just logged). For the test, we grep
-	// the simulator's container output.
 	alphaContainer := waitForJobContainer(t, "alpha", envID)
-	_ = waitForJobContainer(t, "beta", envID) // ensure beta container is up before the exec below
+	_ = waitForJobContainer(t, "beta", envID)
 
-	// 6. Cross-job DNS: alpha resolves beta via Docker's embedded DNS
-	// on the env's network (alias = job short name).
 	var getent []byte
 	require.Eventually(t, func() bool {
 		var err error
@@ -110,13 +88,12 @@ func TestContainerApps_CrossJobDNS(t *testing.T) {
 	assert.Contains(t, string(getent), "beta", "getent output should mention beta: %s", getent)
 }
 
-// waitForJobContainer polls docker ps until the simulator has started
-// a container for the job. Returns the Docker container name.
+// waitForJobContainer returns the name of the container the simulator started
+// for the job.
 func waitForJobContainer(t *testing.T, jobName, envID string) string {
 	t.Helper()
 	var name string
 	require.Eventually(t, func() bool {
-		// docker ps --filter label=sockerless-sim-type=aca-job-execution
 		out, err := exec.Command("docker", "ps",
 			"--filter", "label=sockerless-sim-type=aca-job-execution",
 			"--format", "{{.Names}}\t{{.Label \"sockerless-exec-id\"}}",

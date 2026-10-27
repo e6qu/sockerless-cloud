@@ -9,13 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECSExpressModeTerraform exercises ECS Express Mode (the Express Gateway service API)
-// (aws_ecs_express_gateway_service) through terraform-provider-aws:
-// CreateExpressGatewayService on apply, DescribeExpressGatewayService on refresh,
-// DeleteExpressGatewayService on destroy. The resource provisions the managed
-// bundle (Fargate service + ALB + ACM + auto-scaling); apply asserts the
-// computed service ARN and HTTPS ingress endpoint round-trip into TF state, and
-// destroy tears it down cleanly.
+// TestECSExpressModeTerraform applies an aws_ecs_express_gateway_service,
+// whose managed bundle (Fargate service, Application Load Balancer, ACM
+// certificate, auto scaling) yields a service ARN and an HTTPS ingress
+// endpoint, plans no drift, and destroys it.
 func TestECSExpressModeTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")
@@ -31,14 +28,11 @@ func TestECSExpressModeTerraform(t *testing.T) {
 	require.True(t, strings.HasPrefix(endpoint, "https://"),
 		"ingress endpoint must be an HTTPS ALB URL, got %q", endpoint)
 
-	// Idempotency: a second plan must report no drift.
 	env.Terraform(t, "plan", "-detailed-exitcode")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }
 
-// firstIngressEndpoint reads the computed ingress_paths list output and returns
-// the first endpoint.
 func firstIngressEndpoint(t *testing.T, env *tfsim.Env) string {
 	t.Helper()
 	var outputs map[string]struct {

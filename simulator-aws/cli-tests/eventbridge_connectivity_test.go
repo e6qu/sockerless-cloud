@@ -8,9 +8,8 @@ import (
 )
 
 // TestEventBridgeCLI_ConnectionApiDestination round-trips a connection and an
-// API destination bound to it via the CLI: create-connection / describe / list /
-// update / deauthorize, then create-api-destination / describe / list / update /
-// delete. The connection's API key value is stored but never echoed on read.
+// API destination bound to it. EventBridge stores the connection's API key
+// value but never returns it.
 func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-connection",
@@ -23,7 +22,7 @@ func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
 	parseJSON(t, out, &conn)
 	require.NotEmpty(t, conn.ConnectionArn)
 	t.Cleanup(func() {
-		// Tolerant: the test body also deletes these (exercising the Delete ops).
+		// The test body deletes these itself; the cleanup may find them gone.
 		_ = awsCLI("events", "delete-api-destination", "--name", "eb-cli-dest").Run()
 		_ = awsCLI("events", "delete-connection", "--name", "eb-cli-conn").Run()
 	})
@@ -42,7 +41,6 @@ func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
 	assert.Equal(t, "eb-cli-conn", descConn.Name)
 	assert.Equal(t, "x-api-key", descConn.AuthParameters.ApiKeyAuthParameters.ApiKeyName)
 	assert.NotEmpty(t, descConn.SecretArn)
-	// The secret value must never appear in a read-back.
 	assert.NotContains(t, out, "secret-value")
 
 	out = runCLI(t, awsCLI("events", "list-connections", "--name-prefix", "eb-cli-conn"))
@@ -112,7 +110,6 @@ func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
 	runCLI(t, awsCLI("events", "delete-connection", "--name", "eb-cli-conn"))
 }
 
-// TestEventBridgeCLI_Endpoint round-trips a global endpoint via the CLI.
 func TestEventBridgeCLI_Endpoint(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-event-bus", "--name", "eb-cli-endpoint-bus"))
@@ -121,14 +118,13 @@ func TestEventBridgeCLI_Endpoint(t *testing.T) {
 	}
 	parseJSON(t, out, &bus)
 	t.Cleanup(func() {
-		// Tolerant: the test body also deletes the endpoint (exercising DeleteEndpoint).
+		// The test body deletes the endpoint itself; the cleanup may find it gone.
 		_ = awsCLI("events", "delete-endpoint", "--name", "eb-cli-endpoint").Run()
 		_ = awsCLI("events", "delete-event-bus", "--name", "eb-cli-endpoint-bus").Run()
 	})
 
-	// A global endpoint spans two Regions, so EventBuses must list the bus in
-	// both (the same ARN with the primary/secondary Region differing on real
-	// AWS); botocore enforces the min length of 2.
+	// A global endpoint spans two Regions, so EventBuses lists the bus twice
+	// (on AWS the same ARN in each Region); botocore enforces a minimum of two.
 	routing := `{"FailoverConfig":{"Primary":{"HealthCheck":"arn:aws:route53:::healthcheck/abcdef01-2345-6789-abcd-ef0123456789"},"Secondary":{"Route":"us-east-2"}}}`
 	out = runCLI(t, awsCLI("events", "create-endpoint",
 		"--name", "eb-cli-endpoint",
@@ -180,8 +176,6 @@ func TestEventBridgeCLI_Endpoint(t *testing.T) {
 	runCLI(t, awsCLI("events", "delete-endpoint", "--name", "eb-cli-endpoint"))
 }
 
-// TestEventBridgeCLI_PartnerEventSource round-trips a partner event source and
-// its consumer-side event source via the CLI.
 func TestEventBridgeCLI_PartnerEventSource(t *testing.T) {
 	t.Parallel()
 	account := "123456789012"
@@ -195,7 +189,7 @@ func TestEventBridgeCLI_PartnerEventSource(t *testing.T) {
 	parseJSON(t, out, &created)
 	require.NotEmpty(t, created.EventSourceArn)
 	t.Cleanup(func() {
-		// Tolerant: the test body also deletes it (exercising DeletePartnerEventSource).
+		// The test body deletes it itself; the cleanup may find it gone.
 		_ = awsCLI("events", "delete-partner-event-source", "--name", name, "--account", account).Run()
 	})
 
@@ -269,9 +263,9 @@ func TestEventBridgeCLI_PartnerEventSource(t *testing.T) {
 	runCLI(t, awsCLI("events", "delete-partner-event-source", "--name", name, "--account", account))
 }
 
-// TestEventBridgeCLI_UpdateArchiveCancelReplay exercises update-archive and
-// cancel-replay via the CLI. A completed replay cannot be cancelled —
-// cancel-replay fails with IllegalStatusException, matching real EventBridge.
+// TestEventBridgeCLI_UpdateArchiveCancelReplay covers update-archive and
+// cancel-replay; EventBridge refuses to cancel a completed replay with
+// IllegalStatusException.
 func TestEventBridgeCLI_UpdateArchiveCancelReplay(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-event-bus", "--name", "eb-cli-uacr-bus"))
@@ -315,7 +309,6 @@ func TestEventBridgeCLI_UpdateArchiveCancelReplay(t *testing.T) {
 		"--event-end-time", "2026-05-29T00:00:00Z",
 		"--destination", `{"Arn":"`+bus.EventBusArn+`"}`))
 
-	// A completed replay cannot be cancelled.
 	errOut := runCLIExpectError(t, awsCLI("events", "cancel-replay", "--replay-name", "eb-cli-uacr-replay"))
 	assert.Contains(t, errOut, "IllegalStatusException")
 }

@@ -11,10 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// dataflowJob mirrors the fields of the Cloud Dataflow v1b3 `Job` resource
-// the simulator round-trips. The Discovery schema names every field; the
-// objects (`environment`, `steps`, `transformNameMapping`, `labels`) are
-// carried verbatim from the client so a read-back returns what was written.
+// dataflowJob mirrors the Cloud Dataflow v1b3 `Job` fields the simulator
+// round-trips; `environment`, `steps`, `transformNameMapping` and `labels` are
+// carried verbatim from the client.
 type dataflowJob struct {
 	ID                    string            `json:"id,omitempty"`
 	ProjectID             string            `json:"projectId,omitempty"`
@@ -37,7 +36,6 @@ type dataflowJob struct {
 	Labels                map[string]string `json:"labels,omitempty"`
 }
 
-// dataflowSnapshot mirrors the Cloud Dataflow v1b3 `Snapshot` resource.
 type dataflowSnapshot struct {
 	ID            string `json:"id,omitempty"`
 	ProjectID     string `json:"projectId,omitempty"`
@@ -55,12 +53,9 @@ var (
 	dataflowSnapshots sim.Store[dataflowSnapshot]
 )
 
-// registerDataflow mounts the Cloud Dataflow v1b3 slice. Dataflow exposes
-// most of its surface under both a global (`projects/{p}/...`) and a regional
-// (`projects/{p}/locations/{loc}/...`) path form; both are mounted so a client
-// reaches the same handlers either way. The regional form carries an explicit
-// location; the global form defaults the job's location to the value the
-// client supplied in the body (or empty).
+// registerDataflow mounts the Cloud Dataflow v1b3 slice on both the global
+// (`projects/{p}/...`) and regional (`projects/{p}/locations/{loc}/...`) path
+// forms; the global form takes the job's location from the body.
 func registerDataflow(srv *sim.Server) {
 	dataflowJobs = sim.MakeStore[dataflowJob](srv.DB(), "dataflow_jobs")
 	dataflowSnapshots = sim.MakeStore[dataflowSnapshot](srv.DB(), "dataflow_snapshots")
@@ -229,9 +224,8 @@ func handleDataflowGetJob(w http.ResponseWriter, r *http.Request) {
 	getDataflowJob(w, sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "job"))
 }
 
-// handleDataflowGetJobGlobal serves the global GET, which fans in GetJob (plain
-// "{job}") and the job-snapshot colon-verb is POST-only, so a GET here is
-// always a plain get.
+// handleDataflowGetJobGlobal serves the global GET; the snapshot colon-verb is
+// POST-only, so a GET here is always a plain get.
 func handleDataflowGetJobGlobal(w http.ResponseWriter, r *http.Request) {
 	getDataflowJob(w, sim.PathParam(r, "project"), "", sim.PathParam(r, "jobAction"))
 }
@@ -265,8 +259,8 @@ func updateDataflowJob(w http.ResponseWriter, r *http.Request, project, location
 		return
 	}
 	dataflowJobs.Update(key, func(job *dataflowJob) {
-		// A Dataflow job update primarily drives a state transition via
-		// requestedState (e.g. JOB_STATE_DRAINING / JOB_STATE_CANCELLED).
+		// A Dataflow job update drives a state transition through requestedState
+		// (JOB_STATE_DRAINING, JOB_STATE_CANCELLED).
 		if req.RequestedState != "" {
 			job.RequestedState = req.RequestedState
 			job.CurrentState = req.RequestedState
@@ -283,9 +277,8 @@ func updateDataflowJob(w http.ResponseWriter, r *http.Request, project, location
 	sim.WriteJSON(w, http.StatusOK, job)
 }
 
-// handleDataflowJobPostAction fans in the POST colon-verb on a job resource:
-// "{job}:snapshot". Go's ServeMux cannot spell "{job}:verb" as a pattern, so
-// the handler splits the trailing ":verb" suffix itself.
+// handleDataflowJobPostAction serves "{job}:snapshot"; ServeMux cannot spell
+// "{job}:verb", so the handler splits the suffix.
 func handleDataflowJobPostAction(w http.ResponseWriter, r *http.Request) {
 	dataflowJobPostAction(w, r, sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "jobAction"))
 }
@@ -346,9 +339,8 @@ func dataflowGetMetrics(w http.ResponseWriter, project, location, id string) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
-	// A representative JobMetrics: one scalar MetricUpdate. The MetricUpdate
-	// `scalar` field is typed "any" in the Discovery schema, so a JSON number
-	// is valid.
+	// Answer one ElementCount MetricUpdate of 0; `scalar` is typed "any" in the
+	// Discovery schema.
 	resp := map[string]any{
 		"metricTime": nowRFC3339(),
 		"metrics": []map[string]any{
@@ -555,13 +547,9 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
-// handleDataflowGetTemplate reads the template a caller staged.
-//
-// A template is a file in Cloud Storage, and its metadata is the sibling file
-// Dataflow's own tooling writes beside it — `<template>_metadata`. Both are the
-// caller's, staged before the template is launched, and this simulator serves
-// the bucket they are in. Answering with a fixed "Word Count" for whatever path
-// was asked about described a template nobody staged.
+// handleDataflowGetTemplate reads the template the caller staged in Cloud
+// Storage and its sibling `<template>_metadata` file, which Dataflow's tooling
+// writes.
 func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("gcsPath")
 	bucket, object, found := strings.Cut(strings.TrimPrefix(path, "gs://"), "/")
@@ -579,9 +567,8 @@ func handleDataflowGetTemplate(w http.ResponseWriter, r *http.Request) {
 		"status":       map[string]any{"code": 0},
 		"templateType": "LEGACY",
 	}
-	// The metadata file is optional: a template staged without one is still a
-	// template, and Dataflow answers for it with no metadata rather than
-	// inventing a name for it.
+	// The metadata file is optional; Dataflow answers a template without one with
+	// no metadata.
 	if meta, ok := gcsObjects.Get(bucket + "/" + object + "_metadata"); ok {
 		if body, err := gcsObjectBytes(meta); err == nil {
 			var parsed map[string]any

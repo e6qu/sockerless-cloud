@@ -430,7 +430,6 @@ func (w *bqAvroWriter) field(f BQFieldSchema) map[string]any {
 	}
 }
 
-// bqEncodeAvro writes rows as an Avro object container file.
 func bqEncodeAvro(fields []BQFieldSchema, rows []map[string]any, compression string, logical bool) ([]byte, error) {
 	w := &bqAvroWriter{logical: logical, names: map[string]int{}}
 	columns := make([]any, 0, len(fields))

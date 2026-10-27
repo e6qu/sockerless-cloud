@@ -12,8 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2 types
-
 type EC2Vpc struct {
 	VpcId                            string
 	CidrBlock                        string
@@ -76,8 +74,7 @@ type EC2NatGateway struct {
 	FailureMessage      string
 	AutoProvisionZones  string
 	AutoScalingIps      string
-	// Zones holds where a regional gateway carries each covered zone's
-	// traffic on the VPC's network.
+	// Zones holds where a regional gateway carries each covered zone's traffic.
 	Zones []EC2NatGatewayZone
 }
 
@@ -96,9 +93,8 @@ type EC2NatGatewayAddress struct {
 	AmazonProvided bool
 }
 
-// EC2NatGatewayZone is a regional NAT gateway's presence in one Availability
-// Zone: its network interface at a private address in one of the zone's
-// subnets, where the zone's traffic leaves the VPC.
+// A regional NAT gateway's network interface in one zone, where the zone's
+// traffic leaves the VPC.
 type EC2NatGatewayZone struct {
 	AvailabilityZone   string
 	SubnetId           string
@@ -253,27 +249,21 @@ type EC2Instance struct {
 	MetadataHttpEndpoint string
 	MetadataHopLimit     int
 	MetadataInstanceTags string
-	// MetadataHttpProtocolIpv6 is HttpProtocolIpv6, the IPv6 endpoint of the
-	// instance metadata service: "enabled" or "disabled", the default.
+	// MetadataHttpProtocolIpv6 is HttpProtocolIpv6: "enabled" or "disabled", the
+	// default.
 	MetadataHttpProtocolIpv6 string
-	// InstanceLifecycle is "spot" for a Spot Instance and empty for an
-	// On-Demand one; SpotInstanceRequestId names the request it fulfils.
+	// InstanceLifecycle is "spot" for a Spot Instance and empty for On-Demand.
 	InstanceLifecycle     string
 	SpotInstanceRequestId string
 	Placement             EC2Placement
-	// StateTransitionReason is the free-text reason for the most recent
-	// state transition (the DescribeInstances <reason> element); empty
-	// while the instance is running.
+	// StateTransitionReason is empty while the instance runs.
 	StateTransitionReason string
-	// StateReasonCode/StateReasonMessage carry the structured stateReason
-	// (e.g. Client.UserInitiatedShutdown) a real DescribeInstances returns
-	// for stopped and terminated instances.
+	// The structured stateReason (e.g. Client.UserInitiatedShutdown)
+	// DescribeInstances returns for stopped and terminated instances.
 	StateReasonCode    string
 	StateReasonMessage string
 }
 
-// EC2Placement is an instance's Placement as RunInstances and
-// ModifyInstancePlacement set it.
 type EC2Placement struct {
 	Tenancy         string
 	HostId          string
@@ -283,9 +273,8 @@ type EC2Placement struct {
 	PartitionNumber int
 }
 
-// ec2PlacementXML renders an instance's placement in the subnet's
-// Availability Zone. An instance launched without a tenancy runs on shared
-// hardware, which the API reports as `default`.
+// An instance launched without a tenancy runs on shared hardware, reported as
+// `default`.
 func ec2PlacementXML(inst EC2Instance) string {
 	az := awsAvailabilityZone()
 	if subnet, ok := ec2Subnets.Get(inst.SubnetId); ok && subnet.AvailabilityZone != "" {
@@ -398,13 +387,9 @@ type EC2Snapshot struct {
 	DockerVolumeName string
 }
 
-// EC2RunInstancesToken records the reservation a RunInstances ClientToken
-// produced, keyed by the token, so a retried call replays the same instances.
-// LaunchInstances is the exact set the original call returned, captured at
-// launch, so a retried RunInstances replays that original response verbatim —
-// including the "pending" state every instance reported at launch — rather than
-// re-reading the control plane, which may have since transitioned them to
-// "running".
+// A retried RunInstances with the same ClientToken replays LaunchInstances, the
+// original response verbatim, including the "pending" state every instance
+// reported at launch.
 type EC2RunInstancesToken struct {
 	Token           string
 	ReservationId   string
@@ -412,7 +397,6 @@ type EC2RunInstancesToken struct {
 	LaunchInstances []EC2Instance
 }
 
-// State stores
 var (
 	ec2Vpcs               sim.Store[EC2Vpc]
 	ec2Subnets            sim.Store[EC2Subnet]
@@ -428,35 +412,22 @@ var (
 	ec2Volumes            sim.Store[EC2Volume]
 	ec2VolumeMods         sim.Store[EC2VolumeModification]
 	ec2Snapshots          sim.Store[EC2Snapshot]
-	// ec2RunTokens records the reservation each RunInstances ClientToken
-	// created, so a retried RunInstances replays the original instances
-	// instead of launching a duplicate batch (real EC2 ClientToken
-	// idempotency; the aws-sdk-go-v2 auto-fills and re-sends ClientToken on
-	// every retry).
+	// The SDK re-sends ClientToken on every retry, and Amazon EC2 replays the
+	// original instances instead of launching a duplicate batch.
 	ec2RunTokens sim.Store[EC2RunInstancesToken]
-	// ec2SubnetIPCursor durably tracks the next host offset to hand out per
-	// subnet for AllocateSubnetIP. Amazon EC2 maintains this allocation state
-	// across control-plane restarts; persisting the cursor prevents a restarted
-	// simulator from assigning an address that is already in use.
+	// Persist the cursor so a restarted simulator never hands out an address in
+	// use.
 	ec2SubnetIPCursor sim.Store[uint32]
-	// ec2SubnetIPAllocationMu serializes cursor advancement with the live
-	// allocation scan. Resource stores remain the durable source of truth for
-	// address ownership, while the cursor only chooses where the next scan
-	// starts.
+	// The resource stores own addresses; the cursor only picks where the next
+	// scan starts.
 	ec2SubnetIPAllocationMu sync.Mutex
 )
 
-// AllocateSubnetIP picks the next free host address from a subnet's CIDR
-// block. Active cloud resources are the durable allocation ledger, so an
-// address returns to the pool when its network interface, NAT gateway, or
-// Amazon ECS task is deleted or stopped. The durable cursor only determines
-// where the circular search begins.
-//
-// Returns an error if the subnet isn't registered (matches real AWS, where
-// RunTask / CreateNetworkInterface against a non-existent subnet returns
-// InvalidSubnetID.NotFound). The first four addresses (network + AWS-reserved
-// router/DNS/future) and the last (broadcast) are skipped, mirroring AWS's
-// reserved-host convention.
+// Active resources are the allocation ledger, so an address returns to the
+// pool when its network interface, NAT gateway or Amazon ECS task goes; the
+// cursor only picks where the circular search begins. An unknown subnet is
+// InvalidSubnetID.NotFound. The first four addresses and the last are
+// reserved.
 func AllocateSubnetIP(subnetID string) (string, error) {
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
@@ -482,8 +453,7 @@ func AllocateSubnetIP(subnetID string) (string, error) {
 
 	cursor, ok := ec2SubnetIPCursor.Get(subnetID)
 	if !ok || cursor < 4 || cursor >= maxHosts-1 {
-		// AWS reserves the first four host addresses in every subnet
-		// (.0 network, .1 router, .2 DNS, .3 future use).
+		// AWS reserves .0 network, .1 router, .2 DNS and .3 future use.
 		cursor = 4
 	}
 	allocated := ec2AllocatedSubnetIPv4(subnetID)
@@ -515,10 +485,8 @@ func subnetIPv4AtOffset(base net.IP, offset uint32) string {
 	).String()
 }
 
-// ec2AllocatedSubnetIPv4 derives current address ownership from the durable
-// cloud resources that own the addresses. A stopped Amazon ECS task no longer
-// owns its elastic-network-interface address, matching Fargate lifecycle
-// semantics even though the stopped task record remains describable.
+// A stopped Amazon ECS task no longer owns its network interface address,
+// although the task stays describable.
 func ec2AllocatedSubnetIPv4(subnetID string) map[string]struct{} {
 	allocated := make(map[string]struct{})
 	add := func(ip string) {
@@ -580,16 +548,10 @@ func ec2AllocatedSubnetIPv4(subnetID string) map[string]struct{} {
 	return allocated
 }
 
-// ec2Owner() returns the EC2 resource owner — same as the AWS account
-// ID. Tracks awsAccountID() so a SOCKERLESS_AWS_ACCOUNT_ID override
-// propagates through every VPC/Subnet/SG OwnerId.
+// Follows awsAccountID(), so an account override reaches every OwnerId.
 func ec2Owner() string { return awsAccountID() }
 
-// defaultVPCSubnetID returns the subnet ID of the account's default VPC, or ""
-// if none exists. Operations that launch "into the default VPC" when the caller
-// omits a subnet (RunInstances, an ASG with no VPCZoneIdentifier) resolve the
-// subnet through this — faithfully, by the IsDefault VPC — rather than a
-// hardcoded ID.
+// Returns "" when no default VPC exists.
 func defaultVPCSubnetID() string {
 	var subnets []string
 	for _, s := range ec2Subnets.List() {
@@ -604,12 +566,9 @@ func defaultVPCSubnetID() string {
 	return subnets[0]
 }
 
-// ensureSimDefaults seeds the account's default VPC and one default subnet per
-// Availability Zone, the way a real AWS account is provisioned (so
-// DescribeVpcs/DescribeSubnets return them and a subnet-less RunInstances has
-// somewhere to land). The IDs are deterministic — a simulator convention, like
-// the fixed account ID — so coordinate-only callers can reference them.
-// Idempotent; called on startup.
+// Seed the default VPC and one default subnet per Availability Zone, as AWS
+// provisions an account. The IDs are deterministic, like the account ID, so
+// callers can reference them. Idempotent.
 func ensureSimDefaults() {
 	if _, ok := ec2Vpcs.Get("vpc-sim"); !ok {
 		ec2Vpcs.Put("vpc-sim", EC2Vpc{
@@ -652,7 +611,6 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	ec2RunTokens = sim.MakeStore[EC2RunInstancesToken](srv.DB(), "ec2_run_instances_tokens")
 	ec2SubnetIPCursor = sim.MakeStore[uint32](srv.DB(), "ec2_subnet_ip_cursors")
 
-	// VPC
 	r.Register("DescribeAccountAttributes", handleDescribeAccountAttributes)
 	r.Register("DescribeAvailabilityZones", handleDescribeAvailabilityZones)
 	r.Register("DescribeRegions", handleDescribeRegions)
@@ -662,20 +620,17 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeVpcAttribute", handleDescribeVpcAttribute)
 	r.Register("ModifyVpcAttribute", handleModifyVpcAttribute)
 
-	// Subnet
 	r.Register("CreateSubnet", handleCreateSubnet)
 	r.Register("DescribeSubnets", handleDescribeSubnets)
 	r.Register("DeleteSubnet", handleDeleteSubnet)
 	r.Register("ModifySubnetAttribute", handleModifySubnetAttribute)
 
-	// Internet Gateway
 	r.Register("CreateInternetGateway", handleCreateInternetGateway)
 	r.Register("AttachInternetGateway", handleAttachInternetGateway)
 	r.Register("DetachInternetGateway", handleDetachInternetGateway)
 	r.Register("DescribeInternetGateways", handleDescribeInternetGateways)
 	r.Register("DeleteInternetGateway", handleDeleteInternetGateway)
 
-	// Elastic IP
 	r.Register("AllocateAddress", handleAllocateAddress)
 	r.Register("AssociateAddress", handleAssociateAddress)
 	r.Register("DisassociateAddress", handleDisassociateAddress)
@@ -683,17 +638,14 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DescribeAddressesAttribute", handleDescribeAddressesAttribute)
 	r.Register("ReleaseAddress", handleReleaseAddress)
 
-	// NAT Gateway
 	r.Register("CreateNatGateway", handleCreateNatGateway)
 	r.Register("DescribeNatGateways", handleDescribeNatGateways)
 	r.Register("DeleteNatGateway", handleDeleteNatGateway)
 
-	// VPC Endpoint
 	r.Register("CreateVpcEndpoint", handleCreateVpcEndpoint)
 	r.Register("DescribeVpcEndpoints", handleDescribeVpcEndpoints)
 	r.Register("DeleteVpcEndpoints", handleDeleteVpcEndpoints)
 
-	// Route Table
 	r.Register("CreateRouteTable", handleCreateRouteTable)
 	r.Register("DescribeRouteTables", handleDescribeRouteTables)
 	r.Register("DeleteRouteTable", handleDeleteRouteTable)
@@ -703,7 +655,6 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AssociateRouteTable", handleAssociateRouteTable)
 	r.Register("DisassociateRouteTable", handleDisassociateRouteTable)
 
-	// Security Group
 	r.Register("CreateSecurityGroup", handleCreateSecurityGroup)
 	r.Register("DescribeSecurityGroups", handleDescribeSecurityGroups)
 	r.Register("ValidateSecurityGroupQuotasForInterface", handleValidateSecurityGroupQuotasForInterface)
@@ -717,7 +668,6 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("UpdateSecurityGroupRuleDescriptionsIngress", handleUpdateSecurityGroupRuleDescriptionsIngress)
 	r.Register("UpdateSecurityGroupRuleDescriptionsEgress", handleUpdateSecurityGroupRuleDescriptionsEgress)
 
-	// Instances
 	r.Register("RunInstances", handleRunInstances)
 	r.Register("DescribeInstances", handleDescribeInstances)
 	r.Register("TerminateInstances", handleTerminateInstances)
@@ -749,12 +699,8 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("DeleteKeyPair", handleDeleteKeyPair)
 	r.Register("ModifyInstanceMetadataOptions", handleModifyInstanceMetadataOptions)
 
-	// Seed the account's default VPC + default subnet, like a real AWS account
-	// (auto-provisioned with a default VPC and a default subnet per AZ). See
-	// ensureSimDefaults for the deterministic-ID rationale.
 	ensureSimDefaults()
 
-	// Network Interfaces (used during destroy to check ENIs before deleting SGs/subnets)
 	r.Register("DescribeNetworkInterfaces", handleDescribeNetworkInterfaces)
 	r.Register("CreateNetworkInterface", handleCreateNetworkInterface)
 	r.Register("AttachNetworkInterface", handleAttachNetworkInterface)
@@ -789,8 +735,6 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	registerEC2VolumesMisc(r, srv)
 }
 
-// Tag helpers
-
 func parseTags(r *http.Request) []EC2Tag {
 	var tags []EC2Tag
 	for i := 1; ; i++ {
@@ -821,8 +765,7 @@ func ec2ID(prefix string) string {
 	return prefix + "-" + sim.NewUUID()[:8]
 }
 
-// ec2NowRFC3339Milli formats the current time as the millisecond-precision UTC
-// timestamp AMIs use for creationDate (e.g. 2024-01-01T00:00:00.000Z).
+// The millisecond-precision UTC form AMIs use for creationDate.
 func ec2NowRFC3339Milli() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 }
@@ -935,8 +878,7 @@ func ec2Filters(r *http.Request) map[string][]string {
 	return filters
 }
 
-// ec2StrInValues reports whether s is one of vals (a filter's values are OR'd
-// in real EC2).
+// A filter's values OR together.
 func ec2StrInValues(s string, vals []string) bool {
 	for _, v := range vals {
 		if v == s {
@@ -946,7 +888,6 @@ func ec2StrInValues(s string, vals []string) bool {
 	return false
 }
 
-// ec2AnyStrInValues reports whether any of items matches any of vals.
 func ec2AnyStrInValues(items, vals []string) bool {
 	for _, it := range items {
 		if ec2StrInValues(it, vals) {
@@ -956,8 +897,7 @@ func ec2AnyStrInValues(items, vals []string) bool {
 	return false
 }
 
-// ec2WriteSimpleResponse writes the `<NameResponse><requestId/><return>true</return></NameResponse>`
-// shape used by EC2 mutation actions that have no payload.
+// For mutations whose response is only `<return>true</return>`.
 func ec2WriteSimpleResponse(w http.ResponseWriter, name string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%s %s>

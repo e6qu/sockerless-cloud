@@ -30,17 +30,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
-// Cloud KMS v1 slice (cloudkms.googleapis.com). Models keyRings,
-// cryptoKeys, cryptoKeyVersions, and symmetric encrypt/decrypt so a
-// key-management client (the google.golang.org/api/cloudkms REST client
-// and `gcloud kms`) has a real endpoint to hit. AWS KMS and Azure Key
-// Vault keys are already simulated; this brings GCP to parity.
-//
-// Crypto is real, not faked: each ENABLED cryptoKeyVersion gets a random
-// AES-256 key (non-exportable, like real KMS), and encrypt/decrypt use
-// AES-256-GCM. The ciphertext is opaque to the client and round-trips.
-// Real API: https://cloud.google.com/kms/docs/reference/rest
-
 const (
 	kmsDefaultProtectionLevel = "SOFTWARE"
 	kmsSymmetricAlgorithm     = "GOOGLE_SYMMETRIC_ENCRYPTION"
@@ -51,19 +40,16 @@ const (
 	kmsDefaultDestroyScheduledDuration = 30 * 24 * time.Hour
 )
 
-// kmsKeyRing is the wire shape for a KeyRing resource.
 type kmsKeyRing struct {
 	Name       string `json:"name"`
 	CreateTime string `json:"createTime"`
 }
 
-// kmsCryptoKeyVersionTemplate is the versionTemplate on a CryptoKey.
 type kmsCryptoKeyVersionTemplate struct {
 	ProtectionLevel string `json:"protectionLevel,omitempty"`
 	Algorithm       string `json:"algorithm,omitempty"`
 }
 
-// kmsCryptoKeyVersion is the wire shape for a CryptoKeyVersion.
 type kmsCryptoKeyVersion struct {
 	Name                   string `json:"name"`
 	State                  string `json:"state,omitempty"`
@@ -80,9 +66,8 @@ type kmsCryptoKeyVersion struct {
 	ReimportEligible       bool   `json:"reimportEligible,omitempty"`
 }
 
-// kmsCryptoKey is the wire shape for a CryptoKey. `primary` is assembled
-// from the live primary version on read so destroy/disable state shows
-// through.
+// kmsCryptoKey is the wire CryptoKey; reads assemble `primary` from the live
+// primary version so destroy and disable state shows through.
 type kmsCryptoKey struct {
 	Name                     string                       `json:"name"`
 	Primary                  *kmsCryptoKeyVersion         `json:"primary,omitempty"`
@@ -95,8 +80,8 @@ type kmsCryptoKey struct {
 	Labels                   map[string]string            `json:"labels,omitempty"`
 }
 
-// kmsStoredCryptoKey is the persisted CryptoKey metadata. Versions live
-// in their own store; the primary is resolved by ID at read time.
+// kmsStoredCryptoKey is the persisted CryptoKey. Versions live in their own
+// store, and reads resolve the primary by ID.
 type kmsStoredCryptoKey struct {
 	Name             string            `json:"name"`
 	Purpose          string            `json:"purpose"`
@@ -110,29 +95,24 @@ type kmsStoredCryptoKey struct {
 	// DestroyScheduledDuration is immutable and set at creation; it decides
 	// when a scheduled destroy completes.
 	DestroyScheduledDuration string `json:"destroyScheduledDuration,omitempty"`
-	// VersionSeq is the monotonic version counter for this key. Reserved
-	// atomically under the store write lock so concurrent
-	// CreateCryptoKeyVersion calls never collide on a version ID. Stored only;
-	// kmsAssembleCryptoKey never copies it onto the wire CryptoKey.
+	// VersionSeq is the per-key version counter, reserved under the store write
+	// lock so concurrent CreateCryptoKeyVersion calls never collide. It never
+	// reaches the wire.
 	VersionSeq int `json:"versionSeq,omitempty"`
 }
 
-// kmsKeyMaterialRecord holds the (non-exportable) key material for a
-// version, keyed by full version name. Never surfaced on the wire.
-//
-// Symmetric (ENCRYPT_DECRYPT / RAW_ENCRYPT_DECRYPT) and MAC keys keep their
-// raw bytes in Key. Asymmetric keys (ASYMMETRIC_SIGN / ASYMMETRIC_DECRYPT)
-// keep a real, freshly-generated RSA or EC private key in PrivatePEM (PKCS#8)
-// so signatures and OAEP decryptions are produced with Go's standard library —
-// the public half is derived from it on demand for getPublicKey.
+// kmsKeyMaterialRecord holds a version's non-exportable key material, keyed by
+// version name. Symmetric and MAC keys keep raw bytes in Key; asymmetric keys
+// keep an RSA or EC private key in PrivatePEM (PKCS#8), whose public half
+// getPublicKey derives.
 type kmsKeyMaterialRecord struct {
 	Key        []byte `json:"key,omitempty"`
 	PrivatePEM []byte `json:"privatePem,omitempty"`
 }
 
-// kmsIamPolicy mirrors google.iam.v1.Policy as the Cloud KMS Discovery
-// document defines it (version / bindings / auditConfigs / etag). Stored per
-// IAM-bearing resource (keyRing, cryptoKey, importJob, ekmConnection, ekmConfig).
+// kmsIamPolicy mirrors google.iam.v1.Policy as the Cloud KMS Discovery document
+// defines it, stored per keyRing, cryptoKey, importJob, ekmConnection and
+// ekmConfig.
 type kmsIamPolicy struct {
 	Version      int               `json:"version,omitempty"`
 	Bindings     []kmsIamBinding   `json:"bindings,omitempty"`
@@ -140,17 +120,13 @@ type kmsIamPolicy struct {
 	Etag         string            `json:"etag,omitempty"`
 }
 
-// kmsIamBinding is one role→members binding in a kmsIamPolicy.
 type kmsIamBinding struct {
 	Role      string          `json:"role"`
 	Members   []string        `json:"members,omitempty"`
 	Condition json.RawMessage `json:"condition,omitempty"`
 }
 
-// kmsImportJob is the wire shape for an ImportJob. Wrapping-key material is a
-// real RSA key pair so a client can fetch the publicKey and the sim could (in a
-// future import-method round-trip) unwrap. The metadata and lifecycle states
-// are faithful to the real API.
+// kmsImportJob is the wire ImportJob; its wrapping key is a real RSA key pair.
 type kmsImportJob struct {
 	Name             string             `json:"name"`
 	ImportMethod     string             `json:"importMethod,omitempty"`
@@ -165,16 +141,12 @@ type kmsImportJob struct {
 	CryptoKeyBackend string             `json:"cryptoKeyBackend,omitempty"`
 }
 
-// kmsWrappingPubKey is the WrappingPublicKey on an ImportJob.
 type kmsWrappingPubKey struct {
 	Pem string `json:"pem,omitempty"`
 }
 
-// kmsEkmConnection is the wire shape for an EkmConnection — metadata pointing at
-// an external key manager. The sim faithfully persists and returns the CRUD
-// metadata; the actual cryptographic operations against the external HSM/EKM are
-// out of scope (the external manager is not part of the simulator), so an
-// EkmConnection is a metadata-only resource by design.
+// kmsEkmConnection is the wire EkmConnection: metadata naming an external key
+// manager, which the simulator does not run.
 type kmsEkmConnection struct {
 	Name              string            `json:"name"`
 	CreateTime        string            `json:"createTime,omitempty"`
@@ -184,20 +156,17 @@ type kmsEkmConnection struct {
 	CryptoSpacePath   string            `json:"cryptoSpacePath,omitempty"`
 }
 
-// kmsEkmConfig is the per-location EkmConfig singleton.
 type kmsEkmConfig struct {
 	Name                 string `json:"name"`
 	DefaultEkmConnection string `json:"defaultEkmConnection,omitempty"`
 }
 
-// kmsKeyHandle is the wire shape for a KeyHandle (Autokey).
 type kmsKeyHandle struct {
 	Name                 string `json:"name"`
 	KmsKey               string `json:"kmsKey,omitempty"`
 	ResourceTypeSelector string `json:"resourceTypeSelector,omitempty"`
 }
 
-// kmsAutokeyConfig is the per-folder/project AutokeyConfig singleton.
 type kmsAutokeyConfig struct {
 	Name                     string `json:"name"`
 	KeyProject               string `json:"keyProject,omitempty"`
@@ -214,13 +183,11 @@ type kmsEffectiveAutokeyConfig struct {
 	} `json:"source,omitempty"`
 }
 
-// kmsKajPolicyConfig is the per-resource KeyAccessJustificationsPolicyConfig.
 type kmsKajPolicyConfig struct {
 	Name                           string          `json:"name"`
 	DefaultKeyAccessJustifications json.RawMessage `json:"defaultKeyAccessJustificationPolicy,omitempty"`
 }
 
-// kmsSingleTenantHsmInstance is the wire shape for a SingleTenantHsmInstance.
 type kmsSingleTenantHsmInstance struct {
 	Name                  string `json:"name"`
 	State                 string `json:"state,omitempty"`
@@ -228,13 +195,11 @@ type kmsSingleTenantHsmInstance struct {
 	KeyPortabilityEnabled bool   `json:"keyPortabilityEnabled,omitempty"`
 }
 
-// kmsHsmProposal is the wire shape for a SingleTenantHsmInstanceProposal.
 type kmsHsmProposal struct {
 	Name  string `json:"name"`
 	State string `json:"state,omitempty"`
 }
 
-// kmsRetiredResource is the wire shape for a RetiredResource.
 type kmsRetiredResource struct {
 	Name             string `json:"name"`
 	ResourceType     string `json:"resourceType,omitempty"`
@@ -278,7 +243,6 @@ func registerCloudKMS(srv *sim.Server) {
 	kmsHsmProposals = sim.MakeStore[kmsHsmProposal](srv.DB(), "kms_hsm_proposals")
 	kmsRetiredResources = sim.MakeStore[kmsRetiredResource](srv.DB(), "kms_retired_resources")
 
-	// CreateKeyRing: POST .../keyRings?keyRingId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -301,7 +265,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kr)
 	})
 
-	// ListKeyRings: GET .../keyRings
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -309,8 +272,7 @@ func registerCloudKMS(srv *sim.Server) {
 		kmsWriteList(w, r, kmsKeyRings, prefix, "keyRings", func(v kmsKeyRing) string { return v.Name })
 	})
 
-	// GetKeyRing: GET .../keyRings/{keyRing}. Also fans in the GET colon-verb
-	// GetIamPolicy ("{keyRing}:getIamPolicy").
+	// The GET colon-verb getIamPolicy ("{keyRing}:getIamPolicy") fans in here.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}", func(w http.ResponseWriter, r *http.Request) {
 		ringID, action, isAction := strings.Cut(sim.PathParam(r, "keyRing"), ":")
 		name := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), ringID)
@@ -330,9 +292,8 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kr)
 	})
 
-	// A key ring is deleted only when it holds no keys. Cloud KMS never deletes
-	// key material as a side effect of removing its container, so a ring with
-	// keys in it is refused rather than taking them with it.
+	// Cloud KMS refuses to delete a key ring that holds keys rather than delete
+	// key material with its container.
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		if _, ok := kmsKeyRings.Get(name); !ok {
@@ -353,8 +314,7 @@ func registerCloudKMS(srv *sim.Server) {
 		})
 	})
 
-	// SetIamPolicy / TestIamPermissions on a keyRing:
-	//   POST .../keyRings/{keyRingAction} where keyRingAction is "{keyRing}:verb".
+	// keyRingAction is "{keyRing}:setIamPolicy" or ":testIamPermissions".
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRingAction}", func(w http.ResponseWriter, r *http.Request) {
 		ringID, action, found := strings.Cut(sim.PathParam(r, "keyRingAction"), ":")
 		if !found {
@@ -372,7 +332,6 @@ func registerCloudKMS(srv *sim.Server) {
 		}
 	})
 
-	// CreateCryptoKey: POST .../keyRings/{keyRing}/cryptoKeys?cryptoKeyId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys", func(w http.ResponseWriter, r *http.Request) {
 		project, location, keyRing := sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing")
 		ringName := kmsKeyRingName(project, location, keyRing)
@@ -421,12 +380,9 @@ func registerCloudKMS(srv *sim.Server) {
 			Algorithm:       algorithm,
 			Labels:          req.Labels,
 		}
-		// Every purpose gets an initial version unless the caller opts out.
-		// Real KMS auto-creates the first CryptoKeyVersion (with material of the
-		// version-template algorithm) for ENCRYPT_DECRYPT, MAC, ASYMMETRIC_* and
-		// RAW_ENCRYPT_DECRYPT keys. The `primary` pointer is only meaningful for
-		// (RAW_)ENCRYPT_DECRYPT keys, so PrimaryVersionID tracks it just for
-		// those — asymmetric/MAC ops address a specific version by name.
+		// Cloud KMS creates the first version of every purpose unless the caller opts
+		// out. Only (RAW_)ENCRYPT_DECRYPT keys use `primary`; asymmetric and MAC
+		// operations name a version.
 		if r.URL.Query().Get("skipInitialVersionCreation") != "true" {
 			ver, err := kmsCreateVersionForAlg(name, "1", protection, algorithm)
 			if err != nil {
@@ -448,7 +404,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kmsAssembleCryptoKey(stored))
 	})
 
-	// ListCryptoKeys: GET .../keyRings/{keyRing}/cryptoKeys
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		prefix := ringName + "/cryptoKeys/"
@@ -470,9 +425,8 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// GetCryptoKey: GET .../cryptoKeys/{cryptoKey}. The handler also fans in
-	// the GET colon-verb GetIamPolicy ("{cryptoKey}:getIamPolicy"), since
-	// Go's mux can't spell `{id}:verb` as a distinct pattern.
+	// ServeMux cannot spell `{id}:verb`, so the GET colon-verb getIamPolicy fans in
+	// here.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		keyID, action, isAction := strings.Cut(sim.PathParam(r, "cryptoKey"), ":")
@@ -493,7 +447,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kmsAssembleCryptoKey(k))
 	})
 
-	// UpdateCryptoKey: PATCH .../cryptoKeys/{cryptoKey}?updateMask=...
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsCryptoKeyName(r)
 		k, ok := kmsCryptoKeys.Get(name)
@@ -521,7 +474,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kmsAssembleCryptoKey(k))
 	})
 
-	// Encrypt / Decrypt: POST .../cryptoKeys/{cryptoKeyAction}
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKeyAction}", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		keyID, action, found := strings.Cut(sim.PathParam(r, "cryptoKeyAction"), ":")
@@ -546,7 +498,6 @@ func registerCloudKMS(srv *sim.Server) {
 		}
 	})
 
-	// ListCryptoKeyVersions: GET .../cryptoKeys/{cryptoKey}/cryptoKeyVersions
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions", func(w http.ResponseWriter, r *http.Request) {
 		keyName := kmsCryptoKeyName(r)
 		if _, ok := kmsCryptoKeys.Get(keyName); !ok {
@@ -572,7 +523,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// GetCryptoKeyVersion: GET .../cryptoKeyVersions/{cryptoKeyVersion}
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}", func(w http.ResponseWriter, r *http.Request) {
 		versionID, action, isCustomMethod := gcpCustomMethod(sim.PathParam(r, "cryptoKeyVersion"))
 		if isCustomMethod {
@@ -594,10 +544,9 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, v)
 	})
 
-	// CreateCryptoKeyVersion: POST .../cryptoKeys/{cryptoKey}/cryptoKeyVersions
-	// Mints a fresh ENABLED version with its own AES-256 key material. The
-	// numeric ID is one past the current highest version. terraform's
-	// google_kms_crypto_key_version provisions versions this way.
+	// CreateCryptoKeyVersion mints an ENABLED version with fresh key material, one
+	// past the highest version ID; google_kms_crypto_key_version provisions
+	// versions this way.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions", func(w http.ResponseWriter, r *http.Request) {
 		keyName := kmsCryptoKeyName(r)
 		key, ok := kmsCryptoKeys.Get(keyName)
@@ -610,9 +559,8 @@ func registerCloudKMS(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		// Reserve the next version ID atomically by bumping the per-key counter
-		// under the store write lock, so concurrent CreateCryptoKeyVersion calls
-		// never collide on a version ID.
+		// Reserve the next version ID under the store write lock so concurrent
+		// creates never collide.
 		var assigned int
 		kmsCryptoKeys.Update(keyName, func(k *kmsStoredCryptoKey) {
 			if k.VersionSeq < kmsHighestVersionID(keyName) {
@@ -637,9 +585,7 @@ func registerCloudKMS(srv *sim.Server) {
 		kmsHandleImportTrustedKeyWrappedCryptoKeyVersion(w, r, kmsCryptoKeyName(r))
 	})
 
-	// UpdateCryptoKeyVersion: PATCH .../cryptoKeyVersions/{cryptoKeyVersion}?updateMask=state
-	// The canonical enable/disable toggle — terraform flips a version
-	// between ENABLED and DISABLED through this PATCH, not a dedicated verb.
+	// Terraform toggles a version between ENABLED and DISABLED through this PATCH.
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsCryptoKeyName(r) + "/cryptoKeyVersions/" + sim.PathParam(r, "cryptoKeyVersion")
 		v, ok := kmsGetCryptoKeyVersion(name)
@@ -667,8 +613,6 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, v)
 	})
 
-	// DestroyCryptoKeyVersion / RestoreCryptoKeyVersion:
-	// POST .../cryptoKeyVersions/{cryptoKeyVersionAction}
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersionAction}", func(w http.ResponseWriter, r *http.Request) {
 		versionID, action, found := strings.Cut(sim.PathParam(r, "cryptoKeyVersionAction"), ":")
 		if !found {
@@ -696,10 +640,8 @@ func registerCloudKMS(srv *sim.Server) {
 			kmsHandleRawDecrypt(w, r, name)
 			return
 		case "decapsulate":
-			// Key-encapsulation (ML-KEM / X-Wing) decapsulation is a
-			// post-quantum primitive Go's standard library does not yet
-			// expose. The route exists for API-surface fidelity; the op is
-			// rejected as unimplemented rather than faked.
+			// Key-encapsulation (ML-KEM / X-Wing) decapsulation is unimplemented;
+			// refuse it rather than invent a shared secret.
 			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "decapsulate is not supported for CryptoKeyVersion %s", name)
 			return
 		}
@@ -735,18 +677,11 @@ func registerCloudKMS(srv *sim.Server) {
 	registerCloudKMSExtras(srv)
 }
 
-// registerCloudKMSExtras mounts the remaining Cloud KMS surface: cryptoKey /
-// version deletes, importJobs, ekmConnections, ekmConfig, keyHandles,
-// autokeyConfig / kajPolicyConfig singletons, singleTenantHsmInstances +
-// proposals + retiredResources, the location-level generateRandomBytes verb, and
-// the per-version publicKey read. It is split out of registerCloudKMS purely to
-// keep each function a readable length.
+// registerCloudKMSExtras mounts the rest of the Cloud KMS surface, split from
+// registerCloudKMS for length.
 func registerCloudKMSExtras(srv *sim.Server) {
-	// DeleteCryptoKeyVersion is not a real KMS op (versions are destroyed via
-	// :destroy, not DELETE) — only DeleteCryptoKey would be, but the real API
-	// has neither: cryptoKeys.delete and cryptoKeyVersions.delete DO exist as of
-	// recent revisions. Honor them: a cryptoKey delete removes the key and its
-	// versions + material; a version delete removes a single version.
+	// cryptoKeys.delete and cryptoKeyVersions.delete remove a key, or a version and
+	// its material, once the undeletable checks pass; neither cascades.
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsCryptoKeyName(r)
 		if _, ok := kmsCryptoKeys.Get(name); !ok {
@@ -778,16 +713,12 @@ func registerCloudKMSExtras(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// GetPublicKey: GET .../cryptoKeyVersions/{cryptoKeyVersion}/publicKey
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}/publicKey", func(w http.ResponseWriter, r *http.Request) {
 		kmsHandleGetPublicKey(w, r, kmsCryptoKeyName(r)+"/cryptoKeyVersions/"+sim.PathParam(r, "cryptoKeyVersion"))
 	})
 
-	// ImportCryptoKeyVersion / CreateCryptoKeyVersion-via-collection-verb:
-	//   POST .../cryptoKeys/{cryptoKey}/{cryptoKeyVersionsCollectionAction}
-	// captures "cryptoKeyVersions:import". The literal
-	// POST .../cryptoKeys/{cryptoKey}/cryptoKeyVersions create route wins for
-	// the bare collection; this wildcard catches the colon-verb spelling.
+	// {cryptoKeyVersionsCollectionAction} captures "cryptoKeyVersions:import"; the
+	// literal cryptoKeyVersions route wins for create.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/{cryptoKeyVersionsCollectionAction}", func(w http.ResponseWriter, r *http.Request) {
 		seg := sim.PathParam(r, "cryptoKeyVersionsCollectionAction")
 		coll, action, found := strings.Cut(seg, ":")
@@ -804,9 +735,8 @@ func registerCloudKMSExtras(srv *sim.Server) {
 	kmsRegisterConfigSingletons(srv)
 	kmsRegisterSingleTenantHsm(srv)
 
-	// GenerateRandomBytes: POST .../locations/{locationAction} where
-	// locationAction is "{location}:generateRandomBytes" — the verb hangs off
-	// the location resource itself, so it is a single segment after /locations/.
+	// generateRandomBytes hangs off the location itself, so
+	// "{location}:generateRandomBytes" is one segment after /locations/.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{locationAction}", func(w http.ResponseWriter, r *http.Request) {
 		_, action, found := strings.Cut(sim.PathParam(r, "locationAction"), ":")
 		if !found {
@@ -821,7 +751,7 @@ func registerCloudKMSExtras(srv *sim.Server) {
 		}
 	})
 
-	// GET location-level colon-verb: ekmConfig:getIamPolicy.
+	// ekmConfig:getIamPolicy is a GET colon-verb on the location.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/{locationGetAction}", func(w http.ResponseWriter, r *http.Request) {
 		res, action, found := strings.Cut(sim.PathParam(r, "locationGetAction"), ":")
 		if !found || res != "ekmConfig" || action != "getIamPolicy" {
@@ -832,9 +762,7 @@ func registerCloudKMSExtras(srv *sim.Server) {
 	})
 }
 
-// kmsRegisterImportJobs mounts the ImportJobs CRUD + IAM surface.
 func kmsRegisterImportJobs(srv *sim.Server) {
-	// CreateImportJob: POST .../keyRings/{keyRing}/importJobs?importJobId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		if _, ok := kmsKeyRings.Get(ringName); !ok {
@@ -870,9 +798,8 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported importMethod %q", req.ImportMethod)
 			return
 		}
-		// Generate a real wrapping key of the size selected by importMethod.
-		// The public half is returned to the client and the private half stays
-		// inside the Cloud KMS service.
+		// Generate a real wrapping key of the size importMethod selects; the private
+		// half never leaves the service.
 		priv, err := rsa.GenerateKey(rand.Reader, bits)
 		if err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate wrapping key: %v", err)
@@ -903,14 +830,12 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
-	// ListImportJobs: GET .../keyRings/{keyRing}/importJobs
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		prefix := ringName + "/importJobs/"
 		kmsWriteList(w, r, kmsImportJobs, prefix, "importJobs", func(v kmsImportJob) string { return v.Name })
 	})
 
-	// GetImportJob / GetIamPolicy: GET .../importJobs/{importJobAction}
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs/{importJobAction}", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		id, action, isAction := strings.Cut(sim.PathParam(r, "importJobAction"), ":")
@@ -931,7 +856,6 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
-	// SetIamPolicy / TestIamPermissions: POST .../importJobs/{importJobAction}
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs/{importJobAction}", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		id, action, found := strings.Cut(sim.PathParam(r, "importJobAction"), ":")
@@ -951,10 +875,7 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 	})
 }
 
-// kmsRegisterEkm mounts the EkmConnection CRUD + IAM + verifyConnectivity
-// surface and the per-location EkmConfig singleton.
 func kmsRegisterEkm(srv *sim.Server) {
-	// CreateEkmConnection: POST .../ekmConnections?ekmConnectionId=X
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/ekmConnections", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("ekmConnectionId")
 		if id == "" {
@@ -983,14 +904,11 @@ func kmsRegisterEkm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// ListEkmConnections: GET .../ekmConnections
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/ekmConnections", func(w http.ResponseWriter, r *http.Request) {
 		prefix := kmsLocationName(r) + "/ekmConnections/"
 		kmsWriteList(w, r, kmsEkmConnections, prefix, "ekmConnections", func(v kmsEkmConnection) string { return v.Name })
 	})
 
-	// GetEkmConnection / GetIamPolicy / VerifyConnectivity:
-	//   GET .../ekmConnections/{ekmConnectionAction}
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/ekmConnections/{ekmConnectionAction}", func(w http.ResponseWriter, r *http.Request) {
 		id, action, isAction := strings.Cut(sim.PathParam(r, "ekmConnectionAction"), ":")
 		name := kmsLocationName(r) + "/ekmConnections/" + id
@@ -1003,9 +921,8 @@ func kmsRegisterEkm(srv *sim.Server) {
 					GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "EkmConnection %s not found", name)
 					return
 				}
-				// Real verifyConnectivity probes the external key manager; the
-				// sim has no external EKM, so it reports the connection
-				// metadata as reachable (empty success body, like the real API).
+				// Cloud KMS's verifyConnectivity probes the external key manager; the
+				// simulator has none and answers success with the API's empty body.
 				sim.WriteJSON(w, http.StatusOK, map[string]any{})
 			default:
 				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown ekmConnection action %q", action)
@@ -1020,7 +937,6 @@ func kmsRegisterEkm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// SetIamPolicy / TestIamPermissions: POST .../ekmConnections/{ekmConnectionAction}
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/ekmConnections/{ekmConnectionAction}", func(w http.ResponseWriter, r *http.Request) {
 		id, action, found := strings.Cut(sim.PathParam(r, "ekmConnectionAction"), ":")
 		if !found {
@@ -1038,7 +954,6 @@ func kmsRegisterEkm(srv *sim.Server) {
 		}
 	})
 
-	// UpdateEkmConnection: PATCH .../ekmConnections/{ekmConnection}?updateMask=...
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/ekmConnections/{ekmConnection}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsLocationName(r) + "/ekmConnections/" + sim.PathParam(r, "ekmConnection")
 		conn, ok := kmsEkmConnections.Get(name)
@@ -1066,7 +981,6 @@ func kmsRegisterEkm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, conn)
 	})
 
-	// GetEkmConfig: GET .../ekmConfig
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/ekmConfig", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsLocationName(r) + "/ekmConfig"
 		cfg, ok := kmsEkmConfigs.Get(name)
@@ -1076,7 +990,6 @@ func kmsRegisterEkm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cfg)
 	})
 
-	// UpdateEkmConfig: PATCH .../ekmConfig?updateMask=defaultEkmConnection
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/ekmConfig", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsLocationName(r) + "/ekmConfig"
 		cfg, ok := kmsEkmConfigs.Get(name)
@@ -1097,10 +1010,8 @@ func kmsRegisterEkm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cfg)
 	})
 
-	// SetIamPolicy / TestIamPermissions on ekmConfig:
-	//   POST .../ekmConfig/{ekmConfigAction} where ekmConfigAction is ":verb".
-	// The leading segment is the literal "ekmConfig"; Go's mux delivers the
-	// ":verb"-suffixed final segment here.
+	// ekmConfigAction is ":setIamPolicy" or ":testIamPermissions" after the literal
+	// ekmConfig segment.
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/ekmConfig/{ekmConfigAction}", func(w http.ResponseWriter, r *http.Request) {
 		seg := sim.PathParam(r, "ekmConfigAction")
 		_, action, found := strings.Cut(seg, ":")
@@ -1120,8 +1031,8 @@ func kmsRegisterEkm(srv *sim.Server) {
 	})
 }
 
-// kmsRegisterKeyHandles mounts the Autokey KeyHandles surface. Create returns a
-// completed LRO whose response is the KeyHandle (real Autokey semantics).
+// kmsRegisterKeyHandles answers create with a completed operation whose
+// response is the KeyHandle, as Autokey does.
 func kmsRegisterKeyHandles(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyHandles", func(w http.ResponseWriter, r *http.Request) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
@@ -1141,8 +1052,8 @@ func kmsRegisterKeyHandles(srv *sim.Server) {
 		}
 		kmsKey := req.KmsKey
 		if kmsKey == "" {
-			// Autokey provisions a CMEK for the handle; the sim records a
-			// deterministic key path under an autokey ring.
+			// Autokey provisions a CMEK for the handle; record its key path under an
+			// autokey ring.
 			kmsKey = fmt.Sprintf("projects/%s/locations/%s/keyRings/autokey/cryptoKeys/%s", project, location, id)
 		}
 		kh := kmsKeyHandle{Name: name, KmsKey: kmsKey, ResourceTypeSelector: req.ResourceTypeSelector}
@@ -1182,8 +1093,6 @@ func kmsRegisterKeyHandles(srv *sim.Server) {
 	})
 }
 
-// kmsRegisterConfigSingletons mounts the AutokeyConfig (folder/project) and
-// KajPolicyConfig (folder/project/organization) singletons.
 func kmsRegisterConfigSingletons(srv *sim.Server) {
 	getAutokey := func(name string) kmsAutokeyConfig {
 		if c, ok := kmsAutokeyConfigs.Get(name); ok {
@@ -1230,7 +1139,6 @@ func kmsRegisterConfigSingletons(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, cfg)
 	}
 
-	// AutokeyConfig: projects + folders.
 	srv.HandleFunc("GET /v1/projects/{project}/autokeyConfig", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, getAutokey("projects/"+sim.PathParam(r, "project")+"/autokeyConfig"))
 	})
@@ -1252,7 +1160,6 @@ func kmsRegisterConfigSingletons(srv *sim.Server) {
 		kmsHandleShowEffectiveAutokeyConfig(w, "folders/"+folder)
 	})
 
-	// KajPolicyConfig: projects + folders + organizations.
 	srv.HandleFunc("GET /v1/projects/{project}/kajPolicyConfig", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, getKaj("projects/"+sim.PathParam(r, "project")+"/kajPolicyConfig"))
 	})
@@ -1325,10 +1232,9 @@ func kmsHandleShowEffectiveAutokeyConfig(w http.ResponseWriter, parent string) {
 	sim.WriteJSON(w, http.StatusOK, kmsEffectiveAutokeyConfig{})
 }
 
-// kmsRegisterSingleTenantHsm mounts the SingleTenantHsmInstances + proposals +
-// retiredResources surface. These are infrastructure resources; the sim
-// persists their metadata and lifecycle states faithfully (no HSM hardware is
-// emulated, so they are metadata-only by design).
+// kmsRegisterSingleTenantHsm persists SingleTenantHsmInstances, proposals and
+// retiredResources with their lifecycle states; no HSM hardware runs behind
+// them.
 func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 	instancePrefix := "/v1/projects/{project}/locations/{location}/singleTenantHsmInstances"
 
@@ -1363,7 +1269,6 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, inst)
 	})
 
-	// Proposals.
 	srv.HandleFunc("POST "+instancePrefix+"/{instance}/proposals", func(w http.ResponseWriter, r *http.Request) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 		instName := kmsLocationName(r) + "/singleTenantHsmInstances/" + sim.PathParam(r, "instance")
@@ -1386,7 +1291,6 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		kmsWriteList(w, r, kmsHsmProposals, prefix, "proposals", func(v kmsHsmProposal) string { return v.Name })
 	})
 
-	// GetProposal / DeleteProposal: GET|DELETE .../proposals/{proposal}
 	srv.HandleFunc("GET "+instancePrefix+"/{instance}/proposals/{proposal}", func(w http.ResponseWriter, r *http.Request) {
 		name := kmsLocationName(r) + "/singleTenantHsmInstances/" + sim.PathParam(r, "instance") + "/proposals/" + sim.PathParam(r, "proposal")
 		prop, ok := kmsHsmProposals.Get(name)
@@ -1407,7 +1311,6 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
-	// ApproveProposal / ExecuteProposal: POST .../proposals/{proposalAction}
 	srv.HandleFunc("POST "+instancePrefix+"/{instance}/proposals/{proposalAction}", func(w http.ResponseWriter, r *http.Request) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 		instName := kmsLocationName(r) + "/singleTenantHsmInstances/" + sim.PathParam(r, "instance")
@@ -1436,7 +1339,6 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		}
 	})
 
-	// RetiredResources.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/retiredResources", func(w http.ResponseWriter, r *http.Request) {
 		prefix := kmsLocationName(r) + "/retiredResources/"
 		var all []kmsRetiredResource
@@ -1450,9 +1352,8 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		// ListRetiredResourcesResponse declares totalSize as an int64, which
-		// proto3 JSON carries as a string — unlike the int32 totalSize every
-		// other Cloud KMS list response declares.
+		// ListRetiredResourcesResponse declares totalSize int64, which proto3 JSON
+		// carries as a string; every other Cloud KMS list declares int32.
 		resp := map[string]any{
 			"retiredResources": page,
 			"totalSize":        strconv.Itoa(len(all)),
@@ -1474,9 +1375,8 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 	})
 }
 
-// kmsHighestVersionID returns the highest existing numeric version ID for a
-// key, or 0 when none exist. Used to seed the per-key version counter for keys
-// created before VersionSeq tracking existed.
+// kmsHighestVersionID returns a key's highest numeric version ID, or 0, to
+// seed a version counter a stored key lacks.
 func kmsHighestVersionID(keyName string) int {
 	prefix := keyName + "/cryptoKeyVersions/"
 	highest := 0
@@ -1491,8 +1391,8 @@ func kmsHighestVersionID(keyName string) int {
 	return highest
 }
 
-// kmsDestroyScheduledDuration normalizes a CryptoKey's destroy schedule,
-// falling back to the documented default when the create left it unset.
+// kmsDestroyScheduledDuration defaults an unset destroy schedule to the
+// documented 30 days.
 func kmsDestroyScheduledDuration(requested string) string {
 	if requested != "" {
 		return requested
@@ -1501,8 +1401,8 @@ func kmsDestroyScheduledDuration(requested string) string {
 }
 
 // kmsDestroyDelayFor returns how long a version of this key spends in
-// DESTROY_SCHEDULED. A key carrying no duration, or one this simulator cannot
-// parse, uses the default rather than destroying immediately.
+// DESTROY_SCHEDULED; an absent or unparseable duration takes the default
+// rather than destroying at once.
 func kmsDestroyDelayFor(keyName string) time.Duration {
 	key, ok := kmsCryptoKeys.Get(keyName)
 	if !ok || key.DestroyScheduledDuration == "" {
@@ -1515,15 +1415,9 @@ func kmsDestroyDelayFor(keyName string) time.Duration {
 	return time.Duration(seconds * float64(time.Second))
 }
 
-// kmsVersionSettled applies the one time-driven transition a CryptoKeyVersion
-// has: a destroy is scheduled for a point in the future, and when that point
-// passes the version is DESTROYED and its material is gone.
-//
-// The transition is derived from DestroyTime rather than driven by a timer, so
-// it holds for a version written before the process started and needs no clock
-// running to be correct. Without it a scheduled destroy never completes and
-// the version sits in DESTROY_SCHEDULED forever — a state machine with a dead
-// end, and one that would make DeleteCryptoKeyVersion unreachable.
+// kmsVersionSettled moves a DESTROY_SCHEDULED version whose DestroyTime has
+// passed to DESTROYED and drops its material. Deriving the transition from
+// DestroyTime instead of a timer keeps it correct across restarts.
 func kmsVersionSettled(v kmsCryptoKeyVersion) kmsCryptoKeyVersion {
 	if v.State != "DESTROY_SCHEDULED" || v.DestroyTime == "" {
 		return v
@@ -1537,8 +1431,8 @@ func kmsVersionSettled(v kmsCryptoKeyVersion) kmsCryptoKeyVersion {
 	return v
 }
 
-// kmsGetCryptoKeyVersion reads a version with its scheduled destroy settled.
-// Every read goes through here so no caller sees a stale DESTROY_SCHEDULED.
+// kmsGetCryptoKeyVersion reads a version with its scheduled destroy settled;
+// every read goes through it.
 func kmsGetCryptoKeyVersion(name string) (kmsCryptoKeyVersion, bool) {
 	v, ok := kmsCryptoKeyVersions.Get(name)
 	if !ok {
@@ -1547,7 +1441,6 @@ func kmsGetCryptoKeyVersion(name string) (kmsCryptoKeyVersion, bool) {
 	return kmsVersionSettled(v), true
 }
 
-// kmsCryptoKeyVersionsOf returns a CryptoKey's versions.
 func kmsCryptoKeyVersionsOf(keyName string) []kmsCryptoKeyVersion {
 	prefix := keyName + "/cryptoKeyVersions/"
 	var out []kmsCryptoKeyVersion
@@ -1559,13 +1452,10 @@ func kmsCryptoKeyVersionsOf(keyName string) []kmsCryptoKeyVersion {
 	return out
 }
 
-// kmsVersionUndeletable reports why a CryptoKeyVersion cannot be permanently
-// deleted, or "" when the delete is allowed.
-//
-// Cloud KMS accepts the delete only for a version that was never imported and
-// has reached DESTROYED, IMPORT_FAILED or GENERATION_FAILED. Deleting outside
-// those states would drop material a client can still name and decrypt with,
-// leaving the caller to discover the loss at the next Decrypt.
+// kmsVersionUndeletable reports why a CryptoKeyVersion cannot be deleted, or
+// "". Cloud KMS deletes only a never-imported version in DESTROYED,
+// IMPORT_FAILED or GENERATION_FAILED, so no deletion drops material a client
+// can still decrypt with.
 func kmsVersionUndeletable(v kmsCryptoKeyVersion) string {
 	if v.ImportTime != "" || v.ImportJob != "" {
 		return fmt.Sprintf("CryptoKeyVersion %s was imported and cannot be deleted", v.Name)
@@ -1577,9 +1467,8 @@ func kmsVersionUndeletable(v kmsCryptoKeyVersion) string {
 	return fmt.Sprintf("CryptoKeyVersion %s is %s; only a DESTROYED, IMPORT_FAILED or GENERATION_FAILED version can be deleted", v.Name, v.State)
 }
 
-// kmsCryptoKeyUndeletable reports why a CryptoKey cannot be deleted, or "" when
-// the delete is allowed. Every child version must already have been deleted;
-// the key delete does not cascade.
+// kmsCryptoKeyUndeletable reports why a CryptoKey cannot be deleted, or "":
+// every version must already be deleted, since the delete does not cascade.
 func kmsCryptoKeyUndeletable(keyName string) string {
 	if remaining := kmsCryptoKeyVersionsOf(keyName); len(remaining) > 0 {
 		return fmt.Sprintf("CryptoKey %s still has %d CryptoKeyVersion(s); delete them first", keyName, len(remaining))
@@ -1718,7 +1607,6 @@ func kmsHandleDecrypt(w http.ResponseWriter, r *http.Request, keyName string) {
 	})
 }
 
-// kmsHandleUpdatePrimaryVersion sets the cryptoKey's primary version.
 func kmsHandleUpdatePrimaryVersion(w http.ResponseWriter, r *http.Request, keyName string) {
 	key, ok := kmsCryptoKeys.Get(keyName)
 	if !ok {
@@ -1748,8 +1636,8 @@ func kmsHandleUpdatePrimaryVersion(w http.ResponseWriter, r *http.Request, keyNa
 func kmsHandleGetIamPolicy(w http.ResponseWriter, r *http.Request, resource string) {
 	pol, ok := kmsIamPolicies.Get(resource)
 	if !ok {
-		// Real Cloud KMS returns an empty (etag-bearing) policy for a resource
-		// that has none set yet, not a 404.
+		// Cloud KMS answers an empty, etag-bearing policy for a resource with none
+		// set, not a 404.
 		pol = kmsIamPolicy{Etag: gcpPolicyETag()}
 	}
 	sim.WriteJSON(w, http.StatusOK, pol)
@@ -1787,8 +1675,8 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})
 }
 
-// kmsHandleGenerateRandomBytes returns cryptographically-random bytes from
-// crypto/rand, with a real CRC32C over the result.
+// kmsHandleGenerateRandomBytes reads crypto/rand and returns a CRC32C over
+// the result.
 func kmsHandleGenerateRandomBytes(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LengthBytes     int    `json:"lengthBytes"`
@@ -1936,8 +1824,8 @@ func kmsHandleRawEncrypt(w http.ResponseWriter, r *http.Request, versionName str
 	if !ok {
 		return
 	}
-	// The caller may supply an IV; otherwise the server generates one. Real
-	// rawEncrypt for AES-GCM uses a 12-byte IV.
+	// The caller may supply an IV; otherwise generate the 12-byte IV rawEncrypt
+	// uses for AES-GCM.
 	var iv []byte
 	verifiedIV := false
 	if req.InitializationVector != "" {
@@ -2102,9 +1990,8 @@ func kmsHandleAsymmetricSign(w http.ResponseWriter, r *http.Request, versionName
 		return
 	}
 
-	// The client supplies either the message (data) or its precomputed digest.
-	// The sim hashes the data with SHA-256 (the algorithm the test keys use)
-	// when a digest isn't given.
+	// The client supplies the message (data) or its SHA-256 digest; hash data
+	// with SHA-256 when no digest is given.
 	var digest []byte
 	verifiedDigest := false
 	verifiedData := false
@@ -2325,9 +2212,8 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		ImportTime:       now,
 		ReimportEligible: true,
 
-		// An imported version is exportable under a trusted wrapping key only
-		// when the import asked for it, the same way a generated version
-		// carries the flag its create call set.
+		// An imported version is exportable under a trusted wrapping key only when the
+		// import asked, as a generated version carries its create call's flag.
 		TrustedWrappingEnabled: req.TrustedWrappingEnabled,
 	}
 	kmsCryptoKeyVersions.Put(versionName, version)
@@ -2585,10 +2471,8 @@ func kmsImportedMaterialRecord(algorithm string, raw []byte) (kmsKeyMaterialReco
 
 func kmsNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// kmsDecodeBytes accepts both standard and URL-safe base64, padded or not.
-// proto3 JSON bytes fields accept either alphabet, and `gcloud kms` emits
-// URL-safe base64 (with `-`/`_`) for plaintext/ciphertext — which a plain
-// StdEncoding decode rejects.
+// kmsDecodeBytes accepts standard and URL-safe base64, padded or not: proto3
+// JSON bytes accept either alphabet, and `gcloud kms` emits URL-safe base64.
 func kmsDecodeBytes(s string) ([]byte, error) {
 	s = strings.ReplaceAll(s, "-", "+")
 	s = strings.ReplaceAll(s, "_", "/")
@@ -2600,9 +2484,8 @@ func kmsDecodeBytes(s string) ([]byte, error) {
 
 func kmsCRC(b []byte) int64 { return int64(crc32.Checksum(b, kmsCRC32CTable)) }
 
-// kmsVerifyCRC checks a client-supplied CRC32C against the data. Returns
-// (verified, ok): verified is true when the client supplied a checksum
-// that matched; ok is false (and an error already written) on mismatch.
+// kmsVerifyCRC checks a client-supplied CRC32C. verified is true when a
+// supplied checksum matched; ok is false, with the error written, on mismatch.
 func kmsVerifyCRC(w http.ResponseWriter, data []byte, supplied *int64, field string) (bool, bool) {
 	if supplied == nil {
 		return false, true
@@ -2619,11 +2502,9 @@ func kmsKeyRingName(project, location, id string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s", project, location, id)
 }
 
-// kmsLocationPattern is the shape of a Cloud KMS location ID: "global", a
-// multi-region ("us", "europe", "asia"), a dual-region ("nam4", "eur5",
-// "asia1") or a Compute Engine region ("us-central1"). Location IDs are
-// lowercase; the service rejects "US", the spelling Cloud Storage uses for
-// its multi-region, as an invalid location.
+// kmsLocationPattern matches a Cloud KMS location ID: "global", a multi-region
+// ("us"), a dual-region ("nam4") or a region ("us-central1"). The service
+// rejects the uppercase "US" Cloud Storage uses.
 var kmsLocationPattern = regexp.MustCompile(`^(global|us|europe|asia|nam[0-9]+|eur[0-9]+|asia[0-9]+|[a-z]+-[a-z]+[0-9]+)$`)
 
 func kmsLocationValid(location string) bool {
@@ -2635,17 +2516,13 @@ func kmsCryptoKeyName(r *http.Request) string {
 		"/cryptoKeys/" + sim.PathParam(r, "cryptoKey")
 }
 
-// kmsCreateVersion generates a new ENABLED version with fresh key material
-// appropriate for the algorithm and returns its numeric ID.
 func kmsCreateVersion(keyName, versionID, protection, algorithm string) (string, error) {
 	return kmsCreateVersionForAlg(keyName, versionID, protection, algorithm)
 }
 
-// kmsCreateVersionForAlg mints an ENABLED version whose key material matches the
-// algorithm family: AES-256 bytes for symmetric (GOOGLE_SYMMETRIC_ENCRYPTION /
-// AES_*), an HMAC key for HMAC_*, a real RSA-2048 key for RSA_* and an EC P-256
-// key for EC_SIGN_*. The crypto is genuine (crypto/rand + crypto/rsa /
-// crypto/ecdsa), never faked.
+// kmsCreateVersionForAlg mints an ENABLED version with real key material for
+// the algorithm family: AES-256 bytes for symmetric, an HMAC key for HMAC_*,
+// RSA-2048 for RSA_*, EC P-256 for EC_SIGN_*.
 func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (string, error) {
 	versionName := keyName + "/cryptoKeyVersions/" + versionID
 	now := kmsNow()
@@ -2683,7 +2560,6 @@ func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (s
 		}
 		rec.PrivatePEM = pemBytes
 	default:
-		// Symmetric (ENCRYPT_DECRYPT / RAW / AES_*) and HMAC keys: 32 raw bytes.
 		material, err := simkms.NewKey()
 		if err != nil {
 			return "", err
@@ -2703,7 +2579,6 @@ func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (s
 	return versionID, nil
 }
 
-// kmsLocationName builds the projects/{p}/locations/{loc} parent for a request.
 // kmsLRO records a finished Cloud KMS operation whose response and metadata
 // are the google.cloud.kms.v1 messages the method's operation_info declares.
 func kmsLRO(project, location string, resource any, response, metadata string) Operation {
@@ -2735,7 +2610,6 @@ func kmsLoadEnabledVersion(w http.ResponseWriter, versionName string) (kmsCrypto
 	return version, material, true
 }
 
-// kmsHashForAlg maps an HMAC_* algorithm to its hash constructor.
 func kmsHashForAlg(algorithm string) func() hash.Hash {
 	switch algorithm {
 	case "HMAC_SHA1":
@@ -2751,7 +2625,6 @@ func kmsHashForAlg(algorithm string) func() hash.Hash {
 	}
 }
 
-// kmsPrivateKeyPEM marshals an RSA or EC private key to PKCS#8 PEM.
 func kmsPrivateKeyPEM(priv any) ([]byte, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
@@ -2760,7 +2633,7 @@ func kmsPrivateKeyPEM(priv any) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
 }
 
-// kmsPublicKeyPEM marshals a public key to PKIX PEM (the form KMS returns).
+// kmsPublicKeyPEM marshals a public key to the PKIX PEM Cloud KMS returns.
 func kmsPublicKeyPEM(pub any) (string, error) {
 	der, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
@@ -2769,7 +2642,6 @@ func kmsPublicKeyPEM(pub any) (string, error) {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
 }
 
-// kmsPrivateFromPEM parses a PKCS#8 private key PEM.
 func kmsPrivateFromPEM(pemBytes []byte) (any, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
@@ -2778,7 +2650,6 @@ func kmsPrivateFromPEM(pemBytes []byte) (any, error) {
 	return x509.ParsePKCS8PrivateKey(block.Bytes)
 }
 
-// kmsPublicFromPEM parses a PKCS#8 private key PEM and returns its public half.
 func kmsPublicFromPEM(pemBytes []byte) (any, error) {
 	priv, err := kmsPrivateFromPEM(pemBytes)
 	if err != nil {
@@ -2794,8 +2665,7 @@ func kmsPublicFromPEM(pemBytes []byte) (any, error) {
 	}
 }
 
-// kmsAssembleCryptoKey builds the wire CryptoKey, resolving the live
-// primary version.
+// kmsAssembleCryptoKey builds the wire CryptoKey with its live primary version.
 func kmsAssembleCryptoKey(k kmsStoredCryptoKey) kmsCryptoKey {
 	out := kmsCryptoKey{
 		Name:                     k.Name,
@@ -2819,11 +2689,8 @@ func kmsAssembleCryptoKey(k kmsStoredCryptoKey) kmsCryptoKey {
 	return out
 }
 
-// kmsVersionNumber extracts the trailing numeric version ID from a version
-// resource name. Key versions are numbered from one, and the identifier is the
-// whole final segment: a segment that is not a positive integer names no
-// version, so "0x10" and "1-old" are rejected rather than read as far as the
-// first non-digit.
+// kmsVersionNumber reads the numeric ID that is a version name's whole final
+// segment. Versions number from one; "0x10" and "1-old" name no version.
 func kmsVersionNumber(versionName string) (int, bool) {
 	i := strings.LastIndex(versionName, "/cryptoKeyVersions/")
 	if i < 0 {
@@ -2834,27 +2701,22 @@ func kmsVersionNumber(versionName string) (int, bool) {
 	if err != nil || n < 1 {
 		return 0, false
 	}
-	// The segment has to be the number, not merely parse to it. Atoi accepts a
-	// leading sign and leading zeros, so `/cryptoKeyVersions/01` and
-	// `/cryptoKeyVersions/+1` both addressed version 1 — extra names for a
-	// resource that has exactly one, which is how a caller comes to believe it
-	// read a version it never named. Cloud KMS numbers versions from one and
-	// writes them plainly.
+	// Atoi accepts a sign and leading zeros; only the plain spelling names a
+	// version, so `01` and `+1` are not aliases of version 1.
 	if strconv.Itoa(n) != segment {
 		return 0, false
 	}
 	return n, true
 }
 
-// kmsVersionLess orders version names by their numeric ID.
 func kmsVersionLess(a, b string) bool {
 	na, _ := kmsVersionNumber(a)
 	nb, _ := kmsVersionNumber(b)
 	return na < nb
 }
 
-// kmsEncryptBytes seals plaintext with AES-256-GCM and frames the result
-// as version(4) || nonce || sealed so decrypt can pick the version.
+// kmsEncryptBytes seals plaintext with AES-256-GCM and frames it as
+// version(4) || nonce || sealed so decrypt can pick the version.
 func kmsEncryptBytes(material []byte, versionNum int, plaintext, aad []byte) ([]byte, error) {
 	sealed, err := simkms.Seal(material, plaintext, aad)
 	if err != nil {
@@ -2876,10 +2738,8 @@ func kmsDecryptBytes(material, blob, aad []byte) ([]byte, error) {
 	return simkms.Open(material, blob, aad)
 }
 
-// kmsHandleShowEffectiveKajPolicyConfig reports the Key Access Justifications
-// policy in force on a project. The effective policy is the one recorded
-// against the project, and a project with none has the default available to it
-// rather than a policy nobody set.
+// kmsHandleShowEffectiveKajPolicyConfig answers the policy recorded against
+// the project, or the default when it has none.
 func kmsHandleShowEffectiveKajPolicyConfig(w http.ResponseWriter, project string) {
 	name := "projects/" + project + "/kajPolicyConfig"
 	held, ok := kmsKajPolicyConfigs.Get(name)
@@ -2898,10 +2758,8 @@ func kmsHandleShowEffectiveKajPolicyConfig(w http.ResponseWriter, project string
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"effectiveKajPolicy": effective})
 }
 
-// kmsHandleShowEffectiveKajEnrollmentConfig reports how a project is enrolled
-// in Key Access Justifications, per protection level. Enrolment is off until
-// something turns it on, and reporting it as on would tell a client its keys
-// are demanding justifications when they are not.
+// kmsHandleShowEffectiveKajEnrollmentConfig reports enrollment off until
+// something turns it on.
 func kmsHandleShowEffectiveKajEnrollmentConfig(w http.ResponseWriter, project string) {
 	off := func() map[string]any {
 		return map[string]any{"policyEnforcement": false, "auditLogging": false}

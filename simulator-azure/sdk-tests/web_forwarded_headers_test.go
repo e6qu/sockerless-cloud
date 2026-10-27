@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The App Service front end terminates the client's connection and tells the
-// app what it saw: X-Forwarded-For gains the client's address with its port,
-// and X-Forwarded-Proto and X-AppService-Proto name the client's protocol.
+// The App Service front end tells the app what it saw: X-Forwarded-For gains
+// the client's address and port, and X-Forwarded-Proto and X-AppService-Proto
+// name the client's protocol.
 func TestSDK_WebApps_ForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-web-xff-rg"), uniquename.New("sdk-web-xff")

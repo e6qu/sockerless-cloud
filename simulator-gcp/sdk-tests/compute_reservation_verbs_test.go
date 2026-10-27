@@ -8,9 +8,7 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A reservation's resize and the blocks its capacity is held in. The blocks are
-// derived from the reservation's own count, so a resize is visible in them —
-// which is what keeps the two from disagreeing.
+// The blocks derive from the reservation's count, so a resize shows in them.
 func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -60,8 +58,8 @@ func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 	require.Len(t, subs.Items, 2, "a sixteen-machine block is two sub-blocks")
 	assert.Equal(t, int64(8), subs.Items[0].Count)
 
-	// A slot is one machine of a sub-block, and the level health is reported
-	// at. The three levels agree because each is derived from the one above.
+	// A slot is one machine of a sub-block and the level health is reported at;
+	// the levels agree because each derives from the one above.
 	subParent := "reservations/" + name + "/reservationBlocks/" + blocks.Items[0].Name
 	slots, err := svc.ReservationSlots.List(project, zone, subParent+"/reservationSubBlocks/"+subs.Items[0].Name).Do()
 	require.NoError(t, err)
@@ -80,8 +78,7 @@ func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
-	// A block's IAM policy goes to the same store every other Google IAM
-	// surface reads, so setting it is visible to the read beside it.
+	// A block's IAM policy goes to the store every IAM surface reads.
 	_, err = svc.ReservationBlocks.SetIamPolicy(project, zone, name, blocks.Items[0].Name,
 		&compute.ZoneSetNestedPolicyRequest{Policy: &compute.Policy{
 			Bindings: []*compute.Binding{{Role: "roles/compute.viewer", Members: []string{"user:a@example.com"}}},
@@ -99,9 +96,8 @@ func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 	assert.Contains(t, err.Error(), "greater than zero")
 }
 
-// The hosts a reservation's capacity is held on. A host is one machine, so the
-// three association spellings each report the capacity of the thing addressed —
-// the reservation, one of its blocks, or one of that block's sub-blocks.
+// A host is one machine, so each of the three association spellings reports
+// the capacity of what it addresses: the reservation, a block or a sub-block.
 func TestCompute_ReservationHosts(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -123,8 +119,8 @@ func TestCompute_ReservationHosts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all.Items, 20, "a twenty-machine reservation is twenty hosts")
 	assert.Equal(t, "ACTIVE", all.Items[0].State)
-	// The status is left out rather than invented: it carries Google's own
-	// datacenter topology and the instances placed on this machine.
+	// The status is left out rather than invented: it carries Google's datacenter
+	// topology and the instances placed on the machine.
 	assert.Nil(t, all.Items[0].Status)
 
 	blocks, err := svc.ReservationBlocks.List(project, zone, name).Do()

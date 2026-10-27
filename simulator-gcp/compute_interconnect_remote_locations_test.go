@@ -2,15 +2,9 @@ package main
 
 import "testing"
 
-// TestInterconnectRemoteLocationsVendoredCatalog locks the vendored catalogue,
-// and locks the associations rather than only the count.
-//
-// The enumeration is the easy half. What a rowspan-laden source gets wrong is
-// which city and which permitted connections belong to which remote location,
-// and a count check cannot see that at all: the first parse of these pages
-// recovered every entry and still filed aws-lgknx under no city, because Seoul
-// is rowspanned from the entry above it. So the two entries that broke it are
-// asserted by hand here.
+// TestInterconnectRemoteLocationsVendoredCatalog locks the count and the
+// associations: a count cannot see a rowspanned city filed under the wrong
+// entry, so the entries a row-counting parser gets wrong are asserted by hand.
 func TestInterconnectRemoteLocationsVendoredCatalog(t *testing.T) {
 	catalog := interconnectRemoteLocations()
 

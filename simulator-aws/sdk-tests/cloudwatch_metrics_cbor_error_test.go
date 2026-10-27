@@ -9,11 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_MetricsCBORErrorShape pins that the rpc-v2-cbor GetMetricData /
-// PutMetricData handlers emit errors in the cbor protocol shape — a malformed
-// body must come back with the `Smithy-Protocol: rpc-v2-cbor` header, not an
-// awsJson error (which the Go SDK rejects as "unexpected smithy-protocol
-// response header"). These handlers previously used sim.AWSError.
+// TestCloudWatch_MetricsCBORErrorShape expects a malformed GetMetricData or
+// PutMetricData body to fail in the rpc-v2-cbor error shape with the
+// `Smithy-Protocol: rpc-v2-cbor` header; the Go SDK rejects an awsJson error
+// as "unexpected smithy-protocol response header".
 func TestCloudWatch_MetricsCBORErrorShape(t *testing.T) {
 	t.Parallel()
 	for _, op := range []string{"GetMetricData", "PutMetricData"} {

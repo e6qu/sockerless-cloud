@@ -13,12 +13,10 @@ import (
 )
 
 // The Microsoft.Resources generic surface and the Microsoft.Authorization
-// permission listings, which used to be mux misses.
+// permission listings.
 
-// Every resource ARM addresses by its typed route is addressable by its
-// full resource ID: the generic methods read, write, patch and delete the
-// same resource the typed provider owns, so a write through one door is
-// visible through the other.
+// A resource is addressable by its full resource ID: the generic methods read,
+// write, patch and delete the resource the typed provider owns.
 func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 	t.Parallel()
 	const group = "generic-id-rg"
@@ -31,7 +29,6 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 	resourceID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + group +
 		"/providers/Microsoft.Storage/storageAccounts/" + account
 
-	// Created through the generic by-id door.
 	resp := armReq(t, http.MethodPut, resourceID+version, `{
 		"location": "eastus",
 		"sku": {"name": "Standard_LRS"},
@@ -42,7 +39,7 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 	require.Contains(t, []int{http.StatusOK, http.StatusCreated, http.StatusAccepted}, resp.StatusCode,
 		"the generic create must reach the typed provider")
 
-	// Read back through the typed route: the same resource, one store.
+	// The typed route reads the same resource.
 	typed := armReq(t, http.MethodGet, resourceID+version, "")
 	defer typed.Body.Close()
 	require.Equal(t, http.StatusOK, typed.StatusCode)
@@ -50,13 +47,11 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 	require.NoError(t, json.NewDecoder(typed.Body).Decode(&read))
 	assert.Equal(t, account, read["name"])
 
-	// Existence is a HEAD on the same identifier.
 	head := armReq(t, http.MethodHead, resourceID+version, "")
 	defer head.Body.Close()
 	assert.Equal(t, http.StatusNoContent, head.StatusCode,
 		"checkExistenceById answers no-content for a resource that exists")
 
-	// A tag patch through the generic door lands on the typed resource.
 	patch := armReq(t, http.MethodPatch, resourceID+version, `{"tags":{"owner":"generic"}}`)
 	defer patch.Body.Close()
 	require.Contains(t, []int{http.StatusOK, http.StatusAccepted}, patch.StatusCode)
@@ -68,7 +63,6 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 	tags, _ := patched["tags"].(map[string]any)
 	assert.Equal(t, "generic", tags["owner"], "the patch through the generic door is the one the read returns")
 
-	// Deleting by id removes it, and the existence check then says so.
 	del := armReq(t, http.MethodDelete, resourceID+version, "")
 	defer del.Body.Close()
 	require.Contains(t, []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent}, del.StatusCode)
@@ -78,16 +72,16 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 		"a deleted resource must not answer the existence check")
 }
 
-// The permission listings report the actions the role definitions the
-// caller's assignments name actually carry, at the resource-group scope and
-// at a resource's own scope.
+// The permission listings report the actions of the role definitions the
+// caller's assignments name, at resource-group scope and at a resource's own
+// scope.
 func TestAuthorization_PermissionListings(t *testing.T) {
 	t.Parallel()
 	const group = "permissions-rg"
 	createResourceGroup(t, group)
 
-	// The listing reports what the CALLER may do, so the assignment names
-	// the caller's own principal — the object id its bearer carries.
+	// The listing reports what the caller may do, so the assignment names the
+	// object ID its bearer carries.
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + group
 	assignment := scope + "/providers/Microsoft.Authorization/roleAssignments/" + azurePermissionsAssignmentGUID
 	resp := armReq(t, http.MethodPut, assignment+"?api-version=2022-04-01", `{
@@ -116,7 +110,6 @@ func TestAuthorization_PermissionListings(t *testing.T) {
 
 const azurePermissionsAssignmentGUID = "7c3a1e5d-9b42-4f08-a6d1-2e5b8c740f93"
 
-// azurePermissionActions reads the actions out of a permission listing.
 func azurePermissionActions(t *testing.T, body io.Reader) []string {
 	t.Helper()
 	var listing struct {
@@ -132,8 +125,7 @@ func azurePermissionActions(t *testing.T, body io.Reader) []string {
 	return actions
 }
 
-// azureCallerPrincipalID reads the object id out of the bearer the tests
-// carry — the principal Azure Resource Manager attributes their calls to.
+// azureCallerPrincipalID reads the object ID from the bearer the tests carry.
 func azureCallerPrincipalID(t *testing.T) string {
 	t.Helper()
 	token := strings.TrimPrefix(simARMBearer, "Bearer ")

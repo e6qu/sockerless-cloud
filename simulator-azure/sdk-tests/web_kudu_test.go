@@ -14,12 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service SCM (Kudu) deployment API a web app's
-// Repository hostname serves, reached the way a deployment client reaches it:
-// the SCM host from the site's hostNameSslStates, authenticated with the
-// publishing credentials WebApps_ListPublishingCredentials returns, or with a
-// Microsoft Entra token once the scm basic publishing credentials policy
-// forbids basic auth:
+// The Kudu deployment API on a web app's SCM host, reached as a deployment
+// client does: the host from hostNameSslStates, authenticated with the
+// WebApps_ListPublishingCredentials credentials, or a Microsoft Entra token
+// once the scm basic publishing credentials policy forbids basic auth.
 //
 //	GET /deployments
 //	POST /api/zipdeploy
@@ -32,7 +30,7 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/deploymentStatus/{deploymentStatusId}
 //	GET+PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/basicPublishingCredentialsPolicies/scm
 
-// kuduFileServer is a Node server that answers each request with the deployed
+// kuduFileServer is a Node server answering each request with the deployed
 // wwwroot file its path names.
 const kuduFileServer = `const fs = require("fs"), path = require("path");
 require("http").createServer((req, res) => {
@@ -82,7 +80,7 @@ func kuduLatest(t *testing.T, scm string, auth func(*http.Request)) kuduDeployme
 }
 
 // awaitDeploymentRuntime waits on the deployment's runtime status with the
-// SDK's own long-running-operation poller.
+// SDK's long-running-operation poller.
 func awaitDeploymentRuntime(t *testing.T, client *armappservice.WebAppsClient, rg, name, id string) armappservice.CsmDeploymentStatus {
 	t.Helper()
 	poller, err := client.BeginGetProductionSiteDeploymentStatus(ctx, rg, name, id, nil)
@@ -134,8 +132,8 @@ func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
 	assert.JSONEq(t, `[]`, string(body), "a site nothing was deployed to has no deployments")
 
-	// Asynchronous zip deploy, the request terraform-provider-azurerm's
-	// zip_deploy_file and az webapp deployment source config-zip send.
+	// Asynchronous zip deploy, as terraform-provider-azurerm's zip_deploy_file and
+	// `az webapp deployment source config-zip` send it.
 	pkg := makeJobsZip(t, map[string]string{
 		"server.js":    kuduFileServer,
 		"greeting.txt": "zip deploy v1",
@@ -182,8 +180,8 @@ func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
 	assert.Equal(t, "ZipDeploy", *armDeployments[0].Properties.Deployer)
 	assert.Equal(t, int32(4), *armDeployments[0].Properties.Status)
 
-	// A second zip deploy replaces what the first one wrote: KuduSync deletes
-	// the files the previous package had and this one lacks.
+	// A second zip deploy replaces the first: KuduSync deletes the files the
+	// previous package had and this one lacks.
 	pkg = makeJobsZip(t, map[string]string{
 		"server.js":    kuduFileServer,
 		"greeting.txt": "zip deploy v2",
@@ -209,8 +207,8 @@ func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
 	assert.True(t, all[0].Active)
 	assert.False(t, all[1].Active, "only the latest successful deployment is active")
 
-	// With basic auth forbidden on the SCM site, the publishing credentials
-	// stop working and a Microsoft Entra token for App Service is the way in.
+	// With basic auth forbidden, the publishing credentials stop working and a
+	// Microsoft Entra token for App Service gets in.
 	_, err = client.UpdateScmAllowed(ctx, rg, name, armappservice.CsmPublishingCredentialsPoliciesEntity{
 		Properties: &armappservice.CsmPublishingCredentialsPoliciesEntityProperties{Allow: to.Ptr(false)},
 	}, nil)
@@ -225,8 +223,7 @@ func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
 	require.NoError(t, err)
 	bearer := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) }
 
-	// OneDeploy of a single static file, the request az webapp deploy --type
-	// static sends.
+	// OneDeploy of one static file, as `az webapp deploy --type static` sends.
 	resp, body = kuduRequest(t, http.MethodPost, scm+"/api/publish?type=static&path=greeting.txt", []byte("static v3"),
 		"application/octet-stream", bearer)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", body)
@@ -257,8 +254,8 @@ func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Contains(t, string(body), "Path must be defined for static file deployments")
 
-	// A deployment slot has an SCM site of its own, and its publishing user
-	// is $<app>__<slot>.
+	// A deployment slot has its own SCM site, whose publishing user is
+	// $<app>__<slot>.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, "staging", armappservice.Site{
 		Location: to.Ptr("eastus"),
 	}, nil)

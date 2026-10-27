@@ -13,15 +13,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// cosmosETagSeq makes document ETags unique even within the same wall-clock
-// second, so optimistic-concurrency (If-Match) can distinguish two quick
-// writes. The sequence also orders the change feed, so each register function
-// whose store carries ETags raises the floor above every persisted sequence at
-// startup (cosmosRaiseETagFloor) — a change-feed continuation token issued
-// before a SIM_PERSIST restart must never observe the clock running backwards.
+// cosmosETagSeq makes ETags unique within one wall-clock second, so If-Match
+// tells two quick writes apart. It also orders the change feed, so startup
+// raises it above every persisted sequence (cosmosRaiseETagFloor): a
+// continuation issued before a SIM_PERSIST restart must never see the clock
+// run backwards.
 var cosmosETagSeq atomic.Uint64
 
-// cosmosRaiseETagFloor lifts cosmosETagSeq to at least seq.
 func cosmosRaiseETagFloor(seq uint64) {
 	for {
 		cur := cosmosETagSeq.Load()
@@ -31,10 +29,8 @@ func cosmosRaiseETagFloor(seq uint64) {
 	}
 }
 
-// Azure Cosmos DB for NoSQL. The simulator exposes both the
-// Microsoft.DocumentDB ARM control plane used by Terraform/az and the
-// SQL data plane used by Cosmos clients for database, container, item,
-// and query operations.
+// Azure Cosmos DB for NoSQL: the Microsoft.DocumentDB control plane and the
+// SQL data plane.
 
 type CosmosAccount struct {
 	ID         string            `json:"id"`
@@ -146,9 +142,8 @@ func registerCosmosDB(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/{account}/sqlDatabases/{database}/containers/{container}/throughputSettings/default", handleCosmosGetThroughput)
 	srv.HandleFunc("PUT "+armBase+"/{account}/sqlDatabases/{database}/containers/{container}/throughputSettings/default", handleCosmosPutThroughput)
 
-	// Account discovery: the azcosmos SDK's global-endpoint-manager GETs the
-	// account root on its first request and fails if it errors, so this is
-	// required for the real SDK to talk to the sim at all.
+	// The azcosmos SDK's global endpoint manager GETs the account root on its first
+	// request and fails if it errors.
 	srv.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		handleCosmosAccountProperties(srv, w, r)
 	})
@@ -192,20 +187,12 @@ func cosmosDocKey(account, database, container, doc string) string {
 	return account + "/" + database + "/" + container + "/" + doc
 }
 
-// cosmosDataAccount is the account a data-plane request addressed, read from
-// the host the client dialled.
-//
-// That host is the whole coordinate. Azure Cosmos DB gives each account a
-// hostname of its own — the `documentEndpoint` the control plane advertises —
-// and a client reaches an account by resolving it; there is no other way to
-// name one, which is why the account name must be globally unique and why
-// creating a second account under an existing name is refused.
-//
-// A client that dials the simulator by address rather than by name says so in
-// its `Host` header, exactly as it would against the service through a proxy.
-// A request whose host names no account resolves to none, and the data plane's
-// own authorization refuses it, because there is no account whose keys could
-// have signed it.
+// cosmosDataAccount reads the account from the host the client dialled. Each
+// account has a hostname of its own — the documentEndpoint — and no other way
+// to be named, which is why account names are globally unique. A client
+// dialling by address names the account in its Host header, as through a
+// proxy; a host naming no account resolves to none, and the data plane's
+// authorization refuses it.
 func cosmosDataAccount(r *http.Request) string {
 	host := strings.Split(r.Host, ":")[0]
 	if i := strings.Index(host, ".documents."); i > 0 {
@@ -222,24 +209,12 @@ func handleCosmosCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := cosmosAccountID(sub, rg, name)
-	// An account name is a hostname: the control plane advertises
-	// `<name>.documents.azure.com` as the account's documentEndpoint, and a
-	// client has no other way to address one. The name is therefore global, and
-	// the service publishes an operation whose only purpose is to say so —
-	// `DatabaseAccounts_CheckNameExists`, which this simulator serves, answering
-	// 200 for a name in use and 404 for one that is free.
-	//
-	// Creating a second account under a name that operation reports as taken
-	// would contradict it, and it did: two accounts could exist under one name
-	// in different resource groups, which is a state Azure cannot hold. A PUT
-	// to the same resource identifier is still the update it is defined to be;
-	// only a different identifier claiming a name already in use is refused.
-	//
-	// The refusal is a 409 naming what is unavailable. The vendored swagger
-	// declares no error response for this operation at all — only the 200 — so
-	// the code string here follows the nearest captured Azure refusal of a
-	// globally-unique name, Azure Cache for Redis's `NameNotAvailable`. Serving
-	// the name to a second account is the one thing that is certainly wrong.
+	// An account name is a hostname (`<name>.documents.azure.com`), so it is
+	// global, as DatabaseAccounts_CheckNameExists reports. A PUT to the same
+	// resource ID is an update; a different ID claiming a taken name is refused.
+	// The vendored swagger declares no error response here, so the 409's code
+	// follows the nearest captured refusal of a global name, Azure Cache for
+	// Redis's `NameNotAvailable`.
 	for _, existing := range cosmosAccounts.List() {
 		if existing.Name == name && existing.ID != id {
 			AzureErrorf(w, "NameNotAvailable", http.StatusConflict,
@@ -271,8 +246,7 @@ func handleCosmosCreateAccount(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, a)
 }
 
-// cosmosEnsureConsistencyPolicy injects the default Session consistency
-// policy real Azure GET always returns when the create body omits it.
+// Azure returns the default Session policy when the create body omits it.
 func cosmosEnsureConsistencyPolicy(props map[string]any) {
 	if cp, ok := props["consistencyPolicy"].(map[string]any); ok && cp["defaultConsistencyLevel"] != nil {
 		return
@@ -301,20 +275,16 @@ func cosmosEnsureBackupPolicy(props map[string]any) {
 	props["backupPolicy"] = backupPolicy
 }
 
-// cosmosNormalizeLocations rebuilds the geo-replication arrays the real ARM
-// Microsoft.DocumentDB/databaseAccounts GET returns from the create request's
-// properties.locations (Terraform's geo_location blocks). It is load-bearing
-// for both correctness and provider stability:
-//   - terraform-provider-azurerm builds `geo_location` from
-//     properties.failoverPolicies (NOT locations), looking up zone_redundant
-//     in properties.locations by a shared id. Without failoverPolicies the
-//     provider sees zero geo_locations and plans to add the block every refresh.
-//   - the create poll (cosmosdb_account_resource.go:1595) dereferences
-//     *location.ProvisioningState over read/writeLocations — every entry MUST
-//     carry a non-nil provisioningState or the provider panics.
+// cosmosNormalizeLocations rebuilds the geo-replication arrays the
+// databaseAccounts GET returns from properties.locations:
+//   - terraform-provider-azurerm builds `geo_location` from failoverPolicies,
+//     looking zone_redundant up in locations by a shared id; without
+//     failoverPolicies it plans to add the block on every refresh.
+//   - its create poll dereferences provisioningState on every
+//     read/writeLocations entry, so each must carry one.
 //
-// Each region gets a stable id `{account}-{location-normalized}` shared between
-// failoverPolicies and locations so findZoneRedundant resolves.
+// Each region's id, `{account}-{location-normalized}`, is shared between
+// failoverPolicies and locations.
 func cosmosNormalizeLocations(props map[string]any, accountName, accountLocation string) {
 	type region struct {
 		name string
@@ -379,7 +349,6 @@ func cosmosNormalizeLocations(props map[string]any, accountName, accountLocation
 	props["failoverPolicies"] = failoverPolicies
 }
 
-// cosmosToInt coerces a JSON-decoded number (float64) or int to int.
 func cosmosToInt(v any) int {
 	switch n := v.(type) {
 	case float64:
@@ -469,9 +438,7 @@ func handleCosmosListKeys(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleCosmosListReadOnlyKeys serves POST .../readonlykeys. The
-// DatabaseAccountListReadOnlyKeysResult shape carries ONLY the two
-// readonly keys — the writable master keys never appear here.
+// DatabaseAccountListReadOnlyKeysResult carries only the two read-only keys.
 func handleCosmosListReadOnlyKeys(w http.ResponseWriter, r *http.Request) {
 	id := cosmosAccountID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"))
 	if _, ok := cosmosAccounts.Get(id); !ok {
@@ -643,8 +610,7 @@ func handleCosmosCreateSQLContainer(w http.ResponseWriter, r *http.Request) {
 		Type:       "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
 		Properties: ensureResourceProperty(req.Properties, container),
 	}
-	// SqlContainerGetProperties nests partitionKey under
-	// properties.resource, never directly under properties.
+	// SqlContainerGetProperties nests partitionKey under properties.resource.
 	if res, ok := c.Properties["resource"].(map[string]any); ok && res["partitionKey"] == nil {
 		res["partitionKey"] = map[string]any{"paths": []string{"/id"}, "kind": "Hash"}
 	}
@@ -697,10 +663,8 @@ func handleCosmosGetThroughput(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, t)
 }
 
-// cosmosThroughputNotFound answers a read or migration of a throughput resource
-// nothing provisioned: a resource created without dedicated throughput, or one
-// sharing its database's, has no offer, and the resource provider answers 404,
-// which the AzureRM provider reads as "no throughput".
+// A resource without dedicated throughput has no offer, and the resource
+// provider answers 404, which the azurerm provider reads as "no throughput".
 func cosmosThroughputNotFound(w http.ResponseWriter, id string) {
 	AzureErrorf(w, "NotFound", http.StatusNotFound, "Throughput settings %s do not exist; the resource has no dedicated throughput.", id)
 }
@@ -722,10 +686,9 @@ func handleCosmosPutThroughput(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid throughput body: properties.resource is required")
 		return
 	}
-	// A resource created without dedicated throughput shares its database's
-	// or account's and has no offer to update; azcosmos's ReplaceThroughput
-	// finds no offer and answers 404, and the AzureRM provider tells its user
-	// that throughput cannot be configured after creation.
+	// A resource sharing its database's or account's throughput has no offer to
+	// update; the azurerm provider reports that throughput cannot be configured
+	// after creation.
 	if _, provisioned := cosmosThroughputs.Get(id); !provisioned {
 		cosmosThroughputNotFound(w, id)
 		return
@@ -742,10 +705,8 @@ func cosmosARMParts(r *http.Request) (string, string, string, string) {
 	return sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "account"), sim.PathParam(r, "database")
 }
 
-// cosmosThroughputID is the ARM id of the throughputSettings/default resource
-// being addressed — which is exactly the request path. Keying by the path lets
-// one pair of throughput handlers serve every family (SQL, Table, MongoDB,
-// Cassandra, Gremlin) without per-family path-param plumbing.
+// The throughputSettings/default ID is the request path, so one pair of
+// handlers serves every family.
 func cosmosThroughputID(r *http.Request) string {
 	return r.URL.Path
 }
@@ -792,10 +753,7 @@ func handleCosmosDataCreateDB(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "id is required", http.StatusBadRequest)
 		return
 	}
-	// The database is recorded, not just described back. A create whose only
-	// trace is its own response leaves the read that follows with nothing to
-	// find, and leaves existence to be guessed from whatever containers happen
-	// to be under it.
+	// Record the database, so the read that follows finds it.
 	if err := cosmosProvisionThroughputFromHeaders(r, account, id, ""); err != nil {
 		cosmosDataError(w, "BadRequest", err.Error(), http.StatusBadRequest)
 		return
@@ -833,10 +791,8 @@ func handleCosmosDataListDBs(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteData(w, http.StatusOK, map[string]any{"Databases": items, "_count": len(items)})
 }
 
-// cosmosDataDBExists reports whether an account holds a database on the data
-// plane. It is the same derivation the listing uses — a database exists once a
-// container or a document is under it, however that container was created —
-// so a read and a list cannot disagree about what is there.
+// cosmosDataDBExists uses the listing's derivation — a database exists once a
+// container or document is under it — so a read and a list agree.
 func cosmosDataDBExists(account, db string) bool {
 	if _, created := cosmosDataDBs.Get(cosmosDataDBKey(account, db)); created {
 		return true
@@ -848,8 +804,8 @@ func cosmosDataDBExists(account, db string) bool {
 		len(cosmosDocs.ListPrefix(under)) > 0
 }
 
-// cosmosARMDatabaseExists reports whether Azure Resource Manager created the
-// NoSQL database, which the data plane serves as soon as it exists.
+// cosmosARMDatabaseExists reports a NoSQL database Azure Resource Manager
+// created, which the data plane serves at once.
 func cosmosARMDatabaseExists(account, db string) bool {
 	for _, d := range cosmosDatabases.List() {
 		if acc, name, coll, ok := cosmosARMIDNames(d.ID); ok && acc == account && name == db && coll == "" {
@@ -861,9 +817,7 @@ func cosmosARMDatabaseExists(account, db string) bool {
 
 func handleCosmosDataGetDB(w http.ResponseWriter, r *http.Request) {
 	account, db := cosmosDataAccount(r), sim.PathParam(r, "database")
-	// A read of a database nobody created is not a database. Answering 200
-	// told a caller that every name it asked about was already there, which
-	// the listing beside it contradicts.
+	// A database nobody created does not exist.
 	if !cosmosDataDBExists(account, db) {
 		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
 		return
@@ -895,8 +849,8 @@ func handleCosmosDataCreateColl(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "id is required", http.StatusBadRequest)
 		return
 	}
-	// Persist the declared partition-key path so the data plane can scope items
-	// by (partition key, id) — the SDK declares it here, not via ARM.
+	// The SDK declares the partition-key path here, not through Azure Resource
+	// Manager; the data plane scopes items by (partition key, id).
 	pkPath := cosmosCollPKPath(body)
 	defaultTTL, ok := cosmosCollDefaultTTL(body)
 	if !ok {
@@ -931,9 +885,8 @@ func handleCosmosDataListColls(w http.ResponseWriter, r *http.Request) {
 
 func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
 	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
-	// A container created here, or one created through the management plane —
-	// both are the same container to a data-plane client, and neither is a
-	// name nobody used.
+	// A container created here and one created through the management plane are
+	// the same container to a data-plane client.
 	_, created := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll))
 	if !created {
 		_, created = cosmosARMContainer(account, db, coll)
@@ -955,8 +908,8 @@ func cosmosCollPKPath(body map[string]any) string {
 	return path
 }
 
-// cosmosCollDefaultTTL reads a container body's defaultTtl: nil when time to
-// live is off, and false when the value is neither -1 nor a positive integer.
+// cosmosCollDefaultTTL returns nil when time to live is off, and false when the
+// value is neither -1 nor a positive integer.
 func cosmosCollDefaultTTL(body map[string]any) (*int64, bool) {
 	raw, present := body["defaultTtl"]
 	if !present || raw == nil {
@@ -970,11 +923,9 @@ func cosmosCollDefaultTTL(body map[string]any) (*int64, bool) {
 	return &seconds, true
 }
 
-// handleCosmosDataReplaceColl serves ReplaceContainer: azcosmos's
-// ContainerClient.Replace PUTs the whole ContainerProperties to the container's
-// link and reads the replaced properties back. The body replaces the container's
-// settings, so a defaultTtl it omits turns time to live off; the partition key
-// is fixed when the container is created and a replace cannot change it.
+// handleCosmosDataReplaceColl serves ReplaceContainer: the body replaces the
+// settings, so an omitted defaultTtl turns time to live off; the partition key
+// is fixed at create.
 func handleCosmosDataReplaceColl(w http.ResponseWriter, r *http.Request) {
 	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
 	var body map[string]any
@@ -1066,8 +1017,7 @@ func handleCosmosDataCreateOrQueryDoc(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	existing, exists := cosmosLiveDoc(key)
 	if exists && !upsert {
-		// Real Cosmos: a plain create (no upsert header) of an existing id is
-		// a 409 Conflict.
+		// A plain create of an existing id is a 409 Conflict.
 		cosmosDataError(w, "Conflict",
 			"Resource with specified id or name already exists.", http.StatusConflict)
 		return
@@ -1091,8 +1041,7 @@ func handleCosmosDataCreateOrQueryDoc(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCosmosDataListDocs(w http.ResponseWriter, r *http.Request) {
-	// A `A-IM: Incremental feed` request switches the documents read into
-	// change-feed mode (same route, as in real Cosmos).
+	// An `A-IM: Incremental feed` read switches the route into change-feed mode.
 	if cosmosIsChangeFeedRequest(r) {
 		handleCosmosChangeFeed(w, r)
 		return
@@ -1125,11 +1074,8 @@ func handleCosmosDataGetDoc(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteDataCharge(w, http.StatusOK, out, cosmosReadCharge(out))
 }
 
-// cosmosResolvePointDoc looks up a single document addressed by (partition key,
-// id). When the SDK sends the partition-key header the lookup is an exact,
-// partition-scoped store-key read; without the header (legacy raw-HTTP) it falls
-// back to an id scan within the collection. It returns the document, its store
-// key, whether it was found, and any header-parse error.
+// cosmosResolvePointDoc reads by partition-scoped store key when the SDK sends
+// the partition-key header, and scans by id within the collection without it.
 func cosmosResolvePointDoc(r *http.Request, account, db, coll, docID string) (CosmosDocument, string, bool, *cosmosWriteError) {
 	pkComponent, hasHeader, werr := cosmosResolvePKForPoint(r, account, db, coll)
 	if werr != nil {
@@ -1228,9 +1174,8 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 	}
 	docs := cosmosDocsFor(account, db, coll)
 
-	// Partition scoping: a pk header scopes the query to that single partition
-	// even when the SDK also sets enablecrosspartition=true (which it does by
-	// default), matching real Cosmos's single-partition routing.
+	// A pk header scopes the query to one partition even when the SDK sets
+	// enablecrosspartition=true, as it does by default.
 	pkComponent, scoped, werr := cosmosResolvePKForPoint(r, account, db, coll)
 	if werr != nil {
 		cosmosDataError(w, werr.code, werr.msg, werr.status)
@@ -1248,8 +1193,7 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 
 	out := cosmosRunQuery(plan, docs, cosmosBindParams(req.Parameters))
 
-	// Pagination: honor x-ms-max-item-count + x-ms-continuation. A COUNT
-	// aggregate is a single scalar row and is never paged.
+	// A COUNT aggregate is a single row and never paged.
 	start, end, continuation, err := listq.Window(listq.Base64Decimal, len(out), r.Header.Get("x-ms-continuation"), cosmosMaxItemCount(r), 0, 0)
 	if err != nil {
 		cosmosDataError(w, "BadRequest", "invalid continuation token", http.StatusBadRequest)
@@ -1268,9 +1212,8 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteDataCharge(w, http.StatusOK, map[string]any{"Documents": page, "_count": len(page)}, cosmosQueryCharge(len(page)))
 }
 
-// handleCosmosDataPatchDoc applies a Cosmos partial-document patch (the
-// `{operations:[{op,path,value}]}` body) to a stored document. op ∈
-// set/add/replace/remove/incr; path is a JSON-pointer-ish `/a/b`.
+// handleCosmosDataPatchDoc applies a `{operations:[{op,path,value}]}` partial
+// document patch: op is set, add, replace, remove or incr; path is `/a/b`.
 func handleCosmosDataPatchDoc(w http.ResponseWriter, r *http.Request) {
 	account, db, coll, docID := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container"), sim.PathParam(r, "doc")
 	if cosmosGuardConsistency(w, r, account) {
@@ -1302,7 +1245,7 @@ func handleCosmosDataPatchDoc(w http.ResponseWriter, r *http.Request) {
 		cosmosDataError(w, "BadRequest", "invalid patch body", http.StatusBadRequest)
 		return
 	}
-	// Operate on a deep copy so a mid-list failure doesn't leave a partial write.
+	// Patch a deep copy so a mid-list failure leaves no partial write.
 	body := cosmosCloneBody(existing.Body)
 	for _, op := range req.Operations {
 		if err := cosmosApplyPatchOp(body, op.Op, op.Path, op.Value); err != nil {
@@ -1317,9 +1260,6 @@ func handleCosmosDataPatchDoc(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteDataCharge(w, http.StatusOK, out, cosmosWriteCharge(out))
 }
 
-// cosmosApplyPatchOp mutates body per a single patch operation. The path is the
-// Cosmos JSON-pointer form (`/a/b`); the final segment is the property to act
-// on within its parent object.
 func cosmosApplyPatchOp(body map[string]any, op, path string, value any) error {
 	segs := cosmosSplitPatchPath(path)
 	if len(segs) == 0 {
@@ -1329,7 +1269,7 @@ func cosmosApplyPatchOp(body map[string]any, op, path string, value any) error {
 	for _, seg := range segs[:len(segs)-1] {
 		next, ok := parent[seg].(map[string]any)
 		if !ok {
-			// set/add create intermediate objects; others fail on a missing path.
+			// set and add create intermediate objects; the others fail on a missing path.
 			switch strings.ToLower(op) {
 			case "set", "add":
 				next = map[string]any{}
@@ -1432,12 +1372,10 @@ func cosmosDataColl(account, db, id string) map[string]any {
 	return coll
 }
 
-// cosmosIsDataPlaneRequest reports whether a request is a Cosmos data-plane call.
-// It uses Cosmos-SPECIFIC signals — the master-key Authorization (`type=master`,
-// which the azcosmos SDK URL-encodes), a documentdb header, or a host naming a
-// Cosmos account — and deliberately NOT the bare `x-ms-version` header, which
-// storage requests also send. Both the account-discovery root GET and the
-// path-style storage fallback use this to avoid misrouting Cosmos traffic.
+// cosmosIsDataPlaneRequest uses Cosmos-specific signals — the master-key
+// Authorization (`type=master`, URL-encoded by azcosmos), a documentdb header,
+// or a host naming an account — never the bare `x-ms-version`, which storage
+// requests also send.
 func cosmosIsDataPlaneRequest(r *http.Request) bool {
 	if cosmosDataAccount(r) != "" {
 		return true
@@ -1454,27 +1392,22 @@ func cosmosIsDataPlaneRequest(r *http.Request) bool {
 	return false
 }
 
-// handleCosmosAccountProperties serves the Cosmos account root the SDK's global
-// endpoint manager reads. The single read/write region echoes back the client's
-// own endpoint so the SDK keeps routing every request to the sim.
+// The single read/write region echoes the client's own endpoint, so the SDK
+// keeps routing to the simulator.
 func handleCosmosAccountProperties(srv *sim.Server, w http.ResponseWriter, r *http.Request) {
 	if !cosmosIsDataPlaneRequest(r) {
-		// Cosmos owns the API root, so a request the account-discovery route
-		// does not recognise lands here rather than on the console redirect.
-		// Hand it back to the server, which sends a browser at the bare origin
-		// to the console; only when no console is registered is the root
-		// genuinely nothing.
+		// Cosmos owns the API root; hand an unrecognized request back to the server,
+		// which sends a browser to the console.
 		if srv.ServeUIRoot(w, r) {
 			return
 		}
 		http.NotFound(w, r)
 		return
 	}
-	// Reading the account is a data-plane operation and carries the same
-	// shared-key authorization as any other, over an empty resource type and an
-	// empty resource link. It is authorized here rather than in the data-plane
-	// middleware because the operator console shares this path, and only the
-	// branch above can tell a console visitor from a Cosmos client.
+	// Reading the account carries the same shared-key authorization as any other
+	// data-plane read, over an empty resource type and link. It is checked here,
+	// not in the middleware, because only the branch above can tell a console
+	// visitor from a Cosmos client.
 	if !cosmosAuthorizeDataPlane(w, r) {
 		return
 	}
@@ -1493,18 +1426,14 @@ func cosmosWriteData(w http.ResponseWriter, status int, v any) {
 	cosmosWriteDataCharge(w, status, v, cosmosMetadataCharge)
 }
 
-// cosmosWriteDataCharge is the shared Cosmos data-plane response writer. Every
-// data-plane response carries a realistic per-operation `x-ms-request-charge`
-// (the RU cost): metadata reads default to a flat ~1 RU, while item and query
-// handlers pass the size/result-scaled charge from the RU model in
-// cosmos_throughput.go.
+// cosmosWriteDataCharge stamps `x-ms-request-charge`: about 1 RU for a
+// metadata read, and the RU model's charge (cosmos_throughput.go) for items
+// and queries.
 func cosmosWriteDataCharge(w http.ResponseWriter, status int, v any, charge float64) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("x-ms-activity-id", sim.NewUUID())
 	w.Header().Set("x-ms-request-charge", cosmosFormatCharge(charge))
-	// Real Cosmos returns the resource ETag in the HTTP ETag header (the azcosmos
-	// SDK reads it from there, not the body); surface it for any single-resource
-	// response that carries an `_etag`.
+	// azcosmos reads the ETag from the header, not the body.
 	if m, ok := v.(map[string]any); ok {
 		if et, ok := m["_etag"].(string); ok && et != "" {
 			w.Header().Set("Etag", et)

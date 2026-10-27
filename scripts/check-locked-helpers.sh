@@ -26,9 +26,7 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 
 allowlist="scripts/locked-helpers-allowlist.txt"
 
-# The Go source this repository owns. The sockerless monorepo's backends/,
-# agent/, simulators/, core/ and cmd/ are not among its directories, and a
-# find naming those listed no files here.
+# The Go source this repository owns.
 SCAN_DIRS="sim simulator-aws simulator-azure simulator-gcp testutil ui-auth"
 
 # A gate that scans nothing passes for the wrong reason. Prove the scan set is

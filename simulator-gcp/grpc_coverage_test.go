@@ -12,32 +12,14 @@ import (
 	"google.golang.org/grpc"
 )
 
-// The gRPC surfaces are measured and ratcheted, the way the REST surfaces
-// are.
-//
-// Until this gate existed the gRPC services had no coverage measurement at
-// all: the Discovery and Swagger probes speak HTTP, and a gRPC service that
-// embeds its generated Unimplemented server answers every method it does
-// not implement with codes.Unimplemented — a correct status, and an
-// invisible gap. Nothing counted those, so nobody could say how much of
-// Cloud Bigtable, Cloud Spanner, Firestore, Pub/Sub, Cloud KMS, Secret
-// Manager or Cloud Logging the simulator actually serves over gRPC.
-//
-// The measurement reads two facts and compares them. The declared methods
-// come from the server itself: registerAllGRPCServices mounts exactly what
-// production mounts, and grpc.Server.GetServiceInfo reports each service's
-// method set from the generated ServiceDesc, which is the vendored proto's.
-// The served methods come from the source: a method is served when the
-// implementation type declares it, and unserved when it is promoted from
-// the embedded Unimplemented server. Reflection cannot tell those apart —
-// Go names a promoted method's wrapper after the outer type — so the
-// implementation's own declarations are read from the syntax tree.
-//
-// A method that IS declared and answers codes.Unimplemented for one
-// unsupported sub-case (an unsupported Cloud Bigtable row filter, a Cloud
-// Spanner DDL statement the translator does not speak) counts as served:
-// the method exists and the refusal is the faithful answer for that input,
-// not an absent method.
+// The gRPC surfaces are measured and ratcheted as the REST ones are. A service
+// that embeds its generated Unimplemented server answers every method it does
+// not implement with codes.Unimplemented, a correct status that hides the gap.
+// The declared methods come from grpc.Server.GetServiceInfo over the services
+// registerAllGRPCServices mounts; a method is served when the implementation
+// type declares it, read from the syntax tree because reflection names a
+// promoted method's wrapper after the outer type. A declared method that
+// refuses one unsupported input with Unimplemented still counts as served.
 
 // grpcServiceImplementations names the type behind each registered service.
 // TestGRPCEveryRegisteredServiceIsMeasured holds this table to the services
@@ -58,40 +40,13 @@ var grpcServiceImplementations = map[string]string{
 }
 
 // grpcMethodFloor is the number of methods each service implements. It only
-// rises: a method that stops being declared falls back to the embedded
-// Unimplemented server, which is a silent regression — a client's call
-// starts failing with a status the service used to answer properly.
-//
-// 210 of 213, and the shape of the remainder matters more than the number.
-// Complete: both Cloud Bigtable admin services, Cloud KMS, Cloud Logging, the
-// long-running Operations service, Pub/Sub's three services, Secret Manager.
-//
-// The three that remain are not wiring left undone. Each needs state this
-// simulator does not hold, and each would have to invent that state to answer
-// at all — so each stays on the embedded Unimplemented server, where a client
-// gets a clear status instead of a plausible wrong one.
-//
-// Cloud Bigtable's data service, 14 of 15: OpenMaterializedView. A
-// materialized view's rows are the continuously maintained result of the
-// GoogleSQL query it was created with. The simulator stores that query string
-// and nothing else — no materialized result set, and no evaluator for the
-// aggregate queries materialized views are defined by — so a session over one
-// could only read rows that were never computed.
-//
-// Firestore's 16 of 17: ExecutePipeline. Pipeline stages carry expression
-// trees from the pipeline function library (field references, comparisons,
-// arithmetic, array and map accessors, aggregate accumulators) against
-// arbitrary document sources in any stage order. The simulator has the
-// structured-query evaluator only, and a pipeline is not expressible as a
-// structured query.
-//
-// Cloud Spanner's 16 of 17: FetchCacheUpdate. Its payload is a location
-// cache — split ranges, the groups and zones serving them, and the key
-// recipes for choosing among them. The simulator is one SQLite database in
-// one process with no splits, replicas or zones, so every field that makes
-// the update useful has no source, and there would be nothing to stream after
-// a first message: cache updates report splits moving, and no split here
-// moves.
+// rises: a method that stops being declared falls back to Unimplemented, a
+// silent regression. Three methods stay unimplemented because answering them
+// would mean inventing state the simulator does not hold: Cloud Bigtable's
+// OpenMaterializedView (no materialized result set or aggregate evaluator),
+// Firestore's ExecutePipeline (no pipeline expression evaluator) and Cloud
+// Spanner's FetchCacheUpdate (one SQLite database with no splits, replicas or
+// zones to report).
 var grpcMethodFloor = map[string]int{
 	"google.bigtable.admin.v2.BigtableInstanceAdmin":     34,
 	"google.bigtable.admin.v2.BigtableTableAdmin":        35,
@@ -107,10 +62,9 @@ var grpcMethodFloor = map[string]int{
 	"google.spanner.v1.Spanner":                          16,
 }
 
-// grpcDeclaredMethodTotals locks each service's declared method count, for
-// the reason the REST declared-total locks exist: a re-vendored proto that
-// ADDS methods leaves the served counts untouched, so the floors stay green
-// while the new methods answer Unimplemented unnoticed.
+// grpcDeclaredMethodTotals locks each service's declared method count, so a
+// re-vendored proto that adds methods cannot leave them unimplemented behind
+// green floors.
 var grpcDeclaredMethodTotals = map[string]int{
 	"google.bigtable.admin.v2.BigtableInstanceAdmin":     34,
 	"google.bigtable.admin.v2.BigtableTableAdmin":        35,

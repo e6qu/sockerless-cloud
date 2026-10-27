@@ -14,8 +14,7 @@ var errAPIGWv2EmptyBody = errors.New("the OpenAPI definition body is required")
 
 func apigwv2Now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// apigwv2OpenAPITitle pulls info.title out of an OpenAPI JSON document, falling
-// back to a generic name when the body is YAML or omits a title.
+// Fall back to a generic name for YAML or an untitled document.
 func apigwv2OpenAPITitle(body string) string {
 	var doc struct {
 		Info struct {
@@ -28,9 +27,6 @@ func apigwv2OpenAPITitle(body string) string {
 	return "imported-api"
 }
 
-// apigwv2ExportDocument shapes a minimal OpenAPI 3.0 document for a stored API,
-// listing each of the API's routes as a path entry. This is the export payload
-// ExportApi streams back as its blob body.
 func apigwv2ExportDocument(api APIGWv2Api) []byte {
 	paths := map[string]any{}
 	for _, rt := range apigwv2Routes.List() {
@@ -59,8 +55,7 @@ func apigwv2ExportDocument(api APIGWv2Api) []byte {
 	return out
 }
 
-// apigwv2SplitRouteKey splits an HTTP-API route key ("GET /pets") into a
-// lower-cased method and a path. The catch-all "$default" maps to "/".
+// The catch-all "$default" maps to "/".
 func apigwv2SplitRouteKey(routeKey string) (method, path string) {
 	if routeKey == "$default" || routeKey == "" {
 		return "x-amazon-apigateway-any-method", "/"
@@ -72,17 +67,9 @@ func apigwv2SplitRouteKey(routeKey string) (method, path string) {
 	return "x-amazon-apigateway-any-method", parts[0]
 }
 
-// API Gateway v2 (HTTP/WebSocket) extension surface — the "classic" v2
-// operations beyond the core api/route/integration/stage CRUD in
-// apigatewayv2.go: integration responses, route responses, model
-// templates, OpenAPI import/reimport/export, resource tags, and the
-// per-stage / per-api config deletes (access-log settings, CORS,
-// route request parameters, route settings). All restJson1, REST path
-// routing under /v2/. Member names serialize as lowerCamelCase (the
-// smithy jsonName trait); list wrappers use `items`.
+// restJson1 serializes members in lowerCamelCase; list wrappers use `items`.
 
-// APIGWv2IntegrationResponse mirrors the IntegrationResponse shape — a
-// child of an integration, keyed by `<apiId>/<integrationId>/<responseId>`.
+// Keyed by `<apiId>/<integrationId>/<responseId>`.
 type APIGWv2IntegrationResponse struct {
 	IntegrationResponseId       string            `json:"integrationResponseId"`
 	ApiId                       string            `json:"apiIdRef,omitempty"`
@@ -94,9 +81,7 @@ type APIGWv2IntegrationResponse struct {
 	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
 }
 
-// APIGWv2RouteResponse mirrors the RouteResponse shape — a child of a
-// route, keyed by `<apiId>/<routeId>/<responseId>`. ResponseParameters
-// is a map of parameter-name -> {required:bool} (ParameterConstraints).
+// Keyed by `<apiId>/<routeId>/<responseId>`.
 type APIGWv2RouteResponse struct {
 	RouteResponseId          string                            `json:"routeResponseId"`
 	ApiId                    string                            `json:"apiIdRef,omitempty"`
@@ -107,7 +92,6 @@ type APIGWv2RouteResponse struct {
 	ResponseParameters       map[string]APIGWv2ParamConstraint `json:"responseParameters,omitempty"`
 }
 
-// APIGWv2ParamConstraint mirrors the ParameterConstraints shape.
 type APIGWv2ParamConstraint struct {
 	Required bool `json:"required"`
 }
@@ -124,32 +108,26 @@ func registerAPIGatewayV2Extras(srv *sim.Server) {
 	mux := srv
 	apiResource := cloudTrailRESTResource("AWS::ApiGatewayV2::Api", "apiId")
 
-	// Integration responses — children of an integration.
 	mux.HandleFunc("POST /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses", cloudTrailRecordedREST("CreateIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2CreateIntegrationResponse))
 	mux.HandleFunc("GET /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses", cloudTrailRecordedREST("GetIntegrationResponses", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ListIntegrationResponses))
 	mux.HandleFunc("GET /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{integrationResponseId}", cloudTrailRecordedREST("GetIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetIntegrationResponse))
 	mux.HandleFunc("PATCH /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{integrationResponseId}", cloudTrailRecordedREST("UpdateIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2UpdateIntegrationResponse))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{integrationResponseId}", cloudTrailRecordedREST("DeleteIntegrationResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteIntegrationResponse))
 
-	// Route responses — children of a route.
 	mux.HandleFunc("POST /v2/apis/{apiId}/routes/{routeId}/routeresponses", cloudTrailRecordedREST("CreateRouteResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2CreateRouteResponse))
 	mux.HandleFunc("GET /v2/apis/{apiId}/routes/{routeId}/routeresponses", cloudTrailRecordedREST("GetRouteResponses", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ListRouteResponses))
 	mux.HandleFunc("GET /v2/apis/{apiId}/routes/{routeId}/routeresponses/{routeResponseId}", cloudTrailRecordedREST("GetRouteResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetRouteResponse))
 	mux.HandleFunc("PATCH /v2/apis/{apiId}/routes/{routeId}/routeresponses/{routeResponseId}", cloudTrailRecordedREST("UpdateRouteResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2UpdateRouteResponse))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/routes/{routeId}/routeresponses/{routeResponseId}", cloudTrailRecordedREST("DeleteRouteResponse", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteRouteResponse))
 
-	// Model template — the schema template of a stored model.
 	mux.HandleFunc("GET /v2/apis/{apiId}/models/{modelId}/template", cloudTrailRecordedREST("GetModelTemplate", "apigateway.amazonaws.com", apiResource, handleAPIGWv2GetModelTemplate))
 
-	// OpenAPI import / reimport / export.
 	mux.HandleFunc("PUT /v2/apis", cloudTrailRecordedREST("ImportApi", "apigateway.amazonaws.com", nil, handleAPIGWv2ImportApi))
 	mux.HandleFunc("PUT /v2/apis/{apiId}", cloudTrailRecordedREST("ReimportApi", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ReimportApi))
 	mux.HandleFunc("GET /v2/apis/{apiId}/exports/{specification}", cloudTrailRecordedREST("ExportApi", "apigateway.amazonaws.com", apiResource, handleAPIGWv2ExportApi))
 
-	// Resource tags read.
 	mux.HandleFunc("GET /v2/tags/{resourceArn}", cloudTrailRecordedREST("GetTags", "apigateway.amazonaws.com", nil, handleAPIGWv2GetTags))
 
-	// Per-stage / per-api config deletes.
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/stages/{stageName}/accesslogsettings", cloudTrailRecordedREST("DeleteAccessLogSettings", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteAccessLogSettings))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/cors", cloudTrailRecordedREST("DeleteCorsConfiguration", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteCorsConfiguration))
 	mux.HandleFunc("DELETE /v2/apis/{apiId}/routes/{routeId}/requestparameters/{requestParameterKey}", cloudTrailRecordedREST("DeleteRouteRequestParameter", "apigateway.amazonaws.com", apiResource, handleAPIGWv2DeleteRouteRequestParameter))
@@ -242,7 +220,7 @@ func handleAPIGWv2UpdateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 			"Invalid IntegrationResponse identifier specified %s", responseId)
 		return
 	}
-	// PATCH is a partial update: pointer fields distinguish absent from empty.
+	// Pointer fields tell absent from empty.
 	var req struct {
 		IntegrationResponseKey      *string           `json:"IntegrationResponseKey"`
 		ContentHandlingStrategy     *string           `json:"ContentHandlingStrategy"`
@@ -408,7 +386,6 @@ func handleAPIGWv2GetModelTemplate(w http.ResponseWriter, r *http.Request) {
 			"Invalid Model identifier specified %s", modelId)
 		return
 	}
-	// GetModelTemplate returns the model's schema as a mapping template.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": m.Schema})
 }
 
@@ -434,7 +411,7 @@ func handleAPIGWv2ReimportApi(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Reimport replaces the definition but keeps the API's identity coordinates.
+	// Reimport replaces the definition but keeps the API's identity.
 	api.ApiId = existing.ApiId
 	api.ApiEndpoint = existing.ApiEndpoint
 	api.CreatedDate = existing.CreatedDate
@@ -445,10 +422,8 @@ func handleAPIGWv2ReimportApi(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusCreated, api)
 }
 
-// apigwv2APIFromOpenAPI builds an APIGWv2Api from an OpenAPI document in the
-// request body. The body member carries the raw OpenAPI JSON/YAML; we read the
-// info.title as the API name and default to an HTTP protocol. A fresh apiId is
-// minted unless one is supplied (reimport).
+// Use info.title as the name and HTTP as the protocol; reimport passes the
+// existing apiId.
 func apigwv2APIFromOpenAPI(r *http.Request, apiId string) (APIGWv2Api, error) {
 	var req struct {
 		Body string `json:"body"`
@@ -479,9 +454,7 @@ func handleAPIGWv2ExportApi(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
 		return
 	}
-	// The export is the OpenAPI 3.0 document for the stored API, shaped from
-	// the API's routes. ExportApiResponse has a single blob @httpPayload
-	// member, so the body is the raw document (no JSON envelope).
+	// ExportApiResponse has a single @httpPayload blob, so write the raw document.
 	doc := apigwv2ExportDocument(api)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
@@ -497,9 +470,8 @@ func handleAPIGWv2GetTags(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }
 
-// apigwv2TagsForARN resolves the tags stored on the resource the ARN names.
-// apigatewayv2 ARNs are arn:aws:apigateway:<region>::/apis/<id>,
-// .../domainnames/<name>, or .../vpclinks/<id>.
+// ARNs read arn:aws:apigateway:<region>::/apis/<id>, …/domainnames/<name> or
+// …/vpclinks/<id>.
 func apigwv2TagsForARN(arn string) map[string]string {
 	switch {
 	case strings.Contains(arn, "/apis/"):

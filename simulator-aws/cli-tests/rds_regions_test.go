@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aws rds restore-db-instance-to-point-in-time --region us-west-2 from a
-// replicated automated backup creates the DB instance in us-west-2: its ARN
-// and Availability Zone name us-west-2, describe-db-instances there lists it,
-// and describe-db-instances in us-east-1 does not.
+// restore-db-instance-to-point-in-time --region us-west-2 from a replicated
+// automated backup creates the DB instance in us-west-2: its ARN and
+// Availability Zone name us-west-2, and describe-db-instances lists it there
+// and not in us-east-1.
 func TestRDSCLI_ReplicatedBackupRestoresInTheDestinationRegion(t *testing.T) {
 	t.Parallel()
 	sourceID := uniquename.New("cli-region-src")
@@ -45,8 +45,8 @@ func TestRDSCLI_ReplicatedBackupRestoresInTheDestinationRegion(t *testing.T) {
 	parseJSON(t, runCLI(t, awsCLI("rds", "start-db-instance-automated-backups-replication",
 		"--region", "us-west-2", "--source-db-instance-arn", created.DBInstance.DBInstanceArn)), &started)
 	backupARN := started.DBInstanceAutomatedBackup.DBInstanceAutomatedBackupsArn
-	// Amazon RDS offers no waiter for an automated backup; its Status is what
-	// the console and the CLI poll.
+	// Amazon RDS has no waiter for an automated backup; the console and the CLI
+	// poll its Status.
 	require.Eventually(t, func() bool {
 		var listed struct {
 			DBInstanceAutomatedBackups []struct {

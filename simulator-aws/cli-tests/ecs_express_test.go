@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// createCLIECSRole creates a role trusted by principal and allowed actions on
-// every resource, through the CLI the test runs its other calls with.
 func createCLIECSRole(t *testing.T, cli func(args ...string) *exec.Cmd, name, principal string, actions ...string) string {
 	t.Helper()
 	roleArn := strings.TrimSpace(runCLI(t, cli("iam", "create-role", "--role-name", name,
@@ -35,13 +33,6 @@ func createCLIECSExpressInfrastructureRole(t *testing.T, name string) string {
 	return createCLIECSRole(t, awsCLI, name, "ecs.amazonaws.com", "elasticloadbalancing:*", "ec2:*", "acm:*", "application-autoscaling:*")
 }
 
-// TestECS_CLI_ExpressModeLifecycle drives the ECS Express Mode (Express Gateway service)
-// lifecycle through the aws CLI:
-//
-//	aws ecs create-express-gateway-service
-//	aws ecs describe-express-gateway-service
-//	aws ecs update-express-gateway-service
-//	aws ecs delete-express-gateway-service
 func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-express-cluster"
@@ -98,7 +89,6 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 	}
 	arn := created.Service.ServiceArn
 
-	// Describe with include TAGS round-trips the tag.
 	descOut := runCLI(t, awsCLI("ecs", "describe-express-gateway-service",
 		"--service-arn", arn, "--include", "TAGS", "--output", "json"))
 	var desc struct {
@@ -114,7 +104,6 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 		t.Fatalf("expected tag env=test, got %s", descOut)
 	}
 
-	// Update cpu/memory → targetConfiguration reflects the new values.
 	updOut := runCLI(t, awsCLI("ecs", "update-express-gateway-service",
 		"--service-arn", arn, "--cpu", "512", "--memory", "1024", "--output", "json"))
 	var upd struct {
@@ -130,7 +119,6 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 		t.Fatalf("update did not apply cpu/memory: %s", updOut)
 	}
 
-	// Delete → DRAINING.
 	delOut := runCLI(t, awsCLI("ecs", "delete-express-gateway-service",
 		"--service-arn", arn, "--output", "json"))
 	var del struct {
@@ -146,8 +134,6 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 	}
 }
 
-// TestECS_CLI_ExpressModeErrors covers the documented Create error cases via
-// the CLI.
 func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-express-err-cluster"
@@ -156,7 +142,6 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 
 	infrastructureRole := createCLIECSExpressInfrastructureRole(t, "cli-express-errors-infrastructure")
 
-	// taskDefinitionArn + primaryContainer together → InvalidParameterException.
 	mutexErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", cluster,
 		"--service-name", "cli-mutex",
@@ -167,14 +152,12 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 		t.Fatalf("expected InvalidParameterException, got: %s", mutexErr)
 	}
 
-	// Bogus serviceArn → ResourceNotFoundException.
 	nfErr := runCLIExpectError(t, awsCLI("ecs", "describe-express-gateway-service",
 		"--service-arn", "arn:aws:ecs:us-east-1:000000000000:express-gateway-service/cli-express-err-cluster/nope"))
 	if !strings.Contains(nfErr, "ResourceNotFoundException") {
 		t.Fatalf("expected ResourceNotFoundException, got: %s", nfErr)
 	}
 
-	// Nonexistent cluster → ClusterNotFoundException.
 	clErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", "cli-no-such-cluster",
 		"--service-name", "cli-orphan",
@@ -184,7 +167,6 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 		t.Fatalf("expected ClusterNotFoundException, got: %s", clErr)
 	}
 
-	// A role whose trust policy does not let Amazon ECS assume it → InvalidParameterException.
 	notTrusted := createCLIECSRole(t, awsCLI, "cli-express-not-trusted", "lambda.amazonaws.com", "elasticloadbalancing:*")
 	roleErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", cluster,

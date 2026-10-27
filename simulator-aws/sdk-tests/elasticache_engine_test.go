@@ -20,18 +20,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ecEngineWait bounds the wait for an engine to come up: its first start
-// pulls the engine image.
+// ecEngineWait bounds the wait for an engine: its first start pulls the engine
+// image.
 const ecEngineWait = 10 * time.Minute
 
-// The waiters poll each second: an engine comes up in seconds.
+// The waiters poll each second; an engine comes up in seconds.
 const (
 	ecWaiterMinDelay = time.Second
 	ecWaiterMaxDelay = 2 * time.Second
 )
 
-// ecAwaitCluster waits with the SDK's waiter until the cluster is available
-// and returns it with its nodes.
 func ecAwaitCluster(t *testing.T, c *elasticache.Client, id string) ectypes.CacheCluster {
 	t.Helper()
 	waiter := elasticache.NewCacheClusterAvailableWaiter(c, func(o *elasticache.CacheClusterAvailableWaiterOptions) {
@@ -72,8 +70,8 @@ func ecAwaitReplGroupDeleted(t *testing.T, c *elasticache.Client, id string) {
 	require.NoError(t, waiter.Wait(t.Context(), &elasticache.DescribeReplicationGroupsInput{ReplicationGroupId: aws.String(id)}, ecEngineWait))
 }
 
-// ecAwaitServerless polls the serverless cache's own Status, which is all
-// ElastiCache offers to wait on for one: the SDK has no waiter for it.
+// ecAwaitServerless polls the serverless cache's Status, all ElastiCache offers
+// to wait on: the SDK has no waiter for it.
 func ecAwaitServerless(t *testing.T, c *elasticache.Client, name string) ectypes.ServerlessCache {
 	t.Helper()
 	deadline := time.Now().Add(ecEngineWait)
@@ -92,7 +90,6 @@ func ecAwaitServerless(t *testing.T, c *elasticache.Client, name string) ectypes
 	}
 }
 
-// ecAwaitServerlessDeleted polls the serverless cache until it is gone.
 func ecAwaitServerlessDeleted(t *testing.T, c *elasticache.Client, name string) {
 	t.Helper()
 	deadline := time.Now().Add(ecEngineWait)
@@ -125,8 +122,6 @@ func redisClient(t *testing.T, options *goredis.Options) *goredis.Client {
 	return client
 }
 
-// memcachedCommand sends one Memcached text-protocol request and returns the
-// first line of the reply.
 func memcachedCommand(t *testing.T, address, request string) string {
 	t.Helper()
 	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
@@ -140,8 +135,8 @@ func memcachedCommand(t *testing.T, address, request string) string {
 	return strings.TrimSpace(line)
 }
 
-// A Redis OSS cache cluster requires the AUTH token it was created with over
-// TLS on the port it names, and keeps what a client writes.
+// A Redis OSS cache cluster requires its AUTH token over TLS on the port it
+// names, and keeps what a client writes.
 func TestElastiCache_RedisClusterServesItsEndpoint(t *testing.T) {
 	t.Parallel()
 	c := ecClient()

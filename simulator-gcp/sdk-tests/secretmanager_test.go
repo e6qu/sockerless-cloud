@@ -84,7 +84,6 @@ func TestSecretManager_ListPagination(t *testing.T) {
 	svc := secretManagerService(t)
 	proj := "pagination-sm-project"
 
-	// Create 3 secrets.
 	names := []string{
 		"projects/" + proj + "/secrets/alpha",
 		"projects/" + proj + "/secrets/beta",
@@ -102,7 +101,6 @@ func TestSecretManager_ListPagination(t *testing.T) {
 		}
 	})
 
-	// Page through with pageSize=1 and collect all secrets.
 	var got []string
 	pageToken := ""
 	for {
@@ -140,10 +138,8 @@ func TestSecretManager_GetSecret_NotFound_ErrorClassification(t *testing.T) {
 	}
 }
 
-// TestSecretManager_RegionalLifecycleSDK exercises the location-scoped
-// (regional) secret surface: create/get/list secrets and add/access/list
-// versions under projects/{p}/locations/{loc}/secrets, the regional analogue
-// of the global surface.
+// TestSecretManager_RegionalLifecycleSDK drives the regional secrets under
+// projects/{p}/locations/{loc}/secrets.
 func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)
@@ -227,10 +223,9 @@ func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 	require.Equal(t, 404, apiErr.Code)
 }
 
-// TestSecretManager_IamPolicySDK exercises the IAM policy surface on a secret
-// resource: getIamPolicy returns an empty default, setIamPolicy persists a
-// binding read back by getIamPolicy, and testIamPermissions echoes the
-// caller's requested permissions.
+// TestSecretManager_IamPolicySDK: getIamPolicy returns an empty default,
+// setIamPolicy persists a binding getIamPolicy reads back, and
+// testIamPermissions echoes the requested permissions.
 func TestSecretManager_IamPolicySDK(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)
@@ -264,7 +259,6 @@ func TestSecretManager_IamPolicySDK(t *testing.T) {
 	require.Equal(t, "roles/secretmanager.secretAccessor", set.Bindings[0].Role)
 	require.Equal(t, []string{"user:alice@example.com"}, set.Bindings[0].Members)
 
-	// Read it back.
 	got, err := svc.Projects.Secrets.GetIamPolicy(secretName).Do()
 	require.NoError(t, err)
 	require.Len(t, got.Bindings, 1)
@@ -279,9 +273,6 @@ func TestSecretManager_IamPolicySDK(t *testing.T) {
 	require.ElementsMatch(t, perms, tested.Permissions)
 }
 
-// TestSecretManager_LocationsSDK exercises the Locations meta-API
-// (ListLocations + GetLocation) the Secret Manager Discovery document
-// defines for region discovery.
 func TestSecretManager_LocationsSDK(t *testing.T) {
 	t.Parallel()
 	svc := secretManagerService(t)

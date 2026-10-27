@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tagsOf flattens the SDK's map[string]*string into a comparable map.
 func tagsOf(tags map[string]*string) map[string]string {
 	out := map[string]string{}
 	for k, v := range tags {
@@ -24,14 +23,11 @@ func tagsOf(tags map[string]*string) map[string]string {
 	return out
 }
 
-// TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags holds the
-// invariant Azure Resource Manager guarantees for tags: a resource has exactly
-// one set of them, reachable both through Microsoft.Resources/tags/default at
-// its scope and through the resource's own API, and a resource list reports
-// the same set either way. The two surfaces are driven through their own
-// canonical clients — armresources.TagsClient and armkeyvault.VaultsClient —
-// so a divergence between the planes shows up as a client-visible
-// disagreement, which is exactly how it would surface against real Azure.
+// TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags: a resource has
+// one set of tags, reached through Microsoft.Resources/tags/default at its
+// scope and through its own API, and a resource list reports the same set.
+// armresources.TagsClient and armkeyvault.VaultsClient drive the two planes,
+// so a divergence shows as a client-visible disagreement.
 func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) {
 	t.Parallel()
 	rg := "tags-scope-rg"
@@ -61,14 +57,12 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 	tags, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The tag the resource's own create wrote is visible through tags/default.
 	atScope, err := tags.GetAtScope(ctx, vaultID, nil)
 	require.NoError(t, err)
 	require.NotNil(t, atScope.Properties)
 	assert.Equal(t, map[string]string{"origin": "resource-put"}, tagsOf(atScope.Properties.Tags),
 		"tags/default must report the tags the resource itself holds")
 
-	// Merge through tags/default; the resource's own GET sees it.
 	merged, err := tags.UpdateAtScope(ctx, vaultID, armresources.TagsPatchResource{
 		Operation:  to.Ptr(armresources.TagsPatchOperationMerge),
 		Properties: &armresources.Tags{Tags: map[string]*string{"team": to.Ptr("platform")}},
@@ -81,12 +75,10 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 	assert.Equal(t, map[string]string{"origin": "resource-put", "team": "platform"}, tagsOf(got.Tags),
 		"the resource's own GET must report the tags written through tags/default")
 
-	// The generic resource list reads the same set.
 	assert.Equal(t, map[string]string{"origin": "resource-put", "team": "platform"},
 		listedResourceTags(t, rg, vaultID),
 		"the resource list must report the tags written through tags/default")
 
-	// A retag through the resource's own PATCH is visible through tags/default.
 	_, err = vaults.Update(ctx, rg, vault, armkeyvault.VaultPatchParameters{
 		Tags: map[string]*string{"origin": to.Ptr("resource-patch"), "team": to.Ptr("platform")},
 	}, nil)
@@ -130,9 +122,8 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 		"the resource list must agree that the tags are gone")
 }
 
-// TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags covers the
-// other scope that owns a record of its own: `az tag` on a resource group and
-// `az group show` are two spellings of one set.
+// TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags: `az tag` on a
+// resource group and `az group show` are two spellings of one set.
 func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T) {
 	t.Parallel()
 	rg := "tags-scope-group-rg"
@@ -163,10 +154,8 @@ func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T
 		"the group's own GET must report the tags written through tags/default")
 }
 
-// TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource pins the 404 a
-// scope naming no resource answers. A scope resolves to exactly one holder of
-// its tags or to none at all, so a write against a scope with no holder is
-// refused rather than accepted into a plane nothing else reads.
+// TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource: a scope with no
+// holder of its tags answers 404, not a write nothing else reads.
 func TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource(t *testing.T) {
 	t.Parallel()
 	rg := "tags-scope-404-rg"
@@ -197,8 +186,8 @@ func TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource(t *testing.T) 
 	}
 }
 
-// listedResourceTags reads one resource's tags out of the generic
-// resource-group-scoped list.
+// listedResourceTags reads one resource's tags from the resource group's
+// generic list.
 func listedResourceTags(t *testing.T, rg, resourceID string) map[string]string {
 	t.Helper()
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())

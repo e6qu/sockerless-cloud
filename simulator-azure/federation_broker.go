@@ -14,64 +14,45 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// FederationTokenPath is the console authentication layer's server-side
-// federation broker. Like /auth/session and /auth/federation-subject it belongs
-// to the console's own auth layer, not to any cloud API: the browser asks its
-// own console for a cloud token, and the console performs the Microsoft Entra
-// Workload Identity Federation exchange server-side with the signed-in
-// operator's Shauth assertion. The exchange must run server-side because real
-// Microsoft Entra serves no cross-origin response for a client_credentials
-// grant — a browser cannot read the token response — while everything after the
-// token (Azure Resource Manager, Microsoft Graph, and Log Analytics reads)
-// stays browser-side against the cloud's own CORS-serving surfaces.
+// FederationTokenPath belongs to the console's own auth layer, not a cloud API:
+// the browser asks its console for a cloud token, and the console runs the
+// Microsoft Entra Workload Identity Federation exchange with the operator's
+// Shauth assertion. Microsoft Entra serves no CORS for a client_credentials
+// grant, so the exchange runs server-side; everything after the token stays in
+// the browser against the cloud's own CORS surfaces.
 const FederationTokenPath = "/auth/federation/token"
 
-// federationExchangeTimeout bounds the server-side token exchange.
 const federationExchangeTimeout = 30 * time.Second
 
-// federationExchangeClient is shared across broker exchanges so connections
-// to the Microsoft Entra endpoint are pooled and reused instead of being
-// re-dialed (and re-handshaken) on every token request.
+// Shared so connections to Microsoft Entra pool across exchanges.
 var federationExchangeClient = &http.Client{Timeout: federationExchangeTimeout}
 
-// consoleFederationScopes maps the broker's scope names to the resource scopes
-// Microsoft Entra issues tokens for. Azure Resource Manager, Log Analytics,
-// and Microsoft Graph are separate resources, each reached with a token scoped
-// to it; real Azure issues each from the same federated assertion.
+// Azure Resource Manager, Log Analytics and Microsoft Graph are separate
+// resources, each needing a token scoped to it from the same assertion.
 var consoleFederationScopes = map[string]string{
 	"arm":   "https://management.azure.com/.default",
 	"logs":  "https://api.loganalytics.io/.default",
 	"graph": "https://graph.microsoft.com/.default",
 }
 
-// consoleFederation holds the coordinates the console's federation broker
-// exchanges at: the Microsoft Entra endpoint (empty = the console's own
-// origin, the co-served deployment), the directory tenant, and the client ID
-// of the identity the console federates as. All three come from
-// SOCKERLESS_CONSOLE_FEDERATION_{ENDPOINT,TENANT,CLIENT_ID}.
+// An empty endpoint means the console's own origin, the co-served deployment.
+// All three come from SOCKERLESS_CONSOLE_FEDERATION_{ENDPOINT,TENANT,CLIENT_ID}.
 type consoleFederation struct {
 	endpoint string
 	tenant   string
 	clientID string
 }
 
-// azureConsoleFederation is the deployment's federation coordinates, loaded
-// once at startup by buildSimulator. Zero value = federation not configured.
+// Loaded once at startup by buildSimulator; the zero value means federation is
+// not configured.
 var azureConsoleFederation consoleFederation
 
-// azureConsoleOptions is what the Azure console needs from the server: the
-// coordinates GET /ui/config.json hands the SPA, and the broker route.
-//
-// The browser never learns the federation endpoint, tenant, or client ID —
-// the Microsoft Entra Workload Identity Federation exchange runs server-side
-// — only whether the broker is reachable (federationTokenEndpoint) and, for
-// the CLI usage samples the portal displays, the directory tenant. Empty
-// cloud coordinates mean the console's own origin; a deployment against real
-// Azure sets them to Azure Resource Manager, Log Analytics and Microsoft
-// Graph, and the console federates and reads real APIs identically either
-// way. The broker is advertised only when a deployment actually configured
-// federation; with no coordinates set, the portal has nothing to federate
-// into and stays in its unauthenticated-reads mode.
+// The browser never learns the federation endpoint or client ID — the exchange
+// runs server-side — only whether the broker is reachable
+// (federationTokenEndpoint) and the tenant the portal's CLI samples show. Empty
+// cloud coordinates mean the console's own origin. Without configured
+// federation the broker is not advertised and the portal stays in its
+// unauthenticated-reads mode.
 func azureConsoleOptions(srv *sim.Server) sim.ConsoleOptions {
 	return sim.ConsoleOptions{
 		Coordinates: func(authenticated bool) map[string]string {
@@ -97,12 +78,9 @@ func azureConsoleOptions(srv *sim.Server) sim.ConsoleOptions {
 
 func (f consoleFederation) configured() bool { return f.clientID != "" }
 
-// loadConsoleFederation reads the federation coordinates from the environment
-// and validates them all-or-nothing: setting any federation coordinate is the
-// signal a deployment intends to federate, and an incomplete set is a
-// deployment error surfaced at startup, never patched with a default. The
-// endpoint alone may be empty — that is the deliberate "same origin as the
-// console" coordinate for a console co-served with its cloud.
+// loadConsoleFederation validates all-or-nothing: an incomplete set is a
+// startup error, never filled with a default. Only the endpoint may be empty,
+// meaning the console's own origin.
 func loadConsoleFederation() (consoleFederation, error) {
 	fed := consoleFederation{
 		endpoint: strings.TrimRight(os.Getenv("SOCKERLESS_CONSOLE_FEDERATION_ENDPOINT"), "/"),
@@ -127,11 +105,9 @@ func loadConsoleFederation() (consoleFederation, error) {
 	return fed, nil
 }
 
-// handleFederationToken exchanges the signed-in operator's Shauth assertion
-// for a short-lived Azure token at the configured Microsoft Entra coordinate —
-// the client_credentials grant with a JWT-bearer client_assertion, exactly the
-// request a workload federating into Azure sends — and returns only the token
-// and its lifetime to the browser. The assertion never leaves the server.
+// handleFederationToken sends the client_credentials grant with a JWT-bearer
+// client_assertion, as a federating workload does, and returns only the token
+// and its lifetime; the assertion never leaves the server.
 func handleFederationToken(srv *sim.Server, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !azureConsoleFederation.configured() {
@@ -172,8 +148,7 @@ func handleFederationToken(srv *sim.Server, w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if status != http.StatusOK {
-		// A refused exchange is surfaced, not hidden: relay Microsoft Entra's
-		// own status and error body so the operator sees the real failure.
+		// Relay Microsoft Entra's own status and error body.
 		if contentType != "" {
 			w.Header().Set("Content-Type", contentType)
 		}
@@ -200,12 +175,9 @@ func handleFederationToken(srv *sim.Server, w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// exchangeFederationAssertion posts the client_credentials form to the
-// Microsoft Entra token endpoint at the configured coordinate. An explicit
-// endpoint is reached over HTTP exactly as any confidential client reaches
-// Entra; the empty endpoint is the console's own origin — the co-served
-// deployment — where the same request is served in-process through the full
-// handler chain, the same code path an external client's request takes.
+// An explicit endpoint is reached over HTTP like any confidential client; the
+// empty one is served in-process through the full handler chain, the path an
+// external request takes.
 func exchangeFederationAssertion(srv *sim.Server, r *http.Request, form url.Values) (status int, contentType string, body []byte, err error) {
 	tokenPath := "/" + azureConsoleFederation.tenant + "/oauth2/v2.0/token"
 	encoded := form.Encode()
@@ -239,7 +211,6 @@ func exchangeFederationAssertion(srv *sim.Server, r *http.Request, form url.Valu
 	return recorder.status, recorder.header.Get("Content-Type"), recorder.body.Bytes(), nil
 }
 
-// federationResponseRecorder captures the in-process token exchange response.
 type federationResponseRecorder struct {
 	header http.Header
 	status int

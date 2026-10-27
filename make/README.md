@@ -1,19 +1,21 @@
 # make/
 
-Shared make infrastructure included by the repo-root Makefile and every leaf (per-app) Makefile. The authoritative specification of the standard target surface (`install` / `build` / `test` / `lint` / `clean` / `run` / `upgrade-deps`, path-delegation, conventions) is [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md) — this file is just the directory map.
+The include files the repository-root Makefile and every leaf Makefile share.
+[`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md) defines the target
+surface they implement; this page maps the directory.
 
 ## Include files
 
 | File | Included by | Provides |
 |---|---|---|
-| `colors.mk` | everything else | TTY-detected ANSI colour variables (empty in CI logs) + the `STEP` banner macro. |
-| `help.mk` | root + leaf Makefiles | Auto-generated `make help` listing every target with a `## description` comment; sets `help` as the default goal. |
-| `go-app.mk` | Go-binary apps (the three simulators) | Standardized recipes for Go binaries. Leaf sets `APP_NAME` + `GO_PACKAGE` (optionally `UI_PACKAGE` for embedded UI bundles, `RUN_FLAGS` / `RUN_ENV` / `DEFAULT_PORT`, `GO_ENV`, `FAAS_SMOKE_TESTS`) before including. |
-| `go-lib.mk` | Go library modules ([`sim`](../sim/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil)) | Library recipes: `build` is a compile-check, `test` / `test-integration` (sim target) / `test-integration-cloud`, `lint` (vet + gofmt + golangci-lint when available), `upgrade-deps`. |
-| `ui-app.mk` | `ui/packages/<x>/` Vite/Bun packages | UI recipes driven by `bun --filter` against the workspace root; leaf sets `UI_PACKAGE` to the full `@sockerless/...` package name. |
+| `colors.mk` | every other file | TTY-detected ANSI colour variables (empty in CI logs) and the `STEP` banner macro |
+| `help.mk` | root and leaf Makefiles | `make help`, listing every target that carries a `## description` comment; `help` as the default goal |
+| `go-app.mk` | the three simulators | Recipes for a Go binary. The leaf sets `APP_NAME` and `GO_PACKAGE`, and optionally `UI_PACKAGE` (the console to embed), `RUN_FLAGS`, `RUN_ENV`, `DEFAULT_PORT` and `GO_ENV`, before the include. |
+| `go-lib.mk` | [`sim`](../sim/README.md), [`ui-auth`](../ui-auth), [`testutil`](../testutil) | Recipes for a Go library: `build` is a compile check; `test`, `lint` (`go vet`, `gofmt` and golangci-lint) and `upgrade-deps` |
+| `ui-app.mk` | `ui/packages/<x>/` | Recipes that run the package's own `bun run` scripts, after `bun install` at the workspace root. The leaf only includes it. |
 
 ## Subdirectories
 
-| Dir | Contents |
+| Directory | Contents |
 |---|---|
-| `https-gateway/` | The `Caddyfile` the Terraform and CLI harnesses start a gateway from: per-cloud `https://{aws,gcp,azure}.sockerless.localhost:8443` virtual hosts reverse-proxying to the local simulators (ports overridable via `SOCKERLESS_*` env vars). CA trust setup and details in each simulator's README. |
+| `https-gateway/` | The `Caddyfile` of the local HTTPS gateway: `https://{aws,gcp,azure}.sockerless.localhost:8443` and the host-addressed data-plane wildcards, reverse-proxying to the simulators. `SOCKERLESS_*` variables move its ports. [`docs/configuration.md`](../docs/configuration.md#the-local-https-gateway) covers trusting its root. |

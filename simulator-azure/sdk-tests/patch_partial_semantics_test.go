@@ -11,19 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// patch_partial_semantics_test.go covers the ARM PATCH (update) handlers the
-// Azure console's edit flows drive: the container-registry registry PATCH, the
-// Microsoft.App job PATCH, and the Microsoft.Web site PATCH.
-//
-// ARM PATCH is a merge: a property the client omits keeps its stored value.
-// Each test therefore does a *partial* update — typically tags only — and then
-// asserts that the properties it did not send survived. A handler that decodes
-// the body into a plain struct and assigns every field back cannot pass these,
-// because a decoded zero value is indistinguishable from an absent key.
+// ARM PATCH merges: a property the client omits keeps its stored value. Each
+// test sends a partial update and asserts the properties it did not send
+// survived; a handler that decodes into a plain struct and assigns every field
+// cannot pass, since a decoded zero value looks like an absent key.
 
-// TestSDK_ACR_RegistryUpdatePartial drives RegistriesClient.BeginUpdate, the
-// PATCH the console's registry-settings flow uses, and checks both that a sent
-// property is applied and that unsent properties are preserved.
+// TestSDK_ACR_RegistryUpdatePartial: RegistriesClient.BeginUpdate applies a
+// sent property and preserves unsent ones.
 func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 	t.Parallel()
 	const (
@@ -56,7 +50,7 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 		}
 	}()
 
-	// PATCH tags only. adminUserEnabled and the SKU must survive untouched.
+	// adminUserEnabled and the SKU survive a tags-only PATCH.
 	tagsPoller, err := client.BeginUpdate(ctx, rg, registryName, armcontainerregistry.RegistryUpdateParameters{
 		Tags: map[string]*string{"env": to.Ptr("prod"), "owner": to.Ptr("sockerless")},
 	}, nil)
@@ -78,7 +72,7 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 	assert.Equal(t, armcontainerregistry.SKUNameBasic, *patched.SKU.Name,
 		"tags-only PATCH must not clear the SKU")
 
-	// PATCH a property only. The tags set above must survive.
+	// The tags survive a properties-only PATCH.
 	propPoller, err := client.BeginUpdate(ctx, rg, registryName, armcontainerregistry.RegistryUpdateParameters{
 		Properties: &armcontainerregistry.RegistryPropertiesUpdateParameters{
 			AdminUserEnabled: to.Ptr(false),
@@ -94,8 +88,7 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 		"tags must survive a properties-only PATCH")
 	assert.Equal(t, "sockerless", *propPatched.Tags["owner"])
 
-	// Read back through GET so the stored row — not just the PATCH response —
-	// is verified.
+	// Read the stored resource back, not just the PATCH response.
 	got, err := client.Get(ctx, rg, registryName, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got.Properties.AdminUserEnabled)
@@ -104,9 +97,8 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 	assert.Equal(t, "sockerless", *got.Tags["owner"])
 }
 
-// TestSDK_ACAJob_UpdatePartial drives JobsClient.BeginUpdate — the PATCH the
-// console's job-edit flow uses — with a tags-only body, and asserts the job's
-// configuration and template survive.
+// TestSDK_ACAJob_UpdatePartial: a tags-only JobsClient.BeginUpdate keeps the
+// job's configuration and template.
 func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 	t.Parallel()
 	rg := "aca-jobpatch-rg"
@@ -146,7 +138,6 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 		}
 	}()
 
-	// Tags-only PATCH.
 	up, err := client.BeginUpdate(ctx, rg, jobName, armappcontainers.JobPatchProperties{
 		Tags: map[string]*string{"tier": to.Ptr("batch")},
 	}, nil)
@@ -171,7 +162,7 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 	require.NotNil(t, got.Properties.Template.Containers[0].Image)
 	assert.Equal(t, "mirror.gcr.io/library/alpine:3.20", *got.Properties.Template.Containers[0].Image)
 
-	// A configuration-only PATCH must apply the new value and keep the tags.
+	// A configuration-only PATCH applies the new value and keeps the tags.
 	cfgUp, err := client.BeginUpdate(ctx, rg, jobName, armappcontainers.JobPatchProperties{
 		Properties: &armappcontainers.JobPatchPropertiesProperties{
 			Configuration: &armappcontainers.JobConfiguration{
@@ -193,16 +184,11 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 	assert.Equal(t, "batch", *got2.Tags["tier"])
 }
 
-// TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly drives WebAppsClient.Update —
-// the Microsoft.Web site PATCH — with bodies that omit httpsOnly, and asserts
-// it survives. Real Azure treats an absent property as unchanged; a handler
-// that assigns req.Properties.HTTPSOnly unconditionally silently turns the
-// site's HTTPS-only enforcement off on any unrelated edit.
-//
-// SitePatchResource is a ProxyOnlyResource — it carries kind + properties and
-// has no tags field — so the partial bodies here are a kind-only PATCH (no
-// "properties" key at all) and a properties-subset PATCH, which are exactly the
-// shapes the SDK and the azurerm provider emit.
+// TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly: Azure treats an absent
+// httpsOnly as unchanged, so an unrelated edit must not turn HTTPS-only off.
+// SitePatchResource is a ProxyOnlyResource with no tags, so the partial bodies
+// are a kind-only PATCH and a properties-subset PATCH, the shapes the SDK and
+// the azurerm provider emit.
 func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	t.Parallel()
 	rg := "web-patchpartial-rg"
@@ -215,7 +201,6 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	const name = "wm-patchpartial-site"
 	webMoreCreateSite(t, client, rg, name, planID)
 
-	// Turn httpsOnly on through a real PATCH.
 	on, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{
 		Properties: &armappservice.SitePatchResourceProperties{
 			HTTPSOnly: to.Ptr(true),
@@ -226,7 +211,7 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	require.NotNil(t, on.Properties.HTTPSOnly)
 	assert.True(t, *on.Properties.HTTPSOnly, "httpsOnly=true must be applied")
 
-	// Kind-only PATCH — the body carries no "properties" key at all.
+	// The body carries no "properties" key at all.
 	kindOnly, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{
 		Kind: to.Ptr("app,linux"),
 	}, nil)
@@ -239,7 +224,7 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	assert.True(t, *kindOnly.Properties.HTTPSOnly,
 		"a PATCH with no properties key must not clear httpsOnly")
 
-	// Properties-subset PATCH — "properties" is present but has no httpsOnly.
+	// "properties" is present, httpsOnly absent.
 	subset, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{
 		Properties: &armappservice.SitePatchResourceProperties{
 			ClientCertMode: to.Ptr(armappservice.ClientCertModeOptional),
@@ -252,7 +237,7 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	assert.True(t, *subset.Properties.HTTPSOnly,
 		"a properties body without httpsOnly must not clear it")
 
-	// The stored row — not just the PATCH response — must agree.
+	// The stored resource agrees, not just the PATCH response.
 	got, err := client.Get(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got.Properties.HTTPSOnly)
@@ -262,8 +247,7 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 		"serverFarmId must survive a partial PATCH")
 	assert.Equal(t, planID, *got.Properties.ServerFarmID)
 
-	// httpsOnly=false must still be applied when the client actually sends it —
-	// presence-awareness must not degrade into ignoring false.
+	// An explicit httpsOnly=false still applies.
 	off, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{
 		Properties: &armappservice.SitePatchResourceProperties{
 			HTTPSOnly: to.Ptr(false),

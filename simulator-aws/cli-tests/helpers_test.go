@@ -32,14 +32,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
-// signRawSigV4 signs a hand-built HTTP request with SigV4 using the seed
-// credential every CLI/SDK/Terraform client already signs with (test/test,
-// us-east-1). Raw requests that reach a SigV4-gated chokepoint — the awsJson /
-// awsQuery control plane at POST / — must carry a valid signature exactly as
-// the real AWS front end requires. The cli-tests module intentionally has no
-// aws-sdk-go-v2 dependency, so this signs with the standard library the same
-// way a real client (and the simulator's own verifier) does. Set every signed
-// header on req before calling.
+// signRawSigV4 signs a hand-built request with SigV4 under the test/test
+// us-east-1 credential every client signs with: the awsJson and awsQuery
+// control plane at POST / requires a valid signature, as AWS does. The
+// cli-tests module has no aws-sdk-go-v2 dependency, so this signs with the
+// standard library. Set every signed header on req before calling.
 func signRawSigV4(t *testing.T, req *http.Request, service string, body []byte) {
 	t.Helper()
 	const (
@@ -143,13 +140,10 @@ var (
 	provisionedToolDirs    []string
 )
 
-// requiredAWSCLIOperations are the AWS Command Line Interface subcommands this
-// suite invokes that only a recent botocore knows. They are a *requirement*, not
-// a capability probe: every one of them is exercised unconditionally, so a CLI
-// that lacks any of them is provisioned (installLatestAWSCLI) before the suite
-// runs, and a CLI that still lacks one after provisioning is a hard failure.
-// Keep a row here whenever a test drives a newly-launched operation, so the
-// requirement is declared in one place instead of degrading into a per-test skip.
+// requiredAWSCLIOperations are the subcommands this suite runs that only a
+// recent botocore knows. installLatestAWSCLI provisions a CLI that lacks any
+// of them, and one still lacking after provisioning fails the suite. Add a row
+// whenever a test drives a newly launched operation.
 var requiredAWSCLIOperations = [][2]string{
 	{"kinesis", "update-stream-record-distribution-strategy"},
 	{"cloudwatch", "create-resource-metrics-configuration"},
@@ -219,24 +213,20 @@ var requiredAWSCLIOperations = [][2]string{
 }
 
 func TestMain(m *testing.M) {
-	// A simulator this process starts must not outlive it. The cleanup
-	// below stops each one, and a killed `go test` never reaches it — so
-	// the simulator watches this pid and exits when it goes. Set here
-	// rather than at each start: every one of them inherits os.Environ().
+	// A killed `go test` never reaches the cleanup that stops the simulators, so
+	// each one watches this pid and exits with it. Every simulator inherits
+	// os.Environ().
 	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
-	// Some CI / host images ship an AWS Command Line Interface that predates
-	// simulator-tested surfaces. Use the host binary only when it knows every
-	// operation the suite drives and speaks the current Amazon CloudWatch
-	// protocol; otherwise install the current v2 release into a temporary
-	// directory so the suite always runs against a capable client.
+	// Use the host's aws CLI only when it knows every operation the suite drives
+	// and speaks the current Amazon CloudWatch protocol; otherwise install the
+	// current v2 release into a temporary directory.
 	awsPath, err := exec.LookPath("aws")
 	if err != nil || len(missingAWSCLIOperations(awsPath)) > 0 || !cloudWatchCLIUsesAwsJSON(awsPath) {
 		awsPath = installLatestAWSCLI()
 	}
 
-	// Prepend the chosen CLI's directory to PATH so awsCLI() picks it up.
-	// installLatestAWSCLI already does this, but ensure consistency for the
-	// host-CLI case too.
+	// Put the chosen CLI's directory first on PATH for awsCLI(); the host-CLI case
+	// needs it too.
 	if dir := filepath.Dir(awsPath); dir != "" {
 		os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
@@ -247,9 +237,8 @@ func TestMain(m *testing.M) {
 	}
 	awsCLIVersion = strings.TrimSpace(string(out))
 
-	// The provisioned CLI must satisfy every requirement. Failing here is the
-	// point: a suite that silently skipped these surfaces would report green
-	// while testing nothing.
+	// A suite that skipped these surfaces would report green while testing
+	// nothing.
 	if missing := missingAWSCLIOperations(awsPath); len(missing) > 0 {
 		log.Fatalf("%s (%s) lacks required operation(s) %v — the cli-tests drive them unconditionally. Install a newer AWS CLI v2.",
 			awsCLIVersion, awsPath, missing)
@@ -260,10 +249,9 @@ func TestMain(m *testing.M) {
 	}
 	ensureSessionManagerPlugin()
 
-	// Each suite builds the simulator it runs into a path of its own. The
-	// suites share one working tree, so a single `../simulator-aws` would have
-	// one suite's `go build -o` overwrite the binary another is executing the
-	// moment they run at the same time.
+	// Each suite builds its simulator into its own path: the suites share one
+	// working tree, so one suite's `go build -o` would overwrite the binary
+	// another runs.
 	if configuredBinary := os.Getenv("SOCKERLESS_AWS_SIMULATOR_BINARY"); configuredBinary != "" {
 		var err error
 		binaryPath, err = filepath.Abs(configuredBinary)
@@ -321,7 +309,6 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create simulator persistence directory: %v", err)
 	}
 
-	// Start simulator
 	simCmd = newCLISimulatorCommand()
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
@@ -331,7 +318,6 @@ func TestMain(m *testing.M) {
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	// Create tmp dir for test files
 	tmpDir, _ = filepath.Abs("tmp")
 	os.MkdirAll(tmpDir, 0755)
 
@@ -399,15 +385,13 @@ func awsCLI(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// awsCLIHostPrefixed is awsCLI for an operation that carries a modeled endpoint
-// host prefix — Cloud Map's `data-`, Step Functions' `sync-`. botocore builds
-// and signs the prefixed host from the endpoint URL, and the prefixed name has
-// to resolve to the simulator's loopback listener. `*.localhost` resolves to
-// 127.0.0.1 on Linux but not on macOS, and the CLI has no resolver hook, so the
-// loopback listener is reached through the proxy coordinate every HTTP client
-// honours. The request botocore emits is unchanged — same Host header, same
-// SigV4 signature over it — only where the bytes land differs, exactly as for
-// an operator whose AWS traffic egresses through a corporate proxy.
+// awsCLIHostPrefixed is awsCLI for an operation with a modeled endpoint host
+// prefix (Cloud Map's `data-`, Step Functions' `sync-`). botocore signs the
+// prefixed host, which has to reach the simulator: `*.localhost` resolves to
+// 127.0.0.1 on Linux but not on macOS, and the CLI has no resolver hook, so
+// the request goes through the proxy coordinate every HTTP client honours.
+// botocore's request and signature stay unchanged; only where the bytes land
+// differs, as behind a corporate egress proxy.
 func awsCLIHostPrefixed(args ...string) *exec.Cmd {
 	cmd := awsCLI(args...)
 	cmd.Env = append(cmd.Env,
@@ -419,14 +403,9 @@ func awsCLIHostPrefixed(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// runCLI runs a command that must succeed and returns what it wrote to stdout.
-//
-// The response is stdout. The CLI writes its own warnings and notices to
-// stderr, and a caller that parses the result as JSON or compares it to a
-// value must not receive them: Azure's harness returned both streams in one
-// buffer until az's Python interpreter put a SyntaxWarning in front of a
-// correct response and failed TestRedisCLI_ARMResources (BUG-3001). stderr is
-// still reported when the command fails.
+// runCLI runs a command that must succeed and returns its stdout. The CLI
+// writes warnings and notices to stderr, which would corrupt a JSON or value
+// comparison; stderr is reported only when the command fails.
 func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	// The CLI writes its --debug log to stderr, so a call that never returns
@@ -447,29 +426,26 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	return stdout.String()
 }
 
-// cliCommandBound caps one CLI call. A call bounded only by the test binary's
-// -timeout panics with every goroutine's stack and nothing from the CLI or the
-// simulator, so the bound fires early enough to collect both.
+// cliCommandBound caps one CLI call. The test binary's -timeout panics with
+// goroutine stacks and nothing from the CLI or the simulator, so the bound
+// fires early enough to collect both.
 const cliCommandBound = 60 * time.Second
 
-// cliDiagnosticsMargin is the time a call's bound leaves before the test's
-// deadline to collect diagnostics and fail.
 const cliDiagnosticsMargin = 30 * time.Second
 
-// cliDebugTail is how much of the CLI's --debug log a failure carries: the end
-// of the log holds the request in flight and the error.
+// cliDebugTail is how much of the CLI's --debug log a failure carries; the
+// log's end holds the request in flight and the error.
 const cliDebugTail = 16 << 10
 
 var errCLIBoundExceeded = errors.New("CLI command exceeded its bound")
 
-// cmdWaitDelay is how long Wait keeps reading a killed CLI's output pipes.
 const cmdWaitDelay = 5 * time.Second
 
 // cliBound is cliCommandBound or the test's deadline less
 // cliDiagnosticsMargin, whichever comes first. An `aws <service> wait` call
-// polls on its waiter's own delay, 30 seconds for Amazon RDS, and fails by
-// itself once the waiter's attempts run out, so only the test's deadline
-// bounds it: cliCommandBound would cut a waiter off at its second poll.
+// polls on its waiter's delay (30 seconds for Amazon RDS) and fails on its own
+// once the attempts run out, so only the deadline bounds it: cliCommandBound
+// would cut a waiter off at its second poll.
 func cliBound(t *testing.T, cmd *exec.Cmd) time.Duration {
 	bound := cliCommandBound
 	if len(cmd.Args) > 2 && cmd.Args[2] == "wait" {
@@ -483,15 +459,14 @@ func cliBound(t *testing.T, cmd *exec.Cmd) time.Duration {
 	return bound
 }
 
-// runCLIBounded runs cmd in a process group of its own and waits for it for at
-// most bound. Past the bound it logs the simulator's diagnostics while they
-// still describe the stalled call, kills the group and reports
-// errCLIBoundExceeded.
+// runCLIBounded runs cmd in its own process group for at most bound. Past the
+// bound it logs the simulator's diagnostics while they still describe the
+// stalled call, kills the group and reports errCLIBoundExceeded.
 func runCLIBounded(t *testing.T, cmd *exec.Cmd, bound time.Duration) error {
 	t.Helper()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// A descendant that inherited the output pipes keeps Wait reading them
-	// after the CLI itself is gone; WaitDelay ends that wait.
+	// A descendant holding the output pipes keeps Wait reading after the CLI
+	// exits; WaitDelay ends that.
 	cmd.WaitDelay = cmdWaitDelay
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
@@ -513,7 +488,6 @@ func runCLIBounded(t *testing.T, cmd *exec.Cmd, bound time.Duration) error {
 	return errCLIBoundExceeded
 }
 
-// simulatorDiagnostics reads one of the simulator's diagnostics endpoints.
 func simulatorDiagnostics(path string) string {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + diagnosticsAddr + path)
@@ -535,8 +509,8 @@ func tail(s string, n int) string {
 	return s[len(s)-n:]
 }
 
-// lockedBuffer is a bytes.Buffer the command's copy goroutines and a test that
-// gives up on the command can share.
+// lockedBuffer is shared by the command's copy goroutines and a test that gives
+// up on the command.
 type lockedBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -555,7 +529,7 @@ func (b *lockedBuffer) String() string {
 }
 
 // runCLIExpectError runs a command that must fail and returns both streams: the
-// CLI reports the service's error on stderr, and that is what its callers check.
+// CLI reports the service's error on stderr.
 func runCLIExpectError(t *testing.T, cmd *exec.Cmd) string {
 	t.Helper()
 	var combined lockedBuffer
@@ -579,8 +553,6 @@ func awsCLIHasOperation(awsPath, service, operation string) bool {
 	return cmd.Run() == nil
 }
 
-// missingAWSCLIOperations returns the requiredAWSCLIOperations rows the given
-// aws binary does not know, as "service operation" strings.
 func missingAWSCLIOperations(awsPath string) []string {
 	var missing []string
 	for _, op := range requiredAWSCLIOperations {
@@ -591,17 +563,13 @@ func missingAWSCLIOperations(awsPath string) []string {
 	return missing
 }
 
-// cloudWatchCLIUsesAwsJSON reports whether the given aws binary sends Amazon
-// CloudWatch operations over awsJson1.0 (X-Amz-Target
-// GraniteServiceVersion20100801.<Op>), the protocol the service uses today and
-// the one the simulator's awsJson router serves. A botocore old enough to still
-// emit the legacy awsQuery form would reach a router these operations are not
-// registered on; TestMain provisions a current CLI rather than tolerating it.
-//
-// list-metrics needs no required arguments, so botocore builds and logs the
-// request against an unreachable port and we read only the --debug log of what
-// it constructed. All CloudWatch operations share one protocol, so list-metrics
-// is a faithful probe for the whole service.
+// cloudWatchCLIUsesAwsJSON reports whether awsPath sends Amazon CloudWatch
+// operations over awsJson1.0 (X-Amz-Target GraniteServiceVersion20100801.<Op>),
+// the protocol the service and the simulator's router use; a botocore that
+// still emits awsQuery would miss them. list-metrics takes no required
+// arguments, so botocore builds and logs the request against an unreachable
+// port and the probe reads the --debug log; every CloudWatch operation shares
+// the protocol.
 func cloudWatchCLIUsesAwsJSON(awsPath string) bool {
 	if awsPath == "" {
 		return false
@@ -621,9 +589,6 @@ func parseJSON(t *testing.T, data string, target any) {
 	}
 }
 
-// cliServiceRole creates, with `aws iam create-role`, a uniquely named role
-// whose trust policy lets the service principal assume it, deleted when the
-// test ends.
 func cliServiceRole(t *testing.T, principal string) string {
 	t.Helper()
 	name := uniquename.New(strings.SplitN(principal, ".", 2)[0])
@@ -638,17 +603,15 @@ func cliServiceRole(t *testing.T, principal string) string {
 	return created.Role.Arn
 }
 
-// cliStatesRole creates, with the AWS CLI, a uniquely named role AWS Step
-// Functions may assume, allowed actions on every resource, deleted when the
-// test ends.
+// cliStatesRole creates a uniquely named role AWS Step Functions may assume,
+// allowed actions on every resource, deleted when the test ends.
 func cliStatesRole(t *testing.T, actions ...string) string {
 	t.Helper()
 	return cliRoleAllowing(t, "states.amazonaws.com", actions...)
 }
 
-// cliRoleAllowing creates, with the AWS CLI, a uniquely named role the service
-// principal may assume, allowed actions on every resource, deleted when the
-// test ends.
+// cliRoleAllowing creates a uniquely named role the service principal may
+// assume, allowed actions on every resource, deleted when the test ends.
 func cliRoleAllowing(t *testing.T, principal string, actions ...string) string {
 	t.Helper()
 	role := cliServiceRole(t, principal)
@@ -705,8 +668,8 @@ func installLatestAWSCLI() string {
 		if out, err := exec.Command("unzip", "-q", zip, "-d", binDir).CombinedOutput(); err != nil {
 			log.Fatalf("Failed to unzip aws CLI: %v\n%s", err, out)
 		}
-		// The upstream archive holds the runnable binary at aws/dist/aws, next
-		// to the libraries it loads from the same directory.
+		// The upstream archive holds the binary at aws/dist/aws, beside the libraries
+		// it loads.
 		installDir = filepath.Join(binDir, "aws", "dist")
 	default:
 		log.Fatalf("Unsupported OS for automatic aws CLI install: %s", runtime.GOOS)
@@ -717,15 +680,13 @@ func installLatestAWSCLI() string {
 		log.Fatalf("aws CLI binary not found after install at %s: %v", awsBin, err)
 	}
 
-	// Prepend to PATH so awsCLI() picks it up.
 	os.Setenv("PATH", installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return awsBin
 }
 
-// ensureSessionManagerPlugin provisions the real AWS Systems Manager Session
-// Manager plugin when the host does not already carry it. The AWS CLI launches
-// this executable before it sends ecs execute-command, so merely testing the
-// control-plane rejection still requires the vendor plugin to be present.
+// ensureSessionManagerPlugin installs the AWS Systems Manager Session Manager
+// plugin when the host lacks it: the AWS CLI launches the plugin before it
+// sends ecs execute-command, even for a call the control plane rejects.
 func ensureSessionManagerPlugin() {
 	if pluginPath, err := exec.LookPath("session-manager-plugin"); err == nil {
 		if out, err := exec.Command(pluginPath, "--version").CombinedOutput(); err != nil {
@@ -819,25 +780,14 @@ func findFilesNamed(root, name string) ([]string, error) {
 	return matches, err
 }
 
-// gluePythonShellImage is the interpreter an AWS Glue Python shell job run
-// executes in — the image the simulator's job runner starts a container from.
+// gluePythonShellImage is the image the simulator starts an AWS Glue Python
+// shell job run in.
 const gluePythonShellImage = "mirror.gcr.io/library/python:3.9"
 
-// ensureGluePythonShellImage puts the interpreter on the host before a Glue job
-// run is timed, and is called by the tests that start one.
-//
-// A Glue job run is real container work and the wait for it to settle is
-// bounded: with the download inside that bound, a slow or throttled registry
-// expires the budget and the test reports a job that never succeeded when what
-// actually happened is that the pull did not finish. Pulling first takes the
-// download out of the measured window and leaves the budget measuring what it
-// names.
-//
-// It is deliberately not in TestMain. A shard is a -run filter over this one
-// package, so TestMain runs for every shard, and a pull placed there makes
-// shards with no Glue test in them download an interpreter they never use —
-// turning a registry refusal into several dead shards instead of one failed
-// test.
+// ensureGluePythonShellImage pulls the interpreter before a test times a Glue
+// job run: a slow registry inside the bounded wait would read as a job that
+// never succeeded. It stays out of TestMain, which runs for every shard, so a
+// registry refusal fails one test rather than every shard.
 func ensureGluePythonShellImage(t *testing.T) {
 	t.Helper()
 	if err := baseimage.Ensure(gluePythonShellImage); err != nil {
@@ -846,8 +796,8 @@ func ensureGluePythonShellImage(t *testing.T) {
 	}
 }
 
-// nativeLambdaArchitecture is the AWS Lambda instruction set architecture of
-// the images TestMain builds, which match the host's.
+// nativeLambdaArchitecture is the AWS Lambda architecture of the images
+// TestMain builds for the host.
 func nativeLambdaArchitecture() string {
 	if runtime.GOARCH == "arm64" {
 		return "arm64"

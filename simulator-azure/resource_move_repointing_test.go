@@ -13,18 +13,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// The families that joined the cross-resource-group move dispatch alongside
-// Microsoft.Network are driven here through the real Resources_MoveResources
-// operation on a whole simulator, not through their hook functions, because
-// what the move has to get right spans slices: the resource re-homes, the rows
-// stored beneath it follow, the credential the resource ID derives is not
-// rotated, and every reference another resource holds to it is re-pointed.
+// These move whole simulators through the real Resources_MoveResources, because
+// the move spans slices: the resource re-homes, its rows follow, its derived
+// credential is not rotated, and every reference to it is re-pointed.
 
-const moveTestSubscription = "11111111-2222-3333-4444-555555555555"
+const moveTestSubscription = azureDefaultSubscriptionID
 const moveTestARMHost = "127.0.0.1:4581"
 
-// newMoveTestServer builds the whole simulator, which is what registers every
-// store the repointing pass scans.
+// The whole simulator registers every store the repointing pass scans.
 func newMoveTestServer(t *testing.T) *sim.Server {
 	t.Helper()
 	t.Setenv("SIM_RUNTIME", "process")
@@ -33,21 +29,16 @@ func newMoveTestServer(t *testing.T) *sim.Server {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 	return srv
 }
 
-// moveARMToken mints the Azure Resource Manager access token every ARM request
-// carries, from the simulator's own signing key — the same token its OAuth2
-// endpoint issues to a client.
+// The token the simulator's own OAuth2 endpoint would issue.
 func moveARMToken(t *testing.T) string {
 	t.Helper()
-	token, err := mintAzureSimJWTForUser(
-		EntraUser{OID: "move-test-oid", Sub: "move-test-sub"},
-		"move-test-tenant", defaultAzureTokenAudience,
+	token, err := mintBootstrapSimJWT(defaultAzureTokenAudience,
 		time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM token: %v", err)
@@ -55,9 +46,6 @@ func moveARMToken(t *testing.T) string {
 	return token
 }
 
-// moveARM sends one Azure Resource Manager request and returns the status and
-// body. It carries the ARM bearer the simulator's bearer middleware requires,
-// exactly as a client's request does.
 func moveARM(t *testing.T, srv *sim.Server, method, path, body string) (int, []byte) {
 	t.Helper()
 	url := "http://" + moveTestARMHost + path
@@ -94,8 +82,7 @@ func moveEnsureRG(t *testing.T, srv *sim.Server, name string) {
 	}
 }
 
-// moveResource runs Resources_ValidateMoveResources and then
-// Resources_MoveResources for one resource, the sequence a client performs.
+// Validate, then move, as a client does.
 func moveResource(t *testing.T, srv *sim.Server, srcRG, dstRG, resourceID string) {
 	t.Helper()
 	payload := fmt.Sprintf(`{"resources":["%s"],"targetResourceGroup":"/subscriptions/%s/resourceGroups/%s"}`,
@@ -109,8 +96,6 @@ func moveResource(t *testing.T, srv *sim.Server, srcRG, dstRG, resourceID string
 	}
 }
 
-// moveResourceRefused runs Resources_ValidateMoveResources for a resource the
-// simulator must refuse and returns the ARM error code it answered with.
 func moveResourceRefused(t *testing.T, srv *sim.Server, srcRG, dstRG, resourceID string) (int, string) {
 	t.Helper()
 	payload := fmt.Sprintf(`{"resources":["%s"],"targetResourceGroup":"/subscriptions/%s/resourceGroups/%s"}`,
@@ -133,18 +118,9 @@ func moveResourceID(rg, provider, typeName, name string) string {
 		moveTestSubscription, rg, provider, typeName, name)
 }
 
-// TestMoveAPIManagementServicePinsSubscriptionKeys drives the
-// Microsoft.ApiManagement hook. An API Management subscription's keys are
-// derived from the subscription's own resource ID, which embeds the service's
-// resource group, so a move that only re-homed records would silently
-// invalidate every subscription key an API consumer holds.
-//
-// The proof this test can reach is bounded by the simulator: it serves the API
-// Management *control* plane only — there is no gateway data plane on the
-// service's own host that a subscription key could be presented to — so the
-// strongest statement available is that the material listSecrets serves, which
-// IS the Ocp-Apim-Subscription-Key value, is unchanged by the move, and that
-// the rotation contract still holds afterwards.
+// The simulator serves no API Management gateway data plane, so the proof is
+// that listSecrets — the Ocp-Apim-Subscription-Key value — is unchanged by the
+// move and rotation still works afterwards.
 func TestMoveAPIManagementServicePinsSubscriptionKeys(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "apim-move-src", "apim-move-dst"
@@ -186,7 +162,7 @@ func TestMoveAPIManagementServicePinsSubscriptionKeys(t *testing.T) {
 		t.Fatalf("the move rotated the subscription keys: %v != %v", keysAfter, keysBefore)
 	}
 
-	// The rotation contract is unchanged by the move.
+	// Rotation still works after the move.
 	azureBumpKeyGen(movedSubscription, "apim-subscription-primary", "")
 	if rotated := apimSecrets(t, srv, movedSubscription); rotated["primaryKey"] == keysBefore["primaryKey"] {
 		t.Fatal("regenerating the moved subscription's primary key returned the pinned material")
@@ -206,20 +182,11 @@ func apimSecrets(t *testing.T, srv *sim.Server, subscriptionID string) map[strin
 	return keys
 }
 
-// TestMoveLogicWorkflowKeepsCallbackURLValid drives the Microsoft.Logic hook.
-// A callback URL an operator handed out before a move has to keep working
-// after one, and two properties of the workflow decide whether it does: the
-// access key that signs it, which is derived from the workflow's resource ID
-// and therefore pinned onto the moved ID, and the address it points at, which
-// is the workflow's own identifier on the Logic Apps service host and names no
-// resource group at all. The URL is compared whole, so either one changing
-// fails this.
-//
-// The proof is bounded by the simulator: it serves the Logic Apps control
-// plane, and no endpoint here consumes a callback URL, so the statement is
-// that the URL and the signature the workflow computes for it are byte-for-
-// byte the ones it issued before the move — which is exactly what a verifier
-// would compare — rather than a request accepted by a trigger endpoint.
+// A callback URL issued before a move must keep working: its signing key is
+// pinned, and its address is the workflow's identifier on the service host,
+// naming no resource group. The URL is compared whole. No endpoint here
+// consumes callback URLs, so the proof is byte-for-byte equality, what a
+// verifier compares.
 func TestMoveLogicWorkflowKeepsCallbackURLValid(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "logic-move-src", "logic-move-dst"
@@ -262,16 +229,14 @@ func TestMoveLogicWorkflowKeepsCallbackURLValid(t *testing.T) {
 	if callbackAfter.Value != valueBefore {
 		t.Fatalf("the move changed an outstanding callback URL:\n before %q\n after  %q", valueBefore, callbackAfter.Value)
 	}
-	// The address is the workflow's own on the service host, so neither group
-	// appears in it before or after the move.
+	// Neither group appears in the address before or after the move.
 	for _, group := range []string{srcRG, dstRG} {
 		if strings.Contains(callbackAfter.BasePath, group) {
 			t.Fatalf("the moved workflow advertises resource group %q in its accessEndpoint: %q", group, callbackAfter.BasePath)
 		}
 	}
 
-	// The rotation contract is unchanged: regenerating the access key
-	// invalidates every outstanding callback URL, exactly as before the move.
+	// Regenerating the access key still invalidates every callback URL.
 	status, body = moveARM(t, srv, http.MethodPost, movedID+"/regenerateAccessKey", `{"keyType":"Primary"}`)
 	if status != http.StatusOK {
 		t.Fatalf("regenerateAccessKey: status %d: %s", status, body)
@@ -302,18 +267,9 @@ func logicCallback(t *testing.T, srv *sim.Server, workflowID string) logicCallba
 	return out
 }
 
-// TestMoveCosmosAccountKeepsKeysAndDocuments drives the Microsoft.DocumentDB
-// hook. A Cosmos DB account's four master keys are derived from its resource
-// ID, so a move that only re-homed the record would rotate the credential in
-// every connection string an application holds.
-//
-// The proof reaches the data plane for both the data and the credential: a
-// document written before the move is read back afterwards through a request
-// the data plane authenticates against the account's keys, the connection
-// string listConnectionStrings serves is unchanged, and the four master keys
-// are unchanged. The key captured before the move still signs a request the
-// data plane accepts after it, which is what an application holding that
-// credential depends on.
+// A document written before the move reads back after it through a request
+// signed with the key captured before it; the connection string and the four
+// master keys are unchanged.
 func TestMoveCosmosAccountKeepsKeysAndDocuments(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "cosmos-move-src", "cosmos-move-dst"
@@ -331,7 +287,6 @@ func TestMoveCosmosAccountKeepsKeysAndDocuments(t *testing.T) {
 	keysBefore := cosmosKeysBody(t, srv, accountID)
 	connectionBefore := cosmosConnectionString(t, srv, accountID)
 
-	// A real document operation before the move, over the account's data plane.
 	cosmosDataPlanePut(t, srv, account, database, container, "order-1", keysBefore["primaryMasterKey"])
 	if got := cosmosDataPlaneGet(t, srv, account, database, container, "order-1", keysBefore["primaryMasterKey"]); got != "order-1" {
 		t.Fatalf("the document written before the move reads back as %q", got)
@@ -357,13 +312,13 @@ func TestMoveCosmosAccountKeepsKeysAndDocuments(t *testing.T) {
 		t.Fatalf("the connection string an application holds changed across the move:\n%q\n%q", after, connectionBefore)
 	}
 
-	// The data plane still serves the account and the document written before
-	// the move, presenting the key captured before it.
+	// The data plane still serves the document, presenting the key captured
+	// before the move.
 	if got := cosmosDataPlaneGet(t, srv, account, database, container, "order-1", keysBefore["primaryMasterKey"]); got != "order-1" {
 		t.Fatalf("the document written before the move is not readable after it (got %q)", got)
 	}
 
-	// The rotation contract is unchanged.
+	// Rotation still works after the move.
 	status, body = moveARM(t, srv, http.MethodPost, movedID+"/regenerateKey", `{"keyKind":"primary"}`)
 	if status != http.StatusOK && status != http.StatusAccepted {
 		t.Fatalf("regenerateKey: status %d: %s", status, body)
@@ -406,9 +361,8 @@ func cosmosConnectionString(t *testing.T, srv *sim.Server, accountID string) str
 	return out.ConnectionStrings[0].ConnectionString
 }
 
-// cosmosDataPlaneRequest addresses the account's document endpoint the way a
-// Cosmos client does: the account's own hostname and a master-key
-// Authorization token signed with one of the account's keys.
+// The account's own hostname and a master-key Authorization token, as a Cosmos
+// client sends.
 func cosmosDataPlaneRequest(t *testing.T, srv *sim.Server, method, path, account, key, body string) (int, []byte) {
 	t.Helper()
 	return cosmosSignedRequest(t, srv, method, path, account, key, body)
@@ -452,16 +406,10 @@ func cosmosDataPlaneGet(t *testing.T, srv *sim.Server, account, database, contai
 	return doc.ID
 }
 
-// TestMoveEventGridPartnerNamespacePinsKeys drives the partner-namespace hook.
-// A partner namespace serves the same two access keys a custom topic does, and
-// they are derived from its resource ID, so the move has to pin them: the key a
-// partner publisher already holds must keep authorizing after the move, and the
-// namespace's channels must move with it.
-//
-// The credential check is the data plane's own — eventGridKeyAuthorizes is the
-// function every publish runs its Authorization header through — because the
-// simulator routes an /api/events publish to a custom topic or a domain and
-// not to a partner namespace, so the key cannot be presented over HTTP here.
+// A partner namespace's two keys derive from its resource ID and must keep
+// authorizing after the move; its channels move with it. The simulator routes
+// /api/events to topics and domains only, so the check calls
+// eventGridKeyAuthorizes, which every publish runs, directly.
 func TestMoveEventGridPartnerNamespacePinsKeys(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "eg-partner-src", "eg-partner-dst"
@@ -516,11 +464,8 @@ func TestMoveEventGridPartnerNamespacePinsKeys(t *testing.T) {
 	}
 }
 
-// TestMoveEventGridSystemTopicRepointsSource drives the system-topic hook, and
-// with it the inbound-reference half of the move. A system topic names the
-// Azure resource it observes twice — `source` and `metricResourceId` — so
-// moving that source resource has to re-point both, and moving the system topic
-// itself must not disturb them.
+// A system topic names its source twice — `source` and `metricResourceId` — so
+// moving the source re-points both, and moving the topic disturbs neither.
 func TestMoveEventGridSystemTopicRepointsSource(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "eg-system-src", "eg-system-dst"
@@ -541,15 +486,12 @@ func TestMoveEventGridSystemTopicRepointsSource(t *testing.T) {
 		t.Fatalf("create system topic: status %d: %s", status, body)
 	}
 
-	// Moving the *source* re-points the reference the system topic holds to it.
 	moveResource(t, srv, srcRG, dstRG, accountID)
 	movedAccountID := moveResourceID(dstRG, "Microsoft.Storage", "storageAccounts", account)
 	if got := eventGridSystemTopicSource(t, srv, topicID); got != movedAccountID {
 		t.Fatalf("the system topic still names %q as its source, want the moved account %q", got, movedAccountID)
 	}
 
-	// Moving the system topic itself re-homes it without disturbing that
-	// reference.
 	moveResource(t, srv, srcRG, dstRG, topicID)
 	movedTopicID := moveResourceID(dstRG, "Microsoft.EventGrid", "systemTopics", topic)
 	if status, _ := moveARM(t, srv, http.MethodGet, movedTopicID, ""); status != http.StatusOK {
@@ -593,12 +535,9 @@ func eventGridSystemTopicSource(t *testing.T, srv *sim.Server, topicID string) s
 	return topic.Properties.Source
 }
 
-// TestMoveVirtualNetworkRepointsEveryReferrer is the reason the repointing pass
-// exists. A virtual network is named by resources that do not move with it — a
-// network interface's ip configuration, a private DNS zone's virtual network
-// link — and its own subnets are addressed beneath its resource ID. Moving it
-// without re-pointing those would leave the fabric naming an address nothing
-// answers to.
+// Resources that do not move with a virtual network name it — an interface's
+// IP configuration, a private DNS zone's link — and its subnets live beneath its
+// ID; all must be re-pointed.
 func TestMoveVirtualNetworkRepointsEveryReferrer(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "net-move-src", "net-move-dst"
@@ -658,10 +597,8 @@ func vnetLinkTarget(t *testing.T, srv *sim.Server, linkID string) string {
 	return link.Properties.VirtualNetwork.ID
 }
 
-// TestMoveRedisCacheRepointsLinkedServer covers the inbound reference an Azure
-// Cache for Redis linked server holds: the geo-replication partner names its
-// peer by resource ID in linkedRedisCacheId, and that peer is a separate
-// top-level resource that does not move with it.
+// A linked server names its geo-replication peer, a separate top-level
+// resource, by ID in linkedRedisCacheId.
 func TestMoveRedisCacheRepointsLinkedServer(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "redis-link-src", "redis-link-dst"
@@ -710,12 +647,9 @@ func redisLinkedCacheID(t *testing.T, srv *sim.Server, linkID string) string {
 	return link.Properties.LinkedRedisCacheID
 }
 
-// TestMoveRefusesTheTypesAzureRefuses pins the other half of move fidelity.
-// Every type here is one Azure Resource Manager will not move between resource
-// groups — the move-support table marks it No, or does not list it at all —
-// so the simulator answers ResourceMoveNotSupported. A hook for any of them
-// would make the simulator diverge from Azure in the permissive direction,
-// which is the worse direction.
+// Every type here is one Azure refuses to move (marked No, or unlisted), so the
+// simulator answers ResourceMoveNotSupported; a hook would diverge in the
+// permissive direction.
 func TestMoveRefusesTheTypesAzureRefuses(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "refuse-move-src", "refuse-move-dst"
@@ -748,11 +682,8 @@ func TestMoveRefusesTheTypesAzureRefuses(t *testing.T) {
 	}
 }
 
-// TestMoveWithoutRepointingLeavesDanglingReferences is the negative control for
-// the repointing pass. It re-homes a virtual network the way a hook that only
-// re-keyed its own record would — no repointing — and shows the referrer is
-// left naming an address nothing answers to. That dangling reference is what
-// azureRepointMovedResource exists to prevent.
+// The negative control: without the repointing pass the referrer names an
+// address nothing answers to.
 func TestMoveWithoutRepointingLeavesDanglingReferences(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "norepoint-src", "norepoint-dst"
@@ -778,8 +709,7 @@ func TestMoveWithoutRepointingLeavesDanglingReferences(t *testing.T) {
 		t.Fatalf("create virtual network link: status %d: %s", status, body)
 	}
 
-	// The move, minus the repointing pass: the hook re-keys its own record and
-	// nothing else happens.
+	// The move, minus the repointing pass.
 	movedVnetID := moveResourceID(dstRG, "Microsoft.Network", "virtualNetworks", vnet)
 	hook, ok := resourceMoveHooks["microsoft.network/virtualnetworks"]
 	if !ok {
@@ -797,12 +727,9 @@ func TestMoveWithoutRepointingLeavesDanglingReferences(t *testing.T) {
 	}
 }
 
-// TestMoveContainerRegistryCarriesItsContent covers the interaction between the
-// per-registry content keying and the move. A registry's manifests, blobs and
-// uploads are keyed by its ARM resource ID — that is what keeps two registries
-// from sharing repositories — so a move has to carry them with it: the login
-// server is unchanged by the move, and a repository pushed before it must pull
-// unchanged after it, with the admin password an operator already holds.
+// A registry's content keys by its resource ID, so the move carries it: a
+// repository pushed before the move pulls unchanged after it, with the admin
+// password held before.
 func TestMoveContainerRegistryCarriesItsContent(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "acr-move-src", "acr-move-dst"
@@ -845,8 +772,6 @@ func TestMoveContainerRegistryCarriesItsContent(t *testing.T) {
 			moved.Properties.LoginServer, created.Properties.LoginServer)
 	}
 
-	// The admin credential an operator holds still authenticates, and the
-	// content pushed before the move is served unchanged.
 	movedUser, movedPasswords := moveACRAdminCredentials(t, srv, movedID)
 	if movedUser != user || movedPasswords[0] != passwords[0] {
 		t.Fatal("the move rotated the registry's admin credential")
@@ -867,8 +792,6 @@ func TestMoveContainerRegistryCarriesItsContent(t *testing.T) {
 	}
 }
 
-// moveACRAdminCredentials reads a registry's admin credential through the real
-// listCredentials action over the ARM plane the move tests drive.
 func moveACRAdminCredentials(t *testing.T, srv *sim.Server, registryID string) (string, []string) {
 	t.Helper()
 	status, body := moveARM(t, srv, http.MethodPost, registryID+"/listCredentials", "")
@@ -894,17 +817,10 @@ func moveACRAdminCredentials(t *testing.T, srv *sim.Server, registryID string) (
 	return creds.Username, values
 }
 
-// TestMovePrivateEndpointFollowsThePrivateLinkResourceType covers the one
-// Microsoft.Network type whose movability turns on the individual resource
-// rather than on the type. Azure moves a private endpoint only when the
-// private-link resource it connects to is one of the types it lists as
-// supporting the move, and refuses every other one, so the simulator decides
-// the same way through the real Resources_ValidateMoveResources operation.
-//
-// The endpoints are seeded into the store rather than created over HTTP
-// because creating one requires a subnet, and realizing a subnet needs the
-// Linux network-namespace fabric this host does not have; the move decision
-// itself, which is what this test is about, runs the whole real dispatch.
+// Azure moves a private endpoint only when its private-link resource is a type
+// listed as supporting the move. The endpoints are seeded into the store,
+// because creating one needs a realized subnet; the move decision runs the
+// whole real dispatch.
 func TestMovePrivateEndpointFollowsThePrivateLinkResourceType(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, dstRG = "pe-move-src", "pe-move-dst"
@@ -937,14 +853,12 @@ func TestMovePrivateEndpointFollowsThePrivateLinkResourceType(t *testing.T) {
 	unsupportedID := seed("pe-move-unsupported", unsupportedTarget)
 	unconnectedID := seed("pe-move-unconnected", "")
 
-	// A private endpoint onto a private-link resource Azure lists moves.
 	moveResource(t, srv, srcRG, dstRG, supportedID)
 	movedID := moveResourceID(dstRG, "Microsoft.Network", "privateEndpoints", "pe-move-supported")
 	if _, ok := azurePrivateEndpoints.Get(movedID); !ok {
 		t.Fatal("the private endpoint onto a supported private-link resource did not move")
 	}
 
-	// Every other one is refused, exactly as Azure refuses it.
 	for _, tc := range []struct{ what, id string }{
 		{"a private endpoint onto an unsupported private-link resource", unsupportedID},
 		{"a private endpoint connected to nothing", unconnectedID},
@@ -959,17 +873,9 @@ func TestMovePrivateEndpointFollowsThePrivateLinkResourceType(t *testing.T) {
 	}
 }
 
-// TestMoveRefusesOccupiedDestinationIdentifier drives the check every move
-// runs before it re-homes anything. A resource keeps its name across a move, so
-// a destination group that already holds one of the same type under that name
-// has no free identifier for the moved resource: performing the move would
-// address two resources at one identifier and destroy the one already there.
-//
-// Both halves are asserted, because the refusal is only worth anything if the
-// same move onto a free identifier still succeeds: the occupied destination is
-// refused with the provider-validation conflict, the resource already there is
-// untouched, the source resource is still where it was, and the move into an
-// empty group goes through.
+// A resource keeps its name across a move, so a destination already holding
+// one of that type and name is refused with the provider-validation conflict,
+// leaving both untouched, while the same move into an empty group succeeds.
 func TestMoveRefusesOccupiedDestinationIdentifier(t *testing.T) {
 	srv := newMoveTestServer(t)
 	const srcRG, occupiedRG, freeRG = "conflict-src", "conflict-occupied", "conflict-free"
@@ -1037,7 +943,6 @@ func TestMoveRefusesOccupiedDestinationIdentifier(t *testing.T) {
 			occupantBefore.Value, occupantAfter.Value)
 	}
 
-	// The same move into a group that does not hold the name goes through.
 	moveResource(t, srv, srcRG, freeRG, sourceID)
 	if status, _ := moveARM(t, srv, http.MethodGet, moveResourceID(freeRG, "Microsoft.Logic", "workflows", workflow), ""); status != http.StatusOK {
 		t.Fatalf("the move onto a free identifier did not land: status %d", status)

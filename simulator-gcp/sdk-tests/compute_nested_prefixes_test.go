@@ -8,10 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// A wire group is addressed through the cross-site network that owns it, and a
-// regional public delegated prefix carries announce and withdraw on top of its
-// lifecycle. Both are read back after every write, because an Operation says
-// nothing about what was stored.
+// An Operation says nothing about what was stored, so every write is read
+// back.
 
 func TestCompute_WireGroupsLiveInsideTheirCrossSiteNetwork(t *testing.T) {
 	t.Parallel()
@@ -75,8 +73,8 @@ func TestCompute_RegionalPublicDelegatedPrefixAnnounceAndWithdraw(t *testing.T) 
 	}).Do()
 	require.NoError(t, err)
 
-	// Withdrawing one that was never announced is refused rather than passing
-	// silently: a no-op would hide the mistake.
+	// Withdrawing a prefix never announced is refused: a no-op would hide the
+	// mistake.
 	_, err = svc.PublicDelegatedPrefixes.Withdraw(project, region, name).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be withdrawn")

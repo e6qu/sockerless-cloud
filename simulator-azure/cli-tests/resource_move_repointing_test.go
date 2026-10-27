@@ -8,28 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure CLI coverage for the cross-resource-group move families that joined
-// the dispatch with Microsoft.Network, and for the inbound references the move
-// re-points. Routes exercised:
-//
-//	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources
-//	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources
-//	POST …/providers/Microsoft.DocumentDB/databaseAccounts/{account}/listKeys
-//	POST …/providers/Microsoft.DocumentDB/databaseAccounts/{account}/listConnectionStrings
-//	POST …/providers/Microsoft.Logic/workflows/{workflowName}/listCallbackUrl
-//	POST …/providers/Microsoft.EventGrid/partnerNamespaces/{partnerNamespaceName}/listKeys
-//	GET  …/providers/Microsoft.Network/virtualNetworks/{vnetName}
-//	GET  …/providers/Microsoft.Network/privateDnsZones/{zone}/virtualNetworkLinks/{link}
-
 func cliResourceID(rg, provider, typeName, name string) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s/%s",
 		subscriptionID, rg, provider, typeName, name)
 }
 
-// TestResourceMoveCosmosAccountCLI moves a Cosmos DB account with
-// `az resource move` and proves the credential survived: the four master keys
-// and the connection string `az cosmosdb keys list` prints are identical
-// afterwards, which is what every application's connection string carries.
+// TestResourceMoveCosmosAccountCLI: the four master keys and the connection
+// string `az cosmosdb keys list` prints are identical after the move.
 func TestResourceMoveCosmosAccountCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -80,11 +65,9 @@ func TestResourceMoveCosmosAccountCLI(t *testing.T) {
 		"the connection string must still carry the key an application already holds")
 }
 
-// TestResourceMoveLogicWorkflowCLI moves a Consumption Logic App with
-// `az resource move` and proves the callback URL an operator already holds
-// still works: `az rest` on listCallbackUrl returns the same URL, signature
-// included, because the workflow is addressed on the Logic Apps service host
-// by an identifier no resource group appears in.
+// TestResourceMoveLogicWorkflowCLI: listCallbackUrl returns the same URL,
+// signature included, after the move, because the Logic Apps service host
+// addresses the workflow by an identifier with no resource group in it.
 func TestResourceMoveLogicWorkflowCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -128,9 +111,9 @@ func TestResourceMoveLogicWorkflowCLI(t *testing.T) {
 	assert.NotContains(t, after.BasePath, dstRG)
 }
 
-// TestResourceMoveEventGridPartnerNamespaceCLI moves the one Event Grid
-// Partner Events resource that carries access keys and proves both keys
-// survive, and that the namespace's channel moved with it.
+// TestResourceMoveEventGridPartnerNamespaceCLI moves the one Partner Events
+// resource that carries access keys: both keys survive, and the channel moves
+// with it.
 func TestResourceMoveEventGridPartnerNamespaceCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -182,9 +165,8 @@ func TestResourceMoveEventGridPartnerNamespaceCLI(t *testing.T) {
 	assert.Equal(t, before, after, "a cross-group move must not rotate a partner namespace's access keys")
 }
 
-// TestResourceMoveVirtualNetworkRepointsLinkCLI moves a virtual network and
-// proves the private DNS zone's virtual network link — which did not move —
-// names the moved virtual network afterwards rather than the address it left.
+// TestResourceMoveVirtualNetworkRepointsLinkCLI: the private DNS zone's virtual
+// network link, which did not move, names the moved virtual network.
 func TestResourceMoveVirtualNetworkRepointsLinkCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -223,10 +205,9 @@ func TestResourceMoveVirtualNetworkRepointsLinkCLI(t *testing.T) {
 		"the virtual network link must name the moved virtual network, not the address it left")
 }
 
-// TestResourceMoveRefusesUnsupportedTypesCLI pins the other half of move
-// fidelity through the CLI: every type here is one Azure Resource Manager will
-// not move between resource groups, so `az resource invoke-action`-style
-// validation answers ResourceMoveNotSupported.
+// TestResourceMoveRefusesUnsupportedTypesCLI: Azure Resource Manager does not
+// move these types between resource groups, so validation answers
+// ResourceMoveNotSupported.
 func TestResourceMoveRefusesUnsupportedTypesCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -260,10 +241,9 @@ func TestResourceMoveRefusesUnsupportedTypesCLI(t *testing.T) {
 	}
 }
 
-// TestResourceMoveOntoOccupiedIdentifierCLI drives the refusal an operator sees
-// from `az resource move` when the destination group already holds a resource
-// of the same type and name: the move is refused, and the resource already
-// there is still the one that answers.
+// TestResourceMoveOntoOccupiedIdentifierCLI: a move onto a group that already
+// holds a resource of the same type and name is refused, and the resource
+// already there still answers.
 func TestResourceMoveOntoOccupiedIdentifierCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCache_Serverless covers CreateServerlessCache,
-// DescribeServerlessCaches, ModifyServerlessCache, and
-// DeleteServerlessCache.
 func TestElastiCache_Serverless(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -71,10 +68,6 @@ func TestElastiCache_Serverless(t *testing.T) {
 	ecAwaitServerlessDeleted(t, c, name)
 }
 
-// TestElastiCache_ServerlessSnapshots covers
-// CreateServerlessCacheSnapshot, DescribeServerlessCacheSnapshots,
-// CopyServerlessCacheSnapshot, ExportServerlessCacheSnapshot, and
-// DeleteServerlessCacheSnapshot.
 func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -142,10 +135,9 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestElastiCache_GlobalReplicationGroup covers the Global Datastore
-// lifecycle: create from a primary replication group, describe, modify,
-// failover, node-group increase/decrease, rebalance, disassociate, and
-// delete.
+// TestElastiCache_GlobalReplicationGroup covers a Global Datastore created from
+// a primary replication group through failover, node-group changes,
+// rebalancing, disassociation and deletion.
 func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 	t.Parallel()
 	globalSuffix := uniquename.New("myglobal")
@@ -244,9 +236,6 @@ func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 	assert.Empty(t, dis.GlobalReplicationGroup.Members)
 }
 
-// TestElastiCache_CacheSecurityGroups covers CreateCacheSecurityGroup,
-// AuthorizeCacheSecurityGroupIngress, RevokeCacheSecurityGroupIngress,
-// and DeleteCacheSecurityGroup.
 func TestElastiCache_CacheSecurityGroups(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -303,9 +292,6 @@ func TestElastiCache_CacheSecurityGroups(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestElastiCache_UpdateActions covers DescribeUpdateActions,
-// BatchApplyUpdateAction, and BatchStopUpdateAction against a real
-// cache cluster.
 func TestElastiCache_UpdateActions(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -351,10 +337,6 @@ func TestElastiCache_UpdateActions(t *testing.T) {
 	require.Len(t, stopped.ProcessedUpdateActions, 1)
 }
 
-// TestElastiCache_ReplicaAndShardConfig covers IncreaseReplicaCount,
-// DecreaseReplicaCount, ModifyReplicationGroupShardConfiguration,
-// TestFailover, and the online-migration operations on an existing
-// replication group.
 func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -440,9 +422,6 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	assert.Equal(t, "available", aws.ToString(cm.ReplicationGroup.Status))
 }
 
-// TestElastiCache_NodeTypeModificationsAndReserved covers
-// ListAllowedNodeTypeModifications and
-// PurchaseReservedCacheNodesOffering.
 func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	t.Parallel()
 	reservationID := uniquename.New("my-reservation")
@@ -454,8 +433,7 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	assert.NotEmpty(t, allowed.ScaleUpModifications)
 	assert.NotEmpty(t, allowed.ScaleDownModifications)
 
-	// Buy the offering the service says is on sale, and check that what came
-	// back is that offering's terms rather than a price the simulator chose.
+	// The purchase carries the terms of the offering the service lists.
 	offerings, err := c.DescribeReservedCacheNodesOfferings(ctx,
 		&elasticache.DescribeReservedCacheNodesOfferingsInput{})
 	require.NoError(t, err)
@@ -478,8 +456,7 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 
 	assertECTags(t, c, aws.ToString(purchased.ReservedCacheNode.ReservationARN), map[string]string{"owner": "platform"})
 
-	// What was bought can be read back. A purchase the account cannot see
-	// afterwards is a receipt for nothing.
+	// A purchase reads back.
 	held, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{
 		ReservedCacheNodeId: aws.String(reservationID),
 	})
@@ -488,7 +465,6 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	assert.Equal(t, aws.ToString(offering.ReservedCacheNodesOfferingId),
 		aws.ToString(held.ReservedCacheNodes[0].ReservedCacheNodesOfferingId))
 
-	// An offering nothing sells cannot be bought.
 	_, err = c.PurchaseReservedCacheNodesOffering(ctx, &elasticache.PurchaseReservedCacheNodesOfferingInput{
 		ReservedCacheNodesOfferingId: aws.String("00000000-0000-0000-0000-000000000000"),
 	})
@@ -496,7 +472,6 @@ func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
 	assert.Contains(t, err.Error(), "ReservedCacheNodesOfferingNotFound")
 }
 
-// assertECTags reads a resource's tags back through ListTagsForResource.
 func assertECTags(t *testing.T, c *elasticache.Client, arn string, want map[string]string) {
 	t.Helper()
 	listed, err := c.ListTagsForResource(t.Context(), &elasticache.ListTagsForResourceInput{ResourceName: aws.String(arn)})

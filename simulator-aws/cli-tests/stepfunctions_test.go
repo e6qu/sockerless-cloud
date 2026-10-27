@@ -176,7 +176,6 @@ func TestSFN_StateMachineCRUD_CLI(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Tag / untag
 	runCLI(t, awsCLI("stepfunctions", "tag-resource",
 		"--resource-arn", created.StateMachineArn,
 		"--tags", "key=env,value=cli"))

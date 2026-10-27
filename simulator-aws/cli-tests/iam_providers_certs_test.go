@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The X509 certificate blob is padded so the document exceeds the 1000-char
-// minimum the IAM CLI client-side-validates for --saml-metadata-document.
+// The padded certificate blob takes the document past the 1000-character
+// minimum the CLI validates for --saml-metadata-document.
 var samlMetadataDocCLI = `<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com/cli"><md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>` +
 	strings.Repeat("MIIC", 300) +
 	`</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor></md:IDPSSODescriptor></md:EntityDescriptor>`

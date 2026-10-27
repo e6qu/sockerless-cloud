@@ -8,19 +8,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestWebApp_CLI_NodeStackRunsTheDeployedZip drives a Linux web app on a
-// built-in runtime stack with the native az commands: `az webapp list-runtimes`
-// reads the stack catalogue, `az webapp create --runtime` creates the app on a
-// stack from it, the app serves the platform's default page until content is
+// TestWebApp_CLI_NodeStackRunsTheDeployedZip: `az webapp list-runtimes` reads
+// the stack catalogue, `az webapp create --runtime` creates the app on a stack
+// from it, the app serves the platform's default page until content is
 // deployed, and `az webapp deploy --src-url --type zip` deploys a package the
-// platform image then runs.
+// platform image runs.
 func TestWebApp_CLI_NodeStackRunsTheDeployedZip(t *testing.T) {
 	t.Parallel()
 	env := startAzTLSSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-stacks",
-		// The public cloud's resource manager endpoint ends in a slash, and the
-		// CLI appends ARM paths to it verbatim.
+		// The public cloud's resource manager endpoint ends in a slash, and the CLI
+		// appends ARM paths to it verbatim.
 		"--endpoint-resource-manager", env.baseURL+"/",
 		"--endpoint-active-directory", env.baseURL+"/adfs",
 		"--endpoint-active-directory-resource-id", "https://management.azure.com/",

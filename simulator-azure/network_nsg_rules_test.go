@@ -7,8 +7,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A NIC behind a subnet NSG and an NSG of its own is filtered by both, the
-// subnet's first: a packet reaches it only when each group allows it.
 func TestAzureNSGsOnSubnetAndNICCompileToOrderedStages(t *testing.T) {
 	priorNSGs, priorSubnets, priorVnets := azureNSGs, azureSubnets, azureVnets
 	azureNSGs = sim.MakeStore[NetworkSecurityGroup](nil, "test_nsgs")
@@ -62,8 +60,6 @@ func TestAzureSecurityRuleRejectsAnUnparseablePort(t *testing.T) {
 	}
 }
 
-// A mediated flow meets the interface's groups in order: the first rule
-// matching the packet decides, and a packet no rule matches is dropped.
 func TestAzureAdmitIngressAppliesEveryStageInPriorityOrder(t *testing.T) {
 	priorNSGs, priorSubnets, priorVnets, priorNICs := azureNSGs, azureSubnets, azureVnets, azureNICs
 	azureNSGs = sim.MakeStore[NetworkSecurityGroup](nil, "test_nsgs")

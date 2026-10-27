@@ -17,30 +17,25 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// Cloud Logging admin resource families (logging/v2). Every admin resource
-// (sinks, exclusions, buckets+views+links, savedQueries, recentQueries,
-// logScopes, settings, cmekSettings, logs) is exposed by real Cloud Logging
-// under FIVE parent scopes — projects/{p}, organizations/{o},
-// billingAccounts/{b}, folders/{f}, and a generic top-level form. The sim
-// mounts each family under the four concrete scope paths so the parent's full
-// resource name (e.g. "organizations/123/locations/global/buckets/b") round-
-// trips exactly as the cloud returns it. Sinks and metrics for the project
-// scope are mounted in logging.go; the remaining scopes' sinks land here.
+// Cloud Logging serves every admin family (sinks, exclusions, buckets, views,
+// links, savedQueries, recentQueries, logScopes, settings, cmekSettings, logs)
+// under projects, organizations, billingAccounts, folders and a generic form.
+// The simulator mounts the four concrete scopes, so a parent's full resource
+// name round-trips as Cloud Logging returns it. logging.go mounts the project
+// sinks and metrics.
 
 // loggingScope describes one parent scope: the mux path-parameter name that
 // captures the scope identifier and the parent-name prefix it builds.
 type loggingScope struct {
-	// pathParam is the {param} name in the mux pattern (e.g. "project").
 	pathParam string
 	// collection is the scope collection segment ("projects",
 	// "organizations", "billingAccounts", "folders").
 	collection string
 }
 
-// loggingScopes are the four concrete parent scopes the sim mounts. The
-// generic {v2Id}/{v2Id1} and {+parent} Discovery spellings are alternate
-// templates of these same methods; mounting the concrete scopes covers the
-// real client paths.
+// loggingScopes are the four concrete parent scopes; the generic
+// {v2Id}/{v2Id1} and {+parent} Discovery spellings are other templates of the
+// same methods.
 var loggingScopes = []loggingScope{
 	{pathParam: "project", collection: "projects"},
 	{pathParam: "org", collection: "organizations"},
@@ -48,7 +43,7 @@ var loggingScopes = []loggingScope{
 	{pathParam: "folder", collection: "folders"},
 }
 
-// loggingAdmin* stores keyed by full resource name.
+// The admin stores, keyed by full resource name.
 var (
 	logBuckets      sim.Store[LogBucket]
 	logViews        sim.Store[LogView]
@@ -59,7 +54,7 @@ var (
 	logOperations   sim.Store[Operation]
 )
 
-// LogBucket is a logging/v2 LogBucket resource.
+// LogBucket is a logging/v2 LogBucket.
 type LogBucket struct {
 	Name             string         `json:"name,omitempty"`
 	Description      string         `json:"description,omitempty"`
@@ -74,7 +69,7 @@ type LogBucket struct {
 	UpdateTime       string         `json:"updateTime,omitempty"`
 }
 
-// LogView is a logging/v2 LogView resource.
+// LogView is a logging/v2 LogView.
 type LogView struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -83,7 +78,7 @@ type LogView struct {
 	UpdateTime  string `json:"updateTime,omitempty"`
 }
 
-// LogLink is a logging/v2 Link resource (BigQuery analytics link).
+// LogLink is a logging/v2 Link, a BigQuery analytics link.
 type LogLink struct {
 	Name            string         `json:"name,omitempty"`
 	Description     string         `json:"description,omitempty"`
@@ -92,7 +87,6 @@ type LogLink struct {
 	CreateTime      string         `json:"createTime,omitempty"`
 }
 
-// SavedQuery is a logging/v2 SavedQuery resource.
 type SavedQuery struct {
 	Name              string         `json:"name,omitempty"`
 	DisplayName       string         `json:"displayName,omitempty"`
@@ -104,7 +98,6 @@ type SavedQuery struct {
 	UpdateTime        string         `json:"updateTime,omitempty"`
 }
 
-// LogScope is a logging/v2 LogScope resource.
 type LogScope struct {
 	Name          string   `json:"name,omitempty"`
 	Description   string   `json:"description,omitempty"`
@@ -113,7 +106,7 @@ type LogScope struct {
 	UpdateTime    string   `json:"updateTime,omitempty"`
 }
 
-// LoggingSettings is a logging/v2 Settings resource (per-scope settings).
+// LoggingSettings is a logging/v2 Settings resource.
 type LoggingSettings struct {
 	Name                    string         `json:"name,omitempty"`
 	KmsKeyName              string         `json:"kmsKeyName,omitempty"`
@@ -133,7 +126,6 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 	logSettings = sim.MakeStore[LoggingSettings](srv.DB(), "logging_settings")
 	logOperations = sim.MakeStore[Operation](srv.DB(), "logging_operations")
 
-	// Top-level (scope-independent) routes.
 	srv.HandleFunc("POST /v2/entries:copy", handleLoggingEntriesCopy)
 	srv.HandleFunc("POST /v2/entries:tail", handleLoggingEntriesTail)
 	srv.HandleFunc("GET /v2/monitoredResourceDescriptors", handleLoggingListMRD)
@@ -141,9 +133,8 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 	for _, sc := range loggingScopes {
 		p := "/v2/" + sc.collection + "/{" + sc.pathParam + "}"
 
-		// Sinks (project sinks are registered in logging.go; the project
-		// handlers are project-scoped, so the other scopes use the
-		// parent-aware variants below).
+		// logging.go registers the project sinks; the other scopes use the
+		// parent-aware handlers below.
 		if sc.collection != "projects" {
 			srv.HandleFunc("POST "+p+"/sinks", handleLoggingScopeCreateSink)
 			srv.HandleFunc("GET "+p+"/sinks", handleLoggingScopeListSinks)
@@ -153,32 +144,25 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 			srv.HandleFunc("DELETE "+p+"/sinks/{sink}", handleLoggingScopeDeleteSink)
 		}
 
-		// Exclusions.
 		srv.HandleFunc("POST "+p+"/exclusions", handleLoggingCreateExclusion)
 		srv.HandleFunc("GET "+p+"/exclusions", handleLoggingListExclusions)
 		srv.HandleFunc("GET "+p+"/exclusions/{exclusion}", handleLoggingGetExclusion)
 		srv.HandleFunc("PATCH "+p+"/exclusions/{exclusion}", handleLoggingPatchExclusion)
 		srv.HandleFunc("DELETE "+p+"/exclusions/{exclusion}", handleLoggingDeleteExclusion)
 
-		// Logs.
 		srv.HandleFunc("GET "+p+"/logs", handleLoggingListLogs)
 		srv.HandleFunc("DELETE "+p+"/logs/{log}", handleLoggingDeleteLog)
 
-		// Settings / cmekSettings.
 		srv.HandleFunc("GET "+p+"/settings", handleLoggingGetSettings)
 		srv.HandleFunc("PATCH "+p+"/settings", handleLoggingUpdateSettings)
 		srv.HandleFunc("GET "+p+"/cmekSettings", handleLoggingGetCmekSettings)
 		srv.HandleFunc("PATCH "+p+"/cmekSettings", handleLoggingUpdateCmekSettings)
 
-		// Locations. The project-scope locations.list collides with Cloud Run /
-		// Cloud Functions on the same /v2 path and is served there.
-		//
-		// The project-scope locations.get shares its URI shape with Cloud Run's
-		// "locations/{location}:exportProjectMetadata", because a wildcard
-		// segment matches one carrying a colon. handleLoggingGetLocation splits
-		// on the colon so a real location is answered and a custom method is
-		// still reported unknown — answering both from here would report
-		// exportProjectMetadata as served.
+		// The project-scope locations.list shares its /v2 path with Cloud Run and
+		// Cloud Functions, which serve it. The project-scope locations.get shares its
+		// URI shape with Cloud Run's "locations/{location}:exportProjectMetadata";
+		// handleLoggingGetLocation splits on the colon, so a custom method is not
+		// answered as a location.
 		if sc.collection != "projects" {
 			srv.HandleFunc("GET "+p+"/locations", handleLoggingListLocations)
 		}
@@ -186,18 +170,15 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 
 		loc := p + "/locations/{location}"
 
-		// Buckets.
 		srv.HandleFunc("POST "+loc+"/buckets", handleLoggingCreateBucket)
 		srv.HandleFunc("POST "+loc+"/buckets:createAsync", handleLoggingCreateBucketAsync)
 		srv.HandleFunc("GET "+loc+"/buckets", handleLoggingListBuckets)
 		srv.HandleFunc("GET "+loc+"/buckets/{bucket}", handleLoggingGetBucket)
 		srv.HandleFunc("PATCH "+loc+"/buckets/{bucket}", handleLoggingPatchBucket)
 		srv.HandleFunc("DELETE "+loc+"/buckets/{bucket}", handleLoggingDeleteBucket)
-		// Colon-verb fan-in on the bucket id: "{bucket}:undelete" /
-		// "{bucket}:updateAsync".
+		// "{bucket}:undelete" and "{bucket}:updateAsync" fan in on the bucket segment.
 		srv.HandleFunc("POST "+loc+"/buckets/{bucketAction}", handleLoggingBucketAction)
 
-		// Views.
 		bkt := loc + "/buckets/{bucket}"
 		srv.HandleFunc("POST "+bkt+"/views", handleLoggingCreateView)
 		srv.HandleFunc("GET "+bkt+"/views", handleLoggingListViews)
@@ -208,23 +189,21 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 		// View IAM colon verbs.
 		srv.HandleFunc("POST "+bkt+"/views/{viewAction}", handleLoggingViewIAM)
 
-		// Links.
 		srv.HandleFunc("POST "+bkt+"/links", handleLoggingCreateLink)
 		srv.HandleFunc("GET "+bkt+"/links", handleLoggingListLinks)
 		srv.HandleFunc("GET "+bkt+"/links/{link}", handleLoggingGetLink)
 		srv.HandleFunc("DELETE "+bkt+"/links/{link}", handleLoggingDeleteLink)
 
-		// SavedQueries.
 		srv.HandleFunc("POST "+loc+"/savedQueries", handleLoggingCreateSavedQuery)
 		srv.HandleFunc("GET "+loc+"/savedQueries", handleLoggingListSavedQueries)
 		srv.HandleFunc("GET "+loc+"/savedQueries/{savedQuery}", handleLoggingGetSavedQuery)
 		srv.HandleFunc("PATCH "+loc+"/savedQueries/{savedQuery}", handleLoggingPatchSavedQuery)
 		srv.HandleFunc("DELETE "+loc+"/savedQueries/{savedQuery}", handleLoggingDeleteSavedQuery)
 
-		// RecentQueries (list only).
+		// recentQueries has only list.
 		srv.HandleFunc("GET "+loc+"/recentQueries", handleLoggingListRecentQueries)
 
-		// LogScopes (folders/organizations/projects in the Discovery doc).
+		// logScopes exist under folders, organizations and projects.
 		if sc.collection != "billingAccounts" {
 			srv.HandleFunc("POST "+loc+"/logScopes", handleLoggingCreateLogScope)
 			srv.HandleFunc("GET "+loc+"/logScopes", handleLoggingListLogScopes)
@@ -233,9 +212,8 @@ func registerCloudLoggingAdmin(srv *sim.Server) {
 			srv.HandleFunc("DELETE "+loc+"/logScopes/{logScope}", handleLoggingDeleteLogScope)
 		}
 
-		// Operations. The project-scope list/get/cancel collide with the
-		// shared Cloud Run operations routes (same /v2 path) and are served
-		// there; mount the other scopes' operations here.
+		// The project scope's operations share their /v2 path with Cloud Run, which
+		// serves them.
 		if sc.collection != "projects" {
 			srv.HandleFunc("GET "+loc+"/operations", handleLoggingListOperations)
 			srv.HandleFunc("GET "+loc+"/operations/{operation}", handleLoggingGetOperation)
@@ -260,9 +238,9 @@ func loggingLocationParent(r *http.Request) string {
 	return loggingScopeParent(r) + "/locations/" + sim.PathParam(r, "location")
 }
 
-// Real Cloud Logging exposes sinks under every parent scope. The project-scope
-// handlers in logging.go are project-specific; these mirror their behaviour
-// (short name in LogSink.name, full path in resourceName) for the other scopes.
+// Cloud Logging serves sinks under every parent scope; these answer the
+// non-project scopes as logging.go answers projects (short name in
+// LogSink.name, full path in resourceName).
 
 func loggingScopeSinkResponse(parent string, s LoggingSink) LoggingSink {
 	short := strings.TrimPrefix(s.Name, parent+"/sinks/")
@@ -630,8 +608,8 @@ func handleLoggingDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		GCPError(w, http.StatusBadRequest, msg, "FAILED_PRECONDITION")
 		return
 	}
-	// Real Cloud Logging soft-deletes a bucket (DELETE_REQUESTED) so an
-	// :undelete within the grace window can restore it.
+	// Cloud Logging soft-deletes a bucket to DELETE_REQUESTED, so :undelete within
+	// the grace window restores it.
 	cur.LifecycleState = "DELETE_REQUESTED"
 	logBuckets.Put(key, cur)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -935,8 +913,8 @@ func handleLoggingDeleteSavedQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingListRecentQueries(w http.ResponseWriter, r *http.Request) {
-	// Recent queries are a per-user audit list the sim has no source for;
-	// return an empty page (a valid ListRecentQueriesResponse).
+	// Recent queries are a per-user audit list the simulator has no source for, so
+	// the page is empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1247,9 +1225,9 @@ func handleLoggingEntriesTail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// loggingNewOperation builds a completed Operation whose response carries the
-// given resource wrapped as a protobuf Any (@type). Real Cloud Logging's async
-// bucket/link/copy methods return a done operation once the resource settles.
+// loggingNewOperation builds a completed Operation whose response is the
+// resource as a protobuf Any; Cloud Logging's bucket, link and copy methods
+// answer a done operation once the resource settles.
 func loggingNewOperation(parent string, resource any, typeName string, metadata map[string]any) Operation {
 	opName := parent + "/operations/" + sim.NewUUID()
 	if parent == "" {
@@ -1274,10 +1252,9 @@ func loggingOperationMetadata(message, requestField string, request any, started
 	}
 }
 
-// newLROFromResource is newLRO's name-explicit form: the operation name is
-// supplied directly (logging's operations live under arbitrary scope parents,
-// not just projects/{p}/locations/{l}). metadata is the message the method
-// declares.
+// newLROFromResource is newLRO with an explicit operation name, since Cloud
+// Logging's operations live under any scope parent. metadata is the message
+// the method declares.
 func newLROFromResource(name string, resource any, typeName string, metadata map[string]any) Operation {
 	var responseMap map[string]any
 	if resource != nil {

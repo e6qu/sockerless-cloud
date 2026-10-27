@@ -11,7 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Future-dated Capacity Reservations and their date-change quotes.
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/cr-concepts.html
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/capacity-reservations-modify.html#cr-delay-start-date
 
@@ -32,8 +31,7 @@ const (
 
 var ec2CapacityQuotes sim.Store[EC2CapacityReservationQuote]
 
-// EC2CapacityReservationQuote is a date-change quote: the terms on which a
-// scheduled reservation's start date moves, usable once, until it expires.
+// A quote is usable once, until it expires.
 type EC2CapacityReservationQuote struct {
 	QuoteId               string
 	CapacityReservationId string
@@ -71,12 +69,10 @@ type ec2FutureDated struct {
 	commitment int64
 }
 
-// ec2FutureDatedRequest reads a CreateCapacityReservation request's
-// future-dated terms: a start between 5 and 120 days ahead, a commitment of at
-// least 14 days (12 weeks for U and X instances), at least 32 vCPUs across its
-// instances, targeted matching only, and no automatic end inside the
-// commitment. A request with neither StartDate nor CommitmentDuration is for
-// immediate use.
+// Future-dated terms: a start 5 to 120 days ahead, a commitment of at least 14
+// days (12 weeks for U and X instances), at least 32 vCPUs, targeted matching
+// only, and no automatic end inside the commitment. Neither StartDate nor
+// CommitmentDuration means immediate use.
 func ec2FutureDatedRequest(r *http.Request, instanceType ec2InstanceTypeFacts, count int, matchCriteria, endDateType string, now time.Time) (ec2FutureDated, *ec2Problem) {
 	rawStart, rawCommitment := r.FormValue("StartDate"), r.FormValue("CommitmentDuration")
 	if rawStart == "" && rawCommitment == "" {
@@ -125,9 +121,8 @@ func ec2FutureDatedRequest(r *http.Request, instanceType ec2InstanceTypeFacts, c
 	return ec2FutureDated{start: ec2FormatMilli(start), commitment: seconds}, nil
 }
 
-// ec2CapacityReservationAsOf is a reservation as it stands at now: a scheduled
-// future-dated reservation is delivered, and becomes active with its requested
-// instances, once its start date has passed.
+// A scheduled reservation becomes active with its requested instances once
+// its start date has passed.
 func ec2CapacityReservationAsOf(cr EC2CapacityReservation, now time.Time) EC2CapacityReservation {
 	if cr.State != ec2CapacityScheduled {
 		return cr
@@ -142,8 +137,7 @@ func ec2CapacityReservationAsOf(cr EC2CapacityReservation, now time.Time) EC2Cap
 	return cr
 }
 
-// ec2GetCapacityReservation is every read of a reservation: the stored record
-// as it stands now.
+// Every read goes through here, evaluated as of now.
 func ec2GetCapacityReservation(id string) (EC2CapacityReservation, bool) {
 	cr, ok := ec2CapacityReservations.Get(id)
 	if !ok {
@@ -152,8 +146,7 @@ func ec2GetCapacityReservation(id string) (EC2CapacityReservation, bool) {
 	return ec2CapacityReservationAsOf(cr, time.Now()), true
 }
 
-// ec2CommitmentEnd is when a future-dated reservation's commitment lapses: the
-// commitment starts when the reservation is delivered, at its start date.
+// The commitment starts at delivery, on the start date.
 func ec2CommitmentEnd(cr EC2CapacityReservation) (time.Time, bool) {
 	if cr.CommitmentDuration == 0 {
 		return time.Time{}, false
@@ -180,10 +173,8 @@ func ec2CapacityCommitmentXML(cr EC2CapacityReservation) string {
 	return b.String()
 }
 
-// ec2ModifyCapacityReservation applies a ModifyCapacityReservation request to
-// cr, refusing what the reservation's state does not allow: a scheduled
-// reservation changes only its dates, by quote for its start; an active one
-// inside its commitment keeps its committed count and commitment end.
+// A scheduled reservation changes only its dates, the start by quote; an
+// active one inside its commitment keeps its count and commitment end.
 func ec2ModifyCapacityReservation(cr *EC2CapacityReservation, r *http.Request, now time.Time) *ec2Problem {
 	count, endDate, endDateType := r.FormValue("InstanceCount"), r.FormValue("EndDate"), r.FormValue("EndDateType")
 	matchCriteria, quoteID := r.FormValue("InstanceMatchCriteria"), r.FormValue("QuoteId")
@@ -283,9 +274,8 @@ func registerEC2CapacityReservationDateChange(r *AWSQueryRouter, srv *sim.Server
 	r.Register("DescribeCapacityReservationDateChangeQuotes", handleDescribeCapacityReservationDateChangeQuotes)
 }
 
-// ec2QuoteTerms prices a postponement: no additional commitment when it is
-// asked for more than two weeks before the current start, one more day of
-// commitment per day of postponement within those two weeks.
+// A postponement asked more than two weeks before the current start adds no
+// commitment; within those two weeks, one day per day postponed.
 func ec2QuoteTerms(cr EC2CapacityReservation, newStart, now time.Time) (int64, *ec2Problem) {
 	current, ok := ec2ParseInstant(cr.StartDate)
 	original, originalOK := ec2ParseInstant(cr.OriginalStartDate)
@@ -356,8 +346,7 @@ func handleCreateCapacityReservationDateChangeQuote(w http.ResponseWriter, r *ht
 		}
 	}
 	current, _ := ec2ParseInstant(cr.StartDate)
-	// A quote lasts 24 hours, and always ends at least an hour before the
-	// start date it would move.
+	// A quote lasts 24 hours and ends at least an hour before the start it moves.
 	expires := now.Add(ec2QuoteValidity)
 	if latest := current.Add(-ec2QuoteStartMargin); latest.Before(expires) {
 		expires = latest
@@ -460,8 +449,7 @@ func handleDescribeCapacityReservationDateChangeQuotes(w http.ResponseWriter, r 
 		ec2Xmlns(), sim.NewUUID(), items.String(), next)
 }
 
-// ec2CapacityReservationPage pages reservations sorted by ID: MaxResults of 1
-// to 1000, and a NextToken that resumes after the last ID returned.
+// MaxResults is 1 to 1000; NextToken resumes after the last ID returned.
 func ec2CapacityReservationPage(sorted []EC2CapacityReservation, rawMax, token string) ([]EC2CapacityReservation, string, *ec2Problem) {
 	maxResults := 1000
 	if rawMax != "" {

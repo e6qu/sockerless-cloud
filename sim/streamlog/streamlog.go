@@ -43,7 +43,6 @@ type Log[V any] struct {
 	locks   *sim.KeyedLocks
 }
 
-// New returns a Log over the given stores.
 func New[V any](records sim.Store[Record[V]], heads sim.Store[Head]) *Log[V] {
 	return &Log[V]{records: records, heads: heads, locks: sim.NewKeyedLocks()}
 }

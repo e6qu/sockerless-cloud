@@ -12,13 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// An Amazon ECS gateway is an account-level ingress definition. It provisions
-// nothing until a service in an associated cluster connects through a gateway
-// connector; each connection is a gateway route whose shared Application Load
-// Balancer, listener and security group, and whose own certificate, hostname,
-// target group and listener rules, the gateway creates through the Elastic
-// Load Balancing, Amazon EC2 and AWS Certificate Manager APIs as its
-// infrastructure role (ecs_gateway_routes.go).
+// An Amazon ECS gateway provisions nothing until a service in an associated
+// cluster connects through a gateway connector; each connection is a gateway
+// route (ecs_gateway_routes.go).
 
 const (
 	ecsGatewayStatusActive           = "ACTIVE"
@@ -30,9 +26,9 @@ const (
 	ecsGatewayAssociationActive         = "ACTIVE"
 	ecsGatewayAssociationDisassociating = "DISASSOCIATING"
 
-	// "Max Gateway-Cluster Associations Per Cluster 5", "Max Clusters Per
-	// Gateway 10,000", "Max Application Load Balancers Per Gateway 200" and
-	// "Max Services Per Application Load Balancer 25" (Gateway Service Limits).
+	// Gateway Service Limits: "Max Gateway-Cluster Associations Per Cluster 5",
+	// "Max Clusters Per Gateway 10,000", "Max Application Load Balancers Per
+	// Gateway 200", "Max Services Per Application Load Balancer 25".
 	ecsGatewayMaxAssociationsPerCluster = 5
 	ecsGatewayMaxClustersPerGateway     = 10000
 	ecsGatewayMaxAlbCountLimit          = 200
@@ -69,8 +65,7 @@ type ecsGatewayTestTrafficRules struct {
 	Header *ecsGatewayTestTrafficHeader `json:"header,omitempty"`
 }
 
-// ecsGatewayAlbConfiguration is a hostSharedAlb gateway's configuration as
-// DescribeGateway returns it; the request shapes are subsets of it.
+// As DescribeGateway returns it; the request shapes are subsets.
 type ecsGatewayAlbConfiguration struct {
 	NetworkConfiguration *ecsGatewayElbNetworkConfiguration `json:"networkConfiguration,omitempty"`
 	Scheme               string                             `json:"scheme,omitempty"`
@@ -95,18 +90,15 @@ type ecsGatewayResourceFailure struct {
 	Errors []ecsGatewayOperationError `json:"errors"`
 }
 
-// ECSGatewayLoadBalancer is one Application Load Balancer a gateway manages,
-// with the listener and security group it created alongside it.
+// With the listener and security group created alongside it.
 type ECSGatewayLoadBalancer struct {
 	LoadBalancerArn string `json:"loadBalancerArn"`
 	DNSName         string `json:"dnsName"`
 	ListenerArn     string `json:"listenerArn,omitempty"`
 	SecurityGroupID string `json:"securityGroupId,omitempty"`
-	// IngressRuleIDs are the inbound rules the gateway manages on its security
-	// group: none while the gateway has an inbound security group of its own.
+	// None while the gateway has an inbound security group of its own.
 	IngressRuleIDs []string `json:"ingressRuleIds,omitempty"`
-	// WebACLArn is the web ACL associated with the load balancer.
-	WebACLArn string `json:"webACLArn,omitempty"`
+	WebACLArn      string   `json:"webACLArn,omitempty"`
 }
 
 type ECSGateway struct {
@@ -126,8 +118,7 @@ type ECSGateway struct {
 	UpdatedAt             float64                     `json:"updatedAt"`
 	ClientToken           string                      `json:"clientToken,omitempty"`
 	LoadBalancers         []ECSGatewayLoadBalancer    `json:"loadBalancers,omitempty"`
-	// UpdateGeneration counts UpdateGateway calls, so an update applying an
-	// older configuration does not report over a newer one.
+	// An update applying an older configuration does not report over a newer one.
 	UpdateGeneration int `json:"updateGeneration,omitempty"`
 }
 
@@ -141,9 +132,8 @@ var (
 	ecsGateways            sim.Store[ECSGateway]
 	ecsGatewayAssociations sim.Store[ECSGatewayAssociation]
 
-	// ecsGatewayMu serializes every change to gateways, their associations and
-	// their routes, and the infrastructure work behind them, so a load balancer
-	// is never chosen by two routes that each see a free slot.
+	// Serialize gateway, association and route changes so two routes never both
+	// take a load balancer's last free slot.
 	ecsGatewayMu sync.Mutex
 )
 
@@ -172,7 +162,6 @@ func ecsGatewayNotFound(w http.ResponseWriter) {
 		http.StatusBadRequest)
 }
 
-// ecsResolveGateway finds the gateway a request names by its name or its ARN.
 func ecsResolveGateway(ref string) (ECSGateway, bool) {
 	if ref == "" {
 		return ECSGateway{}, false
@@ -187,7 +176,6 @@ func ecsResolveGateway(ref string) (ECSGateway, bool) {
 
 var ecsGatewaysByName sim.GenerationIndex[ECSGateway]
 
-// ecsResolveCluster finds an ACTIVE cluster by its name or its ARN.
 func ecsResolveCluster(ref string) (ECSCluster, bool) {
 	cluster, ok := ecsClusters.Get(ecsClusterNameFromRef(ref))
 	if !ok || cluster.Status != "ACTIVE" {
@@ -203,8 +191,7 @@ func ecsGatewayAssociationKey(gatewayArn, clusterArn string) string {
 	return gatewayArn + "|" + clusterArn
 }
 
-// ecsGatewayConfigurationVariant reads a gateway configuration union, of which
-// exactly one member names the gateway type.
+// Exactly one member names the gateway type.
 func ecsGatewayConfigurationVariant(raw json.RawMessage) (*ecsGatewayAlbConfiguration, string) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, "configuration is required"
@@ -252,8 +239,7 @@ func ecsValidateGatewayMutableSettings(config *ecsGatewayAlbConfiguration) strin
 	return ""
 }
 
-// ecsGatewayApplyCreateDefaults fills every setting CreateGateway leaves out
-// with the default the API reference states for it.
+// The defaults the API reference states.
 func ecsGatewayApplyCreateDefaults(config *ecsGatewayAlbConfiguration) string {
 	if config.NetworkConfiguration == nil {
 		config.NetworkConfiguration = &ecsGatewayElbNetworkConfiguration{}
@@ -317,9 +303,7 @@ func ecsGatewayAccessType(scheme string) string {
 	return "PUBLIC"
 }
 
-// ecsGatewayRoleAssumable answers whether Amazon ECS can assume the
-// infrastructure role, which CreateGateway and UpdateGateway check before they
-// accept it.
+// CreateGateway and UpdateGateway check the role before accepting it.
 func ecsGatewayRoleAssumable(gatewayArn, roleArn string) bool {
 	_, err := awsAssumeServiceRole(awsActor{Service: "ecs.amazonaws.com", Source: gatewayArn, Role: roleArn})
 	return err == nil
@@ -497,8 +481,7 @@ var ecsGatewayStatuses = []string{
 	ecsGatewayStatusUpdateFailed, ecsGatewayStatusDeleted,
 }
 
-// ecsValidateStatusFilter checks a status filter against its enum, its
-// uniqueItems trait and its length bound.
+// Checks the enum, the uniqueItems trait and the length bound.
 func ecsValidateStatusFilter(statuses, allowed []string, max int) string {
 	if len(statuses) > max {
 		return fmt.Sprintf("status accepts at most %d values.", max)
@@ -631,9 +614,8 @@ func handleECSUpdateGateway(w http.ResponseWriter, r *http.Request) {
 		gateway.PropagateTags = req.PropagateTags
 	}
 	if update != nil {
-		// The configuration in the request replaces the mutable settings: one
-		// it leaves out returns to its default or is removed. The settings
-		// fixed at creation are not part of the update shape.
+		// The request's configuration replaces the mutable settings; omitted ones
+		// revert or go. Creation-time settings are not in the update shape.
 		config := gateway.Configuration
 		network := *config.NetworkConfiguration
 		network.InboundSecurityGroup = ""
@@ -795,8 +777,7 @@ func handleECSDisassociateGatewayFromCluster(w http.ResponseWriter, r *http.Requ
 	}
 	association.Status = ecsGatewayAssociationDisassociating
 	ecsGatewayAssociations.Put(key, association)
-	// The association stays DISASSOCIATING until the cluster's last route
-	// through the gateway is gone; with none it is gone now.
+	// DISASSOCIATING until the cluster's last route through the gateway is gone.
 	ecsGatewayCompleteDisassociation(gateway.GatewayArn, cluster.ClusterArn)
 	sim.WriteJSON(w, http.StatusOK, association)
 }
@@ -954,8 +935,8 @@ func handleECSListGatewayRoutes(w http.ResponseWriter, r *http.Request) {
 	if problem == "" {
 		problem = ecsValidateMaxResults(req.MaxResults, 100)
 	}
-	// "Filtering by a service name alone is not allowed, because service
-	// names are unique only within a cluster."
+	// "Filtering by a service name alone is not allowed, because service names
+	// are unique only within a cluster."
 	if problem == "" && req.Service != "" && !strings.HasPrefix(req.Service, "arn:") && req.Cluster == "" {
 		problem = "Pass a full service ARN, or a service name together with its cluster."
 	}

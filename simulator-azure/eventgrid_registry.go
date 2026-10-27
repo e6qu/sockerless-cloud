@@ -7,12 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.EventGrid tenant-level read-only registries: the resource-provider
-// operations list, the topic-type catalog, and the system event types each
-// topic type emits.
+// Microsoft.EventGrid tenant-level registries: the operations list, the
+// topic-type catalog, and each topic type's system event types.
 
-// eventGridTopicTypeInfo describes a built-in Event Grid topic type and the
-// system event types its sources emit.
 type eventGridTopicTypeInfo struct {
 	name               string
 	provider           string
@@ -29,9 +26,8 @@ type eventGridEventTypeInfo struct {
 	description string
 }
 
-// eventGridTopicTypeCatalog is a representative slice of the real Azure Event
-// Grid topic-type catalog — the custom topic/domain types plus widely-used
-// system-topic source types and their canonical system event types.
+// A representative slice of Azure's topic-type catalog: the custom topic and
+// domain types plus widely used system-topic sources and their event types.
 var eventGridTopicTypeCatalog = []eventGridTopicTypeInfo{
 	{
 		name: "Microsoft.EventGrid.Topics", provider: "Microsoft.EventGrid",
@@ -165,9 +161,7 @@ func handleEventGridListTopicTypeEventTypes(w http.ResponseWriter, r *http.Reque
 	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "topic type %q not found", name)
 }
 
-// handleEventGridListResourceEventTypes lists the system event types emitted by
-// an arbitrary Azure resource (Topics_ListEventTypes / generic eventTypes by
-// resource), matched to the catalog by the resource's provider + type.
+// Matched to the catalog by the resource's provider and type.
 func handleEventGridListResourceEventTypes(w http.ResponseWriter, r *http.Request) {
 	provider := sim.PathParam(r, "providerNamespace")
 	resourceType := sim.PathParam(r, "resourceTypeName")
@@ -188,8 +182,7 @@ func handleEventGridListResourceEventTypes(w http.ResponseWriter, r *http.Reques
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
-// eventGridOperations is a representative slice of the Microsoft.EventGrid
-// resource-provider operation catalog returned by Operations_List.
+// A representative slice of Microsoft.EventGrid's Operations_List catalog.
 var eventGridOperations = []map[string]any{
 	egOp("Microsoft.EventGrid/topics/read", "EventGrid Topics", "Read a topic"),
 	egOp("Microsoft.EventGrid/topics/write", "EventGrid Topics", "Create or update a topic"),

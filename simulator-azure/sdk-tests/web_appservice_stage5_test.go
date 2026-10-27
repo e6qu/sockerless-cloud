@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service networking surfaces: the classic
-// virtualNetworkConnections spelling of VNet integration (coherent with the
-// swift networkConfig/virtualNetwork spelling), connection gateways, private
-// access, networkFeatures, site private endpoint connections + private link
-// resources, both hybrid connection families, and the App Service plan
-// networking/worker tail:
+// The App Service networking surfaces: the classic virtualNetworkConnections
+// spelling of virtual network integration, coherent with the swift
+// networkConfig/virtualNetwork spelling; connection gateways; private access;
+// networkFeatures; site private endpoint connections and private link
+// resources; both hybrid connection families; and the plan networking and
+// worker operations.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/virtualNetworkConnections (+ slot)
 //	GET+PUT+PATCH+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/virtualNetworkConnections/{vnetName} (+ slot)
@@ -54,8 +54,6 @@ import (
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/workers/{workerName}/recycleinstance
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/getrdppassword
 
-// stage5EnsurePlan creates an App Service plan with the given SKU and returns
-// its resource id.
 func stage5EnsurePlan(t *testing.T, rg, plan, skuName, skuTier string) string {
 	t.Helper()
 	client, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -74,14 +72,12 @@ func stage5EnsurePlan(t *testing.T, rg, plan, skuName, skuTier string) string {
 	return *created.ID
 }
 
-// unstartedSiteImage is the image of a site no request reaches and that is not
-// Always On, so its container never starts and the image is never pulled: VNet
-// integration of such a site records the connection and starts nothing.
+// unstartedSiteImage belongs to a site that is not Always On and gets no
+// request, so its container never starts and the image is never pulled.
 const unstartedSiteImage = "registry.example/functions/azf:test"
 
-// stage5CreateSite creates a function app bound to planID. A non-empty image
-// becomes the site's Linux container, appCommandLine its startup command, and
-// alwaysOn its Always On setting.
+// stage5CreateSite creates a function app on planID; a non-empty image becomes
+// its Linux container, appCommandLine its startup command.
 func stage5CreateSite(t *testing.T, rg, name, planID, image, appCommandLine string, alwaysOn bool) string {
 	t.Helper()
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -107,9 +103,8 @@ func stage5CreateSite(t *testing.T, rg, name, planID, image, appCommandLine stri
 	return *created.ID
 }
 
-// stage5Subnet creates a VNet + subnet delegated to Microsoft.Web/serverFarms
-// through armnetwork — the real Microsoft.Network store the connection
-// handlers resolve against — and returns the subnet's ARM id.
+// stage5Subnet creates a virtual network and a subnet delegated to
+// Microsoft.Web/serverFarms through armnetwork, and returns the subnet's ID.
 func stage5Subnet(t *testing.T, rg, vnetName, vnetCIDR, subnetName, subnetCIDR string) string {
 	t.Helper()
 	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -144,11 +139,10 @@ func stage5Subnet(t *testing.T, rg, vnetName, vnetCIDR, subnetName, subnetCIDR s
 	return *subnet.ID
 }
 
-// TestSDK_WebVnet_SwiftClassicCoherence proves the two ARM spellings of VNet
-// integration describe ONE state: a swift PUT surfaces in the classic
-// virtualNetworkConnections list (the read `az webapp vnet-integration list`
-// does), a classic PUT surfaces on the swift GET, and a classic DELETE clears
-// the swift view. Also covers connection gateways and the slot spellings.
+// TestSDK_WebVnet_SwiftClassicCoherence: the two spellings describe one state.
+// A swift PUT shows in the classic list (`az webapp vnet-integration list`), a
+// classic PUT shows on the swift GET, and a classic DELETE clears the swift
+// view. It also covers connection gateways and the slot spellings.
 func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	t.Parallel()
 	rg := "stage5-vnet-rg"
@@ -160,7 +154,6 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Swift PUT — the regional integration.
 	swiftPut, err := web.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-vnet-app", armappservice.SwiftVirtualNetwork{
 		Properties: &armappservice.SwiftVirtualNetworkProperties{
 			SubnetResourceID: to.Ptr(subnetID),
@@ -171,8 +164,8 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	require.NotNil(t, swiftPut.Properties)
 	assert.Equal(t, subnetID, *swiftPut.Properties.SubnetResourceID)
 
-	// The classic list shows the SAME integration: named <vnet>_<subnet>,
-	// isSwift, vnetResourceId = the subnet.
+	// The classic list shows the same integration: named <vnet>_<subnet>, isSwift,
+	// vnetResourceId the subnet.
 	list, err := web.ListVnetConnections(ctx, rg, "s5-vnet-app", nil)
 	require.NoError(t, err)
 	require.Len(t, list.VnetInfoResourceArray, 1)
@@ -186,7 +179,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, subnetID, *got.Properties.VnetResourceID)
 
-	// PATCH (UpdateVnetConnection) keeps the target and adds DNS servers.
+	// UpdateVnetConnection keeps the target and adds DNS servers.
 	patched, err := web.UpdateVnetConnection(ctx, rg, "s5-vnet-app", "s5-vnet_appsvc", armappservice.VnetInfoResource{
 		Properties: &armappservice.VnetInfo{DNSServers: to.Ptr("10.60.0.53")},
 	}, nil)
@@ -194,7 +187,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	assert.Equal(t, subnetID, *patched.Properties.VnetResourceID)
 	assert.Equal(t, "10.60.0.53", *patched.Properties.DNSServers)
 
-	// Connection gateway: a pure ARM record on the connection.
+	// A connection gateway is an ARM record on the connection.
 	gwPut, err := web.CreateOrUpdateVnetConnectionGateway(ctx, rg, "s5-vnet-app", "s5-vnet_appsvc", "primary", armappservice.VnetGateway{
 		Properties: &armappservice.VnetGatewayProperties{VPNPackageURI: to.Ptr("https://vpn.example/pkg.zip")},
 	}, nil)
@@ -211,7 +204,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Classic DELETE clears the swift view too.
+	// A classic DELETE clears the swift view too.
 	_, err = web.DeleteVnetConnection(ctx, rg, "s5-vnet-app", "s5-vnet_appsvc", nil)
 	require.NoError(t, err)
 	swiftGot, err := web.GetSwiftVirtualNetworkConnection(ctx, rg, "s5-vnet-app", nil)
@@ -220,7 +213,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 		assert.Nil(t, swiftGot.Properties.SubnetResourceID)
 	}
 
-	// Classic PUT (subnet-referencing) surfaces on the swift GET.
+	// A classic PUT referencing the subnet shows on the swift GET.
 	_, err = web.CreateOrUpdateVnetConnection(ctx, rg, "s5-vnet-app", "s5-vnet_appsvc", armappservice.VnetInfoResource{
 		Properties: &armappservice.VnetInfo{VnetResourceID: to.Ptr(subnetID)},
 	}, nil)
@@ -231,13 +224,12 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	require.NotNil(t, swiftGot.Properties.SubnetResourceID)
 	assert.Equal(t, subnetID, *swiftGot.Properties.SubnetResourceID)
 
-	// Swift PATCH (UpdateSwiftVirtualNetworkConnectionWithCheck).
 	_, err = web.UpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-vnet-app", armappservice.SwiftVirtualNetwork{
 		Properties: &armappservice.SwiftVirtualNetworkProperties{SubnetResourceID: to.Ptr(subnetID)},
 	}, nil)
 	require.NoError(t, err)
 
-	// Slot spellings: the slot carries its own independent integration.
+	// The slot carries its own independent integration.
 	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, "s5-vnet-app", "stage", armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp,linux,container"),
@@ -298,10 +290,9 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	assert.Empty(t, slotListAfter.VnetInfoResourceArray)
 }
 
-// TestSDK_WebVnet_PlanNetworkingTail exercises the App Service plan networking
-// and worker tail. The plan-level VNet views assemble from the connections the
-// plan's sites really have; the instance surface answers from real container
-// state (this plan runs none, so it answers the honest empty set).
+// TestSDK_WebVnet_PlanNetworkingTail: the plan-level views assemble from the
+// connections the plan's sites have, and the instance surface answers from
+// container state; this plan runs none.
 func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	t.Parallel()
 	rg := "stage5-plan-rg"
@@ -320,7 +311,6 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The plan-level view lists the site's integration.
 	vnets, err := plans.ListVnets(ctx, rg, "s5-tail-plan", nil)
 	require.NoError(t, err)
 	require.Len(t, vnets.VnetInfoResourceArray, 1)
@@ -331,8 +321,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, subnetID, *planConn.Properties.VnetResourceID)
 
-	// Routes CRUD on the plan connection; the site connection read surfaces
-	// the plan's routes.
+	// Routes on the plan connection show on the site connection read.
 	route, err := plans.CreateOrUpdateVnetRoute(ctx, rg, "s5-tail-plan", "s5-tail-vnet_appsvc", "corp", armappservice.VnetRoute{
 		Properties: &armappservice.VnetRouteProperties{
 			StartAddress: to.Ptr("10.200.0.0"),
@@ -347,7 +336,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, routes.VnetRouteArray, 1)
 
-	// The single-route read answers an array — the wire contract's shape.
+	// The single-route read answers an array, per the wire contract.
 	one, err := plans.GetRouteForVnet(ctx, rg, "s5-tail-plan", "s5-tail-vnet_appsvc", "corp", nil)
 	require.NoError(t, err)
 	require.Len(t, one.VnetRouteArray, 1)
@@ -366,7 +355,6 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	_, err = plans.DeleteVnetRoute(ctx, rg, "s5-tail-plan", "s5-tail-vnet_appsvc", "corp", nil)
 	require.NoError(t, err)
 
-	// Plan-level connection gateway.
 	_, err = plans.UpdateVnetGateway(ctx, rg, "s5-tail-plan", "s5-tail-vnet_appsvc", "primary", armappservice.VnetGateway{
 		Properties: &armappservice.VnetGatewayProperties{VPNPackageURI: to.Ptr("https://vpn.example/plan.zip")},
 	}, nil)
@@ -375,7 +363,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://vpn.example/plan.zip", *planGw.Properties.VPNPackageURI)
 
-	// Capabilities: what the simulator's plan really provides.
+	// The capabilities of the simulator's plan.
 	caps, err := plans.ListCapabilities(ctx, rg, "s5-tail-plan", nil)
 	require.NoError(t, err)
 	capByName := map[string]string{}
@@ -385,7 +373,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	assert.Equal(t, "true", capByName["LinuxWorkers"])
 	assert.Equal(t, "true", capByName["VnetIntegration"])
 
-	// The selectable SKUs are consistent with the SKU the plan runs.
+	// The selectable SKUs match the SKU the plan runs.
 	skus, err := plans.GetServerFarmSKUs(ctx, rg, "s5-tail-plan", nil)
 	require.NoError(t, err)
 	skuDoc, ok := skus.Interface.(map[string]any)
@@ -396,8 +384,8 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	require.Len(t, skuList, 1)
 	assert.Equal(t, "S1", skuList[0].(map[string]any)["name"])
 
-	// No site on this plan runs a container, so the instance surface answers
-	// the honest empty set, and worker actions answer 404.
+	// No site on this plan runs a container, so the instance list is empty and
+	// worker actions answer 404.
 	details, err := plans.GetServerFarmInstanceDetails(ctx, rg, "s5-tail-plan", nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), *details.InstanceCount)
@@ -412,18 +400,16 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	require.ErrorAs(t, err, &respErr)
 	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 
-	// The simulator's workers are Linux containers; RDP reports that truthfully.
+	// The simulator's workers are Linux containers, so RDP reports that.
 	_, err = plans.GetServerFarmRdpPassword(ctx, rg, "s5-tail-plan", nil)
 	require.ErrorAs(t, err, &respErr)
 	assert.Equal(t, http.StatusBadRequest, respErr.StatusCode)
 }
 
-// TestSDK_WebVnet_JoinsRealNetwork proves a VNet connection is a real join,
-// not a record: an Always On redis site put on the VNet through the CLASSIC
-// spelling has its real container running on the VNet's Docker network, a
-// function site integrated through the swift spelling reaches it BY NAME from
-// its container, and deleting the classic connection really disconnects — the
-// same probe then fails.
+// TestSDK_WebVnet_JoinsRealNetwork: an Always On redis site joined through the
+// classic spelling runs its container on the virtual network's Docker network,
+// a function site joined through the swift spelling reaches it by name, and
+// deleting the classic connection disconnects it.
 func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	t.Parallel()
 	rg := "stage5-join-rg"
@@ -431,8 +417,8 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	planID := stage5EnsurePlan(t, rg, "s5-join-plan", "S1", "Standard")
 	subnetID := stage5Subnet(t, rg, "s5-join-vnet", "10.62.0.0/16", "appsvc", "10.62.1.0/24")
 
-	// A redis container group injected into a second subnet of the same
-	// virtual network holds a private address there.
+	// A redis container group injected into a second subnet of the network holds
+	// a private address there.
 	subnets, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	aciSubnetPoller, err := subnets.BeginCreateOrUpdate(ctx, rg, "s5-join-vnet", "aci", armnetwork.Subnet{
@@ -483,8 +469,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	redisAddress := derefString(group.Properties.IPAddress.IP)
 	require.True(t, strings.HasPrefix(redisAddress, "10.62.2."), "the group holds an address in its subnet, got %q", redisAddress)
 
-	// The virtual network's private zone names the group, as a deployment
-	// names a service on its network.
+	// The network's private zone names the group.
 	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zones.BeginCreateOrUpdate(ctx, rg, "join.internal", armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
@@ -511,8 +496,8 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The probe function site: speaks the redis protocol to the service BY
-	// ITS PRIVATE ZONE NAME over the VNet.
+	// The probe site speaks the redis protocol to the service by its private zone
+	// name.
 	stage5CreateSite(t, rg, "s5-join-probe", planID, commandImageName,
 		"relay-http 80 redis.join.internal:6379 PING", false)
 	defer azureDeleteSite(rg, "s5-join-probe")
@@ -520,17 +505,14 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Swift PUT integrates the probe site.
 	_, err = web.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-join-probe", armappservice.SwiftVirtualNetwork{
 		Properties: &armappservice.SwiftVirtualNetworkProperties{SubnetResourceID: to.Ptr(subnetID), SwiftSupported: to.Ptr(true)},
 	}, nil)
 	require.NoError(t, err)
 
-	// The probe's container runs on the VNet, resolves redis through the
-	// network's resolver and reaches it: the wire answer is redis's own
-	// +PONG. The group's redis opens 6379 a moment after the group reports
-	// running, and App Service reports no readiness for a raw service, so the
-	// probe waits for that answer.
+	// The probe resolves redis through the network's resolver and gets +PONG. The
+	// group's redis opens 6379 a moment after the group reports running, and App
+	// Service reports no readiness for a raw service, so wait for that answer.
 	var lastStatus int
 	var lastBody []byte
 	require.Eventually(t, func() bool {
@@ -539,16 +521,15 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	}, 60*time.Second, 250*time.Millisecond,
 		"the probe never reached redis by name over the VNet; last answer %d: %s", lastStatus, lastBody)
 
-	// Deleting the integration restarts the probe off the network: the
-	// private zone no longer answers it and the same probe fails.
+	// Deleting the integration restarts the probe off the network, and the same
+	// probe fails.
 	_, err = web.DeleteSwiftVirtualNetwork(ctx, rg, "s5-join-probe", nil)
 	require.NoError(t, err)
 	status, body := azureInvokeFunctionResponse(t, "s5-join-probe")
 	assert.Equal(t, http.StatusBadGateway, status, "the probe can no longer reach redis: %s", body)
 
-	// The plan's worker-instance surface answers from the same real container
-	// state: the site's running container is the plan's live worker, and
-	// rebooting it through the plan API really tears it down.
+	// The site's running container is the plan's live worker, and rebooting it
+	// through the plan API tears it down.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	details, err := plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
@@ -567,7 +548,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 }
 
 // TestSDK_WebHybridConnections_SiteAndPlanViews covers both hybrid connection
-// families on a site and the plan-level views assembled from the same store.
+// families on a site and the plan-level views of the same store.
 func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	t.Parallel()
 	rg := "stage5-hybrid-rg"
@@ -578,8 +559,8 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// Service Bus relay hybrid connection: the send key is carried as state
-	// but never returned on an ARM read — only the plan's listKeys action.
+	// The Service Bus relay send key is kept but never returned on an ARM read;
+	// only the plan's listKeys returns it.
 	put, err := web.CreateOrUpdateHybridConnection(ctx, rg, "s5-hyb-app", "s5-relay-ns", "s5-relay", armappservice.HybridConnection{
 		Properties: &armappservice.HybridConnectionProperties{
 			Hostname:     to.Ptr("onprem.internal"),
@@ -604,13 +585,13 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The site view (single-resource contract shape).
+	// The site view has the single-resource contract shape.
 	relays, err := web.ListHybridConnections(ctx, rg, "s5-hyb-app", nil)
 	require.NoError(t, err)
 	require.NotNil(t, relays.ID)
 	assert.True(t, strings.HasSuffix(*relays.ID, "/hybridConnectionNamespaces/s5-relay-ns/relays/s5-relay"))
 
-	// Classic (BizTalk) relay service connection — the second, distinct family.
+	// The classic (BizTalk) relay service connection, a distinct family.
 	_, err = web.CreateOrUpdateRelayServiceConnection(ctx, rg, "s5-hyb-app", "s5-biztalk", armappservice.RelayServiceConnectionEntity{
 		Properties: &armappservice.RelayServiceConnectionEntityProperties{
 			Hostname:     to.Ptr("legacy.internal"),
@@ -631,7 +612,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// networkFeatures assembles the REAL connection state: both families.
+	// networkFeatures reports both families.
 	features, err := web.ListNetworkFeatures(ctx, rg, "s5-hyb-app", "summary", nil)
 	require.NoError(t, err)
 	require.Len(t, features.Properties.HybridConnectionsV2, 1)
@@ -639,7 +620,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	require.Len(t, features.Properties.HybridConnections, 1)
 	assert.Equal(t, "legacy2.internal", *features.Properties.HybridConnections[0].Properties.Hostname)
 
-	// Plan-level views assemble from the same site-level state.
+	// The plan-level views assemble from the site-level state.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -677,7 +658,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	assert.Equal(t, int32(1), *limit.Properties.Current)
 	assert.Equal(t, int32(25), *limit.Properties.Maximum, "a Standard plan allows 25 hybrid connections")
 
-	// Plan-level delete removes the site-level connection.
+	// A plan-level delete removes the site-level connection.
 	_, err = plans.DeleteHybridConnection(ctx, rg, "s5-hyb-plan", "s5-relay-ns", "s5-relay", nil)
 	require.NoError(t, err)
 	_, err = web.GetHybridConnection(ctx, rg, "s5-hyb-app", "s5-relay-ns", "s5-relay", nil)
@@ -685,7 +666,6 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	require.ErrorAs(t, err, &respErr)
 	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 
-	// Site-level lifecycle tail: recreate, then delete through the site.
 	_, err = web.CreateOrUpdateHybridConnection(ctx, rg, "s5-hyb-app", "s5-relay-ns", "s5-relay2", armappservice.HybridConnection{
 		Properties: &armappservice.HybridConnectionProperties{Hostname: to.Ptr("onprem.internal"), Port: to.Ptr(int32(5671))},
 	}, nil)
@@ -695,7 +675,6 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	_, err = web.DeleteRelayServiceConnection(ctx, rg, "s5-hyb-app", "s5-biztalk", nil)
 	require.NoError(t, err)
 
-	// Slot spellings of both families.
 	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, "s5-hyb-app", "stage", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Kind:       to.Ptr("functionapp,linux,container"),
@@ -739,9 +718,8 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSDK_WebPrivateAccess_RoundTrip covers the private access record on site
-// and slot: absent reads as disabled with no Virtual Networks, and a PUT
-// round-trips exactly.
+// TestSDK_WebPrivateAccess_RoundTrip: an absent private access record reads as
+// disabled with no virtual networks, and a PUT round-trips, on site and slot.
 func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	t.Parallel()
 	s5PaAppName := uniquename.New("s5-pa-app")
@@ -785,7 +763,6 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	require.Len(t, got.Properties.VirtualNetworks[0].Subnets, 1)
 	assert.Equal(t, "appsvc", *got.Properties.VirtualNetworks[0].Subnets[0].Name)
 
-	// Slot spelling.
 	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, s5PaAppName, "stage", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Kind:       to.Ptr("functionapp,linux,container"),
@@ -803,23 +780,20 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSDK_WebSitePrivateEndpointConnections proves the site PEC surface serves
-// the SAME connection object a Microsoft.Network private endpoint opens
-// against the site — approval lifecycle and LRO delete included — plus the
-// site's private link resource catalog.
+// TestSDK_WebSitePrivateEndpointConnections: the site's connection collection
+// serves the connection a Microsoft.Network private endpoint opens on the site,
+// through approval and LRO delete, plus the private link resource catalog.
 func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	t.Parallel()
-	// The connection is opened by a real Microsoft.Network private endpoint,
-	// which the simulator provisions into a network namespace — the same host
-	// capability every other private-endpoint test requires.
+	// The private endpoint needs a network namespace, like every private endpoint
+	// test.
 	rg := "stage5-pec-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pec-plan", "S1", "Standard")
 	siteID := stage5CreateSite(t, rg, "s5-pec-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-pec-vnet", "10.63.0.0/16", "pe-subnet", "10.63.1.0/24")
 
-	// A private endpoint targeting the site opens the connection on the
-	// site's own collection (auto-approved: same subscription).
+	// Same subscription, so the connection is auto-approved.
 	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "s5-site-pe", armnetwork.PrivateEndpoint{
@@ -862,7 +836,6 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Approved", *got.Properties.PrivateLinkServiceConnectionState.Status)
 
-	// The site owner rejects the connection.
 	rejectPoller, err := web.BeginApproveOrRejectPrivateEndpointConnection(ctx, rg, "s5-pec-app", "s5-site-pe",
 		armappservice.RemotePrivateEndpointConnectionARMResource{
 			Properties: &armappservice.RemotePrivateEndpointConnectionARMResourceProperties{
@@ -877,7 +850,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Rejected", *rejected.Properties.PrivateLinkServiceConnectionState.Status)
 
-	// The endpoint's own read observes the owner's decision — one object.
+	// The endpoint's own read shows the owner's decision: one object.
 	peGot, err := peClient.Get(ctx, rg, "s5-site-pe", nil)
 	require.NoError(t, err)
 	peState := peGot.Properties.PrivateLinkServiceConnections[0].Properties.PrivateLinkServiceConnectionState
@@ -892,7 +865,6 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	require.Len(t, plr.Value[0].Properties.RequiredZoneNames, 1)
 	assert.Equal(t, "privatelink.azurewebsites.net", *plr.Value[0].Properties.RequiredZoneNames[0])
 
-	// LRO delete removes the connection.
 	delPoller, err := web.BeginDeletePrivateEndpointConnection(ctx, rg, "s5-pec-app", "s5-site-pe", nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
@@ -902,7 +874,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	require.ErrorAs(t, err, &respErr)
 	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 
-	// Slot catalog: the slot publishes its slot-scoped group.
+	// The slot publishes its slot-scoped group.
 	slotPoller, err := web.BeginCreateOrUpdateSlot(ctx, rg, "s5-pec-app", "stage", armappservice.Site{
 		Location:   to.Ptr("eastus"),
 		Kind:       to.Ptr("functionapp,linux,container"),

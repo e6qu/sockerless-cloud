@@ -5,20 +5,13 @@ import (
 	"testing"
 )
 
-// IAM account-reports / service-last-accessed / Organizations-root families
-// driven through the aws CLI (appdata shard).
-//
-// CLI coverage note: the cross-account delegation family
+// aws CLI 2.26.6 lacks the cross-account delegation family
 // (create/get/list/accept/reject/associate/update-delegation-request,
-// send-delegation-token), the outbound web-identity-federation family
-// (enable/disable/get-outbound-web-identity-federation*), and
-// get-human-readable-summary are absent from aws CLI 2.26.6, so they are
-// exercised through the SDK (sdk-tests/iam_account_reports_test.go) which
-// covers the simulator-test contract hook for those operations. Everything the
-// CLI exposes is covered here.
+// send-delegation-token), the outbound web identity federation family
+// (enable/disable/get-outbound-web-identity-federation*) and
+// get-human-readable-summary; sdk-tests/iam_account_reports_test.go covers
+// them.
 
-// TestIAMAccountReportsCLI_SummaryAndAuthDetails drives get-account-summary and
-// get-account-authorization-details against the real IAM stores.
 func TestIAMAccountReportsCLI_SummaryAndAuthDetails(t *testing.T) {
 	t.Parallel()
 	user := "iamar-cli-user"
@@ -51,8 +44,8 @@ func TestIAMAccountReportsCLI_SummaryAndAuthDetails(t *testing.T) {
 	}
 }
 
-// TestIAMAccountReportsCLI_CredentialReport drives the generate→get credential
-// report flow and asserts the CSV enumerates the real users.
+// TestIAMAccountReportsCLI_CredentialReport expects the credential report CSV
+// to enumerate the account's users.
 func TestIAMAccountReportsCLI_CredentialReport(t *testing.T) {
 	t.Parallel()
 	user := "iamar-cli-credrep"
@@ -62,10 +55,9 @@ func TestIAMAccountReportsCLI_CredentialReport(t *testing.T) {
 	runCLI(t, awsCLI("iam", "generate-credential-report"))
 	runCLI(t, awsCLI("iam", "generate-credential-report"))
 
-	// The CLI base64-decodes Content automatically into the CSV text.
+	// The CLI base64-decodes Content into the CSV text.
 	report := runCLI(t, awsCLI("iam", "get-credential-report",
 		"--query", "Content", "--output", "text"))
-	// --output text leaves Content base64-encoded; assert the format field too.
 	format := strings.TrimSpace(runCLI(t, awsCLI("iam", "get-credential-report",
 		"--query", "ReportFormat", "--output", "text")))
 	if format != "text/csv" {
@@ -76,9 +68,6 @@ func TestIAMAccountReportsCLI_CredentialReport(t *testing.T) {
 	}
 }
 
-// TestIAMAccountReportsCLI_ServiceLastAccessed drives the generate→get service-
-// last-accessed flow plus the with-entities variant and the Organizations
-// access report.
 func TestIAMAccountReportsCLI_ServiceLastAccessed(t *testing.T) {
 	t.Parallel()
 	role := "iamar-cli-sla-role"
@@ -130,9 +119,6 @@ func TestIAMAccountReportsCLI_ServiceLastAccessed(t *testing.T) {
 	}
 }
 
-// TestIAMAccountReportsCLI_OrganizationsRootAndSTS drives the Organizations-root
-// credential-management + sessions toggles, list-organizations-features, and
-// set-security-token-service-preferences.
 func TestIAMAccountReportsCLI_OrganizationsRootAndSTS(t *testing.T) {
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("iam", "disable-organizations-root-sessions"))
@@ -158,7 +144,6 @@ func TestIAMAccountReportsCLI_OrganizationsRootAndSTS(t *testing.T) {
 		t.Fatalf("disable-organizations-root-sessions still lists RootSessions: %q", disabled)
 	}
 
-	// set-security-token-service-preferences has no output; success = no error.
 	runCLI(t, awsCLI("iam", "set-security-token-service-preferences",
 		"--global-endpoint-token-version", "v2Token"))
 }

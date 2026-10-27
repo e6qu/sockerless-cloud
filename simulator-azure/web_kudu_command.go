@@ -17,16 +17,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// web_kudu_command.go serves Kudu's command API: POST /api/command runs a
-// shell command in the SCM site's environment — the site's image with its
-// /home mounted and its app settings in the environment — from a directory
-// relative to /home, and answers with what it wrote and its exit code. A
-// command that writes nothing for SCM_COMMAND_IDLE_TIMEOUT seconds is
-// killed. The command works on the site's persistent /home share, the one the
-// app's containers mount.
+// POST /api/command runs a shell command in the SCM site's environment — the
+// site's image with its persistent /home mounted and its app settings set —
+// from a directory relative to /home, and answers with its output and exit
+// code. A command silent for SCM_COMMAND_IDLE_TIMEOUT seconds is killed.
 
-// kuduSettingDefaults are the settings Kudu holds before any app setting or
-// SCM settings write names them.
+// Kudu's settings before any app setting or SCM settings write names them.
 var kuduSettingDefaults = map[string]string{
 	"deployment_branch":        "master",
 	"SCM_TRACE_LEVEL":          "1",
@@ -35,7 +31,6 @@ var kuduSettingDefaults = map[string]string{
 	"SCM_BUILD_ARGS":           "",
 }
 
-// kuduSettingSeconds reads one of Kudu's timeout settings in seconds.
 func kuduSettingSeconds(site *Site, name string) time.Duration {
 	if v, err := strconv.Atoi(strings.TrimSpace(kuduSettings(site)[name])); err == nil && v > 0 {
 		return time.Duration(v) * time.Second
@@ -44,7 +39,6 @@ func kuduSettingSeconds(site *Site, name string) time.Duration {
 	return time.Duration(v) * time.Second
 }
 
-// kuduCommandSink collects a command's output and reports each write.
 type kuduCommandSink struct {
 	mu       sync.Mutex
 	stdout   strings.Builder
@@ -210,11 +204,9 @@ wait:
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// kuduCommandSandbox is the App Service profile with the command running as
-// the identity that owns the site's files on this host: what a command
-// writes under /home, the simulator later reads, moves and deletes through
-// the same VFS, which an unprivileged simulator could not do to files another
-// identity owned.
+// The command runs as the identity owning the site's files on this host, so
+// the simulator can later move and delete what it writes through the VFS,
+// which an unprivileged simulator could not do to another identity's files.
 func kuduCommandSandbox() sim.SandboxProfile {
 	sandbox := SandboxAZF
 	if uid := os.Getuid(); uid >= 0 {

@@ -7,7 +7,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerARFiles mounts a repository's files, their download and their upload.
 func registerARFiles(srv *sim.Server, repos sim.Store[Repository], files sim.Store[ARFile]) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/files", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := arRepoExists(repos, w, r)
@@ -101,11 +100,10 @@ func registerARFiles(srv *sim.Server, repos sim.Store[Repository], files sim.Sto
 		arServeFileDownload(w, r, arFileName(repo, fileID))
 	})
 
-	// File upload. Registered on the plain /v1 path as well as the media
-	// /upload/v1 one, because the document declares both and the service
-	// answers both, and on the /resumable/upload/v1 path its resumable protocol
-	// names. A file with no fileId is named by the sha256 digest of its
-	// content, as UploadFileRequest says.
+	// The document declares file upload on both the plain /v1 path and the media
+	// /upload/v1 path, and its resumable protocol on /resumable/upload/v1; serve
+	// all three. A file with no fileId takes the sha256 digest of its content as
+	// its name, as UploadFileRequest says.
 	finishFileUpload := func(repo string, request, data []byte, contentType string) (any, error) {
 		var req struct {
 			FileID   string `json:"fileId"`

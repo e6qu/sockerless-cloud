@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ssmCLIEnsureDoc creates a Command document for the association / automation /
-// command CLI flows and registers tolerant cleanup.
 func ssmCLIEnsureDoc(t *testing.T, name string) {
 	t.Helper()
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
@@ -23,10 +21,9 @@ func ssmCLIEnsureDoc(t *testing.T, name string) {
 	})
 }
 
-// TestSSMCLI_AssociationLifecycle pins the State Manager association control
-// plane through the aws CLI: create, describe (settled Success), list, version
-// via update, list-versions, execution history, targets, effective-instance,
-// status, run-once, delete.
+// TestSSMCLI_AssociationLifecycle covers the State Manager association control
+// plane, from create to a settled Success, versions, execution history,
+// targets, run-once and delete.
 func TestSSMCLI_AssociationLifecycle(t *testing.T) {
 	t.Parallel()
 	docName := "cli-assoc-doc-" + ssmStamp()
@@ -174,8 +171,6 @@ func TestSSMCLI_AssociationBatch(t *testing.T) {
 	})
 }
 
-// TestSSMCLI_AutomationLifecycle pins the Automation control plane through the
-// CLI plus the execution-preview surface.
 func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	t.Parallel()
 	docName := "cli-automation-doc-" + ssmStamp()
@@ -230,7 +225,6 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ssm", "stop-automation-execution",
 		"--automation-execution-id", execID, "--output", "json"))
 
-	// Execution preview.
 	previewOut := runCLI(t, awsCLI("ssm", "start-execution-preview",
 		"--document-name", docName, "--output", "json"))
 	var previewResult struct {
@@ -248,9 +242,9 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	require.Equal(t, "Success", getPreviewResult.Status)
 }
 
-// TestSSMCLI_CommandLifecycle pins Run Command through the CLI: send to a
-// managed instance, list, list-invocations, get-command-invocation with the
-// command's output, cancel. A target that is no managed node fails the send.
+// TestSSMCLI_CommandLifecycle sends Run Command to a managed instance, lists
+// its invocations, reads the command's output and cancels; a target that is no
+// managed node fails the send.
 func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -263,9 +257,9 @@ func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.217.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.217.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	// A running instance whose profile does not let SSM Agent register it is
-	// no managed node: Run Command refuses it and describe-instance-information
-	// does not list it.
+	// A running instance whose profile does not let SSM Agent register it is no
+	// managed node: Run Command refuses it and describe-instance-information omits
+	// it.
 	unmanaged := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, unmanaged)

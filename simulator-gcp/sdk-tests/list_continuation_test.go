@@ -24,9 +24,9 @@ import (
 	vpcaccess "google.golang.org/api/vpcaccess/v1"
 )
 
-// continuationList is one list method under test: put and del create and
-// delete the resource a name stands for, del nil for a resource the API never
-// deletes, and page reads two items from token on.
+// continuationList: put and del create and delete the resource a name stands
+// for (del nil where the API never deletes), and page reads two items from a
+// token on.
 type continuationList struct {
 	put  func(t *testing.T, name string)
 	del  func(t *testing.T, name string)
@@ -34,12 +34,11 @@ type continuationList struct {
 }
 
 // requireContinuation walks a list two items a page while it changes. order
-// holds eight names in the list's own order, standing for a b c d e f h j. The
-// list starts as b d f h j; once the first page has returned b and d, the test
-// creates a and c ahead of the boundary and e after it, and deletes b, which it
-// has read, and h, which it has not. A token that resumes after d lists e f j
-// next. An index token lists d again and skips what the creations pushed past
-// it.
+// holds eight names in list order, standing for a b c d e f h j. The list
+// starts as b d f h j; after the first page returns b and d, the test creates a
+// and c before the boundary and e after it, and deletes b, already read, and
+// h, not yet read. A token that resumes after d lists e f j next; an index
+// token lists d again and skips what the creations pushed past it.
 func requireContinuation(t *testing.T, list continuationList, order [8]string) {
 	t.Helper()
 	a, b, c, d, e, f, h, j := order[0], order[1], order[2], order[3], order[4], order[5], order[6], order[7]
@@ -219,9 +218,8 @@ func TestLogging_EntriesListResumesAfterTheLastEntryReturned(t *testing.T) {
 	}, [8]string{"01", "02", "03", "04", "05", "06", "08", "10"})
 }
 
-// Each service serves projects.locations.operations.list from its own host, so
-// a location's collection lists, per service, the operations that service
-// started.
+// Each service serves projects.locations.operations.list from its own host,
+// listing the operations that service started.
 func TestOperations_LocationCollectionsListTheirOwnServicesOperations(t *testing.T) {
 	t.Parallel()
 	const parent = "projects/" + harnessProject + "/locations/us-central1"

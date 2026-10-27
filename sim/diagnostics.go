@@ -16,28 +16,23 @@ import (
 	"time"
 )
 
-// The simulator had no way to answer "what is it doing right now". When it went
-// slow -- ECS calls taking minutes while /health still answered in
-// milliseconds -- the only available moves were to guess from the outside and
-// to restart it, which destroys the evidence. Twice that produced a plausible
-// but unproven story. This file exists so the next occurrence is read, not
-// inferred: a goroutine dump names the stuck call stack, and the in-flight
-// registry names the request that is sitting on it.
+// The diagnostics listener answers "what is the simulator doing right now"
+// without a restart that destroys the evidence: a goroutine dump names the
+// stuck call stack, and the in-flight registry names the request sitting on
+// it.
 //
-// The diagnostics listener is deliberately separate from the API listener and
-// is not proxied publicly: goroutine dumps expose internal state, and
-// /debug/pprof/profile is a denial-of-service handle. It binds loopback unless
-// the deployment names another address; a simulator in a microVM can name
-// :6060 so an operator reaches it from the host over the tap:
+// It stays off the API listener and is never proxied publicly: goroutine
+// dumps expose internal state, and /debug/pprof/profile is a denial-of-service
+// handle. It binds loopback unless the deployment names another address; a
+// simulator in a microVM can name :6060 so an operator reaches it from the
+// host over the tap:
 //
 //	curl http://<guest address>:6060/debug/pprof/goroutine?debug=2
 //	curl http://<guest address>:6060/debug/inflight
 
-// SlowRequestThreshold is the age at which an in-flight request is reported as
-// slow. It bounds nothing and cancels nothing -- it only decides when the
-// simulator starts talking about a request it is still serving. A request
-// whose handler declared a wait (DeclareWait) is measured against the end of
-// that wait instead of its start.
+// SlowRequestThreshold is the age at which the simulator reports an in-flight
+// request as slow. It bounds and cancels nothing. A request whose handler
+// declared a wait (DeclareWait) counts from the end of that wait.
 const SlowRequestThreshold = 10 * time.Second
 
 // openEndedWait marks a request that blocks for as long as its caller holds

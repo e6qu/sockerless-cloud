@@ -10,7 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
-// The request-response operations a Service Bus entity's management node
+// The request-response operations an entity's management node
 // (`<entity>/$management`) answers.
 
 func sbAMQPRPCStatus(req *amqp.Message, code int32, description string) *amqp.Message {
@@ -36,7 +36,6 @@ func sbAMQPRPCLockLost(req *amqp.Message) *amqp.Message {
 	return resp
 }
 
-// sbLockTokenString spells an AMQP lock token as the store's receipt.
 func sbLockTokenString(id amqp.UUID) string {
 	h := hex.EncodeToString(id[:])
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
@@ -52,8 +51,7 @@ func sbLockTokenUUID(token string) (amqp.UUID, bool) {
 	return id, true
 }
 
-// sbLockTokenTag spells a lock token as the delivery tag Service Bus sends:
-// the GUID in the .NET byte order clients read it back from.
+// The GUID in the .NET byte order clients read it back in.
 func sbLockTokenTag(lockToken string) []byte {
 	id, ok := sbLockTokenUUID(lockToken)
 	if !ok {
@@ -182,9 +180,8 @@ func sbAMQPHandleRPC(namespace, path string, req *amqp.Message) *amqp.Message {
 	return sbAMQPRPCStatus(req, 501, fmt.Sprintf("The operation %v is not supported.", req.ApplicationProperties["operation"]))
 }
 
-// sbAMQPRPCMessages answers with the messages in the shape Service Bus uses:
-// {"messages": [{"message": <encoded message>, "lock-token": <uuid>}]}, or
-// 204 when there are none.
+// {"messages": [{"message": <encoded message>, "lock-token": <uuid>}]}, or 204
+// when there are none.
 func sbAMQPRPCMessages(req *amqp.Message, msgs []msgq.Message[sbPayload], locked bool) *amqp.Message {
 	if len(msgs) == 0 {
 		return sbAMQPRPCStatus(req, 204, "No messages")

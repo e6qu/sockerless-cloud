@@ -24,11 +24,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// These round-trips drive the Cloud Logging admin families (sinks, exclusions,
-// buckets, views, links) across more than one parent scope, exercising the
-// multi-scope mounting in simulator-gcp/logging_admin.go: the project scope and
-// the organizations scope share the same handler bodies mounted under different
-// parent paths.
+// The project and organization scopes share handler bodies mounted under
+// different parent paths, so each admin family (sinks, exclusions, buckets,
+// views, links) runs under more than one scope.
 
 func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
 	t.Parallel()
@@ -173,7 +171,6 @@ func TestLogging_BucketAndViewCRUD_ProjectScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(60), patched.RetentionDays)
 
-	// View CRUD under the bucket.
 	viewName := bucketName + "/views/sdk-view"
 	createdView, err := svc.Projects.Locations.Buckets.Views.Create(bucketName, &loggingrpc.LogView{
 		Description: "sdk view",
@@ -244,7 +241,6 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 	}).BucketId("link-bucket").Do()
 	require.NoError(t, err)
 
-	// CreateLink returns a long-running Operation.
 	op, err := svc.Projects.Locations.Buckets.Links.Create(bucketName, &loggingrpc.Link{
 		Description: "sdk link",
 	}).LinkId("sdk-link").Do()
@@ -268,10 +264,6 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 	assert.True(t, found, "created link must appear in list")
 }
 
-// TestLogging_EntriesCopy routes a log into a user-defined log bucket through a
-// sink, copies the bucket's error entries into a Cloud Storage bucket, and
-// reads back what the copy wrote: the count the operation reports, and the
-// entries themselves in the exported object.
 // A project's Cloud Logging service agent is named for the number Cloud
 // Resource Manager holds: sinks with a unique writer identity write as it, and
 // the settings and CMEK settings name it.
@@ -304,6 +296,9 @@ func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, apiErr.Code)
 }
 
+// TestLogging_EntriesCopy routes a log into a user-defined log bucket through a
+// sink, copies the bucket's error entries into a Cloud Storage bucket, and
+// reads back the count the operation reports and the exported entries.
 func TestLogging_EntriesCopy(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
@@ -390,9 +385,9 @@ func TestLogging_EntriesCopy(t *testing.T) {
 }
 
 // restTail opens entries.tail over REST, which streams a JSON array of
-// TailLogEntriesResponse messages. It returns once the array opens — the
-// service has taken the request — and yields entries until the entry carrying
-// last, which it returns with every entry before it.
+// TailLogEntriesResponse messages. It returns once the array opens, when the
+// service has taken the request, and yields entries up to the one carrying
+// last.
 func restTail(t *testing.T, filter string) func(last string) []*loggingrpc.LogEntry {
 	t.Helper()
 	tailCtx, cancel := context.WithCancel(ctx)
@@ -460,7 +455,6 @@ func TestLogging_EntriesTail(t *testing.T) {
 	logger := writeClient.Logger(logID)
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail backlog", Severity: logging.Error}))
 
-	// A tail names what it reads.
 	unscoped, err := http.Post(baseURL+"/v2/entries:tail", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	require.NoError(t, unscoped.Body.Close())
@@ -493,8 +487,8 @@ func TestLogging_EntriesTail(t *testing.T) {
 	assert.Equal(t, map[string]string{"ERROR": "tail error"}, bySeverity(atError("tail error")))
 
 	// Without the severity clause every entry written after the tail opened
-	// arrives, so the exclusions above are the filter's doing and not a
-	// missing write — and the entry written before it opened does not.
+	// arrives and the earlier one does not, so the exclusions above are the
+	// filter's doing.
 	all := everything("tail error")
 	payloads := make([]string, 0, len(all))
 	for _, e := range all {

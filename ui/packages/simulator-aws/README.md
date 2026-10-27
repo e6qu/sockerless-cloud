@@ -2,7 +2,7 @@
 
 The AWS Management Console this simulator serves: a Cloudscape shell
 (`src/console/`) with per-service pages under `src/pages/`, routed in
-`src/main.tsx` (React Router 7).
+`src/main.tsx` (React Router).
 
 ## How it reads AWS
 
@@ -77,10 +77,10 @@ and serves at `/ui/`. A plain build embeds none and serves the bundle
 
 ## Development
 
-- `bun run dev` — Vite dev server (`:5173`), proxying to a running simulator on `:4566`.
+- `bun run dev` — Vite dev server (`:5173`). It serves the bundle under `/ui/` and forwards every other path of the console's origin — `/ui/config.json`, the auth layer under `/auth/`, and the AWS APIs (with S3 buckets at the root) — to a running simulator on `:4566`, which leaves the cloud coordinates empty so the console reads them at its own origin.
 - `bun run build` — production bundle into `dist/`.
 - `bun run preview` — serve the built bundle.
-- `bun run test` — Vitest unit suite (`src/__tests__/`).
+- `bun run test` — Vitest suite (`src/__tests__/`), against the real `simulator-aws` it builds and starts (needs Go and a built `dist/`).
 - `bun run test:e2e` — Playwright suite, including axe-core audits in both themes.
 - `bun run typecheck` — `tsc --noEmit`.
 
@@ -88,5 +88,5 @@ The package `Makefile` wraps these as `make build` / `run` / `preview` / `test` 
 
 ## See also
 
-- [Workspace README](../../README.md) — workspace commands, embedding, and held dependency versions.
-- [`@sockerless/ui-core`](../core/README.md) — shared components, hooks, tokens.
+- [Workspace README](../../README.md) — workspace commands, embedding, and dependency versions.
+- [`@sockerless/ui-core`](../core/README.md) — design tokens, theme hook, error boundary, browser-suite harness.

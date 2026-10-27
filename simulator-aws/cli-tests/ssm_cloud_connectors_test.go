@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestSSMCLI_CloudConnectors covers the cloud-connector control plane through
-// the AWS Command Line Interface: create, get, list (with the Azure
-// subscription filter), update, validate and delete.
 func TestSSMCLI_CloudConnectors(t *testing.T) {
 	t.Parallel()
 	const tenant = "1c11e0a0-0000-4000-8000-000000001111"
@@ -83,8 +80,8 @@ func TestSSMCLI_CloudConnectors(t *testing.T) {
 		t.Fatalf("Description = %q", desc)
 	}
 
-	// The role exists and trusts Systems Manager, so validation reports the
-	// informational tenant/subscription findings and no error.
+	// The role exists and trusts Systems Manager, so validation reports only the
+	// informational tenant and subscription findings.
 	errors := strings.TrimSpace(runCLI(t, awsCLI("ssm", "validate-cloud-connector",
 		"--cloud-connector-id", id,
 		"--query", "length(ValidationFindings[?Type=='ERROR'])", "--output", "text")))

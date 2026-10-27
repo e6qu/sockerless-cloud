@@ -12,15 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// web_staticsites_test.go exercises the full StaticSites_* family in
-// simulator-azure/web_staticsites.go through armappservice's
-// StaticSitesClient: resource CRUD, builds + zip-deployment LROs,
-// application settings in both spellings, custom domains with DNS-backed
-// validation, users/invitations/roles, secrets + API-key reset, basic auth,
-// database connections, linked backends, user-provided function apps,
-// private endpoint connections + private link resources, workflow preview
-// and detach. Single resources and collections are both read back so the
-// spec-shape validator sees each response shape.
+// The StaticSites_* family through StaticSitesClient: CRUD, builds and zip
+// deployments, application settings in both spellings, custom domains with DNS
+// validation, users and roles, secrets and API-key reset, basic auth,
+// database connections, linked backends, user-provided function apps, private
+// endpoints, workflow preview and detach. Singles and collections both read
+// back, so the spec-shape validator sees each response.
 
 func staticSitesClient(t *testing.T) *armappservice.StaticSitesClient {
 	t.Helper()
@@ -56,19 +53,18 @@ func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
 	require.NotNil(t, created.Properties)
 	assert.Equal(t, name+".azurestaticapps.net", *created.Properties.DefaultHostname)
 
-	// A PUT without a location is rejected the way ARM rejects it.
+	// A PUT without a location is refused, as ARM refuses it.
 	_, err := client.BeginCreateOrUpdateStaticSite(ctx, rg, "sdk-swa-nolocation", armappservice.StaticSiteARMResource{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "LocationRequired")
 
-	// Read back: defaults real Azure applies on create.
+	// The defaults Azure applies on create.
 	got, err := client.GetStaticSite(ctx, rg, name, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "None", *got.Properties.Provider)
 	assert.Equal(t, armappservice.StagingEnvironmentPolicyEnabled, *got.Properties.StagingEnvironmentPolicy)
 	assert.True(t, *got.Properties.AllowConfigFileUpdates)
 
-	// Collection shapes: by resource group and by subscription.
 	foundRG := false
 	rgPager := client.NewGetStaticSitesByResourceGroupPager(rg, nil)
 	for rgPager.More() {
@@ -94,16 +90,14 @@ func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
 	}
 	assert.True(t, foundSub)
 
-	// PATCH.
 	upd, err := client.UpdateStaticSite(ctx, rg, name, armappservice.StaticSitePatchResource{
 		Properties: &armappservice.StaticSite{Branch: to.Ptr("release")},
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "release", *upd.Properties.Branch)
 
-	// Application settings: the appsettings and functionappsettings routes
-	// address the same bag (functionappsettings is the pre-rename spelling),
-	// exactly as their swagger descriptions state.
+	// appsettings and functionappsettings (the pre-rename spelling) address the
+	// same bag, as their swagger descriptions state.
 	_, err = client.CreateOrUpdateStaticSiteAppSettings(ctx, rg, name, armappservice.StringDictionary{
 		Properties: map[string]*string{"WORKER_COUNT": to.Ptr("2")},
 	}, nil)
@@ -125,8 +119,7 @@ func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
 	require.NotNil(t, sharedBag.Properties["FUNC_SETTING"])
 	assert.Nil(t, sharedBag.Properties["WORKER_COUNT"])
 
-	// Secrets: the deployment API key exists from creation and rotates on
-	// reset.
+	// The deployment API key exists from creation and rotates on reset.
 	secrets, err := client.ListStaticSiteSecrets(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, secrets.Properties["apiKey"])
@@ -152,7 +145,7 @@ func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
 	assert.Nil(t, got.Properties.RepositoryURL)
 	assert.Equal(t, "None", *got.Properties.Provider)
 
-	// Delete; a later GET reports the canonical ARM 404.
+	// After the delete, GET answers the ARM 404.
 	del, err := client.BeginDeleteStaticSite(ctx, rg, name, nil)
 	require.NoError(t, err)
 	_, err = del.PollUntilDone(ctx, nil)
@@ -182,7 +175,7 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 	assert.Equal(t, "default", *builds[0].Name)
 	assert.Equal(t, armappservice.BuildStatusReady, *builds[0].Properties.Status)
 
-	// Site-scoped zip deployment: an Azure-AsyncOperation LRO that leaves the
+	// A site-scoped zip deployment is an Azure-AsyncOperation LRO that leaves the
 	// default build Ready.
 	zip, err := client.BeginCreateZipDeploymentForStaticSite(ctx, rg, name, armappservice.StaticSiteZipDeploymentARMResource{
 		Properties: &armappservice.StaticSiteZipDeployment{
@@ -198,7 +191,7 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armappservice.BuildStatusReady, *defaultBuild.Properties.Status)
 
-	// Build-scoped zip deployment creates the staging environment.
+	// A build-scoped zip deployment creates the staging environment.
 	buildZip, err := client.BeginCreateZipDeploymentForStaticSiteBuild(ctx, rg, name, "preview", armappservice.StaticSiteZipDeploymentARMResource{
 		Properties: &armappservice.StaticSiteZipDeployment{
 			AppZipURL: to.Ptr("https://example.com/artifacts/preview.zip"),
@@ -212,7 +205,7 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 	assert.Equal(t, armappservice.BuildStatusReady, *preview.Properties.Status)
 	assert.Contains(t, *preview.Properties.Hostname, "-preview")
 
-	// Build-scoped settings, both spellings of the same bag.
+	// Build-scoped settings, both spellings of one bag.
 	_, err = client.CreateOrUpdateStaticSiteBuildAppSettings(ctx, rg, name, "preview", armappservice.StringDictionary{
 		Properties: map[string]*string{"PREVIEW_FLAG": to.Ptr("yes")},
 	}, nil)
@@ -228,8 +221,7 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, buildFnSettings.Properties["PREVIEW_FUNC"])
 
-	// Function lists: no pipeline-built functions exist, so both lists are
-	// empty collections.
+	// No pipeline-built functions exist, so both lists are empty.
 	fnPager := client.NewListStaticSiteFunctionsPager(rg, name, nil)
 	for fnPager.More() {
 		page, err := fnPager.NextPage(ctx)
@@ -273,8 +265,8 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 
-	// dns-txt-token: the create mints a validation token and the domain stays
-	// Validating until the TXT record exists in the simulator's Azure DNS.
+	// dns-txt-token: the create mints a token, and the domain stays Validating
+	// until the TXT record exists in the simulator's Azure DNS.
 	txtDomain := "www." + zone
 	domPoller, err := client.BeginCreateOrUpdateStaticSiteCustomDomain(ctx, rg, name, txtDomain,
 		armappservice.StaticSiteCustomDomainRequestPropertiesARMResource{
@@ -300,7 +292,7 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armappservice.CustomDomainStatusReady, *validated.Properties.Status)
 
-	// cname-delegation: validation answers off the CNAME's presence.
+	// cname-delegation: validation follows the CNAME's presence.
 	cnameDomain := "app." + zone
 	_, err = client.BeginValidateCustomDomainCanBeAddedToStaticSite(ctx, rg, name, cnameDomain,
 		armappservice.StaticSiteCustomDomainRequestPropertiesARMResource{
@@ -338,7 +330,7 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armappservice.CustomDomainStatusReady, *cnameDomainRes.Properties.Status)
 
-	// Collection shape + the site view's aggregated customDomains member.
+	// The collection, and the site's aggregated customDomains member.
 	domains := []*armappservice.StaticSiteCustomDomainOverviewARMResource{}
 	domPager := client.NewListStaticSiteCustomDomainsPager(rg, name, nil)
 	for domPager.More() {
@@ -368,7 +360,7 @@ func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
 	name := uniquename.New("sdk-swa-users")
 	created := staticSitesCreate(t, client, rg, name)
 
-	// An invitation for a domain the site does not serve is rejected.
+	// An invitation for a domain the site does not serve is refused.
 	_, err := client.CreateUserRolesInvitationLink(ctx, rg, name, armappservice.StaticSiteUserInvitationRequestResource{
 		Properties: &armappservice.StaticSiteUserInvitationRequestResourceProperties{
 			Domain:      to.Ptr("wrong.example.com"),
@@ -416,7 +408,7 @@ func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "contributor", *updated.Properties.Roles)
 
-	// Configured roles = the built-ins plus every user-assigned role.
+	// Configured roles: the built-ins plus every user-assigned role.
 	roles, err := client.ListStaticSiteConfiguredRoles(ctx, rg, name, nil)
 	require.NoError(t, err)
 	roleValues := make([]string, 0, len(roles.Properties))
@@ -431,7 +423,7 @@ func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, listUsers("all"))
 
-	// Basic auth: unconfigured default, then a password write that never
+	// Basic auth: the unconfigured default, then a password write that never
 	// echoes the password.
 	ba, err := client.GetBasicAuth(ctx, rg, name, armappservice.BasicAuthNameDefault, nil)
 	require.NoError(t, err)
@@ -584,7 +576,7 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 	name := "sdk-swa-backends"
 	staticSitesCreate(t, client, rg, name)
 
-	// Linked backend: the backend resource must exist in the simulator.
+	// A linked backend must exist.
 	_, err = client.BeginLinkBackend(ctx, rg, name, "ghost", armappservice.StaticSiteLinkedBackendARMResource{
 		Properties: &armappservice.StaticSiteLinkedBackendARMResourceProperties{
 			BackendResourceID: to.Ptr(fnAppID + "-missing"),
@@ -633,7 +625,6 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 	_, err = valPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// Build-scoped linked backend.
 	buildLinkPoller, err := client.BeginLinkBackendToBuild(ctx, rg, name, "default", "backend1", armappservice.StaticSiteLinkedBackendARMResource{
 		Properties: &armappservice.StaticSiteLinkedBackendARMResourceProperties{
 			BackendResourceID: to.Ptr(fnAppID),
@@ -670,8 +661,8 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 	_, err = client.GetLinkedBackend(ctx, rg, name, "backend1", nil)
 	require.Error(t, err)
 
-	// User-provided function apps LINK an existing Microsoft.Web site;
-	// registering one that does not exist is rejected.
+	// A user-provided function app links an existing Microsoft.Web site; a missing
+	// one is refused.
 	_, err = client.BeginRegisterUserProvidedFunctionAppWithStaticSite(ctx, rg, name, "ghostfn",
 		armappservice.StaticSiteUserProvidedFunctionAppARMResource{
 			Properties: &armappservice.StaticSiteUserProvidedFunctionAppARMResourceProperties{
@@ -704,7 +695,6 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 	}
 	assert.Equal(t, 1, fnApps)
 
-	// Build-scoped registration.
 	buildRegPoller, err := client.BeginRegisterUserProvidedFunctionAppWithStaticSiteBuild(ctx, rg, name, "default", "fnapp1",
 		armappservice.StaticSiteUserProvidedFunctionAppARMResource{
 			Properties: &armappservice.StaticSiteUserProvidedFunctionAppARMResourceProperties{

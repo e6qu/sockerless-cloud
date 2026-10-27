@@ -8,17 +8,12 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
-// TestCompute_InterconnectDiagnosticsComeFromTheInterconnect covers
-// interconnects.getDiagnostics, which used to decline as hardware reporting on
-// itself. Most of what it reports is on the interconnect's own record: whether
-// the bundle is up, whether its links are aggregated, the circuit and
-// demarcation identifiers assigned to each link, and whether MACsec is
-// operating and under which key.
-//
-// What is genuinely off the equipment — the optical power on each link, the
-// LACP state the ends negotiated, the ARP caches learned from the peer — is
-// absent, and the schema requires none of it. A number invented for any of them
-// would be indistinguishable from a reading.
+// TestCompute_InterconnectDiagnosticsComeFromTheInterconnect: most of
+// interconnects.getDiagnostics comes from the interconnect's own record: the
+// bundle state, link aggregation, each link's circuit and demarcation
+// identifiers, and MACsec state and key. What only the equipment knows (optical
+// power, negotiated LACP state, the peer's ARP cache) stays absent, which the
+// schema allows; an invented number would pass for a reading.
 func TestCompute_InterconnectDiagnosticsComeFromTheInterconnect(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -57,8 +52,8 @@ func TestCompute_InterconnectDiagnosticsComeFromTheInterconnect(t *testing.T) {
 	assert.Equal(t, "circuit-b", result.Links[1].CircuitId)
 	assert.Equal(t, "LINK_OPERATIONAL_STATUS_UP", result.Links[0].OperationalStatus)
 
-	// MACsec agrees with what getMacsecConfig hands the caller for that key,
-	// because both derive it from the same interconnect and key name.
+	// MACsec agrees with getMacsecConfig because both derive from the same
+	// interconnect and key name.
 	require.NotNil(t, result.Links[0].Macsec)
 	assert.True(t, result.Links[0].Macsec.Operational)
 	configuration, err := svc.Interconnects.GetMacsecConfig(project, "diag-link").Do()

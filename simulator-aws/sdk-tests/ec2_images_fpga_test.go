@@ -10,11 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_FpgaImageLifecycleSDK covers the Amazon FPGA Image (AFI) control
-// plane: CreateFpgaImage, DescribeFpgaImages read-back (id / name / description
-// / state), CopyFpgaImage into a new AFI, the attribute set
-// (DescribeFpgaImageAttribute / ModifyFpgaImageAttribute loadPermission grant /
-// ResetFpgaImageAttribute), and DeleteFpgaImage.
 func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -46,7 +41,6 @@ func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
 	require.Len(t, got.Tags, 1)
 	assert.Equal(t, "team", aws.ToString(got.Tags[0].Key))
 
-	// Filter by state must scope to the AFI.
 	byState, err := c.DescribeFpgaImages(ctx, &ec2.DescribeFpgaImagesInput{
 		FpgaImageIds: []string{afiID},
 		Filters:      []types.Filter{{Name: aws.String("state"), Values: []string{"available"}}},
@@ -54,7 +48,6 @@ func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, byState.FpgaImages, 1)
 
-	// CopyFpgaImage into a fresh AFI.
 	cp, err := c.CopyFpgaImage(ctx, &ec2.CopyFpgaImageInput{
 		SourceFpgaImageId: aws.String(afiID),
 		Name:              aws.String("my-afi-copy"),
@@ -71,7 +64,6 @@ func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
 	require.Len(t, cpDesc.FpgaImages, 1)
 	assert.Equal(t, "my-afi-copy", aws.ToString(cpDesc.FpgaImages[0].Name))
 
-	// Attribute set: describe name/description, modify loadPermission, reset.
 	attr, err := c.DescribeFpgaImageAttribute(ctx, &ec2.DescribeFpgaImageAttributeInput{
 		FpgaImageId: aws.String(afiID),
 		Attribute:   types.FpgaImageAttributeNameName,
@@ -116,9 +108,6 @@ func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
 	assert.True(t, aws.ToBool(del.Return))
 }
 
-// TestEC2_AllowedImagesSettingsSDK covers the account-level Allowed AMIs
-// settings: Enable (audit-mode), Get read-back, ReplaceImageCriteria, Get
-// again, and Disable.
 func TestEC2_AllowedImagesSettingsSDK(t *testing.T) {
 	c := ec2Client()
 	t.Cleanup(func() {
@@ -152,8 +141,6 @@ func TestEC2_AllowedImagesSettingsSDK(t *testing.T) {
 	assert.Equal(t, types.AllowedImagesSettingsDisabledStateDisabled, dis.AllowedImagesSettingsState)
 }
 
-// TestEC2_ImageBlockPublicAccessSDK covers the account-level image
-// block-public-access state: Enable (block-new-sharing), Get read-back, Disable.
 func TestEC2_ImageBlockPublicAccessSDK(t *testing.T) {
 	c := ec2Client()
 	t.Cleanup(func() {
@@ -175,8 +162,6 @@ func TestEC2_ImageBlockPublicAccessSDK(t *testing.T) {
 	assert.Equal(t, types.ImageBlockPublicAccessDisabledStateUnblocked, dis.ImageBlockPublicAccessState)
 }
 
-// TestEC2_ImageDeregistrationProtectionSDK covers per-AMI deregistration
-// protection: Enable on a real registered AMI, then Disable.
 func TestEC2_ImageDeregistrationProtectionSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -194,15 +179,14 @@ func TestEC2_ImageDeregistrationProtectionSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", aws.ToString(dis.Return))
 
-	// Unknown AMI is rejected.
 	_, err = c.EnableImageDeregistrationProtection(ctx, &ec2.EnableImageDeregistrationProtectionInput{
 		ImageId: aws.String("ami-deadbeefdeadbeef"),
 	})
 	require.Error(t, err)
 }
 
-// TestEC2_BundleTasksSDK and TestEC2_ConversionTasksSDK assert the honest-empty
-// task lists (no live bundling / import-export backend).
+// TestEC2_BundleTasksSDK and TestEC2_ConversionTasksSDK expect empty task lists:
+// nothing runs bundling or import-export.
 func TestEC2_BundleTasksSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -221,14 +205,11 @@ func TestEC2_ConversionTasksSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, ct.ConversionTasks)
 
-	// CancelConversionTask rejects an unknown task (the sim runs no live
-	// conversion backend, so there is never a real task to cancel).
+	// No conversion task exists to cancel.
 	_, err = c.CancelConversionTask(ctx, &ec2.CancelConversionTaskInput{ConversionTaskId: aws.String("import-i-ffffffff")})
 	requireAWSErrorCode(t, err, "InvalidConversionTaskId")
 }
 
-// TestEC2_StoreImageTaskSDK covers CreateStoreImageTask on a real AMI to an S3
-// bucket and the DescribeStoreImageTasks read-back.
 func TestEC2_StoreImageTaskSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -252,7 +233,6 @@ func TestEC2_StoreImageTaskSDK(t *testing.T) {
 	assert.Equal(t, aws.ToString(create.ObjectKey), aws.ToString(got.S3objectKey))
 	assert.Equal(t, "Completed", aws.ToString(got.StoreTaskState))
 
-	// Unknown AMI is rejected.
 	_, err = c.CreateStoreImageTask(ctx, &ec2.CreateStoreImageTaskInput{
 		ImageId: aws.String("ami-deadbeefdeadbeef"),
 		Bucket:  aws.String("b"),
@@ -260,9 +240,6 @@ func TestEC2_StoreImageTaskSDK(t *testing.T) {
 	require.Error(t, err)
 }
 
-// ec2RegisterTestAMI registers a minimal EBS-backed AMI and returns its id, for
-// tests that need a real AMI in the image store (deregistration protection,
-// store-image task).
 func ec2RegisterTestAMI(t *testing.T, c *ec2.Client) string {
 	t.Helper()
 	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{

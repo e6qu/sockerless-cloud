@@ -18,11 +18,6 @@ import (
 	runv1 "google.golang.org/api/run/v1"
 )
 
-// v2 Cloud Run Services routes contract. The cloudrun backend uses
-// run.NewServicesRESTClient (v2 REST) when Config.UseService=true.
-// These tests pin the v2 contract using the same client the backend
-// uses.
-
 func newServicesClient(t *testing.T) *run.ServicesClient {
 	t.Helper()
 	client, err := run.NewServicesRESTClient(ctx,
@@ -34,8 +29,6 @@ func newServicesClient(t *testing.T) *run.ServicesClient {
 	return client
 }
 
-// cleanupService deletes a Cloud Run service when the test ends and waits for
-// the delete to complete.
 func cleanupService(t *testing.T, client *run.ServicesClient, name string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -320,10 +313,8 @@ func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
 	assert.Equal(t, "PUT /items/7?source=sdk", body)
 }
 
-// invokeService sends a request to a Cloud Run service's URL, presenting
-// bearer — an ID token — when it is not empty. The request is addressed to
-// the service's run.app host; the simulator's endpoint is where that host
-// resolves to.
+// invokeService addresses the service's run.app host, presenting bearer, an ID
+// token, when it is not empty; the host resolves to the simulator's endpoint.
 func invokeService(t *testing.T, bearer, uri, method, path, body string) (int, http.Header, string) {
 	t.Helper()
 	u, err := url.Parse(uri)
@@ -349,8 +340,6 @@ func invokeService(t *testing.T, bearer, uri, method, path, body string) (int, h
 	return resp.StatusCode, resp.Header, string(data)
 }
 
-// createInvokableService creates a service in test-project, deletes it when
-// the test ends, and grants the shared invoker roles/run.invoker on it.
 func createInvokableService(t *testing.T, client *run.ServicesClient, prefix string, service *runpb.Service) *runpb.Service {
 	t.Helper()
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", prefix, service)

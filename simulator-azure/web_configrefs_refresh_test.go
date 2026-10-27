@@ -6,10 +6,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A running app keeps the Key Vault reference values it started with until
-// App Service's cache of them expires; the re-fetch then restarts the app
-// when a versionless reference resolves to a rotated secret, and caches the
-// values for another period when nothing changed.
+// A running app keeps its reference values until App Service's cache expires;
+// the re-fetch restarts it on a rotated secret and re-caches unchanged values.
 func TestWebKeyVaultReferenceRefreshRestartsTheAppOnARotatedSecret(t *testing.T) {
 	priorSites, priorConfigs, priorVaults, priorSecrets := azfSites, siteConfigStore, keyVaults, keyVaultData
 	azfSites = sim.MakeStore[Site](nil, "test_kvref_sites")

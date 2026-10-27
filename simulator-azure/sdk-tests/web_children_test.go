@@ -22,18 +22,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// web_children_test.go exercises the Microsoft.Web site child-resource
-// families in simulator-azure/web_children.go, web_configrefs.go and the
-// sitecontainers deployment-slot twins: public certificates, domain ownership
-// identifiers, premier add-ons, config/pushsettings, the Key Vault config
-// references derived from app settings / connection strings, and slot-scoped
-// sitecontainers. Every resource is read back through GET and its list
-// operation so the spec-shape validator sees the single and the collection
-// response of each family.
+// The Microsoft.Web site child resources: public certificates, domain
+// ownership identifiers, premier add-ons, config/pushsettings, Key Vault
+// config references from app settings and connection strings, and slot-scoped
+// sitecontainers. Each reads back through GET and its list, so the spec-shape
+// validator sees both responses.
 
-// webChildrenSelfSignedDER returns a freshly generated self-signed
-// certificate in DER form — the blob shape App Service public certificates
-// carry — plus the SHA-1 thumbprint App Service derives from it.
+// webChildrenSelfSignedDER returns a self-signed certificate in DER form and
+// the SHA-1 thumbprint App Service derives from it.
 func webChildrenSelfSignedDER(t *testing.T) ([]byte, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -107,8 +103,7 @@ func TestSDK_WebChildren_PublicCertificates(t *testing.T) {
 	}
 	assert.True(t, found, "certificate must appear in the list")
 
-	// The slot keeps its own certificates: the production certificate is not
-	// visible on the slot, and a slot-created one round-trips at the slot.
+	// The slot keeps its own certificates.
 	slotDER, slotThumb := webChildrenSelfSignedDER(t)
 	slotCreated, err := client.CreateOrUpdatePublicCertificateSlot(ctx, rg, name, "slotcert", slot, armappservice.PublicCertificate{
 		Properties: &armappservice.PublicCertificateProperties{
@@ -168,7 +163,7 @@ func TestSDK_WebChildren_DomainOwnershipIdentifiers(t *testing.T) {
 	require.NotNil(t, got.Properties)
 	assert.Equal(t, "verify-token-1", *got.Properties.Value)
 
-	// PATCH merges the identity value.
+	// PATCH merges the identifier value.
 	upd, err := client.UpdateDomainOwnershipIdentifier(ctx, rg, name, "doi1", armappservice.Identifier{
 		Properties: &armappservice.IdentifierProperties{Value: to.Ptr("verify-token-2")},
 	}, nil)
@@ -188,7 +183,6 @@ func TestSDK_WebChildren_DomainOwnershipIdentifiers(t *testing.T) {
 	}
 	assert.True(t, found, "identifier must appear in the list")
 
-	// Slot twin round-trip.
 	_, err = client.CreateOrUpdateDomainOwnershipIdentifierSlot(ctx, rg, name, "slotdoi", slot, armappservice.Identifier{
 		Properties: &armappservice.IdentifierProperties{Value: to.Ptr("slot-token")},
 	}, nil)
@@ -259,7 +253,6 @@ func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
 	require.NotNil(t, listed.ID)
 	assert.True(t, strings.HasSuffix(*listed.ID, "/premieraddons/newrelic"))
 
-	// Slot twin round-trip.
 	_, err = client.AddPremierAddOnSlot(ctx, rg, name, "slotaddon", slot, armappservice.PremierAddOn{
 		Location: to.Ptr("eastus"),
 		Properties: &armappservice.PremierAddOnProperties{
@@ -320,7 +313,7 @@ func TestSDK_WebChildren_PushSettings(t *testing.T) {
 	assert.True(t, *listed.Properties.IsPushEnabled)
 	assert.Equal(t, `["tag1"]`, *listed.Properties.TagWhitelistJSON)
 
-	// The slot's push settings are independent of the production site's.
+	// The slot's push settings are its own.
 	slotDef, err := client.ListSitePushSettingsSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 	assert.False(t, *slotDef.Properties.IsPushEnabled, "slot must not inherit the production push settings")
@@ -341,8 +334,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	planID := webMoreEnsurePlan(t, rg, "wc-kvref-plan")
 	createKVViaARM(t, rg, vault)
 
-	// A real secret with one version, written through the Key Vault data
-	// plane, is what the references must resolve against.
+	// A secret with one version, written through the Key Vault data plane.
 	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
@@ -360,7 +352,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	webChildrenCreateSlot(t, client, rg, name, slot, planID)
 
 	// The app and its slot each reach the vault as their own system-assigned
-	// identity, which the vault's access policies grant the secret.
+	// identity, which the vault's access policies grant.
 	systemAssigned := &armappservice.ManagedServiceIdentity{Type: to.Ptr(armappservice.ManagedServiceIdentityTypeSystemAssigned)}
 	site, err := client.Update(ctx, rg, name, armappservice.SitePatchResource{Identity: systemAssigned}, nil)
 	require.NoError(t, err)
@@ -421,7 +413,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	_, err = client.GetAppSettingKeyVaultReference(ctx, rg, name, "PLAIN_STRING", nil)
 	require.Error(t, err)
 
-	// Connection-string references derive from the connection-string store.
+	// Connection-string references derive from the connection strings.
 	_, err = client.UpdateConnectionStrings(ctx, rg, name, armappservice.ConnectionStringDictionary{
 		Properties: map[string]*armappservice.ConnStringValueTypePair{
 			"MainDb": {Value: to.Ptr(resolvedRef), Type: to.Ptr(armappservice.ConnectionStringTypeSQLAzure)},
@@ -508,7 +500,7 @@ func TestSDK_WebChildren_SiteContainersSlot(t *testing.T) {
 	}
 	assert.True(t, slotSeen, "slot sitecontainer must appear in the slot list")
 
-	// The production site's sitecontainer list must not include the slot's.
+	// The production list does not include the slot's sitecontainer.
 	prodPager := client.NewListSiteContainersPager(rg, name, nil)
 	for prodPager.More() {
 		page, err := prodPager.NextPage(ctx)

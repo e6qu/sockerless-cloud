@@ -51,20 +51,11 @@ readonly ZERO_CLASSES=(
 # harnesses rather than tests. Any growth is a real test that asserts nothing.
 readonly NO_ASSERTION_FLOOR=10
 
-# any-error is at zero and stays there. It began at 62 error-path assertions
-# that accepted any error at all — a transport fault, a 500 and a
-# deserialisation failure all satisfied them, and none showed the service
-# refusing anything. Every one now names the code its handler returns, read out
-# of that handler rather than guessed: ObjectNotFoundException for a scaling
-# policy with no target, ActiveInstanceRefreshNotFound for a cancel with no
-# refresh, PopReceiptMismatch for a superseded Azure queue receipt.
-#
-# Two of the 62 were the detector's fault rather than the tests': a message read
-# through strings.Contains(err.Error(), …) identifies a refusal as surely as
-# ErrorContains does, and a helper that hands its error back to its caller has
-# moved the obligation rather than dodged it. Both are understood by the
-# analyzer now, and a caller that ignores what such a helper returns is reported
-# in the helper's place.
+# any-error is held at zero: every error-path assertion names the code its
+# handler returns. A message read through strings.Contains(err.Error(), …)
+# identifies a refusal as surely as ErrorContains does, and a helper that
+# hands its error back moves the obligation to its caller, which is reported
+# in the helper's place when it ignores what it was handed.
 
 # status-only counts a 2xx whose body is never read. The ones left are handlers
 # that answer with no body at all — an authentication redirect, a wrapper
@@ -72,18 +63,15 @@ readonly NO_ASSERTION_FLOOR=10
 readonly STATUS_ONLY_FLOOR=5
 
 # sleep-then-assert counts a bare sleep standing between an action and the
-# assertion that reads its result. The ones left are packet-capture tests that
-# hold still to prove nothing further arrives, each paired with a positive
-# control.
+# assertion that reads its result.
 readonly SLEEP_THEN_ASSERT_FLOOR=0
 
 report=$(mktemp)
 totals=$(mktemp)
 trap 'rm -f "$report" "$totals"' EXIT
 
-# The analyzer's own failure must be visible: redirecting both streams into
-# temporary files the trap deletes made a build error exit 1 with nothing
-# printed at all, which is a gate that fails for a reason nobody can read.
+# The analyzer's own failure must be visible: a build error that exits 1 with
+# nothing printed is a gate that fails for a reason nobody can read.
 if ! go run scripts/check-fake-tests.go "${SCAN_DIRS[@]}" >"$report" 2>"$totals"; then
 	echo "check-fake-tests: the analyzer did not run:" >&2
 	cat "$totals" >&2

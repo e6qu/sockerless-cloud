@@ -26,15 +26,10 @@ import (
 )
 
 // A long-running operation is one resource whichever protocol minted it, so
-// both doors read and write one store: crOperations, the shared operations
-// store the REST operations handlers already serve from. The gRPC service
-// converts at the boundary rather than keeping a second copy — when it kept
-// one, an operation a gRPC call returned was invisible to the REST operations
-// door and the reverse, which is a divergence no client should be able to
-// observe.
+// the gRPC door reads and writes crOperations, the store the REST operations
+// handlers serve, converting at the boundary.
 
-// grpcRecordOperation files an operation in the shared store, in the REST
-// rendering the store holds.
+// grpcRecordOperation stores an operation in its REST rendering.
 func grpcRecordOperation(op *longrunningpb.Operation) error {
 	stored, err := grpcOperationToStored(op)
 	if err != nil {
@@ -47,9 +42,8 @@ func grpcRecordOperation(op *longrunningpb.Operation) error {
 	return nil
 }
 
-// grpcOperationToStored renders a protobuf Operation into the JSON shape the
-// shared store holds — the same shape the REST doors write, so either door can
-// read what the other stored.
+// grpcOperationToStored renders a protobuf Operation in the JSON shape the REST
+// doors store.
 func grpcOperationToStored(op *longrunningpb.Operation) (Operation, error) {
 	out := Operation{Name: op.GetName(), Done: op.GetDone()}
 	if response := op.GetResponse(); response != nil {
@@ -287,9 +281,8 @@ func (s *bigtableInstanceAdminGRPC) CreateCluster(_ context.Context, req *btadmi
 	})
 }
 
-// bigtableClusterTableProgress reports, for each table the instance holds, how
-// much of it a new cluster has copied. The copy completes inside CreateCluster,
-// so every table is COMPLETED with all of its bytes copied.
+// bigtableClusterTableProgress reports every table COMPLETED with all its bytes
+// copied, since CreateCluster copies them before it returns.
 func bigtableClusterTableProgress(instance string) map[string]*btadmin.CreateClusterMetadata_TableProgress {
 	progress := map[string]*btadmin.CreateClusterMetadata_TableProgress{}
 	for _, table := range bigtableTables.List() {
@@ -491,11 +484,10 @@ func bigtableDoneOperation(resourceName string, resource, metadata proto.Message
 	return op, nil
 }
 
-// bigtableOperationName is where a Cloud Bigtable admin operation lives:
-// under the project, in the "operations/" collection the bigtableadmin
-// document declares (its operations.get name pattern is "^operations/.*$",
-// and its list parent is "operations/projects/{project}"). Both doors mint
-// this shape, so an operation returned over one is addressable over the other.
+// bigtableOperationName names a Cloud Bigtable admin operation in the
+// "operations/" collection the bigtableadmin document declares (get pattern
+// "^operations/.*$", list parent "operations/projects/{project}"), as
+// newBigtableAdminLRO does over REST.
 func bigtableOperationName(resourceName string) string {
 	project := "unknown"
 	if parts := strings.Split(resourceName, "/"); len(parts) >= 2 && parts[0] == "projects" {
@@ -620,13 +612,9 @@ func bigtableStorageTypePB(t string) btadmin.StorageType {
 	return btadmin.StorageType_SSD
 }
 
-// Pass-through resource families
-//
-// App profiles, backups, authorized views, schema bundles and the logical and
-// materialized views are held as the JSON body their resource carries, keyed
-// by resource name. This door reads and writes those same stores, converting
-// through protojson so both spellings of the API observe the same fields under
-// the same names.
+// App profiles, backups, authorized views, schema bundles and logical and
+// materialized views live as the JSON body the REST door stores; the gRPC door
+// converts through protojson, so both see the same fields under the same names.
 
 // bigtableResourceKind names one pass-through family: the store holding it,
 // the label its errors use, and whether the resource carries a server-managed
@@ -662,9 +650,8 @@ func bigtableBackupKind() bigtableResourceKind {
 	return bigtableResourceKind{label: "backup", store: bigtableBackups, etag: false}
 }
 
-// bigtableResourceFromProto renders a resource message into the stored JSON
-// shape — protojson field names, which are the names the resource's JSON body
-// uses.
+// bigtableResourceFromProto renders a message with protojson field names, the
+// names the resource's JSON body uses.
 func bigtableResourceFromProto(msg proto.Message) (bigtableResource, error) {
 	raw, err := protojson.Marshal(msg)
 	if err != nil {
@@ -677,10 +664,8 @@ func bigtableResourceFromProto(msg proto.Message) (bigtableResource, error) {
 	return body, nil
 }
 
-// bigtableResourceToProto reads a stored resource body into msg. Fields the
-// body carries that the message does not declare are dropped, so a body
-// written through a spelling of the API that accepts more than the proto does
-// still reads back as the resource.
+// bigtableResourceToProto reads a stored body into msg, dropping fields the
+// message does not declare that the REST door accepted.
 func bigtableResourceToProto(body bigtableResource, msg proto.Message) error {
 	raw, err := json.Marshal(map[string]any(body))
 	if err != nil {
@@ -693,7 +678,6 @@ func bigtableResourceToProto(body bigtableResource, msg proto.Message) error {
 	return nil
 }
 
-// bigtableStoredProto reads a stored resource body into msg and returns it.
 func bigtableStoredProto[T proto.Message](body bigtableResource, msg T) (T, error) {
 	if err := bigtableResourceToProto(body, msg); err != nil {
 		var zero T
@@ -720,7 +704,6 @@ func bigtableCreateResource(kind bigtableResourceKind, name string, msg proto.Me
 	return body, nil
 }
 
-// bigtableReadResource loads a stored resource of the family into msg.
 func bigtableReadResource[T proto.Message](kind bigtableResourceKind, name string, msg T) (T, error) {
 	body, ok := kind.store.Get(name)
 	if !ok {
@@ -751,9 +734,8 @@ func bigtableUpdateResource(kind bigtableResourceKind, name string, msg proto.Me
 	return body, nil
 }
 
-// bigtableDeleteResource removes a stored resource. A caller that supplies an
-// etag is deleting the version it read: a stale one is refused with ABORTED,
-// which is the status Cloud Bigtable answers a blocked delete with.
+// bigtableDeleteResource refuses a stale etag with ABORTED, as Cloud Bigtable
+// answers a blocked delete.
 func bigtableDeleteResource(kind bigtableResourceKind, name, etag string) error {
 	body, ok := kind.store.Get(name)
 	if !ok {
@@ -769,8 +751,7 @@ func bigtableDeleteResource(kind bigtableResourceKind, name, etag string) error 
 }
 
 // bigtableListResources returns one page of the family's resources under
-// parent, newest message per entry built by newMsg, plus the token that
-// continues the listing.
+// parent, built by newMsg, and the token that continues the listing.
 func bigtableListResources[T proto.Message](kind bigtableResourceKind, parent, collection string, pageSize int32, pageToken string, newMsg func() T) ([]T, string, error) {
 	bodies := bigtableFilterResources(kind.store, parent+"/"+collection+"/")
 	page, next, err := grpcKeyPage(bodies, pageSize, pageToken, gcpAsc(func(body bigtableResource) string {
@@ -791,10 +772,9 @@ func bigtableListResources[T proto.Message](kind bigtableResourceKind, parent, c
 	return out, next, nil
 }
 
-// bigtableApplyProtoMask merges the masked fields of patch into body. A field
-// the mask names but the message leaves unset is cleared, which is what a
-// field mask asks for. Setting one member of a oneof clears its siblings, so a
-// routing policy replaced by an update does not leave both spellings behind.
+// bigtableApplyProtoMask merges the masked fields of patch into body. A masked
+// field that patch leaves unset is cleared, and setting one oneof member clears
+// its siblings so a replaced routing policy leaves no second spelling behind.
 func bigtableApplyProtoMask(body, patch bigtableResource, mask *fieldmaskpb.FieldMask, md protoreflect.MessageDescriptor) {
 	applied := map[string]any{}
 	paths := mask.GetPaths()
@@ -847,9 +827,8 @@ func bigtableApplyProtoMask(body, patch bigtableResource, mask *fieldmaskpb.Fiel
 	}
 }
 
-// bigtableJSONFieldName maps a field-mask path onto the JSON key the stored
-// resource uses. Only the leading segment is resolved: a nested path addresses
-// a field inside a value this store holds whole.
+// bigtableJSONFieldName maps a field-mask path's leading segment onto the
+// stored JSON key; the store holds nested values whole.
 func bigtableJSONFieldName(md protoreflect.MessageDescriptor, path string) string {
 	root := path
 	if i := strings.IndexByte(path, '.'); i >= 0 {
@@ -863,8 +842,6 @@ func bigtableJSONFieldName(md protoreflect.MessageDescriptor, path string) strin
 	}
 	return root
 }
-
-// Parent resolution
 
 func bigtableRequireInstance(name string) error {
 	if _, ok := bigtableInstances.Get(name); !ok {
@@ -900,7 +877,6 @@ func bigtableInstanceChild(parent, collection, id, idField string) (string, erro
 	return parent + "/" + collection + "/" + id, nil
 }
 
-// bigtableClusterChild builds a cluster-scoped child's resource name.
 func bigtableClusterChild(parent, collection, id, idField string) (string, error) {
 	if err := bigtableRequireCluster(parent); err != nil {
 		return "", err
@@ -911,7 +887,6 @@ func bigtableClusterChild(parent, collection, id, idField string) (string, error
 	return parent + "/" + collection + "/" + id, nil
 }
 
-// bigtableTableChild builds a table-scoped child's resource name.
 func bigtableTableChild(parent, collection, id, idField string) (string, error) {
 	if _, err := bigtableRequireTable(parent); err != nil {
 		return "", err
@@ -921,8 +896,6 @@ func bigtableTableChild(parent, collection, id, idField string) (string, error) 
 	}
 	return parent + "/" + collection + "/" + id, nil
 }
-
-// Instance admin: app profiles
 
 func (s *bigtableInstanceAdminGRPC) CreateAppProfile(_ context.Context, req *btadmin.CreateAppProfileRequest) (*btadmin.AppProfile, error) {
 	name, err := bigtableInstanceChild(req.GetParent(), "appProfiles", req.GetAppProfileId(), "app_profile_id")
@@ -978,8 +951,6 @@ func (s *bigtableInstanceAdminGRPC) DeleteAppProfile(_ context.Context, req *bta
 	return &emptypb.Empty{}, nil
 }
 
-// Instance admin: logical views
-
 func (s *bigtableInstanceAdminGRPC) CreateLogicalView(_ context.Context, req *btadmin.CreateLogicalViewRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "logicalViews", req.GetLogicalViewId(), "logical_view_id")
@@ -1022,8 +993,6 @@ func (s *bigtableInstanceAdminGRPC) DeleteLogicalView(_ context.Context, req *bt
 	return &emptypb.Empty{}, nil
 }
 
-// Instance admin: materialized views
-
 func (s *bigtableInstanceAdminGRPC) CreateMaterializedView(_ context.Context, req *btadmin.CreateMaterializedViewRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "materializedViews", req.GetMaterializedViewId(), "materialized_view_id")
@@ -1065,8 +1034,6 @@ func (s *bigtableInstanceAdminGRPC) DeleteMaterializedView(_ context.Context, re
 	}
 	return &emptypb.Empty{}, nil
 }
-
-// Instance admin: instance and cluster updates, hot tablets
 
 // UpdateInstance replaces an instance. Cloud Bigtable answers it
 // synchronously, with the instance as stored.
@@ -1164,9 +1131,8 @@ func (s *bigtableInstanceAdminGRPC) PartialUpdateCluster(_ context.Context, req 
 	})
 }
 
-// ListHotTablets reports the tablets a cluster measured as hot over the
-// requested window. Nothing in this simulator concentrates load onto a tablet,
-// so a healthy cluster reports none.
+// ListHotTablets reports none: nothing in the simulator concentrates load on a
+// tablet.
 func (s *bigtableInstanceAdminGRPC) ListHotTablets(_ context.Context, req *btadmin.ListHotTabletsRequest) (*btadmin.ListHotTabletsResponse, error) {
 	if err := bigtableRequireCluster(req.GetParent()); err != nil {
 		return nil, err
@@ -1174,11 +1140,9 @@ func (s *bigtableInstanceAdminGRPC) ListHotTablets(_ context.Context, req *btadm
 	return &btadmin.ListHotTabletsResponse{HotTablets: []*btadmin.HotTablet{}}, nil
 }
 
-// bigtableUnsupportedMaskPath reports the status for a field-mask path the
-// stored resource cannot carry. A path that names no field of the message at
-// all is a malformed request; one the message declares but this store does not
-// keep is an update this door does not perform, and says so rather than
-// silently dropping the field.
+// bigtableUnsupportedMaskPath answers InvalidArgument for a path the message
+// does not declare, and Unimplemented for one the store does not keep, rather
+// than silently dropping the field.
 func bigtableUnsupportedMaskPath(md protoreflect.MessageDescriptor, path string) error {
 	root := path
 	if i := strings.IndexByte(path, '.'); i >= 0 {
@@ -1189,8 +1153,6 @@ func bigtableUnsupportedMaskPath(md protoreflect.MessageDescriptor, path string)
 	}
 	return status.Errorf(codes.Unimplemented, "updating field %q is not supported", path)
 }
-
-// Table admin: table lifecycle beyond create/read/delete
 
 func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.UpdateTableRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
@@ -1221,10 +1183,8 @@ func (s *bigtableTableAdminGRPC) UpdateTable(_ context.Context, req *btadmin.Upd
 	})
 }
 
-// UndeleteTable restores a table that DeleteTable removed. DeleteTable drops
-// the table and its rows outright here, so a deleted name has nothing left to
-// bring back and reports NotFound; a table still present is returned as it
-// stands.
+// UndeleteTable reports NotFound for a deleted table, since DeleteTable drops
+// it and its rows outright, and returns a table still present as it stands.
 func (s *bigtableTableAdminGRPC) UndeleteTable(_ context.Context, req *btadmin.UndeleteTableRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
 	table, err := bigtableRequireTable(req.GetName())
@@ -1238,9 +1198,8 @@ func (s *bigtableTableAdminGRPC) UndeleteTable(_ context.Context, req *btadmin.U
 	})
 }
 
-// DropRowRange permanently deletes rows from a table — every row, or those
-// under a key prefix. It writes through the same row store the data plane
-// reads, so a dropped range is gone from ReadRows as well.
+// DropRowRange writes through the row store the data plane reads, so a dropped
+// range is gone from ReadRows too.
 func (s *bigtableTableAdminGRPC) DropRowRange(_ context.Context, req *btadmin.DropRowRangeRequest) (*emptypb.Empty, error) {
 	if _, err := bigtableRequireTable(req.GetName()); err != nil {
 		return nil, err
@@ -1280,10 +1239,8 @@ func (s *bigtableTableAdminGRPC) GenerateConsistencyToken(_ context.Context, req
 	return &btadmin.GenerateConsistencyTokenResponse{ConsistencyToken: sim.NewUUID()}, nil
 }
 
-// CheckConsistency reports whether replication has caught up to the point the
-// token was issued. This simulator serves a table from one copy, so every
-// mutation is visible everywhere the moment it returns and any token a caller
-// holds is already satisfied.
+// CheckConsistency reports every token satisfied: the simulator serves a table
+// from one copy, so a mutation is visible everywhere once it returns.
 func (s *bigtableTableAdminGRPC) CheckConsistency(_ context.Context, req *btadmin.CheckConsistencyRequest) (*btadmin.CheckConsistencyResponse, error) {
 	if _, err := bigtableRequireTable(req.GetName()); err != nil {
 		return nil, err
@@ -1293,8 +1250,6 @@ func (s *bigtableTableAdminGRPC) CheckConsistency(_ context.Context, req *btadmi
 	}
 	return &btadmin.CheckConsistencyResponse{Consistent: true}, nil
 }
-
-// Table admin: backups
 
 func (s *bigtableTableAdminGRPC) CreateBackup(_ context.Context, req *btadmin.CreateBackupRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
@@ -1402,19 +1357,13 @@ func (s *bigtableTableAdminGRPC) DeleteBackup(_ context.Context, req *btadmin.De
 	return &emptypb.Empty{}, nil
 }
 
-// Table admin: snapshots
-//
-// Snapshots are the older sibling of backups: a copy of a table taken into the
-// cluster that serves it, and a table created back out of that copy. The
-// bigtableadmin Discovery document declares no snapshots collection, so this
-// family exists on the gRPC door alone — which is why these read and write the
-// same capture store the backups do rather than a REST handler's state.
+// The bigtableadmin Discovery document declares no snapshots collection, so
+// snapshots exist only on the gRPC door and share the backups' capture store.
 
 func bigtableSnapshotKind() bigtableResourceKind {
 	return bigtableResourceKind{label: "snapshot", store: bigtableSnapshots, etag: false}
 }
 
-// SnapshotTable copies a table into a snapshot in the named cluster.
 func (s *bigtableTableAdminGRPC) SnapshotTable(_ context.Context, req *btadmin.SnapshotTableRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
 	table, err := bigtableRequireTable(req.GetName())
@@ -1427,12 +1376,11 @@ func (s *bigtableTableAdminGRPC) SnapshotTable(_ context.Context, req *btadmin.S
 	}
 	now := time.Now().UTC()
 	snapshot := &btadmin.Snapshot{
-		Name:        name,
-		SourceTable: bigtableTableToPB(table),
-		CreateTime:  timestamppb.New(now),
-		State:       btadmin.Snapshot_READY,
-		Description: req.GetDescription(),
-		// data_size_bytes is the size of the table's data the snapshot holds.
+		Name:          name,
+		SourceTable:   bigtableTableToPB(table),
+		CreateTime:    timestamppb.New(now),
+		State:         btadmin.Snapshot_READY,
+		Description:   req.GetDescription(),
 		DataSizeBytes: btTableSizeBytes(table.Name),
 	}
 	// A snapshot's ttl is how long it lives; the delete time it implies is what
@@ -1551,9 +1499,7 @@ func (s *bigtableTableAdminGRPC) CopyBackup(_ context.Context, req *btadmin.Copy
 	})
 }
 
-// RestoreTable creates a table from a backup. A backup records the metadata of
-// the table it was taken from — this store keeps no copy of the rows — so the
-// restored table arrives with the instance's cluster states and no data.
+// RestoreTable creates a table holding the rows its backup captured.
 func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.RestoreTableRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
 	name, err := bigtableInstanceChild(req.GetParent(), "tables", req.GetTableId(), "table_id")
@@ -1586,8 +1532,6 @@ func (s *bigtableTableAdminGRPC) RestoreTable(_ context.Context, req *btadmin.Re
 		Progress:   bigtableCompleteProgress(requested),
 	})
 }
-
-// Table admin: authorized views
 
 func (s *bigtableTableAdminGRPC) CreateAuthorizedView(_ context.Context, req *btadmin.CreateAuthorizedViewRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
@@ -1647,8 +1591,6 @@ func (s *bigtableTableAdminGRPC) DeleteAuthorizedView(_ context.Context, req *bt
 	}
 	return &emptypb.Empty{}, nil
 }
-
-// Table admin: schema bundles
 
 func (s *bigtableTableAdminGRPC) CreateSchemaBundle(_ context.Context, req *btadmin.CreateSchemaBundleRequest) (*longrunningpb.Operation, error) {
 	requested := time.Now()
@@ -1718,17 +1660,13 @@ func (s *bigtableTableAdminGRPC) DeleteSchemaBundle(_ context.Context, req *btad
 	return &emptypb.Empty{}, nil
 }
 
-// IAM
-//
-// Both admin services expose the AIP-141 IAM triple over the per-resource
-// policy store every GCP resource in this simulator shares, and convert with
-// the same helpers the Secret Manager door uses — one policy per resource
-// name, whichever service the caller reached it through.
+// Both admin services serve the AIP-141 IAM triple from the per-resource
+// policy store every Google Cloud resource here shares, one policy per
+// resource name whichever service reaches it.
 
-// bigtableIAMResourceExists reports whether the named IAM resource exists,
-// reading the store that holds that kind of resource. The collection segment
-// nearest the leaf names the kind, so the more deeply nested collections are
-// matched before the ones whose names are prefixes of theirs.
+// bigtableIAMResourceExists reads the store for the resource's kind, which the
+// collection segment nearest the leaf names; deeper collections match before
+// the ones whose names prefix theirs.
 func bigtableIAMResourceExists(resource string) bool {
 	var ok bool
 	switch {
@@ -1764,8 +1702,8 @@ func bigtableGetIamPolicy(req *iampb.GetIamPolicyRequest) (*iampb.Policy, error)
 	store := gcpResourceIAMStore()
 	policy, ok := store.Get(resource)
 	if !ok {
-		// The synthesized default is persisted so its etag is stable across
-		// reads: a SetIamPolicy validates against the etag a read returned.
+		// Persist the default so its etag stays stable: SetIamPolicy validates
+		// against the etag a read returned.
 		policy = IAMPolicy{Bindings: []IAMBinding{}, Etag: gcpPolicyETag(), Version: 1}
 		store.Put(resource, policy)
 	}
@@ -1796,11 +1734,9 @@ func bigtableSetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error)
 	return smPolicyToProto(stored), nil
 }
 
-// bigtableTestIamPermissions echoes the requested permissions. The simulator
-// models no authorization: every caller reaches it as a project administrator,
-// so the whole requested set is the truthful answer. A resource that does not
-// exist grants nothing, which real GCP reports as an empty set rather than an
-// error.
+// bigtableTestIamPermissions answers from the resource's policy. A resource
+// that does not exist grants nothing: Google Cloud answers an empty set, not
+// an error.
 func bigtableTestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
 	if !bigtableIAMResourceExists(req.GetResource()) {
 		return &iampb.TestIamPermissionsResponse{}, nil
@@ -1834,10 +1770,9 @@ func (s *bigtableTableAdminGRPC) TestIamPermissions(ctx context.Context, req *ia
 	return bigtableTestIamPermissions(ctx, req)
 }
 
-// bigtableCreateViewOperation stores view, of kind, under name and answers the
-// settled operation carrying it as stored, with the metadata metadata builds
-// from when the request arrived and finished. present is false when the
-// request carries no view in field.
+// bigtableCreateViewOperation stores view under name and answers the settled
+// operation carrying it, with metadata built from when the request arrived and
+// finished. present is false when the request carries no view in field.
 func bigtableCreateViewOperation[V proto.Message](kind bigtableResourceKind, name string, view proto.Message, present bool, field string,
 	stored V, requested time.Time, metadata func(start, end *timestamppb.Timestamp) proto.Message) (*longrunningpb.Operation, error) {
 	if !present {
@@ -1854,9 +1789,9 @@ func bigtableCreateViewOperation[V proto.Message](kind bigtableResourceKind, nam
 	return bigtableDoneOperation(name, created, metadata(timestamppb.New(requested), timestamppb.Now()))
 }
 
-// bigtableUpdateViewOperation applies an update of a view of kind under mask
-// and answers the settled operation carrying it as stored, with the metadata
-// metadata builds from when the request arrived and finished.
+// bigtableUpdateViewOperation applies a masked update to a view and answers the
+// settled operation carrying it, with metadata built from when the request
+// arrived and finished.
 func bigtableUpdateViewOperation[V interface {
 	proto.Message
 	GetName() string

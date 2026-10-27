@@ -9,17 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for App Service deployment slots running their own instances,
-// and for the swap az webapp deployment slot swap sends:
+// Each deployment slot answers on its own hostname with its own container;
+// `az webapp deployment slot swap` (slotsswap) moves what each hostname serves
+// and leaves the sticky settings in place.
 //
 //	az webapp deployment slot create --configuration-source
 //	az webapp config set --slot --startup-file
 //	az webapp config appsettings set --slot --settings / --slot-settings
 //	az webapp deployment slot swap
 //	  POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/slots/{slot}/slotsswap
-//
-// Each slot answers on its own hostname with its own container; the swap
-// moves what each hostname serves and leaves the sticky settings in place.
 
 func TestWebAppSlots_NativeAzSlotSwap(t *testing.T) {
 	t.Parallel()

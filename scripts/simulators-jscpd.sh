@@ -3,21 +3,14 @@
 # dashboard UI sources (simulator-aws/gcp/azure). Threshold: 200 tokens; test
 # files excluded from the count.
 #
-# The exclusion uses --ignore, which takes file globs. It used to use
-# --ignore-pattern, which in jscpd 5 takes code-level regexes for skipping
-# tokens, so a file glob handed to it excluded nothing at all. That went
-# unnoticed because the clone detection below never matched either: both faults
-# were invisible while the gate reported OK on everything.
+# The exclusion uses --ignore, which takes file globs; --ignore-pattern takes
+# code-level regexes for skipping tokens, and a file glob handed to it
+# excludes nothing.
 #
-# jscpd is a pinned devDependency of the UI workspace and is invoked from
-# node_modules, not through `npx --yes`. It used to be fetched that way, once
-# per cloud, and the cost was not the analysis: measured on 2026-09-04 the three
-# runs took 5m03s wall-clock for 1.69s of CPU at 0% utilisation — all of it npm
-# round-trips. The job that runs this is budgeted at eight minutes and also
-# installs deadcode, dupl and the UI dependencies, so on a slow npm day the
-# budget went to resolution and GitHub killed the job mid-step, which it reports
-# as "cancelled" rather than as a timeout. The workspace install this job
-# already performs now provides the binary, so the gate does no network at all.
+# jscpd is a pinned devDependency of the UI workspace and runs from
+# node_modules, not through `npx --yes`: the workspace install this job
+# already performs provides the binary, so the gate does no network at all and
+# npm round-trips cannot spend the job's time budget.
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -36,11 +29,9 @@ for cloud in aws gcp azure; do
     src 2>&1)
   exit_status=$?
   set -e
-  # Match unanchored. jscpd prints each clone as "Clone found (tsx)" preceded by
-  # an ANSI bold escape, so a "^Clone found" anchor never matches a single one —
-  # and jscpd exits 0 for clones unless --threshold is given, so this gate could
-  # not fail at all. It reported OK on a tree with 539 clones at a 20-token
-  # threshold, which is how that was found.
+  # Match unanchored: jscpd prints each clone as "Clone found (tsx)" preceded by
+  # an ANSI bold escape, so a "^Clone found" anchor never matches, and jscpd
+  # exits 0 for clones unless --threshold is given.
   if echo "$out" | grep -q "Clone found"; then
     count=$(echo "$out" | grep -c "Clone found" || true)
     echo "FAIL: simulator-$cloud jscpd found $count clone(s) above threshold (200 tokens):" >&2

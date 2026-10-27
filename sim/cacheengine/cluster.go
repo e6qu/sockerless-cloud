@@ -27,13 +27,11 @@ func (n ClusterNode) has(flag string) bool {
 	return false
 }
 
-// Primary reports whether the node is a primary.
 func (n ClusterNode) Primary() bool { return n.has("master") }
 
 // ClusterView is a node's account of the cluster.
 type ClusterView []ClusterNode
 
-// ParseClusterNodes reads a CLUSTER NODES reply.
 func ParseClusterNodes(text string) ClusterView {
 	var view ClusterView
 	for _, line := range strings.Split(text, "\n") {

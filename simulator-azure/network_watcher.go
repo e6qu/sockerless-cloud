@@ -9,40 +9,26 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Network Watcher (Microsoft.Network/networkWatchers) is Azure's regional
-// network diagnostics service. The watcher resource itself is a per-region
-// anchor that owns two kinds of child: the flow logs and connection monitors an
-// operator configures, and the on-demand diagnostics
-// (network_watcher_diagnostics.go) that answer questions about the network as
-// it is right now.
-//
-// The diagnostics are the part that has to be real, and they are: IP flow
-// verify, next hop, the security group view and the network configuration
-// diagnostic all evaluate the SAME network security groups, security rules and
-// route tables the simulator programs onto the interfaces, so a verdict a
-// caller reads here is the verdict a packet gets. Nothing is answered from a
-// canned table.
+// Network Watcher, Azure's regional network diagnostics. A watcher owns flow
+// logs and connection monitors, and its on-demand diagnostics
+// (network_watcher_diagnostics.go) evaluate the same NSGs, rules and route
+// tables the simulator programs onto interfaces, so a verdict read here is the
+// verdict a packet gets.
 
-// NetworkWatcher mirrors Microsoft.Network/networkWatchers.
 type NetworkWatcher struct {
 	azureNetworkResourceHeader
 	Properties NetworkWatcherProperties `json:"properties"`
 }
 
-// NetworkWatcherProperties holds the watcher's read-only state.
 type NetworkWatcherProperties struct {
 	ProvisioningState string `json:"provisioningState,omitempty"`
 }
 
-// NetworkWatcherFlowLog mirrors Microsoft.Network/networkWatchers/flowLogs — the
-// flow log configuration of one target resource.
 type NetworkWatcherFlowLog struct {
 	azureNetworkResourceHeader
 	Properties NetworkWatcherFlowLogProperties `json:"properties"`
 }
 
-// NetworkWatcherFlowLogProperties holds where a target's flows are written and
-// in what shape.
 type NetworkWatcherFlowLogProperties struct {
 	TargetResourceID           string                       `json:"targetResourceId,omitempty"`
 	TargetResourceGUID         string                       `json:"targetResourceGuid,omitempty"`
@@ -56,30 +42,23 @@ type NetworkWatcherFlowLogProperties struct {
 	ProvisioningState          string                       `json:"provisioningState,omitempty"`
 }
 
-// NetworkWatcherRetention is a flow log's retention policy.
 type NetworkWatcherRetention struct {
 	Days    int32 `json:"days"`
 	Enabled bool  `json:"enabled"`
 }
 
-// NetworkWatcherFlowLogFormat is the file format flows are written in.
 type NetworkWatcherFlowLogFormat struct {
 	Type    string `json:"type,omitempty"`
 	Version int32  `json:"version,omitempty"`
 }
 
-// NetworkWatcherConnectionMonitor mirrors
-// Microsoft.Network/networkWatchers/connectionMonitors.
 type NetworkWatcherConnectionMonitor struct {
 	azureNetworkResourceHeader
 	Properties NetworkWatcherConnectionMonitorProperties `json:"properties"`
 }
 
-// NetworkWatcherConnectionMonitorProperties holds the monitor's endpoints, test
-// configuration and lifecycle state. The test results themselves are published
-// through Azure Monitor rather than through this resource, so what the resource
-// carries — and what this simulator therefore carries — is the configuration
-// and whether the monitor is running.
+// The test results are published through Azure Monitor, not this resource, so
+// it carries the configuration and whether the monitor runs.
 type NetworkWatcherConnectionMonitorProperties struct {
 	Source                      map[string]any   `json:"source,omitempty"`
 	Destination                 map[string]any   `json:"destination,omitempty"`
@@ -118,8 +97,8 @@ func registerNetworkWatchers(srv *sim.Server) {
 		nameParam:    "networkWatcherName",
 		resourceType: azureNetworkWatcherType,
 		store:        azureNetworkWatchers,
-		// Microsoft.Network documents a completed network watcher delete as
-		// 204; its client rejects the 200 the provider's other resources use.
+		// Microsoft.Network documents a completed watcher delete as 204, and its
+		// client rejects 200.
 		deleteStatus: http.StatusNoContent,
 		header: func(nw *NetworkWatcher) *azureNetworkResourceHeader {
 			return &nw.azureNetworkResourceHeader
@@ -137,8 +116,7 @@ func registerNetworkWatchers(srv *sim.Server) {
 	registerNetworkWatcherPacketCaptures(srv)
 }
 
-// deleteNetworkWatcherChildren removes the flow logs and connection monitors a
-// deleted watcher owned; ARM deletes a resource's children with it.
+// Azure Resource Manager deletes a resource's children with it.
 func deleteNetworkWatcherChildren(_ context.Context, id string, _ NetworkWatcher) {
 	for _, flowLog := range azureNetworkWatcherFlowLogs.Filter(func(f NetworkWatcherFlowLog) bool {
 		return strings.HasPrefix(f.ID, id+"/flowLogs/")
@@ -152,13 +130,10 @@ func deleteNetworkWatcherChildren(_ context.Context, id string, _ NetworkWatcher
 	}
 }
 
-// networkWatcherID composes the watcher id a request addresses.
 func networkWatcherID(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkWatchers", sim.PathParam(r, "networkWatcherName"))
 }
 
-// requireNetworkWatcher resolves the watcher a child or diagnostic request is
-// addressed to, writing ARM's not-found error when it does not exist.
 func requireNetworkWatcher(w http.ResponseWriter, r *http.Request) (NetworkWatcher, bool) {
 	nw, ok := azureNetworkWatchers.Get(networkWatcherID(r))
 	if !ok {
@@ -169,9 +144,6 @@ func requireNetworkWatcher(w http.ResponseWriter, r *http.Request) (NetworkWatch
 	return nw, true
 }
 
-// registerNetworkWatcherFlowLogs mounts the flow log resource: the record of
-// which target's flows go to which storage account, in which format, and for
-// how long they are kept.
 func registerNetworkWatcherFlowLogs(srv *sim.Server) {
 	base := azureNetworkArmBase() + "/networkWatchers/{networkWatcherName}/flowLogs"
 	flowLogID := func(r *http.Request) string {
@@ -238,9 +210,8 @@ func registerNetworkWatcherFlowLogs(srv *sim.Server) {
 	})
 }
 
-// networkWatcherStoreFlowLog writes a flow log record with the read-only state
-// the resource provider computes: the target's resource GUID resolved from the
-// target itself, the default record shape, and the terminal provisioning state.
+// The target's resource GUID, the default record shape, and the terminal
+// provisioning state.
 func networkWatcherStoreFlowLog(id, name string, req NetworkWatcherFlowLog) NetworkWatcherFlowLog {
 	flowLog := req
 	flowLog.ID = id
@@ -262,10 +233,8 @@ func networkWatcherStoreFlowLog(id, name string, req NetworkWatcherFlowLog) Netw
 	return flowLog
 }
 
-// networkWatcherFlowLogTargetExists reports whether a flow log's target is a
-// resource this simulator holds. Azure collects flows for network security
-// groups, virtual networks, subnets and network interfaces, and refuses a flow
-// log whose target does not exist.
+// Azure collects flows for NSGs, virtual networks, subnets and interfaces, and
+// refuses a flow log whose target does not exist.
 func networkWatcherFlowLogTargetExists(targetID string) bool {
 	if azureNSGs != nil {
 		if _, ok := azureNSGs.Get(targetID); ok {
@@ -290,10 +259,8 @@ func networkWatcherFlowLogTargetExists(targetID string) bool {
 	return false
 }
 
-// networkWatcherFlowLogForTarget finds the flow log a watcher holds for one
-// target resource. The configureFlowLog and queryFlowLogStatus operations
-// address a target rather than a flow log by name, and they read and write the
-// very same records the flow log resource serves.
+// configureFlowLog and queryFlowLogStatus address a target rather than a named
+// flow log, and use the same records the flow log resource serves.
 func networkWatcherFlowLogForTarget(watcherID, targetID string) (NetworkWatcherFlowLog, bool) {
 	prefix := watcherID + "/flowLogs/"
 	for _, flowLog := range azureNetworkWatcherFlowLogs.Filter(func(f NetworkWatcherFlowLog) bool {
@@ -306,11 +273,8 @@ func networkWatcherFlowLogForTarget(watcherID, targetID string) (NetworkWatcherF
 	return NetworkWatcherFlowLog{}, false
 }
 
-// registerNetworkWatcherConnectionMonitors mounts the connection monitor
-// resource. A monitor is a standing instruction to test connectivity between
-// its endpoints; the results it produces are published through Azure Monitor,
-// so what this surface owns is the configuration and the monitor's own
-// lifecycle — running until it is stopped.
+// A monitor's results are published through Azure Monitor, so this surface
+// owns the configuration and the running lifecycle.
 func registerNetworkWatcherConnectionMonitors(srv *sim.Server) {
 	base := azureNetworkArmBase() + "/networkWatchers/{networkWatcherName}/connectionMonitors"
 	monitorID := func(r *http.Request) string {
@@ -338,16 +302,13 @@ func registerNetworkWatcherConnectionMonitors(srv *sim.Server) {
 		monitor.Type = azureConnectionMonitorType
 		monitor.Etag = azureNetworkEtag()
 		monitor.Properties.ProvisioningState = "Succeeded"
-		// A monitor built from endpoints and test groups is the multi-endpoint
-		// shape; one built from a single source and destination is the older
-		// single-source shape. The type follows from the configuration rather
-		// than from anything the caller declares.
+		// Endpoints and test groups make a MultiEndpoint monitor; a single source and
+		// destination the older shape. The configuration decides, not the caller.
 		monitor.Properties.ConnectionMonitorType = "MultiEndpoint"
 		if len(req.Properties.Endpoints) == 0 {
 			monitor.Properties.ConnectionMonitorType = "SingleSourceDestination"
 		}
-		// The monitor starts unless the request asked it not to, and a monitor
-		// that has started carries the time it did.
+		// The monitor starts unless asked not to, and records when it did.
 		running := req.Properties.AutoStart == nil || *req.Properties.AutoStart
 		if existing, ok := azureConnectionMonitors.Get(id); ok {
 			monitor.Properties.StartTime = existing.Properties.StartTime

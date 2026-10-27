@@ -20,10 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// asxSetupGroup creates a VPC, subnet, launch configuration and Auto Scaling
-// group with one running instance, returning the group name and instance ID.
-// It mirrors the coordinates a real consumer uses (no sim-only knobs), and
-// registers tolerant cleanups.
 // asxVPCRanges counts the group fixtures built, each on its own /16.
 var asxVPCRanges atomic.Int32
 
@@ -732,8 +728,6 @@ func TestAutoScaling_CancelInstanceRefreshNotFound(t *testing.T) {
 	const group = "asx-cir-grp"
 	asxSetupGroup(t, c, "asx-cir-lc", group, 0)
 
-	// CancelInstanceRefresh with no prior refresh must surface the real
-	// ActiveInstanceRefreshNotFound error, not silently succeed.
 	_, err := c.CancelInstanceRefresh(ctx, &autoscaling.CancelInstanceRefreshInput{
 		AutoScalingGroupName: aws.String(group),
 	})

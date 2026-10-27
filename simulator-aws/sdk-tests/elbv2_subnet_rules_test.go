@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// elbv2VPCIpv6Block gives the VPC an Amazon-provided IPv6 CIDR block.
 func elbv2VPCIpv6Block(t *testing.T, vpcID string) netip.Prefix {
 	t.Helper()
 	out, err := ec2Client().AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{
@@ -27,7 +26,6 @@ func elbv2VPCIpv6Block(t *testing.T, vpcID string) netip.Prefix {
 	return block
 }
 
-// elbv2Ipv6SubnetRange returns the index'th /64 of a VPC's IPv6 block.
 func elbv2Ipv6SubnetRange(block netip.Prefix, index int) string {
 	addr := block.Masked().Addr().As16()
 	addr[7] += byte(index)
@@ -42,11 +40,11 @@ func requireELBv2Error(t *testing.T, err error, code, message string) {
 	assert.Contains(t, apiErr.ErrorMessage(), message)
 }
 
-// TestELBv2_SubnetRules covers what CreateLoadBalancer, SetSubnets and
-// SetIpAddressType refuse: an Application Load Balancer in fewer than two
-// Availability Zones, two subnets in one zone for any type, a subnet that does
-// not exist, and a dualstack load balancer on a subnet with no IPv6 CIDR
-// block. A Network Load Balancer takes a single zone.
+// TestELBv2_SubnetRules expects CreateLoadBalancer, SetSubnets and
+// SetIpAddressType to refuse an Application Load Balancer in fewer than two
+// Availability Zones, two subnets in one zone, a missing subnet, and a
+// dualstack load balancer on a subnet without an IPv6 CIDR block; a Network Load
+// Balancer takes a single zone.
 func TestELBv2_SubnetRules(t *testing.T) {
 	t.Parallel()
 	ec2c := ec2Client()

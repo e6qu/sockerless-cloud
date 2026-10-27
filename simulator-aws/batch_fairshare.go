@@ -33,9 +33,8 @@ type BatchShareAttribute struct {
 	WeightFactor    *float64 `json:"weightFactor"`
 }
 
-// batchShareUsage is a share identifier's use of a fair-share job queue: the
-// vCPUs its jobs hold now, and the vCPU-seconds they held before, decayed over
-// the policy's shareDecaySeconds as of At.
+// Running vCPUs now, plus vCPU-seconds held before, decayed over
+// shareDecaySeconds as of At.
 type batchShareUsage struct {
 	Queue   string    `json:"queue"`
 	Share   string    `json:"share"`
@@ -62,8 +61,7 @@ func batchParseFairsharePolicy(raw map[string]any) (BatchFairsharePolicy, error)
 	return policy, nil
 }
 
-// batchCheckFairsharePolicy enforces the bounds the FairsharePolicy and
-// ShareAttributes shapes document.
+// Enforce the bounds the FairsharePolicy and ShareAttributes shapes document.
 func batchCheckFairsharePolicy(raw map[string]any) error {
 	if raw == nil {
 		return nil
@@ -134,8 +132,7 @@ func (policy BatchFairsharePolicy) decaySeconds() float64 {
 	return float64(policy.ShareDecaySeconds)
 }
 
-// batchQueueFairsharePolicy returns the fair-share policy of a job queue, and
-// false for a FIFO queue.
+// false means a FIFO queue.
 func batchQueueFairsharePolicy(queue BatchJobQueue) (BatchFairsharePolicy, bool) {
 	if queue.SchedulingPolicyArn == "" {
 		return BatchFairsharePolicy{}, false
@@ -151,9 +148,8 @@ func batchQueueFairsharePolicy(queue BatchJobQueue) (BatchFairsharePolicy, bool)
 	return policy, true
 }
 
-// batchCheckShareLocked applies SubmitJob's share rules: a fair-share queue
-// takes only jobs with a share identifier, at most 500 of them active at
-// once, and a FIFO queue none.
+// A fair-share queue takes only jobs with a share identifier, at most 500
+// active at once; a FIFO queue takes none.
 func batchCheckShareLocked(queue BatchJobQueue, share string, priority *int) error {
 	_, fairshare := batchQueueFairsharePolicy(queue)
 	if !fairshare {
@@ -183,8 +179,7 @@ func batchCheckShareLocked(queue BatchJobQueue, share string, priority *int) err
 	return nil
 }
 
-// advance folds the vCPUs the share held since At into its decayed usage: the
-// integral of the running vCPUs under an exponential decay with time constant
+// Integrate the running vCPUs under an exponential decay with time constant
 // tau.
 func (usage *batchShareUsage) advance(now time.Time, tau float64) {
 	if !usage.At.IsZero() {
@@ -206,8 +201,7 @@ func batchShareUsageLocked(queue, share string, now time.Time, tau float64) batc
 	return usage
 }
 
-// batchChargeShareLocked records vcpus (negative when an attempt ends) that a
-// job of share started or stopped holding in a fair-share queue.
+// vcpus is negative when an attempt ends.
 func batchChargeShareLocked(queueName, share string, vcpus float64) {
 	if share == "" {
 		return
@@ -225,10 +219,9 @@ func batchChargeShareLocked(queueName, share string, vcpus float64) {
 	batchShareUsages.Put(batchShareUsageKey(queueName, share), usage)
 }
 
-// batchFairshareScheduler orders one fair-share queue's RUNNABLE jobs: the
-// share with the least weighted usage goes first, where usage is the vCPUs
-// its jobs hold plus their decayed average over shareDecaySeconds, and a
-// share's own jobs go by schedulingPriority, then arrival.
+// The share with the least weighted usage goes first, usage being held vCPUs
+// plus their decayed average; within a share, schedulingPriority then
+// arrival.
 type batchFairshareScheduler struct {
 	policy BatchFairsharePolicy
 	usage  map[string]float64
@@ -265,8 +258,7 @@ func (scheduler *batchFairshareScheduler) score(share string) float64 {
 	return scheduler.usage[share] * scheduler.policy.weight(share)
 }
 
-// pop removes and returns the job to place next: the head of the share with
-// the least weighted usage, the earlier arrival on a tie.
+// Ties go to the earlier arrival.
 func (scheduler *batchFairshareScheduler) pop() (batchRunnableEntry, bool) {
 	best := ""
 	for share, queued := range scheduler.shares {
@@ -295,9 +287,8 @@ func (scheduler *batchFairshareScheduler) placed(entry batchRunnableEntry) {
 	scheduler.usage[entry.share] += entry.vcpus
 }
 
-// capacity is how many of a compute environment's maxVCPUs a job of share may
-// use: computeReservation holds back (computeReservation/100)^activeShares of
-// them for share identifiers that hold none yet.
+// computeReservation holds back (computeReservation/100)^activeShares of
+// maxVCPUs for share identifiers that hold none yet.
 func (scheduler *batchFairshareScheduler) capacity(share string, maxVCPUs float64) float64 {
 	if scheduler.usage[share] == 0 || scheduler.policy.ComputeReservation == 0 {
 		return maxVCPUs

@@ -7,8 +7,8 @@ on:
     # no CI: the commits it releases were verified on their own pull requests
     # and on main. Ignoring the paths means GitHub creates no run at all, so
     # there is nothing for the outside-contributor approval gate to hold until
-    # it expires as a failure (BUG-2982). release-please is the only writer of
-    # both files, so no other pull request consists of them alone.
+    # it expires as a failure. release-please is the only writer of both files,
+    # so no other pull request consists of them alone.
     paths-ignore:
       - CHANGELOG.md
       - .release-please-manifest.json
@@ -20,11 +20,9 @@ on:
 # Pull-request runs are keyed by head ref: a new push to a branch makes the
 # run under way obsolete, and only the latest commit's verdict is wanted, so
 # cancelling reclaims runners with nothing lost. Everything else is keyed by
-# commit. A push to main carries a verdict for that commit alone — grouping
-# main pushes together let each merge cancel its predecessor's CI, so a commit
-# that is permanently in main's history ends with no result and none can be
-# obtained without a manual re-run. A per-commit group has one member and is
-# never superseded.
+# commit: grouping main pushes together would let each merge cancel its
+# predecessor's CI and leave a commit in main's history with no verdict. A
+# per-commit group has one member and is never superseded.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.sha }}
   cancel-in-progress: true
@@ -71,12 +69,10 @@ jobs:
             timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
-      # install-go's own cache restores only an exact go.sum match, so every
-      # pin or dependency move linted the simulators cold — compiling every
-      # dependency and analysing every package from nothing — and a job the
-      # runner lost that way never saved an entry for the next run. This one
-      # falls back to the newest older entry and keeps golangci-lint's own
-      # analysis cache beside the build cache.
+      # install-go's own cache restores only an exact go.sum match, so a pin or
+      # dependency move would lint the simulators cold. This one falls back to
+      # the newest older entry and keeps golangci-lint's own analysis cache
+      # beside the build cache.
       - uses: ./.github/actions/install-go
       - name: Restore the Go module, build and lint caches for this shard
         uses: actions/cache@v6.1.0
@@ -92,9 +88,7 @@ jobs:
       - name: Install golangci-lint
         # Built from source through the Go module proxy rather than fetched
         # from the GitHub releases CDN: the install script's own downloader
-        # has no retry knobs and a releases-CDN 503 failed this job even with
-        # the script fetch itself retried. The proxy is a different, immune
-        # distribution path, and the warm Go build cache makes the build fast.
+        # has no retry knobs, and the warm Go build cache makes the build fast.
         run: |
           GOBIN="$(go env GOPATH)/bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
           "$(go env GOPATH)/bin/golangci-lint" --version
@@ -115,10 +109,7 @@ jobs:
     # Every step here queries a live upstream — the GitHub API for two clouds'
     # specifications and Google's Discovery endpoints for the third, each
     # sampled several times — so the job's duration tracks those services
-    # rather than anything in this repository. It has run in 4m52s and been
-    # cancelled at the ten-minute ceiling on the same content; 15 is the
-    # project's maximum and the honest budget for work that is mostly waiting
-    # on somebody else's network.
+    # rather than anything in this repository; 15 is the project's maximum.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -154,15 +145,12 @@ jobs:
       # commit the attribution reads.
       - name: Fetch main for drift attribution
         run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
-      # --baseline origin/main holds this branch to the dependencies it pinned.
-      # The adoption quarantine guarantees a steady drip of new drift — a
-      # version becomes drift exactly 86400s after publication whether or not
-      # anybody pushed — and without a baseline that turned five of six
-      # consecutive main runs red in a single day on docker/setup-buildx-action,
-      # google.golang.org/grpc and aws-sdk-go-v2/service/organizations, none of
-      # which any of those commits touched. Inherited rows are reported and
-      # annotated here; the scheduled Dependency freshness workflow runs with no
-      # baseline and is what fails on them.
+      # --baseline origin/main holds this branch to the dependencies it pinned:
+      # the adoption quarantine guarantees a steady drip of new drift, a version
+      # becoming drift exactly 86400s after publication whether or not anybody
+      # pushed. Inherited rows are reported and annotated here; the scheduled
+      # Dependency freshness workflow runs with no baseline and is what fails on
+      # them.
       - name: Check dependency freshness (bash)
         run: bash scripts/check-latest-deps.sh --baseline origin/main
         env:
@@ -189,12 +177,10 @@ jobs:
       #
       # --baseline origin/main holds this branch to the rows it touched. A row
       # whose pin the branch left as main recorded it drifted because upstream
-      # moved, not because the branch let it rot, and failing here made a
-      # branch's life a race against three separate upstreams — recorded in
-      # detail in the script's header. Those rows are reported as INHERITED and
-      # are failed by the scheduled Specification freshness workflow, which
-      # runs against main with no baseline. A row the branch changed, rolled
-      # back, or added is still held to upstream tip right here.
+      # moved, not because the branch let it rot; those rows are reported as
+      # INHERITED and failed by the scheduled Specification freshness workflow,
+      # which runs against main with no baseline. A row the branch changed,
+      # rolled back, or added is still held to upstream tip right here.
       - name: Check Amazon Web Services API specification freshness
         id: aws-spec-freshness
         # The AWS and Azure specifications live in GitHub repositories, so this
@@ -208,10 +194,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPEC_FRESHNESS_CAPTURE_DIR: ${{ runner.temp }}/aws-spec-drift
-      # Inherited drift no longer fails the step, so the capture is uploaded
-      # whenever one was taken rather than only on failure: the artifact is
-      # what the follow-up refresh vendors, and only the run that sampled the
-      # newer document can produce it.
+      # Inherited drift does not fail the step, so the capture is uploaded
+      # whenever one was taken: the artifact is what the follow-up refresh
+      # vendors, and only the run that sampled the newer document can
+      # produce it.
       - name: Preserve drifted Amazon Web Services API specifications
         if: ${{ !cancelled() && steps.aws-spec-freshness.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.2
@@ -299,10 +285,9 @@ jobs:
 
   # A pull request restores only the caches its own runs saved and those main
   # saved. Main's verification jobs skip a tree its pull request already
-  # passed, so main saved no simulator Go cache, and every new pull request
-  # compiled a cloud's SDKs cold in each shard that started before its first
-  # shard had saved one — a race a slow runner lost at the pre-build budget.
-  # This job saves, on main, the entry those shards restore.
+  # passed, so this job saves, on main, the simulator Go cache the shards
+  # restore; without it a new pull request's shards compile each cloud's
+  # SDKs cold.
   warm-sim-go-cache:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: warm Go cache (${{ matrix.cloud }})
@@ -346,10 +331,7 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
-  # The base-image archive is the other cache main's skipped jobs never save:
-  # every new pull request found none, pulled each image from its registry in
-  # every job, and spent minutes archiving the set, which ran the race job past
-  # its time limit and sent ECR Public pulls into its anonymous throttle.
+  # The base-image archive is the other cache main's skipped jobs never save.
   # The registries behind the base images throttle per project per minute, so
   # one job per cloud fetches the set a run lacks and the jobs that run
   # containers wait for it and restore the cache it saves, rather than each
@@ -422,13 +404,11 @@ jobs:
         # differential tests alone approach the ceiling, leaving no room to run
         # the CLI suite in the same job.
         #
-        # The Azure CLI suite is then split again. Unsharded it measured 680
-        # seconds across 171 tests against a fourteen-minute step allowance,
-        # with its inner deadline already at thirteen minutes — the most it can
-        # be before a breach stops producing a named Go stack and becomes an
-        # opaque step kill. That left under two minutes of headroom for a suite
-        # that had roughly doubled in a single pass. Its names partition
-        # cleanly: all 171 match `Test[A-Z]`, 99 in A-M and 72 in N-Z.
+        # The Azure CLI suite is then split again, by first letter: unsharded
+        # it ran near the fourteen-minute step allowance with its inner
+        # deadline at thirteen minutes, the most it can be before a breach
+        # stops producing a named Go stack. Its names partition cleanly on
+        # `Test[A-M]` and `Test[N-Z]`.
         include:
           # The Google Cloud SDK suite is split by cost as well: unsharded its
           # job reached 781 seconds against the 15-minute bound, and the names
@@ -548,12 +528,12 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
-          # and an older entry warms the incremental build until then. The
+          # and an older entry warms the incremental build until then.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       # These suites run real containers, and the registries they pull from
-      # throttle anonymous pulls: the ECR Public Gallery, which serves the
+      # throttle anonymous pulls: the Amazon ECR Public Gallery, which serves the
       # images AWS publishes, caps them by data volume — a cap no retry
       # recovers from. Caching the images means the common case makes no
       # registry request at all, and the simulator's own puller asks the engine
@@ -608,9 +588,9 @@ jobs:
       #
       # Deliberately not actions/setup-java: the runner downloads every action a
       # workflow references before it evaluates any step's condition, so a
-      # gcp-only action step costs every job in the matrix one more tarball
-      # fetch from codeload — and those fetches are already being throttled
-      # (BUG-56). A step that reads what is installed costs nothing.
+      # gcp-only action step would cost every job in the matrix one more tarball
+      # fetch from codeload, where fetches are throttled. A step that reads what
+      # is installed costs nothing.
       - name: Put the Java runtime the Cloud Firestore emulator requires on PATH
         if: matrix.cloud == 'gcp'
         run: |
@@ -651,16 +631,14 @@ jobs:
           # Java runtime it runs on. The alpha and beta tracks are the ones the
           # gcloud suite's commands name; installed here, no test installs them.
           "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator alpha beta --quiet
-      # The runner image ships an Azure CLI, and it lags Microsoft's releases —
-      # the AWS CLI and gcloud steps above each fetch the newest build, so
-      # testing Azure against whatever the image happened to bake in was the one
-      # cloud whose client was not current. Install the newest, as they do.
+      # The runner image ships an Azure CLI that lags Microsoft's releases;
+      # install the newest, as the AWS CLI and gcloud steps above do.
       - name: Install Azure CLI
         if: matrix.cloud == 'azure'
         run: |
-          # The installer runs apt-get with apt's default network timeouts, so a
-          # stalled mirror held one run for fourteen minutes; the timeouts
-          # ci-apt-install.sh passes apt-get apply to it through apt.conf.d.
+          # The installer runs apt-get with apt's default network timeouts, which
+          # let a stalled mirror hold the job; the timeouts ci-apt-install.sh
+          # passes apt-get apply to it through apt.conf.d.
           printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
             | sudo tee /etc/apt/apt.conf.d/80ci-timeouts > /dev/null
           for attempt in 1 2; do
@@ -676,7 +654,7 @@ jobs:
           hash -r
           az version
       - name: Install Caddy
-        # TestArtifactRegistryCLI_DockerLoginPushPull serves the Google Artifact
+        # TestArtifactRegistryCLI_DockerLoginPushPull serves the Artifact
         # Registry Docker data plane over TLS through the repository's HTTPS
         # gateway, which is Caddy, because a container engine speaks TLS to a
         # registry.
@@ -792,32 +770,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Amazon ECS is split away from the rest of the E tests: at 204s it
-          # was the largest block in the suite and put the compute shard 48s
-          # from the job budget. It joins the data shard, whose own tests run
-          # in 4s.
-          # The Amazon Aurora tests leave services-n-z for compute, which has
-          # the most room: their cluster volumes, backups and restores took
-          # the N-Z shard past its job budget.
-          # The Amazon RDS tests from A to I join the data shard: an Aurora
-          # cluster now starts its engine for its first automated backup when
-          # it is created, and deleting one whose MySQL engine is still
-          # starting takes about ten seconds (BUG-3363), which pushed the N-Z
-          # shard, already at 470s against the 600s test deadline, past it.
-          # A security group's enforcement between neighbours and a NAT
-          # gateway's routing are the microVM backend's; the guest shard
-          # proves them.
+          # Amazon ECS is split away from the rest of the E tests into the data
+          # shard, whose own tests are short. The Amazon Aurora tests and the
+          # Amazon RDS tests from A to I run in shards of their own: their
+          # engines, cluster volumes, backups and restores do not fit beside the
+          # N-Z tests in one job budget. A security group's enforcement between
+          # neighbours and a NAT gateway's routing are the microVM backend's; the
+          # guest shard proves them.
           - suite: compute
             run: '^Test(E[^C]|EC[^S])'
             skip: '^TestEC2_(SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections|RegionalNatGatewayCarriesEachZonesConnections)'
-          # The Amazon Aurora tests then leave compute for a shard of their own:
-          # with the EC2 real-execution tests, compute ran 11 to 14 minutes of
-          # its 15-minute job and was cancelled at the bound once.
+          # The Amazon Aurora tests run in a shard of their own: beside the EC2
+          # real-execution tests they do not fit compute's job budget.
           - suite: rds-aurora
             run: '^Test(RDS_Aurora)'
-          # The Amazon RDS tests from A to I then leave the data shard for one
-          # of their own: with the shard at 883 seconds of a 900-second job,
-          # read replicas that start their own engine put it past the bound.
+          # The Amazon RDS tests from A to I run in a shard of their own: read
+          # replicas that start their own engine do not fit the data shard's job
+          # budget.
           - suite: data
             run: '^Test(D|ECS)'
           - suite: rds-a-i
@@ -879,7 +848,7 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
-          # and an older entry warms the incremental build until then. The
+          # and an older entry warms the incremental build until then.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
@@ -898,11 +867,9 @@ jobs:
       - name: Run AWS module unit tests
         # The module unit tests are shard-independent; one shard carries them
         # so they run exactly once per workflow, and it is the shard with the
-        # most room — carrying them cost services-n-z 154s while it ran level
-        # with the slowest shard in the suite. The run step's budget holds the
-        # suite alone — compilation happened above. The inner deadline sits
-        # under the step budget so a hung test fails with a named Go stack
-        # rather than an opaque step kill.
+        # most room. The run step's budget holds the suite alone — compilation
+        # happened above. The inner deadline sits under the step budget so a
+        # hung test fails with a named Go stack rather than an opaque step kill.
         if: matrix.suite == 'services-a-m'
         run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=5m30s
         timeout-minutes: 6
@@ -921,11 +888,10 @@ jobs:
         # against an empty one. Six minutes was under twice the warm cost,
         # which is no margin for the case the step is for.
         timeout-minutes: 10
-      # One shard saves the entry, once its pre-build has filled it. Every shard
-      # saving on a miss let the shards that started before the first save each
-      # spend a minute or more compressing the same caches inside their job
-      # budget, which cancelled two of them at the limit after their tests had
-      # passed. The data shard finishes with the most budget to spare.
+      # One shard saves the entry, once its pre-build has filled it: every
+      # shard saving on a miss would each spend a minute or more compressing
+      # the same caches inside its job budget. The data shard finishes with
+      # the most budget to spare.
       - name: Save the Go module and build caches
         if: matrix.suite == 'data' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
@@ -934,18 +900,12 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
-      # Free disk before the timed run — but never the Go caches. Deleting
-      # those poisons the cache for every later job: the cache saves at
-      # post-job, a branch's first run restores the default branch's entry and
-      # is therefore not an exact hit in its own scope, so it saves what it
-      # has, which after this step is nothing. Measured on this branch: the
-      # entry under the shared key went from 224,164,847 bytes to 7,564, and
-      # the pre-build step that takes 3m16s warm hit its six-minute ceiling
-      # twice.
-      #
-      # The deletion was not buying much either. Measured on the run before it:
-      # 83 GB free before, 89 GB after, on a 145 GB disk at 43% used. The
-      # container images and apt lists are the part worth reclaiming.
+      # Free disk before the timed run — but never the Go caches. The cache
+      # saves at post-job, and a branch's first run restores the default
+      # branch's entry, which is not an exact hit in its own scope, so it
+      # saves what it has: after deleting the caches that would be nothing,
+      # poisoning the cache for every later job. The container images and apt
+      # lists are the part worth reclaiming.
       - name: Free AWS SDK runner disk before execution
         run: |
           df -h
@@ -1021,13 +981,11 @@ jobs:
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
       - name: Run AWS SDK tests
-        # The suite has exhausted the runner volume from a 89 GB starting
-        # margin, killing the runner process as it wrote its own diagnostic log
-        # — which destroyed the job log along with it, so nothing identified the
-        # writer. Output goes to a file under a watched budget instead: if the
-        # log or the volume crosses its threshold, the run stops and reports the
-        # largest relevant consumers through bounded scans while there is still
-        # disk to report them on.
+        # Output goes to a file under a watched budget: a suite that fills the
+        # runner volume kills the runner process mid-write, and the job log with
+        # it. If the log or the volume crosses its threshold, the run stops and
+        # reports the largest relevant consumers through bounded scans while
+        # there is still disk to report them on.
         run: |
           set -o pipefail
           cd simulator-aws/sdk-tests
@@ -1078,8 +1036,7 @@ jobs:
           done
           # The step runs under `bash -e`; guard the wait with `|| status=$?`
           # so a failing test binary does not abort the step before the
-          # failure summary names which test failed — an unguarded `wait`
-          # swallowed the entire diagnostic on a real failure.
+          # failure summary names which test failed.
           status=0
           wait "$test_pid" || status=$?
           sleep 2
@@ -1117,11 +1074,8 @@ jobs:
             run: '^Test(ACM|Amplify|APIGateway|ApplicationAutoScaling|AutoScaling|Batch|Budgets|PrivateCA)'
             timeout: 1200s
             timeout_minutes: 15
-          # edge-delivery ran 760-863s of its 900s job on every recent run and
-          # was cancelled at the bound on run 37912429249 (915s): its tests
-          # held 387s (run 37900857385) — ELBv2 133s, CloudFront 119s,
-          # CloudTrail 72s, CodeBuild 54s, Firehose 10s. CloudFront and
-          # CloudTrail (191s) keep the shard; the rest (197s) take edge-build.
+          # edge-delivery runs close to its 900s job: CloudFront and CloudTrail
+          # keep the shard, and ELBv2, CodeBuild and Firehose take edge-build.
           - suite: edge-delivery
             run: '^Test(CloudFront|CloudTrail)'
             timeout: 1200s
@@ -1130,10 +1084,8 @@ jobs:
             run: '^Test(CodeBuild|ELBv2|Firehose)'
             timeout: 1200s
             timeout_minutes: 15
-          # AWS Glue and IAM each take a shard: the joint shard ran 14m03s on
-          # run 34000894945 (11m45s of go test holding 293s of Glue and 202s
-          # of IAM tests), so a slow base-image load pushed it past the
-          # 15-minute ceiling on run 34029419852.
+          # AWS Glue and IAM each take a shard: together their tests do not fit
+          # the 15-minute ceiling after a slow base-image load.
           - suite: glue
             run: '^Test(Glue)'
             timeout: 1200s
@@ -1142,11 +1094,8 @@ jobs:
             run: '^Test(IAM|RDSCLI_OptionGroup)'
             timeout: 1200s
             timeout_minutes: 15
-          # The EC2 shards and appdata2 split by measured cost after compute
-          # was cancelled at the job budget on a slow runner: warm, each ran
-          # 370-390s of tests, eleven minutes of job, and the runner that
-          # cancelled compute was a quarter slower than normal. Each half now
-          # holds 150-200s of tests.
+          # The EC2 shards and appdata2 split by measured cost, so each holds a
+          # slow runner's margin under the job budget.
           - suite: ec2-a-h
             run: '^Test(EC2(CLI_[A-H]|Copy|EBS)|RDSCLI_DBInstance)'
             timeout: 1500s
@@ -1163,24 +1112,19 @@ jobs:
             run: '^Test(EC2CLI_[T-Z])'
             timeout: 1500s
             timeout_minutes: 15
-          # compute split in two after it reached the 15-minute job budget on
-          # a slow runner with every test passing. Measured warm: its tests
-          # ran 367s, and the split is by cost — CloudWatch Logs and Cloud Map
-          # are 215s together, the other four services 150s — so each half
-          # sits well under the budget with a slow runner's margin to spare.
+          # compute is split in two by cost — CloudWatch Logs and Cloud Map
+          # together, the other four services apart — so each half sits well
+          # under the job budget with a slow runner's margin to spare.
           - suite: compute
             run: '^Test(CLI_ECR|DynamoDB|ECR|EFS)'
             timeout: 1200s
             timeout_minutes: 15
-          # The Amazon RDS CLI tests spread over three shards: appdata2 ran
-          # them all in 10m18s, and every DB instance and Aurora cluster now
-          # takes its first automated backup when it is created, which the
-          # CLI's db-instance-available waiter observes at its 30-second
-          # cadence. appdata2 still reached its fifteen-minute job budget, so
-          # its three costliest RDS tests (RestoreAndReserved 173 s,
-          # OptionGroupAndReplica and DBInstanceLifecycle 74 s each) run in
-          # the appdata5, iam and ec2-a-h shards, which finished in about
-          # eight minutes.
+          # The Amazon RDS CLI tests spread over several shards: every DB
+          # instance and Aurora cluster takes its first automated backup when
+          # it is created, which the CLI's db-instance-available waiter
+          # observes at its 30-second cadence, so the three costliest
+          # (RestoreAndReserved, OptionGroupAndReplica, DBInstanceLifecycle)
+          # run in the appdata5, iam and ec2-a-h shards.
           - suite: observability
             run: '^Test(CloudMap|Logs|RDSCLI_Instance)'
             timeout: 1200s
@@ -1189,8 +1133,7 @@ jobs:
             run: '^Test(ECS)'
             timeout: 1200s
             timeout_minutes: 15
-          # appdata split in two after the shard hit its 15-minute job budget
-          # on a cold Go build cache: the CLI test binary's cold compile takes
+          # appdata is split in two: the CLI test binary's cold compile takes
           # about eight minutes, so a shard's suite must fit the remainder.
           - suite: appdata
             run: '^Test(CloudWatch|EventBridge|Kinesis|ResourceTags|RDSCLI_Aurora)'
@@ -1243,8 +1186,8 @@ jobs:
             run: '^Test(Route53|S3)'
             timeout: 1200s
             timeout_minutes: 15
-          # appdata3 split again when its suite reached the job's 15-minute
-          # budget: a run that passed took 14.5 minutes end to end.
+          # appdata3 is split again: a passing run took 14.5 minutes of its
+          # 15-minute job budget.
           - suite: appdata3
             run: '^Test(Scheduler|SecretsManager|SFN|SNS|RDSCLI_Restore)'
             timeout: 1200s
@@ -1270,7 +1213,7 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
-          # and an older entry warms the incremental build until then. The
+          # and an older entry warms the incremental build until then.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
@@ -1303,9 +1246,8 @@ jobs:
           sudo /tmp/aws/install --update
           hash -r
           aws --version
-      # Same contract as the SDK job: the CLI shards run real containers — the
-      # Glue shard's python:3.9 among them, which timed out inside a job budget
-      # spent on the fetch.
+      # Same contract as the SDK job: the CLI shards run real containers,
+      # the Glue shard's python:3.9 among them.
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
@@ -1343,8 +1285,7 @@ jobs:
       # Download modules and compile the simulator and the CLI test binary in
       # their own budgeted step, as the runner user, so the timed test run
       # below holds the tests alone and what this compiles is what the cache
-      # step saves. Measured before this step existed: about four minutes of
-      # the test step, on every one of these shards, on every run.
+      # step saves.
       - name: Pre-build the simulator and the CLI tests (warm build cache)
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
@@ -1417,12 +1358,11 @@ jobs:
           # The provider waits a minute before its first poll of each
           # blue/green deployment and DB instance state it waits on, so the
           # stack's create, blue/green update and destroy take about nine
-          # minutes of the test's twelve. That left the job at 796-851s of its
-          # 900s, and run 37927068400 was cancelled at the bound; 157s of it
-          # was loading the whole AWS base-image archive. The stack runs only
-          # its MySQL engine, the snapshot volume copier and the ENI setup
-          # helper, so it warms those alone: warming primes a cache, and an
-          # image missing from the list is pulled where it is used.
+          # minutes of the test's twelve, leaving no room to load the whole
+          # AWS base-image archive. The stack runs only its MySQL engine, the
+          # snapshot volume copier and the ENI setup helper, so it warms those
+          # alone: warming primes a cache, and an image missing from the list
+          # is pulled where it is used.
           - suite: aws Amazon RDS blue/green deployment
             cloud: aws
             tf_packages: "./rds-blue-green"
@@ -1567,6 +1507,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformTutorial
             timeout_minutes: 12
+          - suite: azure role assignments
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformRoleAssignmentsGateTheProvider
+            timeout_minutes: 12
           - suite: azure web app key vault references and source control
             cloud: azure
             tf_timeout: 780s
@@ -1580,8 +1525,7 @@ jobs:
           cache: 'true'
       # A Terraform stack runs the same real workloads the suites do, and the
       # registry caps anonymous requests by data volume — capturing an Amazon
-      # RDS snapshot copies a volume through an alpine helper, which is the
-      # pull that failed the snapshot stack outright.
+      # RDS snapshot copies a volume through an alpine helper.
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
@@ -1624,11 +1568,10 @@ jobs:
         run: bash scripts/ci-engine-image.sh sidecar-image start
         timeout-minutes: 3
       # Terraform is installed from its own release archive rather than
-      # through hashicorp/setup-terraform. The runner downloads every action a
+      # through hashicorp/setup-terraform: the runner downloads every action a
       # workflow references before it evaluates any step's condition, so an
-      # action one job uses is fetched by all of them; this one was on every
-      # job's critical path for the sake of the terraform jobs alone. The
-      # version is pinned here, which the action was not doing.
+      # action one job uses is fetched by all of them. The version is pinned
+      # here.
       - name: Install Terraform
         env:
           TERRAFORM_VERSION: 1.16.0
@@ -1682,11 +1625,10 @@ jobs:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     # A one-shot run on a fresh checkout has no use for turbo's background
     # daemon, and a build step has no business making a telemetry request: both
-    # are work that can block without producing output, on a job whose real
-    # work takes about two minutes. Each turbo step also carries its own
+    # are work that can block without producing output. Each turbo step also carries its own
     # timeout, so a step that stops making progress is reported as the step it
     # stopped in rather than as the whole job running out of time.
     env:
@@ -1694,6 +1636,10 @@ jobs:
       DO_NOT_TRACK: '1'
     steps:
       - uses: actions/checkout@v7.0.1
+      # The console unit tests build and run the real simulators.
+      - uses: ./.github/actions/install-go
+        with:
+          cache: 'true'
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile
@@ -1703,7 +1649,7 @@ jobs:
       - run: cd ui && bunx turbo run typecheck --no-daemon
         timeout-minutes: 4
       - run: cd ui && bunx turbo run test --no-daemon
-        timeout-minutes: 6
+        timeout-minutes: 10
 
   ui-browser:
     needs: verified-on-pr
@@ -1733,12 +1679,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('ui/bun.lock') }}
       # Deliberately not --with-deps. The runner image already carries every
-      # library Chromium links against — a --with-deps run reports all of them
-      # "already the newest version" — so the only packages it adds are nine
-      # CJK, Thai and Cyrillic font packages no browser test renders. Fetching
-      # them cost 10min 22s at 33.9 kB/s on one run, which overran the job
-      # budget and cancelled the tests. A missing library, if the image ever
-      # drops one, fails loudly at browser launch naming what is absent.
+      # library Chromium links against, and the only packages it would add
+      # are CJK, Thai and Cyrillic font packages no browser test renders,
+      # fetched slowly enough to overrun the job budget. A missing library,
+      # if the image ever drops one, fails loudly at browser launch naming
+      # what is absent.
       - run: cd ui && bunx playwright install chromium
         timeout-minutes: 5
       # The suites run Chromium in a network namespace of its own, through
@@ -1766,20 +1711,11 @@ jobs:
     # plain one. Its own job also means a race failure names itself in the check
     # list instead of hiding inside a suite that failed for some other reason.
     #
-    # The first race-detector run of the AWS module reported 144 races. Every
-    # one was asynchronous simulator work — reconciliations, builds,
-    # deployments, certificate validation — running in goroutines and timers
-    # that nothing tracked, so work still in flight when its test ended read
-    # package-level stores the next test was replacing. simulator-aws/
-    # background_work.go counts all of it now. They were found by running the
-    # detector by hand, and a race found by hand is a race that comes back.
     # The simulator modules and the framework module (`race-sim` below) are
-    # separate jobs, each with the full fifteen-minute ceiling. The go-test
-    # deadline is per test binary and the two are an order of magnitude apart
-    # under the detector — 60s against 224s on a developer machine, and CI's
-    # cores are slower still — so a single job sized for both would either
-    # starve one or overrun the ceiling. The `sim` job splits its suites for
-    # the same reason.
+    # separate jobs, each with the full fifteen-minute ceiling: the go-test
+    # deadline is per test binary, and the two are an order of magnitude apart
+    # under the detector, so a single job sized for both would either starve one
+    # or overrun the ceiling. The `sim` job splits its suites for the same reason.
     name: race (simulator-${{ matrix.cloud }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1793,7 +1729,7 @@ jobs:
         with:
           cache: 'true'
       # The simulator's tests run real containers, and the registries they pull
-      # from throttle anonymous pulls: the ECR Public Gallery, which serves the
+      # from throttle anonymous pulls: the Amazon ECR Public Gallery, which serves the
       # images AWS publishes, caps them by data volume — a cap that is not a
       # transient failure a retry recovers from. Caching the images means the
       # common case makes no registry request at all; on a miss the pull
@@ -1810,9 +1746,9 @@ jobs:
           echo "$images"
       - name: Restore the base images
         # Restore only: when the archive is missing, the fetch takes this job
-        # most of its budget, and saving the fetched set at the end of the
-        # job (2.7 GB for AWS) ran past the limit after the tests had passed.
-        # The simulator suites and the warm job on main save the archive.
+        # most of its budget, and saving the set (2.7 GB for AWS) does not fit
+        # after it. The simulator suites and the warm job on main save the
+        # archive.
         uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/base-images.tar
@@ -1836,10 +1772,10 @@ jobs:
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.
       - name: Pre-build the race test binary
-        # The Google Cloud and Azure simulators grew real database data
-        # planes, and a cold-cache race build of either now overruns the
-        # four-minute budget this step held; the step exists to separate a
-        # slow build from a hung test, which eight minutes still does.
+        # A cold-cache race build of the Google Cloud or Azure simulator, with
+        # their database data planes, takes several minutes; the step exists
+        # to separate a slow build from a hung test, which eight minutes
+        # still does.
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
@@ -2007,9 +1943,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       # install-go's own cache restores only an exact go.sum match, so a pin
-      # or dependency move left the installable build compiling all three
-      # simulators cold, past this job's budget. The entry below falls back
-      # to the newest older one, which warms the incremental build.
+      # or dependency move would leave the installable build compiling all
+      # three simulators cold; the entry below falls back to the newest older
+      # one, which warms the incremental build.
       - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for the build gates
         uses: actions/cache@v6.1.0

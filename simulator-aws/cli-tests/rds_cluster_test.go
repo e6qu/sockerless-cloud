@@ -142,8 +142,6 @@ func TestRDSCLI_DBSubnetGroupLifecycle(t *testing.T) {
 	otherVPC, otherSubnets := createCLIVPCSubnets(t, "10.100.0.0/16", 2)
 	_, oneZone := createCLIVPCSubnets(t, "10.101.0.0/16", 1)
 
-	// The group's subnets must exist, share a VPC and cover two Availability
-	// Zones.
 	for _, refusal := range []struct {
 		subnets []string
 		code    string

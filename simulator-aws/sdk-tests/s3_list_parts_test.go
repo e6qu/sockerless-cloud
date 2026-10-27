@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3_Multipart_ListParts verifies that the multipart part-list
-// route returns the canonical paged ListParts shape instead of falling
-// through to object reads.
+// TestS3_Multipart_ListParts expects the ListParts page shape from the part
+// list, not an object read.
 func TestS3_Multipart_ListParts(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -31,7 +30,6 @@ func TestS3_Multipart_ListParts(t *testing.T) {
 	require.NoError(t, err)
 	uploadID := aws.ToString(initOut.UploadId)
 
-	// Upload 3 parts.
 	parts := []string{"alpha ", "beta ", "gamma"}
 	for i, body := range parts {
 		_, err := c.UploadPart(ctx, &s3.UploadPartInput{

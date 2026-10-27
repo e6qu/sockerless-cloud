@@ -8,13 +8,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerNetworkMoreOps adds the remaining Microsoft.Network operations that
-// cross-reference load balancers, network interfaces, public IP addresses and
-// virtual networks: the LB/NIC association lists, the load-balancer VIP swap,
-// inbound-NAT port-mapping query, per-rule health, NIC/IP-based migration, the
-// public-IP DDoS-protection and cloud-service reservation operations, and the
-// subnet resource/service-association link reads plus the virtual-network DDoS
-// protection status.
+// registerNetworkMoreOps adds the operations that cross-reference load
+// balancers, interfaces, public IPs and virtual networks: association lists,
+// VIP swap, inbound NAT port mappings, per-rule health, IP-based migration,
+// DDoS status, cloud-service reservations, and subnet link reads.
 func registerNetworkMoreOps(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	subBase := azureNetworkSubBase()
@@ -26,8 +23,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 	}
 
-	// LoadBalancerNetworkInterfaces_List — the network interfaces whose IP
-	// configurations reference one of the load balancer's backend pools.
+	// LoadBalancerNetworkInterfaces_List: interfaces whose IP configurations
+	// reference one of the load balancer's backend pools.
 	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
@@ -44,8 +41,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		azureWriteList(w, nics)
 	})
 
-	// NetworkInterfaceLoadBalancers_List — the load balancers whose backend
-	// pools are referenced by the network interface's IP configurations.
+	// NetworkInterfaceLoadBalancers_List: load balancers whose backend pools the
+	// interface's IP configurations reference.
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
 		nic, ok := azureNICs.Get(nicID(r))
 		if !ok {
@@ -61,9 +58,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		azureWriteList(w, lbs)
 	})
 
-	// LoadBalancers_SwapPublicIpAddresses — reassign the public IP of each
-	// referenced frontend IP configuration. Long-running in Azure; the sim
-	// applies the swap synchronously and returns the terminal 200.
+	// LoadBalancers_SwapPublicIpAddresses is long-running in Azure; the swap
+	// applies synchronously and answers the terminal 200.
 	srv.HandleFunc("POST "+subBase+"/locations/{location}/setLoadBalancerFrontendPublicIpAddresses", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			FrontendIPConfigurations []struct {
@@ -100,8 +96,6 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// LoadBalancers_ListInboundNatRulePortMappings — the per-rule port
-	// mappings for the inbound NAT rules created against a backend pool.
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/backendAddressPools/{backendPoolName}/queryInboundNatRulePortMapping", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			IPAddress string `json:"ipAddress"`
@@ -132,9 +126,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"inboundNatRulePortMappings": mappings})
 	})
 
-	// LoadBalancerLoadBalancingRules_Health — the health of the backend
-	// instances behind a load-balancing rule, as the rule's health probe last
-	// recorded it and the data plane routes by it.
+	// LoadBalancerLoadBalancingRules_Health reports what the rule's health probe
+	// last recorded, which the data plane routes by.
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/loadBalancingRules/{loadBalancingRuleName}/health", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
@@ -178,8 +171,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		})
 	})
 
-	// LoadBalancers_MigrateToIpBased — migrate the named NIC-based backend
-	// pools to IP-based. The sim echoes the pools that exist on the LB.
+	// LoadBalancers_MigrateToIpBased echoes the named pools that exist.
 	srv.HandleFunc("POST "+armBase+"/loadBalancers/{loadBalancerName}/migrateToIpBased", func(w http.ResponseWriter, r *http.Request) {
 		lb, ok := azureLBs.Get(lbID(r))
 		if !ok {
@@ -211,9 +203,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"migratedPools": migrated})
 	})
 
-	// PublicIPAddresses_DdosProtectionStatus — the DDoS protection status of
-	// a public IP. The sim does not model DDoS protection plans, so an IP is
-	// reported as not workload-protected.
+	// The simulator models no DDoS protection plans, so no IP is
+	// workload-protected.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		pip, ok := azurePublicIPs.Get(id)
@@ -228,8 +219,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		})
 	})
 
-	// PublicIPAddresses_ReserveCloudServicePublicIpAddress — reserve the
-	// public IP for a cloud service. The sim returns the public IP resource.
+	// Answers the public IP resource.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/reserveCloudServicePublicIpAddress", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
@@ -245,8 +235,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, pip)
 	})
 
-	// PublicIPAddresses_DisassociateCloudServiceReservedPublicIp — release a
-	// cloud-service reservation. No resource body in the terminal response.
+	// No resource body in the terminal response.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/disassociateCloudServiceReservedPublicIp", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
@@ -261,12 +250,9 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// ResourceNavigationLinks_List / ServiceAssociationLinks_List — the links
-	// other Azure services create when they delegate the subnet. A subnet with
-	// no delegated services carries no links, but the subnet has to exist for
-	// the question to have an answer at all: these read a child collection of a
-	// subnet, and a collection under a subnet that was never created is a
-	// ResourceNotFound, not an empty list.
+	// ResourceNavigationLinks_List and ServiceAssociationLinks_List: a subnet with
+	// no delegations has no links, but an absent subnet is ResourceNotFound, not
+	// an empty list.
 	linkList := func(w http.ResponseWriter, r *http.Request) {
 		if !azureSubnetExists(r) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -279,10 +265,9 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ResourceNavigationLinks", linkList)
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}/ServiceAssociationLinks", linkList)
 
-	// VirtualNetworks_ListDdosProtectionStatus — the DDoS protection status of
-	// every public IP attached (through a NIC) to a subnet of the vnet. The
-	// operation is long-running with its final state via Location, so it
-	// answers 202 and the addresses are read from the Location poll.
+	// VirtualNetworks_ListDdosProtectionStatus covers every public IP attached
+	// through an interface to a subnet of the virtual network. Its final state
+	// comes via Location, so it answers 202 and the poll carries the list.
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
 		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		subnetPrefix := vnetID + "/subnets/"
@@ -306,10 +291,8 @@ func registerNetworkMoreOps(srv *sim.Server) {
 				})
 			}
 		}
-		// Answering the list on the initial response is a shape no client is
-		// built for: the official SDK builds its pager out of the polled
-		// result and drops the one it constructed, so the body that arrived
-		// here would never be read.
+		// The SDK builds its pager from the polled result and drops the one it
+		// constructed, so a list here would never be read.
 		vnet, ok := azureVnets.Get(vnetID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -333,9 +316,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	})
 }
 
-// networkInterfaceReferencesPoolPrefix reports whether any of the network
-// interface's IP configurations references a backend address pool whose ID
-// starts with the given prefix (a load balancer's backendAddressPools path).
+// The prefix is a load balancer's backendAddressPools path.
 func networkInterfaceReferencesPoolPrefix(nic NetworkInterface, poolPrefix string) bool {
 	for _, ipcfg := range nic.Properties.IPConfigurations {
 		for _, pool := range ipcfg.Properties.LoadBalancerBackendAddressPools {
@@ -347,8 +328,6 @@ func networkInterfaceReferencesPoolPrefix(nic NetworkInterface, poolPrefix strin
 	return false
 }
 
-// loadBalancerIDFromChildID returns the load balancer resource ID from a child
-// resource ID (e.g. a frontend IP configuration ID) by trimming at the marker.
 func loadBalancerIDFromChildID(childID, marker string) string {
 	if i := strings.Index(childID, marker); i >= 0 {
 		return childID[:i]
@@ -356,11 +335,8 @@ func loadBalancerIDFromChildID(childID, marker string) string {
 	return ""
 }
 
-// azureSubnetExists reports whether the subnet a request addresses through the
-// {subscriptionId}/{resourceGroupName}/{vnetName}/{subnetName} path parameters
-// is one the simulator holds. Child collections under a subnet answer for the
-// subnet's own contents, so an absent subnet is a ResourceNotFound rather than
-// an empty collection.
+// Child collections answer for the subnet's own contents, so an absent subnet
+// is ResourceNotFound rather than an empty collection.
 func azureSubnetExists(r *http.Request) bool {
 	if azureSubnets == nil {
 		return false

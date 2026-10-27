@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_ReservedInstancesLifecycle covers the Reserved Instances control
-// plane: the offering catalog is described, an offering is purchased into an
-// "active" Reserved Instance, the RI reads back, it is modified into new RIs,
-// listed on the marketplace, the listing is cancelled, and a queued-deletion
-// attempt fails honestly because the RI is active.
+// TestEC2_ReservedInstancesLifecycle purchases an offering into an active
+// Reserved Instance, modifies it into new ones, lists it on the marketplace
+// and cancels the listing, and fails a queued deletion of the active instance.
 func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -54,7 +52,6 @@ func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 	assert.Equal(t, int32(2), aws.ToInt32(ri.InstanceCount))
 	assert.NotZero(t, aws.ToFloat32(ri.FixedPrice))
 
-	// Modify into two new RIs split across two AZs.
 	mod, err := c.ModifyReservedInstances(ctx, &ec2.ModifyReservedInstancesInput{
 		ReservedInstancesIds: []string{riID},
 		TargetConfigurations: []types.ReservedInstancesConfiguration{
@@ -73,7 +70,6 @@ func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 	require.Len(t, mods.ReservedInstancesModifications, 1)
 	assert.Len(t, mods.ReservedInstancesModifications[0].ModificationResults, 2)
 
-	// List the RI on the marketplace, read the listing back, then cancel it.
 	listOut, err := c.CreateReservedInstancesListing(ctx, &ec2.CreateReservedInstancesListingInput{
 		ReservedInstancesId: aws.String(riID),
 		InstanceCount:       aws.Int32(1),
@@ -104,7 +100,6 @@ func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 	require.Len(t, cancel.ReservedInstancesListings, 1)
 	assert.Equal(t, types.ListingStatusCancelled, cancel.ReservedInstancesListings[0].Status)
 
-	// An active RI is not queued, so a queued-deletion attempt fails for it.
 	del, err := c.DeleteQueuedReservedInstances(ctx, &ec2.DeleteQueuedReservedInstancesInput{
 		ReservedInstancesIds: []string{riID},
 	})
@@ -113,9 +108,8 @@ func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 	assert.Empty(t, del.SuccessfulQueuedPurchaseDeletions)
 }
 
-// TestEC2_ReservedInstancesExchangeQuote covers the Convertible Reserved
-// Instance exchange quote / accept flow: a quote is computed against a target
-// offering, then the exchange is accepted and yields an exchange id.
+// TestEC2_ReservedInstancesExchangeQuote quotes a Convertible Reserved
+// Instance exchange against a target offering and accepts it.
 func TestEC2_ReservedInstancesExchangeQuote(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -163,9 +157,8 @@ func TestEC2_ReservedInstancesExchangeQuote(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(accept.ExchangeId))
 }
 
-// TestEC2_CapacityReservationBillingAndTopology covers the Capacity Reservation
-// billing-ownership transfer (associate → describe → accept), the topology
-// read-back, and the cancellation-quote ops, all operating on a real capacity
+// TestEC2_CapacityReservationBillingAndTopology covers the billing-ownership
+// transfer, the topology read and the cancellation quote on a real capacity
 // reservation.
 func TestEC2_CapacityReservationBillingAndTopology(t *testing.T) {
 	t.Parallel()
@@ -234,7 +227,6 @@ func TestEC2_CapacityReservationBillingAndTopology(t *testing.T) {
 	require.Len(t, quotes.CapacityReservationCancellationQuotes, 1)
 	assert.Equal(t, crID, aws.ToString(quotes.CapacityReservationCancellationQuotes[0].CapacityReservationId))
 
-	// Disassociate / reject paths on a fresh reservation.
 	cr2, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
 		InstanceType:     aws.String("t3.medium"),
 		InstancePlatform: types.CapacityReservationInstancePlatformLinuxUnix,
@@ -261,9 +253,6 @@ func TestEC2_CapacityReservationBillingAndTopology(t *testing.T) {
 	assert.True(t, aws.ToBool(disc.Return))
 }
 
-// TestEC2_CapacityReservationSplitAndMove covers splitting a capacity
-// reservation into a new one and moving instances between two reservations,
-// plus the per-instance attribute modify.
 func TestEC2_CapacityReservationSplitAndMove(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -309,9 +298,8 @@ func TestEC2_CapacityReservationSplitAndMove(t *testing.T) {
 	assert.True(t, aws.ToBool(modAttr.Return))
 }
 
-// TestEC2_CapacityBlockLifecycle covers the Capacity Block (ML) flow: offerings
-// are described, an offering is purchased into a capacity-block-backed capacity
-// reservation, the block reads back via describe + status, and it is extended.
+// TestEC2_CapacityBlockLifecycle purchases a Capacity Block offering into a
+// capacity-block-backed reservation, reads it back and extends it.
 func TestEC2_CapacityBlockLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

@@ -44,7 +44,8 @@ func TestInFlightMiddlewareNamesARequestWhileItIsStillRunning(t *testing.T) {
 	require.Empty(t, InFlightSnapshot(), "a finished request must leave the registry")
 }
 
-// A form-encoded EC2 call carries its operation in Action rather than a header.
+// A form-encoded Amazon EC2 call carries its operation in Action rather than
+// a header.
 func TestRequestOperationReadsTheFormAction(t *testing.T) {
 	req := httptest.NewRequest("POST", "/?Action=DescribeSnapshots", nil)
 	require.Equal(t, "DescribeSnapshots", requestOperation(req))

@@ -10,13 +10,8 @@ import (
 )
 
 func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
-	// Real Azure: `Microsoft.Network/natGateways` provides outbound
-	// connectivity for subnets that need explicit egress; route tables
-	// (`Microsoft.Network/routeTables`) override default-route behavior.
-	// Serverless egress — an Azure Container Apps app with VNet integration
-	// reaching the Internet — is provisioned as a NAT gateway; without these
-	// handlers, terraform's `azurerm_nat_gateway` and `azurerm_route_table`
-	// 404. Field set covers what the SDK round-trips on Get/List.
+	// NAT gateways give subnets explicit egress, as Container Apps with VNet
+	// integration needs; route tables override default routes.
 	natGateways := sim.MakeStore[NatGateway](srv.DB(), "nat_gateways")
 	routeTables := sim.MakeStore[RouteTable](srv.DB(), "route_tables")
 	azureNatGateways = natGateways
@@ -49,15 +44,15 @@ func registerNATGatewaysAndRouteTables(srv *sim.Server, armBase string) {
 			},
 		}
 		if gw.Properties.IdleTimeoutInMinutes == 0 {
-			gw.Properties.IdleTimeoutInMinutes = 4 // real Azure default
+			gw.Properties.IdleTimeoutInMinutes = 4 // Azure's default
 		}
 		if gw.Sku == nil {
 			gw.Sku = &SkuName{Name: "Standard"}
 		}
 		natGateways.Put(resourceID, gw)
 		for _, ref := range gw.Properties.Subnets {
-			// Persist the subnet→NAT-gateway association atomically so the
-			// subnet's own Get and azureSubnetsForNatGateway both observe it.
+			// Store the association on the subnet, so the subnet's Get and
+			// azureSubnetsForNatGateway both see it.
 			azureSubnets.Update(ref.ID, func(sn *Subnet) {
 				sn.Properties.NatGateway = &SubResource{ID: gw.ID}
 			})

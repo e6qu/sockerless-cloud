@@ -28,7 +28,6 @@ func TestLogs_CreateAndDescribeLogGroup(t *testing.T) {
 	require.Len(t, result.LogGroups, 1)
 	assert.Equal(t, "/cli/test-group", result.LogGroups[0].LogGroupName)
 
-	// Cleanup
 	runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", "/cli/test-group"))
 }
 
@@ -54,7 +53,6 @@ func TestLogs_CreateLogStream(t *testing.T) {
 	require.Len(t, result.LogStreams, 1)
 	assert.Equal(t, "test-stream", result.LogStreams[0].LogStreamName)
 
-	// Cleanup
 	runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", "/cli/stream-test"))
 }
 
@@ -92,7 +90,6 @@ func TestLogs_PutAndGetLogEvents(t *testing.T) {
 	assert.Equal(t, "hello from cli", result.Events[0].Message)
 	assert.Equal(t, "second message", result.Events[1].Message)
 
-	// Cleanup
 	runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", "/cli/events-test"))
 }
 
@@ -128,13 +125,11 @@ func TestLogs_FilterLogEvents(t *testing.T) {
 	require.Len(t, result.Events, 1)
 	assert.Contains(t, result.Events[0].Message, "ERROR")
 
-	// Cleanup
 	runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", "/cli/filter-test"))
 }
 
-// TestLogs_FilterLogEventsByStreamPrefix covers --log-stream-name-prefix: it
-// scopes the searched streams (previously ignored, so every stream's events
-// leaked in).
+// TestLogs_FilterLogEventsByStreamPrefix expects --log-stream-name-prefix to
+// scope the searched streams.
 func TestLogs_FilterLogEventsByStreamPrefix(t *testing.T) {
 	t.Parallel()
 	group := "/cli/prefix-filter"

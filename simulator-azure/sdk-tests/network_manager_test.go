@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Virtual Network Manager through the official armnetwork client: the
-// manager resource, the commit that deploys configurations to a set of regions,
-// and the per-region deployment status that commit produces.
+// Azure Virtual Network Manager: the manager, the commit that deploys
+// configurations to a set of regions, and the per-region deployment status it
+// produces.
 
 func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	t.Parallel()
@@ -55,7 +55,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "test", *patched.Tags["env"])
-	// A tag patch must not re-mint the resource GUID.
+	// A tag patch keeps the resource GUID.
 	assert.Equal(t, *created.Properties.ResourceGUID, *patched.Properties.ResourceGUID)
 
 	assert.Contains(t, networkManagerNames(t, client, rg), "corp-manager")
@@ -70,9 +70,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	}
 	assert.True(t, all["corp-manager"], "the subscription-wide list must contain the manager")
 
-	// A commit deploys to the regions it names. With no configurations named it
-	// is the commit that removes whatever those regions currently hold, which is
-	// a legitimate commit and the one the simulator can carry out in full.
+	// A commit naming no configurations removes whatever those regions hold.
 	commitClient, err := armnetwork.NewManagerCommitsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	commitPoller, err := commitClient.BeginPost(ctx, rg, "corp-manager", armnetwork.ManagerCommit{
@@ -99,8 +97,8 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	assert.Equal(t, armnetwork.DeploymentStatusDeployed, regions["eastus"])
 	assert.Equal(t, armnetwork.DeploymentStatusDeployed, regions["westus"])
 
-	// The status query filters by region and by configuration type, and a type
-	// nothing was committed for holds nothing.
+	// The status query filters by region and configuration type; a type nothing
+	// was committed for holds nothing.
 	filtered, err := statusClient.List(ctx, rg, "corp-manager", armnetwork.ManagerDeploymentStatusParameter{
 		Regions: []*string{to.Ptr("westus")},
 	}, nil)
@@ -122,9 +120,9 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	require.Error(t, err, "a deleted network manager must not be readable")
 }
 
-// TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration covers the
-// two things the resource provider refuses: a manager that governs nothing, and
-// a commit that names a configuration which does not exist.
+// TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration: the
+// resource provider refuses a manager that governs nothing and a commit naming
+// a configuration that does not exist.
 func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing.T) {
 	t.Parallel()
 	rg := "netmanager-reject-rg"
@@ -165,7 +163,6 @@ func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing
 	require.Error(t, err, "a commit naming a configuration that does not exist must be rejected")
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	// Nothing was deployed by the refused commit.
 	statusClient, err := armnetwork.NewManagerDeploymentStatusClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	status, err := statusClient.List(ctx, rg, "scoped", armnetwork.ManagerDeploymentStatusParameter{}, nil)

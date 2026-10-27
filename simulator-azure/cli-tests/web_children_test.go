@@ -9,26 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// webChildrenAPIVersion addresses the Microsoft.Web child-resource families
-// (publicCertificates, domainOwnershipIdentifiers, premieraddons,
-// config/pushsettings, config/configreferences, workflows).
 const webChildrenAPIVersion = "2024-11-01"
 
 func webChildURL(resourcePath string) string {
 	return armURL("Microsoft.Web", resourcePath, webChildrenAPIVersion)
 }
 
-// webChildrenCertDER is a self-signed X.509 certificate in DER form, base64
-// encoded — the blob an App Service public certificate carries. Its SHA-1
+// webChildrenCertDER is a base64 DER self-signed certificate whose SHA-1
 // thumbprint is webChildrenCertThumb.
 const webChildrenCertDER = "MIIBODCB36ADAgECAgEBMAoGCCqGSM49BAMCMCUxIzAhBgNVBAMTGnNvY2tlcmxlc3Mtc2ltLXB1YmxpYy1jZXJ0MCAXDTI2MDEwMTAwMDAwMFoYDzIxMjYwMTAxMDAwMDAwWjAlMSMwIQYDVQQDExpzb2NrZXJsZXNzLXNpbS1wdWJsaWMtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIYJeLik0TOyqjYwfwDiqAkGzAbpepEjv4QKPOTTI7OH598l1LPkSwMNslhaMITB4V3UHtod+Y5SmGM1nJeCdZEwCgYIKoZIzj0EAwIDSAAwRQIhALwq3le+aDLA2FJZr4hYiJvJ1PNpq5PUlNdrn4t6XY9CAiBQKGsAY1MrTtkXxK0tuItu4cbF85xw7RQajq5/ubpXGg=="
 
 const webChildrenCertThumb = "67A203A735B08E10D349C6E91F178233EEA9F8AB"
 
-// TestWebChildren_CLI drives the Microsoft.Web site child-resource families
-// through `az rest`: public certificates, domain ownership identifiers,
-// premier add-ons, push settings, and the Key Vault config references derived
-// from app settings — each on the production site, plus a slot twin check.
+// TestWebChildren_CLI drives public certificates, domain ownership
+// identifiers, premier add-ons, push settings and the Key Vault config
+// references derived from app settings, plus a slot twin check.
 func TestWebChildren_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, azRest("PUT", webChildURL("serverfarms/cli-wc-plan"),
@@ -43,7 +38,7 @@ func TestWebChildren_CLI(t *testing.T) {
 		runCLI(t, azRest("DELETE", webChildURL("serverfarms/cli-wc-plan"), ""))
 	}()
 
-	// Public certificate: PUT derives the SHA-1 thumbprint from the DER blob.
+	// PUT derives the SHA-1 thumbprint from the DER blob.
 	var cert struct {
 		Properties struct {
 			Thumbprint string `json:"thumbprint"`
@@ -63,7 +58,6 @@ func TestWebChildren_CLI(t *testing.T) {
 	assert.Equal(t, "cli-cert", certList.Value[0].Name)
 	runCLI(t, azRest("DELETE", webChildURL("sites/cli-wc-site/publicCertificates/cli-cert"), ""))
 
-	// Domain ownership identifier round-trip, PATCH merge included.
 	runCLI(t, azRest("PUT", webChildURL("sites/cli-wc-site/domainOwnershipIdentifiers/cli-doi"),
 		`{"properties":{"id":"token-1"}}`))
 	var doi struct {
@@ -79,7 +73,7 @@ func TestWebChildren_CLI(t *testing.T) {
 	runCLI(t, azRest("GET", webChildURL("sites/cli-wc-site/domainOwnershipIdentifiers"), ""))
 	runCLI(t, azRest("DELETE", webChildURL("sites/cli-wc-site/domainOwnershipIdentifiers/cli-doi"), ""))
 
-	// Premier add-on round-trip; the collection GET is the single resource.
+	// The premier add-on collection GET answers the single resource.
 	runCLI(t, azRest("PUT", webChildURL("sites/cli-wc-site/premieraddons/cli-addon"),
 		`{"location":"eastus","properties":{"sku":"standard","product":"NewRelicAPM","vendor":"NewRelic"}}`))
 	var addon struct {
@@ -98,7 +92,7 @@ func TestWebChildren_CLI(t *testing.T) {
 	runCLI(t, azRest("GET", webChildURL("sites/cli-wc-site/premieraddons/cli-addon"), ""))
 	runCLI(t, azRest("DELETE", webChildURL("sites/cli-wc-site/premieraddons/cli-addon"), ""))
 
-	// Push settings: PUT then POST /list; the slot keeps its own record.
+	// The slot keeps its own push settings.
 	var push struct {
 		Properties struct {
 			IsPushEnabled bool `json:"isPushEnabled"`
@@ -112,9 +106,8 @@ func TestWebChildren_CLI(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("POST", webChildURL("sites/cli-wc-site/slots/staging/config/pushsettings/list"), "")), &push)
 	assert.False(t, push.Properties.IsPushEnabled, "slot must not inherit the production push settings")
 
-	// Key Vault config references, derived from the app settings: a
-	// reference against a real (empty) vault resolves to SecretNotFound, a
-	// reference naming no existing vault to VaultNotFound.
+	// A reference against an existing empty vault resolves to SecretNotFound; one
+	// naming no vault, to VaultNotFound.
 	vaultURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/cli-wc-vault?api-version=2024-04-01-preview",
 		baseURL, subscriptionID, resourceGroup)
 	// The site reaches the vault as its system-assigned identity, which the
@@ -161,10 +154,9 @@ func TestWebChildren_CLI(t *testing.T) {
 	runCLI(t, azRest("GET", webChildURL("sites/cli-wc-site/config/configreferences/connectionstrings"), ""))
 }
 
-// TestWebWorkflows_CLI drives the App-Service-hosted Logic Apps workflow
-// surface through `az rest`: deployWorkflowArtifacts, the workflow envelope
-// reads, listWorkflowsConnections, and the hostruntime bridge (trigger run,
-// runs, trigger histories, versions).
+// TestWebWorkflows_CLI drives the App Service-hosted Logic Apps workflows:
+// deployWorkflowArtifacts, the envelope reads, listWorkflowsConnections, and
+// the hostruntime bridge.
 func TestWebWorkflows_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, azRest("PUT", webChildURL("serverfarms/cli-wf-plan"),
@@ -179,7 +171,6 @@ func TestWebWorkflows_CLI(t *testing.T) {
 	runCLI(t, azRest("POST", webChildURL("sites/cli-wf-site/deployWorkflowArtifacts"),
 		`{"files":{"cliwf/workflow.json":{"kind":"Stateful","definition":{"triggers":{"manual":{"type":"Request"}},"actions":{"reply":{"type":"Response"}}}},"connections.json":{"managedApiConnections":{}}}}`))
 
-	// Envelope reads.
 	var envList struct {
 		Value []struct {
 			Name string `json:"name"`
@@ -200,8 +191,6 @@ func TestWebWorkflows_CLI(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("POST", webChildURL("sites/cli-wf-site/listWorkflowsConnections"), "")), &env)
 	assert.Contains(t, env.Properties.Files, "connections.json")
 
-	// Hostruntime bridge: fire the manual trigger, then read the run, its
-	// actions, the trigger history, and the version snapshot.
 	hostruntime := "sites/cli-wf-site/hostruntime/runtime/webhooks/workflow/api/management/workflows/cliwf"
 	runCLI(t, azRest("GET", webChildURL(hostruntime+"/triggers"), ""))
 	runCLI(t, azRest("POST", webChildURL(hostruntime+"/triggers/manual/run"), ""))

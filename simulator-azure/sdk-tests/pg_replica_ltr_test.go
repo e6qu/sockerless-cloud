@@ -17,22 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Long-term-retention backups and the source-based create modes (Replica,
-// GeoRestore) share one substrate with the on-demand backups pg_data_test.go
-// exercises: a server's data lives on a named volume, a backup captures that
-// volume, and a source-based create clones a volume into the new server
-// before its data plane installs. These tests drive that substrate through
-// raw ARM requests and, where the host can run the data plane, through a
-// stock PostgreSQL driver.
+// Long-term-retention backups and the Replica and GeoRestore create modes share
+// the on-demand backups' substrate: a server's data lives on a named volume, a
+// backup captures it, and a source-based create clones a volume into the new
+// server before its data plane installs.
 
-const pgReplicaLtrSub = "00000000-0000-0000-0000-000000000000"
+const pgReplicaLtrSub = "00000000-0000-0000-0000-000000000001"
 
 func pgFlexArmBase(rg string) string {
 	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers", pgReplicaLtrSub, rg)
 }
 
-// pgCreateServerRaw creates a flexible server through raw ARM, waits for the
-// create's long-running operation, and registers the delete cleanup.
+// pgCreateServerRaw creates a flexible server over ARM, waits for the create's
+// long-running operation, and registers the delete.
 func pgCreateServerRaw(t *testing.T, serverPath, body string) {
 	t.Helper()
 	resp := armReq(t, "PUT", serverPath, body)
@@ -44,11 +41,9 @@ func pgCreateServerRaw(t *testing.T, serverPath, body string) {
 	waitAzureAsyncOperation(t, opURL)
 }
 
-// pgTryDataPlane resolves a server's fullyQualifiedDomainName through the
-// simulator's DNS and reports whether the data plane's loopback listener is
-// there. On Linux the data plane must install, so absence is a failure; a
-// host that cannot provide a loopback alias without root (macOS) proceeds
-// with the ARM-level assertions and without the data-plane half.
+// pgTryDataPlane reports whether the data plane's loopback listener is there.
+// On Linux it must be; a host that cannot provide a loopback alias without
+// root (macOS) runs the ARM assertions only.
 func pgTryDataPlane(t *testing.T, fqdn string) bool {
 	t.Helper()
 	lookupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -61,8 +56,8 @@ func pgTryDataPlane(t *testing.T, fqdn string) bool {
 	return reachable
 }
 
-// pgConnectTLS connects a stock PostgreSQL driver to a server's data plane
-// through the simulator's DNS, with the retry budget a fresh engine needs.
+// pgConnectTLS connects a stock PostgreSQL driver through the simulator's DNS,
+// with the retry budget a fresh engine needs.
 func pgConnectTLS(t *testing.T, testCtx context.Context, login, password, host string) *pgx.Conn {
 	t.Helper()
 	config, err := pgx.ParseConfig(fmt.Sprintf(
@@ -80,7 +75,6 @@ func pgConnectTLS(t *testing.T, testCtx context.Context, login, password, host s
 	return conn
 }
 
-// pgReadLedger reads every row of the ledger table, ordered.
 func pgReadLedger(t *testing.T, testCtx context.Context, conn *pgx.Conn) []string {
 	t.Helper()
 	rows, err := conn.Query(testCtx, `SELECT entry FROM ledger ORDER BY entry`)
@@ -95,10 +89,9 @@ func pgReadLedger(t *testing.T, testCtx context.Context, conn *pgx.Conn) []strin
 	return entries
 }
 
-// A long-term-retention backup is a stored operation record backed by a real
-// volume capture: start creates the record and captures the server's volume
-// through the operation's own poll, Get and List read the same record back,
-// and a name that was never started does not exist — Get and List agree.
+// A long-term-retention backup is an operation record backed by a volume
+// capture: start creates the record and captures through the operation's poll,
+// Get and List read the record, and a name never started does not exist.
 func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -116,8 +109,8 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 		`{"location":"eastus","properties":{"version":"16","administratorLogin":%q,"administratorLoginPassword":%q}}`,
 		adminLogin, adminPassword))
 
-	// Give the capture real bytes to carry when the host can run the data
-	// plane; the ARM surface behaves identically either way.
+	// Give the capture real bytes where the host runs the data plane; the ARM
+	// surface behaves the same either way.
 	fqdn, _ := pgDataGetServer(t, serverPath)["fullyQualifiedDomainName"].(string)
 	require.NotEmpty(t, fqdn)
 	if pgTryDataPlane(t, fqdn) {
@@ -129,8 +122,7 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 		require.NoError(t, conn.Close(testContext))
 	}
 
-	// Start the backup and wait the way a real client does: the operation
-	// succeeds only once the capture settles.
+	// The operation succeeds only once the capture settles.
 	resp := armReq(t, "POST", serverPath+"/startLtrBackup", fmt.Sprintf(
 		`{"backupSettings":{"backupName":%q},"targetDetails":{"sasUriList":["https://example.blob.core.windows.net/ltr?sas"]}}`,
 		backupName))
@@ -170,13 +162,13 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 	require.Len(t, list.Value, 1, "the list must hold exactly the backup that was started")
 	assert.Equal(t, backupName, list.Value[0].Name)
 
-	// A name that was never started does not exist.
+	// A name never started does not exist.
 	resp = armReq(t, "GET", serverPath+"/ltrBackupOperations/never-started", "")
 	body, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, string(body))
 
-	// The request shape holds: a start without targetDetails is refused.
+	// A start without targetDetails is refused.
 	resp = armReq(t, "POST", serverPath+"/startLtrBackup", `{"backupSettings":{"backupName":"no-target"}}`)
 	body, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -184,9 +176,9 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 	assert.Contains(t, string(body), "targetDetails.sasUriList")
 }
 
-// createMode=Replica clones the primary's live volume into the new server
-// under the primary's credential, marks the pair with the replication
-// properties ServerProperties defines, and Replicas_ListByServer lists it.
+// createMode=Replica clones the primary's live volume under the primary's
+// credential, sets the ServerProperties replication properties, and
+// Replicas_ListByServer lists it.
 func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -232,14 +224,13 @@ func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 	// The replica serves under the source's administrator login.
 	assert.Equal(t, adminLogin, replicaProps["administratorLogin"])
 
-	// The source became the replication set's primary.
+	// The source becomes the replication set's primary.
 	sourceProps := pgDataGetServer(t, sourcePath)
 	assert.Equal(t, "Primary", sourceProps["replicationRole"])
 	sourceReplica, _ := sourceProps["replica"].(map[string]any)
 	require.NotNil(t, sourceReplica)
 	assert.Equal(t, "Primary", sourceReplica["role"])
 
-	// Replicas_ListByServer on the source lists the replica.
 	resp := armReq(t, "GET", sourcePath+"/replicas", "")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -253,26 +244,21 @@ func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 	require.Len(t, replicas.Value, 1, "the source must list exactly its replica")
 	assert.Equal(t, replicaName, replicas.Value[0].Name)
 
-	// A second server needs a second loopback address. Linux provides one
-	// and the data plane must install there; a host with only 127.0.0.1
-	// (macOS without root) has already given it to the source, so the
-	// replica stays modeled and the clone's data-plane half is skipped —
-	// the same capability gate the source took, applied where the second
-	// listener is needed.
+	// A second server needs a second loopback address: Linux provides one; on a
+	// host with only 127.0.0.1 (macOS without root) the source holds it, so the
+	// replica's data-plane half is skipped.
 	replicaFQDN, _ := replicaProps["fullyQualifiedDomainName"].(string)
 	require.NotEmpty(t, replicaFQDN)
 	if dataPlane && pgTryDataPlane(t, replicaFQDN) {
-		// The clone carried the data: the replica serves the primary's row
-		// under the primary's credential.
+		// The replica serves the primary's row under the primary's credential.
 		conn := pgConnectTLS(t, testContext, adminLogin, adminPassword, replicaFQDN)
 		defer func() { _ = conn.Close(context.Background()) }()
 		assert.Equal(t, []string{"primary-row"}, pgReadLedger(t, testContext, conn))
 	}
 }
 
-// createMode=GeoRestore restores the source's latest backup regardless of a
-// point in time: rows from before the backup are present, rows written after
-// it are not.
+// createMode=GeoRestore restores the source's latest backup: rows from before
+// it are present, rows written after are not.
 func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -318,7 +304,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 		require.NoError(t, source.Close(testContext))
 	}
 
-	// No pointInTimeUTC: geo-restore takes the latest backup.
+	// With no pointInTimeUTC, geo-restore takes the latest backup.
 	pgCreateServerRaw(t, restoredPath, fmt.Sprintf(
 		`{"location":"eastus","properties":{"createMode":"GeoRestore","sourceServerResourceId":%q}}`, sourcePath))
 
@@ -326,7 +312,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 	assert.Equal(t, adminLogin, restoredProps["administratorLogin"],
 		"the restored server keeps the source's administrator login")
 
-	// The restored server is a second listener, gated like the replica's.
+	// The restored server needs a second listener, gated like the replica's.
 	restoredFQDN, _ := restoredProps["fullyQualifiedDomainName"].(string)
 	require.NotEmpty(t, restoredFQDN)
 	if dataPlane && pgTryDataPlane(t, restoredFQDN) {
@@ -337,8 +323,8 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 	}
 }
 
-// createMode values the create cannot serve are refused with the reason,
-// never silently treated as a plain create.
+// A createMode the create cannot serve is refused with the reason, never
+// treated as a plain create.
 func TestAzurePGFlexibleServer_CreateModeRejections(t *testing.T) {
 	t.Parallel()
 	const rg = "pg-mode-rg"
@@ -353,7 +339,7 @@ func TestAzurePGFlexibleServer_CreateModeRejections(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(respBody))
 		assert.Contains(t, string(respBody), "InvalidParameterValue")
 		assert.Contains(t, string(respBody), reason)
-		// The refusal never fell through to a plain create.
+		// The refusal did not fall through to a plain create.
 		getResp := armReq(t, "GET", path, "")
 		getResp.Body.Close()
 		assert.Equal(t, http.StatusNotFound, getResp.StatusCode,

@@ -22,9 +22,8 @@ func s3CreateBucket(t *testing.T, c *s3.Client, bucket string) {
 	require.NoError(t, err)
 }
 
-// TestS3_Multipart exercises the canonical multipart upload flow:
-// Initiate → UploadPart × N → CompleteMultipartUpload → GetObject
-// asserts the assembled bytes equal the concatenation of the parts.
+// TestS3_Multipart expects the completed object to be the parts' bytes in
+// order.
 func TestS3_Multipart(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -127,8 +126,6 @@ func TestS3_ListObjectsStaysInsideItsBucket(t *testing.T) {
 	assert.Empty(t, listed("list-scope", "c"))
 }
 
-// TestS3_AbortMultipart confirms AbortMultipartUpload cleanly cancels
-// an in-flight upload.
 func TestS3_AbortMultipart(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -151,7 +148,7 @@ func TestS3_AbortMultipart(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Subsequent Complete must 404 (upload no longer exists).
+	// The aborted upload no longer exists, so Complete answers 404.
 	_, err = c.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 		Bucket:          aws.String(bucket),
 		Key:             aws.String(key),
@@ -161,8 +158,6 @@ func TestS3_AbortMultipart(t *testing.T) {
 	requireAWSErrorCode(t, err, "NoSuchUpload")
 }
 
-// TestS3_ObjectTagging exercises PutObjectTagging → GetObjectTagging
-// → DeleteObjectTagging on a regular (single-shot) object.
 func TestS3_ObjectTagging(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -213,7 +208,6 @@ func TestS3_ObjectTagging(t *testing.T) {
 	assert.Empty(t, get2.TagSet)
 }
 
-// TestS3_CopyObject exercises the x-amz-copy-source header flow.
 func TestS3_CopyObject(t *testing.T) {
 	t.Parallel()
 	c := s3Client()

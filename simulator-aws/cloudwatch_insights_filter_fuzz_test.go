@@ -2,7 +2,6 @@ package main
 
 import "testing"
 
-// FuzzCWInsightsFilter fuzzes the CloudWatch Logs Insights `filter` parser+evaluator.
 func FuzzCWInsightsFilter(f *testing.F) {
 	seeds := []string{
 		"",

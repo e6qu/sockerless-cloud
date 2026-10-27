@@ -22,13 +22,12 @@ func decisionFor(t *testing.T, results []iamtypes.EvaluationResult, action strin
 	return ""
 }
 
-// TestIAM_SimulateCustomPolicy covers evaluate inline policies for
-// explicit-deny-wins, resource scoping, action wildcards, and conditions.
+// TestIAM_SimulateCustomPolicy covers explicit-deny-wins, resource scoping,
+// action wildcards and conditions.
 func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
 
-	// Explicit deny.
 	out, err := client.SimulateCustomPolicy(ctx, &iam.SimulateCustomPolicyInput{
 		PolicyInputList: []string{`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"ec2:DeleteVolume","Resource":"*"}]}`},
 		ActionNames:     []string{"ec2:DeleteVolume"},
@@ -36,7 +35,6 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeExplicitDeny, decisionFor(t, out.EvaluationResults, "ec2:DeleteVolume"))
 
-	// Allow scoped to a specific resource: allowed on it, implicit deny elsewhere.
 	allowPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:GetItem","Resource":"arn:aws:dynamodb:us-east-1:123456789012:table/platform"}]}`
 	out, err = client.SimulateCustomPolicy(ctx, &iam.SimulateCustomPolicyInput{
 		PolicyInputList: []string{allowPolicy},
@@ -55,7 +53,6 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeImplicitDeny, out.EvaluationResults[0].EvalDecision)
 
-	// Action wildcard.
 	out, err = client.SimulateCustomPolicy(ctx, &iam.SimulateCustomPolicyInput{
 		PolicyInputList: []string{`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:Get*","Resource":"*"}]}`},
 		ActionNames:     []string{"s3:GetObject"},
@@ -63,7 +60,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeAllowed, out.EvaluationResults[0].EvalDecision)
 
-	// Condition on aws:ResourceTag — allowed only when the tag is present+matching.
+	// Allowed only while the aws:ResourceTag condition matches.
 	tagPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DeleteVolume","Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/edd:managed":"true"}}}]}`
 	tagged, err := client.SimulateCustomPolicy(ctx, &iam.SimulateCustomPolicyInput{
 		PolicyInputList: []string{tagPolicy},
@@ -77,7 +74,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeAllowed, tagged.EvaluationResults[0].EvalDecision)
 
-	// No matching context entry → condition fails → implicit deny.
+	// Without a matching context entry the condition fails: implicit deny.
 	untagged, err := client.SimulateCustomPolicy(ctx, &iam.SimulateCustomPolicyInput{
 		PolicyInputList: []string{tagPolicy},
 		ActionNames:     []string{"ec2:DeleteVolume"},
@@ -86,8 +83,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeImplicitDeny, untagged.EvaluationResults[0].EvalDecision)
 }
 
-// TestIAM_SimulatePrincipalPolicy covers resolving a role's inline policy from
-// the store and evaluating against it.
+// TestIAM_SimulatePrincipalPolicy evaluates a role's stored inline policy.
 func TestIAM_SimulatePrincipalPolicy(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
@@ -114,7 +110,7 @@ func TestIAM_SimulatePrincipalPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, iamtypes.PolicyEvaluationDecisionTypeAllowed, out.EvaluationResults[0].EvalDecision)
 
-	// Different table + an unrelated action → implicit deny for both.
+	// Another table and an unrelated action are both implicit denies.
 	out, err = client.SimulatePrincipalPolicy(ctx, &iam.SimulatePrincipalPolicyInput{
 		PolicySourceArn: aws.String(roleArn),
 		ActionNames:     []string{"dynamodb:GetItem", "dynamodb:DeleteItem"},

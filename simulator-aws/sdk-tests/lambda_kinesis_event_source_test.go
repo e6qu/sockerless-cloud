@@ -45,8 +45,8 @@ func (e kinesisEvent) data(t *testing.T) []string {
 	return out
 }
 
-// invocationCallback is the function's brain: the test handler forwards every
-// event to it and answers with what the test returns for it.
+// invocationCallback answers the function: the test handler forwards every
+// event to it and replies with what the test returns.
 type invocationCallback struct {
 	url    string
 	events chan kinesisEvent
@@ -163,7 +163,7 @@ func TestLambda_KinesisEventSourceMappingDeliversRecordsInOrder(t *testing.T) {
 }
 
 // A batch the function keeps failing is retried until MaximumRetryAttempts is
-// spent, then its description goes to the on-failure destination and the
+// spent; then its description goes to the on-failure destination and the
 // shard moves on (kinesis-on-failure-destination.md.gz).
 func TestLambda_KinesisEventSourceMappingDiscardsAfterItsRetries(t *testing.T) {
 	t.Parallel()

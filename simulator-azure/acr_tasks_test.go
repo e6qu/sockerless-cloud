@@ -32,12 +32,10 @@ func acrTasksURL(reg Registry, suffix string) string {
 	return fmt.Sprintf("http://%s%s%s?api-version=2019-06-01-preview", acrAuthTestARMHost, reg.ID, suffix)
 }
 
-// acrTasksARM sends an Azure Resource Manager request with the bearer a client
-// acquires from the token endpoint.
 func acrTasksARM(t *testing.T, srv *sim.Server, method, target, body string) (*http.Response, []byte) {
 	t.Helper()
 	now := time.Now()
-	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	token, err := mintBootstrapSimJWT("https://management.azure.com/", now, now.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
@@ -54,9 +52,9 @@ func acrTasksPost(t *testing.T, srv *sim.Server, target, body string) (*http.Res
 
 func acrTasksRegistry(t *testing.T, srv *sim.Server, name string) Registry {
 	t.Helper()
-	createTestResourceGroup(t, srv, "sub", "rg")
+	createTestResourceGroup(t, srv, azureDefaultSubscriptionID, "rg")
 	resp, data := acrTasksARM(t, srv, http.MethodPut,
-		fmt.Sprintf("http://%s/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/%s?api-version=2023-07-01", acrAuthTestARMHost, name),
+		fmt.Sprintf("http://%s/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/%s?api-version=2023-07-01", acrAuthTestARMHost, name),
 		`{"location":"eastus","sku":{"name":"Standard"},"properties":{}}`)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create registry %s: status %d: %s", name, resp.StatusCode, data)
@@ -195,7 +193,6 @@ func acrTasksQueuedRun(t *testing.T, reg Registry, runID string) (*acrActiveRun,
 	return active, stop
 }
 
-// acrTasksMissingContext is a docker build run whose source does not exist.
 func acrTasksMissingContext(timeout time.Duration) acrRunSpec {
 	return acrRunSpec{
 		runType: "QuickBuild",

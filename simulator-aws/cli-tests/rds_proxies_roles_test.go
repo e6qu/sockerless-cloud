@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSCLI_ProxiesRolesAndExtras drives the RDS proxy / IAM-role /
-// security-group / certificate / automated-backup / log-file /
-// copy-group / source-identifier / pending-maintenance surface end to
-// end through the aws CLI. Grouped into one round-trip func (the appdata
-// shard is already heavy).
+// TestRDSCLI_ProxiesRolesAndExtras covers RDS proxies, IAM roles, security
+// groups, certificates, automated backups, log files, copy-group, source
+// identifiers and pending maintenance in one test, since the appdata shard is
+// already heavy.
 func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	t.Parallel()
 	instID := "cli-px-target-db"
@@ -226,8 +225,8 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--db-instance-automated-backups-arn", ab.DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn)),
 		"InvalidDBInstanceAutomatedBackupState")
 
-	// Only a deleted cluster's automated backup is listed: retained, when the
-	// deletion asked for it.
+	// Only a deleted cluster's automated backup is listed, and only when the
+	// deletion retained it.
 	type clusterBackups struct {
 		DBClusterAutomatedBackups []struct {
 			DbClusterResourceId string `json:"DbClusterResourceId"`
@@ -249,7 +248,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "download-db-log-file-portion",
 		"--db-instance-identifier", instID, "--log-file-name", "error/postgresql.log")), "DBLogFileNotFoundFault")
 
-	// The endpoint greets a client once the engine accepts connections.
 	var described struct {
 		DBInstances []struct {
 			Endpoint struct {
@@ -403,8 +401,6 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--apply-action", action,
 		"--opt-in-type", "immediate"))
 
-	// Deleting the cluster with --no-delete-automated-backups retains its
-	// automated backup.
 	var clusters struct {
 		DBClusters []struct {
 			DbClusterResourceId string `json:"DbClusterResourceId"`
@@ -425,9 +421,9 @@ func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
 		"--db-cluster-resource-id", clusterResourceID)), &cab)
 	assert.Empty(t, cab.DBClusterAutomatedBackups)
 
-	// The instance took its first automated snapshot when it was created, so
-	// the automated backup is active and restores to a window; deleting the
-	// instance with --no-delete-automated-backups retains it.
+	// The instance took its first automated snapshot at creation, so its
+	// automated backup is active with a restore window; deleting the instance with
+	// --no-delete-automated-backups retains it.
 	parseJSON(t, runCLI(t, awsCLI("rds", "describe-db-instance-automated-backups",
 		"--db-instance-identifier", instID)), &ab)
 	require.Len(t, ab.DBInstanceAutomatedBackups, 1)

@@ -19,8 +19,7 @@ func TestContainerApps_JobArithmetic(t *testing.T) {
 	execProps := exec["properties"].(map[string]any)
 	assert.Equal(t, "Succeeded", execProps["status"])
 
-	// Poll until the arithmetic result is ingested into Log Analytics (async
-	// in the sim) — a fixed sleep races a loaded runner.
+	// The arithmetic result reaches Log Analytics asynchronously.
 	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "arith-aca-job"`
 	var result queryResponse
 	require.Eventually(t, func() bool {
@@ -63,8 +62,6 @@ func TestContainerApps_JobArithmeticInvalid(t *testing.T) {
 	acaCreateJobWithImageAndCommand(t, rg, jobName, evalImageName, []string{"3 +"})
 	execName := acaStartExecution(t, rg, jobName)
 
-	// Poll for terminal status — container start latency on slow CI
-	// can exceed any fixed sleep.
 	var lastStatus string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		exec := acaGetExecution(t, rg, jobName, execName)

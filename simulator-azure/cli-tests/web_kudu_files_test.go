@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for Kudu's VFS, command and settings APIs on a web app's SCM
-// site, and for a webjob's schedule and logs, reached with az rest and a
-// Microsoft Entra token for App Service:
+// Kudu's VFS, command and settings APIs on a web app's SCM site, and a
+// webjob's schedule and logs, reached with `az rest` and a Microsoft Entra
+// token for App Service.
 //
 //	GET+PUT+DELETE /api/vfs/{path}
 //	POST /api/command

@@ -16,15 +16,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// The Firestore Write and Listen streams have no REST spelling, so they are
-// exercised through the generated gRPC client — the same client the high-level
-// cloud.google.com/go/firestore library builds on. The high-level watch API
-// (DocumentRef.Snapshots) rides Listen and is exercised below too, which is
-// what proves the target/CURRENT/NO_CHANGE bookkeeping is the one a real
-// client expects.
+// The Write and Listen streams have no REST spelling, so the generated gRPC
+// client drives them. DocumentRef.Snapshots rides Listen too, proving the
+// target, CURRENT and NO_CHANGE bookkeeping is the one a real client expects.
 
-// fsRawGRPCClient dials the simulator's Firestore gRPC data plane and returns
-// the generated client.
 func fsRawGRPCClient(t *testing.T) firestorepb.FirestoreClient {
 	t.Helper()
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
@@ -37,9 +32,9 @@ func fsStringValue(s string) *firestorepb.Value {
 	return &firestorepb.Value{ValueType: &firestorepb.Value_StringValue{StringValue: s}}
 }
 
-// TestFirestore_GRPC_WriteStream drives the bidirectional write stream: the
-// handshake that mints a stream id and token, writes that land in the same
-// store the unary RPCs read, a delete, and a resume from the last token.
+// TestFirestore_GRPC_WriteStream: the handshake mints a stream id and token,
+// writes land in the store the unary RPCs read, and a second stream resumes
+// from the last token.
 func TestFirestore_GRPC_WriteStream(t *testing.T) {
 	t.Parallel()
 	c := fsRawGRPCClient(t)
@@ -77,8 +72,7 @@ func TestFirestore_GRPC_WriteStream(t *testing.T) {
 	require.NotEmpty(t, written.GetStreamToken())
 	assert.Empty(t, written.GetStreamId(), "the stream id is reported only when the stream is created")
 
-	// The unary read path sees it: the stream writes the store the rest of the
-	// service reads.
+	// The stream writes the store the unary read path reads.
 	got, err := c.GetDocument(ctx, &firestorepb.GetDocumentRequest{Name: docName})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", got.GetFields()["body"].GetStringValue())
@@ -112,8 +106,6 @@ func TestFirestore_GRPC_WriteStream(t *testing.T) {
 	require.NoError(t, resumed.CloseSend())
 }
 
-// TestFirestore_GRPC_WriteStreamRejections covers the handshake contract: the
-// first request carries no writes, and an unknown stream cannot be resumed.
 func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
 	t.Parallel()
 	c := fsRawGRPCClient(t)
@@ -147,9 +139,6 @@ func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
 	requireGRPCStatus(t, err, codes.InvalidArgument)
 }
 
-// TestFirestore_GRPC_ListenStream drives the watch stream directly: adding a
-// documents target reports the document that exists, later writes and deletes
-// arrive as changes, and removing the target closes it out.
 func TestFirestore_GRPC_ListenStream(t *testing.T) {
 	t.Parallel()
 	c := fsRawGRPCClient(t)
@@ -304,18 +293,15 @@ func TestFirestore_GRPC_ListenQueryTarget(t *testing.T) {
 	assert.Equal(t, "done", still.GetFields()["state"].GetStringValue())
 }
 
-// TestFirestore_Snapshots_HighLevelClient runs the watch stream through the
-// cloud.google.com/go/firestore client's own state machine, which consumes the
-// ADD / CURRENT / NO_CHANGE bookkeeping and only yields a snapshot once the
-// stream reports a consistent one.
+// TestFirestore_Snapshots_HighLevelClient runs the watch stream through
+// cloud.google.com/go/firestore's state machine, which consumes the ADD,
+// CURRENT and NO_CHANGE bookkeeping and yields a snapshot only once the stream
+// reports a consistent one.
 //
-// The update case is covered by TestFirestore_GRPC_ListenStream rather than
-// here: the client drops an update whose update time equals the one it already
-// holds, and the simulator stamps document update times with millisecond
-// granularity, so a write that follows another inside the same millisecond
-// carries the same update time and the client cannot see it. That granularity
-// is the simulator's, not this stream's — the stream reports every write the
-// store records, which is what the raw test asserts.
+// TestFirestore_GRPC_ListenStream covers updates instead: the client drops an
+// update whose update time equals the one it holds, and the simulator stamps
+// update times at millisecond granularity, so two writes in one millisecond
+// look like one.
 func TestFirestore_Snapshots_HighLevelClient(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-listen-hl")
@@ -340,8 +326,6 @@ func TestFirestore_Snapshots_HighLevelClient(t *testing.T) {
 	assert.False(t, second.Exists(), "the deleted document is reported as gone")
 }
 
-// TestFirestore_QuerySnapshots_HighLevelClient watches a query through the
-// high-level client and reads the change list it derives from the stream.
 func TestFirestore_QuerySnapshots_HighLevelClient(t *testing.T) {
 	t.Parallel()
 	c := newFSGRPCClient(t, "fs-listen-hl-query")
@@ -366,7 +350,6 @@ func TestFirestore_QuerySnapshots_HighLevelClient(t *testing.T) {
 	assert.Equal(t, "q1", second.Changes[0].Doc.Ref.ID)
 }
 
-// fsAwaitDocumentChange reads the stream until the named document changes.
 func fsAwaitDocumentChange(t *testing.T, stream firestorepb.Firestore_ListenClient, name string) *firestorepb.Document {
 	t.Helper()
 	for {
@@ -411,7 +394,6 @@ func fsAwaitTargetChange(t *testing.T, stream firestorepb.Firestore_ListenClient
 	}
 }
 
-// requireGRPCStatus asserts a call failed with the given gRPC code.
 func requireGRPCStatus(t *testing.T, err error, want codes.Code) {
 	t.Helper()
 	require.Error(t, err)

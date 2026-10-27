@@ -32,8 +32,7 @@ func cosmosTestResource(t *testing.T, out []byte) (rid, self string) {
 	return resource.RID, resource.Self
 }
 
-// getByRID reads a resource by its id path, signing the lower-cased id of the
-// addressed resource the way a client addressing by id does.
+// A client addressing by id signs the lowercased id.
 func (c *cosmosItemsClient) getByRID(path, rid string, headers map[string]string) (int, []byte) {
 	c.t.Helper()
 	segments := strings.Split(strings.Trim(path, "/"), "/")
@@ -50,11 +49,8 @@ func (c *cosmosItemsClient) getByRID(path, rid string, headers map[string]string
 	return recorder.Code, recorder.Body.Bytes()
 }
 
-// Resource ids are the service's hierarchical binary ids: 4 bytes for a
-// database, its database's followed by 4 for a container, and its container's
-// followed by an 8-byte little-endian number for an item or script, the kind in
-// the last byte's top bits. A replace keeps an item's id, names with hyphens
-// get distinct ids, and a resource reads back by its id path.
+// A replace keeps an item's id, names with hyphens get distinct ids, and a
+// resource reads back by its id path.
 func TestCosmosResourceIDsAreHierarchicalAndAddressable(t *testing.T) {
 	c := newCosmosItemsClient(t, "ridaccount")
 	_, out := c.must(http.StatusCreated, http.MethodPost, "/dbs", `{"id":"a-b"}`, nil)

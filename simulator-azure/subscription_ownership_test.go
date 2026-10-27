@@ -14,17 +14,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Microsoft.Subscription ownership acceptance, driven through the simulator's
-// real handler chain — bearer verification, api-version enforcement, mux.
-//
-// The Azure Resource Manager long-running-operation contract is the reason
-// these tests talk HTTP rather than going through the SDK: an SDK poller
-// reports only the settled result, while the contract this surface has to keep
-// is that Subscription_AcceptOwnership answers 202 with a Location naming a
-// Microsoft.Subscription operation, and that the operation answers 202 while
-// the acceptance runs and 200 with the accepted subscription's link once it has
-// settled. The intermediate answer is the part a client's poller depends on and
-// the part only a direct request can observe.
+// These talk HTTP rather than the SDK because an SDK poller reports only the
+// settled result, while the contract includes the intermediate 202 from the
+// operation, which a client's poller depends on.
 
 const subscriptionAPIVersion = "2021-10-01"
 
@@ -42,9 +34,8 @@ func newSubscriptionTestClient(t *testing.T) *subscriptionTestClient {
 		t.Fatalf("build simulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 	now := time.Now()
 	token, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
@@ -54,9 +45,8 @@ func newSubscriptionTestClient(t *testing.T) *subscriptionTestClient {
 	return &subscriptionTestClient{t: t, srv: srv, token: token}
 }
 
-// do issues one authenticated Azure Resource Manager request. A path already
-// carrying a query string (a Location header the simulator emitted) is sent as
-// given, so the api-version the simulator advertised is the one used.
+// A path already carrying a query (a Location the simulator emitted) is sent as
+// given, with the api-version it advertised.
 func (c *subscriptionTestClient) do(method, path string, body any) *httptest.ResponseRecorder {
 	c.t.Helper()
 	url := path
@@ -106,9 +96,7 @@ func subscriptionProps(t *testing.T, resource map[string]any) map[string]any {
 	return props
 }
 
-// createDirectedAlias creates a subscription directed at a tenant and an owner
-// and checks that the create answered with the alias provisioned. It returns the new
-// subscription id and the settled alias resource.
+// Returns the new subscription ID and the settled alias.
 func (c *subscriptionTestClient) createDirectedAlias(aliasName, displayName, tenantID string) (string, map[string]any) {
 	c.t.Helper()
 	created := c.doJSON(http.MethodPut, "/providers/Microsoft.Subscription/aliases/"+aliasName, map[string]any{
@@ -136,12 +124,9 @@ func (c *subscriptionTestClient) createDirectedAlias(aliasName, displayName, ten
 	return subscriptionID, alias
 }
 
-// TestSubscriptionAcceptOwnershipLongRunningOperation walks the whole ownership
-// handover: a directed alias leaves the subscription's ownership Pending with
-// the URL an owner accepts it at, the acceptance answers 202 pointing at a
-// Microsoft.Subscription operation, that operation reports 200 with the
-// subscription's link, and both the
-// ownership status and the alias report the Completed state.
+// A directed alias leaves ownership Pending with the accept URL; the
+// acceptance answers 202 at an operation that reports 200 with the
+// subscription's link; ownership status and alias both report Completed.
 func TestSubscriptionAcceptOwnershipLongRunningOperation(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	const aliasName = "ownership-alias"
@@ -182,9 +167,8 @@ func TestSubscriptionAcceptOwnershipLongRunningOperation(t *testing.T) {
 	if location == "" {
 		t.Fatal("accept ownership answered 202 without a Location naming the operation to poll")
 	}
-	// Accepting ownership is record-keeping the simulator finishes while it
-	// answers, so the operation is already complete: the 202 carries no
-	// Retry-After and the first poll of its Location reports the result.
+	// The acceptance finishes while it answers, so the 202 carries no Retry-After
+	// and the first poll reports the result.
 	if got := rec.Header().Get("Retry-After"); got != "" {
 		t.Errorf("accept ownership advertised Retry-After %q for an operation already complete", got)
 	}
@@ -225,9 +209,7 @@ func TestSubscriptionAcceptOwnershipLongRunningOperation(t *testing.T) {
 	}
 }
 
-// TestSubscriptionAcceptOwnershipRejectsNonPending covers the states in which
-// there is nothing to accept: a subscription that never had an ownership
-// request, and one whose request has already been accepted.
+// A subscription with no ownership request, and one already accepted.
 func TestSubscriptionAcceptOwnershipRejectsNonPending(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 
@@ -256,8 +238,6 @@ func TestSubscriptionAcceptOwnershipRejectsNonPending(t *testing.T) {
 	}
 }
 
-// TestSubscriptionAcceptOwnershipRequiresDisplayName asserts the one required
-// member of the request body.
 func TestSubscriptionAcceptOwnershipRequiresDisplayName(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	subscriptionID, _ := c.createDirectedAlias("ownership-displayname-alias", "Directed Subscription", simTenantID)
@@ -269,9 +249,8 @@ func TestSubscriptionAcceptOwnershipRequiresDisplayName(t *testing.T) {
 	}
 }
 
-// TestSubscriptionOperationGetUnknown asserts that the operation registry
-// answers for its own operations only — an identifier it never issued is not
-// found, rather than reported as a settled operation with no link.
+// An ID the registry never issued is not found, not a settled operation with no
+// link.
 func TestSubscriptionOperationGetUnknown(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	rec := c.do(http.MethodGet, "/providers/Microsoft.Subscription/subscriptionOperations/"+sim.NewUUID(), nil)
@@ -280,9 +259,7 @@ func TestSubscriptionOperationGetUnknown(t *testing.T) {
 	}
 }
 
-// subscriptionLocationPath reduces an absolute Location header to the
-// path-and-query the test re-issues, and fails if the header is not the
-// absolute URL an Azure Resource Manager poller needs to follow it.
+// Fails unless the header is the absolute URL a poller needs.
 func subscriptionLocationPath(t *testing.T, location string) string {
 	t.Helper()
 	parsed, err := url.Parse(location)

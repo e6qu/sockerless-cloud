@@ -24,14 +24,12 @@ func newTableClient(t *testing.T, account, table string) *aztables.Client {
 	return svc.NewClient(table)
 }
 
-// TestTableMergeVsReplace pins the Update Entity semantics through the real
-// aztables SDK: UpdateModeMerge overlays only the supplied properties (omitted
-// ones survive), while UpdateModeReplace drops omitted properties wholesale.
+// TestTableMergeVsReplace: UpdateModeMerge overlays the supplied properties and
+// keeps the rest; UpdateModeReplace drops the omitted ones.
 func TestTableMergeVsReplace(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktablemerge", "MergeTable")
 
-	// Seed an entity with two non-key properties.
 	seed := map[string]any{
 		"PartitionKey": "p", "RowKey": "r",
 		"Alpha": "one", "Beta": "two",
@@ -40,7 +38,7 @@ func TestTableMergeVsReplace(t *testing.T) {
 	_, err := client.AddEntity(ctx, b, nil)
 	require.NoError(t, err)
 
-	// MERGE supplying only Alpha — Beta must be preserved.
+	// Beta survives a MERGE supplying only Alpha.
 	mergeEntity := map[string]any{"PartitionKey": "p", "RowKey": "r", "Alpha": "merged"}
 	mb, _ := json.Marshal(mergeEntity)
 	_, err = client.UpdateEntity(ctx, mb, &aztables.UpdateEntityOptions{UpdateMode: aztables.UpdateModeMerge})
@@ -53,7 +51,7 @@ func TestTableMergeVsReplace(t *testing.T) {
 	assert.Equal(t, "merged", afterMerge["Alpha"], "merge updated Alpha")
 	assert.Equal(t, "two", afterMerge["Beta"], "merge preserved the omitted Beta")
 
-	// REPLACE supplying only Alpha — Beta must be dropped.
+	// A REPLACE supplying only Alpha drops Beta.
 	replaceEntity := map[string]any{"PartitionKey": "p", "RowKey": "r", "Alpha": "replaced"}
 	rb, _ := json.Marshal(replaceEntity)
 	_, err = client.UpdateEntity(ctx, rb, &aztables.UpdateEntityOptions{UpdateMode: aztables.UpdateModeReplace})
@@ -68,14 +66,12 @@ func TestTableMergeVsReplace(t *testing.T) {
 	assert.False(t, betaPresent, "replace must drop the omitted Beta")
 }
 
-// TestTableFilterDatetimeLiteral pins the OData $filter typed-literal handling:
-// a `Timestamp gt datetime'…'` filter (the aztables EDMDateTime form) selects by
-// the unwrapped value, not by comparing against the literal word "datetime".
+// TestTableFilterDatetimeLiteral: `Created gt datetime'…'` (the aztables
+// EDMDateTime form) compares against the unwrapped value.
 func TestTableFilterDatetimeLiteral(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktablefilter", "FilterTable")
 
-	// Two entities carrying an explicit EDM datetime property at different times.
 	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	recent := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i, when := range []time.Time{old, recent} {
@@ -89,7 +85,7 @@ func TestTableFilterDatetimeLiteral(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Filter Created gt 2025 → only the recent (2030) entity.
+	// Only the 2030 entity is after the cutoff.
 	cutoff := "Created gt datetime'2025-01-01T00:00:00Z'"
 	pager := client.NewListEntitiesPager(&aztables.ListEntitiesOptions{Filter: &cutoff})
 	var rows []map[string]any
@@ -106,9 +102,8 @@ func TestTableFilterDatetimeLiteral(t *testing.T) {
 	assert.Equal(t, "r1", rows[0]["RowKey"])
 }
 
-// TestTableTransactionalBatch pins the $batch transactional-batch handler: a
-// multi-op change-set (two inserts) is replayed and the entities are queryable
-// afterwards.
+// TestTableTransactionalBatch: a change set of two inserts applies, and both
+// entities read back.
 func TestTableTransactionalBatch(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktablebatch", "BatchTable")
@@ -124,7 +119,6 @@ func TestTableTransactionalBatch(t *testing.T) {
 	_, err := client.SubmitTransaction(ctx, actions, nil)
 	require.NoError(t, err, "transactional batch must succeed")
 
-	// Both entities must now exist.
 	for _, tc := range []struct{ rk, want string }{{"r1", "one"}, {"r2", "two"}} {
 		got, err := client.GetEntity(ctx, "pk", tc.rk, nil)
 		require.NoError(t, err, "entity %s must exist after batch", tc.rk)
@@ -134,9 +128,8 @@ func TestTableTransactionalBatch(t *testing.T) {
 	}
 }
 
-// TestTableSelectProjection pins the $select projection: a query selecting one
-// non-key column returns only that column (plus the system keys), dropping the
-// others.
+// TestTableSelectProjection: $select of one non-key column returns that column
+// and the system keys only.
 func TestTableSelectProjection(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktableselect", "SelectTable")
@@ -160,10 +153,9 @@ func TestTableSelectProjection(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
-// TestTableConditionalWrites pins the Table service's optimistic concurrency
-// through the aztables client: an insert over an existing entity conflicts, an
-// update or delete conditioned on a superseded ETag fails with
-// UpdateConditionNotSatisfied, and the default `*` condition always applies.
+// TestTableConditionalWrites: an insert over an existing entity conflicts, an
+// update or delete on a superseded ETag fails with
+// UpdateConditionNotSatisfied, and the default `*` always applies.
 func TestTableConditionalWrites(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktableifmatch", "IfMatchTable")
@@ -199,9 +191,9 @@ func TestTableConditionalWrites(t *testing.T) {
 	require.NoError(t, err, "a delete without an ETag deletes any version")
 }
 
-// TestTableTransactionalBatchRollsBackAndStaysInOnePartition pins the entity
-// group transaction's rules: a change set spanning two partitions is refused,
-// and one whose last operation fails leaves none of its earlier writes.
+// TestTableTransactionalBatchRollsBackAndStaysInOnePartition: a change set
+// spanning two partitions is refused, and one whose last operation fails
+// leaves none of its earlier writes.
 func TestTableTransactionalBatchRollsBackAndStaysInOnePartition(t *testing.T) {
 	t.Parallel()
 	client := newTableClient(t, "sdktablebatchtx", "BatchTxTable")

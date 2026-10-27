@@ -17,14 +17,13 @@ import (
 	"time"
 )
 
-// TestELBv2TrustStoreCLI exercises the mutual-TLS trust store control plane and
-// the SSL policy / capacity / IP-pool modifications through the aws CLI:
-// create-trust-store, describe-trust-stores, modify-trust-store,
-// get-trust-store-ca-certificates-bundle, add-trust-store-revocations,
-// describe-trust-store-revocations, get-trust-store-revocation-content,
-// remove-trust-store-revocations, describe-trust-store-associations,
-// get-resource-policy, describe-ssl-policies, modify-capacity-reservation,
-// modify-ip-pools, delete-trust-store.
+// TestELBv2TrustStoreCLI covers create-trust-store, describe-trust-stores,
+// modify-trust-store, get-trust-store-ca-certificates-bundle,
+// add-trust-store-revocations, describe-trust-store-revocations,
+// get-trust-store-revocation-content, remove-trust-store-revocations,
+// describe-trust-store-associations, get-resource-policy,
+// describe-ssl-policies, modify-capacity-reservation, modify-ip-pools and
+// delete-trust-store.
 func TestELBv2TrustStoreCLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", "cli-ca-bucket"))
@@ -160,8 +159,6 @@ func TestELBv2TrustStoreCLI(t *testing.T) {
 	runCLI(t, awsCLI("elbv2", "delete-trust-store", "--trust-store-arn", tsArn))
 }
 
-// TestELBv2DescribeSSLPoliciesCLI verifies the predefined SSL security policy
-// catalog through the aws CLI.
 func TestELBv2DescribeSSLPoliciesCLI(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("elbv2", "describe-ssl-policies",
@@ -189,7 +186,6 @@ func TestELBv2DescribeSSLPoliciesCLI(t *testing.T) {
 	}
 }
 
-// elbv2CLITestCA makes a self-signed CA certificate.
 func elbv2CLITestCA(t *testing.T, name string) (*x509.Certificate, *ecdsa.PrivateKey) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -236,7 +232,6 @@ func elbv2CLIPEM(blockType string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
 }
 
-// elbv2CLIDownload GETs the presigned content location the aws CLI printed.
 func elbv2CLIDownload(t *testing.T, location string) string {
 	t.Helper()
 	location = strings.TrimSpace(location)

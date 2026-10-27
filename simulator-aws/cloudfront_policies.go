@@ -7,9 +7,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront policy resources — cache, origin-request, response-headers.
-// Same REST + XML wire as the Distribution + OAC endpoints in cloudfront.go.
-
 type CFCachePolicyConfig struct {
 	XMLName                                  xml.Name                                         `xml:"CachePolicyConfig"`
 	Xmlns                                    string                                           `xml:"xmlns,attr,omitempty"`
@@ -52,9 +49,7 @@ type CFCachePolicy struct {
 	CachePolicyConfig CFCachePolicyConfig `xml:"CachePolicyConfig"`
 }
 
-// CachePolicySummary is the list-shape wrapper around a CachePolicy with
-// a Type discriminator (managed | custom). Terraform only creates
-// "custom"; "managed" types come pre-baked on real AWS.
+// Type is managed or custom; Terraform creates only custom policies.
 type CFCachePolicySummary struct {
 	Type        string        `xml:"Type"`
 	CachePolicy CFCachePolicy `xml:"CachePolicy"`
@@ -268,8 +263,6 @@ var (
 	cfResponseHeadersPolicies sim.Store[cfStoredResponseHeadersPolicy]
 )
 
-// registerCloudFrontPolicies is invoked from registerCloudFront in
-// cloudfront.go; it adds the policy CRUD endpoints onto the same mux.
 func registerCloudFrontPolicies(srv *sim.Server) {
 	cfCachePolicies = sim.MakeStore[cfStoredCachePolicy](srv.DB(), "cloudfront_cache_policies")
 	cfOriginRequestPolicies = sim.MakeStore[cfStoredOriginRequestPolicy](srv.DB(), "cloudfront_origin_request_policies")
@@ -280,7 +273,6 @@ func registerCloudFrontPolicies(srv *sim.Server) {
 	cachePolicyResource := cloudTrailRESTResource("AWS::CloudFront::CachePolicy", "id")
 	originRequestPolicyResource := cloudTrailRESTResource("AWS::CloudFront::OriginRequestPolicy", "id")
 	responseHeadersPolicyResource := cloudTrailRESTResource("AWS::CloudFront::ResponseHeadersPolicy", "id")
-	// CachePolicy
 	mux.HandleFunc("POST /"+cfAPIVersion+"/cache-policy", cloudTrailRecordedREST("CreateCachePolicy", "cloudfront.amazonaws.com", nil, handleCFCreateCachePolicy))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/cache-policy", cloudTrailRecordedREST("ListCachePolicies", "cloudfront.amazonaws.com", nil, handleCFListCachePolicies))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/cache-policy/{id}", cloudTrailRecordedREST("GetCachePolicy", "cloudfront.amazonaws.com", cachePolicyResource, handleCFGetCachePolicy))
@@ -288,7 +280,6 @@ func registerCloudFrontPolicies(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/cache-policy/{id}", cloudTrailRecordedREST("UpdateCachePolicy", "cloudfront.amazonaws.com", cachePolicyResource, handleCFUpdateCachePolicy))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/cache-policy/{id}", cloudTrailRecordedREST("DeleteCachePolicy", "cloudfront.amazonaws.com", cachePolicyResource, handleCFDeleteCachePolicy))
 
-	// OriginRequestPolicy
 	mux.HandleFunc("POST /"+cfAPIVersion+"/origin-request-policy", cloudTrailRecordedREST("CreateOriginRequestPolicy", "cloudfront.amazonaws.com", nil, handleCFCreateORP))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-request-policy", cloudTrailRecordedREST("ListOriginRequestPolicies", "cloudfront.amazonaws.com", nil, handleCFListORPs))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-request-policy/{id}", cloudTrailRecordedREST("GetOriginRequestPolicy", "cloudfront.amazonaws.com", originRequestPolicyResource, handleCFGetORP))
@@ -296,7 +287,6 @@ func registerCloudFrontPolicies(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/origin-request-policy/{id}", cloudTrailRecordedREST("UpdateOriginRequestPolicy", "cloudfront.amazonaws.com", originRequestPolicyResource, handleCFUpdateORP))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/origin-request-policy/{id}", cloudTrailRecordedREST("DeleteOriginRequestPolicy", "cloudfront.amazonaws.com", originRequestPolicyResource, handleCFDeleteORP))
 
-	// ResponseHeadersPolicy
 	mux.HandleFunc("POST /"+cfAPIVersion+"/response-headers-policy", cloudTrailRecordedREST("CreateResponseHeadersPolicy", "cloudfront.amazonaws.com", nil, handleCFCreateRHP))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/response-headers-policy", cloudTrailRecordedREST("ListResponseHeadersPolicies", "cloudfront.amazonaws.com", nil, handleCFListRHPs))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/response-headers-policy/{id}", cloudTrailRecordedREST("GetResponseHeadersPolicy", "cloudfront.amazonaws.com", responseHeadersPolicyResource, handleCFGetRHP))

@@ -1,6 +1,6 @@
 ---
 name: sim-handler-checklist
-description: Pre-write checklist for adding a new service handler under simulator-{aws,gcp,azure}/. Distilled from adding CloudFront / ACM / Route 53 / WAFv2 / Amplify / IAM SLR/OIDC to the AWS simulator — every load-bearing fix came from one of these four checks, and skipping any of them meant a CI-red round-trip. Use before writing the first line of a new service.go file.
+description: Pre-write checklist for adding a new service handler under simulator-{aws,gcp,azure}/. Skipping any of its four checks means a CI-red round-trip. Use before writing the first line of a new service.go file.
 ---
 
 # Sim-handler checklist

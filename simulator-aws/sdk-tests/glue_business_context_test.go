@@ -90,8 +90,7 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	gotGlossary, err := client.GetGlossary(ctx, &glue.GetGlossaryInput{Identifier: glossary.Id})
 	require.NoError(t, err)
 	assert.Equal(t, "Finance Terms", aws.ToString(gotGlossary.Name))
-	// Other tests create glossaries in the same account concurrently, so the
-	// listing holds this one among them.
+	// Other tests create glossaries concurrently, so look for this one among them.
 	glossaries, err := client.ListGlossaries(ctx, &glue.ListGlossariesInput{})
 	require.NoError(t, err)
 	var listed []string
@@ -174,13 +173,10 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	require.Len(t, search.Items, 1)
 	assert.Equal(t, "quarterly-sales", aws.ToString(search.Items[0].Id))
 
-	// This asset names no Data Catalog object, so it carries no iterable form
-	// and both readers answer with the service's not-found error. The error code
-	// is asserted rather than the mere presence of an error, so a handler that
-	// failed for any other reason — an unrouted operation, a decode failure —
-	// would not pass for it. The reachable side of the surface, an asset that
-	// names a table and so carries its columns, is
-	// TestGlueIterableFormsOfATableAsset_SDK.
+	// The asset names no Data Catalog object, so it carries no iterable form and
+	// both readers answer the service's not-found code.
+	// TestGlueIterableFormsOfATableAsset_SDK covers an asset naming a table, which
+	// carries its columns.
 	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
 		AssetIdentifier:  aws.String("quarterly-sales"),
 		IterableFormName: aws.String("columns"),
@@ -193,8 +189,7 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	})
 	assert.Equal(t, "EntityNotFoundException", errCode(t, err))
 
-	// The asset itself must be the other half of that decision: an asset that
-	// does not exist is reported against the asset, not the form.
+	// A missing asset is reported against the asset, not the form.
 	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
 		AssetIdentifier:  aws.String("no-such-asset"),
 		IterableFormName: aws.String("columns"),
@@ -367,19 +362,14 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	assert.Equal(t, []string{"missing-run"}, batch.RunsNotFound)
 }
 
-// TestGlueIterableFormsOfATableAsset_SDK exercises the iterable-form surface
-// through the only route that reaches it.
-//
-// No operation in the AWS Glue business-context API creates an iterable form:
-// PutAsset, PutAssetType, PutFormType and PutAttachment take none, and
-// IterableFormMap appears in the vendored model only on GetAssetOutput, where
-// it is "The iterable forms available on the asset, keyed by form name (for
-// example, columns)". An iterable form is the catalog object's own repeating
-// structure — ListIterableForms is documented as "Lists the items in an
-// iterable form on an asset in Glue Data Catalog. For example, lists the
-// columns of a table asset" — so an asset that names a Data Catalog table
-// carries that table's columns, and PutAttachment and AssociateGlossaryTerms
-// annotate the items that are already there.
+// TestGlueIterableFormsOfATableAsset_SDK covers the iterable-form surface
+// through its only route. No business-context operation creates an iterable
+// form, and IterableFormMap appears in the model only on GetAssetOutput, "The
+// iterable forms available on the asset, keyed by form name (for example,
+// columns)". ListIterableForms "Lists the items in an iterable form on an asset
+// in Glue Data Catalog. For example, lists the columns of a table asset", so an
+// asset naming a Data Catalog table carries its columns, which PutAttachment
+// and AssociateGlossaryTerms annotate.
 func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
 	t.Parallel()
 	client := glueClient()
@@ -428,8 +418,7 @@ func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
 		_, _ = client.DeleteAssetType(ctx, &glue.DeleteAssetTypeInput{Identifier: assetType.Id})
 	})
 
-	// A table asset is identified by the table's own ARN, which is how AWS names
-	// a Data Catalog table.
+	// AWS names a Data Catalog table asset by the table's ARN.
 	tableARN := "arn:aws:glue:us-east-1:123456789012:table/iterable_forms/orders"
 	_, err = client.PutAsset(ctx, &glue.PutAssetInput{
 		AssetTypeId: assetType.Id,
@@ -480,9 +469,8 @@ func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
 	require.Len(t, batch.Errors, 1)
 	assert.Equal(t, "no_such_column", aws.ToString(batch.Errors[0].ItemIdentifier))
 
-	// An item that exists can be annotated, which is what the model's
-	// IterableFormName + ItemIdentifier members on PutAttachment and
-	// AssociateGlossaryTerms are for.
+	// PutAttachment's and AssociateGlossaryTerms' IterableFormName and
+	// ItemIdentifier members annotate an item that exists.
 	attachment, err := client.PutAttachment(ctx, &glue.PutAttachmentInput{
 		AssetIdentifier:  aws.String(tableARN),
 		IterableFormName: aws.String("columns"),
@@ -531,13 +519,11 @@ func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
 	require.Contains(t, annotated.Items[0].Attachments, "governance")
 	assert.Equal(t, []string{aws.ToString(term.Id)}, annotated.Items[0].GlossaryTerms)
 
-	// The annotations belong to the item, not to the asset.
 	wholeAsset, err := client.GetAsset(ctx, &glue.GetAssetInput{Identifier: aws.String(tableARN)})
 	require.NoError(t, err)
 	assert.NotContains(t, wholeAsset.Attachments, "governance")
 	assert.Empty(t, wholeAsset.GlossaryTerms)
 
-	// A form name the asset does not carry is still not found.
 	_, err = client.ListIterableForms(ctx, &glue.ListIterableFormsInput{
 		AssetIdentifier:  aws.String(tableARN),
 		IterableFormName: aws.String("partitions"),

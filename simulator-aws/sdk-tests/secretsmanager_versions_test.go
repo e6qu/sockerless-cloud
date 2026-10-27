@@ -10,19 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSecretsManager_ListSecretVersionIds asserts the canonical
-// per-version audit / rotation flow:
+// TestSecretsManager_ListSecretVersionIds covers version staging:
 //
-//  1. CreateSecret seeds version A with stages [AWSCURRENT].
-//  2. PutSecretValue adds version B: A → AWSPREVIOUS, B → AWSCURRENT.
-//  3. PutSecretValue adds version C: A → no stages (deprecated),
-//     B → AWSPREVIOUS, C → AWSCURRENT.
-//  4. ListSecretVersionIds returns the staged versions; deprecated
-//     A is excluded by default and included with IncludeDeprecated.
-//  5. GetSecretValue with VersionId selector returns that exact
-//     version's bytes (not just AWSCURRENT).
-//
-// Regression guard.
+//  1. CreateSecret creates version A as AWSCURRENT.
+//  2. PutSecretValue adds B: A becomes AWSPREVIOUS, B AWSCURRENT.
+//  3. PutSecretValue adds C: A loses its stages, B becomes AWSPREVIOUS, C
+//     AWSCURRENT.
+//  4. ListSecretVersionIds omits the unstaged A unless IncludeDeprecated.
+//  5. GetSecretValue by VersionId returns that version's value.
 func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	t.Parallel()
 	client := smClient()
@@ -57,8 +52,7 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	require.NoError(t, err)
 	versionC := *putC.VersionId
 
-	// Default ListSecretVersionIds — should return B and C, exclude A
-	// (which has no stage labels after C's promotion).
+	// By default the listing holds B and C; A has no stages after C.
 	list, err := client.ListSecretVersionIds(ctx, &secretsmanager.ListSecretVersionIdsInput{
 		SecretId: aws.String(name),
 	})
@@ -78,7 +72,6 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	_, hasA := stagesByID[versionA]
 	assert.False(t, hasA, "deprecated version A should be excluded by default")
 
-	// With IncludeDeprecated, A should appear with no stages.
 	listAll, err := client.ListSecretVersionIds(ctx, &secretsmanager.ListSecretVersionIdsInput{
 		SecretId:          aws.String(name),
 		IncludeDeprecated: aws.Bool(true),
@@ -86,7 +79,6 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listAll.Versions, 3)
 
-	// VersionId selector on GetSecretValue.
 	getA, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId:  aws.String(name),
 		VersionId: aws.String(versionA),
@@ -102,7 +94,6 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "value-B", aws.ToString(getB.SecretString))
 
-	// AWSCURRENT stage selector returns C.
 	getCurrent, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId:     aws.String(name),
 		VersionStage: aws.String("AWSCURRENT"),
@@ -110,7 +101,6 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "value-C", aws.ToString(getCurrent.SecretString))
 
-	// AWSPREVIOUS stage selector returns B.
 	getPrev, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId:     aws.String(name),
 		VersionStage: aws.String("AWSPREVIOUS"),
@@ -119,20 +109,17 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 	assert.Equal(t, "value-B", aws.ToString(getPrev.SecretString))
 }
 
-// TestSecretsManager_GetRandomPassword exercises the stateless
-// password-generation helper used by rotation logic.
 func TestSecretsManager_GetRandomPassword(t *testing.T) {
 	t.Parallel()
 	client := smClient()
 
-	// Default length (32).
+	// The default length is 32.
 	out, err := client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{})
 	require.NoError(t, err)
 	require.NotNil(t, out.RandomPassword)
 	assert.Len(t, aws.ToString(out.RandomPassword), 32)
 
-	// Custom length + exclude punctuation + exclude numbers — only
-	// letters should appear.
+	// Excluding punctuation and numbers leaves only letters.
 	out2, err := client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{
 		PasswordLength:     aws.Int64(16),
 		ExcludePunctuation: aws.Bool(true),
@@ -147,7 +134,6 @@ func TestSecretsManager_GetRandomPassword(t *testing.T) {
 			"password char %q should be letter only", string(ch))
 	}
 
-	// Exclude-uppercase + exclude-lowercase + use-numbers-only.
 	out3, err := client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{
 		PasswordLength:     aws.Int64(8),
 		ExcludeUppercase:   aws.Bool(true),
@@ -161,7 +147,7 @@ func TestSecretsManager_GetRandomPassword(t *testing.T) {
 		assert.True(t, ch >= '0' && ch <= '9', "expected digit-only, got %q", string(ch))
 	}
 
-	// Length-out-of-range rejected.
+	// A length out of range is refused.
 	_, err = client.GetRandomPassword(ctx, &secretsmanager.GetRandomPasswordInput{
 		PasswordLength: aws.Int64(1),
 	})

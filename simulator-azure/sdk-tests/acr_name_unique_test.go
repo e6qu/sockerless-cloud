@@ -14,8 +14,7 @@ import (
 )
 
 // A registry's name is its login server's host name, so a second resource
-// group cannot create a registry under a name the first holds; the holder
-// can write its own registry again.
+// group cannot take a name the first holds; the holder can rewrite its own.
 func TestACR_RegistryNameIsUniqueAcrossResourceGroups(t *testing.T) {
 	t.Parallel()
 	first, second := uniquename.New("acr-unique-a"), uniquename.New("acr-unique-b")

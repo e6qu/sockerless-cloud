@@ -17,36 +17,27 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Runtime wire-shape validation against the vendored Azure Swagger 2.0
-// specs (specs/cloud-api/azure/). Armed when SOCKERLESS_SPEC_VALIDATE
-// (report file) is set; SOCKERLESS_SPEC_DIR must then point at the
-// vendored spec directory. Every JSON success response whose
-// method+path matches a swagger path template is validated
-// member-by-member against the operation's response schema: members the
-// spec doesn't define and primitive type mismatches are violations.
-// Exchanges with no matching swagger path (allowlisted non-spec
-// surfaces, Graph, Cosmos SQL, ...), error responses
-// (status >= 400), empty bodies, and non-JSON bodies are not validated
-// — the static conformance gate owns the route-table surface.
+// Runtime wire-shape validation against the vendored Swagger 2.0 specs, armed
+// when SOCKERLESS_SPEC_VALIDATE names a report file (SOCKERLESS_SPEC_DIR must
+// point at the specs). Every JSON success response matching a swagger path is
+// checked member by member: undefined members and primitive type mismatches
+// are violations. Unmatched exchanges, errors, empty and non-JSON bodies are
+// not validated; the static conformance gate owns the route table.
 
-// azureSpecDoc is one vendored swagger file plus the upstream-repo path
-// SOURCES.md records for it; relative cross-file $refs resolve against
-// the upstream directory layout, never the flat local one.
+// Relative cross-file $refs resolve against the upstream directory layout
+// SOURCES.md records, never the flat local one.
 type azureSpecDoc struct {
 	file     string // local file name (foo.swagger.json.gz)
 	upstream string // path inside Azure/azure-rest-api-specs
 	root     map[string]any
 }
 
-// azureRefSchema pairs a schema fragment with the doc it physically
-// lives in, so relative $refs inside the fragment resolve correctly.
+// Pairs a fragment with the doc it lives in, so its relative $refs resolve.
 type azureRefSchema struct {
 	doc *azureSpecDoc
 	s   map[string]any
 }
 
-// azureSpecOp is one method+path operation extracted from paths /
-// x-ms-paths (basePath joined, segments normalized for matching).
 type azureSpecOp struct {
 	method   string
 	template string // basePath-joined swagger key (the Op label)
@@ -58,23 +49,19 @@ type azureSpecOp struct {
 
 type azureSpecIndex struct {
 	docs map[string]*azureSpecDoc // upstream path -> doc
-	// ops sorted most-literal-first so the most specific template is
-	// preferred when several match one request path.
+	// Most literal first, so the most specific template wins.
 	ops []azureSpecOp
-	// subtypes maps "<base canonical id>\x00<discriminator value>" to
-	// the polymorphic subtype definition (x-ms-discriminator-value or
-	// the definition name).
+	// "<base canonical id>\x00<discriminator value>" to the polymorphic subtype
+	// (x-ms-discriminator-value or the definition name).
 	subtypes map[string]azureRefSchema
 }
 
 var azureParamSegment = regexp.MustCompile(`\{[^}]+\}`)
 
-// splitAzureSegs normalizes one path for comparison: parameters collapse
-// to {} ({...}-style greedy mux labels to {+}), everything lowercases
-// (ARM routing is case-insensitive and AzurePathNormalizationMiddleware
-// lowercases action verbs), and empty segments drop (the validator runs
-// ahead of CleanPathMiddleware, so go-azure-sdk's double-slash paths
-// reach it uncleaned).
+// Parameters collapse to {} (greedy mux labels to {+}), everything lowercases
+// (Azure Resource Manager routing is case-insensitive and the middleware
+// lowercases action verbs), and empty segments drop: the validator runs ahead
+// of CleanPathMiddleware, so go-azure-sdk's double slashes reach it.
 func splitAzureSegs(p string) []string {
 	p = azureParamSegment.ReplaceAllStringFunc(p, func(s string) string {
 		if strings.HasSuffix(s[1:len(s)-1], "...") {
@@ -96,18 +83,15 @@ func splitAzureSegs(p string) []string {
 	return segs
 }
 
-// matchAzureSegs reports whether a simulator path (a mux pattern or a
-// concrete request path) is a valid spelling of a Swagger path. Rules:
-//   - a spec "{}" in FIRST position is a scope parameter
-//     (x-ms-skip-url-encoding resource IDs like
-//     "/{scope}/providers/Microsoft.Authorization/...") and consumes one
-//     or more simulator segments;
-//   - elsewhere spec "{}" consumes exactly one simulator segment of any
-//     kind (a simulator literal narrows the parameter — valid);
-//   - a spec literal requires the identical (lowercased) simulator
-//     literal;
-//   - a simulator trailing "{+}" consumes any remaining spec segments
-//     (greedy fan-in accepts a superset).
+// matchAzureSegs reports whether a simulator path (mux pattern or concrete
+// path) spells a Swagger path:
+//   - a spec "{}" first is a scope parameter
+//     ("/{scope}/providers/Microsoft.Authorization/...") consuming one or more
+//     segments;
+//   - elsewhere a spec "{}" consumes exactly one segment, a simulator literal
+//     narrowing it;
+//   - a spec literal requires the identical lowercased literal;
+//   - a simulator trailing "{+}" consumes any remaining spec segments.
 func matchAzureSegs(simSegs, spec []string, specFirst bool) bool {
 	if len(spec) == 0 {
 		return len(simSegs) == 0
@@ -118,11 +102,9 @@ func matchAzureSegs(simSegs, spec []string, specFirst bool) bool {
 	if simSegs[0] == "{+}" && len(simSegs) == 1 {
 		return true
 	}
-	// Scope expansion applies only to ARM scope paths
-	// ("/{scope}/providers/Microsoft.X/..."): the scope resource ID
-	// spans several segments. A leading parameter in a data-plane spec
-	// ("/{containerName}/{blob}") stays single-segment — expanding it
-	// would let almost any route match.
+	// Only Azure Resource Manager scope paths expand; a leading data-plane
+	// parameter ("/{containerName}/{blob}") stays single-segment, or almost any
+	// route would match.
 	if spec[0] == "{}" && specFirst && len(spec) > 1 && spec[1] == "providers" {
 		for i := 1; i <= len(simSegs); i++ {
 			if matchAzureSegs(simSegs[i:], spec[1:], false) {
@@ -137,9 +119,7 @@ func matchAzureSegs(simSegs, spec []string, specFirst bool) bool {
 	return false
 }
 
-// parseAzureSpecSources reads SOURCES.md and returns local file name ->
-// upstream repo path. The table is the single source of truth for ref
-// resolution; a vendored file missing from it cannot resolve refs.
+// SOURCES.md is the single source of truth for ref resolution.
 func parseAzureSpecSources(dir string) (map[string]string, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "SOURCES.md"))
 	if err != nil {
@@ -163,10 +143,8 @@ func parseAzureSpecSources(dir string) (map[string]string, error) {
 	return out, nil
 }
 
-// loadAzureSpecIndex loads every vendored swagger file, verifies the
-// $ref closure is complete (every referenced file is vendored and every
-// pointer resolves — a miss is a vendor gap, not a skippable condition),
-// and builds the path-matching and discriminator indices.
+// A $ref whose file is not vendored or whose pointer does not resolve is a
+// vendor gap, not a skippable condition.
 func loadAzureSpecIndex(dir string) (*azureSpecIndex, error) {
 	sources, err := parseAzureSpecSources(dir)
 	if err != nil {
@@ -232,10 +210,7 @@ func loadAzureSpecIndex(dir string) (*azureSpecIndex, error) {
 	return idx, nil
 }
 
-// collectUnresolvableRefs walks a document tree recording every "$ref"
-// whose target file is not vendored or whose pointer does not resolve.
-// x-ms-examples subtrees are excluded: example payload files are not
-// part of the schema closure and are never vendored.
+// x-ms-examples subtrees are excluded: example payloads are not vendored.
 func collectUnresolvableRefs(idx *azureSpecIndex, doc *azureSpecDoc, node any, seen map[string]bool, missing *[]string) {
 	switch n := node.(type) {
 	case map[string]any:
@@ -264,28 +239,25 @@ func collectUnresolvableRefs(idx *azureSpecIndex, doc *azureSpecDoc, node any, s
 	}
 }
 
-// addDocOps extracts every operation from paths + x-ms-paths, applying
-// the same basePath conventions as the static conformance gate.
+// The same basePath conventions as the static conformance gate.
 func (idx *azureSpecIndex) addDocOps(doc *azureSpecDoc) {
 	basePath, _ := doc.root["basePath"].(string)
-	// The Log Analytics query data plane is served under the /v1
-	// endpoint prefix (https://api.loganalytics.io/v1/...), which its
-	// swagger expresses via the host version rather than basePath.
+	// The Log Analytics query plane lives under /v1
+	// (https://api.loganalytics.io/v1/...), which its swagger expresses through
+	// the host version rather than basePath.
 	if basePath == "" && strings.HasPrefix(doc.file, "monitor-dataplane-operationalinsights-v1") {
 		basePath = "/v1"
 	}
-	// The EventGrid publish data plane's swagger folds the whole publish
-	// URL into its x-ms-parameterized-host template; its x-ms-paths keys
-	// are pure query-string overloads ("?overload=cloudEvent"). The
-	// documented publish URL is
+	// The Event Grid publish swagger folds the URL into
+	// x-ms-parameterized-host and keys x-ms-paths by query overloads
+	// ("?overload=cloudEvent"); the publish URL is
 	// https://<topic>.<region>.eventgrid.azure.net/api/events.
 	if strings.HasPrefix(doc.file, "eventgrid-dataplane-") {
 		basePath = "/api/events"
 	}
 	add := func(rawPath string, methods map[string]any) {
-		// x-ms-paths keys may carry a query discriminator
-		// ("/path?comp=list"); matching uses the path part, the Op label
-		// keeps the full template.
+		// Match the path part of a "/path?comp=list" key; the Op label keeps the full
+		// template.
 		matchPath := rawPath
 		if i := strings.Index(matchPath, "?"); i >= 0 {
 			matchPath = matchPath[:i]
@@ -336,10 +308,9 @@ func (idx *azureSpecIndex) addDocOps(doc *azureSpecDoc) {
 	}
 }
 
-// addDocSubtypes indexes polymorphic subtypes: a definition whose allOf
-// references a base schema carrying "discriminator" registers under the
-// base's canonical id + its discriminator value (x-ms-discriminator-value
-// when present, the definition name otherwise).
+// A definition whose allOf references a discriminated base registers under the
+// base's canonical id and its discriminator value (x-ms-discriminator-value,
+// else the definition name).
 func (idx *azureSpecIndex) addDocSubtypes(doc *azureSpecDoc) {
 	defs, _ := doc.root["definitions"].(map[string]any)
 	for name, raw := range defs {
@@ -371,10 +342,9 @@ func (idx *azureSpecIndex) addDocSubtypes(doc *azureSpecDoc) {
 	}
 }
 
-// refTarget resolves one "$ref" string from doc: the file part (if any)
-// resolves relative to the doc's upstream directory, the fragment is a
-// JSON pointer into the target document. Returns the canonical id
-// "<upstream>#<pointer>" used for cycle guards and subtype lookup.
+// The file part resolves against the doc's upstream directory, the fragment is
+// a JSON pointer. The canonical id "<upstream>#<pointer>" guards cycles and
+// keys subtypes.
 func (idx *azureSpecIndex) refTarget(doc *azureSpecDoc, ref string) (azureRefSchema, string, bool) {
 	filePart, pointer, _ := strings.Cut(ref, "#")
 	target := doc
@@ -406,9 +376,8 @@ func (idx *azureSpecIndex) refTarget(doc *azureSpecDoc, ref string) (azureRefSch
 	return azureRefSchema{doc: target, s: m}, target.upstream + "#" + pointer, true
 }
 
-// deref follows a $ref chain to a concrete schema. The load-time closure
-// check guarantees every target resolves; the depth bound only guards
-// degenerate ref cycles.
+// The load-time closure check guarantees every target resolves; the depth bound
+// guards degenerate cycles.
 func (idx *azureSpecIndex) deref(rs azureRefSchema) (azureRefSchema, string) {
 	id := ""
 	for range 32 {
@@ -425,10 +394,8 @@ func (idx *azureSpecIndex) deref(rs azureRefSchema) (azureRefSchema, string) {
 	return azureRefSchema{}, ""
 }
 
-// azureCompiledPattern returns the compiled form of a declared pattern, or nil
-// when there is none or the expression cannot be compiled — the validator
-// refuses to judge what it cannot read. Compilation is memoized because the
-// same schemas are re-reached on every response.
+// Nil when there is no pattern or it does not compile: the validator refuses to
+// judge what it cannot read. Memoized, as the same schemas recur.
 var azurePatternCache sync.Map
 
 func azureCompiledPattern(pattern string) *regexp.Regexp {
@@ -447,9 +414,8 @@ func azureCompiledPattern(pattern string) *regexp.Regexp {
 	return re
 }
 
-// azureMergedSchema is the flattened view of a schema and its whole
-// allOf chain (ARM models inheritance via allOf: Resource ->
-// TrackedResource -> ConcreteType).
+// A schema flattened with its allOf chain (Resource -> TrackedResource ->
+// ConcreteType).
 type azureMergedSchema struct {
 	typ       string
 	props     map[string]azureRefSchema
@@ -462,8 +428,7 @@ type azureMergedSchema struct {
 	pattern   string          // declared regular expression for a string value
 }
 
-// merge folds one schema (and recursively its allOf branches) into m.
-// First writer wins per property so a subtype's narrower redeclaration
+// First writer wins per property, so a subtype's narrower redeclaration
 // shadows the base's.
 func (idx *azureSpecIndex) merge(rs azureRefSchema, id string, visited map[string]bool, m *azureMergedSchema) {
 	if id != "" {
@@ -528,10 +493,8 @@ func (idx *azureSpecIndex) merge(rs azureRefSchema, id string, visited map[strin
 	}
 }
 
-// responseSchema picks the schema for the operation's response at the
-// given status (exact code, else "default"). A response defined without
-// a schema declares no body shape — there is nothing to validate
-// against, so such candidates report ok=false.
+// The exact code, else "default". A response with no schema declares no body
+// shape, so it reports ok=false.
 func (idx *azureSpecIndex) responseSchema(c *azureSpecOp, status int) (azureRefSchema, bool) {
 	responses, _ := c.op["responses"].(map[string]any)
 	raw, ok := responses[strconv.Itoa(status)]
@@ -545,8 +508,7 @@ func (idx *azureSpecIndex) responseSchema(c *azureSpecOp, status int) (azureRefS
 	if !ok {
 		return azureRefSchema{}, false
 	}
-	// Response-level $ref targets a shared response object
-	// (#/responses/...), not a schema.
+	// A response-level $ref targets #/responses/..., not a schema.
 	if _, isRef := resp["$ref"].(string); isRef {
 		rrs, _ := idx.deref(azureRefSchema{doc: c.doc, s: resp})
 		if rrs.s == nil {
@@ -561,7 +523,6 @@ func (idx *azureSpecIndex) responseSchema(c *azureSpecOp, status int) (azureRefS
 	return azureRefSchema{doc: c.doc, s: schema}, true
 }
 
-// schemaName labels a schema for violation details.
 func schemaName(id string, rs azureRefSchema) string {
 	if id != "" {
 		if i := strings.LastIndex(id, "/"); i >= 0 {
@@ -572,13 +533,10 @@ func schemaName(id string, rs azureRefSchema) string {
 	return "inline schema (" + rs.doc.file + ")"
 }
 
-// validate walks a decoded JSON value against a schema, reporting
-// members the spec doesn't define ("unknown-field") and primitive type
-// mismatches ("type-mismatch"). Null is always acceptable (an omitted
-// member); enum value checking is out of scope. dispatched marks that a
-// discriminator subtype was already selected for this value, so the
-// base's discriminator (re-merged via the subtype's allOf) does not
-// re-dispatch.
+// Reports undefined members ("unknown-field") and primitive mismatches
+// ("type-mismatch"). Null is acceptable; enums are not checked. dispatched
+// marks a discriminator subtype already selected, so the base's discriminator,
+// re-merged through the subtype's allOf, does not re-dispatch.
 func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath string, v any, dispatched bool, out *[]sim.SpecViolation) {
 	if v == nil || rs.s == nil {
 		return
@@ -601,8 +559,7 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 	case "object", "":
 		open := len(m.props) == 0 && m.addl == nil && !m.addlAny && m.disc == ""
 		if m.typ == "" && open {
-			// No type and no member contract: an open schema accepts
-			// any JSON value.
+			// No type and no member contract: an open schema accepts any value.
 			return
 		}
 		obj, ok := v.(map[string]any)
@@ -616,8 +573,8 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 					idx.validate(op, sub, fieldPath, v, true, out)
 					return
 				}
-				// Unknown discriminator value: fall through to the base
-				// schema, whose property set flags the subtype members.
+				// Unknown discriminator value: fall through to the base schema, whose
+				// property set flags the subtype members.
 			}
 		}
 		keys := make([]string, 0, len(obj))
@@ -643,10 +600,8 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 				Detail: "property not defined by " + schemaName(id, rs),
 			})
 		}
-		// A property the schema declares required and the response omits. The
-		// loop above can only look at keys that are there, so this is the one
-		// omission it cannot see — and a generated client reads a required
-		// property without checking whether it arrived.
+		// The loop above sees only keys present; a generated client reads a required
+		// property without checking it arrived.
 		for name := range m.required {
 			if _, present := obj[name]; present {
 				continue
@@ -674,11 +629,8 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 			mismatch("a string")
 			return
 		}
-		// A declared pattern is part of the contract, and it is where the
-		// identity-bearing strings are pinned. Swagger patterns anchor
-		// themselves when they mean to — most in the vendored corpus are
-		// written ^...$ — so the expression is matched as written rather than
-		// anchored for the author.
+		// Patterns pin the identity-bearing strings. Swagger patterns anchor
+		// themselves when meant to, so match as written.
 		if re := azureCompiledPattern(m.pattern); re != nil && !re.MatchString(str) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: fieldPath,
 				Detail: fmt.Sprintf("spec (%s) requires %s, response has %q", schemaName(id, rs), m.pattern, str)})
@@ -692,12 +644,11 @@ func (idx *azureSpecIndex) validate(op string, rs azureRefSchema, fieldPath stri
 			mismatch("numeric (" + m.typ + ")")
 		}
 	case "file":
-		// Raw payload responses are not JSON-shaped; nothing to check.
+		// Raw payload responses are not JSON-shaped.
 	}
 }
 
-// match returns every swagger operation the request method+path is a
-// spelling of, most-literal template first.
+// Most literal template first.
 func (idx *azureSpecIndex) match(method, reqPath string) []*azureSpecOp {
 	reqSegs := splitAzureSegs(reqPath)
 	var out []*azureSpecOp
@@ -710,16 +661,11 @@ func (idx *azureSpecIndex) match(method, reqPath string) []*azureSpecOp {
 	return out
 }
 
-// azureNonSpecRequestPrefixes lists request-path families that are
-// real, documented Azure wire surfaces with NO swagger in
-// Azure/azure-rest-api-specs (the runtime counterpart of the static
-// gate's allowedNonSpecAzurePrefixes). They must be excluded from
-// matching because their short paths are otherwise valid spellings of
-// leading-parameter data-plane templates — Graph's "POST /v1.0/groups"
-// and its beta spelling "POST /beta/groups" both unify with the blob
-// "POST /{containerName}/{blob}" template.
-// /metadata/identity/ is deliberately NOT here: the vendored IMDS
-// swagger describes it, so it validates like any other surface.
+// Documented surfaces with no swagger (the runtime counterpart of
+// allowedNonSpecAzurePrefixes). Their short paths would otherwise spell
+// leading-parameter data-plane templates: Graph's "POST /v1.0/groups" unifies
+// with blob's "POST /{containerName}/{blob}". /metadata/identity/ is absent
+// because the vendored IMDS swagger describes it.
 var azureNonSpecRequestPrefixes = []string{
 	"/dbs",                // Cosmos DB SQL data plane (documented REST API, no upstream swagger)
 	"/v1.0/",              // Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)
@@ -729,9 +675,6 @@ var azureNonSpecRequestPrefixes = []string{
 	"/sockerless/",        // the simulator's own channels from its sidecars
 }
 
-// azureNonSpecRequestPath reports whether a request path belongs to a
-// documented non-spec surface and therefore has no swagger shape to
-// validate against.
 func azureNonSpecRequestPath(p string) bool {
 	lp := strings.ToLower(p)
 	for _, prefix := range azureNonSpecRequestPrefixes {
@@ -739,19 +682,16 @@ func azureNonSpecRequestPath(p string) bool {
 			return true
 		}
 	}
-	// ServiceBus HTTP message send/receive/lock ("/{entity}/messages...")
-	// is documented but unswaggered — the vendored 2021-05 data-plane
-	// swagger covers only the ATOM entity-management surface.
+	// Service Bus message send/receive/lock is documented but unswaggered; the
+	// 2021-05 data-plane swagger covers only ATOM entity management.
 	if segs := splitAzureSegs(lp); len(segs) >= 2 && segs[1] == "messages" {
 		return true
 	}
 	return false
 }
 
-// armSpecValidator wires runtime shape validation onto the server when
-// SOCKERLESS_SPEC_VALIDATE is set. Hard failure when the spec dir is
-// missing or its $ref closure is incomplete: the operator asked for
-// validation.
+// A missing spec dir or incomplete $ref closure fails hard: the operator asked
+// for validation.
 func armSpecValidator(srv *sim.Server) error {
 	if os.Getenv("SOCKERLESS_SPEC_VALIDATE") == "" {
 		return nil
@@ -785,9 +725,8 @@ func armSpecValidator(srv *sim.Server) error {
 			return nil // a container app's answer is its workload's
 		}
 		if cosmosIsDataPlaneRequest(req) {
-			// The Cosmos DB SQL data plane (incl. the account-discovery GET /)
-			// has no vendored Azure swagger; without this its account-properties
-			// response is mis-matched to the storage account-root operation.
+			// The Cosmos DB SQL data plane, account-discovery GET / included, has no
+			// swagger; it would otherwise match the storage account-root operation.
 			return nil
 		}
 		cands := idx.match(req.Method, req.URL.Path)
@@ -804,21 +743,9 @@ func armSpecValidator(srv *sim.Server) error {
 			}
 			return nil // no declared content type and not JSON
 		}
-		// Several templates can match one path (api-version variants,
-		// x-ms-paths overloads, the generic-resource paths). Only the
-		// MOST SPECIFIC templates (highest literal-segment count) that
-		// declare a body shape for this status are consulted — the
-		// generic-resource template ("/{provider}/{type}/{name}")
-		// otherwise out-bids a specific schema's findings with a single
-		// vacuous violation. The response conforms if any consulted
-		// candidate accepts it; otherwise the fewest-violation candidate
-		// reports.
-		// A status the operation does not declare. The candidate loop below
-		// falls back to the "default" response — the error shape — so an
-		// undeclared success code was neither reported nor its body checked:
-		// the response went out unjudged. A client generated from the document
-		// switches on the codes it declares, so one it does not is a code the
-		// caller has no branch for.
+		// A success status the operation does not declare is a code a generated client
+		// has no branch for. The candidate loop would fall back to the "default" error
+		// response and leave it unjudged.
 		if status < 400 {
 			declared := false
 			for _, c := range cands {
@@ -845,6 +772,11 @@ func armSpecValidator(srv *sim.Server) error {
 				}}
 			}
 		}
+		// Several templates can match one path (api-version variants, x-ms-paths
+		// overloads, generic-resource paths). Consult only the most specific ones
+		// that declare a body shape for this status, or the generic template
+		// out-bids a specific schema with one vacuous violation. Any acceptance
+		// conforms; otherwise the fewest-violation candidate reports.
 		var best []sim.SpecViolation
 		bestSet := false
 		maxLiterals := -1

@@ -13,66 +13,47 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// These tests enforce the simulator's core fidelity invariant: every HTTP
-// route the Azure simulator serves must be a REAL Azure API path — the
-// simulator must not invent paths under the ARM / data-plane namespaces.
-// The registered route table (built in-process via buildSimulator) is
-// validated against the official Swagger 2.0 specs vendored (gzipped,
-// pinned) under specs/cloud-api/azure/. Refresh with
-// scripts/fetch-azure-spec.sh.
-//
-// Scope: routes registered on the server mux. The host-addressed storage
-// data planes (blob/file/queue/table on *.localhost subdomains) attach
-// via WrapHandler middlewares, not mux patterns, so they are exercised by
-// the SDK test suites rather than this static gate.
+// Every route the simulator registers must be a real Azure API path, checked
+// against the Swagger 2.0 specs vendored under specs/cloud-api/azure/ (refresh
+// with scripts/fetch-azure-spec.sh). The host-addressed data planes attach
+// through WrapHandler middlewares, not mux patterns, so the SDK suites cover
+// them instead.
 
 type swaggerPath struct {
 	Method string
 	Segs   []string
-	// Raw is the basePath-joined path split into segments with the original
-	// casing and the swagger parameter names intact ("{resourceGroupName}").
-	// Segs normalizes both away for shape comparison; the coverage probe needs
-	// them back to synthesize a concrete request the mux can route.
+	// Raw keeps casing and parameter names ("{resourceGroupName}"), which Segs
+	// normalizes away; the coverage probe needs them to synthesize a routable
+	// request.
 	Raw []string
-	// APIVersion is the document's info.version — the api-version every ARM
-	// request must carry.
+	// The api-version every Azure Resource Manager request must carry.
 	APIVersion string
-	// PathEnums maps a path parameter name to the closed set of values the
-	// specification declares for it ("recordType" → A, AAAA, CNAME, …;
-	// "BlobServicesName" → default). Those are the only legal spellings of the
-	// operation, so they are what the coverage probe puts in the slot.
+	// The closed value set a path parameter declares ("recordType" → A, AAAA,
+	// CNAME, …), the only legal spellings of the operation.
 	PathEnums map[string][]string
-	// PathScopes names the path parameters the specification marks
-	// x-ms-skip-url-encoding — ARM scopes and full resource IDs, whose values
-	// are resource paths spanning several URL segments rather than one.
+	// Parameters marked x-ms-skip-url-encoding: scopes and full resource IDs
+	// spanning several segments.
 	PathScopes map[string]bool
-	// Query is the operation discriminator an x-ms-paths key carries
-	// ("restype=container&comp=list"). On the storage and Cosmos DB data
-	// planes the query string — not the path — selects the operation, so a
-	// probe that drops it is not asking about the documented operation at all.
-	// Routing ignores it, which is why the route gates use the path alone.
+	// The x-ms-paths query discriminator ("restype=container&comp=list"). On the
+	// storage and Cosmos DB data planes the query selects the operation, so the
+	// probe keeps it; routing ignores it, so the route gates use the path alone.
 	Query string
 }
 
-// swaggerParameter is the subset of a Swagger 2.0 parameter object the
-// coverage probe needs: where the value goes, what it is called, the closed set
-// of values it accepts, and the local "#/parameters/..." reference form.
+// Where the value goes, its name, its enum, and the local "#/parameters/..."
+// reference form.
 type swaggerParameter struct {
 	Name string   `json:"name"`
 	In   string   `json:"in"`
 	Enum []string `json:"enum"`
 	Ref  string   `json:"$ref"`
-	// SkipURLEncoding marks a path parameter whose value is itself a resource
-	// path — an ARM scope or a full resource ID — and therefore spans several
-	// URL segments. Azure sets it precisely on those parameters, so it is the
-	// specification's own statement that the slot is multi-segment.
+	// Azure sets x-ms-skip-url-encoding precisely on parameters whose value is a
+	// resource path spanning several segments.
 	SkipURLEncoding bool `json:"x-ms-skip-url-encoding"`
 }
 
-// swaggerPathEnums extracts, from one parameter list, the path parameters that
-// declare an enum. A "$ref" entry points at the document's own parameters
-// section; cross-document references are the shared ARM parameters
-// (subscriptionId, api-version), none of which are enumerated.
+// A "$ref" points at the document's own parameters; cross-document references
+// are the shared ARM parameters, none enumerated.
 func swaggerPathEnums(defs map[string]swaggerParameter, raw json.RawMessage) (enums map[string][]string, scopes map[string]bool) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -140,25 +121,22 @@ func loadSwaggerPaths(t *testing.T) (all []swaggerPath, byFile map[string][]swag
 		}
 
 		file := filepath.Base(p)
-		// The Log Analytics query data plane is served under the /v1
-		// endpoint prefix (https://api.loganalytics.io/v1/...), which its
-		// swagger expresses via the host version rather than basePath.
+		// The Log Analytics query plane lives under /v1
+		// (https://api.loganalytics.io/v1/...), which its swagger expresses through
+		// the host version rather than basePath.
 		if doc.BasePath == "" && strings.HasPrefix(file, "monitor-dataplane-operationalinsights-v1") {
 			doc.BasePath = "/v1"
 		}
-		// The EventGrid publish data plane's swagger folds the whole
-		// publish URL into its x-ms-parameterized-host template; its
-		// x-ms-paths keys are pure query-string overloads ("?overload=
-		// cloudEvent"). The documented publish URL is
+		// The Event Grid publish swagger folds the URL into
+		// x-ms-parameterized-host and keys x-ms-paths by query overloads
+		// ("?overload=cloudEvent"); the publish URL is
 		// https://<topic>.<region>.eventgrid.azure.net/api/events.
 		if strings.HasPrefix(file, "eventgrid-dataplane-") {
 			doc.BasePath = "/api/events"
 		}
 		add := func(rawPath string, methods map[string]json.RawMessage) {
-			// x-ms-paths keys may carry a query discriminator
-			// ("/path?comp=list"); routing matches on the path part, while the
-			// coverage probe replays the query so the operation it asks about
-			// is the documented one.
+			// Routing matches the path part of a "/path?comp=list" key; the probe replays
+			// the query.
 			query := ""
 			if i := strings.Index(rawPath, "?"); i >= 0 {
 				query = rawPath[i+1:]
@@ -219,9 +197,7 @@ func loadSwaggerPaths(t *testing.T) (all []swaggerPath, byFile map[string][]swag
 	return all, byFile
 }
 
-// Path normalization + matching (splitAzureSegs / matchAzureSegs) live
-// in spec_validator.go — the runtime wire-shape validator and this
-// static gate share one matcher.
+// spec_validator.go holds the shared matcher.
 
 func matchesAnySwagger(specs []swaggerPath, method, path string) bool {
 	simSegs := splitAzureSegs(path)
@@ -233,51 +209,40 @@ func matchesAnySwagger(specs []swaggerPath, method, path string) bool {
 	return false
 }
 
-// allowedNonSpecAzurePrefixes lists route families that are real,
-// documented Azure wire surfaces with NO swagger in
-// Azure/azure-rest-api-specs.
-// Each entry MUST be justified — never a place to hide an invented path.
+// Real, documented Azure surfaces with no swagger in azure-rest-api-specs.
+// Each entry must be justified, never a place to hide an invented path.
 var allowedNonSpecAzurePrefixes = map[string]string{
-	// Cosmos DB SQL (core) data plane — documented REST API
-	// (/dbs/{db}/colls/{coll}/docs) has no swagger in azure-rest-api-specs.
+	// Cosmos DB SQL data plane: documented REST API, no swagger.
 	"/dbs": "Cosmos DB SQL data plane (documented REST API, no upstream swagger)",
 
-	// Microsoft Graph — real Graph endpoints (applications, service
-	// principals, users, groups, directory objects). Graph publishes both a
-	// v1.0 and a beta endpoint over the same directory, and clients mix them:
-	// terraform-provider-azuread reads members that only beta models. Graph's
-	// OpenAPI lives in microsoftgraph/msgraph-metadata, not
-	// azure-rest-api-specs, so neither version can be spec-checked here.
+	// Microsoft Graph v1.0 and beta, which clients mix
+	// (terraform-provider-azuread reads beta-only members). Graph's OpenAPI lives
+	// in microsoftgraph/msgraph-metadata, so neither is checked here.
 	"/v1.0/": "Microsoft Graph v1.0 surface (spec lives in msgraph-metadata)",
 	"/beta/": "Microsoft Graph beta surface (spec lives in msgraph-metadata)",
 
-	// IMDS-adjacent identity endpoints: managed-identity token via IMDS
-	// (/metadata/identity/oauth2/token), App Service MSI (/msi/token),
-	// and the ARM /metadata/endpoints bootstrap used by terraform's
-	// metadata_host — none are described in azure-rest-api-specs.
+	// The managed-identity token via IMDS, App Service MSI (/msi/token), and the
+	// /metadata/endpoints bootstrap terraform's metadata_host reads; none appear
+	// in azure-rest-api-specs.
 	"/metadata/identity/": "IMDS managed-identity token endpoint",
 	"/msi/token":          "App Service MSI token endpoint",
 	"/metadata/endpoints": "ARM cloud-environment metadata bootstrap (terraform metadata_host)",
 
-	// ServiceBus HTTP data plane message operations — the vendored
-	// 2021-05 data-plane swagger covers only the ATOM entity-management
-	// surface; send/receive/lock REST operations are documented but
+	// The vendored 2021-05 Service Bus data-plane swagger covers only ATOM entity
+	// management; the send/receive/lock REST operations are documented but
 	// unswaggered.
 	"/{entity}/messages": "ServiceBus HTTP message send/receive (documented, no upstream swagger)",
 }
 
-// allowedNonSpecAzureRoutes — exact-pattern variant of the above.
-// (AAD/Entra OAuth2 token endpoints are intercepted ahead of the mux;
-// the ACR exchange flow's /oauth2/* mux routes are covered by the ACR
-// data-plane swagger and match there.)
+// Exact patterns. Microsoft Entra token endpoints are intercepted ahead of the
+// mux; Azure Container Registry's /oauth2/* routes match its data-plane
+// swagger.
 var allowedNonSpecAzureRoutes = map[string]string{
-	// The simulator's own channel from a NAT gateway's egress sidecar, under
-	// the token the simulator minted for it; no cloud client ever sees it.
+	// The NAT gateway egress sidecar's channel to the simulator, under a token the
+	// simulator minted; no cloud client sees it.
 	"POST /sockerless/sidecar/egress": "egress sidecar reports (simulator-internal, token-bound)",
-	// ARM long-running-operation polling: clients poll whatever URL the
-	// Azure-AsyncOperation / Location header carries — the URL shape is
-	// service-internal and never appears in a swagger. These are the
-	// sim-emitted polling targets.
+	// Clients poll whatever URL Azure-AsyncOperation or Location carries; the URL
+	// shape is service-internal and in no swagger.
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.App/locations/{location}/operationStatuses/{opId}":                       "sim-emitted LRO polling URL (Azure-AsyncOperation)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedVaults/{name}/purge/operation":      "sim-emitted Azure Key Vault purge LRO polling URL (documented Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedManagedHSMs/{name}/purge/operation": "sim-emitted Azure Managed HSM purge LRO polling URL (documented Location header)",
@@ -287,10 +252,9 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/operations/{opId}":                          "sim-emitted Compute LRO polling URL (Azure-AsyncOperation, and Location with monitor=true, as armcompute's recordings carry)",
 	"GET /eventsubscriptions/{eventSubscriptionName}/validate":                                                                        "sim-emitted Event Grid validationUrl a SubscriptionValidationEvent carries for manual validation",
 
-	// Compute RP image surfaces documented in the 2022-03-01 ComputeRP
-	// virtualMachineImage.json (VirtualMachineImages_*) and image.json
-	// (Images_*), neither of which is vendored under specs/cloud-api/azure
-	// yet; the routes follow those documents' templates verbatim.
+	// The Compute VirtualMachineImages_* and Images_* documents
+	// (virtualMachineImage.json, image.json) are not vendored; the routes follow
+	// their templates verbatim.
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers":                                                                                     "VirtualMachineImages_ListPublishers (ComputeRP virtualMachineImage.json, not yet vendored)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers":                                        "VirtualMachineImages_ListOffers (ComputeRP virtualMachineImage.json, not yet vendored)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus":                           "VirtualMachineImages_ListSkus (ComputeRP virtualMachineImage.json, not yet vendored)",
@@ -303,43 +267,34 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images":                                                                           "Images_ListByResourceGroup (ComputeRP image.json, not yet vendored)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/images":                                                                                                              "Images_List (ComputeRP image.json, not yet vendored)",
 
-	// ACR Tasks run log: listLogSasUrl returns an opaque SAS URL to a log
-	// blob (real ACR hands out an Azure Storage SAS); the URL shape is
-	// service-internal and never appears in a swagger. The sim shapes its
-	// own log link, and clients fetch it verbatim.
+	// listLogSasUrl returns an opaque log URL (Azure Container Registry hands out
+	// a storage SAS URL), which clients fetch verbatim.
 	"GET /acr/v1/logs/{runId}": "sim-emitted ACR Tasks run-log link (real API returns an opaque log SAS URL)",
 
-	// Exec bridges: the real APIs return an opaque WebSocket URI
-	// (webSocketUri / execEndpoint) that clients connect to verbatim;
-	// the sim shapes its own bridge URLs ARM-style. The session URL is
-	// sim-emitted, never client-constructed.
+	// The APIs return an opaque WebSocket URI (webSocketUri, execEndpoint) clients
+	// connect to verbatim; the simulator shapes its own.
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/execSessions/{sessionID}":   "sim-emitted exec WebSocket bridge (real API returns an opaque webSocketUri)",
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/attachSessions/{sessionID}": "sim-emitted attach WebSocket bridge (real API returns an opaque webSocketUri)",
 	"POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/jobs/{jobName}/executions/{execName}/exec":                                                               "sim-emitted exec WebSocket bridge (real API returns an opaque execEndpoint)",
 
-	// Container Apps log streams: the app's eventStreamEndpoint names a
-	// data-plane host serving these paths with a getAuthToken bearer; they
-	// are not ARM operations and no published swagger describes them.
+	// An app's eventStreamEndpoint names a data-plane host serving these with a
+	// getAuthToken bearer; no swagger describes them.
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/containerApps/{appName}/eventstream":                                                                          "Container Apps system event stream under the app's eventStreamEndpoint (data plane, unswaggered)",
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/containerApps/{appName}/revisions/{revisionName}/replicas/{replicaName}/containers/{containerName}/logstream": "Container Apps console log stream under the app's eventStreamEndpoint (data plane, unswaggered)",
-	// az containerapp replica show/list sends the documented replica GET with a
-	// trailing slash.
+	// az containerapp replica show/list sends the replica GET with a trailing
+	// slash.
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/containerApps/{appName}/revisions/{revisionName}/replicas/{replicaName}/{$}": "the Azure CLI's trailing-slash spelling of the documented Replicas_GetReplica path",
 }
 
-// vendoredForRefClosure lists swagger files vendored only because a
-// path-bearing file the simulator implements $refs into them (the
-// shape-validation layer needs the definitions); their own paths are
+// Vendored only as $ref targets of implemented documents; their own paths are
 // services the simulator does not implement.
 var vendoredForRefClosure = map[string]bool{
 	"cosmos-db-arm-privateendpointconnection-2021-10-15.swagger.json.gz": true,
 	"cosmos-db-arm-privateendpointconnection-2024-08-15.swagger.json.gz": true,
 }
 
-// vendoredHostRoutedDataPlane lists swagger files for data planes the
-// simulator serves through host-addressed WrapHandler middlewares
-// (*.vault.azure.net-style subdomains) rather than mux patterns — the
-// static route gate cannot see them; the SDK test suites exercise them.
+// Served through host-addressed WrapHandler middlewares, which the static
+// route gate cannot see; the SDK suites exercise them.
 var vendoredHostRoutedDataPlane = map[string]bool{
 	"keyvault-dataplane-certificates-2025-07-01.swagger.json.gz": true,
 	"keyvault-dataplane-keys-2025-07-01.swagger.json.gz":         true,
@@ -355,9 +310,8 @@ func TestRoutesExistInSwaggerSpecs(t *testing.T) {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 
 	var offenders []string
@@ -395,10 +349,8 @@ func TestRoutesExistInSwaggerSpecs(t *testing.T) {
 	}
 }
 
-// TestVendoredSwaggerSpecsAreConsumed flags vendored swagger files no
-// registered route references. Pure-definitions files (common-types,
-// CommonDefinitions) carry no paths and are exempt — they exist as $ref
-// targets for the shape-validation layer.
+// Pure-definitions files (common-types, CommonDefinitions) carry no paths and
+// are exempt.
 func TestVendoredSwaggerSpecsAreConsumed(t *testing.T) {
 	_, byFile := loadSwaggerPaths(t)
 	t.Setenv("SIM_RUNTIME", "process")
@@ -407,9 +359,8 @@ func TestVendoredSwaggerSpecsAreConsumed(t *testing.T) {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 
 	used := map[string]bool{}

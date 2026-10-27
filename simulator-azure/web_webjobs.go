@@ -19,50 +19,30 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
-// web_webjobs.go implements the App Service WebJobs slice of the
-// Microsoft.Web ARM surface: the combined webjobs read view, triggered
-// webjobs (get/list/delete/run + run history) and continuous webjobs
-// (get/list/delete/start/stop), on production sites and deployment slots.
-//
-// WebJobs are Kudu-deployed artifacts, not ARM-created resources: the ARM API
-// has no PUT for them. They come into existence when a deployment package
-// (WebApps_CreateMSDeployOperation / WebApps_CreateOneDeployOperation, in
-// web_deploy_extras.go) lands files under App_Data/jobs/{triggered,continuous}/
-// <name>/ — exactly where the real platform discovers them. Runs are real: a
-// triggered run and a continuous start execute the job's run command inside a
-// container of the site's own image with the site's app settings, and the run
-// history records the container's actual exit status and timing.
+// WebJobs have no PUT: a deployment that lands files under
+// App_Data/jobs/{triggered,continuous}/<name>/ creates them, where the
+// platform discovers them. A run executes the job's run command in a
+// container of the site's own image with the site's app settings.
 
-// webJobsRoot is the wwwroot-relative directory the platform scans for jobs.
 const webJobsRoot = "App_Data/jobs/"
 
-// webJobsContainerRoot is where the job's artifact directory is mounted inside
-// the run container — the real App Service path of a deployed webjob.
 const webJobsContainerRoot = "/home/site/wwwroot/" + webJobsRoot
 
-// WebJobRecord is one discovered webjob. ID is the job's canonical ARM
-// resource ID (<site-or-slot>/triggeredwebjobs/<name> or
-// .../continuouswebjobs/<name>).
 type WebJobRecord struct {
 	ID         string `json:"id"`
 	SiteID     string `json:"siteId"`
 	Name       string `json:"name"`
-	JobKind    string `json:"jobKind"` // "triggered" | "continuous"
+	JobKind    string `json:"jobKind"`
 	RunCommand string `json:"runCommand"`
-	// Status / DetailedStatus / Error apply to continuous jobs
-	// (ContinuousWebJobStatus: Initializing/Starting/Running/PendingRestart/
-	// Stopped).
+	// Status, DetailedStatus and Error apply to continuous jobs.
 	Status         string `json:"status,omitempty"`
 	DetailedStatus string `json:"detailedStatus,omitempty"`
 	Error          string `json:"error,omitempty"`
-	// Schedule is the settings.job schedule the scheduler last read, and
-	// ScheduleError why it does not run it.
+	// ScheduleError says why the scheduler does not run Schedule.
 	Schedule      string `json:"schedule,omitempty"`
 	ScheduleError string `json:"scheduleError,omitempty"`
 }
 
-// webJobError is the error a job reports: its schedule's, else its last
-// start's.
 func webJobError(rec WebJobRecord) string {
 	if rec.ScheduleError != "" {
 		return rec.ScheduleError
@@ -72,41 +52,32 @@ func webJobError(rec WebJobRecord) string {
 
 var webWebJobs sim.Store[WebJobRecord]
 
-// WebJobRunRecord is one triggered webjob run — the real container execution
-// behind WebApps_RunTriggeredWebJob, recorded with the container's actual
-// start/end time and exit-derived status.
 type WebJobRunRecord struct {
-	ID        string `json:"id"` // <jobID>/history/<runId>
+	ID        string `json:"id"`
 	JobID     string `json:"jobId"`
 	RunID     string `json:"runId"`
 	SiteID    string `json:"siteId"`
 	JobName   string `json:"jobName"`
-	Status    string `json:"status"` // TriggeredWebJobStatus: Running/Success/Failed/Error/Aborted
+	Status    string `json:"status"`
 	StartTime string `json:"startTime"`
 	EndTime   string `json:"endTime,omitempty"`
 	Duration  string `json:"duration,omitempty"`
-	// Trigger names what started the run, as Kudu records it: "External - "
-	// and the caller's user agent for a run requested over the SCM site.
+	// Kudu records "External - " and the caller's user agent for a run requested
+	// over the SCM site.
 	Trigger string `json:"trigger,omitempty"`
 }
 
 var webJobRuns sim.Store[WebJobRunRecord]
 
-// webJobContainers tracks the live container of each running webjob (keyed by
-// the job ARM ID for continuous jobs, by the run record ID for triggered
-// runs). Containers are process state, not durable state — the durable status
-// lives on the records. A deliberate kill (Stop / Delete / site cleanup) pops
-// the entry synchronously, so an exit watcher whose handle is no longer the
-// tracked one knows its container was superseded or deliberately stopped and
-// leaves the durable status to the caller that popped it.
+// A deliberate kill pops the entry first, so an exit watcher whose handle is
+// no longer tracked leaves the durable status to the caller that popped it.
 var webJobContainers = struct {
 	sync.Mutex
 	m map[string]placement.Handle
 }{m: map[string]placement.Handle{}}
 
-// initWebJobStores wires the stores and reconciles restart state: a continuous
-// job persisted as Running lost its container with the previous process, which
-// is exactly the state the real platform reports as PendingRestart.
+// A continuous job persisted as Running lost its container with the previous
+// process, which the platform reports as PendingRestart.
 func initWebJobStores(srv *sim.Server) {
 	webWebJobs = sim.MakeStore[WebJobRecord](srv.DB(), "web_webjobs")
 	webJobRuns = sim.MakeStore[WebJobRunRecord](srv.DB(), "web_webjob_runs")
@@ -129,12 +100,8 @@ func initWebJobStores(srv *sim.Server) {
 	}
 }
 
-// webDiscoverWebJobs scans a site's deployed content for
-// App_Data/jobs/{triggered,continuous}/<name>/ directories and upserts a
-// WebJobRecord per job found — the discovery the real platform performs after
-// a deployment. Continuous jobs auto-start exactly as the platform does,
-// unless the site carries the real WEBJOBS_STOPPED=1 app setting or is
-// stopped.
+// Continuous jobs auto-start unless the site is stopped or sets
+// WEBJOBS_STOPPED=1.
 func webDiscoverWebJobs(resID string) error {
 	type found struct{ kind, name, runCmd string }
 	jobs := map[string]found{}
@@ -158,18 +125,14 @@ func webDiscoverWebJobs(resID string) error {
 		}
 		key := kind + "/" + name
 		cur, seen := jobs[key]
-		// run.sh is the run file the Linux platform prefers; otherwise the
-		// first run.* alphabetically.
+		// The Linux platform prefers run.sh, else the first run.* alphabetically.
 		if !seen || file == "run.sh" || (cur.runCmd != "run.sh" && file < cur.runCmd) {
 			jobs[key] = found{kind: kind, name: name, runCmd: file}
 		}
 	}
-	// A webjob exists exactly while its App_Data/jobs script does, so a job
-	// whose directory has left the file system is gone: its container is
-	// killed and its record and run history removed. A deployment never
-	// triggers this — Web Deploy creates and overwrites but does not delete —
-	// but a backup, snapshot or deleted-app restore replaces the whole file
-	// system and can take a job away with it.
+	// A deployment never removes a job, since Web Deploy does not delete, but a
+	// backup, snapshot or deleted-app restore replaces the whole file system and
+	// can take a job away.
 	present := map[string]bool{}
 	for key := range jobs {
 		kind, name, _ := strings.Cut(key, "/")
@@ -211,8 +174,6 @@ func webDiscoverWebJobs(resID string) error {
 	return nil
 }
 
-// webJobsStopped reports the real WEBJOBS_STOPPED=1 App Service setting, the
-// platform's own switch for keeping deployed webjobs from running.
 func webJobsStopped(resID string) bool {
 	cfg, _ := siteConfigStore.Get(resID)
 	if cfg.AppSettings["WEBJOBS_STOPPED"] == "1" {
@@ -230,7 +191,6 @@ func webJobsStopped(resID string) bool {
 	return false
 }
 
-// webJobSite resolves a site or slot record from its canonical ARM ID.
 func webJobSite(resID string) (Site, bool) {
 	if strings.Contains(resID, "/slots/") {
 		return webSlots.Get(resID)
@@ -238,8 +198,6 @@ func webJobSite(resID string) (Site, bool) {
 	return azfSites.Get(resID)
 }
 
-// webCleanupWebJobs stops and removes every webjob (and run history) stored
-// under a deleted site or slot.
 func webCleanupWebJobs(resID string) {
 	prefix := resID + "/"
 	for _, rec := range webWebJobs.Filter(func(rec WebJobRecord) bool { return strings.HasPrefix(rec.ID, prefix) }) {
@@ -252,10 +210,8 @@ func webCleanupWebJobs(resID string) {
 	}
 }
 
-// webKillWebJobContainer pops and cancels the live container tracked under a
-// job or run key. Popping before cancelling makes the kill deliberate from
-// the exit watcher's point of view: the watcher finds another (or no) handle
-// tracked under its key and leaves the durable status to this caller.
+// Pop before cancelling so the exit watcher finds its key no longer tracked
+// and leaves the durable status to this caller.
 func webKillWebJobContainer(key string) {
 	webJobContainers.Lock()
 	handle := webJobContainers.m[key]
@@ -266,9 +222,6 @@ func webKillWebJobContainer(key string) {
 	}
 }
 
-// materializeWebJobDir writes the job's deployed artifact files to a fresh
-// host directory (preserving sub-paths and file modes) for the run container
-// to bind-mount at the job's real App Service path.
 func materializeWebJobDir(resID, kind, name string) (string, error) {
 	jobPrefix := webJobsRoot + kind + "/" + name + "/"
 	files, err := webReadSiteContent(resID, jobPrefix)
@@ -299,9 +252,6 @@ func materializeWebJobDir(resID, kind, name string) (string, error) {
 	return dir, nil
 }
 
-// startWebJobProcess launches the job's run command inside a container of the
-// site's own image with the site's app settings and Azure Files mounts — the
-// execution model App Service gives a webjob — and returns the live handle.
 func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string, outRel, errRel string) (placement.Handle, error) {
 	image := siteContainerImage(site)
 	if platformImage, ok := sitePlatformImage(site); ok {
@@ -322,8 +272,7 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		return nil, err
 	}
 	jobDir := webJobsContainerRoot + rec.JobKind + "/" + rec.Name
-	// The platform executes the job's run file from its own directory; a
-	// shell-script run file goes through sh, anything else runs directly.
+	// A shell-script run file goes through sh; anything else runs directly.
 	runInvocation := "./" + rec.RunCommand
 	if strings.HasSuffix(rec.RunCommand, ".sh") {
 		runInvocation = "sh ./" + rec.RunCommand
@@ -340,7 +289,6 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if err != nil {
 		return nil, err
 	}
-	// The real platform exposes the job's identity to the process.
 	env := workloadhost.MergeEnv(webResolvedAppSettings(site), siteConnectionStringEnv(site), metadataEnv, map[string]string{
 		"WEBJOBS_NAME": rec.Name,
 		"WEBJOBS_TYPE": rec.JobKind,
@@ -382,9 +330,6 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	return handle, nil
 }
 
-// webRunTriggeredWebJob starts one real run of a triggered webjob and records
-// it in the job's history: Running at container start, then the terminal
-// status the container's exit code dictates, with the actual timings.
 func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments string) string {
 	runID := sim.NewUUID()
 	runRecID := rec.ID + "/history/" + runID
@@ -426,7 +371,7 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments stri
 	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
 		if webJobContainers.m[runRecID] != handle {
-			// Deliberately killed (job or site deleted); the record is gone.
+			// Deliberately killed; the record is gone.
 			webJobContainers.Unlock()
 			return
 		}
@@ -455,10 +400,8 @@ func webRunTriggeredWebJob(site *Site, rec WebJobRecord, trigger, arguments stri
 	return runID
 }
 
-// webStartContinuousWebJob starts a continuous webjob's real container,
-// tracking the platform's status transitions: Running while the process
-// lives, PendingRestart when it exits on its own, Stopped when an explicit
-// stop killed it.
+// The status is Running while the process lives, PendingRestart when it
+// exits on its own, and Stopped when an explicit stop killed it.
 func webStartContinuousWebJob(rec WebJobRecord) {
 	webJobContainers.Lock()
 	if webJobContainers.m[rec.ID] != nil {
@@ -495,18 +438,14 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 	var result sim.ProcessResult
 	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		webJobContainers.Lock()
-		// A deliberate Stop/Delete pops the entry (and may be followed by a
-		// new Start that tracks a fresh handle) before this watcher runs;
-		// only the watcher of the currently tracked container may touch the
-		// job's map entry and durable status.
+		// A Stop or Delete pops the entry, maybe followed by a Start tracking a fresh
+		// handle, so only the watcher of the tracked container may touch the entry.
 		if webJobContainers.m[rec.ID] != handle {
 			webJobContainers.Unlock()
 			return
 		}
 		delete(webJobContainers.m, rec.ID)
 		webJobContainers.Unlock()
-		// The container exited on its own — the state the real platform
-		// reports as PendingRestart.
 		webJobAppendLog(&site, logRel, "SYS INFO", "Status changed to PendingRestart")
 		webWebJobs.Update(rec.ID, func(row *WebJobRecord) {
 			row.Status = "PendingRestart"
@@ -515,16 +454,16 @@ func webStartContinuousWebJob(rec WebJobRecord) {
 	})
 }
 
-// webJobSiteScopedName spells the ARM resource name of a site child the way
-// Microsoft.Web does: "<site>/<child>" ("<site>/<slot>/<child>" under a slot).
+// Microsoft.Web spells a site child "<site>/<child>", and
+// "<site>/<slot>/<child>" under a slot.
 func webJobSiteScopedName(resID, child string) string {
 	name := resID[strings.LastIndex(resID, "/sites/")+len("/sites/"):]
 	name = strings.Replace(name, "/slots/", "/", 1)
 	return name + "/" + child
 }
 
-// webJobRunTrigger is what started a run; a run recorded without one was
-// requested through Azure Resource Manager.
+// A run recorded without a trigger was requested through Azure Resource
+// Manager.
 func webJobRunTrigger(run WebJobRunRecord) string {
 	if run.Trigger == "" {
 		return "External - ARM"
@@ -532,8 +471,6 @@ func webJobRunTrigger(run WebJobRunRecord) string {
 	return run.Trigger
 }
 
-// webJobScmBase is the site's Kudu host, whose webjobs API the url and
-// history_url members name.
 func webJobScmBase(r *http.Request, rec WebJobRecord) string {
 	site, _ := webJobSite(rec.SiteID)
 	return azureRequestScheme(r) + "://" + siteScmHost(&site)
@@ -645,7 +582,6 @@ func triggeredJobHistoryWire(scm string, runs []WebJobRunRecord) []any {
 	return out
 }
 
-// webLatestRun returns a triggered job's most recent run.
 func webLatestRun(jobID string) (WebJobRunRecord, bool) {
 	runs := webJobRunsFor(jobID)
 	if len(runs) == 0 {
@@ -659,7 +595,6 @@ var (
 	webJobRunsByJob  sim.GenerationIndex[WebJobRunRecord]
 )
 
-// webJobRunsFor lists a triggered job's runs, newest first.
 func webJobRunsFor(jobID string) []WebJobRunRecord {
 	runs := slices.Clone(webJobRunsByJob.LookupAll(webJobRuns, jobID,
 		func(run WebJobRunRecord) []string { return []string{webChildParent(run.ID, "/history/")} }))
@@ -697,8 +632,6 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		return recs
 	}
 
-	// GET /webjobs + /webjobs/{webJobName} — WebApps_{List,Get}WebJob[s]: the
-	// combined read-only view across both kinds.
 	both("GET", "/webjobs", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -724,7 +657,6 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		AzureErrorf(w, "NotFound", http.StatusNotFound, "WebJob %q not found.", name)
 	})
 
-	// Triggered webjobs.
 	both("GET", "/triggeredwebjobs", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -795,7 +727,6 @@ func registerWebJobHandlers(both func(string, string, http.HandlerFunc)) {
 		})
 	})
 
-	// Continuous webjobs.
 	both("GET", "/continuouswebjobs", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return

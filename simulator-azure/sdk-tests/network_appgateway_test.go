@@ -17,18 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure Application Gateway through the official armnetwork client. The gateway
-// is not just written and read back: the test stands up three real HTTP servers,
-// puts them in backend pools, and then sends requests at the gateway's own
-// frontend address to prove that the routing rules, URL path map, redirect
-// configuration and rewrite rule set it was configured with are the ones that
-// actually decide where each request goes — and that backend health reports
-// what the gateway's probes found when it reached (or failed to reach) each
-// server.
+// The tests stand up HTTP servers as backend pools and send requests to the
+// gateway's frontend address, so the routing rules, URL path map, redirect and
+// rewrite rule set decide where each request goes, and backend health reports
+// what the probes found.
 
-// TestNetworkApplicationGateway_RoutesRealTraffic covers the whole resource:
-// create, get, retag, both lists, start/stop, backend health, backend health on
-// demand and delete, with the data plane exercised between them.
+// TestNetworkApplicationGateway_RoutesRealTraffic covers create, get, retag,
+// both lists, start and stop, backend health and on-demand health, and delete,
+// with the data plane exercised between them.
 func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	t.Parallel()
 	rg := "appgw-rg"
@@ -55,8 +51,8 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 		fmt.Fprintf(w, "green %s", r.URL.Path)
 	}))
 	defer green.Close()
-	// A server that answers every probe with 503 is a pool member the gateway
-	// must classify as Down and must never forward a request to.
+	// A server answering every probe with 503 is a pool member the gateway marks
+	// Down and never forwards to.
 	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -274,17 +270,16 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, armnetwork.ApplicationGatewaySSLPolicyName("AppGwSslPolicy20220101"), *created.Properties.DefaultPredefinedSSLPolicy)
 	// The tier follows from the SKU name when the request leaves it out.
 	assert.Equal(t, armnetwork.ApplicationGatewayTierStandardV2, *created.Properties.SKU.Tier)
-	// A public frontend holds no private address, but it still reports the
-	// allocation method every frontend carries. The HashiCorp provider reads
-	// this back on refresh, so an absent value re-plans an unchanged gateway.
+	// A public frontend holds no private address but reports the allocation
+	// method; terraform-provider-azurerm reads it on refresh, and an absent value
+	// re-plans an unchanged gateway.
 	require.Len(t, created.Properties.FrontendIPConfigurations, 1)
 	publicFrontend := created.Properties.FrontendIPConfigurations[0].Properties
 	assert.Empty(t, publicFrontend.PrivateIPAddress)
 	require.NotNil(t, publicFrontend.PrivateIPAllocationMethod)
 	assert.Equal(t, armnetwork.IPAllocationMethodDynamic, *publicFrontend.PrivateIPAllocationMethod)
-	// Every child collection member is given the ARM identity a real gateway
-	// assigns it, which is what the sibling references in the same body resolve
-	// against.
+	// Each child collection member gets the ARM ID Azure assigns it, which sibling
+	// references in the same body resolve against.
 	require.Len(t, created.Properties.HTTPListeners, 2)
 	assert.Equal(t, gatewayID+"/httpListeners/site-listener", *created.Properties.HTTPListeners[0].ID)
 	assert.Equal(t, "Microsoft.Network/applicationGateways/httpListeners", *created.Properties.HTTPListeners[0].Type)
@@ -293,13 +288,13 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, gatewayID+"/urlPathMaps/site-paths/pathRules/api",
 		*created.Properties.URLPathMaps[0].Properties.PathRules[0].ID)
 
-	// The gateway forwards only to servers its health probes have found Up, and
-	// its first probes run after it starts, as on a real gateway.
+	// The gateway forwards only to servers its probes found Up, and its first
+	// probes run after it starts.
 	awaitGatewayServing(t, frontendAddress, "/")
 	awaitGatewayServing(t, frontendAddress, "/api/orders")
 
-	// A request for a path the URL path map does not name goes to the map's
-	// default pool, and the rewrite rule set attached to that default runs.
+	// A path the URL path map does not name goes to the map's default pool, whose
+	// rewrite rule set runs.
 	body, resp := gatewayRequest(t, http.MethodGet, frontendAddress, "/", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, body, "blue /")
@@ -307,8 +302,8 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, "site-gw", resp.Header.Get("X-Rewritten-By"),
 		"the rewrite rule set must stamp its response header")
 
-	// A path the map names goes to the path rule's pool, with the host header
-	// the backend settings pin.
+	// A path the map names goes to the path rule's pool, with the host header the
+	// backend settings pin.
 	body, resp = gatewayRequest(t, http.MethodGet, frontendAddress, "/api/orders", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, body, "green /api/orders")
@@ -316,13 +311,12 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Empty(t, resp.Header.Get("X-Rewritten-By"),
 		"the path rule names no rewrite rule set, so the default one must not run")
 
-	// The rewrite rule set also reaches the request: the backend sees the header
-	// it added, and the host header the settings pinned.
+	// The backend sees the header the rewrite rule set added, and the pinned host.
 	body, _ = gatewayRequest(t, http.MethodGet, frontendAddress, "/echo?via=gateway", nil)
 	assert.Contains(t, body, "host="+frontendAddress,
 		"a settings member with no host name forwards the client's own host")
 	assert.True(t, strings.HasSuffix(body, "\nX-Gateway-Region: eastus"), "the rewrite rule set adds its request header: %s", body)
-	// The gateway inserts its six forwarded-request headers into every request.
+	// The gateway inserts six forwarded-request headers into every request.
 	assert.Regexp(t, `\nX-Forwarded-For: 127\.0\.0\.1:\d+\n`, body)
 	assert.Contains(t, body, "\nX-Forwarded-Proto: http\n")
 	assert.Contains(t, body, "\nX-Forwarded-Port: 80\n")
@@ -330,8 +324,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Contains(t, body, "\nX-Original-URL: /echo?via=gateway\n")
 	assert.Regexp(t, `\nX-AppGW-Trace-Id: [0-9a-f]{32}\n`, body)
 
-	// The second listener's rule redirects rather than forwarding, and carries
-	// the incoming path and query over.
+	// The second listener's rule redirects, carrying the path and query over.
 	_, resp = gatewayRequest(t, http.MethodGet, frontendAddress+":8080", "/legacy?page=2", nil)
 	assert.Equal(t, http.StatusMovedPermanently, resp.StatusCode)
 	assert.Equal(t, "https://contoso.example/legacy?page=2", resp.Header.Get("Location"))
@@ -352,14 +345,13 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	assert.Equal(t, armnetwork.ApplicationGatewayBackendHealthServerHealthUp,
 		*bluePool.BackendHTTPSettingsCollection[0].Servers[0].Health)
 	assert.NotEmpty(t, *bluePool.BackendHTTPSettingsCollection[0].Servers[0].HealthProbeLog)
-	// No routing rule pairs the failing pool with any settings, so the gateway
-	// reports no settings for it — the same pairing its data plane uses.
+	// No routing rule pairs the failing pool with settings, so health reports none
+	// for it, the same pairing the data plane uses.
 	failingPool := byPool["failing-pool"]
 	require.NotNil(t, failingPool)
 	assert.Empty(t, failingPool.BackendHTTPSettingsCollection)
 
-	// An on-demand probe runs against the pool and settings the caller names,
-	// and the server that answers every probe with 503 is Down.
+	// An on-demand probe runs against the pool and settings the caller names.
 	onDemand, err := client.BeginBackendHealthOnDemand(ctx, rg, "site-gw", armnetwork.ApplicationGatewayOnDemandProbe{
 		Protocol:            to.Ptr(armnetwork.ApplicationGatewayProtocolHTTP),
 		Path:                to.Ptr("/"),
@@ -399,7 +391,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "test", *tagged.Tags["env"])
-	// Retagging must not re-mint the resource GUID or restart the gateway.
+	// Retagging keeps the resource GUID and does not restart the gateway.
 	assert.Equal(t, *created.Properties.ResourceGUID, *tagged.Properties.ResourceGUID)
 
 	assert.Contains(t, applicationGatewayNames(t, client, rg), "site-gw")
@@ -422,9 +414,9 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	require.Error(t, err, "a deleted application gateway must not be readable")
 }
 
-// TestNetworkApplicationGateway_PrivateLink covers the gateway's private-link
-// surface: the groups it publishes, and the connection a consumer's private
-// endpoint opens on it, which the gateway's owner then approves and removes.
+// TestNetworkApplicationGateway_PrivateLink covers the groups the gateway
+// publishes and the connection a consumer's private endpoint opens, which the
+// owner approves and removes.
 func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	t.Parallel()
 	rg := "appgw-plink-rg"
@@ -478,16 +470,14 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	require.NoError(t, err)
 	gw, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	// A dynamically addressed private frontend takes a real address out of the
-	// subnet it names.
+	// A dynamic private frontend takes an address out of its subnet.
 	require.Len(t, gw.Properties.FrontendIPConfigurations, 1)
 	privateAddress := gw.Properties.FrontendIPConfigurations[0].Properties.PrivateIPAddress
 	require.NotNil(t, privateAddress)
 	assert.True(t, strings.HasPrefix(*privateAddress, "10.61.1."),
 		"the frontend address must come out of the gateway subnet, got %q", *privateAddress)
-	// Every frontend reports an allocation method — a frontend that named no
-	// static address is dynamic. Terraform reads this back on refresh, so an
-	// absent value re-plans the gateway on an unchanged configuration.
+	// A frontend naming no static address reports Dynamic; Terraform reads it on
+	// refresh, and an absent value re-plans an unchanged gateway.
 	require.NotNil(t, gw.Properties.FrontendIPConfigurations[0].Properties.PrivateIPAllocationMethod)
 	assert.Equal(t, armnetwork.IPAllocationMethodDynamic,
 		*gw.Properties.FrontendIPConfigurations[0].Properties.PrivateIPAllocationMethod)
@@ -563,8 +553,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Approved", *approved.Properties.PrivateLinkServiceConnectionState.Status)
 
-	// The consumer reads the owner's decision on its own endpoint: one object,
-	// two views.
+	// The consumer's endpoint shows the owner's decision.
 	consumerView, err := peClient.Get(ctx, rg, "gw-consumer", nil)
 	require.NoError(t, err)
 	require.Len(t, consumerView.Properties.ManualPrivateLinkServiceConnections, 1)
@@ -579,9 +568,9 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	require.Error(t, err, "a removed connection must not be readable")
 }
 
-// TestNetworkApplicationGateway_Catalogs covers the subscription-scoped
-// catalogs: the server variables and headers a rewrite rule set may name, and
-// the TLS options a gateway's SSL policy is built from.
+// TestNetworkApplicationGateway_Catalogs covers the server variables and
+// headers a rewrite rule set may name, and the TLS options an SSL policy is
+// built from.
 func TestNetworkApplicationGateway_Catalogs(t *testing.T) {
 	t.Parallel()
 	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -629,9 +618,8 @@ func TestNetworkApplicationGateway_Catalogs(t *testing.T) {
 	require.Error(t, err, "a policy the catalog does not publish must not be readable")
 }
 
-// TestNetworkApplicationGateway_RejectsUnknownSubnet proves the resource
-// provider validates the references a gateway names before it provisions
-// anything. It needs no real-execution host: the request never gets that far.
+// TestNetworkApplicationGateway_RejectsUnknownSubnet: the resource provider
+// validates the gateway's references before provisioning anything.
 func TestNetworkApplicationGateway_RejectsUnknownSubnet(t *testing.T) {
 	t.Parallel()
 	rg := "appgw-reject-rg"
@@ -672,8 +660,8 @@ func applicationGatewayNames(t *testing.T, client *armnetwork.ApplicationGateway
 	return names
 }
 
-// awaitGatewayServing waits for the gateway to answer path with 200, which it
-// does once its health probes have found the backend Up.
+// awaitGatewayServing waits for 200 on path, which the gateway answers once
+// its probes found the backend Up.
 func awaitGatewayServing(t *testing.T, gatewayHost, path string) {
 	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)
@@ -689,10 +677,8 @@ func awaitGatewayServing(t *testing.T, gatewayHost, path string) {
 	}
 }
 
-// gatewayRequest sends one request at the application gateway's own frontend
-// address. The TCP connection goes to the simulator's endpoint — the one
-// coordinate that differs from real Azure — while the Host header carries the
-// gateway address, exactly as a client that resolved that address would send.
+// gatewayRequest dials the simulator, the one coordinate that differs from
+// Azure, with the gateway address as Host, as a client that resolved it does.
 func gatewayRequest(t *testing.T, method, gatewayHost, target string, body *strings.Reader) (string, *http.Response) {
 	t.Helper()
 	var reader *strings.Reader
@@ -704,8 +690,7 @@ func gatewayRequest(t *testing.T, method, gatewayHost, target string, body *stri
 	req, err := http.NewRequestWithContext(ctx, method, baseURL+target, reader)
 	require.NoError(t, err)
 	req.Host = gatewayHost
-	// The gateway's own answer is what is under test, so a redirect it returns
-	// must be read rather than followed to whatever host it names.
+	// Read a redirect the gateway returns rather than following it.
 	client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
@@ -754,9 +739,8 @@ func stringValues(values []*string) []string {
 	return out
 }
 
-// TestNetworkApplicationGateway_AvailableWafRuleSets covers the subscription-
-// scoped web application firewall rule-set catalog: all nine managed rule sets
-// Application Gateway WAF offers, with their full rule-group and rule contents.
+// TestNetworkApplicationGateway_AvailableWafRuleSets covers all nine managed
+// web application firewall rule sets with their rule groups and rules.
 func TestNetworkApplicationGateway_AvailableWafRuleSets(t *testing.T) {
 	t.Parallel()
 	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())

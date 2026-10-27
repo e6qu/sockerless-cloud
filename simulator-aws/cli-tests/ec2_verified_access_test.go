@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_VerifiedAccessLifecycle drives the Amazon EC2 Verified Access
-// control plane through the aws CLI: an instance, a standalone trust provider
-// that attaches/detaches, a group with a Cedar policy document, and an endpoint
-// with its own policy document, with read-backs of each resource.
 func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 	t.Parallel()
 	instID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-instance",
@@ -135,8 +131,6 @@ func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_VerifiedAccessLogging covers the per-instance access-log
-// configuration and the client-config export command.
 func TestEC2CLI_VerifiedAccessLogging(t *testing.T) {
 	t.Parallel()
 	instID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-instance",
@@ -172,9 +166,6 @@ func TestEC2CLI_VerifiedAccessLogging(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_TrafficMirrorLifecycle drives EC2 Traffic Mirroring through the
-// aws CLI: a target, a filter with an ingress rule + mirrored network services,
-// and a session binding a source ENI to the target through the filter.
 func TestEC2CLI_TrafficMirrorLifecycle(t *testing.T) {
 	t.Parallel()
 	tgtID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-traffic-mirror-target",

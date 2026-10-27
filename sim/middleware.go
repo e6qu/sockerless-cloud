@@ -76,9 +76,9 @@ func LoggingMiddleware(logger zerolog.Logger, provider string) func(http.Handler
 				}
 			}
 
-			// Log streaming-envelope sentinels so "handler reads raw
-			// body without consuming the chunked envelope" stays
-			// greppable. Present only when the header is.
+			// Log the streaming-envelope headers, so a handler that reads a raw body
+			// without consuming the aws-chunked envelope shows in the log; the fields
+			// appear only when the header does.
 			if ce := r.Header.Get("Content-Encoding"); ce != "" {
 				event.Str("content_encoding", ce)
 			}

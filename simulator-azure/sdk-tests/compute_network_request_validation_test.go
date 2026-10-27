@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure validates a write against the request before its resource provider
-// realizes anything, and answers a request the client got wrong with 4xx. These
-// tests pin that ordering for creating a virtual machine and creating a
-// subnet. Reporting a permanently invalid request as a 503 OperationNotAllowed
-// would put an SDK retry policy into a loop it can never leave.
+// Azure validates a write before its resource provider realizes anything and
+// answers a malformed request with 4xx. A 503 OperationNotAllowed would loop
+// an SDK retry policy forever.
 
 func TestCompute_VirtualMachineWithoutNetworkProfileIsRejected(t *testing.T) {
 	t.Parallel()

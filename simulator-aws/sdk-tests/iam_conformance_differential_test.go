@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// iamConformanceVector mirrors the shared golden corpus
+// iamConformanceVector mirrors the golden corpus
 // (../testdata/iam_conformance_vectors.json) the in-process gate also runs.
 type iamConformanceVector struct {
 	Name        string            `json:"name"`
@@ -25,13 +25,11 @@ type iamConformanceVector struct {
 	Expect      string            `json:"expect"`
 }
 
-// TestIAMConformance_Differential validates the golden corpus through the public
-// SimulateCustomPolicy API. By default it runs against the sim — proving the
-// SimulateCustomPolicy wire path agrees with the in-process evaluator. Set
-// SOCKERLESS_IAM_ORACLE=aws to run the SAME assertions against REAL AWS
-// (ambient credentials): then a passing run validates the corpus's expected
-// decisions against ground truth — the external oracle. The test differs only
-// in coordinates (the endpoint + credentials), never in code.
+// TestIAMConformance_Differential runs the golden corpus through
+// SimulateCustomPolicy. Against the simulator it shows the API agrees with the
+// in-process evaluator; with SOCKERLESS_IAM_ORACLE=aws the same assertions run
+// against AWS with ambient credentials, checking the corpus's expected
+// decisions against ground truth. Only the coordinates differ.
 func TestIAMConformance_Differential(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile("../testdata/iam_conformance_vectors.json")
@@ -42,8 +40,8 @@ func TestIAMConformance_Differential(t *testing.T) {
 	c, oracle := iamConformanceClient(t)
 	for _, vec := range vectors {
 		if vec.CallerArn != "" {
-			// Principal/trust-policy vectors aren't expressible via
-			// SimulateCustomPolicy (it evaluates identity policies only).
+			// SimulateCustomPolicy evaluates identity policies only, so principal and trust
+			// policy vectors do not apply.
 			continue
 		}
 		t.Run(vec.Name, func(t *testing.T) {
@@ -85,8 +83,8 @@ func iamContextKeyType(t string) iamtypes.ContextKeyTypeEnum {
 	}
 }
 
-// iamConformanceClient returns the IAM client + a label for the oracle in use.
-// Default: the sim. SOCKERLESS_IAM_ORACLE=aws → real AWS.
+// iamConformanceClient returns the IAM client and the oracle's label: the
+// simulator, or AWS with SOCKERLESS_IAM_ORACLE=aws.
 func iamConformanceClient(t *testing.T) (*iam.Client, string) {
 	if os.Getenv("SOCKERLESS_IAM_ORACLE") != "aws" {
 		return iamClient(), "sim"

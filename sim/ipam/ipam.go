@@ -14,8 +14,9 @@ var ErrNoAvailableIP = errors.New("no available IP address in subnet")
 // owner wraps.
 var ErrAddressInUse = errors.New("IP address already leased")
 
-// IPAM tracks explicit leases for a subnet. Allocation is based on the CIDR
-// address space and current leases, never on store length or creation order.
+// IPAM tracks explicit leases for a subnet. It allocates from the CIDR's
+// address space and the current leases, never from store length or creation
+// order.
 type IPAM struct {
 	mu       sync.Mutex
 	network  *net.IPNet
@@ -122,9 +123,8 @@ func (i *IPAM) Release(ip net.IP) {
 	}
 	ip4 := ip.To4()
 	if ip4 == nil {
-		// Non-IPv4 address: this allocator only ever hands out IPv4, so a
-		// non-IPv4 value can't be one of ours. Bail rather than panic on the
-		// nil .To4() deref below.
+		// The allocator hands out only IPv4, so a non-IPv4 value is none of its
+		// leases; return before the nil To4 below panics.
 		return
 	}
 	i.mu.Lock()

@@ -1,9 +1,8 @@
-// Package simulator provides a shared framework for building cloud service simulators.
-//
-// Each simulator is an HTTP server that implements a subset of a cloud provider's
-// REST API surface. The framework provides common infrastructure: HTTP server,
-// request routing, in-memory state management, authentication passthrough,
-// and provider-specific error formatting.
+// Package sim is the cloud-neutral framework the simulators build on. Each
+// simulator is an HTTP server serving a slice of one cloud's API; the
+// framework supplies the server, routing, persistent state, authentication,
+// workload placement and the hooks a cloud's protocol and error shape plug
+// into.
 package sim
 
 import (
@@ -13,7 +12,6 @@ import (
 	"strings"
 )
 
-// Config holds the simulator server configuration.
 type Config struct {
 	// ListenAddr is the address to listen on (e.g., ":4566").
 	ListenAddr string
@@ -62,11 +60,9 @@ type Config struct {
 	// Set via SIM_PERSIST=true. Default false (in-memory only).
 	Persist bool
 
-	// LogWriter, when non-nil, is added alongside the ConsoleWriter
-	// in a MultiLevelWriter so each zerolog event also flows to OTel
-	// logs via the OTelLogWriter bridge. main.go assigns this from
-	// InitObservability when the operator brought up the OTel stack
-	// . Unset = today's stderr-only behaviour.
+	// LogWriter, when set, receives every zerolog event beside the console
+	// writer, bridging the logs to OpenTelemetry. main assigns it from
+	// InitObservability when the operator brought up the OpenTelemetry stack.
 	LogWriter *OTelLogWriter
 
 	UIOIDCIssuer               string

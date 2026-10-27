@@ -175,7 +175,6 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
 
-	// RebootCacheCluster on a standalone cluster.
 	clusterID := "test-reboot-cluster"
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
@@ -204,7 +203,6 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 	assert.Equal(t, "rebooting cluster nodes", aws.ToString(reboot.CacheCluster.CacheClusterStatus))
 	ecAwaitCluster(t, c, clusterID)
 
-	// Replication group lifecycle.
 	rgID := "test-repl-group"
 	create, err := c.CreateReplicationGroup(ctx, &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(rgID),
@@ -243,7 +241,6 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 	assert.Equal(t, "modified description", aws.ToString(mod.ReplicationGroup.Description))
 	assert.Equal(t, int32(7), aws.ToInt32(mod.ReplicationGroup.SnapshotRetentionLimit))
 
-	// Tagging a replication group ARN.
 	rgARN := "arn:aws:elasticache:us-east-1:123456789012:replicationgroup:" + rgID
 	_, err = c.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
 		ResourceName: aws.String(rgARN),
@@ -275,7 +272,6 @@ func TestElastiCache_SubnetAndParameterGroups(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
 
-	// Cache subnet group lifecycle.
 	sgName := "test-cache-subnet-group"
 	csg, err := c.CreateCacheSubnetGroup(ctx, &elasticache.CreateCacheSubnetGroupInput{
 		CacheSubnetGroupName:        aws.String(sgName),
@@ -320,7 +316,6 @@ func TestElastiCache_SubnetAndParameterGroups(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "CacheSubnetGroupNotFoundFault")
 
-	// Cache parameter group lifecycle.
 	pgName := "test-cache-param-group"
 	cpg, err := c.CreateCacheParameterGroup(ctx, &elasticache.CreateCacheParameterGroupInput{
 		CacheParameterGroupName:   aws.String(pgName),

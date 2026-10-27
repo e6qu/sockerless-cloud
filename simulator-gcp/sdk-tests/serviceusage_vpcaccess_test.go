@@ -32,16 +32,10 @@ func vpcAccessService(t *testing.T) *vpcaccess.Service {
 	return svc
 }
 
-// TestServiceUsage_OperationDelete exercises serviceusage.operations.delete:
-// the client drops its interest in a long-running operation. Per AIP /
-// google.longrunning the call returns google.protobuf.Empty ({}) and does not
-// cancel the operation, but the record it dropped is gone.
-//
-// The operation is one the service really minted — enabling a service names its
-// long-running operation in the top-level operations/{id} collection, the same
-// collection operations.get and operations.delete address — so the delete is
-// asserted against a record the service holds rather than against an invented
-// identifier.
+// TestServiceUsage_OperationDelete: operations.delete returns
+// google.protobuf.Empty and does not cancel the operation, but the record is
+// gone. Enabling a service mints the operation in the top-level
+// operations/{id} collection that get and delete address.
 func TestServiceUsage_OperationDelete(t *testing.T) {
 	svc := serviceUsageService(t)
 
@@ -92,8 +86,6 @@ func TestServiceUsage_GetReportsDisabledUntilEnabled(t *testing.T) {
 	assert.Equal(t, "DISABLED", disabled.State)
 }
 
-// TestVPCAccess_ConnectorPatch exercises the connector update path: create a
-// connector, PATCH its scaling fields, then read the mutation back.
 func TestVPCAccess_ConnectorPatch(t *testing.T) {
 	t.Parallel()
 	svc := vpcAccessService(t)
@@ -122,9 +114,7 @@ func TestVPCAccess_ConnectorPatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "e2-standard-4", conn.MachineType)
 	assert.Equal(t, int64(5), conn.MaxInstances)
-	// Scaling fields the patch did not carry keep the value the create set —
-	// an update that reset them to their zero value would be a data loss the
-	// caller never asked for.
+	// Scaling fields the patch did not carry keep their created values.
 	assert.Equal(t, int64(2), conn.MinInstances,
 		"minInstances survives an update that does not carry it")
 	// Immutable fields are preserved across the update.

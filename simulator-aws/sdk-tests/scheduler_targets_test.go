@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createSchedulerTestQueue creates a queue and returns its URL and ARN.
 func createSchedulerTestQueue(t *testing.T, name string) (*string, string) {
 	t.Helper()
 	sqsC := sqsClient()

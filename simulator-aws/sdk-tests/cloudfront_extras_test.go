@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudFrontOriginAccessIdentityLifecycle exercises the legacy
-// pre-OAC origin access identity CRUD:
-// Create → Get(+ETag) → GetConfig → Update → List → Delete.
 func TestCloudFrontOriginAccessIdentityLifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -81,8 +78,6 @@ func TestCloudFrontOriginAccessIdentityLifecycle(t *testing.T) {
 	require.Error(t, err, "get after delete must fail")
 }
 
-// TestCloudFrontContinuousDeploymentPolicyLifecycle exercises CDP CRUD:
-// Create → Get(+ETag) → GetConfig → Update → List → Delete.
 func TestCloudFrontContinuousDeploymentPolicyLifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -158,8 +153,6 @@ func TestCloudFrontContinuousDeploymentPolicyLifecycle(t *testing.T) {
 	require.Error(t, err, "get after delete must fail")
 }
 
-// TestCloudFrontMonitoringSubscriptionLifecycle exercises the
-// per-distribution monitoring subscription: Create → Get → Delete.
 func TestCloudFrontMonitoringSubscriptionLifecycle(t *testing.T) {
 	t.Parallel()
 	c := cfClient()
@@ -198,9 +191,6 @@ func TestCloudFrontMonitoringSubscriptionLifecycle(t *testing.T) {
 	require.Error(t, err, "get after delete must fail")
 }
 
-// cfCreateTestDistribution provisions a minimal distribution and returns
-// its id, for tests (like monitoring subscriptions) keyed on a real
-// distribution.
 func cfCreateTestDistribution(t *testing.T, ctx context.Context, c *cloudfront.Client) string {
 	t.Helper()
 	caller := "ms-dist-" + time.Now().Format("150405.000000")

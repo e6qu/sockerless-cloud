@@ -5,17 +5,15 @@ import (
 	"testing"
 )
 
-// TestCloudWatchLogsCLI_FailLoud is the CloudWatch arm of the #652 prevention
-// work (BUG-2170), over the aws CLI: a malformed filter-pattern / query-string
-// fails loudly instead of returning an empty result. Uses CombinedOutput because
-// the calls are expected to exit non-zero (runCLI fatals on non-zero exit).
+// TestCloudWatchLogsCLI_FailLoud expects a malformed filter pattern or query
+// string to fail rather than return an empty result. runCLI fails the test on
+// a non-zero exit, so the calls use CombinedOutput.
 func TestCloudWatchLogsCLI_FailLoud(t *testing.T) {
 	t.Parallel()
 	group := "/cli/failloud"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	t.Cleanup(func() { _ = awsCLI("logs", "delete-log-group", "--log-group-name", group).Run() })
 
-	// Malformed filter pattern.
 	out, err := awsCLI("logs", "filter-log-events",
 		"--log-group-name", group,
 		"--filter-pattern", `{ $.level = }`).CombinedOutput()
@@ -26,7 +24,6 @@ func TestCloudWatchLogsCLI_FailLoud(t *testing.T) {
 		t.Fatalf("expected InvalidParameterException; got:\n%s", out)
 	}
 
-	// Malformed Insights query.
 	out, err = awsCLI("logs", "start-query",
 		"--log-group-name", group,
 		"--query-string", `fields @message | filter (level = "ERROR"`,

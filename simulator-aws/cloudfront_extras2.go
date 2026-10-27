@@ -9,12 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront extra resources, part 2 — field-level encryption configs and
-// profiles, key value stores, real-time log configs, streaming distributions,
-// VPC origins, and Anycast IP lists. Same REST + XML wire as the Distribution
-// and policy endpoints in cloudfront.go / cloudfront_policies.go: each is a
-// named resource carrying an Id + ARN + an ETag returned in the response
-// header and required as If-Match on Update/Delete.
+// Each resource carries an Id, an ARN and an ETag; Update and Delete require
+// If-Match.
 
 type CFContentTypeProfileConfig struct {
 	ForwardWhenContentTypeIsUnknown bool `xml:"ForwardWhenContentTypeIsUnknown"`
@@ -118,8 +114,7 @@ type cfStoredFLEProfile struct {
 	ETag    string
 }
 
-// CFKeyValueStore mirrors the SDK KeyValueStore shape, which CloudFront
-// returns as the response payload directly (httpPayload binding).
+// CloudFront returns KeyValueStore as the payload itself (httpPayload).
 type CFKeyValueStore struct {
 	XMLName          xml.Name `xml:"KeyValueStore"`
 	Xmlns            string   `xml:"xmlns,attr,omitempty"`
@@ -131,22 +126,18 @@ type CFKeyValueStore struct {
 	LastModifiedTime string   `xml:"LastModifiedTime"`
 }
 
-// CFKeyValueStoreCreateRequest is the XML body the SDK/CLI send to
-// CreateKeyValueStore (the CreateKeyValueStoreRequest input shape).
 type CFKeyValueStoreCreateRequest struct {
 	XMLName xml.Name `xml:"CreateKeyValueStoreRequest"`
 	Name    string   `xml:"Name"`
 	Comment string   `xml:"Comment"`
 }
 
-// CFKeyValueStoreUpdateRequest is the body of UpdateKeyValueStore.
 type CFKeyValueStoreUpdateRequest struct {
 	XMLName xml.Name `xml:"UpdateKeyValueStoreRequest"`
 	Comment string   `xml:"Comment"`
 }
 
-// CFKeyValueStoreSummary is the list item; the list element wraps the same
-// KeyValueStore shape under <KeyValueStore>.
+// The list wraps the same shape under <KeyValueStore>.
 type CFKeyValueStoreSummary struct {
 	Name             string `xml:"Name"`
 	Id               string `xml:"Id"`
@@ -190,7 +181,6 @@ type CFRealtimeLogConfig struct {
 	Fields       []string     `xml:"Fields>Field,omitempty"`
 }
 
-// CFRealtimeLogConfigCreateRequest mirrors CreateRealtimeLogConfigRequest.
 type CFRealtimeLogConfigCreateRequest struct {
 	XMLName      xml.Name     `xml:"CreateRealtimeLogConfigRequest"`
 	EndPoints    []CFEndPoint `xml:"EndPoints>member,omitempty"`
@@ -199,7 +189,6 @@ type CFRealtimeLogConfigCreateRequest struct {
 	SamplingRate int64        `xml:"SamplingRate"`
 }
 
-// CFRealtimeLogConfigUpdateRequest mirrors UpdateRealtimeLogConfigRequest.
 type CFRealtimeLogConfigUpdateRequest struct {
 	XMLName      xml.Name     `xml:"UpdateRealtimeLogConfigRequest"`
 	EndPoints    []CFEndPoint `xml:"EndPoints>member,omitempty"`
@@ -209,8 +198,7 @@ type CFRealtimeLogConfigUpdateRequest struct {
 	SamplingRate int64        `xml:"SamplingRate"`
 }
 
-// CFRealtimeLogConfigLookupRequest mirrors Get/DeleteRealtimeLogConfigRequest
-// (the resource is identified by Name or ARN carried in the POST body).
+// The POST body names the config by Name or ARN.
 type CFRealtimeLogConfigLookupRequest struct {
 	Name string `xml:"Name"`
 	ARN  string `xml:"ARN"`
@@ -234,9 +222,7 @@ type CFRealtimeLogConfigUpdateResult struct {
 	RealtimeLogConfig CFRealtimeLogConfig `xml:"RealtimeLogConfig"`
 }
 
-// CFRealtimeLogConfigMember serializes a list entry as <member> (the
-// RealtimeLogConfigList member element name), overriding the standalone
-// <RealtimeLogConfig> root the CFRealtimeLogConfig struct carries.
+// List entries serialize as <member>, overriding CFRealtimeLogConfig's root.
 type CFRealtimeLogConfigMember struct {
 	ARN          string       `xml:"ARN"`
 	Name         string       `xml:"Name"`
@@ -348,9 +334,8 @@ type CFVpcOriginEndpointConfig struct {
 	OriginSslProtocols   *CFOriginSslProtocols `xml:"OriginSslProtocols,omitempty"`
 }
 
-// CFVpcOriginCreateRequest is the CreateVpcOrigin body: the SDK wraps the
-// endpoint config in a <CreateVpcOriginRequest> root element (unlike
-// UpdateVpcOrigin, which sends the bare <VpcOriginEndpointConfig> payload).
+// CreateVpcOrigin wraps the endpoint config in <CreateVpcOriginRequest>;
+// UpdateVpcOrigin sends the bare <VpcOriginEndpointConfig>.
 type CFVpcOriginCreateRequest struct {
 	XMLName                 xml.Name                  `xml:"CreateVpcOriginRequest"`
 	VpcOriginEndpointConfig CFVpcOriginEndpointConfig `xml:"VpcOriginEndpointConfig"`
@@ -395,9 +380,7 @@ type cfStoredVpcOrigin struct {
 	ETag   string
 }
 
-// CFAnycastIpList — AnycastIps is a flat list of <AnycastIp> elements nested
-// directly under <AnycastIps> (the AnycastIps shape is a Smithy list, not a
-// Quantity/Items wrapper).
+// AnycastIps is a Smithy list of <AnycastIp>, not a Quantity/Items wrapper.
 type CFAnycastIpList struct {
 	XMLName          xml.Name `xml:"AnycastIpList"`
 	Xmlns            string   `xml:"xmlns,attr,omitempty"`
@@ -411,7 +394,6 @@ type CFAnycastIpList struct {
 	LastModifiedTime string   `xml:"LastModifiedTime"`
 }
 
-// CFAnycastIpListCreateRequest mirrors CreateAnycastIpListRequest.
 type CFAnycastIpListCreateRequest struct {
 	XMLName       xml.Name `xml:"CreateAnycastIpListRequest"`
 	Name          string   `xml:"Name"`
@@ -456,14 +438,10 @@ var (
 	cfAnycastIpLists         sim.Store[cfStoredAnycastIpList]
 )
 
-// cfRealtimeLogARN builds the real-time-log-config ARN for a given name.
 func cfRealtimeLogARN(name string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:realtime-log-config/%s", awsAccountID(), name)
 }
 
-// registerCloudFrontExtras2 mounts the field-level-encryption, key-value-store,
-// real-time-log, streaming-distribution, VPC-origin, and Anycast-IP-list CRUD
-// endpoints onto the same mux. Invoked from registerCloudFront in cloudfront.go.
 func registerCloudFrontExtras2(srv *sim.Server) {
 	cfFLEConfigs = sim.MakeStore[cfStoredFLE](srv.DB(), "cloudfront_fle_configs")
 	cfFLEProfiles = sim.MakeStore[cfStoredFLEProfile](srv.DB(), "cloudfront_fle_profiles")
@@ -483,7 +461,6 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 	vpcOriginRes := cloudTrailRESTResource("AWS::CloudFront::VpcOrigin", "Id")
 	anycastRes := cloudTrailRESTResource("AWS::CloudFront::AnycastIpList", "Id")
 
-	// Field-Level Encryption Config
 	mux.HandleFunc("POST /"+v+"/field-level-encryption", cloudTrailRecordedREST("CreateFieldLevelEncryptionConfig", "cloudfront.amazonaws.com", nil, handleCFCreateFLE))
 	mux.HandleFunc("GET /"+v+"/field-level-encryption", cloudTrailRecordedREST("ListFieldLevelEncryptionConfigs", "cloudfront.amazonaws.com", nil, handleCFListFLE))
 	mux.HandleFunc("GET /"+v+"/field-level-encryption/{Id}", cloudTrailRecordedREST("GetFieldLevelEncryption", "cloudfront.amazonaws.com", fleRes, handleCFGetFLE))
@@ -491,7 +468,6 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+v+"/field-level-encryption/{Id}/config", cloudTrailRecordedREST("UpdateFieldLevelEncryptionConfig", "cloudfront.amazonaws.com", fleRes, handleCFUpdateFLE))
 	mux.HandleFunc("DELETE /"+v+"/field-level-encryption/{Id}", cloudTrailRecordedREST("DeleteFieldLevelEncryptionConfig", "cloudfront.amazonaws.com", fleRes, handleCFDeleteFLE))
 
-	// Field-Level Encryption Profile
 	mux.HandleFunc("POST /"+v+"/field-level-encryption-profile", cloudTrailRecordedREST("CreateFieldLevelEncryptionProfile", "cloudfront.amazonaws.com", nil, handleCFCreateFLEProfile))
 	mux.HandleFunc("GET /"+v+"/field-level-encryption-profile", cloudTrailRecordedREST("ListFieldLevelEncryptionProfiles", "cloudfront.amazonaws.com", nil, handleCFListFLEProfiles))
 	mux.HandleFunc("GET /"+v+"/field-level-encryption-profile/{Id}", cloudTrailRecordedREST("GetFieldLevelEncryptionProfile", "cloudfront.amazonaws.com", fleProfileRes, handleCFGetFLEProfile))
@@ -499,26 +475,20 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+v+"/field-level-encryption-profile/{Id}/config", cloudTrailRecordedREST("UpdateFieldLevelEncryptionProfile", "cloudfront.amazonaws.com", fleProfileRes, handleCFUpdateFLEProfile))
 	mux.HandleFunc("DELETE /"+v+"/field-level-encryption-profile/{Id}", cloudTrailRecordedREST("DeleteFieldLevelEncryptionProfile", "cloudfront.amazonaws.com", fleProfileRes, handleCFDeleteFLEProfile))
 
-	// Key Value Store
 	mux.HandleFunc("POST /"+v+"/key-value-store", cloudTrailRecordedREST("CreateKeyValueStore", "cloudfront.amazonaws.com", nil, handleCFCreateKVS))
 	mux.HandleFunc("GET /"+v+"/key-value-store", cloudTrailRecordedREST("ListKeyValueStores", "cloudfront.amazonaws.com", nil, handleCFListKVS))
 	mux.HandleFunc("GET /"+v+"/key-value-store/{Name}", cloudTrailRecordedREST("DescribeKeyValueStore", "cloudfront.amazonaws.com", kvsRes, handleCFDescribeKVS))
 	mux.HandleFunc("PUT /"+v+"/key-value-store/{Name}", cloudTrailRecordedREST("UpdateKeyValueStore", "cloudfront.amazonaws.com", kvsRes, handleCFUpdateKVS))
 	mux.HandleFunc("DELETE /"+v+"/key-value-store/{Name}", cloudTrailRecordedREST("DeleteKeyValueStore", "cloudfront.amazonaws.com", kvsRes, handleCFDeleteKVS))
 
-	// Real-time Log Config (POST-based; identified by Name/ARN in body)
 	mux.HandleFunc("POST /"+v+"/realtime-log-config", cloudTrailRecordedREST("CreateRealtimeLogConfig", "cloudfront.amazonaws.com", nil, handleCFCreateRealtimeLog))
 	mux.HandleFunc("GET /"+v+"/realtime-log-config", cloudTrailRecordedREST("ListRealtimeLogConfigs", "cloudfront.amazonaws.com", nil, handleCFListRealtimeLog))
 	mux.HandleFunc("PUT /"+v+"/realtime-log-config", cloudTrailRecordedREST("UpdateRealtimeLogConfig", "cloudfront.amazonaws.com", nil, handleCFUpdateRealtimeLog))
 	mux.HandleFunc("POST /"+v+"/get-realtime-log-config", cloudTrailRecordedREST("GetRealtimeLogConfig", "cloudfront.amazonaws.com", nil, handleCFGetRealtimeLog))
 	mux.HandleFunc("POST /"+v+"/delete-realtime-log-config", cloudTrailRecordedREST("DeleteRealtimeLogConfig", "cloudfront.amazonaws.com", nil, handleCFDeleteRealtimeLog))
 
-	// Streaming Distribution — the create path serves both
-	// CreateStreamingDistribution and CreateStreamingDistributionWithTags, which
-	// the SDK both send to POST /streaming-distribution (the WithTags variant
-	// adds a ?WithTags query flag and wraps the config in
-	// StreamingDistributionConfigWithTags). The dynamic dispatcher records the
-	// right op name per request.
+	// The SDK sends both CreateStreamingDistribution and its WithTags variant to
+	// this path; the dispatcher records the right operation name.
 	mux.HandleFunc("POST /"+v+"/streaming-distribution", cloudTrailRecordedRESTDynamic(cfCreateStreamingDistributionOperationName, "cloudfront.amazonaws.com", nil, handleCFCreateStreamingDist))
 	mux.HandleFunc("GET /"+v+"/streaming-distribution", cloudTrailRecordedREST("ListStreamingDistributions", "cloudfront.amazonaws.com", nil, handleCFListStreamingDist))
 	mux.HandleFunc("GET /"+v+"/streaming-distribution/{Id}", cloudTrailRecordedREST("GetStreamingDistribution", "cloudfront.amazonaws.com", streamingRes, handleCFGetStreamingDist))
@@ -526,14 +496,12 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+v+"/streaming-distribution/{Id}/config", cloudTrailRecordedREST("UpdateStreamingDistribution", "cloudfront.amazonaws.com", streamingRes, handleCFUpdateStreamingDist))
 	mux.HandleFunc("DELETE /"+v+"/streaming-distribution/{Id}", cloudTrailRecordedREST("DeleteStreamingDistribution", "cloudfront.amazonaws.com", streamingRes, handleCFDeleteStreamingDist))
 
-	// VPC Origin
 	mux.HandleFunc("POST /"+v+"/vpc-origin", cloudTrailRecordedREST("CreateVpcOrigin", "cloudfront.amazonaws.com", nil, handleCFCreateVpcOrigin))
 	mux.HandleFunc("GET /"+v+"/vpc-origin", cloudTrailRecordedREST("ListVpcOrigins", "cloudfront.amazonaws.com", nil, handleCFListVpcOrigins))
 	mux.HandleFunc("GET /"+v+"/vpc-origin/{Id}", cloudTrailRecordedREST("GetVpcOrigin", "cloudfront.amazonaws.com", vpcOriginRes, handleCFGetVpcOrigin))
 	mux.HandleFunc("PUT /"+v+"/vpc-origin/{Id}", cloudTrailRecordedREST("UpdateVpcOrigin", "cloudfront.amazonaws.com", vpcOriginRes, handleCFUpdateVpcOrigin))
 	mux.HandleFunc("DELETE /"+v+"/vpc-origin/{Id}", cloudTrailRecordedREST("DeleteVpcOrigin", "cloudfront.amazonaws.com", vpcOriginRes, handleCFDeleteVpcOrigin))
 
-	// Anycast IP List
 	mux.HandleFunc("POST /"+v+"/anycast-ip-list", cloudTrailRecordedREST("CreateAnycastIpList", "cloudfront.amazonaws.com", nil, handleCFCreateAnycastIpList))
 	mux.HandleFunc("GET /"+v+"/anycast-ip-list", cloudTrailRecordedREST("ListAnycastIpLists", "cloudfront.amazonaws.com", nil, handleCFListAnycastIpLists))
 	mux.HandleFunc("GET /"+v+"/anycast-ip-list/{Id}", cloudTrailRecordedREST("GetAnycastIpList", "cloudfront.amazonaws.com", anycastRes, handleCFGetAnycastIpList))
@@ -859,14 +827,12 @@ func handleCFListKVS(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// cfRealtimeLogKey resolves a real-time log config store key from a request
-// that identifies the resource by Name or ARN. Returns the key (Name) or "".
+// Returns the Name key, or "".
 func cfRealtimeLogKey(name, arn string) string {
 	if name != "" {
 		return name
 	}
 	if arn != "" {
-		// ARN form: arn:aws:cloudfront::<acct>:realtime-log-config/<name>
 		if idx := strings.LastIndex(arn, "/"); idx >= 0 {
 			return arn[idx+1:]
 		}
@@ -978,9 +944,7 @@ func cfStreamingARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:streaming-distribution/%s", awsAccountID(), id)
 }
 
-// cfActiveSignersFrom projects the configured TrustedSigners account numbers
-// into the ActiveTrustedSigners shape the StreamingDistribution response
-// carries (one Signer entry per AWS account number).
+// One Signer entry per configured account number.
 func cfActiveSignersFrom(ts CFStreamingTrustedSigners) CFActiveTrustedSigners {
 	signers := make([]CFActiveTrustedSigner, 0, len(ts.Items))
 	for _, acct := range ts.Items {
@@ -989,9 +953,6 @@ func cfActiveSignersFrom(ts CFStreamingTrustedSigners) CFActiveTrustedSigners {
 	return CFActiveTrustedSigners{Enabled: ts.Enabled, Quantity: ts.Quantity, Items: signers}
 }
 
-// cfCreateStreamingDistributionOperationName disambiguates the create op by the
-// ?WithTags query flag the SDK sets on the shared POST /streaming-distribution
-// path, mirroring real AWS.
 func cfCreateStreamingDistributionOperationName(r *http.Request, _ []byte) string {
 	if r.URL.Query().Has("WithTags") {
 		return "CreateStreamingDistributionWithTags"
@@ -999,8 +960,7 @@ func cfCreateStreamingDistributionOperationName(r *http.Request, _ []byte) strin
 	return "CreateStreamingDistribution"
 }
 
-// CFStreamingDistributionConfigWithTags is the CreateStreamingDistributionWithTags
-// body wrapper. The SDK emits this whenever the request carries tags.
+// The SDK sends this wrapper whenever the request carries tags.
 type CFStreamingDistributionConfigWithTags struct {
 	XMLName                     xml.Name                      `xml:"StreamingDistributionConfigWithTags"`
 	StreamingDistributionConfig CFStreamingDistributionConfig `xml:"StreamingDistributionConfig"`

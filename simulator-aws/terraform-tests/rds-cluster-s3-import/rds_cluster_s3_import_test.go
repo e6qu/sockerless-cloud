@@ -39,9 +39,8 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 	docker("run", "-d", "--name", name, "-e", "MYSQL_ROOT_PASSWORD=source-root", "-v", volume+":/var/lib/mysql",
 		"mirror.gcr.io/library/mysql:8.0")
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
-	// The image's initialisation server listens on no TCP port, so a TCP
-	// client reaches only the server that stays; mysqld offers nothing to
-	// wait on until it answers one.
+	// The image's initialisation server listens on no TCP port, so a TCP client
+	// reaches only the final server.
 	client := []string{"exec", name, "mysql", "--protocol=TCP", "--host=127.0.0.1", "--user=root", "--password=source-root"}
 	for exec.Command("docker", append(client, "--execute=SELECT 1")...).Run() != nil {
 		time.Sleep(250 * time.Millisecond)

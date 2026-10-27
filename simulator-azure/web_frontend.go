@@ -15,12 +15,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// registerAppServiceFrontEnd implements the App Service front end: a request
-// whose Host is one of an app's or a deployment slot's hostnames goes to that
-// app's or slot's own container on its port, verbatim, after the container is
-// started if none is running. A stopped site answers App Service's
-// stopped-site page, and a site the simulator has nothing to run for answers
-// 503 naming what it lacks.
+// A request whose Host is an app's or slot's hostname goes verbatim to that
+// app's or slot's container on its port, started first if none runs. A stopped
+// site answers App Service's stopped-site page; a site with nothing to run
+// answers 503 naming what it lacks.
 func registerAppServiceFrontEnd(srv *sim.Server) {
 	srv.WrapHandler(lbplane.HostRouter{
 		Route: func(_ *http.Request, host string) (http.Handler, bool) {
@@ -43,17 +41,12 @@ func registerAppServiceFrontEnd(srv *sim.Server) {
 	}.Wrap)
 }
 
-// appServiceSitesByHost and appServiceSlotsByHost index apps and deployment
-// slots by the hostnames they answer on. The lookup runs in a handler
-// wrapper, so every request into the simulator pays it before any handler
-// runs.
+// A handler wrapper runs this lookup ahead of every request.
 var (
 	appServiceSitesByHost sim.GenerationIndex[Site]
 	appServiceSlotsByHost sim.GenerationIndex[Site]
 )
 
-// appServiceSiteByHost returns the app or deployment slot a request's Host
-// header addresses.
 func appServiceSiteByHost(host string) (Site, bool) {
 	host = lbplane.Hostname(host)
 	if host == "" || azfSites == nil {
@@ -68,7 +61,6 @@ func appServiceSiteByHost(host string) (Site, bool) {
 	return appServiceSlotsByHost.Lookup(webSlots, host, siteHostKeys)
 }
 
-// siteHostKeys are the hostnames an app or slot answers on.
 func siteHostKeys(s Site) []string {
 	keys := []string{strings.ToLower(s.Properties.DefaultHostName)}
 	for _, h := range s.Properties.HostNames {
@@ -116,11 +108,10 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 	})
 }
 
-// appServiceForwardedHeaders adds the headers App Service's front end, which
-// terminates TLS, documents for the app: the protocol the client used as
-// X-Forwarded-Proto and X-AppService-Proto, the client's address appended
-// to X-Forwarded-For with its port, as Application Request Routing writes it,
-// and the client certificate as X-ARR-ClientCert when the site asks for one.
+// The headers App Service's TLS-terminating front end documents:
+// X-Forwarded-Proto and X-AppService-Proto, the client's address and port
+// appended to X-Forwarded-For as Application Request Routing writes it, and
+// X-ARR-ClientCert when the site asks for one.
 func appServiceForwardedHeaders(r *http.Request, site *Site) func(http.Header) {
 	client := r.RemoteAddr
 	proto := lbplane.ClientProto(r)
@@ -136,10 +127,8 @@ func appServiceForwardedHeaders(r *http.Request, site *Site) func(http.Header) {
 	}
 }
 
-// siteContainerAddress starts the site's container if none is running and
-// returns the address its port answers on. Like the platform's start-up ping,
-// it waits until the port answers an HTTP request, the container exits, or
-// WEBSITES_CONTAINER_START_TIME_LIMIT passes.
+// Like the platform's start-up ping, wait until the port answers HTTP, the
+// container exits, or WEBSITES_CONTAINER_START_TIME_LIMIT passes.
 func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	inst := azfInstanceFor(site.Name)
 	started, err := inst.start(site)
@@ -179,8 +168,8 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	if err != nil {
 		select {
 		case <-exit.done:
-			// The container's last output reaches its log before the
-			// failure is reported.
+			// The container's last output reaches its log before the failure is
+			// reported.
 			select {
 			case <-logsDone:
 			case <-ctx.Done():
@@ -201,8 +190,7 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	return parsed.Host, nil
 }
 
-// answered records the address the site's container answered on, unless
-// another container replaced it meanwhile.
+// Unless another container replaced it meanwhile.
 func (inst *azureFunctionInstance) answered(containerID, address string) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
@@ -211,15 +199,13 @@ func (inst *azureFunctionInstance) answered(containerID, address string) {
 	}
 }
 
-// appServiceWarmupPing asks each candidate for /robots933456.txt, the path the
-// platform pings while a container starts, and returns the first that answers
-// with any HTTP response. A port that only accepts connections is not ready: a
-// published loopback port accepts through the engine's proxy before the
-// workload listens.
+// /robots933456.txt is the path the platform pings while a container starts.
+// A port that only accepts connections is not ready: a published loopback port
+// accepts through the engine's proxy before the workload listens.
 func appServiceWarmupPing(ctx context.Context, candidates []string) (string, error) {
-	// The platform waits for the warmup request's answer, however slowly the
-	// workload gives it, so only the start-time limit in ctx bounds a request;
-	// the dial stays short so a port nothing listens on yet is retried.
+	// The platform waits for the warmup answer however slowly it comes, so only
+	// the start-time limit bounds a request; the dial stays short so an unbound
+	// port is retried.
 	client := &http.Client{
 		Transport: &http.Transport{
 			DialContext:       (&net.Dialer{Timeout: time.Second}).DialContext,
@@ -254,8 +240,6 @@ func appServiceWarmupPing(ctx context.Context, candidates []string) (string, err
 	}
 }
 
-// stoppedSitePage is the page App Service's front end answers a stopped app's
-// hostname with.
 const stoppedSitePage = `<!DOCTYPE html>
 <html>
 <head>
@@ -276,9 +260,8 @@ func writeStoppedSitePage(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, stoppedSitePage)
 }
 
-// webApplySiteState makes what runs for a site match its state: a stopped
-// site's container and webjobs stop; a started site's continuous webjobs
-// start, and its container too when it is Always On.
+// A stopped site's container and webjobs stop; a started site's continuous
+// webjobs start, and its container too when Always On.
 func webApplySiteState(site Site) error {
 	if siteStopped(&site) {
 		inst := azfInstanceFor(site.Name)

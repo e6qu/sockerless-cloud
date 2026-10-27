@@ -18,8 +18,8 @@ type cliBlueGreenDeployment struct {
 	Status                        string `json:"Status"`
 }
 
-// cliAwaitBlueGreenStatus polls describe-blue-green-deployments, for which
-// the aws CLI carries no waiter, until the deployment reports status.
+// cliAwaitBlueGreenStatus polls describe-blue-green-deployments, which has no
+// CLI waiter, until the deployment reports status.
 func cliAwaitBlueGreenStatus(t *testing.T, id, status string) cliBlueGreenDeployment {
 	t.Helper()
 	var deployment cliBlueGreenDeployment
@@ -41,12 +41,10 @@ func cliAwaitBlueGreenStatus(t *testing.T, id, status string) cliBlueGreenDeploy
 	return deployment
 }
 
-// aws rds create-blue-green-deployment provisions a green RDS for MySQL
-// instance holding the blue instance's rows, read-only;
-// switchover-blue-green-deployment moves the green instance
-// onto the blue identifier and endpoint with every row the blue instance
-// committed and keeps the blue instance as -old1; delete-blue-green-deployment
-// then ends the deployment and leaves both instances.
+// create-blue-green-deployment provisions a read-only green RDS for MySQL
+// instance holding the blue instance's rows; switchover moves it onto the
+// blue identifier and endpoint with every committed row and keeps the blue
+// instance as -old1; delete-blue-green-deployment leaves both instances.
 func TestRDSCLI_BlueGreenSwitchover(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

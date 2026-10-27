@@ -596,8 +596,14 @@ func writeStorageAsyncAccepted(w http.ResponseWriter, r *http.Request, location 
 }
 
 func handleStorageRevokeUserDelegationKeys(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := requireStorageAccount(w, r); !ok {
+	_, account, ok := requireStorageAccount(w, r)
+	if !ok {
 		return
+	}
+	// Revocation invalidates every user delegation key the account issued, and
+	// with them every signature those keys made.
+	for _, row := range blobDelegationKeys.ListPrefix(account + "|") {
+		blobDelegationKeys.Delete(row.ID)
 	}
 	w.WriteHeader(http.StatusOK)
 }

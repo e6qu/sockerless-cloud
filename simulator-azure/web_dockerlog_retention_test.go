@@ -33,7 +33,6 @@ func dockerMessages(scope string) []string {
 	return out
 }
 
-// Lines older than retentionInDays go once the site's docker log rotates.
 func TestWebDockerLogExpiresDaysPastRetention(t *testing.T) {
 	const site = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/aged"
 	scope := withDockerLogRetention(t, site, map[string]any{"retentionInDays": float64(2), "enabled": true})
@@ -48,7 +47,7 @@ func TestWebDockerLogExpiresDaysPastRetention(t *testing.T) {
 }
 
 // Past the quota the oldest days go whole, then the oldest lines of the day
-// still being written.
+// being written.
 func TestWebDockerLogQuotaDropsOldestDaysFirst(t *testing.T) {
 	const site = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/full"
 	scope := withDockerLogRetention(t, site, nil)
@@ -70,8 +69,6 @@ func TestWebDockerLogQuotaDropsOldestDaysFirst(t *testing.T) {
 	}
 }
 
-// A site whose logs configuration sets no limit keeps its newest lines up to
-// the line bound.
 func TestWebDockerLogWithoutSettingsKeepsTheLineBound(t *testing.T) {
 	const site = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/plain"
 	scope := withDockerLogRetention(t, site, map[string]any{"enabled": false})

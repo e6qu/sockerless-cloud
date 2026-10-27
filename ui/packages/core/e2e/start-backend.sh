@@ -4,7 +4,7 @@
 #
 # Required env vars:
 #   SERVER_PORT  — port to listen on
-#   HEALTH_URL   — full URL for the health endpoint (e.g. http://localhost:19210/internal/v1/healthz)
+#   HEALTH_URL   — full URL for the health endpoint (e.g. http://localhost:4566/health)
 #
 # Optional env vars:
 #   SERVER_BIN     — explicit immutable Go binary coordinate

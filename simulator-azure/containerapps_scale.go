@@ -12,29 +12,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Container Apps scales a revision on its scale rules, between its minimum
-// and maximum replica counts. An app whose template names no rule takes the
-// default one — "If you don't create a scale rule, the default scale rule is
-// applied to your container app": HTTP, from 0 to 10 replicas — which only an
-// app with ingress can meet. The HTTP rule sizes the revision every 15
-// seconds: "the number of concurrent requests is calculated as the number of
-// requests in the past 15 seconds divided by 15", against the rule's
-// concurrentRequests, 10 unless it names another. A request that reaches a
-// revision with no replica starts one. The revision scales in once the lower
-// count has held for the scale-down stabilization window, 300 seconds, and
-// to zero once no rule has asked for a replica for the cooldown period, 300
-// seconds unless the scale names another ("Scale behavior" in "Set scaling
-// rules in Azure Container Apps": "Scale down only happens if the condition
-// is satisfied for 300 seconds (scale down stabilization window). Once the
-// queue length is 0, KEDA waits for 300 seconds (cool down period) before
-// scaling the app to 0"). An Azure Queue rule reads its queue's length every polling
-// interval, 30 seconds unless the scale names another, through Get Queue
-// Metadata as the rule's connection string or managed identity, and asks for
-// one replica per queueLength messages, 5 unless the rule names another. A
-// custom azure-servicebus rule reads its queue's or subscription's active
-// messages through the Service Bus management endpoint, signed with the
-// connection string's key, and asks for one replica per messageCount. The
-// revision runs the most any rule asks for.
+// Container Apps scales a revision on its rules between its minimum and maximum
+// replica counts ("Set scaling rules in Azure Container Apps"):
+//   - No rule: the default HTTP rule, 0 to 10 replicas, which only an app with
+//     ingress can meet.
+//   - HTTP: every 15 seconds, requests of the past 15 seconds divided by 15,
+//     against concurrentRequests (default 10). A request reaching a revision
+//     with no replica starts one.
+//   - Azure Queue: reads the queue length every pollingInterval (default 30
+//     seconds) through Get Queue Metadata, one replica per queueLength (default
+//     5) messages.
+//   - Custom azure-servicebus: reads active messages through the Service Bus
+//     management endpoint, one replica per messageCount.
+//
+// The revision runs the most any rule asks for, scales in once the lower count
+// has held for the 300-second stabilization window, and to zero once no rule
+// has asked for a replica for the cooldown period (default 300 seconds).
 
 const (
 	acaHTTPScaleWindow         = 15 * time.Second
@@ -48,30 +41,23 @@ const (
 	acaServiceBusScaler        = "azure-servicebus"
 )
 
-// acaScaling is how a revision scales.
 type acaScaling struct {
 	min, max int
-	// concurrency is the HTTP rule's concurrent requests per replica, 0 when
-	// the revision scales on no HTTP rule.
+	// concurrency is 0 when the revision scales on no HTTP rule.
 	concurrency int
-	// queues are the revision's Azure Queue rules, and serviceBus its custom
-	// azure-servicebus rules.
-	queues     []ContainerAppQueueScaleRule
-	serviceBus []ContainerAppCustomScaleRule
-	// otherRules reports a rule of another kind, which the simulator does not
-	// run.
+	queues      []ContainerAppQueueScaleRule
+	serviceBus  []ContainerAppCustomScaleRule
+	// otherRules reports a rule of a kind the simulator does not run.
 	otherRules bool
 	cooldown   time.Duration
 	polling    time.Duration
 }
 
-// demandDriven reports whether a rule the simulator runs sizes the revision,
-// so it scales from what it is asked rather than holding a fixed count.
+// demandDriven: a rule the simulator runs sizes the revision.
 func (sc acaScaling) demandDriven() bool {
 	return sc.concurrency > 0 || sc.polled()
 }
 
-// polled reports whether a rule reads a queue the scaler polls.
 func (sc acaScaling) polled() bool { return len(sc.queues) > 0 || len(sc.serviceBus) > 0 }
 
 func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling {
@@ -124,9 +110,9 @@ func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling
 	return sc
 }
 
-// baseline is how many replicas the revision runs before any request: its
-// minimum, and one for a revision whose only rules the simulator does not
-// run, so its replica does the work those rules would start it for.
+// baseline is the minimum, or one for a revision whose only rules the
+// simulator does not run, so its replica does the work those rules would start
+// it for.
 func (sc acaScaling) baseline() int {
 	if sc.otherRules && !sc.demandDriven() {
 		return max(sc.min, 1)
@@ -134,19 +120,16 @@ func (sc acaScaling) baseline() int {
 	return sc.min
 }
 
-// acaScaler sizes one revision's replica set on its HTTP requests and its
-// queues.
 type acaScaler struct {
 	run     *acaRevisionRun
 	scaling acaScaling
 	queues  acaQueueReader
 
-	mu       sync.Mutex
-	requests []time.Time
-	// queueDesired is what the queue rules asked for at their last poll.
+	mu           sync.Mutex
+	requests     []time.Time
 	queueDesired int
-	// raised is when demand last asked for the count the set runs or more,
-	// and active when a rule last asked for any replica.
+	// raised is when demand last asked for the running count or more; active when
+	// a rule last asked for any replica.
 	raised, active time.Time
 	stop           chan struct{}
 	once           sync.Once
@@ -164,9 +147,8 @@ func newACAScaler(run *acaRevisionRun, scaling acaScaling, queues acaQueueReader
 	return sc
 }
 
-// pollQueues reads the queue rules' queues every polling interval and sizes
-// the revision on them. A rule whose queue cannot be read leaves the count
-// its last reading asked for.
+// A rule whose queue cannot be read keeps the count its last reading asked
+// for.
 func (sc *acaScaler) pollQueues() {
 	ticker := time.NewTicker(sc.scaling.polling)
 	defer ticker.Stop()
@@ -214,7 +196,6 @@ func (sc *acaScaler) pollQueues() {
 
 func (sc *acaScaler) close() { sc.once.Do(func() { close(sc.stop) }) }
 
-// record counts a request the ingress forwards to the revision.
 func (sc *acaScaler) record(now time.Time) {
 	sc.mu.Lock()
 	sc.requests = append(sc.requests, now)
@@ -234,8 +215,6 @@ func (sc *acaScaler) evaluateEvery() {
 	}
 }
 
-// evaluate sizes the revision from the requests of the window that just
-// closed and the queues' last reading.
 func (sc *acaScaler) evaluate(now time.Time) {
 	sc.mu.Lock()
 	recent := sc.requests[:0]
@@ -268,10 +247,6 @@ func (sc *acaScaler) evaluate(now time.Time) {
 	}
 }
 
-// acaScaleInDue reports whether a revision running more replicas than desired
-// scales in now: to zero once no rule has asked for a replica for the
-// cooldown period, and to a lower nonzero count once the lower count has held
-// for the scale-down stabilization window.
 func acaScaleInDue(now, raised, active time.Time, desired int, cooldown time.Duration) bool {
 	if desired == 0 {
 		return now.Sub(active) >= cooldown
@@ -279,9 +254,7 @@ func acaScaleInDue(now, raised, active time.Time, desired int, cooldown time.Dur
 	return now.Sub(raised) >= acaScaleDownStabilization
 }
 
-// activate starts a replica for a request that reached the revision when it
-// ran none, as the HTTP scaler starts one for a request to a revision scaled
-// to zero.
+// activate starts a replica for a request reaching a revision that runs none.
 func (sc *acaScaler) activate(ctx context.Context) error {
 	if sc.scaling.concurrency == 0 || len(sc.run.set.Replicas()) > 0 {
 		return nil
@@ -293,7 +266,6 @@ func (sc *acaScaler) activate(ctx context.Context) error {
 	return sc.run.set.Raise(ctx, 1)
 }
 
-// acaReadiness wakes the requests that wait for a replica to become ready.
 var acaReadiness = struct {
 	sync.Mutex
 	changed chan struct{}

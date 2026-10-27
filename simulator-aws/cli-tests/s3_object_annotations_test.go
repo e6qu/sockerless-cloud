@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-// TestS3CLI_ObjectAnnotations covers the object `?annotation` subresource
-// through `aws s3api`: put-object-annotation, get-object-annotation,
-// list-object-annotations (with the name-prefix filter) and
-// delete-object-annotation.
 func TestS3CLI_ObjectAnnotations(t *testing.T) {
 	t.Parallel()
 	bucket := fmt.Sprintf("cli-annotations-%d", time.Now().UnixNano())
@@ -88,9 +84,6 @@ func TestS3CLI_ObjectAnnotations(t *testing.T) {
 	}
 }
 
-// TestS3CLI_MetadataAnnotationTableConfiguration covers
-// update-bucket-metadata-annotation-table-configuration and reading the state
-// back from get-bucket-metadata-configuration.
 func TestS3CLI_MetadataAnnotationTableConfiguration(t *testing.T) {
 	t.Parallel()
 	bucket := fmt.Sprintf("cli-annotation-table-%d", time.Now().UnixNano())

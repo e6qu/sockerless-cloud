@@ -20,7 +20,6 @@ if [ "${#modules[@]}" -eq 0 ]; then
   exit 0
 fi
 
-# Deduplicate
 sorted=$(printf '%s\n' "${modules[@]}" | sort -u)
 
 failed=0
@@ -33,8 +32,8 @@ for mod in $sorted; do
     continue
   fi
   echo "lint: $mod"
-  # The timeout is .golangci.yml's; a second one here, shorter, failed the
-  # largest module's package load whenever the machine was busy.
+  # The timeout is .golangci.yml's alone: a shorter one here fails the largest
+  # module's package load on a busy machine.
   if ! (cd "$mod" && golangci-lint run ./...); then
     failed=1
   fi

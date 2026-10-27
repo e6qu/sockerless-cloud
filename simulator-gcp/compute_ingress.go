@@ -25,11 +25,10 @@ func gcpIngressStages(inst ComputeInstance) ([][]netrules.PacketRule, error) {
 	return [][]netrules.PacketRule{rules}, nil
 }
 
-// gcpReapplyIngress programs every running instance's machine with what
-// the firewall rules allow it now: a rule's change, an instance's tags, and
-// a member's arrival or departure, which a rule's source tags expand over,
-// each change what an instance may receive. A backend that does not filter
-// is left as it is.
+// gcpReapplyIngress programs every running instance's machine with what the
+// firewall rules allow it now: a rule's change, an instance's tags, or a
+// member that a rule's source tags expand over can each change that. A backend
+// that does not filter is left alone.
 func gcpReapplyIngress() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

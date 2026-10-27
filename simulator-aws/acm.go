@@ -25,11 +25,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// acmIssueManagedLeaf creates a new key pair and issues a CA-signed X.509 leaf
-// from the persistent Amazon Certificate Manager service CA. The private key
-// remains service-side, as it does for an Amazon-issued certificate, while the
-// certificate and chain are returned by GetCertificate and loaded internally
-// by services such as Elastic Load Balancing.
+// acmIssueManagedLeaf mints a key pair and a leaf signed by the AWS Certificate
+// Manager service CA. The private key stays service-side, as for any
+// Amazon-issued certificate.
 func acmIssueManagedLeaf(commonName string, sans []string, keyAlgorithm string) (
 	certPEM, chainPEM, keyPEM string,
 	leaf *x509.Certificate,
@@ -104,18 +102,13 @@ func acmIssueManagedLeaf(commonName string, sans []string, keyAlgorithm string) 
 	return string(certBlock), string(chainBlock), string(keyBlock), leaf, nil
 }
 
-// AWS Certificate Manager. Wire: AWS-JSON 1.1 (POST /, X-Amz-Target =
-// "CertificateManager.<Op>"). ImportCertificate is ISSUED immediately.
-// A DNS-validated RequestCertificate (AMAZON_ISSUED) starts
-// PENDING_VALIDATION and transitions to ISSUED on DescribeCertificate
-// once its _acm-challenge records exist in the Route53 sim store — the
-// sim can't perform real public DNS validation, so record presence is
-// the validation signal (a cert with no record stays PENDING).
+// AWS Certificate Manager speaks AWS-JSON 1.1. A DNS-validated
+// RequestCertificate stays PENDING_VALIDATION until its _acm-challenge CNAME
+// exists in a Route 53 hosted zone; the simulator cannot validate against
+// public DNS, so record presence is the validation signal.
 
-// AWS-JSON 1.1 encodes timestamps as Unix-epoch JSON numbers (seconds
-// with optional fractional part), not RFC3339 strings. The SDK
-// deserialiser fails with "expected TStamp to be a JSON Number, got
-// string instead" if we send a string. Using float64 keeps it lossless.
+// AWS-JSON 1.1 encodes timestamps as epoch-second JSON numbers; the SDK
+// rejects an RFC 3339 string.
 type ACMCertificate struct {
 	CertificateArn           string                      `json:"CertificateArn"`
 	DomainName               string                      `json:"DomainName"`
@@ -173,18 +166,14 @@ type acmTag struct {
 type acmStoredCert struct {
 	Cert ACMCertificate
 	Tags []acmTag
-	// Material holds the PEM bytes — for an IMPORTED cert, the bytes the
-	// caller supplied; for a PRIVATE cert, the leaf and chain issued by the
-	// selected AWS Private Certificate Authority; for an AMAZON_ISSUED
-	// DNS-validated cert, the managed service CA-signed certificate minted at issuance
-	// time (PENDING_VALIDATION → ISSUED). PrivateKey is only ever returned by
-	// ExportCertificate for a PRIVATE cert, matching real ACM.
+	// Material holds the imported PEM, the leaf and chain AWS Private CA issued,
+	// or the leaf minted at Amazon-issued validation. Only ExportCertificate of a
+	// PRIVATE certificate returns PrivateKey.
 	CertificateBody       string
 	CertificateChain      string
 	PrivateKey            string
 	PrivateCertificateArn string
-	// RevokedAt records the revocation time once RevokeCertificate runs.
-	RevokedAt *float64
+	RevokedAt             *float64
 }
 
 type acmEmailValidation struct {
@@ -201,10 +190,9 @@ var (
 	acmEmailValidations sim.Store[acmEmailValidation]
 )
 
-// acmCertMaterial returns the PEM-encoded certificate body and private key for
-// an ISSUED certificate ARN, the material a TLS terminator (ELBv2 HTTPS/TLS
-// listener) loads into a tls.Certificate. Returns ok=false if the cert is
-// absent or has no key material (PENDING_VALIDATION, or a non-exportable type).
+// acmCertMaterial returns the PEM certificate and key an ISSUED certificate
+// presents on an Elastic Load Balancing TLS listener; ok is false while the
+// certificate is pending or has no key material.
 func acmCertMaterial(arn string) (certPEM, keyPEM string, ok bool) {
 	id := acmARNToID(arn)
 	if id == "" {
@@ -220,10 +208,8 @@ func acmCertMaterial(arn string) (certPEM, keyPEM string, ok bool) {
 	return stored.CertificateBody, stored.PrivateKey, true
 }
 
-// acmCertARN constructs an ARN for the simulator's region. Real ACM
-// pins us-east-1 only for CloudFront associations — that constraint
-// is enforced on the CloudFront side (cloudfront.go) against the
-// region embedded in the ARN, not here at certificate creation time.
+// The us-east-1 requirement for Amazon CloudFront viewer certificates lives
+// on the CloudFront side, which checks the region embedded in this ARN.
 func acmCertARN(id string) string {
 	return fmt.Sprintf("arn:aws:acm:%s:%s:certificate/%s", awsRegion(), awsAccountID(), id)
 }
@@ -232,7 +218,6 @@ func acmRandomID() string {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
 	hex := hex.EncodeToString(buf)
-	// AWS uses a UUID-like format with dashes
 	return hex[0:8] + "-" + hex[8:12] + "-" + hex[12:16] + "-" + hex[16:20] + "-" + hex[20:32]
 }
 
@@ -289,8 +274,8 @@ func acmManagedCertificateAuthority() (acmAcmeCA, error) {
 	return ca, nil
 }
 
-// TagResource / UntagResource / ListTagsForResource address certificates and
-// every Amazon Certificate Manager ACME control-plane resource by ARN.
+// The tagging operations address certificates and every ACME control-plane
+// resource by ARN.
 
 type acmResourceTagReq struct {
 	ResourceArn string   `json:"ResourceArn"`
@@ -408,20 +393,14 @@ func handleACMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, map[string][]acmTag{"Tags": tags})
 }
 
-// acmAccountConfig holds the account-level certificate configuration set by
-// PutAccountConfiguration and read by GetAccountConfiguration. Real ACM keys
-// this per-account; the sim is single-account, so one stored value suffices.
 type acmAccountConfig struct {
 	DaysBeforeExpiry *int32 `json:"DaysBeforeExpiry,omitempty"`
 }
 
 var acmAccountConfiguration sim.Store[acmAccountConfig]
 
-// handleACMGetCertificate returns the certificate body and chain for an
-// ISSUED certificate. Real ACM serves the PEM the operator imported (or that
-// ACM minted); the simulator returns the stored PEM for imported/private
-// certificates and the CA-signed PEM minted at issuance for an Amazon-issued
-// certificate. It does not return the private key.
+// handleACMGetCertificate returns the certificate body and chain, never the
+// private key.
 func handleACMGetCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -451,11 +430,8 @@ func handleACMGetCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, resp)
 }
 
-// handleACMExportCertificate returns the certificate, chain, and the
-// passphrase-protected private key for a PRIVATE certificate. Real ACM only
-// permits export of PRIVATE certs (those issued by an ACM Private CA or
-// imported with EXPORT enabled); the simulator enforces that and encrypts the
-// stored private key with the caller's passphrase before returning it.
+// AWS Certificate Manager exports only PRIVATE certificates, encrypting the
+// key with the caller's passphrase.
 func handleACMExportCertificate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CertificateArn string `json:"CertificateArn"`
@@ -506,9 +482,7 @@ func handleACMExportCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, resp)
 }
 
-// handleACMRevokeCertificate moves a PRIVATE certificate to REVOKED. Real ACM
-// only allows revoking PRIVATE certs (issued by an ACM Private CA); the sim
-// enforces that and records the revocation time. Returns the CertificateArn.
+// AWS Certificate Manager revokes only PRIVATE certificates.
 func handleACMRevokeCertificate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CertificateArn   string `json:"CertificateArn"`
@@ -544,8 +518,7 @@ func handleACMRevokeCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, map[string]string{"CertificateArn": stored.Cert.CertificateArn})
 }
 
-// handleACMGetAccountConfiguration returns the account expiry-events config.
-// Real ACM defaults DaysBeforeExpiry to 45 when unset.
+// DaysBeforeExpiry defaults to 45.
 func handleACMGetAccountConfiguration(w http.ResponseWriter, r *http.Request) {
 	cfg, ok := acmAccountConfiguration.Get("default")
 	days := int32(45)
@@ -557,8 +530,6 @@ func handleACMGetAccountConfiguration(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleACMPutAccountConfiguration stores the account expiry-events config.
-// Real ACM requires an IdempotencyToken; the sim validates its presence.
 func handleACMPutAccountConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExpiryEvents *struct {
@@ -582,13 +553,8 @@ func handleACMPutAccountConfiguration(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, struct{}{})
 }
 
-// handleACMSearchCertificates filters certificates by the AcmCertificateMetadata
-// criteria (Status / Type / InUse / ValidationMethod) supplied in the
-// FilterStatement and returns CertificateSearchResult entries carrying the
-// per-cert metadata. The sim honors a single top-level Filter / a flat And of
-// metadata filters — the criteria real callers (and terraform's data source)
-// use; nested And/Or/Not trees beyond that are flattened to their metadata
-// predicates.
+// handleACMSearchCertificates evaluates the metadata predicates of the
+// FilterStatement conjunctively; see collectACMMetadataFilters.
 func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FilterStatement *acmFilterStatement `json:"FilterStatement"`
@@ -642,7 +608,6 @@ func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, resp)
 }
 
-// acmFilterStatement mirrors the recursive CertificateFilterStatement union.
 type acmFilterStatement struct {
 	And    []acmFilterStatement  `json:"And,omitempty"`
 	Or     []acmFilterStatement  `json:"Or,omitempty"`
@@ -655,9 +620,8 @@ type acmCertificateFilter struct {
 	AcmCertificateMetadataFilter *acmCertMetadataFilter `json:"AcmCertificateMetadataFilter,omitempty"`
 }
 
-// acmCertMetadataFilter mirrors the AcmCertificateMetadataFilter union: each
-// search request supplies exactly one of these scalar members (the SDK
-// serializes e.g. {"Type":"PRIVATE"} or {"InUse":true}).
+// Each AcmCertificateMetadataFilter union member carries exactly one field,
+// e.g. {"Type":"PRIVATE"} or {"InUse":true}.
 type acmCertMetadataFilter struct {
 	Status           string `json:"Status,omitempty"`
 	Type             string `json:"Type,omitempty"`
@@ -665,11 +629,8 @@ type acmCertMetadataFilter struct {
 	ValidationMethod string `json:"ValidationMethod,omitempty"`
 }
 
-// collectACMMetadataFilters flattens a filter statement tree into the metadata
-// predicates the sim evaluates. And/Or/Filter all contribute their metadata
-// predicates (treated conjunctively — the common single-criterion search), Not
-// is skipped (the sim doesn't model negation). This covers the searches real
-// callers issue without fabricating behaviour.
+// collectACMMetadataFilters flattens And, Or and Filter into a conjunction of
+// metadata predicates and skips Not, which the simulator does not model.
 func collectACMMetadataFilters(fs *acmFilterStatement) []acmCertMetadataFilter {
 	if fs == nil {
 		return nil
@@ -702,10 +663,7 @@ func acmMetadataFiltersMatch(filters []acmCertMetadataFilter, c ACMCertificate) 
 	return true
 }
 
-// acmWriteJSON / acmWriteError — JSON-1.1 protocol wraps errors in
-// {"__type": "Code", "message": "..."}; status is 400 for invalid /
-// 200 + body for normal success. ACM only returns 400 on errors —
-// real ACM does not use 404 for missing resources.
+// AWS Certificate Manager reports a missing resource as 400, never 404.
 func acmWriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
@@ -740,7 +698,7 @@ func handleACMRequestCertificate(w http.ResponseWriter, r *http.Request) {
 	}
 	method := req.ValidationMethod
 	if method == "" {
-		method = "EMAIL" // real ACM default
+		method = "EMAIL"
 	}
 	id := acmRandomID()
 	now := acmEpochNow()
@@ -761,11 +719,9 @@ func handleACMRequestCertificate(w http.ResponseWriter, r *http.Request) {
 			ValidationStatus: "PENDING_VALIDATION",
 		}
 		if method == "DNS" {
-			// Real ACM strips a leading "*." and validates the base domain,
-			// so a wildcard SAN yields `_acm-challenge.devbox.example.com.`,
-			// not a star-bearing `_acm-challenge.*.devbox.example.com.` that
-			// aws_acm_certificate_validation rejects. DomainName still echoes
-			// the original wildcard.
+			// AWS Certificate Manager validates a wildcard on its base domain, so
+			// `*.example.com` yields `_acm-challenge.example.com.`;
+			// aws_acm_certificate_validation rejects a record name containing `*`.
 			base := strings.TrimPrefix(d, "*.")
 			opt.ResourceRecord = &ACMResourceRecord{
 				Name:  "_acm-challenge." + base + ".",
@@ -847,10 +803,9 @@ func handleACMRequestCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, map[string]string{"CertificateArn": cert.CertificateArn})
 }
 
-// ACM reuses the DNS validation CNAME value for repeated certificate requests
-// for the same fully qualified domain name in one account. That lets one
-// long-lived Route 53 record validate replacement certificates and concurrent
-// regional/CloudFront certificates without record churn.
+// AWS Certificate Manager reuses one DNS validation CNAME value per domain
+// name in an account, so one long-lived Route 53 record validates every
+// replacement certificate.
 func acmDNSValidationValue(domain string) string {
 	normalized := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(domain, "*."), "."))
 	sum := sha256.Sum256([]byte(awsAccountID() + ":" + normalized))
@@ -889,10 +844,9 @@ func handleACMDescribeCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, map[string]ACMCertificate{"Certificate": stored.Cert})
 }
 
-// acmCertificateUsers are the resources that use a certificate: the load
-// balancers whose listeners present it, as their default or an SNI
-// certificate, and the CloudFront distributions it is the viewer certificate
-// of.
+// acmCertificateUsers returns the load balancers whose listeners present the
+// certificate, as default or SNI certificate, and the CloudFront distributions
+// that use it as viewer certificate.
 func acmCertificateUsers(arn string) []string {
 	users := []string{}
 	if elbv2Listeners != nil {
@@ -914,10 +868,8 @@ func acmCertificateUsers(arn string) []string {
 	return slices.Compact(users)
 }
 
-// acmReconcileIssuance transitions an Amazon-issued certificate from
-// PENDING_VALIDATION to ISSUED once every DNS record or email validation has
-// succeeded. It creates fresh service-held key material and a leaf signed by
-// the persistent Amazon Certificate Manager service CA.
+// acmReconcileIssuance moves an Amazon-issued certificate to ISSUED once every
+// validation has succeeded, minting fresh key material.
 func acmReconcileIssuance(id string, stored acmStoredCert) (acmStoredCert, error) {
 	cert := stored.Cert
 	if cert.Type != "AMAZON_ISSUED" || cert.Status != "PENDING_VALIDATION" {
@@ -1033,10 +985,8 @@ func handleACMEmailValidation(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "<!doctype html><title>Certificate validated</title><p>Amazon Certificate Manager validated "+validation.Domain+".</p>")
 }
 
-// acmDNSRecordPresent reports whether a CNAME ResourceRecordSet with the given
-// name exists in any Route53 hosted zone — the signal that the operator
-// created the _acm-challenge validation record. DNS names are matched
-// case-insensitively and trailing-dot-insensitively.
+// acmDNSRecordMatches reports whether any Route 53 hosted zone holds a CNAME
+// with this name and value, ignoring case and the trailing dot.
 func acmDNSRecordMatches(name, value string) bool {
 	want := strings.TrimSuffix(name, ".")
 	wantValue := strings.TrimSuffix(value, ".")
@@ -1094,8 +1044,7 @@ func handleACMListCertificates(w http.ResponseWriter, r *http.Request) {
 		MaxItems            int      `json:"MaxItems"`
 		NextToken           string   `json:"NextToken"`
 	}
-	// Body is optional for ListCertificates; an empty body is tolerated, but a
-	// malformed body is rejected rather than silently treated as no filter.
+	// Accept an empty body, but reject a malformed one.
 	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
@@ -1215,9 +1164,7 @@ func handleACMListTags(w http.ResponseWriter, r *http.Request) {
 
 type acmImportCertificateReq struct {
 	CertificateArn string `json:"CertificateArn,omitempty"`
-	// The SDK encodes these blob members as base64 on the wire and
-	// json.Unmarshal decodes them back into raw []byte — storing the PEM
-	// bytes verbatim so GetCertificate / ExportCertificate round-trip.
+	// The SDK base64-encodes these blob members; json.Unmarshal decodes them.
 	Certificate      []byte   `json:"Certificate"`
 	PrivateKey       []byte   `json:"PrivateKey"`
 	CertificateChain []byte   `json:"CertificateChain,omitempty"`
@@ -1254,7 +1201,7 @@ func handleACMImportCertificate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := acmEpochNow()
-	// If CertificateArn is provided, this is an update — replace in place.
+	// A CertificateArn makes this a re-import that replaces in place.
 	id := acmARNToID(req.CertificateArn)
 	if id == "" {
 		id = acmRandomID()
@@ -1288,8 +1235,7 @@ func handleACMImportCertificate(w http.ResponseWriter, r *http.Request) {
 		Issuer:                   certificate.Issuer.String(),
 		CertificateKeyPairOrigin: "CUSTOMER_PROVIDED",
 	}
-	// Preserve any tags from a prior import when this is a re-import
-	// (CertificateArn supplied) and the caller omits tags.
+	// A re-import that omits Tags keeps the existing ones.
 	tags := req.Tags
 	if prior, ok := acmCertificates.Get(id); ok && len(tags) == 0 {
 		tags = prior.Tags
@@ -1481,11 +1427,8 @@ func handleACMRenewCertificate(w http.ResponseWriter, r *http.Request) {
 	acmWriteJSON(w, http.StatusOK, struct{}{})
 }
 
-// acmCertExistsInRegion checks whether the given certificate ARN exists
-// AND was issued in the named region. Returns (true, true) only if both
-// hold. (false, false) for missing; (true, false) for region-mismatch.
-// Used by cloudfront.go to enforce the us-east-1 pin on
-// ViewerCertificate.ACMCertificateArn references.
+// acmCertExistsInRegion reports whether the certificate exists and whether its
+// ARN names requireRegion; Amazon CloudFront requires us-east-1.
 func acmCertExistsInRegion(arn, requireRegion string) (exists bool, regionMatch bool) {
 	id := acmARNToID(arn)
 	if id == "" {
@@ -1494,7 +1437,6 @@ func acmCertExistsInRegion(arn, requireRegion string) (exists bool, regionMatch 
 	if _, ok := acmCertificates.Get(id); !ok {
 		return false, false
 	}
-	// ARN form: arn:aws:acm:<region>:<account>:certificate/<id>
 	parts := strings.Split(arn, ":")
 	if len(parts) < 4 {
 		return true, false
@@ -1502,14 +1444,10 @@ func acmCertExistsInRegion(arn, requireRegion string) (exists bool, regionMatch 
 	return true, parts[3] == requireRegion
 }
 
-// handleACMListCertificateDomainValidations lists a certificate's domain
-// validations. AWS added the operation as a paginated read beside
-// DescribeCertificate, which carries the same validations inline: this answers
-// from the certificate's own DomainValidationOptions, so the two views can
-// never disagree. The summary splits each validation into the configuration
-// the request asked for and the one currently in force, which are the same
-// configuration for a certificate whose validation method has not been
-// changed.
+// handleACMListCertificateDomainValidations answers from the certificate's own
+// DomainValidationOptions, so it never disagrees with DescribeCertificate.
+// Requested and in-force configuration coincide until the validation method
+// changes.
 func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CertificateArn string `json:"CertificateArn"`
@@ -1577,9 +1515,9 @@ func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Re
 	acmWriteJSON(w, http.StatusOK, out)
 }
 
-// acmCertificateKeyPairOrigin is who made a certificate's key pair. A record
-// written before the origin was stored carries its type instead: an imported
-// certificate brought its own key, and ACM made every other.
+// acmCertificateKeyPairOrigin derives the origin from the type for a record
+// stored without one: an imported certificate brought its own key, and AWS
+// Certificate Manager made every other.
 func acmCertificateKeyPairOrigin(cert ACMCertificate) string {
 	if cert.CertificateKeyPairOrigin != "" {
 		return cert.CertificateKeyPairOrigin

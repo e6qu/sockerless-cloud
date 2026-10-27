@@ -6,14 +6,11 @@ import (
 	"testing"
 )
 
-// runCLIIgnore runs a cleanup CLI command and ignores any error — used in
-// deferred teardown where the resource may already be gone.
+// runCLIIgnore runs a cleanup command whose resource may already be gone.
 func runCLIIgnore(cmd *exec.Cmd) {
 	_ = cmd.Run()
 }
 
-// TestOrganizationsCLI_DescribeAndList exercises the Organizations slice over the
-// aws CLI (describe-organization / list-accounts / list-roots).
 func TestOrganizationsCLI_DescribeAndList(t *testing.T) {
 	out := runCLI(t, awsCLI("organizations", "describe-organization", "--output", "json"))
 	var desc struct {
@@ -49,10 +46,6 @@ func orgCLIRootID(t *testing.T) string {
 	return roots.Roots[0].Id
 }
 
-// TestOrganizationsCLI_OUTreeAndAccounts covers create/describe/update/list/delete
-// OUs, create-account + status, describe-account, list-accounts-for-parent,
-// list-children, list-parents, move-account, close-account,
-// remove-account-from-organization.
 func TestOrganizationsCLI_OUTreeAndAccounts(t *testing.T) {
 	root := orgCLIRootID(t)
 
@@ -137,9 +130,6 @@ func TestOrganizationsCLI_OUTreeAndAccounts(t *testing.T) {
 	runCLI(t, awsCLI("organizations", "remove-account-from-organization", "--account-id", acctID, "--output", "json"))
 }
 
-// TestOrganizationsCLI_Policies covers create/describe/update/list policy,
-// attach/detach, list-policies-for-target, list-targets-for-policy,
-// enable/disable-policy-type, describe-effective-policy, delete-policy.
 func TestOrganizationsCLI_Policies(t *testing.T) {
 	root := orgCLIRootID(t)
 	content := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"ec2:*","Resource":"*"}]}`
@@ -185,18 +175,15 @@ func TestOrganizationsCLI_Policies(t *testing.T) {
 		t.Fatalf("list-targets-for-policy missing root target: %s", tfpOut)
 	}
 
-	// A service control policy has no effective form: EffectivePolicyType is a
-	// narrower enum than PolicyType, because an SCP is evaluated as an
-	// intersection along the path rather than merged into one document. Asking
-	// for one is refused.
+	// A service control policy has no effective form: AWS evaluates SCPs as an
+	// intersection along the path rather than merging them, so
+	// EffectivePolicyType omits them and the request is refused.
 	scpEffective := runCLIExpectError(t, awsCLI("organizations", "describe-effective-policy",
 		"--policy-type", "SERVICE_CONTROL_POLICY", "--target-id", root, "--output", "json"))
 	if !strings.Contains(scpEffective, "InvalidInputException") {
 		t.Fatalf("describe-effective-policy for a service control policy must be refused as InvalidInputException: %s", scpEffective)
 	}
 
-	// A tag policy does have one, and it resolves to the content attached to
-	// this target.
 	tagContent := `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"}}}}`
 	tagOut := runCLI(t, awsCLI("organizations", "create-policy", "--name", "CLITagCostCenter",
 		"--description", "requires a cost centre tag key", "--type", "TAG_POLICY",
@@ -211,8 +198,7 @@ func TestOrganizationsCLI_Policies(t *testing.T) {
 	parseJSON(t, tagOut, &tagPolicy)
 	tagPolicyID := tagPolicy.Policy.PolicySummary.Id
 
-	// A policy governs a target only once its type is enabled in the root, so
-	// attaching one of a type nobody enabled is refused.
+	// A policy governs a target only once its type is enabled in the root.
 	notEnabled := runCLIExpectError(t, awsCLI("organizations", "attach-policy",
 		"--policy-id", tagPolicyID, "--target-id", root))
 	if !strings.Contains(notEnabled, "PolicyTypeNotEnabledException") {
@@ -239,7 +225,6 @@ func TestOrganizationsCLI_Policies(t *testing.T) {
 	runCLI(t, awsCLI("organizations", "disable-policy-type", "--root-id", root, "--policy-type", "TAG_POLICY", "--output", "json"))
 }
 
-// TestOrganizationsCLI_Handshakes covers invite/describe/list/accept/decline/cancel.
 func TestOrganizationsCLI_Handshakes(t *testing.T) {
 	invOut := runCLI(t, awsCLI("organizations", "invite-account-to-organization", "--target", "Id=cli-invitee@sim.invalid,Type=EMAIL", "--output", "json"))
 	var inv struct {
@@ -290,9 +275,6 @@ func TestOrganizationsCLI_Handshakes(t *testing.T) {
 	}
 }
 
-// TestOrganizationsCLI_DelegatedAdminAndServiceAccess covers
-// enable/disable/list AWS service access and register/deregister/list delegated
-// administrators + list-delegated-services-for-account.
 func TestOrganizationsCLI_DelegatedAdminAndServiceAccess(t *testing.T) {
 	sp := "guardduty.amazonaws.com"
 
@@ -323,7 +305,6 @@ func TestOrganizationsCLI_DelegatedAdminAndServiceAccess(t *testing.T) {
 	runCLI(t, awsCLI("organizations", "disable-aws-service-access", "--service-principal", sp))
 }
 
-// TestOrganizationsCLI_ResourcePolicy covers put/describe/delete-resource-policy.
 func TestOrganizationsCLI_ResourcePolicy(t *testing.T) {
 	content := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"organizations:DescribeOrganization","Resource":"*"}]}`
 	putOut := runCLI(t, awsCLI("organizations", "put-resource-policy", "--content", content, "--output", "json"))
@@ -339,7 +320,6 @@ func TestOrganizationsCLI_ResourcePolicy(t *testing.T) {
 	runCLIExpectError(t, awsCLI("organizations", "describe-resource-policy", "--output", "json"))
 }
 
-// TestOrganizationsCLI_Tags covers tag-resource, list-tags-for-resource, untag-resource.
 func TestOrganizationsCLI_Tags(t *testing.T) {
 	cpOut := runCLI(t, awsCLI("organizations", "create-policy", "--name", "CLITagged", "--description", "tagged", "--type", "SERVICE_CONTROL_POLICY",
 		"--content", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`, "--output", "json"))
@@ -372,12 +352,10 @@ func TestOrganizationsCLI_EnableAllFeatures(t *testing.T) {
 	}
 }
 
-// TestOrganizationsCLI_zzCreateDeleteOrganization covers delete-organization and
-// create-organization, restoring the default org before returning so reruns and
-// other suites still see it. In between it pins the organization-less account's
-// contract — the sequence the console's AWS accounts page drives: list-accounts
-// answers AWSOrganizationsNotInUseException until create-organization runs, then
-// lists the management account again.
+// TestOrganizationsCLI_zzCreateDeleteOrganization deletes and recreates the
+// organization, restoring the default for reruns and other suites. Between
+// the two, list-accounts answers AWSOrganizationsNotInUseException, the
+// sequence the console's AWS accounts page drives.
 func TestOrganizationsCLI_zzCreateDeleteOrganization(t *testing.T) {
 	runCLI(t, awsCLI("organizations", "delete-organization"))
 	runCLIExpectError(t, awsCLI("organizations", "describe-organization", "--output", "json"))

@@ -220,7 +220,6 @@ func (q *Queue[P]) Available(m Message[P], pol Policy, now time.Time) bool {
 	return q.availableAt(m, pol) <= ms(now)
 }
 
-// ReceiveOpts are the options of Receive.
 type ReceiveOpts[P any] struct {
 	Max   int
 	Lease time.Duration
@@ -331,9 +330,9 @@ func (q *Queue[P]) ByID(id string) *Message[P] {
 	return nil
 }
 
-// Extend moves the lease a receipt names to end d from now. found reports
-// whether the receipt names a message; held whether its lease was still live.
-// Only a live lease is moved.
+// Extend moves the lease a receipt names to end d from now, and only a live
+// one. found reports whether the receipt names a message; held whether its
+// lease was still live.
 func (q *Queue[P]) Extend(receipt string, d time.Duration, pol Policy, now time.Time) (m Message[P], found, held bool) {
 	i := q.index(receipt, pol, now)
 	if i < 0 {

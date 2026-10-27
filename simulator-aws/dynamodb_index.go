@@ -7,17 +7,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ddbIndexEntries holds one entry for every item a secondary index holds,
-// keyed "<table>#<index>/<index hash>\x01[<index range>\x01]<base key>" with
-// the item's store key as its value. Its keys use the ordered key encoding, so
-// an index query reads its partition as a range and in index sort-key order,
-// and the base key at the end keeps two items with one index key apart. An
-// item without the index's key attributes has no entry: the index is sparse,
-// as DynamoDB's are. The entries are derived from the items, so they are kept
-// in memory and rebuilt at startup.
+// One entry per item an index holds, keyed
+// "<table>#<index>/<index hash>\x01[<index range>\x01]<base key>" with the
+// item's store key as value. The ordered key encoding lets a query read a
+// partition as a range in index sort-key order; the trailing base key keeps
+// items sharing an index key apart. An item lacking the index's key
+// attributes has no entry, so the index is sparse, as DynamoDB's are. Entries
+// derive from items, so they live in memory and rebuild at startup.
 var ddbIndexEntries sim.Store[string] = sim.NewStateStore[string]()
 
-// ddbIndex is a global or local secondary index as a query reads it.
 type ddbIndex struct {
 	name       string
 	keySchema  []DDBKeySchemaEntry
@@ -46,8 +44,7 @@ func ddbIndexByName(t DDBTable, name string) (ddbIndex, bool) {
 
 func ddbIndexPrefix(table, index string) string { return table + "#" + index + "/" }
 
-// ddbIndexEntryKey is item's entry in index, or false when the item lacks one
-// of the index's key attributes and so is not in the index.
+// false when the item lacks an index key attribute and so is not in the index.
 func ddbIndexEntryKey(t DDBTable, index ddbIndex, item map[string]any) (string, bool) {
 	var hash, rng string
 	for _, k := range index.keySchema {
@@ -69,8 +66,7 @@ func ddbIndexEntryKey(t DDBTable, index ddbIndex, item map[string]any) (string, 
 	return key + strings.TrimPrefix(ddbItemKey(t, item), t.TableName+"/"), true
 }
 
-// ddbReindexItem moves an item's index entries from its old version to its new
-// one; either may be absent.
+// Either version may be absent.
 func ddbReindexItem(t DDBTable, key string, old map[string]any, hadOld bool, updated map[string]any, hasUpdated bool) {
 	for _, index := range ddbIndexes(t) {
 		if hadOld {
@@ -86,8 +82,8 @@ func ddbReindexItem(t DDBTable, key string, old map[string]any, hadOld bool, upd
 	}
 }
 
-// ddbPutItem and ddbDeleteItem are the only writers of items: each keeps the
-// item, its name and its index entries together.
+// ddbPutItem and ddbDeleteItem are the only item writers; each keeps the item,
+// its name and its index entries together.
 func ddbPutItem(t DDBTable, key string, item map[string]any) {
 	old, hadOld := ddbItems.Get(key)
 	ddbItems.Put(key, item)
@@ -102,8 +98,7 @@ func ddbDeleteItem(t DDBTable, key string) {
 	ddbReindexItem(t, key, old, hadOld, nil, false)
 }
 
-// ddbRebuildTableIndexes derives a table's index entries from its items, as a
-// new index is backfilled and as the entries are rebuilt at startup.
+// Backfills a new index and rebuilds entries at startup.
 func ddbRebuildTableIndexes(t DDBTable) {
 	ddbDropTableIndexes(t.TableName)
 	for _, key := range ddbTableSortedKeys(t.TableName + "/") {
@@ -119,9 +114,8 @@ func ddbDropTableIndexes(table string) {
 	}
 }
 
-// ddbIndexCandidateKeys returns the item keys a query or scan on index
-// examines, in index order: the partition the key condition fixes, or the
-// whole index, resumed after exclusiveStart and walked in the direction asked.
+// The partition the key condition fixes, or the whole index, resumed after
+// exclusiveStart in the direction asked.
 func ddbIndexCandidateKeys(t DDBTable, index ddbIndex, keyExpr *ddbCompiledExpr, exclusiveStart map[string]any, forward bool) []string {
 	prefix := ddbIndexPrefix(t.TableName, index.name)
 	if keyExpr != nil {
@@ -158,8 +152,7 @@ func ddbIndexCandidateKeys(t DDBTable, index ddbIndex, keyExpr *ddbCompiledExpr,
 	return keys
 }
 
-// ddbIndexLastEvaluatedKey is the resume key of a page read from an index: the
-// table's key attributes and the index's.
+// The table's key attributes and the index's.
 func ddbIndexLastEvaluatedKey(t DDBTable, index ddbIndex, item map[string]any) map[string]any {
 	out := ddbExtractKey(t, item)
 	for _, k := range index.keySchema {
@@ -170,9 +163,8 @@ func ddbIndexLastEvaluatedKey(t DDBTable, index ddbIndex, item map[string]any) m
 	return out
 }
 
-// ddbProjectToIndex keeps the attributes an index projects: its keys and the
-// table's for KEYS_ONLY, those and the named attributes for INCLUDE, all for
-// ALL. A query or scan on the index returns only these.
+// KEYS_ONLY keeps the index's and table's keys, INCLUDE adds the named
+// attributes, ALL keeps everything.
 func ddbProjectToIndex(t DDBTable, index ddbIndex, item map[string]any) map[string]any {
 	if index.projection == nil || index.projection.ProjectionType == "" || index.projection.ProjectionType == "ALL" {
 		return item
@@ -198,9 +190,8 @@ func ddbProjectToIndex(t DDBTable, index ddbIndex, item map[string]any) map[stri
 	return out
 }
 
-// ddbScanSegment is the parallel-scan segment an item belongs to, from its
-// table and partition key alone, so every item of a partition is in one
-// segment and an item stays in its segment as others come and go.
+// Derive the segment from table and partition key alone, so a partition stays
+// in one segment as items come and go.
 func ddbScanSegment(itemKey string, total int) int {
 	partition, _, _ := strings.Cut(itemKey, ddbKeySeparator)
 	hash := fnv.New32a()

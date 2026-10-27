@@ -25,8 +25,8 @@ provider "aws" {
   }
 }
 
-# The instance's profile lets SSM Agent register it as a managed node, as
-# AmazonSSMManagedInstanceCore does on AWS.
+# The instance profile lets SSM Agent register the instance as a managed node,
+# as AmazonSSMManagedInstanceCore does on AWS.
 resource "aws_iam_role" "ssm" {
   name = "tf-ec2-instance-ssm"
   assume_role_policy = jsonencode({
@@ -57,8 +57,6 @@ resource "aws_iam_instance_profile" "ssm" {
   role = aws_iam_role.ssm.name
 }
 
-# The published Amazon Linux 2023 AMI, selected the way an operator selects
-# it on AWS: by owner and name pattern, newest first.
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -97,8 +95,6 @@ resource "aws_instance" "golden" {
   }
 }
 
-# Run Command reaches the instance once SSM Agent registered it as a managed
-# node under its profile's role.
 resource "aws_ssm_association" "golden" {
   name = "AWS-RunShellScript"
 
@@ -116,7 +112,6 @@ output "association_id" {
   value = aws_ssm_association.golden.association_id
 }
 
-# An AMI captured from the running instance, which a second instance boots.
 resource "aws_ami_from_instance" "golden" {
   name               = "golden-from-instance"
   source_instance_id = aws_instance.golden.id

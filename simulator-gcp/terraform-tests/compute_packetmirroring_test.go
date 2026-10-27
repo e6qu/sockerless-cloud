@@ -8,16 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The HashiCorp Google provider applies a packet mirroring policy together with
-// the collector chain the resource defines: an INTERNAL forwarding rule in
-// front of a regional backend service whose backend is an instance group. That
-// chain is what the simulator resolves to decide where mirrored traffic is
-// delivered, so applying it through the provider is what proves the resource is
-// wired the way a real operator writes it.
-//
-// It stands apart from the monolithic apply because it needs no booted guest:
-// the collector group is empty here, and the policy is a control-plane
-// assertion.
+// TestTerraformComputePacketMirroringApplyDestroy applies a packet mirroring
+// policy with the collector chain the simulator resolves to deliver mirrored
+// traffic: an INTERNAL forwarding rule in front of a regional backend service
+// over an instance group. The group is empty, so the test needs no booted
+// guest and runs apart from the monolithic apply.
 func TestTerraformComputePacketMirroringApplyDestroy(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`
@@ -141,8 +136,7 @@ resource "google_compute_packet_mirroring" "main" {
 	require.NoError(t, err, "%s", out)
 
 	// A second plan must be empty: a member the simulator drops or renames on
-	// read-back shows up here as perpetual drift, which is how a policy that
-	// looks applied silently stops matching what the operator wrote.
+	// read-back surfaces as perpetual drift.
 	out, err = runTimed(t, "terraform plan packet mirroring",
 		terraformCmdInDir(dir, "plan", "-detailed-exitcode"))
 	require.NoError(t, err, "packet mirroring re-plan is not empty:\n%s", out)

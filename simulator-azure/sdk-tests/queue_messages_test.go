@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestQueueSDK_MessageTimeToLiveAndInitialVisibility drives Put Message's
-// messagettl and visibilitytimeout: the expiration the service reports is the
-// requested time to live, a message put invisible is not dequeued or peeked,
-// and the pop receipt Put Message returns deletes it.
+// TestQueueSDK_MessageTimeToLiveAndInitialVisibility: the reported expiration is
+// the requested messagettl, a message put with a visibilitytimeout is neither
+// dequeued nor peeked, and Put Message's pop receipt deletes it.
 func TestQueueSDK_MessageTimeToLiveAndInitialVisibility(t *testing.T) {
 	t.Parallel()
 	const (

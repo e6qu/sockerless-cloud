@@ -166,10 +166,8 @@ func handleAssociateAddress(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidAllocationID.NotFound", fmt.Sprintf("The allocation ID '%s' does not exist", allocId), http.StatusBadRequest)
 		return
 	}
-	// When associating to an instance without an explicit private IP, real AWS
-	// uses the instance's primary private address — read it back for fidelity.
-	// A supplied-but-unknown instance is a real InvalidInstanceID.NotFound, not
-	// a silently-accepted association to a non-existent instance.
+	// Without a private IP, use the instance's primary private address. An
+	// unknown instance is InvalidInstanceID.NotFound.
 	if instanceId != "" {
 		inst, ok := ec2Instances.Get(instanceId)
 		if !ok {
@@ -341,8 +339,8 @@ func handleDescribeAddressesAttribute(w http.ResponseWriter, r *http.Request) {
 func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 	subnetId := r.FormValue("SubnetId")
 	allocId := r.FormValue("AllocationId")
-	// connectivity_type is ForceNew in the provider; it defaults to "public"
-	// when omitted (matching real AWS) and must round-trip through Describe.
+	// connectivity_type is ForceNew in the provider; it defaults to "public" and
+	// must round-trip through Describe.
 	connectivityType := r.FormValue("ConnectivityType")
 	if connectivityType == "" {
 		connectivityType = "public"
@@ -365,9 +363,8 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 	tags := parseTags(r)
 	id := ec2ID("nat")
 
-	// A missing subnet is a real InvalidSubnetID.NotFound (not the downstream
-	// InsufficientFreeAddressesInSubnet that AllocateSubnetIP would otherwise
-	// surface), and the NAT gateway's VpcId comes from the subnet.
+	// A missing subnet is InvalidSubnetID.NotFound, not the
+	// InsufficientFreeAddressesInSubnet AllocateSubnetIP would raise.
 	s, ok := ec2Subnets.Get(subnetId)
 	if !ok {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", subnetId), http.StatusBadRequest)
@@ -406,9 +403,8 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 		CreateTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	ec2NatGateways.Put(id, natgw)
-	// The gateway's data plane runs on the VPC's network, from now on when
-	// the network is up and with the network otherwise, and a subnet already
-	// routed to the gateway's id leaves through it.
+	// Start the data plane now when the VPC network is up, otherwise with the
+	// network; a subnet already routed to the gateway's id leaves through it.
 	if network, ok := ec2VPCNetworkUp(vpcId); ok {
 		if err := ec2EnsureNatGatewayEgress(r.Context(), natgw, network); err != nil {
 			ec2NatGateways.Delete(id)
@@ -428,10 +424,8 @@ func writeCreateNatGatewayResponse(w http.ResponseWriter, natgw EC2NatGateway) {
 </CreateNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), natgwBodyXML(natgw))
 }
 
-// natgwAddrSetXML renders the natGatewayAddressSet shared by CreateNatGateway,
-// DescribeNatGateways and the address operations. A regional gateway's
-// address carries its zone, and the network interface and private address
-// of the gateway in that zone once the zone has a subnet to hold them.
+// A regional gateway's address carries its zone, plus the zone's network
+// interface and private address once the zone has a subnet.
 func natgwAddrSetXML(natgw EC2NatGateway) string {
 	var b strings.Builder
 	b.WriteString("<natGatewayAddressSet>")
@@ -467,8 +461,7 @@ func natgwAddrSetXML(natgw EC2NatGateway) string {
 	return b.String()
 }
 
-// ec2NatConnectivityType defaults to "public" for gateways stored before the
-// field existed, matching real AWS's default for omitted connectivity_type.
+// Rows stored before the field existed default to "public", as AWS does.
 func ec2NatConnectivityType(n EC2NatGateway) string {
 	if n.ConnectivityType == "" {
 		return "public"
@@ -476,8 +469,8 @@ func ec2NatConnectivityType(n EC2NatGateway) string {
 	return n.ConnectivityType
 }
 
-// ec2NatAvailabilityMode reads a gateway stored before the field existed as
-// zonal, which every gateway placed in a subnet is.
+// Rows stored before the field existed are zonal, as every gateway placed in
+// a subnet is.
 func ec2NatAvailabilityMode(n EC2NatGateway) string {
 	if n.AvailabilityMode == "" {
 		return "zonal"
@@ -485,8 +478,8 @@ func ec2NatAvailabilityMode(n EC2NatGateway) string {
 	return n.AvailabilityMode
 }
 
-// natgwBodyXML renders a NatGateway's members. A regional gateway has no
-// subnet and reports how it manages its zones and addresses.
+// A regional gateway has no subnet and reports how it manages zones and
+// addresses.
 func natgwBodyXML(n EC2NatGateway) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<natGatewayId>%s</natGatewayId>", n.NatGatewayId)
@@ -499,8 +492,8 @@ func natgwBodyXML(n EC2NatGateway) string {
 		fmt.Fprintf(&b, "<failureCode>%s</failureCode><failureMessage>%s</failureMessage>", n.FailureCode, n.FailureMessage)
 	}
 	if ec2NatAvailabilityMode(n) == "regional" {
-		// The model documents routeTableId as "For regional NAT gateways
-		// only, this is the ID of the NAT gateway."
+		// The model: routeTableId is "For regional NAT gateways only, this is the ID
+		// of the NAT gateway."
 		fmt.Fprintf(&b, "<autoProvisionZones>%s</autoProvisionZones><autoScalingIps>%s</autoScalingIps><routeTableId>%s</routeTableId>",
 			n.AutoProvisionZones, n.AutoScalingIps, n.NatGatewayId)
 	}
@@ -556,8 +549,6 @@ func handleDeleteNatGateway(w http.ResponseWriter, r *http.Request) {
 </DeleteNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), id)
 }
 
-// ec2NatGatewayMatchesFilters applies the DescribeNatGateways filter set
-// (previously only vpc-id was honored).
 func ec2NatGatewayMatchesFilters(n EC2NatGateway, filters map[string][]string) bool {
 	for name, vals := range filters {
 		switch name {

@@ -29,9 +29,9 @@ type EngineBuild struct {
 	// Context returns the build context for an architecture ("amd64",
 	// "arm64"), its Dockerfile included.
 	Context func(arch string) (map[string][]byte, error)
-	// Bases are the images the Dockerfile's FROM lines name. They are pulled
-	// first, with the retries a registry's throttle needs, so the build finds
-	// them held.
+	// Bases are the images the Dockerfile's FROM lines name. EnsureEngineBuild
+	// pulls them first, with the retries a registry's throttle needs, so the
+	// build finds them held.
 	Bases []string
 }
 

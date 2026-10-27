@@ -49,8 +49,7 @@ type kqlCall struct {
 	args []kqlExpr
 }
 
-// kqlMember is a dynamic value's property or element: x.name, x["name"] or
-// x[index].
+// x.name, x["name"] or x[index].
 type kqlMember struct {
 	pos int
 	x   kqlExpr
@@ -66,8 +65,8 @@ func (e kqlBetween) position() int    { return e.pos }
 func (e kqlCall) position() int       { return e.pos }
 func (e kqlMember) position() int     { return e.pos }
 
-// kqlAssignment is one `Name = expr` (or bare `expr`) item of project, extend,
-// summarize or distinct.
+// One `Name = expr` or bare `expr` item of project, extend, summarize or
+// distinct.
 type kqlAssignment struct {
 	name string // empty when the item names no column
 	expr kqlExpr
@@ -124,7 +123,6 @@ func (kqlCountOp) operatorName() string         { return "count" }
 func (kqlSummarizeOp) operatorName() string     { return "summarize" }
 func (kqlDistinctOp) operatorName() string      { return "distinct" }
 
-// kqlQuery is a tabular expression: a table and the operators piped after it.
 type kqlQuery struct {
 	table string
 	ops   []kqlOperator
@@ -136,9 +134,8 @@ type kqlParser struct {
 	i    int
 }
 
-// parseKQL parses a query into its source table and the tabular operators
-// applied to it. An operator, function or token the engine does not know is a
-// syntax error rather than something skipped.
+// An operator, function or token the engine does not know is a syntax error,
+// not something skipped.
 func parseKQL(src string) (kqlQuery, *kqlError) {
 	toks, err := lexKQL(src)
 	if err != nil {
@@ -400,7 +397,6 @@ func (p *kqlParser) parseSortKey() (kqlSortKey, *kqlError) {
 	return key, nil
 }
 
-// parseAssignments reads a comma-separated list of `Name = expr` or `expr`.
 func (p *kqlParser) parseAssignments() ([]kqlAssignment, *kqlError) {
 	var items []kqlAssignment
 	for {
@@ -706,8 +702,7 @@ func (p *kqlParser) parseAtom() (kqlExpr, *kqlError) {
 	return nil, p.fail(t)
 }
 
-// kqlReservedWords cannot name a column without bracket quoting, so meeting
-// one where an expression belongs is a syntax error.
+// A reserved word cannot name a column without bracket quoting.
 var kqlReservedWords = map[string]bool{
 	"and": true, "or": true, "by": true, "asc": true, "desc": true, "nulls": true,
 	"where": true, "project": true, "extend": true, "summarize": true, "take": true,
@@ -715,9 +710,8 @@ var kqlReservedWords = map[string]bool{
 	"let": true, "in": true, "between": true, "has": true, "contains": true,
 }
 
-// parseKQLDatetime reads the content of a datetime() literal in the forms
-// Kusto accepts: ISO 8601 with or without a zone, a date alone, and a date and
-// time separated by a space.
+// ISO 8601 with or without a zone, a date alone, or a date and time separated
+// by a space.
 func parseKQLDatetime(s string) (time.Time, bool) {
 	for _, layout := range []string{
 		time.RFC3339Nano,

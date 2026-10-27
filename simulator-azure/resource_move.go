@@ -7,42 +7,29 @@ import (
 )
 
 // Cross-resource-group move dispatch for Resources_MoveResources and
-// Resources_ValidateMoveResources. Each provider slice that supports moving a
-// top-level resource type registers a hook here, so the Microsoft.Resources
-// handler (resourcesarm.go) stays provider-agnostic and a new movable family
-// is one registration plus its re-keying function. A type with no hook
-// answers ARM's ResourceMoveNotSupported — which is also the truthful answer
-// for the types real Azure Resource Manager refuses to move across resource
-// groups (Azure Container Instances container groups among them).
+// Resources_ValidateMoveResources. Each slice registers a hook per movable
+// top-level type, so resourcesarm.go stays provider-agnostic. A type with no
+// hook answers ResourceMoveNotSupported, which is also Azure's answer for the
+// types it refuses to move (Azure Container Instances container groups among
+// them).
 
-// resourceMoveHook is one resource type's participation in a cross-group
-// move: the validate spelling runs exists, the move spelling runs exists then
-// move.
+// The validate spelling runs exists; the move spelling runs exists, then move.
 type resourceMoveHook struct {
-	// exists reports whether resID names a live resource — the pre-flight
-	// check both the validate and the move spellings run.
 	exists func(resID string) bool
-	// supported, when set, decides per resource whether Azure Resource Manager
-	// moves this particular one. Most types are movable or not as a whole, and
-	// leave it nil; a Microsoft.Network private endpoint is movable only when
-	// the private-link resource it connects to is one of the types Azure lists
-	// as supporting the move, so it answers here instead. The string is the
-	// reason ARM's ResourceMoveNotSupported message carries.
+	// supported decides per resource when movability is not a property of the
+	// type: a private endpoint moves only when its private-link resource is a type
+	// Azure lists as supporting the move. The string is the
+	// ResourceMoveNotSupported message's reason. Nil for most types.
 	supported func(resID string) (bool, string)
-	// move re-homes the resource, and everything stored beneath it, from
-	// oldID onto newID; targetRG is the destination resource-group name the
-	// new ID carries, for rows that record the group by name.
+	// targetRG is the destination group's name, for rows that record the group by
+	// name.
 	move func(oldID, newID, targetRG string)
 }
 
-// resourceMoveHooks maps the lowercased "provider/type" key of a movable
-// top-level resource type to its hook.
-//
-// Most hooks are seeded statically: their stores are package-level variables
-// and the closures read them at request time, after every register function
-// has run. A slice whose stores are locals of its register function registers
-// its hook there via registerResourceMoveHook, as Microsoft.Storage does in
-// registerStorageAccounts.
+// Keyed by lowercased "provider/type". Hooks over package-level stores are
+// seeded here and read the stores at request time; a slice whose stores are
+// locals registers through registerResourceMoveHook, as registerStorageAccounts
+// does.
 var resourceMoveHooks = map[string]resourceMoveHook{
 	"microsoft.web/sites": {
 		exists: func(id string) bool { _, ok := azfSites.Get(id); return ok },
@@ -110,19 +97,15 @@ var resourceMoveHooks = map[string]resourceMoveHook{
 	},
 }
 
-// registerResourceMoveHook adds one resource type's move hook to the dispatch
-// table. Register functions call it while the server is being built, before
-// it serves requests, so the map needs no locking. Registration overwrites:
-// buildSimulator can run more than once in one process (the in-process test
-// servers do), and each build re-registers its hooks over the previous
-// build's, exactly as the package-level store variables are reassigned.
+// Register functions call this before the server serves, so the map needs no
+// lock. A later registration overwrites: buildSimulator can run more than once
+// in one process, as the in-process test servers do.
 func registerResourceMoveHook(typeKey string, hook resourceMoveHook) {
 	resourceMoveHooks[strings.ToLower(typeKey)] = hook
 }
 
-// rekeyRowsByPrefix re-keys every row whose ID starts with oldPrefix onto
-// newPrefix. The id accessor returns a pointer to the row's ID member so the
-// helper both filters on it and rewrites it in place.
+// id returns a pointer to the row's ID member, so the helper filters on it and
+// rewrites it in place.
 func rekeyRowsByPrefix[T any](store sim.Store[T], oldPrefix, newPrefix string, id func(*T) *string) {
 	rows := store.Filter(func(row T) bool { return strings.HasPrefix(*id(&row), oldPrefix) })
 	for _, row := range rows {
@@ -133,8 +116,7 @@ func rekeyRowsByPrefix[T any](store sim.Store[T], oldPrefix, newPrefix string, i
 	}
 }
 
-// rekeyEntry re-homes one key-addressed record (a store whose rows carry no
-// ID member of their own).
+// For a store whose rows carry no ID member.
 func rekeyEntry[T any](store sim.Store[T], oldKey, newKey string) {
 	if row, ok := store.Get(oldKey); ok {
 		store.Delete(oldKey)
@@ -142,25 +124,12 @@ func rekeyEntry[T any](store sim.Store[T], oldKey, newKey string) {
 	}
 }
 
-// azureRepointMovedResource re-homes everything the hooks do not address by
-// name: every row any slice stores beneath the moved resource ID, and every
-// reference any resource anywhere holds to it.
-//
-// An Azure Resource Manager resource ID is an address, and a resource that
-// names another one stores that address verbatim — a private endpoint's
-// privateLinkServiceId, a network interface's subnet id, an Azure Cache for
-// Redis linked server's linkedRedisCacheId, an Event Grid system topic's source
-// and metricResourceId, an event subscription's destination resourceId. A move
-// that re-keyed only the moved records
-// would leave every one of those pointing at an address nothing answers to, so
-// the fabric would silently break. The pass walks the stores this build created
-// (sim.TrackedStores) and rewrites both halves: a stored key that is the moved
-// ID or sits beneath it, and any string that names the moved ID at a resource-ID
-// boundary.
-//
-// Scanning every store rather than a hand-listed set is deliberate: a reference
-// missed because a slice was added after the list was written is a silent
-// correctness hole, and the set of stores is exactly what the simulator built.
+// azureRepointMovedResource re-homes every row stored beneath the moved ID and
+// rewrites every reference any resource holds to it — a private endpoint's
+// privateLinkServiceId, an interface's subnet ID, a Redis linked server's
+// linkedRedisCacheId, a system topic's source. It scans every store this build
+// created (sim.TrackedStores) rather than a hand-listed set, so a slice added
+// later cannot be missed.
 func azureRepointMovedResource(oldID, newID string) {
 	rekey := func(key string) string { return azureRepointStoreKey(key, oldID, newID) }
 	edit := func(value string) string { return azureRepointReference(value, oldID, newID) }
@@ -169,18 +138,10 @@ func azureRepointMovedResource(oldID, newID string) {
 	}
 }
 
-// azureRepointStoreKey re-homes a store key that addresses the moved resource
-// or a row stored beneath it. Azure Resource Manager compares resource IDs
-// case-insensitively, so the match is case-folded while the key keeps the rest
-// of its own spelling.
-//
-// The match requires the moved ID to be the whole key or to be followed by the
-// `/` that starts a child segment, so a key that merely begins with the same
-// characters — a sibling resource whose name extends the moved one's — is left
-// alone. It also leaves the `<resourceID>|<slot>` keys of the key-generation
-// stores alone, which is what carries a credential across a move: those rows
-// are re-homed by pinAzureKeySlots, which pins the material rather than
-// re-deriving it from the new ID.
+// Matched case-insensitively, as Azure Resource Manager compares IDs, keeping
+// the rest of the key's spelling. The moved ID must be the whole key or be
+// followed by `/`, so a sibling whose name extends it is left alone, as are the
+// `<resourceID>|<slot>` key-generation rows, which pinAzureKeySlots carries.
 func azureRepointStoreKey(key, oldID, newID string) string {
 	if len(key) < len(oldID) || !strings.EqualFold(key[:len(oldID)], oldID) {
 		return key
@@ -191,13 +152,9 @@ func azureRepointStoreKey(key, oldID, newID string) string {
 	return key
 }
 
-// azureRepointReference rewrites every reference to the moved resource a stored
-// string holds. A reference is the moved resource ID at a resource-ID boundary:
-// the end of the string, or one of the characters that can follow a resource ID
-// inside a longer value — `/` for a child segment or a URL path, and `?`, `#`
-// or `&` for a URL that embeds the ID in its path. That covers both a bare
-// reference member and any data-plane URL a resource advertises that is built
-// from a resource ID.
+// A reference is the moved ID at a resource-ID boundary: the string's end, `/`
+// for a child segment or URL path, or `?`, `#` or `&` in a URL that embeds the
+// ID, so advertised data-plane URLs are rewritten too.
 func azureRepointReference(value, oldID, newID string) string {
 	at := azureReferenceIndex(value, oldID, 0)
 	if at < 0 {
@@ -216,8 +173,7 @@ func azureRepointReference(value, oldID, newID string) string {
 	return out.String()
 }
 
-// azureReferenceIndex returns the index of the first reference to oldID in
-// value at or after from, or -1 when the string holds none.
+// -1 when the string holds none.
 func azureReferenceIndex(value, oldID string, from int) int {
 	if oldID == "" {
 		return -1
@@ -230,8 +186,7 @@ func azureReferenceIndex(value, oldID string, from int) int {
 	return -1
 }
 
-// azureReferenceEndsAt reports whether a resource ID ending at index i inside
-// value is a complete reference rather than the prefix of a longer name.
+// A complete reference rather than the prefix of a longer name.
 func azureReferenceEndsAt(value string, i int) bool {
 	if i == len(value) {
 		return true

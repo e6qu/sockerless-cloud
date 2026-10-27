@@ -42,10 +42,9 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	// A simulator this process starts must not outlive it. The cleanup
-	// below stops each one, and a killed `go test` never reaches it — so
-	// the simulator watches this pid and exits when it goes. Set here
-	// rather than at each start: every one of them inherits os.Environ().
+	// A killed `go test` never reaches the cleanup that stops the simulators, so
+	// each one watches this pid and exits with it. Every simulator inherits
+	// os.Environ().
 	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
 	noProxy := mergeNoProxy(os.Getenv("NO_PROXY"),
 		"localhost",
@@ -137,7 +136,6 @@ func TestMain(m *testing.M) {
 			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simPort),
 		)
 		gatewayCmd.Stdout = os.Stdout
-		// Own process group, reaped the same way as the simulator.
 		gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
 			if gatewayCmd.Process != nil {
@@ -217,9 +215,9 @@ func startTerraformSimulator() error {
 		"SIM_DATA_DIR="+simDataDir,
 	)
 	simCmd.Stdout = os.Stdout
-	// Own process group so the whole simulator subtree is reaped with one
-	// kill(-pgid) — including on Ctrl-C / the go-test hard-timeout SIGQUIT,
-	// which aborts the binary without running the post-m.Run() cleanup below.
+	// Own process group, so one kill(-pgid) reaps the whole simulator subtree,
+	// also on Ctrl-C and the hard-timeout SIGQUIT that skip the post-m.Run()
+	// cleanup.
 	simCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return simready.Start(simCmd, os.Stderr)
 }
@@ -230,9 +228,8 @@ func restartTerraformSimulator(t *testing.T) {
 	require.NoError(t, startTerraformSimulator())
 }
 
-// reapGroup gives a Setpgid'd subprocess group time to shut down cleanly before
-// forcing it down. The simulator's SIGTERM path removes workload containers
-// and networks, so normal test completion must not bypass it.
+// reapGroup lets a process group shut down before forcing it: the
+// simulator's SIGTERM path removes workload containers and networks.
 func reapGroup(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
@@ -252,9 +249,8 @@ func reapGroup(cmd *exec.Cmd) {
 }
 
 // reapSubprocessesOnSignal kills the simulator and HTTPS gateway process groups
-// when the test binary is aborted by Ctrl-C or the go-test hard-timeout
-// SIGQUIT. The normal-exit cleanup after m.Run() does not run on those paths,
-// so without this the subprocesses would orphan.
+// on Ctrl-C or the go test hard-timeout SIGQUIT, which skip the cleanup after
+// m.Run().
 func reapSubprocessesOnSignal() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -266,8 +262,8 @@ func reapSubprocessesOnSignal() {
 		if simCmd != nil && simCmd.Process != nil {
 			_ = syscall.Kill(-simCmd.Process.Pid, syscall.SIGKILL)
 		}
-		// Restore default disposition and re-deliver so the exit status
-		// reflects the terminating signal.
+		// Re-deliver with the default disposition so the exit status names the
+		// signal.
 		signal.Reset(sig.(syscall.Signal))
 		_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
 	}()
@@ -277,11 +273,8 @@ func terraformCmd(args ...string) *exec.Cmd {
 	args = terraformArgs(args...)
 	cmd := exec.Command("terraform", args...)
 	cmd.Dir = filepath.Dir(mustAbs("main.tf"))
-	// Put terraform and the provider-plugin subprocesses it spawns into their
-	// own process group so runTimed can reap the whole tree with one
-	// kill(-pgid). Without this, a timed-out command leaves orphaned, spinning
-	// provider plugins (reparented to init) that starve later runs into
-	// cascading timeouts.
+	// Own process group, so runTimed reaps terraform and its provider plugins
+	// with one kill(-pgid).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
@@ -290,9 +283,6 @@ func terraformCmd(args ...string) *exec.Cmd {
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SSL_CERT_FILE=%s", caCertFile))
 	}
-	// Pass through TF_LOG / TF_LOG_PATH when the operator wants
-	// terraform-provider-aws's request/response trace (debugging sim
-	// handler gaps surfaced by the provider's call sequence).
 	if v := os.Getenv("TF_LOG"); v != "" {
 		cmd.Env = append(cmd.Env, "TF_LOG="+v)
 	}
@@ -303,8 +293,8 @@ func terraformCmd(args ...string) *exec.Cmd {
 }
 
 // The dependency lock beside each configuration is untracked local state, so
-// init re-resolves the providers the configuration pins exactly rather than
-// failing on a lock an earlier provider bump left behind.
+// init re-resolves the exactly pinned providers instead of failing on a stale
+// lock.
 func terraformArgs(args ...string) []string {
 	if len(args) == 0 || args[0] != "init" {
 		return args
@@ -345,12 +335,9 @@ func mergeNoProxy(existing string, entries ...string) string {
 	return strings.Join(merged, ",")
 }
 
-// reserveTCPPorts returns n distinct ports free for the WILDCARD bind the
-// gateway performs. Probing one at a time on 127.0.0.1 got both halves wrong:
-// a port free on loopback is not necessarily free for a ":port" bind, and each
-// probe released its port before returning it, so the next probe could be
-// handed the one just released. Holding every listener open until all n are
-// chosen makes them distinct by construction.
+// reserveTCPPorts returns n distinct ports free for the gateway's wildcard
+// bind: it probes with the same wildcard bind, and holds every listener open
+// until all n are chosen so no port is handed out twice.
 func reserveTCPPorts(n int) []int {
 	listeners := make([]net.Listener, 0, n)
 	ports := make([]int, 0, n)

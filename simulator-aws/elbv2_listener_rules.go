@@ -15,15 +15,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// elbv2RulesByListener indexes the rules by the listener they belong to, which
-// every request a listener accepts looks up.
+// Every request a listener accepts looks up its rules.
 var elbv2RulesByListener sim.GenerationIndex[ELBv2Rule]
 
-// elbv2ServeListener answers a request an Application Load Balancer listener
-// accepted: "Rules are evaluated in priority order, from the lowest value to
-// the highest value. The default rule is evaluated last." The first rule
-// whose conditions the request meets supplies the actions, performed in
-// order.
+// "Rules are evaluated in priority order, from the lowest value to the highest
+// value. The default rule is evaluated last." The first matching rule's
+// actions run in order.
 func elbv2ServeListener(w http.ResponseWriter, r *http.Request, listener ELBv2Listener) {
 	actions := listener.DefaultActions
 	rules := elbv2RulesByListener.LookupAll(elbv2Rules, listener.Arn, func(rule ELBv2Rule) []string {
@@ -59,8 +56,7 @@ func elbv2ServeListener(w http.ResponseWriter, r *http.Request, listener ELBv2Li
 	http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 }
 
-// elbv2RuleMatches reports whether the request meets every condition of a
-// rule, each of which it meets by matching any one of the condition's values.
+// Every condition must match; a condition matches on any one of its values.
 func elbv2RuleMatches(r *http.Request, conditions []ELBv2RuleCondition) bool {
 	for _, c := range conditions {
 		if !elbv2ConditionMatches(r, c) {
@@ -73,17 +69,17 @@ func elbv2RuleMatches(r *http.Request, conditions []ELBv2RuleCondition) bool {
 func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 	switch c.Field {
 	case "host-header":
-		// "Host conditions ... not case-sensitive" and matched against the
-		// host name, which carries no port.
+		// "Host conditions ... not case-sensitive", matched against the host name
+		// without port.
 		host := elbv2RequestHostname(r)
 		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2FoldedWildcard.Match(v, host) })
 	case "path-pattern":
-		// "A path pattern is case-sensitive ... The path pattern is applied
-		// only to the path of the URL, not to its query parameters."
+		// "A path pattern is case-sensitive ... applied only to the path of the URL,
+		// not to its query parameters."
 		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2Wildcard.Match(v, r.URL.Path) })
 	case "http-header":
-		// "The comparison strings are not case-sensitive." The header name
-		// is not either, as HTTP has it.
+		// "The comparison strings are not case-sensitive." Header names are not
+		// either, as in HTTP.
 		values := r.Header.Values(c.HttpHeaderName)
 		return slices.ContainsFunc(c.Values, func(v string) bool {
 			return slices.ContainsFunc(values, func(got string) bool {
@@ -94,8 +90,7 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 		// "The comparison is case-sensitive. Wildcards are not supported."
 		return slices.Contains(c.Values, r.Method)
 	case "query-string":
-		// "The comparison strings are not case-sensitive. ... The key is
-		// optional."
+		// "The comparison strings are not case-sensitive. ... The key is optional."
 		query := r.URL.Query()
 		return slices.ContainsFunc(c.QueryStrings, func(kv ELBv2QueryStringKV) bool {
 			for key, values := range query {
@@ -111,8 +106,8 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 			return false
 		})
 	case "source-ip":
-		// "If a client is behind a proxy, this is the IP address of the
-		// proxy, not the IP address of the client."
+		// "If a client is behind a proxy, this is the IP address of the proxy, not
+		// the IP address of the client."
 		ip, _ := lbplane.ClientAddress(r)
 		addr, err := netip.ParseAddr(ip)
 		if err != nil {
@@ -127,9 +122,7 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 	return false
 }
 
-// elbv2Wildcard is a rule condition's wildcard, in which * stands for any run
-// of characters and ? for one; elbv2FoldedWildcard is it for the conditions
-// that compare without regard to case.
+// * matches any run of characters and ? one; the folded variant ignores case.
 var (
 	elbv2Wildcard       = sim.Wildcard{AnyOne: true}
 	elbv2FoldedWildcard = sim.Wildcard{AnyOne: true, FoldCase: true}
@@ -142,8 +135,6 @@ func elbv2RequestHostname(r *http.Request) string {
 	return r.Host
 }
 
-// elbv2FixedResponse answers with the status, content type and body a
-// fixed-response action names.
 func elbv2FixedResponse(w http.ResponseWriter, cfg *ELBv2FixedResponseConfig) {
 	if cfg == nil {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
@@ -161,10 +152,9 @@ func elbv2FixedResponse(w http.ResponseWriter, cfg *ELBv2FixedResponseConfig) {
 	_, _ = io.WriteString(w, cfg.MessageBody)
 }
 
-// elbv2Redirect answers with the location a redirect action builds from the
-// request: "You can reuse URI components using the following reserved
-// keywords: #{protocol}, #{host}, #{port}, #{path} (the leading "/" is
-// removed), #{query}", each component defaulting to the request's own.
+// "You can reuse URI components using the following reserved keywords:
+// #{protocol}, #{host}, #{port}, #{path} (the leading "/" is removed),
+// #{query}", each defaulting to the request's own.
 func elbv2Redirect(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, cfg *ELBv2RedirectConfig) {
 	if cfg == nil {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)

@@ -13,8 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// awsErrorMessageKeys decodes an awsJson error body and returns the members
-// other than __type that carry the message.
+// Returns the members other than __type that carry the message.
 func awsErrorMessageKeys(t *testing.T, raw []byte, wantType, wantMessage string) []string {
 	t.Helper()
 	var body map[string]string
@@ -80,8 +79,8 @@ func TestAWSErrorWritesTheSpellingTheServingServiceModels(t *testing.T) {
 			}
 			recorder := httptest.NewRecorder()
 			awsErrorModelMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				// A handler reached through the POST / dispatcher writes through
-				// its CloudTrail recorder.
+				// Handlers behind the POST / dispatcher write through its CloudTrail
+				// recorder.
 				AWSError(&cloudTrailStatusRecorder{ResponseWriter: w}, c.code, "details", http.StatusBadRequest)
 			})).ServeHTTP(recorder, request)
 			got := awsErrorMessageKeys(t, recorder.Body.Bytes(), c.code, "details")
@@ -112,8 +111,7 @@ func TestAWSRouterHandlerScopesAnInProcessCallToItsService(t *testing.T) {
 	}
 }
 
-// Every signing name more than one vendored model shares has a path rule for
-// each of them, so no signed request is left without its model.
+// Every shared signing name has a path rule per model.
 func TestAWSModelPathPrefixesCoverEverySharedSigningName(t *testing.T) {
 	for signingName, models := range awsModelsBySigningName {
 		if len(models) < 2 {
@@ -134,8 +132,8 @@ func TestAWSModelPathPrefixesCoverEverySharedSigningName(t *testing.T) {
 	}
 }
 
-// Through the whole simulator, a signed request's error carries the message
-// only under its own service's modelled member.
+// A signed request's error carries the message only under its service's
+// member.
 func TestSimulatorErrorsSpellTheMessageAsEachServiceModels(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	t.Setenv("SIM_DNS_PORT", "0")

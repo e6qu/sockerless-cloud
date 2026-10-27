@@ -7,9 +7,8 @@ terraform {
   }
 }
 
-# Missing resource group configuration, run by
-# TestTerraformMissingResourceGroupRefusesApply: the identity names a group no
-# configuration creates, so Azure Resource Manager refuses its create with
+# Run by TestTerraformMissingResourceGroupRefusesApply: the identity names a
+# group nothing creates, so Azure Resource Manager refuses it with
 # ResourceGroupNotFound.
 
 variable "endpoint" {

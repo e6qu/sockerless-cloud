@@ -16,7 +16,6 @@ type ec2DiskImageError struct{ detail string }
 
 func (e *ec2DiskImageError) Error() string { return "disk validation failed [" + e.detail + "]" }
 
-// statusMessage is how VM Import/Export reports the failure on the task.
 func (e *ec2DiskImageError) statusMessage() string {
 	return "ClientError: Disk validation failed [" + e.detail + "]"
 }
@@ -25,8 +24,7 @@ func ec2DiskValidationError(detail string) error {
 	return &ec2DiskImageError{detail: detail}
 }
 
-// ec2ConvertDiskImage writes the raw disk a VHD, VMDK or RAW image holds to
-// dst and returns the disk's size in bytes.
+// Returns the disk's size in bytes.
 func ec2ConvertDiskImage(format string, src io.ReaderAt, size int64, dst io.WriterAt) (int64, error) {
 	switch strings.ToUpper(format) {
 	case "RAW":
@@ -61,9 +59,8 @@ func ec2ReadAt(src io.ReaderAt, off int64, n int) ([]byte, error) {
 	return buf, nil
 }
 
-// ec2ConvertVHD reads a fixed or dynamic VHD: the 512-byte footer that ends
-// the file names the disk type and size, and a dynamic disk maps its blocks
-// through the block allocation table its header points at.
+// The 512-byte footer names the disk type and size; a dynamic disk maps its
+// blocks through the allocation table its header points at.
 func ec2ConvertVHD(src io.ReaderAt, size int64, dst io.WriterAt) (int64, error) {
 	if size < ec2Sector {
 		return 0, ec2DiskValidationError("Unsupported VHD File Format")
@@ -135,7 +132,6 @@ func ec2ConvertDynamicVHD(src io.ReaderAt, headerOffset int64, dst io.WriterAt) 
 	return nil
 }
 
-// VMDK sparse extent header fields and flags.
 const (
 	ec2VMDKMagic            = 0x564d444b
 	ec2VMDKCompressedGrains = 1 << 16
@@ -168,10 +164,8 @@ func ec2ParseVMDKHeader(b []byte) (ec2VMDKHeader, bool) {
 	return h, true
 }
 
-// ec2ConvertVMDK reads a monolithic sparse or stream-optimized VMDK extent
-// through its grain directory and grain tables. A stream-optimized extent
-// writes its grain directory last and records where in the footer copy of the
-// header that precedes the end-of-stream marker.
+// A stream-optimized extent writes its grain directory last and records where
+// in the footer copy of the header before the end-of-stream marker.
 func ec2ConvertVMDK(src io.ReaderAt, size int64, dst io.WriterAt) (int64, error) {
 	if size < 2*ec2Sector {
 		return 0, ec2DiskValidationError("Unsupported VMDK File Format")

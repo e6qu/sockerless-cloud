@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The Amazon Elastic Container Service (ECS) task definition's networkMode
-// decides how the task is networked: awsvpc allocates the task its own elastic
-// network interface and therefore requires a networkConfiguration, while
-// bridge, host, and none share the container instance's networking and accept
-// no networkConfiguration at all.
+// An Amazon ECS task definition's networkMode decides the task's networking:
+// awsvpc gives the task its own elastic network interface and requires a
+// networkConfiguration, while bridge, host and none share the container
+// instance's networking and accept none.
 
 func ecsNetworkModeTaskDefinition(t *testing.T, client *ecs.Client, family string, mode ecstypes.NetworkMode) string {
 	t.Helper()
@@ -49,11 +48,9 @@ func ecsNetworkModeCluster(t *testing.T, client *ecs.Client, name string) {
 	})
 }
 
-// TestECS_RunTask_AwsvpcRequiresNetworkConfiguration proves an awsvpc task
-// definition cannot be run without the networkConfiguration that names the
-// subnet its elastic network interface is created in — silently running such a
-// task on the container instance's default networking would give it an address
-// that is not its ENI's.
+// TestECS_RunTask_AwsvpcRequiresNetworkConfiguration expects an awsvpc task
+// without the networkConfiguration naming its ENI's subnet to be refused rather
+// than run with an address that is not its ENI's.
 func TestECS_RunTask_AwsvpcRequiresNetworkConfiguration(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -71,9 +68,8 @@ func TestECS_RunTask_AwsvpcRequiresNetworkConfiguration(t *testing.T) {
 	assert.Contains(t, aws.ToString(invalid.Message), "awsvpc")
 }
 
-// TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode proves a
-// networkConfiguration is refused for a task definition that does not use the
-// awsvpc network mode, rather than being accepted and ignored.
+// TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode expects a
+// networkConfiguration refused, not ignored, for a non-awsvpc task.
 func TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -95,10 +91,9 @@ func TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode(t *testing
 	assert.Contains(t, aws.ToString(invalid.Message), "bridge")
 }
 
-// TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface proves a
-// bridge-mode task carries no ENI attachment and no per-container
-// networkInterfaces — only an awsvpc task is allocated an elastic network
-// interface.
+// TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface expects a
+// bridge-mode task to carry no ENI attachment and no per-container
+// networkInterfaces.
 func TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -135,9 +130,8 @@ func TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface(t *testing.T)
 	}
 }
 
-// TestECS_RunTask_AwsvpcAttachesElasticNetworkInterface proves the awsvpc task
-// keeps the ENI attachment, carrying the subnet it was created in and the
-// private address assigned from that subnet's CIDR.
+// TestECS_RunTask_AwsvpcAttachesElasticNetworkInterface expects the ENI
+// attachment to carry its subnet and a private address from the subnet's CIDR.
 func TestECS_RunTask_AwsvpcAttachesElasticNetworkInterface(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -177,8 +171,7 @@ func TestECS_RunTask_AwsvpcAttachesElasticNetworkInterface(t *testing.T) {
 	assert.Equal(t, details["privateIPv4Address"],
 		aws.ToString(runOut.Tasks[0].Containers[0].NetworkInterfaces[0].PrivateIpv4Address))
 
-	// The task must actually reach RUNNING on its VPC network — an awsvpc
-	// launch that cannot resolve its VPC fabric fails instead of quietly
-	// running on the container instance's default bridge.
+	// An awsvpc launch that cannot resolve its VPC network fails rather than run
+	// on the default bridge.
 	waitForECSTaskStatus(t, client, cluster, taskArn, "RUNNING")
 }

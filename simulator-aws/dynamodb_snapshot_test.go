@@ -10,8 +10,7 @@ import (
 )
 
 func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
 
@@ -65,17 +64,14 @@ func TestDDBItemSnapshotIsIndependentUnderConcurrentMutation(t *testing.T) {
 	wg.Wait()
 }
 
-// Scan hands its key list to ddbBatchedSnapshots, which loads ddbSnapshotBatch
-// items per acquisition of the table stripe instead of one. The refill boundary is the
-// part worth pinning down: an off-by-one there silently drops or double-reads
-// items, which surfaces as a Scan missing rows rather than as a crash.
+// An off-by-one at the refill boundary would make Scan drop or double-read
+// rows.
 func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")
 
-	// Deliberately more than two batches, with holes so absent keys are covered.
+	// More than two batches, with holes for absent keys.
 	const total = ddbSnapshotBatch*2 + 37
 	keys := make([]string, 0, total)
 	stored := map[string]bool{}
@@ -112,8 +108,7 @@ func TestDDBBatchedSnapshotsSpanBatchBoundaries(t *testing.T) {
 		t.Fatalf("visited %d stored items, want %d", seen, len(stored))
 	}
 
-	// A batched snapshot is still a copy: a later mutation of the stored item
-	// must not be visible through one already handed out.
+	// A batched snapshot is a copy.
 	first := keys[1]
 	item, ok := newDDBBatchedSnapshots(keys).at(1, first)
 	if !ok {

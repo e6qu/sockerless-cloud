@@ -13,17 +13,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The generation-keyed indexes replaced scans that decoded a whole store on
-// every request. An index is only allowed to be faster — it must answer
-// exactly what the scan answered — so each case here computes the answer both
-// ways over the same rows and requires them to agree, rather than asserting a
-// hand-written expectation the index and the scan could drift away from
-// together.
+// An index must answer exactly what a full-store scan answers, so each case
+// computes both over the same rows and requires agreement, rather than a
+// hand-written expectation both could drift from together.
 
-// seedMessagingRuleStores wires the two authorization-rule stores the
-// messaging host authenticates against, and seeds rules whose identifiers
-// include the shapes that make a "find by suffix" lookup subtle: a namespace
-// and an entity rule of the same name, a same-named rule in a second
+// The rule IDs include the shapes that make a suffix lookup subtle: a
+// namespace and an entity rule of one name, a same-named rule in a second
 // namespace, and a resource group literally called "namespaces".
 func seedMessagingRuleStores(t *testing.T) {
 	t.Helper()
@@ -32,8 +27,8 @@ func seedMessagingRuleStores(t *testing.T) {
 	t.Cleanup(func() { sbAuthRules, ehAuthRules = nil, nil })
 
 	const base = "/subscriptions/sub-1/resourceGroups/rg-1/providers/Microsoft.ServiceBus"
-	// A resource group of this name puts a second "/namespaces/" earlier in
-	// the identifier than the one that scopes the rule.
+	// A resource group of this name puts a second "/namespaces/" earlier in the ID
+	// than the one scoping the rule.
 	const tricky = "/subscriptions/sub-1/resourceGroups/namespaces/providers/Microsoft.ServiceBus"
 	for _, id := range []string{
 		base + "/namespaces/ns-1/authorizationRules/send",
@@ -43,10 +38,9 @@ func seedMessagingRuleStores(t *testing.T) {
 		base + "/namespaces/ns-1/queues/orders/authorizationRules/listen",
 		tricky + "/namespaces/ns-3/authorizationRules/send",
 		tricky + "/namespaces/ns-3/queues/orders/authorizationRules/send",
-		// A queue of this name puts a "/namespaces/" occurrence *after* the
-		// one that scopes the rule, so resolving the segment by its last
-		// occurrence is wrong here just as resolving it by its first is wrong
-		// for the resource group above.
+		// A queue of this name puts a "/namespaces/" after the scoping one, so
+		// resolving by the last occurrence fails here as resolving by the first fails
+		// above.
 		base + "/namespaces/ns-4/queues/namespaces/authorizationRules/send",
 		base + "/namespaces/ns-4/authorizationRules/send",
 	} {
@@ -61,8 +55,7 @@ func seedMessagingRuleStores(t *testing.T) {
 	}
 }
 
-// scanRuleCandidates is the full-store scan sasRuleCandidates performed before
-// it was indexed, kept here as the oracle the index is checked against.
+// The full-store scan, the oracle the index is checked against.
 func scanRuleCandidates(namespace, entityPath, keyName string) []string {
 	nsSuffix := "/namespaces/" + namespace + "/authorizationRules/" + keyName
 	entity := entityPath
@@ -127,22 +120,17 @@ func TestSASRuleCandidatesAnswerExactlyWhatTheScanAnswered(t *testing.T) {
 		}
 	}
 
-	// The rule scoped to ns-3 lives under a resource group called
-	// "namespaces", so an index that resolved the segment by position rather
-	// than by trying every occurrence would answer nothing here.
+	// A positional resolution of the segment would answer nothing here.
 	if got := sasRuleCandidates("ns-3", "orders", "send"); len(got) != 2 {
 		t.Errorf("a namespace under a resource group called \"namespaces\" must still resolve: %v", got)
 	}
-	// And the mirror image: the entity rule here is only found if the segment
-	// is not resolved by its last occurrence either.
+	// The mirror image: resolving by the last occurrence fails too.
 	if got := sasRuleCandidates("ns-4", "namespaces", "send"); len(got) != 2 {
 		t.Errorf("a queue called \"namespaces\" must still resolve its own rule: %v", got)
 	}
 }
 
-// requireSameIDs reports the difference between what the scan returned and
-// what the index returned, order-insensitively — the stores hand rows back in
-// their own order and neither answer promises one.
+// Order-insensitive: neither answer promises an order.
 func requireSameIDs(t *testing.T, what string, want, got []string) {
 	t.Helper()
 	if len(want) == 0 {
@@ -159,8 +147,8 @@ func requireSameIDs(t *testing.T, what string, want, got []string) {
 	}
 }
 
-// seedServiceBusChildStores builds two namespaces holding same-named children,
-// so a lookup that ignored the parent would return the sibling's rows.
+// Same-named children in two namespaces, so a lookup ignoring the parent would
+// return the sibling's rows.
 func seedServiceBusChildStores(t *testing.T) (nsA, nsB string) {
 	t.Helper()
 	sbNamespaces = sim.MakeStore[SBNamespace](nil, "test_index_sb_namespaces")
@@ -172,8 +160,8 @@ func seedServiceBusChildStores(t *testing.T) (nsA, nsB string) {
 		sbNamespaces, sbQueues, sbTopics, sbSubscriptions, sbRules = nil, nil, nil, nil, nil
 	})
 
-	// The admin identifiers resolve through the namespace store, so the rows
-	// carry the resource identifiers a provisioned namespace has.
+	// The admin IDs resolve through the namespace store, so the rows carry a
+	// provisioned namespace's resource IDs.
 	for _, ns := range []string{"ns-a", "ns-b"} {
 		id := sbNamespaceID("sub-1", "rg-1", ns)
 		sbNamespaces.Put(id, SBNamespace{ID: id, Name: ns})
@@ -203,7 +191,7 @@ func seedServiceBusChildStores(t *testing.T) (nsA, nsB string) {
 func TestServiceBusChildLookupsMatchTheirPrefixScan(t *testing.T) {
 	nsA, nsB := seedServiceBusChildStores(t)
 
-	// Each helper is checked against the HasPrefix scan it replaced.
+	// Each helper is checked against a HasPrefix scan.
 	queuePrefix := sbAdminNamespaceID(nsA) + "/queues/"
 	var wantQueues []string
 	for _, q := range sbQueues.List() {
@@ -230,9 +218,8 @@ func TestServiceBusChildLookupsMatchTheirPrefixScan(t *testing.T) {
 	}
 	requireSameIDs(t, "subscriptions of "+nsA+"/events", wantSubs, gotSubs)
 
-	// A rule is indexed under every prefix of its identifier, so the same
-	// index answers both the subscription's own rules and the topic-wide
-	// cascade a topic delete performs.
+	// A rule is indexed under every prefix of its ID, so one index answers a
+	// subscription's own rules and a topic delete's cascade.
 	rulePrefix := sbAdminSubscriptionID(nsA, "events", "all") + "/rules/"
 	if got := len(sbRulesUnder(rulePrefix)); got != 2 {
 		t.Errorf("a subscription's rules: want 2, got %d", got)
@@ -273,8 +260,8 @@ func TestKeyVaultListingsAreScopedToTheirVault(t *testing.T) {
 	keyVaultCertificates = sim.MakeStore[kvCertStored](nil, "test_index_kv_certs")
 	t.Cleanup(func() { keyVaultKeys, keyVaultCertificates = nil, nil })
 
-	// Both vaults hold a key of the same name, which is what a scan filtered
-	// on and an unscoped index would confuse.
+	// Both vaults hold a key of the same name, which an unscoped index would
+	// confuse.
 	for _, vault := range []string{"vault-a", "vault-b"} {
 		for _, name := range []string{"signing", "encryption"} {
 			key := keyVaultKeyKey(vault, name)
@@ -293,7 +280,7 @@ func TestKeyVaultListingsAreScopedToTheirVault(t *testing.T) {
 			t.Errorf("a listing of vault-a returned a key of %s", k.Vault)
 		}
 	}
-	// The handlers relied on the scan's sort, so the helper owns it now.
+	// The helper returns the rows sorted, as the handlers expect.
 	if keys[0].Name != "encryption" || keys[1].Name != "signing" {
 		t.Errorf("keys must be sorted by name, got %s then %s", keys[0].Name, keys[1].Name)
 	}
@@ -302,18 +289,16 @@ func TestKeyVaultListingsAreScopedToTheirVault(t *testing.T) {
 		t.Errorf("vault-b's certificates must be its own, sorted: %+v", certs)
 	}
 
-	// Sorting the returned rows must not disturb the index, which hands out
-	// its own slice: a second call sees the same order.
+	// Sorting the returned rows must not disturb the index's own slice: a second
+	// call sees the same order.
 	again := keyVaultKeysIn("vault-a")
 	if again[0].Name != "encryption" || again[1].Name != "signing" {
 		t.Errorf("a second listing changed order: %s then %s", again[0].Name, again[1].Name)
 	}
 }
 
-// A workload joins a load balancer's or an application gateway's backend
-// through its own network interface, so both pools are answered by one index
-// over the interfaces. The lookup runs in a handler wrapper for the gateway,
-// so every request into the simulator paid the scan it replaces.
+// A workload joins a load balancer's or application gateway's backend through
+// its interface, so one index over interfaces answers both pools.
 func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
 	azureNICs = sim.MakeStore[NetworkInterface](nil, "test_index_nics")
 	t.Cleanup(func() { azureNICs = nil })
@@ -351,7 +336,7 @@ func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
 	nic("nic-3", "10.0.0.6", []string{otherPool}, nil)
 	nic("nic-4", "10.0.0.7", nil, nil)
 
-	// The oracle: the scan each caller performed over every interface.
+	// The oracle: a scan over every interface.
 	scan := func(poolID string) []string {
 		var names []string
 		for _, n := range azureNICs.List() {
@@ -375,8 +360,8 @@ func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
 		return names
 	}
 
-	// ARM compares resource identifiers case-insensitively, and a caller may
-	// hold the pool identifier in either case.
+	// Azure Resource Manager compares IDs case-insensitively, so a caller may hold
+	// the pool ID in either case.
 	for _, poolID := range []string{lbPool, gwPool, otherPool, strings.ToUpper(lbPool), "absent"} {
 		var got []string
 		for _, n := range azureNICsInBackendPool(poolID) {
@@ -385,8 +370,8 @@ func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
 		requireSameOrEmpty(t, "members of "+poolID, scan(poolID), got)
 	}
 
-	// The gateway's own accessor returns the IP configurations, not the
-	// interfaces, and only those that named this pool.
+	// The gateway's accessor returns only the IP configurations that named this
+	// pool, not the interfaces.
 	members := applicationGatewayPoolMemberIPConfigurations(gwPool)
 	if len(members) != 1 || members[0].Properties.PrivateIPAddress != "10.0.0.5" {
 		t.Errorf("the gateway pool holds exactly nic-2's configuration, got %+v", members)
@@ -396,9 +381,8 @@ func TestBackendPoolMembersMatchTheInterfaceScan(t *testing.T) {
 	}
 }
 
-// requireSameOrEmpty compares a scan and an index answer, allowing the empty
-// case the previous helper rejects — here a pool with no members is a case
-// worth proving rather than a sign the fixture missed.
+// Unlike requireSameIDs, this allows the empty case: a pool with no members is
+// worth proving.
 func requireSameOrEmpty(t *testing.T, what string, want, got []string) {
 	t.Helper()
 	sorted := func(in []string) string {
@@ -411,12 +395,9 @@ func requireSameOrEmpty(t *testing.T, what string, want, got []string) {
 	}
 }
 
-// A publish delivers to the subscriptions of one scope, and a subscription
-// belongs to its scope in either of two ways: its resource identifier hangs
-// off that scope, or its properties name the topic. The delivery index is
-// keyed on both, from the same function the predicate answers with — and the
-// identifier-derived half had no test of its own, so a subscription that
-// carries no `topic` property is the case proved here.
+// A subscription belongs to a scope when its ID hangs off the scope or its
+// properties name the topic; the delivery index keys on both. This proves the
+// ID-only case, a subscription with no `topic` property.
 func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) {
 	newEventGridTestServer(t)
 
@@ -434,7 +415,7 @@ func TestEventGridDeliversToASubscriptionKnownOnlyByItsIdentifier(t *testing.T) 
 		"endpointType": "WebHook",
 		"properties":   map[string]any{"endpointUrl": hook.URL},
 	}
-	// Known only by its identifier: no "topic" property at all.
+	// Known only by its ID: no "topic" property.
 	byIdentifier := topicID + "/providers/Microsoft.EventGrid/eventSubscriptions/by-id"
 	eventGridSubscriptions.Put(byIdentifier, EventGridEventSubscription{
 		ID: byIdentifier, Name: "by-id",

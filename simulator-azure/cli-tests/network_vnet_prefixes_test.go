@@ -10,12 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetwork_VirtualNetworkWithTwoAddressPrefixesCLI creates a virtual
-// network with two address prefixes through `az network vnet create
-// --address-prefixes`, a subnet in each, and a machine whose interface is in
-// the second prefix's subnet; the machine takes its address there and reads
-// it back from the Instance Metadata Service through the network. A subnet
-// outside both prefixes is refused.
+// TestNetwork_VirtualNetworkWithTwoAddressPrefixesCLI creates a virtual network
+// with two address prefixes (`az network vnet create --address-prefixes`), a
+// subnet in each, and a machine in the second; the machine takes its address
+// there and reads it back from the Instance Metadata Service. A subnet outside
+// both prefixes is refused.
 //
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}
@@ -23,7 +22,7 @@ import (
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/virtualMachines/{vmName}
 func TestNetwork_VirtualNetworkWithTwoAddressPrefixesCLI(t *testing.T) {
 	t.Parallel()
-	// The full workload runtime: the machine runs.
+	// The machine runs, so use the full workload runtime.
 	env := startAzTLSSimulator(t)
 	tagCLILogin(t, env, "sockerless-vnet-prefixes")
 
@@ -54,9 +53,9 @@ func TestNetwork_VirtualNetworkWithTwoAddressPrefixesCLI(t *testing.T) {
 	require.True(t, strings.HasPrefix(addresses["ipconfig1"], "10.110.1."),
 		"the interface in the second prefix's subnet takes its address there; got %s", addresses["ipconfig1"])
 
-	// `az vm create` deploys an ARM template through Microsoft.Resources/
-	// deployments, which the simulator does not serve, so the machine is
-	// written as the template would write it.
+	// `az vm create` deploys an ARM template through
+	// Microsoft.Resources/deployments, which the simulator does not serve, so write
+	// the machine as the template would.
 	nicID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s", subscriptionID, rg, nic)
 	vmURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s?api-version=2024-07-01",
 		env.baseURL, subscriptionID, rg, vm)

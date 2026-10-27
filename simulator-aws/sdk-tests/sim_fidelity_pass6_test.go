@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeSecurityGroupRulesFilters covers the is-egress filter (only
-// group-id was honored before, so a scoped query returned every rule).
+// TestEC2_DescribeSecurityGroupRulesFilters expects the is-egress filter to
+// narrow the rules returned.
 func TestEC2_DescribeSecurityGroupRulesFilters(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -39,8 +39,8 @@ func TestEC2_DescribeSecurityGroupRulesFilters(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	// Revoke the default ALLOW ALL egress rule before authorizing a test egress
-	// rule, matching the real AWS workflow for VPC security groups.
+	// Revoke the default allow-all egress rule before authorizing a test egress
+	// rule, as on an AWS VPC security group.
 	_, err = c.RevokeSecurityGroupEgress(ctx, &ec2.RevokeSecurityGroupEgressInput{
 		GroupId: aws.String(gid),
 		IpPermissions: []ec2types.IpPermission{{
@@ -77,9 +77,9 @@ func TestEC2_DescribeSecurityGroupRulesFilters(t *testing.T) {
 	assert.False(t, aws.ToBool(ingress.SecurityGroupRules[0].IsEgress))
 }
 
-// TestEventBridge_CreateEventBusPersistsKMS covers the KmsKeyIdentifier
-// round-trip: CreateEventBus echoed it but never stored it, so DescribeEventBus
-// returned empty and terraform's aws_cloudwatch_event_bus drifted every plan.
+// TestEventBridge_CreateEventBusPersistsKMS expects DescribeEventBus to return
+// the KmsKeyIdentifier CreateEventBus took; without it aws_cloudwatch_event_bus
+// drifts every plan.
 func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
 	t.Parallel()
 	c := eventbridgeClient()
@@ -96,8 +96,8 @@ func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
 	assert.Equal(t, kms, aws.ToString(out.KmsKeyIdentifier), "DescribeEventBus must return the stored KMS key")
 }
 
-// TestCloudMap_DiscoverInstancesHealth covers real per-instance health +
-// the HealthStatus filter (the handler hardcoded HEALTHY and ignored the filter).
+// TestCloudMap_DiscoverInstancesHealth expects each instance's own health and
+// the HealthStatus filter to apply.
 func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -152,8 +152,8 @@ func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 	assert.Len(t, all.Instances, 2, "HealthStatus=ALL returns both")
 }
 
-// TestLambda_GetFunctionRepositoryType covers the documented Code.RepositoryType
-// field ("S3" for a ZIP package), previously omitted from GetFunction.
+// TestLambda_GetFunctionRepositoryType expects Code.RepositoryType "S3" for a
+// ZIP package.
 func TestLambda_GetFunctionRepositoryType(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -174,8 +174,7 @@ func TestLambda_GetFunctionRepositoryType(t *testing.T) {
 	assert.Equal(t, "S3", aws.ToString(out.Code.RepositoryType), "a ZIP function reports RepositoryType S3")
 }
 
-// TestECS_ListTasksLaunchTypeFilter covers the launchType filter, previously
-// ignored (only family + desiredStatus were honored).
+// TestECS_ListTasksLaunchTypeFilter expects the launchType filter to apply.
 func TestECS_ListTasksLaunchTypeFilter(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()

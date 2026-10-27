@@ -2,8 +2,6 @@ package main
 
 import "testing"
 
-// FuzzCWLogPatternMatches fuzzes the CloudWatch Logs metric-filter pattern matcher
-// (both unstructured and structured/JSON grammars).
 func FuzzCWLogPatternMatches(f *testing.F) {
 	seeds := []string{
 		"",
@@ -38,8 +36,8 @@ func FuzzCWLogPatternMatches(f *testing.F) {
 		`not json {`,
 	}
 	f.Fuzz(func(t *testing.T, pattern string) {
-		// A malformed pattern returns a loud error (not a crash); a well-formed
-		// one compiles and matches without panicking on any event.
+		// A malformed pattern returns an error; a well-formed one matches without
+		// panicking.
 		c, err := cwCompileLogPattern(pattern)
 		if err != nil {
 			return

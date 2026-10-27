@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResourceTags_CreateTimeRoundTrip verifies tags set at resource creation
-// are returned by the per-service tag-list APIs for CloudWatch Logs, DynamoDB,
-// and ECR. Dropping create-time tags makes every terraform plan re-add them.
+// TestResourceTags_CreateTimeRoundTrip expects tags set at creation from the
+// tag-list APIs of CloudWatch Logs, DynamoDB and Amazon ECR; dropping them
+// makes every Terraform plan re-add them.
 func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 	t.Parallel()
 	repoName := uniquename.New("tags-repo")

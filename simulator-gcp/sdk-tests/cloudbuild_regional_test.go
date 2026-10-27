@@ -21,11 +21,11 @@ func buildFromOperation(t *testing.T, op *cloudbuild.Operation) cloudbuild.Build
 	return metadata.Build
 }
 
-// The regional build surface, the build and trigger colon-verbs, and the
-// Bitbucket Server connected-repository pair:
+// The regional build surface and the Bitbucket Server connected-repository
+// pair:
 //
-//	POST /v1/projects/{project}/locations/{location}/builds
-//	POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
+//   POST /v1/projects/{project}/locations/{location}/builds
+//   POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
 
 func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	t.Parallel()
@@ -61,7 +61,6 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	assert.Contains(t, second.Name, "/locations/us-central1/builds/")
 	require.True(t, strings.HasPrefix(retried.Name, parent+"/operations/"), "operation %q is not in the regional operations collection", retried.Name)
 
-	// Both records survive.
 	got, err := svc.Projects.Locations.Builds.Get(parent + "/builds/" + created.Id).Do()
 	require.NoError(t, err)
 	assert.Equal(t, created.Id, got.Id)
@@ -125,7 +124,6 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "declares no webhookConfig")
 
-	// And reports the absence of one that does not.
 	_, err = svc.Projects.Locations.Triggers.Run(parent+"/triggers/absent",
 		&cloudbuild.RunBuildTriggerRequest{}).Do()
 	require.Error(t, err)

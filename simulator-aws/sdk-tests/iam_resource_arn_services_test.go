@@ -19,9 +19,7 @@ import (
 )
 
 // scopedCredentials mints an IAM user carrying policyDocument and returns a
-// config signed with its access key, which is what makes the call-time gate
-// evaluate a real principal instead of treating the caller as an unregistered
-// test credential.
+// config signed with its key, so the call-time gate evaluates a real principal.
 func scopedCredentials(t *testing.T, user, policyName, policyDocument string) aws.Config {
 	t.Helper()
 	user = uniquename.New(user)
@@ -44,9 +42,8 @@ func scopedCredentials(t *testing.T, user, policyName, policyDocument string) aw
 }
 
 // A project-scoped AWS CodeBuild grant allows the project it names and denies
-// another. This is the failure that follows Amazon ECR in an image-source
-// build loop: the control plane describes the repository, then starts the
-// build, and both were denied for the same reason.
+// another; an image-source build loop describes the Amazon ECR repository,
+// then starts the build.
 func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
 	t.Parallel()
 	admin := codebuildClient()
@@ -83,11 +80,10 @@ func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }
 
-// CloudWatch Logs defines nested resource types, and the four stream-scoped
-// actions authorize against the stream while the rest authorize against the
-// group. A grant written the way the console writes it — the group ARN plus
-// the ":*" form that covers its streams — must therefore allow both a
-// group-scoped read and a stream write, and still deny another group.
+// CloudWatch Logs nests resource types: the four stream-scoped actions
+// authorize against the stream and the rest against the group. A grant written
+// as the console writes it (the group ARN and its ":*" stream form) allows a
+// group-scoped read and a stream write, and denies another group.
 func TestIAM_ResourceARN_CloudWatchLogsGroupAndStream(t *testing.T) {
 	t.Parallel()
 	admin := cloudwatchlogs.NewFromConfig(sdkConfig(), func(o *cloudwatchlogs.Options) {
@@ -141,10 +137,9 @@ func TestIAM_ResourceARN_CloudWatchLogsGroupAndStream(t *testing.T) {
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }
 
-// iam:PassRole is authorized separately from the operation that passes the
-// role, against the role's own ARN. A caller allowed to register a task
-// definition but allowed to pass only one role is denied when it passes
-// another — which is the entire purpose of scoping PassRole.
+// iam:PassRole authorizes against the passed role's own ARN, separately from
+// the operation that passes it: a caller allowed to pass only one role is
+// denied passing another.
 func TestIAM_PassRole_IsAuthorizedAgainstTheRolePassed(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()

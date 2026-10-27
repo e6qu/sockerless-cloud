@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestGroupDelete_RemovesTheGroupsResources deletes a resource group with
-// `az group delete`, which waits on the long-running operation the delete
-// starts, and finds the group and the identity it held gone.
+// TestGroupDelete_RemovesTheGroupsResources: `az group delete` waits on the
+// long-running operation, after which the group and its identity are gone.
 func TestGroupDelete_RemovesTheGroupsResources(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -39,9 +38,9 @@ func TestGroupDelete_RemovesTheGroupsResources(t *testing.T) {
 	}
 }
 
-// TestGroupMissing_RefusesItsResources creates an identity with `az identity
-// create` in a group that was never created, and Azure Resource Manager refuses
-// it with ResourceGroupNotFound before Microsoft.ManagedIdentity sees it.
+// TestGroupMissing_RefusesItsResources: Azure Resource Manager refuses an
+// identity in a group that does not exist with ResourceGroupNotFound before
+// Microsoft.ManagedIdentity sees it.
 func TestGroupMissing_RefusesItsResources(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

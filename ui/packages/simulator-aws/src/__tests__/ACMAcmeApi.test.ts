@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { signInToConsole, uniqueName } from "@sockerless/ui-core/testing";
 import {
   createACMAcmeDomainValidation,
   createACMAcmeEndpoint,
@@ -13,203 +14,167 @@ import {
   revokeACMAcmeAccount,
   revokeACMAcmeExternalAccountBinding,
 } from "../api.js";
+import { awsFetch } from "../console/federation.js";
 
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch as unknown as typeof fetch;
+beforeAll(signInToConsole);
 
-afterEach(() => {
-  mockFetch.mockReset();
-});
+const ROLE_ARN = "arn:aws:iam::123456789012:role/AcmeClient";
 
-function jsonResponse(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: { "content-type": "application/x-amz-json-1.1" },
+// createEndpoint creates an AWS Certificate Manager ACME endpoint through the
+// console and returns its ARN, the one ListAcmeEndpoints did not list before.
+async function createEndpoint(): Promise<string> {
+  const before = new Set((await fetchACMAcmeEndpoints()).map((endpoint) => endpoint.acmeEndpointArn));
+  await createACMAcmeEndpoint("REQUIRED");
+  const created = (await fetchACMAcmeEndpoints()).filter((endpoint) => !before.has(endpoint.acmeEndpointArn));
+  expect(created).toHaveLength(1);
+  return created[0].acmeEndpointArn;
+}
+
+// createHostedZone creates the Amazon Route 53 public hosted zone a DNS
+// prevalidation writes its record into, and returns its bare ID.
+async function createHostedZone(domain: string): Promise<string> {
+  const response = await awsFetch({
+    service: "route53",
+    method: "POST",
+    path: "/2013-04-01/hostedzone",
+    headers: { "content-type": "application/xml" },
+    body:
+      `<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">` +
+      `<Name>${domain}.</Name><CallerReference>${uniqueName("acme")}</CallerReference></CreateHostedZoneRequest>`,
   });
+  const xml = new DOMParser().parseFromString(await response.text(), "text/xml");
+  expect(response.status).toBe(201);
+  return (xml.getElementsByTagName("Id")[0]?.textContent ?? "").replace("/hostedzone/", "");
 }
 
-function targetOf(init?: RequestInit): string {
-  return new Headers(init?.headers).get("x-amz-target") ?? "";
+const encoder = new TextEncoder();
+
+function base64url(bytes: ArrayBuffer | Uint8Array): string {
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function requestBody(init?: RequestInit): Record<string, unknown> {
-  return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
 }
 
-function installACMDataPlane(responses: Record<string, unknown>) {
-  mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url === "/ui/config.json") return jsonResponse({});
-    const target = targetOf(init);
-    if (!(target in responses)) throw new Error(`unhandled AWS Certificate Manager operation: ${target}`);
-    return jsonResponse(responses[target]);
+function base64urlJSON(value: unknown): string {
+  return base64url(encoder.encode(JSON.stringify(value)));
+}
+
+// registerAcmeAccount registers an RFC 8555 account at the endpoint's
+// directory the way an ACME client does: an ES256 account key, bound to the
+// AWS account through the external account binding's HS256 MAC.
+async function registerAcmeAccount(directoryUrl: string, binding: { keyId: string; macKey: string }, contact: string) {
+  const directoryResponse = await fetch(directoryUrl);
+  expect(directoryResponse.status).toBe(200);
+  const directory = (await directoryResponse.json()) as { newAccount: string };
+  const nonce = directoryResponse.headers.get("replay-nonce") ?? "";
+
+  const accountKey = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const exported = await crypto.subtle.exportKey("jwk", accountKey.publicKey);
+  const jwk = { crv: exported.crv, kty: exported.kty, x: exported.x, y: exported.y };
+
+  const bindingProtected = base64urlJSON({ alg: "HS256", kid: binding.keyId, url: directory.newAccount });
+  const bindingPayload = base64urlJSON(jwk);
+  const macKey = await crypto.subtle.importKey(
+    "raw",
+    fromBase64url(binding.macKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const bindingSignature = await crypto.subtle.sign("HMAC", macKey, encoder.encode(`${bindingProtected}.${bindingPayload}`));
+
+  const protectedHeader = base64urlJSON({ alg: "ES256", jwk, nonce, url: directory.newAccount });
+  const payload = base64urlJSON({
+    termsOfServiceAgreed: true,
+    contact: [contact],
+    externalAccountBinding: { protected: bindingProtected, payload: bindingPayload, signature: base64url(bindingSignature) },
   });
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    accountKey.privateKey,
+    encoder.encode(`${protectedHeader}.${payload}`),
+  );
+  const response = await fetch(directory.newAccount, {
+    method: "POST",
+    headers: { "content-type": "application/jose+json" },
+    body: JSON.stringify({ protected: protectedHeader, payload, signature: base64url(signature) }),
+  });
+  expect(response.status).toBe(201);
+  return response.headers.get("location") ?? "";
 }
 
 describe("AWS Certificate Manager ACME browser data plane", () => {
   it("projects the real control-plane response shapes into console resources", async () => {
-    installACMDataPlane({
-      "CertificateManager.ListAcmeEndpoints": {
-        AcmeEndpoints: [
-          {
-            AcmeEndpointArn: "arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint",
-            EndpointUrl: "https://acm.example/acme/endpoint/directory",
-            Status: "ACTIVE",
-            Contact: "REQUIRED",
-            AuthorizationBehavior: "PRE_APPROVED",
-            CreatedAt: 1_722_000_000,
-          },
-        ],
-      },
-      "CertificateManager.ListAcmeDomainValidations": {
-        AcmeDomainValidations: [
-          {
-            AcmeDomainValidationArn: "arn:aws:acm:us-east-1:123456789012:acme-domain-validation/validation",
-            DomainName: "example.com",
-            Status: "VALID",
-            CreatedAt: 1_722_000_001,
-            PrevalidationDetails: {
-              DnsPrevalidation: {
-                ResourceRecord: {
-                  Name: "_token.example.com.",
-                  Value: "_value.acm-validations.aws.",
-                },
-              },
-            },
-          },
-        ],
-      },
-      "CertificateManager.ListAcmeExternalAccountBindings": {
-        ExternalAccountBindings: [
-          {
-            AcmeExternalAccountBindingArn:
-              "arn:aws:acm:us-east-1:123456789012:acme-external-account-binding/binding",
-            RoleArn: "arn:aws:iam::123456789012:role/acme",
-            CreatedAt: 1_722_000_002,
-            ExpiresAt: 1_722_604_802,
-          },
-        ],
-      },
-      "CertificateManager.ListAcmeAccounts": {
-        AcmeAccounts: [
-          {
-            AccountUrl: "https://acm.example/acme/endpoint/account/account",
-            Contacts: ["mailto:operator@example.com"],
-            Status: "VALID",
-            PublicKeyThumbprint: "thumbprint",
-            CreatedAt: 1_722_000_003,
-          },
-        ],
-      },
+    const endpointArn = await createEndpoint();
+    const endpoints = await fetchACMAcmeEndpoints();
+    const endpoint = endpoints.find((candidate) => candidate.acmeEndpointArn === endpointArn);
+    expect(endpoint).toMatchObject({
+      acmeEndpointArn: endpointArn,
+      status: "ACTIVE",
+      contact: "REQUIRED",
+      authorizationBehavior: "PRE_APPROVED",
     });
+    expect(endpoint?.endpointUrl).toMatch(/^http:\/\//);
+    expect(endpoint?.createdAt).toBeGreaterThan(0);
 
-    await expect(fetchACMAcmeEndpoints()).resolves.toEqual([
-      {
-        acmeEndpointArn: "arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint",
-        endpointUrl: "https://acm.example/acme/endpoint/directory",
-        status: "ACTIVE",
-        contact: "REQUIRED",
-        authorizationBehavior: "PRE_APPROVED",
-        createdAt: 1_722_000_000,
-      },
-    ]);
-    await expect(
-      fetchACMAcmeDomainValidations("arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint"),
-    ).resolves.toMatchObject([
-      {
-        domainName: "example.com",
-        status: "VALID",
-        recordName: "_token.example.com.",
-        recordValue: "_value.acm-validations.aws.",
-      },
-    ]);
-    await expect(
-      fetchACMAcmeExternalAccountBindings("arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint"),
-    ).resolves.toMatchObject([
-      {
-        roleArn: "arn:aws:iam::123456789012:role/acme",
-        expiresAt: 1_722_604_802,
-      },
-    ]);
-    await expect(
-      fetchACMAcmeAccounts("arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint"),
-    ).resolves.toMatchObject([
-      {
-        contacts: ["mailto:operator@example.com"],
-        status: "VALID",
-        publicKeyThumbprint: "thumbprint",
-      },
-    ]);
+    const domain = `${uniqueName("service")}.example.com`;
+    const zoneId = await createHostedZone(domain);
+    await createACMAcmeDomainValidation(endpointArn, domain, zoneId);
+    const validations = await fetchACMAcmeDomainValidations(endpointArn);
+    expect(validations).toHaveLength(1);
+    expect(validations[0]).toMatchObject({ domainName: domain, status: "VALID" });
+    expect(validations[0].recordName).toMatch(new RegExp(`^_[0-9a-f]+\\.${domain.replace(/\./g, "\\.")}\\.$`));
+    expect(validations[0].recordValue).toMatch(/\.acm-validations\.aws\.$/);
+
+    const binding = await createACMAcmeExternalAccountBinding(endpointArn, ROLE_ARN);
+    const bindings = await fetchACMAcmeExternalAccountBindings(endpointArn);
+    expect(bindings).toEqual([binding]);
+    expect(binding.roleArn).toBe(ROLE_ARN);
+    expect(binding.expiresAt - binding.createdAt).toBe(7 * 24 * 60 * 60);
+
+    const credentials = await getACMAcmeExternalAccountBindingCredentials(binding.acmeExternalAccountBindingArn);
+    expect(credentials.keyId).not.toBe("");
+    expect(credentials.macKey).not.toBe("");
+    const accountUrl = await registerAcmeAccount(endpoint!.endpointUrl, credentials, "mailto:operator@example.com");
+    const accounts = await fetchACMAcmeAccounts(endpointArn);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ accountUrl, contacts: ["mailto:operator@example.com"], status: "VALID" });
+    expect(accounts[0].publicKeyThumbprint).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
   it("sends every operator mutation to the matching public AWS operation", async () => {
-    const endpointArn = "arn:aws:acm:us-east-1:123456789012:acme-endpoint/endpoint";
-    const validationArn =
-      "arn:aws:acm:us-east-1:123456789012:acme-domain-validation/endpoint/validation";
-    const bindingArn =
-      "arn:aws:acm:us-east-1:123456789012:acme-external-account-binding/endpoint/binding";
-    const accountUrl = "https://acm.example/acme/endpoint/account/account";
-    const requests = new Map<string, Record<string, unknown>>();
+    const endpointArn = await createEndpoint();
+    const domain = `${uniqueName("mutations")}.example.com`;
+    await createACMAcmeDomainValidation(endpointArn, domain, await createHostedZone(domain));
+    const [validation] = await fetchACMAcmeDomainValidations(endpointArn);
+    const endpointUrl = (await fetchACMAcmeEndpoints()).find((e) => e.acmeEndpointArn === endpointArn)!.endpointUrl;
 
-    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url === "/ui/config.json") return jsonResponse({});
-      const target = targetOf(init);
-      requests.set(target, requestBody(init));
-      if (target === "CertificateManager.CreateAcmeExternalAccountBinding") {
-        return jsonResponse({
-          ExternalAccountBinding: {
-            AcmeExternalAccountBindingArn: bindingArn,
-            RoleArn: "arn:aws:iam::123456789012:role/acme",
-            CreatedAt: 1,
-            ExpiresAt: 2,
-          },
-        });
-      }
-      if (target === "CertificateManager.GetAcmeExternalAccountBindingCredentials") {
-        return jsonResponse({ KeyId: "key-id", MacKey: "mac-key" });
-      }
-      return jsonResponse({});
-    });
-
-    await createACMAcmeEndpoint("REQUIRED");
-    await createACMAcmeDomainValidation(endpointArn, "example.com", "Z123");
-    await expect(
-      createACMAcmeExternalAccountBinding(endpointArn, "arn:aws:iam::123456789012:role/acme"),
-    ).resolves.toMatchObject({ acmeExternalAccountBindingArn: bindingArn, expiresAt: 2 });
-    await expect(getACMAcmeExternalAccountBindingCredentials(bindingArn)).resolves.toEqual({
-      keyId: "key-id",
-      macKey: "mac-key",
-    });
-    await revokeACMAcmeExternalAccountBinding(bindingArn);
+    const accountBinding = await createACMAcmeExternalAccountBinding(endpointArn, ROLE_ARN);
+    const accountUrl = await registerAcmeAccount(
+      endpointUrl,
+      await getACMAcmeExternalAccountBindingCredentials(accountBinding.acmeExternalAccountBindingArn),
+      "mailto:revoked@example.com",
+    );
     await revokeACMAcmeAccount(endpointArn, accountUrl);
-    await deleteACMAcmeDomainValidation(validationArn);
-    await deleteACMAcmeEndpoint(endpointArn);
+    expect((await fetchACMAcmeAccounts(endpointArn)).find((a) => a.accountUrl === accountUrl)?.status).toBe("REVOKED");
 
-    expect(requests.get("CertificateManager.CreateAcmeEndpoint")).toMatchObject({
-      AuthorizationBehavior: "PRE_APPROVED",
-      Contact: "REQUIRED",
-    });
-    expect(requests.get("CertificateManager.CreateAcmeDomainValidation")).toMatchObject({
-      AcmeEndpointArn: endpointArn,
-      DomainName: "example.com",
-      PrevalidationOptions: { DnsPrevalidation: { HostedZoneId: "Z123" } },
-    });
-    expect(requests.get("CertificateManager.CreateAcmeExternalAccountBinding")).toEqual({
-      AcmeEndpointArn: endpointArn,
-      RoleArn: "arn:aws:iam::123456789012:role/acme",
-      Expiration: { Type: "DAYS", Value: 7 },
-    });
-    expect(requests.get("CertificateManager.GetAcmeExternalAccountBindingCredentials")).toEqual({
-      AcmeExternalAccountBindingArn: bindingArn,
-    });
-    expect(requests.get("CertificateManager.RevokeAcmeAccount")).toEqual({
-      AcmeEndpointArn: endpointArn,
-      AccountUrl: accountUrl,
-    });
-    expect(requests.get("CertificateManager.DeleteAcmeDomainValidation")).toEqual({
-      AcmeDomainValidationArn: validationArn,
-    });
-    expect(requests.get("CertificateManager.DeleteAcmeEndpoint")).toEqual({ AcmeEndpointArn: endpointArn });
+    const unusedBinding = await createACMAcmeExternalAccountBinding(endpointArn, ROLE_ARN);
+    await revokeACMAcmeExternalAccountBinding(unusedBinding.acmeExternalAccountBindingArn);
+    const revoked = (await fetchACMAcmeExternalAccountBindings(endpointArn)).find(
+      (candidate) => candidate.acmeExternalAccountBindingArn === unusedBinding.acmeExternalAccountBindingArn,
+    );
+    expect(revoked?.revokedAt).toBeGreaterThan(0);
+
+    // DeleteAcmeEndpoint refuses an endpoint that still holds an active binding.
+    await revokeACMAcmeExternalAccountBinding(accountBinding.acmeExternalAccountBindingArn);
+    await deleteACMAcmeDomainValidation(validation.acmeDomainValidationArn);
+    expect(await fetchACMAcmeDomainValidations(endpointArn)).toEqual([]);
+
+    await deleteACMAcmeEndpoint(endpointArn);
+    expect((await fetchACMAcmeEndpoints()).map((candidate) => candidate.acmeEndpointArn)).not.toContain(endpointArn);
   });
 });

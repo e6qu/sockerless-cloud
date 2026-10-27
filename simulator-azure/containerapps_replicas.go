@@ -13,22 +13,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// Container Apps revisions, replicas and the log streams a replica's
-// containers and an app's system events are read through.
+// Container Apps revisions, replicas and log streams.
 //
-// Real API: https://learn.microsoft.com/en-us/rest/api/containerapps/container-apps-revisions
-// and https://learn.microsoft.com/en-us/azure/container-apps/log-streaming.
-// `az containerapp logs show` asks getAuthToken for a bearer token, reads the
-// app's eventStreamEndpoint, and GETs
+// `az containerapp logs show` asks getAuthToken for a bearer, reads the app's
+// eventStreamEndpoint, and GETs
 // <endpoint host>/subscriptions/…/containerApps/{app}/revisions/{rev}/replicas/{replica}/containers/{container}/logstream
 // for console output, or the eventStreamEndpoint itself for system events.
 
-// acaContainerLogMaxBytes is the kubelet's default containerLogMaxSize: the
-// node keeps that much of a container's output, which bounds what a log
-// stream's tail can reach back to.
+// The kubelet's default containerLogMaxSize bounds how far back a log stream's
+// tail reaches.
 const acaContainerLogMaxBytes = 10 << 20
 
-// acaLog is an append-only record a log stream reads and follows.
 type acaLog struct {
 	mu      sync.Mutex
 	entries []acaLogEntry
@@ -62,7 +57,6 @@ func (l *acaLog) append(e acaLogEntry) {
 	l.changed = make(chan struct{})
 }
 
-// end marks the log complete: its writer has exited and nothing follows.
 func (l *acaLog) end() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -74,16 +68,16 @@ func (l *acaLog) end() {
 	l.changed = make(chan struct{})
 }
 
-// reopen takes appends again, after an end: the container restarted.
+// reopen takes appends again after an end: the container restarted.
 func (l *acaLog) reopen() {
 	l.mu.Lock()
 	l.ended = false
 	l.mu.Unlock()
 }
 
-// since returns the entries from sequence number from on, the sequence number
-// after the last of them, whether the log has ended, and a channel that closes
-// on the next append or end.
+// since returns the entries from sequence number from on, the next sequence
+// number, whether the log ended, and a channel that closes on the next append
+// or end.
 func (l *acaLog) since(from int) ([]acaLogEntry, int, bool, <-chan struct{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -92,22 +86,17 @@ func (l *acaLog) since(from int) ([]acaLogEntry, int, bool, <-chan struct{}) {
 	return out, l.first + len(l.entries), l.ended, l.changed
 }
 
-// acaReplica is one replica of a container app's revision: a pod running the
-// template's containers.
 type acaReplica struct {
-	name       string
-	revision   string
-	created    time.Time
-	containers []*acaReplicaContainer
-	// initContainers ran to completion before containers started.
+	name           string
+	revision       string
+	created        time.Time
+	containers     []*acaReplicaContainer
 	initContainers []*acaReplicaContainer
-	// address is the pod's, which it keeps across restarts in place until
-	// release.
+	// The pod keeps its address across restarts in place until release.
 	address string
 	release func()
 }
 
-// restarting counts a restart in place of every container of the replica.
 func (r *acaReplica) restarting() {
 	for _, c := range r.containers {
 		c.mu.Lock()
@@ -125,8 +114,7 @@ type acaReplicaContainer struct {
 	terminated  bool
 	exitCode    int
 	restarts    int
-	// ready is whether the container passed its startup probe and its
-	// readiness probe holds.
+	// ready means the startup probe passed and the readiness probe holds.
 	ready bool
 }
 
@@ -137,8 +125,7 @@ func (c *acaReplicaContainer) setReady(ready bool) {
 	acaReadinessChanged()
 }
 
-// ready reports whether every container of the replica is ready, which is
-// when its ingress sends it requests.
+// The ingress sends a replica requests once every container is ready.
 func (r *acaReplica) ready() bool {
 	for _, c := range r.containers {
 		c.mu.Lock()
@@ -151,8 +138,6 @@ func (r *acaReplica) ready() bool {
 	return true
 }
 
-// sink feeds the container's output to its log stream and to the
-// ContainerAppConsoleLogs_CL of the workspace the app's environment names.
 func (c *acaReplicaContainer) sink(app ContainerApp, revision string) sim.LogSink {
 	return acaReplicaContainerSink{container: c, app: app, revision: revision}
 }
@@ -176,8 +161,6 @@ func (s acaReplicaContainerSink) WriteLog(line sim.LogLine) {
 	})
 }
 
-// track records the started container and, once it exits, its exit code; the
-// container's log ends with it.
 func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, appName, revision, replica string) {
 	c.mu.Lock()
 	c.containerID = handle.ID()
@@ -218,7 +201,6 @@ func newACAReplica(name, revision string, containerNames, initNames []string) *a
 	return replica
 }
 
-// acaAppSystemLogs holds each app's system events, keyed by resource ID.
 var acaAppSystemLogs sync.Map // map[resourceID]*acaLog
 
 func acaSystemLog(resourceID string) *acaLog {
@@ -227,8 +209,7 @@ func acaSystemLog(resourceID string) *acaLog {
 	return log
 }
 
-// acaSystemEvent is one line of the system log stream, in the shape the
-// ContainerAppSystemLogs table records.
+// The shape the ContainerAppSystemLogs table records.
 type acaSystemEvent struct {
 	TimeStamp        string `json:"TimeStamp"`
 	Type             string `json:"Type"`
@@ -270,7 +251,6 @@ func acaRecordSystemEvent(resourceID, envID, appName, revision, replica, reason,
 	})
 }
 
-// ContainerAppRevision mirrors armappcontainers.Revision.
 type ContainerAppRevision struct {
 	ID         string                    `json:"id"`
 	Name       string                    `json:"name"`
@@ -278,7 +258,6 @@ type ContainerAppRevision struct {
 	Properties ContainerAppRevisionProps `json:"properties"`
 }
 
-// ContainerAppRevisionProps mirrors armappcontainers.RevisionProperties.
 type ContainerAppRevisionProps struct {
 	CreatedTime       string                `json:"createdTime,omitempty"`
 	LastActiveTime    string                `json:"lastActiveTime,omitempty"`
@@ -292,7 +271,6 @@ type ContainerAppRevisionProps struct {
 	RunningState      string                `json:"runningState"`
 }
 
-// ContainerAppReplica mirrors armappcontainers.Replica.
 type ContainerAppReplica struct {
 	ID         string                   `json:"id"`
 	Name       string                   `json:"name"`
@@ -300,7 +278,6 @@ type ContainerAppReplica struct {
 	Properties ContainerAppReplicaProps `json:"properties"`
 }
 
-// ContainerAppReplicaProps mirrors armappcontainers.ReplicaProperties.
 type ContainerAppReplicaProps struct {
 	CreatedTime         string                         `json:"createdTime"`
 	RunningState        string                         `json:"runningState"`
@@ -309,7 +286,6 @@ type ContainerAppReplicaProps struct {
 	InitContainers      []ContainerAppReplicaContainer `json:"initContainers,omitempty"`
 }
 
-// ContainerAppReplicaContainer mirrors armappcontainers.ReplicaContainer.
 type ContainerAppReplicaContainer struct {
 	Name                string `json:"name"`
 	ContainerID         string `json:"containerId,omitempty"`
@@ -441,8 +417,7 @@ func acaReplicaView(r *http.Request, app ContainerApp, replica *acaReplica) Cont
 	return view
 }
 
-// acaAppAuthTokens records the tokens getAuthtoken issued, which the log
-// streams accept as their bearer credential.
+// The log streams accept the tokens getAuthtoken issued.
 var acaAppAuthTokens sync.Map // map[token]acaIssuedToken
 
 type acaIssuedToken struct {
@@ -524,8 +499,8 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 		}
 		sim.WriteJSON(w, http.StatusOK, acaRevisionView(rev, acaTrafficWeights(app)))
 	})
-	// Restart, activate and deactivate answer 200 with a JSON string naming
-	// what succeeded, which the Azure CLI prints.
+	// Restart, activate and deactivate answer 200 with a JSON string the Azure CLI
+	// prints.
 	srv.HandleFunc("POST "+appPath+"/revisions/{revisionName}/restart", func(w http.ResponseWriter, r *http.Request) {
 		app, rev, ok := lookupRevision(w, r)
 		if !ok {
@@ -553,8 +528,8 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 			}
 			rev.Active = true
 			acaRevisions.Put(rev.ID, rev)
-			// A single-revision app deprovisions any revision but its latest
-			// again as soon as it is activated.
+			// A single-revision app deprovisions any revision but its latest again as soon
+			// as it is activated.
 			acaEnforceRevisionMode(app)
 		}
 		sim.WriteJSON(w, http.StatusOK, "Activate succeeded")
@@ -590,7 +565,6 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 		sim.WriteJSON(w, http.StatusOK, acaReplicaView(r, app, replica))
 	}
 	srv.HandleFunc("GET "+appPath+"/revisions/{revisionName}/replicas/{replicaName}", getReplica)
-	// The Azure CLI asks for a replica with a trailing slash.
 	srv.HandleFunc("GET "+appPath+"/revisions/{revisionName}/replicas/{replicaName}/{$}", getReplica)
 
 	srv.HandleFunc("GET "+streamPath+"/revisions/{revisionName}/replicas/{replicaName}/containers/{containerName}/logstream", func(w http.ResponseWriter, r *http.Request) {
@@ -643,9 +617,8 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 	})
 }
 
-// acaServeLogStream writes a log's tail as newline-delimited lines and, when
-// the request follows, every line appended after it until the log ends or the
-// client goes away.
+// acaServeLogStream writes the tail and, when the request follows, every later
+// line until the log ends or the client leaves.
 func acaServeLogStream(w http.ResponseWriter, r *http.Request, log *acaLog, header []acaLogEntry, format func(acaLogEntry, string) string) {
 	query := r.URL.Query()
 	follow := query.Get("follow") == "true"

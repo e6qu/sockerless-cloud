@@ -19,12 +19,9 @@ func describeOneSubnet(t *testing.T, c *ec2.Client, id string) types.Subnet {
 	return out.Subnets[0]
 }
 
-// TestEC2_SubnetAttributeFidelitySDK covers the ModifySubnetAttribute silent
-// no-op + Subnet response-field gaps: every attribute set via
-// ModifySubnetAttribute must round-trip through DescribeSubnets (previously only
-// MapPublicIpOnLaunch was parsed; the rest were silently dropped), and the
-// computed fields (availableIpAddressCount, availabilityZoneId, subnetArn) must
-// be populated.
+// TestEC2_SubnetAttributeFidelitySDK expects every attribute ModifySubnetAttribute
+// sets back from DescribeSubnets, and the computed availableIpAddressCount,
+// availabilityZoneId and subnetArn.
 func TestEC2_SubnetAttributeFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -39,13 +36,11 @@ func TestEC2_SubnetAttributeFidelitySDK(t *testing.T) {
 	require.NoError(t, err)
 	id := aws.ToString(sn.Subnet.SubnetId)
 
-	// Computed fields populated at create.
 	got := describeOneSubnet(t, c, id)
 	assert.Equal(t, int32(251), aws.ToInt32(got.AvailableIpAddressCount), "a /24 has 256-5 usable addresses")
 	assert.NotEmpty(t, aws.ToString(got.AvailabilityZoneId), "availability_zone_id must be populated")
 	assert.Contains(t, aws.ToString(got.SubnetArn), ":subnet/"+id)
 
-	// Each attribute must persist through ModifySubnetAttribute (not silently dropped).
 	_, err = c.ModifySubnetAttribute(ctx, &ec2.ModifySubnetAttributeInput{
 		SubnetId:                    aws.String(id),
 		AssignIpv6AddressOnCreation: &types.AttributeBooleanValue{Value: aws.Bool(true)},
@@ -77,9 +72,8 @@ func TestEC2_SubnetAttributeFidelitySDK(t *testing.T) {
 		"private_dns_hostname_type_on_launch must persist")
 }
 
-// TestEC2_SubnetFiltersSDK covers DescribeSubnets filter coverage: it previously
-// handled only a single SubnetId.1 + vpc-id, returning ALL subnets for any other
-// filter. tag: / cidr-block / availability-zone must now scope the result.
+// TestEC2_SubnetFiltersSDK expects the tag:, cidr-block and availability-zone
+// filters to scope DescribeSubnets.
 func TestEC2_SubnetFiltersSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -118,9 +112,9 @@ func TestEC2_SubnetFiltersSDK(t *testing.T) {
 	assert.Equal(t, "10.96.2.0/24", aws.ToString(byCidr.Subnets[0].CidrBlock))
 }
 
-// TestEC2_VpcAttributeFidelitySDK covers CreateVpc instance_tenancy round-trip,
-// the dhcp_options_id computed attribute, and the ModifyVpcAttribute
-// EnableNetworkAddressUsageMetrics silent no-op.
+// TestEC2_VpcAttributeFidelitySDK covers the instance_tenancy round-trip, the
+// computed dhcp_options_id and ModifyVpcAttribute's
+// EnableNetworkAddressUsageMetrics.
 func TestEC2_VpcAttributeFidelitySDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

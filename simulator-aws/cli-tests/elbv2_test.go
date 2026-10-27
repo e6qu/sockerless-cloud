@@ -97,11 +97,10 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 	runCLI(t, awsCLI("elbv2", "register-targets",
 		"--target-group-arn", tgArn,
 		"--targets", "Id="+targetHost+",Port="+targetPort, "Id=192.0.2.254,Port=80"))
-	// Registering a target is not on its own enough to have it health-checked:
-	// "Before the load balancer sends a health check request to a target, you
-	// must register it with a target group, specify its target group in a
-	// listener rule, and ensure that the Availability Zone of the target is
-	// enabled for the load balancer." Until then its targets are unused.
+	// A registered target is health-checked only once "you ... register it with
+	// a target group, specify its target group in a listener rule, and ensure
+	// that the Availability Zone of the target is enabled for the load
+	// balancer." Until then it is unused.
 	out = runCLI(t, awsCLI("elbv2", "describe-target-health",
 		"--target-group-arn", tgArn,
 		"--targets", "Id="+targetHost+",Port="+targetPort,
@@ -114,8 +113,6 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 		t.Fatalf("expected the published Target.NotInUse description, got %q", out)
 	}
 
-	// Naming the target group in the listener's default rule is what puts it
-	// under the checker.
 	out = runCLI(t, awsCLI("elbv2", "create-listener",
 		"--load-balancer-arn", lbArn,
 		"--protocol", "HTTP",
@@ -130,8 +127,6 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 
 	waitForELBv2TargetHealthCLI(t, tgArn, "Id="+targetHost+",Port="+targetPort, "healthy")
 	waitForELBv2TargetHealthCLI(t, tgArn, "Id=192.0.2.254,Port=80", "unhealthy")
-	// An unhealthy target carries the documented reason code and description
-	// alongside its state.
 	out = runCLI(t, awsCLI("elbv2", "describe-target-health",
 		"--target-group-arn", tgArn,
 		"--targets", "Id=192.0.2.254,Port=80",
@@ -217,11 +212,9 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 		t.Fatalf("expected ListenerNotFound for a listener that does not exist, got %q", missing)
 	}
 
-	// Deregistering does not remove a target at once: "The load balancer stops
-	// routing requests to a target as soon as it is deregistered. The target
-	// enters the `draining` state until in-flight requests have completed."
-	// This target group waits the documented default of 300 seconds, so the
-	// target reports draining rather than disappearing.
+	// "The target enters the `draining` state until in-flight requests have
+	// completed." The target group's deregistration delay is the default 300
+	// seconds, so the target reports draining rather than disappearing.
 	runCLI(t, awsCLI("elbv2", "deregister-targets",
 		"--target-group-arn", tgArn,
 		"--targets", "Id="+targetHost+",Port="+targetPort, "Id=192.0.2.254,Port=80"))
@@ -244,11 +237,9 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 }
 
 // TestELBv2HealthCheckMatcherCLI holds the health check to the target group's
-// Matcher: "The codes to use when checking for a successful response from a
-// target ... The default value is 200." A target that answers outside those
-// codes is unhealthy with `Target.ResponseCodeMismatch` — "The health checks
-// did not return an expected HTTP code" — and the description names the code
-// the target returned.
+// Matcher ("The default value is 200"): a target answering outside it is
+// unhealthy with `Target.ResponseCodeMismatch`, and the description names the
+// code it returned.
 func TestELBv2HealthCheckMatcherCLI(t *testing.T) {
 	t.Parallel()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -307,10 +298,9 @@ func TestELBv2HealthCheckMatcherCLI(t *testing.T) {
 		t.Fatalf("expected the description to name the code the target returned, got %q", out)
 	}
 
-	// Widening the matcher to include the code the target answers with puts it
-	// back in service, which is the same check read the other way round. A
-	// multi-value HttpCode goes in as JSON: the command-line client's shorthand
-	// reads the comma as a list separator and rejects the result.
+	// Widening the matcher to the target's code puts it back in service. A
+	// multi-value HttpCode goes in as JSON, since the CLI shorthand reads the
+	// comma as a list separator.
 	runCLI(t, awsCLI("elbv2", "modify-target-group",
 		"--target-group-arn", tgArn, "--matcher", `{"HttpCode":"200,418"}`))
 	waitForELBv2TargetHealthCLI(t, tgArn, "Id="+targetHost+",Port="+targetPort, "healthy")

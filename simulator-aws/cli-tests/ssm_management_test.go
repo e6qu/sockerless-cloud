@@ -13,10 +13,9 @@ func ssmStamp() string {
 	return strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 }
 
-// ssmInstanceID builds an instance id of the shape AWS Systems Manager admits:
-// "i-" followed by exactly eight or seventeen word characters. The stamp
-// carries a hyphen, which \w excludes, so it is dropped rather than trimmed
-// around.
+// ssmInstanceID builds an instance id AWS Systems Manager admits: "i-" and
+// exactly eight or seventeen word characters. \w excludes the stamp's hyphen,
+// so it is dropped.
 func ssmInstanceID(prefix string) string {
 	id := prefix + strings.ReplaceAll(ssmStamp(), "-", "")
 	for len(id) < 17 {

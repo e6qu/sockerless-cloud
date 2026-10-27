@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	// acaDefaultReplicaTimeout is the replicaTimeout of a job that sets none.
 	acaDefaultReplicaTimeout = 1800 * time.Second
 
 	acaJobReplicaIndexLabel   = "sockerless-sim-execution-replica"
@@ -26,9 +25,8 @@ const (
 	acaJobExecutionLabel      = "sockerless-exec-id"
 )
 
-// acaExecutionRun is what an execution's replicas run from and have reached,
-// which the simulator keeps beside the execution so a restarted process
-// resumes it. The ARM surface reports none of it but the execution's status.
+// acaExecutionRun lets a restarted process resume an execution. The Azure
+// Resource Manager surface reports only the status.
 type acaExecutionRun struct {
 	ExecutionID    string           `json:"executionId"`
 	JobID          string           `json:"jobId"`
@@ -41,7 +39,6 @@ type acaExecutionRun struct {
 	Tasks          []acaReplicaTask `json:"tasks"`
 }
 
-// acaReplicaTask is one replica's state in an execution's run.
 type acaReplicaTask struct {
 	Index        int       `json:"index"`
 	Attempt      int       `json:"attempt"`
@@ -54,14 +51,11 @@ type acaReplicaTask struct {
 var (
 	acaExecutions sim.Store[JobExecution]
 	acaRuns       sim.Store[acaExecutionRun]
-	// acaJobRuns holds the run of every execution this process drives.
-	acaJobRuns sync.Map // map[execID]*acaJobRun
+	acaJobRuns    sync.Map // map[execID]*acaJobRun
 )
 
-// acaJobRunSettings reads the replica settings of job's trigger: the
-// replicas an execution runs at once, the successful completions it needs,
-// each defaulting to 1, the retries of a failed replica, and the time a
-// replica may take across its retries.
+// acaJobRunSettings: parallelism and completions default to 1; timeout bounds
+// a replica across its retries.
 func acaJobRunSettings(job ContainerAppJob) (parallelism, completions, retryLimit int, timeout time.Duration) {
 	parallelism, completions, timeout = 1, 1, acaDefaultReplicaTimeout
 	config := job.Properties.Configuration
@@ -100,11 +94,9 @@ func (r acaExecutionRun) spec() jobrun.Spec {
 	}
 }
 
-// acaStartJobExecution starts one execution of job's template. It runs the
-// job's parallelism of replicas, each its own container group, retries a
-// failed replica up to the job's replicaRetryLimit within its
-// replicaTimeout, and succeeds once replicaCompletionCount replicas have
-// succeeded.
+// acaStartJobExecution runs parallelism replicas, each its own container group,
+// retries a failed one up to replicaRetryLimit within replicaTimeout, and
+// succeeds once replicaCompletionCount have succeeded.
 func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJob, template *JobTemplate) JobExecution {
 	execName := fmt.Sprintf("%s-%s", job.Name, randomSuffix(7))
 	execID := fmt.Sprintf("%s/executions/%s", job.ID, execName)
@@ -125,8 +117,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 	record := acaExecutionRun{
 		ExecutionID: execID,
 		JobID:       job.ID,
-		// An execution runs at least as many replicas as it needs to
-		// complete.
+		// Run at least as many replicas as must complete.
 		Replicas:       max(parallelism, completions),
 		Parallelism:    parallelism,
 		Completions:    completions,
@@ -144,7 +135,6 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 	return exec
 }
 
-// acaJobRun is one execution's run in this process.
 type acaJobRun struct {
 	record    acaExecutionRun
 	adoptable map[[2]int][]placement.Existing
@@ -186,10 +176,8 @@ func (r *acaJobRun) execName() string {
 	return id[strings.LastIndex(id, "/")+1:]
 }
 
-// start runs one attempt of replica t as its own container group on the
-// environment's network, where the job's short name is its alias, so
-// executions in one environment resolve each other as the environment's
-// internal DNS resolves them.
+// The job's short name is the replica's alias on the environment's network, so
+// executions resolve each other as the environment's internal DNS does.
 func (r *acaJobRun) start(ctx context.Context, t jobrun.Task) (jobrun.Workload, error) {
 	job, ok := r.job()
 	if !ok {
@@ -219,8 +207,7 @@ func (r *acaJobRun) track(index int, group *workload.Group) jobrun.Workload {
 	return &acaReplicaWorkload{run: r, index: index, group: group}
 }
 
-// mainContainer is the main container of the lowest-numbered replica still
-// running, for console exec.
+// mainContainer serves console exec: the lowest-numbered running replica's.
 func (r *acaJobRun) mainContainer() placement.Handle {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -237,7 +224,6 @@ func (r *acaJobRun) mainContainer() placement.Handle {
 	return nil
 }
 
-// acaReplicaWorkload is one replica attempt's container group.
 type acaReplicaWorkload struct {
 	run   *acaJobRun
 	index int
@@ -258,8 +244,7 @@ func (w *acaReplicaWorkload) Wait() jobrun.Exit {
 	return jobrun.Exit{Code: result.ExitCode, Err: result.Error, At: result.StoppedAt}
 }
 
-// Stop sends the replica's main container the stop signal, with the
-// termination grace before it is killed.
+// Stop signals the main container, which the termination grace then kills.
 func (w *acaReplicaWorkload) Stop() { w.group.Main.Stop() }
 
 func (r *acaJobRun) changed(t jobrun.Task, _ jobrun.Counts) {
@@ -278,9 +263,8 @@ func (r *acaJobRun) changed(t jobrun.Task, _ jobrun.Counts) {
 	})
 }
 
-// finished settles the execution's status from the verdict: Succeeded once
-// enough replicas completed, Failed once too few can. A stop already
-// recorded the execution as Stopped.
+// Succeeded once enough replicas completed, Failed once too few can. A stop
+// already recorded Stopped.
 func (r *acaJobRun) finished(v jobrun.Verdict, _ jobrun.Counts) {
 	r.mu.Lock()
 	r.done = true
@@ -310,9 +294,7 @@ func (r *acaJobRun) finished(v jobrun.Verdict, _ jobrun.Counts) {
 	}
 }
 
-// stopACAJobExecution records execution id as Stopped and stops its
-// replicas: those not yet started never start, and running ones get the
-// stop signal. It reports whether the execution exists.
+// Replicas not yet started never start; running ones get the stop signal.
 func stopACAJobExecution(job ContainerAppJob, id string) bool {
 	stopped := false
 	ok := acaExecutions.Update(id, func(e *JobExecution) {
@@ -339,13 +321,10 @@ func stopACAJobExecution(job ContainerAppJob, id string) bool {
 	return ok
 }
 
-// resumeACAJobExecutions takes over every execution an earlier process left
-// Running: each running replica adopts the containers that process left for
-// its attempt, a replica whose containers are gone ends its attempt as lost
-// and is retried within the job's retry limit and replica timeout, and
-// replicas not yet started start. An execution the earlier process kept no
-// run for fails, its replicas lost. Every container no running replica
-// claims is removed.
+// resumeACAJobExecutions adopts the containers an earlier process left Running
+// for each replica's attempt; a replica whose containers are gone ends as lost
+// and retries within the limits, and unstarted replicas start. An execution
+// with no recorded run fails. Unclaimed containers are removed.
 func resumeACAJobExecutions(ctx context.Context) {
 	if acaExecutions == nil {
 		return
@@ -358,7 +337,6 @@ func resumeACAJobExecutions(ctx context.Context) {
 		}
 		record, ok := acaRuns.Get(exec.ID)
 		if !ok {
-			// The earlier process recorded no replicas to resume.
 			jobID, _, _ := strings.Cut(exec.ID, "/executions/")
 			record = acaExecutionRun{ExecutionID: exec.ID, JobID: jobID, Replicas: 1, Parallelism: 1, Completions: 1,
 				Tasks: []acaReplicaTask{{Index: 0, Status: jobrun.Running.String()}}}
@@ -398,8 +376,7 @@ func resumeACAJobExecutions(ctx context.Context) {
 	}
 }
 
-// acaJobContainersLeft is the job replica containers an earlier process left,
-// by execution, then replica index and attempt.
+// Keyed by execution, then replica index and attempt.
 func acaJobContainersLeft(ctx context.Context) map[string]map[[2]int][]placement.Existing {
 	found := map[string]map[[2]int][]placement.Existing{}
 	if !sim.HasPersistentWorkloadIdentity() {
@@ -431,8 +408,6 @@ func acaJobContainersLeft(ctx context.Context) map[string]map[[2]int][]placement
 	return found
 }
 
-// adopt takes over the containers an earlier process left running replica
-// t's attempt, and the address its main container holds.
 func (r *acaJobRun) adopt(t jobrun.Task) (jobrun.Workload, error) {
 	key := [2]int{t.Index, t.Attempt}
 	group := r.adoptable[key]
@@ -491,15 +466,12 @@ func (r *acaJobRun) adopt(t jobrun.Task) (jobrun.Workload, error) {
 	return r.track(t.Index, &workload.Group{Main: handles[0], Sidecars: handles[1:]}), nil
 }
 
-// acaJobReplicaContainerName names the main container of one attempt of one
-// replica of an execution.
 func acaJobReplicaContainerName(execName string, index, attempt int) string {
 	return fmt.Sprintf("sockerless-sim-azure-execution-%s-%d-%d", execName, index, attempt)
 }
 
-// startACAJobContainers starts one attempt of one replica of an execution:
-// the template's first container owns the network namespace, the others
-// join it.
+// The template's first container owns the network namespace; the others join
+// it.
 func startACAJobContainers(ctx context.Context, execID, execName string, index, attempt int, job ContainerAppJob, tmpl *JobTemplate, network azureWorkloadNetwork, subnetID string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {
 	envID := job.Properties.EnvironmentID
 	volByName := make(map[string]JobVolume, len(tmpl.Volumes))
@@ -531,8 +503,8 @@ func startACAJobContainers(ctx context.Context, execID, execName string, index, 
 		return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: acaDefaultTerminationGrace,
 			Image:             sim.ResolveLocalImage(c.Image),
-			// The host pulls each container's image with the credential the
-			// job declared for its registry, as Container Apps does.
+			// The host pulls with the credential the job declared for the registry, as
+			// Container Apps does.
 			RegistryAuth: acrWorkloadRegistryAuth(c.Image, registries),
 			Command:      c.Command,
 			Args:         c.Args,

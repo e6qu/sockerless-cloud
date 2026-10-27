@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_NetworkAclLifecycle exercises the network ACL ops through the aws
-// CLI: create-network-acl, create-network-acl-entry, replace-network-acl-entry,
-// describe-network-acls read-back, delete-network-acl-entry, delete-network-acl.
 func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -29,7 +26,6 @@ func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
 		"--rule-action", "allow", "--ingress", "--cidr-block", "0.0.0.0/0",
 		"--port-range", "From=22,To=22"))
 
-	// Read back rule 100's action + port range. Entries is a list of structs.
 	out := runCLI(t, awsCLI("ec2", "describe-network-acls", "--network-acl-ids", aclID,
 		"--query", "NetworkAcls[0].Entries[?RuleNumber==`100` && Egress==`false`].[RuleAction,PortRange.From]",
 		"--output", "text"))
@@ -37,7 +33,6 @@ func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
 		t.Fatalf("network acl entry: got %q, want 'allow 22'", strings.TrimSpace(out))
 	}
 
-	// Replace it with a deny on port 443.
 	runCLI(t, awsCLI("ec2", "replace-network-acl-entry",
 		"--network-acl-id", aclID, "--rule-number", "100", "--protocol", "6",
 		"--rule-action", "deny", "--ingress", "--cidr-block", "0.0.0.0/0",
@@ -54,8 +49,6 @@ func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
 		"--network-acl-id", aclID, "--rule-number", "100", "--ingress"))
 }
 
-// TestEC2CLI_VpcPeeringLifecycle exercises create/describe/accept/delete of a
-// VPC peering connection through the aws CLI.
 func TestEC2CLI_VpcPeeringLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -93,8 +86,6 @@ func TestEC2CLI_VpcPeeringLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ManagedPrefixListLifecycle exercises create/describe/get-entries/
-// delete of a managed prefix list through the aws CLI.
 func TestEC2CLI_ManagedPrefixListLifecycle(t *testing.T) {
 	t.Parallel()
 	plID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-managed-prefix-list",
@@ -112,7 +103,6 @@ func TestEC2CLI_ManagedPrefixListLifecycle(t *testing.T) {
 		t.Fatalf("prefix list: got %q, want 'cli-corp IPv4 4'", strings.TrimSpace(out))
 	}
 
-	// Entries is a list of structs; query the Cidr field of each.
 	entries := runCLI(t, awsCLI("ec2", "get-managed-prefix-list-entries", "--prefix-list-id", plID,
 		"--query", "Entries[].Cidr", "--output", "text"))
 	if !strings.Contains(entries, "172.16.0.0/12") || !strings.Contains(entries, "10.1.0.0/16") {
@@ -120,8 +110,6 @@ func TestEC2CLI_ManagedPrefixListLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_FlowLogsLifecycle exercises create/describe/delete flow logs
-// against a VPC through the aws CLI.
 func TestEC2CLI_FlowLogsLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -150,8 +138,6 @@ func TestEC2CLI_FlowLogsLifecycle(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "delete-flow-logs", "--flow-log-ids", flID))
 }
 
-// TestEC2CLI_EgressOnlyInternetGatewayLifecycle exercises create/describe/delete
-// of an egress-only internet gateway through the aws CLI.
 func TestEC2CLI_EgressOnlyInternetGatewayLifecycle(t *testing.T) {
 	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

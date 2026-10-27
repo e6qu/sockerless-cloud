@@ -32,9 +32,8 @@ func errCode(t *testing.T, err error) string {
 	return ae.ErrorCode()
 }
 
-// TestELBv2_DuplicateNames — CreateLoadBalancer / CreateTargetGroup with a name
-// that already exists must be rejected (real ELBv2 behavior), not silently
-// create a second resource.
+// TestELBv2_DuplicateNames expects CreateLoadBalancer and CreateTargetGroup to
+// reject an existing name rather than create a second resource.
 func TestELBv2_DuplicateNames(t *testing.T) {
 	t.Parallel()
 	tgName := uniquename.New("dup-tg")
@@ -46,8 +45,8 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 		Subnets: subnets,
 	})
 	require.NoError(t, err)
-	// "If you attempt to create multiple load balancers with the same
-	// settings, each call succeeds"; a differing one is a duplicate name.
+	// "If you attempt to create multiple load balancers with the same settings,
+	// each call succeeds"; differing settings under the name are a duplicate.
 	again, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
 		Subnets: subnets,
@@ -77,8 +76,8 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 	assert.Equal(t, "DuplicateTargetGroupName", errCode(t, err))
 }
 
-// TestRoute53_CallerReferenceIdempotency — a reused CallerReference returns
-// HostedZoneAlreadyExists, the idempotency key Terraform relies on for retries.
+// TestRoute53_CallerReferenceIdempotency expects a reused CallerReference to
+// return HostedZoneAlreadyExists, the idempotency key Terraform retries on.
 func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
 	t.Parallel()
 	callerRef := uniquename.New("audit-ref")
@@ -95,8 +94,8 @@ func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
 	assert.Equal(t, "HostedZoneAlreadyExists", errCode(t, err))
 }
 
-// TestEC2_DeleteSecurityGroupNotFound — DeleteSecurityGroup is not idempotent;
-// a missing group returns InvalidGroup.NotFound, not <return>true</return>.
+// TestEC2_DeleteSecurityGroupNotFound expects InvalidGroup.NotFound for a
+// missing group: DeleteSecurityGroup is not idempotent.
 func TestEC2_DeleteSecurityGroupNotFound(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -106,8 +105,8 @@ func TestEC2_DeleteSecurityGroupNotFound(t *testing.T) {
 	assert.Equal(t, "InvalidGroup.NotFound", errCode(t, err))
 }
 
-// TestECR_DescribeRepositoriesNotFound — naming a missing repo errors instead of
-// silently returning only the found ones.
+// TestECR_DescribeRepositoriesNotFound expects naming a missing repository to
+// fail rather than return only the found ones.
 func TestECR_DescribeRepositoriesNotFound(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
@@ -117,8 +116,6 @@ func TestECR_DescribeRepositoriesNotFound(t *testing.T) {
 	assert.Equal(t, "RepositoryNotFoundException", errCode(t, err))
 }
 
-// TestECR_UntagResource — tag removal round-trips (the op was unimplemented, so
-// terraform tag removal 400'd).
 func TestECR_UntagResource(t *testing.T) {
 	t.Parallel()
 	c := ecrClient()
@@ -147,8 +144,8 @@ func TestECR_UntagResource(t *testing.T) {
 	assert.False(t, keys["drop"], "untagged key must be gone")
 }
 
-// TestS3_ConditionalPut — If-None-Match:* fails when the object exists;
-// If-Match:<etag> fails on a stale etag (optimistic concurrency).
+// TestS3_ConditionalPut expects If-None-Match:* to fail when the object exists
+// and If-Match:<etag> to fail on a stale etag.
 func TestS3_ConditionalPut(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -161,21 +158,18 @@ func TestS3_ConditionalPut(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// If-None-Match: * must fail now that the object exists.
 	_, err = c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v2"),
 		IfNoneMatch: aws.String("*"),
 	})
 	assert.Equal(t, "PreconditionFailed", errCode(t, err))
 
-	// If-Match with a stale etag must fail.
 	_, err = c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v3"),
 		IfMatch: aws.String(`"deadbeefdeadbeefdeadbeefdeadbeef"`),
 	})
 	assert.Equal(t, "PreconditionFailed", errCode(t, err))
 
-	// If-Match with the current etag succeeds.
 	_, err = c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v4"),
 		IfMatch: put.ETag,
@@ -183,10 +177,9 @@ func TestS3_ConditionalPut(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_ConcurrentConditionalPutsHaveOneWinner — S3 evaluates a conditional
-// write and applies it as one step, so of many writers that all require the
-// key to be absent, exactly one creates it, and the stored object is the one
-// that writer sent.
+// TestS3_ConcurrentConditionalPutsHaveOneWinner: Amazon S3 evaluates and applies
+// a conditional write as one step, so of many writers requiring the key to be
+// absent exactly one creates it, and the stored object is that writer's.
 func TestS3_ConcurrentConditionalPutsHaveOneWinner(t *testing.T) {
 	t.Parallel()
 	c := s3Client()
@@ -195,7 +188,7 @@ func TestS3_ConcurrentConditionalPutsHaveOneWinner(t *testing.T) {
 	require.NoError(t, err)
 
 	// Bodies large enough that a writer spends real time between checking the
-	// condition and storing, which is where an unserialized write loses.
+	// condition and storing, where an unserialized write loses.
 	const writers = 32
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -231,8 +224,8 @@ func TestS3_ConcurrentConditionalPutsHaveOneWinner(t *testing.T) {
 	assert.Equal(t, winners[0], strings.TrimRight(string(body), "."), "the stored object is the winner's")
 }
 
-// TestLambda_DeleteAliasNotFound — deleting a missing alias errors with
-// ResourceNotFoundException instead of a silent 204.
+// TestLambda_DeleteAliasNotFound expects ResourceNotFoundException for a
+// missing alias rather than a 204.
 func TestLambda_DeleteAliasNotFound(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()

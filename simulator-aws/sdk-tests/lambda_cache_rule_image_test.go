@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A function whose image is an Amazon ECR reference under a pull-through
-// cache rule runs the image the rule fetches from its upstream — here the
-// ECR Public Gallery — as Lambda runs it after ECR hydrates the cache.
+// A function whose image is an Amazon ECR reference under a pull-through cache
+// rule runs the image the rule fetches from its upstream, the ECR Public
+// Gallery, as Lambda does once ECR hydrates the cache.
 func TestLambda_ImageThroughPullThroughCacheRule(t *testing.T) {
 	t.Parallel()
 	const upstreamImage = "public.ecr.aws/docker/library/alpine:latest"

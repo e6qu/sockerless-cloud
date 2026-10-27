@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_FpgaImageLifecycle covers the Amazon FPGA Image (AFI) control
-// plane via the aws CLI: create-fpga-image, describe-fpga-images read-back,
-// copy-fpga-image, the attribute set (describe/modify load-permission/reset),
-// and delete-fpga-image.
 func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -35,7 +31,6 @@ func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
 		t.Fatalf("describe-fpga-images Description: got %q, want 'cli fpga image'", v)
 	}
 
-	// copy-fpga-image into a fresh AFI.
 	copyID := q("ec2", "copy-fpga-image", "--source-fpga-image-id", afi,
 		"--source-region", "us-east-1", "--name", "cli-afi-copy",
 		"--query", "FpgaImageId", "--output", "text")
@@ -48,7 +43,6 @@ func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
 		t.Fatalf("copied AFI name: got %q, want cli-afi-copy", v)
 	}
 
-	// Attribute set: modify load-permission, read it back, reset.
 	q("ec2", "modify-fpga-image-attribute", "--fpga-image-id", afi,
 		"--attribute", "loadPermission", "--operation-type", "add", "--user-ids", "123456789012")
 	if v := q("ec2", "describe-fpga-image-attribute", "--fpga-image-id", afi,
@@ -69,9 +63,6 @@ func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_AllowedImagesSettings covers the account-level Allowed AMIs
-// settings via the aws CLI: enable (audit-mode), get, replace-image-criteria,
-// get again, disable.
 func TestEC2CLI_AllowedImagesSettings(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -99,8 +90,6 @@ func TestEC2CLI_AllowedImagesSettings(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ImageBlockPublicAccess covers the account-level image
-// block-public-access state via the aws CLI.
 func TestEC2CLI_ImageBlockPublicAccess(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	t.Cleanup(func() { runCLI(t, awsCLI("ec2", "disable-image-block-public-access")) })
@@ -120,8 +109,6 @@ func TestEC2CLI_ImageBlockPublicAccess(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_ImageDeregistrationProtection covers per-AMI deregistration
-// protection via the aws CLI on a real registered AMI.
 func TestEC2CLI_ImageDeregistrationProtection(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -137,9 +124,6 @@ func TestEC2CLI_ImageDeregistrationProtection(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_StoreImageTask covers create-store-image-task on a real AMI and
-// the describe-store-image-tasks read-back; bundle/conversion task lists are
-// asserted honest-empty.
 func TestEC2CLI_StoreImageTask(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -156,7 +140,6 @@ func TestEC2CLI_StoreImageTask(t *testing.T) {
 		t.Fatalf("describe-store-image-tasks: got %q, want '%s cli-store-bucket Completed'", got, ami)
 	}
 
-	// Bundle and conversion tasks are honest-empty.
 	if v := q("ec2", "describe-bundle-tasks", "--query", "BundleTasks", "--output", "json"); !strings.Contains(v, "[]") {
 		t.Fatalf("describe-bundle-tasks: got %q, want empty list", v)
 	}
@@ -165,8 +148,6 @@ func TestEC2CLI_StoreImageTask(t *testing.T) {
 	}
 }
 
-// ec2RegisterTestAMICLI registers a minimal EBS-backed AMI via the CLI and
-// returns its id, for tests needing a real AMI in the image store.
 func ec2RegisterTestAMICLI(t *testing.T, q func(args ...string) string) string {
 	t.Helper()
 	ami := q("ec2", "register-image", "--name", "imf-cli-test-ami", "--architecture", "x86_64",

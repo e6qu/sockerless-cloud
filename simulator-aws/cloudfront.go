@@ -13,10 +13,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront is REST + XML. All paths are versioned at /2020-05-31/.
-// Namespace on every body: http://cloudfront.amazonaws.com/doc/2020-05-31/
-// ETag header returns on Get + Create + Update; If-Match required on
-// Update + Delete. Mirrors aws-sdk-go-v2/service/cloudfront wire shape.
+// Amazon CloudFront speaks REST + XML under /2020-05-31/. Get, Create and
+// Update return an ETag; Update and Delete require a matching If-Match.
 
 const (
 	cfAPIVersion = "2020-05-31"
@@ -44,10 +42,8 @@ type CFDistributionConfig struct {
 	HttpVersion          string               `xml:"HttpVersion,omitempty"`
 	IsIPV6Enabled        *bool                `xml:"IsIPV6Enabled,omitempty"`
 	Staging              *bool                `xml:"Staging,omitempty"`
-	// AnycastIpListId names the Anycast static IP list the distribution serves
-	// from; ConnectionMode is "direct" (the default) or "tenant-only". These
-	// are what the ListDistributionsByAnycastIpListId and
-	// ListDistributionsByConnectionMode projections select on.
+	// ListDistributionsByAnycastIpListId and ListDistributionsByConnectionMode
+	// select on these; ConnectionMode defaults to "direct".
 	AnycastIpListId string `xml:"AnycastIpListId,omitempty"`
 	ConnectionMode  string `xml:"ConnectionMode,omitempty"`
 }
@@ -336,8 +332,7 @@ type CFDistributionList struct {
 	Items       []CFDistributionSummary `xml:"Items>DistributionSummary,omitempty"`
 }
 
-// CFDistributionSummary mirrors a Distribution but without nested config
-// payload (the list shape inlines the same fields flat).
+// The list shape inlines the distribution's fields flat.
 type CFDistributionSummary struct {
 	Id                   string               `xml:"Id"`
 	ARN                  string               `xml:"ARN"`
@@ -371,10 +366,8 @@ type CFTag struct {
 	Value string `xml:"Value,omitempty"`
 }
 
-// DistributionConfigWithTags is the CreateDistributionWithTags body. The
-// SDK emits this whenever the Terraform aws_cloudfront_distribution
-// resource is applied; both no-tag and with-tag paths flow through the
-// ?WithTags query variant. See aws-sdk-go-v2 serializers.go.
+// The SDK sends both the plain and the tagged create to the ?WithTags
+// variant.
 type CFDistributionConfigWithTags struct {
 	XMLName            xml.Name             `xml:"DistributionConfigWithTags"`
 	Xmlns              string               `xml:"xmlns,attr,omitempty"`
@@ -419,10 +412,8 @@ type CFOriginAccessControlSummary struct {
 	OriginAccessControlOriginType string `xml:"OriginAccessControlOriginType"`
 }
 
-// cfStoredDistribution holds a Distribution with its current ETag. ETag
-// changes on every Update; If-Match on Update/Delete must match the
-// current value. Tags travel alongside the distribution but live in a
-// separate `ListTagsForResource` path (added in ).
+// Every Update changes the ETag. Tags live beside the distribution and are
+// served by ListTagsForResource.
 type cfStoredDistribution struct {
 	Distribution CFDistribution
 	ETag         string
@@ -463,12 +454,8 @@ func cfDomainName(id string) string {
 	return strings.ToLower(id) + ".cloudfront.net"
 }
 
-// cfValidateViewerCertificate enforces real-AWS constraints on the
-// distribution's ViewerCertificate block. Specifically: ACM
-// certificates referenced via ACMCertificateArn must be issued in
-// us-east-1 (real AWS rejects any other region with
-// InvalidViewerCertificate). Returns empty string on success, error
-// message on failure.
+// An AWS Certificate Manager certificate must come from us-east-1, else
+// InvalidViewerCertificate. Returns "" on success.
 func cfValidateViewerCertificate(vc *CFViewerCertificate) string {
 	if vc == nil || vc.ACMCertificateArn == "" {
 		return ""
@@ -483,11 +470,8 @@ func cfValidateViewerCertificate(vc *CFViewerCertificate) string {
 	return ""
 }
 
-// cfNormalizeConfig fills in empty values for every optional nested element
-// in DistributionConfig so the GetDistribution response always carries the
-// full XML shape the Terraform aws provider expects. The provider reads
-// many sub-fields without nil-checks; an omitted XML element deserialises
-// to *T == nil and crashes the provider.
+// The Terraform AWS provider dereferences many optional sub-elements without
+// nil checks, so GetDistribution always carries the full shape.
 func cfNormalizeConfig(c *CFDistributionConfig) {
 	if c.Aliases == nil {
 		c.Aliases = &CFAliases{Quantity: 0}
@@ -546,7 +530,6 @@ func registerCloudFront(srv *sim.Server) {
 
 	cfDistributionResource := cloudTrailRESTResource("AWS::CloudFront::Distribution", "id", "Resource")
 	cfOACResource := cloudTrailRESTResource("AWS::CloudFront::OriginAccessControl", "id")
-	// Distributions
 	mux.HandleFunc("POST /"+cfAPIVersion+"/distribution", cloudTrailRecordedRESTDynamic(cfCreateDistributionOperationName, "cloudfront.amazonaws.com", nil, handleCFCreateDistribution))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution", cloudTrailRecordedREST("ListDistributions", "cloudfront.amazonaws.com", nil, handleCFListDistributions))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distribution/{id}", cloudTrailRecordedREST("GetDistribution", "cloudfront.amazonaws.com", cfDistributionResource, handleCFGetDistribution))
@@ -554,36 +537,24 @@ func registerCloudFront(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/distribution/{id}/config", cloudTrailRecordedREST("UpdateDistribution", "cloudfront.amazonaws.com", cfDistributionResource, handleCFUpdateDistribution))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/distribution/{id}", cloudTrailRecordedREST("DeleteDistribution", "cloudfront.amazonaws.com", cfDistributionResource, handleCFDeleteDistribution))
 
-	// Tagging — single endpoint dispatches on ?Operation= param
+	// One tagging path dispatches on ?Operation=.
 	mux.HandleFunc("GET /"+cfAPIVersion+"/tagging", cloudTrailRecordedREST("ListTagsForResource", "cloudfront.amazonaws.com", cfDistributionResource, handleCFListTags))
 	mux.HandleFunc("POST /"+cfAPIVersion+"/tagging", cloudTrailRecordedRESTDynamic(cfTagOperationName, "cloudfront.amazonaws.com", cfDistributionResource, handleCFTagDispatch))
 
-	// Policies (cache / origin-request / response-headers) — same wire shape
 	registerCloudFrontPolicies(srv)
 
-	// Functions + Invalidations
 	registerCloudFrontFunctions(srv)
 
-	// KeyGroups + PublicKeys
 	registerCloudFrontKeys(srv)
 
-	// OriginAccessIdentities + ContinuousDeploymentPolicies + MonitoringSubscriptions
 	registerCloudFrontExtras(srv)
 
-	// Field-level encryption, key value stores, real-time log configs,
-	// streaming distributions, VPC origins, and Anycast IP lists.
 	registerCloudFrontExtras2(srv)
 
-	// Distribution tenants, connection groups, trust stores, resource policies,
-	// WebACL associations, alias/domain conflicts, the ListDistributionsBy*
-	// projections, and the copy/promote/anycast-update/managed-cert variants.
 	registerCloudFrontExtras3(srv)
 
-	// Connection functions, the CloudFront Functions TestFunction op, tagging
-	// op-name registration, and the create-distribution variant op names.
 	registerCloudFrontComplete(srv)
 
-	// OriginAccessControl
 	mux.HandleFunc("POST /"+cfAPIVersion+"/origin-access-control", cloudTrailRecordedREST("CreateOriginAccessControl", "cloudfront.amazonaws.com", nil, handleCFCreateOAC))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-access-control", cloudTrailRecordedREST("ListOriginAccessControls", "cloudfront.amazonaws.com", nil, handleCFListOACs))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-access-control/{id}", cloudTrailRecordedREST("GetOriginAccessControl", "cloudfront.amazonaws.com", cfOACResource, handleCFGetOAC))
@@ -609,10 +580,8 @@ func cfTagOperationName(r *http.Request, _ []byte) string {
 	return ""
 }
 
-// handleCFCreateDistribution dispatches between CreateDistribution and
-// CreateDistributionWithTags based on the `WithTags` query string the
-// AWS SDK sets on the same POST path. Real AWS sniffs the query param
-// to disambiguate; we mirror that.
+// The SDK sends both create operations to one path; the `WithTags` query
+// tells them apart.
 func handleCFCreateDistribution(w http.ResponseWriter, r *http.Request) {
 	withTags := r.URL.Query().Has("WithTags")
 	var cfg CFDistributionConfig
@@ -641,7 +610,7 @@ func handleCFCreateDistribution(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusBadRequest, "InvalidViewerCertificate", err)
 		return
 	}
-	cfg.Xmlns = "" // we set namespace on the outer Distribution element
+	cfg.Xmlns = "" // The namespace goes on the outer Distribution element.
 	cfNormalizeConfig(&cfg)
 	id := cfRandomID("E")
 	etag := cfETag()
@@ -659,10 +628,7 @@ func handleCFCreateDistribution(w http.ResponseWriter, r *http.Request) {
 	}
 	cfDistributions.Put(id, cfStoredDistribution{Distribution: dist, ETag: etag, Tags: tags})
 	w.Header().Set("ETag", etag)
-	// external: real-AWS canonical Location header; aws-sdk-go-v2
-	// parses the distribution ID from the response body, not from
-	// this header, so callers configured with a sim endpoint work
-	// fine despite the URL host pointing at the real AWS surface.
+	// external: the real CloudFront Location; the SDK reads the ID from the body.
 	w.Header().Set("Location", fmt.Sprintf("https://cloudfront.amazonaws.com/%s/distribution/%s", cfAPIVersion, id))
 	cfWriteXML(w, http.StatusCreated, dist)
 }
@@ -815,8 +781,7 @@ func handleCFCreateOAC(w http.ResponseWriter, r *http.Request) {
 	}
 	cfOriginAccessControls.Put(id, cfStoredOAC{OAC: oac, ETag: etag})
 	w.Header().Set("ETag", etag)
-	// external: same rationale as the distribution Location header
-	// above — SDK parses ID from body, not from this header.
+	// external: the SDK reads the ID from the body.
 	w.Header().Set("Location", fmt.Sprintf("https://cloudfront.amazonaws.com/%s/origin-access-control/%s", cfAPIVersion, id))
 	cfWriteXML(w, http.StatusCreated, oac)
 }
@@ -882,8 +847,6 @@ func handleCFDeleteOAC(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// cfDistributionIDFromARN extracts the distribution ID from an ARN of the
-// form "arn:aws:cloudfront::<acct>:distribution/<id>".
 func cfDistributionIDFromARN(arn string) string {
 	const prefix = "distribution/"
 	i := strings.LastIndex(arn, prefix)
@@ -893,10 +856,8 @@ func cfDistributionIDFromARN(arn string) string {
 	return arn[i+len(prefix):]
 }
 
-// cfFunctionNameFromARN extracts the function name from a CloudFront Function
-// ARN (arn:aws:cloudfront::<acct>:function/<name>/<stage>), tolerating both the
-// stage-qualified (.../LIVE) and unqualified forms. Returns "" for non-function
-// ARNs (e.g. distributions), which the tagging handlers route to cfDistributions.
+// Accepts the stage-qualified (…/LIVE) and unqualified forms; "" for other
+// ARNs, which the tagging handlers route to distributions.
 func cfFunctionNameFromARN(arn string) string {
 	const prefix = "function/"
 	i := strings.LastIndex(arn, prefix)
@@ -910,10 +871,8 @@ func cfFunctionNameFromARN(arn string) string {
 	return rest
 }
 
-// cfMergeTags overlays incoming tags onto existing ones: existing-key values are
-// replaced, new keys appended. Insertion order is preserved so the listed tag
-// order is stable (real AWS does not guarantee order, but a deterministic shape
-// avoids spurious test churn).
+// Keep insertion order so the listed order is deterministic; AWS guarantees
+// none.
 func cfMergeTags(existing, incoming []CFTag) []CFTag {
 	values := make(map[string]string, len(existing)+len(incoming))
 	order := make([]string, 0, len(existing)+len(incoming))
@@ -936,7 +895,6 @@ func cfMergeTags(existing, incoming []CFTag) []CFTag {
 	return merged
 }
 
-// cfDropTags returns existing tags minus any whose key is in keys.
 func cfDropTags(existing []CFTag, keys []string) []CFTag {
 	drop := make(map[string]bool, len(keys))
 	for _, k := range keys {
@@ -1037,8 +995,6 @@ func handleCFListOACs(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// cfRetag replaces the tags of the function or distribution arn names with
-// what retag makes of them.
 func cfRetag(w http.ResponseWriter, arn string, retag func([]CFTag) []CFTag) {
 	if fname := cfFunctionNameFromARN(arn); fname != "" {
 		stored, ok := cfFunctions.Get(fname)

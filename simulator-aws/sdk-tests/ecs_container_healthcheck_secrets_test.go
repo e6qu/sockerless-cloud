@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_ContainerHealthCheckAndSecretsRoundTrip verifies healthCheck and
-// secrets survive RegisterTaskDefinition -> DescribeTaskDefinition. The
-// provider folds the whole containerDefinitions into a ForceNew hash, so a
-// dropped field forces a new revision (and a cascading service update) on
-// every plan.
+// TestECS_ContainerHealthCheckAndSecretsRoundTrip expects healthCheck and
+// secrets back from DescribeTaskDefinition: the provider hashes
+// containerDefinitions into a ForceNew value, so a dropped field forces a new
+// revision on every plan.
 func TestECS_ContainerHealthCheckAndSecretsRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()

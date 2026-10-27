@@ -9,27 +9,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Amazon ECS deployment lifecycle hooks.
+// A deployment reaching a stage a hook guards stops there until
+// ContinueServiceDeployment names the hook: CONTINUE proceeds, ROLLBACK
+// abandons. While a deployment waits before SCALE_UP, the scheduler launches
+// none of the new revision's tasks.
 //
-// A service's deploymentConfiguration may declare hooks, each naming the
-// lifecycle stages it guards. When a deployment reaches a guarded stage it
-// stops there: the hook is recorded on the deployment with an identifier, and
-// the deployment goes no further until ContinueServiceDeployment names that
-// identifier — CONTINUE to proceed, ROLLBACK to abandon the deployment.
-//
-// The gate is real, not a label. While a deployment waits at a stage that
-// precedes SCALE_UP, the service scheduler does not launch the new revision's
-// tasks; that is what a PRE_SCALE_UP hook is for, and a hook that only
-// decorated the deployment record while the tasks rolled out anyway would be
-// the decoration this simulator refuses to serve.
-//
-// An AWS_LAMBDA hook is invoked through this simulator's own AWS Lambda
-// implementation, with the payload the service sends, and the function's
-// reply is not what releases the deployment — real Amazon ECS releases it when
-// the hook calls ContinueServiceDeployment, and so does this.
+// An AWS_LAMBDA hook invokes the simulator's AWS Lambda with the service's
+// payload; the function's reply does not release the deployment, its
+// ContinueServiceDeployment call does.
 
-// ECSDeploymentHookDetail is one hook recorded on a deployment. The members
-// are the DeploymentLifecycleHookDetail shape the SDK deserialises.
+// The DeploymentLifecycleHookDetail shape.
 type ECSDeploymentHookDetail struct {
 	HookId        string  `json:"hookId"`
 	TargetType    string  `json:"targetType,omitempty"`
@@ -37,14 +26,12 @@ type ECSDeploymentHookDetail struct {
 	Status        string  `json:"status"`
 	ExpiresAt     float64 `json:"expiresAt,omitempty"`
 	TimeoutAction string  `json:"timeoutAction,omitempty"`
-	// Stage is the lifecycle stage this hook guards. It is not a member of the
-	// AWS shape — the deployment's own lifecycleStage reports where it is —
-	// but the record needs it to know which gate an identifier belongs to.
+	// Not an AWS member: the record needs to know which gate an identifier
+	// belongs to.
 	Stage string `json:"-"`
 }
 
-// ecsDeploymentLifecycleStages are the stages a deployment passes through, in
-// order, as ServiceDeploymentLifecycleStage declares them.
+// In ServiceDeploymentLifecycleStage order.
 var ecsDeploymentLifecycleStages = []string{
 	"RECONCILE_SERVICE",
 	"PRE_SCALE_UP",
@@ -58,8 +45,7 @@ var ecsDeploymentLifecycleStages = []string{
 	"CLEAN_UP",
 }
 
-// ecsScaleUpStageIndex is where the new revision's tasks start. A hook still
-// waiting at or before this point holds the scheduler back.
+// A hook waiting at or before SCALE_UP holds the scheduler back.
 var ecsScaleUpStageIndex = ecsLifecycleStageIndex("SCALE_UP")
 
 func ecsLifecycleStageIndex(stage string) int {
@@ -78,9 +64,7 @@ type ecsServiceLifecycleHook struct {
 	LifecycleStages []string `json:"lifecycleStages"`
 }
 
-// ecsServiceLifecycleHooks reads the hooks a service declares. The deployment
-// configuration is stored as the document the caller sent, so a service with
-// no hooks yields none and nothing downstream changes.
+// The deployment configuration is stored as sent, so no hooks yields none.
 func ecsServiceLifecycleHooks(service ECSService) []ecsServiceLifecycleHook {
 	if len(service.DeploymentConfiguration) == 0 ||
 		string(service.DeploymentConfiguration) == "null" {
@@ -95,15 +79,12 @@ func ecsServiceLifecycleHooks(service ECSService) []ecsServiceLifecycleHook {
 	return configuration.LifecycleHooks
 }
 
-// ecsDeploymentHookPending reports whether a hook is still holding the
-// deployment: one that has neither succeeded nor been abandoned.
+// Neither succeeded nor abandoned.
 func ecsDeploymentHookPending(detail ECSDeploymentHookDetail) bool {
 	return detail.Status == "AWAITING_ACTION" || detail.Status == "IN_PROGRESS"
 }
 
-// ecsServiceDeploymentGate reports whether the service's in-flight deployment
-// is waiting at a stage before its tasks may be launched. The scheduler asks
-// this before it scales the new revision up.
+// The scheduler asks this before scaling the new revision up.
 func ecsServiceDeploymentGate(serviceArn string) (ECSServiceDeploymentRec, bool) {
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != serviceArn || deployment.Status != "IN_PROGRESS" {
@@ -122,13 +103,10 @@ func ecsServiceDeploymentGate(serviceArn string) (ECSServiceDeploymentRec, bool)
 	return ECSServiceDeploymentRec{}, false
 }
 
-// ecsBeginDeploymentLifecycle puts a new deployment at the first stage and
-// stops it at the first stage a hook guards.
 func ecsBeginDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service ECSService) {
 	hooks := ecsServiceLifecycleHooks(service)
 	if len(hooks) == 0 {
-		// Without hooks a deployment still reports where it is; it simply
-		// never stops.
+		// Without hooks a deployment still reports its stage and never stops.
 		deployment.LifecycleStage = "SCALE_UP"
 		return
 	}
@@ -136,9 +114,7 @@ func ecsBeginDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service EC
 	ecsAdvanceDeploymentLifecycle(deployment, service)
 }
 
-// ecsAdvanceDeploymentLifecycle walks the deployment forward from its current
-// stage, stopping at the first stage a hook guards and recording that hook. A
-// deployment with nothing left to wait for lands on SCALE_UP, where the
+// A deployment with nothing left to wait for lands on SCALE_UP, where the
 // scheduler takes over.
 func ecsAdvanceDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service ECSService) {
 	hooks := ecsServiceLifecycleHooks(service)
@@ -148,9 +124,7 @@ func ecsAdvanceDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service 
 		deployment.LifecycleStage = stage
 		hook, guarded := ecsHookForStage(hooks, stage)
 		if !guarded {
-			// Past the point where the scheduler needs to run, the remaining
-			// stages are reported as the deployment reaches them rather than
-			// walked through here.
+			// Later stages are reported as the deployment reaches them.
 			if index >= ecsScaleUpStageIndex {
 				return
 			}
@@ -174,7 +148,6 @@ func ecsAdvanceDeploymentLifecycle(deployment *ECSServiceDeploymentRec, service 
 	}
 }
 
-// ecsHookForStage returns the hook guarding a stage, if one does.
 func ecsHookForStage(hooks []ecsServiceLifecycleHook, stage string) (ecsServiceLifecycleHook, bool) {
 	for _, hook := range hooks {
 		for _, guarded := range hook.LifecycleStages {
@@ -186,11 +159,8 @@ func ecsHookForStage(hooks []ecsServiceLifecycleHook, stage string) (ecsServiceL
 	return ecsServiceLifecycleHook{}, false
 }
 
-// ecsInvokeDeploymentHook calls the hook's AWS Lambda function through this
-// simulator's own Lambda implementation, with the payload Amazon ECS sends. The
-// reply does not release the deployment: the function releases it by calling
-// ContinueServiceDeployment with the hook identifier, which is how the real
-// contract works and what the timeout would otherwise expire waiting for.
+// The reply does not release the deployment; the function calls
+// ContinueServiceDeployment, or the timeout expires.
 func ecsInvokeDeploymentHook(
 	deployment ECSServiceDeploymentRec,
 	hook ecsServiceLifecycleHook,
@@ -210,8 +180,7 @@ func ecsInvokeDeploymentHook(
 	if err != nil {
 		return
 	}
-	// Off the request path: the caller is creating a deployment, and the hook
-	// is the deployment's own work.
+	// Off the request path.
 	bg.Go(func() {
 		name := hook.HookTargetArn
 		if strings.Contains(name, ":function:") {
@@ -222,8 +191,7 @@ func ecsInvokeDeploymentHook(
 		}
 		function, found := lambdaFunctions.Get(name)
 		if !found {
-			// A hook naming a function that does not exist cannot pass, and a
-			// deployment that proceeded anyway would have skipped the gate.
+			// A hook naming a missing function cannot pass.
 			ecsFailDeploymentHook(deployment.ServiceDeploymentArn, detail.HookId,
 				"the deployment lifecycle hook target does not exist: "+hook.HookTargetArn)
 			return
@@ -232,8 +200,7 @@ func ecsInvokeDeploymentHook(
 	})
 }
 
-// ecsFailDeploymentHook marks a hook failed, which stops the deployment: a
-// hook that cannot run is not a hook that passed.
+// A hook that cannot run did not pass, so the deployment stops.
 func ecsFailDeploymentHook(serviceDeploymentArn, hookID, reason string) {
 	deployment, ok := ecsServiceDeployments.Get(serviceDeploymentArn)
 	if !ok {
@@ -252,17 +219,12 @@ func ecsFailDeploymentHook(serviceDeploymentArn, hookID, reason string) {
 	ecsServiceDeployments.Put(serviceDeploymentArn, deployment)
 }
 
-// ecsContinueDeploymentHook applies a ContinueServiceDeployment action to the
-// hook it names, and returns the AWS error to answer with when it names one
-// that cannot be continued.
+// Returns the AWS error for a hook that cannot be continued.
 func ecsContinueDeploymentHook(
 	deployment *ECSServiceDeploymentRec, hookID, action string,
 ) (code, message string, ok bool) {
 	if hookID == "" {
-		// The model marks hookId required, so the SDK refuses to send the call
-		// without one and only a hand-built request arrives here. It is still
-		// answered rather than assumed: there is no such thing as continuing
-		// an unnamed hook.
+		// The model requires hookId, so only a hand-built request lacks it.
 		return "InvalidParameterException", "hookId is required.", false
 	}
 	index := -1
@@ -285,8 +247,7 @@ func ecsContinueDeploymentHook(
 		return "", "", true
 	}
 	deployment.LifecycleHookDetails[index].Status = "SUCCEEDED"
-	// The stage the hook guarded is complete, so the deployment moves on to the
-	// next one — and stops again if another hook guards it.
+	// Move to the next stage, stopping again if another hook guards it.
 	if service, found := ecsServiceByArn(deployment.ServiceArn); found {
 		next := ecsLifecycleStageIndex(deployment.LifecycleStage) + 1
 		if next < len(ecsDeploymentLifecycleStages) {

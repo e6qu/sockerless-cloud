@@ -66,9 +66,8 @@ func TestKinesisCLI_StreamAndRecords(t *testing.T) {
 	assert.Equal(t, "cli-body", string(body))
 }
 
-// TestKinesisCLI_ListShardsPagination drives ListShards across pages over the
-// CLI's --max-results / --next-token params and confirms the page cap, the
-// truncation token, and that the NextToken-only resume recovers the stream.
+// TestKinesisCLI_ListShardsPagination covers the page cap, the truncation
+// token, and resuming from the NextToken alone.
 func TestKinesisCLI_ListShardsPagination(t *testing.T) {
 	t.Parallel()
 	stream := "cli-kinesis-shard-paging"
@@ -94,7 +93,7 @@ func TestKinesisCLI_ListShardsPagination(t *testing.T) {
 	require.Len(t, page1.Shards, 2)
 	require.NotEmpty(t, page1.NextToken, "list-shards must return NextToken when truncated")
 
-	// Resume with NextToken ONLY (no --stream-name), as a real client paginates.
+	// A client resumes with NextToken alone, without --stream-name.
 	page2JSON := runCLI(t, awsCLI("kinesis", "list-shards",
 		"--max-results", "2",
 		"--next-token", page1.NextToken))

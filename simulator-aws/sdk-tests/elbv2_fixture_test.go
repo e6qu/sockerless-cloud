@@ -20,12 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// waitForELBv2TargetHealth blocks until Elastic Load Balancing's health
-// checker reports the target in the wanted state. A target is not in service
-// the instant it is registered — "After your target is registered, it must
-// pass one health check to be considered healthy" — and leaving service takes
-// UnhealthyThresholdCount consecutive failed checks at the target group's
-// configured interval, so a client polls the health before depending on it.
+// waitForELBv2TargetHealth blocks until the health checker reports the target
+// in the wanted state: "After your target is registered, it must pass one
+// health check to be considered healthy", and leaving service takes
+// UnhealthyThresholdCount consecutive failures at the configured interval.
 func waitForELBv2TargetHealth(
 	t *testing.T,
 	targetGroupArn string,
@@ -102,13 +100,9 @@ func availableELBv2ListenerPort(t *testing.T) int32 {
 }
 
 // elbv2CreateListenerOnFreePort creates a listener on an OS-reserved port,
-// re-reserving and retrying when another process on the host takes the port
-// between the reservation's release and the simulator's bind. Handing over a
-// port that was free a moment ago is inherently racy on a shared CI runner —
-// one collision was measured killing an unrelated pull request's run — and
-// the simulator's refusal is the faithful one: the service cannot bind an
-// occupied data-plane port either. Only that refusal is retried; every other
-// error is the test's to fail on.
+// retrying on a fresh one when another process takes the port before the
+// simulator binds it, as happens on a shared CI runner. The service cannot
+// bind an occupied port either, so only that refusal is retried.
 func elbv2CreateListenerOnFreePort(t *testing.T, create func(port int32) error) int32 {
 	t.Helper()
 	const attempts = 5

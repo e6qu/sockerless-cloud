@@ -14,15 +14,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
-// fsEnum is a Firestore enum field value: the canonical uppercase name the
-// handlers compare against. The gax REST transport the high-level client uses
-// marshals enums with UseEnumNumbers (so it sends numbers); the low-level REST
-// client sends the string name. Real Firestore accepts both, so the sim does
-// too — fsDecodeEnum normalizes either form to the canonical name.
+// fsEnum is a Firestore enum value as its canonical uppercase name. The gax
+// REST transport sends enum numbers (UseEnumNumbers) and the low-level REST
+// client sends names; Firestore accepts both, and fsDecodeEnum normalizes
+// either.
 type fsEnum string
 
-// fsDecodeEnum normalizes a Firestore enum JSON token (string name or numeric
-// proto value) to its canonical uppercase name using the given number→name map.
+// fsDecodeEnum normalizes a Firestore enum JSON token, name or proto number,
+// to its canonical name.
 func fsDecodeEnum(b []byte, names map[int]string) (fsEnum, error) {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 || string(b) == "null" {
@@ -88,9 +87,7 @@ func (e *fsFieldOpEnum) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// Firestore v1 REST document surface. This slice persists documents in
-// Firestore's typed-value JSON shape and implements document CRUD,
-// commit/batchGet/batchWrite, and structured equality queries.
+// FSDocument is a Firestore document in its typed-value JSON shape.
 
 type FSDocument struct {
 	Name       string             `json:"name"`
@@ -113,7 +110,6 @@ type FSValue struct {
 	MapValue       *FSMapValue   `json:"mapValue,omitempty"`
 }
 
-// FSGeoPoint mirrors Firestore's geoPointValue: a latitude/longitude pair.
 type FSGeoPoint struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
@@ -154,9 +150,9 @@ type fsPrecondition struct {
 	UpdateTime string `json:"updateTime,omitempty"`
 }
 
-// fsWrite mirrors Firestore's Write: an update/delete plus optional updateMask,
-// a standalone or trailing transform (DocumentTransform), inline
-// updateTransforms applied after the update, and a currentDocument precondition.
+// fsWrite mirrors Firestore's Write: an update or delete with an optional
+// updateMask, a standalone or trailing transform, inline updateTransforms, and
+// a currentDocument precondition.
 type fsWrite struct {
 	Update     *FSDocument `json:"update,omitempty"`
 	UpdateMask *struct {
@@ -206,16 +202,10 @@ func fsDatabasePrefix(project, database string) string {
 	return "projects/" + project + "/databases/" + database + "/documents"
 }
 
-// fsNow stamps a Firestore commit time, at the microsecond granularity real
-// Firestore commits carry rather than the millisecond truncation the shared
-// helper applies.
-//
-// The precision is load-bearing, not cosmetic. A watching client
-// (cloud.google.com/go/firestore's watch loop, and every client library built
-// the same way) treats a document whose updateTime equals the one it already
-// holds as unchanged. At millisecond granularity two writes to one document
-// inside the same millisecond therefore leave the second invisible to every
-// watcher: the change reaches the client and is discarded there.
+// fsNow stamps a Firestore commit time at microsecond granularity, as
+// Firestore does. A watching client treats a document whose updateTime equals
+// the one it holds as unchanged, so millisecond granularity would hide the
+// second of two writes inside one millisecond.
 func fsNow() string {
 	return time.Now().UTC().Truncate(time.Microsecond).Format("2006-01-02T15:04:05.000000Z")
 }
@@ -269,8 +259,7 @@ func handleFSPostDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A ":verb" on the last segment names an AIP-136 custom method, not a
-	// collection to create a document in — creating one named after the method
-	// would invent data.
+	// collection to create a document in.
 	if last := path[strings.LastIndex(path, "/")+1:]; strings.Contains(last, ":") {
 		verb := last[strings.Index(last, ":")+1:]
 		parent := strings.TrimSuffix(path, ":"+verb)
@@ -331,16 +320,12 @@ func handleFSListDocuments(w http.ResponseWriter, r *http.Request, collection st
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// fsApplyUpdateMask merges incoming fields into existing per the Firestore
-// updateMask. An ABSENT mask (mask == nil) replaces the document wholesale (Set
-// without merge). A PRESENT mask (mask != nil, even with zero paths) writes only
-// the listed top-level field paths (present in the body → set, absent → delete)
-// and preserves every other existing field — which is what DocumentRef.Update,
-// Set(..., MergeAll), and a transform-only Update (empty mask + updateTransforms)
-// rely on. Absent vs present-but-empty is load-bearing: the SDK's transform-only
-// Update sends an empty fields doc with a present empty mask, which must preserve
-// the existing fields so the transform reads them — collapsing the two wipes the
-// doc.
+// fsApplyUpdateMask merges incoming fields into existing per the updateMask.
+// An absent mask (nil) replaces the document; a present mask, even an empty
+// one, writes only the listed top-level paths (set if in the body, deleted if
+// not) and keeps every other field. The SDK's transform-only Update sends an
+// empty present mask and relies on the existing fields surviving for the
+// transform to read.
 func fsApplyUpdateMask(existing, incoming map[string]FSValue, mask *[]string) map[string]FSValue {
 	if mask == nil {
 		return incoming
@@ -398,9 +383,8 @@ func handleFSDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// fsWriteError carries a gRPC-mapped error for a single write: the HTTP status,
-// the canonical status string, the numeric gRPC code (for batchWrite's per-write
-// google.rpc.Status), and the message.
+// fsWriteError is one write's error: HTTP status, canonical status, gRPC code
+// (for batchWrite's per-write google.rpc.Status) and message.
 type fsWriteError struct {
 	httpStatus int
 	status     string
@@ -408,7 +392,7 @@ type fsWriteError struct {
 	message    string
 }
 
-// gRPC canonical codes used by the Firestore preconditions.
+// The gRPC canonical codes Firestore preconditions use.
 const (
 	fsGRPCNotFound           = 5
 	fsGRPCAlreadyExists      = 6
@@ -433,10 +417,9 @@ func fsPreconditionFromQuery(r *http.Request) *fsPrecondition {
 	return pre
 }
 
-// fsEvalPrecondition evaluates a Write.currentDocument precondition against the
-// stored document. A nil precondition (or a satisfied one) returns nil; a
-// mismatch returns the gRPC-mapped error. Firestore REST maps ALREADY_EXISTS →
-// 409, NOT_FOUND → 404, FAILED_PRECONDITION → 400.
+// fsEvalPrecondition checks a Write.currentDocument precondition against the
+// stored document, nil when it holds. Firestore REST maps ALREADY_EXISTS to
+// 409, NOT_FOUND to 404 and FAILED_PRECONDITION to 400.
 func fsEvalPrecondition(name string, pre *fsPrecondition) *fsWriteError {
 	if pre == nil {
 		return nil
@@ -461,11 +444,9 @@ func fsEvalPrecondition(name string, pre *fsPrecondition) *fsWriteError {
 	return nil
 }
 
-// fsApplyTransforms applies each FieldTransform against the (already
-// update-applied) field map in declaration order, mutating fields in place and
-// returning the resulting Value for each transform (the transformResults the
-// write result carries, one per transform, in order). now is the commit time
-// used for setToServerValue: REQUEST_TIME.
+// fsApplyTransforms applies each FieldTransform in order to the already-updated
+// fields, in place, and returns each transform's result value. now is the
+// commit time setToServerValue: REQUEST_TIME writes.
 func fsApplyTransforms(fields map[string]FSValue, transforms []fsFieldTransform, now string) []FSValue {
 	results := make([]FSValue, 0, len(transforms))
 	for _, t := range transforms {
@@ -484,7 +465,7 @@ func fsApplyTransforms(fields map[string]FSValue, transforms []fsFieldTransform,
 		case t.RemoveAllFromArray != nil:
 			result = fsArrayRemove(fields[t.FieldPath], t.RemoveAllFromArray)
 		default:
-			// Unknown/unset transform — record the field's current value.
+			// An unset transform reports the field's current value.
 			result = fields[t.FieldPath]
 		}
 		fields[t.FieldPath] = result
@@ -493,9 +474,8 @@ func fsApplyTransforms(fields map[string]FSValue, transforms []fsFieldTransform,
 	return results
 }
 
-// fsIncrement adds operand to current. If either operand is a doubleValue the
-// result is a doubleValue; otherwise both are integers and the result is an
-// integerValue. A missing/non-numeric current is treated as 0.
+// fsIncrement adds operand to current: a doubleValue if either is one,
+// otherwise an integerValue. A missing or non-numeric current counts as 0.
 func fsIncrement(current, operand FSValue) FSValue {
 	cur, _ := fsNumeric(current)
 	op, _ := fsNumeric(operand)
@@ -507,9 +487,9 @@ func fsIncrement(current, operand FSValue) FSValue {
 	return FSValue{IntegerValue: strconv.FormatInt(int64(sum), 10)}
 }
 
-// fsMaxMin returns the per-type max (wantMax) or min of current and operand.
-// A missing/non-numeric current yields operand. The result preserves the
-// chosen operand's exact representation (integerValue vs doubleValue).
+// fsMaxMin returns the max (wantMax) or min of current and operand in the
+// chosen operand's representation; a missing or non-numeric current yields
+// operand.
 func fsMaxMin(current, operand FSValue, wantMax bool) FSValue {
 	_, curNum := fsNumeric(current)
 	if !curNum {
@@ -566,13 +546,11 @@ func fsArrayRemove(current FSValue, remove *FSArrayValue) FSValue {
 	return FSValue{ArrayValue: out}
 }
 
-// fsApplyWrite executes a single Write against the store: enforces the
-// precondition, applies the update (honoring updateMask), applies the inline
-// updateTransforms and the standalone/trailing DocumentTransform, and persists.
-// It returns the per-write result map (updateTime plus transformResults when any
-// transform ran), or the gRPC-mapped error on a precondition/validation
-// failure. A standalone transform (no Update) still creates/updates the targeted
-// doc.
+// fsApplyWrite executes one Write: it checks the precondition, applies the
+// update under its updateMask, the inline updateTransforms and the standalone
+// or trailing transform, and persists. It returns the write result
+// (updateTime, plus transformResults when a transform ran) or the error. A
+// standalone transform also creates or updates its document.
 func fsApplyWrite(wr fsWrite) (map[string]any, *fsWriteError) {
 	if wr.Delete != "" {
 		if e := fsEvalPrecondition(wr.Delete, wr.CurrentDocument); e != nil {
@@ -599,9 +577,8 @@ func fsApplyWrite(wr fsWrite) (map[string]any, *fsWriteError) {
 	existing, _ := fsDocuments.Get(name)
 	merged := FSDocument{Name: name, CreateTime: existing.CreateTime}
 	if wr.Update != nil {
-		// An absent updateMask replaces wholesale; a present one (even empty)
-		// merges. A transform-only Update sends an empty present mask that must
-		// preserve existing fields so the transform reads them.
+		// An absent updateMask replaces; a present one, even empty, merges, which a
+		// transform-only Update relies on.
 		var mask *[]string
 		if wr.UpdateMask != nil {
 			fp := wr.UpdateMask.FieldPaths
@@ -643,9 +620,8 @@ func handleFSCommit(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid commit body: %v", err)
 		return
 	}
-	// A transactional commit consumes the transaction: an unknown or
-	// already-consumed token is rejected, and committing always retires the
-	// token (a transaction can be committed at most once, success or failure).
+	// A transactional commit consumes its token, success or failure; an unknown
+	// or consumed token is rejected.
 	if req.Transaction != "" {
 		if _, ok := fsTransactions.Get(req.Transaction); !ok {
 			GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
@@ -692,14 +668,10 @@ func handleFSBatchWrite(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"writeResults": results, "status": status})
 }
 
-// fsStreamArray writes a Firestore server-streaming response (runQuery /
-// batchGet) as an incrementally-flushed JSON array — the faithful REST wire
-// form of a gRPC server stream. No Content-Length is set, so the Go HTTP server
-// uses chunked transfer-encoding; each element is written and flushed as its own
-// chunk, exactly as real Firestore streams results over HTTP. Client
-// cancellation is honored: if the caller disconnects mid-stream, emission stops.
-// The full array is still valid JSON once received, so SDK/CLI clients that
-// buffer the whole body parse it identically.
+// fsStreamArray writes a server-streaming response (runQuery, batchGet) as a
+// JSON array flushed element by element over chunked encoding, as Firestore
+// streams over HTTP, and stops when the client disconnects. The complete body
+// is still one valid JSON array.
 func fsStreamArray(w http.ResponseWriter, r *http.Request, elements []map[string]any) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
@@ -719,7 +691,7 @@ func fsStreamArray(w http.ResponseWriter, r *http.Request, elements []map[string
 	for i, el := range elements {
 		select {
 		case <-r.Context().Done():
-			return // client disconnected mid-stream — stop emitting
+			return // client disconnected
 		default:
 		}
 		b, err := json.Marshal(el)
@@ -821,7 +793,7 @@ func handleFSRunQuery(w http.ResponseWriter, r *http.Request, parentPath string)
 		docs = docs[:fsCursorIndex(docs, q.OrderBy, q.EndAt)]
 	}
 
-	// Honor offset + limit (the StructuredQuery cursor controls page size).
+	// offset and limit apply after the cursors.
 	if q.Offset > 0 {
 		if q.Offset >= len(docs) {
 			docs = nil
@@ -843,10 +815,9 @@ func handleFSRunQuery(w http.ResponseWriter, r *http.Request, parentPath string)
 	fsStreamArray(w, r, out)
 }
 
-// fsCompareToCursor compares a document's orderBy key against the cursor values,
-// returning -1/0/1. Only as many orderBy positions as the cursor supplies are
-// compared (a partial cursor is a prefix). The `__name__` order field compares
-// by document name.
+// fsCompareToCursor compares a document's orderBy key with the cursor values
+// (-1, 0, 1), over as many positions as the cursor supplies; `__name__`
+// compares document names.
 func fsCompareToCursor(d FSDocument, orderBy []fsOrderBy, cur *fsCursor) int {
 	for i, cv := range cur.Values {
 		if i >= len(orderBy) {
@@ -869,12 +840,10 @@ func fsCompareToCursor(d FSDocument, orderBy []fsOrderBy, cur *fsCursor) int {
 	return 0
 }
 
-// fsCursorIndex finds the boundary index in the ordered docs for a cursor. The
-// same comparison serves both bounds: as a startAt it is the inclusive lower
-// bound, and as an endAt it is the exclusive upper bound. before=true treats a
-// document equal to the cursor as on/after the boundary (StartAt / EndBefore);
-// before=false places it before the boundary (StartAfter / EndAt). docs are
-// already ordered.
+// fsCursorIndex finds a cursor's boundary in the ordered docs: the inclusive
+// lower bound as a start, the exclusive upper bound as an end. before=true
+// puts an equal document on or after the boundary (StartAt, EndBefore),
+// before=false before it (StartAfter, EndAt).
 func fsCursorIndex(docs []FSDocument, orderBy []fsOrderBy, cur *fsCursor) int {
 	for i := range docs {
 		cmp := fsCompareToCursor(docs[i], orderBy, cur)
@@ -885,10 +854,9 @@ func fsCursorIndex(docs []FSDocument, orderBy []fsOrderBy, cur *fsCursor) int {
 	return len(docs)
 }
 
-// fsProjectDocument applies a StructuredQuery select projection: the returned
-// document carries only the listed field paths (preserving name/timestamps). A
-// nil projection returns the document unchanged; a projection of only
-// `__name__` yields a keys-only document (empty Fields).
+// fsProjectDocument applies a select projection, keeping name and timestamps;
+// a nil projection keeps every field, and `__name__` alone yields a keys-only
+// document.
 func fsProjectDocument(d FSDocument, sel *fsProjection) FSDocument {
 	if sel == nil {
 		return d
@@ -1062,9 +1030,8 @@ func fsArrayContainsAny(got, want FSValue) bool {
 	return false
 }
 
-// fsCompareValues orders two scalar Firestore values of the same type, returning
-// -1, 0, or 1. Numeric values (integer/double) compare numerically; strings and
-// timestamps compare lexically; unknown/mixed types fall back to string form.
+// fsCompareValues orders two scalar Firestore values of one type: numbers
+// numerically, strings and timestamps lexically, anything else by string form.
 func fsCompareValues(a, b FSValue) int {
 	an, aIsNum := fsNumeric(a)
 	bn, bIsNum := fsNumeric(b)
@@ -1107,11 +1074,9 @@ func fsScalarString(v FSValue) string {
 	}
 }
 
-// fsValuesEqual reports whether two Firestore values are equal by Firestore's
-// own equality semantics: integerValue and doubleValue unify by numeric value
-// (so 1 == 1.0), scalars compare structurally, and arrayValue/mapValue compare
-// element-/field-wise recursively. This drives EQUAL/NOT_EQUAL/IN/NOT_IN and
-// the ARRAY_CONTAINS family.
+// fsValuesEqual applies Firestore's equality: integerValue and doubleValue
+// unify by number (1 == 1.0), scalars compare structurally, and arrays and maps
+// recursively.
 func fsValuesEqual(a, b FSValue) bool {
 	an, aIsNum := fsNumeric(a)
 	bn, bIsNum := fsNumeric(b)
@@ -1172,36 +1137,23 @@ func fsMapsEqual(a, b *FSMapValue) bool {
 	return true
 }
 
-// Firestore v1 Admin API surface
-//
-// The admin resources (databases, collectionGroups/{cg}/indexes,
-// collectionGroups/{cg}/fields, backupSchedules, locations/{loc}/backups,
-// userCreds, operations) implement real CRUD. Each resource body is stored as
-// the typed-value JSON the client sent (a fidelity-preserving map: every field
-// the client supplies round-trips back, and the sim only sets the
-// server-managed fields the Discovery schema marks output-only — name, state,
-// createTime/updateTime, uid). Mutating operations the Discovery marks
-// long-running (database create/patch/delete, the database export/import/
-// bulkDelete/restore/clone verbs, index create, field patch) return a
-// GoogleLongrunningOperation, persisted under the database-scoped operations
-// collection so a subsequent operations.get returns the same record.
+// The Firestore v1 admin resources (databases, indexes, fields, backup
+// schedules, backups, userCreds, operations) store the body the client sent
+// and set only the output-only members. The methods the Discovery document
+// marks long-running answer an operation persisted under the database's
+// operations collection.
 
-// fsResource is the stored shape for an admin resource: the client-supplied
-// body plus the server-assigned resource name. Storing the whole body as a map
-// preserves every field the SDK sent so the read-back is byte-faithful and
-// never drops an unmodeled field.
+// fsResource is an admin resource: the client's body, every field kept, and
+// its server-assigned name.
 type fsResource struct {
 	Name string         `json:"name"`
 	Body map[string]any `json:"body"`
 }
 
-// fsAdminOp is the stored shape of a Firestore admin long-running operation.
-// The sim performs no asynchronous work, so every operation is created already
-// done with its embedded response, matching what real Firestore returns once
-// the underlying resource has settled. Metadata is omitted unless the operation
-// has a concrete metadata message the admin SDK's proto registry can resolve
-// (IndexOperationMetadata / FieldOperationMetadata) — emitting an unregistered
-// @type there makes the client's Any unmarshal fail.
+// fsAdminOp is a Firestore admin operation, created done with its response.
+// Metadata appears only for IndexOperationMetadata and FieldOperationMetadata,
+// which the admin SDK's registry resolves; an unregistered @type fails the
+// client's Any unmarshal.
 type fsAdminOp struct {
 	Name     string         `json:"name"`
 	Metadata map[string]any `json:"metadata,omitempty"`
@@ -1228,15 +1180,10 @@ func registerFirestoreAdmin(srv *sim.Server) {
 	fsUserCreds = sim.MakeStore[fsResource](srv.DB(), "firestore_user_creds")
 	fsAdminOps = sim.MakeStore[fsAdminOp](srv.DB(), "firestore_admin_operations")
 
-	// Locations (locations.list / locations.get) are shared GCP surface mounted
-	// once on the collapsed sim mux (by the eventarc slice); the firestore-v1
-	// Discovery doc lists them too, so they count toward firestore coverage
-	// without a duplicate registration here.
+	// locations.list and .get are mounted once, by the Eventarc slice.
 
-	// Databases (admin CRUD). The colon-verb forms (databases:clone /
-	// databases:restore at the collection level, and the per-database
-	// {dbAction} that captures "{db}:exportDocuments" etc.) fan in on a
-	// single action parameter that also carries the ":verb" suffix.
+	// The per-database colon verbs arrive in one {dbAction} segment with the verb
+	// attached.
 	srv.HandleFunc("POST /v1/projects/{project}/databases", handleFSDatabasesCollection)
 	// databases:clone and :restore arrive on the collection path with the verb
 	// on the segment, so they take their own mount rather than a query
@@ -1249,37 +1196,31 @@ func registerFirestoreAdmin(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/databases/{database}", handleFSDeleteDatabase)
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{dbAction}", handleFSDatabaseVerb)
 
-	// Indexes (collectionGroups/{cg}/indexes).
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes", handleFSCreateIndex)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes", handleFSListIndexes)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes/{index}", handleFSGetIndex)
 	srv.HandleFunc("DELETE /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/indexes/{index}", handleFSDeleteIndex)
 
-	// Fields (collectionGroups/{cg}/fields).
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/fields", handleFSListFields)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/fields/{field}", handleFSGetField)
 	srv.HandleFunc("PATCH /v1/projects/{project}/databases/{database}/collectionGroups/{cg}/fields/{field}", handleFSPatchField)
 
-	// Backup schedules (databases/{db}/backupSchedules).
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/backupSchedules", handleFSCreateBackupSchedule)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/backupSchedules", handleFSListBackupSchedules)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/backupSchedules/{bs}", handleFSGetBackupSchedule)
 	srv.HandleFunc("PATCH /v1/projects/{project}/databases/{database}/backupSchedules/{bs}", handleFSPatchBackupSchedule)
 	srv.HandleFunc("DELETE /v1/projects/{project}/databases/{database}/backupSchedules/{bs}", handleFSDeleteBackupSchedule)
 
-	// Backups (locations/{loc}/backups).
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/backups", handleFSListBackups)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/backups/{backup}", handleFSGetBackup)
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/backups/{backup}", handleFSDeleteBackup)
 
-	// User creds (databases/{db}/userCreds).
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/userCreds", handleFSUserCredsCollection)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/userCreds", handleFSListUserCreds)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/userCreds/{uc}", handleFSGetUserCreds)
 	srv.HandleFunc("DELETE /v1/projects/{project}/databases/{database}/userCreds/{uc}", handleFSDeleteUserCreds)
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/userCreds/{ucAction}", handleFSUserCredsVerb)
 
-	// Operations (databases/{db}/operations).
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/operations", handleFSListOperations)
 	srv.HandleFunc("GET /v1/projects/{project}/databases/{database}/operations/{operation}", handleFSGetOperation)
 	srv.HandleFunc("DELETE /v1/projects/{project}/databases/{database}/operations/{operation}", handleFSDeleteOperation)
@@ -1306,12 +1247,9 @@ func fsReadBody(r *http.Request) (map[string]any, error) {
 	return body, nil
 }
 
-// Enum name tables for the admin enum fields, ordered so the proto wire number
-// indexes the slice (matching the Discovery enum declaration order). The gax
-// REST transport serializes enums with UseEnumNumbers, so the sim receives
-// numbers; real Firestore returns the string names on read-back, and the
-// Discovery schema declares these fields as strings — so the sim normalizes
-// numeric enum tokens to their canonical name at ingest.
+// Enum names indexed by proto number, in Discovery declaration order. The gax
+// REST transport sends numbers; Firestore reads back names, so ingest
+// normalizes them.
 var (
 	fsDatabaseTypeEnum  = []string{"DATABASE_TYPE_UNSPECIFIED", "FIRESTORE_NATIVE", "DATASTORE_MODE"}
 	fsIndexQueryScope   = []string{"QUERY_SCOPE_UNSPECIFIED", "COLLECTION", "COLLECTION_GROUP", "COLLECTION_RECURSIVE"}
@@ -1321,9 +1259,8 @@ var (
 	fsIndexFieldArrayCf = []string{"ARRAY_CONFIG_UNSPECIFIED", "CONTAINS"}
 )
 
-// fsEnumName converts a numeric enum token to its canonical name using names
-// (indexed by proto number). A non-numeric value (already a string name) or an
-// out-of-range number is returned unchanged.
+// fsEnumName maps a numeric enum token to its name; a string or out-of-range
+// number is returned unchanged.
 func fsEnumName(v any, names []string) any {
 	n, ok := v.(float64)
 	if !ok {
@@ -1392,15 +1329,11 @@ func fsNormalizeAdminEnums(body map[string]any) {
 	}
 }
 
-// fsNewAdminOp creates a completed Firestore admin LRO for the given resource
-// (already carrying its server-assigned name) and persists it under the
-// database-scoped operations collection. The returned Operation embeds the
-// resource as a protobuf.Any (with @type) — what the Firestore admin SDK polls
-// for and unmarshals once done. metadata, when non-nil, must carry an @type
-// naming a concrete OperationMetadata message the admin SDK's proto registry
-// resolves (IndexOperationMetadata / FieldOperationMetadata) plus only that
-// schema's fields; a nil metadata omits the field (database operations, whose
-// metadata messages are not part of this client's registry).
+// fsNewAdminOp records a completed Firestore admin operation under the
+// database's operations collection, its response the resource as a
+// protobuf.Any. metadata, when non-nil, carries an @type the admin SDK
+// resolves (IndexOperationMetadata, FieldOperationMetadata) and only that
+// schema's fields; database operations omit it.
 func fsNewAdminOp(project, database string, resource map[string]any, typeName string, metadata map[string]any) fsAdminOp {
 	opID := sim.NewUUID()
 	resp := map[string]any{}
@@ -1525,11 +1458,9 @@ func handleFSDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleFSDatabaseVerb fans in the per-database colon verbs that ride a single
-// path segment ({db}:exportDocuments / :importDocuments / :bulkDeleteDocuments)
-// plus the collection-level databases:clone / databases:restore — Go's mux
-// cannot spell a ":verb" as its own pattern, so these arrive captured in
-// dbAction. Each returns a long-running Operation.
+// handleFSDatabaseVerb serves the colon verbs captured in dbAction
+// (exportDocuments, importDocuments, bulkDeleteDocuments, and the
+// collection-level clone and restore), each answering an operation.
 func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	dbAction := sim.PathParam(r, "dbAction")
@@ -1553,9 +1484,8 @@ func handleFSDatabaseVerb(w http.ResponseWriter, r *http.Request) {
 		op := fsNewAdminOp(project, dbID, map[string]any{"name": name}, "type.googleapis.com/google.firestore.admin.v1.Database", nil)
 		sim.WriteJSON(w, http.StatusOK, op)
 	case "clone", "restore":
-		// databases:clone / databases:restore — collection-level verbs (dbID
-		// here is the literal "databases" segment, not a database id). The new
-		// database id rides the request body (databaseId).
+		// For clone and restore dbID is the literal "databases" segment; the new
+		// database ID rides the body.
 		newID, _ := body["databaseId"].(string)
 		if newID == "" {
 			newID = sim.NewUUID()
@@ -1635,9 +1565,8 @@ func handleFSGetField(w http.ResponseWriter, r *http.Request) {
 	name := fsFieldName(sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "cg"), sim.PathParam(r, "field"))
 	d, ok := fsFields.Get(name)
 	if !ok {
-		// A field with default (empty) config is implicitly present in
-		// Firestore; the SDK reads it back even when it was never written.
-		// Echo the empty default rather than 404 so the read-back is faithful.
+		// Firestore reports a field with default config even when it was never
+		// written.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"name": name})
 		return
 	}
@@ -1810,9 +1739,8 @@ func handleFSDeleteUserCreds(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleFSUserCredsVerb fans in the userCreds :enable / :disable /
-// :resetPassword colon verbs (ucAction captures "{uc}:verb"), each of which
-// mutates and returns the UserCreds resource.
+// handleFSUserCredsVerb serves :enable, :disable and :resetPassword, each
+// answering the UserCreds resource.
 func handleFSUserCredsVerb(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	ucAction := sim.PathParam(r, "ucAction")
@@ -1873,8 +1801,8 @@ func handleFSDeleteOperation(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleFSCancelOperation handles operations/{op}:cancel (opAction captures
-// "{op}:cancel"). Cancelling a settled operation is a no-op that returns Empty.
+// handleFSCancelOperation serves operations/{op}:cancel; cancelling a settled
+// operation answers Empty.
 func handleFSCancelOperation(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	opAction := sim.PathParam(r, "opAction")

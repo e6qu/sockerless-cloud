@@ -39,10 +39,9 @@ func acrDo(t *testing.T, method, url string, body []byte, contentType string, au
 	return resp
 }
 
-// TestACR_OCIChunkedPush covers POST blob-upload start followed by the chunked
-// PATCH/PUT upload and a manifest push + pull round-trip, against a
-// multi-segment repository — the whole exchange authenticated with the admin
-// credential a `docker login` presents.
+// TestACR_OCIChunkedPush covers a blob upload start, chunked PATCH/PUT, and a
+// manifest push and pull against a multi-segment repository, authenticated
+// with the admin credential `docker login` presents.
 func TestACR_OCIChunkedPush(t *testing.T) {
 	t.Parallel()
 	fixture := newACRRegistryFixture(t, "acr-auth-rg-ad1f", "acrocipushregistry",
@@ -50,12 +49,10 @@ func TestACR_OCIChunkedPush(t *testing.T) {
 	auth := fixture.basic(fixture.passwords[0])
 	repo := "shim/registry/app"
 
-	// Captured from `k8sprow.azurecr.io/v2/` and `upstream.azurecr.io/v2/` with
-	// anonymous tokens from their own `/oauth2/token`, and identical from
-	// `mcr.microsoft.com/v2/`: the two-byte body `{}` with no trailing newline,
-	// declared `application/json; charset=utf-8`. Alone of the three registries
-	// the shared implementation serves, Azure Container Registry sends a body
-	// here — Amazon ECR and Google Artifact Registry send none.
+	// Azure Container Registry answers /v2/ with the two-byte body `{}`, no
+	// trailing newline, as `application/json; charset=utf-8` (captured from
+	// k8sprow.azurecr.io, upstream.azurecr.io and mcr.microsoft.com). Amazon ECR
+	// and Google Artifact Registry send no body.
 	resp := acrDo(t, http.MethodGet, fixture.endpoint()+"/v2/", nil, "", auth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "registry/2.0", resp.Header.Get("Docker-Distribution-API-Version"))

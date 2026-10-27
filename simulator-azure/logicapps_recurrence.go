@@ -11,10 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-// logicRecurrence is a Recurrence trigger's schedule: every Interval
-// Frequency units from StartTime (the last save when absent), read in
-// TimeZone, and for a Day, Week or Month frequency optionally at the
-// schedule's hours, minutes, weekDays and monthDays.
+// Every Interval Frequency units from StartTime (the last save when absent),
+// read in TimeZone; a Day, Week or Month frequency may also fix hours,
+// minutes, weekDays and monthDays.
 type logicRecurrence struct {
 	frequency string
 	interval  int
@@ -45,8 +44,7 @@ var logicWeekDays = map[string]time.Weekday{
 	"thursday": time.Thursday, "friday": time.Friday, "saturday": time.Saturday,
 }
 
-// parseLogicRecurrence reads a trigger's recurrence object; saved is when
-// the workflow was last saved, the anchor of a recurrence with no startTime.
+// saved anchors a recurrence with no startTime.
 func parseLogicRecurrence(raw any, saved time.Time) (logicRecurrence, error) {
 	encoded, err := json.Marshal(raw)
 	if err != nil {
@@ -130,8 +128,6 @@ func parseLogicRecurrence(raw any, saved time.Time) (logicRecurrence, error) {
 	return r, nil
 }
 
-// first is the anchor itself when it has not passed, else the next
-// occurrence after now.
 func (r logicRecurrence) first(now time.Time) (time.Time, bool) {
 	if !r.scheduled && !r.anchor.Before(now.Add(-time.Second)) {
 		return r.anchor, true
@@ -180,8 +176,8 @@ func (r logicRecurrence) dayQualifies(day, anchorDay time.Time) bool {
 	return months%r.interval == 0 && slices.Contains(r.monthDays, day.Day())
 }
 
-// nextPlain steps from the anchor by whole intervals: elapsed time for the
-// second, minute and hour frequencies, calendar days and months for the rest.
+// Whole intervals: elapsed time for second, minute and hour frequencies,
+// calendar days and months for the rest.
 func (r logicRecurrence) nextPlain(after time.Time) (time.Time, bool) {
 	var step time.Duration
 	switch r.frequency {
@@ -217,8 +213,6 @@ func (r logicRecurrence) nextPlain(after time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// startLogicRecurrences runs every enabled workflow's Recurrence triggers on
-// their schedules.
 func startLogicRecurrences(srv *sim.Server) {
 	workflows := logicWorkflows
 	records := sim.MakeStore[cron.Record](srv.DB(), "logic_recurrence_triggers")
@@ -262,8 +256,6 @@ func logicRecurrenceEntries(workflows sim.Store[LogicWorkflow]) []cron.Entry {
 	return entries
 }
 
-// logicValidateRecurrenceTriggers rejects a definition whose Recurrence
-// triggers the service could not schedule.
 func logicValidateRecurrenceTriggers(props map[string]any) error {
 	def, _ := props["definition"].(map[string]any)
 	triggers, _ := def["triggers"].(map[string]any)

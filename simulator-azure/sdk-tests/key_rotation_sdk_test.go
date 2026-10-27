@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// storageAccountKeyValues extracts the key1/key2 values from an
-// AccountListKeysResult keys slice.
 func storageAccountKeyValues(t *testing.T, keys []*armstorage.AccountKey) (key1, key2 string) {
 	t.Helper()
 	for _, k := range keys {
@@ -32,10 +30,9 @@ func storageAccountKeyValues(t *testing.T, keys []*armstorage.AccountKey) (key1,
 	return key1, key2
 }
 
-// TestStorageARM_RegenerateKeyRotation drives the Microsoft.Storage account
-// key rotation contract: regenerateKey changes only the named key, listKeys
-// observes the rotation, a second regenerate yields yet another value, and
-// deleting the account resets the keys for a later account of the same name.
+// TestStorageARM_RegenerateKeyRotation: regenerateKey changes only the named
+// key, listKeys observes it, a second regenerate yields another value, and an
+// account recreated under the name starts with fresh keys.
 func TestStorageARM_RegenerateKeyRotation(t *testing.T) {
 	t.Parallel()
 	rg := "storagearm-rotation-rg"
@@ -67,7 +64,6 @@ func TestStorageARM_RegenerateKeyRotation(t *testing.T) {
 	key1Again, _ := storageAccountKeyValues(t, again.Keys)
 	assert.NotEqual(t, key1Rotated, key1Again, "a second regenerate of key1 must yield yet another value")
 
-	// Delete + recreate under the same name starts from fresh key material.
 	_, err = client.Delete(ctx, rg, account, nil)
 	require.NoError(t, err)
 	createStorageAccountForARM(t, rg, account)
@@ -78,10 +74,9 @@ func TestStorageARM_RegenerateKeyRotation(t *testing.T) {
 	assert.Equal(t, key2Before, key2Fresh, "a recreated account must start from unrotated key2")
 }
 
-// TestRedis_RegenerateKeyRotation drives the Azure Cache for Redis key
-// rotation contract: regenerateKey changes only the requested slot, listKeys
-// observes the rotation, repeated regenerates keep producing new values, and
-// delete + recreate resets the keys.
+// TestRedis_RegenerateKeyRotation: regenerateKey changes only the requested
+// slot, listKeys observes it, repeated regenerates keep producing new values,
+// and delete plus recreate resets the keys.
 func TestRedis_RegenerateKeyRotation(t *testing.T) {
 	t.Parallel()
 	rg := "redis-rotation-rg"
@@ -114,7 +109,6 @@ func TestRedis_RegenerateKeyRotation(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, *regen.PrimaryKey, *again.PrimaryKey, "a second regenerate of Primary must yield yet another value")
 
-	// Delete + recreate under the same name starts from fresh key material.
 	delPoller, err := client.BeginDelete(ctx, rg, name, nil)
 	require.NoError(t, err)
 	_, err = delPoller.PollUntilDone(ctx, nil)
@@ -126,12 +120,11 @@ func TestRedis_RegenerateKeyRotation(t *testing.T) {
 	assert.Equal(t, secondaryBefore, *fresh.SecondaryKey, "a recreated cache must start from the unrotated secondary key")
 }
 
-// TestEventHubsARM_RegenerateKeysRotation drives the Event Hubs
-// authorization-rule key rotation contract at namespace and event hub scope:
+// TestEventHubsARM_RegenerateKeysRotation, at namespace and event hub scope:
 // regenerateKeys changes only the requested slot, the returned connection
-// strings embed the rotated key, listKeys observes the rotation, the optional
-// key field pins caller-supplied material, and deleting the rule resets its
-// keys for a later rule of the same name.
+// strings embed the new key, listKeys observes it, the optional key field
+// pins caller-supplied material, and a rule recreated under the name starts
+// with fresh keys.
 func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	t.Parallel()
 	rg := "eh-rotation-rg"
@@ -196,7 +189,6 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	assert.Equal(t, *regen.PrimaryKey, *listed.PrimaryKey, "listKeys must return the rotated primary key")
 	assert.Equal(t, secondaryBefore, *listed.SecondaryKey, "listKeys must keep the untouched secondary key")
 
-	// The optional key field pins caller-supplied material.
 	pinned := "PinnedEventHubsKeyPinnedEventHubsKeyPinned1="
 	pinResp, err := namespaces.RegenerateKeys(ctx, rg, ns, rule, armeventhub.RegenerateAccessKeyParameters{
 		KeyType: to.Ptr(armeventhub.KeyTypeSecondaryKey),
@@ -210,7 +202,6 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	assert.Contains(t, *pinListed.SecondaryConnectionString, "SharedAccessKey="+pinned,
 		"the secondary connection string must embed the caller-supplied key")
 
-	// Delete + recreate the rule under the same name starts from fresh keys.
 	_, err = namespaces.DeleteAuthorizationRule(ctx, rg, ns, rule, nil)
 	require.NoError(t, err)
 	_, err = namespaces.CreateOrUpdateAuthorizationRule(ctx, rg, ns, rule, armeventhub.AuthorizationRule{
@@ -224,8 +215,8 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	assert.Equal(t, primaryBefore, *fresh.PrimaryKey, "a recreated rule must start from the unrotated primary key")
 	assert.Equal(t, secondaryBefore, *fresh.SecondaryKey, "a recreated rule must start from the unrotated secondary key")
 
-	// Event hub scoped rules rotate independently, and their connection
-	// strings carry the EntityPath.
+	// Event hub scoped rules rotate independently, and their connection strings
+	// carry the EntityPath.
 	hubs := clientFactory.NewEventHubsClient()
 	hub := "rotation-hub"
 	_, err = hubs.CreateOrUpdate(ctx, rg, ns, hub, armeventhub.Eventhub{
@@ -252,11 +243,10 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 		"rotating the hub scoped rule must not disturb the namespace scoped rule")
 }
 
-// TestServiceBusARM_RegenerateKeysRotation drives the Service Bus
-// authorization-rule key rotation contract at namespace and queue scope:
+// TestServiceBusARM_RegenerateKeysRotation, at namespace and queue scope:
 // regenerateKeys changes only the requested slot, the returned connection
-// strings embed the rotated key, listKeys observes the rotation, and deleting
-// the queue resets the keys of its scoped rules.
+// strings embed the new key, listKeys observes it, and deleting the queue
+// resets its scoped rules' keys.
 func TestServiceBusARM_RegenerateKeysRotation(t *testing.T) {
 	t.Parallel()
 	rg := "sb-rotation-rg"
@@ -311,8 +301,7 @@ func TestServiceBusARM_RegenerateKeysRotation(t *testing.T) {
 	assert.Equal(t, *regen.PrimaryKey, *listed.PrimaryKey, "listKeys must return the rotated primary key")
 	assert.Equal(t, secondaryBefore, *listed.SecondaryKey, "listKeys must keep the untouched secondary key")
 
-	// Queue scoped rules rotate independently, and deleting the queue resets
-	// the keys a later rule of the same name derives.
+	// Queue scoped rules rotate independently.
 	queues := clientFactory.NewQueuesClient()
 	queue := "rotation-queue"
 	rule := "sdk-sb-rotation-rule"

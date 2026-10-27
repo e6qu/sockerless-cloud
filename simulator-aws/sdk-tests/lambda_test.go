@@ -37,11 +37,10 @@ func lambdaClient() *lambda.Client {
 	})
 }
 
-// TestLambdaExplicitDeploymentEnvironmentAndDownstreamSDK proves the complete
-// AWS contract the runtime is meant to provide: the caller deploys code and
-// environment through CreateFunction, then that managed-runtime code uses the
-// bundled AWS SDK and standard endpoint coordinate to authenticate to another
-// AWS service.
+// TestLambdaExplicitDeploymentEnvironmentAndDownstreamSDK deploys code and
+// environment through CreateFunction, and the managed-runtime code uses the
+// bundled AWS SDK and the standard endpoint coordinate to authenticate to
+// another AWS service.
 func TestLambdaExplicitDeploymentEnvironmentAndDownstreamSDK(t *testing.T) {
 	t.Parallel()
 	lambdaAPI := lambdaClient()
@@ -69,8 +68,8 @@ def handler(event, context):
     }
 `
 	const functionName = "lambda-downstream-sdk"
-	// The function calls Amazon SQS as its execution role, which Lambda hands
-	// it in the environment.
+	// The function calls Amazon SQS as the execution role Lambda hands it in the
+	// environment.
 	iamc := iamClient()
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(functionName),
@@ -266,7 +265,6 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 
 	fnName := "test-log-inject-fn"
 
-	// Create a Lambda function
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
 		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
@@ -277,13 +275,11 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 	require.NoError(t, err)
 	defer lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 
-	// Invoke the function
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{
 		FunctionName: aws.String(fnName),
 	})
 	require.NoError(t, err)
 
-	// Verify log group was created
 	logGroupName := "/aws/lambda/" + fnName
 	groups, err := cw.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(logGroupName),
@@ -292,7 +288,6 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 	require.NotEmpty(t, groups.LogGroups, "expected log group to be created")
 	assert.Equal(t, logGroupName, *groups.LogGroups[0].LogGroupName)
 
-	// Verify log stream was created (using OrderBy=LastEventTime, Descending=true, Limit=1)
 	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
 		OrderBy:      cwltypes.OrderByLastEventTime,
@@ -305,7 +300,6 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 	streamName := *streams.LogStreams[0].LogStreamName
 	assert.Contains(t, streamName, "[$LATEST]", "stream name should contain [$LATEST]")
 
-	// Verify the real runtime lifecycle and application output were recorded.
 	events, err := cw.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroupName),
 		LogStreamName: aws.String(streamName),
@@ -323,19 +317,15 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 	assert.Contains(t, logOutput, "END RequestId:")
 	assert.Contains(t, logOutput, "REPORT RequestId:")
 
-	// Cleanup: delete the log group
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 }
 
-// TestLambda_InvokeRoundTrip exercises the Runtime API invoke path:
-// the simulator implements the real AWS Lambda Runtime API slice.
-// The handler image polls /next, echoes the payload back via
-// response. Round-trip proves the Runtime API slice is wired
-// end-to-end (simulator-side per-invocation sidecar + container env +
-// host.docker.internal + host gateway + /response propagation back
-// to the SDK caller).
+// TestLambda_InvokeRoundTrip invokes an image whose handler polls the Runtime
+// API's /next and echoes the payload through /response, back to the SDK
+// caller through the per-invocation sidecar, host.docker.internal and the host
+// gateway.
 func TestLambda_InvokeRoundTrip(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -395,9 +385,9 @@ func TestLambda_InvokeZIPDeploymentPackage(t *testing.T) {
 	)
 }
 
-// TestLambda_InvokeHandlerError exercises the /error branch of the
-// Runtime API: payload with "cause":"error" triggers a POST to
-// invocation/{id}/error; caller sees X-Amz-Function-Error: Unhandled.
+// TestLambda_InvokeHandlerError sends "cause":"error", which makes the handler
+// POST invocation/{id}/error, and the caller sees X-Amz-Function-Error:
+// Unhandled.
 func TestLambda_InvokeHandlerError(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -426,11 +416,9 @@ func TestLambda_InvokeHandlerError(t *testing.T) {
 	assert.Contains(t, string(invokeOut.Payload), "test error from handler")
 }
 
-// TestLambda_InvokeContainerCrash covers the case where the container
-// exits before posting /response or /error (what real Lambda reports
-// as "Runtime exited without providing a reason"). Alpine `sh -c "exit 1"`
-// never talks the Runtime API; the simulator detects container exit
-// without response and surfaces a proper Lambda error.
+// TestLambda_InvokeContainerCrash runs `sh -c "exit 1"`, which exits without
+// posting /response or /error; Lambda reports that as "Runtime exited without
+// providing a reason".
 func TestLambda_InvokeContainerCrash(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -458,7 +446,7 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 	assert.Equal(t, "Unhandled", aws.ToString(invokeOut.FunctionError))
 	assert.Contains(t, string(invokeOut.Payload), "Runtime exited")
 
-	// CloudWatch stream should have START/END/REPORT + an ERROR line.
+	// The stream holds START, END, REPORT and an ERROR line.
 	logGroupName := "/aws/lambda/" + fnName
 	events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName: aws.String(logGroupName),
@@ -479,11 +467,10 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 }
 
-// TestLambda_RuntimeAPILogsToCloudWatch verifies the simulator writes
-// START/END/REPORT for an invocation and ingests what the handler writes to
-// stderr into the function's log group. The execution environment outlives
-// the invocation, so its output reaches CloudWatch Logs as it is written, not
-// when the invocation returns; a Live Tail session waits for it.
+// TestLambda_RuntimeAPILogsToCloudWatch expects START, END and REPORT and the
+// handler's stderr in the function's log group. The environment outlives the
+// invocation, so output reaches CloudWatch Logs as written; a Live Tail session
+// waits for it.
 func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -570,7 +557,6 @@ func TestLambda_SequentialInvokesShareTheEnvironmentsStream(t *testing.T) {
 
 	logGroupName := "/aws/lambda/" + fnName
 
-	// Invoke twice
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(fnName)})
@@ -582,7 +568,7 @@ func TestLambda_SequentialInvokesShareTheEnvironmentsStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, streams.LogStreams, 1, "the second invocation reuses the first one's execution environment and its stream")
 
-	// With Descending=true + Limit=1, we should get only the most recent stream
+	// Descending with Limit 1 returns only the newest stream.
 	latest, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
 		OrderBy:      cwltypes.OrderByLastEventTime,
@@ -592,23 +578,20 @@ func TestLambda_SequentialInvokesShareTheEnvironmentsStream(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, latest.LogStreams, 1)
 
-	// Cleanup
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 }
 
-// TestLambda_VpcConfig_AllocatesENIPerSubnet verifies that CreateFunction
-// with a VpcConfig containing real subnet IDs allocates a Hyperplane ENI
-// per subnet from the subnet's CidrBlock — matches real Lambda behavior
-// (sim must validate the subnet exists, not return a fake ENI).
+// TestLambda_VpcConfig_AllocatesENIPerSubnet expects CreateFunction with a
+// VpcConfig of existing subnets to allocate a Hyperplane ENI per subnet from its
+// CidrBlock.
 func TestLambda_VpcConfig_AllocatesENIPerSubnet(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
 	ec2C := ec2Client()
 
-	// Pre-create two subnets with distinct CIDRs so the test exercises
-	// the allocator under multi-subnet VpcConfig (a common runner setup).
+	// Two subnets with distinct CIDRs, as a multi-subnet runner setup has.
 	vpcOut, err := ec2C.CreateVpc(ctx, &ec2.CreateVpcInput{
 		CidrBlock: aws.String("10.7.0.0/16"),
 	})
@@ -656,11 +639,10 @@ func TestLambda_VpcConfig_AllocatesENIPerSubnet(t *testing.T) {
 		"internal IP allocation state must not leak through the public Lambda FunctionConfiguration shape")
 }
 
-// TestLambda_VpcConfig_RuntimeReachesVpcResource proves VpcConfig changes the
-// workload's real network, not just its FunctionConfiguration. An Amazon ECS
-// task serves HTTP on its awsvpc elastic network interface; the AWS Lambda
-// function reaches that private address through its configured subnet and
-// security group using the same public APIs and identifiers used on AWS.
+// TestLambda_VpcConfig_RuntimeReachesVpcResource expects VpcConfig to change
+// the workload's network: the function reaches an Amazon ECS task serving HTTP
+// on its awsvpc ENI through its subnet and security group, with the same APIs
+// and identifiers as on AWS.
 func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
@@ -831,8 +813,8 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 	}
 }
 
-// TestLambda_VpcConfig_RejectsUnknownSubnet matches real Lambda's
-// InvalidParameterValueException when the subnet doesn't exist in EC2.
+// TestLambda_VpcConfig_RejectsUnknownSubnet expects
+// InvalidParameterValueException for a subnet Amazon EC2 does not hold.
 func TestLambda_VpcConfig_RejectsUnknownSubnet(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()

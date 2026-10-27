@@ -38,7 +38,6 @@ func cloudRunServiceURI(project, location, serviceID string) string {
 // on run.app, so a request for a host under it is always for a workload.
 const cloudRunDomain = ".run.app"
 
-// isCloudRunHost reports whether a Host header names a run.app host.
 func isCloudRunHost(host string) bool {
 	return strings.HasSuffix(lbplane.Hostname(host), cloudRunDomain)
 }
@@ -128,7 +127,6 @@ func cloudRunFrontEndError(w http.ResponseWriter, status int, message string) {
 		status, http.StatusText(status), http.StatusText(status), message)
 }
 
-// cloudRunRevisionRequestTimeout is the revision's request timeout.
 func cloudRunRevisionRequestTimeout(rev RevisionV2) time.Duration {
 	if rev.Timeout != "" {
 		if d, err := time.ParseDuration(rev.Timeout); err == nil && d > 0 {

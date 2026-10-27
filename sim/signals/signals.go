@@ -29,7 +29,6 @@ type Keyed[K comparable] struct {
 	any chan struct{}
 }
 
-// New returns an empty Keyed.
 func New[K comparable]() *Keyed[K] { return &Keyed[K]{} }
 
 // Changed returns a channel that closes on the next announcement of k, or of

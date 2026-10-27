@@ -6,9 +6,8 @@ import (
 )
 
 // orderedIDs keeps a store's ids sorted, so the ids under a prefix are a
-// binary search and the run after it. Scanning every id and sorting the
-// matches, which ListPrefix did before, made a prefix read cost the whole
-// store: a DynamoDB query paid for every item of every table.
+// binary search and the run after it rather than a scan of every id, which
+// would make an Amazon DynamoDB query pay for every item of every table.
 type orderedIDs struct {
 	ids []string
 }

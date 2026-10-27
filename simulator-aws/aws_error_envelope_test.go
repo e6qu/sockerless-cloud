@@ -8,8 +8,6 @@ import (
 )
 
 // Every AWS protocol's error envelope, as the SDKs and the AWS CLI parse it.
-// The bodies are the bytes the per-service writers produced before they
-// shared awsWriteError.
 func TestAWSWriteErrorEnvelopes(t *testing.T) {
 	const message = "the thing was not found"
 	cases := []struct {
@@ -78,8 +76,7 @@ func TestAWSWriteErrorEnvelopes(t *testing.T) {
 	}
 }
 
-// A message is text in the XML envelopes, so one carrying markup stays a
-// well-formed document that decodes back to the message.
+// A message carrying markup must stay a well-formed XML document.
 func TestAWSWriteErrorEscapesXMLText(t *testing.T) {
 	const message = `bad <input> & 'quoted' "value"`
 	for _, protocol := range []awsProtocol{awsQuery, awsRestXML, awsEC2Query} {

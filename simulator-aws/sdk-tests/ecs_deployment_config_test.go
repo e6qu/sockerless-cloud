@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_DeploymentConfigurationRoundTrip verifies the deployment
-// configuration (circuit breaker + percentages) round-trips through
-// DescribeServices.
+// TestECS_DeploymentConfigurationRoundTrip expects the circuit breaker and
+// percentages back from DescribeServices.
 func TestECS_DeploymentConfigurationRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()

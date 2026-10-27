@@ -8,80 +8,67 @@ import (
 	"strings"
 )
 
-// ddbRequiredMembers lists, per DynamoDB operation, the top-level input members
-// the AWS API marks @required in its Smithy model. Real DynamoDB rejects a
-// request that omits one with a ValidationException *before* any business logic
-// runs (so a missing TableName is a validation error, not a phantom
-// ResourceNotFoundException). The registry is enforced against the vendored
-// Smithy model by TestDDBRequiredMembersMatchSpec — if AWS marks a new member
-// required, or this table drifts, that test fails.
+// DynamoDB rejects a request missing an @required member with a
+// ValidationException before any business logic, so a missing TableName is
+// never a ResourceNotFoundException. TestDDBRequiredMembersMatchSpec holds
+// this table to the vendored Smithy model.
 var ddbRequiredMembers = map[string][]string{
-	"CreateTable":               {"TableName"},
-	"DescribeTable":             {"TableName"},
-	"UpdateTable":               {"TableName"},
-	"SearchVectors":             {"IndexName", "SearchVector", "TableName", "TopK"},
-	"DeleteTable":               {"TableName"},
-	"PutItem":                   {"TableName", "Item"},
-	"GetItem":                   {"TableName", "Key"},
-	"UpdateItem":                {"TableName", "Key"},
-	"DeleteItem":                {"TableName", "Key"},
-	"Query":                     {"TableName"},
-	"Scan":                      {"TableName"},
-	"BatchWriteItem":            {"RequestItems"},
-	"BatchGetItem":              {"RequestItems"},
-	"TransactWriteItems":        {"TransactItems"},
-	"TransactGetItems":          {"TransactItems"},
-	"DescribeContinuousBackups": {"TableName"},
-	"UpdateContinuousBackups":   {"TableName", "PointInTimeRecoverySpecification"},
-	"DescribeTimeToLive":        {"TableName"},
-	"UpdateTimeToLive":          {"TableName", "TimeToLiveSpecification"},
-	"ListTagsOfResource":        {"ResourceArn"},
-	"TagResource":               {"ResourceArn", "Tags"},
-	"UntagResource":             {"ResourceArn", "TagKeys"},
-	"ExecuteStatement":          {"Statement"},
-	"BatchExecuteStatement":     {"Statements"},
-	"ExecuteTransaction":        {"TransactStatements"},
-	// Backups.
-	"CreateBackup":              {"BackupName", "TableName"},
-	"DescribeBackup":            {"BackupArn"},
-	"DeleteBackup":              {"BackupArn"},
-	"RestoreTableFromBackup":    {"BackupArn", "TargetTableName"},
-	"RestoreTableToPointInTime": {"TargetTableName"},
-	// Global tables.
-	"CreateGlobalTable":               {"GlobalTableName", "ReplicationGroup"},
-	"DescribeGlobalTable":             {"GlobalTableName"},
-	"UpdateGlobalTable":               {"GlobalTableName", "ReplicaUpdates"},
-	"DescribeGlobalTableSettings":     {"GlobalTableName"},
-	"UpdateGlobalTableSettings":       {"GlobalTableName"},
-	"UpdateTableReplicaAutoScaling":   {"TableName"},
-	"DescribeTableReplicaAutoScaling": {"TableName"},
-	// Resource-based policy.
-	"PutResourcePolicy":    {"Policy", "ResourceArn"},
-	"GetResourcePolicy":    {"ResourceArn"},
-	"DeleteResourcePolicy": {"ResourceArn"},
-	// Kinesis streaming destinations.
+	"CreateTable":                         {"TableName"},
+	"DescribeTable":                       {"TableName"},
+	"UpdateTable":                         {"TableName"},
+	"SearchVectors":                       {"IndexName", "SearchVector", "TableName", "TopK"},
+	"DeleteTable":                         {"TableName"},
+	"PutItem":                             {"TableName", "Item"},
+	"GetItem":                             {"TableName", "Key"},
+	"UpdateItem":                          {"TableName", "Key"},
+	"DeleteItem":                          {"TableName", "Key"},
+	"Query":                               {"TableName"},
+	"Scan":                                {"TableName"},
+	"BatchWriteItem":                      {"RequestItems"},
+	"BatchGetItem":                        {"RequestItems"},
+	"TransactWriteItems":                  {"TransactItems"},
+	"TransactGetItems":                    {"TransactItems"},
+	"DescribeContinuousBackups":           {"TableName"},
+	"UpdateContinuousBackups":             {"TableName", "PointInTimeRecoverySpecification"},
+	"DescribeTimeToLive":                  {"TableName"},
+	"UpdateTimeToLive":                    {"TableName", "TimeToLiveSpecification"},
+	"ListTagsOfResource":                  {"ResourceArn"},
+	"TagResource":                         {"ResourceArn", "Tags"},
+	"UntagResource":                       {"ResourceArn", "TagKeys"},
+	"ExecuteStatement":                    {"Statement"},
+	"BatchExecuteStatement":               {"Statements"},
+	"ExecuteTransaction":                  {"TransactStatements"},
+	"CreateBackup":                        {"BackupName", "TableName"},
+	"DescribeBackup":                      {"BackupArn"},
+	"DeleteBackup":                        {"BackupArn"},
+	"RestoreTableFromBackup":              {"BackupArn", "TargetTableName"},
+	"RestoreTableToPointInTime":           {"TargetTableName"},
+	"CreateGlobalTable":                   {"GlobalTableName", "ReplicationGroup"},
+	"DescribeGlobalTable":                 {"GlobalTableName"},
+	"UpdateGlobalTable":                   {"GlobalTableName", "ReplicaUpdates"},
+	"DescribeGlobalTableSettings":         {"GlobalTableName"},
+	"UpdateGlobalTableSettings":           {"GlobalTableName"},
+	"UpdateTableReplicaAutoScaling":       {"TableName"},
+	"DescribeTableReplicaAutoScaling":     {"TableName"},
+	"PutResourcePolicy":                   {"Policy", "ResourceArn"},
+	"GetResourcePolicy":                   {"ResourceArn"},
+	"DeleteResourcePolicy":                {"ResourceArn"},
 	"EnableKinesisStreamingDestination":   {"StreamArn", "TableName"},
 	"DisableKinesisStreamingDestination":  {"StreamArn", "TableName"},
 	"DescribeKinesisStreamingDestination": {"TableName"},
 	"UpdateKinesisStreamingDestination":   {"StreamArn", "TableName"},
-	// Exports / imports.
-	"ExportTableToPointInTime": {"S3Bucket", "TableArn"},
-	"DescribeExport":           {"ExportArn"},
-	"ImportTable":              {"InputFormat", "S3BucketSource", "TableCreationParameters"},
-	"DescribeImport":           {"ImportArn"},
-	// Contributor insights.
-	"UpdateContributorInsights":   {"ContributorInsightsAction", "TableName"},
-	"DescribeContributorInsights": {"TableName"},
+	"ExportTableToPointInTime":            {"S3Bucket", "TableArn"},
+	"DescribeExport":                      {"ExportArn"},
+	"ImportTable":                         {"InputFormat", "S3BucketSource", "TableCreationParameters"},
+	"DescribeImport":                      {"ImportArn"},
+	"UpdateContributorInsights":           {"ContributorInsightsAction", "TableName"},
+	"DescribeContributorInsights":         {"TableName"},
 	// ListTables, DescribeLimits, ListBackups, ListGlobalTables, ListExports,
-	// ListImports, ListContributorInsights and DescribeEndpoints have no
-	// required input members.
+	// ListImports, ListContributorInsights and DescribeEndpoints require nothing.
 }
 
-// ddbRequire wraps a handler so that any required input member that is absent or
-// JSON-null produces a ValidationException before the handler runs, matching the
-// coral-framework message real DynamoDB returns. A malformed body is left for
-// the handler itself to report. With no required members the handler is returned
-// unwrapped.
+// An absent or JSON-null required member gets DynamoDB's validation message
+// before the handler runs. A malformed body is left to the handler.
 func ddbRequire(required []string, h http.HandlerFunc) http.HandlerFunc {
 	if len(required) == 0 {
 		return h
@@ -93,13 +80,12 @@ func ddbRequire(required []string, h http.HandlerFunc) http.HandlerFunc {
 			AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		// Restore the body so the wrapped handler can read it again.
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
 		var fields map[string]json.RawMessage
 		if len(body) > 0 {
 			if jerr := json.Unmarshal(body, &fields); jerr != nil {
-				// Not valid JSON — let the handler surface its own body error.
+				// Let the handler report invalid JSON.
 				h(w, r)
 				return
 			}
@@ -117,14 +103,11 @@ func ddbRequire(required []string, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// ddbMaxValidateBody bounds how much of a request body the required-member
-// pre-check reads. It matches the router's own JSON body cap so the pre-check
-// never rejects a body the handler would have accepted.
-const ddbMaxValidateBody = 64 << 20 // matches the shared router's JSON body cap
+// The router's own JSON body cap, so the pre-check never rejects a body the
+// handler would accept.
+const ddbMaxValidateBody = 64 << 20
 
-// ddbWireMemberLabel renders a PascalCase Smithy member name as the
-// lower-camelCase label DynamoDB's validation messages use (TableName →
-// tableName, RequestItems → requestItems).
+// TableName → tableName, as DynamoDB's validation messages spell it.
 func ddbWireMemberLabel(member string) string {
 	if member == "" {
 		return member

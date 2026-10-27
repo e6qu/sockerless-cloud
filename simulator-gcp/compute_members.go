@@ -8,16 +8,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Compute Engine collections whose verbs manage a membership: the instances
-// and health checks a target pool balances across, a network's peerings, the
-// nodes in a sole-tenant node group, and a rollout's progress through its
-// stages.
-//
-// Every one of these writes a list the resource carries, so the read beside it
-// is what proves the write landed. A target pool that accepted addInstance and
-// listed nothing afterwards would look identical to one that worked.
+// Compute Engine collections whose verbs manage a membership: a target pool's
+// instances and health checks, a network's peerings, a sole-tenant node
+// group's nodes, and a rollout's stages. Each writes a list the resource
+// carries, which the read beside it returns.
 
-// computeMemberList reads a string list off a resource record.
 func computeMemberList(resource map[string]any, field string) []string {
 	raw, _ := resource[field].([]any)
 	out := make([]string, 0, len(raw))
@@ -244,9 +239,8 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 	})
 }
 
-// computeNetworkSelfLink is the key the networks store is written and read
-// under. One spelling, shared by every handler that touches that store: two
-// would read past each other.
+// computeNetworkSelfLink is the one key spelling of the networks store, shared
+// by every handler that touches it.
 func computeNetworkSelfLink(project, name string) string {
 	return fmt.Sprintf("projects/%s/global/networks/%s", project, name)
 }
@@ -422,8 +416,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		// The routes a peering exchanges are the peer's subnet ranges, which
-		// the simulator holds, rather than a list nothing derived.
+		// The routes a peering exchanges are the peer's subnet ranges.
 		wanted := r.URL.Query().Get("peeringName")
 		routes := []any{}
 		for _, peering := range network.Peerings {
@@ -466,7 +459,6 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 	})
 }
 
-// registerComputeNodeGroupNodes serves the nodes of a sole-tenant node group.
 func registerComputeNodeGroupNodes(srv *sim.Server, groups, nodes sim.Store[map[string]any]) {
 	const base = "/compute/v1/projects/{project}/zones/{zone}/nodeGroups"
 

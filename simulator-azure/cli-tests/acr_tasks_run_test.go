@@ -12,18 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestACRTasksCLI_BuildRunAndTaskRun drives the native az commands that run
-// Azure Container Registry Tasks from a local directory: `az acr build`
-// uploads the directory to the URL listBuildSourceUploadUrl hands out and
-// schedules a DockerBuildRequest on the relative path; `az acr run -f` does the
-// same with a FileTaskRunRequest; `az acr run --cmd` schedules an
-// EncodedTaskRunRequest without source; and `az acr task run` schedules a
-// TaskRunRequest of a task `az acr task create` made. Each streams the run's
-// log blob until it completes and fails unless the run succeeded.
+// TestACRTasksCLI_BuildRunAndTaskRun drives the az commands that run Azure
+// Container Registry Tasks from a local directory: `az acr build`
+// (DockerBuildRequest), `az acr run -f` (FileTaskRunRequest), `az acr run --cmd`
+// (EncodedTaskRunRequest) and `az acr task run` (TaskRunRequest). Each streams
+// the run's log blob and fails unless the run succeeded.
 //
-// The runs build without pushing: this suite's simulator serves its
-// registries over TLS with a certificate the container engine's token client
-// does not consult per-registry trust for. The SDK suite covers the push.
+// The runs build without pushing: the container engine's token client does not
+// trust this suite's TLS registry certificate. The SDK suite covers the push.
 func TestACRTasksCLI_BuildRunAndTaskRun(t *testing.T) {
 	t.Parallel()
 	env := startAzTLSSimulator(t)
@@ -46,8 +42,8 @@ func TestACRTasksCLI_BuildRunAndTaskRun(t *testing.T) {
 	source := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(source, "Dockerfile"),
 		[]byte("FROM mirror.gcr.io/library/alpine:3.20\nCOPY greeting.txt /greeting.txt\nRUN cat /greeting.txt\n"), 0o644))
-	// A greeting of this run's own keeps the build host's layer cache from
-	// answering for the build step that prints it.
+	// A per-run greeting keeps the build host's layer cache from answering the
+	// step that prints it.
 	greeting := fmt.Sprintf("hello from the uploaded source %d", time.Now().UnixNano())
 	require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte(greeting+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(source, "acb.yaml"), []byte(`version: v1.1.0

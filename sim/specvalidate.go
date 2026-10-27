@@ -12,13 +12,12 @@ import (
 	"sync"
 )
 
-// Runtime spec validation: when SOCKERLESS_SPEC_VALIDATE names a report
-// file, every request/response through the server is handed to the
-// validator the simulator registered via SetSpecValidator, and the
-// violations it returns are appended to the report as JSON lines. The
-// test harnesses run with validation on and gate on the report via
-// scripts/check-spec-violations.sh; production runs leave the variable
-// unset and pay nothing.
+// When SOCKERLESS_SPEC_VALIDATE names a report file, the server hands every
+// exchange to the validator the simulator registered with SetSpecValidator
+// and appends the violations it returns to the report as JSON lines. The test
+// harnesses run with validation on and gate on the report through
+// scripts/check-spec-violations.sh; production leaves the variable unset and
+// pays nothing.
 
 // specCaptureBodyLimit bounds the request body the spec-validate middleware
 // materializes per exchange. Validation is test-only (gated by
@@ -51,8 +50,8 @@ func (v SpecViolation) Key() string {
 type SpecValidator func(req *http.Request, reqBody []byte, status int, respHeader http.Header, respBody []byte) []SpecViolation
 
 // SetSpecValidator registers the per-cloud validator and, when
-// SOCKERLESS_SPEC_VALIDATE is set, arms the capture middleware. Must be
-// called before ListenAndServe / ServeHTTP.
+// SOCKERLESS_SPEC_VALIDATE is set, arms the capture middleware. Call it
+// before ListenAndServe or ServeHTTP.
 func (s *Server) SetSpecValidator(v SpecValidator) {
 	report := os.Getenv("SOCKERLESS_SPEC_VALIDATE")
 	if report == "" || v == nil {

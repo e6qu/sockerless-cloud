@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// chunkedAMQPTransport hands the connection its input in fixed chunks, the
-// way WebSocket messages carrying an AMQP byte stream may split it, and
-// records what the connection writes back.
+// As WebSocket messages carrying an AMQP byte stream may split it.
 type chunkedAMQPTransport struct {
 	chunks [][]byte
 	wrote  bytes.Buffer
@@ -31,9 +29,8 @@ func (t *chunkedAMQPTransport) Write(data []byte) error {
 
 func (t *chunkedAMQPTransport) Close() error { return nil }
 
-// TestSBAMQPConnReassemblesFramesSplitAcrossReads proves the connection treats
-// its transport as the byte stream AMQP is: a protocol header and an open
-// frame split at any offset are handled exactly as when they arrive whole.
+// A protocol header and open frame split at any offset are handled as when
+// they arrive whole.
 func TestSBAMQPConnReassemblesFramesSplitAcrossReads(t *testing.T) {
 	encoder := &chunkedAMQPTransport{}
 	if err := newSBAMQPConn("", encoder).writeFrame(amqpFrameTypeAMQP, 0,

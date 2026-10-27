@@ -8,18 +8,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// TestECSStopServiceTasks_DrainsNonStopped verifies the delete-time drain: given
-// a service and a set of tasks in various statuses tagged with the service's
-// group, ecsStopServiceTasks stops every non-STOPPED task (RUNNING and PENDING)
-// and leaves already-STOPPED tasks untouched. Tasks that belong to a different
-// group must not be drained.
+// The drain stops RUNNING and PENDING tasks, leaves STOPPED ones and tasks of
+// other groups alone.
 func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
-	// Isolate from any other package-level state. The drain's task-stop events
-	// schedule an asynchronous service reconciliation that reads the scheduler,
-	// deployment-record, and alarm stores, so they must be real stores even
-	// though the drain itself never touches them.
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// The drain schedules reconciliations that read the scheduler, deployment and
+	// alarm stores, so they must be real. Let earlier background work finish
+	// before replacing them.
 	bg.Await()
 	ecsBackgroundServer = nil
 	ecsClusters = sim.MakeStore[ECSCluster](nil, "ecs_clusters")
@@ -56,15 +50,13 @@ func TestECSStopServiceTasks_DrainsNonStopped(t *testing.T) {
 	running := makeECSTestTask(cluster.ClusterArn, group, startedBy, ECSTaskStatusRunning)
 	pending := makeECSTestTask(cluster.ClusterArn, group, startedBy, ECSTaskStatusPending)
 	alreadyStopped := makeECSTestTask(cluster.ClusterArn, group, startedBy, ECSTaskStatusStopped)
-	// A task in a different group must be left alone.
 	otherGroup := makeECSTestTask(cluster.ClusterArn, ecsServiceTaskGroup("other-svc"), "ecs-svc/other-svc", ECSTaskStatusRunning)
 	for _, task := range []ECSTask{running, pending, alreadyStopped, otherGroup} {
 		ecsTasks.Put(task.TaskID(), task)
 	}
 
 	ecsStopServiceTasks(svc)
-	// StopTask answers before a task has stopped; the drain's stops finish
-	// in the background.
+	// StopTask answers before the task stops.
 	awaitECSTaskStop(t, running.TaskID())
 	awaitECSTaskStop(t, pending.TaskID())
 

@@ -13,54 +13,43 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
-// AsyncOperationStatus is the ARM operation-status envelope a polled
-// Azure-AsyncOperation URL returns — `{"id":...,"name":...,"status":...}`
-// is what `armappcontainers` (and every azcore poller) reads. ID is
-// derived from the request path at read time so one stored record serves
-// both the operationStatuses and operationResults routes.
+// AsyncOperationStatus is the envelope a polled Azure-AsyncOperation URL
+// returns, which every azcore poller reads. ID derives from the request path at
+// read time, so one record serves both operationStatuses and operationResults.
 type AsyncOperationStatus struct {
 	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
 	Status    string `json:"status"` // InProgress / Succeeded / Failed
 	StartTime string `json:"startTime,omitempty"`
 	EndTime   string `json:"endTime,omitempty"`
-	// Error carries ARM's failed-operation error member
-	// (`{"error":{"code":...,"message":...}}`); present only on Failed
-	// operations, exactly as real Azure Resource Manager emits it.
+	// Error is present only on Failed operations.
 	Error *AsyncOperationError `json:"error,omitempty"`
-	// Result is what the Location poll answers with once an operation whose
-	// final state comes via Location succeeds: Azure Resource Manager serves
-	// the operation's own result there rather than the status envelope, and a
-	// paged operation's client reads its first page out of it. It is stored so
-	// it survives a restart alongside the operation it belongs to, and never
-	// appears in the operationStatuses envelope.
+	// Result is what the Location poll answers once an operation whose final state
+	// comes via Location succeeds: Azure Resource Manager serves the operation's
+	// result there, and a paged operation's client reads its first page from it.
+	// It persists with the operation and never appears in the status envelope.
 	Result json.RawMessage `json:"result,omitempty"`
 }
 
-// AsyncOperationError is the error member of a Failed ARM operation envelope.
 type AsyncOperationError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-	// Details carries the nested per-resource reasons an Azure Resource
-	// Manager error can hold, which is how a move validation failure reports
-	// which resource it refused and why.
+	// Details carries nested per-resource reasons; a move validation failure
+	// reports which resource it refused and why.
 	Details []map[string]any `json:"details,omitempty"`
 }
 
 var (
 	azureAsyncOps sim.Store[AsyncOperationStatus]
-	// azureAsyncOpChanges announces an operation's ID on every write of it,
-	// which its settling makes.
+	// azureAsyncOpChanges announces an operation's ID on every write of it.
 	azureAsyncOpChanges = signals.New[string]()
 )
 
 func registerAzureAsyncOperations(srv *sim.Server) {
 	azureAsyncOps = sim.Announcing(sim.MakeStore[AsyncOperationStatus](srv.DB(), "azure_async_ops"), azureAsyncOpChanges)
-	// An operation completes via an in-process goroutine, so a persisted row
-	// still InProgress after a restart can never complete — its goroutine died
-	// with the previous process. Real ARM fails an operation its backend lost
-	// rather than leaving pollers hanging forever; flip such rows to Failed
-	// with an error envelope saying so.
+	// Operations complete in in-process goroutines, so a row still InProgress
+	// after a restart lost its goroutine. Azure Resource Manager fails an
+	// operation its backend lost rather than leaving pollers hanging; do the same.
 	for _, op := range azureAsyncOps.List() {
 		if op.Status != "InProgress" {
 			continue
@@ -95,16 +84,14 @@ func handleAzureOperationResults(w http.ResponseWriter, r *http.Request) {
 	serveAzureAsyncOperation(w, r, sim.PathParam(r, "opId"), true, strings.Replace(r.URL.Path, "/operationResults/", "/operationStatuses/", 1))
 }
 
-// handleComputeOperation serves both of the Compute resource provider's polls
-// from one URL: the status envelope, which carries no id, and with monitor=true
-// the operation's result.
+// handleComputeOperation serves both Compute polls from one URL: the status
+// envelope, which carries no id, and with monitor=true the result.
 func handleComputeOperation(w http.ResponseWriter, r *http.Request) {
 	serveAzureAsyncOperation(w, r, sim.PathParam(r, "opId"), r.URL.Query().Get("monitor") == "true", "")
 }
 
-// issueAzureAsyncOperation records an operation whose work the simulator
-// finishes in-process while it accepts the request: the work runs before the
-// operation is recorded, so the first status read reports its outcome.
+// issueAzureAsyncOperation runs the work before recording the operation, so
+// the first status read reports its outcome.
 func issueAzureAsyncOperation(complete func()) string {
 	return issueAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		if complete != nil {
@@ -114,11 +101,8 @@ func issueAzureAsyncOperation(complete func()) string {
 	})
 }
 
-// issueAzureAsyncOperationOutcome is the failable form: the completion
-// callback decides the operation's terminal state. A nil return marks the
-// operation Succeeded; a non-nil error marks it Failed with ARM's
-// failed-operation error envelope, exactly as real Azure Resource Manager
-// reports a long-running operation whose backend work failed.
+// issueAzureAsyncOperationOutcome: a nil return marks the operation Succeeded;
+// an error marks it Failed with that error.
 func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) string {
 	return issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
 		if complete == nil {
@@ -128,10 +112,8 @@ func issueAzureAsyncOperationOutcome(complete func() *AsyncOperationError) strin
 	})
 }
 
-// issueAzureAsyncOperationResult is the form for an operation whose final
-// state comes via Location: the completion callback returns the payload the
-// Location poll answers with, which is the operation's result rather than its
-// status envelope.
+// issueAzureAsyncOperationResult is for an operation whose final state comes
+// via Location: complete returns the payload the Location poll answers.
 func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOperationError)) string {
 	opID := sim.NewUUID()
 	op := AsyncOperationStatus{
@@ -148,9 +130,8 @@ func issueAzureAsyncOperationResult(complete func() (json.RawMessage, *AsyncOper
 	return opID
 }
 
-// startAzureAsyncOperationOutcome records an operation InProgress and runs its
-// work in the background: the operation reports InProgress until the work
-// returns, then Succeeded, or Failed with the error the work returned.
+// startAzureAsyncOperationOutcome runs the work in the background; the
+// operation reports InProgress until it returns.
 func startAzureAsyncOperationOutcome(work func() *AsyncOperationError) string {
 	return startAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
 		return nil, work()
@@ -195,12 +176,10 @@ func settleAzureAsyncOperation(op *AsyncOperationStatus, result json.RawMessage,
 	op.EndTime = time.Now().UTC().Format(time.RFC3339Nano)
 }
 
-// azureAsyncOperationRetryAfter is the Retry-After ARM attaches to a response
-// about an operation still running. The specifications type the header as
-// whole seconds, azcore ignores zero and falls back to its 30-second default,
-// and ARM sends 1 for its quickest operations (armnetwork's recorded public IP
-// create), so 1 is the soonest a client can learn that the work finished. ARM
-// sends none once the operation is terminal.
+// The specifications type Retry-After as whole seconds, azcore ignores zero
+// and falls back to 30 seconds, and Azure Resource Manager sends 1 for its
+// quickest operations, so 1 is the soonest a client learns the work finished.
+// No Retry-After once the operation is terminal.
 const azureAsyncOperationRetryAfter = "1"
 
 // setAzureAsyncOperationRetryAfter advertises the poll interval on a response
@@ -223,9 +202,8 @@ func azureAsyncOperationHeader(r *http.Request, sub, provider, location, kind, o
 		scheme, r.Host, sub, provider, location, kind, opID, apiVersion)
 }
 
-// computeOperationURLs mints the Compute resource provider's operation URLs:
-// the operations URL is the Azure-AsyncOperation, and the same URL with
-// monitor=true is the Location.
+// computeOperationURLs: the operations URL is the Azure-AsyncOperation, and
+// the same URL with monitor=true is the Location.
 func computeOperationURLs(r *http.Request, sub, location, opID string) (asyncOperation, monitor string) {
 	apiVersion := r.URL.Query().Get("api-version")
 	if apiVersion == "" {
@@ -246,10 +224,9 @@ func writeAzureAsyncCreateHeaders(w http.ResponseWriter, opID, opURL, locationUR
 	setAzureAsyncOperationRetryAfter(w, opID)
 }
 
-// serveAzureAsyncOperation answers a poll of opID.
-// A status poll answers the operation envelope, carrying id when the provider's
-// envelope has one. A result poll answers 202 while the operation runs and the
-// operation's result once it ends.
+// serveAzureAsyncOperation: a status poll answers the envelope, with id when
+// the provider's envelope has one; a result poll answers 202 while the
+// operation runs and its result once it ends.
 func serveAzureAsyncOperation(w http.ResponseWriter, r *http.Request, opID string, resultPoll bool, id string) {
 	op, ok := azureAsyncOps.Get(opID)
 	if !ok {

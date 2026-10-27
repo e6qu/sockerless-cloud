@@ -5,21 +5,14 @@ import (
 	"time"
 )
 
-// The steady-state window is judged against a Unix-second timestamp, so it must
-// account for the truncation: a task that really started at 10.999 records 10.
-// Comparing elapsed time against the window alone clears such a task a
-// millisecond after it started, which is how a deployment latched COMPLETED on
-// a container that was about to exit — and, because the failure attribution
-// ignores a rollout that is not IN_PROGRESS, stopped counting the failures that
-// should have tripped the circuit breaker.
+// startedAt truncates to the second, so a task that started at 10.999 records
+// 10; the window must account for that or a deployment latches COMPLETED on a
+// container about to exit.
 func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *testing.T) {
 	now := time.Now()
 
-	// A stamp exactly one window old. Truncation means the task may really
-	// have started anywhere in the following second — up to an instant ago —
-	// so the window is not provably held and this must be false. Comparing
-	// elapsed time against the window alone returns true here, which is the
-	// defect.
+	// Truncation means the task may have started an instant ago, so the window is
+	// not provably held.
 	atTheWindow := now.Add(-ecsServiceSteadyStateWindow)
 	if ecsTaskHeldSteadyState(float64(atTheWindow.UnixMilli()) / 1000) {
 		t.Errorf("a task whose recorded second is only %v old counted as having held "+
@@ -27,8 +20,7 @@ func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *tes
 			ecsServiceSteadyStateWindow, ecsServiceSteadyStateWindow)
 	}
 
-	// A task whose recorded second is old enough that the window has elapsed
-	// even if it started at the very end of that second.
+	// Old enough even if the task started at the very end of its second.
 	settled := now.Add(-(ecsServiceSteadyStateWindow + time.Second))
 	if !ecsTaskHeldSteadyState(float64(settled.UnixMilli()) / 1000) {
 		t.Errorf("a task started %v ago did not count as having held the %v window",
@@ -36,9 +28,8 @@ func TestECSTaskHeldSteadyState_HonoursTheWindowWhateverTheSecondBoundary(t *tes
 	}
 }
 
-// The wake-up the scheduler arms must land when the task becomes eligible, not
-// before: an early reconcile finds the task still short of the window and the
-// deployment waits on the slower stabilization tick instead.
+// An early wake-up finds the task short of the window and leaves the
+// deployment to the slower stabilization tick.
 func TestECSTaskSteadyStateAt_IsTheInstantTheWindowIsHeld(t *testing.T) {
 	startedAt := float64(time.Now().Add(-500*time.Millisecond).UnixMilli()) / 1000
 	at := ecsTaskSteadyStateAt(startedAt)

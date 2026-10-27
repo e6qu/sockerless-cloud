@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestECRCLI_UntagResource covers ecr untag-resource over the CLI surface (the
-// op was unimplemented → 400).
 func TestECRCLI_UntagResource(t *testing.T) {
 	t.Parallel()
 	repo := "cli-untag-repo"
@@ -27,9 +25,9 @@ func TestECRCLI_UntagResource(t *testing.T) {
 	}
 }
 
-// TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages runs aws ecr
-// delete-repository against a repository holding an image: the CLI reports
-// RepositoryNotEmptyException until the call passes --force.
+// TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages expects
+// RepositoryNotEmptyException from delete-repository on a repository holding
+// an image until the call passes --force.
 func TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages(t *testing.T) {
 	t.Parallel()
 	repo := "cli-not-empty-repo"

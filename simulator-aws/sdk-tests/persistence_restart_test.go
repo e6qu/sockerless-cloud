@@ -101,9 +101,8 @@ func persistentSDKConfig() aws.Config {
 	return sdkConfig()
 }
 
-// persistentServiceRole creates, on the simulator at endpoint, a role whose
-// trust policy lets the service principal assume it, allowed actions on
-// every resource.
+// persistentServiceRole creates, on the simulator at endpoint, a role the
+// service principal may assume, allowed actions on every resource.
 func persistentServiceRole(t *testing.T, endpoint, name, principal string, actions ...string) string {
 	t.Helper()
 	iamAPI := iam.NewFromConfig(persistentSDKConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(endpoint) })
@@ -526,9 +525,9 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	require.NotEmpty(t, certBeforeRestart)
 
 	require.NoError(t, shutdownSimulator(cmd), "persistent simulator must exit cleanly before SQLite is reopened")
-	// The restored state includes an enabled Amazon SQS event source mapping,
-	// whose poller starts with the simulator; whatever it calls must already
-	// be registered when it does.
+	// The restored state holds an enabled Amazon SQS event source mapping, whose
+	// poller starts with the simulator, so whatever it calls must be registered by
+	// then.
 	restarted := &simulatorOutput{}
 	cmd = startPersistentSimulatorWritingTo(t, stateDir, tcpPort, udpPort, "process", restarted)
 
@@ -949,8 +948,8 @@ func TestLambdaDurableCallbackResumesAfterSimulatorRestart_SDK(t *testing.T) {
 
 	const functionName = "persistent-callback-lambda"
 	logGroup := "/aws/lambda/" + functionName
-	// AWS Lambda writes to the function's log group when it exists, so the
-	// group is there for a Live Tail session before the function writes.
+	// AWS Lambda writes to the function's log group, so the group exists for a
+	// Live Tail session before the function writes.
 	_, err := logsAPI.CreateLogGroup(testCtx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
 	require.NoError(t, err)
 	source := `

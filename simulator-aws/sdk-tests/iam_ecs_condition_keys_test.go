@@ -12,10 +12,9 @@ import (
 )
 
 // TestECS_RequestShapeConditionKeysScopeTheGrant covers the Amazon ECS keys
-// that describe what a request asks for rather than what it names: the size the
-// task takes, the capacity provider it is placed on, and whether exec is on. A
-// policy holds callers to a shape with them — only small tasks, only on Fargate
-// Spot, never with exec enabled.
+// describing what a request asks for: the task's size, its capacity provider
+// and whether exec is on. A policy holds callers to small tasks on Fargate Spot
+// without exec.
 func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := ecsClient()
@@ -33,10 +32,8 @@ func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The shape a real policy takes. Exec is refused with a Deny on the key
-	// being true rather than an Allow on it being false, because a request that
-	// does not ask for exec carries no such member and so settles no key —
-	// which is what Amazon ECS does too.
+	// Deny exec when the key is true rather than allow it when false: a request
+	// not asking for exec carries no member and settles no key, as on Amazon ECS.
 	akid, secret := restrictedCredential(t, "ecs-small-spot-no-exec",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":"ecs:CreateService","Resource":"*","Condition":{
@@ -48,8 +45,8 @@ func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
 		func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Authorization is what is under test, so a request that clears IAM and
-	// then fails on the cluster it names is a different outcome from a refusal.
+	// Authorization is under test, so a request that clears IAM and then fails on
+	// its cluster is a different outcome from a refusal.
 	create := func(name string, exec bool, provider string) error {
 		_, err := restricted.CreateService(ctx, &ecs.CreateServiceInput{
 			ServiceName: aws.String(name), Cluster: aws.String("cond-shape-absent-cluster"),

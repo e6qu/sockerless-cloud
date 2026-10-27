@@ -13,16 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// web_workflows_test.go exercises the App-Service-hosted Logic Apps workflow
-// surface in simulator-azure/web_workflows.go: deployWorkflowArtifacts, the
-// WorkflowEnvelope read surface (production + slot), listWorkflowsConnections,
-// and the hostruntime management bridge (workflows, runs, run actions,
-// triggers, trigger histories, versions, access keys) through the
-// armappservice Workflow* clients — the same entities the standalone
-// Microsoft.Logic slice stores, addressed at their site-scoped coordinate.
+// The App Service-hosted Logic Apps workflows: deployWorkflowArtifacts, the
+// WorkflowEnvelope reads (production and slot), listWorkflowsConnections, and
+// the hostruntime bridge (workflows, runs, run actions, triggers, trigger
+// histories, versions, access keys) through the armappservice Workflow*
+// clients: the entities the standalone Microsoft.Logic slice stores, at their
+// site-scoped coordinate.
 
-// webWorkflowsDeploy pushes one workflow (and a connections manifest) into a
-// site through the real deployWorkflowArtifacts surface.
+// webWorkflowsDeploy pushes one workflow and a connections manifest into a
+// site through deployWorkflowArtifacts.
 func webWorkflowsDeploy(t *testing.T, client *armappservice.WebAppsClient, rg, site string) {
 	t.Helper()
 	_, err := client.DeployWorkflowArtifacts(ctx, rg, site, &armappservice.WebAppsClientDeployWorkflowArtifactsOptions{
@@ -94,15 +93,13 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 	}
 	assert.True(t, found, "deployed workflow must appear in the workflow list")
 
-	// The shared connections manifest reads back through
-	// listWorkflowsConnections.
+	// The shared connections manifest reads back through listWorkflowsConnections.
 	conns, err := client.ListWorkflowsConnections(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conns.Properties)
 	assert.Contains(t, conns.Properties.Files, "connections.json")
 
-	// Slot deployments are the slot's own: deploy a different workflow to the
-	// slot and read it back through the instance-slot surface.
+	// The slot's deployments are its own.
 	_, err = client.DeployWorkflowArtifactsSlot(ctx, rg, name, slot, &armappservice.WebAppsClientDeployWorkflowArtifactsSlotOptions{
 		WorkflowArtifacts: &armappservice.WorkflowArtifacts{
 			Files: map[string]any{
@@ -133,7 +130,7 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 	assert.True(t, slotNames["slotwf"], "slot workflow must appear in the slot list")
 	assert.False(t, slotNames["wf1"], "production workflows must not leak into the slot list")
 
-	// The slot's connections manifest is empty — nothing was deployed there.
+	// Nothing was deployed to the slot's connections manifest.
 	slotConns, err := client.ListWorkflowsConnectionsSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 	require.NotNil(t, slotConns.Properties)
@@ -178,13 +175,12 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	versions, err := armappservice.NewWorkflowVersionsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	// Validate accepts the deployed definition shape.
+	// Validate accepts the deployed definition.
 	_, err = workflows.Validate(ctx, rg, name, "wf1", armappservice.Workflow{
 		Properties: &armappservice.WorkflowProperties{},
 	}, nil)
 	require.NoError(t, err)
 
-	// Triggers: list, get, schema.
 	triggerNames := map[string]bool{}
 	trigPager := triggers.NewListPager(rg, name, "wf1", nil)
 	for trigPager.More() {
@@ -218,7 +214,7 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	assert.NotEqual(t, *cb1.Queries.Sig, *cb2.Queries.Sig,
 		"regenerateAccessKey must invalidate the previously issued callback signature")
 
-	// Fire the trigger: one run, its actions, and a trigger history appear.
+	// Firing the trigger records a run, its actions and a trigger history.
 	runPoller, err := triggers.BeginRun(ctx, rg, name, "wf1", "manual", nil)
 	require.NoError(t, err)
 	_, err = runPoller.PollUntilDone(ctx, nil)
@@ -259,7 +255,7 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 		assert.Empty(t, page.Inputs)
 	}
 
-	// Recorded runs carry no repetition state; the collection is empty.
+	// Recorded runs carry no repetition state, so the collection is empty.
 	repPager := repetitions.NewListPager(rg, name, "wf1", runName, "respond", nil)
 	for repPager.More() {
 		page, err := repPager.NextPage(ctx)
@@ -267,16 +263,16 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 		assert.Empty(t, page.Value)
 	}
 
-	// The bridge and the standalone Microsoft.Logic slice key the same run
-	// store differently, and these detail handlers serve both. A run this
-	// site never had is not found; one it did have answers, as it did above.
+	// The bridge and the standalone Microsoft.Logic slice key one run store
+	// differently, and these handlers serve both: a run the site never had is not
+	// found.
 	missingTraces := actions.NewListExpressionTracesPager(rg, name, "wf1",
 		"08000000000000000000000000000000", "respond", nil)
 	require.True(t, missingTraces.More())
 	_, err = missingTraces.NextPage(ctx)
 	requireAzureNotFound(t, err, "the expression traces of a run this site never had")
 
-	// Trigger history: list, get, resubmit (adds a second run).
+	// Resubmitting a trigger history adds a second run.
 	var histName string
 	histPager := histories.NewListPager(rg, name, "wf1", "manual", nil)
 	for histPager.More() {
@@ -304,13 +300,12 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	}
 	assert.Equal(t, 2, runCount, "resubmit must record a second run")
 
-	// Cancel the recorded run.
 	_, err = runs.Cancel(ctx, rg, name, "wf1", runName, nil)
 	var cancelErr *azcore.ResponseError
 	require.ErrorAs(t, err, &cancelErr, "a finished run refuses a cancel")
 	assert.Equal(t, http.StatusConflict, cancelErr.StatusCode)
 
-	// Versions: each deployment snapshots one.
+	// Each deployment snapshots a version.
 	var versionID string
 	verPager := versions.NewListPager(rg, name, "wf1", nil)
 	for verPager.More() {
@@ -326,8 +321,8 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	require.NotNil(t, verGot.Properties)
 }
 
-// awaitWebWorkflowRun polls a hosted workflow run's own status until it leaves
-// Running: Logic Apps offers no waiter or long-running operation for a run.
+// awaitWebWorkflowRun polls the run's status until it leaves Running: Logic
+// Apps offers no waiter or long-running operation for a run.
 func awaitWebWorkflowRun(t *testing.T, runs *armappservice.WorkflowRunsClient, rg, site, workflow, run string) armappservice.WorkflowRun {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)

@@ -14,11 +14,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
-// ECServerlessCacheMigration is the migration PrepareMigration opens on a
-// serverless cache, from the one source endpoint it names, until
-// CompleteMigration ends it. Phase is where the migration stands:
-// prepared until StartMigration syncs the source's data into the cache,
-// syncing from then, stopped once StopMigration stopped it.
+// Opened by PrepareMigration from one source endpoint, ended by
+// CompleteMigration. Phase is prepared until StartMigration syncs, syncing
+// from then, stopped after StopMigration.
 type ECServerlessCacheMigration struct {
 	SourceAddress        string
 	SourcePort           int    `json:",omitempty"`
@@ -43,8 +41,7 @@ func renderECServerlessCacheMigration(c ECServerlessCache) string {
 		xmlEscape(c.EndpointAddress), c.EndpointPort)
 }
 
-// ecServerlessCacheForMigration loads the serverless cache a migration
-// request names, answering ServerlessCacheNotFoundFault when there is none.
+// Answers ServerlessCacheNotFoundFault when there is none.
 func ecServerlessCacheForMigration(w http.ResponseWriter, r *http.Request) (ECServerlessCache, bool) {
 	name := r.FormValue("ServerlessCacheName")
 	c, ok := ecServerlessCaches.Get(name)
@@ -54,8 +51,7 @@ func ecServerlessCacheForMigration(w http.ResponseWriter, r *http.Request) (ECSe
 	return c, ok
 }
 
-// ecRequireMigration answers ServerlessCacheNotUnderMigrationFault for a
-// serverless cache no migration is open on.
+// Answers ServerlessCacheNotUnderMigrationFault without an open migration.
 func ecRequireMigration(w http.ResponseWriter, r *http.Request, c ECServerlessCache) bool {
 	if c.Migration != nil {
 		return true
@@ -147,9 +143,7 @@ func handleECStopMigration(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "StopMigration", renderECServerlessCache(updated), requestID)
 }
 
-// ecServerlessMigrationTarget reports whether a StartMigration or
-// CompleteMigration request names a serverless cache, refusing one that names
-// a replication group as well.
+// Refuses a request naming a replication group as well.
 func ecServerlessMigrationTarget(w http.ResponseWriter, r *http.Request) (serverless, ok bool) {
 	if r.FormValue("ServerlessCacheName") == "" {
 		return false, true
@@ -162,9 +156,7 @@ func ecServerlessMigrationTarget(w http.ResponseWriter, r *http.Request) (server
 	return true, true
 }
 
-// ecStartServerlessMigration starts the data sync of the migration
-// PrepareMigration opened, from the endpoint it named. A sync StopMigration
-// stopped restarts only with ClearTargetCacheData.
+// A sync StopMigration stopped restarts only with ClearTargetCacheData.
 func ecStartServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
 	c, ok := ecServerlessCacheForMigration(w, r)
@@ -202,8 +194,7 @@ func ecStartServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "StartMigration", renderECServerlessCache(updated), requestID)
 }
 
-// ecCompleteServerlessMigration ends the migration: a migration whose data
-// sync runs cuts over, and Force ends one whose data is not in sync.
+// A syncing migration cuts over; Force ends one that is not in sync.
 func ecCompleteServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
 	c, ok := ecServerlessCacheForMigration(w, r)
@@ -221,9 +212,8 @@ func ecCompleteServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CompleteMigration", renderECServerlessCache(updated), requestID)
 }
 
-// ecDialMigrationSource connects to the endpoint a migration names, over TLS
-// trusting the certificate it names when its TLS mode is verify-ca, and
-// confirms that it answers PING.
+// TLS trusting the named certificate in verify-ca mode; the source must answer
+// PING.
 func ecDialMigrationSource(m ECServerlessCacheMigration) (*cacheengine.Conn, error) {
 	port := m.SourcePort
 	if port == 0 {
@@ -251,8 +241,7 @@ func ecDialMigrationSource(m ECServerlessCacheMigration) (*cacheengine.Conn, err
 	return conn, nil
 }
 
-// ecSyncMigration copies every key of the migration's source into the
-// serverless cache's engine, after emptying the cache when clear is set.
+// Empties the cache first when clear is set.
 func ecSyncMigration(c ECServerlessCache, m ECServerlessCacheMigration, clear bool) error {
 	engine, ok := ecLoadEngine(ecEngineKey(ecKindServerless, c.ServerlessCacheName))
 	if !ok || engine.redis == nil {

@@ -1,6 +1,6 @@
 ---
 name: sim-state-machine-completeness
-description: Audit sim resource types against their documented state machines. Real cloud resources transition through lifecycle states (creating → available → deleted → failed; active → soft-deleted → purged; READY → FAILING_OVER → READY). Sim implementations that store one flat row per name with no state field and "PUT overwrites, DELETE deletes" silently lose the transitions SDKs and providers depend on reading back. Distilled from BUG-1160 — the meta-shape behind issues #203 (KV versioning), #205 (KV soft-delete), #207 (RDS snapshot states), #209 (Cloud SQL backups, Memorystore failover, Pub/Sub Snapshot lifecycle). Use whenever adding or modifying a stateful sim resource type, and audit against every row in `specs/SIM_SURFACE_TABLES/` whose handler implements a lifecycle.
+description: Audit sim resource types against their documented state machines. Real cloud resources transition through lifecycle states (creating → available → deleted → failed; active → soft-deleted → purged; READY → FAILING_OVER → READY). Sim implementations that store one flat row per name with no state field and "PUT overwrites, DELETE deletes" silently lose the transitions SDKs and providers depend on reading back. Use whenever adding or modifying a stateful sim resource type, and audit against every row in `specs/SIM_SURFACE_TABLES/` whose handler implements a lifecycle.
 ---
 
 # Sim state-machine completeness invariant

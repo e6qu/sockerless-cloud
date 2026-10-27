@@ -16,18 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests prove the gate resolves aws:ResourceTag/<k> for services beyond
-// EC2/ECS: a grant scoped to a resource's tag is denied until the targeted
-// resource actually carries the tag, then allowed. They cover the major
-// protocols the resolver handles — SQS (awsJson), SNS (awsQuery), and DynamoDB
-// (awsJson) — mirroring TestIAM_ResourceTagCondition.
+// The gate resolves aws:ResourceTag/<k> beyond EC2 and ECS: a grant scoped to a
+// resource's tag denies until the resource carries the tag, then allows. These
+// tests cover SQS (awsJson), SNS (awsQuery) and DynamoDB (awsJson), as
+// TestIAM_ResourceTagCondition does EC2 and ECS.
 //
-// The resolver (iam_service_resource_tags.go) covers, in addition to EC2/ECS:
-//   lambda, sqs, sns, rds, elbv2, elasticache, dynamodb, ecr, logs,
-//   stepfunctions, kms, secretsmanager, kinesis, glue, batch, s3.
+// The resolver (iam_service_resource_tags.go) also covers lambda, rds, elbv2,
+// elasticache, ecr, logs, stepfunctions, kms, secretsmanager, kinesis, glue,
+// batch and s3.
 
-// restrictedConfig mints a registered IAM user with the given inline policy and
-// returns an aws.Config bearing its access key.
 func restrictedConfig(t *testing.T, iamc *iam.Client, user, policyName, policyDoc string) aws.Config {
 	t.Helper()
 	user = uniquename.New(user)
@@ -47,8 +44,6 @@ func restrictedConfig(t *testing.T, iamc *iam.Client, user, policyName, policyDo
 		aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey), "")}
 }
 
-// TestIAM_SQSResourceTagCondition: sqs:DeleteQueue scoped to
-// aws:ResourceTag/team=blue is denied on an untagged queue, allowed once tagged.
 func TestIAM_SQSResourceTagCondition(t *testing.T) {
 	t.Parallel()
 	admin := sqsClient()
@@ -63,22 +58,17 @@ func TestIAM_SQSResourceTagCondition(t *testing.T) {
 			`{"Effect":"Allow","Action":["sqs:DeleteQueue"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/team":"blue"}}}]}`)
 	rc := sqs.NewFromConfig(cfg, func(o *sqs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Untagged → denied.
 	_, err = rc.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qurl)})
 	require.Error(t, err, "DeleteQueue on an untagged queue must be denied")
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 
-	// Tag it team=blue (admin).
 	_, err = admin.TagQueue(ctx, &sqs.TagQueueInput{QueueUrl: aws.String(qurl), Tags: map[string]string{"team": "blue"}})
 	require.NoError(t, err)
 
-	// Now allowed.
 	_, err = rc.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qurl)})
 	assert.NoError(t, err, "DeleteQueue must be allowed once the queue carries team=blue")
 }
 
-// TestIAM_SNSResourceTagCondition: sns:DeleteTopic scoped to
-// aws:ResourceTag/env=prod (awsQuery protocol).
 func TestIAM_SNSResourceTagCondition(t *testing.T) {
 	t.Parallel()
 	admin := snsClient()
@@ -93,12 +83,11 @@ func TestIAM_SNSResourceTagCondition(t *testing.T) {
 			`{"Effect":"Allow","Action":["sns:DeleteTopic"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/env":"prod"}}}]}`)
 	rc := sns.NewFromConfig(cfg, func(o *sns.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Untagged → denied (query protocol → AccessDenied).
+	// The query protocol denies with AccessDenied.
 	_, err = rc.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: aws.String(arn)})
 	require.Error(t, err, "DeleteTopic on an untagged topic must be denied")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 
-	// Tag it env=prod.
 	_, err = admin.TagResource(ctx, &sns.TagResourceInput{ResourceArn: aws.String(arn),
 		Tags: []snstypes.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}})
 	require.NoError(t, err)
@@ -107,8 +96,6 @@ func TestIAM_SNSResourceTagCondition(t *testing.T) {
 	assert.NoError(t, err, "DeleteTopic must be allowed once the topic carries env=prod")
 }
 
-// TestIAM_DynamoDBResourceTagCondition: dynamodb:DeleteTable scoped to
-// aws:ResourceTag/owner=x (awsJson protocol).
 func TestIAM_DynamoDBResourceTagCondition(t *testing.T) {
 	t.Parallel()
 	admin := ddbClient()
@@ -131,12 +118,10 @@ func TestIAM_DynamoDBResourceTagCondition(t *testing.T) {
 			`{"Effect":"Allow","Action":["dynamodb:DeleteTable"],"Resource":"*","Condition":{"StringEquals":{"aws:ResourceTag/owner":"x"}}}]}`)
 	rc := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Untagged → denied.
 	_, err = rc.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tbl)})
 	require.Error(t, err, "DeleteTable on an untagged table must be denied")
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 
-	// Tag it owner=x.
 	_, err = admin.TagResource(ctx, &dynamodb.TagResourceInput{ResourceArn: aws.String(tableArn),
 		Tags: []ddbtypes.Tag{{Key: aws.String("owner"), Value: aws.String("x")}}})
 	require.NoError(t, err)

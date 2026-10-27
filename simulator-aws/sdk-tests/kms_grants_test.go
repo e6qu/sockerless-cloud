@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKMS_GrantsLifecycle covers CreateGrant → ListGrants →
-// RevokeGrant — the `aws_kms_grant` surface AWS services use to delegate CMK
-// use for encryption at rest.
+// TestKMS_GrantsLifecycle covers the aws_kms_grant surface AWS services use to
+// delegate a key for encryption at rest.
 func TestKMS_GrantsLifecycle(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -48,14 +47,13 @@ func TestKMS_GrantsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, list2.Grants, "grant must be gone after revoke")
 
-	// Revoking a non-existent grant is an error, not a silent success.
+	// Revoking a missing grant is an error.
 	_, err = c.RevokeGrant(ctx, &kms.RevokeGrantInput{KeyId: aws.String(keyID), GrantId: aws.String("does-not-exist")})
 	require.Error(t, err)
 }
 
-// TestKMS_GenerateDataKeyWithoutPlaintextAndReEncrypt covers the two secondary
-// crypto ops: the encrypted-only data key, and re-wrapping ciphertext
-// under a new key (rotation).
+// TestKMS_GenerateDataKeyWithoutPlaintextAndReEncrypt covers the
+// encrypted-only data key and re-wrapping ciphertext under a new key.
 func TestKMS_GenerateDataKeyWithoutPlaintextAndReEncrypt(t *testing.T) {
 	t.Parallel()
 	c := kmsClient()
@@ -73,7 +71,6 @@ func TestKMS_GenerateDataKeyWithoutPlaintextAndReEncrypt(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, dk.CiphertextBlob, "must return an encrypted data key")
 
-	// Encrypt → ReEncrypt under k2 → Decrypt round-trips the same plaintext.
 	enc, err := c.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(k1ID), Plaintext: []byte("rotate-me")})
 	require.NoError(t, err)
 	re, err := c.ReEncrypt(ctx, &kms.ReEncryptInput{

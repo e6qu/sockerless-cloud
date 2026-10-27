@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// The Microsoft.Subscription tenant policy is enforced, not merely recorded:
-// these tests set a policy and then drive the operations it governs, so a
-// policy that stopped constraining anything fails here.
+// These set a policy and drive the operations it governs, so a policy that
+// stopped constraining fails.
 
 const subscriptionForeignTenantID = "22222222-2222-2222-2222-222222222222"
 
@@ -23,8 +22,7 @@ func (c *subscriptionTestClient) putTenantPolicy(blockLeaving, blockInto bool, e
 	}, http.StatusOK)
 }
 
-// directedAliasRequest is an alias creation that hands a new subscription to a
-// tenant and an owner — the shape both tenant-policy blocks govern.
+// Hands a new subscription to a tenant and owner, the shape both blocks govern.
 func directedAliasRequest(displayName, tenantID string) map[string]any {
 	return map[string]any{
 		"properties": map[string]any{
@@ -39,9 +37,8 @@ func directedAliasRequest(displayName, tenantID string) map[string]any {
 	}
 }
 
-// TestSubscriptionTenantPolicyRoundTrip asserts the policy singleton: it exists
-// with a stable identifier before anyone writes it, a write replaces it, and
-// the list operation reports the same policy the get operation does.
+// The policy exists with a stable ID before any write, a write replaces it,
+// and list and get agree.
 func TestSubscriptionTenantPolicyRoundTrip(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 
@@ -82,8 +79,8 @@ func TestSubscriptionTenantPolicyRoundTrip(t *testing.T) {
 		t.Errorf("the listed policy is not the tenant's policy")
 	}
 
-	// A write replaces the policy rather than merging into it: the exemption
-	// set a later write omits is gone.
+	// A write replaces rather than merges: an exemption a later write omits is
+	// gone.
 	cleared := c.putTenantPolicy(false, false, nil)
 	props = subscriptionProps(t, cleared)
 	exempted, ok := props["exemptedPrincipals"].([]any)
@@ -92,10 +89,7 @@ func TestSubscriptionTenantPolicyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSubscriptionPolicyBlocksSubscriptionsLeavingTenant drives the alias
-// creation the policy governs: directing a subscription at another tenant is
-// denied while the block is set, and allowed for a principal the policy
-// exempts.
+// Denied while the block is set; allowed for an exempted principal.
 func TestSubscriptionPolicyBlocksSubscriptionsLeavingTenant(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	c.putTenantPolicy(true, false, nil)
@@ -107,8 +101,7 @@ func TestSubscriptionPolicyBlocksSubscriptionsLeavingTenant(t *testing.T) {
 			blocked.Code, blocked.Body.String())
 	}
 
-	// A subscription directed at the caller's own tenant is not leaving it, so
-	// the block does not apply.
+	// Directed at the caller's own tenant, the subscription is not leaving.
 	staying := c.do(http.MethodPut, "/providers/Microsoft.Subscription/aliases/leaving-same-tenant",
 		directedAliasRequest("Same Tenant Subscription", simTenantID))
 	if staying.Code != http.StatusCreated {
@@ -123,9 +116,8 @@ func TestSubscriptionPolicyBlocksSubscriptionsLeavingTenant(t *testing.T) {
 	}
 }
 
-// TestSubscriptionPolicyBlocksSubscriptionsIntoTenant drives the ownership
-// acceptance the policy governs: accepting ownership brings the subscription
-// into the accepting principal's tenant.
+// Accepting ownership brings the subscription into the accepting principal's
+// tenant.
 func TestSubscriptionPolicyBlocksSubscriptionsIntoTenant(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	subscriptionID, _ := c.createDirectedAlias("into-tenant-alias", "Directed Subscription", simTenantID)
@@ -145,9 +137,8 @@ func TestSubscriptionPolicyBlocksSubscriptionsIntoTenant(t *testing.T) {
 	}
 }
 
-// TestSubscriptionBillingAccountPolicyServiceTenants asserts the billing
-// account's policy reports the tenants it actually serves — the tenants holding
-// the subscriptions created under it — rather than a fixed list.
+// The tenants holding subscriptions created under the account, not a fixed
+// list.
 func TestSubscriptionBillingAccountPolicyServiceTenants(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	const policyPath = "/providers/Microsoft.Billing/billingAccounts/sim-billing-account/providers/Microsoft.Subscription/policies/default"
@@ -189,8 +180,6 @@ func TestSubscriptionBillingAccountPolicyServiceTenants(t *testing.T) {
 	}
 }
 
-// TestSubscriptionOperationsListCatalog asserts the provider operation catalog
-// is served in the shape a client reads it.
 func TestSubscriptionOperationsListCatalog(t *testing.T) {
 	c := newSubscriptionTestClient(t)
 	list := c.doJSON(http.MethodGet, "/providers/Microsoft.Subscription/operations", nil, http.StatusOK)

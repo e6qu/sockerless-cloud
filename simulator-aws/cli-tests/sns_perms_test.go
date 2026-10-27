@@ -9,9 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSNSCLI_SubscriptionAttributes round-trips RawMessageDelivery via
-// set-subscription-attributes / get-subscription-attributes against an SQS
-// subscription.
 func TestSNSCLI_SubscriptionAttributes(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-subattr-t"))
@@ -66,8 +63,8 @@ func TestSNSCLI_SubscriptionAttributes(t *testing.T) {
 	assert.Equal(t, "true", got.Attributes["RawMessageDelivery"])
 }
 
-// TestSNSCLI_ConfirmSubscription confirms a confirmation-required (https)
-// subscription using the deterministic token (the ARN with colons stripped).
+// TestSNSCLI_ConfirmSubscription confirms an https subscription with a token
+// derived from the subscription ARN by stripping its colons.
 func TestSNSCLI_ConfirmSubscription(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-confirm-t"))
@@ -104,9 +101,8 @@ func TestSNSCLI_ConfirmSubscription(t *testing.T) {
 	assert.Equal(t, "false", got.Attributes["PendingConfirmation"])
 }
 
-// TestSNSCLI_AddRemovePermission asserts add-permission writes a statement
-// into the topic Policy (read via get-topic-attributes) and remove-permission
-// drops it.
+// TestSNSCLI_AddRemovePermission expects add-permission to write a statement
+// into the topic Policy and remove-permission to drop it.
 func TestSNSCLI_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-perm-t"))
@@ -154,7 +150,7 @@ func TestSNSCLI_AddRemovePermission(t *testing.T) {
 	require.Len(t, doc.Statement, 1, "remove-permission drops the label's statement and keeps the default")
 	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
 
-	// Removing an absent label is a NotFound.
+	// Removing an absent label is NotFound.
 	errOut := runCLIExpectError(t, awsCLI("sns", "remove-permission",
 		"--topic-arn", topic.TopicArn,
 		"--label", "no-such-label"))

@@ -48,7 +48,6 @@ func TestELBv2_ListenerRulesRouteRequests(t *testing.T) {
 	lbArn := *lbOut.LoadBalancers[0].LoadBalancerArn
 	lbDNSName := *lbOut.LoadBalancers[0].DNSName
 
-	// Each target group's one target answers with the group's name.
 	targets := map[string]elbtypes.TargetDescription{}
 	targetGroup := func(name string) string {
 		t.Helper()
@@ -167,7 +166,6 @@ func TestELBv2_ListenerRulesRouteRequests(t *testing.T) {
 		require.NoError(t, err)
 		return resp.StatusCode, resp.Header, string(body)
 	}
-	// The targets take traffic once their health checks pass.
 	for arn, target := range targets {
 		waitForELBv2TargetHealth(t, arn, target, elbtypes.TargetHealthStateEnumHealthy)
 	}
@@ -207,12 +205,10 @@ func TestELBv2_ListenerRulesRouteRequests(t *testing.T) {
 		require.Equal(t, "sdk-rules-b", body)
 	}
 
-	// A target group an action forwards to cannot be deleted.
 	_, err = elb.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(groupA)})
 	var inUse *elbtypes.ResourceInUseException
 	require.ErrorAs(t, err, &inUse)
 
-	// Deletion protection keeps the load balancer until it is turned off.
 	_, err = elb.ModifyLoadBalancerAttributes(ctx, &elbv2.ModifyLoadBalancerAttributesInput{
 		LoadBalancerArn: aws.String(lbArn),
 		Attributes:      []elbtypes.LoadBalancerAttribute{{Key: aws.String("deletion_protection.enabled"), Value: aws.String("true")}},

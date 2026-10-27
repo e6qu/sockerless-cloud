@@ -14,19 +14,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Microsoft.EventGrid ARM control plane plus custom-topic publish
-// data plane. Topics are addressed through ARM; events publish to
-// the topic endpoint's /api/events path and fan out to webhook event
-// subscriptions under each subscription's retry policy
-// (eventgrid_delivery.go).
+// Microsoft.EventGrid control plane and the custom-topic publish data plane:
+// events posted to a topic's /api/events fan out to webhook event
+// subscriptions under each subscription's retry policy (eventgrid_delivery.go).
 
 type EventGridTopic struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Location string `json:"location,omitempty"`
-	// Tags is omitted when empty: proxy resources (domains/topics,
-	// partner topics before tagging) have no tags member at all.
+	// Proxy resources (domain topics, untagged partner topics) have no tags member.
 	Tags       map[string]string `json:"tags,omitempty"`
 	Properties map[string]any    `json:"properties,omitempty"`
 }
@@ -166,23 +163,18 @@ func eventGridScopeFromRequest(r *http.Request) (string, sim.Store[EventGridTopi
 	case sim.PathParam(r, "partnerTopicName") != "":
 		return eventGridPartnerTopicID(sub, rg, sim.PathParam(r, "partnerTopicName")), eventGridPartnerTopics, true
 	case sim.PathParam(r, "domainName") != "":
-		// A domain-scoped event subscription (domains/{domainName}/
-		// eventSubscriptions/...) — distinct from a domain TOPIC scope,
-		// which sets domainTopicName and is matched above.
+		// A domain-scoped event subscription, distinct from a domain topic scope, which
+		// sets domainTopicName and matches above.
 		return eventGridDomainID(sub, rg, sim.PathParam(r, "domainName")), eventGridDomains, true
 	default:
 		return "", nil, false
 	}
 }
 
-// eventGridSubscriptionIDForRequest builds the canonical event-subscription
-// resource ID for the addressed scope. Azure routes the same logical
-// subscription through two URL shapes: the provider-qualified
-// ".../providers/Microsoft.EventGrid/eventSubscriptions/{name}" form
-// (the EventSubscriptions operations group at an arbitrary {scope}) and the
-// nested ".../eventSubscriptions/{name}" form (the per-resource
-// {Topic,Domain,SystemTopic,PartnerTopic,DomainTopic}EventSubscriptions
-// groups). The ID mirrors whichever form addressed it.
+// Azure routes one event subscription through two URL shapes: the
+// provider-qualified ".../providers/Microsoft.EventGrid/eventSubscriptions/{name}"
+// (EventSubscriptions at any {scope}) and the nested ".../eventSubscriptions/{name}"
+// (the per-resource groups). The ID mirrors whichever addressed it.
 func eventGridSubscriptionIDForRequest(r *http.Request, scopeID, name string) string {
 	if strings.Contains(r.URL.Path, "/providers/Microsoft.EventGrid/eventSubscriptions/") {
 		return armProviderID(scopeID, "Microsoft.EventGrid", "eventSubscriptions", name)
@@ -198,11 +190,8 @@ func eventGridEndpointHost(r *http.Request, topic string) string {
 	return strings.Join([]string{topic, "eventgrid", hostname}, ".") + portSuffix
 }
 
-// eventGridTopicWithEndpoint returns a copy of topic whose properties carry the
-// data-plane endpoint. The endpoint is a stable per-topic property: once stamped
-// (at create) it is preserved, so reads are pure and never overwrite stored
-// state with a request-Host-derived value. The returned topic shares no maps
-// with the input, so callers may safely persist the original unchanged.
+// The endpoint is stamped once, at create, so reads never persist a
+// request-Host-derived value. The copy shares no maps with the input.
 func eventGridTopicWithEndpoint(r *http.Request, topic EventGridTopic) EventGridTopic {
 	props := make(map[string]any, len(topic.Properties)+1)
 	for k, v := range topic.Properties {
@@ -259,8 +248,6 @@ func handleEventGridCreateTopic(w http.ResponseWriter, r *http.Request) {
 		Tags:       tags,
 		Properties: props,
 	}
-	// Stamp the endpoint once, at create, so it becomes a stable property of
-	// the topic that later reads return verbatim.
 	topic = eventGridTopicWithEndpoint(r, topic)
 	eventGridTopics.Put(id, topic)
 	sim.WriteJSON(w, http.StatusCreated, topic)
@@ -271,9 +258,8 @@ func handleEventGridGetTopic(w http.ResponseWriter, r *http.Request) {
 	armGet(w, eventGridTopicResources(r), id)
 }
 
-// eventGridTopicResources reads custom topics with their data-plane endpoint
-// derived into each response copy, never persisting a request-Host-derived
-// value back into the store.
+// Each response copy carries the data-plane endpoint; nothing derived from the
+// request Host is stored.
 func eventGridTopicResources(r *http.Request) armResources[EventGridTopic] {
 	topics := eventGridResources(eventGridTopics, "topic")
 	topics.project = func(t *EventGridTopic) { *t = eventGridTopicWithEndpoint(r, *t) }
@@ -378,8 +364,7 @@ func handleEventGridCreateDomainTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := eventGridDomainTopicID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "domainName"), sim.PathParam(r, "domainTopicName"))
-	// DomainTopic is a proxy resource (allOf Resource): no location, no
-	// tags members.
+	// A domain topic is a proxy resource: no location, no tags.
 	topic := EventGridTopic{
 		ID:   id,
 		Name: sim.PathParam(r, "domainTopicName"),
@@ -511,10 +496,8 @@ func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store si
 	eventGridCreateARMResourceStatus(w, r, store, id, name, resourceType, http.StatusCreated, mutate)
 }
 
-// eventGridCreateARMResourceStatus creates an Event Grid ARM resource and
-// answers with the status that resource's create declares. Most of them answer
-// 201; partner registrations answer 200, which is what their swagger declares
-// and what a client polling the create reads.
+// Most Event Grid creates answer 201; partner registrations answer 200, as
+// their swagger declares.
 func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, status int, mutate func(map[string]any)) {
 	var req EventGridTopic
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -542,8 +525,6 @@ func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, st
 	sim.WriteJSON(w, status, resource)
 }
 
-// eventGridResources is an Event Grid resource type held in store, which
-// reports an absent resource by label.
 func eventGridResources(store sim.Store[EventGridTopic], label string) armResources[EventGridTopic] {
 	return armResources[EventGridTopic]{
 		store: store,
@@ -554,8 +535,7 @@ func eventGridResources(store sim.Store[EventGridTopic], label string) armResour
 	}
 }
 
-// eventGridScopeDeletion deletes a resource that event subscriptions hang off,
-// and its subscriptions with it.
+// Deleting a scope deletes its event subscriptions with it.
 var eventGridScopeDeletion = armDeletion[EventGridTopic]{
 	status: http.StatusNoContent,
 	after:  func(_ context.Context, id string, _ EventGridTopic) { deleteEventGridScope(id) },
@@ -669,12 +649,9 @@ func handleEventGridPublishEvents(w http.ResponseWriter, r *http.Request) {
 	publishEventGridScope(w, r, scope)
 }
 
-// eventGridPublishScope is a resource that accepts an /api/events publish. A
-// custom topic and a domain advertise the same endpoint shape and serve the
-// same two access keys, so they authenticate identically; they differ in how a
-// published event is routed — a custom topic fans out to its own event
-// subscriptions, while a domain routes each event to the domain topic the
-// event's `topic` member names.
+// A custom topic and a domain share the endpoint shape and two access keys, so
+// they authenticate alike; a topic fans out to its own subscriptions, while a
+// domain routes each event to the domain topic its `topic` member names.
 type eventGridPublishScope struct {
 	resource EventGridTopic
 	isDomain bool
@@ -694,10 +671,10 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 		AzureErrorf(w, "InvalidEvent", http.StatusBadRequest, "%v", err)
 		return
 	}
-	// Event Grid sets each event's topic to the resource it was published to
-	// (a domain event's to its domain topic) and stamps metadataVersion. A
-	// domain-scoped event subscription receives every event published to the
-	// domain as well as the domain topic's own subscriptions.
+	// Event Grid sets each event's topic to the resource it was published to (a
+	// domain event's to its domain topic) and stamps metadataVersion. A
+	// domain-scoped subscription receives every event published to the domain as
+	// well as the domain topic's subscriptions.
 	byScope := map[string][]json.RawMessage{}
 	var scopes []string
 	route := func(scopeID string, event json.RawMessage) {
@@ -727,8 +704,7 @@ func publishEventGridScope(w http.ResponseWriter, r *http.Request, scope eventGr
 	w.WriteHeader(http.StatusOK)
 }
 
-// stampEventGridEvent sets the members Event Grid owns on a published event,
-// keeping every other member as the publisher encoded it.
+// stampEventGridEvent keeps every other member as the publisher encoded it.
 func stampEventGridEvent(raw json.RawMessage, topic string) (json.RawMessage, error) {
 	var event map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &event); err != nil {
@@ -743,9 +719,8 @@ func stampEventGridEvent(raw json.RawMessage, topic string) (json.RawMessage, er
 	return json.Marshal(event)
 }
 
-// rawEventGridEvent returns the i-th event of a publish batch exactly as the
-// publisher encoded it, so a domain delivery carries the operator's own JSON
-// rather than a re-serialisation of the fields the validator models.
+// A domain delivery carries the publisher's own JSON, not a re-serialization of
+// the fields the validator models.
 func rawEventGridEvent(body []byte, i int) json.RawMessage {
 	var raw []json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil || i >= len(raw) {
@@ -761,16 +736,12 @@ type eventGridPublishEvent struct {
 	EventTime   string          `json:"eventTime"`
 	Data        json.RawMessage `json:"data"`
 	DataVersion string          `json:"dataVersion"`
-	// Topic names the domain topic an event published to a domain belongs to.
-	// It is the publisher's choice on a domain and the service's own value on
-	// a custom topic.
+	// The publisher's choice on a domain; the service's own value on a custom
+	// topic.
 	Topic string `json:"topic"`
 }
 
-// validateEventGridPublishBody checks a publish batch against the
-// EventGridEvent schema and returns the parsed events. A domain additionally
-// requires each event to name the domain topic it belongs to, because that
-// member is what routes it.
+// A domain also requires each event to name its domain topic, which routes it.
 func validateEventGridPublishBody(body []byte, isDomain bool) ([]eventGridPublishEvent, error) {
 	var events []eventGridPublishEvent
 	if err := json.Unmarshal(body, &events); err != nil {
@@ -805,14 +776,13 @@ func validateEventGridPublishBody(body []byte, isDomain bool) ([]eventGridPublis
 
 var eventGridSubscriptionsByTopic sim.GenerationIndex[EventGridEventSubscription]
 
-// eventGridSubscriptionTopics returns the scopes a subscription belongs to —
-// the two eventGridSubscriptionBelongsToTopic accepts: the resource its
-// identifier hangs off, and the topic its properties name.
+// eventGridSubscriptionTopics returns the resource its identifier hangs off and
+// the topic its properties name.
 func eventGridSubscriptionTopics(es EventGridEventSubscription) []string {
 	const segment = "/providers/Microsoft.EventGrid/eventSubscriptions/"
 	var scopes []string
-	// Every occurrence is offered, so a resource whose own name contains the
-	// segment cannot hide the scope that precedes it.
+	// Offer every occurrence, so a resource whose name contains the segment cannot
+	// hide the scope before it.
 	for at := 0; ; {
 		i := strings.Index(es.ID[at:], segment)
 		if i < 0 {
@@ -822,8 +792,8 @@ func eventGridSubscriptionTopics(es EventGridEventSubscription) []string {
 		at += i + len(segment)
 	}
 	if es.Properties != nil {
-		// The topic property usually repeats the identifier's scope; listing it
-		// twice would index the subscription twice and deliver every event twice.
+		// Listing the topic twice would index the subscription twice and deliver every
+		// event twice.
 		if topic, ok := es.Properties["topic"].(string); ok && topic != "" && !slices.Contains(scopes, topic) {
 			scopes = append(scopes, topic)
 		}
@@ -831,17 +801,14 @@ func eventGridSubscriptionTopics(es EventGridEventSubscription) []string {
 	return scopes
 }
 
-// eventGridSubscriptionBelongsToTopic answers from the same function the
-// delivery index is keyed on, so the predicate and the index cannot disagree
-// about which subscriptions a scope owns.
+// Answer from the function the delivery index keys on, so the predicate and the
+// index agree.
 func eventGridSubscriptionBelongsToTopic(es EventGridEventSubscription, topicID string) bool {
 	return slices.Contains(eventGridSubscriptionTopics(es), topicID)
 }
 
-// eventGridPublishScopeFromHost resolves the publishing resource an
-// /api/events request addresses. Both a custom topic and a domain advertise an
-// endpoint whose first host label is the resource's globally unique name, so
-// the label selects between the two stores.
+// Both a custom topic and a domain put their globally unique name in the first
+// host label, which selects the store.
 func eventGridPublishScopeFromHost(host string) (eventGridPublishScope, bool) {
 	hostname := host
 	if i := strings.LastIndex(hostname, ":"); i >= 0 {
@@ -859,8 +826,7 @@ func eventGridPublishScopeFromHost(host string) (eventGridPublishScope, bool) {
 	return eventGridPublishScope{}, false
 }
 
-// Both stores are read by a handler wrapper, so every request into the
-// simulator paid two full scans before reaching its own handler.
+// A handler wrapper reads both stores on every request, so index them.
 var (
 	eventGridTopicsByName  sim.GenerationIndex[EventGridTopic]
 	eventGridDomainsByName sim.GenerationIndex[EventGridTopic]

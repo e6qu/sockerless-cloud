@@ -67,7 +67,6 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 	failures := []map[string]string{}
 
 	for _, nameOrArn := range req.Clusters {
-		// Extract cluster name from ARN if needed
 		name := nameOrArn
 		if strings.HasPrefix(nameOrArn, "arn:") {
 			parts := strings.Split(nameOrArn, "/")
@@ -78,7 +77,6 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 
 		cluster, ok := ecsClusters.Get(name)
 		if ok {
-			// Update running task count
 			runningCount := 0
 			for _, t := range ecsTasks.List() {
 				if t.ClusterArn == cluster.ClusterArn && t.LastStatus == ECSTaskStatusRunning {
@@ -93,8 +91,7 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			cluster.ActiveServicesCount = activeServices
-			// settings / configuration only surface when explicitly included,
-			// matching real DescribeClusters.
+			// Shown only when explicitly included.
 			if !includeSettings {
 				cluster.Settings = nil
 			}
@@ -116,10 +113,8 @@ func handleECSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleECSUpdateCluster updates a cluster's settings / configuration /
-// serviceConnectDefaults in place. Without it, any change to
-// aws_ecs_cluster.{setting,configuration,service_connect_defaults} forced
-// recreation.
+// In place, so changing aws_ecs_cluster settings or configuration does not
+// recreate the cluster.
 func handleECSUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster                string          `json:"cluster"`
@@ -150,8 +145,7 @@ func handleECSUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"cluster": cluster})
 }
 
-// handleECSUpdateClusterSettings updates only the cluster settings
-// (containerInsights). The provider uses it for aws_ecs_cluster.setting changes.
+// The provider's path for aws_ecs_cluster.setting changes.
 func handleECSUpdateClusterSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster  string          `json:"cluster"`

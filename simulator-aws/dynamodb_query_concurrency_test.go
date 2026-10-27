@@ -18,44 +18,27 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// A Query reads the item store under one lock, and copies only what it
-// returns. Reading it item by item — taking the process-wide item mutex,
-// fetching one item, and deep copying that item through JSON before deciding
-// it does not match the key condition — made concurrent queries interleave on
-// that mutex rather than queue behind each other, and made every query pay for
-// copying items it would discard. On a real workload that showed up as
-// forty-four concurrent queries each over a minute old with the in-flight
-// count climbing rather than draining.
-//
-// These tests hold the query path to both properties: the work is proportional
-// to what a query returns rather than to what it examines, and concurrent
-// queries stay proportional to their number rather than to their product.
+// A Query reads the item store under one lock and copies only what it returns,
+// so its work scales with its result rather than with what it examines, and
+// concurrent queries scale with their number rather than their product.
 
-// ddbQueryConcurrencyStores gives one test its own item store, table store and
-// key index, backed by a real database because that is what the simulator runs
-// on: `ddbItems` is made against the server's own handle, so every per-item
-// read in a query is a database read. A memory-backed store makes those reads
-// nearly free and hides the cost this is about — measured, the same tests
-// against a memory store show no difference between reading per item and
-// reading once, and against a database store they show the difference plainly.
+// Back the stores with a real database, as the simulator runs: a memory store
+// makes per-item reads nearly free and hides the cost under test.
 func ddbQueryConcurrencyStores(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sim.OpenDB(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Let earlier background work finish before replacing its stores.
 	bg.Await()
 	ddbItems = sim.MakeStore[map[string]any](db, "ddb_items")
 	ddbItemNames = sim.MakeStore[string](db, "ddb_item_names")
 	ddbTables = sim.MakeStore[DDBTable](db, "ddb_tables")
 }
 
-// ddbCountingStore counts the per-item reads a query performs, which is the
-// cost the narrowing exists to remove and the only way to observe it: whether
-// a query reads one partition or the whole table changes nothing it answers,
-// only what it touches. Every other method delegates untouched.
+// Per-item reads are the only observable sign of what a query touches; every
+// other method delegates.
 type ddbCountingStore struct {
 	sim.Store[map[string]any]
 	reads atomic.Int64
@@ -66,8 +49,8 @@ func (s *ddbCountingStore) Get(id string) (map[string]any, bool) {
 	return s.Store.Get(id)
 }
 
-// ddbListingNames records every prefix listed from the key-name store, so a
-// test sees which key ranges a request enumerated before reading any item.
+// Records every listed prefix, so a test sees which key ranges a request
+// enumerated.
 type ddbListingNames struct {
 	sim.Store[string]
 	mu       sync.Mutex
@@ -81,9 +64,8 @@ func (s *ddbListingNames) ListPrefix(prefix string) []sim.Keyed[string] {
 	return s.Store.ListPrefix(prefix)
 }
 
-// ddbSeedQueryTable stores one table of items sharing a partition key, so a
-// query's key condition matches exactly one of them and the rest are
-// candidates it must examine and reject.
+// A query's key condition matches one item; the rest are candidates it must
+// examine and reject.
 func ddbSeedQueryTable(t *testing.T, table string, items int, partitions int) DDBTable {
 	t.Helper()
 	definition := DDBTable{
@@ -104,17 +86,14 @@ func ddbSeedQueryTable(t *testing.T, table string, items int, partitions int) DD
 		item := map[string]any{
 			"pk": map[string]any{"S": ddbSeedPartition(i, partitions)},
 			"sk": map[string]any{"S": sk},
-			// A payload with nesting, so a deep copy of an item costs
-			// something — copying every candidate is the behaviour under test.
+			// Nesting makes a deep copy cost something.
 			"payload": map[string]any{"M": map[string]any{
 				"body":  map[string]any{"S": fmt.Sprintf("body-%05d", i)},
 				"tags":  map[string]any{"L": []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}}},
 				"count": map[string]any{"N": fmt.Sprintf("%d", i)},
 			}},
 		}
-		// The store key comes from the simulator's own key function: a test
-		// that invents its own key format tests a table the simulator could
-		// never have written.
+		// Use the simulator's own key function so the table is one it could write.
 		key := ddbItemKey(definition, item)
 		ddbItems.Put(key, item)
 		ddbItemNames.Put(key, key)
@@ -122,9 +101,7 @@ func ddbSeedQueryTable(t *testing.T, table string, items int, partitions int) DD
 	return definition
 }
 
-// ddbSeedPartition spreads seeded items across partitions the way a real table
-// holds them — one tenant's rows among many tenants' — because a query reads
-// one partition and the cost being measured is whether it reads the others too.
+// Spread items across partitions, one tenant's rows among many.
 func ddbSeedPartition(i, partitions int) string {
 	if partitions <= 1 {
 		return "tenant"
@@ -147,10 +124,8 @@ func ddbQuery(t *testing.T, table, pk, sk string) *httptest.ResponseRecorder {
 	return recorder
 }
 
-// TestDDBQueryCopiesOnlyWhatItReturns is the cheap, deterministic half: a query
-// over a large table that matches one item must not deep copy the whole table.
-// The copies are counted through the store's own reads, which a per-item
-// snapshot performs once per candidate.
+// A query matching one item over a large table must not copy the whole table;
+// each per-item snapshot is one store read.
 func TestDDBQueryCopiesOnlyWhatItReturns(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table, items = "big", 2000
@@ -168,7 +143,7 @@ func TestDDBQueryCopiesOnlyWhatItReturns(t *testing.T) {
 	require.Len(t, out.Items, 1)
 	require.Equal(t, "sk-01000", out.Items[0]["sk"].(map[string]any)["S"])
 
-	// The returned item is a copy: mutating the stored item must not change it.
+	// The returned item is a copy.
 	storedKey := ddbItemKey(definition, map[string]any{
 		"pk": map[string]any{"S": "tenant"}, "sk": map[string]any{"S": "sk-01000"},
 	})
@@ -182,15 +157,9 @@ func TestDDBQueryCopiesOnlyWhatItReturns(t *testing.T) {
 		"a query result that aliases stored state lets a later write rewrite an answered response")
 }
 
-// TestDDBConcurrentQueriesDoNotInterleavePerItem is the property the report is
-// about. Forty concurrent queries over a table large enough that reading it
-// whole hurts must cost their number, not their number times the table.
-//
-// The cost is counted rather than timed, so the machine's load cannot move the
-// verdict: each query takes the table's item lock once, however many items it
-// examines, and reads only the items of the partition it addresses. Locking per
-// item is what let concurrent queries interleave, and reading the table is
-// what made each of them pay for it.
+// Forty concurrent queries over a large table must each take the table's
+// item lock once and read only their partition. Counting rather than timing
+// keeps the machine's load out of the verdict.
 func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const (
@@ -216,9 +185,8 @@ func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 				index := (q*each + i) % items
 				sk := fmt.Sprintf("sk-%05d", index)
 				recorder := ddbQuery(t, table, ddbSeedPartition(index, partitions), sk)
-				// Each query's answer is checked, not just its status: a query
-				// path that answered every request with an empty body would
-				// cost nothing for the wrong reason and this test would applaud it.
+				// Check the answer too: a path answering empty would cost nothing for the
+				// wrong reason.
 				if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), sk) {
 					failures.Add(1)
 					return
@@ -240,10 +208,7 @@ func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 	require.GreaterOrEqual(t, reads, int64(queries), "a query that read nothing answered from somewhere else")
 }
 
-// TestDDBQueryReadsOnlyTheAddressedPartition holds one query to the narrowing: a
-// query names one partition, so the keys it examines are that partition's and
-// no others. This is what makes a query cost the partition rather than the
-// table.
+// A query examines only the keys of the partition it names.
 func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table, items, partitions = "narrow", 600, 20
@@ -265,9 +230,8 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 		require.True(t, ddbKeyInPartition(key, prefix), "key %q is outside the addressed partition", key)
 	}
 
-	// The narrowing has to be wired into the query, not merely available to it:
-	// counting the store reads one query performs is what tells the two apart,
-	// and a helper asserted on its own would stay green with the call removed.
+	// Counting the query's store reads proves the narrowing is wired in, not just
+	// available.
 	counting := &ddbCountingStore{Store: ddbItems}
 	ddbItems = counting
 	t.Cleanup(func() { ddbItems = counting.Store })
@@ -278,8 +242,7 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, []string{prefix}, listing.prefixes,
 		"a query must enumerate only the key range of the partition it addresses, never the table's")
-	// Reading fewer items must not mean answering with fewer: the narrowed
-	// query returns the same item the whole-table scan returned.
+	// The narrowed query returns the same item as a whole-table scan.
 	var narrowedOut struct {
 		Count int              `json:"Count"`
 		Items []map[string]any `json:"Items"`
@@ -295,9 +258,8 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 			"not the partition it addresses", reads, items, partitions)
 	require.Positive(t, reads, "a query that read nothing answered from somewhere else")
 
-	// An aliased name and a reversed comparison resolve the same partition: the
-	// partition is read out of the compiled condition, not out of the request
-	// text, so #pk and :p = pk are the same query.
+	// The partition comes from the compiled condition, so an alias and a reversed
+	// comparison resolve the same.
 	aliased, err := ddbCompileExpr("KeyConditionExpression", ":p = #pk AND sk = :s",
 		map[string]string{"#pk": "pk"},
 		map[string]any{":p": map[string]any{"S": "tenant-007"}, ":s": map[string]any{"S": "sk-00007"}})
@@ -306,8 +268,8 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, prefix, aliasedPrefix)
 
-	// A condition that does not fix the partition yields no prefix, and the
-	// query falls back to the full candidate set rather than to a wrong one.
+	// A condition that does not fix the partition falls back to the full
+	// candidate set.
 	noEquality, err := ddbCompileExpr("KeyConditionExpression", "pk > :p", nil,
 		map[string]any{":p": map[string]any{"S": "tenant-007"}})
 	require.NoError(t, err)
@@ -320,15 +282,8 @@ func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 		"a prefix must not swallow a longer partition name")
 }
 
-// TestDDBReadsRunConcurrently is the property issue #43 is about: the item lock
-// guards the store across whole operations, which is what makes a
-// read-modify-write atomic, but reading is most of what it guards. Under an
-// exclusive lock every GetItem queued behind every other one, and single-item
-// reads that are O(1) by any measure took thirteen seconds on a busy service.
-//
-// Two readers meet inside the read lock: each takes it, announces itself, and
-// waits for the other before releasing. Only a lock that admits both at once
-// lets either leave, so an exclusive lock hangs the test on its own channels.
+// Reads share the item lock. Two readers meet inside it and wait for each
+// other, so an exclusive lock hangs the test.
 func TestDDBReadsRunConcurrently(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table = "reads"
@@ -352,8 +307,7 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 	}
 	wg.Wait()
 
-	// A writer still excludes everyone: the atomicity the lock exists for is
-	// not what was traded away.
+	// A writer still excludes everyone.
 	writerInside := atomic.Bool{}
 	var raced atomic.Bool
 	var writers sync.WaitGroup
@@ -375,14 +329,9 @@ func TestDDBReadsRunConcurrently(t *testing.T) {
 	require.False(t, raced.Load(), "two writers held the item lock at once")
 }
 
-// TestDDBUnrelatedTablesDoNotContend is the property striping exists for: a
-// write to one table must not exclude readers of another. Under a single lock
-// — even a read-write one — a writer holding it stops every reader of every
-// table, which is what made unrelated services queue behind each other.
-//
-// The test holds the busy table's stripe for writing and reads the quiet table
-// through TransactGetItems while it is held. A lock shared across tables
-// blocks that read until the release the test defers, which never comes.
+// A write to one table must not exclude readers of another. Holding the busy
+// table's stripe while reading the quiet one blocks forever under a shared
+// lock.
 func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	ddbSeedQueryTable(t, "busy", 2, 1)
@@ -405,12 +354,9 @@ func TestDDBUnrelatedTablesDoNotContend(t *testing.T) {
 	}
 }
 
-// TestDDBCrossTableOperationsCannotDeadlock covers what striping costs: an
-// operation spanning several tables takes several locks, and two of them
-// naming the same tables in opposite orders would deadlock if the order were
-// the caller's. ddbItemLocks.Lock sorts, so every operation finishes; a
-// deadlock leaves wg.Wait blocked and the test binary's own timeout reports
-// the goroutines holding the stripes.
+// ddbItemLocks.Lock sorts the stripes, so operations naming tables in opposite
+// orders cannot deadlock; a deadlock would block wg.Wait until the test
+// binary's timeout.
 func TestDDBCrossTableOperationsCannotDeadlock(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 

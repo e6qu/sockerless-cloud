@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestIAMCLI_UpdateUserAndGroup renames a user and a group through the aws CLI,
-// asserting the ARN re-keys to the new name/path.
+// TestIAMCLI_UpdateUserAndGroup expects the ARN to follow the new name and
+// path.
 func TestIAMCLI_UpdateUserAndGroup(t *testing.T) {
 	t.Parallel()
 	user := "uc-cli-user"
@@ -44,8 +44,6 @@ func TestIAMCLI_UpdateUserAndGroup(t *testing.T) {
 	}
 }
 
-// TestIAMCLI_LoginProfile drives the console-password profile lifecycle through
-// the aws CLI.
 func TestIAMCLI_LoginProfile(t *testing.T) {
 	t.Parallel()
 	user := "uc-cli-login-user"
@@ -76,8 +74,6 @@ func TestIAMCLI_LoginProfile(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-login-profile", "--user-name", user))
 }
 
-// TestIAMCLI_AccessKeyLastUsed updates a key's status and reads its last-used
-// metadata through the aws CLI.
 func TestIAMCLI_AccessKeyLastUsed(t *testing.T) {
 	t.Parallel()
 	user := "uc-cli-key-user"
@@ -106,7 +102,6 @@ func TestIAMCLI_AccessKeyLastUsed(t *testing.T) {
 	}
 }
 
-// TestIAMCLI_UserTags exercises tag-user / list-user-tags / untag-user.
 func TestIAMCLI_UserTags(t *testing.T) {
 	t.Parallel()
 	user := "uc-cli-tag-user"
@@ -131,8 +126,6 @@ func TestIAMCLI_UserTags(t *testing.T) {
 	}
 }
 
-// TestIAMCLI_AccountPasswordPolicy exercises the account password-policy
-// singleton through the aws CLI.
 func TestIAMCLI_AccountPasswordPolicy(t *testing.T) {
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-account-password-policy")) })
 

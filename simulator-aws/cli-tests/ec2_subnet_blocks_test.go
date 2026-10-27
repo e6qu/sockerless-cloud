@@ -5,12 +5,11 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_SubnetBlocksAndZones drives through the AWS CLI what a subnet's
-// blocks and zone are held to: a VPC created with
-// --amazon-provided-ipv6-cidr-block lists its /56 in describe-vpcs, a subnet's
-// IPv4 block is within the VPC's blocks and overlaps no other subnet, its IPv6
-// block is a /64 of the VPC's, and describe-availability-zones answers by
-// zone name and filter.
+// TestEC2CLI_SubnetBlocksAndZones holds subnets to their blocks and zones: a
+// VPC created with --amazon-provided-ipv6-cidr-block lists its /56, a subnet's
+// IPv4 block lies within the VPC's and overlaps no other subnet, its IPv6
+// block is a /64 of the VPC's, and describe-availability-zones answers by zone
+// name and filter.
 func TestEC2CLI_SubnetBlocksAndZones(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }

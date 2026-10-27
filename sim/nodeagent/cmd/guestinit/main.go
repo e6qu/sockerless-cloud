@@ -150,8 +150,8 @@ func mountShares(mounts []shareMount, root, address string) error {
 		}
 		target := filepath.Join(root, m.Path)
 		if m.File != "" {
-			// A share of one file is mounted out of the way, and that
-			// file bound over the path, as a bind of one file is.
+			// Mount a share of one file out of the way and bind that file
+			// over the path, as a bind of one file does.
 			target = filepath.Join(root, sharesRoot, strconv.Itoa(i))
 		}
 		if err := os.MkdirAll(target, 0o755); err != nil {

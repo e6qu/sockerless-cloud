@@ -171,8 +171,7 @@ func registerComputeInstanceGroups(srv *sim.Server) {
 		}
 		var conflict bool
 		if !groups.Update(selfLink, func(group *storedComputeInstanceGroup) {
-			// setNamedPorts honors the fingerprint for optimistic concurrency
-			// (a stale read-modify-write must 412).
+			// setNamedPorts holds the fingerprint, so a stale read-modify-write is 412.
 			if !fingerprintMatches(group.Fingerprint, req.Fingerprint) {
 				conflict = true
 				return

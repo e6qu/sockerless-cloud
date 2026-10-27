@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// TestIAMCLI_RoleBoundaryAndDescription drives the role permissions-boundary
-// and description ops via the aws CLI: put/delete-role-permissions-boundary
-// and update-role-description (the aws_iam_role.permissions_boundary path).
+// TestIAMCLI_RoleBoundaryAndDescription covers the
+// aws_iam_role.permissions_boundary path.
 func TestIAMCLI_RoleBoundaryAndDescription(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role",
@@ -43,9 +42,6 @@ func TestIAMCLI_RoleBoundaryAndDescription(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-role-permissions-boundary", "--role-name", "cli-rpb-role"))
 }
 
-// TestIAMCLI_PolicyVersionsAndTags drives the managed-policy version and tag
-// ops via the aws CLI: create-policy-version (--set-as-default),
-// set-default-policy-version, delete-policy-version, tag-policy, untag-policy.
 func TestIAMCLI_PolicyVersionsAndTags(t *testing.T) {
 	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy",
@@ -86,8 +82,7 @@ func TestIAMCLI_PolicyVersionsAndTags(t *testing.T) {
 		"--policy-arn", arn, "--tag-keys", "owner"))
 }
 
-// TestIAMCLI_InstanceProfileTags drives tag/untag/list-instance-profile-tags
-// via the aws CLI (the aws_iam_instance_profile.tags path).
+// TestIAMCLI_InstanceProfileTags covers the aws_iam_instance_profile.tags path.
 func TestIAMCLI_InstanceProfileTags(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-instance-profile",
@@ -119,9 +114,6 @@ func TestIAMCLI_InstanceProfileTags(t *testing.T) {
 	}
 }
 
-// TestIAMCLI_EntitiesAndContextKeys drives list-entities-for-policy,
-// list-policies-granting-service-access, get-context-keys-for-custom-policy,
-// and get-context-keys-for-principal-policy via the aws CLI.
 func TestIAMCLI_EntitiesAndContextKeys(t *testing.T) {
 	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy",

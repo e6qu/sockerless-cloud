@@ -2,10 +2,8 @@ package main
 
 import "testing"
 
-// TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions proves both functions
-// against the running Azure Functions host: keys this package generates and
-// protects open the host's functions, and keys the host writes read back
-// through ARM.
+// The SDK suite's TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions proves
+// these formats against the running Functions host.
 
 func TestFunctionsKeysAreIdentifiableSecrets(t *testing.T) {
 	for _, seed := range []uint64{functionsMasterKeySeed, functionsSystemKeySeed, functionsFunctionKeySeed} {

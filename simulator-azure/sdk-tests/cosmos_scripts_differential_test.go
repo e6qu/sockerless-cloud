@@ -18,28 +18,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
-// Differential testing of the Cosmos server-side-programming and change-feed
-// slices against Microsoft's own Cosmos DB emulator. The azcosmos SDK has no
-// client methods for sprocs / change feed, so — like the SDK tests — these drive
-// the REST data plane directly, but here the SAME raw-REST code runs against the
-// sim AND the emulator (differing only in the endpoint), and the observable
-// outcome must match. The emulator validates the master-key signature, so these
-// requests are signed with the real Cosmos shared-key algorithm (the sim ignores
-// the signature, so the identical client code reaches both).
-//
-// As elsewhere, the emulator is a REFERENCE, not a ceiling: a case where the sim
-// is intentionally more faithful is recorded in cosmosScriptDiffKnownDivergences
-// and asserted exactly — the sim is never regressed to match the oracle.
+// Differential tests of server-side programming and the change feed against
+// Microsoft's Azure Cosmos DB emulator. azcosmos has no client methods for
+// them, so the same raw REST code, signed with the master-key algorithm the
+// emulator validates, runs against both, differing only in the endpoint and
+// key. The emulator is a reference, not a ceiling: a case where the simulator
+// is deliberately more faithful goes in cosmosScriptDiffKnownDivergences.
 
-// The vNext Cosmos emulator does NOT support server-side script execution — it
-// returns `400 BadRequest "Server-side script execution is not supported in this
-// emulator"` for any sproc execution, regardless of whether the sproc exists.
-// The sim implements a faithful execution subset (createDocument / count / bulk
-// delete) and the real-Cosmos error shapes (404 for a missing sproc), so it is
-// intentionally MORE faithful than the emulator on these. These cases are
-// recorded as documented divergences and asserted exactly — the sim is never
-// regressed to the emulator's "unsupported" behaviour. Sproc CRUD (which the
-// emulator DOES support) agrees and is asserted directly.
+// The vNext emulator answers any stored procedure execution with 400 "Server-side
+// script execution is not supported in this emulator", existing procedure or
+// not. The simulator executes a subset (createDocument, count, bulk delete)
+// with Azure's error shapes (404 for a missing procedure), so those cases are
+// divergences asserted exactly. Procedure CRUD agrees and is asserted directly.
 var cosmosScriptDiffKnownDivergences = map[string]cosmosDiffDivergence{
 	"sproc-create-and-execute": {
 		sim:    cosmosDiffResult{value: `[["pk","p"],["readStatus",200],["v","7"]]`},
@@ -81,25 +71,16 @@ type cosmosScriptDiffScenario struct {
 	run  func(t *testing.T, endpoint cosmosCoordinate, dbID string) (map[string]any, error)
 }
 
-// ── Cosmos shared-key signing (the real algorithm; the emulator validates it) ──
-
-// cosmosSign builds the Authorization header for a Cosmos REST request per
-// https://learn.microsoft.com/rest/api/cosmos-db/access-control-on-cosmosdb-resources
-// resourceType is the child resource type ("sprocs"/"docs"/"colls"/"dbs"),
-// resourceLink is the resource (point op) or parent (feed/create) link with no
-// leading slash, xmsDate is the RFC1123-GMT date echoed in the x-ms-date header.
-// cosmosCoordinate is everything that differs between the simulator and the
-// emulator for these raw-REST scenarios: the endpoint the request is sent to
-// and the account key that signs it. The scenario code below is otherwise
-// identical for both.
+// cosmosCoordinate is all that differs between the simulator and the emulator
+// for these scenarios: the endpoint and the account key that signs requests.
 type cosmosCoordinate struct {
 	url string
 	key string
 }
 
-// cosmosSimCoordinate addresses the simulator the way a client does: the
-// document endpoint Azure Resource Manager advertises for the account, signed
-// with the key listKeys serves for it.
+// cosmosSimCoordinate addresses the simulator as a client does: the
+// documentEndpoint Azure Resource Manager advertises, signed with the key
+// listKeys serves.
 func cosmosSimCoordinate(t *testing.T, account string) cosmosCoordinate {
 	t.Helper()
 	return cosmosCoordinate{
@@ -108,6 +89,11 @@ func cosmosSimCoordinate(t *testing.T, account string) cosmosCoordinate {
 	}
 }
 
+// cosmosSign builds the master-key Authorization header
+// (https://learn.microsoft.com/rest/api/cosmos-db/access-control-on-cosmosdb-resources).
+// resourceLink is the resource for a point operation or the parent for a feed
+// or create, with no leading slash; xmsDate is the RFC 1123 date sent in
+// x-ms-date.
 func cosmosSign(accountKey, method, resourceType, resourceLink, xmsDate string) string {
 	key, _ := base64.StdEncoding.DecodeString(accountKey)
 	stringToSign := strings.ToLower(method) + "\n" +
@@ -120,8 +106,7 @@ func cosmosSign(accountKey, method, resourceType, resourceLink, xmsDate string) 
 	return urlQueryEscape("type=master&ver=1.0&sig=" + sig)
 }
 
-// urlQueryEscape escapes the auth token the way the SDK does (net/url
-// QueryEscape), without importing net/url at call sites.
+// urlQueryEscape escapes the auth token as the SDK does (net/url QueryEscape).
 func urlQueryEscape(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -139,8 +124,8 @@ func urlQueryEscape(s string) string {
 	return b.String()
 }
 
-// cosmosRESTReq issues a signed Cosmos REST request against endpoint and returns
-// the decoded body (for a JSON object response), the raw body, and the status.
+// cosmosRESTReq issues a signed request and returns the decoded JSON object
+// body, the raw body, and the status.
 func cosmosRESTReq(t *testing.T, endpoint cosmosCoordinate, method, path, resourceType, resourceLink, body string, extra map[string]string) (map[string]any, int) {
 	t.Helper()
 	xmsDate := time.Now().UTC().Format(http.TimeFormat)
@@ -189,10 +174,8 @@ func cosmosRESTReq(t *testing.T, endpoint cosmosCoordinate, method, path, resour
 	return out, resp.StatusCode
 }
 
-// cosmosTransientErr reports whether err is a transient transport error against
-// the Cosmos emulator that is worth retrying. It intentionally does NOT match
-// HTTP-level errors (4xx/5xx responses are returned, not errors) or permanent
-// failures like connection refused.
+// cosmosTransientErr matches transient transport errors against the emulator,
+// not HTTP-level errors or a refused connection.
 func cosmosTransientErr(err error) bool {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
@@ -204,8 +187,8 @@ func cosmosTransientErr(err error) bool {
 	return false
 }
 
-// cosmosDiffMakeContainer creates a database + a /pk-partitioned container over
-// REST against endpoint (idempotent across the two endpoints' runs).
+// cosmosDiffMakeContainer creates a database and a /pk-partitioned container,
+// idempotently across the two endpoints' runs.
 func cosmosDiffMakeContainer(t *testing.T, endpoint cosmosCoordinate, dbID, coll string) {
 	t.Helper()
 	cosmosRESTReq(t, endpoint, "POST", "/dbs", "dbs", "",
@@ -224,9 +207,8 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 
 			sproc := `{"id":"sp","body":"function(){ var c = getContext().getCollection(); }"}`
 			created, cst := cosmosRESTReq(t, endpoint, "POST", base+"/sprocs", "sprocs", collLink, sproc, nil)
-			// Get it back.
 			_, gst := cosmosRESTReq(t, endpoint, "GET", base+"/sprocs/sp", "sprocs", collLink+"/sprocs/sp", "", nil)
-			// Delete it; a subsequent get is 404 on both.
+			// A get after the delete is 404 on both.
 			_, dst := cosmosRESTReq(t, endpoint, "DELETE", base+"/sprocs/sp", "sprocs", collLink+"/sprocs/sp", "", nil)
 			_, g2 := cosmosRESTReq(t, endpoint, "GET", base+"/sprocs/sp", "sprocs", collLink+"/sprocs/sp", "", nil)
 			return map[string]any{
@@ -243,13 +225,12 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 			collLink := "dbs/" + dbID + "/colls/" + coll
 			base := "/" + collLink
 
-			// Create a createDocument sproc.
 			sproc := `{"id":"createItem","body":"function(doc){ var c = getContext().getCollection(); c.createDocument(c.getSelfLink(), doc, function(err, created){ getContext().getResponse().setBody(created); }); }"}`
 			if _, st := cosmosRESTReq(t, endpoint, "POST", base+"/sprocs", "sprocs", collLink, sproc, nil); st != http.StatusCreated {
 				return map[string]any{"createStatus": st}, nil
 			}
 
-			// Execute it; the document must really be created.
+			// Executing it creates the document.
 			pk := map[string]string{"x-ms-documentdb-partitionkey": `["p"]`}
 			_, st := cosmosRESTReq(t, endpoint, "POST", base+"/sprocs/createItem", "sprocs",
 				collLink+"/sprocs/createItem", `[{"id":"made","pk":"p","v":7}]`, pk)
@@ -257,7 +238,6 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 				return map[string]any{"execStatus": st}, nil
 			}
 
-			// Read the created doc back and report its user fields.
 			got, rst := cosmosRESTReq(t, endpoint, "GET", base+"/docs/made", "docs",
 				collLink+"/docs/made", "", pk)
 			return map[string]any{
@@ -287,12 +267,12 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 					fmt.Sprintf(`{"id":%q,"pk":"p"}`, id), pk)
 			}
 
-			// Fresh change feed: every doc.
+			// A fresh change feed returns every document.
 			feed := map[string]string{"A-IM": "Incremental feed"}
 			out, _, cont := cosmosChangeFeedRead(t, endpoint, base, collLink, feed, "")
 			firstIDs := changeFeedIDs(out)
 
-			// A new document → only it comes back from the continuation.
+			// From the continuation, only a new document comes back.
 			cosmosRESTReq(t, endpoint, "POST", base+"/docs", "docs", collLink,
 				`{"id":"c","pk":"p"}`, pk)
 			out2, _, _ := cosmosChangeFeedRead(t, endpoint, base, collLink, feed, cont)
@@ -311,9 +291,9 @@ func cosmosScriptDiffScenarios() []cosmosScriptDiffScenario {
 	}
 }
 
-// cosmosChangeFeedRead issues a signed change-feed read (optionally with a
-// continuation in If-None-Match) and returns the decoded body, the status, and
-// the response etag (the advanced continuation). A 304 yields a nil body.
+// cosmosChangeFeedRead issues a signed change-feed read, the continuation in
+// If-None-Match, and returns the body, the status, and the response etag. A
+// 304 yields a nil body.
 func cosmosChangeFeedRead(t *testing.T, endpoint cosmosCoordinate, base, collLink string, feed map[string]string, continuation string) (map[string]any, int, string) {
 	t.Helper()
 	xmsDate := time.Now().UTC().Format(http.TimeFormat)
@@ -344,8 +324,7 @@ func cosmosChangeFeedRead(t *testing.T, endpoint cosmosCoordinate, base, collLin
 	return out, resp.StatusCode, etag
 }
 
-// changeFeedIDs extracts the document ids from a change-feed Documents response,
-// sorted for a stable comparison.
+// changeFeedIDs returns a change-feed response's document IDs, sorted.
 func changeFeedIDs(out map[string]any) []any {
 	docs, _ := out["Documents"].([]any)
 	var ids []any

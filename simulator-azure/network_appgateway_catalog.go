@@ -6,17 +6,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The subscription-scoped application gateway catalogs. These operations
-// describe the gateway product rather than any one deployment: the server
-// variables and headers a rewrite rule set may name, and the TLS options a
-// gateway's SSL policy may be built from. The values are Microsoft.Network's
-// own published catalog for the api-version this simulator serves — the same
-// answer every subscription gets — and the two TLS lists are exactly the closed
-// enumerations the specification declares, so a client that validates a policy
-// against them validates it against the specification.
+// The subscription-scoped catalogs describe the product, not a deployment: the
+// server variables and headers a rewrite rule set may name, and the TLS options
+// an SSL policy may use. They are Microsoft.Network's published values for the
+// served api-version, and the two TLS lists are the specification's closed
+// enumerations.
 
-// applicationGatewayServerVariableNames are the server variables an application
-// gateway exposes to a rewrite rule's conditions and actions.
 var applicationGatewayServerVariableNames = []string{
 	"add_x_forwarded_for_proxy",
 	"ciphers_supported",
@@ -47,8 +42,6 @@ var applicationGatewayServerVariableNames = []string{
 	"uri_path",
 }
 
-// applicationGatewayRequestHeaderNames are the request headers a rewrite rule
-// set may act on.
 var applicationGatewayRequestHeaderNames = []string{
 	"Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language", "Accept-Datetime",
 	"Access-Control-Request-Method", "Access-Control-Request-Headers", "Age", "Authorization",
@@ -62,8 +55,6 @@ var applicationGatewayRequestHeaderNames = []string{
 	"X-WAWS-Unencoded-URL",
 }
 
-// applicationGatewayResponseHeaderNames are the response headers a rewrite rule
-// set may act on.
 var applicationGatewayResponseHeaderNames = []string{
 	"Access-Control-Allow-Origin", "Accept-Ranges", "Age", "Allow", "Cache-Control",
 	"Connection", "Content-Disposition", "Content-Encoding", "Content-Language",
@@ -74,12 +65,10 @@ var applicationGatewayResponseHeaderNames = []string{
 	"Warning", "WWW-Authenticate", "X-AspNet-Version", "X-Powered-By",
 }
 
-// applicationGatewaySslProtocols is the ProtocolsEnum of the specification, in
-// the order the specification declares it.
+// The specification's ProtocolsEnum, in declared order.
 var applicationGatewaySslProtocols = []string{"TLSv1_0", "TLSv1_1", "TLSv1_2", "TLSv1_3"}
 
-// applicationGatewaySslCipherSuites is the CipherSuitesEnum of the
-// specification, in the order the specification declares it.
+// The specification's CipherSuitesEnum, in declared order.
 var applicationGatewaySslCipherSuites = []string{
 	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
 	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
@@ -97,16 +86,13 @@ var applicationGatewaySslCipherSuites = []string{
 	"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
 }
 
-// applicationGatewaySslPredefinedPolicy is one predefined TLS policy of the
-// catalog.
 type applicationGatewaySslPredefinedPolicy struct {
 	name               string
 	minProtocolVersion string
 	cipherSuites       []string
 }
 
-// applicationGatewaySslPredefinedPolicies is Microsoft.Network's predefined TLS
-// policy catalog, in the order the specification's PolicyNameEnum declares it.
+// In the order the specification's PolicyNameEnum declares.
 var applicationGatewaySslPredefinedPolicies = []applicationGatewaySslPredefinedPolicy{
 	{
 		name:               "AppGwSslPolicy20150501",
@@ -157,8 +143,8 @@ var applicationGatewaySslPredefinedPolicies = []applicationGatewaySslPredefinedP
 	},
 }
 
-// applicationGatewaySslPolicy2017Suites is the cipher suite list the two 2017
-// predefined policies share; they differ only in the minimum protocol version.
+// The two 2017 policies share these suites and differ only in minimum
+// protocol.
 var applicationGatewaySslPolicy2017Suites = []string{
 	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
 	"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
@@ -171,8 +157,6 @@ var applicationGatewaySslPolicy2017Suites = []string{
 	"TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
 }
 
-// applicationGatewaySslOptionsDefaultPolicy is the predefined policy an
-// application gateway applies when its SSL policy names none.
 const applicationGatewaySslOptionsDefaultPolicy = "AppGwSslPolicy20150501"
 
 func registerApplicationGatewayCatalogs(srv *sim.Server) {

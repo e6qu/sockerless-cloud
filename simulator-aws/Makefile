@@ -35,7 +35,6 @@ REPO_ROOT_REL  := ..
 
 include $(REPO_ROOT_REL)/make/go-app.mk
 
-# ── Domain-specific test targets ────────────────────────────────────
 # Each sub-tree (sdk-tests, cli-tests, terraform-tests) is a
 # separate Go module; the CI calls these directly.
 
@@ -50,15 +49,10 @@ unit-test: ## go test the simulator module's own package-internal tests (fast; A
 	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
 # The same tests under the race detector. Separate from unit-test because the
-# detector needs cgo, which unit-test deliberately does not have.
-#
-# The first race-detector run of this package reported 144 races. Every one was
-# asynchronous simulator work — reconciliations, builds, deployments,
-# certificate validation — running in goroutines and timers nothing tracked, so
-# work still in flight when a test ended read package-level stores the next test
-# was replacing. background_work.go counts all of it now, and this target is
-# what keeps the count at zero: a suite whose races are only measured by hand is
-# a suite whose races come back.
+# detector needs cgo, which unit-test deliberately does not have. Asynchronous
+# simulator work nothing tracked would outlive the test that started it and
+# read the package-level stores the next test replaces; sim/bg counts that
+# work, and this target keeps the race count at zero.
 RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
@@ -86,7 +80,6 @@ terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 .PHONY: test-all
 test-all: unit-test sdk-test cli-test terraform-test ## run every test category
 
-# ── Docker targets ──────────────────────────────────────────────────
 .PHONY: docker-build docker-run docker-test docker-test-build
 
 IMAGE := sockerless-simulator-aws
@@ -98,12 +91,12 @@ DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS
 # One directory that is the same path on both sides of the harness.
 #
 # The simulator hands the container engine host paths — an Amazon EFS access
-# point a task mounts, an AWS CodeBuild source tree — and the engine resolves a mount source on the host it runs on, not inside the
-# client container. Without a directory mounted into the container at its own
-# host path and made the simulator's temporary directory, every workload
-# bind-mounts an empty directory the engine created for itself and reads none of
-# the files it was given. Two Azure tests failed exactly that way until that
-# harness gained one.
+# point a task mounts, an AWS CodeBuild source tree — and the engine resolves a
+# mount source on the host it runs on, not inside the client container. Without
+# a directory mounted into the container at its own host path and made the
+# simulator's temporary directory, every workload bind-mounts an empty
+# directory the engine created for itself and reads none of the files it was
+# given.
 #
 # It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
 # host is commonly memory-backed, which a build tree or a volume seed would fill.

@@ -71,7 +71,6 @@ func TestBatch_JobQueue_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
 
-	// Need a compute environment first
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
 		ComputeEnvironmentName: aws.String("batch-sdk-ce-for-q"),
 		Type:                   batchtypes.CETypeManaged,
@@ -159,9 +158,9 @@ func TestBatch_JobDefinition_SDK(t *testing.T) {
 	assert.EqualValues(t, 1, aws.ToInt32(describe.JobDefinitions[0].Revision))
 }
 
-// TestBatch_DescribeJobDefinitions_FilterByList verifies the jobDefinitions[]
-// filter: DescribeJobDefinitions with an explicit list of name:revision / ARN
-// returns only those definitions, not every registered one.
+// TestBatch_DescribeJobDefinitions_FilterByList_SDK expects an explicit
+// jobDefinitions list of name:revision or ARN entries to return only those
+// definitions.
 func TestBatch_DescribeJobDefinitions_FilterByList_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
@@ -187,7 +186,6 @@ func TestBatch_DescribeJobDefinitions_FilterByList_SDK(t *testing.T) {
 	arnA := mk("batch-sdk-filter-a")
 	mk("batch-sdk-filter-b")
 
-	// Filter to only definition A by ARN — B must not appear.
 	out, err := c.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{
 		JobDefinitions: []string{arnA},
 	})
@@ -195,7 +193,6 @@ func TestBatch_DescribeJobDefinitions_FilterByList_SDK(t *testing.T) {
 	require.Len(t, out.JobDefinitions, 1)
 	assert.Equal(t, "batch-sdk-filter-a", aws.ToString(out.JobDefinitions[0].JobDefinitionName))
 
-	// Filter by name:revision form.
 	out2, err := c.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{
 		JobDefinitions: []string{"batch-sdk-filter-b:1"},
 	})
@@ -208,7 +205,6 @@ func TestBatch_JobSubmitDescribe_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
 
-	// Setup compute environment and queue
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
 		ComputeEnvironmentName: aws.String("batch-sdk-ce-job"),
 		Type:                   batchtypes.CETypeManaged,
@@ -340,7 +336,6 @@ func TestBatch_SchedulingPolicy_SDK(t *testing.T) {
 	require.NotNil(t, describe.SchedulingPolicies[0].FairsharePolicy)
 	assert.EqualValues(t, 7200, aws.ToInt32(describe.SchedulingPolicies[0].FairsharePolicy.ShareDecaySeconds))
 
-	// Resource-level tags on the scheduling policy ARN.
 	_, err = c.TagResource(ctx, &batch.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        map[string]string{"team": "platform"},
@@ -665,13 +660,11 @@ func TestBatch_JobQueueSnapshot_SDK(t *testing.T) {
 	assert.NotNil(t, snap.FrontOfQueue.Jobs)
 }
 
-// TestBatch_CancelJobs_SDK covers the bulk terminations AWS added alongside the
-// singular CancelJob: they take a list and answer with what they accepted and a
-// per-id error list. The unknown id matters most — a caller that asked to stop
-// two jobs and had one stopped has to be told which one it was, so an id that
-// names nothing belongs in errors rather than being dropped on the floor.
-// CancelJob cancels only a job that has not reached STARTING, so the queue's
-// only compute environment is DISABLED and holds the job RUNNABLE.
+// TestBatch_CancelJobs_SDK covers the bulk cancellations beside CancelJob:
+// they answer with what they accepted and a per-id error list, so an id that
+// names nothing lands in errors rather than vanishing. CancelJob cancels only a
+// job before STARTING, so the queue's only compute environment is DISABLED to
+// hold the job RUNNABLE.
 func TestBatch_CancelJobs_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()

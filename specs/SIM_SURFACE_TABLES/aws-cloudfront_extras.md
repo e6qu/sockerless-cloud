@@ -17,21 +17,21 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /2020-05-31/origin-access-identity/cloudfront` | ✓ `simulator-aws/cloudfront_extras.go:154::handleCFCreateOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-identity/cloudfront` | ✓ `simulator-aws/cloudfront_extras.go:155::handleCFListOAIs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-identity/cloudfront/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:156::handleCFGetOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-identity/cloudfront/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:157::handleCFGetOAIConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2020-05-31/origin-access-identity/cloudfront/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:158::handleCFUpdateOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2020-05-31/origin-access-identity/cloudfront/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:159::handleCFDeleteOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2020-05-31/continuous-deployment-policy` | ✓ `simulator-aws/cloudfront_extras.go:162::handleCFCreateCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/continuous-deployment-policy` | ✓ `simulator-aws/cloudfront_extras.go:163::handleCFListCDPs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:164::handleCFGetCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/continuous-deployment-policy/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:165::handleCFGetCDPConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:166::handleCFUpdateCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:167::handleCFDeleteCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:170::handleCFCreateMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:171::handleCFGetMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:172::handleCFDeleteMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/origin-access-identity/cloudfront` | ✓ `simulator-aws/cloudfront_extras.go:147::handleCFCreateOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-identity/cloudfront` | ✓ `simulator-aws/cloudfront_extras.go:148::handleCFListOAIs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-identity/cloudfront/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:149::handleCFGetOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-identity/cloudfront/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:150::handleCFGetOAIConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2020-05-31/origin-access-identity/cloudfront/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:151::handleCFUpdateOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2020-05-31/origin-access-identity/cloudfront/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:152::handleCFDeleteOAI` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/continuous-deployment-policy` | ✓ `simulator-aws/cloudfront_extras.go:154::handleCFCreateCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/continuous-deployment-policy` | ✓ `simulator-aws/cloudfront_extras.go:155::handleCFListCDPs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:156::handleCFGetCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/continuous-deployment-policy/{Id}/config` | ✓ `simulator-aws/cloudfront_extras.go:157::handleCFGetCDPConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:158::handleCFUpdateCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2020-05-31/continuous-deployment-policy/{Id}` | ✓ `simulator-aws/cloudfront_extras.go:159::handleCFDeleteCDP` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:161::handleCFCreateMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:162::handleCFGetMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2020-05-31/distributions/{DistributionId}/monitoring-subscription` | ✓ `simulator-aws/cloudfront_extras.go:163::handleCFDeleteMonitoringSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -7,11 +7,9 @@ import (
 	"time"
 )
 
-// TestPruneSurvivesABusyDatabase reproduces the failure that took a deployed
-// simulator down thirteen times in thirteen minutes: the retention sweeper met
-// SQLITE_BUSY against a database its own service was writing to, and the panic
-// it raised ended the process instead of the sweep. A sweep that cannot get the
-// write lock must leave the rows for the next one.
+// A retention sweep that meets SQLITE_BUSY against a database its own service
+// is writing to leaves the rows for the next sweep rather than panicking the
+// process.
 func TestPruneSurvivesABusyDatabase(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(dir)
@@ -46,8 +44,8 @@ func TestPruneSurvivesABusyDatabase(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		// A panic here fails the test by ending the process, which is the
-		// defect: the assertion is that Prune returns at all.
+		// A panic here ends the process and so fails the test: the assertion
+		// is that Prune returns at all.
 		done <- store.Prune(func(pruneRow) bool { return true })
 	}()
 

@@ -19,12 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A function URL is reached at the https URL GetFunctionUrlConfig reports. The
-// suite's transport resolves that host to the simulator, and the request goes
-// over plain HTTP, which is the one coordinate that differs.
+// A function URL is reached at the https URL GetFunctionUrlConfig reports; the
+// suite's transport resolves the host to the simulator and speaks plain HTTP,
+// the one coordinate that differs.
 
-// lambdaFunctionURLRequest builds a request to path under a function URL,
-// signed for the lambda service when akid is set.
 func lambdaFunctionURLRequest(t *testing.T, functionURL, method, path, body, akid, secret string) *http.Request {
 	t.Helper()
 	target := strings.Replace(strings.TrimSuffix(functionURL, "/"), "https://", "http://", 1) + path
@@ -69,11 +67,11 @@ func lambdaFunctionURLFunction(t *testing.T, authType lambdatypes.FunctionUrlAut
 }
 
 // TestLambda_FunctionURLIAMInvokeNeedsBothActions covers an AWS_IAM function
-// URL: the request is signed for the lambda service, authorized as both
+// URL: the request is signed for lambda, authorized as both
 // lambda:InvokeFunctionUrl and lambda:InvokeFunction, and handed to the
-// function as a payload format version 2.0 event whose response comes back as
-// the HTTP response. A grant scoped by lambda:InvokedViaFunctionUrl lets the
-// URL invoke the function and nothing else.
+// function as a payload format 2.0 event whose response becomes the HTTP
+// response. A grant scoped by lambda:InvokedViaFunctionUrl lets the URL invoke
+// the function and nothing else.
 func TestLambda_FunctionURLIAMInvokeNeedsBothActions(t *testing.T) {
 	t.Parallel()
 	functionArn, functionURL := lambdaFunctionURLFunction(t, lambdatypes.FunctionUrlAuthTypeAwsIam, nil)
@@ -135,10 +133,10 @@ func TestLambda_FunctionURLIAMInvokeNeedsBothActions(t *testing.T) {
 	assert.True(t, notAuthorized(err) || errCodeOf(err) == "AccessDeniedException", err.Error())
 }
 
-// TestLambda_FunctionURLNoneAuthFollowsTheResourcePolicy covers a NONE
-// function URL, which admits an unsigned caller exactly when the function's
-// resource-based policy allows anyone both actions, and its CORS preflight,
-// which the URL answers without invoking the function.
+// TestLambda_FunctionURLNoneAuthFollowsTheResourcePolicy covers a NONE function
+// URL, which admits an unsigned caller when the resource-based policy allows
+// anyone both actions, and its CORS preflight, which it answers without
+// invoking the function.
 func TestLambda_FunctionURLNoneAuthFollowsTheResourcePolicy(t *testing.T) {
 	t.Parallel()
 	functionArn, functionURL := lambdaFunctionURLFunction(t, lambdatypes.FunctionUrlAuthTypeNone, &lambdatypes.Cors{

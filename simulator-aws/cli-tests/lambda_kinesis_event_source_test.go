@@ -16,8 +16,8 @@ import (
 )
 
 // TestLambda_KinesisEventSourceMapping_CLI maps a function to a Kinesis data
-// stream with the aws CLI and sees the function receive the records put to it,
-// in order (with-kinesis.md.gz).
+// stream, and the function receives the records in order
+// (with-kinesis.md.gz).
 func TestLambda_KinesisEventSourceMapping_CLI(t *testing.T) {
 	t.Parallel()
 	const name = "cli-esm-kinesis"

@@ -27,10 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Behavioral gate: canonical-client tests that assert a stored configuration
-// actually produces the expected side effect. Endpoint-count and wire-shape
-// gates already exist; this file closes the behavioral/cross-service gap
-// described in BUG-2252.
+// These tests assert that a stored configuration produces its side effect,
+// across services.
 
 func route53Client() *route53.Client {
 	return route53.NewFromConfig(sdkConfig(), func(o *route53.Options) {
@@ -38,8 +36,6 @@ func route53Client() *route53.Client {
 	})
 }
 
-// TestBehavioralGate_CloudWatchAlarmSNSActionToSQS asserts that a metric alarm
-// transition dispatches its AlarmActions through SNS to an SQS subscriber.
 func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	t.Parallel()
 	queueName := uniquename.New("behavioral-queue")
@@ -114,8 +110,8 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 	assert.Equal(t, "Notification", env["Type"])
 }
 
-// TestBehavioralGate_SQS_DLQ_Redrive asserts that a message exceeding
-// maxReceiveCount is moved from the source queue to the dead-letter queue.
+// TestBehavioralGate_SQS_DLQ_Redrive expects a message past maxReceiveCount to
+// move to the dead-letter queue.
 func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
 	t.Parallel()
 	srcName := uniquename.New("bg-src")
@@ -170,8 +166,6 @@ func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
 	assert.Equal(t, "behavioral-poison", aws.ToString(dlqRecv.Messages[0].Body))
 }
 
-// TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount asserts that a
-// target-tracking policy on an ECS service actually changes DesiredCount.
 func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
@@ -230,9 +224,9 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// putCPU records a datapoint for each of the last three minutes, as the
-	// Amazon ECS agent reports one a minute, so the AlarmHigh alarm Application
-	// Auto Scaling created sees its three breaching periods.
+	// putCPU records a datapoint for each of the last three minutes, as the Amazon
+	// ECS agent reports one a minute, so the AlarmHigh alarm sees its three
+	// breaching periods.
 	putCPU := func(value float64) {
 		now := time.Now()
 		var data []cwtypes.MetricDatum
@@ -268,8 +262,8 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 	assert.LessOrEqual(t, desiredCount(), maxC)
 }
 
-// TestBehavioralGate_Route53DNS_ResolvesRecord asserts that a record set created
-// via ChangeResourceRecordSets is answerable by the sim's DNS server.
+// TestBehavioralGate_Route53DNS_ResolvesRecord expects the simulator's DNS
+// server to answer for a record set ChangeResourceRecordSets created.
 func TestBehavioralGate_Route53DNS_ResolvesRecord(t *testing.T) {
 	t.Parallel()
 	r53 := route53Client()
@@ -313,10 +307,9 @@ func TestBehavioralGate_Route53DNS_ResolvesRecord(t *testing.T) {
 	require.True(t, found, "record set must be visible via ListResourceRecordSets")
 }
 
-// TestBehavioralGate_ECSService_ConvergesRunningCount asserts that a service
-// created with DesiredCount > 0 reports runningCount == desiredCount — the
-// modeled control-plane steady state (reached synchronously, no background
-// scheduler launching containers).
+// TestBehavioralGate_ECSService_ConvergesRunningCount expects a service with
+// DesiredCount 2 to reach runningCount == desiredCount once the service
+// scheduler has started its tasks.
 func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
@@ -349,8 +342,6 @@ func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 	assert.EqualValues(t, 2, stable.Services[0].RunningCount, "service must report runningCount == desiredCount")
 }
 
-// TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric asserts that a
-// metric filter on a log group turns matching log events into a queryable metric.
 func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T) {
 	t.Parallel()
 	logsC := cwLogsClient()
@@ -419,9 +410,9 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 	}, 15*time.Second, 1*time.Second, "metric filter must publish Sum of 2 for two matching events")
 }
 
-// TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems asserts that the
-// service deletes an item once its TTL attribute has passed, and keeps an item
-// whose TTL is in the future and one whose TTL attribute is not a Number.
+// TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems expects DynamoDB to
+// delete an item once its TTL attribute has passed, and keep one whose TTL is
+// in the future and one whose TTL attribute is not a Number.
 func TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()

@@ -8,28 +8,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file is the third isolated tranche of Compute Engine (compute v1)
-// control-plane metadata CRUD, layered on top of compute.go /
-// compute_more.go / compute_more2.go without editing them. It reuses
-// the computeMetaResource machinery for standard
-// insert/get/list/delete/patch/aggregated verbs, registerComputeIAMTriplet
-// for the IAM-policy triplets, and adds bespoke handlers for the
-// association/rule/peering sub-resource verbs and the read-only router
-// route-policy / NAT / BGP surfaces. Every handler is metadata-only: it
-// stores the client-sent resource and returns the Operation / list /
-// policy shape the Discovery document defines — no real-exec networking.
-
-// registerComputeMore3 wires the third wave of metadata-only Compute
-// control-plane collections onto the shared mux.
 func registerComputeMore3(srv *sim.Server) {
 	mk := func(table string) sim.Store[map[string]any] {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
 	}
 
-	// Each entry reuses computeMetaResource.register for the standard
-	// insert/get/list/delete/patch/aggregated verbs; the sub-resource
-	// verbs (associations, rules, network endpoints, ...) are wired by
-	// the dedicated register functions below, sharing the same store.
+	// computeMetaResource.register serves the standard verbs; the sub-resource
+	// verbs (associations, rules, network endpoints) share the same stores through
+	// the register functions below.
 	fpGlobal := mk("compute_firewall_policies")
 	fpRegion := mk("compute_region_firewall_policies")
 	negGlobal := mk("compute_global_network_endpoint_groups")
@@ -41,24 +27,22 @@ func registerComputeMore3(srv *sim.Server) {
 	// mirroring policy's collectorIlb, so the resolver reads them.
 	gcpRegionForwardingRules = fwdRegion
 
-	// Commitments ride the shared CRUD helper directly (no custom verbs).
-	// The Discovery document does not expose a DELETE for commitments.
+	// The Discovery document declares no DELETE for commitments.
 	(computeMetaResource{
 		collection: "commitments", kind: "compute#commitment",
 		scope: cScopeRegion, store: mk("compute_commitments"), patch: true, aggregated: true,
 		skipDelete: true,
 	}).register(srv)
 
-	// Regional TargetTcpProxies CRUD (the global collection already lives
-	// in compute_more.go; the regional one is a distinct resource).
+	// The regional TargetTcpProxies are a distinct resource from the global ones
+	// in compute_more.go.
 	(computeMetaResource{
 		collection: "targetTcpProxies", kind: "compute#targetTcpProxy",
 		scope: cScopeRegion, store: tcpRegion, aggregated: true,
 	}).register(srv)
 
-	// Regional ForwardingRules CRUD + setTarget/setLabels (the global
-	// collection already lives in compute_loadbalancing.go, including the
-	// aggregatedList).
+	// The global forwarding rules and their aggregatedList live in
+	// compute_loadbalancing.go.
 	(computeMetaResource{
 		collection: "forwardingRules", kind: "compute#forwardingRule",
 		scope: cScopeRegion, store: fwdRegion, patch: true, setLabels: true,
@@ -98,46 +82,32 @@ func registerComputeMore3(srv *sim.Server) {
 	// Regional firewallPolicies also expose a getEffectiveFirewalls read.
 	registerComputeRegionEffectiveFirewalls(srv)
 
-	// Routers — the base CRUD lives in compute.go; this tranche adds the
-	// update (PUT), aggregatedList, and the route-policy / NAT-info /
-	// BGP-route metadata + read verbs.
+	// compute.go serves the base router CRUD; this adds update (PUT),
+	// aggregatedList and the route-policy, NAT-info and BGP-route verbs.
 	registerComputeRouterMore(srv)
 
-	// --- IAM triplets on resources the Discovery document exposes them on -
-	//
-	// registerComputeIAMTriplet stores the policy in its own
-	// compute_iam_policies-style table (keyed by resource self-link), so
-	// it never collides with the resource store. It needs only the scope
-	// and collection name — no resource-store handle. The Discovery
-	// document exposes the full getIamPolicy/setIamPolicy/testIamPermissions
-	// triplet on only some collections; others expose testIamPermissions
-	// alone (registered via registerComputeTestIamOnly below).
+	// registerComputeIAMTriplet keeps policies in their own table keyed by
+	// resource self link. The Discovery document declares the full triple on some
+	// collections and testIamPermissions alone on others.
 	iamStore := mk("compute_more3_iam_policies")
 	fullTriplets := []struct {
 		scope      computeScopeKind
 		collection string
 	}{
-		// Storage / image resources (full triplet).
 		{cScopeGlobal, "snapshots"},
 		{cScopeGlobal, "machineImages"},
 		{cScopeRegion, "disks"},
 		{cScopeZone, "disks"},
-		// Networking resources (full triplet).
 		{cScopeRegion, "subnetworks"},
-		// Load-balancing resources (full triplet).
 		{cScopeGlobal, "backendServices"},
 		{cScopeRegion, "backendServices"},
-		// Instance resources (full triplet).
 		{cScopeGlobal, "instanceTemplates"},
 	}
 	for _, f := range fullTriplets {
 		registerComputeIAMTriplet(srv, f.scope, f.collection, iamStore)
 	}
 
-	// Collections that expose only testIamPermissions (no
-	// getIamPolicy/setIamPolicy in the Discovery document). The handler
-	// echoes the requested-permission subset, exactly as the full triplet's
-	// testIamPermissions verb does.
+	// Collections whose Discovery document declares only testIamPermissions.
 	testOnly := []struct {
 		scope      computeScopeKind
 		collection string
@@ -261,11 +231,8 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, opType))
 		})
 	}
-	// patchAssociation updates an association the policy already carries, and
-	// ONLY regionNetworkFirewallPolicies declares it: neither organization
-	// spelling nor the project-global collection has the method, so mounting it
-	// from the shared association verbs invented two routes no document
-	// describes while still missing this one.
+	// Only regionNetworkFirewallPolicies declares patchAssociation; neither
+	// organization spelling nor the project-global collection has it.
 	if scope == cScopeRegion {
 		srv.HandleFunc("POST "+base+"/{name}/patchAssociation", func(w http.ResponseWriter, r *http.Request) {
 			key := relPath(r, sim.PathParam(r, "name"))
@@ -399,7 +366,6 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 		sim.WriteJSON(w, http.StatusOK, scopeOp(r, srcKey, "cloneRules"))
 	})
 
-	// IAM triplet for this scope.
 	registerComputeIAMTriplet(srv, scope, "firewallPolicies", sim.MakeStore[map[string]any](srv.DB(), "compute_fp_iam_"+fmt.Sprint(scope)))
 }
 
@@ -434,11 +400,9 @@ func registerComputeMultiScopeAggregated(srv *sim.Server, collection, kind strin
 	})
 }
 
-// registerComputeRegionEffectiveFirewalls wires the regional
-// firewallPolicies.getEffectiveFirewalls read, which returns the merged
-// effective firewall set for a network. The sim has no real firewall
-// engine, so the response carries the documented shape with an empty
-// effective set — faithful to a network with no policies attached.
+// registerComputeRegionEffectiveFirewalls serves the regional
+// firewallPolicies.getEffectiveFirewalls read with the documented shape and an
+// empty effective set, whatever policies the network has.
 func registerComputeRegionEffectiveFirewalls(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/firewallPolicies/getEffectiveFirewalls", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -569,20 +533,16 @@ func registerComputeForwardingRuleSetTarget(srv *sim.Server, scope computeScopeK
 	})
 }
 
-// registerComputeRouterMore wires the router verbs the base compute.go
-// registration does not cover: update (PUT), aggregatedList, and the
-// route-policy / NAT-info / BGP-route metadata + read verbs. The router
-// store is reopened by table name (compute_routers) — same DB table the
-// base registration writes, same ComputeRouter type, same package.
+// registerComputeRouterMore serves the router verbs compute.go does not:
+// update (PUT), aggregatedList, and the route-policy, NAT-info and BGP-route
+// verbs.
 func registerComputeRouterMore(srv *sim.Server) {
-	// The router store is owned by registerCompute; reuse the same instance so
-	// updates/aggregated lists see routers created by the base registration.
+	// Reuse registerCompute's router store, so these verbs see its routers.
 	routers := gcpRouters
 	if routers == nil {
 		routers = sim.MakeStore[ComputeRouter](srv.DB(), "compute_routers")
 	}
 
-	// PUT .../routers/{router} — full update (replace).
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/regions/{region}/routers/{router}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -598,10 +558,8 @@ func registerComputeRouterMore(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
-		// selfLink, id, region and the creation timestamp are output-only: an
-		// update replaces what the caller may write and carries the server's own
-		// members across unchanged, so a router keeps the identity every other
-		// collection addresses it by.
+		// selfLink, id, region and creationTimestamp are output-only: an update keeps
+		// the server's own members, so the router keeps its identity.
 		router.Name = name
 		router.Kind = "compute#router"
 		router.SelfLink = existing.SelfLink
@@ -614,7 +572,6 @@ func registerComputeRouterMore(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, computeSelfLink(key), "update"))
 	})
 
-	// aggregatedList
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/routers", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		prefix := fmt.Sprintf("projects/%s/regions/", project)
@@ -748,9 +705,8 @@ func registerComputeRouterMore(srv *sim.Server) {
 		})
 	})
 
-	// Read-only router introspection verbs — return the documented
-	// response shape with an empty result set, faithful to a router with
-	// no learned routes / mappings / IP allocations.
+	// The router introspection reads answer the documented shape with an empty
+	// result: the simulator learns no routes, mappings or IP allocations.
 	for _, rv := range []struct {
 		path       string
 		kind       string
@@ -793,8 +749,3 @@ func registerComputeRouterMore(srv *sim.Server) {
 		})
 	})
 }
-
-// registerComputeRegionEffectiveFirewalls and the helpers above close
-// out compute_more3's bespoke handlers. The remaining registrations are
-// the standard CRUD families handled inline above (commitments, regional
-// targetTcpProxies, regional forwardingRules, networkEndpointGroups).

@@ -24,9 +24,9 @@ type acrTasksRun struct {
 }
 
 // TestACRTasksCLI_ScheduleRunQueuesThenEnds schedules a quick build through
-// Registries_ScheduleRun, which answers with the Run Queued; the run then ends
-// in the background and reads its terminal status and the reason it failed,
-// and its log link, the run and a cancel of the ended run stay consistent.
+// Registries_ScheduleRun, which answers with the run Queued; the run then ends
+// in the background, and its status, failure reason, log link and a cancel of
+// the ended run stay consistent.
 func TestACRTasksCLI_ScheduleRunQueuesThenEnds(t *testing.T) {
 	t.Parallel()
 	const registry = "clitasksregistry"

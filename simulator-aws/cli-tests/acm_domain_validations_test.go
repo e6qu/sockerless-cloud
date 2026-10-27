@@ -7,9 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The vendor CLI reaches ListCertificateDomainValidations, the paginated read
-// AWS added beside describe-certificate. Both views answer from one record, so
-// this asserts the CLI sees them agree.
+// ListCertificateDomainValidations and describe-certificate answer from one
+// record, so the two views agree.
 func TestACMCLI_ListCertificateDomainValidations(t *testing.T) {
 	t.Parallel()
 	const domain = "list-dv.cli.example.test"

@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScheduler_ScheduleGroupTags exercises tag CRUD on a schedule group: tag,
-// list, untag, list again. The ResourceArn shares the real `/tags/{ResourceArn}`
-// path with other REST-JSON services, so this also pins the sim's SigV4-signing-
-// service routing of scheduler-signed tag traffic.
+// TestScheduler_ScheduleGroupTags covers tags on a schedule group. Other
+// REST-JSON services share the /tags/{ResourceArn} path, so the request
+// reaches EventBridge Scheduler by its SigV4 signing service.
 func TestScheduler_ScheduleGroupTags(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
@@ -30,12 +29,10 @@ func TestScheduler_ScheduleGroupTags(t *testing.T) {
 		_, _ = c.DeleteScheduleGroup(ctx, &scheduler.DeleteScheduleGroupInput{Name: aws.String(group)})
 	})
 
-	// Initially untagged.
 	listOut, err := c.ListTagsForResource(ctx, &scheduler.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
 	require.NoError(t, err)
 	assert.Empty(t, listOut.Tags)
 
-	// Tag with two keys.
 	_, err = c.TagResource(ctx, &scheduler.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags: []schedtypes.Tag{
@@ -53,7 +50,6 @@ func TestScheduler_ScheduleGroupTags(t *testing.T) {
 	}
 	assert.Equal(t, map[string]string{"env": "prod", "team": "ci"}, got)
 
-	// Untag one key.
 	_, err = c.UntagResource(ctx, &scheduler.UntagResourceInput{
 		ResourceArn: aws.String(arn),
 		TagKeys:     []string{"team"},
@@ -67,8 +63,8 @@ func TestScheduler_ScheduleGroupTags(t *testing.T) {
 	assert.Equal(t, "prod", aws.ToString(listOut.Tags[0].Value))
 }
 
-// TestScheduler_ScheduleTags tags a schedule (not a group), exercising the
-// schedule ARN form `.../schedule/{group}/{name}` on the tag route.
+// TestScheduler_ScheduleTags tags a schedule, whose ARN takes the form
+// .../schedule/{group}/{name}.
 func TestScheduler_ScheduleTags(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()

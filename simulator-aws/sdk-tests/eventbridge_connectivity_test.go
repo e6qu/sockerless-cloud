@@ -13,10 +13,8 @@ import (
 )
 
 // TestEventBridge_ConnectionApiDestinationSDK round-trips a connection and an
-// API destination bound to it: create → describe → list → update → delete. The
-// connection's secret (the API key value) is stored but never echoed on read —
-// DescribeConnection returns only the non-secret descriptor (ApiKeyName) plus a
-// SecretArn, matching real EventBridge.
+// API destination bound to it. EventBridge stores the connection's API key
+// value but DescribeConnection returns only ApiKeyName and a SecretArn.
 func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -79,7 +77,6 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ebtypes.ConnectionStateDeauthorized, deauth.ConnectionState)
 
-	// API destination bound to the connection.
 	destName := "eb-sdk-dest"
 	rate := int32(10)
 	createDest, err := eb.CreateApiDestination(ctx, &eventbridge.CreateApiDestinationInput{
@@ -129,9 +126,8 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "ResourceNotFoundException")
 }
 
-// TestEventBridge_EndpointSDK round-trips a global endpoint: create → describe →
-// list → update → delete, asserting the RoutingConfig / EventBuses round-trip
-// byte-exact through the describe shape.
+// TestEventBridge_EndpointSDK expects a global endpoint's RoutingConfig and
+// EventBuses back byte for byte.
 func TestEventBridge_EndpointSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -200,12 +196,11 @@ func TestEventBridge_EndpointSDK(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestEventBridge_PartnerEventSourceSDK round-trips a partner event source and
-// its consumer-side event source: a SaaS partner creates an offer
-// (CreatePartnerEventSource) to a customer account, which surfaces as a PENDING
-// consumer-side event source (DescribeEventSource/ListEventSources). The account
-// activates it (ACTIVE) then deactivates it (PENDING). PutPartnerEvents emits
-// events, and DeletePartnerEventSource removes the offer.
+// TestEventBridge_PartnerEventSourceSDK: a SaaS partner's
+// CreatePartnerEventSource offers an event source to a customer account, which
+// sees it PENDING, activates it (ACTIVE) and deactivates it (PENDING);
+// PutPartnerEvents emits events and DeletePartnerEventSource withdraws the
+// offer.
 func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -240,7 +235,6 @@ func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
 	assert.Equal(t, account, aws.ToString(accounts.PartnerEventSourceAccounts[0].Account))
 	assert.Equal(t, ebtypes.EventSourceStatePending, accounts.PartnerEventSourceAccounts[0].State)
 
-	// Consumer-side event source view.
 	descSrc, err := eb.DescribeEventSource(ctx, &eventbridge.DescribeEventSourceInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	assert.Equal(t, name, aws.ToString(descSrc.Name))
@@ -275,7 +269,7 @@ func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
 	require.Len(t, putPartner.Entries, 1)
 	assert.NotEmpty(t, aws.ToString(putPartner.Entries[0].EventId))
 
-	// A partner event entry missing Source/DetailType/Detail fails that entry.
+	// A partner event missing Source, DetailType or Detail fails that entry.
 	badPartner, err := eb.PutPartnerEvents(ctx, &eventbridge.PutPartnerEventsInput{
 		Entries: []ebtypes.PutPartnerEventsRequestEntry{{
 			DetailType: aws.String("example"),
@@ -294,10 +288,9 @@ func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestEventBridge_UpdateArchiveCancelReplaySDK exercises UpdateArchive (mutating
-// an existing archive's description / pattern / retention) and CancelReplay. A
-// COMPLETED replay cannot be cancelled — CancelReplay faithfully returns
-// IllegalStatusException, exactly as real EventBridge.
+// TestEventBridge_UpdateArchiveCancelReplaySDK covers UpdateArchive and
+// CancelReplay; EventBridge refuses to cancel a COMPLETED replay with
+// IllegalStatusException.
 func TestEventBridge_UpdateArchiveCancelReplaySDK(t *testing.T) {
 	t.Parallel()
 	eb := eventbridgeClient()
@@ -335,7 +328,7 @@ func TestEventBridge_UpdateArchiveCancelReplaySDK(t *testing.T) {
 	require.NotNil(t, descArchive.RetentionDays)
 	assert.EqualValues(t, 30, *descArchive.RetentionDays)
 
-	// Start a replay over the archive — it completes synchronously in the sim.
+	// The replay completes before StartReplay returns.
 	replay, err := eb.StartReplay(ctx, &eventbridge.StartReplayInput{
 		ReplayName:     aws.String("eb-sdk-uacr-replay"),
 		EventSourceArn: archive.ArchiveArn,
@@ -346,8 +339,6 @@ func TestEventBridge_UpdateArchiveCancelReplaySDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(replay.ReplayArn))
 
-	// A completed replay cannot be cancelled — real EventBridge raises
-	// IllegalStatusException.
 	_, err = eb.CancelReplay(ctx, &eventbridge.CancelReplayInput{ReplayName: aws.String("eb-sdk-uacr-replay")})
 	require.Error(t, err)
 	var illegal *ebtypes.IllegalStatusException

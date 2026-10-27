@@ -99,11 +99,10 @@ func TestCloudRun_CLI_ServiceScalesOnConcurrency(t *testing.T) {
 }
 
 // `gcloud run deploy --scaling=2` puts the service under manual scaling at two
-// instances, which the Knative surface carries as the service's scalingMode
-// and manualInstanceCount annotations and the v2 surface as its scaling, and
-// the service runs exactly two instances before any request reaches it.
-// gcloud offers no wait on a service's instances, so `logging read` is
-// repeated until both have announced themselves.
+// instances, which the Knative surface carries as the scalingMode and
+// manualInstanceCount annotations and the v2 surface as its scaling; both run
+// before any request arrives. gcloud offers no wait on a service's instances,
+// so repeat `logging read` until both have announced themselves.
 func TestCloudRun_CLI_ServiceManualScalingRunsTheInstanceCount(t *testing.T) {
 	t.Parallel()
 	const service = "cli-svc-manual-scaling"

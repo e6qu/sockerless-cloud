@@ -50,9 +50,8 @@ func TestACM_RequestDescribeDelete(t *testing.T) {
 
 	runCLI(t, awsCLI("acm", "list-certificates", "--output", "json"))
 
-	// --certificate-statuses filters by status. The cert above is
-	// PENDING_VALIDATION; filtering to ISSUED must exclude it, filtering to
-	// PENDING_VALIDATION must include it.
+	// The certificate is PENDING_VALIDATION, so --certificate-statuses ISSUED
+	// excludes it and PENDING_VALIDATION includes it.
 	type listResult struct {
 		CertificateSummaryList []struct {
 			CertificateArn string `json:"CertificateArn"`

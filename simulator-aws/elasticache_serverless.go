@@ -11,15 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
-// ElastiCache serverless caches, serverless cache snapshots, global
-// replication groups, cache security groups, update actions, replica /
-// shard reconfiguration, online migration, and reserved-node purchase.
-// awsQuery protocol; XML responses match the real ElastiCache shapes the
-// AWS SDK for Go v2 and the aws CLI parse. A serverless cache runs a real
-// engine (elasticache_engine.go): it reports creating until the engine
-// answers on its endpoint.
+// A serverless cache runs a real engine (elasticache_engine.go) and reports
+// creating until it answers on its endpoint.
 
-// ECServerlessCache models the ServerlessCache shape.
 type ECServerlessCache struct {
 	ServerlessCacheName    string
 	Description            string
@@ -51,7 +45,6 @@ type ECServerlessCache struct {
 	Incarnation            string                      `json:",omitempty"`
 }
 
-// ECServerlessCacheSnapshot models the ServerlessCacheSnapshot shape.
 type ECServerlessCacheSnapshot struct {
 	ServerlessCacheSnapshotName string
 	ARN                         string
@@ -61,21 +54,19 @@ type ECServerlessCacheSnapshot struct {
 	CreateTime                  string
 	ExpiryTime                  string
 	BytesUsedForCache           string
-	// ServerlessCacheConfiguration snapshot of the source cache.
+	// The source cache's ServerlessCacheConfiguration.
 	CacheName               string
 	CacheEngine             string
 	CacheMajorEngineVersion string
 	Tags                    map[string]string
 }
 
-// ECGlobalNodeGroup models the GlobalNodeGroup shape.
 type ECGlobalNodeGroup struct {
 	GlobalNodeGroupId string
 	Slots             string
 }
 
-// ECGlobalReplicationGroupMember models a member region of a Global
-// Datastore.
+// A member Region of a Global Datastore.
 type ECGlobalReplicationGroupMember struct {
 	ReplicationGroupId     string
 	ReplicationGroupRegion string
@@ -84,9 +75,7 @@ type ECGlobalReplicationGroupMember struct {
 	Status                 string
 }
 
-// ECGlobalReplicationGroup models the GlobalReplicationGroup shape (a
-// Global Datastore: a primary replication group plus secondary
-// regions).
+// A primary replication group plus secondary Regions.
 type ECGlobalReplicationGroup struct {
 	GlobalReplicationGroupId          string
 	GlobalReplicationGroupDescription string
@@ -104,16 +93,12 @@ type ECGlobalReplicationGroup struct {
 	Tags                              map[string]string
 }
 
-// ECCacheSecurityGroupRule models one authorized EC2 security group
-// ingress rule on a CacheSecurityGroup.
 type ECCacheSecurityGroupRule struct {
 	EC2SecurityGroupName    string
 	EC2SecurityGroupOwnerId string
 	Status                  string
 }
 
-// ECCacheSecurityGroup models the EC2-Classic-style CacheSecurityGroup
-// shape with its authorized ingress rules.
 type ECCacheSecurityGroup struct {
 	CacheSecurityGroupName string
 	Description            string
@@ -136,20 +121,17 @@ func registerElastiCacheServerless(r *AWSQueryRouter, srv *sim.Server) {
 	ecGlobalReplGroups = sim.MakeStore[ECGlobalReplicationGroup](srv.DB(), "elasticache_global_replication_groups")
 	ecCacheSecGroups = sim.MakeStore[ECCacheSecurityGroup](srv.DB(), "elasticache_cache_security_groups")
 
-	// Serverless caches.
 	r.RegisterVersioned(ecAPIVersion, "CreateServerlessCache", handleECCreateServerlessCache)
 	r.RegisterVersioned(ecAPIVersion, "DescribeServerlessCaches", handleECDescribeServerlessCaches)
 	r.RegisterVersioned(ecAPIVersion, "ModifyServerlessCache", handleECModifyServerlessCache)
 	r.RegisterVersioned(ecAPIVersion, "DeleteServerlessCache", handleECDeleteServerlessCache)
 
-	// Serverless cache snapshots.
 	r.RegisterVersioned(ecAPIVersion, "CreateServerlessCacheSnapshot", handleECCreateServerlessSnapshot)
 	r.RegisterVersioned(ecAPIVersion, "DescribeServerlessCacheSnapshots", handleECDescribeServerlessSnapshots)
 	r.RegisterVersioned(ecAPIVersion, "DeleteServerlessCacheSnapshot", handleECDeleteServerlessSnapshot)
 	r.RegisterVersioned(ecAPIVersion, "CopyServerlessCacheSnapshot", handleECCopyServerlessSnapshot)
 	r.RegisterVersioned(ecAPIVersion, "ExportServerlessCacheSnapshot", handleECExportServerlessSnapshot)
 
-	// Global replication groups (Global Datastore).
 	r.RegisterVersioned(ecAPIVersion, "CreateGlobalReplicationGroup", handleECCreateGlobalReplGroup)
 	r.RegisterVersioned(ecAPIVersion, "DescribeGlobalReplicationGroups", handleECDescribeGlobalReplGroups)
 	r.RegisterVersioned(ecAPIVersion, "ModifyGlobalReplicationGroup", handleECModifyGlobalReplGroup)
@@ -160,24 +142,20 @@ func registerElastiCacheServerless(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DecreaseNodeGroupsInGlobalReplicationGroup", handleECDecreaseNodeGroupsGlobal)
 	r.RegisterVersioned(ecAPIVersion, "RebalanceSlotsInGlobalReplicationGroup", handleECRebalanceSlotsGlobal)
 
-	// Cache security groups (EC2-Classic ingress rules).
 	r.RegisterVersioned(ecAPIVersion, "CreateCacheSecurityGroup", handleECCreateCacheSecGroup)
 	r.RegisterVersioned(ecAPIVersion, "DeleteCacheSecurityGroup", handleECDeleteCacheSecGroup)
 	r.RegisterVersioned(ecAPIVersion, "AuthorizeCacheSecurityGroupIngress", handleECAuthorizeCacheSecGroupIngress)
 	r.RegisterVersioned(ecAPIVersion, "RevokeCacheSecurityGroupIngress", handleECRevokeCacheSecGroupIngress)
 
-	// Service-update actions on existing clusters / replication groups.
 	r.RegisterVersioned(ecAPIVersion, "DescribeUpdateActions", handleECDescribeUpdateActions)
 	r.RegisterVersioned(ecAPIVersion, "BatchApplyUpdateAction", handleECBatchApplyUpdateAction)
 	r.RegisterVersioned(ecAPIVersion, "BatchStopUpdateAction", handleECBatchStopUpdateAction)
 
-	// Replica / shard reconfiguration on the existing replication-group store.
 	r.RegisterVersioned(ecAPIVersion, "IncreaseReplicaCount", handleECIncreaseReplicaCount)
 	r.RegisterVersioned(ecAPIVersion, "DecreaseReplicaCount", handleECDecreaseReplicaCount)
 	r.RegisterVersioned(ecAPIVersion, "ModifyReplicationGroupShardConfiguration", handleECModifyReplGroupShardConfig)
 	r.RegisterVersioned(ecAPIVersion, "TestFailover", handleECTestFailover)
 
-	// Node-type modifications + reserved-node purchase + online migration.
 	r.RegisterVersioned(ecAPIVersion, "ListAllowedNodeTypeModifications", handleECListAllowedNodeTypeModifications)
 	r.RegisterVersioned(ecAPIVersion, "PurchaseReservedCacheNodesOffering", handleECPurchaseReservedCacheNodesOffering)
 	r.RegisterVersioned(ecAPIVersion, "StartMigration", handleECStartMigration)
@@ -195,7 +173,7 @@ func ecServerlessSnapshotARN(name string) string {
 	return fmt.Sprintf("arn:aws:elasticache:%s:%s:serverlesscachesnapshot:%s", awsRegion(), awsAccountID(), name)
 }
 
-// ecGlobalReplGroupARN carries no region: a global datastore spans regions.
+// A global datastore spans Regions, so the ARN carries none.
 func ecGlobalReplGroupARN(id string) string {
 	return fmt.Sprintf("arn:aws:elasticache::%s:globalreplicationgroup:%s", awsAccountID(), id)
 }
@@ -204,9 +182,7 @@ func ecCacheSecGroupARN(name string) string {
 	return fmt.Sprintf("arn:aws:elasticache:%s:%s:securitygroup:%s", awsRegion(), awsAccountID(), name)
 }
 
-// ecParseStringList collects a flattened awsQuery list of strings under
-// the given prefix, trying the member's xmlName entry name first and the
-// generic ".member.N" form second.
+// Tries the member's xmlName entry name, then ".member.N".
 func ecParseStringList(r *http.Request, prefix, entry string) []string {
 	var out []string
 	for n := 1; n <= 100; n++ {
@@ -222,12 +198,8 @@ func ecParseStringList(r *http.Request, prefix, entry string) []string {
 	return out
 }
 
-// Serverless caches
-
-// renderECServerlessCacheBody emits the ServerlessCache shape's members
-// without any wrapper element. CreateServerlessCache / Modify / Delete
-// wrap it in <ServerlessCache>; DescribeServerlessCaches wraps each entry
-// in the list's <member> element.
+// Create, Modify and Delete wrap it in <ServerlessCache>;
+// DescribeServerlessCaches wraps each in a <member>.
 func renderECServerlessCacheBody(c ECServerlessCache) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<ServerlessCacheName>%s</ServerlessCacheName>", xmlEscape(c.ServerlessCacheName))
@@ -239,7 +211,7 @@ func renderECServerlessCacheBody(c ECServerlessCache) string {
 	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(c.Engine))
 	fmt.Fprintf(&b, "<MajorEngineVersion>%s</MajorEngineVersion>", xmlEscape(c.MajorEngineVersion))
 	fmt.Fprintf(&b, "<FullEngineVersion>%s</FullEngineVersion>", xmlEscape(c.FullEngineVersion))
-	// A cache that sets no usage limits reports none.
+	// A cache without usage limits reports none.
 	if c.UsageDataStorageMax > 0 || c.UsageDataStorageMin > 0 || c.UsageECPUMax > 0 || c.UsageECPUMin > 0 {
 		b.WriteString("<CacheUsageLimits>")
 		if c.UsageDataStorageMax > 0 || c.UsageDataStorageMin > 0 {
@@ -316,8 +288,8 @@ func ecParseUsageLimits(r *http.Request, c *ECServerlessCache) {
 	}
 }
 
-// A serverless cache's endpoint is a cluster-mode endpoint of one shard that
-// requires TLS, and its reader endpoint serves the port after it.
+// The endpoint is a TLS-only cluster-mode endpoint of one shard; the reader
+// serves the next port.
 func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
 	name := r.FormValue("ServerlessCacheName")
@@ -409,8 +381,7 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "CreateServerlessCache", renderECServerlessCache(c), requestID)
 }
 
-// ecSettleServerlessCache moves a serverless cache whose engine settled to
-// available, or to create-failed when the engine did not start.
+// create-failed when the engine did not start.
 func ecSettleServerlessCache(name, incarnation string, err error) {
 	ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
 		if c.Incarnation != incarnation || c.Status != "creating" {
@@ -500,8 +471,6 @@ func ecDeleteServerlessInBackground(name, incarnation string) {
 	})
 }
 
-// ecRecoverServerlessTransitions finishes the creates and deletes the previous
-// control-plane process left unfinished.
 func ecRecoverServerlessTransitions() {
 	for _, c := range ecServerlessCaches.List() {
 		name, incarnation := c.ServerlessCacheName, c.Incarnation
@@ -514,8 +483,6 @@ func ecRecoverServerlessTransitions() {
 		}
 	}
 }
-
-// Serverless cache snapshots
 
 func renderECServerlessSnapshot(s ECServerlessCacheSnapshot) string {
 	var b strings.Builder
@@ -653,8 +620,6 @@ func handleECExportServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "ExportServerlessCacheSnapshot", renderECServerlessSnapshot(s), sim.RequestID(r.Context()))
 }
 
-// Global replication groups (Global Datastore)
-
 func renderECGlobalReplGroup(g ECGlobalReplicationGroup) string {
 	var b strings.Builder
 	b.WriteString("<GlobalReplicationGroup>")
@@ -704,8 +669,8 @@ func handleECCreateGlobalReplGroup(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ReplicationGroupNotFoundFault", fmt.Sprintf("Replication group %q not found", primary), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	// AWS prefixes a random tag to keep the global id unique across the
-	// global namespace; the sim uses a stable deterministic prefix.
+	// AWS prefixes a random tag for global uniqueness; the simulator's prefix is
+	// fixed.
 	id := "ldgnf-" + suffix
 	if _, ok := ecGlobalReplGroups.Get(id); ok {
 		ecErrorXML(w, "GlobalReplicationGroupAlreadyExistsFault", "Global replication group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -757,8 +722,7 @@ func handleECDescribeGlobalReplGroups(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "DescribeGlobalReplicationGroups", b.String(), sim.RequestID(r.Context()))
 }
 
-// ecGlobalReplGroupMutate looks up a global replication group, applies fn,
-// and writes back. It returns the updated group and whether it existed.
+// Writes the updated group back.
 func ecGlobalReplGroupMutate(w http.ResponseWriter, r *http.Request, op string, fn func(*ECGlobalReplicationGroup)) {
 	id := r.FormValue("GlobalReplicationGroupId")
 	if _, ok := ecGlobalReplGroups.Get(id); !ok {
@@ -865,8 +829,6 @@ func handleECRebalanceSlotsGlobal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Cache security groups (EC2-Classic ingress)
-
 func renderECCacheSecGroup(g ECCacheSecurityGroup) string {
 	var b strings.Builder
 	b.WriteString("<CacheSecurityGroup>")
@@ -961,11 +923,7 @@ func handleECRevokeCacheSecGroupIngress(w http.ResponseWriter, r *http.Request) 
 	ecXMLResponse(w, "RevokeCacheSecurityGroupIngress", renderECCacheSecGroup(updated), sim.RequestID(r.Context()))
 }
 
-// Service-update actions
-
-// ecUpdateActionTargets enumerates (clusterId, replicationGroupId) pairs
-// the update action applies to, honoring the CacheClusterIds /
-// ReplicationGroupIds filters.
+// Honours the CacheClusterIds and ReplicationGroupIds filters.
 func ecUpdateActionTargets(r *http.Request) [][2]string {
 	clusterIds := ecParseStringList(r, "CacheClusterIds", "member")
 	replGroupIds := ecParseStringList(r, "ReplicationGroupIds", "member")
@@ -1049,11 +1007,6 @@ func handleECBatchStopUpdateAction(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "BatchStopUpdateAction", ecRenderUpdateActionResults(r, "stopping"), sim.RequestID(r.Context()))
 }
 
-// Replica / shard reconfiguration + failover testing on the existing
-// replication-group store
-
-// ecReplGroupAction looks up a replication group, applies fn, and returns
-// the updated group under the named result wrapper.
 func ecReplGroupAction(w http.ResponseWriter, r *http.Request, op string, fn func(*ECReplicationGroup)) {
 	id := r.FormValue("ReplicationGroupId")
 	if _, ok := ecReplGroups.Get(id); !ok {
@@ -1066,8 +1019,6 @@ func ecReplGroupAction(w http.ResponseWriter, r *http.Request, op string, fn fun
 	updated, _ := ecReplGroups.Get(id)
 	ecXMLResponse(w, op, renderECReplGroup(updated), sim.RequestID(r.Context()))
 }
-
-// Node-type modifications + reserved-node purchase + online migration
 
 func handleECListAllowedNodeTypeModifications(w http.ResponseWriter, r *http.Request) {
 	scaleUp := []string{"cache.r7g.large", "cache.r7g.xlarge", "cache.r7g.2xlarge"}
@@ -1092,10 +1043,8 @@ func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.R
 		ecErrorXML(w, "MissingParameter", "ReservedCacheNodesOfferingId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	// The reservation's terms are the offering's. A purchase against an id no
-	// offering answers to is refused rather than answered with terms nothing
-	// published — the price and the node type would be this simulator's
-	// invention, and the caller would be told it had bought something.
+	// Refuse an id no offering answers to; inventing terms would sell nothing
+	// anyone published.
 	var offering ecReservedCacheNodesOffering
 	found := false
 	for _, o := range ecReservedCacheNodesOfferings {

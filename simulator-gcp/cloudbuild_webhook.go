@@ -12,21 +12,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Cloud Build webhook receivers. A delivery arrives from a source host,
-// Cloud Build decides which triggers it is for, and each of those starts a
-// build. Answering Empty without starting one is what the API returns on
-// success, so nothing in the response could tell a caller the build never
-// happened — the gap only shows as a build that never appears.
-//
-// There are two shapes. A trigger's own webhook is addressed by name and
-// authenticated by the secret the trigger declares. The three shared receivers
-// are addressed by a source host's webhook key and carry the event itself, so
-// which triggers a delivery is for is decided by the repository the event
-// names.
+// A trigger's own webhook is addressed by name and authenticated by the
+// trigger's secret. The three shared receivers are addressed by a source
+// host's webhook key and carry the event, whose repository decides which
+// triggers it is for.
 
-// cbWebhookDelivery is what a receiver reads out of a delivery: the repository
-// it concerns and the ref it moved. Both GitHub and Bitbucket Server spell
-// these differently, so each is read where that host puts it.
+// cbWebhookDelivery is the repository a delivery concerns and the ref it
+// moved, read from wherever GitHub or Bitbucket Server puts them.
 type cbWebhookDelivery struct {
 	Owner      string
 	Repository string
@@ -248,7 +240,6 @@ func cbTriggerProject(trigger BuildTrigger) string {
 }
 
 // cbHandleSharedWebhook serves the three receivers a source host posts to.
-// They differ only in the path the host was given; what each does is the same.
 func cbHandleSharedWebhook(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("webhookKey")
 	if !cbWebhookKeyOwner(key) {

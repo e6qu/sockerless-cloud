@@ -8,7 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerARPackages mounts a repository's packages, versions and tags.
 func registerARPackages(srv *sim.Server, repos sim.Store[Repository], dockerImages sim.Store[DockerImage], packages sim.Store[ARPackage], tags sim.Store[ARTag], versions sim.Store[ARVersion]) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/packages", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := arRepoExists(repos, w, r)

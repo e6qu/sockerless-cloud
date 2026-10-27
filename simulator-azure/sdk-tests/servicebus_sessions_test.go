@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ScheduleMessages holds messages until their enqueue time and
-// CancelScheduledMessages removes them before it; a message scheduled a moment
-// out reaches a receiver once its time comes.
+// ScheduleMessages holds messages until their enqueue time, and
+// CancelScheduledMessages removes them before it.
 func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("sdk-amqp-schedule")
@@ -62,8 +61,7 @@ func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 }
 
 // A session-enabled queue delivers each session only to the receiver that
-// accepted it, keeps the session's state, and refuses a second receiver the
-// lock of a session already accepted.
+// accepted it, keeps its state, and refuses a second receiver its lock.
 func TestServiceBus_AMQPSDKSessions(t *testing.T) {
 	t.Parallel()
 	namespace := uniquename.New("sdk-amqp-sessions")

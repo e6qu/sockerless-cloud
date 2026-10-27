@@ -9,11 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudBuild_TriggerPatchUpdateMask pins triggers.patch field-mask
-// semantics: a PATCH with updateMask=description updates only the description
-// and preserves every unmasked field (e.g. filename), even when the request
-// body carries a different value for it. Before the fix the handler did a
-// wholesale replace, dropping unmasked fields → terraform drift.
+// TestCloudBuild_TriggerPatchUpdateMask: a PATCH with updateMask=description
+// changes only the description and keeps every unmasked field, even one the
+// body sends a different value for; Terraform drifts otherwise.
 func TestCloudBuild_TriggerPatchUpdateMask(t *testing.T) {
 	t.Parallel()
 	svc := cloudbuildService(t)
@@ -27,8 +25,6 @@ func TestCloudBuild_TriggerPatchUpdateMask(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, created.Id)
 
-	// updateMask=description: change description AND send a different filename
-	// that must be ignored because filename is not in the mask.
 	_, err = svc.Projects.Triggers.Patch(project, created.Id, &cloudbuild.BuildTrigger{
 		Description: "d2",
 		Filename:    "b.yaml",

@@ -17,9 +17,8 @@ func smClient() *secretsmanager.Client {
 	})
 }
 
-// TestSecretsManager_CreateGetUpdateDelete pins the canonical runner
-// secret-fetching flow: workflow creates a secret, the runner fetches
-// it, the workflow rotates the value, then deletes it on cleanup.
+// TestSecretsManager_CreateGetUpdateDelete covers a secret a workflow creates,
+// a runner reads, the workflow rotates and then deletes.
 func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 	t.Parallel()
 	c := smClient()
@@ -34,7 +33,6 @@ func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 	assert.Contains(t, *createOut.ARN, "arn:aws:secretsmanager:")
 	assert.Contains(t, *createOut.ARN, ":secret:runner/db-password-")
 
-	// Fetch by name (most common in CI workflows).
 	getByName, err := c.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId: aws.String("runner/db-password"),
 	})
@@ -42,14 +40,13 @@ func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 	assert.Equal(t, "hunter2", *getByName.SecretString)
 	assert.NotEmpty(t, *getByName.VersionId)
 
-	// Real Secrets Manager accepts the full ARN as SecretId; sim must too.
+	// Secrets Manager accepts the full ARN as SecretId.
 	getByArn, err := c.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId: createOut.ARN,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "hunter2", *getByArn.SecretString)
 
-	// Rotate the value.
 	updateOut, err := c.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
 		SecretId:     aws.String("runner/db-password"),
 		SecretString: aws.String("rotated-secret"),
@@ -64,7 +61,6 @@ func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rotated-secret", *rotated.SecretString)
 
-	// Describe should round-trip metadata.
 	desc, err := c.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
 		SecretId: aws.String("runner/db-password"),
 	})
@@ -73,7 +69,6 @@ func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 	require.Contains(t, desc.VersionIdsToStages, *rotated.VersionId)
 	assert.Contains(t, desc.VersionIdsToStages[*rotated.VersionId], "AWSCURRENT")
 
-	// Cleanup.
 	_, err = c.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
 		SecretId:                   aws.String("runner/db-password"),
 		ForceDeleteWithoutRecovery: aws.Bool(true),
@@ -130,7 +125,7 @@ func TestSecretsManager_ListAndTag(t *testing.T) {
 	}
 	assert.True(t, found, "ListSecrets must include the just-created secret")
 
-	// PutSecretValue rotates without changing other metadata.
+	// PutSecretValue changes the value and leaves the metadata.
 	put, err := c.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
 		SecretId:     aws.String("list-test"),
 		SecretString: aws.String("v2"),
@@ -138,7 +133,6 @@ func TestSecretsManager_ListAndTag(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, put.VersionId)
 
-	// TagResource + UntagResource round-trip.
 	_, err = c.TagResource(ctx, &secretsmanager.TagResourceInput{
 		SecretId: aws.String("list-test"),
 		Tags: []types.Tag{
@@ -161,11 +155,10 @@ func TestSecretsManager_ListAndTag(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSecretsManager_GetResourcePolicy verifies the GetResourcePolicy response
-// shape. terraform-provider-aws calls this after CreateSecret to populate the
-// `policy` attribute. Real Secrets Manager omits ResourcePolicy when no policy
-// is attached; returning an empty string causes the provider to crash with
-// "unexpected end of JSON input".
+// TestSecretsManager_GetResourcePolicy expects ResourcePolicy omitted when no
+// policy is attached. terraform-provider-aws reads it after CreateSecret for
+// the policy attribute, and an empty string fails it with "unexpected end of
+// JSON input".
 func TestSecretsManager_GetResourcePolicy(t *testing.T) {
 	t.Parallel()
 	c := smClient()
@@ -183,7 +176,6 @@ func TestSecretsManager_GetResourcePolicy(t *testing.T) {
 		})
 	})
 
-	// No policy attached — response must carry ARN and Name but omit ResourcePolicy.
 	out, err := c.GetResourcePolicy(ctx, &secretsmanager.GetResourcePolicyInput{
 		SecretId: aws.String("grp-test-secret"),
 	})
@@ -192,7 +184,6 @@ func TestSecretsManager_GetResourcePolicy(t *testing.T) {
 	assert.Equal(t, "grp-test-secret", *out.Name)
 	assert.Nil(t, out.ResourcePolicy, "ResourcePolicy must be nil when no policy is attached")
 
-	// Lookup by full ARN must also work.
 	outByArn, err := c.GetResourcePolicy(ctx, &secretsmanager.GetResourcePolicyInput{
 		SecretId: aws.String(secretArn),
 	})

@@ -8,18 +8,12 @@ import (
 	"strings"
 )
 
-// Partition-key handling and query pagination for the Cosmos data plane.
-//
-// Real Cosmos identifies an item by (partition-key value, id): two documents
-// with the same id in different logical partitions are distinct items, and a
-// point operation must address the right partition. The azcosmos SDK carries the
-// partition key in the `x-ms-documentdb-partitionkey` header as a JSON array
-// (e.g. ["p"], [30], [true], [null]); the container declares its partition-key
-// path (e.g. /pk) at create time. These helpers extract, validate, and key on
-// that value, faithfully matching the emulator (verified by the differential).
+// Azure Cosmos DB identifies an item by (partition-key value, id). azcosmos
+// sends the partition key in `x-ms-documentdb-partitionkey` as a JSON array
+// (["p"], [30], [true], [null]); the container declares its path (/pk) at
+// create. The differential test holds these helpers to the emulator.
 
-// CosmosDataDB is a database created through the data plane, which exists
-// before anything is stored in it.
+// CosmosDataDB exists before anything is stored in it.
 type CosmosDataDB struct {
 	Account string
 	DB      string
@@ -29,17 +23,15 @@ func cosmosDataDBKey(account, db string) string {
 	return account + "/" + db
 }
 
-// CosmosDataColl records a data-plane-created collection's partition-key path
-// and time to live. The azcosmos SDK (and the REST API) create containers
-// through the data plane (POST /dbs/{db}/colls), not Azure Resource Manager, so
-// these settings live here rather than in cosmosContainers.
+// azcosmos and the REST API create containers through the data plane (POST
+// /dbs/{db}/colls), not Azure Resource Manager, so their settings live here.
 type CosmosDataColl struct {
 	Account string
 	DB      string
 	Coll    string
 	PKPath  string
-	// DefaultTTL is the container's defaultTtl in seconds, -1 for items that
-	// expire only by their own ttl, and nil when time to live is off.
+	// DefaultTTL is in seconds, -1 for items that expire only by their own ttl, and
+	// nil when time to live is off.
 	DefaultTTL *int64 `json:",omitempty"`
 }
 
@@ -47,12 +39,9 @@ func cosmosDataCollKey(account, db, coll string) string {
 	return account + "/" + db + "/" + coll
 }
 
-// cosmosContainerPKPath returns the container's declared partition-key path
-// (e.g. "/pk"). It consults the data-plane collection store first (where the SDK
-// and REST clients declare it), then the ARM container store. ok is false when
-// no container was declared anywhere (some raw-HTTP tests POST documents into an
-// undeclared collection); callers then key by id alone, preserving that legacy
-// reachability.
+// cosmosContainerPKPath consults the data-plane collection store, then the ARM
+// container store. ok is false for a collection declared nowhere, which some
+// raw-HTTP clients POST into; callers then key by id alone.
 func cosmosContainerPKPath(account, db, coll string) (string, bool) {
 	if dc, ok := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll)); ok && dc.PKPath != "" {
 		return dc.PKPath, true
@@ -68,7 +57,7 @@ func cosmosContainerPKPath(account, db, coll string) (string, bool) {
 		}
 		paths, _ := pkDef["paths"].([]any)
 		if len(paths) == 0 {
-			// paths may have been stored as a []string by the ARM handler.
+			// The ARM handler may have stored paths as a []string.
 			if sp, ok := pkDef["paths"].([]string); ok && len(sp) > 0 {
 				return sp[0], true
 			}
@@ -82,9 +71,7 @@ func cosmosContainerPKPath(account, db, coll string) (string, bool) {
 	return "", false
 }
 
-// cosmosPKValueFromBody reads the partition-key value out of a document body at
-// the container's PK path. A nested path ("/a/b") traverses sub-objects. The
-// returned bool reports whether a value was present at the path.
+// A nested path ("/a/b") traverses sub-objects.
 func cosmosPKValueFromBody(body map[string]any, pkPath string) (any, bool) {
 	segs := cosmosSplitPatchPath(pkPath)
 	if len(segs) == 0 {
@@ -105,9 +92,7 @@ func cosmosPKValueFromBody(body map[string]any, pkPath string) (any, bool) {
 	return cur, true
 }
 
-// cosmosPKFromHeader parses the x-ms-documentdb-partitionkey header (a JSON
-// array of one component). ok is false when the header is absent. err is set
-// when the header is present but malformed (a 400 to the caller).
+// The header is a JSON array of one component; err reports a malformed one.
 func cosmosPKFromHeader(r *http.Request) (value any, ok bool, err error) {
 	raw := r.Header.Get("x-ms-documentdb-partitionkey")
 	if raw == "" {
@@ -118,17 +103,14 @@ func cosmosPKFromHeader(r *http.Request) (value any, ok bool, err error) {
 		return nil, false, fmt.Errorf("invalid partition key header %q: %v", raw, jerr)
 	}
 	if len(arr) == 0 {
-		// An empty array ([]) is the SDK's "no partition key" sentinel
-		// (NewPartitionKey()); treat as absent.
+		// An empty array is the SDK's "no partition key" sentinel (NewPartitionKey()).
 		return nil, false, nil
 	}
 	return arr[0], true, nil
 }
 
-// cosmosCanonPKValue canonicalizes a partition-key value (from a header or a
-// document body) to a stable string used in the store key. Numbers from the two
-// sources decode differently (float64 vs the header's JSON number), so unify on
-// the JSON marshaling of the value.
+// Numbers decode differently from a header and a body, so canonicalize on the
+// JSON encoding.
 func cosmosCanonPKValue(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -152,16 +134,11 @@ func cosmosCanonPKValue(v any) string {
 	return "j:" + string(b)
 }
 
-// cosmosValuesEqualPK reports whether two partition-key values (one possibly
-// from the header, one from a body) denote the same logical partition.
 func cosmosValuesEqualPK(a, b any) bool {
 	return cosmosCanonPKValue(a) == cosmosCanonPKValue(b)
 }
 
-// cosmosDocKeyPK builds the store key for a document scoped to its partition.
-// When the container has no declared PK path (undeclared collection), pkValue
-// is "" and the key collapses to the legacy id-only form so existing reachability
-// is preserved.
+// Without a declared path pkValue is "" and the key is the id-only form.
 func cosmosDocKeyPK(account, db, container, pkValue, doc string) string {
 	if pkValue == "" {
 		return cosmosDocKey(account, db, container, doc)
@@ -169,11 +146,9 @@ func cosmosDocKeyPK(account, db, container, pkValue, doc string) string {
 	return account + "/" + db + "/" + container + "/" + pkValue + "/" + doc
 }
 
-// cosmosResolvePKForWrite determines the partition-key value for a create/upsert/
-// replace, enforcing the real-Cosmos rule that a supplied header must match the
-// value at the container's PK path inside the document. It returns the canonical
-// pk-key component for the store key. When the container has no declared PK path,
-// it returns "" (legacy id-only keying).
+// cosmosResolvePKForWrite enforces Azure Cosmos DB's rule that a supplied header
+// must match the value at the container's path inside the document. It returns
+// "" for a container with no declared path.
 func cosmosResolvePKForWrite(r *http.Request, account, db, coll string, body map[string]any) (pkKeyComponent string, herr *cosmosWriteError) {
 	pkPath, declared := cosmosContainerPKPath(account, db, coll)
 	headerVal, headerOK, perr := cosmosPKFromHeader(r)
@@ -181,12 +156,11 @@ func cosmosResolvePKForWrite(r *http.Request, account, db, coll string, body map
 		return "", &cosmosWriteError{code: "BadRequest", msg: perr.Error(), status: http.StatusBadRequest}
 	}
 	if !declared {
-		// No declared PK path → key by id alone (legacy raw-HTTP collections).
 		return "", nil
 	}
 	bodyVal, bodyOK := cosmosPKValueFromBody(body, pkPath)
 	if headerOK {
-		// Real Cosmos rejects a header that doesn't match the document's value.
+		// Azure Cosmos DB rejects a header that does not match the document.
 		if !bodyOK || !cosmosValuesEqualPK(headerVal, bodyVal) {
 			return "", &cosmosWriteError{
 				code:   "BadRequest",
@@ -196,19 +170,16 @@ func cosmosResolvePKForWrite(r *http.Request, account, db, coll string, body map
 		}
 		return cosmosCanonPKValue(headerVal), nil
 	}
-	// No header (raw-HTTP write): derive the partition from the document body.
 	if bodyOK {
 		return cosmosCanonPKValue(bodyVal), nil
 	}
-	// Declared PK path but the document carries no value there: real Cosmos
-	// treats this as the "undefined" partition. Use a stable sentinel.
+	// Azure Cosmos DB treats a document with no value at the path as the
+	// "undefined" partition.
 	return cosmosCanonPKValue(nil), nil
 }
 
-// cosmosResolvePKForPoint determines the store key for a point read/replace/
-// delete/patch addressed by (partition key, id). When the SDK sends the pk
-// header the lookup is exact; without it (legacy raw-HTTP) the caller falls back
-// to an id scan via cosmosFindDocByID.
+// cosmosResolvePKForPoint: with the header the lookup is exact; without it the
+// caller scans by id through cosmosFindDocByID.
 func cosmosResolvePKForPoint(r *http.Request, account, db, coll string) (pkKeyComponent string, hasHeader bool, herr *cosmosWriteError) {
 	_, declared := cosmosContainerPKPath(account, db, coll)
 	headerVal, headerOK, perr := cosmosPKFromHeader(r)
@@ -221,9 +192,7 @@ func cosmosResolvePKForPoint(r *http.Request, account, db, coll string) (pkKeyCo
 	return cosmosCanonPKValue(headerVal), true, nil
 }
 
-// cosmosFindDocByID scans a collection for a document with the given id,
-// ignoring the partition (the legacy raw-HTTP point-read path that omits the pk
-// header). The first match by sorted order is returned.
+// The first match in sorted order wins.
 func cosmosFindDocByID(account, db, coll, id string) (CosmosDocument, bool) {
 	for _, d := range cosmosDocsFor(account, db, coll) {
 		if d.ID == id {
@@ -233,17 +202,13 @@ func cosmosFindDocByID(account, db, coll, id string) (CosmosDocument, bool) {
 	return CosmosDocument{}, false
 }
 
-// cosmosWriteError carries a Cosmos data-plane error to the calling HTTP handler.
 type cosmosWriteError struct {
 	code   string
 	msg    string
 	status int
 }
 
-// ── query pagination ──────────────────────────────────────────────────────────
-
-// cosmosMaxItemCount reads the x-ms-max-item-count request header. -1 means no
-// cap (the header absent or -1, the SDK's "unbounded" sentinel).
+// -1 means no cap: the header absent, or the SDK's -1 "unbounded" sentinel.
 func cosmosMaxItemCount(r *http.Request) int {
 	raw := r.Header.Get("x-ms-max-item-count")
 	if raw == "" {
@@ -256,17 +221,13 @@ func cosmosMaxItemCount(r *http.Request) int {
 	return n
 }
 
-// cosmosStoredDocKey reconstructs the partition-scoped store key for an
-// already-stored document (used by collection/database deletion, which iterates
-// the store and must address each doc by its exact key).
+// Deletion iterates the store and addresses each document by its exact key.
 func cosmosStoredDocKey(d CosmosDocument) string {
 	pk := cosmosDocPKComponent(d.Account, d.DB, d.Coll, d)
 	return cosmosDocKeyPK(d.Account, d.DB, d.Coll, pk, d.ID)
 }
 
-// cosmosDocPKComponent returns the canonical partition-key component a stored
-// document belongs to, for scoping a single-partition query. It mirrors the
-// write-time derivation: read the value at the container's PK path.
+// The same derivation as at write time: the value at the container's path.
 func cosmosDocPKComponent(account, db, coll string, d CosmosDocument) string {
 	pkPath, declared := cosmosContainerPKPath(account, db, coll)
 	if !declared {

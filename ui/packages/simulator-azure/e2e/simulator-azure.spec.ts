@@ -35,16 +35,28 @@ async function expectNoAxeViolations(page: Page) {
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
 }
 
+const transitionsDisabled = new WeakSet<Page>();
+
+/** Turns CSS transitions and animations off in this document and in every one
+ *  the page loads after it, so an audit after a navigation measures settled
+ *  colours rather than a transition's first frame. */
+async function disableTransitions(page: Page) {
+  if (transitionsDisabled.has(page)) return;
+  transitionsDisabled.add(page);
+  // An init script runs before the document has a head, so adopt a sheet
+  // instead of appending a style element.
+  const install = () => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync("*, *::before, *::after { transition: none !important; animation: none !important; }");
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  };
+  await page.addInitScript(install);
+  await page.evaluate(install);
+}
+
 /** Switches the theme through the console's own Settings pane. */
 async function setTheme(page: Page, theme: "Light" | "Dark") {
-  await page.evaluate(() => {
-    const id = "e2e-disable-transitions";
-    if (document.getElementById(id)) return;
-    const style = document.createElement("style");
-    style.id = id;
-    style.textContent = "*, *::before, *::after { transition: none !important; animation: none !important; }";
-    document.head.append(style);
-  });
+  await disableTransitions(page);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("radio", { name: theme }).check();
   await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(theme === "Dark");

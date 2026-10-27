@@ -23,7 +23,6 @@ provider "aws" {
   }
 }
 
-# The provider sends DeleteRepository's force from force_delete.
 resource "aws_ecr_repository" "forced" {
   name         = "tf-ecr-forced"
   force_delete = true

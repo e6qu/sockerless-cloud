@@ -24,7 +24,7 @@ import (
 // workload.
 const MemcachedPort = 11211
 
-// memcachedProbeInterval is how often a starting node is asked for its
+// memcachedProbeInterval is how often the plane asks a starting node for its
 // version: memcached reports readiness on its output only at a verbosity that
 // also logs every command a client sends.
 const memcachedProbeInterval = 100 * time.Millisecond
@@ -71,7 +71,6 @@ type Memcached struct {
 	cursor atomic.Uint64
 }
 
-// NewMemcached builds the plane serving a resource from its record.
 func NewMemcached(cfg MemcachedConfig, record Record) *Memcached {
 	m := &Memcached{cfg: cfg, nodes: map[int]*memcachedNode{}, listeners: map[string]net.Listener{}}
 	for _, index := range record.Nodes {
@@ -88,7 +87,6 @@ func (m *Memcached) Record() Record {
 	return Record{Endpoints: append([]Endpoint(nil), m.endpoints...), Nodes: m.orderLocked()}
 }
 
-// Endpoints are the endpoints the plane serves.
 func (m *Memcached) Endpoints() []Endpoint {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

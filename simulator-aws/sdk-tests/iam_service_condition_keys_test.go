@@ -42,11 +42,9 @@ func restrictedCredential(t *testing.T, user, policy string) (akid, secret strin
 	return aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey)
 }
 
-// TestEC2_RegionConditionKeyScopesTheGrant covers ec2:Region, the condition key
-// Amazon EC2 declares against nearly every one of its actions. A grant carrying
-// it must hold in the region it names and nowhere else; before the request's
-// region reached the condition context, the key was absent and the grant
-// matched nothing at all.
+// TestEC2_RegionConditionKeyScopesTheGrant covers ec2:Region, which Amazon EC2
+// declares on nearly every action: a grant carrying it holds in its Region and
+// nowhere else.
 func TestEC2_RegionConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	akid, secret := restrictedCredential(t, "ec2-one-region",
@@ -67,11 +65,9 @@ func TestEC2_RegionConditionKeyScopesTheGrant(t *testing.T) {
 	assert.Contains(t, err.Error(), "not authorized")
 }
 
-// TestS3_AuthTypeConditionKeyScopesTheGrant covers s3:authType, which Amazon S3
-// declares so a policy can require that a request be signed in its headers
-// rather than presigned in its query string. Both forms are real requests the
-// SDK makes, and they differ only in how the signature travels, so the key has
-// to describe the request that actually arrived.
+// TestS3_AuthTypeConditionKeyScopesTheGrant covers s3:authType, with which a
+// policy requires a header signature rather than a presigned query string.
+// Both are real SDK requests differing only in where the signature travels.
 func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	bucket := "s3-authtype-bucket"
@@ -94,8 +90,8 @@ func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	assert.NoError(t, err, "the SDK signs in the Authorization header, which is what the grant requires")
 
-	// The same read, presigned: the signature travels in the query string, so
-	// s3:authType is REST-QUERY-STRING and the grant does not cover it.
+	// Presigned, the signature travels in the query string, so s3:authType is
+	// REST-QUERY-STRING and the grant does not cover it.
 	presigned, err := s3.NewPresignClient(restricted).PresignGetObject(ctx,
 		&s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	require.NoError(t, err)
@@ -106,10 +102,8 @@ func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestS3_SignatureAgeConditionKeyScopesTheGrant covers s3:signatureAge, the
-// number of milliseconds since the request was signed. It is how a policy
-// refuses a presigned URL that has been passed around: the grant holds while
-// the signature is fresh and lapses once it is not. A context without the key
-// cannot express either half.
+// milliseconds since signing, with which a policy refuses a presigned URL that
+// has been passed around: the grant holds while the signature is fresh.
 func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	bucket := "s3-sigage-bucket"
@@ -143,9 +137,8 @@ func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestS3_ExistingObjectTagConditionKeyScopesTheGrant covers
-// s3:ExistingObjectTag/<key>: the tags already on the object a request targets,
-// which is how a policy grants a read of the objects somebody tagged one way
-// and refuses the ones tagged another.
+// s3:ExistingObjectTag/<key>, the tags already on the targeted object, with
+// which a policy grants reads of objects tagged one way and refuses others.
 func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	bucket := "s3-existing-tag-bucket"
@@ -181,8 +174,8 @@ func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestSecretsManager_SecretIdConditionKeyScopesTheGrant covers
-// secretsmanager:SecretId, which AWS documents for scoping a grant to the one
-// secret a request may name.
+// secretsmanager:SecretId, which AWS documents for scoping a grant to one
+// secret.
 func TestSecretsManager_SecretIdConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := secretsmanager.NewFromConfig(sdkConfig(),
@@ -216,8 +209,8 @@ func TestSecretsManager_SecretIdConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant covers
-// iam:PermissionsBoundary, the key an administrator uses to delegate user
-// creation while requiring every created user to carry a boundary.
+// iam:PermissionsBoundary, with which an administrator delegates user creation
+// while requiring each new user to carry a boundary.
 func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	iamc := iamClient()
@@ -252,8 +245,8 @@ func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestRDS_RequestTagConditionKeyScopesTheGrant covers rds:req-tag/${TagKey},
-// which is Amazon RDS's own spelling of the tags a request carries — the key a
-// policy uses to require that everything created be labelled.
+// Amazon RDS's spelling of a request's tags, with which a policy requires
+// everything created to be labelled.
 func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	untaggedGroup := uniquename.New("cond-untagged-group")
@@ -283,9 +276,9 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 	assert.Contains(t, err.Error(), "not authorized")
 }
 
-// TestKMS_RequestAliasConditionKeyScopesTheGrant covers kms:RequestAlias — the
-// alias a request named the key by, which is how a policy grants use of a key
-// through one alias and not another.
+// TestKMS_RequestAliasConditionKeyScopesTheGrant covers kms:RequestAlias, the
+// alias a request names the key by, with which a policy grants a key through
+// one alias and not another.
 func TestKMS_RequestAliasConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
 	admin := kmsClient()
@@ -318,9 +311,8 @@ func TestKMS_RequestAliasConditionKeyScopesTheGrant(t *testing.T) {
 }
 
 // TestOrganizations_PolicyTypeConditionKeyScopesTheGrant covers
-// organizations:PolicyType, which scopes a grant to one kind of policy — the
-// request states the type where it creates one, and names the policy whose type
-// it is everywhere else.
+// organizations:PolicyType: a create states the type, and other requests name
+// the policy whose type it is.
 func TestOrganizations_PolicyTypeConditionKeyScopesTheGrant(t *testing.T) {
 	akid, secret := restrictedCredential(t, "org-scp-only",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"organizations:CreatePolicy",

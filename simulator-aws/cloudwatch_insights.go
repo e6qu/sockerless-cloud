@@ -14,11 +14,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch Logs Insights — StartQuery / GetQueryResults / StopQuery /
-// DescribeQueries, with a real executor for the Insights query language
-// (pipe-delimited commands: fields | filter | stats | sort | limit | parse |
-// dedup). The sim runs the query synchronously at StartQuery time and stores
-// the rows; GetQueryResults returns them with status "Complete".
+// The simulator runs a CloudWatch Logs Insights query synchronously at
+// StartQuery; GetQueryResults returns the stored rows as "Complete".
 
 type CWQuery struct {
 	QueryID    string             `json:"queryId"`
@@ -61,12 +58,11 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 	if req.LogGroupName != "" {
 		groups = append(groups, req.LogGroupName)
 	}
-	// Insights times are epoch SECONDS.
+	// Insights times are epoch seconds.
 	records, scanned := cwGatherRecords(groups, req.StartTime, req.EndTime)
 	results, err := cwRunInsightsQuery(req.QueryString, records, req.Limit)
 	if err != nil {
-		// A malformed query string is a MalformedQueryException in real
-		// CloudWatch Logs, not a silently empty (or all-rows) result.
+		// A malformed query is a MalformedQueryException.
 		AWSError(w, "MalformedQueryException", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -98,7 +94,7 @@ func handleCWGetQueryResults(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest, "Query %s does not exist", req.QueryID)
 		return
 	}
-	// Real GetQueryResults returns results/status/statistics — not queryId.
+	// GetQueryResults carries no queryId.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":  q.Status,
 		"results": q.Results,
@@ -162,11 +158,8 @@ func cwStrIn(s string, list []string) bool {
 	return false
 }
 
-// ── records ────────────────────────────────────────────────────────────────
-
-// cwInsightsRecord is one log event flattened into Insights fields: the built-in
-// @-fields plus any top-level (and dotted-nested) fields parsed from a JSON
-// message.
+// The built-in @-fields plus the leaf fields of a JSON message, dotted when
+// nested.
 type cwInsightsRecord map[string]string
 
 func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecord, int) {
@@ -200,18 +193,13 @@ func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecor
 	return records, scanned
 }
 
-// cwFlattenJSONInto parses a JSON message and adds its leaf fields (dotted) to
-// the record, so a query can reference `level`, `code`, `req.path`, etc.
 func cwFlattenJSONInto(rec cwInsightsRecord, message string) {
 	var doc map[string]any
 	if json.Unmarshal([]byte(message), &doc) != nil {
 		return
 	}
-	// Bound recursion against a deeply-nested attacker message (planted via
-	// PutLogEvents, parsed here at StartQuery). Go's json.Unmarshal already
-	// caps nesting at 10000, but the walk is hardened so it can never blow the
-	// stack regardless of decode path: past the cap a node is recorded as a
-	// scalar rather than descended.
+	// Messages arrive from PutLogEvents. Past this depth record a node as a
+	// scalar instead of descending, whatever the decoder's own cap.
 	const maxFlattenDepth = 256
 	var walk func(prefix string, v any, depth int)
 	walk = func(prefix string, v any, depth int) {
@@ -231,8 +219,6 @@ func cwFlattenJSONInto(rec cwInsightsRecord, message string) {
 		walk(k, v, 0)
 	}
 }
-
-// ── query execution ────────────────────────────────────────────────────────
 
 func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) ([][]map[string]any, error) {
 	stages := strings.Split(query, "|")
@@ -272,7 +258,7 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 			records = cwDedup(records, cwSplitCommaList(rest))
 		}
 	}
-	// Default Insights ordering is newest-first by @timestamp when no sort/stats.
+	// Without sort or stats, Insights orders newest-first by @timestamp.
 	if !statsApplied {
 		sort.SliceStable(records, func(i, j int) bool {
 			return cwRecTS(records[i]) > cwRecTS(records[j])
@@ -317,8 +303,6 @@ func cwSplitCommaList(s string) []string {
 	return out
 }
 
-// ── stats ──────────────────────────────────────────────────────────────────
-
 // cwRunStats applies `stats fn(field) [as alias] [, ...] by g1, g2`.
 func cwRunStats(spec string, records []cwInsightsRecord) []cwInsightsRecord {
 	aggPart, byPart := spec, ""
@@ -341,7 +325,7 @@ func cwRunStats(spec string, records []cwInsightsRecord) []cwInsightsRecord {
 		}
 		groups[key] = append(groups[key], rec)
 	}
-	// No `by`: a single group over all records.
+	// Without `by`, one group spans all records.
 	if len(groupFields) == 0 {
 		order = []string{""}
 		groups[""] = records
@@ -393,8 +377,8 @@ func cwParseAggs(s string) []cwAgg {
 func cwComputeAgg(a cwAgg, grp []cwInsightsRecord) string {
 	switch a.fn {
 	case "count":
-		// `count(*)` and a bare `count` count every record in the group; a
-		// named field counts the records that carry it.
+		// `count(*)` and bare `count` count every record; a named field counts the
+		// records carrying it.
 		if a.field == "" || a.field == "*" {
 			return strconv.Itoa(len(grp))
 		}
@@ -468,10 +452,8 @@ func cwStatsOutputFields(spec string) []string {
 	return fields
 }
 
-// cwIndexKeyword finds a whitespace-delimited keyword (case-insensitive). The
-// returned index slices the ORIGINAL s, so it folds with sim.ASCIIFold (byte-
-// length preserving) — strings.ToLower can change the byte length on
-// multibyte / invalid-UTF-8 input and shift the index past len(s).
+// The index slices the original s, so fold with the length-preserving
+// sim.ASCIIFold; strings.ToLower can change byte length on multibyte input.
 func cwIndexKeyword(s, kw string) int {
 	lower := sim.ASCIIFold(s)
 	target := " " + kw + " "
@@ -480,8 +462,6 @@ func cwIndexKeyword(s, kw string) int {
 	}
 	return -1
 }
-
-// ── sort / dedup ───────────────────────────────────────────────────────────
 
 func cwSortRecords(spec string, records []cwInsightsRecord) []cwInsightsRecord {
 	field, desc := cwParseSortSpec(spec)

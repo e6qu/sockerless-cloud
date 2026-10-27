@@ -67,8 +67,7 @@ func TestDDBEscapedKeyTextKeepsOrderAndAvoidsTheSeparator(t *testing.T) {
 	}
 }
 
-// Items a build before the ordered encoding stored are re-keyed at startup, so
-// a query reads them in order, and the migration runs once.
+// Items stored before the ordered encoding are re-keyed once at startup.
 func TestDDBMigrateItemKeysRekeysOnce(t *testing.T) {
 	ddbTables = sim.MakeStore[DDBTable](nil, "ddb_tables")
 	ddbItems = sim.MakeStore[map[string]any](nil, "ddb_items")

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for Kudu's WebJobs API on a web app's SCM site. A job lands
-// with the app's content through az webapp deploy, and az rest reaches the
-// SCM site with a Microsoft Entra token for App Service:
+// Kudu's WebJobs API on a web app's SCM site. The job lands with the app's
+// content through `az webapp deploy`, and `az rest` reaches the SCM site with a
+// Microsoft Entra token for App Service.
 //
 //	GET /api/webjobs
 //	GET /api/triggeredwebjobs
@@ -65,7 +65,7 @@ func TestWebAppKudu_WebJobsAPI(t *testing.T) {
 	assert.Equal(t, "run.sh", triggered[0].RunCommand)
 	assert.Equal(t, scm+"/api/triggeredwebjobs/report", triggered[0].URL)
 
-	// A run; az rest prints nothing for its 202, so the history shows it.
+	// az rest prints nothing for the run's 202, so the history shows it.
 	kudu("post", "/api/triggeredwebjobs/report/run")
 	type run struct {
 		ID      string `json:"id"`
@@ -93,7 +93,6 @@ func TestWebAppKudu_WebJobsAPI(t *testing.T) {
 	kudu("put", "/api/triggeredwebjobs/report/settings", "--body", `{"is_singleton":true}`)
 	assert.JSONEq(t, `{"is_singleton":true}`, kudu("get", "/api/triggeredwebjobs/report/settings"))
 
-	// A job uploaded as its run file alone.
 	var uploaded struct {
 		Name string `json:"name"`
 		Type string `json:"type"`

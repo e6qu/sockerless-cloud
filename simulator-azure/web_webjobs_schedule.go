@@ -11,22 +11,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-// web_webjobs_schedule.go runs a triggered webjob on the schedule its
-// settings.job names: a six-field NCRONTAB expression ({second} {minute}
-// {hour} {day} {month} {day-of-week}) read in the site's WEBSITE_TIME_ZONE,
-// UTC when it sets none. Each occurrence starts a run whose trigger is
-// "Schedule - <expression>", unless the job is still running or the site's
-// WEBJOBS_STOPPED setting keeps its jobs from running. The scheduler keeps no
-// occurrence across a simulator restart: like Kudu's, it starts from the next
-// occurrence after it comes up and runs none it missed.
+// settings.job names a six-field NCRONTAB expression read in the site's
+// WEBSITE_TIME_ZONE, UTC when it sets none. An occurrence is skipped while the
+// job still runs or WEBJOBS_STOPPED is set. Like Kudu's, the scheduler starts
+// from the next occurrence after it comes up and runs none it missed.
 
-// webJobSchedule is a parsed NCRONTAB expression.
 type webJobSchedule struct {
 	seconds []int
 	minutes cron.Schedule
 }
 
-// parseWebJobSchedule parses a six-field NCRONTAB expression.
 func parseWebJobSchedule(expr string, loc *time.Location) (webJobSchedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 6 {
@@ -43,8 +37,6 @@ func parseWebJobSchedule(expr string, loc *time.Location) (webJobSchedule, error
 	return webJobSchedule{seconds: seconds, minutes: minutes}, nil
 }
 
-// parseCronSeconds expands a seconds field: `*`, values, ranges, lists and
-// `/` steps over 0–59, in ascending order.
 func parseCronSeconds(spec string) ([]int, error) {
 	var set [60]bool
 	for _, part := range strings.Split(spec, ",") {
@@ -92,11 +84,10 @@ func parseCronSeconds(spec string) ([]int, error) {
 	return out, nil
 }
 
-// Next returns the first occurrence strictly after after.
 func (s webJobSchedule) Next(after time.Time) (time.Time, bool) {
 	minute := after.Truncate(time.Minute)
-	// A minute the expression's last five fields hold is its own next
-	// occurrence after the second before it.
+	// A minute the last five fields hold is its own next occurrence after the
+	// second before it.
 	if next, ok := s.minutes.Next(minute.Add(-time.Second)); ok && next.Equal(minute) {
 		for _, sec := range s.seconds {
 			if t := minute.Add(time.Duration(sec) * time.Second); t.After(after) {
@@ -111,8 +102,7 @@ func (s webJobSchedule) Next(after time.Time) (time.Time, bool) {
 	return next.Add(time.Duration(s.seconds[0]) * time.Second), true
 }
 
-// webSiteTimeZone is the zone WEBSITE_TIME_ZONE names, as a Windows time zone
-// name or an IANA one; UTC when the site names none.
+// WEBSITE_TIME_ZONE takes a Windows or an IANA time zone name.
 func webSiteTimeZone(site *Site) (*time.Location, error) {
 	name := strings.TrimSpace(siteAppSettings(site)["WEBSITE_TIME_ZONE"])
 	if name == "" {
@@ -128,7 +118,6 @@ func webSiteTimeZone(site *Site) (*time.Location, error) {
 	return loc, nil
 }
 
-// webJobScheduleExpr is the schedule a triggered job's settings.job names.
 func webJobScheduleExpr(rec WebJobRecord) string {
 	if s, ok := kuduWebJobSettings(rec)["schedule"].(string); ok {
 		return strings.TrimSpace(s)
@@ -136,7 +125,6 @@ func webJobScheduleExpr(rec WebJobRecord) string {
 	return ""
 }
 
-// startWebJobSchedules evaluates every scheduled triggered webjob each second.
 func startWebJobSchedules(srv *sim.Server) {
 	cron.NewTicker(sim.NewStateStore[cron.Record](), webJobScheduleEntries).
 		Start(srv, "App Service webjob schedules", time.Second)
@@ -175,8 +163,6 @@ func webJobScheduleEntries() []cron.Entry {
 	return entries
 }
 
-// webJobScheduleState records a schedule's state on the job: the error of
-// one that does not parse, and the scheduler log line of one it arms.
 func webJobScheduleState(site *Site, rec WebJobRecord, expr string, err error) {
 	msg := ""
 	if err != nil {
@@ -197,8 +183,6 @@ func webJobScheduleState(site *Site, rec WebJobRecord, expr string, err error) {
 	}
 }
 
-// webFireScheduledWebJob starts the run an occurrence of a job's schedule
-// calls for.
 func webFireScheduledWebJob(jobID, expr string, scheduled time.Time) {
 	rec, ok := webWebJobs.Get(jobID)
 	if !ok {

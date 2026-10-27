@@ -7,30 +7,21 @@ import (
 	"testing"
 )
 
-// FuzzSBAMQPReadFrame feeds arbitrary bytes (the raw transport is fed by a
-// pre-auth TLS listener) through the length-prefixed frame reader. An absurd
-// size prefix must error, not allocate gigabytes.
-//
-// Not panicking is not the property under test, and on its own it would not
-// catch the failure this target exists for: with the size bound removed,
-// make([]byte, 4294967295) succeeds lazily under overcommit, io.ReadFull then
-// returns ErrUnexpectedEOF, and a target that discards both return values sees
-// nothing wrong while the reader has just been asked to reserve four gigabytes
-// on a pre-authentication path. So the oracle reads the size prefix the same
-// way the reader does and holds the reader to it.
+// The raw transport is fed by a pre-auth TLS listener, so an absurd size
+// prefix must error, not allocate. Not panicking proves nothing: without the
+// bound, make([]byte, 4294967295) succeeds lazily under overcommit and
+// io.ReadFull returns ErrUnexpectedEOF, so the oracle reads the size prefix as
+// the reader does and holds it to the bound.
 func FuzzSBAMQPReadFrame(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{'A', 'M', 'Q', 'P', 0, 1, 0, 0})
 	f.Add([]byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0})
-	// One byte past sbAMQPMaxFrameSize: the boundary the bound is written at,
-	// and a size small enough that a reader which had lost the bound would
-	// allocate it rather than die of it — which is exactly the state the
-	// oracle has to notice rather than be rescued from.
+	// One byte past sbAMQPMaxFrameSize: small enough that a reader without the
+	// bound would allocate it rather than fail.
 	f.Add([]byte{0x01, 0x00, 0x00, 0x01, 0, 0, 0, 0})
 	f.Add([]byte{0, 0, 0, 12, 2, 0, 0, 0, 1, 2, 3, 4})
-	// Found by this target on the nightly run: a size the bound admits, with
-	// the body cut short. The reader answered with the whole buffer it had
-	// reserved — the size the peer claimed, zero-padded — beside the error.
+	// A size the bound admits with the body cut short: the reader must not return
+	// its zero-padded buffer beside the error.
 	f.Add([]byte{0, 0, 0, 12, 2, 0, 0, 0, 1})
 	f.Add([]byte{0x00, 0x30, 0x2f, 0x30, 2, 0, 0, 0, 1, 2, 3, 4})
 	f.Fuzz(func(t *testing.T, data []byte) {

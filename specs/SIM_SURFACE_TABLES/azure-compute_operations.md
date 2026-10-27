@@ -17,8 +17,8 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /providers/Microsoft.Compute/operations` | ○ `simulator-azure/compute_operations.go:71::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/usages` | ✓ `simulator-azure/compute_operations.go:92::handleComputeUsagesByLocation` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /providers/Microsoft.Compute/operations` | ○ `simulator-azure/compute_operations.go:59::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/usages` | ✓ `simulator-azure/compute_operations.go:78::handleComputeUsagesByLocation` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

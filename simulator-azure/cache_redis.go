@@ -9,11 +9,11 @@ import (
 )
 
 // Microsoft.Cache/Redis: the Azure Resource Manager lifecycle of a cache and
-// its sub-resources, and the cache's data plane, a real Redis engine
+// its sub-resources, and a real Redis engine as its data plane
 // (cache_redis_engine.go).
 
-// RedisCache mirrors RedisResource: sku lives under properties
-// (RedisProperties allOf RedisCreateProperties), never at the top level.
+// sku lives under properties (RedisProperties allOf RedisCreateProperties),
+// never at the top level.
 type RedisCache struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -23,10 +23,6 @@ type RedisCache struct {
 	Tags       map[string]string `json:"tags,omitempty"`
 }
 
-// RedisFirewallRule is one per-cache firewall rule (start..end IP).
-// Real Azure stores them as sub-resources at
-// /Redis/{cache}/firewallRules/{name}; terraform-provider-azurerm
-// uses azurerm_redis_firewall_rule.
 type RedisFirewallRule struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -34,11 +30,9 @@ type RedisFirewallRule struct {
 	Properties map[string]any `json:"properties"`
 }
 
-// RedisSubResource is the generic shape for a Redis child resource
-// (access policy, access-policy assignment, linked server, patch schedule,
-// private endpoint connection): an ARM resource with a free-form properties
-// bag. The handlers echo the operator-supplied properties; resources whose
-// schema includes provisioningState additionally get it stamped to Succeeded.
+// RedisSubResource is the shape of a Redis child resource with a free-form
+// properties bag: access policies and their assignments, linked servers, patch
+// schedules, private endpoint connections.
 type RedisSubResource struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -89,11 +83,10 @@ func registerCacheRedis(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/{name}/flush", handleRedisFlushCache)
 	srv.HandleFunc("GET "+armBase+"/{name}/listUpgradeNotifications", handleRedisListUpgradeNotifications)
 
-	// Provider-level operations metadata and the name-availability check.
 	srv.HandleFunc("GET /providers/Microsoft.Cache/operations", handleRedisOperationsList)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Cache/checknameavailability", handleRedisCheckNameAvailability)
 
-	// Access policies + assignments (Microsoft Entra ID data-access RBAC).
+	// Microsoft Entra ID data-access RBAC.
 	srv.HandleFunc("PUT "+armBase+"/{name}/accessPolicies/{policy}", handleRedisAccessPolicyPut)
 	srv.HandleFunc("GET "+armBase+"/{name}/accessPolicies/{policy}", handleRedisAccessPolicyGet)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/accessPolicies/{policy}", handleRedisAccessPolicyDelete)
@@ -103,28 +96,24 @@ func registerCacheRedis(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+armBase+"/{name}/accessPolicyAssignments/{assignment}", handleRedisAccessPolicyAssignmentDelete)
 	srv.HandleFunc("GET "+armBase+"/{name}/accessPolicyAssignments", handleRedisAccessPolicyAssignmentList)
 
-	// Linked servers (geo-replication).
 	srv.HandleFunc("PUT "+armBase+"/{name}/linkedServers/{linkedServer}", handleRedisLinkedServerPut)
 	srv.HandleFunc("GET "+armBase+"/{name}/linkedServers/{linkedServer}", handleRedisLinkedServerGet)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/linkedServers/{linkedServer}", handleRedisLinkedServerDelete)
 	srv.HandleFunc("GET "+armBase+"/{name}/linkedServers", handleRedisLinkedServerList)
 
-	// Patch schedules (maintenance windows).
 	srv.HandleFunc("PUT "+armBase+"/{name}/patchSchedules/{schedule}", handleRedisPatchSchedulePut)
 	srv.HandleFunc("GET "+armBase+"/{name}/patchSchedules/{schedule}", handleRedisPatchScheduleGet)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/patchSchedules/{schedule}", handleRedisPatchScheduleDelete)
 	srv.HandleFunc("GET "+armBase+"/{name}/patchSchedules", handleRedisPatchScheduleList)
 
-	// Private endpoint connections + private link resources.
 	srv.HandleFunc("PUT "+armBase+"/{name}/privateEndpointConnections/{pec}", handleRedisPECPut)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateEndpointConnections/{pec}", handleRedisPECGet)
 	srv.HandleFunc("DELETE "+armBase+"/{name}/privateEndpointConnections/{pec}", handleRedisPECDelete)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateEndpointConnections", handleRedisPECList)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateLinkResources", handleRedisPrivateLinkResources)
 
-	// A persistent control-plane restart rebinds every cache's ports and
-	// re-adopts the engine workloads the earlier process left. The API-only
-	// tier runs no engines.
+	// A persistent restart rebinds every cache's ports and re-adopts the engine
+	// workloads the earlier process left. The API-only tier runs no engines.
 	if redisRunsEngines() {
 		if err := redisRecoverEngines(); err != nil {
 			log.Fatalf("recover Azure Cache for Redis data planes: %v", err)
@@ -136,9 +125,8 @@ func redisCacheID(sub, rg, name string) string {
 	return armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 }
 
-// redisFirewallRuleID is the firewall rule's ARM resource ID, which is also
-// the key its store uses — the same shape as every other Redis child store, so
-// a cross-resource-group move re-keys them all the same way.
+// The rule's resource ID keys its store, like every Redis child store, so a
+// cross-resource-group move re-keys them alike.
 func redisFirewallRuleID(sub, rg, cache, rule string) string {
 	return armChildID(redisCacheID(sub, rg, cache), "firewallRules", rule)
 }
@@ -210,15 +198,9 @@ func handleRedisCacheListFirewallRules(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": all})
 }
 
-// redisAccessKeysBody is the RedisAccessKeys shape listKeys and regenerateKey
-// both return, reflecting every rotation performed so far. Real Azure
-// generates 32-byte random keys per cache; the sim derives deterministic
-// 44-char base64 strings from the resource ID + key slot + rotation
-// generation so the wire shape matches what clients expect (Redis AUTH
-// tokens, downstream connection strings that reference the
-// `primary_access_key` attribute in terraform-provider-azurerm). Same key
-// across reads; distinct between primary / secondary; distinct between
-// caches; a new value after every regenerate of that slot.
+// redisAccessKeysBody derives each 44-character base64 key from the resource
+// ID, the slot and its rotation generation: stable across reads, distinct per
+// slot and per cache, new after each regenerate of that slot.
 func redisAccessKeysBody(id string) map[string]any {
 	return map[string]any{
 		"primaryKey":   azureKeyMaterial32(id, "primary"),
@@ -226,7 +208,6 @@ func redisAccessKeysBody(id string) map[string]any {
 	}
 }
 
-// handleRedisCacheListKeys returns the primary + secondary access keys.
 func handleRedisCacheListKeys(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -251,7 +232,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 	if _, exists := redisCaches.Get(id); exists {
-		// ARM's PUT is create-or-update: on an existing cache it updates.
+		// Azure Resource Manager's PUT is create-or-update.
 		redisCacheUpdate(w, r, id, req)
 		return
 	}
@@ -280,7 +261,6 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 			"hostName":         azureEndpointHostname(r, name, "redis", "cache"),
 		},
 	}
-	// Merge operator-supplied properties (e.g. sku, redisConfiguration).
 	for k, v := range req.Properties {
 		cache.Properties[k] = v
 	}
@@ -328,9 +308,8 @@ func handleRedisCachePatch(w http.ResponseWriter, r *http.Request) {
 	redisCacheUpdate(w, r, id, req)
 }
 
-// redisCacheUpdate applies an update to a cache and its engine: the non-SSL
-// port opens or closes, the replica count follows the SKU, and the Redis
-// directives of redisConfiguration apply live.
+// redisCacheUpdate applies live: the non-SSL port opens or closes, the replica
+// count follows the SKU, and redisConfiguration's directives apply.
 func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req RedisCache) {
 	current, _ := redisCaches.Get(id)
 	if state, _ := current.Properties["provisioningState"].(string); state != "Succeeded" && state != "" {
@@ -465,8 +444,7 @@ func handleRedisCacheListBySubscription(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }
 
-// redisCacheExists reports whether the named cache is provisioned, writing a
-// ResourceNotFound error when it is not.
+// redisCacheExists writes ResourceNotFound when the cache is absent.
 func redisCacheExists(w http.ResponseWriter, sub, rg, name string) bool {
 	if _, ok := redisCaches.Get(redisCacheID(sub, rg, name)); ok {
 		return true
@@ -476,11 +454,8 @@ func redisCacheExists(w http.ResponseWriter, sub, rg, name string) bool {
 	return false
 }
 
-// handleRedisCacheRegenerateKey regenerates the primary or secondary access
-// key and returns the full RedisAccessKeys pair. The rotation is recorded per
-// key slot, so a subsequent listKeys observes the new value, a second
-// regenerate of the same slot yields yet another value, and the untouched
-// slot keeps its listKeys value.
+// handleRedisCacheRegenerateKey records the rotation per slot, so listKeys
+// observes the new value and the other slot keeps its own.
 func handleRedisCacheRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -519,8 +494,7 @@ func handleRedisCacheRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, redisAccessKeysBody(id))
 }
 
-// handleRedisForceReboot reboots Redis node(s). Real Azure returns a status
-// message synchronously.
+// Azure answers the reboot with a status message synchronously.
 func handleRedisForceReboot(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -563,9 +537,7 @@ func handleRedisForceReboot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRedisImportData imports RDB files into the cache (long-running). The
-// simulator completes the import synchronously (no headers → the SDK poller
-// resolves immediately).
+// Answers 200 without importing anything.
 func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -588,8 +560,7 @@ func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRedisExportData exports the cache contents to a storage container
-// (long-running, completed synchronously).
+// Answers 200 without exporting anything.
 func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -613,8 +584,8 @@ func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRedisFlushCache deletes every key of the cache inside the request, so
-// the operation completes as it answers.
+// handleRedisFlushCache deletes every key within the request, so the operation
+// completes as it answers.
 func handleRedisFlushCache(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -631,8 +602,7 @@ func handleRedisFlushCache(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRedisListUpgradeNotifications returns pending Redis-version upgrade
-// notifications. A healthy cache has none.
+// A healthy cache has no upgrade notifications.
 func handleRedisListUpgradeNotifications(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -665,10 +635,9 @@ func handleRedisOperationsList(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handleRedisCheckNameAvailability reports whether a cache name is free. Unlike
-// Key Vault, Redis_CheckNameAvailability returns no body: 200 (empty) when the
-// name is available, and an error envelope when it is already taken (a cache
-// with that name exists in any resource group of the subscription).
+// Redis_CheckNameAvailability returns no body: 200 when the name is free, an
+// error envelope when a cache of that name exists in any resource group of the
+// subscription.
 func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	var req struct {
@@ -694,12 +663,9 @@ func handleRedisCheckNameAvailability(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// redisChildPut is the shared create-or-update body for Redis child resources
-// that carry a properties bag. It validates the parent cache exists and echoes
-// the operator properties. Resources whose schema includes a provisioningState
-// (access policies/assignments, linked servers, private endpoint connections)
-// pass stampProvisioningState=true; the patch schedule's ScheduleEntries shape
-// has no provisioningState, so it passes false.
+// redisChildPut checks the parent cache exists and echoes the properties.
+// stampProvisioningState is false only for the patch schedule, whose
+// ScheduleEntries shape has no provisioningState.
 func redisChildPut(w http.ResponseWriter, r *http.Request, store sim.Store[RedisSubResource], childSeg, childName, typ string, stampProvisioningState bool) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
@@ -828,8 +794,7 @@ func handleRedisPECList(w http.ResponseWriter, r *http.Request) {
 	redisChildList(w, r, redisPrivateConns, "privateEndpointConnections")
 }
 
-// handleRedisPrivateLinkResources returns the cache's single "redisCache"
-// private-link group, matching real Azure.
+// A cache exposes a single "redisCache" private-link group.
 func handleRedisPrivateLinkResources(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")

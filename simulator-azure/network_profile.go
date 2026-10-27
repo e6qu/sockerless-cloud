@@ -8,25 +8,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Network profiles (Microsoft.Network/networkProfiles) hold the network
-// configuration a container platform applies when it puts a container group in
-// a virtual network: one container network interface configuration per
-// interface the platform should create, each naming the subnet its addresses
-// come from. The profile is configuration — Azure realizes nothing when it is
-// written, and realizes an interface only when a container group is deployed
-// against it. So the profile's create validates the subnets it names and stamps
-// child identity, and its read-only containerNetworkInterfaces property stays
-// empty — the container platform is what fills it, and a profile nothing has
-// been deployed against carries an empty collection in Azure too.
+// A network profile holds the configuration a container platform applies when
+// placing a container group in a virtual network: one interface configuration
+// per interface, each naming its subnet. Azure realizes nothing on write, so
+// the create validates subnets and stamps child identity, and
+// containerNetworkInterfaces stays empty until a container group is deployed
+// against it, as in Azure.
 
-// NetworkProfile mirrors Microsoft.Network/networkProfiles.
 type NetworkProfile struct {
 	azureNetworkResourceHeader
 	Properties NetworkProfileProperties `json:"properties"`
 }
 
-// NetworkProfileProperties holds the profile's interface configurations and the
-// interfaces realized from them.
 type NetworkProfileProperties struct {
 	ContainerNetworkInterfaces              []ContainerNetworkInterface              `json:"containerNetworkInterfaces,omitempty"`
 	ContainerNetworkInterfaceConfigurations []ContainerNetworkInterfaceConfiguration `json:"containerNetworkInterfaceConfigurations,omitempty"`
@@ -42,15 +35,12 @@ type ContainerNetworkInterfaceConfiguration struct {
 	Properties ContainerNetworkInterfaceConfigurationProperties `json:"properties"`
 }
 
-// ContainerNetworkInterfaceConfigurationProperties holds the template's IP
-// configurations and the interfaces created from it.
 type ContainerNetworkInterfaceConfigurationProperties struct {
 	IPConfigurations           []IPConfigurationProfile `json:"ipConfigurations,omitempty"`
 	ContainerNetworkInterfaces []SubResource            `json:"containerNetworkInterfaces,omitempty"`
 	ProvisioningState          string                   `json:"provisioningState,omitempty"`
 }
 
-// IPConfigurationProfile names the subnet one templated interface draws from.
 type IPConfigurationProfile struct {
 	ID         string                           `json:"id,omitempty"`
 	Name       string                           `json:"name,omitempty"`
@@ -59,14 +49,11 @@ type IPConfigurationProfile struct {
 	Properties IPConfigurationProfileProperties `json:"properties"`
 }
 
-// IPConfigurationProfileProperties holds the subnet reference.
 type IPConfigurationProfileProperties struct {
 	Subnet            *SubResource `json:"subnet,omitempty"`
 	ProvisioningState string       `json:"provisioningState,omitempty"`
 }
 
-// ContainerNetworkInterface is an interface realized from a configuration when
-// a container group is deployed against the profile.
 type ContainerNetworkInterface struct {
 	ID         string         `json:"id,omitempty"`
 	Name       string         `json:"name,omitempty"`

@@ -2,10 +2,7 @@
 # check-gh-api-params.sh — reject `gh api` query parameters GitHub does not define.
 #
 # The REST API ignores an unknown query key rather than rejecting it, so a typo
-# answers successfully with an unfiltered result. A rename that reached inside a
-# URL turned `commits?path=` into `commits?srcpath=`, which made every vendored
-# specification compare its pin against the repository's branch tip: permanent
-# drift no refresh could clear, reported by a script that exited cleanly.
+# answers successfully with an unfiltered result.
 #
 # Usage: scripts/check-gh-api-params.sh
 set -euo pipefail

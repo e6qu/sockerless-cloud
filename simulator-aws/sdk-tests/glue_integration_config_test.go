@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_IntegrationTargetNamespace_SDK covers TargetNamespace: taken only
-// for an Amazon S3 Tables table bucket target, held to a namespace name,
-// defaulted from the integration ID, and fixed once the integration exists.
+// TestGlue_IntegrationTargetNamespace_SDK expects TargetNamespace only for an
+// Amazon S3 Tables table bucket target, held to a namespace name, defaulted
+// from the integration ID and fixed once the integration exists.
 func TestGlue_IntegrationTargetNamespace_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -69,8 +69,8 @@ func TestGlue_IntegrationTargetNamespace_SDK(t *testing.T) {
 	require.True(t, errors.As(err, &invalidInput), "ModifyIntegration refuses a namespace change, got %v", err)
 }
 
-// TestGlue_ModifyIntegrationRefreshInterval_SDK changes an integration's
-// RefreshInterval and reads it back, keeping the rest of its configuration.
+// TestGlue_ModifyIntegrationRefreshInterval_SDK expects RefreshInterval to
+// change and the rest of the configuration to stay.
 func TestGlue_ModifyIntegrationRefreshInterval_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()

@@ -14,14 +14,11 @@ import (
 const filesAccountName = "clifileacct"
 
 // azStorageFile builds an `az storage file` / `az storage share` invocation
-// against the simulator's path-style Files endpoint. The account, the key and
-// the endpoint are the only coordinates that differ from a real Azure
-// invocation.
+// against the simulator's path-style Azure Files endpoint.
 func azStorageFile(group string, args ...string) *exec.Cmd {
 	baseArgs := append([]string{"storage", group}, args...)
-	// Azure Files has no Microsoft Entra data-plane authorization, so `az
-	// storage file` / `az storage share` take an account key and reject
-	// --auth-mode.
+	// Azure Files has no Microsoft Entra data-plane authorization, so these
+	// commands take an account key and reject --auth-mode.
 	baseArgs = append(baseArgs,
 		"--account-name", filesAccountName,
 		"--account-key", cliStorageAccountKey(filesAccountName),
@@ -37,11 +34,9 @@ func azStorageFile(group string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// TestFilesUploadLandsInTheContainerAppsMountCLI drives the Azure Files data
-// plane with the az CLI and then looks at the directory a Container Apps
-// Volume{StorageType: AzureFile} bind-mounts. `az storage file upload` issues
-// Create File followed by Upload Range, so a share is only useful as a mounted
-// volume if those two land the bytes on the host path the executor binds.
+// TestFilesUploadLandsInTheContainerAppsMountCLI checks that `az storage file
+// upload` (Create File, then Upload Range) lands the bytes on the host path a
+// Container Apps AzureFile volume bind-mounts.
 func TestFilesUploadLandsInTheContainerAppsMountCLI(t *testing.T) {
 	t.Parallel()
 	const share = "cli-mount-share"
@@ -58,15 +53,13 @@ func TestFilesUploadLandsInTheContainerAppsMountCLI(t *testing.T) {
 
 	runCLI(t, azStorageFile("file", "upload", "--share-name", share, "--source", source, "--path", fileName))
 
-	// The share materializes at <files data dir>/<account>/<share>: the exact
-	// host path the simulator's Container Apps executor bind-mounts, so this is
-	// what a container reads at <mountPath>/uploaded.txt.
+	// The simulator's Container Apps executor bind-mounts
+	// <files data dir>/<account>/<share>.
 	mounted := filepath.Join(azureFilesDataDir, filesAccountName, share, fileName)
 	onDisk, err := os.ReadFile(mounted)
 	require.NoError(t, err, "the uploaded file must exist in the directory a volume mount binds: %s", mounted)
 	assert.Equal(t, payload, string(onDisk), "the mounted share must hold the uploaded bytes")
 
-	// The same bytes come back through the data plane.
 	destination := filepath.Join(tmpDir, "cli-files-download.txt")
 	runCLI(t, azStorageFile("file", "download", "--share-name", share, "--path", fileName, "--dest", destination))
 	downloaded, err := os.ReadFile(destination)
@@ -100,9 +93,8 @@ func TestFilesUploadLandsInTheContainerAppsMountCLI(t *testing.T) {
 	assert.True(t, found, "az storage share list must name the created share: %s", out)
 }
 
-// TestFilesShareDeleteRemovesTheMountedContentsCLI: deleting the share takes
-// its files with it, so a container that mounts a share of the same name later
-// never sees the previous share's data.
+// TestFilesShareDeleteRemovesTheMountedContentsCLI: a share deleted and
+// recreated under the same name never shows the previous share's data.
 func TestFilesShareDeleteRemovesTheMountedContentsCLI(t *testing.T) {
 	t.Parallel()
 	const share = "cli-deleted-share"

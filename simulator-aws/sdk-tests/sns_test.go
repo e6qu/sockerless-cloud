@@ -19,8 +19,6 @@ func snsClient() *sns.Client {
 	})
 }
 
-// TestSNS_TopicLifecycle exercises the Create / Get / List / Delete
-// flow that every runner integration tutorial runs against SNS.
 func TestSNS_TopicLifecycle(t *testing.T) {
 	t.Parallel()
 	client := snsClient()
@@ -56,8 +54,7 @@ func TestSNS_TopicLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSNS_SubscribeAndUnsubscribe asserts subscription CRUD against
-// an SQS endpoint protocol.
+// TestSNS_SubscribeAndUnsubscribe covers an Amazon SQS subscription.
 func TestSNS_SubscribeAndUnsubscribe(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -76,7 +73,7 @@ func TestSNS_SubscribeAndUnsubscribe(t *testing.T) {
 		_, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
 	})
 
-	// SQS subscription endpoint is the queue ARN.
+	// An Amazon SQS subscription's endpoint is the queue ARN.
 	queueAttrs, err := sqsC.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       q.QueueUrl,
 		AttributeNames: []sqstypes.QueueAttributeName{"QueueArn"},
@@ -143,9 +140,7 @@ func TestSNS_SubscribeConfirmationRequiredProtocols(t *testing.T) {
 	assert.Equal(t, "2", attrs.Attributes["SubscriptionsPending"])
 }
 
-// TestSNS_PublishFanoutToSQS asserts the load-bearing real-world
-// pattern: SNS topic with SQS subscriber, Publish message lands in
-// the subscriber queue's Messages.
+// TestSNS_PublishFanoutToSQS expects a Publish to land in the subscribed queue.
 func TestSNS_PublishFanoutToSQS(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -169,8 +164,8 @@ func TestSNS_PublishFanoutToSQS(t *testing.T) {
 	require.NoError(t, err)
 	queueARN := queueAttrs.Attributes["QueueArn"]
 
-	// Real SNS→SQS delivery is gated by the queue's resource policy: the
-	// queue must grant sns.amazonaws.com sqs:SendMessage from this topic.
+	// Amazon SNS delivers to the queue only if its policy grants sns.amazonaws.com
+	// sqs:SendMessage from this topic.
 	setQueuePolicyAllowingSNS(t, sqsC, aws.ToString(q.QueueUrl), queueARN, aws.ToString(tpc.TopicArn))
 
 	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
@@ -196,13 +191,12 @@ func TestSNS_PublishFanoutToSQS(t *testing.T) {
 	assert.Contains(t, envelopeBody, `"Message":"payload-1"`)
 	assert.Contains(t, envelopeBody, aws.ToString(tpc.TopicArn))
 
-	// Sanity: envelope is valid JSON.
+	// The envelope is JSON.
 	var env map[string]any
 	require.NoError(t, json.Unmarshal([]byte(envelopeBody), &env))
 	assert.Equal(t, "payload-1", env["Message"])
 }
 
-// TestSNS_NonExistentTopic confirms canonical error shape.
 func TestSNS_NonExistentTopic(t *testing.T) {
 	t.Parallel()
 	client := snsClient()
@@ -228,7 +222,7 @@ func TestSNS_ListTopics_Pagination(t *testing.T) {
 		t.Cleanup(func() { client.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: aws.String(arn)}) })
 	}
 
-	// SNS SDK v2 has no built-in paginator for ListTopics; iterate manually via NextToken.
+	// The SNS client has no paginator for ListTopics; follow NextToken.
 	seen := map[string]bool{}
 	var token *string
 	for {
@@ -247,15 +241,12 @@ func TestSNS_ListTopics_Pagination(t *testing.T) {
 	}
 }
 
-// The two Amazon SNS destinations that live outside AWS fail loudly, and the
-// failure names the dependency that is missing.
-//
-// SMS needs a telecommunications carrier and mobile push needs Apple's and
-// Google's own hosts; neither is an AWS-configurable coordinate, so this
-// simulator cannot deliver to either and does not pretend to. What it must not
-// do is fail for some other reason: publishing to a phone number used to be
-// rejected as a missing TopicArn, which sends a reader hunting a defect in
-// their own request instead of telling them where the simulator stops.
+// TestSNS_ExternalDeliveryFailsWithItsOwnReason expects SMS and mobile push,
+// whose destinations lie outside AWS, to fail with an error naming the
+// missing dependency: SMS needs a telecommunications carrier and mobile push
+// Apple's and Google's hosts, neither an AWS coordinate. A failure for another
+// reason, such as a missing TopicArn, would send a reader hunting a defect in
+// their own request.
 func TestSNS_ExternalDeliveryFailsWithItsOwnReason(t *testing.T) {
 	t.Parallel()
 	c := snsClient()

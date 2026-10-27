@@ -382,7 +382,6 @@ func bqParquetNode(f BQFieldSchema) parquet.Node {
 	}
 }
 
-// bqEncodeParquet writes rows as a Parquet file.
 func bqEncodeParquet(fields []BQFieldSchema, rows []map[string]any, compression string) ([]byte, error) {
 	schema := parquet.NewSchema("Root", bqParquetGroupOf(fields))
 	options := []parquet.WriterOption{schema}

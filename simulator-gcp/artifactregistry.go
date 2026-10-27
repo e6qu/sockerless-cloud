@@ -18,8 +18,6 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// Artifact Registry types
-
 // Repository represents an Artifact Registry repository.
 type Repository struct {
 	Name                   string            `json:"name"`
@@ -142,7 +140,7 @@ type ARProjectConfig struct {
 	PlatformLogsConfig json.RawMessage `json:"platformLogsConfig,omitempty"`
 }
 
-// Package-level store for dashboard access.
+// The registry data plane and its auth hooks read repositories from here.
 var arRepos sim.Store[Repository]
 
 // The repository colon-verb fan-in lives beside the repository routes, while
@@ -157,11 +155,9 @@ var (
 	arRegistry *sim.OCIRegistry
 )
 
-// remoteRepositoryConfigMembers is the RemoteRepositoryConfig member set
-// from the artifactregistry-v1 Discovery document. The sim stores the
-// config as a raw map for verbatim round-trips, so request fields the
-// schema doesn't define (real GCP's proto-JSON parsing discards them and
-// never echoes them back) are dropped at intake.
+// remoteRepositoryConfigMembers is the RemoteRepositoryConfig member set from
+// the artifactregistry-v1 Discovery document. Intake drops every other member,
+// as Google Cloud's proto-JSON parsing does, so a read never echoes it.
 var remoteRepositoryConfigMembers = map[string]bool{
 	"aptRepository":             true,
 	"commonRepository":          true,
@@ -175,8 +171,6 @@ var remoteRepositoryConfigMembers = map[string]bool{
 	"yumRepository":             true,
 }
 
-// sanitizeRemoteRepositoryConfig keeps only schema-defined members,
-// mirroring real GCP's treatment of unknown request fields.
 func sanitizeRemoteRepositoryConfig(cfg map[string]any) map[string]any {
 	if cfg == nil {
 		return nil
@@ -220,14 +214,9 @@ func registerArtifactRegistry(srv *sim.Server) {
 			w.Header().Set("Content-Length", "0")
 			w.WriteHeader(http.StatusOK)
 		},
-		// "Artifact Registry doesn't support Docker chunked uploads. … You must
-		// use monolithic uploads when you push container images to Artifact
-		// Registry" ("Support for the Docker Registry API"). A second write into
-		// an upload session is the chunking Google names, refused with the
-		// Docker Registry HTTP API v2 code for an operation a registry does not
-		// implement — `UNSUPPORTED`, "the operation is unsupported". Google
-		// documents the limitation but not the response, so the code and status
-		// are the specification's rather than a capture.
+		// Artifact Registry documents that it refuses Docker chunked uploads but not
+		// how, so a second write into an upload session answers the Docker Registry
+		// HTTP API v2 code for an unimplemented operation, `UNSUPPORTED`.
 		RefuseChunkedUpload: func(w http.ResponseWriter) {
 			w.Header().Set("Allow", "POST, PUT, GET, DELETE")
 			sim.OCIError(w, "UNSUPPORTED",
@@ -259,7 +248,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 	}
 	arRegistry = reg
 
-	// Create repository
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -305,18 +293,16 @@ func registerArtifactRegistry(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// Get repository (also handles :getIamPolicy/:setIamPolicy suffixes from terraform)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		repoID := sim.PathParam(r, "repo")
 
-		// Don't match if path continues with /dockerImages
 		if strings.Contains(r.URL.Path, "/dockerImages") {
 			return
 		}
 
-		// Handle IAM operations — terraform google provider uses GET for these
+		// getIamPolicy is a GET with the verb after the colon, which {repo} captures.
 		if base, action, ok := strings.Cut(repoID, ":"); ok {
 			resource := fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, base)
 			handleResourceIAM(w, r, gcpResourcePolicies, resource, action)
@@ -332,7 +318,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, repo)
 	})
 
-	// Artifact registry repository IAM (POST variant)
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/repositories/{repoAction}", func(w http.ResponseWriter, r *http.Request) {
 		repoAction := sim.PathParam(r, "repoAction")
 		project := sim.PathParam(r, "project")
@@ -351,7 +336,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 		handleResourceIAM(w, r, gcpResourcePolicies, resource, action)
 	})
 
-	// List repositories
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -380,7 +364,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// Delete repository
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/repositories/{repo}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -394,7 +377,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 		}
 		repos.Delete(name)
 
-		// Clean up docker images for this repo
 		images := dockerImages.Filter(func(img DockerImage) bool {
 			return strings.HasPrefix(img.Name, name+"/")
 		})
@@ -407,7 +389,6 @@ func registerArtifactRegistry(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
 
-	// List docker images
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/repositories/{repo}/dockerImages", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -432,18 +413,13 @@ func registerArtifactRegistry(srv *sim.Server) {
 		})
 	})
 
-	// Packages / versions / tags / files / rules / attachments and the
-	// project-scoped singleton configs (the Artifact Registry JSON admin API
-	// beyond repository CRUD + the OCI data plane).
 	registerARSubresources(srv, repos, dockerImages)
 
-	// OCI Distribution data plane — mounted from the shared registry library.
 	reg.Register(srv)
 
-	// The Docker token service the data plane's Bearer challenge names in its
-	// realm. Each verb is mounted on its own so the route stays a
-	// method-specific pattern under /v2/, and HEAD is left to Go's
-	// GET-implies-HEAD rule rather than registered explicitly.
+	// The Docker token service the data plane's Bearer challenge names. Each verb
+	// mounts on its own to keep a method-specific pattern under /v2/; GET also
+	// serves HEAD.
 	srv.HandleFunc("GET /v2/token", arTokenServiceHandler)
 	srv.HandleFunc("POST /v2/token", arTokenServiceMethodNotAllowed)
 	srv.HandleFunc("PUT /v2/token", arTokenServiceMethodNotAllowed)
@@ -472,11 +448,8 @@ var arArtifactOperations = map[string]struct {
 	"kfpArtifacts":     {uploadResponse: "KfpArtifact", uploadMetadata: "UploadKfpArtifactMetadata"},
 }
 
-// registerARSubresources mounts the package/version/tag/file/rule/attachment
-// CRUD surface plus the project-scoped projectSettings / vpcscConfig /
-// projectConfig singletons. Long-running mutations (delete package/version,
-// batchDelete, import, upload, attachment create/delete) return a completed
-// Operation exactly as real Artifact Registry does.
+// registerARSubresources answers every long-running mutation with a completed
+// Operation, as Artifact Registry does.
 func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], dockerImages sim.Store[DockerImage]) {
 	packages := sim.MakeStore[ARPackage](srv.DB(), "ar_packages")
 	versions := sim.MakeStore[ARVersion](srv.DB(), "ar_versions")
@@ -589,8 +562,6 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		repos.Put(name, repo)
 		sim.WriteJSON(w, http.StatusOK, repo)
 	})
-
-	// ---- Project-scoped singletons: projectSettings / vpcscConfig / projectConfig ----
 
 	srv.HandleFunc("GET /v1/projects/{project}/projectSettings", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("projects/%s/projectSettings", sim.PathParam(r, "project"))
@@ -747,12 +718,9 @@ func hydrateOCIImageFromLocalDocker(reg *sim.OCIRegistry, scope string, dockerIm
 		return fmt.Errorf("docker save config %q missing", image.Config)
 	}
 
-	// Serve a fully OCI manifest (OCI manifest + OCI config + OCI tar
-	// layers). The `docker save` config blob is byte-compatible with the
-	// OCI image-config schema, so it is labelled with the OCI config media
-	// type rather than the Docker v2s2 type — a mixed OCI-manifest /
-	// Docker-config image is rejected by docker build's FROM parsing
-	// ("invalid mixed OCI image with Docker v2s2 config").
+	// Label the `docker save` config blob, byte-compatible with the OCI image
+	// config, with the OCI config media type: docker build's FROM rejects a mixed
+	// OCI-manifest / Docker-config image.
 	configDigest := digestBytes(configData)
 	reg.PutBlob(scope, imageName, configDigest, "application/vnd.oci.image.config.v1+json", configData)
 
@@ -958,17 +926,12 @@ func arDeleteRepositoryContents(repo string) {
 	}
 }
 
-// artifactRegistryImageParts splits a Docker Registry v2 repository path —
-// `PROJECT/REPOSITORY/IMAGE`, the layout Artifact Registry documents for an
-// image reference — into the Artifact Registry resource it addresses.
-//
-// The location is not in that path. Against the real service it is in the
-// registry endpoint itself (`LOCATION-docker.pkg.dev`), and each regional
-// endpoint serves only its own location's repositories. The simulator serves
-// all of Artifact Registry at one coordinate that names no location, so the
-// location of a repository here is the one the control plane created it at. A
-// path naming a repository no location holds addresses nothing, and says so
-// rather than standing a location in for the one the request never supplied.
+// artifactRegistryImageParts splits a Docker Registry v2 repository path,
+// PROJECT/REPOSITORY/IMAGE, into the Artifact Registry resource it addresses.
+// The real service takes the location from its regional endpoint host; the
+// simulator serves every location at one coordinate, so it takes the location
+// the control plane created the repository at, and a repository no location
+// holds addresses nothing.
 func artifactRegistryImageParts(imageName string) (project, location, repoID, imagePath string, ok bool) {
 	parts := strings.SplitN(imageName, "/", 3)
 	if len(parts) < 3 {
@@ -1010,7 +973,6 @@ const (
 	attachType = "type.googleapis.com/google.devtools.artifactregistry.v1.Attachment"
 )
 
-// arRepoName is the repository a request's path names.
 func arRepoName(r *http.Request) string {
 	return fmt.Sprintf("projects/%s/locations/%s/repositories/%s",
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "repo"))

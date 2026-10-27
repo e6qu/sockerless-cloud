@@ -13,12 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSSM_Inventory pins the inventory report/read-back surface:
-// PutInventory captures a typed item list for a node; GetInventory and
-// ListInventoryEntries read it back; GetInventorySchema enumerates the
-// known item types; DeleteInventory + DescribeInventoryDeletions model
-// the async schema-deletion job. The reporting node also shows up as a
-// managed instance (asserted in TestSSM_InstanceInformation).
+// TestSSM_Inventory expects PutInventory's typed items back from GetInventory
+// and ListInventoryEntries, the type in GetInventorySchema, and DeleteInventory
+// to remove the type's data and record a deletion job. The reporting node is a
+// managed instance, which TestSSM_InstanceInformation asserts.
 func TestSSM_Inventory(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -42,7 +40,6 @@ func TestSSM_Inventory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// ListInventoryEntries reads the typed rows back for (node, type).
 	le, err := c.ListInventoryEntries(ctx, &ssm.ListInventoryEntriesInput{
 		InstanceId: aws.String(instanceID),
 		TypeName:   aws.String(typeName),
@@ -53,7 +50,6 @@ func TestSSM_Inventory(t *testing.T) {
 	require.Len(t, le.Entries, 2)
 	assert.Equal(t, "alpha", le.Entries[0]["Name"])
 
-	// GetInventory groups the captured entries under the node entity.
 	gi, err := c.GetInventory(ctx, &ssm.GetInventoryInput{})
 	require.NoError(t, err)
 	foundEntity := false
@@ -68,8 +64,7 @@ func TestSSM_Inventory(t *testing.T) {
 	}
 	assert.True(t, foundEntity, "GetInventory must include the reporting node")
 
-	// GetInventorySchema enumerates the type we reported plus the
-	// AWS-managed core types.
+	// The schema holds the reported type and the AWS core types.
 	gs, err := c.GetInventorySchema(ctx, &ssm.GetInventorySchemaInput{})
 	require.NoError(t, err)
 	foundType := false
@@ -81,7 +76,6 @@ func TestSSM_Inventory(t *testing.T) {
 	}
 	assert.True(t, foundType, "GetInventorySchema must include the custom type")
 
-	// DeleteInventory removes the type's data and records a deletion job.
 	di, err := c.DeleteInventory(ctx, &ssm.DeleteInventoryInput{
 		TypeName: aws.String(typeName),
 	})
@@ -97,7 +91,6 @@ func TestSSM_Inventory(t *testing.T) {
 	assert.Equal(t, deletionID, *dd.InventoryDeletions[0].DeletionId)
 	assert.Equal(t, ssmtypes.InventoryDeletionStatusComplete, dd.InventoryDeletions[0].LastStatus)
 
-	// Entries for the deleted type are gone.
 	le2, err := c.ListInventoryEntries(ctx, &ssm.ListInventoryEntriesInput{
 		InstanceId: aws.String(instanceID),
 		TypeName:   aws.String(typeName),
@@ -106,10 +99,9 @@ func TestSSM_Inventory(t *testing.T) {
 	assert.Empty(t, le2.Entries)
 }
 
-// TestSSM_Compliance pins the compliance report/read-back surface:
-// PutComplianceItems records items per (resource, compliance-type),
-// ListComplianceItems reads them, and the two summary ops roll up
-// compliant/non-compliant counts.
+// TestSSM_Compliance expects PutComplianceItems' items from
+// ListComplianceItems and rolled up into compliant and non-compliant counts by
+// both summary operations.
 func TestSSM_Compliance(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -143,7 +135,6 @@ func TestSSM_Compliance(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// ListComplianceItems returns both recorded items for the resource.
 	li, err := c.ListComplianceItems(ctx, &ssm.ListComplianceItemsInput{
 		ResourceIds: []string{resourceID},
 	})
@@ -159,7 +150,6 @@ func TestSSM_Compliance(t *testing.T) {
 	require.NotNil(t, byID["rule-2"].ExecutionSummary)
 	assert.Equal(t, "exec-001", *byID["rule-2"].ExecutionSummary.ExecutionId)
 
-	// ListComplianceSummaries rolls up by compliance type.
 	ls, err := c.ListComplianceSummaries(ctx, &ssm.ListComplianceSummariesInput{})
 	require.NoError(t, err)
 	foundSummary := false
@@ -176,7 +166,6 @@ func TestSSM_Compliance(t *testing.T) {
 	}
 	assert.True(t, foundSummary, "ListComplianceSummaries must include the type")
 
-	// ListResourceComplianceSummaries rolls up per resource.
 	lr, err := c.ListResourceComplianceSummaries(ctx, &ssm.ListResourceComplianceSummariesInput{})
 	require.NoError(t, err)
 	foundRes := false
@@ -190,9 +179,8 @@ func TestSSM_Compliance(t *testing.T) {
 	assert.True(t, foundRes, "ListResourceComplianceSummaries must include the resource")
 }
 
-// TestSSM_Nodes pins the node-enumeration surface (ListNodes /
-// ListNodesSummary) over the same managed-instance set a node joins when
-// it reports inventory.
+// TestSSM_Nodes expects ListNodes and ListNodesSummary over the managed
+// instances a node joins by reporting inventory.
 func TestSSM_Nodes(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -237,9 +225,6 @@ func TestSSM_Nodes(t *testing.T) {
 	assert.NotEmpty(t, lns.Summary, "ListNodesSummary must aggregate at least one node")
 }
 
-// TestSSM_InstanceInformation pins managed-instance enumeration
-// (DescribeInstanceInformation / DescribeInstanceProperties) plus
-// UpdateManagedInstanceRole and DeregisterManagedInstance.
 func TestSSM_InstanceInformation(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -286,7 +271,6 @@ func TestSSM_InstanceInformation(t *testing.T) {
 	}
 	assert.True(t, foundProp, "DescribeInstanceProperties must include the node")
 
-	// UpdateManagedInstanceRole then re-read.
 	_, err = c.UpdateManagedInstanceRole(ctx, &ssm.UpdateManagedInstanceRoleInput{
 		InstanceId: aws.String(instanceID),
 		IamRole:    aws.String("SockerlessManagedRole"),
@@ -300,7 +284,6 @@ func TestSSM_InstanceInformation(t *testing.T) {
 		}
 	}
 
-	// Deregister and confirm gone.
 	_, err = c.DeregisterManagedInstance(ctx, &ssm.DeregisterManagedInstanceInput{
 		InstanceId: aws.String(instanceID),
 	})
@@ -312,8 +295,8 @@ func TestSSM_InstanceInformation(t *testing.T) {
 	}
 }
 
-// TestSSM_DocumentPermission pins the account-share list plus the review
-// metadata ops layered over an existing document.
+// TestSSM_DocumentPermission covers a document's account shares and review
+// metadata.
 func TestSSM_DocumentPermission(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -330,7 +313,6 @@ func TestSSM_DocumentPermission(t *testing.T) {
 		_, _ = c.DeleteDocument(ctx, &ssm.DeleteDocumentInput{Name: aws.String(name)})
 	})
 
-	// Initially no shares.
 	dp0, err := c.DescribeDocumentPermission(ctx, &ssm.DescribeDocumentPermissionInput{
 		Name:           aws.String(name),
 		PermissionType: ssmtypes.DocumentPermissionTypeShare,
@@ -338,7 +320,6 @@ func TestSSM_DocumentPermission(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, dp0.AccountIds)
 
-	// Share with two accounts.
 	_, err = c.ModifyDocumentPermission(ctx, &ssm.ModifyDocumentPermissionInput{
 		Name:            aws.String(name),
 		PermissionType:  ssmtypes.DocumentPermissionTypeShare,
@@ -355,7 +336,6 @@ func TestSSM_DocumentPermission(t *testing.T) {
 	assert.Contains(t, dp1.AccountIds, "111111111111")
 	require.Len(t, dp1.AccountSharingInfoList, 2)
 
-	// Remove one.
 	_, err = c.ModifyDocumentPermission(ctx, &ssm.ModifyDocumentPermissionInput{
 		Name:               aws.String(name),
 		PermissionType:     ssmtypes.DocumentPermissionTypeShare,
@@ -370,7 +350,7 @@ func TestSSM_DocumentPermission(t *testing.T) {
 	require.Len(t, dp2.AccountIds, 1)
 	assert.Equal(t, "222222222222", dp2.AccountIds[0])
 
-	// Update metadata (send review request) then read history back.
+	// A review request appears in the review history.
 	_, err = c.UpdateDocumentMetadata(ctx, &ssm.UpdateDocumentMetadataInput{
 		Name:            aws.String(name),
 		DocumentVersion: aws.String("1"),
@@ -390,13 +370,12 @@ func TestSSM_DocumentPermission(t *testing.T) {
 	assert.Equal(t, ssmtypes.ReviewStatusPending, lh.Metadata.ReviewerResponse[0].ReviewStatus)
 }
 
-// TestSSM_CalendarState pins GetCalendarState reading a Change-Calendar
-// document's default state.
+// TestSSM_CalendarState expects GetCalendarState to report a Change Calendar's
+// default state.
 func TestSSM_CalendarState(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
 
-	// An open-by-default calendar.
 	openName := "sockerless-cal-open-sdk"
 	openContent := "BEGIN:VCALENDAR\nPRODID:-//AWS//Change Calendar 1.0//EN\nVERSION:2.0\nX-CALENDAR-TYPE:DEFAULT-OPEN\nEND:VCALENDAR\n"
 	_, err := c.CreateDocument(ctx, &ssm.CreateDocumentInput{
@@ -415,7 +394,6 @@ func TestSSM_CalendarState(t *testing.T) {
 	assert.Equal(t, ssmtypes.CalendarStateOpen, gs.State)
 	assert.NotEmpty(t, *gs.AtTime)
 
-	// A closed-by-default calendar.
 	closedName := "sockerless-cal-closed-sdk"
 	closedContent := "BEGIN:VCALENDAR\nPRODID:-//AWS//Change Calendar 1.0//EN\nVERSION:2.0\nX-CALENDAR-TYPE:DEFAULT-CLOSED\nEND:VCALENDAR\n"
 	_, err = c.CreateDocument(ctx, &ssm.CreateDocumentInput{
@@ -434,9 +412,8 @@ func TestSSM_CalendarState(t *testing.T) {
 	assert.Equal(t, ssmtypes.CalendarStateClosed, gs2.State)
 }
 
-// TestSSM_AccessRequest pins the just-in-time node-access flow:
-// StartAccessRequest issues a request id, GetAccessToken returns the
-// short-lived credentials for an approved request.
+// TestSSM_AccessRequest expects StartAccessRequest to issue a request ID and
+// GetAccessToken to return short-lived credentials for an approved request.
 func TestSSM_AccessRequest(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()

@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeInstanceTypeOfferings covers the fck-nat
-// pre-flight that validates the chosen instance type is offered in the target
-// availability zones.
+// TestEC2_DescribeInstanceTypeOfferings covers the fck-nat pre-flight that
+// checks the instance type is offered in the target Availability Zones.
 func TestEC2_DescribeInstanceTypeOfferings(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
@@ -30,7 +29,6 @@ func TestEC2_DescribeInstanceTypeOfferings(t *testing.T) {
 	assert.Equal(t, ec2types.LocationTypeAvailabilityZone, off.LocationType)
 	assert.NotEmpty(t, aws.ToString(off.Location))
 
-	// A specific location filter echoes that location.
 	loc, err := client.DescribeInstanceTypeOfferings(ctx, &ec2.DescribeInstanceTypeOfferingsInput{
 		LocationType: ec2types.LocationTypeAvailabilityZone,
 		Filters: []ec2types.Filter{

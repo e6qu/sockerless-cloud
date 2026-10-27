@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_ResourceARN_DynamoDB proves the enforcement gate derives a request's
-// resource ARN for an awsJson service (DynamoDB, from the body's TableName), so a
-// policy scoped to one table's ARN allows that table and denies another.
+// TestIAM_ResourceARN_DynamoDB expects the gate to derive an awsJson request's
+// resource ARN from the body's TableName, so a policy scoped to one table
+// allows it and denies another.
 func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -62,12 +62,11 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }
 
-// TestIAM_ResourceARN_DynamoDBTransactionsAndBatches proves the enforcement
-// gate derives per-item table ARNs for TransactWriteItems, TransactGetItems,
-// BatchWriteItem, and BatchGetItem — which carry table names inside
-// TransactItems / RequestItems, not top-level — so the standard least-privilege
-// pattern (Resource scoped to one table ARN) allows single-table transactions
-// and denies any that touch an ungranted table (GitHub issue #870).
+// TestIAM_ResourceARN_DynamoDBTransactionsAndBatches expects per-item table ARNs
+// for TransactWriteItems, TransactGetItems, BatchWriteItem and BatchGetItem,
+// whose table names sit inside TransactItems or RequestItems: a policy scoped
+// to one table allows single-table transactions and denies any touching another
+// table.
 func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -155,12 +154,10 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err))
 }
 
-// TestIAM_ResourceARN_ECR proves the enforcement gate derives an Amazon
-// Elastic Container Registry request's repository ARN from the body, so the
-// least-privilege pattern a control plane writes — read access to one
-// repository namespace — allows the repositories under that prefix and denies
-// the rest. Repository names contain slashes and IAM's `*` spans them, so a
-// nested name under the granted prefix is allowed too.
+// TestIAM_ResourceARN_ECR expects the gate to derive an Amazon ECR request's
+// repository ARN from the body, so read access to one repository namespace
+// allows the repositories under the prefix, nested names included (IAM's `*`
+// spans slashes), and denies the rest.
 func TestIAM_ResourceARN_ECR(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()

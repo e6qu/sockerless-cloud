@@ -7,8 +7,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// resourceProviderNamespaces lists the Azure resource provider namespaces
-// that the azurerm provider queries during initialization.
+// The namespaces the azurerm provider queries at initialization.
 var resourceProviderNamespaces = []string{
 	"Microsoft.ApiManagement",
 	"Microsoft.Authorization",
@@ -53,19 +52,18 @@ var azureProviderResourceTypes = map[string][]string{
 }
 
 func registerSubscription(srv *sim.Server) {
-	// GET - Get subscription (for data.azurerm_subscription)
+	// data.azurerm_subscription reads this.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		sim.WriteJSON(w, http.StatusOK, azureSubscriptionObject(sub))
 	})
 
-	// GET - List resource providers (azurerm populates its provider cache on init)
+	// azurerm populates its provider cache from this on init.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 
-		// Built by the same function the single-provider read uses. Two reads
-		// of one fact must not disagree: this list said Registered for a
-		// namespace the subscription had just unregistered.
+		// Built by the function the single-provider read uses, so both reads agree on
+		// registration.
 		providers := make([]map[string]any, 0, len(resourceProviderNamespaces))
 		for _, ns := range resourceProviderNamespaces {
 			providers = append(providers, azureProviderObject(sub, ns))
@@ -76,10 +74,8 @@ func registerSubscription(srv *sim.Server) {
 		})
 	})
 
-	// GET - List subscriptions (SubscriptionsClient.NewListPager). The
-	// catalog is the default subscription, every subscription created or
-	// mutated through the Microsoft.Subscription API, and any subscription
-	// that owns a resource group.
+	// The default subscription, every subscription the Microsoft.Subscription API
+	// created or changed, and any subscription owning a resource group.
 	srv.HandleFunc("GET /subscriptions", func(w http.ResponseWriter, _ *http.Request) {
 		seen := map[string]bool{azureDefaultSubscriptionID: true}
 		out := []map[string]any{azureSubscriptionObject(azureDefaultSubscriptionID)}
@@ -99,13 +95,11 @@ func registerSubscription(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// GET - List the subscription's locations (SubscriptionsClient.NewListLocationsPager).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/locations", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": azureLocations(sub)})
 	})
 
-	// GET - List tenants (TenantsClient.NewListPager).
 	srv.HandleFunc("GET /tenants", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"value": []map[string]any{{
@@ -119,7 +113,7 @@ func registerSubscription(srv *sim.Server) {
 		})
 	})
 
-	// POST - Check a resource name against ARM reserved words (CheckResourceNameClient).
+	// CheckResourceNameClient checks a name against reserved words.
 	srv.HandleFunc("POST /providers/Microsoft.Resources/checkResourceName", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name string `json:"name"`
@@ -140,8 +134,7 @@ func registerSubscription(srv *sim.Server) {
 		})
 	})
 
-	// POST - Check availability-zone peering between subscriptions
-	// (SubscriptionClient.CheckZonePeers). The SDK URL carries a trailing slash.
+	// SubscriptionClient.CheckZonePeers; the SDK URL carries a trailing slash.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Resources/checkZonePeers/", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		var req struct {
@@ -164,14 +157,12 @@ func registerSubscription(srv *sim.Server) {
 	})
 }
 
-// azureDefaultSubscriptionID is the subscription identity the simulator presents
-// (also used by the instance-metadata endpoints).
+// Also the instance-metadata endpoints' subscription.
 const azureDefaultSubscriptionID = "00000000-0000-0000-0000-000000000001"
 
-// azureTenantDisplayName reports a tenant's display name. The simulator's own
-// tenant is the one directory it holds; a tenant a caller names in a
-// cross-tenant request belongs to a directory the simulator cannot read, and
-// so has no name to report.
+// The simulator's own tenant is the one directory it holds; a tenant named in
+// a cross-tenant request belongs to a directory it cannot read, so it has no
+// name.
 func azureTenantDisplayName(tenantID string) string {
 	if tenantID == simTenantID {
 		return "Simulator Tenant"
@@ -179,8 +170,6 @@ func azureTenantDisplayName(tenantID string) string {
 	return ""
 }
 
-// azureSubscriptionIDsWithResourceGroups returns the distinct subscription IDs
-// that own at least one resource group.
 func azureSubscriptionIDsWithResourceGroups() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -195,12 +184,10 @@ func azureSubscriptionIDsWithResourceGroups() []string {
 	return out
 }
 
-// azureSubscriptionView reports a subscription's display name, state and
-// tenant: the stored row when the Microsoft.Subscription API created or
-// mutated it, the simulator's implicit identity otherwise. A subscription
-// whose stored row names no tenant lives in the simulator's own tenant — only
-// a subscription created for, or handed to, another tenant names a different
-// one.
+// The stored row when the Microsoft.Subscription API created or changed the
+// subscription, the implicit identity otherwise. A row naming no tenant lives
+// in the simulator's own; only a subscription created for, or handed to,
+// another tenant names a different one.
 func azureSubscriptionView(sub string) (displayName, state, tenantID string) {
 	if rec, ok := azureSubscriptionRecords.Get(sub); ok {
 		tenant := rec.TenantID
@@ -228,8 +215,7 @@ func azureSubscriptionObject(sub string) map[string]any {
 	}
 }
 
-// azureLocations is the simulated subscription's region catalog. The set mirrors
-// the regions the provider resource-type entries advertise.
+// The regions the provider resource-type entries advertise.
 func azureLocations(sub string) []map[string]any {
 	type region struct{ name, display, regional string }
 	regions := []region{
@@ -251,9 +237,7 @@ func azureLocations(sub string) []map[string]any {
 	return out
 }
 
-// azureReservedResourceName reports whether a resource name is an ARM reserved
-// word (CheckResourceName returns Reserved for these). The list mirrors the
-// well-known reserved set documented for the Resources checkResourceName API.
+// The reserved set documented for the checkResourceName API.
 func azureReservedResourceName(name string) bool {
 	reserved := map[string]bool{
 		"login": true, "microsoft": true, "azure": true, "windows": true,

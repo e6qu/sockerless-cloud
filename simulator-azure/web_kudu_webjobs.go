@@ -16,24 +16,20 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// web_kudu_webjobs.go serves Kudu's WebJobs API on a site's SCM host, over
-// the same webjob records and run history the Microsoft.Web webjob resources
-// read: list, get, upload and delete of triggered and continuous jobs, a
-// triggered job's run and history, a continuous job's start and stop, and a
-// job's settings.job.
+// Kudu's WebJobs API over the records and run history the Microsoft.Web
+// webjob resources read: list, get, upload and delete, a triggered job's run
+// and history, a continuous job's start and stop, and settings.job.
 
-// kuduWebJobsMaxUpload bounds a job upload as a deployment package is bounded.
+// Bounded as a deployment package is.
 const kuduWebJobsMaxUpload = webSiteContentLimit
 
-// kuduWebJobKinds maps the API's collection names to the job kinds.
 var kuduWebJobKinds = map[string]string{
 	"triggeredwebjobs":  "triggered",
 	"continuouswebjobs": "continuous",
 }
 
-// serveKuduWebJobs answers a request under /api/webjobs,
-// /api/triggeredwebjobs or /api/continuouswebjobs, reporting whether the path
-// is one of them.
+// Reports whether the path is under /api/webjobs, /api/triggeredwebjobs or
+// /api/continuouswebjobs.
 func serveKuduWebJobs(w http.ResponseWriter, r *http.Request, site *Site) bool {
 	rest, ok := strings.CutPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/")
 	if !ok {
@@ -157,8 +153,7 @@ func kuduWebJobAction(w http.ResponseWriter, r *http.Request, site *Site, kind, 
 	}
 }
 
-// kuduWebJob reads one of the site's jobs, answering 404 when it has none of
-// that kind and name.
+// 404 when the site has no job of that kind and name.
 func kuduWebJob(w http.ResponseWriter, site *Site, kind, name string) (WebJobRecord, bool) {
 	rec, ok := webWebJobs.Get(site.ID + "/" + kind + "webjobs/" + name)
 	if !ok {
@@ -192,8 +187,7 @@ func kuduWebJobsBase(r *http.Request) string {
 	return azureRequestScheme(r) + "://" + r.Host + "/api/"
 }
 
-// kuduWebJobWire is a job as Kudu's TriggeredJob and ContinuousJob contracts
-// spell it.
+// Kudu's TriggeredJob and ContinuousJob contracts.
 func kuduWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 	jobURL := kuduWebJobsBase(r) + rec.JobKind + "webjobs/" + url.PathEscape(rec.Name)
 	out := map[string]any{
@@ -228,7 +222,7 @@ func kuduWebJobWire(r *http.Request, rec WebJobRecord) map[string]any {
 	return out
 }
 
-// kuduWebJobRunWire is a run as Kudu's TriggeredJobRun contract spells it.
+// Kudu's TriggeredJobRun contract.
 func kuduWebJobRunWire(r *http.Request, rec WebJobRecord, run WebJobRunRecord) map[string]any {
 	out := map[string]any{
 		"id":         run.RunID,
@@ -254,7 +248,7 @@ func kuduWebJobRunWire(r *http.Request, rec WebJobRecord, run WebJobRunRecord) m
 	return out
 }
 
-// kuduTimeSpan renders a duration as .NET serializes a TimeSpan.
+// As .NET serializes a TimeSpan.
 func kuduTimeSpan(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -265,13 +259,11 @@ func kuduTimeSpan(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
 }
 
-// kuduWebJobSettingsPath is the wwwroot-relative path of a job's settings.job.
 func kuduWebJobSettingsPath(kind, name string) string {
 	return webJobsRoot + kind + "/" + name + "/settings.job"
 }
 
-// kuduWebJobSettings reads the job's settings.job, which holds a JSON object;
-// a job without one has no settings.
+// A job without settings.job has no settings.
 func kuduWebJobSettings(rec WebJobRecord) map[string]any {
 	settings := map[string]any{}
 	data, ok, err := webReadSiteFile(rec.SiteID, kuduWebJobSettingsPath(rec.JobKind, rec.Name))
@@ -312,10 +304,9 @@ func kuduPutWebJobSettings(w http.ResponseWriter, r *http.Request, site *Site, k
 	w.WriteHeader(http.StatusOK)
 }
 
-// kuduUploadWebJob places an uploaded job in the site's App_Data/jobs: a zip
-// (Content-Type application/zip) unpacks into the job's directory, any other
-// body becomes the one file its Content-Disposition names. The job replaces
-// whatever the directory held.
+// A zip (application/zip) unpacks into the job's directory; any other body
+// becomes the one file its Content-Disposition names. The job replaces the
+// directory's contents.
 func kuduUploadWebJob(w http.ResponseWriter, r *http.Request, site *Site, kind, name string) {
 	if name == "" || strings.ContainsAny(name, `\/`) || name == "." || name == ".." {
 		kuduError(w, http.StatusBadRequest, "The job name '%s' is not valid.", name)
@@ -382,8 +373,7 @@ func kuduUploadWebJob(w http.ResponseWriter, r *http.Request, site *Site, kind, 
 	sim.WriteJSON(w, http.StatusOK, kuduWebJobWire(r, rec))
 }
 
-// kuduDeleteWebJob removes a job's files and with them the job; deleting a job
-// that does not exist changes nothing.
+// Deleting a missing job changes nothing.
 func kuduDeleteWebJob(site *Site, kind, name string) error {
 	if err := webRemoveSiteContent(site.ID, webJobsRoot+kind+"/"+name); err != nil {
 		return err
@@ -391,9 +381,8 @@ func kuduDeleteWebJob(site *Site, kind, name string) error {
 	return webDiscoverWebJobs(site.ID)
 }
 
-// kuduRunWebJob starts a run of a triggered job and answers 202 with the
-// run's history URL as Location. A job already running, or a site whose
-// WEBJOBS_STOPPED setting keeps its jobs from running, answers 409.
+// 202 with the run's history URL as Location; 409 when the job is running or
+// WEBJOBS_STOPPED keeps the site's jobs from running.
 func kuduRunWebJob(w http.ResponseWriter, r *http.Request, site *Site, name string) {
 	rec, ok := kuduWebJob(w, site, "triggered", name)
 	if !ok {
@@ -413,8 +402,7 @@ func kuduRunWebJob(w http.ResponseWriter, r *http.Request, site *Site, name stri
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// kuduWebAPIError writes the error body ASP.NET Web API's CreateErrorResponse
-// produces.
+// The body ASP.NET Web API's CreateErrorResponse produces.
 func kuduWebAPIError(w http.ResponseWriter, status int, message string) {
 	sim.WriteJSON(w, status, map[string]any{"Message": message})
 }

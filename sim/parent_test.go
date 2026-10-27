@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// The watch has to fire on a real process ending, so these drive one: a child
-// is started, watched, and killed, and the watch is held to noticing. A watch
-// that fired for every input would pass a happy-path test on its own, so the
-// inputs it must refuse are checked too.
+// The watch has to fire on a real process ending, so start a child, watch it
+// and kill it, and hold the watch to noticing. A watch that fired for every
+// input would pass a happy-path test on its own, so check the inputs it must
+// refuse too.
 
 func TestWatchParentFiresWhenTheProcessExits(t *testing.T) {
 	child := exec.Command("sleep", "30")

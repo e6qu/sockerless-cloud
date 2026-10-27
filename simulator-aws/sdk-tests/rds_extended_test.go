@@ -11,12 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDS_ClusterSnapshotAndParamGroup exercises the DB cluster
-// snapshot family (CreateDBClusterSnapshot → DescribeDBClusterSnapshots
-// → DeleteDBClusterSnapshot) and the DB cluster parameter group family
-// (CreateDBClusterParameterGroup → DescribeDBClusterParameterGroups →
-// DeleteDBClusterParameterGroup), including tag round-trips via
-// ListTagsForResource for each new resource ARN type.
+// TestRDS_ClusterSnapshotAndParamGroup expects tags to round-trip through
+// ListTagsForResource on the DB cluster snapshot and DB cluster parameter group
+// ARNs.
 func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -66,7 +63,6 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.Len(t, descCS.DBClusterSnapshots, 1)
 	assert.Equal(t, "manual", aws.ToString(descCS.DBClusterSnapshots[0].SnapshotType))
 
-	// Tag round-trip on the cluster-snapshot ARN.
 	tagsCS, err := c.ListTagsForResource(ctx, &rds.ListTagsForResourceInput{
 		ResourceName: aws.String(csArn),
 	})
@@ -120,8 +116,6 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_OptionGroupLifecycle exercises CreateOptionGroup →
-// DescribeOptionGroups → tag round-trip → DeleteOptionGroup.
 func TestRDS_OptionGroupLifecycle(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -169,8 +163,8 @@ func TestRDS_OptionGroupLifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDS_ReadReplicaAndCopySnapshot exercises CreateDBInstanceReadReplica
-// (with source/replica back-linking) and CopyDBSnapshot.
+// TestRDS_ReadReplicaAndCopySnapshot expects the source and replica to name
+// each other.
 func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -210,7 +204,6 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 		})
 	})
 
-	// Source now lists the replica.
 	descSrc, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(srcID),
 	})
@@ -232,8 +225,8 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 			DBSnapshotIdentifier: aws.String(srcSnap),
 		})
 	})
-	// Copying refuses a still-capturing source (InvalidDBSnapshotState), so
-	// wait for the asynchronous capture to settle first, as a client must.
+	// CopyDBSnapshot refuses a source still capturing (InvalidDBSnapshotState), so
+	// wait for it to settle, as a client must.
 	waitForRDSSnapshotAvailable(t, c, ctx, srcSnap)
 
 	copyDst := "ext-copy-dst-snap"
@@ -245,8 +238,8 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, copyOut.DBSnapshot)
 	assert.Equal(t, copyDst, aws.ToString(copyOut.DBSnapshot.DBSnapshotIdentifier))
-	// The copy carries the source's data, so it runs the same asynchronous
-	// creating → available machine the create does.
+	// The copy carries the source's data, so it goes through creating to available
+	// like a create.
 	assert.Equal(t, "creating", aws.ToString(copyOut.DBSnapshot.Status))
 	assert.NotEmpty(t, aws.ToString(copyOut.DBSnapshot.SourceDBSnapshotIdentifier))
 	waitForRDSSnapshotAvailable(t, c, ctx, copyDst)
@@ -256,7 +249,6 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 		})
 	})
 
-	// CopyTags carried the source tag onto the copy.
 	tags, err := c.ListTagsForResource(ctx, &rds.ListTagsForResourceInput{
 		ResourceName: aws.String(aws.ToString(copyOut.DBSnapshot.DBSnapshotArn)),
 	})
@@ -268,9 +260,6 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 	assert.True(t, keys["src"], "CopyTags should carry source tags to the copy")
 }
 
-// TestRDS_EventsAndEngineMetadata exercises DescribeEvents,
-// DescribeEventCategories, DescribeDBEngineVersions, and
-// DescribeOrderableDBInstanceOptions.
 func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
@@ -287,7 +276,6 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	}
 	assert.True(t, foundInstance, "db-instance source type must be present")
 
-	// Filtered DescribeEventCategories.
 	catsFiltered, err := c.DescribeEventCategories(ctx, &rds.DescribeEventCategoriesInput{
 		SourceType: aws.String("db-cluster"),
 	})
@@ -295,8 +283,8 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	require.Len(t, catsFiltered.EventCategoriesMapList, 1)
 	assert.Equal(t, "db-cluster", aws.ToString(catsFiltered.EventCategoriesMapList[0].SourceType))
 
-	// DescribeEvents with a source identifier no resource carries returns an
-	// empty list rather than every event in the account.
+	// DescribeEvents for a source identifier no resource carries returns an empty
+	// list, not every event in the account.
 	events, err := c.DescribeEvents(ctx, &rds.DescribeEventsInput{
 		SourceIdentifier: aws.String("ext-events-absent"),
 		SourceType:       rdstypes.SourceTypeDbInstance,
@@ -304,7 +292,6 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, events.Events, "an unknown source identifier matches no event")
 
-	// DescribeEvents for a known instance surfaces a creation event.
 	evInst := "ext-events-inst"
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(evInst),
@@ -334,7 +321,6 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 	assert.Equal(t, evInst, aws.ToString(evOut.Events[0].SourceIdentifier))
 	assert.Equal(t, "DB instance created.", aws.ToString(evOut.Events[0].Message))
 
-	// DescribeDBEngineVersions.
 	versions, err := c.DescribeDBEngineVersions(ctx, &rds.DescribeDBEngineVersionsInput{
 		Engine: aws.String("postgres"),
 	})
@@ -346,7 +332,6 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 		assert.NotEmpty(t, aws.ToString(v.DBParameterGroupFamily))
 	}
 
-	// DescribeOrderableDBInstanceOptions.
 	orderable, err := c.DescribeOrderableDBInstanceOptions(ctx, &rds.DescribeOrderableDBInstanceOptionsInput{
 		Engine:          aws.String("mysql"),
 		DBInstanceClass: aws.String("db.t3.micro"),

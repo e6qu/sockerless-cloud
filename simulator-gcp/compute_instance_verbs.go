@@ -9,23 +9,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The verbs a Compute Engine instance carries beyond its lifecycle.
-//
-// Each writes something a later read returns: deletion protection, the minimum
-// CPU platform, the machine's accelerators, its scheduling, its service
-// account, its shielded-VM configuration and integrity policy, its display
-// device, the resource policies attached to it, and the access configurations
-// and network interfaces it is reachable through. A verb that answered without
-// storing what it was given would be indistinguishable from one that worked
-// until something read the instance back, so the tests beside these read it
-// back.
-//
-// Four are answered as declared NotImplemented rather than served, because the
-// only way to answer them is to invent what the hardware or the guest would
-// have said: the console screenshot is a framebuffer capture, the shielded
-// instance identity is the machine's vTPM endorsement key, the guest attributes
-// are written by an agent inside the guest, and the diagnostic interrupt is a
-// non-maskable interrupt delivered by the hypervisor.
+// The verbs a Compute Engine instance carries beyond its lifecycle each write
+// something a later read returns, and the tests beside them read it back. Four
+// are declared NotImplemented, since answering them means inventing what the
+// hardware or guest would say: the console screenshot, the shielded instance
+// identity (the vTPM endorsement key), the guest attributes, and the
+// diagnostic interrupt.
 
 // gcpComputeInstanceGroups is the instance-group store, shared so the referrers
 // read can report the groups an instance belongs to.
@@ -48,9 +37,8 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		return computeZoneOp(sim.PathParam(r, "project"), sim.PathParam(r, "zone"), link, opType)
 	}
 
-	// write mounts a verb that changes the instance record. The apply reports
-	// an error message when the request cannot be honoured, which is answered
-	// as INVALID_ARGUMENT rather than silently ignored.
+	// mount serves a verb that changes the instance record; an apply error is
+	// INVALID_ARGUMENT.
 	mount := func(method, verb string, apply func(*ComputeInstance, *http.Request) error) {
 		srv.HandleFunc(method+" "+base+"/{name}/"+verb, func(w http.ResponseWriter, r *http.Request) {
 			link, instance, ok := load(w, r)
@@ -65,9 +53,8 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 			sim.WriteJSON(w, http.StatusOK, operation(r, link, verb))
 		})
 	}
-	// Most of these are a POST; the four the document declares as a PATCH are
-	// mounted as one, because a route Google does not publish is a route no
-	// client sends.
+	// The four verbs the document declares as PATCH mount as PATCH; the rest are
+	// POST.
 	write := func(verb string, apply func(*ComputeInstance, *http.Request) error) {
 		mount(http.MethodPost, verb, apply)
 	}
@@ -77,8 +64,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 
 	write("setDeletionProtection", func(instance *ComputeInstance, r *http.Request) error {
 		value := r.URL.Query().Get("deletionProtection")
-		// Google defaults the flag to true when the caller names the verb
-		// without a value, which is what makes the verb worth calling.
+		// Google defaults the flag to true when the verb names no value.
 		protected := value == "" || value == "true"
 		if value != "" && value != "true" && value != "false" {
 			return errComputeInvalid("deletionProtection must be true or false")
@@ -348,11 +334,8 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		return nil
 	})
 
-	// A Cloud Armor policy applies to an instance through the access configs of
-	// the interfaces named in the request — that is where the Instance schema
-	// carries it, so that is where a client reads it back. Naming no interface
-	// applies it to all of them, which is what the request's optional member
-	// means.
+	// The Instance schema carries a Cloud Armor policy on the access configs of
+	// the named interfaces, or of every interface when the request names none.
 	write("setSecurityPolicy", func(instance *ComputeInstance, r *http.Request) error {
 		var req struct {
 			NetworkInterfaces []string `json:"networkInterfaces"`
@@ -383,8 +366,8 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		return nil
 	})
 
-	// Maintenance. Compute Engine acknowledges each against a real machine and
-	// reports the event through the instance, which is what these record.
+	// Compute Engine reports each maintenance verb through the instance, which
+	// these record.
 	for _, verb := range []string{"performMaintenance", "simulateMaintenanceEvent", "reportHostAsFaulty"} {
 		verb := verb
 		write(verb, func(instance *ComputeInstance, r *http.Request) error {
@@ -393,15 +376,13 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		})
 	}
 
-	// Reads derived from what the instance and the project already hold.
 	srv.HandleFunc("GET "+base+"/{name}/referrers", func(w http.ResponseWriter, r *http.Request) {
 		link, _, ok := load(w, r)
 		if !ok {
 			return
 		}
-		// A referrer is a resource pointing at this instance. The instance
-		// groups are the collection that does, so the answer is read from them
-		// rather than assumed empty.
+		// Instance groups are the collection that refers to an instance, so read the
+		// referrers from them.
 		referrers := []any{}
 		if gcpComputeInstanceGroups == nil {
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -447,7 +428,6 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"firewalls": rules})
 	})
 
-	// The instance's IAM policy, on the shared policy store.
 	policyName := func(r *http.Request) string {
 		return "compute/" + strings.TrimPrefix(
 			computeInstanceSelfLink(sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "resource")),
@@ -463,9 +443,8 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
 	})
 
-	// The four that can only be answered by inventing what the hardware or the
-	// guest would have said. Each is mounted so the gap is visible on the wire
-	// rather than reported as an instance that does not exist.
+	// Mount the four inventing verbs so the gap shows on the wire rather than as
+	// an instance that does not exist.
 	for verb, why := range map[string]string{
 		"screenshot": "the console screenshot is a capture of the machine's framebuffer, " +
 			"and an invented image is not one",
@@ -491,12 +470,11 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 	}
 }
 
-// computeInstanceSelfLink is the URL a zonal instance is addressed by.
 func computeInstanceSelfLink(project, zone, name string) string {
 	return fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name)
 }
 
-// errComputeInvalid reports a request Compute Engine would refuse.
+// errComputeInvalidMessage is a request Compute Engine would refuse.
 type errComputeInvalidMessage string
 
 func (e errComputeInvalidMessage) Error() string { return string(e) }

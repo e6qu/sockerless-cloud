@@ -10,12 +10,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/procimage"
 )
 
-// The modules a process has loaded are the files its mapping table maps, and
-// a module's load address is a fact about the running process that nothing
-// else knows; the table is read from the process itself through the platform
-// helper (webReadProcess), since the simulator's own host does not let it read
-// another identity's /proc.
-
 // webProcModule is one loaded module: the file, and the address the lowest of
 // its mappings begins at.
 type webProcModule struct {
@@ -24,8 +18,8 @@ type webProcModule struct {
 	Size        uint64
 }
 
-// webProcessModules reads the modules a process has loaded. The second result
-// is false when the process is not the one the engine's table named.
+// The second result is false when the process is not the one the engine's
+// table named.
 func webProcessModules(ctx context.Context, containerID string, proc webProcess) ([]webProcModule, bool, error) {
 	if !webProcIsProcess(proc) {
 		return nil, false, nil
@@ -45,11 +39,9 @@ func webProcessModules(ctx context.Context, containerID string, proc webProcess)
 	return modules, true, nil
 }
 
-// webProcIsProcess reports whether /proc/<pid> is the process the engine's
-// table named, by comparing the command line the kernel records with the one
-// the engine reported. Without this a PID that has been reused, or that names
-// an unrelated process on a host that is not the engine's, would be read as if
-// it were the site's — reporting one process's modules as another's.
+// webProcIsProcess compares the command line the kernel records with the one
+// the engine reported, so a reused PID, or one naming an unrelated process on
+// a host that is not the engine's, never reports another process's modules.
 func webProcIsProcess(proc webProcess) bool {
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", proc.PID))
 	if err != nil {
@@ -60,8 +52,6 @@ func webProcIsProcess(proc webProcess) bool {
 	return strings.TrimSpace(kernel) == strings.TrimSpace(proc.CommandLine)
 }
 
-// webProcModuleAddress renders a module's base address the way the process's
-// own mapping table spells it.
 func webProcModuleAddress(base uint64) string {
 	return fmt.Sprintf("0x%x", base)
 }

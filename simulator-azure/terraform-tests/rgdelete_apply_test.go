@@ -7,12 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTerraformResourceGroupDeleteTakesItsResources destroys an
-// azurerm_resource_group that still holds a user-assigned identity Terraform no
-// longer tracks. azurerm deletes the group and waits on the long-running
-// operation the delete starts; afterwards neither the group nor the identity
-// can be imported, because Azure Resource Manager deleted the identity with its
-// group.
+// TestTerraformResourceGroupDeleteTakesItsResources destroys a resource group
+// still holding an identity Terraform no longer tracks; azurerm waits on the
+// delete's long-running operation, after which neither can be imported,
+// because Azure Resource Manager deleted the identity with its group.
 func TestTerraformResourceGroupDeleteTakesItsResources(t *testing.T) {
 	dir := tfWorkspaceFrom(t, mustAbs("rgdelete"))
 	out, err := runTimed(t, "terraform init", terraformCmd(dir, "init"))

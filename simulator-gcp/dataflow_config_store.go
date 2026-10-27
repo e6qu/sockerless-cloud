@@ -97,10 +97,8 @@ func registerDataflowConfigStore(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, map[string]any{})
 		})
 
-		// Go's router has no way to spell a colon verb — a wildcard segment has
-		// to end at its brace — so the id and the verb arrive together and are
-		// split here, which is how every other colon verb in this simulator is
-		// mounted.
+		// ServeMux cannot spell a colon verb after a wildcard, so the id and verb
+		// arrive together and split here.
 		srv.HandleFunc("POST "+base+"/{configStoreSettingsId}", func(w http.ResponseWriter, r *http.Request) {
 			id, verb, _ := strings.Cut(sim.PathParam(r, "configStoreSettingsId"), ":")
 			if verb != "resolve" {

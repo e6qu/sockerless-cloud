@@ -17,12 +17,11 @@ func egURL(t *testing.T, resourcePath string) string {
 		"/providers/Microsoft.EventGrid/" + resourcePath + "?api-version=" + egMoreAPI
 }
 
-// TestEventGridCLI_PartnerFamily exercises the Microsoft.EventGrid Partner
-// Events control plane (registrations, namespaces + channels + keys,
-// configurations + authorization, verified partners) through the az CLI.
+// TestEventGridCLI_PartnerFamily exercises the Azure Event Grid Partner Events
+// control plane: registrations, namespaces with channels and keys,
+// configurations with authorization, and verified partners.
 func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	t.Parallel()
-	// Partner registration: create → get → list-by-subscription → delete.
 	regURL := egURL(t, "partnerRegistrations/cli-partner-reg")
 	out := runCLI(t, azRest("PUT", regURL, `{"location":"global","properties":{}}`))
 	var reg struct {
@@ -40,8 +39,6 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	out = runCLI(t, azRest("GET", regListURL, ""))
 	assert.Contains(t, out, "cli-partner-reg")
 
-	// Partner namespace: create → listKeys → regenerateKey → channel CRUD →
-	// list-by-subscription.
 	nsURL := egURL(t, "partnerNamespaces/cli-partner-ns")
 	runCLI(t, azRest("PUT", nsURL, `{"location":"eastus","properties":{}}`))
 	t.Cleanup(func() { runCLI(t, azRest("DELETE", nsURL, "")) })
@@ -55,7 +52,7 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	out = runCLI(t, azRest("POST", regenURL, `{"keyName":"key1"}`))
 	require.NoError(t, json.Unmarshal([]byte(out), &keys))
 	assert.Len(t, keys.Key1, 44)
-	assert.NotEqual(t, origKey1, keys.Key1) // key1 rotated; key2 unchanged
+	assert.NotEqual(t, origKey1, keys.Key1) // key2 stays unchanged
 
 	chURL := egURL(t, "partnerNamespaces/cli-partner-ns/channels/cli-channel")
 	runCLI(t, azRest("PUT", chURL, `{"properties":{"channelType":"PartnerTopic"}}`))
@@ -70,8 +67,7 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	out = runCLI(t, azRest("GET", nsListURL, ""))
 	assert.Contains(t, out, "cli-partner-ns")
 
-	// Partner configuration (the per-resource-group default singleton):
-	// create → authorizePartner → unauthorizePartner → list-by-subscription.
+	// The partner configuration is a per-resource-group singleton named default.
 	cfgURL := egURL(t, "partnerConfigurations/default")
 	runCLI(t, azRest("PUT", cfgURL, `{"properties":{"partnerAuthorization":{"defaultMaximumExpirationTimeInDays":7,"authorizedPartnersList":[]}}}`))
 	t.Cleanup(func() { runCLI(t, azRest("DELETE", cfgURL, "")) })
@@ -87,7 +83,6 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	cfgListURL := baseURL + "/subscriptions/" + subscriptionID + "/providers/Microsoft.EventGrid/partnerConfigurations?api-version=" + egMoreAPI
 	runCLI(t, azRest("GET", cfgListURL, ""))
 
-	// Verified partners (tenant-level catalog).
 	vpListURL := baseURL + "/providers/Microsoft.EventGrid/verifiedPartners?api-version=" + egMoreAPI
 	out = runCLI(t, azRest("GET", vpListURL, ""))
 	assert.Contains(t, out, "Auth0")
@@ -96,12 +91,11 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 	assert.Contains(t, out, "Auth0")
 }
 
-// TestEventGridCLI_NestedEventSubscriptionsAndRegistries exercises the
-// 2022-06-15 nested (non-provider) per-resource EventSubscriptions URL form
-// plus the operations / topic-type registries through the az CLI.
+// TestEventGridCLI_NestedEventSubscriptionsAndRegistries exercises the nested
+// topics/{topic}/eventSubscriptions/{name} URL form of 2022-06-15 and the
+// operations and topic-type registries.
 func TestEventGridCLI_NestedEventSubscriptionsAndRegistries(t *testing.T) {
 	t.Parallel()
-	// Operations + topic types.
 	opsURL := baseURL + "/providers/Microsoft.EventGrid/operations?api-version=" + egMoreAPI
 	out := runCLI(t, azRest("GET", opsURL, ""))
 	assert.Contains(t, out, "Microsoft.EventGrid/topics/read")
@@ -113,7 +107,6 @@ func TestEventGridCLI_NestedEventSubscriptionsAndRegistries(t *testing.T) {
 	out = runCLI(t, azRest("GET", etURL, ""))
 	assert.Contains(t, out, "Microsoft.Storage.BlobCreated")
 
-	// Topic + nested event subscription (topics/{topic}/eventSubscriptions/{name}).
 	topicURL := egURL(t, "topics/cli-more-topic")
 	runCLI(t, azRest("PUT", topicURL, `{"location":"eastus"}`))
 	t.Cleanup(func() { runCLI(t, azRest("DELETE", topicURL, "")) })
@@ -131,7 +124,6 @@ func TestEventGridCLI_NestedEventSubscriptionsAndRegistries(t *testing.T) {
 	assert.Contains(t, out, "cli-nested-sub")
 	runCLI(t, azRest("DELETE", subURL, ""))
 
-	// Subscription-/regional-/topic-type-scoped event subscription list views.
 	for _, u := range []string{
 		baseURL + "/subscriptions/" + subscriptionID + "/providers/Microsoft.EventGrid/eventSubscriptions?api-version=" + egMoreAPI,
 		baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup + "/providers/Microsoft.EventGrid/eventSubscriptions?api-version=" + egMoreAPI,

@@ -1,22 +1,12 @@
 #!/usr/bin/env bash
 # Fails when this checkout's own git configuration has been corrupted in a way
-# that makes the next commit or push wrong or unexplainable.
-#
-# Both conditions below were observed here on 2026-09-04, mid-session:
-# `.git/config` had acquired `core.bare = true` on a checkout that plainly has
-# a work tree, and the local identity had been replaced by a test fixture's
-# (`latest deps fixture <latest-deps@example.invalid>`, the identity
-# scripts/test-latest-deps-*.sh give their throwaway repositories). Neither is
-# reachable through this repository's own tooling — both of those scripts build
-# their fixtures under `mktemp -d` and address them with `git -C` — so the cause
-# is outside it and may recur.
-#
-# What made it expensive was the shape of the failure, not the failure. The
-# bare flag surfaced as a pre-commit stack trace ending in
-# `fatal: this operation must be run in a work tree`, several layers below
-# anything naming git configuration, and the fixture identity would not have
-# surfaced at all: it would simply have authored somebody's commits as a test
-# fixture until a reviewer noticed. This says both outright.
+# that makes the next commit or push wrong or unexplainable: `core.bare = true`
+# on a checkout that has a work tree, or a local identity a test fixture uses
+# (scripts/test-latest-deps-*.sh give their throwaway repositories one). Neither
+# is reachable through this repository's own tooling, so the cause is outside
+# it and may recur. The bare flag otherwise surfaces as `fatal: this operation
+# must be run in a work tree` deep in a pre-commit stack trace, and a fixture
+# identity would author commits silently; this says both outright.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"

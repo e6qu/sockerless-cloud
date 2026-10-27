@@ -8,13 +8,9 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The Compute Engine policy collections: a policy holding an ordered rule list
-// and a list of associations.
-//
-// The assertions are on what the policy remembers — a rule read back at the
-// priority it was added under, the order the rules end up in, an association
-// that disappears when it is detached — because the verbs all answer with an
-// Operation, and an Operation says nothing about whether anything changed.
+// Every policy verb answers with an Operation, which says nothing about what
+// changed, so the assertions read back what the policy remembers: a rule at
+// its priority, the rule order, an association gone after detach.
 
 func TestCompute_SecurityPolicyRuleLifecycle(t *testing.T) {
 	t.Parallel()
@@ -175,12 +171,10 @@ func TestCompute_OrganizationFirewallPolicyClonesAnotherPolicysRules(t *testing.
 	require.Error(t, err)
 }
 
-// The preconfigured WAF expression sets are Google's own catalogue, and it is
-// published, so it is vendored from that publication and served — see
-// TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog. What this keeps
-// is the routing half the declared gap also guarded: the read must not be
-// swallowed by the {policy} read beside it and reported as a policy that does
-// not exist, which is a gap disguised as a served read.
+// TestCompute_PreconfiguredExpressionSetsAreNotSwallowedByThePolicyRead: the
+// listPreconfiguredExpressionSets read must not fall to the {policy} read
+// beside it and answer as a missing policy. The catalogue itself is
+// TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog's.
 func TestCompute_PreconfiguredExpressionSetsAreNotSwallowedByThePolicyRead(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)

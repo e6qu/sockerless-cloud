@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNetworkApplicationGatewayForwardedHeadersCLI deploys an Application
-// Gateway through the Azure CLI in front of a backend that echoes the headers
-// it received, and sends a request at the gateway's frontend address. The
-// backend sees the six headers the gateway inserts into every request.
+// TestNetworkApplicationGatewayForwardedHeadersCLI puts an Azure Application
+// Gateway in front of a backend that echoes its request headers: the backend
+// sees the six headers the gateway inserts into every request.
 func TestNetworkApplicationGatewayForwardedHeadersCLI(t *testing.T) {
 	t.Parallel()
 

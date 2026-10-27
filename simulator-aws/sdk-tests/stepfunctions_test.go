@@ -16,11 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sfnClient is a stock Step Functions client pointed at the simulator's states
-// endpoint coordinate. StartSyncExecution and TestState carry a modeled `sync-`
-// endpoint host prefix, so the SDK sends and signs them against
-// `sync-states.localhost` exactly as it sends them to
-// `sync-states.us-east-1.amazonaws.com` against real AWS.
+// sfnClient is a Step Functions client at the simulator's states endpoint.
+// StartSyncExecution and TestState carry the modeled sync- host prefix, so the
+// SDK sends them to sync-states.localhost as it sends them to
+// sync-states.us-east-1.amazonaws.com.
 func sfnClient() *sfn.Client {
 	return sfn.NewFromConfig(sdkConfig(), func(o *sfn.Options) {
 		o.BaseEndpoint = aws.String(simEndpoint("states"))
@@ -93,7 +92,6 @@ func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, tags.Tags)
 
-	// Update definition
 	_, err = c.UpdateStateMachine(ctx, &sfn.UpdateStateMachineInput{
 		StateMachineArn: create.StateMachineArn,
 		Definition:      aws.String(`{"Comment":"updated","StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`),
@@ -227,9 +225,9 @@ func TestSFN_FailState_SDK(t *testing.T) {
 	assert.Equal(t, sfntypes.ExecutionStatusFailed, describe.Status)
 }
 
-// DescribeStateMachineOutput has no tags member — tags ride
-// ListTagsForResource. The SDK silently drops unknown members, so the
-// describe response is probed raw.
+// DescribeStateMachineOutput has no tags member; tags come from
+// ListTagsForResource. The SDK drops unknown members, so the test reads the
+// raw response.
 func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 	t.Parallel()
 	machineName := uniquename.New("sfn-tags-shape")
@@ -267,8 +265,8 @@ func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 	assert.NotContains(t, raw, "tags", "DescribeStateMachineOutput has no tags member")
 }
 
-// TestSFN_GetExecutionHistory_SDK covers GetExecutionHistory and exercises the
-// Choice interpreter end-to-end (input routes to the >5 branch).
+// TestSFN_GetExecutionHistory_SDK covers GetExecutionHistory and a Choice state
+// routing input to the >5 branch.
 func TestSFN_GetExecutionHistory_SDK(t *testing.T) {
 	t.Parallel()
 	machineName := uniquename.New("sfn-sdk-history-sm")

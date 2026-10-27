@@ -29,9 +29,6 @@ func ssmCloudConnectorAzureConfig(tenant, subscription string) ssmtypes.CloudCon
 	}
 }
 
-// TestSSM_CloudConnectorLifecycle covers CreateCloudConnector →
-// GetCloudConnector → ListCloudConnectors (with the SubscriptionId filter) →
-// UpdateCloudConnector → DeleteCloudConnector.
 func TestSSM_CloudConnectorLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -82,7 +79,7 @@ func TestSSM_CloudConnectorLifecycle(t *testing.T) {
 	require.Len(t, listed.CloudConnectors, 1)
 	require.Equal(t, id, aws.ToString(listed.CloudConnectors[0].CloudConnectorId))
 
-	// A filter no connector matches returns an empty list, not everything.
+	// A filter no connector matches returns an empty list.
 	empty, err := c.ListCloudConnectors(ctx, &ssm.ListCloudConnectorsInput{
 		Filters: []ssmtypes.CloudConnectorFilter{{
 			FilterKey:    ssmtypes.CloudConnectorFilterKeyTenantId,
@@ -107,10 +104,9 @@ func TestSSM_CloudConnectorLifecycle(t *testing.T) {
 	require.Error(t, err, "a deleted connector must not resolve")
 }
 
-// TestSSM_ValidateCloudConnector covers ValidateCloudConnector: a connector
-// whose role does not exist reports AWS_ROLE_ASSUMPTION_FAILED, and one whose
-// role trusts Systems Manager reports only the informational tenant /
-// subscription findings.
+// TestSSM_ValidateCloudConnector expects a connector whose role does not exist
+// to report AWS_ROLE_ASSUMPTION_FAILED, and one whose role trusts Systems
+// Manager only the informational tenant and subscription findings.
 func TestSSM_ValidateCloudConnector(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()

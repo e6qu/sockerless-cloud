@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// CLI coverage backfill for IAM role-policy operations that had no CLI test.
-
 const cliTrustDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 const cliPermDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeInstances","Resource":"*"}]}`
 

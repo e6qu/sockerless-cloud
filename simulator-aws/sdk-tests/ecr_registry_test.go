@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ecrPutTestImage creates a repository (ignoring already-exists) and
-// pushes one image, returning its digest. Used by the scan/replication
-// tests that need a real stored image to operate on.
+// ecrPutTestImage creates the repository unless it exists and pushes one
+// image, returning its digest.
 func ecrPutTestImage(t *testing.T, client *ecr.Client, repo, tag string) string {
 	t.Helper()
 	_, _ = client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -29,9 +28,6 @@ func ecrPutTestImage(t *testing.T, client *ecr.Client, repo, tag string) string 
 	return aws.ToString(out.Image.ImageId.ImageDigest)
 }
 
-// TestECR_ImageTagMutabilityAndScanningConfig drives PutImageTagMutability
-// and PutImageScanningConfiguration, then reads the settings back through
-// DescribeRepositories to confirm they round-trip.
 func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -66,9 +62,8 @@ func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
 	assert.True(t, desc.Repositories[0].ImageScanningConfiguration.ScanOnPush)
 }
 
-// TestECR_ImageScan starts an on-demand scan and reads the findings back.
-// The simulator runs no scanner, so the scan completes with an honest
-// empty findings result (no fabricated CVEs).
+// TestECR_ImageScan expects an on-demand scan to complete with empty findings:
+// the simulator runs no scanner.
 func TestECR_ImageScan(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -94,8 +89,6 @@ func TestECR_ImageScan(t *testing.T) {
 	assert.Empty(t, findings.ImageScanFindings.Findings)
 }
 
-// TestECR_LifecyclePolicyPreview puts a lifecycle policy, starts a preview,
-// then reads the preview back.
 func TestECR_LifecyclePolicyPreview(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
@@ -126,9 +119,6 @@ func TestECR_LifecyclePolicyPreview(t *testing.T) {
 	require.NotNil(t, preview.Summary)
 }
 
-// TestECR_RegistryPolicyAndReplication drives the registry-level operations:
-// the registry permissions policy CRUD, the replication configuration, and
-// DescribeRegistry / DescribeImageReplicationStatus read-backs.
 func TestECR_RegistryPolicyAndReplication(t *testing.T) {
 	client := ecrClient()
 
@@ -165,7 +155,6 @@ func TestECR_RegistryPolicyAndReplication(t *testing.T) {
 	require.Len(t, reg.ReplicationConfiguration.Rules[0].Destinations, 1)
 	assert.Equal(t, "us-west-2", aws.ToString(reg.ReplicationConfiguration.Rules[0].Destinations[0].Region))
 
-	// An image's replication status reflects the configured destination.
 	repo := "ecr-replication-repo"
 	ecrPutTestImage(t, client, repo, "v1")
 	status, err := client.DescribeImageReplicationStatus(ctx, &ecr.DescribeImageReplicationStatusInput{

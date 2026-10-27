@@ -118,7 +118,6 @@ const gcpInstanceStopGrace = 90 * time.Second
 // agent's state directory, on the root disk.
 const gcpStartupScriptPath = gcpGuestAgentDir + "/startup-script"
 
-// gcpGuestAgentDir is the directory the guest agent keeps its state in.
 const gcpGuestAgentDir = "/var/lib/google-guest-agent"
 
 // gcpStartupScriptRunner is what google_metadata_script_runner does at every
@@ -152,7 +151,6 @@ else
 fi
 `
 
-// gcpInstanceMetadataValue reads one key of an instance's metadata.
 func gcpInstanceMetadataValue(inst ComputeInstance, key string) (string, bool) {
 	if inst.Metadata == nil {
 		return "", false

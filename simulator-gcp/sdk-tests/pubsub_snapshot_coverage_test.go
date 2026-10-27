@@ -9,8 +9,6 @@ import (
 	pubsub "google.golang.org/api/pubsub/v1"
 )
 
-// TestPubSub_SnapshotLifecycle covers the previously-untested snapshot ops:
-// create (off a subscription), get, list, seek-to-snapshot, and delete.
 func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
@@ -45,11 +43,9 @@ func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	}
 	assert.True(t, found, "created snapshot appears in the list")
 
-	// Seek the subscription back to the snapshot. The verb resolves the
-	// subscription it is asked to move: a name no subscription was created
-	// under is NOT_FOUND, so the empty SeekResponse on the line above is the
-	// answer for a subscription the service really holds and not the answer it
-	// gives to anything.
+	// Seek resolves the subscription it moves, and a name no subscription was
+	// created under is NOT_FOUND, so the empty SeekResponse answers a real
+	// subscription.
 	_, err = svc.Projects.Subscriptions.Seek(subName, &pubsub.SeekRequest{Snapshot: snapName}).Do()
 	require.NoError(t, err, "subscriptions.seek to a snapshot")
 
@@ -59,8 +55,6 @@ func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	require.Error(t, err, "seek on a subscription the project does not hold")
 	assert.Contains(t, err.Error(), "404")
 
-	// Deleting the snapshot removes it from the collection and from the
-	// project's listing, not just from the direct read.
 	_, err = svc.Projects.Snapshots.Delete(snapName).Do()
 	require.NoError(t, err)
 	_, err = svc.Projects.Snapshots.Get(snapName).Do()

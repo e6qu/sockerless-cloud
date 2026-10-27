@@ -9,18 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// registerComputeDisks wires the zonal Compute Disks REST surface. Real
-// GCP exposes Disks via `compute#disk` at
-// `/compute/v1/projects/{p}/zones/{z}/disks` plus an aggregated list
-// across zones at `/compute/v1/projects/{p}/aggregated/disks`. The
-// sim mirrors create / get / list / delete / resize / setLabels +
-// aggregated-list, all returning zonal operations the SDK polls.
+// registerComputeDisks serves the zonal `compute#disk` collection and its
+// aggregated list, each write answering a zonal operation.
 func registerComputeDisks(srv *sim.Server) {
 	disks := sim.MakeStore[ComputeDisk](srv.DB(), "compute_disks")
 	// Shared so the disk verbs write the same disks the lifecycle serves.
 	gcpComputeZoneDisks = disks
 
-	// Insert (create disk) — POST .../zones/{zone}/disks
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -49,7 +44,6 @@ func registerComputeDisks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, d.SelfLink, "insert"))
 	})
 
-	// Get
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/disks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -63,7 +57,6 @@ func registerComputeDisks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, d)
 	})
 
-	// List (zonal)
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/disks", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -80,7 +73,6 @@ func registerComputeDisks(srv *sim.Server) {
 		})
 	})
 
-	// Delete
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/zones/{zone}/disks/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -94,7 +86,6 @@ func registerComputeDisks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "delete"))
 	})
 
-	// Resize — POST .../disks/{name}/resize with body {sizeGb}
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/resize", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -119,7 +110,6 @@ func registerComputeDisks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "resize"))
 	})
 
-	// SetLabels — POST .../disks/{name}/setLabels with body {labels, labelFingerprint}
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks/{name}/setLabels", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
@@ -153,16 +143,14 @@ func registerComputeDisks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setLabels"))
 	})
 
-	// Aggregated list — GET /compute/v1/projects/{p}/aggregated/disks.
-	// Real GCP returns map[zone-key]{disks:[…]}; sim groups by zone.
+	// The aggregated list groups disks by zone key.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/disks", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteZonalAggregate(w, disks, sim.PathParam(r, "project"), "compute#diskAggregatedList", "disks", func(v ComputeDisk) string { return v.SelfLink })
 	})
 
-	// Zonal operations endpoint. An instance insert leaves its operation
-	// RUNNING while the virtual machine boots behind it, so both methods
-	// report the operation's real state: the GET answers immediately with
-	// whatever it is, and the wait blocks for it the way Compute Engine's does.
+	// An instance insert leaves its operation RUNNING while the machine boots, so
+	// the GET answers the operation's state at once and the wait blocks for it, as
+	// Compute Engine's does.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/operations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeWriteOperation(w, sim.PathParam(r, "name"))
 	})

@@ -13,8 +13,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cacheengine"
 )
 
-// msRedisEnginesEnabled is whether the simulator runs workloads; one started
-// API-only runs no engines even when the process holds a container client.
+// msRedisEnginesEnabled reports whether the simulator runs workloads; one
+// started API-only runs no engines even with a container client.
 var msRedisEnginesEnabled bool
 
 func msRedisRunsEngines() bool {
@@ -37,12 +37,10 @@ func msRedisInstanceReplicas(tier, readReplicasMode string, requested int) int {
 	return requested
 }
 
-// msRedisInstanceTLS reports whether an instance encrypts in transit.
 func msRedisInstanceTLS(inst MSRedisInstance) bool {
 	return inst.TransitEncryptionMode == "SERVER_AUTHENTICATION"
 }
 
-// msRedisClusterTLS reports whether a cluster encrypts in transit.
 func msRedisClusterTLS(cluster MSRedisCluster) bool {
 	return cluster.TransitEncryptionMode == "TRANSIT_ENCRYPTION_MODE_SERVER_AUTHENTICATION"
 }

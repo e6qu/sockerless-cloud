@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_AMIPlacementDhcp covers the AMI, placement-group, and DHCP-option
-// control planes via the aws CLI: CreateImage/RegisterImage/CopyImage +
-// DescribeImages + DeregisterImage; CreatePlacementGroup + DescribePlacementGroups
-// + DeletePlacementGroup; CreateDhcpOptions + DescribeDhcpOptions +
-// AssociateDhcpOptions + DeleteDhcpOptions.
 func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -93,11 +88,10 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 	if assoc != dopt {
 		t.Fatalf("VPC dhcpOptionsId: got %q, want %q", assoc, dopt)
 	}
-	// Revert to default so the set can be deleted.
+	// Amazon EC2 refuses to delete a DHCP options set a VPC still uses.
 	runCLI(t, awsCLI("ec2", "associate-dhcp-options", "--dhcp-options-id", "default", "--vpc-id", dvpc))
 	runCLI(t, awsCLI("ec2", "delete-dhcp-options", "--dhcp-options-id", dopt))
 
-	// Tolerant cleanup.
 	_ = awsCLI("ec2", "deregister-image", "--image-id", reg).Run()
 	_ = awsCLI("ec2", "deregister-image", "--image-id", cp).Run()
 }

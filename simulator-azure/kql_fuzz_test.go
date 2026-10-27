@@ -2,9 +2,8 @@ package main
 
 import "testing"
 
-// FuzzParseKQL fuzzes the Azure Monitor / Log Analytics KQL query engine, which
-// runs over an untrusted query string from the Logs Query data plane. Neither
-// the parser nor the evaluator may panic on malformed input.
+// The query string is untrusted input from the Logs Query data plane; neither
+// the parser nor the evaluator may panic.
 func FuzzParseKQL(f *testing.F) {
 	seeds := []string{
 		"",

@@ -8,9 +8,9 @@ import (
 
 // Migrate runs fn the first time a persistent database opens under a build
 // that declares the migration name, and records that it ran, so a store whose
-// row shape a newer build changed is converted once rather than read wrong or
-// rescanned on every start. In-memory state starts empty, so without a
-// database there is nothing to migrate.
+// row shape a newer build changed converts once rather than reading wrong or
+// rescanning on every start. Without a database there is nothing to migrate:
+// in-memory state starts empty.
 func Migrate(db *sql.DB, name string, fn func() error) error {
 	if db == nil {
 		return nil
@@ -31,7 +31,7 @@ func Migrate(db *sql.DB, name string, fn func() error) error {
 
 // LegacyRows reads every row of a table in the shape an earlier build wrote
 // it, for a migration to convert. It does not join the tracked store set: the
-// table is either rewritten through its current store or emptied.
+// migration either rewrites the table through its current store or empties it.
 func LegacyRows[T any](db *sql.DB, table string) (*SQLiteStore[T], []Keyed[T], error) {
 	store, err := NewSQLiteStore[T](db, table)
 	if err != nil {

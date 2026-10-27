@@ -9,10 +9,9 @@ import (
 )
 
 // The Azure CLI over two surfaces a console reads: the Activity Log
-// (`az monitor activity-log list`, Activity Logs - List at
-// /subscriptions/{subscriptionId}/providers/Microsoft.Insights/eventtypes/management/values)
-// and the Blob service's CORS rules (`az storage cors`), which the ARM
-// blobServices/default resource reports and the service enforces.
+// (`az monitor activity-log list`) and the Azure Blob Storage CORS rules
+// (`az storage cors`), which the ARM blobServices/default resource reports and
+// the service enforces.
 func TestConsoleSurfacesCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

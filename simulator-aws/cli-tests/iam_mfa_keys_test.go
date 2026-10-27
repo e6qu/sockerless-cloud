@@ -7,17 +7,14 @@ import (
 	"testing"
 )
 
-// iamMFACLIUser creates a throwaway IAM user via the CLI with a tolerant cleanup.
 func iamMFACLIUser(t *testing.T, name string) {
 	t.Helper()
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", name))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", name)) })
 }
 
-// TestIAMCLI_VirtualMFADevice drives the MFA-device family via the aws CLI:
-// create-virtual-mfa-device (the CLI customization decodes the Base32StringSeed
-// blob to --outfile), enable-mfa-device, get-mfa-device, list-mfa-devices,
-// list-virtual-mfa-devices, the tag ops, resync, deactivate, and delete.
+// TestIAMCLI_VirtualMFADevice covers the MFA device family; the CLI
+// customization decodes the Base32StringSeed blob to --outfile.
 func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 	t.Parallel()
 	user := "cli-mfa-user"
@@ -34,7 +31,6 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 	}
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-virtual-mfa-device", "--serial-number", serial)) })
 
-	// The CLI wrote the real base32 seed to the outfile.
 	seed, err := os.ReadFile(outfile)
 	if err != nil || len(strings.TrimSpace(string(seed))) == 0 {
 		t.Fatalf("create-virtual-mfa-device did not write a seed to outfile: err=%v len=%d", err, len(seed))
@@ -79,7 +75,6 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-virtual-mfa-device", "--serial-number", serial))
 }
 
-// TestIAMCLI_SSHPublicKey drives upload/get/list/update/delete-ssh-public-key.
 func TestIAMCLI_SSHPublicKey(t *testing.T) {
 	t.Parallel()
 	user := "cli-ssh-user"
@@ -118,7 +113,6 @@ func TestIAMCLI_SSHPublicKey(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-ssh-public-key", "--user-name", user, "--ssh-public-key-id", keyID))
 }
 
-// TestIAMCLI_SigningCertificate drives upload/list/update/delete-signing-certificate.
 func TestIAMCLI_SigningCertificate(t *testing.T) {
 	t.Parallel()
 	user := "cli-cert-user"
@@ -149,7 +143,6 @@ func TestIAMCLI_SigningCertificate(t *testing.T) {
 	runCLI(t, awsCLI("iam", "delete-signing-certificate", "--user-name", user, "--certificate-id", certID))
 }
 
-// TestIAMCLI_ServiceSpecificCredential drives create/list/reset/update/delete-service-specific-credential.
 func TestIAMCLI_ServiceSpecificCredential(t *testing.T) {
 	t.Parallel()
 	user := "cli-svccred-user"

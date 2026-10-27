@@ -8,9 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCacheCLI_Serverless exercises serverless caches and
-// serverless cache snapshots through the aws CLI. Grouped to keep the
-// appdata shard lean.
+// TestElastiCacheCLI_Serverless covers serverless caches and their snapshots
+// in one test to keep the appdata shard lean.
 func TestElastiCacheCLI_Serverless(t *testing.T) {
 	t.Parallel()
 	cacheName := "cli-sl-cache"
@@ -49,7 +48,6 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "answered", value)
 
-	// DescribeServerlessCaches.
 	out = runCLI(t, awsCLI("elasticache", "describe-serverless-caches",
 		"--serverless-cache-name", cacheName))
 	var listed struct {
@@ -60,7 +58,6 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	parseJSON(t, out, &listed)
 	require.Len(t, listed.ServerlessCaches, 1)
 
-	// ModifyServerlessCache.
 	out = runCLI(t, awsCLI("elasticache", "modify-serverless-cache",
 		"--serverless-cache-name", cacheName,
 		"--description", "modified"))
@@ -72,7 +69,6 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	parseJSON(t, out, &modified)
 	assert.Equal(t, "modified", modified.ServerlessCache.Description)
 
-	// CreateServerlessCacheSnapshot.
 	snapName := "cli-sl-snap"
 	out = runCLI(t, awsCLI("elasticache", "create-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName,
@@ -91,7 +87,6 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 			"--serverless-cache-snapshot-name", snapName).Run()
 	})
 
-	// DescribeServerlessCacheSnapshots.
 	out = runCLI(t, awsCLI("elasticache", "describe-serverless-cache-snapshots",
 		"--serverless-cache-snapshot-name", snapName))
 	var snaps struct {
@@ -102,7 +97,6 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	parseJSON(t, out, &snaps)
 	require.Len(t, snaps.ServerlessCacheSnapshots, 1)
 
-	// CopyServerlessCacheSnapshot.
 	copyName := "cli-sl-snap-copy"
 	runCLI(t, awsCLI("elasticache", "copy-serverless-cache-snapshot",
 		"--source-serverless-cache-snapshot-name", snapName,
@@ -112,18 +106,14 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 			"--serverless-cache-snapshot-name", copyName).Run()
 	})
 
-	// ExportServerlessCacheSnapshot.
 	runCLI(t, awsCLI("elasticache", "export-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName,
 		"--s3-bucket-name", "cli-export-bucket"))
 
-	// DeleteServerlessCacheSnapshot.
 	runCLI(t, awsCLI("elasticache", "delete-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName))
 }
 
-// TestElastiCacheCLI_GlobalReplicationGroup exercises the Global
-// Datastore control-plane operations through the aws CLI.
 func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
 	t.Parallel()
 	primary := "cli-grg-primary"
@@ -161,7 +151,6 @@ func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
 			"--retain-primary-replication-group").Run()
 	})
 
-	// DescribeGlobalReplicationGroups.
 	out = runCLI(t, awsCLI("elasticache", "describe-global-replication-groups",
 		"--global-replication-group-id", gid))
 	var listed struct {
@@ -172,13 +161,11 @@ func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
 	parseJSON(t, out, &listed)
 	require.Len(t, listed.GlobalReplicationGroups, 1)
 
-	// ModifyGlobalReplicationGroup.
 	runCLI(t, awsCLI("elasticache", "modify-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--apply-immediately",
 		"--global-replication-group-description", "cli updated"))
 
-	// IncreaseNodeGroupsInGlobalReplicationGroup.
 	out = runCLI(t, awsCLI("elasticache", "increase-node-groups-in-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--node-group-count", "2",
@@ -193,35 +180,28 @@ func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
 	parseJSON(t, out, &inc)
 	assert.Len(t, inc.GlobalReplicationGroup.GlobalNodeGroups, 2)
 
-	// DecreaseNodeGroupsInGlobalReplicationGroup.
 	runCLI(t, awsCLI("elasticache", "decrease-node-groups-in-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--node-group-count", "1",
 		"--apply-immediately"))
 
-	// RebalanceSlotsInGlobalReplicationGroup.
 	runCLI(t, awsCLI("elasticache", "rebalance-slots-in-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--apply-immediately"))
 
-	// FailoverGlobalReplicationGroup.
 	runCLI(t, awsCLI("elasticache", "failover-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--primary-region", "us-east-1",
 		"--primary-replication-group-id", primary))
 
-	// DisassociateGlobalReplicationGroup.
 	runCLI(t, awsCLI("elasticache", "disassociate-global-replication-group",
 		"--global-replication-group-id", gid,
 		"--replication-group-id", primary,
 		"--replication-group-region", "us-east-1"))
 }
 
-// TestElastiCacheCLI_SecurityGroupsAndUpdates exercises cache security
-// groups and service-update actions through the aws CLI.
 func TestElastiCacheCLI_SecurityGroupsAndUpdates(t *testing.T) {
 	t.Parallel()
-	// Cache security group.
 	csgName := "cli-csg"
 	out := runCLI(t, awsCLI("elasticache", "create-cache-security-group",
 		"--cache-security-group-name", csgName,
@@ -260,7 +240,6 @@ func TestElastiCacheCLI_SecurityGroupsAndUpdates(t *testing.T) {
 	runCLI(t, awsCLI("elasticache", "delete-cache-security-group",
 		"--cache-security-group-name", csgName))
 
-	// Update actions on a real cluster.
 	clusterID := "cli-ua-cluster"
 	runCLI(t, awsCLI("elasticache", "create-cache-cluster",
 		"--cache-cluster-id", clusterID,
@@ -301,9 +280,6 @@ func TestElastiCacheCLI_SecurityGroupsAndUpdates(t *testing.T) {
 		"--service-update-name", svcUpdate))
 }
 
-// TestElastiCacheCLI_ReplicaShardAndReserved exercises replica/shard
-// reconfiguration, online migration, node-type modifications, and
-// reserved-node purchase through the aws CLI.
 func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	t.Parallel()
 	rgID := "cli-rsc-group"
@@ -351,7 +327,6 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	failedOver := ecCLIAwaitReplGroup(t, rgID)
 	assert.Equal(t, rgID+"-002", failedOver.NodeGroups[0].NodeGroupMembers[0].CacheClusterId, "the replica became the primary")
 
-	// Online migration.
 	runCLI(t, awsCLI("elasticache", "start-migration",
 		"--replication-group-id", rgID,
 		"--customer-node-endpoint-list", "Address=10.0.0.1,Port=6379"))
@@ -368,7 +343,6 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	parseJSON(t, out, &cm)
 	assert.Equal(t, "available", cm.ReplicationGroup.Status)
 
-	// Node-type modifications.
 	out = runCLI(t, awsCLI("elasticache", "list-allowed-node-type-modifications"))
 	var allowed struct {
 		ScaleUpModifications   []string `json:"ScaleUpModifications"`
@@ -378,7 +352,6 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	assert.NotEmpty(t, allowed.ScaleUpModifications)
 	assert.NotEmpty(t, allowed.ScaleDownModifications)
 
-	// Reserved-node purchase.
 	out = runCLI(t, awsCLI("elasticache", "purchase-reserved-cache-nodes-offering",
 		"--reserved-cache-nodes-offering-id", "649fd0c8-cf6d-47a0-bfa6-060f8e75e95f",
 		"--reserved-cache-node-id", "cli-reservation",

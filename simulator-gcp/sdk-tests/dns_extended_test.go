@@ -11,8 +11,6 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// TestDNS_PolicyCRUD round-trips a Cloud DNS server Policy (create/get/list/
-// patch/update/delete) through the Google Cloud Go SDK.
 func TestDNS_PolicyCRUD(t *testing.T) {
 	t.Parallel()
 	svc := dnsService(t)
@@ -74,8 +72,6 @@ func TestDNS_PolicyCRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestDNS_ResponsePolicyAndRulesCRUD round-trips a ResponsePolicy and its
-// nested ResponsePolicyRule subresource.
 func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
 	t.Parallel()
 	svc := dnsService(t)
@@ -118,7 +114,6 @@ func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
 	require.NotNil(t, updatedRP.ResponsePolicy)
 	assert.Equal(t, "replaced rp", updatedRP.ResponsePolicy.Description)
 
-	// Rules.
 	rule, err := svc.ResponsePolicyRules.Create(project, "rp-1", &dns.ResponsePolicyRule{
 		RuleName: "rule-1",
 		DnsName:  "override.example.com.",
@@ -169,9 +164,9 @@ func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestDNS_DnsKeysReflectDnssecState verifies that a zone with DNSSEC off
-// exposes no DnsKeys, and a DNSSEC-on zone exposes the derived KSK + ZSK with
-// real key tags and DS digests.
+// TestDNS_DnsKeysReflectDnssecState: a zone with DNSSEC off exposes no
+// DnsKeys, and one with DNSSEC on exposes a KSK and a ZSK with real key tags
+// and DS digests.
 func TestDNS_DnsKeysReflectDnssecState(t *testing.T) {
 	t.Parallel()
 	svc := dnsService(t)
@@ -219,8 +214,6 @@ func TestDNS_DnsKeysReflectDnssecState(t *testing.T) {
 	assert.Equal(t, "keySigning", got.Type)
 }
 
-// TestDNS_ManagedZonePatchAndOperations exercises managedZones.patch/update
-// (returning an Operation) and the managedZoneOperations audit-log read-back.
 func TestDNS_ManagedZonePatchAndOperations(t *testing.T) {
 	t.Parallel()
 	svc := dnsService(t)
@@ -254,7 +247,7 @@ func TestDNS_ManagedZonePatchAndOperations(t *testing.T) {
 
 	opsList, err := svc.ManagedZoneOperations.List(project, "ops-zone").Do()
 	require.NoError(t, err)
-	// insert + patch + update = 3 audit-log operations.
+	// insert, patch and update make three operations.
 	require.GreaterOrEqual(t, len(opsList.Operations), 3)
 
 	first := opsList.Operations[0]

@@ -14,16 +14,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// ec2_instance_types_vendored.json is the AWS Price List offer file's Compute
-// Instance products for us-east-1, written by
-// scripts/fetch-aws-ec2-instance-types.go with the offer version and checksum
-// it read.
+// The AWS Price List offer file's Compute Instance products for us-east-1, as
+// scripts/fetch-aws-ec2-instance-types.go wrote them with the offer version and
+// checksum.
 //
 //go:embed ec2_instance_types_vendored.json
 var ec2InstanceTypesJSON []byte
 
-// ec2InstanceTypeFacts is what DescribeInstanceTypes answers for one instance
-// type: the facts the Price List states, converted to the API's units.
+// The Price List's facts, converted to the API's units.
 type ec2InstanceTypeFacts struct {
 	Name                     string
 	VCpus                    int
@@ -85,10 +83,9 @@ func ec2LookupInstanceType(name string) (ec2InstanceTypeFacts, bool) {
 	return facts, ok
 }
 
-// ec2PriceListMemoryMiB converts the Price List's "<n> GiB" to MiB. The Price
-// List rounds a few legacy sizes to three decimals of a GiB; truncating gives
-// the MiB figure DescribeInstanceTypes reports for them (t1.micro's 0.613 GiB is
-// 627 MiB).
+// The Price List rounds a few legacy sizes to three decimals of a GiB;
+// truncating gives the MiB DescribeInstanceTypes reports (t1.micro's 0.613
+// GiB is 627 MiB).
 func ec2PriceListMemoryMiB(memory string) (int, error) {
 	gib, ok := strings.CutSuffix(memory, " GiB")
 	if !ok {
@@ -101,11 +98,9 @@ func ec2PriceListMemoryMiB(memory string) (int, error) {
 	return int(math.Floor(value*1024 + 1e-6)), nil
 }
 
-// ec2PriceListArchitectures maps the Price List's processor attributes onto
-// DescribeInstanceTypes' supportedArchitectures. The Price List says "64-bit"
-// for both instruction sets, so the processor names the set: AWS Graviton and
-// Apple silicon are Arm, everything else is x86, and an Amazon EC2 Mac instance
-// type carries the `_mac` variant.
+// The Price List says "64-bit" for both instruction sets, so the processor
+// decides: AWS Graviton and Apple silicon are Arm, the rest x86, and Mac
+// instance types carry the `_mac` variant.
 func ec2PriceListArchitectures(instanceType, processorArchitecture, physicalProcessor string) []string {
 	arch := "x86_64"
 	if strings.Contains(physicalProcessor, "Graviton") || strings.HasPrefix(physicalProcessor, "Apple") {
@@ -137,8 +132,7 @@ func ec2InstanceTypeXML(t ec2InstanceTypeFacts) string {
 	return b.String()
 }
 
-// ec2InstanceTypeFilters are the DescribeInstanceTypes filters over the facts
-// the catalog carries. A value matches when any of the filter's values does.
+// A value matches when any of the filter's values does.
 var ec2InstanceTypeFilters = map[string]func(t ec2InstanceTypeFacts, value string) bool{
 	"instance-type": func(t ec2InstanceTypeFacts, v string) bool { return ec2FilterWildcard.Match(v, t.Name) },
 	"current-generation": func(t ec2InstanceTypeFacts, v string) bool {
@@ -155,8 +149,8 @@ var ec2InstanceTypeFilters = map[string]func(t ec2InstanceTypeFacts, value strin
 	},
 }
 
-// ec2InstanceTypeUncarriedFilters are DescribeInstanceTypes filters the Smithy
-// model documents over facts the Price List does not state.
+// Filters the Smithy model documents over facts the Price List does not
+// state.
 var ec2InstanceTypeUncarriedFilters = []string{
 	"auto-recovery-supported", "bare-metal", "burstable-performance-supported", "dedicated-hosts-supported",
 	"ebs-info.attachment-limit-type", "ebs-info.maximum-ebs-attachments",

@@ -41,8 +41,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 
 		vnets.Put(resourceID, vnet)
 
-		// Subnets declared inline are created exactly as their standalone PUTs
-		// create them — real Azure does, and `az network vnet create
+		// Create inline subnets as their standalone PUTs do; `az network vnet create
 		// --subnet-name` depends on it.
 		for _, inline := range req.Properties.Subnets {
 			if inline.Name == "" {
@@ -59,15 +58,14 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 
 		azureReapplyNAT()
 
-		// The response embeds every subnet the network holds, inline-declared
-		// and pre-existing alike.
+		// Embed every subnet the network holds, inline or pre-existing.
 		subnetList := subnets.Filter(func(s Subnet) bool {
 			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
 		})
 		vnet.Properties.Subnets = append(vnet.Properties.Subnets, subnetList...)
 		vnets.Put(resourceID, vnet)
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, vnet)
 	})
 
@@ -84,7 +82,6 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 			return
 		}
 
-		// Refresh subnet refs
 		vnet.Properties.Subnets = nil
 		subnetList := subnets.Filter(func(s Subnet) bool {
 			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
@@ -100,8 +97,8 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		vnetName := sim.PathParam(r, "vnetName")
 		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 
-		// The engine refuses to remove a network a container is still
-		// attached to, which is Azure's own refusal of a network still in use.
+		// The engine refuses to remove a network a container is attached to, Azure's
+		// own refusal of a network in use.
 		if err := azureRemoveVNetNetwork(r.Context(), resourceID); err != nil {
 			AzureErrorf(w, "InUseSubnetCannotBeDeleted", http.StatusBadRequest,
 				"Virtual network %s is in use and cannot be deleted. In order to delete the virtual network, delete all the resources within it: %v", resourceID, err)
@@ -132,8 +129,8 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 
 		resourceID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName, "subnets", subnetName)
 
-		// A subnet is a child of its virtual network: Azure rejects the write
-		// with the parent's ResourceNotFound.
+		// Azure rejects a subnet write under a missing network with the parent's
+		// ResourceNotFound.
 		vnetID := armResourceID(sub, rg, "Microsoft.Network", "virtualNetworks", vnetName)
 		if _, ok := vnets.Get(vnetID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -148,7 +145,7 @@ func registerVirtualNetworks(srv *sim.Server, armBase string, vnets sim.Store[Vi
 		}
 		azureReapplyNAT()
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, sn)
 	})
 

@@ -1,6 +1,6 @@
 ---
 name: sim-canonical-config-test
-description: Verify a simulator test (sdk-tests/, cli-tests/, terraform-tests/) uses the same SDK/CLI/provider config a real-cloud consumer would. Refuses sim-quirk options like `BaseEndpoint = baseURL + "/<service>"` or `UsePathStyle = true` that mask wire-protocol bugs by reconfiguring the client around them. Distilled from BUG-1098 / 1099 / 1104 — the meta blind-spot where the project's own SDK tests were rewritten to make the sim look correct. Use before writing or editing any file under `simulator-<cloud>/{sdk,cli,terraform}-tests/`.
+description: Verify a simulator test (sdk-tests/, cli-tests/, terraform-tests/) uses the same SDK/CLI/provider config a real-cloud consumer would. Refuses sim-quirk options like `BaseEndpoint = baseURL + "/<service>"` or `UsePathStyle = true` that mask wire-protocol bugs by reconfiguring the client around them. A test reconfigured to make the simulator look correct proves nothing about real clients. Use before writing or editing any file under `simulator-<cloud>/{sdk,cli,terraform}-tests/`.
 ---
 
 # Sim canonical-config invariant for sim tests
@@ -30,7 +30,7 @@ A simulator-test client config must be **the same config a real-cloud user would
 
 1. **Endpoint URL** points at the sim instead of the cloud's public endpoint.
 2. **TLS verify-skip** when the sim uses a self-signed cert (must carry a comment naming the sim's self-signed cert as the reason; never `InsecureSkipVerify` for any other reason).
-3. **Static credentials** in place of cloud-resolved credentials (sims don't verify bearer tokens; document the placeholder values).
+3. **The simulator's credentials** in place of cloud-resolved ones: its seeded credential (AWS `test`/`test`, the Google Cloud bootstrap service account's key, the Azure bootstrap application's secret) or one it issued. The simulators verify every credential as the cloud does, so a placeholder token fails.
 
 That's it. Everything else (signers, retry policy, HTTP transport, base-endpoint suffixes, path-style addressing, etc.) must match a stock consumer's config.
 

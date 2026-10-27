@@ -10,8 +10,7 @@ import (
 )
 
 // The run-request union Registries_ScheduleRun accepts, discriminated by
-// `type`: a docker build, a task file in the source, an inline task file, or
-// a run of an existing Task resource.
+// `type`.
 
 type acrRunRequestBase struct {
 	Type             string `json:"type"`
@@ -20,7 +19,6 @@ type acrRunRequestBase struct {
 	LogTemplate      string `json:"logTemplate"`
 }
 
-// acrDockerBuildRequest is a DockerBuildRequest.
 type acrDockerBuildRequest struct {
 	acrRunRequestBase
 	DockerFilePath string        `json:"dockerFilePath"`
@@ -62,7 +60,6 @@ type acrOverrideTaskStepProperties struct {
 	UpdateTriggerToken string        `json:"updateTriggerToken"`
 }
 
-// acrTaskProperties is the part of a Task resource a run of it reads.
 type acrTaskProperties struct {
 	Status        string           `json:"status"`
 	Platform      *acrPlatform     `json:"platform"`
@@ -89,7 +86,6 @@ type acrTaskStepSpec struct {
 	Values               []acrSetValue `json:"values"`
 }
 
-// acrRunSpec is what a run executes, whichever request scheduled it.
 type acrRunSpec struct {
 	runType          string
 	taskName         string
@@ -99,7 +95,6 @@ type acrRunSpec struct {
 	timeout          time.Duration
 	source           string
 
-	// A docker build run.
 	docker *acrDockerBuildSpec
 
 	// A task-file run: the file in the source, or its content inline.
@@ -119,7 +114,7 @@ type acrDockerBuildSpec struct {
 	Target         string
 }
 
-// acrRequestError is a run request the service refuses before it queues a run.
+// acrRequestError is a run request the service refuses before queueing.
 type acrRequestError struct {
 	status  int
 	code    string
@@ -154,8 +149,6 @@ func acrDecodeBase64(field, value string) ([]byte, *acrRequestError) {
 	return out, nil
 }
 
-// acrDecodeRunRequest reads a Registries_ScheduleRun body into the run it
-// schedules.
 func acrDecodeRunRequest(body []byte, reg Registry) (acrRunSpec, *acrRequestError) {
 	var base acrRunRequestBase
 	if err := json.Unmarshal(body, &base); err != nil {
@@ -228,8 +221,7 @@ func acrDecodeRunRequest(body []byte, reg Registry) (acrRunSpec, *acrRequestErro
 	return acrRunSpec{}, acrBadRequest("The run request type %q is not one of DockerBuildRequest, FileTaskRunRequest, EncodedTaskRunRequest or TaskRunRequest.", base.Type)
 }
 
-// acrTaskRunSpec resolves a TaskRunRequest against the Task it names, with the
-// request's step overrides applied.
+// acrTaskRunSpec applies the request's step overrides to the Task it names.
 func acrTaskRunSpec(req acrTaskRunRequest, reg Registry) (acrRunSpec, *acrRequestError) {
 	if req.TaskID == "" {
 		return acrRunSpec{}, acrBadRequest("The TaskRunRequest requires taskId.")
@@ -316,7 +308,6 @@ func acrTaskRunSpec(req acrTaskRunRequest, reg Registry) (acrRunSpec, *acrReques
 	return spec, nil
 }
 
-// acrMergeArguments overlays override arguments on a step's, by name.
 func acrMergeArguments(base, override []acrArgument) []acrArgument {
 	out := append([]acrArgument(nil), base...)
 	for _, o := range override {

@@ -11,10 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
-// azureIngressPacketStages compiles the network security groups an interface
-// sits behind into one filter stage each, the subnet's first and the
-// interface's second: Azure delivers an inbound packet only when every group
-// on its path allows it. nil means no group applies and the interface is open.
+// One stage per NSG, the subnet's first: Azure delivers an inbound packet only
+// when every group on its path allows it. nil means no group applies.
 func azureIngressPacketStages(nic NetworkInterface) ([][]netrules.PacketRule, error) {
 	nsgs := azureAttachedNSGs(nic)
 	if len(nsgs) == 0 {
@@ -31,9 +29,9 @@ func azureIngressPacketStages(nic NetworkInterface) ([][]netrules.PacketRule, er
 	return stages, nil
 }
 
-// azureNSGIngressRules is one group's inbound rules in priority order, then
-// the default rules every group carries below them: AllowVnetInBound and
-// AllowAzureLoadBalancerInBound, with DenyAllInBound as the stage's final drop.
+// The group's rules in priority order, then the defaults every group carries:
+// AllowVnetInBound and AllowAzureLoadBalancerInBound, with DenyAllInBound as
+// the final drop.
 func azureNSGIngressRules(nsg NetworkSecurityGroup, nic NetworkInterface) ([]netrules.PacketRule, error) {
 	securityRules := append([]SecurityRule(nil), nsg.Properties.SecurityRules...)
 	sort.SliceStable(securityRules, func(i, j int) bool {
@@ -48,9 +46,8 @@ func azureNSGIngressRules(nsg NetworkSecurityGroup, nic NetworkInterface) ([]net
 		if !strings.EqualFold(defaultString(props.Direction, "Inbound"), "Inbound") {
 			continue
 		}
-		// A rule scoped to destination application security groups governs
-		// only the interfaces in those groups; on every other interface the
-		// rule is simply not part of the filter.
+		// A rule scoped to destination application security groups is not part of the
+		// filter on interfaces outside them.
 		if len(props.DestinationApplicationSecurityGroups) > 0 &&
 			!azureNICInApplicationSecurityGroups(nic, props.DestinationApplicationSecurityGroups) {
 			continue
@@ -74,8 +71,7 @@ func azureNSGIngressRules(nsg NetworkSecurityGroup, nic NetworkInterface) ([]net
 
 const azureLoadBalancerProbeCIDR = azureResolverIPv4 + "/32"
 
-// azureAttachedNSGs lists the groups on an interface's inbound path, the
-// subnet's before the interface's own.
+// The subnet's before the interface's own.
 func azureAttachedNSGs(nic NetworkInterface) []NetworkSecurityGroup {
 	seen := map[string]bool{}
 	var out []NetworkSecurityGroup
@@ -103,10 +99,8 @@ func azureAttachedNSGs(nic NetworkInterface) []NetworkSecurityGroup {
 }
 
 func azurePacketRulesForSecurityRule(props SecurityRuleProperties, verdict string) ([]netrules.PacketRule, error) {
-	// A rule written against source application security groups matches the
-	// members of those groups and nothing else — an empty group therefore
-	// matches no traffic, rather than falling back to the "any address" default
-	// an absent address prefix carries.
+	// A rule against source application security groups matches their members
+	// only, so an empty group matches nothing rather than "any address".
 	var sources []string
 	if len(props.SourceApplicationSecurityGroups) > 0 {
 		sources = azureApplicationSecurityGroupMemberIPs(props.SourceApplicationSecurityGroups)
@@ -116,8 +110,6 @@ func azurePacketRulesForSecurityRule(props SecurityRuleProperties, verdict strin
 	return netrules.ExpandRules(props.Protocol, sources, azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges), verdict)
 }
 
-// azureInvalidSecurityRulePort returns the first destination port range of a
-// rule Azure would reject, or "".
 func azureInvalidSecurityRulePort(props SecurityRuleProperties) string {
 	for _, port := range azurePortRanges(props.DestinationPortRange, props.DestinationPortRanges) {
 		if _, _, err := netrules.PortRange(port); err != nil {
@@ -211,6 +203,5 @@ func azureAllVNetCIDRs() []string {
 	return out
 }
 
-// azureVNetsAll holds every virtual network under one constant key, so the
-// data plane reads the store once per change instead of once per flow.
+// One key, so the data plane reads the store once per change, not per flow.
 var azureVNetsAll sim.GenerationIndex[VirtualNetwork]

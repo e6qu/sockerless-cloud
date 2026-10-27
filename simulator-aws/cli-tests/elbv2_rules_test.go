@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// TestELBv2CLI_ListenerRules drives listener-rule CRUD + ModifyListener via the
-// aws CLI, using the CLI `Field=...,Values=...` condition
+// TestELBv2CLI_ListenerRules uses the CLI's `Field=...,Values=...` condition
 // shorthand.
 func TestELBv2CLI_ListenerRules(t *testing.T) {
 	t.Parallel()
@@ -36,7 +35,7 @@ func TestELBv2CLI_ListenerRules(t *testing.T) {
 		"--priority", "50",
 		"--actions", "Type=forward,TargetGroupArn="+tgArn,
 		"--query", "Rules[0].RuleArn", "--output", "text")))
-	// Real ELBv2 rule ARNs use the listener-rule/ resource prefix.
+	// ELBv2 rule ARNs use the listener-rule/ resource prefix.
 	if !strings.Contains(ruleArn, ":listener-rule/app/cli-rule-lb/") {
 		t.Fatalf("expected an ELBv2 rule ARN, got %q", ruleArn)
 	}
@@ -46,7 +45,6 @@ func TestELBv2CLI_ListenerRules(t *testing.T) {
 		t.Fatalf("describe-rules missing rule or host condition: %s", rules)
 	}
 
-	// ModifyListener: swap default action to a fixed response.
 	runCLI(t, awsCLI("elbv2", "modify-listener",
 		"--listener-arn", listenerArn,
 		"--default-actions", "Type=fixed-response,FixedResponseConfig={StatusCode=503,ContentType=text/plain}"))

@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An Aurora cluster takes an automated DB cluster snapshot when its engine
-// first serves and another at the start of each PreferredBackupWindow, which
-// cannot be deleted by hand. A restore to a time after the window's snapshot
-// starts from it and replays the log written since, rows committed while the
-// snapshot was taken included, exactly once.
+// An Aurora cluster takes an automated DB cluster snapshot when its engine first
+// serves and at the start of each PreferredBackupWindow, which cannot be
+// deleted by hand. A restore to a time after the window's snapshot starts from
+// it and replays the log since, rows committed during the snapshot included,
+// exactly once.
 func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 	t.Parallel()
 	for _, engine := range []string{"aurora-postgresql", "aurora-mysql"} {
@@ -80,9 +80,8 @@ func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, window, aws.ToString(modified.DBCluster.PreferredBackupWindow))
 
-			// Rows keep committing while the window's snapshot is taken; RDS
-			// lists no event to wait on, so the loop reads the snapshot list
-			// between writes.
+			// Rows keep committing while the window's snapshot is taken; Amazon RDS lists
+			// no event to wait on, so read the snapshot list between writes.
 			var windowSnapshot types.DBClusterSnapshot
 			for n := 0; windowSnapshot.DBClusterSnapshotIdentifier == nil; n++ {
 				entry := fmt.Sprintf("during-%05d", n)
@@ -122,10 +121,9 @@ func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 	}
 }
 
-// Amazon Aurora takes a DB cluster's first automated backup when it creates
-// the cluster, whether or not a client ever connects, so the cluster restores
-// to a time from the start; the restored cluster takes its own first
-// automated backup the same way.
+// Amazon Aurora takes a cluster's first automated backup at creation, whether
+// or not a client connects, so the cluster restores to a time from the start;
+// the restored cluster does the same.
 func TestRDS_AuroraClusterTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

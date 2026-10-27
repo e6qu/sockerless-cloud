@@ -10,12 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests exercise the CloudFront field-level-encryption, key-value-store,
-// real-time-log, streaming-distribution, VPC-origin, and Anycast-IP-list REST+XML
-// surface via the real `aws` CLI. The CLI accepts JSON on input and emits JSON
-// output even though the wire is XML.
+// The aws CLI speaks JSON to the user and XML on the CloudFront wire.
 
-// TestCloudFrontFieldLevelEncryptionCLILifecycle covers the FLE config CRUD.
 func TestCloudFrontFieldLevelEncryptionCLILifecycle(t *testing.T) {
 	t.Parallel()
 	caller := "cli-fle-" + time.Now().Format("150405.000000")
@@ -80,10 +76,8 @@ func TestCloudFrontFieldLevelEncryptionCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-field-level-encryption-config", "--id", id, "--if-match", upd.ETag))
 }
 
-// TestCloudFrontFieldLevelEncryptionProfileCLILifecycle covers the FLE profile CRUD.
 func TestCloudFrontFieldLevelEncryptionProfileCLILifecycle(t *testing.T) {
 	t.Parallel()
-	// Seed a public key the profile references.
 	pkCaller := "cli-pk-" + time.Now().Format("150405.000000")
 	pkName := "cli-fle-pk-" + time.Now().Format("150405000")
 	pkCfg := fmt.Sprintf(`{"CallerReference":"%s","Name":"%s","EncodedKey":"-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtest\n-----END PUBLIC KEY-----\n"}`, pkCaller, pkName)
@@ -154,7 +148,6 @@ func TestCloudFrontFieldLevelEncryptionProfileCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-field-level-encryption-profile", "--id", id, "--if-match", upd.ETag))
 }
 
-// TestCloudFrontKeyValueStoreCLILifecycle covers the key value store CRUD.
 func TestCloudFrontKeyValueStoreCLILifecycle(t *testing.T) {
 	t.Parallel()
 	name := "clikvs" + time.Now().Format("150405000")
@@ -223,7 +216,6 @@ func TestCloudFrontKeyValueStoreCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-key-value-store", "--name", name, "--if-match", upd.ETag))
 }
 
-// TestCloudFrontRealtimeLogConfigCLILifecycle covers the real-time log config CRUD.
 func TestCloudFrontRealtimeLogConfigCLILifecycle(t *testing.T) {
 	t.Parallel()
 	name := "clirlc" + time.Now().Format("150405000")
@@ -283,7 +275,6 @@ func TestCloudFrontRealtimeLogConfigCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-realtime-log-config", "--arn", arn))
 }
 
-// TestCloudFrontStreamingDistributionCLILifecycle covers the streaming distribution CRUD.
 func TestCloudFrontStreamingDistributionCLILifecycle(t *testing.T) {
 	t.Parallel()
 	caller := "cli-sd-" + time.Now().Format("150405.000000")
@@ -336,7 +327,6 @@ func TestCloudFrontStreamingDistributionCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-streaming-distribution", "--id", id, "--if-match", upd.ETag))
 }
 
-// TestCloudFrontVpcOriginCLILifecycle covers the VPC origin CRUD.
 func TestCloudFrontVpcOriginCLILifecycle(t *testing.T) {
 	t.Parallel()
 	name := "clivo" + time.Now().Format("150405000")
@@ -394,7 +384,7 @@ func TestCloudFrontVpcOriginCLILifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &list))
 	require.True(t, cfExtras2Contains(list.VpcOriginList.Items, id))
 
-	// Re-read the ETag since update changed it, then delete.
+	// The update changed the ETag.
 	g := runCLI(t, awsCLI("cloudfront", "get-vpc-origin", "--id", id, "--output", "json"))
 	var gr struct {
 		ETag string `json:"ETag"`
@@ -403,7 +393,6 @@ func TestCloudFrontVpcOriginCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-vpc-origin", "--id", id, "--if-match", gr.ETag))
 }
 
-// TestCloudFrontAnycastIpListCLILifecycle covers the Anycast IP list create/get/list/delete.
 func TestCloudFrontAnycastIpListCLILifecycle(t *testing.T) {
 	t.Parallel()
 	name := "cliail" + time.Now().Format("150405000")
@@ -454,12 +443,10 @@ func TestCloudFrontAnycastIpListCLILifecycle(t *testing.T) {
 	runCLI(t, awsCLI("cloudfront", "delete-anycast-ip-list", "--id", id, "--if-match", etag))
 }
 
-// cfIDItem is the minimal item shape (an Id field) used by list assertions.
 type cfIDItem struct {
 	Id string `json:"Id"`
 }
 
-// cfExtras2Contains reports whether any item has the given Id.
 func cfExtras2Contains(items []cfIDItem, id string) bool {
 	for _, it := range items {
 		if it.Id == id {
@@ -469,8 +456,8 @@ func cfExtras2Contains(items []cfIDItem, id string) bool {
 	return false
 }
 
-// runCLIIgnoreErr runs a CLI command, returning its combined output and
-// ignoring any error — used in deferred teardown to read a fresh ETag.
+// runCLIIgnoreErr serves deferred teardown, which reads a fresh ETag
+// whatever the command's outcome.
 func runCLIIgnoreErr(cmd *exec.Cmd) string {
 	out, _ := cmd.CombinedOutput()
 	return string(out)

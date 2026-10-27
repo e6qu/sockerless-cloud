@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_VpcEndpointServiceRoundTrip drives the PrivateLink endpoint-service
-// control plane through the aws CLI: create/describe/modify the configuration,
-// the allowed-principal permission set, payer responsibility, private-DNS
-// verification, describe-vpc-endpoint-services, and the tolerant delete.
 func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 	t.Parallel()
 	const nlbArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/cli-vpes/abc"
@@ -25,7 +21,6 @@ func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 		t.Fatalf("service name = %q, want non-empty", svcName)
 	}
 
-	// Modify: turn off acceptance, read back.
 	runCLI(t, awsCLI("ec2", "modify-vpc-endpoint-service-configuration",
 		"--service-id", svcID, "--no-acceptance-required"))
 	acc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-vpc-endpoint-service-configurations",
@@ -34,7 +29,6 @@ func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 		t.Fatalf("AcceptanceRequired = %q, want False", acc)
 	}
 
-	// Permissions: add, read back, remove.
 	const principal = "arn:aws:iam::111122223333:root"
 	added := strings.TrimSpace(runCLI(t, awsCLI("ec2", "modify-vpc-endpoint-service-permissions",
 		"--service-id", svcID, "--add-allowed-principals", principal,
@@ -55,18 +49,16 @@ func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 		t.Fatalf("after remove, AllowedPrincipals length = %q, want 0", count)
 	}
 
-	// Payer responsibility + private-DNS verification.
 	runCLI(t, awsCLI("ec2", "modify-vpc-endpoint-service-payer-responsibility",
 		"--service-id", svcID, "--payer-responsibility", "ServiceOwner"))
 
-	// describe-vpc-endpoint-services surfaces the configured service name.
 	gotName := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-vpc-endpoint-services",
 		"--service-names", svcName, "--query", "ServiceDetails[0].ServiceName", "--output", "text")))
 	if gotName != svcName {
 		t.Fatalf("describe-vpc-endpoint-services name = %q, want %q", gotName, svcName)
 	}
 
-	// Delete (tolerant): a successful delete leaves an empty Unsuccessful set.
+	// A successful delete leaves an empty Unsuccessful set.
 	unsucc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "delete-vpc-endpoint-service-configurations",
 		"--service-ids", svcID, "--query", "length(Unsuccessful)", "--output", "text")))
 	if unsucc != "0" {
@@ -74,9 +66,8 @@ func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_AccountVpcEncryptionControlRoundTrip drives the Region-scoped
-// account policy and proves that newly created VPCs inherit it through the
-// official AWS Command Line Interface.
+// TestEC2CLI_AccountVpcEncryptionControlRoundTrip sets the Region-scoped
+// account policy, which VPCs created afterwards inherit.
 func TestEC2CLI_AccountVpcEncryptionControlRoundTrip(t *testing.T) {
 	t.Parallel()
 	initial := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-account-vpc-encryption-control",
@@ -102,7 +93,6 @@ func TestEC2CLI_AccountVpcEncryptionControlRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_VpcCidrBlockRoundTrip drives associate/disassociate-vpc-cidr-block.
 func TestEC2CLI_VpcCidrBlockRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -121,8 +111,6 @@ func TestEC2CLI_VpcCidrBlockRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_SubnetCidrRoundTrip drives associate/disassociate-subnet-cidr-block
-// (IPv6) and the subnet CIDR reservation ops.
 func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -131,7 +119,6 @@ func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",
 		"--vpc-id", vpc, "--cidr-block", "10.70.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
 
-	// A subnet takes a /64 of its VPC's IPv6 CIDR block.
 	out := runCLIExpectError(t, awsCLI("ec2", "associate-subnet-cidr-block", "--subnet-id", sub, "--ipv6-cidr-block", "2001:db8:1::/64"))
 	if !strings.Contains(out, "InvalidSubnet.Range") {
 		t.Fatalf("an IPv6 block outside the VPC's: got %q", out)
@@ -163,8 +150,6 @@ func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_SecurityGroupVpcRoundTrip drives associate/disassociate/describe
-// -security-group-vpc-associations.
 func TestEC2CLI_SecurityGroupVpcRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

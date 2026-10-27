@@ -42,10 +42,9 @@ func waitForECSServiceTaskDefinition(
 	cluster, serviceName, taskDefinition string,
 ) ecstypes.Service {
 	t.Helper()
-	// The SDK's ServicesStable condition — one deployment, running at the
-	// desired count — holds before a rollback begins as well as after it
-	// ends, so the wait also requires the expected task definition and a
-	// COMPLETED rollout.
+	// ServicesStable (one deployment at the desired count) holds before a rollback
+	// begins as well as after it ends, so also require the expected task definition
+	// and a COMPLETED rollout.
 	out, err := ecs.NewServicesStableWaiter(client, func(o *ecs.ServicesStableWaiterOptions) {
 		o.MinDelay = waiterMinDelay
 		o.MaxDelay = waiterMaxDelay
@@ -77,7 +76,6 @@ func waitForECSServiceTaskDefinition(
 	return out.Services[0]
 }
 
-// describeECSService renders the service a wait settled on.
 func describeECSService(service ecstypes.Service) string {
 	rollout := "none"
 	if len(service.Deployments) > 0 {
@@ -126,12 +124,10 @@ func serviceEventsContain(service ecstypes.Service, fragment string) bool {
 	return false
 }
 
-// serviceEventCount counts the service events carrying a fragment. The
-// rollback completion event is written by the same store write that publishes
-// the rollout as COMPLETED, so exactly one exists: a second would mean the
-// completion path had begun appending it separately again, which is what left
-// a window in which a client could see the rollout completed and the event
-// missing.
+// serviceEventCount counts the service events carrying fragment. The store
+// write that marks the rollout COMPLETED also writes the rollback completion
+// event, so exactly one exists and no client can see the rollout completed
+// without it.
 func serviceEventCount(service ecstypes.Service, fragment string) int {
 	count := 0
 	for _, event := range service.Events {
@@ -150,9 +146,9 @@ func serviceEventMessages(service ecstypes.Service) []string {
 	return messages
 }
 
-// TestECS_ServiceDeploymentCircuitBreakerRollsBack proves that real task
-// failures feed the persisted scheduler failure counter and restore the last
-// completed task definition when the configured threshold is reached.
+// TestECS_ServiceDeploymentCircuitBreakerRollsBack expects real task failures
+// to feed the persisted failure counter and restore the last completed task
+// definition at the threshold.
 func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -184,8 +180,6 @@ func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 	rolledBack := waitForECSServiceTaskDefinition(t, client, cluster, serviceName, stable)
 	require.True(t, serviceEventsContain(rolledBack, "was unable to place a task"))
 	require.True(t, serviceEventsContain(rolledBack, "began rolling back"))
-	// The response that first reports the rollout COMPLETED must already carry
-	// the event recording the rollback, and carry it once.
 	require.Equal(t, 1, serviceEventCount(rolledBack, "deployment rollback completed"),
 		"the rollback completion event must be written exactly once, by the write "+
 			"that publishes the rollout as COMPLETED: %v", serviceEventMessages(rolledBack))
@@ -201,9 +195,9 @@ func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 	}, 30*time.Second))
 }
 
-// TestECS_ServiceDeploymentCloudWatchAlarmRollsBack proves that the scheduler
-// consumes the real CloudWatch alarm state, rather than a simulator-only flag,
-// and rolls the deployment back through the same durable state machine.
+// TestECS_ServiceDeploymentCloudWatchAlarmRollsBack expects the scheduler to
+// read the CloudWatch alarm's state and roll the deployment back through the
+// same state machine.
 func TestECS_ServiceDeploymentCloudWatchAlarmRollsBack(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()

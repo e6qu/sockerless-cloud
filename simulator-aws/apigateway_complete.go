@@ -12,8 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// apigwReadRawBody returns the request body bytes (the OpenAPI / import payload
-// rides as an httpPayload Blob, so it isn't a JSON envelope to decode).
+// The OpenAPI import payload rides as an httpPayload blob, not a JSON
+// envelope.
 func apigwReadRawBody(r *http.Request) []byte {
 	if r.Body == nil {
 		return nil
@@ -23,25 +23,11 @@ func apigwReadRawBody(r *http.Request) []byte {
 	return body
 }
 
-// Amazon API Gateway v1 (REST APIs) — the completing control-plane slice that
-// drives registerAPIGateway to the full BackplaneControlService operation
-// surface. Everything here is restJson1, matching the
-// com.amazonaws.apigateway HTTP traits and response shapes (note the v1 wire
-// quirk: list collections serialize the singular `item` jsonName). The Update*
-// operations apply the JSON-Patch-style `patchOperations` (op/path/value) the
-// canonical SDK + CLI update flows produce to the existing stored resource and
-// return it; TagResource/UntagResource mutate a stored resource's tag map by
-// ARN; ImportRestApi / PutRestApi build or replace a REST API from an OpenAPI
-// body; ImportApiKeys bulk-creates API keys; FlushStage* clear a stage's cache;
-// TestInvokeMethod / TestInvokeAuthorizer return a real-shaped test result for a
-// stored method / authorizer; and the domain-name access associations bind a
-// private custom domain to an access-association source.
+// Amazon API Gateway REST API v1 list collections serialize under the
+// singular `item` jsonName.
 
-// APIGWv1DomainName mirrors the v1 DomainName shape. The v1 CreateDomainName /
-// GetDomainName op-names are already counted (they share the
-// apigateway.amazonaws.com CloudTrail source with their v2 twins), so the v1
-// resource is materialized lazily by UpdateDomainName's first patch and read
-// back from this store. Keyed by the domain name itself.
+// No v1 CreateDomainName route exists: UpdateDomainName's first patch creates
+// the row. Keyed by domain name.
 type APIGWv1DomainName struct {
 	DomainName              string            `json:"domainName"`
 	DomainNameId            string            `json:"domainNameId,omitempty"`
@@ -58,8 +44,7 @@ type APIGWv1DomainName struct {
 	Tags                    map[string]string `json:"tags,omitempty"`
 }
 
-// APIGWv1VpcLink mirrors the v1 VpcLink shape. Materialized lazily by
-// UpdateVpcLink's first patch; keyed by its own id.
+// UpdateVpcLink's first patch creates the row.
 type APIGWv1VpcLink struct {
 	Id            string            `json:"id"`
 	Name          string            `json:"name,omitempty"`
@@ -70,8 +55,6 @@ type APIGWv1VpcLink struct {
 	Tags          map[string]string `json:"tags,omitempty"`
 }
 
-// APIGWDomainNameAccessAssociation mirrors the DomainNameAccessAssociation
-// shape. Keyed by its synthesized ARN.
 type APIGWDomainNameAccessAssociation struct {
 	DomainNameAccessAssociationArn string            `json:"domainNameAccessAssociationArn"`
 	DomainNameArn                  string            `json:"domainNameArn,omitempty"`
@@ -86,9 +69,6 @@ var (
 	apigwAccessAssocs  sim.Store[APIGWDomainNameAccessAssociation]
 )
 
-// registerAPIGatewayComplete mounts the remaining Amazon API Gateway v1 REST
-// control-plane operations on the shared mux. Called once from
-// registerAPIGateway in apigateway.go.
 func registerAPIGatewayComplete(srv *sim.Server) {
 	apigwV1DomainNames = sim.MakeStore[APIGWv1DomainName](srv.DB(), "apigw_v1_domainnames")
 	apigwV1VpcLinks = sim.MakeStore[APIGWv1VpcLink](srv.DB(), "apigw_v1_vpclinks")
@@ -99,7 +79,6 @@ func registerAPIGatewayComplete(srv *sim.Server) {
 	apiResource := cloudTrailRESTResource("AWS::ApiGateway::RestApi", "restApiId")
 	domainResource := cloudTrailRESTResource("AWS::ApiGateway::DomainName", "domainName")
 
-	// Update* — PATCH patchOperations applied to the stored resource.
 	mux.HandleFunc("PATCH /restapis/{restApiId}", cloudTrailRecordedREST("UpdateRestApi", src, apiResource, handleAPIGWUpdateRestApi))
 	mux.HandleFunc("PATCH /restapis/{restApiId}/resources/{resourceId}", cloudTrailRecordedREST("UpdateResource", src, apiResource, handleAPIGWUpdateResource))
 	mux.HandleFunc("PATCH /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}", cloudTrailRecordedREST("UpdateMethod", src, apiResource, handleAPIGWUpdateMethod))
@@ -113,40 +92,33 @@ func registerAPIGatewayComplete(srv *sim.Server) {
 	mux.HandleFunc("PATCH /vpclinks/{vpcLinkId}", cloudTrailRecordedREST("UpdateVpcLink", src, nil, handleAPIGWUpdateVpcLink))
 	mux.HandleFunc("PATCH /usageplans/{usagePlanId}/keys/{keyId}/usage", cloudTrailRecordedREST("UpdateUsage", src, nil, handleAPIGWUpdateUsage))
 
-	// Tagging — PUT/DELETE on a resource ARN, no body returned (204).
+	// Tagging answers 204 with no body.
 	mux.HandleFunc("PUT /tags/{resourceArn}", cloudTrailRecordedREST("TagResource", src, nil, handleAPIGWTagResource))
 	mux.HandleFunc("DELETE /tags/{resourceArn}", cloudTrailRecordedREST("UntagResource", src, nil, handleAPIGWUntagResource))
 
-	// REST API import / replace from an OpenAPI body. ImportRestApi and
-	// ImportApiKeys share their POST path with CreateRestApi / CreateApiKey
-	// (discriminated only by the ?mode=import query, which Go's ServeMux does
-	// not route on); a small wrapper installed below dispatches those two by
-	// query before the mux sees them. PutRestApi has its own PUT route.
+	// ImportRestApi and ImportApiKeys share CreateRestApi's and CreateApiKey's
+	// path, told apart only by ?mode=import, which ServeMux cannot route on;
+	// apigwImportModeMiddleware dispatches them.
 	cloudTrailRecordedREST("ImportRestApi", src, nil, handleAPIGWImportRestApi)
 	cloudTrailRecordedREST("ImportApiKeys", src, nil, handleAPIGWImportApiKeys)
 	mux.HandleFunc("PUT /restapis/{restApiId}", cloudTrailRecordedREST("PutRestApi", src, apiResource, handleAPIGWPutRestApi))
 	srv.WrapHandler(apigwImportModeMiddleware)
 
-	// Stage cache flushing — empty 202 responses.
 	mux.HandleFunc("DELETE /restapis/{restApiId}/stages/{stageName}/cache/data", cloudTrailRecordedREST("FlushStageCache", src, apiResource, handleAPIGWFlushStageCache))
 	mux.HandleFunc("DELETE /restapis/{restApiId}/stages/{stageName}/cache/authorizers", cloudTrailRecordedREST("FlushStageAuthorizersCache", src, apiResource, handleAPIGWFlushStageAuthorizersCache))
 
-	// Test-invoke of a stored method / authorizer.
 	mux.HandleFunc("POST /restapis/{restApiId}/resources/{resourceId}/methods/{httpMethod}", cloudTrailRecordedREST("TestInvokeMethod", src, apiResource, handleAPIGWTestInvokeMethod))
 	mux.HandleFunc("POST /restapis/{restApiId}/authorizers/{authorizerId}", cloudTrailRecordedREST("TestInvokeAuthorizer", src, apiResource, handleAPIGWTestInvokeAuthorizer))
 
-	// Domain-name access associations (private custom domains).
+	// Domain-name access associations bind private custom domains.
 	mux.HandleFunc("POST /domainnameaccessassociations", cloudTrailRecordedREST("CreateDomainNameAccessAssociation", src, nil, handleAPIGWCreateDomainNameAccessAssociation))
 	mux.HandleFunc("GET /domainnameaccessassociations", cloudTrailRecordedREST("GetDomainNameAccessAssociations", src, nil, handleAPIGWGetDomainNameAccessAssociations))
 	mux.HandleFunc("DELETE /domainnameaccessassociations/{domainNameAccessAssociationArn}", cloudTrailRecordedREST("DeleteDomainNameAccessAssociation", src, nil, handleAPIGWDeleteDomainNameAccessAssociation))
 	mux.HandleFunc("POST /rejectdomainnameaccessassociations", cloudTrailRecordedREST("RejectDomainNameAccessAssociation", src, nil, handleAPIGWRejectDomainNameAccessAssociation))
 }
 
-// apigwImportModeMiddleware dispatches the two operations whose real URI is the
-// CreateRestApi / CreateApiKey path plus a `?mode=import` query literal — the
-// Go ServeMux routes on path only, so it would otherwise hand both to the Create
-// handler. Faithful to the BackplaneControlService HTTP traits
-// (POST /restapis?mode=import, POST /apikeys?mode=import).
+// The model routes POST /restapis?mode=import and POST /apikeys?mode=import;
+// ServeMux matches the path alone.
 func apigwImportModeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Query().Get("mode") == "import" {
@@ -163,7 +135,6 @@ func apigwImportModeMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// apigwReadPatches decodes the patchOperations envelope shared by every Update*.
 func apigwReadPatches(w http.ResponseWriter, r *http.Request) ([]apigwPatchOp, bool) {
 	var req struct {
 		PatchOperations []apigwPatchOp `json:"patchOperations"`
@@ -291,7 +262,7 @@ func handleAPIGWUpdateMethodResponse(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	apigwMethodResponses.Put(key, mr)
-	// UpdateMethodResponse returns 201 per the BackplaneControlService trait.
+	// The model gives UpdateMethodResponse a 201.
 	sim.WriteJSON(w, http.StatusCreated, mr)
 }
 
@@ -443,10 +414,7 @@ func handleAPIGWUpdateDomainName(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "domainName")
 	d, ok := apigwV1DomainNames.Get(name)
 	if !ok {
-		// The v1 CreateDomainName op-name is counted via its v2 twin and the v1
-		// create endpoint isn't mounted, so materialize the domain on its first
-		// patch — the certificate fields the SDK/CLI update flow sets are
-		// applied below, exactly as a real custom-domain update carries them.
+		// No v1 create route exists, so the first patch creates the domain.
 		d = APIGWv1DomainName{
 			DomainName:       name,
 			DomainNameId:     sim.NewUUID()[:10],
@@ -485,9 +453,7 @@ func handleAPIGWUpdateVpcLink(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "vpcLinkId")
 	v, ok := apigwV1VpcLinks.Get(id)
 	if !ok {
-		// The v1 CreateVpcLink op-name is counted via its v2 twin; materialize
-		// the link on its first patch so the update round-trips against a real
-		// stored row.
+		// No v1 create route exists, so the first patch creates the link.
 		v = APIGWv1VpcLink{
 			Id:     id,
 			Status: "AVAILABLE",
@@ -528,8 +494,7 @@ func handleAPIGWUpdateUsage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// UpdateUsage patches the remaining quota for a key (path "/remaining"); the
-	// response is the Usage report for the plan, mirroring GetUsage.
+	// UpdateUsage patches "/remaining" and answers with the plan's Usage report.
 	remaining := int64(0)
 	if up.Quota != nil {
 		remaining = int64(up.Quota.Limit)
@@ -549,8 +514,7 @@ func handleAPIGWUpdateUsage(w http.ResponseWriter, r *http.Request) {
 		limit = int64(up.Quota.Limit)
 	}
 	now := time.Now().UTC()
-	// The Usage report's per-key daily [used, remaining] logs serialize under
-	// the `values` jsonName (the map member is named `items` in the model).
+	// The model names the map member `items` but its jsonName is `values`.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"usagePlanId": usagePlanId,
 		"startDate":   now.AddDate(0, 0, -1).Format("2006-01-02"),
@@ -560,8 +524,8 @@ func handleAPIGWUpdateUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func apigwUnescapePatchKey(s string) string {
-	// API Gateway patch paths escape "/" and "~" per JSON-Pointer (~1 -> "/",
-	// ~0 -> "~"); the map keys the SDK sends carry these for content-type keys.
+	// Patch paths escape "/" and "~" per JSON Pointer (~1, ~0); content-type map
+	// keys carry them.
 	s = strings.ReplaceAll(s, "~1", "/")
 	s = strings.ReplaceAll(s, "~0", "~")
 	return s
@@ -593,10 +557,8 @@ func handleAPIGWUntagResource(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apigwApplyTags merges add (set) and removes keys on the tag map of the stored
-// API Gateway resource the ARN points at, persisting the mutation. Returns false
-// if the ARN doesn't resolve to a known resource. Resolves the same ARN tails as
-// apigwTagsForARN plus domain names and vpc links.
+// apigwApplyTags resolves the ARN tails apigwTagsForARN does, plus domain
+// names and VPC links; false means the ARN names no known resource.
 func apigwApplyTags(arn string, set map[string]string, remove []string) bool {
 	idx := strings.LastIndex(arn, ":")
 	tail := arn
@@ -620,10 +582,8 @@ func apigwApplyTags(arn string, set map[string]string, remove []string) bool {
 		}
 		return m
 	}
-	// Stage ARNs (arn:.../restapis/<restApiId>/stages/<stageName>) share the
-	// "restapis" kind; resolve them first so a stage-tagging call doesn't tag
-	// the parent REST API. The sim's APIGWStage carries no persisted tag map, so
-	// the call is accepted once the stage exists rather than inventing a field.
+	// Resolve stage ARNs first so a stage tag does not land on the parent REST
+	// API. APIGWStage persists no tags, so the call only checks the stage exists.
 	if kind == "restapis" && len(parts) >= 4 && parts[2] == "stages" {
 		_, ok := apigwStages.Get(apigwStageKey(parts[1], parts[3]))
 		return ok
@@ -669,9 +629,8 @@ func apigwApplyTags(arn string, set map[string]string, remove []string) bool {
 	return false
 }
 
-// apigwBuildRestApiFromOpenAPI constructs (or replaces the resource tree of) a
-// REST API from an OpenAPI/Swagger body: the API's name comes from info.title,
-// and one resource + method is created per path/operation.
+// The name comes from info.title; each path operation yields a resource and
+// method.
 func apigwBuildRestApiFromOpenAPI(api *APIGWRestApi, body []byte) {
 	var doc struct {
 		Info struct {
@@ -739,8 +698,7 @@ func handleAPIGWPutRestApi(w http.ResponseWriter, r *http.Request) {
 		Mode string `json:"mode"`
 		Body string `json:"body"`
 	}
-	// The OpenAPI document rides the request body (httpPayload Blob); the SDK
-	// sends the raw bytes, the CLI a base64-wrapped envelope. Read both shapes.
+	// The SDK sends the raw document, the CLI a base64-wrapped envelope.
 	raw := apigwReadRawBody(r)
 	if err := json.Unmarshal(raw, &req); err == nil && req.Body != "" {
 		raw = []byte(req.Body)
@@ -750,7 +708,7 @@ func handleAPIGWPutRestApi(w http.ResponseWriter, r *http.Request) {
 		mode = strings.ToLower(req.Mode)
 	}
 	if mode == "overwrite" {
-		// Replace the resource tree: drop every non-root resource + its methods.
+		// Replace the tree: drop every non-root resource and its methods.
 		for _, res := range apigwResources.List() {
 			if res.RestApiId == id && res.Id != api.RootResourceId {
 				apigwResources.Delete(id + "/" + res.Id)
@@ -770,8 +728,7 @@ func handleAPIGWPutRestApi(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWImportApiKeys(w http.ResponseWriter, r *http.Request) {
 	body := apigwReadRawBody(r)
 	failOnWarnings := strings.EqualFold(r.URL.Query().Get("failonwarnings"), "true")
-	// The import body is CSV ("name,key,...") or JSON; parse both into rows of
-	// name+value, bulk-create an API key per row, and return their ids.
+	// The import body is CSV or JSON; create one API key per row.
 	rows := apigwParseApiKeyImport(body)
 	if len(rows) == 0 {
 		if failOnWarnings {
@@ -804,8 +761,7 @@ func handleAPIGWImportApiKeys(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusCreated, map[string]any{"ids": ids})
 }
 
-// apigwParseApiKeyImport parses the ImportApiKeys payload (the format=csv body
-// the SDK/CLI sends): a header row of column names, then one row per key.
+// The format=csv body is a header row, then one row per key.
 func apigwParseApiKeyImport(body []byte) []map[string]string {
 	text := strings.TrimSpace(string(body))
 	if text == "" {
@@ -849,7 +805,6 @@ func handleAPIGWFlushStageCache(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Stage identifier specified")
 		return
 	}
-	// Flushing an (empty) stage cache is a no-op state transition; 202 empty.
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -941,8 +896,7 @@ func handleAPIGWGetDomainNameAccessAssociations(w http.ResponseWriter, r *http.R
 	if all == nil {
 		all = []APIGWDomainNameAccessAssociation{}
 	}
-	// The DomainNameAccessAssociations collection serializes its items list under
-	// the singular `item` jsonName (the v1 wire quirk).
+	// v1 collections serialize under the singular `item` jsonName.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"item": all})
 }
 
@@ -964,7 +918,7 @@ func handleAPIGWRejectDomainNameAccessAssociation(w http.ResponseWriter, r *http
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Rejecting deletes the (pending) association; 202 empty.
+	// Rejecting deletes the pending association.
 	apigwAccessAssocs.Delete(req.DomainNameAccessAssociationArn)
 	w.WriteHeader(http.StatusAccepted)
 }

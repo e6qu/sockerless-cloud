@@ -20,10 +20,8 @@ func handleCreateSecurityGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Real AWS rejects a duplicate group name within the same VPC
-	// (different VPCs may reuse a name). The ECS backend's idempotent
-	// network-create relies on InvalidGroup.Duplicate to reuse an
-	// existing SG by name+VPC instead of leaking a second one.
+	// A group name is unique per VPC. The Amazon ECS backend's idempotent network
+	// create relies on InvalidGroup.Duplicate to reuse a group by name and VPC.
 	for _, existing := range ec2SecurityGroups.List() {
 		if existing.GroupName == name && existing.VpcId == vpcId {
 			ec2ErrorXML(w, "InvalidGroup.Duplicate",
@@ -43,9 +41,8 @@ func handleCreateSecurityGroup(w http.ResponseWriter, r *http.Request) {
 		Tags:        tags,
 		OwnerId:     ec2Owner(),
 	}
-	// Real AWS creates VPC security groups with a default ALLOW ALL egress rule.
-	// Simulating it keeps terraform-provider-aws's `aws_security_group` resource
-	// from failing when it revokes the default rule before applying user rules.
+	// A VPC security group starts with an allow-all egress rule;
+	// terraform-provider-aws revokes it before applying the configured rules.
 	if vpcId != "" {
 		sg.IpPermissionsEgress = []EC2IpPermission{{
 			IpProtocol: "-1",
@@ -53,8 +50,8 @@ func handleCreateSecurityGroup(w http.ResponseWriter, r *http.Request) {
 		}}
 	}
 	ec2SecurityGroups.Put(id, sg)
-	// Materialize the default egress rule as standalone SecurityGroupRule rows
-	// so DescribeSecurityGroupRules sees it and it can be revoked by rule ID.
+	// Store the default egress rule as rule rows so DescribeSecurityGroupRules
+	// lists it and it can be revoked by rule ID.
 	if vpcId != "" {
 		createSecurityGroupRules(id, sg.IpPermissionsEgress[0], true)
 	}
@@ -88,9 +85,8 @@ func ipPermsXML(element string, perms []EC2IpPermission) string {
 	for _, p := range perms {
 		b.WriteString("<item>")
 		fmt.Fprintf(&b, "<ipProtocol>%s</ipProtocol>", p.IpProtocol)
-		// All-traffic rules (ip_protocol="-1") carry no ports — real AWS omits
-		// fromPort/toPort, so the provider reads them back as null. Emitting 0
-		// would make an inline aws_security_group rule drift "0 -> null".
+		// All-traffic rules carry no ports; emitting 0 would make an inline rule
+		// drift "0 -> null".
 		if p.IpProtocol != "-1" {
 			fmt.Fprintf(&b, "<fromPort>%d</fromPort><toPort>%d</toPort>", p.FromPort, p.ToPort)
 		}
@@ -267,7 +263,7 @@ func parseIpPermission(r *http.Request, prefix string) EC2IpPermission {
 		perm.PrefixListIds = append(perm.PrefixListIds, EC2PrefixListId{PrefixListId: plid, Description: desc})
 	}
 
-	// Try both "UserIdGroupPairs" (classic) and "Groups" (SDK v2) field names
+	// Classic clients send UserIdGroupPairs, SDK v2 sends Groups.
 	for i := 1; ; i++ {
 		gid := r.FormValue(fmt.Sprintf("%s.UserIdGroupPairs.%d.GroupId", prefix, i))
 		if gid == "" {
@@ -293,9 +289,8 @@ func sgrItemXML(rule EC2SecurityGroupRule) string {
 	fmt.Fprintf(&b, "<groupOwnerId>%s</groupOwnerId>", rule.GroupOwner)
 	fmt.Fprintf(&b, "<isEgress>%t</isEgress>", rule.IsEgress)
 	fmt.Fprintf(&b, "<ipProtocol>%s</ipProtocol>", rule.IpProtocol)
-	// All-traffic rules (ip_protocol="-1") carry no ports — real AWS omits
-	// fromPort/toPort entirely, so the provider reads them back as null. Emitting
-	// 0 would make every idempotency plan see "0 -> null" drift.
+	// All-traffic rules carry no ports; emitting 0 would make every plan drift
+	// "0 -> null".
 	if rule.IpProtocol != "-1" {
 		fmt.Fprintf(&b, "<fromPort>%d</fromPort>", rule.FromPort)
 		fmt.Fprintf(&b, "<toPort>%d</toPort>", rule.ToPort)
@@ -310,11 +305,9 @@ func sgrItemXML(rule EC2SecurityGroupRule) string {
 		fmt.Fprintf(&b, "<prefixListId>%s</prefixListId>", rule.PrefixListId)
 	}
 	if rule.RefGroupId != "" {
-		// Same-account references carry no userId — emitting the owner account
-		// makes the provider render "<account>/sg-id" (it only prefixes when
-		// ReferencedGroupInfo.UserId differs from its own account), which drifts
-		// against the bare sg-id stored in config. The sim is single-account, so
-		// every reference is same-account.
+		// Omit userId for same-account references: the provider renders
+		// "<account>/sg-id" when it is present, drifting against the bare sg-id. The
+		// simulator is single-account.
 		fmt.Fprintf(&b, "<referencedGroupInfo><groupId>%s</groupId></referencedGroupInfo>", rule.RefGroupId)
 	}
 	if rule.Description != "" {
@@ -322,23 +315,15 @@ func sgrItemXML(rule EC2SecurityGroupRule) string {
 	}
 	fmt.Fprintf(&b, "<securityGroupRuleArn>arn:aws:ec2:%s:%s:security-group-rule/%s</securityGroupRuleArn>",
 		awsRegion(), rule.GroupOwner, rule.RuleId)
-	// SDK reads rule tags from <tagSet>, not <tags> — an empty <tags/> never
-	// surfaced and tagged standalone rules could not round-trip.
+	// The SDK reads rule tags from <tagSet>, not <tags>.
 	b.WriteString(writeTagSetXML(rule.Tags))
 	b.WriteString("</item>")
 	return b.String()
 }
 
-// createSecurityGroupRules materializes one SecurityGroupRule row per source in
-// the permission — IPv4 CIDR, IPv6 CIDR, prefix list, and referenced group. The
-// standalone aws_vpc_security_group_{ingress,egress}_rule resources Read each
-// back by SecurityGroupRuleId, so a missing row (the prior IPv6/prefix-list gap)
-// makes such a rule drift/recreate every plan.
-// ec2PermissionDuplicate reports whether `incoming` duplicates a rule
-// already present in `existing`. Real AWS rejects an authorize when the
-// expanded rule (protocol + port range + a single target: CIDR / IPv6 /
-// prefix-list / SG-pair) already exists, with InvalidPermission.Duplicate.
-// We match on protocol + ports + any shared target.
+// Amazon EC2 rejects an authorize duplicating an expanded rule (protocol, port
+// range and one target) with InvalidPermission.Duplicate; match protocol,
+// ports and any shared target.
 func ec2PermissionDuplicate(existing []EC2IpPermission, incoming EC2IpPermission) bool {
 	for _, e := range existing {
 		if e.IpProtocol != incoming.IpProtocol || e.FromPort != incoming.FromPort || e.ToPort != incoming.ToPort {
@@ -376,6 +361,9 @@ func ec2PermissionDuplicate(existing []EC2IpPermission, incoming EC2IpPermission
 	return false
 }
 
+// One rule row per source: IPv4 CIDR, IPv6 CIDR, prefix list and referenced
+// group. The standalone aws_vpc_security_group_*_rule resources read each back
+// by SecurityGroupRuleId, so a missing row recreates the rule every plan.
 func createSecurityGroupRules(groupId string, perm EC2IpPermission, isEgress bool) []EC2SecurityGroupRule {
 	sg, _ := ec2SecurityGroups.Get(groupId)
 	base := EC2SecurityGroupRule{
@@ -409,9 +397,8 @@ func createSecurityGroupRules(groupId string, perm EC2IpPermission, isEgress boo
 	return rules
 }
 
-// deleteSecurityGroupRules removes the SecurityGroupRule rows matching a revoked
-// permission (same group/direction/protocol/ports and one of its sources), so a
-// revoke no longer leaves orphan rows behind in DescribeSecurityGroupRules.
+// Removes the rule rows matching a revoked permission: same group, direction,
+// protocol and ports, and one of its sources.
 func deleteSecurityGroupRules(groupId string, perm EC2IpPermission, isEgress bool) {
 	for _, rule := range ec2SecurityGroupRules.List() {
 		if rule.GroupId != groupId || rule.IsEgress != isEgress ||
@@ -456,23 +443,18 @@ func ec2IPRangeHasCidr(ranges []EC2IpRange, cidr string) bool {
 	return false
 }
 
-// ec2SGValidationError describes a syntactic failure of an IpPermission.
-// Code is the real AWS error code returned to SDK/CLI/terraform callers, so a
-// provider using the simulator sees the same rejection it would in real AWS.
+// Code is the AWS error code callers see.
 type ec2SGValidationError struct {
 	Code    string
 	Message string
 }
 
-// validateIpPermission checks protocol, port range, CIDR syntax, and the
-// existence of referenced security groups. It mirrors the rejection real AWS
-// applies at the AuthorizeSecurityGroup{Ingress,Egress} boundary. An empty Code
-// means the permission is well-formed.
+// Mirrors the rejection at the AuthorizeSecurityGroup{Ingress,Egress}
+// boundary. An empty Code means well-formed.
 func validateIpPermission(perm EC2IpPermission) ec2SGValidationError {
 	proto := strings.ToLower(strings.TrimSpace(perm.IpProtocol))
 	switch proto {
 	case "-1", "all":
-		// All-traffic rules carry no port semantics.
 	case "tcp", "udp":
 		if perm.FromPort < 0 || perm.FromPort > 65535 || perm.ToPort < 0 || perm.ToPort > 65535 {
 			return ec2SGValidationError{Code: "InvalidPortRange.Malformed",
@@ -483,8 +465,7 @@ func validateIpPermission(perm EC2IpPermission) ec2SGValidationError {
 				Message: fmt.Sprintf("Invalid port range (%d-%d) for protocol %s; fromPort must be less than or equal to toPort", perm.FromPort, perm.ToPort, proto)}
 		}
 	case "icmp", "icmpv6":
-		// For ICMP the values encode type/code; -1 (all) is accepted, otherwise
-		// each value must fit 0-255.
+		// ICMP values encode type and code: -1 (all), or 0-255 each.
 		for _, p := range []int{perm.FromPort, perm.ToPort} {
 			if p != -1 && (p < 0 || p > 255) {
 				return ec2SGValidationError{Code: "InvalidPortRange.Malformed",
@@ -588,16 +569,13 @@ func handleAuthorizeSecurityGroupRule(w http.ResponseWriter, r *http.Request, eg
 </%sResponse>`, action, ec2Xmlns(), sim.NewUUID(), ruleSetXML.String(), action)
 }
 
-// ec2PermissionHasAnySource reports whether a permission still has at least one
-// target (CIDR, prefix list, or security-group reference).
+// A CIDR, prefix list or security group reference.
 func ec2PermissionHasAnySource(p EC2IpPermission) bool {
 	return len(p.IpRanges) > 0 || len(p.Ipv6Ranges) > 0 || len(p.PrefixListIds) > 0 || len(p.UserIdGroupPairs) > 0
 }
 
-// ec2RemoveRuleSource removes the source described by rule from the permission
-// list. If the matching permission has other sources, only the revoked source is
-// dropped; otherwise the whole permission is removed. The rule-to-permission
-// match is on protocol + ports + one of the four source types.
+// Drops only the revoked source, or the whole permission when it was the last;
+// match on protocol, ports and one of the four source types.
 func ec2RemoveRuleSource(perms []EC2IpPermission, rule EC2SecurityGroupRule) []EC2IpPermission {
 	var result []EC2IpPermission
 	for _, p := range perms {
@@ -648,12 +626,8 @@ func ec2RemoveRuleSource(perms []EC2IpPermission, rule EC2SecurityGroupRule) []E
 	return result
 }
 
-// ec2RevokeByRuleIDs removes the standalone SecurityGroupRule rows identified by
-// ruleIDs and drops their sources from the legacy IpPermissions list on the
-// security group. Rule IDs that do not exist are ignored, matching AWS's
-// idempotent behavior for revoke-by-id. Rule IDs that exist but belong to a
-// different security group or direction are also ignored so the call cannot
-// accidentally mutate another group's rules.
+// Unknown IDs are ignored, as AWS's revoke-by-id is idempotent; IDs of another
+// group or direction are ignored too, so the call cannot touch another group.
 func ec2RevokeByRuleIDs(groupId string, ruleIDs []string, isEgress bool) {
 	var vpcID string
 	ec2SecurityGroups.Update(groupId, func(sg *EC2SecurityGroup) {
@@ -676,9 +650,7 @@ func ec2RevokeByRuleIDs(groupId string, ruleIDs []string, isEgress bool) {
 	}
 }
 
-// ec2RevokeSecurityGroup handles both RevokeSecurityGroupIngress and
-// RevokeSecurityGroupEgress. It supports spec-based revocation (legacy) and
-// rule-id-based revocation; the latter is idempotent for missing IDs.
+// Revokes by specification or by rule ID; the latter ignores missing IDs.
 func ec2RevokeSecurityGroup(w http.ResponseWriter, r *http.Request, isEgress bool) {
 	groupId := r.FormValue("GroupId")
 
@@ -741,7 +713,6 @@ func handleRevokeSecurityGroupEgress(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDescribeSecurityGroupRules(w http.ResponseWriter, r *http.Request) {
-	// Check for direct SecurityGroupRuleId params
 	var ruleIds []string
 	for i := 1; ; i++ {
 		id := r.FormValue(fmt.Sprintf("SecurityGroupRuleId.%d", i))
@@ -751,9 +722,7 @@ func handleDescribeSecurityGroupRules(w http.ResponseWriter, r *http.Request) {
 		ruleIds = append(ruleIds, id)
 	}
 
-	// Apply the documented filters. Previously only group-id was honored, so a
-	// query scoped by is-egress / security-group-rule-id / a tag returned every
-	// rule in the account.
+	// Apply the documented filters.
 	filters := ec2Filters(r)
 
 	var rules []EC2SecurityGroupRule
@@ -783,9 +752,8 @@ func handleDescribeSecurityGroupRules(w http.ResponseWriter, r *http.Request) {
 </DescribeSecurityGroupRulesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-// ec2SecurityGroupRuleMatchesFilters applies the DescribeSecurityGroupRules
-// filter set (group-id, security-group-rule-id, is-egress, group-owner-id,
-// cidr, description, tag:<key>/tag-key) to one rule.
+// group-id, security-group-rule-id, is-egress, group-owner-id, cidr,
+// description, tag:<key> and tag-key.
 func ec2SecurityGroupRuleMatchesFilters(rule EC2SecurityGroupRule, filters map[string][]string) bool {
 	for name, vals := range filters {
 		switch name {
@@ -822,9 +790,8 @@ func ec2SecurityGroupRuleMatchesFilters(rule EC2SecurityGroupRule, filters map[s
 	return true
 }
 
-// handleModifySecurityGroupRules updates existing rule attributes in place.
-// terraform-provider-aws v6 calls this for an in-place change to an
-// aws_vpc_security_group_{ingress,egress}_rule instead of revoke + authorize.
+// terraform-provider-aws v6 uses this for an in-place rule change instead of
+// revoke and authorize.
 func handleModifySecurityGroupRules(w http.ResponseWriter, r *http.Request) {
 	for i := 1; ; i++ {
 		base := fmt.Sprintf("SecurityGroupRule.%d", i)
@@ -866,9 +833,7 @@ func handleModifySecurityGroupRules(w http.ResponseWriter, r *http.Request) {
 	ec2WriteSimpleResponse(w, "ModifySecurityGroupRulesResponse")
 }
 
-// updateSecurityGroupRuleDescriptions sets the description on the rule rows (and
-// inline-permission sources) matching the given permission — the legacy
-// aws_security_group inline-block path (UpdateSecurityGroupRuleDescriptions*).
+// The legacy aws_security_group inline-block path.
 func updateSecurityGroupRuleDescriptions(groupId string, perm EC2IpPermission, isEgress bool) {
 	descFor := func(rule EC2SecurityGroupRule) (string, bool) {
 		switch {
@@ -917,10 +882,8 @@ func handleUpdateSecurityGroupRuleDescriptionsEgress(w http.ResponseWriter, r *h
 	ec2WriteSimpleResponse(w, "UpdateSecurityGroupRuleDescriptionsEgressResponse")
 }
 
-// removePermission drops the stored permission(s) whose protocol, ports AND
-// source set match the revoke target. Matching on protocol+ports alone (the
-// prior behaviour) removed every rule sharing a port range — e.g. revoking one
-// of two :443 ingress rules from different CIDRs deleted both.
+// Match protocol, ports and the source set: two :443 rules from different
+// CIDRs are different rules.
 func removePermission(perms []EC2IpPermission, target EC2IpPermission) []EC2IpPermission {
 	targetKey := permSourceKey(target)
 	var result []EC2IpPermission
@@ -934,10 +897,8 @@ func removePermission(perms []EC2IpPermission, target EC2IpPermission) []EC2IpPe
 	return result
 }
 
-// ec2PermissionExists reports whether target matches a permission already
-// present in perms. It is used by the revoke handlers to return
-// InvalidPermission.NotFound for non-existent rules, matching real AWS behavior
-// for security groups in non-default VPCs.
+// The revoke handlers answer InvalidPermission.NotFound for a missing rule, as
+// AWS does in non-default VPCs.
 func ec2PermissionExists(perms []EC2IpPermission, target EC2IpPermission) bool {
 	targetKey := permSourceKey(target)
 	for _, p := range perms {
@@ -949,9 +910,7 @@ func ec2PermissionExists(perms []EC2IpPermission, target EC2IpPermission) bool {
 	return false
 }
 
-// permSourceKey is a canonical, order-independent key over a permission's
-// sources (IPv4/IPv6 CIDRs, prefix lists, referenced groups) used to match a
-// revoke against the exact authorized rule.
+// Order-independent, so a revoke matches the exact authorized rule.
 func permSourceKey(p EC2IpPermission) string {
 	var parts []string
 	for _, r := range p.IpRanges {

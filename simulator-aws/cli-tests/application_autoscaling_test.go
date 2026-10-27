@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestApplicationAutoScalingCLI_TargetAndPolicy drives the `aws
-// application-autoscaling` verbs a runner platform uses to autoscale an ECS
-// service. Distinct from `aws autoscaling` (EC2 Auto Scaling).
+// TestApplicationAutoScalingCLI_TargetAndPolicy drives the
+// `aws application-autoscaling` verbs that autoscale an Amazon ECS service,
+// distinct from `aws autoscaling` (Amazon EC2 Auto Scaling).
 func TestApplicationAutoScalingCLI_TargetAndPolicy(t *testing.T) {
 	t.Parallel()
 	const (

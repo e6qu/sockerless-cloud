@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// arDeleteRepositoryOnCleanup deletes a repository, and with it everything it
-// holds, when the test ends.
 func arDeleteRepositoryOnCleanup(t *testing.T, svc *artifactregistry.Service, name string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -28,11 +26,9 @@ func arAdminService(t *testing.T) *artifactregistry.Service {
 	return svc
 }
 
-// TestArtifactRegistry_PackagesVersionsTagsFiles exercises the package / version
-// / tag / file admin surface. Packages and versions are created by artifact
-// upload, not by a JSON create call, so the SDK-reachable round-trips are the
-// list/get reads (empty repository) plus the tag CRUD lifecycle the SDK can
-// drive directly.
+// TestArtifactRegistry_PackagesVersionsTagsFiles: artifact uploads create
+// packages and versions, so the SDK reads them empty and drives the tag
+// lifecycle directly.
 func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
@@ -44,7 +40,6 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	require.NoError(t, err)
 	arDeleteRepositoryOnCleanup(t, svc, repoName)
 
-	// Empty listings round-trip with the documented response shapes.
 	pkgList, err := svc.Projects.Locations.Repositories.Packages.List(repoName).Do()
 	require.NoError(t, err)
 	assert.Empty(t, pkgList.Packages)
@@ -53,12 +48,9 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, fileList.Files)
 
-	// Unknown package/version/file reads are NOT_FOUND, not a 200 with an
-	// empty body — the SDK surfaces this as an API error.
 	_, err = svc.Projects.Locations.Repositories.Packages.Get(repoName + "/packages/nope").Do()
 	require.Error(t, err)
 
-	// Tag lifecycle: create → get → list → patch → delete, all SDK-driven.
 	pkgName := repoName + "/packages/mypkg"
 	verName := pkgName + "/versions/sha256:abc"
 	created, err := svc.Projects.Locations.Repositories.Packages.Tags.Create(
@@ -88,7 +80,6 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestArtifactRegistry_Rules drives the repository cleanup/access rules CRUD.
 func TestArtifactRegistry_Rules(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
@@ -150,8 +141,6 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	require.Len(t, got.Bindings, 1)
 	assert.Contains(t, got.Bindings[0].Members, "user:reader@example.com")
 
-	// testIamPermissions answers with the permissions the caller holds out of
-	// the set it asked about — the payload the call exists to produce.
 	testResp, err := svc.Projects.Locations.Repositories.TestIamPermissions(repoName,
 		&artifactregistry.TestIamPermissionsRequest{
 			Permissions: []string{"artifactregistry.repositories.get", "artifactregistry.repositories.uploadArtifacts"},
@@ -162,8 +151,6 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 		testResp.Permissions)
 }
 
-// TestArtifactRegistry_ProjectSettingsAndVPCSC covers the project-scoped
-// projectSettings, vpcscConfig and projectConfig singletons.
 func TestArtifactRegistry_ProjectSettingsAndVPCSC(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)

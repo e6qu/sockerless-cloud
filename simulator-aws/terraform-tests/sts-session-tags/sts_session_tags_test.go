@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSTSSessionTagsTerraform configures terraform-provider-aws to work as a
-// role in a session tagged through its assume_role block. The role may use
-// Amazon S3 only as the blue team, by aws:PrincipalTag, so the session's tag
-// decides whether the provider can create the bucket.
+// TestSTSSessionTagsTerraform makes the provider assume a role in a session
+// tagged through its assume_role block. The role may use Amazon S3 only as the
+// blue team, by aws:PrincipalTag, so the tag decides whether the bucket gets
+// created.
 func TestSTSSessionTagsTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	ctx := context.Background()

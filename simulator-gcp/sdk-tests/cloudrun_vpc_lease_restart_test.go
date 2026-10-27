@@ -15,9 +15,9 @@ import (
 )
 
 // A task with direct VPC egress that a restarted simulator adopted keeps its
-// subnetwork address: the next workload on the subnetwork takes another. The
-// subnetwork is a /29, so Google's reserved addresses leave the two tasks
-// little room to miss each other.
+// subnetwork address, and the next workload on the subnetwork takes another.
+// On a /29, Google's reserved addresses leave the two tasks little room to miss
+// each other.
 func TestSDK_CloudRun_AdoptedVPCEgressKeepsItsAddressAcrossARestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -69,8 +69,8 @@ func TestSDK_CloudRun_AdoptedVPCEgressKeepsItsAddressAcrossARestart(t *testing.T
 		})
 		return execution.Name
 	}
-	// Cloud Run offers nothing to wait on for a task that runs on, so the
-	// test polls the execution's own counts.
+	// Cloud Run offers nothing to wait on for a running task, so poll the
+	// execution's own counts.
 	awaitRunning := func(executionName string) {
 		t.Helper()
 		var last *runpb.Execution
@@ -87,9 +87,8 @@ func TestSDK_CloudRun_AdoptedVPCEgressKeepsItsAddressAcrossARestart(t *testing.T
 
 	first := start("before-restart")
 	awaitRunning(first)
-	// The restarted simulator adopts the task's container, which the
-	// execution's counts do not show has started: the test reads it off the
-	// engine.
+	// The execution's counts do not show the adopted container started, so read
+	// it off the engine.
 	require.Eventually(t, func() bool {
 		return exec.Command("docker", "inspect", "--format", "{{.State.Running}}", jobContainerName(first)).Run() == nil
 	}, 2*time.Minute, 250*time.Millisecond, "the task's container starts")

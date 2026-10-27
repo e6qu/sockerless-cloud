@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCache_Snapshots covers CreateSnapshot, DescribeSnapshots,
-// CopySnapshot, and DeleteSnapshot against a real cache cluster.
 func TestElastiCache_Snapshots(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -71,8 +69,6 @@ func TestElastiCache_Snapshots(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "SnapshotNotFoundFault")
 }
 
-// TestElastiCache_UsersAndGroups covers CreateUser, DescribeUsers,
-// ModifyUser, DeleteUser and the matching user-group operations.
 func TestElastiCache_UsersAndGroups(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -143,9 +139,6 @@ func TestElastiCache_UsersAndGroups(t *testing.T) {
 	assertAWSAPIErrorCode(t, err, "UserNotFoundFault")
 }
 
-// TestElastiCache_ParameterDetail covers DescribeCacheParameters,
-// ModifyCacheParameterGroup, ResetCacheParameterGroup, and
-// DescribeEngineDefaultParameters.
 func TestElastiCache_ParameterDetail(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -207,9 +200,6 @@ func TestElastiCache_ParameterDetail(t *testing.T) {
 	require.NotEmpty(t, ed.EngineDefaults.Parameters)
 }
 
-// TestElastiCache_DescribeReadOnly covers the read-only describe surfaces:
-// events, engine versions, reserved nodes, offerings, service updates, and
-// cache security groups.
 func TestElastiCache_DescribeReadOnly(t *testing.T) {
 	t.Parallel()
 	c := ecClient()
@@ -244,9 +234,8 @@ func TestElastiCache_DescribeReadOnly(t *testing.T) {
 	require.NotEmpty(t, cev.CacheEngineVersions)
 	assert.Equal(t, "redis", aws.ToString(cev.CacheEngineVersions[0].Engine))
 
-	// A reservation nobody bought is not there. Asked by id rather than by
-	// asking for all of them, because another test in this package does buy
-	// one and an empty whole list would then depend on which ran first.
+	// Ask by id: another test in this package buys a reservation, so an empty full
+	// list would depend on test order.
 	rn, err := c.DescribeReservedCacheNodes(ctx, &elasticache.DescribeReservedCacheNodesInput{
 		ReservedCacheNodeId: aws.String("no-such-reservation"),
 	})

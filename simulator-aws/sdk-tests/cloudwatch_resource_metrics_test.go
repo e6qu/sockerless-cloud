@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_ResourceMetricsConfiguration takes a resource's detailed
-// metrics configuration through its life: one per resource, only for a
-// resource that exists, its selections replaced (not merged) on update.
+// TestCloudWatch_ResourceMetricsConfiguration expects one detailed metrics
+// configuration per existing resource, its selections replaced rather than
+// merged on update.
 func TestCloudWatch_ResourceMetricsConfiguration(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -59,9 +59,9 @@ func TestCloudWatch_ResourceMetricsConfiguration(t *testing.T) {
 	require.True(t, errors.As(err, &notFound), "a configuration for a resource that does not exist: %v", err)
 }
 
-// TestCloudWatch_OTelEnrichmentFilters holds enrichment's include and exclude
-// filters to the documented rules: set at start, replaced as a pair on update,
-// and update refused while enrichment is stopped.
+// TestCloudWatch_OTelEnrichmentFilters expects enrichment's include and exclude
+// filters set at start, replaced as a pair on update, and the update refused
+// while enrichment is stopped.
 func TestCloudWatch_OTelEnrichmentFilters(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()

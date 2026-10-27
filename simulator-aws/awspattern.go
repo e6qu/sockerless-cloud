@@ -9,9 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The AWS content-filter grammar that Amazon EventBridge event patterns,
-// Amazon SNS subscription filter policies and AWS Lambda event-source-mapping
-// filter criteria share:
+// The content-filter grammar Amazon EventBridge event patterns, Amazon SNS
+// subscription filter policies and AWS Lambda event filtering share:
 //
 //	pattern  = { key: (pattern | [ leaf, ... ]) , "$or": [ pattern, ... ] }
 //	leaf     = string | number | true | false | null
@@ -19,18 +18,15 @@ import (
 //	         | {"wildcard": s} | {"anything-but": ...} | {"numeric": [op, n, ...]}
 //	         | {"exists": bool} | {"cidr": s}
 //
-// Sibling keys AND, the elements of a leaf list OR, and an event array matches
-// when any of its elements does. A dialect records where the consumers
-// differ in what they accept.
+// Sibling keys AND, a leaf list ORs, and an event array matches when any
+// element does. A dialect records where the consumers differ.
 type awsPatternDialect struct {
-	// nested admits an object as a key's value, descending into the event.
-	// Amazon SNS allows it only for a MessageBody-scoped policy.
+	// nested admits an object as a key's value; Amazon SNS allows it only for a
+	// MessageBody-scoped policy.
 	nested bool
 	// foldedAffix admits {"prefix": {"equals-ignore-case": s}} and its
 	// suffix twin, which only Amazon EventBridge documents.
-	foldedAffix bool
-	// anythingButMatchers lists the operators {"anything-but": {...}} may
-	// wrap.
+	foldedAffix         bool
 	anythingButMatchers map[string]bool
 }
 
@@ -53,7 +49,6 @@ var (
 	}
 )
 
-// awsParsePattern decodes and validates a pattern document.
 func awsParsePattern(d awsPatternDialect, raw string) (map[string]any, error) {
 	var pattern map[string]any
 	if err := json.Unmarshal([]byte(raw), &pattern); err != nil {
@@ -229,8 +224,6 @@ func (d awsPatternDialect) validateAnythingBut(key string, operand any) error {
 	return fmt.Errorf("%q: anything-but takes a value, a list or a matcher", key)
 }
 
-// awsPatternMatches reports whether event satisfies a pattern that
-// awsParsePattern accepted.
 func awsPatternMatches(pattern map[string]any, event any) bool {
 	obj, ok := event.(map[string]any)
 	if !ok {
@@ -288,8 +281,7 @@ func awsLeavesMatch(leaves []any, ev any, present bool) bool {
 	for _, leaf := range leaves {
 		if m, ok := leaf.(map[string]any); ok {
 			if want, ok := m["exists"].(bool); ok {
-				// exists speaks of leaf values: a key that holds an object
-				// is not a leaf and does not exist for this operator.
+				// exists tests leaf values: a key holding an object does not exist for it.
 				_, isObject := ev.(map[string]any)
 				if (present && !isObject) == want {
 					return true
@@ -318,8 +310,7 @@ func awsLeafMatches(leaf, v any) bool {
 	return awsMatcherMatches(op, operand, v)
 }
 
-// awsSoleEntry returns the entry of a matcher object, which validation holds
-// to exactly one.
+// Validation holds a matcher object to exactly one entry.
 func awsSoleEntry(m map[string]any) (key string, val any) {
 	for k, v := range m {
 		key, val = k, v
@@ -468,11 +459,9 @@ func awsToFloat(v any) (float64, bool) {
 	return 0, false
 }
 
-// awsWildcard is an event pattern's wildcard filter: '*' stands for any run of
-// characters and "\*" for a literal star; nothing else is special.
+// '*' matches any run of characters and "\*" a literal star.
 var awsWildcard = sim.Wildcard{Escapes: "*"}
 
-// ec2FilterWildcard is an Amazon EC2 filter value: '*' stands for any run of
-// characters, '?' for one, and a backslash makes the next '*', '?' or '\'
-// literal.
+// '*' matches any run, '?' one character, and a backslash escapes '*', '?' or
+// '\'.
 var ec2FilterWildcard = sim.Wildcard{AnyOne: true, Escapes: `*?\`}

@@ -8,9 +8,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// EC2ClientVpnAuthorizationPolicy is the one Cedar authorization policy a
-// Client VPN endpoint can carry. It has no identifier of its own: the endpoint
-// names it.
+// An endpoint carries at most one Cedar policy, named by the endpoint.
 type EC2ClientVpnAuthorizationPolicy struct {
 	ClientVpnEndpointId string
 	PolicyDocument      string
@@ -28,8 +26,7 @@ func registerEC2ClientVpnAuthorizationPolicy(r *AWSQueryRouter, srv *sim.Server)
 	r.Register("DeleteClientVpnEndpointAuthorizationPolicy", handleDeleteClientVpnEndpointAuthorizationPolicy)
 }
 
-// ec2ClientVpnAuthzPolicyEndpoint reads the endpoint a policy request names and
-// answers the request's DryRun, reporting whether the handler carries on.
+// Answers DryRun; false means stop.
 func ec2ClientVpnAuthzPolicyEndpoint(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := r.FormValue("ClientVpnEndpointId")
 	if id == "" {
@@ -65,9 +62,8 @@ func handleGetClientVpnEndpointAuthorizationPolicy(w http.ResponseWriter, r *htt
 		ec2Xmlns(), sim.NewUUID(), body)
 }
 
-// handleModifyClientVpnEndpointAuthorizationPolicy creates the endpoint's
-// policy or replaces the values the request sets, keeping the others, and
-// applies it behind the request.
+// Unset values keep their current ones; the policy applies behind the
+// request.
 func handleModifyClientVpnEndpointAuthorizationPolicy(w http.ResponseWriter, r *http.Request) {
 	id, ok := ec2ClientVpnAuthzPolicyEndpoint(w, r)
 	if !ok {
@@ -117,8 +113,7 @@ func handleModifyClientVpnEndpointAuthorizationPolicy(w http.ResponseWriter, r *
 		ec2Xmlns(), sim.NewUUID(), policy.Status)
 }
 
-// handleDeleteClientVpnEndpointAuthorizationPolicy marks the policy deleting
-// and removes it behind the request.
+// The policy is deleting until removed behind the request.
 func handleDeleteClientVpnEndpointAuthorizationPolicy(w http.ResponseWriter, r *http.Request) {
 	id, ok := ec2ClientVpnAuthzPolicyEndpoint(w, r)
 	if !ok {

@@ -17,10 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wafStamp is a unique suffix built only from characters an AWS WAFV2 name
-// admits. The model's EntityName pattern is ^[\w\-]+$, so the fractional-
-// seconds dot the other suites use would be rejected by the service — and the
-// load-balancer names built here forbid it too.
+// wafStamp is a unique suffix of characters an AWS WAF name admits: the
+// EntityName pattern is ^[\w\-]+$, so the fractional-seconds dot other suites
+// use is refused, and the load balancer names built here forbid it too.
 func wafStamp() string {
 	return strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 }
@@ -129,7 +128,7 @@ func TestWAFv2WebACLLifecycle(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	// Stale-lock delete → optimistic-lock failure
+	// A delete with a stale lock token fails optimistic locking.
 	_, err = c.DeleteWebACL(ctx, &wafv2.DeleteWebACLInput{
 		Name:      aws.String(name),
 		Scope:     wafv2types.ScopeCloudfront,
@@ -138,7 +137,7 @@ func TestWAFv2WebACLLifecycle(t *testing.T) {
 	})
 	require.Error(t, err, "stale lock must be rejected")
 
-	// Real lock-token from Get works
+	// The lock token from Get works.
 	currentLock := aws.ToString(getOut.LockToken)
 	_, err = c.DeleteWebACL(ctx, &wafv2.DeleteWebACLInput{
 		Name:      aws.String(name),
@@ -175,7 +174,6 @@ func TestWAFv2IPSetLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, len(getOut.IPSet.Addresses))
 
-	// Update
 	updOut, err := c.UpdateIPSet(ctx, &wafv2.UpdateIPSetInput{
 		Name:      aws.String(name),
 		Scope:     wafv2types.ScopeCloudfront,
@@ -261,11 +259,8 @@ func TestWAFv2RuleGroupAndRegexPatternSet(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestWAFv2UpdatesAndListsAndTags exercises the secondary list / update /
-// tag verbs not covered by the focused per-resource lifecycle tests:
-// UpdateWebACL, UpdateRuleGroup, UpdateRegexPatternSet, ListIPSets,
-// ListRegexPatternSets, TagResource, UntagResource, ListTagsForResource,
-// GetSampledRequests. One test covers the whole cluster.
+// TestWAFv2UpdatesAndListsAndTags covers the update, list and tag operations
+// the per-resource lifecycle tests leave out.
 func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -273,7 +268,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	defer cancel()
 	ts := wafStamp()
 
-	// IPSet for List + Tag verbs
 	ipsetOut, err := c.CreateIPSet(ctx, &wafv2.CreateIPSetInput{
 		Name: aws.String("up-ipset-" + ts), Scope: wafv2types.ScopeCloudfront,
 		IPAddressVersion: wafv2types.IPAddressVersionIpv4,
@@ -284,7 +278,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	ipsetLock := aws.ToString(ipsetOut.Summary.LockToken)
 	ipsetARN := aws.ToString(ipsetOut.Summary.ARN)
 	defer func() {
-		// fetch latest lock token then delete
 		getOut, _ := c.GetIPSet(ctx, &wafv2.GetIPSetInput{
 			Name: aws.String("up-ipset-" + ts), Scope: wafv2types.ScopeCloudfront, Id: aws.String(ipsetID),
 		})
@@ -295,7 +288,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	}()
 	_ = ipsetLock
 
-	// ListIPSets — verify our IPSet is present
 	listIPs, err := c.ListIPSets(ctx, &wafv2.ListIPSetsInput{Scope: wafv2types.ScopeCloudfront})
 	require.NoError(t, err)
 	ipFound := false
@@ -306,7 +298,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	}
 	assert.True(t, ipFound)
 
-	// TagResource → ListTagsForResource → UntagResource
 	_, err = c.TagResource(ctx, &wafv2.TagResourceInput{
 		ResourceARN: aws.String(ipsetARN),
 		Tags:        []wafv2types.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
@@ -326,7 +317,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// WebACL Update — round-trip a new description through the resource
 	aclOut, err := c.CreateWebACL(ctx, &wafv2.CreateWebACLInput{
 		Name: aws.String("up-acl-" + ts), Scope: wafv2types.ScopeCloudfront,
 		DefaultAction:    &wafv2types.DefaultAction{Allow: &wafv2types.AllowAction{}},
@@ -354,7 +344,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, aclLock, aws.ToString(updACL.NextLockToken))
 
-	// RuleGroup Update
 	rgOut, err := c.CreateRuleGroup(ctx, &wafv2.CreateRuleGroupInput{
 		Name: aws.String("up-rg-" + ts), Scope: wafv2types.ScopeCloudfront,
 		Capacity:         aws.Int64(50),
@@ -376,7 +365,6 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// RegexPatternSet Update + List
 	rsOut, err := c.CreateRegexPatternSet(ctx, &wafv2.CreateRegexPatternSetInput{
 		Name: aws.String("up-rs-" + ts), Scope: wafv2types.ScopeCloudfront,
 		RegularExpressionList: []wafv2types.Regex{{RegexString: aws.String("foo.*")}},
@@ -405,7 +393,7 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// No request reached this unassociated WebACL, so its real sample is empty.
+	// No request reached this unassociated web ACL, so its sample is empty.
 	samp, err := c.GetSampledRequests(ctx, &wafv2.GetSampledRequestsInput{
 		WebAclArn:      aws.String(aws.ToString(aclOut.Summary.ARN)),
 		RuleMetricName: aws.String("any"),
@@ -528,14 +516,13 @@ func TestWAFv2AssociateWebACLWithCloudFront(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, listResOut.ResourceArns, cfARN)
 
-	// Delete WebACL while associated → reject
+	// A web ACL still associated cannot be deleted.
 	_, err = c.DeleteWebACL(ctx, &wafv2.DeleteWebACLInput{
 		Name: aws.String(name), Scope: wafv2types.ScopeCloudfront,
 		Id: createOut.Summary.Id, LockToken: aws.String(lock),
 	})
 	require.Error(t, err, "delete with active association must fail")
 
-	// Disassociate then delete works
 	_, err = c.DisassociateWebACL(ctx, &wafv2.DisassociateWebACLInput{
 		ResourceArn: aws.String(cfARN),
 	})
@@ -595,17 +582,16 @@ func TestWAFv2AssociateRegionalWebACLWithApplicationLoadBalancer(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestWAFv2ListWebACLsPagination verifies ListWebACLs honors Limit and NextMarker.
-// Real WAFv2 ListWebACLs returns at most Limit summaries plus a NextMarker that
-// the caller passes back to fetch the next page.
+// TestWAFv2ListWebACLsPagination expects ListWebACLs to return at most Limit
+// summaries and a NextMarker for the next page.
 func TestWAFv2ListWebACLsPagination(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// Use the regional scope so this test's ACLs don't collide with the
-	// cloudfront-scope lifecycle test's ACL.
+	// The regional scope keeps these ACLs apart from the CloudFront-scope
+	// lifecycle test's.
 	scope := wafv2types.ScopeRegional
 	stamp := wafStamp()
 	for i := 0; i < 3; i++ {
@@ -623,7 +609,6 @@ func TestWAFv2ListWebACLsPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// First page: Limit=2 must return exactly 2 and a NextMarker.
 	page1, err := c.ListWebACLs(ctx, &wafv2.ListWebACLsInput{
 		Scope: scope,
 		Limit: aws.Int32(2),
@@ -632,8 +617,7 @@ func TestWAFv2ListWebACLsPagination(t *testing.T) {
 	require.Len(t, page1.WebACLs, 2, "Limit=2 must cap the first page")
 	require.NotNil(t, page1.NextMarker, "a truncated page must return NextMarker")
 
-	// Second page: same Limit + the marker must return the remaining item(s)
-	// disjoint from the first page.
+	// The second page holds the rest, disjoint from the first.
 	page2, err := c.ListWebACLs(ctx, &wafv2.ListWebACLsInput{
 		Scope:      scope,
 		Limit:      aws.Int32(2),
@@ -650,11 +634,8 @@ func TestWAFv2ListWebACLsPagination(t *testing.T) {
 	}
 }
 
-// TestWAFv2LoggingConfiguration exercises the logging configuration control
-// plane round-trip: create a web ACL, attach a logging configuration with
-// PutLoggingConfiguration, read it back with GetLoggingConfiguration, confirm
-// it appears in ListLoggingConfigurations (scoped), then remove it with
-// DeleteLoggingConfiguration. Logging configurations key on the web ACL ARN.
+// TestWAFv2LoggingConfiguration covers a logging configuration, keyed on the
+// web ACL ARN, through Put, Get, the scoped List and Delete.
 func TestWAFv2LoggingConfiguration(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -683,8 +664,8 @@ func TestWAFv2LoggingConfiguration(t *testing.T) {
 		})
 	}()
 
-	// CloudWatch Logs log group destinations for WAF must be named
-	// aws-waf-logs-*; the ARN is REGIONAL us-east-1 for CLOUDFRONT scope.
+	// AWS WAF log groups must be named aws-waf-logs-*; for CLOUDFRONT scope the
+	// ARN is in us-east-1.
 	logDest := "arn:aws:logs:us-east-1:123456789012:log-group:aws-waf-logs-" + name
 
 	putOut, err := c.PutLoggingConfiguration(ctx, &wafv2.PutLoggingConfigurationInput{
@@ -734,9 +715,6 @@ func TestWAFv2LoggingConfiguration(t *testing.T) {
 	require.Error(t, err, "GetLoggingConfiguration after delete must fail")
 }
 
-// TestWAFv2APIKeysAndCapacity exercises the API-key control plane
-// (CreateAPIKey, ListAPIKeys, GetDecryptedAPIKey, DeleteAPIKey) and the
-// CheckCapacity WCU estimator in one round-trip.
 func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -775,8 +753,7 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 	require.ElementsMatch(t, domains, decOut.TokenDomains)
 	require.NotNil(t, decOut.CreationTimestamp)
 
-	// CheckCapacity over two byte-match rules: each ByteMatchStatement costs
-	// a known WCU; the sum is deterministic.
+	// Each ByteMatchStatement costs a known WCU, so the sum is fixed.
 	capOut, err := c.CheckCapacity(ctx, &wafv2.CheckCapacityInput{
 		Scope: wafv2types.ScopeCloudfront,
 		Rules: []wafv2types.Rule{
@@ -801,7 +778,6 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, capOut.Capacity, int64(0), "CheckCapacity must return a positive WCU sum")
 
-	// Delete the key, then it must be gone from the list.
 	_, err = c.DeleteAPIKey(ctx, &wafv2.DeleteAPIKeyInput{
 		Scope: wafv2types.ScopeCloudfront, APIKey: aws.String(apiKey),
 	})
@@ -813,8 +789,7 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 		assert.NotEqual(t, apiKey, aws.ToString(s.APIKey), "the deleted key must be gone from the list")
 	}
 
-	// And the token no longer decrypts, which is what a deleted key means to a
-	// caller that kept a copy of it: the key is the account's resource, not a
+	// The kept token no longer decrypts: the key is the account's resource, not a
 	// self-describing bearer token.
 	_, err = c.GetDecryptedAPIKey(ctx, &wafv2.GetDecryptedAPIKeyInput{
 		Scope: wafv2types.ScopeCloudfront, APIKey: aws.String(apiKey),
@@ -823,10 +798,6 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 		"a deleted API key must not decrypt")
 }
 
-// TestWAFv2ManagedRuleGroupCatalog exercises the read-only managed rule
-// group / product catalog: ListAvailableManagedRuleGroups,
-// ListAvailableManagedRuleGroupVersions, DescribeManagedRuleGroup,
-// DescribeAllManagedProducts, DescribeManagedProductsByVendor.
 func TestWAFv2ManagedRuleGroupCatalog(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -881,18 +852,14 @@ func TestWAFv2ManagedRuleGroupCatalog(t *testing.T) {
 	}
 }
 
-// TestWAFv2ManagedRuleSetLifecycle exercises the publisher-side managed rule
-// set CRUD: PutManagedRuleSetVersions (create + publish), GetManagedRuleSet,
-// ListManagedRuleSets, UpdateManagedRuleSetVersionExpiryDate.
 func TestWAFv2ManagedRuleSetLifecycle(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Managed rule sets are publisher-owned resources surfaced through
-	// List/Get (there is no Create op). Discover the seeded set, read its
-	// lock token, then publish a version against it.
+	// Managed rule sets belong to their publisher and have no Create operation;
+	// find the existing set, read its lock token, then publish a version.
 	listOut, err := c.ListManagedRuleSets(ctx, &wafv2.ListManagedRuleSetsInput{Scope: wafv2types.ScopeCloudfront})
 	require.NoError(t, err)
 	require.NotEmpty(t, listOut.ManagedRuleSets, "the sim seeds a managed rule set per scope")
@@ -940,11 +907,6 @@ func TestWAFv2ManagedRuleSetLifecycle(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(updOut.NextLockToken))
 }
 
-// TestWAFv2PermissionPolicyAndStats exercises the cross-account permission
-// policy (Put/Get/DeletePermissionPolicy on a rule group ARN), the mobile SDK
-// release catalog (GenerateMobileSdkReleaseUrl, GetMobileSdkRelease,
-// ListMobileSdkReleases), DeleteFirewallManagerRuleGroups,
-// GetRateBasedStatementManagedKeys, and GetTopPathStatisticsByTraffic.
 func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
@@ -952,7 +914,6 @@ func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	defer cancel()
 	ts := wafStamp()
 
-	// Rule group → permission policy round-trip.
 	rgOut, err := c.CreateRuleGroup(ctx, &wafv2.CreateRuleGroupInput{
 		Name: aws.String("pp-rg-" + ts), Scope: wafv2types.ScopeCloudfront,
 		Capacity:         aws.Int64(50),
@@ -984,7 +945,6 @@ func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	_, err = c.GetPermissionPolicy(ctx, &wafv2.GetPermissionPolicyInput{ResourceArn: aws.String(rgARN)})
 	require.Error(t, err, "GetPermissionPolicy after delete must fail")
 
-	// Mobile SDK release catalog.
 	listRel, err := c.ListMobileSdkReleases(ctx, &wafv2.ListMobileSdkReleasesInput{Platform: wafv2types.PlatformIos})
 	require.NoError(t, err)
 	require.NotEmpty(t, listRel.ReleaseSummaries)
@@ -1003,7 +963,6 @@ func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(urlOut.Url))
 
-	// Web ACL → FirewallManager rule group delete + rate-based keys + traffic.
 	aclOut, err := c.CreateWebACL(ctx, &wafv2.CreateWebACLInput{
 		Name: aws.String("pp-acl-" + ts), Scope: wafv2types.ScopeCloudfront,
 		DefaultAction:    &wafv2types.DefaultAction{Allow: &wafv2types.AllowAction{}},
@@ -1034,7 +993,7 @@ func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stats)
 
-	// DeleteFirewallManagerRuleGroups advances the web ACL lock token.
+	// DeleteFirewallManagerRuleGroups advances the web ACL's lock token.
 	getACL, err := c.GetWebACL(ctx, &wafv2.GetWebACLInput{
 		Name: aws.String(aclName), Scope: wafv2types.ScopeCloudfront, Id: aws.String(aclID),
 	})
@@ -1045,7 +1004,6 @@ func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(fmDel.NextWebACLLockToken))
 
-	// Clean up the web ACL with the advanced lock token.
 	_, _ = c.DeleteWebACL(ctx, &wafv2.DeleteWebACLInput{
 		Name: aws.String(aclName), Scope: wafv2types.ScopeCloudfront,
 		Id: aws.String(aclID), LockToken: fmDel.NextWebACLLockToken,

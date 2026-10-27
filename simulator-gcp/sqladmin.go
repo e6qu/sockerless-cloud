@@ -15,13 +15,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Cloud SQL Admin v1 — REST surface. Real API path prefix is
-// `/sql/v1beta4/...` in some clients and `/v1/...` in others;
-// the Go `sqladmin/v1` client used by terraform-provider-google
-// hits `/v1/projects/{p}/instances...`. Surface scoped to the
-// 90th-percentile instance + database + user lifecycle. The
-// database engine itself is not simulated; State=RUNNABLE
-// immediately on insert.
+// SQLInstance is a Cloud SQL Admin instance, served on both the /v1 and
+// /sql/v1beta4 prefixes; sqladmin_dataplane.go runs its engine.
 
 type SQLInstance struct {
 	Name                             string           `json:"name"`
@@ -71,10 +66,8 @@ type sqlUserCredential struct {
 	Sealed []byte `json:"sealed"`
 }
 
-// SQLOperation mirrors the v1 sqladmin Operation envelope, which
-// differs from the cloud.google.com/operations.v1 envelope used by
-// other GCP services (Memorystore / APIGW use the latter). The sim
-// emits a simplified done-immediately version.
+// SQLOperation mirrors the sqladmin Operation, which differs from the
+// google.longrunning Operation other services use.
 type SQLOperation struct {
 	Kind          string                 `json:"kind"`
 	Name          string                 `json:"name"`
@@ -88,17 +81,9 @@ type SQLOperation struct {
 	SelfLink      string                 `json:"selfLink,omitempty"`
 }
 
-// SQLBackupRun models the per-instance backup state machine:
-//
-//	(insert)  → ENQUEUED
-//	(internal-settle)        → RUNNING (transient — sim collapses)
-//	(internal-settle)        → SUCCESSFUL
-//	(delete)                 → row removed
-//
-// Real Cloud SQL exposes Status field; tests + tf-provider read it
-// during the backup-completion wait loop. Sim collapses the in-flight
-// states into SUCCESSFUL inline (documented per
-// sim-state-machine-completeness skill).
+// SQLBackupRun is a per-instance backup run: ENQUEUED on insert, then
+// SUCCESSFUL or FAILED once the instance's volume is captured; a delete
+// removes it.
 type SQLBackupRun struct {
 	Kind         string `json:"kind"`
 	ID           int64  `json:"id,string"`
@@ -154,11 +139,9 @@ var (
 	sqlBackups     sim.Store[SQLBackup]
 )
 
-// sqlInstanceOperationActions are the instances.* action verbs whose real
-// Cloud SQL response is the canonical Operation envelope. The simulator
-// validates the target instance exists and returns a DONE Operation; the
-// underlying database-engine behavior (failover, replica promotion, etc.)
-// is not simulated.
+// sqlInstanceOperationActions are the instances.* verbs that answer the
+// Operation envelope. The handler checks the instance exists and answers a
+// DONE operation; it does not act on the engine.
 var sqlInstanceOperationActions = []string{
 	"restart", "failover", "demote", "demoteMaster", "export", "import",
 	"reencrypt", "startReplica", "stopReplica",
@@ -186,11 +169,10 @@ func registerCloudSQL(srv *sim.Server) {
 	registerCloudSQLBlueGreenPrefix(srv, "/v1")
 	registerCloudSQLBlueGreenPrefix(srv, "/sql/v1beta4")
 
-	// instances.pointInTimeRestore's v1beta4 spelling. The /v1 spelling's mux
-	// pattern (`POST /v1/projects/{...}`) belongs to Cloud Resource Manager's
-	// project colon-verb dispatcher, which forwards this verb to
-	// handleSQLPointInTimeRestore; under /sql/v1beta4 the pattern is this
-	// module's own, so it is mounted here — once, not per prefix.
+	// instances.pointInTimeRestore's /sql/v1beta4 spelling. The /v1 pattern
+	// `POST /v1/projects/{...}` belongs to Cloud Resource Manager's project
+	// colon-verb dispatcher, which forwards the verb to
+	// handleSQLPointInTimeRestore.
 	srv.HandleFunc("POST /sql/v1beta4/projects/{projectAction}", func(w http.ResponseWriter, r *http.Request) {
 		project, verb, found := gcpCustomMethod(sim.PathParam(r, "projectAction"))
 		if !found || verb != "pointInTimeRestore" {
@@ -200,10 +182,9 @@ func registerCloudSQL(srv *sim.Server) {
 		handleSQLPointInTimeRestore(w, r, project)
 	})
 
-	// A persistent control-plane restart rebinds every instance's address
-	// and re-adopts the engine containers the earlier process left running.
-	// The API-only tier holds no engines and rebinding modeled instances
-	// would invent listeners their addresses never promised.
+	// A persistent restart rebinds every instance's address and adopts the engine
+	// containers the earlier process left running; the API-only tier holds no
+	// engines and binds nothing.
 	if sim.RequireContainerRuntime("the Cloud SQL data plane") == nil {
 		if err := sqlRecoverDataPlanes(); err != nil {
 			log.Fatalf("recover Cloud SQL data planes: %v", err)
@@ -237,49 +218,44 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/backupRuns/{id}", handleSQLGetBackupRun)
 	srv.HandleFunc("DELETE "+prefix+"/projects/{project}/instances/{instance}/backupRuns/{id}", handleSQLDeleteBackupRun)
 
-	// sslCerts resource.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/sslCerts", handleSQLInsertSslCert)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/sslCerts", handleSQLListSslCerts)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/sslCerts/{sha1Fingerprint}", handleSQLGetSslCert)
 	srv.HandleFunc("DELETE "+prefix+"/projects/{project}/instances/{instance}/sslCerts/{sha1Fingerprint}", handleSQLDeleteSslCert)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/createEphemeral", handleSQLCreateEphemeralCert)
 
-	// connect resource (connectSettings + :generateEphemeralCert colon-verb +
-	// the DNS-name resolve, `locations/{location}/dns/{dnsName}:resolveConnectSettings`).
+	// The connect resource: connectSettings, :generateEphemeralCert, and the
+	// DNS-name resolve `locations/{location}/dns/{dnsName}:resolveConnectSettings`.
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/connectSettings", handleSQLConnectGet)
 	srv.HandleFunc("GET "+prefix+"/locations/{location}/dns/{dnsNameAction}", handleSQLConnectResolve)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}", handleSQLInstanceColonVerb)
 
-	// instances GET sub-resources.
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getDiskShrinkConfig", handleSQLGetDiskShrinkConfig)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getLatestRecoveryTime", handleSQLGetLatestRecoveryTime)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCas", handleSQLListServerCas)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCertificates", handleSQLListServerCertificates)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listEntraIdCertificates", handleSQLListEntraIdCertificates)
 
-	// instances action POSTs returning an Operation.
 	for _, action := range sqlInstanceOperationActions {
 		srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/"+action, handleSQLInstanceAction(action))
 	}
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/clone", handleSQLCloneInstance)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/restoreBackup", handleSQLRestoreBackup)
 
-	// instances action POSTs with bespoke response shapes.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/executeSql", handleSQLExecuteSql)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/acquireSsrsLease", handleSQLAcquireSsrsLease)
 
-	// Workload capture records the SQL an instance executes so it can be
-	// replayed on another instance. The data plane's front proxy relays the
-	// engine's wire protocol as bytes and never reads a query out of it, so
-	// there is no traffic to capture, and a capture or replay reported as
+	// Workload capture records the SQL an instance executes for replay elsewhere.
+	// The data plane's front proxy relays the engine's wire protocol as bytes and
+	// never reads a query, so there is nothing to capture, and a capture reported
 	// RUNNING or COMPLETED would be invented.
 	const workloadCaptureWhy = "capturing a workload records the SQL the instance executes, and this simulator's data plane relays the engine's wire protocol without reading the queries in it"
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures", sqlUnserved("workloadCaptures.list", workloadCaptureWhy))
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:start", sqlUnserved("workloadCaptures.start", workloadCaptureWhy))
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:stop", sqlUnserved("workloadCaptures.stop", workloadCaptureWhy))
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:stopReplay", sqlUnserved("workloadCaptures.stopReplay", workloadCaptureWhy))
-	// "{workloadId}:startReplay" is one segment, and a ServeMux wildcard must
-	// be a whole one, so the verb is read from the segment.
+	// "{workloadId}:startReplay" is one segment, which a ServeMux wildcard must
+	// match whole, so read the verb from it.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures/{workloadAction}", func(w http.ResponseWriter, r *http.Request) {
 		_, verb, _ := strings.Cut(sim.PathParam(r, "workloadAction"), ":")
 		switch verb {
@@ -292,12 +268,6 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/releaseSsrsLease", handleSQLReleaseSsrsLease)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/verifyExternalSyncSettings", handleSQLVerifyExternalSyncSettings)
 
-	// Backups resource. (instances.pointInTimeRestore is the project-scoped
-	// colon-verb `projects/{project}:pointInTimeRestore`; its /v1 Go-mux
-	// spelling `POST /v1/projects/{...}` is owned by Cloud Resource Manager's
-	// project colon-verb dispatcher on the collapsed single-port mux, which
-	// forwards the verb here — see registerCloudSQL for the /sql/v1beta4
-	// spelling this module mounts itself.)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/backups", handleSQLCreateBackup)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/backups", handleSQLListBackups)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/backups/{backup}", handleSQLGetBackup)
@@ -330,9 +300,8 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 		ID:       id,
 		Instance: instance,
 		// The run answers ENQUEUED and settles once the instance's volume is
-		// captured — real work backs the state machine now: the capture is
-		// copy-on-write where the engine's volume store supports block
-		// cloning, and a full copy elsewhere.
+		// captured: copy-on-write where the volume store clones blocks, a full copy
+		// elsewhere.
 		Status:       "ENQUEUED",
 		EnqueuedTime: now,
 		Type:         "ON_DEMAND",
@@ -355,8 +324,7 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 			b.Status = status
 			b.EndTime = nowTimestamp()
 		}) {
-			// The run was deleted while its capture ran; the volume, if the
-			// capture made one, goes with it.
+			// The run was deleted while its capture ran; its volume goes with it.
 			sqlRemoveBackupVolume(sqlBackupRunVolume(project, instance, id))
 		}
 		sqlSettleOperation(project, opName, captureErr)
@@ -422,9 +390,8 @@ func parseSQLBackupRunID(w http.ResponseWriter, raw string) (int64, bool) {
 	return id, true
 }
 
-// handleSQLCloneInstance creates a new instance from an existing
-// source. Real Cloud SQL emits an LRO; sim returns the canonical
-// completed Operation shape inline.
+// handleSQLCloneInstance creates an instance from an existing source,
+// answering the completed Operation.
 func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	source := sim.PathParam(r, "instance")
@@ -470,8 +437,7 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 			sqlUserSecrets.Put(sqlUserKey(project, dest, u.Host, u.Name), credential)
 		}
 	}
-	// The source's address is the source's; the clone holds only one its own
-	// data plane binds.
+	// The source's address is the source's; the clone's data plane binds its own.
 	cloned.IpAddresses = nil
 	sqlReportDataPlane(&cloned)
 	sqlInstances.Put(sqlInstanceKey(project, dest), cloned)
@@ -483,14 +449,12 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// sqlParseBackupDRDatasource splits the Backup and Disaster Recovery Service
-// datasource URI PointInTimeRestoreContext carries
+// sqlParseBackupDRDatasource splits the Backup and Disaster Recovery datasource
+// URI PointInTimeRestoreContext carries
 // (projects/{project}/locations/{region}/backupVaults/{vault}/dataSources/{datasource})
-// into the coordinates of the Cloud SQL instance whose backups it names. This
-// simulator hosts no Backup and Disaster Recovery service, so the datasource
-// segment is the protected instance's own name — the coordinate a deployment
-// against this simulator configures, the way every other cross-service name
-// here resolves.
+// into the protected Cloud SQL instance's coordinates. The simulator hosts no
+// Backup and Disaster Recovery service, so the datasource segment is the
+// instance's own name.
 func sqlParseBackupDRDatasource(name string) (project, instance string, ok bool) {
 	parts := strings.Split(name, "/")
 	if len(parts) != 8 || parts[0] != "projects" || parts[2] != "locations" ||
@@ -505,15 +469,11 @@ func sqlParseBackupDRDatasource(name string) (project, instance string, ok bool)
 	return parts[1], parts[7], true
 }
 
-// handleSQLPointInTimeRestore serves instances.pointInTimeRestore: a restore
-// to a NEW instance from the source instance's backups, at the requested
-// point in time. The restore clones the newest successful backup run captured
-// at or before pointInTime — the backup-volume machinery
-// sqladmin_backup_storage.go documents — so the target boots on the data the
-// source held then. project is the URI parent
-// (`projects/{project}:pointInTimeRestore`); the target instance is created
-// in it. The route is dispatched from Cloud Resource Manager's project
-// colon-verb fan-in for /v1 and from this module's own /sql/v1beta4 mount.
+// handleSQLPointInTimeRestore serves instances.pointInTimeRestore: it clones
+// the newest successful backup run captured at or before pointInTime into a
+// new instance in project, the URI parent
+// (`projects/{project}:pointInTimeRestore`), so the target boots on the data
+// the source held then.
 func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project string) {
 	var req struct {
 		Datasource     string `json:"datasource"`
@@ -560,18 +520,15 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 		return
 	}
 
-	// The newest successful backup run captured at or before the requested
-	// time is the state the target restores to. No such run means the
-	// requested time predates the instance's backup history — nothing real
-	// to restore.
+	// Restore to the newest successful backup run captured at or before the
+	// requested time; none means the time predates the backup history.
 	var backupRun *SQLBackupRun
 	for _, run := range sqlBackupRuns.List() {
 		if run.Instance != sourceInstance || run.Status != "SUCCESSFUL" {
 			continue
 		}
-		// A backup-run row carries no project of its own; the row under the
-		// source project's key is the source's run, not a same-named
-		// instance's in another project.
+		// A backup-run row carries no project, so only the row under the source
+		// project's key is the source's.
 		if _, owned := sqlBackupRuns.Get(sqlBackupRunKey(sourceProject, sourceInstance, run.ID)); !owned {
 			continue
 		}
@@ -616,9 +573,8 @@ func handleSQLPointInTimeRestore(w http.ResponseWriter, r *http.Request, project
 	sqlReportDataPlane(&restored)
 	sqlInstances.Put(sqlInstanceKey(project, target), restored)
 
-	// The vendored Operation.operationType enum publishes no point-in-time
-	// value; the service performs this restore as a clone to a new instance,
-	// and CLONE is the type the clone-based point-in-time path reports.
+	// The vendored operationType enum has no point-in-time value; Cloud SQL
+	// restores by cloning to a new instance and reports CLONE.
 	op := newSQLOperationRunning(project, "CLONE", target)
 	opName := op.Name
 	backupVolume := sqlBackupRunVolume(sourceProject, sourceInstance, backupRun.ID)
@@ -651,13 +607,9 @@ func sqlAPIPrefix(r *http.Request) string {
 	return "/v1"
 }
 
-// gcpSelfLink builds a fully-qualified selfLink rooted at the host
-// the request arrived on, with `https` hard-coded. Real GCP emits
-// `https://<service>.googleapis.com/v1/...` regardless of the
-// caller's transport; the sim listens on plain HTTP locally but
-// emitting `http://` selfLink URLs breaks downstream
-// tooling that strips/expects an HTTPS-only contract. Same shape as
-// the GCS `gcsObjectMetadata` hard-coded-https fix
+// gcpSelfLink builds a selfLink on the request's host with `https`: Google
+// emits `https://<service>.googleapis.com/v1/...` whatever the caller's
+// transport, and tooling expects HTTPS links.
 func gcpSelfLink(r *http.Request, path string) string {
 	host := r.Host
 	if host == "" {
@@ -698,8 +650,8 @@ type SQLOperationError struct {
 }
 
 // newSQLOperationRunning mints a RUNNING operation for work that settles in
-// the background — a backup capturing a volume, a restore cloning one back.
-// Clients poll operations.get until DONE, exactly as against Cloud SQL.
+// the background (a backup capturing a volume, a restore cloning one), which
+// clients poll until DONE.
 func newSQLOperationRunning(project, opType, targetID string) SQLOperation {
 	op := SQLOperation{
 		Kind:          "sql#operation",
@@ -714,8 +666,8 @@ func newSQLOperationRunning(project, opType, targetID string) SQLOperation {
 	return op
 }
 
-// sqlSettleOperation completes a RUNNING operation, recording the failure —
-// in the sql#operationErrors shape — when the work it tracked failed.
+// sqlSettleOperation completes a RUNNING operation, recording a failure in the
+// sql#operationErrors shape.
 func sqlSettleOperation(project, name string, workErr error) {
 	defer gcpOperationDone.Announce(name)
 	sqlOperations.Update(sqlOperationKey(project, name), func(op *SQLOperation) {
@@ -777,8 +729,7 @@ func sqlOnPremisesConfiguration(in map[string]any) map[string]any {
 	for key, value := range in {
 		out[key] = value
 	}
-	// This simulator does not attach an on-premises source to Database
-	// Migration Service, so the published output-only state is false.
+	// The simulator attaches no on-premises source to Database Migration Service.
 	out["dmsManaged"] = false
 	return out
 }
@@ -913,11 +864,9 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 		if req.OnPremisesConfiguration != nil {
 			i.OnPremisesConfiguration = sqlOnPremisesConfiguration(req.OnPremisesConfiguration)
 		}
-		// instances.patch merges settings.* sub-fields: keys present in the
-		// patch body replace, keys it omits are preserved (a wholesale
-		// replace would drop tier/backupConfiguration on a flags-only
-		// patch). settingsVersion bumps on every successful update, as
-		// the Cloud SQL Admin API requires for optimistic concurrency.
+		// instances.patch merges settings sub-fields: present keys replace, omitted
+		// keys stay (a flags-only patch keeps tier and backupConfiguration).
+		// settingsVersion bumps on every update for optimistic concurrency.
 		if req.Settings != nil {
 			if i.Settings == nil {
 				i.Settings = map[string]any{}
@@ -934,9 +883,8 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// sqlNextSettingsVersion returns the next settingsVersion (current + 1, or 1
-// when unset). The Cloud SQL Admin API encodes settingsVersion as a
-// string-quoted int64, so emit a string.
+// sqlNextSettingsVersion returns the next settingsVersion, current + 1 or 1,
+// as the string-quoted int64 the API declares.
 func sqlNextSettingsVersion(settings map[string]any) string {
 	cur := int64(0)
 	switch v := settings["settingsVersion"].(type) {
@@ -962,7 +910,7 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlStopDataPlane(project, name, true)
-	// Cascade-clear databases + users.
+	// Cascade-delete the instance's databases and users.
 	for _, d := range sqlDatabases.List() {
 		if d.Instance == name && d.Project == project {
 			sqlDatabases.Delete(sqlDatabaseKey(project, name, d.Name))
@@ -975,9 +923,8 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 			sqlUserSecrets.Delete(key)
 		}
 	}
-	// Backup runs belong to the instance and go with it, volumes included —
-	// the retained projects/{project}/backups resources survive, which is
-	// their whole point.
+	// Backup runs and their volumes go with the instance; the project-scoped
+	// backups resources survive it.
 	for _, b := range sqlBackupRuns.List() {
 		if b.Instance == name {
 			if sqlBackupRuns.Delete(sqlBackupRunKey(project, name, b.ID)) {
@@ -1237,10 +1184,8 @@ func handleSQLDeleteUser(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleSQLUpdateInstance implements instances.update — a full-replace PUT
-// that returns an Operation. Unlike instances.patch (a sub-field merge),
-// update replaces the mutable instance fields wholesale, bumping
-// settingsVersion for the optimistic-concurrency contract.
+// handleSQLUpdateInstance serves instances.update, a full replace of the
+// mutable fields that answers an Operation and bumps settingsVersion.
 func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "instance")
@@ -1260,8 +1205,7 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		i.DatabaseCenterIntegrationEnabled = req.DatabaseCenterIntegrationEnabled
 		i.OnPremisesConfiguration = sqlOnPremisesConfiguration(req.OnPremisesConfiguration)
-		// update is a full replace of settings; the previous map is
-		// discarded. settingsVersion still advances.
+		// update replaces settings whole; settingsVersion still advances.
 		next := sqlNextSettingsVersion(i.Settings)
 		i.Settings = req.Settings
 		if i.Settings == nil {
@@ -1281,8 +1225,8 @@ func handleSQLUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 	handleSQLWriteDatabase(w, r, true)
 }
 
-// handleSQLWriteDatabase backs databases.patch (merge) and databases.update
-// (full replace). Both return an Operation in real Cloud SQL.
+// handleSQLWriteDatabase serves databases.patch (merge) and databases.update
+// (replace), both answering an Operation.
 func handleSQLWriteDatabase(w http.ResponseWriter, r *http.Request, replace bool) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
@@ -1421,8 +1365,8 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleSQLInstanceAction returns a handler for one instances.* action verb
-// whose real response is the canonical Operation envelope.
+// handleSQLInstanceAction serves one instances.* verb that answers the
+// Operation envelope.
 func handleSQLInstanceAction(action string) http.HandlerFunc {
 	opType := sqlInstanceActionOpType[action]
 	if opType == "" {
@@ -1440,9 +1384,8 @@ func handleSQLInstanceAction(action string) http.HandlerFunc {
 	}
 }
 
-// handleSQLInstanceColonVerb handles the colon-verb POSTs addressed at
-// `instances/{instance}:<verb>` (Go's mux captures the ":verb" suffix in
-// the {instance} parameter). Currently `:generateEphemeralCert`.
+// handleSQLInstanceColonVerb serves `instances/{instance}:<verb>` POSTs, where
+// {instance} captures the verb: `:generateEphemeralCert`.
 func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	raw := sim.PathParam(r, "instance")
@@ -1465,9 +1408,9 @@ func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSQLExecuteSql serves instances.executeSql. The database engine is
-// not simulated, so a faithful empty result set is returned with an OK
-// status (the response shape matches SqlInstancesExecuteSqlResponse).
+// handleSQLExecuteSql serves instances.executeSql with an empty result set and
+// an OK status, in the SqlInstancesExecuteSqlResponse shape; it runs nothing
+// on the engine.
 func handleSQLExecuteSql(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
@@ -1589,9 +1532,9 @@ func handleSQLListEntraIdCertificates(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sqlNewSslCert builds a deterministic SslCert for an instance. The
-// sha1Fingerprint is derived from the instance + role so repeat calls are
-// stable. No real key material is generated; the cert field is empty.
+// sqlNewSslCert builds an SslCert for an instance whose sha1Fingerprint derives
+// from the instance and role; it generates no key material and leaves cert
+// empty.
 func sqlNewSslCert(r *http.Request, project, instance, role string) SQLSslCert {
 	fp := fmt.Sprintf("%x", []byte(project+"/"+instance+"/"+role))
 	if len(fp) > 40 {
@@ -1691,12 +1634,10 @@ func handleSQLCreateEphemeralCert(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, sqlNewSslCert(r, project, instance, "ephemeral"))
 }
 
-// sqlInstanceDNSName is the DNS name of an instance, in the
-// "<suffix>.<region>.sql.goog" shape Cloud SQL publishes in
-// ConnectSettings.dnsName. Real Cloud SQL mints the suffix as an opaque
-// per-instance identifier; this deployment mints it deterministically from
-// the instance's identity — the way connectionName is derived — so the name
-// is stable across restarts and connect.resolve maps it back to the instance.
+// sqlInstanceDNSName is the instance's "<suffix>.<region>.sql.goog" name in
+// ConnectSettings.dnsName. Cloud SQL's suffix is opaque; the simulator derives
+// it from the instance's identity, as connectionName is, so it is stable
+// across restarts and connect.resolve maps it back.
 func sqlInstanceDNSName(inst SQLInstance) string {
 	if inst.Name == "" || inst.Region == "" {
 		return ""
@@ -1705,9 +1646,8 @@ func sqlInstanceDNSName(inst SQLInstance) string {
 	return hex.EncodeToString(sum[:8]) + "." + inst.Region + ".sql.goog"
 }
 
-// sqlConnectSettingsJSON renders the sql#connectSettings document for an
-// instance — the payload connect.get serves and connect.resolve serves for
-// the same instance found by DNS name.
+// sqlConnectSettingsJSON renders the sql#connectSettings document connect.get
+// and connect.resolve serve.
 func sqlConnectSettingsJSON(r *http.Request, inst SQLInstance) map[string]any {
 	settings := map[string]any{
 		"kind":            "sql#connectSettings",
@@ -1739,11 +1679,9 @@ func handleSQLConnectGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSQLConnectResolve serves connect.resolve
-// (`GET .../locations/{location}/dns/{dnsName}:resolveConnectSettings`):
-// the reverse of connect.get, resolving an instance's published DNS name back
-// to the same connect-settings document. Go's mux captures the
-// "{dnsName}:{verb}" segment whole; the verb resolves first, the way Google's
-// frontend resolves a method before the resource.
+// (`GET .../locations/{location}/dns/{dnsName}:resolveConnectSettings`),
+// mapping a published DNS name back to its connect settings. The verb resolves
+// before the name, as Google's frontend resolves a method first.
 func handleSQLConnectResolve(w http.ResponseWriter, r *http.Request) {
 	location := sim.PathParam(r, "location")
 	dnsName, verb, found := gcpCustomMethod(sim.PathParam(r, "dnsNameAction"))
@@ -1764,19 +1702,14 @@ func handleSQLConnectResolve(w http.ResponseWriter, r *http.Request) {
 		"DNS name %q does not resolve to a Cloud SQL instance in location %q", dnsName, location)
 }
 
-// sqlCancellableOperationTypes are the operation types Cloud SQL supports
-// cancelling. The service's cancellation documentation is explicit that only
-// an import or an export can be cancelled; every other type is refused by
-// name.
+// sqlCancellableOperationTypes are the operation types Cloud SQL cancels: only
+// imports and exports, as its cancellation documentation states.
 var sqlCancellableOperationTypes = map[string]bool{"IMPORT": true, "EXPORT": true}
 
-// handleSQLCancelOperation implements sql.operations.cancel. This is Cloud
-// SQL's own method — "Cancels an instance operation that has been performed on
-// an instance" — not the google.longrunning custom method the other services
-// spell, and it does not share that method's best-effort, always-Empty answer.
-// Cloud SQL refuses a cancel of an operation that is not in progress and a
-// cancel of an operation type it cannot cancel, reporting each with the
-// message the service publishes for it. A cancel it accepts returns Empty.
+// handleSQLCancelOperation implements sql.operations.cancel, Cloud SQL's own
+// method rather than the best-effort google.longrunning one: it refuses an
+// operation not in progress or of a type it cannot cancel, with Cloud SQL's
+// published messages, and answers Empty otherwise.
 func handleSQLCancelOperation(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "operation")
@@ -1804,9 +1737,8 @@ func handleSQLCancelOperation(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSQLListTiers(w http.ResponseWriter, r *http.Request) {
-	// Representative Cloud SQL machine tiers (real db-* / db-custom values
-	// the tiers.list API returns; RAM/DiskQuota are string-quoted int64
-	// byte counts per the Tier schema).
+	// A representative set of Cloud SQL tiers as tiers.list returns them; RAM and
+	// DiskQuota are string-quoted int64 byte counts.
 	tiers := []map[string]any{
 		{"kind": "sql#tier", "tier": "db-f1-micro", "RAM": "614400000", "DiskQuota": "3298534883328", "region": []string{"us-central1"}},
 		{"kind": "sql#tier", "tier": "db-g1-small", "RAM": "1740800000", "DiskQuota": "3298534883328", "region": []string{"us-central1"}},
@@ -1818,9 +1750,8 @@ func handleSQLListTiers(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSQLListFlags(w http.ResponseWriter, r *http.Request) {
-	// Representative real Cloud SQL database flags (names, types, and
-	// constraints match the documented flags.list output). appliesTo lists
-	// the database versions each flag is valid for.
+	// A representative set of Cloud SQL database flags as flags.list documents
+	// them; appliesTo lists the versions each flag is valid for.
 	flags := []map[string]any{
 		{
 			"kind": "sql#flag", "name": "max_connections", "type": "INTEGER",
@@ -1865,9 +1796,8 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "instance is required")
 		return
 	}
-	// The backups resource names its instance by full resource name
-	// (projects/{project}/instances/{instance}); the bare name also appears
-	// in the wild.
+	// The backups resource names its instance by full resource name; clients also
+	// send the bare name.
 	instanceParts := strings.Split(req.Instance, "/")
 	instanceName := instanceParts[len(instanceParts)-1]
 	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instanceName)); !ok {
@@ -1882,9 +1812,8 @@ func handleSQLCreateBackup(w http.ResponseWriter, r *http.Request) {
 		Instance:    req.Instance,
 		Description: req.Description,
 		Location:    defaultStr(req.Location, "us"),
-		// The backup answers ENQUEUED and settles once the instance's
-		// volume is captured, like a backup run — it is one, retained at
-		// the project scope.
+		// The backup answers ENQUEUED and settles once the volume is captured, as a
+		// backup run does; it is one, retained at project scope.
 		State:           "ENQUEUED",
 		Type:            defaultStr(req.Type, "ON_DEMAND"),
 		BackupKind:      "SNAPSHOT",

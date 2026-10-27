@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// requestUnknownPrivateCA proves ACM does not manufacture a certificate
-// authority merely because the caller supplied a syntactically valid ARN.
+// requestUnknownPrivateCA expects ACM to refuse a syntactically valid ARN that
+// names no certificate authority.
 func requestUnknownPrivateCA(t *testing.T, c *acm.Client, domain string) {
 	t.Helper()
 	_, err := c.RequestCertificate(ctx, &acm.RequestCertificateInput{
@@ -36,11 +36,10 @@ func TestACM_RejectsUnknownPrivateCertificateAuthority(t *testing.T) {
 	requestUnknownPrivateCA(t, c, "unknown-ca.private.example.com")
 }
 
-// acmWireErrorCode posts one AWS Certificate Manager request straight to the
-// simulator and returns the error code it answered with. Some required members
-// are validated by the generated client before a request is sent, so the
-// service's own validation of a missing one is unreachable through the typed
-// client and has to be driven over the wire.
+// acmWireErrorCode posts one ACM request to the simulator and returns the
+// error code it answers. The generated client validates some required members
+// before sending, so the service's own refusal of a missing one is reachable
+// only over the wire.
 func acmWireErrorCode(t *testing.T, target string, body map[string]any) string {
 	t.Helper()
 	payload, err := json.Marshal(body)
@@ -49,10 +48,8 @@ func acmWireErrorCode(t *testing.T, target string, body map[string]any) string {
 	require.NoError(t, err)
 	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	request.Header.Set("X-Amz-Target", target)
-	// Signed the way the generated client signs: the control plane refuses an
-	// unsigned request before it validates anything, so an unsigned probe
-	// would report the authentication refusal and never reach the check under
-	// test.
+	// Sign as the generated client does: the control plane refuses an unsigned
+	// request before validating anything.
 	signRawSigV4JSON(t, request, "acm", payload)
 	response, err := http.DefaultClient.Do(request)
 	require.NoError(t, err)
@@ -74,8 +71,8 @@ func acmWireErrorCode(t *testing.T, target string, body map[string]any) string {
 	return code
 }
 
-// TestACM_ExportCertificate proves public Amazon-issued certificates cannot
-// expose their service-held private key.
+// TestACM_ExportCertificate expects a public Amazon-issued certificate to keep
+// its private key.
 func TestACM_ExportCertificate(t *testing.T) {
 	t.Parallel()
 	c := acmClient()
@@ -90,11 +87,8 @@ func TestACM_ExportCertificate(t *testing.T) {
 		_, _ = c.DeleteCertificate(context.Background(), &acm.DeleteCertificateInput{CertificateArn: aws.String(arn)})
 	})
 
-	// A passphrase-less export never reaches the service: the client validates
-	// its own required members and refuses to send the request. Asserting a
-	// service refusal here is asserting something that cannot happen, and a
-	// bare "an error happened" passes on this client-side failure while
-	// proving nothing about the simulator at all — which is what it was doing.
+	// The client refuses to send a passphrase-less export, so the refusal here is
+	// the client's.
 	_, err = c.ExportCertificate(ctx, &acm.ExportCertificateInput{CertificateArn: aws.String(arn)})
 	require.ErrorContains(t, err, "missing required field, ExportCertificateInput.Passphrase",
 		"the client refuses to send an export with no passphrase")
@@ -102,8 +96,7 @@ func TestACM_ExportCertificate(t *testing.T) {
 	require.False(t, errors.As(err, &unsent),
 		"a request the client never sent carries no service error: %v", err)
 
-	// The service's own refusal is reachable only over the wire, so that is
-	// where it is exercised.
+	// The service's own refusal is reachable only over the wire.
 	assert.Equal(t, "InvalidParameterValueException",
 		acmWireErrorCode(t, "CertificateManager.ExportCertificate",
 			map[string]any{"CertificateArn": arn}),
@@ -117,8 +110,8 @@ func TestACM_ExportCertificate(t *testing.T) {
 		"a non-PRIVATE certificate must not be exportable")
 }
 
-// TestACM_RevokeCertificate proves the private-certificate-only operation
-// rejects an Amazon-issued request.
+// TestACM_RevokeCertificate expects the private-certificate-only operation to
+// reject an Amazon-issued certificate.
 func TestACM_RevokeCertificate(t *testing.T) {
 	t.Parallel()
 	c := acmClient()
@@ -140,8 +133,8 @@ func TestACM_RevokeCertificate(t *testing.T) {
 	assert.Contains(t, err.Error(), "ResourceInUseException")
 }
 
-// TestACM_AccountConfiguration pins the account expiry-events config
-// round-trip: default 45 days, then a Put updates it.
+// TestACM_AccountConfiguration expects the expiry-events configuration to
+// default to 45 days until a Put changes it.
 func TestACM_AccountConfiguration(t *testing.T) {
 	c := acmClient()
 
@@ -157,32 +150,28 @@ func TestACM_AccountConfiguration(t *testing.T) {
 	require.NotNil(t, got.ExpiryEvents.DaysBeforeExpiry)
 	assert.EqualValues(t, 30, *got.ExpiryEvents.DaysBeforeExpiry)
 
-	// As with a passphrase-less export, the client refuses to send a
-	// configuration write with no idempotency token, so the service never sees
-	// it and the refusal to assert here is the client's.
+	// The client refuses to send a configuration write without an idempotency
+	// token, so the refusal here is the client's.
 	_, err = c.PutAccountConfiguration(ctx, &acm.PutAccountConfigurationInput{
 		ExpiryEvents: &acmtypes.ExpiryEventsConfiguration{DaysBeforeExpiry: aws.Int32(15)},
 	})
 	require.ErrorContains(t, err, "missing required field, PutAccountConfigurationInput.IdempotencyToken",
 		"the client refuses to send a configuration write with no idempotency token")
 
-	// The service's own refusal, over the wire.
 	assert.Equal(t, "InvalidParameterValueException",
 		acmWireErrorCode(t, "CertificateManager.PutAccountConfiguration",
 			map[string]any{"ExpiryEvents": map[string]any{"DaysBeforeExpiry": 15}}),
 		"the service refuses a configuration write with no idempotency token")
 }
 
-// TestACM_SearchCertificates pins SearchCertificates filtering by metadata
-// (Type) and returning per-cert metadata results.
 func TestACM_SearchCertificates(t *testing.T) {
 	t.Parallel()
 	c := acmClient()
 
 	requestUnknownPrivateCA(t, c, "search-private.example.com")
 
-	// The refusal is synchronous and starts no work behind it, so one search
-	// reads the final state.
+	// The refusal is synchronous and starts no work, so one search reads the final
+	// state.
 	out, err := c.SearchCertificates(ctx, &acm.SearchCertificatesInput{
 		FilterStatement: &acmtypes.CertificateFilterStatementMemberFilter{
 			Value: &acmtypes.CertificateFilterMemberAcmCertificateMetadataFilter{

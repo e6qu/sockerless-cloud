@@ -14,13 +14,9 @@ import (
 )
 
 // An operation whose final state comes via Location answers with its own
-// result at that URL — the collection, the resource, whatever the operation
-// produces — and not with the status envelope. These tests hold the operation
-// store to that, because the difference is what decides whether a generated
-// client can read the operation at all: on a synchronous answer azcore selects
-// its no-op poller, which overwrites the response the client pre-built, and for
-// an operation whose result type is a pager that leaves a pager with a nil
-// handler behind.
+// result at that URL, not the status envelope. On a synchronous answer azcore
+// selects its no-op poller, which overwrites the response the client
+// pre-built; for a pager result that leaves a pager with a nil handler.
 
 const (
 	lroTestResultPath = "/subscriptions/00000000-0000-0000-0000-000000000001/providers/" +
@@ -35,8 +31,6 @@ func azureLROTestStore(t *testing.T) {
 	t.Cleanup(bg.Await)
 }
 
-// pollAzureOperation drives one poll of an operation URL, the way a client
-// following Azure-AsyncOperation or Location does.
 func pollAzureOperation(t *testing.T, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -70,10 +64,10 @@ func decodeOperationEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) 
 	return envelope
 }
 
-// TestLocationPollServesTheOperationResult covers the contract the App Service
-// Environment lifecycle operations depend on: while the operation runs its
-// Location answers 202 with no body and a Retry-After, and once it succeeds the
-// same URL answers with the payload the operation recorded and no Retry-After.
+// TestLocationPollServesTheOperationResult: while the operation runs its
+// Location answers 202 with no body and a Retry-After; once it succeeds, the
+// recorded payload and no Retry-After. The App Service Environment lifecycle
+// operations depend on this.
 func TestLocationPollServesTheOperationResult(t *testing.T) {
 	azureLROTestStore(t)
 	payload := json.RawMessage(`{"value":[{"name":"app-one"}]}`)
@@ -128,8 +122,6 @@ func TestStatusPollFollowsTheBackgroundWork(t *testing.T) {
 	require.Empty(t, done.Header().Get("Retry-After"))
 }
 
-// TestBackgroundWorkFailureFailsTheOperation checks that the error the work
-// returns is the error the operation reports.
 func TestBackgroundWorkFailureFailsTheOperation(t *testing.T) {
 	azureLROTestStore(t)
 	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
@@ -145,10 +137,8 @@ func TestBackgroundWorkFailureFailsTheOperation(t *testing.T) {
 	require.Equal(t, "no host", failure["message"])
 }
 
-// TestInstantaneousOperationIsSettledOnFirstRead covers the operations whose
-// work the simulator finishes while it accepts the request: the first status
-// read reports the outcome, and the accepting response advertises no
-// Retry-After, so azcore's poller reads the status at once instead of waiting.
+// TestInstantaneousOperationIsSettledOnFirstRead: the accepting response
+// advertises no Retry-After, so azcore's poller reads the status at once.
 func TestInstantaneousOperationIsSettledOnFirstRead(t *testing.T) {
 	azureLROTestStore(t)
 	ran := false
@@ -165,9 +155,6 @@ func TestInstantaneousOperationIsSettledOnFirstRead(t *testing.T) {
 	require.Equal(t, "Succeeded", envelope["status"])
 }
 
-// TestRunningOperationAdvertisesRetryAfterOnAcceptance is the counterpart: an
-// operation still running when the request is answered tells the client how
-// long to wait before its first poll.
 func TestRunningOperationAdvertisesRetryAfterOnAcceptance(t *testing.T) {
 	azureLROTestStore(t)
 	release := make(chan struct{})
@@ -181,9 +168,8 @@ func TestRunningOperationAdvertisesRetryAfterOnAcceptance(t *testing.T) {
 	close(release)
 }
 
-// TestStatusPollNeverCarriesTheResult is the discriminator: the operationStatuses
-// route is the status envelope's own contract, and leaking the result into it
-// would let a client that polls the wrong URL appear to work.
+// TestStatusPollNeverCarriesTheResult: a result leaking into the status
+// envelope would let a client polling the wrong URL appear to work.
 func TestStatusPollNeverCarriesTheResult(t *testing.T) {
 	azureLROTestStore(t)
 	opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
@@ -199,9 +185,6 @@ func TestStatusPollNeverCarriesTheResult(t *testing.T) {
 	require.Contains(t, envelope, "name")
 }
 
-// TestFailedOperationCarriesNoResult holds the failure path to the same line: a
-// failed operation reports the error envelope and no payload, so a client
-// cannot read a result out of an operation that produced none.
 func TestFailedOperationCarriesNoResult(t *testing.T) {
 	azureLROTestStore(t)
 	opID := issueAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {

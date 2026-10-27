@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SDK coverage for the App Service instance and process family, which the
-// simulator reads out of the site's live workload container:
+// The simulator reads the App Service instance and process family out of the
+// site's live workload container.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances (+ slot)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId} (+ slot)
@@ -25,15 +25,11 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId}/processes/{processId} (+ slot)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/instances/{instanceId}/processes/{processId}/threads (+ slot)
 
-// TestSDK_WebApps_InstancesAndProcesses proves the instance and process family
-// reports the site's real workload container, not a fixed answer:
-//
-//   - before the site's container starts, the site has no instances and no
-//     processes — the negative control for everything that follows;
-//   - after one invocation starts it, the instance identifier is the running
-//     container, its statistics are the engine's own counters, and the process
-//     list is the engine's process table for that container, with the command
-//     line the container was started with.
+// TestSDK_WebApps_InstancesAndProcesses: before the container starts the site
+// has no instances or processes; after one invocation the instance is the
+// running container, its statistics are the engine's counters, and the
+// process list is the engine's process table, with the container's command
+// line.
 func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-webproc-rg"
@@ -43,10 +39,9 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	// The site's main container is the long-lived HTTP bootstrap App Service
-	// keeps running on an always-on plan, so the instance stays up after the
-	// invocation that starts it. The sidecar it answers over the shared
-	// loopback keeps that first invocation fast.
+	// The main container is the long-lived HTTP bootstrap App Service keeps
+	// running on an always-on plan, so the instance outlives the first invocation;
+	// the sidecar it answers over the shared loopback keeps that invocation fast.
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{
 			Image:          to.Ptr(httpProbeImageName),
@@ -66,22 +61,20 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// Negative control: a site whose container has never started has no
-	// instances and no processes.
+	// Negative control: a site whose container never started has no instances or
+	// processes.
 	require.Empty(t, listWebInstances(t, client, rg, site),
 		"a site with no running container must report no instances")
 	require.Empty(t, listWebProcesses(t, client, rg, site),
 		"a site with no running container must report no processes")
 
-	// The performance counters are the same reading, so a site using nothing
-	// reports no counters rather than a set of zeroes that would claim a
-	// measurement was taken.
+	// The performance counters are the same reading, so an idle site reports none
+	// rather than zeroes that would claim a measurement.
 	idle, err := client.NewListPerfMonCountersPager(rg, site, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.Empty(t, idle.Value, "a site with no running container is measuring nothing")
 
-	// Start the site container by invoking the app, exactly as a request to
-	// the site does.
+	// A request to the site starts its container.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/function", strings.NewReader("{}"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -92,10 +85,8 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "invoking the site must start its container: %s", body)
 
-	// The counters now report the container engine's own reading for the
-	// workload, named after the container producing it — the same source the
-	// instance statistics come from, so the memory limit is a real cgroup
-	// limit rather than a figure this simulator chose.
+	// The counters now report the engine's reading for the container, named after
+	// it, so the memory limit is a real cgroup limit.
 	counters, err := client.NewListPerfMonCountersPager(rg, site, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, counters.Value, "a running workload produces counters")
@@ -143,7 +134,7 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	assert.Positive(t, *containerInfo.CurrentCPUStats.CPUUsage.TotalUsage,
 		"a running container has consumed CPU time")
 
-	// An instance identifier that is not the running container is a 404.
+	// An instance that is not the running container is 404.
 	_, err = client.GetInstanceInfo(ctx, rg, site, "not-a-real-instance", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
@@ -180,7 +171,7 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	assert.Equal(t, *main.Properties.Identifier, *got.Properties.Identifier)
 	assert.Equal(t, *main.Properties.CommandLine, *got.Properties.CommandLine)
 
-	// A process identifier the container's table does not carry is a 404.
+	// A process the container's table does not carry is 404.
 	_, err = client.GetProcess(ctx, rg, site, "999999", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFound")
@@ -219,9 +210,8 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	})
 	require.NotEmpty(t, instThreads)
 
-	// A deployment slot with no running container of its own has no instances
-	// and no processes, and its per-instance reads are 404 — the same answers
-	// the production site gave before its container started.
+	// A slot with no running container has no instances or processes, and its
+	// per-instance reads are 404.
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, site, "staging", armappservice.Site{
 		Location: to.Ptr("eastus"),
 	}, nil)
@@ -318,8 +308,8 @@ func listWebProcessThreads(t *testing.T, client *armappservice.WebAppsClient, rg
 	return out
 }
 
-// drainProcessThreadPages walks a thread pager expressed as a next-page
-// closure, so the per-instance and per-site spellings share one drain.
+// drainProcessThreadPages walks a thread pager given as a next-page closure,
+// so the per-instance and per-site spellings share one drain.
 func drainProcessThreadPages(t *testing.T, next func() ([]*armappservice.ProcessThreadInfo, bool, error)) []*armappservice.ProcessThreadInfo {
 	t.Helper()
 	var out []*armappservice.ProcessThreadInfo

@@ -13,28 +13,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch monitoring extras.
-//
-// This file fills out the remaining CloudWatch (GraniteServiceVersion20100801)
-// operations the metrics/alarm/insight-rule files do not cover: metrics
-// datasets and their optional KMS-key association, account-level OpenTelemetry
-// enrichment state, managed Contributor-Insights rules, the contributor-insights
-// report, alarm contributors, and the metric-widget image renderer. They share
-// the existing cwAlarms / cwInsightRules stores where the data already lives and
-// add their own stores for the resources that have no prior home (datasets,
-// managed rules, OTel-enrichment account state).
-//
-// Real clients reach these operations over the same three wire protocols the
-// metric/alarm surface uses: the Go SDK and terraform provider use rpc-v2-cbor
-// (POST /service/GraniteServiceVersion20100801/operation/<Op>), while the aws
-// CLI / botocore use awsJson1.0 (X-Amz-Target GraniteServiceVersion20100801.<Op>,
-// POST /). Each operation has a CBOR handler and an awsJson handler that share a
-// single logic core, so a resource created over one protocol reads back over the
-// other. The response member names match the smithy model com.amazonaws.cloudwatch
-// exactly so both deserializers reconstruct the SDK shapes.
+// Each operation has a CBOR and an awsJson handler over one logic core, with
+// response member names exactly as the com.amazonaws.cloudwatch model.
 
-// CWDataset is a CloudWatch metrics dataset resource. The optional KmsKeyArn is
-// set by AssociateDatasetKmsKey and cleared by DisassociateDatasetKmsKey.
 type CWDataset struct {
 	DatasetId string            `json:"DatasetId"`
 	Arn       string            `json:"Arn"`
@@ -42,14 +23,11 @@ type CWDataset struct {
 	Tags      map[string]string `json:"Tags,omitempty"`
 }
 
-// cwDefaultDataset is the one dataset CloudWatch supports, which every account
-// has in every Region without creating it.
+// The one dataset CloudWatch supports; every account has it in every Region.
 const cwDefaultDataset = "default"
 
-// CWManagedRule is a managed Contributor-Insights rule, keyed by its resource
-// ARN + template. PutManagedInsightRules creates the underlying insight rule in
-// the shared cwInsightRules store and records the template/ARN mapping here so
-// ListManagedInsightRules can report it.
+// PutManagedInsightRules creates the insight rule in cwInsightRules and
+// records the template and ARN here for ListManagedInsightRules.
 type CWManagedRule struct {
 	TemplateName string `json:"TemplateName"`
 	ResourceARN  string `json:"ResourceARN"`
@@ -68,7 +46,6 @@ func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 	cwManagedRules = sim.MakeStore[CWManagedRule](srv.DB(), "cw_managed_rules")
 	registerCloudWatchResourceMetrics(r, srv)
 
-	// awsJson1.0 surface (aws CLI / botocore).
 	for target, h := range map[string]http.HandlerFunc{
 		"GraniteServiceVersion20100801.GetDataset":                handleCWJSONGetDataset,
 		"GraniteServiceVersion20100801.AssociateDatasetKmsKey":    handleCWJSONAssociateDatasetKmsKey,
@@ -82,7 +59,6 @@ func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 		r.Register(target, h)
 	}
 
-	// rpc-v2-cbor surface (Go SDK / terraform provider).
 	for op, h := range map[string]http.HandlerFunc{
 		"GetDataset":                handleCWCBORGetDataset,
 		"AssociateDatasetKmsKey":    handleCWCBORAssociateDatasetKmsKey,
@@ -97,15 +73,12 @@ func registerCloudWatchMonitoringExtra(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ── shared logic cores (protocol-independent) ───────────────────────────────
-
 func cwDatasetArn(id string) string {
 	return "arn:aws:cloudwatch:" + awsRegion() + ":" + awsAccountID() + ":dataset/" + id
 }
 
-// cwResolveDataset finds the dataset an identifier names, by id or ARN. Only
-// the default dataset exists, implicitly; its stored record holds what a
-// caller has set on it.
+// Only the implicit default dataset exists; its stored record holds what a
+// caller set.
 func cwResolveDataset(identifier string) (CWDataset, bool) {
 	if identifier != cwDefaultDataset && identifier != cwDatasetArn(cwDefaultDataset) {
 		return CWDataset{}, false
@@ -116,8 +89,6 @@ func cwResolveDataset(identifier string) (CWDataset, bool) {
 	return CWDataset{DatasetId: cwDefaultDataset, Arn: cwDatasetArn(cwDefaultDataset)}, true
 }
 
-// cwUpdateDataset applies mutate to the dataset an identifier names and
-// reports whether it exists.
 func cwUpdateDataset(identifier string, mutate func(*CWDataset)) bool {
 	ds, ok := cwResolveDataset(identifier)
 	if !ok {
@@ -138,10 +109,7 @@ type cwManagedRuleInput struct {
 	tags         map[string]string
 }
 
-// cwPutManagedRules materializes each managed rule as a real insight rule and
-// records the template/ARN mapping. It returns the partial failures for inputs
-// missing required fields (the real PutManagedInsightRules reports these in the
-// Failures list rather than failing the whole batch).
+// Inputs missing required fields go in Failures instead of failing the batch.
 func cwPutManagedRules(rules []cwManagedRuleInput) []map[string]any {
 	failures := make([]map[string]any, 0)
 	for _, mr := range rules {
@@ -195,8 +163,7 @@ func cwManagedRuleState(ruleName string) string {
 	return "ENABLED"
 }
 
-// cwInsightReportDatapointCount returns the number of period buckets in the
-// requested window, the basis for the honestly-empty per-period datapoints.
+// The report's per-period datapoints are empty.
 func cwInsightReportBuckets(startUnix, endUnix, period int64) []int64 {
 	if period <= 0 {
 		period = 60
@@ -210,10 +177,7 @@ func cwInsightReportBuckets(startUnix, endUnix, period int64) []int64 {
 	return out
 }
 
-// cwRenderWidgetPNG renders a small real PNG sized from the widget's width and
-// height (defaulting to CloudWatch's 600x400). The image is a faithful stand-in
-// for the rendered graph the API returns — valid PNG bytes the client decodes,
-// not a fake byte string.
+// Defaults to CloudWatch's 600x400.
 func cwRenderWidgetPNG(widget map[string]any) []byte {
 	width, height := 600, 400
 	if v, ok := widget["width"].(float64); ok && v > 0 {
@@ -236,7 +200,6 @@ func cwRenderWidgetPNG(widget map[string]any) []byte {
 			img.Set(x, y, bg)
 		}
 	}
-	// Draw a simple axis frame so the image carries the widget's shape.
 	for x := 0; x < width; x++ {
 		img.Set(x, height-1, axis)
 		img.Set(x, 0, axis)
@@ -249,8 +212,6 @@ func cwRenderWidgetPNG(widget map[string]any) []byte {
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
 }
-
-// ── awsJson1.0 handlers ─────────────────────────────────────────────────────
 
 func handleCWJSONGetDataset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -450,12 +411,9 @@ func handleCWJSONGetMetricWidgetImage(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
 		return
 	}
-	// MetricWidgetImage is a Blob; the awsJson encoder base64-encodes a []byte
-	// automatically, which is exactly the wire form the blob deserializer reads.
+	// The awsJson encoder base64-encodes a []byte, the blob wire form.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"MetricWidgetImage": cwRenderWidgetPNG(widget)})
 }
-
-// ── rpc-v2-cbor handlers ────────────────────────────────────────────────────
 
 func handleCWCBORGetDataset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -647,16 +605,13 @@ func handleCWCBORGetMetricWidgetImage(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "MetricWidget is not valid JSON.", http.StatusBadRequest)
 		return
 	}
-	// MetricWidgetImage is a Blob; CBOR encodes a []byte as a byte string, which
-	// is exactly the wire form the blob deserializer reads.
+	// CBOR encodes a []byte as a byte string, the blob wire form.
 	cwWriteCBOR(w, map[string]any{"MetricWidgetImage": cwRenderWidgetPNG(widget)})
-} // cwManagedRuleDefinition is the Contributor Insights rule body a managed rule
-// runs. A rule's definition is what the rule is — Amazon CloudWatch returns it
-// from DescribeInsightRules for managed and customer rules alike — so a managed
-// rule created with an empty one is a rule that aggregates nothing, and the
-// model constrains the member to a real document besides. This builds the
-// genuine definition for the rule the simulator creates: the template it came
-// from, over the resource it watches.
+}
+
+// cwManagedRuleDefinition builds the rule body from the template and the
+// watched resource: DescribeInsightRules returns it, and the model requires a
+// real document.
 func cwManagedRuleDefinition(templateName, resourceARN string) string {
 	definition, err := json.Marshal(map[string]any{
 		"Schema":       map[string]any{"Name": "CloudWatchLogRule", "Version": 1},
@@ -667,8 +622,7 @@ func cwManagedRuleDefinition(templateName, resourceARN string) string {
 		"ManagedRule":  templateName,
 	})
 	if err != nil {
-		// The map above is fixed-shape and always marshals; a failure here
-		// would mean the runtime is broken, not the input.
+		// The map is fixed-shape and always marshals.
 		panic("cloudwatch: managed insight-rule definition: " + err.Error())
 	}
 	return string(definition)

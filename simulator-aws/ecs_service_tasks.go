@@ -19,19 +19,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Amazon ECS services own long-lived tasks. Reconciliation uses the same
-// runECSTasks path as RunTask, so service tasks receive the same task-definition
-// validation, networking, volumes, container runtime, logs, and durable state.
+// Reconciliation launches through runECSTasks, so service tasks get the same
+// validation, networking, volumes, runtime, logs and durable state as RunTask.
 
 var (
 	ecsServiceReconcileLocks  sync.Map // map[service store key]*sync.Mutex
 	ecsServiceStabilityTimers sync.Map // map[service store key]*bg.Timer
 )
 
-// ecsUnhealthyTaskReplacedReason is the stopped reason the service scheduler
-// records when it replaces a task whose health check failed: "The service
-// scheduler also replaces tasks determined to be unhealthy after a container
-// health check or a load balancer target group health check fails."
+// "The service scheduler also replaces tasks determined to be unhealthy after
+// a container health check or a load balancer target group health check
+// fails."
 const ecsUnhealthyTaskReplacedReason = "Task failed ELB health checks"
 
 type ecsServiceLoadBalancer struct {
@@ -58,22 +56,14 @@ func ecsServiceRegistries(raw json.RawMessage) ([]ecsServiceRegistry, error) {
 	return registries, nil
 }
 
-// ecsServiceTaskGroup is the Group tag Amazon ECS assigns to a task started for
-// a service: "service:<service-name>".
+// "service:<service-name>".
 func ecsServiceTaskGroup(serviceName string) string {
 	return "service:" + serviceName
 }
 
-// ecsServiceRunningTasks returns the service's non-STOPPED tasks.
-// ecsTasksNotStopping leaves out the tasks that have been asked to stop.
-//
-// A stopped task keeps its last status until its containers have had their stop
-// timeout, so a task the scheduler has just stopped still reads as running for
-// up to 30 seconds. Counted as one of the service's tasks it is stopped again
-// for the same surplus, or another task is stopped in its place, and a
-// deployment's minimum healthy count is spent on a task that is already
-// leaving. It still holds its place on the host, so the capacity a deployment
-// may use is counted with it.
+// A stopped task reads as running for up to its stop timeout; counting it
+// would stop it again or spend the minimum healthy count on a leaving task. It
+// still holds host capacity, so deployment capacity counts it.
 func ecsTasksNotStopping(tasks []ECSTask) []ECSTask {
 	out := make([]ECSTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -95,8 +85,7 @@ func ecsServiceRunningTasks(clusterArn, group string) []ECSTask {
 	return out
 }
 
-// ecsServiceTasksForGroup enumerates every task in the cluster whose Group
-// matches the service's service:<name> tag, including STOPPED tasks.
+// Includes STOPPED tasks.
 func ecsServiceTasksForGroup(clusterArn, group string) []ECSTask {
 	if group == "" {
 		return nil
@@ -106,9 +95,8 @@ func ecsServiceTasksForGroup(clusterArn, group string) []ECSTask {
 	})
 }
 
-// ecsRequestServiceReconcile schedules an event-driven reconciliation. The
-// per-service lock makes concurrent task transitions and API updates collapse
-// onto the newest persisted service state without launching duplicate tasks.
+// The per-service lock collapses concurrent transitions and updates onto the
+// newest service state without duplicate launches.
 func ecsRequestServiceReconcile(key string) {
 	if key == "" {
 		return
@@ -125,10 +113,8 @@ func ecsServiceLock(key string) *sync.Mutex {
 	return mutex
 }
 
-// ecsContinueServiceStabilization keeps one readiness reconciliation pending
-// while the primary deployment is still converging. Elastic Load Balancing
-// target health can change without an Amazon ECS task transition, so task
-// events alone cannot complete a service deployment.
+// Target health changes without a task transition, so task events alone cannot
+// complete a deployment.
 func ecsContinueServiceStabilization(key string) {
 	service, ok := ecsServices.Get(key)
 	if !ok || service.Status != "ACTIVE" || !ecsServiceUsesECSScheduler(service) ||
@@ -156,9 +142,7 @@ func ecsCancelServiceStabilization(key string) {
 	}
 }
 
-// recoverECSServiceTasks reconciles durable services after persisted tasks have
-// been adopted. It never manufactures recovery state: the service and task
-// stores remain the source of truth.
+// Runs after persisted tasks are adopted; the stores stay the source of truth.
 func recoverECSServiceTasks() {
 	for _, service := range ecsServices.List() {
 		if service.Status != "ACTIVE" && service.Status != "DRAINING" {
@@ -328,8 +312,7 @@ func ecsServiceRunInput(service ECSService, count int) (ecsRunTaskInput, error) 
 	}, nil
 }
 
-// ecsServicePrimaryStartedBy is the startedBy the service's PRIMARY
-// deployment gives the tasks it starts: the deployment's ID.
+// The deployment's ID.
 func ecsServicePrimaryStartedBy(service ECSService) string {
 	if len(service.Deployments) > 0 && service.Deployments[0].Id != "" {
 		return service.Deployments[0].Id
@@ -337,17 +320,14 @@ func ecsServicePrimaryStartedBy(service ECSService) string {
 	return "ecs-svc/" + service.ServiceName
 }
 
-// ecsServiceTaskIsPrimary reports whether the service's PRIMARY deployment
-// started the task. A task belongs to the deployment that started it, so a
-// new deployment of the same task definition still replaces every task.
+// A task belongs to the deployment that started it, so a new deployment of
+// the same task definition still replaces every task.
 func ecsServiceTaskIsPrimary(service ECSService, task ECSTask) bool {
 	return task.StartedBy == ecsServicePrimaryStartedBy(service)
 }
 
-// ecsReconcileService converges one service from persisted service/task state.
-// It implements the default rolling policy: launch the complete new revision
-// before draining the previous revision, matching minimumHealthyPercent=100
-// and maximumPercent=200.
+// The default rolling policy launches the whole new revision before draining
+// the previous one: minimumHealthyPercent=100, maximumPercent=200.
 func ecsReconcileService(key string) {
 	lock := ecsServiceLock(key)
 	lock.Lock()
@@ -374,10 +354,8 @@ func ecsReconcileService(key string) {
 		ecsRefreshServiceState(key)
 		return
 	}
-	// A deployment waiting on a lifecycle hook has not reached SCALE_UP, and
-	// the tasks it would launch are what the hook exists to hold back. The
-	// service's current state is still refreshed, so counts and health stay
-	// truthful while it waits.
+	// A deployment waiting on a hook has not reached SCALE_UP; counts and health
+	// still refresh.
 	if _, waiting := ecsServiceDeploymentGate(service.ServiceArn); waiting {
 		ecsRefreshServiceState(key)
 		return
@@ -399,16 +377,13 @@ func ecsReconcileService(key string) {
 		}
 	}
 
-	// A task the health checks have failed no longer counts towards the desired
-	// count, because the scheduler is going to replace it: "The Amazon ECS
-	// scheduler uses this parameter to replace unhealthy tasks by starting
-	// replacement tasks first and then stopping the unhealthy tasks, as long as
-	// cluster resources for starting replacement tasks are available."
+	// "…replace unhealthy tasks by starting replacement tasks first and then
+	// stopping the unhealthy tasks, as long as cluster resources for starting
+	// replacement tasks are available."
 	unhealthy := ecsUnhealthyServiceTasks(service, current)
 
-	// When the configured maximum does not leave room for a replacement, stop
-	// only as many old tasks as the configured minimum healthy count permits.
-	// This opens capacity for the next real deployment batch.
+	// Without room for a replacement, stop only as many old tasks as the minimum
+	// healthy count allows.
 	if len(current)-len(unhealthy) < targetCount {
 		launchCount := targetCount - (len(current) - len(unhealthy))
 		available := maximumActive - len(active)
@@ -430,10 +405,9 @@ func ecsReconcileService(key string) {
 				}
 			}
 		}
-		// "If any tasks are unhealthy and if maximumPercent doesn't allow the
-		// Amazon ECS scheduler to start replacement tasks, the scheduler stops
-		// the unhealthy tasks one-by-one — using the minimumHealthyPercent as a
-		// constraint — to clear up capacity to launch replacement tasks."
+		// "If any tasks are unhealthy and if maximumPercent doesn't allow the Amazon
+		// ECS scheduler to start replacement tasks, the scheduler stops the unhealthy
+		// tasks one-by-one — using the minimumHealthyPercent as a constraint."
 		if launchCount <= 0 && len(unhealthy) > 0 {
 			stoppable := ecsCountServiceTasks(ecsTasksNotStopping(active), ECSTaskStatusRunning) - minimumHealthy
 			if stoppable > len(unhealthy) {
@@ -469,9 +443,8 @@ func ecsReconcileService(key string) {
 						service.ServiceArn, requestErr.message)
 					return
 				}
-				// The host refused placement for some of the batch: what fit is
-				// launched; the rest waits for the scheduler's retry, with the
-				// service event and backoff Amazon ECS records for it.
+				// Launch what fit; the rest waits for the retry, with the service event and
+				// backoff Amazon ECS records.
 				if len(failures) > 0 {
 					ecsRecordServiceLaunchFailure(key, failures[0].Reason)
 					fmt.Fprintf(os.Stderr, "[sim-ecs] service %s: %d of %d tasks not placed: %s\n",
@@ -502,7 +475,7 @@ func ecsReconcileService(key string) {
 	currentHealthy := ecsCountHealthyServiceTasks(service, current)
 	if currentHealthy >= targetCount {
 		ecsStopServiceTaskSlice(previous, len(previous), "Service deployment replaced task")
-		// The replacements are in service, so the tasks they replaced go.
+		// The replacements are in service, so the replaced tasks go.
 		ecsStopServiceTaskSlice(unhealthy, len(unhealthy), ecsUnhealthyTaskReplacedReason)
 	}
 	if surplus := len(current) - len(unhealthy) - targetCount; surplus > 0 {
@@ -533,9 +506,8 @@ func ecsCountHealthyServiceTasks(service ECSService, tasks []ECSTask) int {
 	return count
 }
 
-// ecsPrimaryDeploymentID names the service's primary deployment, or "" when it
-// has none, so scheduler state recorded against an earlier one is not read as
-// belonging to this one.
+// "" when none, so state recorded for an earlier deployment is not read as
+// this one's.
 func ecsPrimaryDeploymentID(service ECSService) string {
 	if len(service.Deployments) == 0 {
 		return ""
@@ -543,30 +515,19 @@ func ecsPrimaryDeploymentID(service ECSService) string {
 	return service.Deployments[0].Id
 }
 
-// ecsTaskHeldSteadyState reports whether a task started early enough that it
-// has provably held the steady-state window.
-//
-// startedAt is Unix seconds, as the Amazon ECS wire format carries it, so it
-// truncates: a task that really started at 10.999 records 10. Comparing
-// time.Since against the window alone therefore clears a task that started a
-// millisecond ago whenever the start lands late in its second, and the window
-// is enforced or not depending on the wall clock. A second-resolution stamp
-// only proves W has elapsed once W plus one second has, so that is what this
-// requires — the task's essential container gets the whole window to exit
-// before the scheduler will call the task in service.
+// startedAt is whole Unix seconds, so it proves the window W elapsed only once
+// W plus one second has.
 func ecsTaskHeldSteadyState(startedAt float64) bool {
 	return !time.Now().Before(ecsTaskSteadyStateAt(startedAt))
 }
 
-// ecsTaskSteadyStateAt is the instant ecsTaskHeldSteadyState starts reporting
-// true, so a scheduler wake-up lands when the task becomes eligible.
+// When ecsTaskHeldSteadyState turns true, so a wake-up lands then.
 func ecsTaskSteadyStateAt(startedAt float64) time.Time {
 	return ecsEpochTime(startedAt).Add(ecsServiceSteadyStateWindow + time.Second)
 }
 
-// ecsServiceTaskHealthy reports whether a task is in service. The Amazon ECS
-// service scheduler reads the health Elastic Load Balancing maintains for the
-// task's target rather than checking the target itself.
+// The scheduler reads the health Elastic Load Balancing maintains rather than
+// checking the target.
 func ecsServiceTaskHealthy(service ECSService, task ECSTask) bool {
 	if task.StartedAt == nil || !ecsTaskHeldSteadyState(*task.StartedAt) {
 		return false
@@ -583,15 +544,9 @@ func ecsServiceTaskHealthy(service ECSService, task ECSTask) bool {
 	return true
 }
 
-// ecsServiceTaskUnhealthy reports whether the load balancer took the task's
-// target out of service. It is not the negation of ecsServiceTaskHealthy: a
-// target the checker has not yet reached a verdict on is `initial`, which is
-// neither in service nor a reason to replace the task.
-//
-// The scheduler ignores those verdicts for healthCheckGracePeriodSeconds after
-// the task first started: that period is "the period of time, in seconds, that
-// the Amazon ECS service scheduler ignores unhealthy Elastic Load Balancing,
-// VPC Lattice, and container health checks after a task has first started."
+// Not the negation of ecsServiceTaskHealthy: `initial` is neither. The
+// scheduler ignores verdicts for healthCheckGracePeriodSeconds after the task
+// first started.
 func ecsServiceTaskUnhealthy(service ECSService, task ECSTask) bool {
 	if task.LastStatus != ECSTaskStatusRunning || task.StartedAt == nil {
 		return false
@@ -616,12 +571,8 @@ func ecsServiceTaskUnhealthy(service ECSService, task ECSTask) bool {
 	return false
 }
 
-// ecsServiceTaskTargetHealth reports the health Elastic Load Balancing has
-// recorded for the task's target in each of the service's target groups. A
-// service with no load balancer has no target health, and reports none. ok is
-// false when the service's load-balancer configuration cannot be resolved to a
-// target group and a target, which is not the same as a target being out of
-// service.
+// A service without a load balancer reports none. ok is false when its
+// configuration does not resolve to a target, which is not unhealthy.
 func ecsServiceTaskTargetHealth(service ECSService, task ECSTask) (states []string, ok bool) {
 	bindings, err := ecsServiceTargetBindings(service)
 	if err != nil {
@@ -641,7 +592,6 @@ func ecsServiceTaskTargetHealth(service ECSService, task ECSTask) (states []stri
 	return states, true
 }
 
-// ecsUnhealthyServiceTasks selects the tasks whose health checks have failed.
 func ecsUnhealthyServiceTasks(service ECSService, tasks []ECSTask) []ECSTask {
 	var unhealthy []ECSTask
 	for _, task := range tasks {
@@ -669,11 +619,8 @@ func ecsTasksExcluding(tasks, excluded []ECSTask) []ECSTask {
 	return remaining
 }
 
-// ecsRequestServiceReconcileForTargetGroup wakes the scheduler of every
-// service bound to a target group whose target health just changed. Elastic
-// Load Balancing health moves without any Amazon ECS task transition, and it
-// is what decides whether a task is in service and whether the scheduler has
-// to replace it.
+// Target health moves without a task transition, and decides both in-service
+// and replacement.
 func ecsRequestServiceReconcileForTargetGroup(targetGroupArn string) {
 	for _, service := range ecsServices.List() {
 		if service.Status != "ACTIVE" {
@@ -716,8 +663,8 @@ func ecsStopServiceTaskSlice(tasks []ECSTask, count int, reason string) {
 	}
 }
 
-// ecsRefreshServiceState derives public counts and deployment state from real
-// service tasks, then synchronizes Elastic Load Balancing target registration.
+// Derive counts and deployment state from real tasks, then sync target
+// registration.
 func ecsRefreshServiceState(key string) {
 	service, ok := ecsServices.Get(key)
 	if !ok {
@@ -754,29 +701,14 @@ func ecsRefreshServiceState(key string) {
 	if currentHealthy > 0 {
 		ecsResetServiceFailureCountAfterHealthyTask(key, service)
 	}
-	// A rollback's completion event is written by the same store write that
-	// publishes the rollout as COMPLETED, below. The two are fields of one
-	// service row, and DescribeServices returns them together: a client that
-	// sees a rollout reported COMPLETED after a rollback must see the event
-	// recording the rollback, and appending it afterwards left a window in
-	// which every other condition already held and the event did not yet
-	// exist. The scheduler state is read here rather than inside the closure
-	// so this write does not take a second store's lock while holding one.
+	// Write a rollback's completion event in the same write as COMPLETED, so a
+	// client never sees one without the other. Read the scheduler state here so
+	// this write takes no second store lock.
 	rollingBack := false
-	// A deployment the scheduler is still counting launch failures for has not
-	// reached steady state, whatever the task list looks like this instant: a
-	// task whose essential container has already exited is reported RUNNING
-	// until the watcher observes the exit, and reading that window as steady
-	// state latches the rollout COMPLETED. Completion is sticky and
-	// ecsRecordServiceTaskFailure ignores a rollout that is not IN_PROGRESS, so
-	// the latch is permanent and silently stops the circuit breaker mid-count —
-	// the deployment then never reaches its threshold and never rolls back.
-	//
-	// Only a circuit breaker makes the count meaningful. It is what counts to a
-	// threshold, and ecsResetServiceFailureCountAfterHealthyTask clears the
-	// count only when one is enabled — so gating completion on the count
-	// without that condition would hold a breakerless service that recovered
-	// from one launch failure IN_PROGRESS for good.
+	// While a circuit breaker still counts launch failures, the deployment has not
+	// reached steady state: an exited container reads RUNNING until the watcher
+	// sees it, and latching COMPLETED would stop the breaker for good. Without a
+	// breaker the count never clears, so it must not gate completion.
 	launchFailures := 0
 	if state, ok := ecsServiceSchedulerStates.Get(key); ok {
 		rollingBack = state.RollbackInProgress
@@ -799,12 +731,8 @@ func ecsRefreshServiceState(key string) {
 		deployment.UpdatedAt = now
 		switch {
 		case deployment.RolloutState == "COMPLETED":
-			// A rollout that reached steady state is finished: "When a service
-			// deployment is started, it begins in an IN_PROGRESS state. When the
-			// service reaches a steady state, the deployment transitions to a
-			// COMPLETED state." Losing a task, or failing a health check, does
-			// not restart it — the scheduler replaces the task under the same
-			// completed deployment. Only a new deployment starts a new rollout.
+			// Completion is sticky: losing a task or failing a health check replaces the
+			// task under the same deployment; only a new deployment starts a rollout.
 		case currentRunning == targetCount && currentHealthy == targetCount &&
 			pending == 0 && !oldActive && launchFailures == 0:
 			deployment.RolloutState = "COMPLETED"
@@ -826,7 +754,6 @@ func ecsRefreshServiceState(key string) {
 	}
 }
 
-// ecsStopServiceTasks drains every non-STOPPED task for a service.
 func ecsStopServiceTasks(service ECSService) {
 	group := ecsServiceTaskGroup(service.ServiceName)
 	for _, task := range ecsServiceRunningTasks(service.ClusterArn, group) {
@@ -931,10 +858,8 @@ func ecsStringMapEqual(left, right map[string]string) bool {
 	return true
 }
 
-// ecsSyncServiceRegistryInstances makes each running service task a real AWS
-// Cloud Map instance and removes registrations for tasks that stopped. The
-// public RegisterInstance and DeregisterInstance handlers perform the durable
-// write, revision update, operation creation, and DNS realization.
+// The public RegisterInstance and DeregisterInstance handlers do the durable
+// work.
 func ecsSyncServiceRegistryInstances(service ECSService) error {
 	registries, err := ecsServiceRegistries(service.ServiceRegistries)
 	if err != nil {
@@ -949,8 +874,7 @@ func ecsSyncServiceRegistryInstances(service ECSService) error {
 		serviceID := ecsServiceRegistryID(registry.RegistryArn)
 		desired := map[string]map[string]string{}
 		for _, task := range tasks {
-			// Amazon ECS deregisters a task from its service registries when
-			// the task is asked to stop, not once it has stopped.
+			// Amazon ECS deregisters a task when it is asked to stop.
 			if task.LastStatus != ECSTaskStatusRunning || task.DesiredStatus == ECSTaskStatusStopped {
 				continue
 			}
@@ -1083,8 +1007,8 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 			}
 			key := ecsServiceTargetKey(target)
 			managed[key] = true
-			// A stopping task is deregistered, and starts draining, when it is
-			// asked to stop; its containers keep serving the drain.
+			// A stopping task starts draining when asked to stop; its containers serve the
+			// drain.
 			if task.LastStatus == ECSTaskStatusRunning && task.DesiredStatus != ECSTaskStatusStopped {
 				desired[key] = target
 			}
@@ -1093,11 +1017,8 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 			ecsSyncServiceTargetsAsRole(service, targetGroup, managed, desired)
 			continue
 		}
-		// A task the service no longer runs is deregistered rather than dropped:
-		// Elastic Load Balancing drains a target for the target group's
-		// deregistration delay however the removal was requested, so a scaled-in
-		// task leaves the target group the same way DeregisterTargets makes one
-		// leave it.
+		// Deregister rather than drop, so the target drains for the deregistration
+		// delay as DeregisterTargets would.
 		deregisteringAt := time.Now()
 		var draining []ELBv2TargetDescription
 		elbv2TargetGroups.Update(binding.TargetGroupArn, func(group *ELBv2TargetGroup) {
@@ -1111,8 +1032,7 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 					continue
 				}
 				if replacement, ok := desired[key]; ok {
-					// A task running again at an address that is still draining
-					// cancels the drain, as registering that target would.
+					// Running again at a draining address cancels the drain.
 					next = append(next, replacement)
 					held[key] = true
 					continue
@@ -1134,8 +1054,8 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 			})
 			group.Targets = next
 		})
-		// The checker stops maintaining a verdict for a target the moment it
-		// starts draining, and a zero delay finishes the deregistration now.
+		// A draining target loses its verdict at once; a zero delay finishes the
+		// deregistration now.
 		for _, target := range draining {
 			elbv2ForgetTargetHealth(binding.TargetGroupArn, target)
 		}
@@ -1149,12 +1069,9 @@ func ecsServiceTargetKey(target ELBv2TargetDescription) string {
 	return fmt.Sprintf("%s:%d", target.ID, target.Port)
 }
 
-// ecsSyncServiceTargetsAsRole registers and deregisters a service's targets
-// through Elastic Load Balancing as the role the service was created with,
-// which is how Amazon ECS reaches a load balancer for a service that names
-// one. A service without a role is Amazon ECS's own service-linked role's,
-// whose AWS managed policy this simulator does not hold, and keeps its target
-// group directly. A call the role is refused is a service event.
+// As the role the service was created with. A service without a role uses
+// Amazon ECS's service-linked role, whose managed policy the simulator lacks,
+// so it updates the target group directly. A refused call is a service event.
 func ecsSyncServiceTargetsAsRole(service ECSService, targetGroup ELBv2TargetGroup, managed map[string]bool, desired map[string]ELBv2TargetDescription) {
 	var register, deregister []ELBv2TargetDescription
 	held := map[string]bool{}
@@ -1261,7 +1178,6 @@ func ecsServiceLoadBalancerTarget(
 	return ELBv2TargetDescription{}, false
 }
 
-// TaskID returns the bare task ID (trailing path segment of the TaskArn).
 func (task ECSTask) TaskID() string {
 	arn := task.TaskArn
 	if index := strings.LastIndex(arn, "/"); index >= 0 {
@@ -1270,10 +1186,8 @@ func (task ECSTask) TaskID() string {
 	return arn
 }
 
-// ecsDrainedDeploymentsRemoved counts each non-primary deployment's tasks by
-// the deployment ID that started them and drops a deployment once none is
-// left, as Amazon ECS removes a drained ACTIVE deployment — failed ones
-// included — from the service's deployment list.
+// Drop a non-primary deployment, failed ones included, once none of its tasks
+// remain.
 func ecsDrainedDeploymentsRemoved(deployments []ECSDeployment, tasks []ECSTask, now float64) []ECSDeployment {
 	if len(deployments) <= 1 {
 		return deployments
@@ -1300,8 +1214,7 @@ func ecsDrainedDeploymentsRemoved(deployments []ECSDeployment, tasks []ECSTask, 
 	return kept
 }
 
-// ecsFinishServiceDrain marks a deleted service INACTIVE once its last task
-// has stopped; Amazon ECS reports it DRAINING until then.
+// DRAINING until the last task stops.
 func ecsFinishServiceDrain(key string, service ECSService) {
 	if len(ecsServiceRunningTasks(service.ClusterArn, ecsServiceTaskGroup(service.ServiceName))) > 0 {
 		return

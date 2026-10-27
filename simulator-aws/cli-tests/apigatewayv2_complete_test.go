@@ -10,16 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAPIGatewayV2CompleteCLI exercises the API/api-mapping update and
-// reset-authorizers-cache surface through the aws CLI: update-api,
-// update-api-mapping, reset-authorizers-cache.
-//
-// The developer-portal, portal-product, product-page, and routing-rule
-// operations registered in this slice ship in API Gateway v2's newer wire
-// surface that the local aws CLI 2.26.6 does not yet expose (no
-// create-portal / create-portal-product / create-routing-rule subcommands).
-// Those operations are covered by the SDK suite (TestAPIGatewayV2_* in
-// sdk-tests), which exercises the same handlers and the testing-contract hook.
+// TestAPIGatewayV2CompleteCLI covers update-api, update-api-mapping and
+// reset-authorizers-cache. aws CLI 2.26.6 has no portal, portal-product,
+// product-page or routing-rule subcommands; the SDK suite covers those.
 func TestAPIGatewayV2CompleteCLI(t *testing.T) {
 	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
@@ -35,13 +28,12 @@ func TestAPIGatewayV2CompleteCLI(t *testing.T) {
 		runCLI(t, awsCLI("apigatewayv2", "delete-api", "--api-id", api.APIID))
 	})
 
-	// update-api (PATCH) renames the API; the response reflects it.
 	assert.Contains(t, runCLI(t, awsCLI("apigatewayv2", "update-api",
 		"--api-id", api.APIID,
 		"--name", "cli-update-api-renamed",
 	)), `"Name": "cli-update-api-renamed"`)
 
-	// create-stage then reset-authorizers-cache (DELETE, empty 204 body).
+	// reset-authorizers-cache answers DELETE with an empty 204.
 	runCLI(t, awsCLI("apigatewayv2", "create-stage",
 		"--api-id", api.APIID,
 		"--stage-name", "prod",
@@ -51,7 +43,6 @@ func TestAPIGatewayV2CompleteCLI(t *testing.T) {
 		"--stage-name", "prod",
 	))
 
-	// update-api-mapping against a domain name.
 	dn := fmt.Sprintf("cli-map-%d.example.com", time.Now().UnixNano())
 	runCLI(t, awsCLI("apigatewayv2", "create-domain-name", "--domain-name", dn))
 	t.Cleanup(func() {

@@ -11,7 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Registry represents an Azure Container Registry.
 type Registry struct {
 	ID         string             `json:"id"`
 	Name       string             `json:"name"`
@@ -41,12 +40,8 @@ type RegistryProperties struct {
 	Encryption               json.RawMessage `json:"encryption,omitempty"`
 }
 
-// ACRCacheRule models an Azure Container Registry cache rule
-// (pull-through cache) as returned by the `cacheRules` sub-resource.
-// Sockerless and terraform callers register one rule per registered
-// upstream (e.g., `docker-hub` → `docker.io/library/*`) so Docker
-// Hub references can be rewritten to
-// `<acrName>.azurecr.io/<targetRepository>:<tag>` at container launch.
+// ACRCacheRule is a pull-through cache rule, the registry's cacheRules
+// sub-resource.
 type ACRCacheRule struct {
 	ID         string                 `json:"id,omitempty"`
 	Name       string                 `json:"name"`
@@ -54,9 +49,8 @@ type ACRCacheRule struct {
 	Properties ACRCacheRuleProperties `json:"properties"`
 }
 
-// ACRCacheRuleProperties mirrors armcontainerregistry.CacheRuleProperties.
-// SourceRepository is the upstream ref (e.g. `docker.io/library/alpine`);
-// TargetRepository is the local ACR path (e.g. `docker-hub/library/alpine`).
+// SourceRepository is the upstream reference (`docker.io/library/alpine`);
+// TargetRepository is the local path (`docker-hub/library/alpine`).
 type ACRCacheRuleProperties struct {
 	CredentialSetResourceID string `json:"credentialSetResourceId,omitempty"`
 	SourceRepository        string `json:"sourceRepository,omitempty"`
@@ -65,18 +59,13 @@ type ACRCacheRuleProperties struct {
 	ProvisioningState       string `json:"provisioningState,omitempty"`
 }
 
-// Package-level store for dashboard access.
 var acrRegistries sim.Store[Registry]
 
-// A registry is stored under its full resource id while a name check names
-// only the registry, so the name reaches it through an index rather than a
-// walk of every registry. A registry name is global in Azure Container
-// Registry, which is why the check exists at all and why the index is keyed on
-// the name alone.
+// A registry name is global in Azure Container Registry while the store keys
+// registries by resource ID, so the name check reads this index.
 var acrRegistriesByName sim.GenerationIndex[Registry]
 
-// acrNamePattern is the constraint the vendored document declares on the name
-// a check is asked about: 5 to 50 characters, alphanumeric only.
+// The vendored document's constraint on a checked name: 5 to 50 alphanumerics.
 var acrNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]{5,50}$`)
 
 func acrRegistryNameKeys(reg Registry) []string {
@@ -88,29 +77,22 @@ func acrRegistryNameKeys(reg Registry) []string {
 
 func registerACR(srv *sim.Server) {
 	makeAzureKeyGens(srv)
-	// A second buildSimulator in the same process re-collects its own child
-	// stores rather than inheriting the previous build's.
+	// A second buildSimulator in the same process re-collects its own child stores.
 	acrMovableChildStores = nil
 	registries := sim.MakeStore[Registry](srv.DB(), "acr_registries")
 	acrRegistries = registries
-	// OCI Distribution data plane (shared registry library). ACR has no
-	// pull-through hydration here; the catalog API below reads reg.Manifests.
-	// Every /v2/ request authenticates against the registry its Host addresses,
-	// with the Docker Registry v2 Bearer challenge and the scope enforcement
-	// acr_dataplane_auth.go implements.
+	// Every /v2/ request authenticates against the registry its Host addresses
+	// (acr_dataplane_auth.go).
 	reg := &sim.OCIRegistry{
 		Manifests: sim.MakeStore[sim.OCIManifest](srv.DB(), "acr_manifests"),
 		Blobs:     sim.MakeStore[sim.OCIBlob](srv.DB(), "acr_blobs"),
 		Uploads:   sim.MakeStore[sim.OCIUpload](srv.DB(), "acr_uploads"),
 		Authorize: acrAuthorizeV2,
 		Scope:     acrDataPlaneScope,
-		// Azure Container Registry answers the authorized ping with the
-		// two-byte body `{}` — no trailing newline — as
-		// `application/json; charset=utf-8`, `content-length: 2`. Captured from
-		// `k8sprow.azurecr.io/v2/` and `upstream.azurecr.io/v2/` with anonymous
-		// tokens from their own `/oauth2/token`, and `mcr.microsoft.com/v2/`
-		// answers identically. Encoding it as JSON would send three bytes and
-		// declare no charset, so it is written literally.
+		// Azure Container Registry answers the authorized ping with the literal
+		// two-byte body `{}` as `application/json; charset=utf-8`, as captured from
+		// live registries and mcr.microsoft.com; JSON encoding would add a newline
+		// and drop the charset.
 		BaseResponse: func(w http.ResponseWriter) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.Header().Set("Content-Length", "2")
@@ -118,15 +100,13 @@ func registerACR(srv *sim.Server) {
 			_, _ = w.Write([]byte("{}"))
 		},
 	}
-	// cacheRules stores pull-through cache rules keyed by ARM resource ID.
 	cacheRules := sim.MakeStore[ACRCacheRule](srv.DB(), "acr_cache_rules")
 	acrCacheRules = cacheRules
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerRegistry"
 
-	// POST - Check name availability (azurerm v3 calls this before
-	// creating a registry). Lowercase registration; the middleware
-	// canonicalizes camelCase → lowercase before dispatch.
+	// azurerm v3 checks the name before creating a registry. The middleware
+	// lowercases the camelCase action before dispatch.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/checknameavailability", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name string `json:"name"`
@@ -136,10 +116,8 @@ func registerACR(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// The name a caller is about to create with. Answering "available" for
-		// every name makes the check worthless: a client asks precisely so it
-		// can avoid the conflict, and this simulator knows which names it
-		// already holds.
+		// A client checks precisely to avoid a conflict, so answer from the names
+		// held.
 		switch {
 		case !acrNamePattern.MatchString(req.Name):
 			sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -162,7 +140,6 @@ func registerACR(srv *sim.Server) {
 		}
 	})
 
-	// PUT - Create or update registry
 	srv.HandleFunc("PUT "+armBase+"/registries/{registryName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -181,8 +158,8 @@ func registerACR(srv *sim.Server) {
 
 		resourceID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", name)
 
-		// A registry's name is its login server's host name, which Azure
-		// keeps unique across every subscription.
+		// A registry's name is its login server's host name, unique across every
+		// subscription.
 		if held, taken := acrRegistriesByName.Lookup(acrRegistries, strings.ToLower(name), acrRegistryNameKeys); taken && !strings.EqualFold(held.ID, resourceID) {
 			AzureError(w, "AlreadyInUse", "The registry DNS name "+strings.ToLower(name)+".azurecr.io is already in use. "+
 				"You can check if the name is already claimed using following api: "+
@@ -194,20 +171,15 @@ func registerACR(srv *sim.Server) {
 		if sku == nil {
 			sku = &RegistrySku{Name: "Basic"}
 		}
-		// Azure echoes sku.tier equal to sku.name when the client sends only
-		// the name (Basic/Standard/Premium).
+		// Azure echoes sku.tier equal to sku.name when the client sends only the name.
 		if sku.Tier == "" {
 			sku.Tier = sku.Name
 		}
 
-		// networkRuleBypassOptions defaults to "AzureServices" when the request
-		// omits it (ARM Microsoft.ContainerRegistry/registries default).
 		bypass := req.Properties.NetworkRuleBypassOptions
 		if bypass == "" {
 			bypass = "AzureServices"
 		}
-		// publicNetworkAccess / zoneRedundancy default to Enabled / Disabled
-		// but are honored when the client specifies them.
 		publicNetworkAccess := req.Properties.PublicNetworkAccess
 		if publicNetworkAccess == "" {
 			publicNetworkAccess = "Enabled"
@@ -216,8 +188,8 @@ func registerACR(srv *sim.Server) {
 		if zoneRedundancy == "" {
 			zoneRedundancy = "Disabled"
 		}
-		// Microsoft.ContainerRegistry returns this default when a registry
-		// request does not opt into repository-level Azure ABAC permissions.
+		// Microsoft.ContainerRegistry's default when the request does not opt into
+		// repository-level Azure ABAC permissions.
 		roleAssignmentMode := req.Properties.RoleAssignmentMode
 		if roleAssignmentMode == "" {
 			roleAssignmentMode = "LegacyRegistryPermissions"
@@ -247,11 +219,10 @@ func registerACR(srv *sim.Server) {
 
 		registries.Put(resourceID, reg)
 
-		// go-azure-sdk expects 200 for sync creates
+		// go-azure-sdk expects 200 for a synchronous create.
 		sim.WriteJSON(w, http.StatusOK, reg)
 	})
 
-	// GET - Get registry
 	srv.HandleFunc("GET "+armBase+"/registries/{registryName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -269,8 +240,6 @@ func registerACR(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, reg)
 	})
 
-	// GET - List registries by resource group
-	// (armcontainerregistry.RegistriesClient.NewListByResourceGroupPager, az acr list).
 	srv.HandleFunc("GET "+armBase+"/registries", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ContainerRegistry", "registries") + "/"
 		writeACRRegistryList(w, r, registries, func(reg Registry) bool {
@@ -278,8 +247,6 @@ func registerACR(srv *sim.Server) {
 		})
 	})
 
-	// GET - List registries by subscription
-	// (armcontainerregistry.RegistriesClient.NewListPager, az acr list).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/registries", func(w http.ResponseWriter, r *http.Request) {
 		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/resourceGroups/"
 		writeACRRegistryList(w, r, registries, func(reg Registry) bool {
@@ -287,9 +254,7 @@ func registerACR(srv *sim.Server) {
 		})
 	})
 
-	// POST - List admin credentials (RegistriesClient.ListCredentials,
-	// az acr credential show; terraform reads admin_username/admin_password).
-	// Lowercase registration; the middleware canonicalizes the action verb.
+	// The middleware lowercases the action verb before dispatch.
 	srv.HandleFunc("POST "+armBase+"/registries/{registryName}/listcredentials", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -310,7 +275,6 @@ func registerACR(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, acrAdminCredentialsBody(resourceID, name))
 	})
 
-	// DELETE - Delete registry
 	srv.HandleFunc("DELETE "+armBase+"/registries/{registryName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -326,14 +290,9 @@ func registerACR(srv *sim.Server) {
 		}
 	})
 
-	// Matches armcontainerregistry.CacheRulesClient endpoints. Reference:
-	// subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry
-	//   registries/{registry}/cacheRules[/{rule}]
-	// BeginCreate accepts 200/201 (we return 200 sync with final body).
-	// BeginDelete accepts 202/204 (we return 204 sync).
-	// Parallels the AWS ECR pull-through + GCP Artifact Registry slices.
+	// CacheRulesClient's BeginCreate accepts 200 and BeginDelete 204, so both
+	// complete synchronously.
 
-	// PUT cache rule (Create or Update — LRO collapsed to sync 200).
 	srv.HandleFunc("PUT "+armBase+"/registries/{registryName}/cacheRules/{cacheRuleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -379,7 +338,6 @@ func registerACR(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, rule)
 		})
 
-	// GET cache rule.
 	srv.HandleFunc("GET "+armBase+"/registries/{registryName}/cacheRules/{cacheRuleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -397,7 +355,6 @@ func registerACR(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, rule)
 		})
 
-	// LIST cache rules under a registry.
 	srv.HandleFunc("GET "+armBase+"/registries/{registryName}/cacheRules",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -416,7 +373,6 @@ func registerACR(srv *sim.Server) {
 			})
 		})
 
-	// DELETE cache rule.
 	srv.HandleFunc("DELETE "+armBase+"/registries/{registryName}/cacheRules/{cacheRuleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -429,7 +385,7 @@ func registerACR(srv *sim.Server) {
 			w.WriteHeader(http.StatusNoContent)
 		})
 
-	// PATCH cache rule (Update — only credentialSetResourceId is mutable).
+	// Only credentialSetResourceId is mutable.
 	srv.HandleFunc("PATCH "+armBase+"/registries/{registryName}/cacheRules/{cacheRuleName}",
 		func(w http.ResponseWriter, r *http.Request) {
 			sub := sim.PathParam(r, "subscriptionId")
@@ -458,21 +414,14 @@ func registerACR(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, rule)
 		})
 
-	// Registry-level operations, sub-resources, and actions (replications,
-	// webhooks, scopeMaps, tokens, credentialSets, connectedRegistries,
-	// privateEndpointConnections, privateLinkResources, listUsages, import,
-	// credentials, and the provider operations list).
 	registerACRRegistryActions(srv, registries)
 	registerACRChildResources(srv)
 	registerACRWebhooks(srv)
 
-	// OCI Distribution data plane — mounted from the shared registry library.
 	reg.Register(srv)
 
-	// The registry's catalog, served on both surfaces Azure Container Registry
-	// offers it — the Docker Registry HTTP API v2 `/v2/_catalog` and its own
-	// `/acr/v1/_catalog` — with the same registry-wide `registry:catalog:*`
-	// access the Bearer challenge asks for, and paged the same way.
+	// Azure Container Registry serves the catalog on both `/v2/_catalog` and
+	// `/acr/v1/_catalog`, with the same `registry:catalog:*` access and paging.
 	catalog := func(path string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !acrAuthorize(w, r, acrRegistryCatalogResource(acrActionAll)) {
@@ -498,25 +447,22 @@ func registerACR(srv *sim.Server) {
 	})
 	srv.HandleFunc("GET /acr/v1/_catalog", catalog("/acr/v1/_catalog"))
 
-	// GET /acr/v1/{name}/_tags - List tags for a repository (ACR data-plane tags API)
-	// {name} can contain slashes (e.g. "myrepo/myimage"), so matched via {path...}.
+	// A repository name can contain slashes, hence {path...}.
 	srv.HandleFunc("GET /acr/v1/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		target, ok := acrParsePropertiesPath(sim.PathParam(r, "path"))
 		if !ok {
 			acrPropertiesNotFound(w, "the path does not address a repository, manifest or tag")
 			return
 		}
-		// Only the tag list is answered here; the repository, manifest and tag
-		// reads that share this path are served beside the writes they belong
-		// with. They used to fall through to a bare 404, which reads as "no
-		// such API" for an API the registry does offer.
+		// The repository, manifest and tag reads sharing this path are served by
+		// acrReadProperties.
 		if target.kind != "tags" {
 			acrReadProperties(w, r, reg, target)
 			return
 		}
 		repoName := target.repo
-		// Listing a repository's tags needs the repository's metadata_read
-		// access — the action ACR names in the challenge for this API.
+		// metadata_read is the action Azure Container Registry names in the challenge
+		// for this API.
 		if !acrAuthorize(w, r, acrRepositoryResource(repoName, acrActionMetadataRead, acrActionMetadataRead)) {
 			return
 		}
@@ -527,11 +473,6 @@ func registerACR(srv *sim.Server) {
 		sort.Slice(tags, func(i, j int) bool { return tags[i].Ref < tags[j].Ref })
 		tagList := make([]map[string]any, 0, len(tags))
 		for _, m := range tags {
-			// The same tag the item read describes, described the same way:
-			// when it was pushed, and the attributes this registry holds for
-			// it. The list used to answer without the timestamps the schema
-			// requires and with the attributes hardcoded open, so a tag whose
-			// attributes had been patched listed as though they had not.
 			tagList = append(tagList, map[string]any{
 				"name":                 m.Ref,
 				"digest":               m.Digest,
@@ -552,24 +493,19 @@ func registerACR(srv *sim.Server) {
 	registerACROAuth2(srv)
 }
 
-// registerACROAuth2 mounts a registry's token service — the realm the Docker
-// Registry v2 Bearer challenge points at. A client that follows the challenge
-// reaches it one of two ways:
+// registerACROAuth2 mounts a registry's token service, the realm of the Docker
+// Registry v2 Bearer challenge:
 //
-//   - `docker login <loginServer>` and every Docker-protocol client present the
-//     admin credential as HTTP Basic on
-//     `GET /oauth2/token?service=<registry>&scope=<scope>` and receive the
-//     scoped access token (Azure/acr `docs/Token-BasicAuth.md`);
-//   - a Microsoft Entra client exchanges its access token for an ACR refresh
-//     token at `POST /oauth2/exchange`, then trades that refresh token and the
-//     challenge scope for an access token at `POST /oauth2/token`
-//     (Azure/acr `docs/AAD-OAuth.md`).
+//   - Docker-protocol clients present the admin credential as HTTP Basic on
+//     `GET /oauth2/token?service=<registry>&scope=<scope>` (Azure/acr
+//     `docs/Token-BasicAuth.md`);
+//   - a Microsoft Entra client exchanges its access token for a refresh token at
+//     `POST /oauth2/exchange`, then trades it for an access token at
+//     `POST /oauth2/token` (Azure/acr `docs/AAD-OAuth.md`).
 //
-// Every credential on those routes is verified, and the access token carries
-// only the scopes the credential authorizes, because the data plane enforces
-// the token's `access` claim on each request.
+// The access token carries only the scopes the credential authorizes, because
+// the data plane enforces its `access` claim.
 func registerACROAuth2(srv *sim.Server) {
-	// POST /oauth2/exchange — Microsoft Entra token → ACR refresh token.
 	srv.HandleFunc("POST /oauth2/exchange", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			acrOAuthError(w, "invalid_request", "failed to parse request body: "+err.Error())
@@ -591,7 +527,6 @@ func registerACROAuth2(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"refresh_token": refreshToken})
 	})
 
-	// POST /oauth2/token — ACR refresh token + scope → scoped access token.
 	srv.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			acrOAuthError(w, "invalid_request", "failed to parse request body: "+err.Error())
@@ -606,9 +541,9 @@ func registerACROAuth2(srv *sim.Server) {
 		case "refresh_token":
 			refreshToken := r.PostFormValue("refresh_token")
 			if refreshToken == "" {
-				// The Azure SDK for Go asks for an anonymous token with the
-				// password grant and an empty refresh token; an empty refresh
-				// token under the refresh-token grant is a malformed request.
+				// The Azure SDK for Go asks for an anonymous token with the password grant and
+				// an empty refresh token; under the refresh-token grant an empty one is
+				// malformed.
 				acrOAuthError(w, "invalid_request", "refresh_token is required")
 				return
 			}
@@ -632,9 +567,6 @@ func registerACROAuth2(srv *sim.Server) {
 		acrWriteAccessToken(w, reg, identity, r.Form["scope"])
 	})
 
-	// GET /oauth2/token — the Docker Registry v2 token endpoint: HTTP Basic
-	// admin credentials plus the challenge's service and scope, in exchange for
-	// the scoped access token.
 	srv.HandleFunc("GET /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
 		reg, ok := acrTokenServiceRegistry(w, r)
 		if !ok {
@@ -648,10 +580,8 @@ func registerACROAuth2(srv *sim.Server) {
 	})
 }
 
-// acrTokenServiceRegistry resolves the registry whose token service a request
-// reached. A registry's token service is served on its own login server, so
-// the Host names it; the `service` parameter the challenge told the client to
-// send must name the same registry.
+// acrTokenServiceRegistry resolves the registry from the Host, its login
+// server; the challenge's `service` parameter must name the same registry.
 func acrTokenServiceRegistry(w http.ResponseWriter, r *http.Request) (Registry, bool) {
 	reg, ok := acrRegistryForHost(r.Host)
 	if !ok {
@@ -668,10 +598,8 @@ func acrTokenServiceRegistry(w http.ResponseWriter, r *http.Request) (Registry, 
 }
 
 // acrExchangeIdentity verifies the Microsoft Entra credential an
-// /oauth2/exchange request carries and returns the subject the ACR refresh
-// token is issued for. The grant decides which credential is mandatory: the
-// access-token grants require the Entra access token, the refresh-token grant
-// requires the Entra refresh token.
+// /oauth2/exchange request carries. The access-token grants require the access
+// token, the refresh-token grant the refresh token.
 func acrExchangeIdentity(w http.ResponseWriter, r *http.Request) (string, bool) {
 	grant := r.PostFormValue("grant_type")
 	switch grant {
@@ -712,13 +640,12 @@ func acrExchangeIdentity(w http.ResponseWriter, r *http.Request) (string, bool) 
 	}
 }
 
-// acrEntraAudienceValid reports whether a Microsoft Entra token's audience is
-// the container-registry audience, in either spelling the directory mints.
+// acrEntraAudienceValid accepts either spelling of the container-registry
+// audience Microsoft Entra mints.
 func acrEntraAudienceValid(audience string) bool {
 	return audience == acrEntraAudience || audience == acrEntraAudience+"/"
 }
 
-// acrTokenSubject reads the identity of a verified Microsoft Entra token.
 func acrTokenSubject(claims map[string]any) string {
 	for _, claim := range []string{"preferred_username", "upn", "oid", "sub"} {
 		if value, _ := claims[claim].(string); value != "" {
@@ -728,12 +655,10 @@ func acrTokenSubject(claims map[string]any) string {
 	return ""
 }
 
-// acrTokenIdentity is the identity a token request authenticated as. owner
-// distinguishes the registry's own admin (or an authenticated Microsoft Entra
-// principal), which is granted every scope it asks for, from the anonymous
-// caller a registry with anonymous pull serves. credential and slot fingerprint
-// the admin password the identity came from, so regenerating that password
-// invalidates the tokens it produced.
+// acrTokenIdentity: owner marks the registry's admin or an authenticated
+// Microsoft Entra principal, granted every scope it asks for, as opposed to the
+// anonymous caller of a registry with anonymous pull. credential and slot
+// fingerprint the admin password, so regenerating it invalidates its tokens.
 type acrTokenIdentity struct {
 	subject    string
 	credential string
@@ -741,10 +666,9 @@ type acrTokenIdentity struct {
 	owner      bool
 }
 
-// acrPasswordGrantIdentity authenticates the password grant: an HTTP Basic
-// admin credential, or — when the request carries none — the anonymous
-// identity a registry with anonymous pull enabled serves. It writes the
-// refusal and reports false when neither authenticates.
+// acrPasswordGrantIdentity authenticates an HTTP Basic admin credential or,
+// without one, the anonymous identity of a registry with anonymous pull. It
+// writes the refusal and reports false when neither applies.
 func acrPasswordGrantIdentity(w http.ResponseWriter, r *http.Request, reg Registry) (acrTokenIdentity, bool) {
 	scheme, basic := sim.ParseAuthorization(r.Header.Get("Authorization"))
 	if !strings.EqualFold(scheme, "Basic") || basic == "" {
@@ -772,8 +696,6 @@ func acrPasswordGrantIdentity(w http.ResponseWriter, r *http.Request, reg Regist
 	}, true
 }
 
-// acrWriteAccessToken mints the access token for the scopes the credential
-// authorizes and writes the token service's response.
 func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenIdentity, scopes []string) {
 	granted := acrGrantScopes(sim.ParseRegistryScopes(scopes), identity.owner)
 	accessToken, err := acrMintAccessToken(reg, identity.subject, granted, identity.credential, identity.slot)
@@ -784,8 +706,6 @@ func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenI
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"access_token": accessToken})
 }
 
-// writeACRRegistryList emits a paginated {value, nextLink} envelope of the
-// registries matching keep, ordered by resource ID.
 func writeACRRegistryList(w http.ResponseWriter, r *http.Request, registries sim.Store[Registry], keep func(Registry) bool) {
 	matched := registries.Filter(keep)
 	page, next, pageOK := armPage(w, r, matched, func(reg Registry) string { return reg.ID })
@@ -799,7 +719,6 @@ func writeACRRegistryList(w http.ResponseWriter, r *http.Request, registries sim
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// acrOAuthError writes an ACR-shaped OAuth2 error envelope.
 func acrOAuthError(w http.ResponseWriter, code, msg string) {
 	sim.WriteJSON(w, http.StatusBadRequest, map[string]any{
 		"error":             code,
@@ -807,17 +726,11 @@ func acrOAuthError(w http.ResponseWriter, code, msg string) {
 	})
 }
 
-// acrARMBase is the Microsoft.ContainerRegistry ARM provider path prefix shared
-// by every registry control-plane route.
 const acrARMBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerRegistry"
 
-// acrSubResource is a generic ARM child resource of a container registry
-// (replication, scopeMap, token, credentialSet, connectedRegistry,
-// privateEndpointConnection, and the registry-tasks children task / taskRun /
-// agentPool). Only the fields the matching Swagger schema declares are emitted:
-// id/name/type for every resource, location/tags for tracked resources,
-// identity where the schema allows it, and a properties object echoed from the
-// request plus a settled provisioningState.
+// acrSubResource is a generic registry child resource. It emits only the
+// fields the matching Swagger schema declares: location and tags for tracked
+// resources, identity where the schema allows it.
 type acrSubResource struct {
 	ID         string            `json:"id,omitempty"`
 	Name       string            `json:"name,omitempty"`
@@ -828,10 +741,8 @@ type acrSubResource struct {
 	Properties map[string]any    `json:"properties,omitempty"`
 }
 
-// acrChildKind configures the CRUD handlers for one registry child resource.
-// allowLocation/allowTags/allowIdentity gate the top-level fields the child's
-// Swagger schema declares; patch enables the PATCH verb (some children, e.g.
-// privateEndpointConnections, have no update operation).
+// acrChildKind's allow* flags gate the top-level fields the child's Swagger
+// schema declares; patch enables PATCH, which some children lack.
 type acrChildKind struct {
 	seg           string // path segment, e.g. "replications"
 	nameParam     string // route param name, e.g. "replicationName"
@@ -845,8 +756,6 @@ type acrChildKind struct {
 	afterWrite func()
 }
 
-// acrRegistryID returns the registry ARM resource ID for the request and
-// whether that registry exists in the store.
 func acrRegistryID(r *http.Request) (string, bool) {
 	regID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ContainerRegistry", "registries", sim.PathParam(r, "registryName"))
 	_, ok := acrRegistries.Get(regID)
@@ -858,8 +767,8 @@ func (k acrChildKind) resourceID(r *http.Request) string {
 	return fmt.Sprintf("%s/%s/%s", regID, k.seg, sim.PathParam(r, k.nameParam))
 }
 
-// registerACRChild mounts PUT/GET/list/PATCH/DELETE for one child kind, and
-// enrols its store in the set a cross-resource-group move re-keys.
+// registerACRChild also enrols the kind's store in the set a
+// cross-resource-group move re-keys.
 func registerACRChild(srv *sim.Server, k acrChildKind) {
 	acrMovableChildStores = append(acrMovableChildStores, k.store)
 	base := acrARMBase + "/registries/{registryName}/" + k.seg
@@ -983,12 +892,9 @@ func (k acrChildKind) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// acrAdminCredentialsBody is the RegistryListCredentialsResult shape
-// listCredentials and regenerateCredential both return. Real Azure Container
-// Registry names the two admin password slots "password" and "password2";
-// each carries deterministic material derived from the registry resource ID
-// and that slot's rotation generation, so a regenerated slot reads back with
-// its new value while the other slot is unchanged.
+// acrAdminCredentialsBody derives each admin password slot ("password",
+// "password2") from the registry ID and that slot's rotation generation, so a
+// regenerated slot reads back new while the other is unchanged.
 func acrAdminCredentialsBody(registryID, registryName string) map[string]any {
 	return map[string]any{
 		"username": registryName,
@@ -999,9 +905,8 @@ func acrAdminCredentialsBody(registryID, registryName string) map[string]any {
 	}
 }
 
-// acrDropCredentialKeyGens removes a deleted registry's admin-credential
-// rotation state so a later registry of the same name starts from fresh
-// passwords.
+// acrDropCredentialKeyGens lets a later registry of the same name start from
+// fresh passwords.
 func acrDropCredentialKeyGens(registryID string) {
 	azureDropKeyGens(registryID, "password", "password2")
 }
@@ -1018,8 +923,6 @@ func acrChildNotFound(w http.ResponseWriter, k acrChildKind, r *http.Request) {
 		k.typeName, sim.PathParam(r, k.nameParam), sim.PathParam(r, "registryName"))
 }
 
-// registerACRChildResources mounts the registry child sub-resources that share
-// the generic CRUD shape.
 func registerACRChildResources(srv *sim.Server) {
 	const t = "Microsoft.ContainerRegistry/registries/"
 	registerACRChild(srv, acrChildKind{
@@ -1051,10 +954,8 @@ func registerACRChildResources(srv *sim.Server) {
 		store: sim.MakeStore[acrSubResource](srv.DB(), "acr_pe_connections"),
 	})
 
-	// POST .../connectedRegistries/{name}/deactivate — LRO action, no body.
-	// It deactivates the connected registry it names: answering 200 while
-	// leaving the registry Active reports work that did not happen, and the
-	// read that follows contradicts it.
+	// Deactivate the connected registry for real: the read that follows reports
+	// it.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/connectedRegistries/{connectedRegistryName}/deactivate",
 		func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := acrRegistryID(r); !ok {
@@ -1079,11 +980,9 @@ func registerACRChildResources(srv *sim.Server) {
 		})
 }
 
-// Webhooks need bespoke handlers because the create/update parameters carry
-// write-only secret fields (serviceUri, customHeaders) that the Webhook
-// response schema does not declare. The stored row keeps the secrets for
-// getCallbackConfig; the HTTP response emits only the declared WebhookProperties
-// members (status, scope, actions, provisioningState).
+// The create parameters carry write-only secrets (serviceUri, customHeaders)
+// the Webhook schema does not declare: keep them for getCallbackConfig and
+// emit only WebhookProperties.
 type acrWebhookStored struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
@@ -1131,7 +1030,6 @@ func (wh acrWebhookStored) actionsOrEmpty() []string {
 	return wh.Actions
 }
 
-// acrWebhookCreateParams is the WebhookCreateParameters request body.
 type acrWebhookCreateParams struct {
 	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags"`
@@ -1250,12 +1148,11 @@ func registerACRWebhooks(srv *sim.Server) {
 		}
 	})
 
-	// POST .../webhooks/{name}/ping — fires a ping notification, returns EventInfo.
+	// Ping answers an EventInfo id and delivers nothing.
 	srv.HandleFunc("POST "+base+"/{webhookName}/ping", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": sim.NewUUID()})
 	})
 
-	// POST .../webhooks/{name}/getCallbackConfig — returns the stored secrets.
 	srv.HandleFunc("POST "+base+"/{webhookName}/getCallbackConfig", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := webhookID(r)
 		wh, ok := webhooks.Get(id)
@@ -1271,19 +1168,13 @@ func registerACRWebhooks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// POST .../webhooks/{name}/listEvents — the delivered-event history (empty
-	// until a notification fires; the sim does not retain delivery records).
+	// Answers an empty list: the simulator records no webhook deliveries.
 	srv.HandleFunc("POST "+base+"/{webhookName}/listEvents", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 }
 
-// registerACRRegistryActions mounts the registry-level operations and POST/GET
-// actions: the provider operations list, registry PATCH, listUsages,
-// importImage, generateCredentials, regenerateCredential, and the
-// privateLinkResources read endpoints.
 func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry]) {
-	// GET /providers/Microsoft.ContainerRegistry/operations — provider op list.
 	srv.HandleFunc("GET /providers/Microsoft.ContainerRegistry/operations", func(w http.ResponseWriter, r *http.Request) {
 		op := func(name, resource, operation, desc string) map[string]any {
 			return map[string]any{
@@ -1302,7 +1193,6 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		}})
 	})
 
-	// PATCH registry — update mutable properties / tags / sku.
 	srv.HandleFunc("PATCH "+acrARMBase+"/registries/{registryName}", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -1356,7 +1246,7 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		sim.WriteJSON(w, http.StatusOK, reg)
 	})
 
-	// GET .../listUsages — quota usage report.
+	// Answers fixed usage figures.
 	srv.HandleFunc("GET "+acrARMBase+"/registries/{registryName}/listUsages", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := acrRegistryID(r); !ok {
 			acrRegistryNotFound(w, r)
@@ -1368,8 +1258,7 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		}})
 	})
 
-	// POST .../importImage — copies an image from a source registry. LRO with
-	// no response body.
+	// Answers 200 and copies nothing.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/importImage", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := acrRegistryID(r); !ok {
 			acrRegistryNotFound(w, r)
@@ -1378,7 +1267,6 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// POST .../generateCredentials — mints token credentials.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/generateCredentials", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -1394,10 +1282,8 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		})
 	})
 
-	// POST .../regenerateCredential — regenerates an admin password. The body's
-	// RegenerateCredentialParameters names the slot (password | password2);
-	// the response is the full credentials with that slot's new value, which a
-	// subsequent listCredentials returns.
+	// RegenerateCredentialParameters names the slot (password | password2); a
+	// subsequent listCredentials returns the new value.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/regenerateCredential", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -1420,7 +1306,7 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		sim.WriteJSON(w, http.StatusOK, acrAdminCredentialsBody(regID, sim.PathParam(r, "registryName")))
 	})
 
-	// GET .../privateLinkResources — the registry exposes a single "registry" group.
+	// A registry exposes a single "registry" group.
 	srv.HandleFunc("GET "+acrARMBase+"/registries/{registryName}/privateLinkResources", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -1430,7 +1316,6 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{acrPrivateLinkResource(regID, "registry")}})
 	})
 
-	// GET .../privateLinkResources/{groupName} — the single registry group.
 	srv.HandleFunc("GET "+acrARMBase+"/registries/{registryName}/privateLinkResources/{groupName}", func(w http.ResponseWriter, r *http.Request) {
 		regID, ok := acrRegistryID(r)
 		if !ok {
@@ -1441,7 +1326,6 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 	})
 }
 
-// acrPrivateLinkResource builds a PrivateLinkResource for the registry group.
 func acrPrivateLinkResource(regID, group string) map[string]any {
 	return map[string]any{
 		"id":   regID + "/privateLinkResources/" + group,
@@ -1455,9 +1339,8 @@ func acrPrivateLinkResource(regID, group string) map[string]any {
 	}
 }
 
-// acrRepositoriesOf lists the repositories a registry holds. A registry's
-// catalog is its own: only the manifests stored in the scope of the registry
-// the Host addresses are enumerated.
+// acrRepositoriesOf enumerates only manifests stored in the scope of the
+// registry the Host addresses.
 func acrRepositoriesOf(reg *sim.OCIRegistry, scope string) []string {
 	seen := map[string]bool{}
 	var repos []string

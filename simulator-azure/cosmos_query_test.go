@@ -2,10 +2,8 @@ package main
 
 import "testing"
 
-// TestCosmosParseQuery_Malformed guards that the SQL-subset parser never panics
-// on malformed / hostile input — including the historical fuzz crash seeds from
-// the old equality-only parser (Unicode case-folding offsets, NULs). A query the
-// parser can't handle returns an error, never the whole collection.
+// Includes fuzz crash seeds (Unicode case-folding offsets, NULs). A query the
+// parser cannot handle returns an error, never the whole collection.
 func TestCosmosParseQuery_Malformed(t *testing.T) {
 	cases := []string{
 		"00©0000000000000WHERE", // original fuzz crash seed
@@ -18,11 +16,8 @@ func TestCosmosParseQuery_Malformed(t *testing.T) {
 		"",
 	}
 	for _, q := range cases {
-		// Not panicking is the weaker half. The half that matters is that the
-		// parser refuses: a malformed query that came back with a usable plan
-		// would be run against the container, and a plan with no predicate
-		// selects every document — the whole collection handed to a caller whose
-		// query the parser never understood.
+		// The parser must refuse, not only survive: a plan with no predicate would
+		// select every document.
 		plan, err := cosmosParseQuery(q)
 		if err == nil {
 			t.Errorf("cosmosParseQuery(%q) accepted a malformed query and returned plan %+v", q, plan)
@@ -35,10 +30,6 @@ func TestCosmosParseQuery_Malformed(t *testing.T) {
 	}
 }
 
-// TestCosmosRunQuery exercises the parser + evaluator against a small document
-// set covering the full supported grammar: projection, nested paths, numeric
-// unification, AND/OR/NOT, IN, the string functions, ORDER BY, OFFSET/LIMIT, and
-// the COUNT aggregate.
 func TestCosmosRunQuery(t *testing.T) {
 	docs := []CosmosDocument{
 		{ID: "1", Body: map[string]any{"id": "1", "team": "platform", "score": float64(5), "nested": map[string]any{"city": "nyc"}, "name": "alice"}},
@@ -86,7 +77,6 @@ func TestCosmosRunQuery(t *testing.T) {
 
 	t.Run("OR and NOT", func(t *testing.T) {
 		got := run(t, "SELECT * FROM c WHERE c.team = 'infra' OR NOT c.score < 10")
-		// infra (doc3) OR score>=10 (doc2) → docs 2 and 3.
 		if len(got) != 2 {
 			t.Fatalf("want 2 rows, got %v", got)
 		}
@@ -123,7 +113,6 @@ func TestCosmosRunQuery(t *testing.T) {
 	})
 
 	t.Run("OFFSET LIMIT", func(t *testing.T) {
-		// Ascending scores: doc1=5, doc3=7, doc2=10. OFFSET 1 LIMIT 1 → doc3.
 		got := run(t, "SELECT c.id FROM c ORDER BY c.score ASC OFFSET 1 LIMIT 1")
 		if len(got) != 1 || got[0]["id"] != "3" {
 			t.Fatalf("OFFSET 1 LIMIT 1 ascending want doc 3, got %v", got)

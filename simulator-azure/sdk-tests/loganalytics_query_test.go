@@ -18,12 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// logsClientOpts points the azquery Logs client at the simulator's Log
-// Analytics data plane (https://api.loganalytics.io/v1). azquery v1.2.0 builds
-// its internal BearerTokenPolicy with nil options, so it refuses any non-HTTPS
-// endpoint regardless of InsecureAllowCredentialWithHTTP; the client URL must
-// therefore advertise HTTPS while kvSchemeRewritingTransport rewrites the scheme
-// down to the sim's plain-HTTP listener at request time.
+// azquery v1.2.0 builds its BearerTokenPolicy with nil options, so it refuses
+// any non-HTTPS endpoint whatever InsecureAllowCredentialWithHTTP says. The
+// client URL therefore says https, and kvSchemeRewritingTransport rewrites it
+// to the simulator's plain-HTTP listener.
 func logsClientOpts() *azquery.LogsClientOptions {
 	httpsEndpoint := "https://" + strings.TrimPrefix(baseURL, "http://") + "/v1"
 	return &azquery.LogsClientOptions{
@@ -41,8 +39,6 @@ func logsClientOpts() *azquery.LogsClientOptions {
 	}
 }
 
-// TestLogAnalytics_QueryWorkspaceSDK runs a KQL query through the azquery Logs
-// client (POST /v1/workspaces/{workspaceId}/query).
 func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-azquery-rg", "SimJobs_CL", "Job", "Log")
@@ -62,8 +58,6 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 	require.NotEmpty(t, resp.Tables[0].Rows)
 }
 
-// TestLogAnalytics_QueryBatchSDK runs a batch of queries through the azquery
-// Logs client (POST /v1/$batch).
 func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-batch-rg", "SimJobs_CL", "Job", "Log")
@@ -85,7 +79,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	require.NotEmpty(t, resp.Responses[0].Body.Tables)
 	assert.Len(t, resp.Responses[0].Body.Tables[0].Rows, 1)
 
-	// A batch member naming a workspace no one was issued answers 404.
+	// A batch member naming a workspace nobody was issued answers 404.
 	missing := azquery.NewBatchQueryRequest("00000000-0000-0000-0000-000000000000", `SimJobs_CL | take 1`,
 		azquery.TimeInterval("PT1H"), "req-2", azquery.LogsQueryOptions{})
 	resp, err = client.QueryBatch(ctx, azquery.BatchRequest{Requests: []*azquery.BatchQueryRequest{&missing}}, nil)
@@ -94,7 +88,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 }
 
 // TestLogAnalytics_QueryBooleanOperatorsSDK runs where clauses joined with and
-// and or, and a string literal holding a pipe, through the azquery Logs client.
+// and or, and a string literal holding a pipe.
 func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-and-or-rg", "SimTraces_CL", "AppRoleName", "Message")
@@ -129,8 +123,8 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 	assert.Equal(t, azquery.LogsColumnTypeLong, *resp.Tables[0].Columns[1].Type)
 }
 
-// TestLogAnalytics_QuerySyntaxErrorSDK sends a query that does not parse and
-// reads back the service's BadArgumentError, alone and inside a batch.
+// TestLogAnalytics_QuerySyntaxErrorSDK reads back the BadArgumentError for a
+// query that does not parse, alone and inside a batch.
 func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 	t.Parallel()
 	ws := createLogWorkspace(t, "la-syntax-rg", "la-syntax-ws")
@@ -165,16 +159,15 @@ func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 	assert.Contains(t, batch.Responses[1].Body.Error.Error(), "SyntaxError")
 }
 
-// TestLogAnalytics_GetQueryAndMetadataREST exercises the GET query overload and
-// the workspace metadata endpoints, which the official azquery SDK does not
-// wrap but which `az monitor log-analytics` and the data-plane REST API call.
+// TestLogAnalytics_GetQueryAndMetadataREST covers the GET query overload and
+// the metadata endpoints, which azquery does not wrap but
+// `az monitor log-analytics` calls.
 func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-get-rg", "SimJobs_CL", "Job", "Log")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": "getjob", "Log": "get line"}})
 
-	// GET /v1/workspaces/{workspaceId}/query
 	getResp := loganalyticsGET(t, "/v1/workspaces/"+p.ws.customerID+"/query?query="+
 		"SimJobs_CL%20%7C%20where%20Job%20%3D%3D%20%22getjob%22")
 	var qr struct {
@@ -186,7 +179,6 @@ func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
 	require.NotEmpty(t, qr.Tables)
 	require.NotEmpty(t, qr.Tables[0].Rows)
 
-	// GET /v1/workspaces/{workspaceId}/metadata
 	metaResp := loganalyticsGET(t, "/v1/workspaces/"+p.ws.customerID+"/metadata")
 	var meta struct {
 		Tables []struct {
@@ -205,7 +197,7 @@ func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
 	assert.Equal(t, 3, tables["SimJobs_CL"], "the workspace's custom table is described with its columns")
 	assert.Positive(t, tables["AppTraces"])
 
-	// POST /v1/workspaces/{workspaceId}/metadata returns the same shape.
+	// POST metadata returns the same shape.
 	postReq, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/v1/workspaces/"+p.ws.customerID+"/metadata", nil)
 	postResp, err := http.DefaultClient.Do(postReq)
 	require.NoError(t, err)

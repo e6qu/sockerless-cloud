@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogicApps_WorkflowExtrasSDK exercises the workflow version / trigger /
-// run-action surface plus the workflow-level POST actions through armlogic, so
-// every response shape (including the list pagers) is validated against the
-// vendored Microsoft.Logic Swagger.
+// TestLogicApps_WorkflowExtrasSDK exercises workflow versions, triggers, run
+// actions and the workflow POST actions through armlogic, so every response
+// shape, list pagers included, is checked against the vendored
+// Microsoft.Logic Swagger.
 func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-more-rg"
@@ -152,9 +152,9 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestLogicApps_IntegrationAccountsSDK exercises the integration account and
-// its artifact collections through armlogic, including the subscription- and
-// resource-group-wide list pagers and the callback-url / key actions.
+// TestLogicApps_IntegrationAccountsSDK exercises the integration account, its
+// artifact collections, the subscription and resource-group lists, and the
+// callback-URL and key actions.
 func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ia-rg"
@@ -302,12 +302,11 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	_, err = sessPager.NextPage(ctx)
 	require.NoError(t, err)
 
-	// ---- partner / agreement / certificate via raw ARM (compact bodies) ----
 	logicExerciseIAPartnerAgreementCert(t, rg, iaName)
 }
 
 // TestLogicApps_ServiceEnvironmentsSDK exercises the integration service
-// environment long-running operations and its managed-API child collection.
+// environment's long-running operations and its managed APIs.
 func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ise-rg"
@@ -380,7 +379,7 @@ func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
 	_, err = delPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	// ---- ISE network health + skus list (raw ARM; no SDK client method for these) ----
+	// armlogic has no method for ISE network health or the SKU list.
 	logicExerciseISEHealthAndSkus(t, rg, iseName)
 }
 
@@ -406,14 +405,12 @@ func logicExerciseIAPartnerAgreementCert(t *testing.T, rg, iaName string) {
 		return b
 	}
 
-	// partner
 	mustStatus("PUT", base+"/partners/partnerA", `{"properties":{"partnerType":"B2B","content":{"b2b":{"businessIdentities":[`+bizID+`]}}}}`, http.StatusOK)
 	mustStatus("GET", base+"/partners/partnerA", "", http.StatusOK)
 	mustStatus("GET", base+"/partners", "", http.StatusOK)
 	pcb := mustStatus("POST", base+"/partners/partnerA/listContentCallbackUrl", "{}", http.StatusOK)
 	assert.Contains(t, string(pcb), `"value"`)
 
-	// agreement
 	agreement := `{"properties":{"agreementType":"AS2","hostPartner":"partnerA","guestPartner":"partnerA",` +
 		`"hostIdentity":` + bizID + `,"guestIdentity":` + bizID + `,"content":{}}}`
 	mustStatus("PUT", base+"/agreements/agreementA", agreement, http.StatusOK)
@@ -421,17 +418,14 @@ func logicExerciseIAPartnerAgreementCert(t *testing.T, rg, iaName string) {
 	mustStatus("GET", base+"/agreements", "", http.StatusOK)
 	mustStatus("POST", base+"/agreements/agreementA/listContentCallbackUrl", "{}", http.StatusOK)
 
-	// certificate
 	mustStatus("PUT", base+"/certificates/certA", `{"properties":{"publicCertificate":"MIICert"}}`, http.StatusOK)
 	mustStatus("GET", base+"/certificates/certA", "", http.StatusOK)
 	mustStatus("GET", base+"/certificates", "", http.StatusOK)
 
-	// log tracking events
 	mustStatus("POST", base+"/logTrackingEvents",
 		`{"sourceType":"Microsoft.Logic/workflows","events":[{"eventLevel":"Informational","eventTime":"2024-01-01T00:00:00Z","recordType":"AS2Message","record":{}}]}`,
 		http.StatusOK)
 
-	// delete partner + agreement + certificate
 	mustStatus("DELETE", base+"/agreements/agreementA", "", http.StatusOK)
 	mustStatus("DELETE", base+"/partners/partnerA", "", http.StatusOK)
 	mustStatus("DELETE", base+"/certificates/certA", "", http.StatusOK)

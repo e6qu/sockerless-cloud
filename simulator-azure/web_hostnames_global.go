@@ -8,15 +8,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_hostnames_global.go implements the Microsoft.Web hostname-truth
-// surfaces: WebApps_AnalyzeCustomHostname[Slot] (a real CNAME/TXT/A analysis
-// answered off the simulator's Azure DNS record sets), ListCustomHostNameSites
-// and ListSiteIdentifiersAssignedToHostName (both assembled from the real
-// host-name-binding store).
+// WebApps_AnalyzeCustomHostname analyzes CNAME, TXT and A records from the
+// simulator's DNS record sets; ListCustomHostNameSites and
+// ListSiteIdentifiersAssignedToHostName read the host-name-binding store.
 
-// webDNSRecordsFor collects the CNAME target, TXT values and A addresses the
-// simulator's Azure DNS zones hold for a fully-qualified hostname — the same
-// lookups real App Service performs when it analyzes a custom hostname.
+// The lookups App Service performs when it analyzes a custom hostname.
 func webDNSRecordsFor(host string) (cnames, txts, as []string) {
 	for _, rs := range azurePublicDNSRecordSets.List() {
 		if !strings.EqualFold(publicRecordSetFQDN(rs), host) {
@@ -38,9 +34,8 @@ func webDNSRecordsFor(host string) (cnames, txts, as []string) {
 	return cnames, txts, as
 }
 
-// publicRecordSetFQDN derives a public-DNS record set's fully-qualified name
-// from its ARM ID (.../dnsZones/{zone}/{TYPE}/{relativeName}); the body's
-// fqdn member is optional on writes.
+// From the ID (.../dnsZones/{zone}/{TYPE}/{relativeName}); the body's fqdn is
+// optional on writes.
 func publicRecordSetFQDN(rs PublicRecordSet) string {
 	if f := strings.TrimSuffix(rs.Properties.Fqdn, "."); f != "" {
 		return f
@@ -56,8 +51,6 @@ func publicRecordSetFQDN(rs PublicRecordSet) string {
 	return rel + "." + zone
 }
 
-// webBindingHostName extracts the bound hostname from a host-name-binding
-// resource ID (".../hostNameBindings/{hostName}").
 func webBindingHostName(b WebHostNameBinding) string {
 	segs := strings.Split(b.ID, "/hostNameBindings/")
 	if len(segs) != 2 {
@@ -66,16 +59,14 @@ func webBindingHostName(b WebHostNameBinding) string {
 	return segs[1]
 }
 
-// webBindingSiteID returns the site or slot resource the binding hangs off.
 func webBindingSiteID(b WebHostNameBinding) string {
 	segs := strings.Split(b.ID, "/hostNameBindings/")
 	return segs[0]
 }
 
 func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.HandlerFunc)) {
-	// WebApps_AnalyzeCustomHostname[Slot] — analyze a hostname's DNS state
-	// against the site: which records exist, whether they prove ownership,
-	// and whether the hostname conflicts with a binding elsewhere.
+	// Which records exist, whether they prove ownership, and whether the hostname
+	// is bound elsewhere.
 	both("GET", "/analyzeCustomHostname", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -126,10 +117,8 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 			}
 		}
 
-		// Ownership proof: a CNAME (at the hostname or its awverify child)
-		// pointing at the site's default hostname, or a TXT record carrying
-		// it, passes the verification test — the record state real App
-		// Service accepts when a hostname is added.
+		// A CNAME (at the hostname or its awverify child) to the default hostname, or a
+		// TXT carrying it, proves ownership, as App Service accepts.
 		defaultHost := site.Properties.DefaultHostName
 		verified := false
 		for _, c := range append(append([]string{}, cnames...), altCNames...) {
@@ -160,10 +149,8 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 		})
 	})
 
-	// ListCustomHostNameSites — the subscription's custom hostnames, grouped
-	// per hostname with every site resource bound to it, assembled from the
-	// real host-name-binding store. The optional ?hostname= filter narrows to
-	// one hostname, as the real API does.
+	// Grouped per hostname with every bound site; ?hostname= narrows to one, as
+	// the API does.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/customhostnameSites", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		filter := r.URL.Query().Get("hostname")
@@ -209,8 +196,7 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 		for _, h := range hosts {
 			e := grouped[h]
 			sort.Strings(e.siteIDs)
-			// siteResourceIds is an array of Identifier resources, each
-			// carrying the bound site's ARM resource ID.
+			// Identifier resources, each carrying the bound site's resource ID.
 			identifiers := make([]map[string]any, 0, len(e.siteIDs))
 			for _, siteID := range e.siteIDs {
 				segs := strings.Split(siteID, "/")
@@ -233,8 +219,6 @@ func registerWebHostnameTruth(srv *sim.Server, both func(string, string, http.Ha
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// ListSiteIdentifiersAssignedToHostName — the sites the hostname is
-	// assigned to, assembled from the real host-name-binding store.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/listSitesAssignedToHostName", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name string `json:"name"`

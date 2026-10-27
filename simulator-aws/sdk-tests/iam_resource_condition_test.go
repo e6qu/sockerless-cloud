@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIAM_ResourceTagCondition reproduces issue #661: a grant conditioned on
-// aws:ResourceTag/<k> is denied until the target resource actually carries the
-// tag, then allowed — proving the gate resolves the resource's tags into the
-// condition context.
+// TestIAM_ResourceTagCondition expects a grant conditioned on
+// aws:ResourceTag/<k> to deny until the resource carries the tag and then
+// allow: the gate resolves the resource's tags into the condition context.
 func TestIAM_ResourceTagCondition(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -45,25 +44,22 @@ func TestIAM_ResourceTagCondition(t *testing.T) {
 	require.NoError(t, err)
 	volID := aws.ToString(vol.VolumeId)
 
-	// Untagged: the tag-scoped DeleteVolume grant doesn't match → denied.
 	_, err = c.DeleteVolume(ctx, &ec2.DeleteVolumeInput{VolumeId: aws.String(volID)})
 	require.Error(t, err, "DeleteVolume on an untagged volume must be denied")
 	assert.Equal(t, "UnauthorizedOperation", errCodeOf(err))
 
-	// Tag it edd:managed=true.
 	_, err = c.CreateTags(ctx, &ec2.CreateTagsInput{
 		Resources: []string{volID},
 		Tags:      []ec2types.Tag{{Key: aws.String("edd:managed"), Value: aws.String("true")}},
 	})
 	require.NoError(t, err)
 
-	// Now the condition matches → allowed.
 	_, err = c.DeleteVolume(ctx, &ec2.DeleteVolumeInput{VolumeId: aws.String(volID)})
 	assert.NoError(t, err, "DeleteVolume must be allowed once the volume carries edd:managed=true")
 }
 
-// TestIAM_ECSClusterCondition proves the ecs:cluster condition key: an
-// ecs:StopTask grant scoped to one cluster denies a call targeting another.
+// TestIAM_ECSClusterCondition expects an ecs:StopTask grant scoped to one
+// cluster by ecs:cluster to deny another.
 func TestIAM_ECSClusterCondition(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -86,12 +82,11 @@ func TestIAM_ECSClusterCondition(t *testing.T) {
 		aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey), "")}
 	c := ecs.NewFromConfig(cfg, func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
-	// Wrong cluster → denied by IAM (AccessDeniedException).
 	_, err = c.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String("other"), Task: aws.String("task-1")})
 	require.Error(t, err)
 	assert.Equal(t, "AccessDeniedException", errCodeOf(err), "StopTask on a non-allowed cluster must be IAM-denied")
 
-	// Allowed cluster → enforcement passes (any later error is not an IAM denial).
+	// The allowed cluster passes IAM; any later error is not a denial.
 	_, err = c.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String("allowed"), Task: aws.String("task-1")})
 	if err != nil {
 		assert.NotEqual(t, "AccessDeniedException", errCodeOf(err), "StopTask on the allowed cluster must pass IAM enforcement")

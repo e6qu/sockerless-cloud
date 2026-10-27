@@ -11,10 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_DescribeInstancesPagination pins MaxResults/NextToken pagination on
-// the list form of DescribeInstances (it previously returned every instance,
-// ignoring MaxResults). A unique tag isolates this test's instances from any
-// others in the shared sim state.
+// TestEC2_DescribeInstancesPagination covers MaxResults and NextToken on
+// DescribeInstances; a unique tag isolates the test's instances from the
+// shared simulator.
 func TestEC2_DescribeInstancesPagination(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -56,13 +55,11 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 		return n
 	}
 
-	// Page 1: MaxResults=2 → 2 instances + a NextToken.
 	p1, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{Filters: filt, MaxResults: aws.Int32(2)})
 	require.NoError(t, err)
 	assert.Equal(t, 2, count(p1), "MaxResults=2 caps the first page")
 	require.NotEmpty(t, aws.ToString(p1.NextToken), "more instances remain → NextToken")
 
-	// Page 2: resume → the remaining 1, no further token.
 	p2, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{Filters: filt, MaxResults: aws.Int32(2), NextToken: p1.NextToken})
 	require.NoError(t, err)
 	assert.Equal(t, 1, count(p2), "remaining instance on page 2")

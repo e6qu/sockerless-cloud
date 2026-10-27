@@ -29,8 +29,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		sim.WriteJSON(w, http.StatusOK, c)
 	})
 
-	// insert / update are long-running operations returning a
-	// GoogleLongrunningOperation whose response carries the cache.
+	// insert and update answer an operation whose response carries the cache.
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/anywhereCaches", func(w http.ResponseWriter, r *http.Request) {
 		bucket := sim.PathParam(r, "bucket")
 		if !bucketExists(w, bucket) {
@@ -102,13 +101,10 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	srv.HandleFunc("POST /storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/disable", stateVerb("disabled"))
 }
 
-// registerGCSRapidCaches mounts the rapidCaches collection: a rapid cache is
-// bucket-scoped control-plane state (zone, TTL, admission policy, cache
-// type), managed here exactly as the schema describes it and carrying no
-// data-plane behavior claim beyond its states. Nothing in this deployment
-// provisions real cache hardware, so a cache settles synchronously — created
-// running, and the long-running operations insert/update/disable return are
-// already done, the same convention the anywhere-caches collection follows.
+// registerGCSRapidCaches mounts the rapidCaches collection: bucket-scoped
+// control-plane state (zone, TTL, admission policy, cache type). No cache
+// hardware is provisioned, so a cache is created running and the operations
+// insert, update and disable return are already done, as for anywhere caches.
 func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketExists func(http.ResponseWriter, string) bool) {
 	caches := sim.MakeStore[GCSRapidCache](srv.DB(), "gcs_rapid_caches")
 	key := func(bucket, id string) string { return bucket + "\x00" + id }
@@ -170,10 +166,9 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, gcsStructToMap(c)))
 	})
 
-	// rapidCaches.update (PATCH) — the mutable members are the TTL, the
-	// admission policy and the ingest-on-write flag; zone and cacheType are
-	// fixed at creation. The ingest flag rides a pointer so an absent member
-	// is left alone while an explicit false lands.
+	// rapidCaches.update changes the TTL, admission policy and ingest-on-write
+	// flag; zone and cacheType are fixed. The flag is a pointer so an absent
+	// member stays and an explicit false lands.
 	srv.HandleFunc("PATCH /storage/v1/b/{bucket}/rapidCaches/{rapidCacheId}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
 		c, ok := caches.Get(key(bucket, id))

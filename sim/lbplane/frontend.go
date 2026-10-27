@@ -60,7 +60,7 @@ func (h HostRouter) inDomains(hostname string) bool {
 }
 
 // Answers are a front end's own responses to a forward that got none from its
-// target. Each runs before anything was written to the client.
+// target. Each runs before Forward wrote anything to the client.
 type Answers struct {
 	// NotAdmitted answers a flow Upstream.Admit refused; nil leaves it to
 	// Failed.
@@ -76,9 +76,9 @@ type Answers struct {
 // the forward ended. A client that went away gets the 499 a load balancer's
 // access log records; a failure after the target's answer started cuts the
 // response off, as a proxy that loses its upstream mid-stream does; a forward
-// that got no answer is answered through a. A target's answer Upstream.Decline
-// refused is left unanswered, and Serve returns ErrDeclined for the caller to
-// answer. Serve returns the forward's error.
+// that got no answer goes to a. Serve leaves an answer Upstream.Decline
+// refused unanswered and returns ErrDeclined for the caller to answer.
+// Serve returns the forward's error.
 func Serve(w http.ResponseWriter, r *http.Request, up Upstream, a Answers) error {
 	err := Forward(w, r, up)
 	switch {

@@ -8,20 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFreeSimulatorPortPairIsSimultaneouslyBindable pins the contract a
-// launching simulator depends on: the two coordinates are distinct, and the
-// HTTP server and the Route 53 dual-protocol listener can hold them at the same
-// time.
-//
-// What makes a collision impossible is structural, not statistical — the helper
-// holds the HTTP reservation open across the DNS probe, so the operating system
-// cannot hand the same port twice, and it errors loudly if the two ever match
-// anyway. This test does not reproduce the original race: reserving with two
-// independent probes still passes it on an idle machine, because the collision
-// needs the ephemeral allocator to wrap onto the just-released port. It guards
-// the weaker property that is deterministically checkable — a rewrite that
-// collides always, or returns a coordinate the simulator cannot bind, fails
-// here immediately.
+// TestFreeSimulatorPortPairIsSimultaneouslyBindable expects the two ports to be
+// distinct and bindable at once by the HTTP server and the Route 53 listener.
+// The helper rules a collision out structurally, by holding the HTTP
+// reservation across the DNS probe; this test cannot reproduce the original
+// race, which needs the ephemeral allocator to wrap onto the released port, but
+// fails at once on a rewrite that always collides or returns an unbindable
+// port.
 func TestFreeSimulatorPortPairIsSimultaneouslyBindable(t *testing.T) {
 	for range 50 {
 		httpPort, dnsPort, err := freeSimulatorPortPair()

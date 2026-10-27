@@ -9,21 +9,15 @@ import (
 	"time"
 )
 
-// Keeping the write-ahead log from outgrowing the database it belongs to.
-//
-// journal_size_limit bounds the FILE, but only at the moment SQLite resets the
-// log, and it resets it only when a checkpoint finishes copying every frame
-// into the database. A checkpoint cannot finish while any reader still holds an
-// older snapshot, so under sustained traffic the automatic one copies what it
-// can and the file keeps growing. A deployed simulator showed the shape of it
-// exactly: the log sat at the 64 MiB limit while the service was quiet, and
-// reached 1.2 GiB once the retention sweeps began deleting in earnest -- a
-// gigabyte of log beside a 2.2 GiB database, all of it replayed on the next
-// start.
-//
-// So the simulator asks for the reset itself. A TRUNCATE checkpoint waits for
-// the readers it needs and returns busy when it cannot have them, which is not
-// a failure: the frames stay in the log and the next attempt takes them.
+// journal_size_limit bounds the write-ahead log only when SQLite resets it,
+// which it does only once a checkpoint copies every frame into the database.
+// A checkpoint cannot finish while a reader holds an older snapshot, so under
+// sustained traffic the automatic one copies what it can and the file keeps
+// growing — past a gigabyte beside the database, all of it replayed on the
+// next start. So the simulator asks for the reset itself. A TRUNCATE
+// checkpoint waits for the readers it needs and returns busy when it cannot
+// have them, which is not a failure: the frames stay in the log and the next
+// attempt takes them.
 
 // walCheckpointInterval is how often the checkpointer looks at the log. It is
 // far longer than a request and far shorter than a deployment's lifetime: the

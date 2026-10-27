@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestCloudWatchCLI_MetricAlarms exercises the alarm API over the awsJson
-// surface the aws CLI uses: put-metric-alarm, describe-alarms (with the
-// metric-derived StateValue), and delete-alarms.
+// TestCloudWatchCLI_MetricAlarms covers put-metric-alarm, describe-alarms with
+// the metric-derived StateValue, and delete-alarms over the awsJson protocol
+// the aws CLI uses.
 func TestCloudWatchCLI_MetricAlarms(t *testing.T) {
 	t.Parallel()
 	ns := "Custom/AlarmsCLI"
@@ -36,9 +36,6 @@ func TestCloudWatchCLI_MetricAlarms(t *testing.T) {
 	}
 }
 
-// TestCloudWatchCLI_AlarmActionConfiguration writes an alarm's
-// ActionConfiguration through put-metric-alarm and put-composite-alarm and reads
-// it back through describe-alarms.
 func TestCloudWatchCLI_AlarmActionConfiguration(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm",

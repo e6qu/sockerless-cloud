@@ -14,12 +14,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/machine"
 )
 
-// Compute Engine's bulk creates and the verbs that reshape a resource in place.
-//
-// A bulk insert creates a run of resources from one request, naming them from a
-// pattern the caller gives, and answers with a single operation covering the
-// whole run — so what a client observes afterwards is the run existing, not a
-// per-resource operation each.
+// A bulk insert creates a run of resources named from the caller's pattern and
+// answers one operation covering the whole run.
 
 // computeBulkNames renders the names a bulk insert creates. Compute Engine
 // substitutes a run of hashes in the pattern with a zero-padded index, so
@@ -42,8 +38,6 @@ func computeBulkNames(pattern string, count int) ([]string, error) {
 	return names, nil
 }
 
-// registerComputeBulkVerbs serves the bulk creates and the in-place writes that
-// sit beside them.
 func registerComputeBulkVerbs(srv *sim.Server) {
 	// instances.bulkInsert creates a run from one set of properties. The run's
 	// members are real instances afterwards — a list finds them — which is the
@@ -51,8 +45,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 	bulkInstances := func(scope computeScopeKind) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			project := sim.PathParam(r, "project")
-			// count and minCount are int64, which Compute Engine puts on the
-			// wire as strings — the generated client sends them that way.
+			// count and minCount are int64, which the generated client sends as strings.
 			var req struct {
 				Count              int64           `json:"count,string"`
 				MinCount           int64           `json:"minCount,string"`
@@ -75,9 +68,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			}
 			zone := sim.PathParam(r, "zone")
 			if scope == cScopeRegion {
-				// A regional bulk insert places its instances in the region's
-				// zones; with nothing to distribute across yet, the first zone
-				// is where they land.
+				// A regional bulk insert places its instances in the region's first zone.
 				zone = sim.PathParam(r, "region") + "-a"
 			}
 			for _, name := range names {
@@ -89,10 +80,8 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				}
 			}
 
-			// Each member is built from the run's instanceProperties through
-			// the same function instances.insert builds one with, so a
-			// bulk-created instance leases its address and carries its identity
-			// the way a singly-created one does.
+			// Build each member through the function instances.insert uses, so it leases
+			// its address and carries its identity as a single insert's instance does.
 			run := make([]ComputeInstance, 0, len(names))
 			for _, name := range names {
 				var instance ComputeInstance
@@ -120,10 +109,9 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				run = append(run, instance)
 			}
 
-			// Compute Engine answers a bulk insert before the run is up, and
-			// brings the machines up behind the operation the caller polls —
-			// the same contract a single insert honours, on a context of its
-			// own so a client that stops waiting does not take the run down.
+			// Compute Engine answers a bulk insert before the run is up and brings the
+			// machines up behind the operation, on a context of their own so a client
+			// that stops waiting does not take the run down.
 			op := newComputeOpRecord(project, computeScopeSegment(scope, r),
 				fmt.Sprintf("projects/%s/%s/instances", project, computeScopeSegment(scope, r)),
 				"bulkInsert")
@@ -204,9 +192,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/disks/bulkSetLabels",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, zone := sim.PathParam(r, "project"), sim.PathParam(r, "zone")
-			// The request carries a list of label-sets rather than one, so
-			// they are applied in the order given — the last write of a key
-			// is the one that stands, which is what a list in order means.
+			// Apply the label sets in order, so the last write of a key stands.
 			var req struct {
 				Requests []struct {
 					Labels map[string]string `json:"labels"`
@@ -247,8 +233,7 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				newComputeOpWithType(project, "zones/"+zone, key, "bulkSetLabels"))
 		})
 
-	// A zonal disk's patch, which changes the members a disk can be edited in
-	// place without being recreated.
+	// A zonal disk's patch changes the members a disk can edit in place.
 	srv.HandleFunc("PATCH /compute/v1/projects/{project}/zones/{zone}/disks/{name}",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, zone, name := sim.PathParam(r, "project"), sim.PathParam(r, "zone"), sim.PathParam(r, "name")

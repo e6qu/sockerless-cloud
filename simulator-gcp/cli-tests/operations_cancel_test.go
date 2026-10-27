@@ -16,20 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The cancel custom method through the vendor CLI. gcloud spells cancel
-// differently per service — `gcloud builds cancel` on the build resource,
-// `gcloud <service> operations cancel` on the operation collection — and each
-// spelling has to reach the simulator's handler for that service.
+// gcloud spells cancel differently per service, `gcloud builds cancel` on the
+// build and `gcloud <service> operations cancel` on the operation collection,
+// and each spelling must reach that service's handler.
 
-// TestCloudBuildCLI_CancelStopsARunningBuild drives `gcloud builds cancel`
-// against a build that is genuinely running, on both spellings of the method
-// the Discovery document declares:
+// TestCloudBuildCLI_CancelStopsARunningBuild cancels a running build on both
+// paths the Discovery document declares:
 //
 //	POST /v1/projects/{project}/builds/{idAction}                        (legacy global path)
 //	POST /v1/projects/{project}/locations/{location}/builds/{idAction}   (regional path)
 //
-// The build's step sleeps for an hour, so the build is genuinely running when
-// the cancel lands.
+// The build's step sleeps for an hour, so the cancel lands on a running build.
 func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -59,9 +56,8 @@ func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 	}
 }
 
-// TestCloudLoggingCLI_OperationsCancel drives `gcloud logging operations
-// cancel` on the project scope, which shares its operation collection URI with
-// every other service the simulator serves under it.
+// TestCloudLoggingCLI_OperationsCancel cancels on the project scope, whose
+// operation collection URI every service under it shares.
 func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	createURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/buckets:createAsync?bucketId=cli-cancel-bucket",
@@ -80,12 +76,9 @@ func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
 		"--format=json",
 	))
 
-	// What the cancel did is read off the operation, not off the cancel's own
-	// empty body: this operation was already complete when its name reached
-	// the client, so the outcome the method documents is "the operation
-	// completed despite cancellation" — the recorded result stands untouched.
-	// A cancel that dropped the record, blanked its response or turned it into
-	// an error does not survive this read.
+	// The operation was complete before the client saw its name, so CancelOperation
+	// leaves the recorded result standing; read it off the operation, not off the
+	// cancel's empty body.
 	out = runCLI(t, gcloudCLI("logging", "operations", "describe", opID,
 		"--location", "us-central1",
 		"--project", project,
@@ -103,8 +96,6 @@ func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
 	require.Error(t, err, "gcloud must report the NOT_FOUND the service answers")
 }
 
-// TestMemorystoreRedisCLI_OperationsCancel drives `gcloud redis operations
-// cancel`.
 func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	name := "cli-redis-cancel"
@@ -121,9 +112,8 @@ func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 			"--region", location, "--quiet", "--format=json").Run()
 	})
 
-	// The list is region-wide and every service's operations share it, so the
-	// create's operation is the one whose metadata targets this instance —
-	// not whichever row happens to come first.
+	// Every service's operations share the region-wide list, so pick the one whose
+	// metadata targets this instance.
 	instanceName := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, name)
 	out := runCLI(t, gcloudCLI("redis", "operations", "list",
 		"--region", location, "--format=json"))
@@ -149,9 +139,8 @@ func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 	runCLI(t, gcloudCLI("redis", "operations", "cancel", opID,
 		"--region", location, "--quiet", "--format=json"))
 
-	// Read the operation back: the create finished inside the request that
-	// returned it, so the cancel leaves the settled record exactly as it
-	// stands rather than erasing or failing it.
+	// The create finished inside its request, so the cancel leaves the settled
+	// record as it stands.
 	described := runCLI(t, gcloudCLI("redis", "operations", "describe", opID,
 		"--region", location, "--format=json"))
 	assertOperationCompletedDespiteCancel(t, described, opName, instanceName)
@@ -164,10 +153,9 @@ func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
 	assert.Contains(t, string(badOut), "never-minted")
 }
 
-// assertOperationCompletedDespiteCancel reads a cancelled operation's record
-// and pins the outcome CancelOperation documents for work that had already
-// finished: the operation is still named what it was, still done, carries no
-// error, and still carries the resource its method produced.
+// assertOperationCompletedDespiteCancel pins what CancelOperation documents for
+// finished work: same name, done, no error, and the resource its method
+// produced.
 func assertOperationCompletedDespiteCancel(t *testing.T, out, wantName, wantResource string) {
 	t.Helper()
 	var settled struct {
@@ -180,9 +168,8 @@ func assertOperationCompletedDespiteCancel(t *testing.T, out, wantName, wantReso
 		"the recorded result stands after the cancel: %s", out)
 }
 
-// assertOperationSettledDespiteCancel holds a cancelled operation to its
-// settled record — named, done and not failed — and decodes it into result so
-// the caller can check the response its service defines.
+// assertOperationSettledDespiteCancel decodes the settled record into result
+// for the caller to check the response its service defines.
 func assertOperationSettledDespiteCancel(t *testing.T, out, wantName string, result any) {
 	t.Helper()
 	var settled struct {
@@ -200,9 +187,8 @@ func assertOperationSettledDespiteCancel(t *testing.T, out, wantName string, res
 	assert.Nil(t, settled.Error, "a completed operation is not turned into a failure by a cancel: %s", out)
 }
 
-// TestCloudSQLCLI_OperationsCancel drives `gcloud sql operations cancel`.
-// Cloud SQL's method is the service's own and refuses an operation that is not
-// in progress, so the CLI reports the failure rather than a silent success.
+// TestCloudSQLCLI_OperationsCancel: Cloud SQL's own cancel refuses an
+// operation that is not in progress, so the CLI reports a failure.
 func TestCloudSQLCLI_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	instance := "cli-sql-cancel"
@@ -232,12 +218,10 @@ func TestCloudSQLCLI_OperationsCancel(t *testing.T) {
 		"Cloud SQL refuses a cancel of an operation that is not in progress")
 }
 
-// TestServiceUsageCLI_OperationsCancel drives the cancel Service Usage
-// declares on its top-level operations collection —
-// POST /v1/operations/{opAction...} — which Cloud Build's global build
-// operations share. gcloud has no `services operations` group, so the request
-// is issued the way a client without one does: against the published wire
-// path, with the CLI's own credential.
+// TestServiceUsageCLI_OperationsCancel cancels on Service Usage's top-level
+// POST /v1/operations/{opAction...}, which Cloud Build's global build operations
+// share. gcloud has no `services operations` group, so send the request to the
+// published path with the CLI's own credential.
 func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	enableURL := fmt.Sprintf("%s/v1/projects/%s/services/pubsub.googleapis.com:enable", baseURL, project)
@@ -251,10 +235,8 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 
 	httpDoJSON(t, "POST", fmt.Sprintf("%s/v1/%s:cancel", baseURL, op.Name), `{}`)
 
-	// The enable finished inside the request that returned the operation, so
-	// the cancel is the late one the method describes: the record still stands
-	// after it, carrying the EnableServiceResponse the enable produced.
-	// EnableServiceResponse carries the enabled service under `service`.
+	// The enable finished inside its request, so the record still carries the
+	// EnableServiceResponse, which names the service under `service`.
 	settledOut := httpDoJSON(t, "GET", fmt.Sprintf("%s/v1/%s", baseURL, op.Name), "")
 	var enabled struct {
 		Response struct {
@@ -277,10 +259,9 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 	assert.Equal(t, 404, resp.StatusCode, "a name no operation was minted under is not cancellable")
 }
 
-// TestServiceUsageCLI_OperationsList reads Service Usage's operations.list
-// over the published wire path with the CLI's own credential, since gcloud has
-// no `services operations` group: it answers the enable Service Usage started
-// and not the project create Cloud Resource Manager started.
+// TestServiceUsageCLI_OperationsList lists with the CLI's credential, since
+// gcloud has no `services operations` group: the list holds the enable Service
+// Usage started and not the project create Cloud Resource Manager started.
 func TestServiceUsageCLI_OperationsList(t *testing.T) {
 	t.Parallel()
 	projectID := uniquename.New("su-ops-list")
@@ -309,8 +290,6 @@ func TestServiceUsageCLI_OperationsList(t *testing.T) {
 	}
 }
 
-// uploadCancelSource writes the gzipped-tar build context Cloud Build fetches,
-// through the Cloud Storage JSON API the same way a client uploads one.
 func uploadCancelSource(t *testing.T, bucket, object, dockerfile string) {
 	t.Helper()
 	httpDoJSON(t, "POST", fmt.Sprintf("%s/storage/v1/b?project=%s", baseURL, project),
@@ -338,10 +317,9 @@ func uploadCancelSource(t *testing.T, bucket, object, dockerfile string) {
 	require.Less(t, resp.StatusCode, 400, "source upload failed")
 }
 
-// submitCancellableBuild submits a build whose step cannot finish on its own
-// and returns its id once the build's step is running. CreateBuild answers at
-// once with the build's operation, whose BuildOperationMetadata names the
-// build.
+// submitCancellableBuild returns the id once the build's step runs.
+// CreateBuild answers at once with an operation whose BuildOperationMetadata
+// names the build.
 func submitCancellableBuild(t *testing.T, bucket, object, image string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{
@@ -361,9 +339,7 @@ func submitCancellableBuild(t *testing.T, bucket, object, image string) string {
 	id := op.Metadata.Build.ID
 	require.NotEmpty(t, id, "the operation's metadata names the build")
 
-	// The build has no event that says a step started, so the step's status is
-	// read until it does. It is what makes the cancel below cancel work that
-	// is genuinely in flight.
+	// Cloud Build signals no step start, so read the step's status until it runs.
 	require.Eventually(t, func() bool {
 		return buildFirstStepStatusJSON(t, id) == "WORKING"
 	}, 120*time.Second, 50*time.Millisecond, "the build's first step never started running")
@@ -371,8 +347,6 @@ func submitCancellableBuild(t *testing.T, bucket, object, image string) string {
 	return id
 }
 
-// buildFirstStepStatusJSON reports the status the build gives its first step,
-// which is how a client sees which part of a running build is executing.
 func buildFirstStepStatusJSON(t *testing.T, id string) string {
 	t.Helper()
 	var build struct {

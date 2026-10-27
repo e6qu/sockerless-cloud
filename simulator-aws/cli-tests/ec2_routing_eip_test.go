@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2RoutingEIPFidelityCLI covers ReplaceRoute and the EIP association
-// lifecycle (AssociateAddress/DisassociateAddress) via the aws CLI.
 func TestEC2RoutingEIPFidelityCLI(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -26,7 +24,6 @@ func TestEC2RoutingEIPFidelityCLI(t *testing.T) {
 
 	runCLI(t, awsCLI("ec2", "create-route", "--route-table-id", rtbID,
 		"--destination-cidr-block", "0.0.0.0/0", "--gateway-id", igwID))
-	// ReplaceRoute swaps the IGW target for the NAT gateway.
 	runCLI(t, awsCLI("ec2", "replace-route", "--route-table-id", rtbID,
 		"--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", natID))
 
@@ -37,7 +34,6 @@ func TestEC2RoutingEIPFidelityCLI(t *testing.T) {
 		t.Fatalf("ReplaceRoute target: got %q, want %q", target, natID)
 	}
 
-	// EIP association round-trip.
 	instID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instID)

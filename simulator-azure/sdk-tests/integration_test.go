@@ -17,7 +17,6 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	rg := "int-aca-rg"
 	jobName := "int-aca-job"
 
-	// 1. Create resource group
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
 		strings.NewReader(`{"location":"eastus"}`))
@@ -27,25 +26,21 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	rgResp.Body.Close()
 
-	// 2. Create job
 	acaCreateJob(t, rg, jobName)
 
-	// 3. Start execution
 	execName := acaStartExecution(t, rg, jobName)
 
-	// 4. Verify Running state immediately
 	exec := acaGetExecution(t, rg, jobName, execName)
 	execProps := exec["properties"].(map[string]any)
 	assert.Equal(t, "Running", execProps["status"])
 
-	// 5. The platform's start event is in the environment workspace's
+	// The platform's start event lands in the environment workspace's
 	// ContainerAppSystemLogs_CL.
 	kql := `ContainerAppSystemLogs_CL | where JobName_s == "` + jobName + `" and Log_s == "Container started"`
 	result := queryWorkspace(t, acaLogsCustomerID(t), kql)
 	require.Len(t, result.Tables, 1)
 	require.GreaterOrEqual(t, len(result.Tables[0].Rows), 1, "should have start log entry")
 
-	// 6. Stop execution
 	stopReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/"+jobName+"/executions/"+execName+"/stop?api-version=2024-03-01",
 		strings.NewReader("{}"))
@@ -56,15 +51,13 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	stopResp.Body.Close()
 	require.Equal(t, http.StatusOK, stopResp.StatusCode)
 
-	// 7. Verify Stopped state
 	exec = acaGetExecution(t, rg, jobName, execName)
 	execProps = exec["properties"].(map[string]any)
 	assert.Equal(t, "Stopped", execProps["status"])
 	assert.NotEmpty(t, execProps["endTime"])
 
-	// 8. Delete job — ARM DELETE is a 202 long-running operation with the
-	// LRO headers; the job stays observable in provisioningState=Deleting
-	// until the operation completes.
+	// ARM DELETE is a 202 long-running operation; the job reads
+	// provisioningState=Deleting until it completes.
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/"+jobName+"?api-version=2024-03-01",
 		nil)
@@ -76,7 +69,7 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	awaitARMOperation[struct{}](t, delResp)
 	delResp.Body.Close()
 
-	// 9. Verify 404 once the delete operation completes.
+	// The job is 404 once the delete completes.
 	getReq, _ := http.NewRequestWithContext(ctx, "GET",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/"+jobName+"?api-version=2024-03-01",
 		nil)
@@ -92,7 +85,6 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	rg := "int-func-rg"
 	siteName := "int-func-app"
 
-	// 1. Create resource group
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
 		strings.NewReader(`{"location":"eastus"}`))
@@ -102,7 +94,6 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	rgResp.Body.Close()
 
-	// 2. Create a function app that runs a container image
 	site := map[string]any{
 		"location": "eastus",
 		"kind":     "functionapp,linux,container",
@@ -125,7 +116,6 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	defer siteResp.Body.Close()
 	require.Equal(t, http.StatusOK, siteResp.StatusCode)
 
-	// 3. Verify DefaultHostName
 	var siteResult map[string]any
 	data, _ := io.ReadAll(siteResp.Body)
 	require.NoError(t, json.Unmarshal(data, &siteResult))
@@ -133,8 +123,8 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	defaultHostName := props["defaultHostName"].(string)
 	require.NotEmpty(t, defaultHostName)
 
-	// 4. Invoke via DefaultHostName (matches real Azure routing). Sim hosts
-	// every site on one port so connect to baseURL but pin Host header.
+	// Azure routes invoke by the site's DefaultHostName, so dial the simulator
+	// with that Host.
 	invokeReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/api/function", strings.NewReader("{}"))
 	invokeReq.Header.Set("Content-Type", "application/json")
@@ -147,15 +137,12 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, invokeResp.StatusCode)
 	require.Equal(t, "integration-invoked", string(invokeBody))
 
-	// 5. The container's access-log line for the request reaches the site's
-	// container log. The engine's log stream delivers it after the response
-	// and App Service offers no event for its arrival, so read the log until
-	// it does.
+	// The container's access-log line reaches the site's container log after the
+	// response, and App Service offers no event for its arrival.
 	require.Eventually(t, func() bool {
 		return strings.Contains(siteContainerLog(t, rg, siteName), "POST /api/function")
 	}, 30*time.Second, 200*time.Millisecond, "the container's access-log line should reach the site's log")
 
-	// 6. Delete function app
 	delReq, _ := http.NewRequestWithContext(ctx, "DELETE",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Web/sites/"+siteName+"?api-version=2023-12-01",
 		nil)
@@ -165,7 +152,6 @@ func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
 	delResp.Body.Close()
 	require.Equal(t, http.StatusOK, delResp.StatusCode)
 
-	// 7. Verify 404 after delete
 	getReq, _ := http.NewRequestWithContext(ctx, "GET",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Web/sites/"+siteName+"?api-version=2023-12-01",
 		nil)

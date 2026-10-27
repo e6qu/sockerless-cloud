@@ -16,7 +16,6 @@ import (
 // and publishes to it: the request takes the same path a client's does, so
 // the receiving service authenticates it and answers in its own shapes.
 
-// gcpServer is the simulator serving this process.
 var gcpServer *sim.Server
 
 // gcpServiceAgent is the Google-managed service account a service acts as in

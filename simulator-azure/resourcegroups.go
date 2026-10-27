@@ -18,16 +18,14 @@ type ResourceGroup struct {
 	} `json:"properties"`
 }
 
-// azureResourceGroups is the shared Microsoft.Resources/resourceGroups store,
-// read by the resources-ARM PATCH/exportTemplate handlers in resourcesarm.go.
+// resourcesarm.go's PATCH and exportTemplate handlers read this store too.
 var azureResourceGroups sim.Store[ResourceGroup]
 
 func registerResourceGroups(srv *sim.Server) {
 	resourceGroups := sim.MakeStore[ResourceGroup](srv.DB(), "resource_groups")
 	azureResourceGroups = resourceGroups
-	// A delete still running when the previous process stopped failed with it
-	// (registerAzureAsyncOperations), and ARM rolls a group whose delete failed
-	// back to Succeeded.
+	// A delete running when the previous process stopped failed with it, and Azure
+	// Resource Manager rolls a group whose delete failed back to Succeeded.
 	for _, rg := range resourceGroups.List() {
 		if rg.Properties.ProvisioningState == "Deleting" {
 			resourceGroups.Update(rg.ID, func(stale *ResourceGroup) {
@@ -36,7 +34,6 @@ func registerResourceGroups(srv *sim.Server) {
 		}
 	}
 
-	// PUT - Create or update resource group
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rgName := sim.PathParam(r, "resourceGroupName")
@@ -76,7 +73,6 @@ func registerResourceGroups(srv *sim.Server) {
 		}
 	})
 
-	// GET - Get resource group
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rgName := sim.PathParam(r, "resourceGroupName")
@@ -91,15 +87,13 @@ func registerResourceGroups(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, rg)
 	})
 
-	// GET - List resource groups
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		prefix := armSubscriptionID(sub) + "/resourceGroups/"
 		all := resourceGroups.Filter(func(rg ResourceGroup) bool {
 			return strings.HasPrefix(rg.ID, prefix)
 		})
-		// ResourceGroups_List pages by $top and continues at the nextLink it
-		// returns, as Resources_List does.
+		// ResourceGroups_List pages by $top, as Resources_List does.
 		page, next, ok := armPage(w, r, all, func(rg ResourceGroup) string { return strings.ToLower(rg.ID) })
 		if !ok {
 			return
@@ -119,26 +113,21 @@ func registerResourceGroups(srv *sim.Server) {
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/operationresults/{operationId}", handleSubscriptionOperationResult)
 
-	// Resources_ListByResourceGroup. terraform-provider-azurerm polls this
-	// before deleting a resource group, to refuse the delete while the group
-	// still holds resources.
+	// terraform-provider-azurerm polls this before deleting a group, refusing
+	// while it still holds resources.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/resources", func(w http.ResponseWriter, r *http.Request) {
 		handleAzureResourceList(w, r,
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 	})
 
-	// Resources_List. The Azure CLI's `az resource list` reaches every scoping
-	// it offers through this one route's `$filter` — `-g` is
-	// `resourceGroup eq '<name>'`, not the resource-group-scoped route — and
-	// terraform-provider-azurerm reads it with
-	// `resourceType eq 'Microsoft.KeyVault/vaults'` while populating its Key
-	// Vault cache. Both are answered from the cross-slice registry in
-	// resource_registry.go.
+	// `az resource list` scopes everything through $filter (`-g` is
+	// `resourceGroup eq '<name>'`), and terraform-provider-azurerm filters
+	// `resourceType eq 'Microsoft.KeyVault/vaults'` for its Key Vault cache; the
+	// registry in resource_registry.go answers both.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resources", func(w http.ResponseWriter, r *http.Request) {
 		handleAzureResourceList(w, r, sim.PathParam(r, "subscriptionId"), "")
 	})
 
-	// HEAD - Check resource group existence
 	srv.HandleFunc("HEAD /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rgName := sim.PathParam(r, "resourceGroupName")

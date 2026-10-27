@@ -7,11 +7,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// DeleteTaskDefinitions permanently removes (up to 10) task-definition
-// revisions. Real ECS requires each revision to be INACTIVE (deregistered)
-// first; an ACTIVE revision is returned as a failure with reason
-// "Revision is in ACTIVE status." A deleted revision transitions to
-// DELETE_IN_PROGRESS and is no longer retrievable.
+// Up to 10 revisions, each INACTIVE first; an ACTIVE one is a failure ("Revision
+// is in ACTIVE status."). A deleted revision moves to DELETE_IN_PROGRESS and is
+// no longer retrievable.
 func handleECSDeleteTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TaskDefinitions []string `json:"taskDefinitions"`

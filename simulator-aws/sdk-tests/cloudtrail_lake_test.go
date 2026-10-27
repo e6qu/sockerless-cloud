@@ -13,11 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudTrail_EventDataStoreLifecycleSDK exercises the CloudTrail Lake event
-// data store control plane: CreateEventDataStore → GetEventDataStore /
-// ListEventDataStores → UpdateEventDataStore → StopEventDataStoreIngestion /
-// StartEventDataStoreIngestion → EnableFederation / DisableFederation →
-// DeleteEventDataStore → RestoreEventDataStore.
 func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -70,7 +65,6 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, cttypes.EventDataStoreStatusEnabled, got.Status)
 
-	// Federation enable/disable round-trips the FederationStatus + role.
 	fed, err := ct.EnableFederation(ctx, &cloudtrail.EnableFederationInput{
 		EventDataStore:    aws.String(arn),
 		FederationRoleArn: aws.String("arn:aws:iam::123456789012:role/ct-federation"),
@@ -85,7 +79,7 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, cttypes.FederationStatusDisabled, disabled.FederationStatus)
 
-	// Delete moves the store to PENDING_DELETION; Restore brings it back ENABLED.
+	// Delete moves the store to PENDING_DELETION; Restore makes it ENABLED again.
 	_, err = ct.DeleteEventDataStore(ctx, &cloudtrail.DeleteEventDataStoreInput{EventDataStore: aws.String(arn)})
 	require.NoError(t, err)
 	got, err = ct.GetEventDataStore(ctx, &cloudtrail.GetEventDataStoreInput{EventDataStore: aws.String(arn)})
@@ -97,9 +91,8 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 	assert.Equal(t, cttypes.EventDataStoreStatusEnabled, restored.Status)
 }
 
-// TestCloudTrail_LakeQuerySDK exercises the Lake query surface over the events
-// an event data store ingested: StartQuery → DescribeQuery / GetQueryResults /
-// ListQueries → CancelQuery, plus GenerateQuery and SearchSampleQueries.
+// TestCloudTrail_LakeQuerySDK queries the events an event data store ingested,
+// and covers GenerateQuery and SearchSampleQueries.
 func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	t.Parallel()
 	edsName := uniquename.New("lake-query-eds")
@@ -115,7 +108,7 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 		_, _ = ct.DeleteEventDataStore(ctx, &cloudtrail.DeleteEventDataStoreInput{EventDataStore: aws.String(eds)})
 	})
 
-	// A store holds the events recorded after it was created.
+	// A store holds the events recorded after its creation.
 	_, err = ec2Client().DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
 	require.NoError(t, err)
 
@@ -170,8 +163,6 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	assert.NotEmpty(t, sample.SearchResults)
 }
 
-// TestCloudTrail_DashboardLifecycleSDK exercises CreateDashboard →
-// UpdateDashboard → StartDashboardRefresh → DeleteDashboard.
 func TestCloudTrail_DashboardLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -226,8 +217,6 @@ func TestCloudTrail_DashboardLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestCloudTrail_ImportLifecycleSDK exercises StartImport → GetImport →
-// ListImports / ListImportFailures → StopImport.
 func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ct := cloudTrailClient()
@@ -273,19 +262,17 @@ func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
 	assert.Equal(t, cttypes.ImportStatusStopped, stopped.ImportStatus)
 }
 
-// TestCloudTrail_GovernanceSDK exercises the resource-policy, organization
-// delegated-admin, event-configuration, public-keys, and channel-update
-// surfaces: PutResourcePolicy / GetResourcePolicy / DeleteResourcePolicy,
-// RegisterOrganizationDelegatedAdmin / DeregisterOrganizationDelegatedAdmin,
-// PutEventConfiguration / GetEventConfiguration, ListPublicKeys,
-// ListInsightsMetricData / ListInsightsData, UpdateChannel.
+// TestCloudTrail_GovernanceSDK covers PutResourcePolicy, GetResourcePolicy,
+// DeleteResourcePolicy, RegisterOrganizationDelegatedAdmin,
+// DeregisterOrganizationDelegatedAdmin, PutEventConfiguration,
+// GetEventConfiguration, ListPublicKeys, ListInsightsMetricData,
+// ListInsightsData and UpdateChannel.
 func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	t.Parallel()
 	channelName := uniquename.New("ct-gov-channel")
 	renamedChannel := uniquename.New("ct-gov-channel-renamed")
 	ct := cloudTrailClient()
 
-	// Resource policy round-trip against a Lake channel ARN.
 	const channelArn = "arn:aws:cloudtrail:us-east-1:123456789012:channel/gov-channel"
 	const policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"cloudtrail.amazonaws.com"},"Action":"cloudtrail:GetChannel","Resource":"*"}]}`
 	put, err := ct.PutResourcePolicy(ctx, &cloudtrail.PutResourcePolicyInput{
@@ -302,7 +289,6 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	_, err = ct.GetResourcePolicy(ctx, &cloudtrail.GetResourcePolicyInput{ResourceArn: aws.String(channelArn)})
 	assert.Error(t, err, "GetResourcePolicy after delete must error")
 
-	// Organization delegated admin register/deregister.
 	_, err = ct.RegisterOrganizationDelegatedAdmin(ctx, &cloudtrail.RegisterOrganizationDelegatedAdminInput{
 		MemberAccountId: aws.String("210987654321"),
 	})
@@ -312,7 +298,6 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Event configuration round-trip against an event data store.
 	edsName := uniquename.New("ct-gov-eds")
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{Name: aws.String(edsName)})
 	require.NoError(t, err)
@@ -332,12 +317,10 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, edsArn, aws.ToString(getCfg.EventDataStoreArn))
 
-	// ListPublicKeys returns a real (empty) key list.
 	keys, err := ct.ListPublicKeys(ctx, &cloudtrail.ListPublicKeysInput{})
 	require.NoError(t, err)
 	assert.Empty(t, keys.PublicKeyList)
 
-	// Insight data/metric reads return real (empty) results.
 	_, err = ct.ListInsightsMetricData(ctx, &cloudtrail.ListInsightsMetricDataInput{
 		EventName:   aws.String("PutBucketPolicy"),
 		EventSource: aws.String("s3.amazonaws.com"),
@@ -345,7 +328,6 @@ func TestCloudTrail_GovernanceSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// UpdateChannel changes a Lake channel's name.
 	ch, err := ct.CreateChannel(ctx, &cloudtrail.CreateChannelInput{
 		Name:   aws.String(channelName),
 		Source: aws.String("Custom"),

@@ -11,17 +11,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch metric streams: a named stream resource (ARN, RUNNING/STOPPED
-// state) that continuously delivers metrics to Amazon Data Firehose. Served on
-// awsJson1.0, rpc-v2-cbor, and query.
+// A metric stream delivers metrics to Amazon Data Firehose.
 
-// CWMetricStreamFilter is an include/exclude namespace filter on a stream.
 type CWMetricStreamFilter struct {
 	Namespace   string   `json:"Namespace" cbor:"Namespace"`
 	MetricNames []string `json:"MetricNames,omitempty" cbor:"MetricNames,omitempty"`
 }
 
-// CWMetricStream holds a metric stream's configuration and state.
 type CWMetricStream struct {
 	Name           string                 `json:"Name"`
 	Arn            string                 `json:"Arn"`
@@ -75,10 +71,7 @@ func cwMetricStreamAccepts(stream CWMetricStream, datum CWMetricDatum) bool {
 	return !cwMetricStreamFilterMatches(stream.ExcludeFilters, datum)
 }
 
-// cwDeliverMetricDatum renders the documented CloudWatch metric-stream JSON
-// record and sends it through the configured Firehose stream. Every object is
-// newline terminated because one Firehose record can carry multiple metric
-// objects separated by newlines.
+// Newline-terminate every object: one Firehose record can carry several.
 func cwDeliverMetricDatum(datum CWMetricDatum) {
 	for _, stream := range cwMetricStreams.List() {
 		if stream.State != "running" || !cwMetricStreamAccepts(stream, datum) {
@@ -132,9 +125,7 @@ func cwDeliverMetricDatum(datum CWMetricDatum) {
 	}
 }
 
-// cwPutMetricStream creates or updates a stream, defaulting OutputFormat to JSON
-// and starting in the RUNNING state (real PutMetricStream creates a running
-// stream). Returns the stream's ARN.
+// PutMetricStream creates a RUNNING stream; OutputFormat defaults to JSON.
 func cwPutMetricStream(name, firehoseArn, roleArn, outputFormat string, include, exclude []CWMetricStreamFilter, tags []cwTagKV) (string, error) {
 	if outputFormat == "" {
 		outputFormat = "json"
@@ -209,8 +200,6 @@ func cwJSONStreamFilters(f []CWMetricStreamFilter) []map[string]any {
 	}
 	return out
 }
-
-// ── awsJson1.0 surface ──────────────────────────────────────────────────────
 
 func registerCloudWatchMetricStreamsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricStream", handleCWJSONPutMetricStream)
@@ -291,7 +280,7 @@ func handleCWJSONDeleteMetricStream(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	// DeleteMetricStream is idempotent — deleting an absent stream succeeds.
+	// Deleting an absent stream succeeds.
 	cwMetricStreams.Delete(req.Name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -340,8 +329,6 @@ func handleCWJSONStopMetricStreams(w http.ResponseWriter, r *http.Request) {
 	cwSetMetricStreamState(req.Names, "stopped")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
-
-// ── rpc-v2-cbor surface (Go SDK) ────────────────────────────────────────────
 
 func registerCloudWatchMetricStreamsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutMetricStream", handleCWCBORPutMetricStream)
@@ -486,8 +473,6 @@ func handleCWCBORStopMetricStreams(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, map[string]any{})
 }
 
-// ── query surface (older aws CLI) ───────────────────────────────────────────
-
 func registerCloudWatchMetricStreamsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricStream", handleCWQueryPutMetricStream)
 	r.Register("GetMetricStream", handleCWQueryGetMetricStream)
@@ -497,7 +482,6 @@ func registerCloudWatchMetricStreamsQuery(r *AWSQueryRouter) {
 	r.Register("StopMetricStreams", handleCWQueryStopMetricStreams)
 }
 
-// cwQueryStreamFilters parses include/exclude filter members from the query form.
 func cwQueryStreamFilters(r *http.Request, prefix string) []CWMetricStreamFilter {
 	var filters []CWMetricStreamFilter
 	for i := 1; ; i++ {

@@ -9,14 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the App Service networking surfaces. The VNet integration
-// commands the Azure CLI actually ships — `az webapp vnet-integration
-// add/list/remove` and `az functionapp vnet-integration add/list/remove` —
-// run natively against a TLS simulator through the CLI's own login flow;
-// `add` PUTs the swift networkConfig/virtualNetwork spelling while `list`
-// reads the classic virtualNetworkConnections spelling, so the commands only
-// work because the simulator keeps the two spellings coherent. The surfaces
-// no az command wraps go through az rest:
+// `az webapp vnet-integration add` PUTs the swift networkConfig/virtualNetwork
+// spelling while `list` reads the classic virtualNetworkConnections spelling,
+// so the commands work only when the two stay coherent. The surfaces no az
+// command wraps go through `az rest`.
 //
 //	GET  /sites/{siteName}/virtualNetworkConnections (+ slot)
 //	GET+PUT+PATCH+DELETE /sites/{siteName}/virtualNetworkConnections/{vnetName}
@@ -49,8 +45,8 @@ const stage5CLIAPIVersion = "2024-04-01"
 
 func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	t.Parallel()
-	// The full workload runtime: a Microsoft.Web/serverFarms-delegated subnet
-	// is realized as a real Docker network, which SIM_RUNTIME=process cannot do.
+	// A Microsoft.Web/serverFarms-delegated subnet becomes a Docker network, which
+	// SIM_RUNTIME=process cannot provide.
 	env := startAzTLSSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-stage5",
@@ -79,8 +75,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 		return runCLI(t, env.command(args...))
 	}
 
-	// Plan + apps. Regional VNet integration needs a Standard plan, exactly
-	// what `az webapp vnet-integration add` expects to find.
+	// Regional virtual network integration needs a Standard plan.
 	planID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/stage5-cli-plan", subscriptionID, rg)
 	rest("PUT", arm("Microsoft.Web/serverfarms/stage5-cli-plan"),
 		`{"location":"eastus","kind":"linux","sku":{"name":"S1","tier":"Standard"},"properties":{"reserved":true}}`)
@@ -89,21 +84,19 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	rest("PUT", arm("Microsoft.Web/sites/stage5-cli-func"), fmt.Sprintf(
 		`{"location":"eastus","kind":"functionapp,linux,container","properties":{"serverFarmId":"%s","siteConfig":{"linuxFxVersion":"DOCKER|registry.example/functions/azf:test"}}}`, planID))
 
-	// A real VNet + Microsoft.Web/serverFarms-delegated subnet in the
-	// Microsoft.Network store `az … vnet-integration add` resolves against.
+	// The delegated subnet `az … vnet-integration add` resolves against.
 	rest("PUT", arm("Microsoft.Network/virtualNetworks/stage5-cli-vnet"),
 		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.70.0.0/16"]}}}`)
 	subnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/stage5-cli-vnet/subnets/appsvc", subscriptionID, rg)
 	rest("PUT", arm("Microsoft.Network/virtualNetworks/stage5-cli-vnet/subnets/appsvc"),
 		`{"properties":{"addressPrefix":"10.70.1.0/24","delegations":[{"name":"appservice","properties":{"serviceName":"Microsoft.Web/serverFarms"}}]}}`)
 
-	// `add` PUTs the swift spelling; `list` reads the classic spelling. The
-	// entry the CLI shows is the proof the two spellings describe one state.
+	// `add` PUTs the swift spelling; `list` reads the classic one.
 	runCLI(t, env.command("webapp", "vnet-integration", "add",
 		"-g", rg, "-n", "stage5-cli-app", "--vnet", "stage5-cli-vnet", "--subnet", "appsvc", "-o", "json"))
 
-	// The CLI reformats each entry client-side: name = the part after the
-	// '_' in the wire name (the subnet), vnetResourceId lifted to the top.
+	// The CLI reformats each entry: name is the part of the wire name after '_'
+	// (the subnet), and vnetResourceId moves to the top.
 	var listed []struct {
 		Name           string `json:"name"`
 		VnetResourceID string `json:"vnetResourceId"`
@@ -114,8 +107,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.Equal(t, "appsvc", listed[0].Name)
 	assert.True(t, strings.EqualFold(subnetID, listed[0].VnetResourceID))
 
-	// The wire entry underneath carries the canonical <vnet>_<subnet> name
-	// and the isSwift marker — the coherent classic view of the swift write.
+	// The wire entry carries the canonical <vnet>_<subnet> name and isSwift.
 	var wireList []struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -144,7 +136,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.True(t, strings.EqualFold(subnetID, listed[0].VnetResourceID))
 
-	// The function app's live integration is what the plan view assembles.
+	// The plan view assembles from the function app's live integration.
 	var planConn struct {
 		ID         string `json:"id"`
 		Properties struct {
@@ -155,7 +147,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.True(t, strings.EqualFold(subnetID, planConn.Properties.VnetResourceID))
 	assert.Contains(t, planConn.ID, "/serverfarms/stage5-cli-plan/virtualNetworkConnections/")
 
-	// Routes CRUD; the single-route GET answers an array per the contract.
+	// The single-route GET answers an array, per the contract.
 	var route struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -181,7 +173,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.Equal(t, "10.201.0.0", route.Properties.StartAddress)
 	rest("DELETE", arm("Microsoft.Web/serverfarms/stage5-cli-plan/virtualNetworkConnections/stage5-cli-vnet_appsvc/routes/corp"), "")
 
-	// Plan connection gateway.
 	var gw struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -195,7 +186,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	parseJSON(t, rest("GET", arm("Microsoft.Web/serverfarms/stage5-cli-plan/virtualNetworkConnections/stage5-cli-vnet_appsvc/gateways/primary"), ""), &gw)
 	assert.Equal(t, "https://vpn.example/cli.zip", gw.Properties.VpnPackageURI)
 
-	// Site connection gateway (classic spelling of the same connection).
+	// The classic spelling of the same connection.
 	parseJSON(t, rest("PUT", arm("Microsoft.Web/sites/stage5-cli-func/virtualNetworkConnections/stage5-cli-vnet_appsvc/gateways/primary"),
 		`{"properties":{"vpnPackageUri":"https://vpn.example/site.zip"}}`), &gw)
 	assert.Equal(t, "stage5-cli-vnet_appsvc", gw.Properties.VnetName)
@@ -205,7 +196,6 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 		`{"properties":{"vpnPackageUri":"https://vpn.example/site2.zip"}}`), &gw)
 	assert.Equal(t, "https://vpn.example/site2.zip", gw.Properties.VpnPackageURI)
 
-	// Classic PUT + PATCH + GET on the site connection itself.
 	var conn struct {
 		Properties struct {
 			VnetResourceID string `json:"vnetResourceId"`
@@ -300,7 +290,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	parseJSON(t, rest("GET", arm("Microsoft.Web/sites/stage5-cli-func/hybridconnection"), ""), &entity)
 	assert.Equal(t, "cli-biztalk", entity.Name)
 
-	// --- networkFeatures: the assembled view names what the site really has ----
+	// networkFeatures names what the site has.
 	var features struct {
 		Properties struct {
 			VirtualNetworkName       string `json:"virtualNetworkName"`
@@ -334,7 +324,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.True(t, pa.Properties.Enabled)
 	require.Len(t, pa.Properties.VirtualNetworks, 1)
 
-	// --- Site private endpoint surfaces (no endpoint targets the site here) ----
+	// No private endpoint targets the site.
 	var pecs struct {
 		Value []any `json:"value"`
 	}
@@ -373,8 +363,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	require.Len(t, skus.Skus, 1)
 	assert.Equal(t, "S1", skus.Skus[0].Name)
 
-	// No site on the plan runs a container in this ARM-only cell, so the
-	// instance surface answers the honest empty set.
+	// No site on the plan runs a container here, so the instance list is empty.
 	var details struct {
 		ServerFarmName string `json:"serverFarmName"`
 		InstanceCount  int    `json:"instanceCount"`
@@ -385,9 +374,7 @@ func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
 	assert.Equal(t, 0, details.InstanceCount)
 	assert.Empty(t, details.Instances)
 
-	// Worker actions on a worker that does not exist, and RDP on Linux
-	// workers, answer real ARM errors (404 / 400) — az rest surfaces them as
-	// command failures.
+	// Worker actions on a missing worker answer 404, and RDP on Linux workers 400.
 	rebootOut, err := env.command("rest", "--method", "POST",
 		"--url", arm("Microsoft.Web/serverfarms/stage5-cli-plan/workers/deadbeef0000/reboot"), "-o", "json").CombinedOutput()
 	require.Error(t, err, "reboot of a non-existent worker must fail")

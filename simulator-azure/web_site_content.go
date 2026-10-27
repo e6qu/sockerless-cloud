@@ -14,14 +14,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 )
 
-// web_site_content.go reads and writes a site's /home/site/wwwroot. App
-// Service keeps /home as one persistent share that the site's containers,
+// App Service keeps /home as one persistent share that the site's containers,
 // its Kudu site and every instance mount, so the directory on that share is
-// the site's content: deployments, restores, swaps and the Kudu file system
-// write into it, and a file the running app writes there stays.
+// the site's content, and a file the running app writes there stays.
 
-// WebSiteContentFile is one file of a site's wwwroot. Path is wwwroot-relative
-// with forward slashes.
+// Path is wwwroot-relative with forward slashes.
 type WebSiteContentFile struct {
 	Path     string
 	Mode     uint32
@@ -29,8 +26,6 @@ type WebSiteContentFile struct {
 	Modified time.Time
 }
 
-// webSiteNameOf is the site name, "<app>" or "<app>/<slot>", a resource ID
-// names.
 func webSiteNameOf(resID string) string {
 	i := strings.LastIndex(resID, "/sites/")
 	if i < 0 {
@@ -39,12 +34,10 @@ func webSiteNameOf(resID string) string {
 	return strings.Replace(resID[i+len("/sites/"):], "/slots/", "/", 1)
 }
 
-// webWWWRootDir is the host directory of a site's /home/site/wwwroot.
 func webWWWRootDir(resID string) string {
 	return filepath.Join(siteHomeDir(webSiteNameOf(resID)), "site", "wwwroot")
 }
 
-// webOpenWWWRoot creates the site's /home layout and opens its wwwroot.
 func webOpenWWWRoot(resID string) (*os.Root, error) {
 	if _, err := ensureSiteHome(webSiteNameOf(resID)); err != nil {
 		return nil, err
@@ -56,8 +49,8 @@ func webOpenWWWRoot(resID string) (*os.Root, error) {
 	return root, nil
 }
 
-// webClearDir removes everything inside dir and keeps dir itself, which a
-// running container may have bind-mounted.
+// webClearDir keeps dir itself, which a running container may have
+// bind-mounted.
 func webClearDir(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -74,9 +67,7 @@ func webClearDir(dir string) error {
 	return nil
 }
 
-// webWalkSiteContent calls fn for each regular file under sub (wwwroot-relative,
-// "" for all of it) in path order. A site that has no such directory has no
-// files there.
+// sub is wwwroot-relative, "" for all of it.
 func webWalkSiteContent(resID, sub string, fn func(root *os.Root, p string, info fs.FileInfo) error) error {
 	root, err := os.OpenRoot(webWWWRootDir(resID))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -112,7 +103,6 @@ func webWalkSiteContent(resID, sub string, fn func(root *os.Root, p string, info
 	return nil
 }
 
-// webSiteContentPaths lists the wwwroot-relative paths of the files under sub.
 func webSiteContentPaths(resID, sub string) ([]string, error) {
 	var out []string
 	err := webWalkSiteContent(resID, sub, func(_ *os.Root, p string, _ fs.FileInfo) error {
@@ -122,8 +112,8 @@ func webSiteContentPaths(resID, sub string) ([]string, error) {
 	return out, err
 }
 
-// webReadSiteContent reads the files under sub, sorted by path, so an archive
-// built twice from the same content is byte-identical.
+// Sort by path so an archive built twice from the same content is
+// byte-identical.
 func webReadSiteContent(resID, sub string) ([]WebSiteContentFile, error) {
 	var out []WebSiteContentFile
 	var total int64
@@ -142,12 +132,10 @@ func webReadSiteContent(resID, sub string) ([]WebSiteContentFile, error) {
 	return out, err
 }
 
-// webSiteContentFiles reads every file of the site's wwwroot.
 func webSiteContentFiles(resID string) ([]WebSiteContentFile, error) {
 	return webReadSiteContent(resID, "")
 }
 
-// webSiteHasContent reports whether the site's wwwroot holds any file.
 func webSiteHasContent(resID string) (bool, error) {
 	errFound := errors.New("found")
 	err := webWalkSiteContent(resID, "", func(*os.Root, string, fs.FileInfo) error { return errFound })
@@ -157,8 +145,6 @@ func webSiteHasContent(resID string) (bool, error) {
 	return false, err
 }
 
-// webReadSiteFile reads one wwwroot-relative file; ok is false when the site
-// has no such file.
 func webReadSiteFile(resID, p string) (data []byte, ok bool, err error) {
 	root, err := os.OpenRoot(webWWWRootDir(resID))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -178,7 +164,6 @@ func webReadSiteFile(resID, p string) (data []byte, ok bool, err error) {
 	return data, true, nil
 }
 
-// webRemoveSiteContent removes sub (wwwroot-relative) and everything under it.
 func webRemoveSiteContent(resID, sub string) error {
 	root, err := os.OpenRoot(webWWWRootDir(resID))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -194,8 +179,6 @@ func webRemoveSiteContent(resID, sub string) error {
 	return nil
 }
 
-// webWriteSiteFiles writes files into the open wwwroot, each replacing what
-// its path held.
 func webWriteSiteFiles(root *os.Root, files []WebSiteContentFile) error {
 	for _, f := range files {
 		mode := fs.FileMode(f.Mode) & fs.ModePerm
@@ -222,10 +205,9 @@ func webWriteSiteFiles(root *os.Root, files []WebSiteContentFile) error {
 	return nil
 }
 
-// webWriteSiteContent writes files under dir (wwwroot-relative) into the
-// site's wwwroot. A clean artifact first empties dir; a zip deployment with
-// KuduSync semantics removes the files the previous zip deployment wrote that
-// this one lacks, and leaves every other file, the app's own among them.
+// A clean artifact first empties dir; a zip deployment with KuduSync
+// semantics removes the files the previous zip deployment wrote that this
+// one lacks, and leaves every other file, the app's own among them.
 func webWriteSiteContent(resID, dir string, files []archive.File, a webArtifact) (int, error) {
 	join := func(name string) string {
 		if dir == "" {
@@ -280,11 +262,8 @@ func webWriteSiteContent(resID, dir string, files []archive.File, a webArtifact)
 	return len(files), nil
 }
 
-// webReplaceSiteContent makes the site's wwwroot exactly the given set of
-// files. Microsoft: "Without `_backup.filter`, restoring a backup deletes all
-// existing files in the app and replaces them with the files in the backup" —
-// so every file the archive does not carry is removed, which is the opposite
-// of a deployment's merge. The restored app restarts on its new content.
+// Microsoft: "Without `_backup.filter`, restoring a backup deletes all
+// existing files in the app and replaces them with the files in the backup."
 func webReplaceSiteContent(resID string, files []WebSiteContentFile) error {
 	root, err := webOpenWWWRoot(resID)
 	if err != nil {

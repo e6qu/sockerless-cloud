@@ -8,10 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-// TestSpannerAdoptsScheduleRunsAnEarlierSimulatorPersisted proves an upgrade
-// keeps a schedule's history: the last run an earlier simulator recorded
-// becomes the next occurrence after it, so the occurrence already backed up is
-// not taken again.
+// TestSpannerAdoptsScheduleRunsAnEarlierSimulatorPersisted checks an upgrade
+// turns a schedule's recorded last run into its next occurrence, so the
+// occurrence already backed up is not taken again.
 func TestSpannerAdoptsScheduleRunsAnEarlierSimulatorPersisted(t *testing.T) {
 	db, err := sim.OpenDB(t.TempDir())
 	if err != nil {

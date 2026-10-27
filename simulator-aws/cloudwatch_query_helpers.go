@@ -9,35 +9,26 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Shared query-protocol (legacy aws CLI / botocore) response helpers for the
-// CloudWatch monitoring surface. The query envelope is
-// <OpResponse><OpResult>…</OpResult><ResponseMetadata/></OpResponse>; empty
-// operations omit the result element.
+// The query envelope is <OpResponse><OpResult>…</OpResult><ResponseMetadata/>
+// </OpResponse>; operations without output omit the result.
 
-// cwQueryEmptyResponse writes the metadata-only response for an operation with
-// no modeled output (EnableAlarmActions, SetAlarmState, …).
 func cwQueryEmptyResponse(w http.ResponseWriter, op string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
 		op, cwQueryXmlns, sim.NewUUID(), op)
 }
 
-// cwQueryResult writes the metadata-plus-result envelope for an operation with
-// output; resultXML is the inner content of <OpResult>.
+// resultXML is the inner content of <OpResult>.
 func cwQueryResult(w http.ResponseWriter, op, resultXML string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><%sResult>%s</%sResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
 		op, cwQueryXmlns, op, resultXML, op, sim.NewUUID(), op)
 }
 
-// cwQueryAppendf is a fmt.Sprintf-into-a-byte-slice helper for building XML
-// member lists without a strings.Builder per call site.
 func cwQueryAppendf(b []byte, format string, args ...any) []byte {
 	return append(b, []byte(fmt.Sprintf(format, args...))...)
 }
 
-// cwQueryMetricAlarmsXML renders a list of metric alarms as the <member>…
-// elements of a <MetricAlarms> list, deriving each alarm's state.
 func cwQueryMetricAlarmsXML(alarms []CWAlarm, now time.Time) string {
 	var members strings.Builder
 	for _, a := range alarms {
@@ -80,7 +71,6 @@ func cwQueryMetricAlarmsXML(alarms []CWAlarm, now time.Time) string {
 	return members.String()
 }
 
-// cwQueryMemberList renders a list member, empty when the list is.
 func cwQueryMemberList(name string, values []string) string {
 	if len(values) == 0 {
 		return ""

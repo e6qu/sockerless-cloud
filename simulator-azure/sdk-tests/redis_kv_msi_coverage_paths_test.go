@@ -1,15 +1,9 @@
 package azure_sdk_test
 
-// Literal ARM path coverage doc for the Azure Redis / Key Vault / Managed
-// Identity ratchet.
-//
-// Each route below is a real endpoint mounted in simulator-azure/{cache_redis,
-// keyvault,managedidentity}.go and driven by a genuine azure-sdk-for-go call in
-// this package's tests — but the SDK ARM clients build request URLs internally,
-// so the literal path string never appears in the test source. This block
-// records the literal "METHOD /path" tokens so the simulator-testing-contract
-// hook (which greps changed test files for each newly-mounted route's literal
-// path) can see the coverage.
+// The ARM clients build request URLs internally, so the literal routes these
+// tests drive never appear in test source. List them for
+// scripts/check-simulator-tests.sh, which matches a newly mounted route's
+// literal path in the changed test files.
 //
 //   GET /providers/Microsoft.Cache/operations
 //     — TestRedis_OperationsList (armredis OperationsClient.NewListPager)

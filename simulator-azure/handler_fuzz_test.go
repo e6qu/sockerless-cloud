@@ -9,10 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// FuzzTagsScopeRouting drives the Tags-default middleware with arbitrary URL
-// paths. The middleware derives the scope by trimming a fixed marker suffix;
-// it must never panic, even when the path contains multi-byte runes whose
-// case-folding changes the byte length relative to the lowercased copy.
+// The Tags-default middleware trims a fixed marker suffix and must not panic
+// when case-folding changes a rune's byte length.
 func FuzzTagsScopeRouting(f *testing.F) {
 	srv, err := sim.NewServer(sim.Config{Provider: "azure", LogLevel: "disabled"})
 	if err != nil {
@@ -45,9 +43,8 @@ func FuzzTagsScopeRouting(f *testing.F) {
 	})
 }
 
-// FuzzStorageHostRouting drives the storage data-plane host-routing middleware
-// with arbitrary Host headers and paths. Subdomain parsing (`{account}.blob.`,
-// `{account}.{service}.localhost`) must never panic on a malformed host.
+// Subdomain parsing (`{account}.blob.`, `{account}.{service}.localhost`) must
+// not panic on a malformed host.
 func FuzzStorageHostRouting(f *testing.F) {
 	srv, err := sim.NewServer(sim.Config{Provider: "azure", LogLevel: "disabled"})
 	if err != nil {
@@ -81,10 +78,8 @@ func FuzzStorageHostRouting(f *testing.F) {
 	})
 }
 
-// newRawRequest builds an *http.Request whose URL.Path and Host are set to
-// arbitrary (possibly control-character-bearing) strings WITHOUT going through
-// URL parsing, so the sim handlers — not net/url — see the raw bytes. This is
-// how a malicious client's already-decoded path reaches the mux.
+// newRawRequest sets URL.Path and Host without URL parsing, so the handlers see
+// the raw, already-decoded bytes a malicious client's path reaches the mux as.
 func newRawRequest(method, host, path string) *http.Request {
 	req := httptest.NewRequest(method, "http://placeholder/", nil)
 	req.URL.Path = path

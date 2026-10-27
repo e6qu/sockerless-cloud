@@ -22,15 +22,14 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-// dnsAddr is the host:port of the simulator's Route 53 DNS server, set by
-// TestMain (helpers_test.go) before tests run.
+// dnsAddr is the host:port of the simulator's Route 53 DNS server, which
+// TestMain sets.
 func dnsAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", dnsPort)
 }
 
-// dnsQuery sends a single UDP DNS query to the simulator's DNS server and
-// returns the parsed response message. Uses the same wire protocol any DNS
-// resolver uses — no client-side shortcuts.
+// dnsQuery sends one UDP DNS query, over the wire protocol any resolver uses,
+// and parses the response.
 func dnsQuery(t *testing.T, name string, qtype dnsmessage.Type) dnsmessage.Message {
 	t.Helper()
 	qbuf, err := buildDNSQuery(name, qtype)

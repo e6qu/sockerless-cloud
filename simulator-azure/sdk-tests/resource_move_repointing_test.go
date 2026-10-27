@@ -21,14 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The families that joined the cross-resource-group move dispatch with
-// Microsoft.Network, driven through the real Azure SDK for Go clients: the
-// resource re-homes, its child subtree follows, the credential the resource ID
-// derives is not rotated, and every reference another resource holds to it is
-// re-pointed.
+// Cross-resource-group moves through the Azure SDK for Go clients: the
+// resource re-homes, its child subtree follows, the credential derived from
+// its resource ID is not rotated, and every reference another resource holds
+// to it is re-pointed.
 
-// validateMoveExpectingFailure runs Resources_ValidateMoveResources for a
-// resource the simulator must refuse and returns the error the SDK surfaced.
 func validateMoveExpectingFailure(t *testing.T, srcRG, dstRG, resourceID string) error {
 	t.Helper()
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -45,14 +42,11 @@ func validateMoveExpectingFailure(t *testing.T, srcRG, dstRG, resourceID string)
 	return err
 }
 
-// TestAzureResources_MoveAPIManagementService drives the
-// Microsoft.ApiManagement hook. A subscription's keys are derived from the
-// subscription's own resource ID, so a move that only re-homed records would
-// silently invalidate every Ocp-Apim-Subscription-Key an API consumer holds.
-//
-// The simulator serves the API Management control plane only — there is no
-// gateway data plane a subscription key could be presented to — so the proof
-// is bounded to the material listSecrets serves, which IS that header's value.
+// TestAzureResources_MoveAPIManagementService: a subscription's keys derive
+// from its own resource ID, so a move that only re-homed records would
+// invalidate every Ocp-Apim-Subscription-Key a consumer holds. The simulator
+// serves no API Management gateway, so the check stops at the listSecrets
+// material, which is that header's value.
 func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("apim-move-src-rg"), uniquename.New("apim-move-dst-rg")
@@ -115,11 +109,9 @@ func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 	assert.Equal(t, *secretsBefore.SecondaryKey, *secretsAfter.SecondaryKey)
 }
 
-// TestAzureResources_MoveLogicWorkflow drives the Microsoft.Logic hook. A
-// workflow signs every callback URL it issues with its access key, so the
-// signature an operator already holds has to still be the signature the
-// workflow computes after the move, while the advertised endpoint — which
-// embeds the resource ID — follows the move.
+// TestAzureResources_MoveLogicWorkflow: the workflow signs callback URLs with
+// its access key, so a held signature still matches after the move, while the
+// advertised endpoint, which embeds the resource ID, follows the move.
 func TestAzureResources_MoveLogicWorkflow(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("logic-move-src-rg"), uniquename.New("logic-move-dst-rg")
@@ -178,9 +170,8 @@ func TestAzureResources_MoveLogicWorkflow(t *testing.T) {
 	assert.NotContains(t, *callbackAfter.BasePath, dstRG)
 }
 
-// TestAzureResources_MoveCosmosAccount drives the Microsoft.DocumentDB hook.
-// A Cosmos DB account's four master keys are derived from its resource ID, so
-// the move pins them: the connection string an application holds is unchanged.
+// TestAzureResources_MoveCosmosAccount: the four master keys derive from the
+// resource ID, so the move pins them and connection strings stay valid.
 func TestAzureResources_MoveCosmosAccount(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("cosmos-move-src-rg"), uniquename.New("cosmos-move-dst-rg")
@@ -240,16 +231,11 @@ func TestAzureResources_MoveCosmosAccount(t *testing.T) {
 		"the connection string an application holds must survive the move verbatim")
 }
 
-// TestAzureResources_MoveEventGridSystemTopic drives the system-topic hook and
-// the inbound-reference half of the move at once. A system topic names the
-// Azure resource it observes in its `source` property, so moving that source
-// has to re-point the reference, and moving the system topic itself must not
-// disturb it.
-//
-// The partner-namespace hook — the one Event Grid family that carries access
-// keys — is covered in the simulator's own suite and by the Azure CLI suite
-// instead: armeventgrid v1.0.0, the version this module pins, has no
-// PartnerNamespaces client at all.
+// TestAzureResources_MoveEventGridSystemTopic: a system topic names the
+// resource it observes in `source`, so moving that resource re-points the
+// reference, and moving the topic leaves it intact. armeventgrid v1.0.0 has no
+// PartnerNamespaces client, so the partner-namespace move is covered by the
+// CLI suite.
 func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("eg-system-move-src-rg"), uniquename.New("eg-system-move-dst-rg")
@@ -285,7 +271,6 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	require.NotNil(t, createdTopic.ID)
 	topicID := *createdTopic.ID
 
-	// Moving the source re-points the reference the system topic holds to it.
 	moveResourceToGroup(t, srcRG, dstRG, accountID)
 	movedAccount, err := accounts.GetProperties(ctx, dstRG, account, nil)
 	require.NoError(t, err)
@@ -297,7 +282,7 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	assert.Equal(t, *movedAccount.ID, *afterSourceMove.Properties.Source,
 		"the system topic must name the moved storage account, not the address it left")
 
-	// Moving the system topic re-homes it without disturbing that reference.
+	// Moving the system topic keeps that reference.
 	moveResourceToGroup(t, srcRG, dstRG, topicID)
 	movedTopic, err := systemTopics.Get(ctx, dstRG, topic, nil)
 	require.NoError(t, err)
@@ -310,10 +295,9 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	assert.Equal(t, *movedAccount.ID, *movedTopic.Properties.Source)
 }
 
-// TestAzureResources_MoveVirtualNetworkRepointsReferrers drives the
-// Microsoft.Network hook and the inbound-reference half of the move: a private
-// DNS zone's virtual network link names the moved virtual network by resource
-// ID, and it does not move with it.
+// TestAzureResources_MoveVirtualNetworkRepointsReferrers: a private DNS zone's
+// virtual network link, which does not move, names the moved network by its
+// new ID.
 func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("vnet-move-src-rg"), uniquename.New("vnet-move-dst-rg")
@@ -376,9 +360,9 @@ func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 		"the virtual network link must name the moved virtual network, not the address it left")
 }
 
-// TestAzureResources_MoveRedisCacheRepointsLinkedServer covers the inbound
-// reference a geo-replication linked server holds: linkedRedisCacheId names a
-// separate top-level cache that does not move with it.
+// TestAzureResources_MoveRedisCacheRepointsLinkedServer: a geo-replication
+// linked server's linkedRedisCacheId names a separate cache that does not move
+// with it.
 func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("redis-link-move-src-rg"), uniquename.New("redis-link-move-dst-rg")
@@ -434,10 +418,9 @@ func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 		"the linked server must name the moved cache, not the address it left")
 }
 
-// TestAzureResources_MoveRefusesWhatAzureRefuses pins the other half of move
-// fidelity: every type here is one Azure Resource Manager will not move
-// between resource groups, so the simulator answers ResourceMoveNotSupported
-// with the 409 a real move-validation failure reports.
+// TestAzureResources_MoveRefusesWhatAzureRefuses: Azure Resource Manager does
+// not move these types between resource groups, so validation answers
+// ResourceMoveNotSupported with 409.
 func TestAzureResources_MoveRefusesWhatAzureRefuses(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("refuse-move-src-rg"), uniquename.New("refuse-move-dst-rg")
@@ -464,10 +447,9 @@ func TestAzureResources_MoveRefusesWhatAzureRefuses(t *testing.T) {
 	}
 }
 
-// TestAzureContainerRegistry_ContentIsPerRegistry proves the OCI content stores
-// are keyed per registry: a repository pushed to one registry is absent from
-// another, read through each registry's own login server with its own
-// credential.
+// TestAzureContainerRegistry_ContentIsPerRegistry: a repository pushed to one
+// registry is absent from another, each read through its own login server
+// with its own credential.
 func TestAzureContainerRegistry_ContentIsPerRegistry(t *testing.T) {
 	t.Parallel()
 	regA := newACRRegistryFixture(t, "acr-isolation-rg", "acrisolationonesdk",
@@ -492,7 +474,6 @@ func TestAzureContainerRegistry_ContentIsPerRegistry(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// The registry it was pushed to serves it.
 	resp = acrDo(t, http.MethodGet, regA.endpoint()+"/v2/"+repo+"/manifests/v1", nil, "", authA)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
@@ -500,7 +481,6 @@ func TestAzureContainerRegistry_ContentIsPerRegistry(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// The other registry has never heard of it.
 	resp = acrDo(t, http.MethodGet, regB.endpoint()+"/v2/"+repo+"/manifests/v1", nil, "", authB)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode,
 		"a repository pushed to one registry must be absent from another")
@@ -511,11 +491,9 @@ func TestAzureContainerRegistry_ContentIsPerRegistry(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestAzureResources_MoveRefusesOccupiedDestination drives the check Azure
-// Resource Manager runs before a move re-homes anything: a resource keeps its
-// name, so a destination group that already holds one of the same type under
-// that name has no free identifier for it, and the move is refused rather than
-// overwriting what is there.
+// TestAzureResources_MoveRefusesOccupiedDestination: a resource keeps its name,
+// so a destination group already holding one of the same type and name has no
+// free identifier, and the move is refused.
 func TestAzureResources_MoveRefusesOccupiedDestination(t *testing.T) {
 	t.Parallel()
 	srcRG, occupiedRG := uniquename.New("sdk-conflict-src-rg"), uniquename.New("sdk-conflict-dst-rg")
@@ -567,7 +545,6 @@ func TestAzureResources_MoveRefusesOccupiedDestination(t *testing.T) {
 	require.Error(t, err, "moving onto an occupied identifier must fail")
 	assert.Contains(t, err.Error(), "ResourceMoveProviderValidationFailed")
 
-	// Neither resource was touched.
 	stillSource, err := workflows.Get(ctx, srcRG, workflow, nil)
 	require.NoError(t, err, "the refused move must leave the source resource where it was")
 	require.NotNil(t, stillSource.ID)

@@ -1,12 +1,12 @@
 # Sockerless Cloud web interfaces
 
-Bun + Turborepo workspace holding the simulator console SPAs. All packages
-share a single design system + API client from `core`; the per-simulator apps
-are thin shells over it.
+Bun + Turborepo workspace holding the simulator console SPAs. The consoles
+share design tokens, the theme hook, the error boundary and the browser-suite
+harness from `core`; each reads its cloud's real APIs through its own client.
 
 | Package | Purpose |
 |---|---|
-| `core` | Shared design system, API client, table/query plumbing, e2e harness (`core/e2e/run-tests.sh`). |
+| `core` | Design tokens, `useTheme`, `ErrorBoundary`, e2e harness (`core/e2e/run-tests.sh`). |
 | `simulator-aws` | AWS console-style UI served by `simulator-aws` at `/ui/` (Cloudscape design system). |
 | `simulator-gcp` | Google Cloud console-style UI served by `simulator-gcp` at `/ui/`. |
 | `simulator-azure` | Azure portal-style UI served by `simulator-azure` at `/ui/`. |
@@ -25,7 +25,11 @@ From this directory:
 - `bunx turbo run build` — build every package; outputs land in each package's
   `dist/`.
 - `bunx turbo run typecheck` / `test` — TypeScript + vitest across the
-  workspace.
+  workspace. The AWS and Google Cloud console suites need Go: their
+  `vitest.global-setup.ts` builds the console's simulator and `simulator-azure`
+  from this checkout, starts them API-only on free ports serving the console's
+  `dist/` with its operator federated as the Playwright suite does, and the
+  tests sign in and drive the console against them.
 - `cd packages/simulator-aws && bun run test:e2e` (or `simulator-gcp`) —
   Playwright browser suite (builds the backing simulator binary via the
   `core/e2e` harness, plus `simulator-azure`, whose Microsoft Entra ID signs the
@@ -49,17 +53,8 @@ make simulator-aws/embed && make simulator-aws/build
 The bundle is a build output and stays out of git (see
 [`AGENTS.md § No built artifacts in git`](../AGENTS.md#no-built-artifacts-in-git)).
 
-## Held dependency versions
+## Dependency versions
 
-One pin is deliberately behind its newest release. It is held because the
-newer version breaks something here, not because nobody looked — so before
-running `bun update --latest`, read this and put back what it moves.
-
-- **`@tanstack/react-table` — held on 8.x.** v9 is an API redesign, not a
-  version bump: `createColumnHelper` takes feature generics, and the table is
-  constructed through a feature set. Adopting it is a migration of every
-  console's tables, which is work to schedule rather than a dependency to take.
-
-Everything else tracks its newest release published more than 24 hours ago,
+Every dependency tracks its newest release published more than 24 hours ago,
 which is the same adoption quarantine `scripts/check-latest-deps.sh` applies to
 the Go, Terraform and GitHub Actions dependencies.

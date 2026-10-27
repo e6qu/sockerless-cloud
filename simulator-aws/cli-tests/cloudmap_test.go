@@ -24,7 +24,6 @@ func TestCloudMap_CreateAndListNamespaces(t *testing.T) {
 	parseJSON(t, out, &createResult)
 	require.NotEmpty(t, createResult.OperationId)
 
-	// List namespaces to find the created one
 	out = runCLI(t, awsCLI("servicediscovery", "list-namespaces", "--output", "json"))
 
 	var listResult struct {
@@ -45,19 +44,16 @@ func TestCloudMap_CreateAndListNamespaces(t *testing.T) {
 	}
 	require.NotEmpty(t, nsId, "Expected to find namespace cli-test.local")
 
-	// Cleanup
 	runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
 }
 
 func TestCloudMap_CreateService(t *testing.T) {
 	t.Parallel()
-	// Create namespace first
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "svc-test.local",
 		"--vpc", "vpc-12345678",
 	))
 
-	// Get namespace ID
 	out := runCLI(t, awsCLI("servicediscovery", "list-namespaces", "--output", "json"))
 	var nsList struct {
 		Namespaces []struct {
@@ -74,7 +70,6 @@ func TestCloudMap_CreateService(t *testing.T) {
 	}
 	require.NotEmpty(t, nsId)
 
-	// Create service
 	out = runCLI(t, awsCLI("servicediscovery", "create-service",
 		"--name", "my-service",
 		"--namespace-id", nsId,
@@ -94,14 +89,12 @@ func TestCloudMap_CreateService(t *testing.T) {
 	assert.Equal(t, nsId, svcResult.Service.NamespaceId)
 	require.NotEmpty(t, svcResult.Service.Id)
 
-	// Cleanup
 	runCLI(t, awsCLI("servicediscovery", "delete-service", "--id", svcResult.Service.Id))
 	runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
 }
 
 func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 	t.Parallel()
-	// Setup: namespace + service
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "discover-test.local",
 		"--vpc", "vpc-12345678",
@@ -136,7 +129,6 @@ func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 	parseJSON(t, out, &svcResult)
 	svcId := svcResult.Service.Id
 
-	// Register instance
 	out = runCLI(t, awsCLI("servicediscovery", "register-instance",
 		"--service-id", svcId,
 		"--instance-id", "instance-1",
@@ -149,8 +141,8 @@ func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 	parseJSON(t, out, &regResult)
 	require.NotEmpty(t, regResult.OperationId)
 
-	// List instances (discover-instances uses a separate data-plane endpoint
-	// with a data- hostname prefix, so we use list-instances instead)
+	// discover-instances goes to the data- prefixed host; list-instances does
+	// not.
 	out = runCLI(t, awsCLI("servicediscovery", "list-instances",
 		"--service-id", svcId,
 		"--output", "json",
@@ -167,7 +159,6 @@ func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 	assert.Equal(t, "instance-1", listResult.Instances[0].Id)
 	assert.Equal(t, "10.0.0.1", listResult.Instances[0].Attributes["AWS_INSTANCE_IPV4"])
 
-	// Cleanup
 	runCLI(t, awsCLI("servicediscovery", "deregister-instance",
 		"--service-id", svcId,
 		"--instance-id", "instance-1",
@@ -176,9 +167,8 @@ func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 	runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
 }
 
-// TestCloudMap_CrossTaskDNS_CLI exercises cross-task DNS end-to-end through
-// the aws CLI. awsvpc task registrations resolve to the registered task ENI
-// address, and one task can resolve the other's service name.
+// TestCloudMap_CrossTaskDNS_CLI registers awsvpc tasks under their ENI
+// addresses, and one task resolves the other's service name.
 func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -218,7 +208,6 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	}
 	require.NotEmpty(t, nsId)
 
-	// Services alpha + beta
 	createService := func(name string) string {
 		out := runCLI(t, awsCLI("servicediscovery", "create-service",
 			"--name", name,
@@ -241,9 +230,9 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 		runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
 	})
 
-	// Cluster + task def with awslogs config (sim only spawns Docker
-	// containers when awslogs is configured) + sleep command so the
-	// container stays alive through real resolver updates.
+	// The simulator starts containers only for an awslogs-configured task
+	// definition, and the sleep keeps the container alive through resolver
+	// updates.
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-xtask-dns"))
 	containerDef := `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2,"entryPoint":["sh","-c"],"command":["trap 'exit 143' TERM; sleep 120 & wait"],"logConfiguration":{"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/cli-xtask-dns","awslogs-stream-prefix":"ecs"}}}]`
 	out = runCLI(t, awsCLI("ecs", "register-task-definition",
@@ -340,7 +329,6 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	alphaIP := taskPrivateIPv4(alphaTask)
 	betaIP := taskPrivateIPv4(betaTask)
 
-	// Register instances with the real task ENI addresses.
 	registerInstance := func(serviceID, instanceID, ip string) {
 		t.Helper()
 		operationID := strings.TrimSpace(runCLI(t, awsCLI("servicediscovery", "register-instance",
@@ -361,7 +349,7 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 			"--service-id", betaSvc, "--instance-id", betaCID[:12]))
 	})
 
-	// Resolve beta from alpha through the task's normal libc resolver.
+	// Resolve through the task's own libc resolver.
 	getent, getentErr := exec.Command("docker", "exec", alphaName, "getent", "hosts", "beta.cli-xtask-dns.local").CombinedOutput()
 	require.NoError(t, getentErr, "alpha should resolve beta.cli-xtask-dns.local through the VPC resolver: %s", getent)
 	assert.Contains(t, string(getent), betaIP+" ", "the namespace's hosted zone answers beta's address: %s", getent)
@@ -370,7 +358,6 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 
 func TestCloudMap_DeregisterInstance(t *testing.T) {
 	t.Parallel()
-	// Setup
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "dereg-test.local",
 		"--vpc", "vpc-12345678",
@@ -405,7 +392,6 @@ func TestCloudMap_DeregisterInstance(t *testing.T) {
 	parseJSON(t, out, &svcResult)
 	svcId := svcResult.Service.Id
 
-	// Register then deregister
 	runCLI(t, awsCLI("servicediscovery", "register-instance",
 		"--service-id", svcId,
 		"--instance-id", "temp-instance",
@@ -417,7 +403,6 @@ func TestCloudMap_DeregisterInstance(t *testing.T) {
 		"--instance-id", "temp-instance",
 	))
 
-	// Verify it's gone
 	out = runCLI(t, awsCLI("servicediscovery", "list-instances",
 		"--service-id", svcId,
 		"--output", "json",
@@ -431,14 +416,13 @@ func TestCloudMap_DeregisterInstance(t *testing.T) {
 	parseJSON(t, out, &listResult)
 	assert.Empty(t, listResult.Instances)
 
-	// Cleanup
 	runCLI(t, awsCLI("servicediscovery", "delete-service", "--id", svcId))
 	runCLI(t, awsCLI("servicediscovery", "delete-namespace", "--id", nsId))
 }
 
 // awaitCLICloudMapOperation polls get-operation until the operation leaves
-// SUBMITTED and PENDING: Cloud Map reports an asynchronous operation's progress
-// only through that status, and the AWS CLI has no waiter for it.
+// SUBMITTED and PENDING: Cloud Map reports progress only through that status,
+// and the AWS CLI has no waiter for it.
 func awaitCLICloudMapOperation(t *testing.T, operationID string) {
 	t.Helper()
 	var status string

@@ -7,22 +7,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// monitor_routing.go decides where a log row lands and what a query reads.
 // A workspace keeps its rows under its customer id, so one workspace's query
-// never reads another's. Rows reach a workspace only through what names it:
-// a Container Apps environment's appLogsConfiguration, a diagnostic setting
-// on the resource, the workspace a workspace-based Application Insights
-// component names, or a data collection rule's Log Analytics destination. A
-// classic Application Insights component keeps its telemetry in its own
-// store.
+// never reads another's. Rows reach a workspace only through what names it: a
+// Container Apps environment's appLogsConfiguration, a diagnostic setting, a
+// workspace-based Application Insights component, or a data collection rule's
+// destination. A classic Application Insights component keeps its own store.
 
-// logRowsKey is where a workspace keeps one table's rows.
 func logRowsKey(customerID, table string) string {
 	return strings.ToLower(customerID) + ":" + table
 }
 
-// appLogRowsKey is where a classic Application Insights component keeps one
-// table's rows.
 func appLogRowsKey(appID, table string) string {
 	return "app/" + strings.ToLower(appID) + ":" + table
 }
@@ -31,12 +25,10 @@ func appendWorkspaceLogRow(customerID, table string, row monitorLogRow) {
 	appendLogRow(logRowsKey(customerID, table), row)
 }
 
-// dropLogRows deletes the rows a store key holds.
 func dropLogRows(key string) {
 	monitorLogs.Drop(key)
 }
 
-// dropWorkspaceLogs deletes a workspace's rows and tables.
 func dropWorkspaceLogs(ws Workspace) {
 	for _, t := range logAnalyticsWorkspaceTables(ws) {
 		dropLogRows(logRowsKey(ws.Properties.CustomerID, t.Name))
@@ -44,7 +36,6 @@ func dropWorkspaceLogs(ws Workspace) {
 	}
 }
 
-// logWorkspaceByCustomerID reads the workspace the query API addresses.
 func logWorkspaceByCustomerID(customerID string) (Workspace, bool) {
 	if azureMonitorWorkspaces == nil || customerID == "" {
 		return Workspace{}, false
@@ -52,11 +43,8 @@ func logWorkspaceByCustomerID(customerID string) (Workspace, bool) {
 	return azureWorkspacesByCustomerID.Lookup(azureMonitorWorkspaces, strings.ToLower(customerID), azureWorkspaceCustomerIDKeys)
 }
 
-// Container Apps.
-
-// acaLogWorkspace is the workspace a Container Apps environment sends its
-// logs to: the one its appLogsConfiguration names by customer id when its
-// destination is log-analytics.
+// The workspace appLogsConfiguration names by customer id when the destination
+// is log-analytics.
 func acaLogWorkspace(envID string) (Workspace, bool) {
 	if envID == "" || acaEnvironments == nil {
 		return Workspace{}, false
@@ -76,12 +64,10 @@ func acaLogWorkspace(envID string) (Workspace, bool) {
 	return ws, ok
 }
 
-// acaLogDestination is a workspace a Container Apps environment's rows of one
-// category reach: the custom log table (<category>_CL) of the workspace its
-// appLogsConfiguration names when the destination is log-analytics, or the
-// resource-specific table (<category>) of each workspace a diagnostic setting
-// on the environment sends the category to when it is azure-monitor ("Log
-// options in Azure Container Apps").
+// The custom log table (<category>_CL) of the appLogsConfiguration workspace
+// when the destination is log-analytics, or the resource-specific table of
+// each workspace a diagnostic setting sends the category to when it is
+// azure-monitor ("Log options in Azure Container Apps").
 type acaLogDestination struct {
 	customerID       string
 	resourceSpecific bool
@@ -110,10 +96,8 @@ func acaLogDestinations(envID, category string) []acaLogDestination {
 	return nil
 }
 
-// acaWorkspaceLog writes a Container Apps row of the category — the custom
-// log table's columns, suffixed _s — to every workspace the resource's
-// environment sends the category to; an environment that names none keeps
-// no Log Analytics rows.
+// The row carries the custom log table's columns, suffixed _s; an environment
+// that names no workspace keeps no Log Analytics rows.
 func acaWorkspaceLog(envID, resourceID, category string, row monitorLogRow) {
 	destinations := acaLogDestinations(envID, category)
 	if len(destinations) == 0 {
@@ -133,10 +117,9 @@ func acaWorkspaceLog(envID, resourceID, category string, row monitorLogRow) {
 	}
 }
 
-// acaResourceSpecificRow is the row as the resource-specific table holds it:
-// the custom log table's columns without their _s suffix, and the columns
-// every Azure table carries. ContainerAppSystemLogs' Type is the event's
-// severity, which the row already carries; elsewhere Type names the table.
+// The custom log columns without their _s suffix, plus the columns every Azure
+// table carries. ContainerAppSystemLogs' Type is the event's severity, which
+// the row carries; elsewhere Type names the table.
 func acaResourceSpecificRow(row monitorLogRow, table, customerID string) monitorLogRow {
 	out := monitorLogRow{}
 	for key, value := range row {
@@ -151,7 +134,6 @@ func acaResourceSpecificRow(row monitorLogRow, table, customerID string) monitor
 	return out
 }
 
-// acaConsoleLog writes a line a container printed to ContainerAppConsoleLogs.
 func acaConsoleLog(envID, resourceID string, line sim.LogLine, row monitorLogRow) {
 	stream := line.Stream
 	if stream == "" {
@@ -165,7 +147,6 @@ func acaConsoleLog(envID, resourceID string, line sim.LogLine, row monitorLogRow
 	acaWorkspaceLog(envID, resourceID, "ContainerAppConsoleLogs", row)
 }
 
-// acaJobSystemLog writes a job's lifecycle event to ContainerAppSystemLogs.
 func acaJobSystemLog(job ContainerAppJob, execName, eventType, message string) {
 	acaWorkspaceLog(job.Properties.EnvironmentID, job.ID, "ContainerAppSystemLogs", monitorLogRow{
 		"JobName_s":       job.Name,
@@ -175,7 +156,6 @@ func acaJobSystemLog(job ContainerAppJob, execName, eventType, message string) {
 	})
 }
 
-// acaAppEnvironmentID is the environment an app runs in.
 func acaAppEnvironmentID(app ContainerApp) string {
 	if app.Properties.EnvironmentID != "" {
 		return app.Properties.EnvironmentID
@@ -183,11 +163,8 @@ func acaAppEnvironmentID(app ContainerApp) string {
 	return app.Properties.ManagedEnvironmentID
 }
 
-// App Service.
-
-// siteAppInsightsComponent is the Application Insights component a site's
-// settings connect it to: APPLICATIONINSIGHTS_CONNECTION_STRING's
-// InstrumentationKey, else APPINSIGHTS_INSTRUMENTATIONKEY.
+// APPLICATIONINSIGHTS_CONNECTION_STRING's InstrumentationKey, else
+// APPINSIGHTS_INSTRUMENTATIONKEY.
 func siteAppInsightsComponent(site *Site) (AppInsightsComponent, bool) {
 	settings := siteAppSettings(site)
 	ikey := ""
@@ -205,8 +182,8 @@ func siteAppInsightsComponent(site *Site) (AppInsightsComponent, bool) {
 	return azureInsightsByInstrumentationKey.Lookup(azureAppInsightsComponents, strings.ToLower(ikey), appInsightsInstrumentationKeyKeys)
 }
 
-// appInsightsTelemetryKey is where a component keeps a table's rows: the
-// workspace a workspace-based component names, or the component's own store.
+// The workspace a workspace-based component names, or the component's own
+// store.
 func appInsightsTelemetryKey(c AppInsightsComponent, table string) (string, bool) {
 	if c.Properties.WorkspaceResourceId == "" {
 		return appLogRowsKey(c.Properties.ApplicationID, table), true
@@ -218,10 +195,9 @@ func appInsightsTelemetryKey(c AppInsightsComponent, table string) (string, bool
 	return logRowsKey(ws.Properties.CustomerID, table), true
 }
 
-// siteLogDestination is where a site's container output goes: the site's own
-// docker log, the AppTraces table of the component it is connected to, and
-// the AppServiceConsoleLogs table of every workspace a diagnostic setting on
-// the site sends that category to.
+// The site's docker log, the AppTraces table of its connected component, and
+// the AppServiceConsoleLogs table of every workspace a diagnostic setting
+// sends that category to.
 type siteLogDestination struct {
 	siteID    string
 	roleName  string
@@ -265,14 +241,11 @@ func (d siteLogDestination) write(at time.Time, message string) {
 	})
 }
 
-// injectSiteTrace records a platform message about a site the way its
-// container's output is recorded.
+// Record a platform message as the container's output is recorded.
 func injectSiteTrace(site *Site, message string) {
 	newSiteLogDestination(site).write(time.Now(), message)
 }
 
-// funcLogSink writes a site container's output to the site's log
-// destination.
 type funcLogSink struct {
 	dest siteLogDestination
 }
@@ -289,19 +262,15 @@ func (s *funcLogSink) WriteLog(line sim.LogLine) {
 	s.dest.write(at, line.Text)
 }
 
-// Queries.
-
-// logScope is what a query reads: the store keys of the table's rows in each
-// place it reads, and, for a query addressing one resource, that resource,
-// whose rows alone it keeps.
+// The store keys of the table's rows in each place the query reads and, for a
+// query addressing one resource, that resource, whose rows alone it keeps.
 type logScope struct {
 	workspaces []Workspace
 	appID      string
 	resourceID string
 }
 
-// tableSchema resolves a table against the scope: a workspace's table, or an
-// Azure table for a classic component's store.
+// A workspace's table, or an Azure table for a classic component's store.
 func (s logScope) tableSchema(table string) ([]Column, bool) {
 	for _, ws := range s.workspaces {
 		if t, ok := logAnalyticsWorkspaceTable(ws, table); ok {
@@ -315,7 +284,6 @@ func (s logScope) tableSchema(table string) ([]Column, bool) {
 	return nil, false
 }
 
-// rows reads the table's rows in scope.
 func (s logScope) rows(table string) []monitorLogRow {
 	var keys []string
 	for _, ws := range s.workspaces {
@@ -341,8 +309,6 @@ func (s logScope) rows(table string) []monitorLogRow {
 	return out
 }
 
-// workspaceLogScope is the scope of a query addressed to a workspace by its
-// customer id.
 func workspaceLogScope(customerID string) (logScope, bool) {
 	ws, ok := logWorkspaceByCustomerID(customerID)
 	if !ok {
@@ -351,9 +317,7 @@ func workspaceLogScope(customerID string) (logScope, bool) {
 	return logScope{workspaces: []Workspace{ws}}, true
 }
 
-// appLogScope is the scope of a query addressed to an Application Insights
-// component by its app id: the component's rows in the workspace it names,
-// or its own store.
+// The component's rows in the workspace it names, or its own store.
 func appLogScope(appID string) (logScope, bool) {
 	if azureAppInsightsComponents == nil {
 		return logScope{}, false
@@ -376,10 +340,9 @@ func componentLogScope(c AppInsightsComponent) (logScope, bool) {
 	return logScope{workspaces: []Workspace{ws}, resourceID: c.ID}, true
 }
 
-// resourceLogScope is the scope of a resource-centric query: a workspace
-// queried as a resource reads all its rows, a component reads its
-// telemetry, and any other scope reads the rows each workspace holds for
-// resources at or under it.
+// A workspace queried as a resource reads all its rows, a component its
+// telemetry, and any other scope the rows each workspace holds for resources
+// at or under it.
 func resourceLogScope(resourceID string) logScope {
 	resourceID = "/" + strings.Trim(resourceID, "/")
 	if ws, ok := logAnalyticsWorkspaceByID(resourceID); ok {
@@ -399,6 +362,6 @@ func resourceLogScope(resourceID string) logScope {
 	return scope
 }
 
-// azureAllWorkspaces holds every workspace under one key, so a query reading
-// them all decodes the store once per change rather than once per query.
+// One key, so a query reading every workspace decodes the store once per
+// change.
 var azureAllWorkspaces sim.GenerationIndex[Workspace]

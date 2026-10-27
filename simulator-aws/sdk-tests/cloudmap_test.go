@@ -16,12 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cmClient is a stock Cloud Map client pointed at the simulator's
-// servicediscovery endpoint coordinate. Nothing about the client is
-// reconfigured: DiscoverInstances and DiscoverInstancesRevision carry a modeled
-// `data-` endpoint host prefix, so the SDK sends and signs them against
-// `data-servicediscovery.localhost` exactly as it sends them to
-// `data-servicediscovery.us-east-1.amazonaws.com` against real AWS.
+// cmClient is a stock Cloud Map client at the simulator's endpoint.
+// DiscoverInstances and DiscoverInstancesRevision carry the modeled `data-`
+// host prefix, so the SDK signs them for `data-servicediscovery.localhost` as
+// it does for `data-servicediscovery.us-east-1.amazonaws.com`.
 func cmClient() *servicediscovery.Client {
 	return servicediscovery.NewFromConfig(sdkConfig(), func(o *servicediscovery.Options) {
 		o.BaseEndpoint = aws.String(simEndpoint("servicediscovery"))
@@ -32,7 +30,6 @@ func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
 
-	// Create a private DNS namespace
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name:        aws.String("test-ns.local"),
 		Vpc:         aws.String("vpc-12345"),
@@ -41,7 +38,6 @@ func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, createOut.OperationId)
 
-	// Get operation to retrieve namespace ID
 	opOut, err := client.GetOperation(ctx, &servicediscovery.GetOperationInput{
 		OperationId: createOut.OperationId,
 	})
@@ -49,12 +45,10 @@ func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
 	require.NotNil(t, opOut.Operation)
 	assert.Equal(t, sdtypes.OperationStatusSuccess, opOut.Operation.Status)
 
-	// Extract namespace ID from operation targets
 	nsID, ok := opOut.Operation.Targets["NAMESPACE"]
 	require.True(t, ok, "operation should have NAMESPACE target")
 	assert.NotEmpty(t, nsID)
 
-	// Get the namespace
 	nsOut, err := client.GetNamespace(ctx, &servicediscovery.GetNamespaceInput{
 		Id: aws.String(nsID),
 	})
@@ -63,7 +57,6 @@ func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
 	assert.Equal(t, "test-ns.local", *nsOut.Namespace.Name)
 	assert.Equal(t, sdtypes.NamespaceTypeDnsPrivate, nsOut.Namespace.Type)
 
-	// Cleanup
 	_, err = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{
 		Id: aws.String(nsID),
 	})
@@ -74,7 +67,6 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
 
-	// Create namespace
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("svc-filter-test.local"),
 		Vpc:  aws.String("vpc-12345"),
@@ -87,7 +79,6 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 	require.NoError(t, err)
 	nsID := opOut.Operation.Targets["NAMESPACE"]
 
-	// Create two namespaces — second for filtering test
 	createOut2, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("svc-filter-other.local"),
 		Vpc:  aws.String("vpc-12345"),
@@ -99,7 +90,6 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 	require.NoError(t, err)
 	nsID2 := opOut2.Operation.Targets["NAMESPACE"]
 
-	// Create service in first namespace
 	svcOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("my-service"),
 		NamespaceId: aws.String(nsID),
@@ -114,19 +104,16 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 	assert.Equal(t, "my-service", *svcOut.Service.Name)
 	svcID := *svcOut.Service.Id
 
-	// Create service in second namespace
 	svcOut2, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("other-service"),
 		NamespaceId: aws.String(nsID2),
 	})
 	require.NoError(t, err)
 
-	// List all services (no filter) — should include both
 	listAll, err := client.ListServices(ctx, &servicediscovery.ListServicesInput{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(listAll.Services), 2)
 
-	// List with NAMESPACE_ID filter — should return only first namespace's service
 	listFiltered, err := client.ListServices(ctx, &servicediscovery.ListServicesInput{
 		Filters: []sdtypes.ServiceFilter{
 			{
@@ -139,15 +126,13 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listFiltered.Services, 1)
 	assert.Equal(t, "my-service", *listFiltered.Services[0].Name)
-	// List entries are the ServiceSummary shape (no NamespaceId member —
-	// namespace association rides GetService); the namespace filter still
-	// works off the stored association.
+	// List entries are ServiceSummary, without NamespaceId; GetService carries
+	// the namespace.
 	assert.Equal(t, svcID, aws.ToString(listFiltered.Services[0].Id))
 	assert.NotEmpty(t, aws.ToString(listFiltered.Services[0].Arn))
 	require.NotNil(t, listFiltered.Services[0].DnsConfig)
 	require.Len(t, listFiltered.Services[0].DnsConfig.DnsRecords, 1)
 
-	// Cleanup
 	_, _ = client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: aws.String(svcID)})
 	_, _ = client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: svcOut2.Service.Id})
 	_, _ = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(nsID)})
@@ -158,7 +143,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
 
-	// Create namespace
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("discover-test.local"),
 		Vpc:  aws.String("vpc-12345"),
@@ -170,7 +154,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	require.NoError(t, err)
 	nsID := opOut.Operation.Targets["NAMESPACE"]
 
-	// Create service
 	svcOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("web"),
 		NamespaceId: aws.String(nsID),
@@ -183,7 +166,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	require.NoError(t, err)
 	svcID := *svcOut.Service.Id
 
-	// Register two instances
 	_, err = client.RegisterInstance(ctx, &servicediscovery.RegisterInstanceInput{
 		ServiceId:  aws.String(svcID),
 		InstanceId: aws.String("inst-001"),
@@ -204,7 +186,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Discover instances
 	discoverOut, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
 		NamespaceName: aws.String("discover-test.local"),
 		ServiceName:   aws.String("web"),
@@ -212,7 +193,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, discoverOut.Instances, 2)
 
-	// Verify attributes are present
 	ips := map[string]bool{}
 	for _, inst := range discoverOut.Instances {
 		if ip, ok := inst.Attributes["AWS_INSTANCE_IPV4"]; ok {
@@ -222,14 +202,12 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	assert.True(t, ips["10.0.0.1"])
 	assert.True(t, ips["10.0.0.2"])
 
-	// Deregister one instance
 	_, err = client.DeregisterInstance(ctx, &servicediscovery.DeregisterInstanceInput{
 		ServiceId:  aws.String(svcID),
 		InstanceId: aws.String("inst-001"),
 	})
 	require.NoError(t, err)
 
-	// Discover again — should only have one
 	discoverOut2, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
 		NamespaceName: aws.String("discover-test.local"),
 		ServiceName:   aws.String("web"),
@@ -241,7 +219,6 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	_, err = client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{Id: aws.String(svcID)})
 	assertAWSAPIErrorCode(t, err, "ResourceInUse")
 
-	// Cleanup
 	_, _ = client.DeregisterInstance(ctx, &servicediscovery.DeregisterInstanceInput{
 		ServiceId:  aws.String(svcID),
 		InstanceId: aws.String("inst-002"),
@@ -250,14 +227,11 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 	_, _ = client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(nsID)})
 }
 
-// TestCloudMap_DataPlaneUsesModeledHostPrefix proves the two Cloud Map
-// data-plane operations reach the simulator over the `data-` prefixed host the
-// servicediscovery model puts on them, and that the control plane keeps the
-// bare service host. The captured Authorization header shows the SigV4
-// signature covers that host, and the simulator verifies the signature before
-// answering — so a 200 here is only reachable if client and simulator agree on
-// `data-servicediscovery.<endpoint>`, exactly as they would on
-// `data-servicediscovery.us-east-1.amazonaws.com`.
+// TestCloudMap_DataPlaneUsesModeledHostPrefix expects the data-plane
+// operations on the `data-` prefixed host and the control plane on the bare
+// one. SigV4 covers the host and the simulator verifies it before answering,
+// so a 200 needs client and simulator to agree on
+// `data-servicediscovery.<endpoint>`.
 func TestCloudMap_DataPlaneUsesModeledHostPrefix(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
@@ -328,9 +302,8 @@ func TestCloudMap_DataPlaneUsesModeledHostPrefix(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("servicediscovery.localhost:%d", simPort), controlPlane.host)
 }
 
-// TestECS_CrossTaskDNS exercises cross-task DNS: Cloud Map registrations for
-// awsvpc/Fargate-style tasks resolve to the registered task ENI address, so
-// tasks in the namespace can resolve each other by service name.
+// TestECS_CrossTaskDNS registers awsvpc tasks in Cloud Map under their ENI
+// addresses, so tasks in the namespace resolve each other by service name.
 func TestECS_CrossTaskDNS(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -341,7 +314,6 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	ecsCli := ecsClient()
 	vpcID, subnetID := createECSTestVPCSubnet(t, "xtask-dns")
 
-	// Namespace control-plane CRUD is independent from local Docker resources.
 	createNs, err := cm.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("xtask-dns.local"),
 		Vpc:  aws.String(vpcID),
@@ -351,7 +323,6 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	require.NoError(t, err)
 	nsID := opOut.Operation.Targets["NAMESPACE"]
 
-	// Two services — alpha, beta
 	svcAlpha, err := cm.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("alpha"),
 		NamespaceId: aws.String(nsID),
@@ -382,8 +353,8 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 		_, _ = cm.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{Id: aws.String(nsID)})
 	})
 
-	// Cluster + task def running long enough for real container startup and
-	// Cloud Map resolver updates on slower runtimes.
+	// The task runs long enough for container startup and Cloud Map resolver
+	// updates on slower runtimes.
 	_, err = ecsCli.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String("xtask-dns")})
 	require.NoError(t, err)
 	tdOut, err := ecsCli.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -452,8 +423,7 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	waitTasksRunning(alphaTask, betaTask)
 	waitContainer(containerName(betaTask))
 
-	// Register each task as an instance in its service. The registered
-	// AWS_INSTANCE_IPV4 is the task ENI address clients should resolve.
+	// AWS_INSTANCE_IPV4 is the task ENI address clients resolve.
 	alphaIP := ecsTaskPrivateIPv4(t, ecsCli, "xtask-dns", alphaTask)
 	betaIP := ecsTaskPrivateIPv4(t, ecsCli, "xtask-dns", betaTask)
 	registerInstance := func(serviceID, instanceID, ip string) {
@@ -469,8 +439,7 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 	registerInstance(aws.ToString(svcAlpha.Service.Id), alphaCID[:12], alphaIP)
 	registerInstance(aws.ToString(svcBeta.Service.Id), betaCID[:12], betaIP)
 
-	// Exec into alpha's container and resolve "beta" through the task's
-	// normal libc resolver.
+	// Resolve through the task's own libc resolver.
 	getent, execErr := exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta.xtask-dns.local").CombinedOutput()
 	require.NoError(t, execErr, "alpha should resolve beta.xtask-dns.local through the VPC resolver: %s", getent)
 	assert.Contains(t, string(getent), betaIP+" ", "the namespace's hosted zone answers beta's address: %s", getent)
@@ -505,7 +474,6 @@ func TestCloudMap_DeleteServiceAndNamespace(t *testing.T) {
 	t.Parallel()
 	client := cmClient()
 
-	// Create namespace
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
 		Name: aws.String("delete-test.local"),
 		Vpc:  aws.String("vpc-12345"),
@@ -517,7 +485,6 @@ func TestCloudMap_DeleteServiceAndNamespace(t *testing.T) {
 	require.NoError(t, err)
 	nsID := opOut.Operation.Targets["NAMESPACE"]
 
-	// Create service
 	svcOut, err := client.CreateService(ctx, &servicediscovery.CreateServiceInput{
 		Name:        aws.String("deletable-svc"),
 		NamespaceId: aws.String(nsID),
@@ -530,41 +497,33 @@ func TestCloudMap_DeleteServiceAndNamespace(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "ResourceInUse")
 
-	// Delete service
 	delSvcOut, err := client.DeleteService(ctx, &servicediscovery.DeleteServiceInput{
 		Id: aws.String(svcID),
 	})
 	require.NoError(t, err)
 	_ = delSvcOut
 
-	// Verify service is gone — GetService should fail
 	_, err = client.GetService(ctx, &servicediscovery.GetServiceInput{
 		Id: aws.String(svcID),
 	})
 	assert.Error(t, err, "GetService should fail after deletion")
 
-	// Delete namespace
 	delNsOut, err := client.DeleteNamespace(ctx, &servicediscovery.DeleteNamespaceInput{
 		Id: aws.String(nsID),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, delNsOut.OperationId)
 
-	// Verify namespace is gone
 	_, err = client.GetNamespace(ctx, &servicediscovery.GetNamespaceInput{
 		Id: aws.String(nsID),
 	})
 	assert.Error(t, err, "GetNamespace should fail after deletion")
 }
 
-// TestECS_MultiServiceDNS verifies the Cloud Map model where one task (instance)
-// backs MULTIPLE services — i.e. resolves under several DNS names that all point
-// at its IP. This is what GitLab CI `services:` needs: a service container
-// reachable by its alias AND its task hostname. Real Cloud Map registers an
-// instance per service (ServiceId+InstanceId), so the same instance may join
-// several services; the simulator must realize every such name into DNS. Before
-// the fix, the second registration's Docker network-connect failed ("already
-// connected") and only one name resolved.
+// TestECS_MultiServiceDNS backs several services with one task, each
+// registration resolving to its IP, as GitLab CI `services:` needs for a
+// container reachable by alias and task hostname. Cloud Map registers an
+// instance per service, so one instance ID may join several services.
 func TestECS_MultiServiceDNS(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -590,8 +549,8 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 		require.NoError(t, err)
 		return aws.ToString(out.Service.Id)
 	}
-	svcWeb := mkSvc("web")        // the server's primary name
-	svcAlias := mkSvc("webalias") // the server's alias — the multi-name case
+	svcWeb := mkSvc("web")
+	svcAlias := mkSvc("webalias") // the multi-name case
 	svcClient := mkSvc("client")  // puts the client task on the namespace network
 
 	serverCID := strings.Repeat("c", 64)
@@ -643,8 +602,8 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 		require.NoError(t, inspectErr, "a RUNNING task's container %s must exist: %s", name, inspect)
 	}
 
-	// Start the server first and wait for RUNNING so it provisions the shared
-	// VPC network before the client task races to create the same one.
+	// The server provisions the shared VPC network before the client task could
+	// race to create it.
 	serverTask := runTask(serverCID)
 	cleanupECSTask(t, ecsCli, "multi-svc-dns", serverTask)
 	waitRunning(serverTask)
@@ -667,13 +626,11 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 		require.NoError(t, rerr)
 		awaitCloudMapOperation(t, cm, registered.OperationId)
 	}
-	// The server task backs BOTH services under the SAME instance ID — the
-	// multi-name registration that previously failed on the second connect.
+	// The server task backs both services under one instance ID.
 	register(svcWeb, serverCID, serverIP)
 	register(svcAlias, serverCID, serverIP)
 	register(svcClient, clientCID, clientIP)
 
-	// From the client, BOTH of the server's names must resolve.
 	for _, name := range []string{"web.multi-svc.local", "webalias.multi-svc.local"} {
 		getent, execErr := exec.Command("docker", "exec", clientContainer, "getent", "hosts", name).CombinedOutput()
 		require.NoError(t, execErr, "client should resolve %q through the VPC resolver: %s", name, getent)

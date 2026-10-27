@@ -17,18 +17,17 @@ import (
 // The last five methods of the storage v1 document, through the generated Go
 // client:
 //
-//	GET /storage/v1/b/{bucket}/o?softDeleted=true
-//	POST /storage/v1/b/{bucket}/o/{object}/restore
-//	POST /storage/v1/b/{bucket}/o/bulkRestore
-//	POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}
-//	GET /storage/v1/b/{bucket}/o/{object}/acl
-//	GET /storage/v1/b/{bucket}/o/{object}/acl/{entity}
-//	POST /storage/v1/b/{bucket}/o/{object}/acl
-//	PUT /storage/v1/b/{bucket}/o/{object}/acl/{entity}
-//	PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}
-//	DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   GET /storage/v1/b/{bucket}/o?softDeleted=true
+//   POST /storage/v1/b/{bucket}/o/{object}/restore
+//   POST /storage/v1/b/{bucket}/o/bulkRestore
+//   POST /storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}
+//   GET /storage/v1/b/{bucket}/o/{object}/acl
+//   GET /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   POST /storage/v1/b/{bucket}/o/{object}/acl
+//   PUT /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   PATCH /storage/v1/b/{bucket}/o/{object}/acl/{entity}
+//   DELETE /storage/v1/b/{bucket}/o/{object}/acl/{entity}
 
-// Upload through the media path so the test carries a real payload.
 func mustUploadObject(t *testing.T, svc *storageapi.Service, bucket, name, body string) *storageapi.Object {
 	t.Helper()
 	obj, err := svc.Objects.Insert(bucket, &storageapi.Object{Name: name}).
@@ -79,8 +78,6 @@ func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, restored.Generation, current.Generation)
 
-	// The payload survived the round trip, which is the point of retaining
-	// the object rather than recording that it once existed.
 	assert.Equal(t, "first", downloadObject(t, svc, bucketSoftDeleteBucket, "notes/one.txt"))
 
 	// And it is no longer listed as restorable.
@@ -122,8 +119,8 @@ func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 		Name: bucketHardDeleteBucket,
 		SoftDeletePolicy: &storageapi.BucketSoftDeletePolicy{
 			RetentionDurationSeconds: 0,
-			// The member is omitempty, so turning soft delete off has to be
-			// sent explicitly or the bucket arrives carrying an empty policy.
+			// The member is omitempty, so turning soft delete off must be sent
+			// explicitly.
 			ForceSendFields: []string{"RetentionDurationSeconds"},
 		},
 	}).Do()
@@ -132,8 +129,7 @@ func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 	mustUploadObject(t, svc, bucketHardDeleteBucket, "gone.txt", "bytes")
 	require.NoError(t, svc.Objects.Delete(bucketHardDeleteBucket, "gone.txt").Do())
 
-	// A bucket that turned soft delete off retains nothing: there is no
-	// retired generation to restore, which is also what frees the payload.
+	// A bucket with soft delete off retains no generation to restore.
 	retired, err := svc.Objects.List(bucketHardDeleteBucket).SoftDeleted(true).Do()
 	require.NoError(t, err)
 	assert.Empty(t, retired.Items)
@@ -161,7 +157,7 @@ func TestGCS_BulkRestore(t *testing.T) {
 		"an unfiltered bulkRestore restores every retired object")
 }
 
-// `**` must cross "/": path.Match semantics would silently restore too little.
+// `**` must cross "/": path.Match semantics would restore too little.
 func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 	t.Parallel()
 	bucketGlobRestoreBucket := uniquename.New("glob-restore-bucket")
@@ -271,8 +267,8 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "OWNER", updated.Role)
 
-	// The object inherited the bucket's projectPrivate default, so the
-	// inserted entry joins three rather than standing alone.
+	// The object inherited the bucket's projectPrivate default, so the inserted
+	// entry joins three.
 	list, err := svc.ObjectAccessControls.List(bucketObjectAclBucket, "doc.txt").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
@@ -285,9 +281,8 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 	assert.NotContains(t, defaultACLEntities(list.Items), entity)
 }
 
-// Reaching objects.get through the `{object...}` catch-all answers "object
-// \"doc.txt/acl\" not found", which is what let five unserved methods count
-// as covered.
+// Through the `{object...}` route, objects.get would answer
+// "object \"doc.txt/acl\" not found" and pass for a served method.
 func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
 	t.Parallel()
 	bucketAclNotObjectBucket := uniquename.New("acl-not-object-bucket")
@@ -323,8 +318,8 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 		assert.Equal(t, "seeded.txt", item.Object)
 	}
 
-	// An object written before a default entry exists does not gain it: the
-	// copy happens at creation, not on read.
+	// The default copies at creation, not on read, so an earlier object does not
+	// gain it.
 	_, err = svc.DefaultObjectAccessControls.Insert(bucketSeededAclBucket, &storageapi.ObjectAccessControl{
 		Entity: "allAuthenticatedUsers",
 		Role:   "READER",

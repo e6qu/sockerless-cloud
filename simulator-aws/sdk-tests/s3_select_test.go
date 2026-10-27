@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3_SelectObjectContent exercises SelectObjectContent over both CSV and
-// JSON-Lines input, decoding the SelectObjectContentEventStream with the real
-// aws-sdk-go-v2 client. It asserts the Records payloads echo the stored rows
-// faithfully and that a Stats event (with real byte counts) and a terminal
-// End event arrive.
+// TestS3_SelectObjectContent expects SelectObjectContent over CSV and JSON
+// Lines to stream the stored rows as Records, then a Stats event with byte
+// counts and an End event.
 func TestS3_SelectObjectContent(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -86,7 +84,7 @@ func TestS3_SelectObjectContent(t *testing.T) {
 
 		records, sawStats, sawEnd, _ := drainSelectStream(t, out.GetStream())
 
-		// Each stored JSON record must round-trip (compacted, newline-delimited).
+		// JSON output is compacted, one record per line.
 		want := `{"name":"alice","age":30}` + "\n" + `{"name":"bob","age":25}` + "\n"
 		assert.Equal(t, want, string(records),
 			"Records payload must echo the stored JSON-Lines rows faithfully")
@@ -95,10 +93,8 @@ func TestS3_SelectObjectContent(t *testing.T) {
 	})
 }
 
-// drainSelectStream consumes the SelectObjectContentEventStream, concatenating
-// every Records payload and noting whether Stats / End events arrived. It
-// returns the aggregated records bytes, the stats/end presence flags, and the
-// Stats event's BytesReturned (0 if no Stats arrived).
+// drainSelectStream concatenates the stream's Records payloads and reports
+// whether Stats and End arrived and Stats' BytesReturned.
 func drainSelectStream(t *testing.T, stream *s3.SelectObjectContentEventStream) ([]byte, bool, bool, int64) {
 	t.Helper()
 	var records bytes.Buffer

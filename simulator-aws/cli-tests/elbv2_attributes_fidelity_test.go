@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestELBv2CLI_CapacityReservationOmitsUnsetMinimum drives the
-// DescribeCapacityReservation fix: an ALB with no configured minimum capacity
-// reports no MinimumLoadBalancerCapacity (CLI renders the absent struct as None).
+// TestELBv2CLI_CapacityReservationOmitsUnsetMinimum expects an ALB with no
+// minimum capacity to report no MinimumLoadBalancerCapacity, which the CLI
+// renders as None.
 func TestELBv2CLI_CapacityReservationOmitsUnsetMinimum(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

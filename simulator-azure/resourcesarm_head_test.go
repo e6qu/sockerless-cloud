@@ -10,16 +10,11 @@ import (
 	"testing"
 )
 
-// The 204 mapping for Azure Resource Manager's existence checks must skip
-// exactly the providers that serve HEAD themselves — no more, no fewer. Both
-// halves matter: skipping one that does not serve HEAD would report a status
-// the check never returns, and mapping one that does would overwrite a
-// provider's own answer (API Management's entity-tag reads carry 200 and an
-// ETag, and a client comparing tags would see a body-less 204 instead).
-//
-// The set is derived here from the vendored swaggers rather than trusted, so
-// a re-vendor that gives another provider a HEAD operation fails until the
-// list in resourcesarm.go agrees.
+// Skipping a provider that does not serve HEAD would report a status the
+// check never returns; mapping one that does would replace its answer (API
+// Management's 200 and ETag) with a body-less 204. The set is derived from the
+// vendored swaggers, so a re-vendor adding a HEAD fails until resourcesarm.go
+// agrees.
 func TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers(t *testing.T) {
 	specs, err := filepath.Glob(filepath.Join("..", "specs", "cloud-api", "azure", "*.json.gz"))
 	if err != nil || len(specs) == 0 {
@@ -48,8 +43,6 @@ func TestAzureProviderOwnsHEADMatchesTheVendoredSwaggers(t *testing.T) {
 	}
 }
 
-// headProviderNamespaces returns the provider namespaces one vendored
-// swagger declares a HEAD operation for.
 func headProviderNamespaces(t *testing.T, path string) []string {
 	t.Helper()
 	file, err := os.Open(path)
@@ -78,8 +71,8 @@ func headProviderNamespaces(t *testing.T, path string) []string {
 			continue
 		}
 		namespace := strings.ToLower(strings.SplitN(after, "/", 2)[0])
-		// The generic template's own placeholder is the existence check
-		// itself, which is what the mapping serves rather than skips.
+		// The generic template's own placeholder is the existence check, which the
+		// mapping serves.
 		if strings.HasPrefix(namespace, "{") {
 			continue
 		}

@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// CLI coverage backfill for EC2 networking operations that had no CLI test.
-// Each asserts a real round-trip via the aws CLI (the version-sensitive surface
-// that hid CloudWatch's protocol break).
-
 func TestEC2CLI_RouteTableAssociationLifecycle(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.114.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
@@ -84,14 +80,12 @@ func TestEC2CLI_RevokeSecurityGroupRules(t *testing.T) {
 	runCLI(t, awsCLI("ec2", "authorize-security-group-ingress", "--group-id", sg, "--ip-permissions", ingress))
 	runCLI(t, awsCLI("ec2", "revoke-security-group-ingress", "--group-id", sg, "--ip-permissions", ingress))
 
-	// Re-revoke must fail with InvalidPermission.NotFound.
 	out := runCLIExpectError(t, awsCLI("ec2", "revoke-security-group-ingress", "--group-id", sg, "--ip-permissions", ingress))
 	if !strings.Contains(out, "InvalidPermission.NotFound") {
 		t.Fatalf("re-revoke ingress error = %q, want InvalidPermission.NotFound", out)
 	}
 
-	// VPC security groups are created with a default ALLOW ALL egress rule.
-	// Revoke it and confirm a re-revoke fails.
+	// Amazon EC2 creates a VPC security group with an allow-all egress rule.
 	egress := `[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]`
 	runCLI(t, awsCLI("ec2", "revoke-security-group-egress", "--group-id", sg, "--ip-permissions", egress))
 
@@ -112,7 +106,6 @@ func TestEC2CLI_RevokeSecurityGroupRulesByID(t *testing.T) {
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.118.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sg := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-security-group", "--group-name", "cli-revoke-by-id", "--description", "r", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")))
 
-	// Authorize an ingress rule and capture its rule ID.
 	ruleID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "authorize-security-group-ingress",
 		"--group-id", sg,
 		"--ip-permissions", `[{"IpProtocol":"tcp","FromPort":443,"ToPort":443,"IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]`,
@@ -121,10 +114,8 @@ func TestEC2CLI_RevokeSecurityGroupRulesByID(t *testing.T) {
 		t.Fatal("expected a non-empty security group rule id")
 	}
 
-	// Revoke by rule ID.
 	runCLI(t, awsCLI("ec2", "revoke-security-group-ingress", "--group-id", sg, "--security-group-rule-ids", ruleID))
 
-	// The rule row is gone.
 	count := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--security-group-rule-ids", ruleID,
 		"--query", "length(SecurityGroupRules)", "--output", "text")))
@@ -132,10 +123,8 @@ func TestEC2CLI_RevokeSecurityGroupRulesByID(t *testing.T) {
 		t.Fatalf("rule count after revoke-by-id = %q, want 0", count)
 	}
 
-	// Re-revoke is idempotent.
 	runCLI(t, awsCLI("ec2", "revoke-security-group-ingress", "--group-id", sg, "--security-group-rule-ids", ruleID))
 
-	// The default egress rule can be revoked by ID too.
 	egressRuleID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--filters", `Name=group-id,Values=`+sg, `Name=egress,Values=true`,
 		"--query", "SecurityGroupRules[0].SecurityGroupRuleId", "--output", "text")))

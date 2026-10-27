@@ -20,11 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setQueuePolicyAllowingSNS attaches a resource policy to the queue that
-// grants sns.amazonaws.com sqs:SendMessage, scoped to the given topic via an
-// aws:SourceArn condition — exactly the policy the AWS console / terraform
-// emits when you wire an SNS topic to an SQS queue. Real SNS→SQS delivery is
-// gated by this policy.
+// setQueuePolicyAllowingSNS attaches the queue policy the console and Terraform
+// write when a topic feeds a queue: sns.amazonaws.com may sqs:SendMessage under
+// an aws:SourceArn condition naming the topic. Amazon SNS delivers to the queue
+// only under that policy.
 func setQueuePolicyAllowingSNS(t *testing.T, sqsC *sqs.Client, queueURL, queueARN, topicARN string) {
 	t.Helper()
 	policy := fmt.Sprintf(`{
@@ -44,7 +43,6 @@ func setQueuePolicyAllowingSNS(t *testing.T, sqsC *sqs.Client, queueURL, queueAR
 	require.NoError(t, err)
 }
 
-// queueARNOf returns the queue's ARN from its attributes.
 func queueARNOf(t *testing.T, sqsC *sqs.Client, queueURL *string) string {
 	t.Helper()
 	attrs, err := sqsC.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -57,10 +55,8 @@ func queueARNOf(t *testing.T, sqsC *sqs.Client, queueURL *string) string {
 	return arn
 }
 
-// TestSNS_DeliverToSQS_AuthorizedByQueuePolicy proves end-to-end SNS→SQS
-// delivery: when the subscriber queue's resource policy admits
-// sns.amazonaws.com sqs:SendMessage from the topic, a Publish actually lands a
-// message in the queue (a subsequent ReceiveMessage returns it).
+// TestSNS_DeliverToSQS_AuthorizedByQueuePolicy expects a Publish to land in a
+// queue whose policy admits sns.amazonaws.com sqs:SendMessage from the topic.
 func TestSNS_DeliverToSQS_AuthorizedByQueuePolicy(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -166,9 +162,8 @@ func TestSNS_FilterPolicyAndRawSQSMessageAttributes(t *testing.T) {
 	assert.Equal(t, "125", aws.ToString(received.Messages[0].MessageAttributes["amount"].StringValue))
 }
 
-// TestSNS_DeliverToSQS_DeniedNoQueuePolicy proves the service-initiated IAM
-// authorization gates real delivery: a queue with NO resource policy never
-// receives the message (real AWS drops the unauthorized delivery).
+// TestSNS_DeliverToSQS_DeniedNoQueuePolicy expects a queue without a policy
+// never to receive the message: Amazon SNS drops the unauthorized delivery.
 func TestSNS_DeliverToSQS_DeniedNoQueuePolicy(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -183,7 +178,7 @@ func TestSNS_DeliverToSQS_DeniedNoQueuePolicy(t *testing.T) {
 	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl}) })
 
 	queueARN := queueARNOf(t, sqsC, q.QueueUrl)
-	// Deliberately set NO queue policy.
+	// The queue has no policy.
 
 	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
 		TopicArn: tpc.TopicArn,
@@ -207,9 +202,8 @@ func TestSNS_DeliverToSQS_DeniedNoQueuePolicy(t *testing.T) {
 		"a queue with no resource policy must NOT receive SNS-published messages")
 }
 
-// TestSNS_DeliverToSQS_DeniedWrongSourceArn proves the SourceArn condition is
-// load-bearing: a queue whose policy admits SNS only from a DIFFERENT topic
-// does not receive messages published to this topic.
+// TestSNS_DeliverToSQS_DeniedWrongSourceArn expects a queue whose policy admits
+// Amazon SNS only from another topic not to receive this topic's messages.
 func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -225,7 +219,6 @@ func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl}) })
 
 	queueARN := queueARNOf(t, sqsC, q.QueueUrl)
-	// Policy names a DIFFERENT topic in the SourceArn condition.
 	otherTopicARN := topicARN + "-other"
 	setQueuePolicyAllowingSNS(t, sqsC, aws.ToString(q.QueueUrl), queueARN, otherTopicARN)
 
@@ -251,11 +244,9 @@ func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 		"a queue whose SourceArn condition names a different topic must NOT receive the message")
 }
 
-// TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy proves end-to-end
-// SNS→Lambda delivery: when the function's resource policy (via AddPermission)
-// admits sns.amazonaws.com lambda:InvokeFunction, a Publish performs a real
-// invoke — observable as the invocation's START line in the function's
-// CloudWatch Logs log group (`/aws/lambda/<name>`).
+// TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy expects a Publish to invoke
+// a function whose policy admits sns.amazonaws.com lambda:InvokeFunction,
+// observed as the invocation's START line in /aws/lambda/<name>.
 func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	t.Parallel()
 	topicName := uniquename.New("sns-deliver-lambda-t")
@@ -292,8 +283,7 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: tpc.TopicArn}) })
 
-	// Grant SNS permission to invoke the function (the AddPermission an SNS
-	// subscription requires on real AWS).
+	// Amazon SNS needs AddPermission on the function.
 	_, err = lc.AddPermission(ctx, &lambda.AddPermissionInput{
 		FunctionName: aws.String(fnName),
 		StatementId:  aws.String("AllowSNSInvoke"),
@@ -316,14 +306,13 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The invoke runs in the background; its START line is the invocation.
+	// The invocation is asynchronous; its START line marks it.
 	awaitLogLine(t, logs, logGroup, "START RequestId:", 5*time.Second)
 }
 
-// TestSNS_DeliverToLambda_DeniedNoPermission proves the IAM gate denies
-// SNS→Lambda delivery when the function has no resource policy admitting SNS:
-// the topic's Lambda delivery status logging records the failure, and the
-// function never runs, so its log group never appears.
+// TestSNS_DeliverToLambda_DeniedNoPermission expects a function with no policy
+// admitting Amazon SNS never to run, so its log group never appears, and the
+// topic's Lambda delivery status log to record the failure.
 func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -365,7 +354,7 @@ func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// No AddPermission — the function has no policy admitting SNS.
+	// No AddPermission, so no policy admits Amazon SNS.
 	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
 		TopicArn: tpc.TopicArn,
 		Protocol: aws.String("lambda"),
@@ -432,10 +421,10 @@ func snsAwaitDeliveryStatus(t *testing.T, logs *cloudwatchlogs.Client, group, me
 	return entry
 }
 
-// TestSNS_ManagedEndpointRefusalsAreRedriven proves that Amazon SNS hands a
+// TestSNS_ManagedEndpointRefusalsAreRedriven expects Amazon SNS to hand a
 // notification an Amazon SQS or AWS Lambda subscription refused to the
-// subscription's dead-letter queue, with the RequestID, ErrorCode and
-// ErrorMessage attributes it adds, and counts each redrive.
+// subscription's dead-letter queue with the RequestID, ErrorCode and
+// ErrorMessage attributes, and to count each redrive.
 func TestSNS_ManagedEndpointRefusalsAreRedriven(t *testing.T) {
 	t.Parallel()
 	snsC, sqsC, lc := snsClient(), sqsClient(), lambdaClient()

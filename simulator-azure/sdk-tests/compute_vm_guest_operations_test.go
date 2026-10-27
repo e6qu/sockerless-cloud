@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The operations that run inside the guest, driven through the official SDK
-// against a machine that really booted. Each asserts on what the guest itself
-// produced — the output of a command, the packages its own package manager
-// reports — because that is the only thing that distinguishes these operations
-// from a record that they happened.
+// The operations that run inside the guest of a booted machine. Each asserts
+// on what the guest produced, which is all that tells an operation that ran
+// from a record that it happened.
 func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-ext-rg"
@@ -41,8 +39,7 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	require.NotNil(t, created.Properties)
 	assert.Equal(t, "Succeeded", derefString(created.Properties.ProvisioningState))
 
-	// The instance view carries what the command actually wrote, which is the
-	// evidence it ran rather than was recorded.
+	// The instance view carries what the command wrote.
 	require.NotNil(t, created.Properties.InstanceView)
 	require.NotEmpty(t, created.Properties.InstanceView.Statuses)
 	var messages []string
@@ -52,7 +49,7 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	assert.Contains(t, strings.Join(messages, "\n"), marker,
 		"the extension's status does not carry the output of the command, so nothing ran in the guest")
 
-	// A command that fails is reported as failed, not as provisioned.
+	// A command that fails reports failed, not provisioned.
 	failPoller, err := extClient.BeginCreateOrUpdate(ctx, rg, vmName, "failing", armcompute.VirtualMachineExtension{
 		Location: to.Ptr("eastus"),
 		Properties: &armcompute.VirtualMachineExtensionProperties{
@@ -63,10 +60,9 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 		},
 	}, nil)
 	require.NoError(t, err)
-	// A resource that lands in a Failed provisioning state is a failed
-	// long-running operation, and the SDK's poller reports it as an error —
-	// which is what a real client sees when a Custom Script extension's script
-	// exits non-zero. The state itself is then read back from the resource.
+	// A resource landing in Failed fails the long-running operation, as when a
+	// Custom Script extension's script exits non-zero; read the state back from
+	// the resource.
 	_, err = failPoller.PollUntilDone(ctx, nil)
 	require.Error(t, err, "a command that exited non-zero must not be reported as a successful operation")
 
@@ -75,7 +71,6 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	assert.Equal(t, "Failed", derefString(failed.Properties.ProvisioningState),
 		"a command that exited non-zero must not be reported as provisioned")
 
-	// The extension reads back, and lists alongside the other one.
 	got, err := extClient.Get(ctx, rg, vmName, "script", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CustomScript", derefString(got.Properties.Type))
@@ -94,10 +89,9 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Patch assessment reports what the guest's own package manager says. A guest
-// with nothing upgradable reports nothing, which is a truthful assessment — the
-// assertion is that the operation answers from the guest at all, which the
-// counts agreeing with the list proves.
+// Patch assessment reports what the guest's own package manager says; with
+// nothing upgradable it reports nothing, so the counts must agree with the
+// list.
 func TestCompute_VirtualMachineAssessPatchesReadsTheGuest(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-patch-rg"

@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestEC2CLI_TransitGatewayCore drives the transit gateway core CRUD path over
-// the aws CLI: gateway → route table → VPC attachment → association /
-// propagation / routes, with tolerant teardown.
 func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
@@ -71,8 +68,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 		"--options", "ApplianceModeSupport=enable"))
 	runCLI(t, awsCLI("ec2", "accept-transit-gateway-vpc-attachment", "--transit-gateway-attachment-id", attID))
 
-	// Cross-type attachment listing. The list-of-structs JMESPath needs the
-	// struct field (ResourceType) to assert on.
 	attResType := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-transit-gateway-attachments",
 		"--filters", "Name=transit-gateway-id,Values="+tgwID,
 		"--query", "TransitGatewayAttachments[0].ResourceType", "--output", "text")))
@@ -100,9 +95,8 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 	if propAtt != attID {
 		t.Fatalf("propagation attachment = %q, want %q", propAtt, attID)
 	}
-	// The attachment auto-propagated to the gateway's default propagation route
-	// table at create time, plus rtID via the explicit Enable above — filter the
-	// list-of-structs for rtID rather than assuming an ordering.
+	// The attachment propagates to the gateway's default propagation route table
+	// at creation and to rtID by the explicit enable above, in no set order.
 	attPropRT := strings.TrimSpace(runCLI(t, awsCLI("ec2", "get-transit-gateway-attachment-propagations",
 		"--transit-gateway-attachment-id", attID,
 		"--query", "TransitGatewayAttachmentPropagations[?TransitGatewayRouteTableId=='"+rtID+"'].TransitGatewayRouteTableId | [0]",
@@ -141,8 +135,6 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 	runCLIIgnore(awsCLI("ec2", "reject-transit-gateway-vpc-attachment", "--transit-gateway-attachment-id", attID))
 }
 
-// TestEC2CLI_TransitGatewayExtras covers prefix-list references, connect
-// attachments, multicast domains, and peering attachments over the aws CLI.
 func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
 	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",

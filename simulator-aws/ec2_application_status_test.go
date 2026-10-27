@@ -25,8 +25,8 @@ func ec2AppStatusCall(t *testing.T, handler http.HandlerFunc, form url.Values) s
 	return recorder.Body.String()
 }
 
-// ec2AppStatusBackend is an instance's application: it answers every check
-// with the status the test sets, and counts the checks it received.
+// The backend answers every check with the status the test sets and counts the
+// probes.
 func ec2AppStatusBackend(t *testing.T) (port int, status *atomic.Int32, probes *atomic.Int32) {
 	t.Helper()
 	status, probes = &atomic.Int32{}, &atomic.Int32{}
@@ -79,9 +79,7 @@ func ec2AppStatusOf(t *testing.T, instanceID string) (instanceStatus, checkStatu
 	return instance[1], check[1], check[2]
 }
 
-// The checker probes each association on the check's Interval, and the check
-// passes or fails only after SuccessThreshold or FailureThreshold consecutive
-// results — whenever DescribeApplicationStatus is called.
+// Thresholds govern the verdict whenever DescribeApplicationStatus is called.
 func TestEC2ApplicationStatusFollowsIntervalAndThresholds(t *testing.T) {
 	ec2AppStatusSetup(t)
 	port, status, probes := ec2AppStatusBackend(t)

@@ -10,10 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2VpcEndpoint models an AWS VPC endpoint (gateway, interface, or
-// gatewayLoadBalancer). Gateway endpoints are synchronously available.
-// Interface endpoints for a locally registered PrivateLink service retain the
-// provider-side pending-acceptance lifecycle in both endpoint views.
+// Gateway endpoints are available at once. An interface endpoint to a locally
+// registered PrivateLink service waits pending-acceptance in both views.
 type EC2VpcEndpoint struct {
 	VpcEndpointId         string
 	VpcEndpointType       string
@@ -35,14 +33,11 @@ type EC2VpcEndpoint struct {
 	Tags                  []EC2Tag
 }
 
-// EC2PayerResponsibilityEntry records which account pays one supported class
-// of VPC endpoint charges.
 type EC2PayerResponsibilityEntry struct {
 	Scope                   string
 	PayerResponsibilityType string
 }
 
-// EC2DnsEntry is a (dnsName, hostedZoneId) pair an interface endpoint advertises.
 type EC2DnsEntry struct {
 	DnsName      string
 	HostedZoneId string
@@ -66,7 +61,7 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	endpointType := r.FormValue("VpcEndpointType")
 	if endpointType == "" {
-		// Real AWS defaults VpcEndpointType to Gateway when omitted.
+		// VpcEndpointType defaults to Gateway.
 		endpointType = "Gateway"
 	}
 
@@ -109,9 +104,8 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 		Tags: parseTags(r),
 	}
 
-	// Interface endpoints get one ENI per subnet plus a DNS entry; gateway
-	// endpoints get neither (they're programmed into route tables). This mirrors
-	// the shapes the SDK and aws_vpc_endpoint provider read back.
+	// Interface endpoints get one ENI per subnet and a DNS entry; gateway
+	// endpoints, programmed into route tables, get neither.
 	if endpointType == "Interface" || endpointType == "GatewayLoadBalancer" {
 		for range subnetIds {
 			ep.NetworkInterfaceIds = append(ep.NetworkInterfaceIds, ec2ID("eni"))
@@ -170,8 +164,7 @@ func handleDeleteVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	var unsuccessful strings.Builder
 	for _, id := range ids {
 		if _, ok := ec2VpcEndpoints.Get(id); !ok {
-			// DeleteVpcEndpoints never errors at the top level for an unknown id;
-			// it returns the failure in the unsuccessful set, mirroring real AWS.
+			// An unknown id goes in the unsuccessful set, never a top-level error.
 			fmt.Fprintf(&unsuccessful, `<item><resourceId>%s</resourceId><error><code>InvalidVpcEndpointId.NotFound</code><message>The Vpc Endpoint Id %s does not exist</message></error></item>`, id, id)
 			continue
 		}
@@ -190,9 +183,7 @@ func handleDeleteVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 </DeleteVpcEndpointsResponse>`, ec2Xmlns(), sim.NewUUID(), unsuccessful.String())
 }
 
-// vpcEndpointFieldsXML renders the VpcEndpoint shape shared by
-// CreateVpcEndpoint and DescribeVpcEndpoints, matching the ec2Query xmlNames
-// in ec2.smithy.json#VpcEndpoint.
+// The xmlNames of ec2.smithy.json#VpcEndpoint.
 func vpcEndpointFieldsXML(ep EC2VpcEndpoint) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<vpcEndpointId>%s</vpcEndpointId>", ep.VpcEndpointId)
@@ -297,9 +288,8 @@ func ec2VpcEndpointMatchesFilters(ep EC2VpcEndpoint, filters map[string][]string
 	return true
 }
 
-// vpceXMLEscape escapes a free-form policy document for safe inclusion in the
-// XML response body (the only VPC-endpoint field that can carry XML-special
-// characters).
+// The policy document is the only field that can carry XML-special
+// characters.
 func vpceXMLEscape(s string) string {
 	var b strings.Builder
 	_ = xml.EscapeText(&b, []byte(s))

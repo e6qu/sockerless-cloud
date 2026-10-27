@@ -4,32 +4,17 @@ import (
 	"strings"
 )
 
-// Cross-resource-group move for Microsoft.ServiceBus/namespaces. The hook
-// table in resource_move.go dispatches Resources_MoveResources here.
+// Cross-resource-group move for Microsoft.ServiceBus/namespaces (dispatched
+// from resource_move.go). The ARM subtree keys by resource ID and re-keys onto
+// the destination group; the data plane addresses the namespace by its
+// globally unique name (`<namespace>.servicebus.<suffix>`), and the message
+// stores key on that name, so messages survive the move.
 //
-// A Service Bus namespace is addressed on two planes, and only one of them
-// carries the resource group. The ARM plane keys the namespace record — and
-// every queue, topic, subscription, rule, authorization rule, network rule
-// set, private endpoint connection, disaster-recovery alias and migration
-// configuration beneath it — by resource ID, so the whole subtree re-keys onto
-// the destination group. The data plane addresses the namespace by its
-// globally unique name through the host `<namespace>.servicebus.<suffix>`: the
-// queue and subscription message stores key on that name, and a move changes
-// neither, so a message enqueued before the move is still there after it.
-//
-// What a naive re-key would break is the credential. An authorization rule's
-// two Shared Access Signature keys are derived from the rule's own resource
-// ID, which embeds the resource group, so moving the rule would silently
-// re-derive both keys and invalidate every connection string and SAS token an
-// operator already holds. Real Azure never rotates a namespace's keys on a
-// move, so the material each rule currently serves is pinned onto the moved
-// rule ID before the subtree re-keys. The pin is the same one an explicit
-// RegenerateKeys value uses, so the next rotation clears it and returns the
-// slot to derived material — the rotation contract is unchanged by the move.
+// Each rule's SAS keys derive from the rule's resource ID, yet Azure never
+// rotates keys on a move: pin the served material onto the moved rule IDs
+// first. The pin is the one an explicit RegenerateKeys value uses, so the next
+// rotation clears it.
 
-// moveServiceBusNamespaceARM re-homes one Service Bus namespace's ARM plane
-// onto a new resource ID, pinning its authorization rules' key material so the
-// connection strings issued before the move keep authenticating after it.
 func moveServiceBusNamespaceARM(oldID, newID string) {
 	ns, ok := sbNamespaces.Get(oldID)
 	if !ok {
@@ -54,11 +39,8 @@ func moveServiceBusNamespaceARM(oldID, newID string) {
 	rekeyRowsByPrefix(sbMigrations, oldSub, newSub, func(m *SBMigrationConfig) *string { return &m.ID })
 }
 
-// pinServiceBusAuthRuleKeys carries the current key material of every
-// authorization rule under a namespace — the namespace's own rules and the
-// per-queue and per-topic ones — onto the rule IDs the move is about to
-// create, so listKeys serves the same keys and connection strings and the data
-// plane accepts a Shared Access Signature signed before the move.
+// The namespace's rules and each queue's and topic's, so listKeys and SAS
+// tokens signed before the move keep working.
 func pinServiceBusAuthRuleKeys(oldID, newID string) {
 	for _, rule := range sbAuthRules.List() {
 		if !strings.HasPrefix(rule.ID, oldID+"/") {

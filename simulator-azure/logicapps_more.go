@@ -17,19 +17,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Extended Microsoft.Logic ARM control plane: workflow versions/triggers/run
-// actions, the integration-account artifact collections (maps, schemas,
-// partners, agreements, assemblies, batch configurations, sessions,
-// certificates) and their callback-url actions, and the integration service
-// environments (with managed APIs) long-running operations. Every resource is
-// keyed by its real ARM resource id (the request path), so list operations
-// filter by id prefix exactly as the cloud does.
+// Microsoft.Logic beyond logicapps.go: workflow versions, triggers and run
+// actions, the integration-account artifacts and their callback URLs, and
+// integration service environments with managed APIs. Each resource keys by its
+// resource ID (the request path), so lists filter by ID prefix.
 
-// LogicResource is the generic ARM resource envelope shared by every Logic
-// child type. The Resource-based types carry location/tags; the SubResource
-// based types (triggers, run actions, trigger histories) leave them empty so
-// `omitempty` keeps them out of the response. Integration accounts and
-// integration service environments add sku/identity.
+// Resource-based types carry location and tags; SubResource-based ones
+// (triggers, run actions, trigger histories) leave them empty. Integration
+// accounts and integration service environments add sku and identity.
 type LogicResource struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -145,8 +140,6 @@ func logicLastSeg(p string) string {
 	return p
 }
 
-// ---- generic CRUD bound to a store, keyed by the request path (the ARM id) ----
-
 func handleLogicResourcePut(store sim.Store[LogicResource], typ string, status int, timestamps bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path
@@ -259,17 +252,10 @@ func handleLogicEmptyList(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
 
-// logicRunMissing writes the not-found for a run this account never started,
-// and reports whether it wrote one. The details of a run — its repetitions,
-// its request histories, its expression traces — are answers about that run,
-// and answering "none" for a run that does not exist tells a caller its typo
-// produced nothing rather than that it named nothing.
-//
-// Two surfaces reach these handlers and they key the same run store
-// differently: the standalone Microsoft.Logic workflow, and the App Service
-// site's hostruntime bridge, whose routes carry a siteName and build the id
-// from it. Looking one up with the other's id finds nothing, and every detail
-// read on the bridge would answer not-found for a run that is right there.
+// logicRunMissing writes the not-found for a run never started, and reports
+// whether it did. The standalone workflow and the App Service hostruntime
+// bridge, whose routes carry a siteName, key the run store differently, so
+// each looks up with its own ID.
 func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
 	id := logicWorkflowRunID(
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
@@ -285,9 +271,8 @@ func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// handleLogicRunDetailEmptyList answers a run's detail collection. The
-// simulator's runs settle without recording repetitions or request histories,
-// so the collection is empty for every run it does hold.
+// Answers an empty collection: runs record no repetitions or request
+// histories.
 func handleLogicRunDetailEmptyList(w http.ResponseWriter, r *http.Request) {
 	if logicRunMissing(w, r) {
 		return
@@ -361,9 +346,8 @@ func handleLogicWorkflowListSwagger(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// logicAccessKeySlot maps the KeyType enum regenerateAccessKey sends to the
-// workflow's access-key slot. Real Logic Apps signs callback URLs with the
-// primary key and keeps a secondary for staged rotation.
+// Logic Apps signs callback URLs with the primary key and keeps a secondary
+// for staged rotation.
 func logicAccessKeySlot(keyType string) string {
 	switch strings.ToLower(keyType) {
 	case "primary", "":
@@ -374,18 +358,11 @@ func logicAccessKeySlot(keyType string) string {
 	return ""
 }
 
-// logicCallbackSignature derives the `sig` a Logic Apps callback URL carries.
-// Real Logic Apps signs the callback with the workflow's access key, so
-// regenerating that key invalidates every previously issued callback URL —
-// which is exactly what a caller observes here: listCallbackUrl returns a
-// different signature after regenerateAccessKey.
-//
-// path is the callback path *relative to the workflow*, never the workflow's
-// own resource ID: the key is already the workflow's, and signing the resource
-// ID as well would make a cross-resource-group move invalidate every callback
-// URL the workflow has already issued, which real Logic Apps does not do — its
-// callback host addresses the workflow by an identifier the resource group
-// does not appear in.
+// logicCallbackSignature signs with the workflow's access key, so
+// regenerateAccessKey invalidates every issued callback URL. path is relative
+// to the workflow, never its resource ID: Logic Apps addresses the workflow by
+// an identifier the resource group is not in, so a move must not invalidate a
+// callback URL.
 func logicCallbackSignature(workflowID, path string) string {
 	key := azureKeyMaterial32(workflowID, "logic-access-primary")
 	mac := hmac.New(sha256.New, []byte(key))
@@ -393,11 +370,9 @@ func logicCallbackSignature(workflowID, path string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// logicCallbackQueries is the query set a Logic Apps callback URL carries: the
-// API version, the signed permission ("the SAS permissions" — the run path the
-// signature authorizes, URL-encoded, as in the published
-// `sp=%2Ftriggers%2FrequestTrigger%2Frun`), the signature version, and the
-// access-key-derived signature.
+// The API version, the signed permission (the URL-encoded run path, as in the
+// published `sp=%2Ftriggers%2FrequestTrigger%2Frun`), the signature version and
+// the signature.
 func logicCallbackQueries(workflowID, path string) map[string]any {
 	return map[string]any{
 		"api-version": "2016-10-01",
@@ -407,7 +382,6 @@ func logicCallbackQueries(workflowID, path string) map[string]any {
 	}
 }
 
-// logicCallbackURL appends the signed query string to a callback endpoint.
 func logicCallbackURL(endpoint string, queries map[string]any) string {
 	sep := "?"
 	if strings.Contains(endpoint, "?") {
@@ -417,8 +391,7 @@ func logicCallbackURL(endpoint string, queries map[string]any) string {
 		endpoint, sep, queries["api-version"], queries["sp"], queries["sv"], queries["sig"])
 }
 
-// logicDropWorkflowKeyGens removes a deleted workflow's access-key rotation
-// state so a later workflow of the same name signs with fresh key material.
+// A later workflow of the same name signs with fresh keys.
 func logicDropWorkflowKeyGens(workflowID string) {
 	azureDropKeyGens(workflowID, "logic-access-primary", "logic-access-secondary")
 }
@@ -430,9 +403,8 @@ func handleLogicWorkflowListCallbackURL(w http.ResponseWriter, r *http.Request) 
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Workflow %q not found.", sim.PathParam(r, "workflowName"))
 		return
 	}
-	// The workflow's accessEndpoint is the base path, exactly as the published
-	// response carries it (`"basePath": "https://prod-03.westus.logic.azure.com/workflows/{identifier}"`),
-	// and the invoke path of the workflow's manual trigger hangs off it.
+	// accessEndpoint is the base path, as the published response carries it
+	// (`"basePath": "https://prod-03.westus.logic.azure.com/workflows/{identifier}"`).
 	endpoint, _ := wf.Properties["accessEndpoint"].(string)
 	const invoke = "/triggers/manual/paths/invoke"
 	queries := logicCallbackQueries(id, "/triggers/manual/run")
@@ -445,10 +417,8 @@ func handleLogicWorkflowListCallbackURL(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleLogicWorkflowRegenerateAccessKey rotates the workflow's primary or
-// secondary access key. Because callback URLs are signed with the access key,
-// a subsequent listCallbackUrl returns a different signature — real Logic
-// Apps invalidates outstanding callback URLs the same way.
+// Callback URLs are signed with the access key, so listCallbackUrl returns a
+// different signature afterwards, as in Logic Apps.
 func handleLogicWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/regenerateAccessKey")
 	if _, ok := logicWorkflows.Get(id); !ok {
@@ -504,17 +474,13 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 		if ref.ID == "" || ref.ID == id {
 			return
 		}
-		// Workflows_Move re-homes the same workflow the Resources_MoveResources
-		// spelling does, so it runs the same move: the access keys are pinned so
-		// an outstanding callback URL keeps its valid signature, and the child
-		// subtree, the advertised accessEndpoint and every reference held to the
-		// workflow follow it.
+		// Workflows_Move runs the same move as Resources_MoveResources.
 		moveLogicWorkflowARM(id, ref.ID)
 		azureRepointMovedResource(id, ref.ID)
 	})
-	// Move is a POST long-running operation with no result resource: advertise
-	// only the Azure-AsyncOperation status URL (no Location), so the SDK poller
-	// reads the operation status rather than re-GETting the POST action path.
+	// A POST operation with no result resource: advertise only
+	// Azure-AsyncOperation, so the SDK poller reads the status rather than
+	// re-GETting the action path.
 	opURL := azureAsyncOperationHeader(r, sub, "Microsoft.Logic", logicResLocation(wf.Location), "operationStatuses", opID, r.URL.Query().Get("api-version"))
 	w.Header().Set("Azure-AsyncOperation", opURL)
 	setAzureAsyncOperationRetryAfter(w, opID)
@@ -538,10 +504,7 @@ func logicSnapshotWorkflowVersion(wf LogicWorkflow) {
 			props[k] = v
 		}
 	}
-	// A version is a snapshot of the workflow, and it is in the workflow's
-	// region — WorkflowVersion declares that location required, and the
-	// snapshot was dropping it, so every version read described a resource
-	// with no region while the workflow beside it named one.
+	// WorkflowVersion requires the workflow's location.
 	logicWorkflowVersions.Put(id, LogicResource{
 		ID: id, Name: version, Type: wf.Type + "/versions",
 		Location: wf.Location, Properties: props,
@@ -630,28 +593,20 @@ func handleLogicTriggerSchemaJSON(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLogicTriggerListCallbackURL signs the trigger callback with the
-// parent workflow's access key, so regenerateAccessKey invalidates it exactly
-// as it invalidates the workflow-level callback.
+// Signed with the workflow's access key, so regenerateAccessKey invalidates it.
 func handleLogicTriggerListCallbackURL(w http.ResponseWriter, r *http.Request) {
 	logicWriteTriggerCallbackURL(w, r, logicWorkflowIDForPath(r))
 }
 
-// logicWriteTriggerCallbackURL writes the WorkflowTriggerCallbackUrl for the
-// addressed trigger, signed with the owning workflow's access key. The owning
-// workflow's resource ID is passed in because the trigger is addressable at
-// several spellings (Microsoft.Logic/workflows and the App Service hostruntime
-// bridge) that derive the owner differently.
+// The trigger is addressable at several spellings (Microsoft.Logic/workflows,
+// the App Service hostruntime bridge) that derive the owner differently, so
+// the caller passes it.
 func logicWriteTriggerCallbackURL(w http.ResponseWriter, r *http.Request, workflowID string) {
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
 	relative := strings.TrimPrefix(id, workflowID)
-	// The callback is addressed on the service host, under the workflow's own
-	// identifier and the addressed trigger's invoke path —
-	// `/workflows/{identifier}/triggers/{trigger}/paths/invoke`, and
-	// `/workflows/{identifier}/versions/{version}/triggers/{trigger}/paths/invoke`
-	// for a version's trigger, as the published responses carry them. Nothing
-	// in that address names the resource group, so a callback URL survives a
-	// move between them.
+	// `/workflows/{identifier}/triggers/{trigger}/paths/invoke`, and under
+	// `/versions/{version}` for a version's trigger, as the published responses
+	// carry them; no resource group appears, so the URL survives a move.
 	basePath := logicWorkflowAccessEndpoint(r, workflowID) + relative + "/paths/invoke"
 	queries := logicCallbackQueries(workflowID, relative+"/run")
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -663,11 +618,7 @@ func logicWriteTriggerCallbackURL(w http.ResponseWriter, r *http.Request, workfl
 	})
 }
 
-// logicWorkflowAccessEndpoint is the addressed workflow's advertised endpoint.
-// A workflow that exists is addressed by the identifier it was issued at
-// creation; a trigger under a workflow that does not exist has no endpoint to
-// answer for, and the handlers that reach here have already established the
-// workflow.
+// The handlers that reach here have already established the workflow.
 func logicWorkflowAccessEndpoint(r *http.Request, workflowID string) string {
 	if workflow, ok := logicWorkflows.Get(workflowID); ok {
 		if endpoint, ok := workflow.Properties["accessEndpoint"].(string); ok && endpoint != "" {
@@ -677,9 +628,6 @@ func logicWorkflowAccessEndpoint(r *http.Request, workflowID string) string {
 	return logicAccessEndpoint(r, logicNewWorkflowAccessIdentifier())
 }
 
-// logicWorkflowIDForPath returns the ARM resource ID of the workflow that
-// owns the addressed trigger (or trigger version), so every callback issued
-// under a workflow is signed with that workflow's access key.
 func logicWorkflowIDForPath(r *http.Request) string {
 	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Logic", "workflows", sim.PathParam(r, "workflowName"))
 }
@@ -736,9 +684,8 @@ func handleLogicRunActionList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// logicRecordTriggerRun fires a trigger: it records the trigger's history and
-// a Running run, and executes the workflow definition in the background, which
-// settles the run and records each action it executed.
+// logicRecordTriggerRun records the trigger history and a Running run, and
+// executes the definition in the background.
 func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	logicSyncTriggers(wf)
 	runName := sim.NewUUID()
@@ -787,13 +734,11 @@ func logicRecordTriggerRun(wf LogicWorkflow, triggerName string) string {
 	return runName
 }
 
-// logicRunCancels holds the cancel function of every run still executing.
 var logicRunCancels = struct {
 	sync.Mutex
 	byRun map[string]context.CancelFunc
 }{byRun: map[string]context.CancelFunc{}}
 
-// logicStopRun stops a run's execution, if it is still executing.
 func logicStopRun(runID string) {
 	logicRunCancels.Lock()
 	cancel := logicRunCancels.byRun[runID]
@@ -803,8 +748,7 @@ func logicStopRun(runID string) {
 	}
 }
 
-// logicSettleRun records a finished execution on its run. A run cancelled
-// while it executed keeps its Cancelled status.
+// A run cancelled while it executed keeps Cancelled.
 func logicSettleRun(workflowType, runID string, outcome logicRunOutcome) {
 	logicRuns.Update(runID, func(run *LogicWorkflowRun) {
 		if run.Properties["status"] != "Running" {
@@ -842,9 +786,8 @@ func logicSettleRun(workflowType, runID string, outcome logicRunOutcome) {
 	}
 }
 
-// logicCancelRun cancels a Running run: the run reads Cancelled at once and
-// its execution stops. It reports false when no run has the id, and an error
-// when the run already finished.
+// The run reads Cancelled at once. It reports false for an unknown id and an
+// error for a finished run.
 func logicCancelRun(runID string) (bool, *AsyncOperationError) {
 	var cancelErr *AsyncOperationError
 	found := logicRuns.Update(runID, func(run *LogicWorkflowRun) {
@@ -865,14 +808,12 @@ func logicCancelRun(runID string) (bool, *AsyncOperationError) {
 	return found, cancelErr
 }
 
-// logicDeleteRun stops a run's execution and deletes the run.
 func logicDeleteRun(runID string) {
 	logicStopRun(runID)
 	logicRuns.Delete(runID)
 }
 
-// logicFailInterruptedRuns fails every run a previous process left Running:
-// its execution died with that process and cannot resume.
+// Its execution died with the previous process and cannot resume.
 func logicFailInterruptedRuns() {
 	for _, run := range logicRuns.Filter(func(run LogicWorkflowRun) bool { return run.Properties["status"] == "Running" }) {
 		logicRuns.Update(run.ID, func(run *LogicWorkflowRun) {
@@ -887,7 +828,6 @@ func logicFailInterruptedRuns() {
 	}
 }
 
-// writeLogicRunCancel answers a cancel of runID.
 func writeLogicRunCancel(w http.ResponseWriter, runID, runName string) {
 	found, cancelErr := logicCancelRun(runID)
 	switch {
@@ -921,9 +861,7 @@ func handleLogicIntegrationAccountListBySub(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// handleLogicIntegrationAccountCallbackURL signs the account's callback with
-// its access key, so regenerateAccessKey invalidates the outstanding URL the
-// way real Logic Apps does.
+// Signed with the account's access key, so regenerateAccessKey invalidates it.
 func handleLogicIntegrationAccountCallbackURL(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/listCallbackUrl")
 	if _, ok := logicIntegrationAccts.Get(id); !ok {
@@ -954,10 +892,8 @@ func handleLogicIntegrationAccountLogTrackingEvents(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleLogicIntegrationAccountRegenerateAccessKey rotates the account's
-// primary or secondary access key and returns the account, as real Logic Apps
-// does. The account's callback URL is signed with that key, so listCallbackUrl
-// returns a different signature afterwards.
+// Returns the account, as Logic Apps does; listCallbackUrl then returns a
+// different signature.
 func handleLogicIntegrationAccountRegenerateAccessKey(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(r.URL.Path, "/regenerateAccessKey")
 	acct, ok := logicIntegrationAccts.Get(id)

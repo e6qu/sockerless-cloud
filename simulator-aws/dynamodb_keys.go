@@ -12,14 +12,12 @@ import (
 )
 
 // An item's store key is "<table>/<hash>" or "<table>/<hash>\x01<range>", each
-// component encoded so that the keys of one partition sort in DynamoDB's
-// sort-key order: numbers by value, binary by bytes, strings by their UTF-8
-// bytes. A query reads a partition as a key range and returns what it reads,
-// so the order of the keys is the order of the answer.
+// component encoded so a partition's keys sort in DynamoDB's sort-key order:
+// numbers by value, binary by bytes, strings by UTF-8 bytes. A query returns
+// a partition's key range in key order.
 //
-// The separator is below every byte an encoded component holds, so a
-// component cannot contain it and a partition's keys sort ahead of any longer
-// hash its own hash is a prefix of.
+// The separator sorts below every byte an encoded component holds, so a
+// partition's keys sort ahead of any longer hash its hash prefixes.
 const ddbKeySeparator = "\x01"
 
 func ddbItemKey(table DDBTable, item map[string]any) string {
@@ -39,9 +37,8 @@ func ddbItemKey(table DDBTable, item map[string]any) string {
 	return table.TableName + "/" + hash
 }
 
-// ddbExtractAttrValue encodes a key attribute value ({"S"|"N"|"B": ...}) as a
-// key component, prefixed with its type so a string never equals a number.
-// Numbers that compare equal ("1", "1.0", "01") encode the same.
+// Prefix the type so a string never equals a number; equal numbers ("1",
+// "1.0", "01") encode the same.
 func ddbExtractAttrValue(v any) string {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -66,9 +63,8 @@ func ddbExtractAttrValue(v any) string {
 	return ""
 }
 
-// ddbEscapeKeyText moves the three bytes at and below the escape out of the
-// way, keeping their order: 0x00, 0x01 and 0x02 become 0x02 followed by 0x03,
-// 0x04 and 0x05, which still sort before every byte from 0x03 up.
+// 0x00, 0x01 and 0x02 become 0x02 followed by 0x03, 0x04 and 0x05, keeping
+// their order and staying below every byte from 0x03 up.
 func ddbEscapeKeyText(s string) string {
 	if !strings.ContainsAny(s, "\x00\x01\x02") {
 		return s
@@ -85,12 +81,10 @@ func ddbEscapeKeyText(s string) string {
 	return b.String()
 }
 
-// ddbOrderedNumber encodes a DynamoDB number so that encodings compare as the
-// numbers do. The value is 0.d1d2... x 10^e with d1 non-zero; a positive number
-// is "2", e offset into three digits, then the digits; a negative one is "0",
-// the offset exponent's complement, the digits' nine's complements and a "~"
-// that sorts after every digit; zero is "1". DynamoDB's exponents run from
-// -130 to 126, well inside the offset's range.
+// The value is 0.d1d2… × 10^e with d1 non-zero. A positive number is "2", e
+// offset into three digits, then the digits; a negative one is "0", the offset
+// exponent's complement, the digits' nine's complements and a "~" sorting
+// after every digit; zero is "1". DynamoDB exponents run -130 to 126.
 func ddbOrderedNumber(s string) (string, bool) {
 	r, ok := new(big.Rat).SetString(strings.TrimSpace(s))
 	if !ok {
@@ -128,15 +122,12 @@ func ddbOrderedNumber(s string) (string, bool) {
 	return fmt.Sprintf("0%03d%s~", 999-exponent, complement), true
 }
 
-// ddbKeyFormat records which key encoding the stored items are under.
 var ddbKeyFormat sim.Store[string]
 
 const ddbCurrentKeyFormat = "ordered-v2"
 
-// ddbMigrateItemKeys re-keys items a build before the ordered encoding stored,
-// once: each item's key is recomputed from its table's schema. An item whose
-// table no longer exists cannot be addressed by any request, so it is removed
-// and named in the log.
+// Re-key items stored before the ordered encoding, once. An item whose table
+// is gone cannot be addressed, so remove it and log it.
 func ddbMigrateItemKeys() error {
 	if format, ok := ddbKeyFormat.Get("items"); ok && format == ddbCurrentKeyFormat {
 		return nil
@@ -178,11 +169,11 @@ func ddbMigrateItemKeys() error {
 	return nil
 }
 
-// The answers below are DynamoDB Local's, captured from
+// These messages are DynamoDB Local's, captured from
 // mirror.gcr.io/amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab.
 
-// ddbItemKeyError checks an item written whole (PutItem and its batch and
-// transaction forms) against the table's key schema; "" means it is valid.
+// Checks an item written whole (PutItem, batch and transaction forms); ""
+// means valid.
 func ddbItemKeyError(t DDBTable, item map[string]any) string {
 	if message := ddbNumbersError(item); message != "" {
 		return message
@@ -199,9 +190,8 @@ func ddbItemKeyError(t DDBTable, item map[string]any) string {
 	return ddbIndexKeyError(t, item)
 }
 
-// ddbIndexKeyError checks the attributes an item gives its secondary indexes'
-// keys: an index key the item carries has the index's declared type and is not
-// empty. An item without one is simply not in that index.
+// An index key the item carries must have the declared type and be non-empty;
+// an item without one is not in that index.
 func ddbIndexKeyError(t DDBTable, item map[string]any) string {
 	for _, index := range ddbIndexes(t) {
 		for _, k := range index.keySchema {
@@ -229,9 +219,8 @@ func ddbIndexKeyError(t DDBTable, item map[string]any) string {
 	return ""
 }
 
-// ddbKeyParamError checks a Key parameter (GetItem, DeleteItem, UpdateItem and
-// their batch and transaction forms): exactly the table's key attributes, each
-// of its declared type.
+// The Key parameter must hold exactly the table's key attributes, each of its
+// declared type.
 func ddbKeyParamError(t DDBTable, key map[string]any) string {
 	if len(key) != len(t.KeySchema) {
 		return "The number of conditions on the keys is invalid"
@@ -269,8 +258,7 @@ func ddbKeyValueError(t DDBTable, name string, value any) string {
 	return ""
 }
 
-// ddbNumbersError reports a number anywhere in the attributes that DynamoDB
-// would not accept, in an N, an NS, or nested in an L or M.
+// Checks N, NS, and numbers nested in L or M.
 func ddbNumbersError(attributes map[string]any) string {
 	for _, value := range attributes {
 		if ddbValueHasBadNumber(value) {

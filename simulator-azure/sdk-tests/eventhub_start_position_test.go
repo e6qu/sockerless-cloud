@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventHubsSDK_StartPositions proves a partition consumer starts where its
-// StartPosition says — the latest event, or a sequence number — and receives
-// events published after it attached.
+// TestEventHubsSDK_StartPositions: a partition consumer starts at the latest
+// event or at a sequence number, and receives events published after it
+// attached.
 func TestEventHubsSDK_StartPositions(t *testing.T) {
 	rg, ns, hub := "eh-start-rg", uniquename.New("sdk-eventhub-start"), "starthub"
 	ensureRG(t, rg)
@@ -81,10 +81,9 @@ func TestEventHubsSDK_StartPositions(t *testing.T) {
 	assert.Equal(t, "one", string(got.Body))
 	assert.Equal(t, int64(1), got.SequenceNumber)
 
-	// azeventhubs attaches a partition receiver lazily inside ReceiveEvents,
-	// and Latest means the end of the partition when that attach completes.
-	// The client reports the completed attach through its azcore log, so the
-	// event goes out only after the receiver is in place.
+	// azeventhubs attaches a partition receiver lazily inside ReceiveEvents, and
+	// Latest means the partition's end when that attach completes. The client logs
+	// the completed attach through azcore, so publish only after it.
 	attached := make(chan struct{}, 1)
 	azlog.SetEvents(azeventhubs.EventConn)
 	azlog.SetListener(func(_ azlog.Event, message string) {

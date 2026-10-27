@@ -46,9 +46,9 @@ func (n cliNatGateway) zones() string {
 	return strings.Join(zones, ",")
 }
 
-// TestEC2CLI_RegionalNatGatewayAutomaticZones drives a regional NAT gateway
-// in automatic mode through the aws CLI: it covers each zone the VPC has a
-// subnet in, with an address there, and leaves a zone whose subnet goes.
+// TestEC2CLI_RegionalNatGatewayAutomaticZones expects a regional NAT gateway
+// in automatic mode to cover, with an address, each zone the VPC has a subnet
+// in, and to leave a zone whose subnet goes.
 func TestEC2CLI_RegionalNatGatewayAutomaticZones(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -84,9 +84,6 @@ func TestEC2CLI_RegionalNatGatewayAutomaticZones(t *testing.T) {
 	}
 }
 
-// TestEC2CLI_RegionalNatGatewayManualZones drives a regional NAT gateway
-// given per-zone Elastic IP addresses, and associates and disassociates its
-// addresses by zone, through the aws CLI.
 func TestEC2CLI_RegionalNatGatewayManualZones(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

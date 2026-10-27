@@ -48,12 +48,12 @@ func errorText(err error) string {
 	return err.Error()
 }
 
-// Policy bounds how long and how often a delivery is retried.
+// Policy bounds how long and how often a delivery retries.
 type Policy struct {
 	// MaxAttempts counts the first attempt; zero is unbounded.
 	MaxAttempts int
-	// MaxAge is measured from submission and checked before every attempt
-	// (after every failure under BothLimits); zero is unbounded.
+	// MaxAge counts from submission and holds before every attempt (after
+	// every failure under BothLimits); zero is unbounded.
 	MaxAge time.Duration
 	// Backoff is the wait before retry n (1 for the first retry).
 	Backoff func(retry int) time.Duration

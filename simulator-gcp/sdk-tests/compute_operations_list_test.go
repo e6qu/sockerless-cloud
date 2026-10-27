@@ -12,15 +12,9 @@ import (
 )
 
 // Compute Engine records every mutation as an operation in the scope that owns
-// the resource, and the per-scope and aggregated listings report them. The
-// listings used to answer with a hardcoded empty set whatever the project had
-// done, so a client enumerating its own work saw nothing; these assertions are
-// what stops that returning.
-//
-// A disk is zonal and needs no host networking, so the zonal listing is checked
-// on every host. Networks and addresses provision real Linux networking, so the
-// global and regional listings are checked wherever that kernel support exists —
-// the same gate every other Compute networking test here uses.
+// the resource, and the per-scope and aggregated listings report them. A disk
+// covers the zonal listing; a network and an address, which provision real
+// Linux networking, cover the global and regional ones.
 func TestCompute_OperationListsReportTheWorkTheProjectDid(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -109,9 +103,8 @@ func operationNames(items []*compute.Operation) []string {
 	return names
 }
 
-// The typed client hides the envelope, so the three scoped listing routes are
-// also read on the wire to confirm they answer with the kind Compute Engine
-// declares for them:
+// The typed client hides the envelope, so read the three scoped listing
+// routes on the wire for the kind Compute Engine declares:
 //
 //	GET /compute/v1/projects/{project}/zones/{zone}/operations
 //	GET /compute/v1/projects/{project}/regions/{region}/operations

@@ -17,8 +17,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS Batch — REST/JSON protocol with operation-specific POST paths (/v1/<opname>).
-// All operations are POST. Container jobs execute through the shared workload runner.
+// AWS Batch speaks REST + JSON, every operation a POST to /v1/<opname>.
+// Container jobs run through the shared workload runner.
 
 type BatchComputeEnvironment struct {
 	ComputeEnvironmentName string            `json:"computeEnvironmentName"`
@@ -95,13 +95,10 @@ type BatchJob struct {
 	Retry            BatchRetryStrategy   `json:"-"`
 	LogConfiguration map[string]any       `json:"-"`
 	Running          *batchRunningAttempt `json:"-"`
-	// StopReason is the reason a CancelJob or TerminateJob gave, reported once
-	// the containers it stopped have exited.
+	// StopReason is reported once the stopped containers have exited.
 	StopReason string `json:"-"`
 }
 
-// BatchConsumableResource models a Batch consumable resource (an ARN plus a
-// total/in-use/available capacity that jobs draw against).
 type BatchConsumableResource struct {
 	ConsumableResourceName string            `json:"consumableResourceName"`
 	ConsumableResourceArn  string            `json:"consumableResourceArn"`
@@ -112,8 +109,6 @@ type BatchConsumableResource struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
 }
 
-// BatchServiceEnvironment models a Batch service environment (an ARN, a state,
-// a status, and a list of capacity limits).
 type BatchServiceEnvironment struct {
 	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
 	ServiceEnvironmentArn  string            `json:"serviceEnvironmentArn"`
@@ -124,9 +119,8 @@ type BatchServiceEnvironment struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
 }
 
-// BatchServiceJob models a Batch service job. Like a regular Batch job it
-// settles to SUCCEEDED; service jobs are payload-driven (no container) so the
-// lifecycle is a state walk, not a container run.
+// Service jobs carry a payload and no container, so their lifecycle is a
+// state walk rather than a container run.
 type BatchServiceJob struct {
 	JobID                 string            `json:"jobId"`
 	JobArn                string            `json:"jobArn"`
@@ -147,7 +141,6 @@ type BatchServiceJob struct {
 	Tags                  map[string]string `json:"tags,omitempty"`
 }
 
-// BatchQuotaShare models a Batch quota share scoped to a job queue.
 type BatchQuotaShare struct {
 	QuotaShareName               string            `json:"quotaShareName"`
 	QuotaShareArn                string            `json:"quotaShareArn"`
@@ -189,7 +182,6 @@ func registerBatch(srv *sim.Server) {
 	batchQuotaShares = sim.MakeStore[BatchQuotaShare](srv.DB(), "batch_quota_shares")
 
 	batchResource := cloudTrailRESTResource("AWS::Batch::Resource", "resourceArn")
-	// All Batch ops are POST to /v1/<lowercaseopname>
 	srv.HandleFunc("POST /v1/createcomputeenvironment", cloudTrailRecordedREST("CreateComputeEnvironment", "batch.amazonaws.com", nil, handleBatchCreateComputeEnvironment))
 	srv.HandleFunc("POST /v1/describecomputeenvironments", cloudTrailRecordedREST("DescribeComputeEnvironments", "batch.amazonaws.com", nil, handleBatchDescribeComputeEnvironments))
 	srv.HandleFunc("POST /v1/updatecomputeenvironment", cloudTrailRecordedREST("UpdateComputeEnvironment", "batch.amazonaws.com", nil, handleBatchUpdateComputeEnvironment))
@@ -219,7 +211,6 @@ func registerBatch(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/updateschedulingpolicy", cloudTrailRecordedREST("UpdateSchedulingPolicy", "batch.amazonaws.com", nil, handleBatchUpdateSchedulingPolicy))
 	srv.HandleFunc("POST /v1/deleteschedulingpolicy", cloudTrailRecordedREST("DeleteSchedulingPolicy", "batch.amazonaws.com", nil, handleBatchDeleteSchedulingPolicy))
 
-	// Consumable resources
 	srv.HandleFunc("POST /v1/createconsumableresource", cloudTrailRecordedREST("CreateConsumableResource", "batch.amazonaws.com", nil, handleBatchCreateConsumableResource))
 	srv.HandleFunc("POST /v1/describeconsumableresource", cloudTrailRecordedREST("DescribeConsumableResource", "batch.amazonaws.com", nil, handleBatchDescribeConsumableResource))
 	srv.HandleFunc("POST /v1/listconsumableresources", cloudTrailRecordedREST("ListConsumableResources", "batch.amazonaws.com", nil, handleBatchListConsumableResources))
@@ -227,30 +218,25 @@ func registerBatch(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/deleteconsumableresource", cloudTrailRecordedREST("DeleteConsumableResource", "batch.amazonaws.com", nil, handleBatchDeleteConsumableResource))
 	srv.HandleFunc("POST /v1/listjobsbyconsumableresource", cloudTrailRecordedREST("ListJobsByConsumableResource", "batch.amazonaws.com", nil, handleBatchListJobsByConsumableResource))
 
-	// Service environments
 	srv.HandleFunc("POST /v1/createserviceenvironment", cloudTrailRecordedREST("CreateServiceEnvironment", "batch.amazonaws.com", nil, handleBatchCreateServiceEnvironment))
 	srv.HandleFunc("POST /v1/describeserviceenvironments", cloudTrailRecordedREST("DescribeServiceEnvironments", "batch.amazonaws.com", nil, handleBatchDescribeServiceEnvironments))
 	srv.HandleFunc("POST /v1/updateserviceenvironment", cloudTrailRecordedREST("UpdateServiceEnvironment", "batch.amazonaws.com", nil, handleBatchUpdateServiceEnvironment))
 	srv.HandleFunc("POST /v1/deleteserviceenvironment", cloudTrailRecordedREST("DeleteServiceEnvironment", "batch.amazonaws.com", nil, handleBatchDeleteServiceEnvironment))
 
-	// Service jobs
 	srv.HandleFunc("POST /v1/submitservicejob", cloudTrailRecordedREST("SubmitServiceJob", "batch.amazonaws.com", nil, handleBatchSubmitServiceJob))
 	srv.HandleFunc("POST /v1/describeservicejob", cloudTrailRecordedREST("DescribeServiceJob", "batch.amazonaws.com", nil, handleBatchDescribeServiceJob))
 	srv.HandleFunc("POST /v1/listservicejobs", cloudTrailRecordedREST("ListServiceJobs", "batch.amazonaws.com", nil, handleBatchListServiceJobs))
 	srv.HandleFunc("POST /v1/terminateservicejob", cloudTrailRecordedREST("TerminateServiceJob", "batch.amazonaws.com", nil, handleBatchTerminateServiceJob))
 	srv.HandleFunc("POST /v1/updateservicejob", cloudTrailRecordedREST("UpdateServiceJob", "batch.amazonaws.com", nil, handleBatchUpdateServiceJob))
 
-	// Quota shares
 	srv.HandleFunc("POST /v1/createquotashare", cloudTrailRecordedREST("CreateQuotaShare", "batch.amazonaws.com", nil, handleBatchCreateQuotaShare))
 	srv.HandleFunc("POST /v1/describequotashare", cloudTrailRecordedREST("DescribeQuotaShare", "batch.amazonaws.com", nil, handleBatchDescribeQuotaShare))
 	srv.HandleFunc("POST /v1/listquotashares", cloudTrailRecordedREST("ListQuotaShares", "batch.amazonaws.com", nil, handleBatchListQuotaShares))
 	srv.HandleFunc("POST /v1/updatequotashare", cloudTrailRecordedREST("UpdateQuotaShare", "batch.amazonaws.com", nil, handleBatchUpdateQuotaShare))
 	srv.HandleFunc("POST /v1/deletequotashare", cloudTrailRecordedREST("DeleteQuotaShare", "batch.amazonaws.com", nil, handleBatchDeleteQuotaShare))
 
-	// Job queue snapshot
 	srv.HandleFunc("POST /v1/getjobqueuesnapshot", cloudTrailRecordedREST("GetJobQueueSnapshot", "batch.amazonaws.com", nil, handleBatchGetJobQueueSnapshot))
 
-	// Resource-level tags
 	srv.HandleFunc("GET /v1/tags/{resourceArn}", cloudTrailRecordedREST("ListTagsForResource", "batch.amazonaws.com", batchResource, handleBatchListTagsForResource))
 	srv.HandleFunc("POST /v1/tags/{resourceArn}", cloudTrailRecordedREST("TagResource", "batch.amazonaws.com", batchResource, handleBatchTagResource))
 	srv.HandleFunc("DELETE /v1/tags/{resourceArn}", cloudTrailRecordedREST("UntagResource", "batch.amazonaws.com", batchResource, handleBatchUntagResource))
@@ -263,10 +249,8 @@ func batchARN(resource string) string {
 	return "arn:aws:batch:" + awsRegion() + ":" + awsAccountID() + ":" + resource
 }
 
-// batchServiceRoleStatus is the status a compute environment settles in for
-// its service role. AWS Batch accepts any role at create and update, then
-// leaves the environment INVALID when it cannot assume the role; it reads a
-// bare name as a role without a path.
+// AWS Batch accepts any service role, then leaves the environment INVALID when
+// it cannot assume it; a bare name is a role without a path.
 func batchServiceRoleStatus(ce BatchComputeEnvironment) (status, reason string) {
 	role := ce.ServiceRole
 	if role == "" {
@@ -357,9 +341,8 @@ func handleBatchDescribeComputeEnvironments(w http.ResponseWriter, r *http.Reque
 		func(ce BatchComputeEnvironment) string { return ce.ComputeEnvironmentName })
 }
 
-// batchDescribeEnvironments serves a Describe*Environments call: the
-// environments the request names under listField, in request order and
-// skipping names Batch does not hold, or every environment by name.
+// Answer in request order, skipping unknown names, or every environment when
+// the request names none.
 func batchDescribeEnvironments[T any](w http.ResponseWriter, r *http.Request, listField string, store sim.Store[T], name func(T) string) {
 	var req map[string]json.RawMessage
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -747,7 +730,7 @@ func handleBatchDeregisterJobDefinition(w http.ResponseWriter, r *http.Request) 
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
-	// req.JobDefinition may be "name:rev" or an ARN — look up by key suffix
+	// JobDefinition may be "name:rev" or an ARN.
 	key := batchJobDefKey(req.JobDefinition)
 	if jd, ok := batchJobDefs.Get(key); ok {
 		jd.Status = "INACTIVE"
@@ -1100,11 +1083,8 @@ func handleBatchStopJob(w http.ResponseWriter, r *http.Request, stop func(id, re
 	batchWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleBatchBulkTermination serves CancelJobs, TerminateJobs and
-// TerminateServiceJobs: each applies its singular operation to every listed
-// job and answers with the ids it accepted and a per-id error list for the
-// ones it did not. A caller that asked to stop ten jobs and had nine stopped
-// needs to be told which one it was.
+// Answer with the ids accepted and a per-id error for each refused, so a
+// caller learns which job did not stop.
 func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request, exists func(string) bool, stop func(id, reason string)) {
 	var req struct {
 		Jobs   []string `json:"jobs"`
@@ -1538,7 +1518,7 @@ func handleBatchUpdateConsumableResource(w http.ResponseWriter, r *http.Request)
 		batchWriteError(w, http.StatusBadRequest, "Consumable resource not found: "+req.ConsumableResource)
 		return
 	}
-	// operation defaults to SET; ADD/REMOVE adjust the total quantity.
+	// SET is the default; ADD and REMOVE adjust the total.
 	switch strings.ToUpper(req.Operation) {
 	case "ADD":
 		cr.TotalQuantity += req.Quantity
@@ -1586,9 +1566,7 @@ func handleBatchListJobsByConsumableResource(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// A faithful list of jobs that reference this consumable resource. The
-	// simulator's container jobs do not draw against named consumable
-	// resources, so this returns an empty (but well-formed) page.
+	// Container jobs draw on no named consumable resource, so the page is empty.
 	result := []map[string]any{}
 	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("jobArn"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
@@ -1762,11 +1740,8 @@ func handleBatchSubmitServiceJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// batchRunServiceJobLifecycle walks a service job through the real Batch
-// service-job state machine and settles it to SUCCEEDED. Service jobs are
-// payload-driven (no container), so the terminal transition is the scheduler
-// completing the request, not a container exit. A terminated job is not
-// regressed back into a running state.
+// A service job completes when the scheduler completes the request; a
+// terminated job never regresses to running.
 func batchRunServiceJobLifecycle(jobID string) {
 	for _, st := range []string{"PENDING", "RUNNABLE", "SCHEDULED", "STARTING", "RUNNING", "SUCCEEDED"} {
 		time.Sleep(40 * time.Millisecond)
@@ -2179,7 +2154,6 @@ func batchNameFromARN(arn string) string {
 }
 
 func batchJobDefKey(nameOrARN string) string {
-	// Accept "name:rev" or ARN ending with "name:rev"
 	parts := strings.Split(nameOrARN, "/")
 	return parts[len(parts)-1]
 }
@@ -2235,13 +2209,12 @@ func batchContainerConfig(jd BatchJobDefinition, overrides map[string]any) (sim.
 		Args:         command,
 		Env:          env,
 		Sandbox:      SandboxFargate,
-		// Batch stops a job container the way Amazon ECS stops a task.
+		// AWS Batch stops a job container the way Amazon ECS stops a task.
 		CancelGracePeriod: batchContainerStopTimeout,
 	}, meta, nil
 }
 
-// batchCheckReservedEnvironment refuses environment variables in the AWS_BATCH
-// prefix, which Batch reserves for the variables it sets itself.
+// AWS Batch reserves the AWS_BATCH prefix for the variables it sets.
 func batchCheckReservedEnvironment(properties map[string]any) error {
 	for name := range batchEnvironment(properties["environment"]) {
 		if strings.HasPrefix(name, "AWS_BATCH") {

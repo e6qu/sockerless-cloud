@@ -10,10 +10,8 @@ import (
 	"testing"
 )
 
-// computeSpecActions maps every operation the vendored Microsoft.Compute
-// specifications declare to the Azure Resource Manager action that authorizes
-// it. Reads of the same resource collapse onto one action, which is why several
-// operationIds share an entry.
+// computeSpecActions maps every vendored Microsoft.Compute operation to the
+// action that authorizes it; reads of one resource share an action.
 var computeSpecActions = map[string]string{
 	"Operations_List":          "Microsoft.Compute/operations/read",
 	"ResourceSkus_List":        "Microsoft.Compute/skus/read",
@@ -53,21 +51,16 @@ var computeSpecActions = map[string]string{
 	"VirtualMachineExtensions_Delete":         "Microsoft.Compute/virtualMachines/extensions/delete",
 }
 
-// computeSpecFiles are the vendored Microsoft.Compute documents the catalog is
-// derived from. Naming them keeps the derivation honest: a document added to
-// the vendored set and left out here would let its operations go unmapped.
+// A document added to the vendored set but not here would leave its
+// operations unmapped.
 var computeSpecFiles = []string{
 	"compute-arm-computerpcommon-2022-03-01.swagger.json.gz",
 	"compute-arm-skus-2021-07-01.swagger.json.gz",
 	"compute-arm-virtualmachine-2022-03-01.swagger.json.gz",
 }
 
-// TestComputeOperationCatalogCoversSpec holds the catalog Operations_List
-// serves to the surface the vendored specifications declare. The catalog is the
-// provider's set of role-assignable actions, so it must carry an action for
-// every documented operation and no action no operation needs — a stale entry
-// would advertise an action the provider does not have, and a missing one would
-// hide an operation a role assignment has to name.
+// TestComputeOperationCatalogCoversSpec: the catalog carries an action for
+// every documented operation and none no operation needs.
 func TestComputeOperationCatalogCoversSpec(t *testing.T) {
 	catalog := map[string]bool{}
 	for _, op := range computeOperationCatalog {
@@ -109,7 +102,6 @@ func TestComputeOperationCatalogCoversSpec(t *testing.T) {
 	}
 }
 
-// computeSpecOperationIDs reads the operationIds one vendored document declares.
 func computeSpecOperationIDs(t *testing.T, file string) []string {
 	t.Helper()
 	f, err := os.Open(filepath.Join("..", "specs", "cloud-api", "azure", file))
@@ -147,12 +139,9 @@ func computeSpecOperationIDs(t *testing.T, file string) []string {
 	return ids
 }
 
-// TestAzureHasScopeLeadRecognisesABareScope pins the predicate that decides
-// whether a specification path is rooted at an Azure Resource Manager scope.
-// It is deliberately narrow: a leading parameter named `scope` followed by the
-// literal `providers`, or one the document marks, and nothing else. A wider
-// rule would treat an ordinary leading parameter as a whole resource ID and
-// probe every operation under it at an address no client uses.
+// TestAzureHasScopeLeadRecognisesABareScope: only a leading `scope` followed by
+// `providers`, or a parameter the document marks. A wider rule would probe
+// ordinary operations at an address no client uses.
 func TestAzureHasScopeLeadRecognisesABareScope(t *testing.T) {
 	scoped := func(raw []string, marked bool) swaggerPath {
 		sp := swaggerPath{Raw: raw, PathScopes: map[string]bool{}}

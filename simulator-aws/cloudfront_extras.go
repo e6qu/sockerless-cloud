@@ -10,10 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudFront extra resources — origin access identities (the legacy
-// pre-OAC identity), continuous deployment policies, and per-distribution
-// monitoring subscriptions. Same REST + XML wire as the Distribution and
-// policy endpoints in cloudfront.go / cloudfront_policies.go.
+// Origin access identities (the pre-OAC identity), continuous deployment
+// policies and monitoring subscriptions.
 
 type CFOriginAccessIdentityConfig struct {
 	XMLName         xml.Name `xml:"CloudFrontOriginAccessIdentityConfig"`
@@ -128,17 +126,13 @@ var (
 	cfMonitoringSubscriptions    sim.Store[CFMonitoringSubscription]
 )
 
-// cfCanonicalUserID derives a deterministic 64-hex-char S3 canonical user
-// id from the OAI id, mirroring the opaque value real CloudFront returns.
+// A random 64-hex-character Amazon S3 canonical user ID.
 func cfCanonicalUserID() string {
 	buf := make([]byte, 32)
 	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)
 }
 
-// registerCloudFrontExtras is invoked from registerCloudFront in
-// cloudfront.go; it adds the OAI, continuous-deployment-policy, and
-// monitoring-subscription CRUD endpoints onto the same mux.
 func registerCloudFrontExtras(srv *sim.Server) {
 	cfOAIs = sim.MakeStore[cfStoredOAI](srv.DB(), "cloudfront_oais")
 	cfContinuousDeploymentPolicy = sim.MakeStore[cfStoredCDP](srv.DB(), "cloudfront_continuous_deployment_policies")
@@ -150,7 +144,6 @@ func registerCloudFrontExtras(srv *sim.Server) {
 	cdpResource := cloudTrailRESTResource("AWS::CloudFront::ContinuousDeploymentPolicy", "Id")
 	distResource := cloudTrailRESTResource("AWS::CloudFront::Distribution", "DistributionId")
 
-	// CloudFront Origin Access Identity
 	mux.HandleFunc("POST /"+cfAPIVersion+"/origin-access-identity/cloudfront", cloudTrailRecordedREST("CreateCloudFrontOriginAccessIdentity", "cloudfront.amazonaws.com", nil, handleCFCreateOAI))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-access-identity/cloudfront", cloudTrailRecordedREST("ListCloudFrontOriginAccessIdentities", "cloudfront.amazonaws.com", nil, handleCFListOAIs))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/origin-access-identity/cloudfront/{Id}", cloudTrailRecordedREST("GetCloudFrontOriginAccessIdentity", "cloudfront.amazonaws.com", oaiResource, handleCFGetOAI))
@@ -158,7 +151,6 @@ func registerCloudFrontExtras(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/origin-access-identity/cloudfront/{Id}/config", cloudTrailRecordedREST("UpdateCloudFrontOriginAccessIdentity", "cloudfront.amazonaws.com", oaiResource, handleCFUpdateOAI))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/origin-access-identity/cloudfront/{Id}", cloudTrailRecordedREST("DeleteCloudFrontOriginAccessIdentity", "cloudfront.amazonaws.com", oaiResource, handleCFDeleteOAI))
 
-	// Continuous Deployment Policy
 	mux.HandleFunc("POST /"+cfAPIVersion+"/continuous-deployment-policy", cloudTrailRecordedREST("CreateContinuousDeploymentPolicy", "cloudfront.amazonaws.com", nil, handleCFCreateCDP))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/continuous-deployment-policy", cloudTrailRecordedREST("ListContinuousDeploymentPolicies", "cloudfront.amazonaws.com", nil, handleCFListCDPs))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/continuous-deployment-policy/{Id}", cloudTrailRecordedREST("GetContinuousDeploymentPolicy", "cloudfront.amazonaws.com", cdpResource, handleCFGetCDP))
@@ -166,7 +158,6 @@ func registerCloudFrontExtras(srv *sim.Server) {
 	mux.HandleFunc("PUT /"+cfAPIVersion+"/continuous-deployment-policy/{Id}", cloudTrailRecordedREST("UpdateContinuousDeploymentPolicy", "cloudfront.amazonaws.com", cdpResource, handleCFUpdateCDP))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/continuous-deployment-policy/{Id}", cloudTrailRecordedREST("DeleteContinuousDeploymentPolicy", "cloudfront.amazonaws.com", cdpResource, handleCFDeleteCDP))
 
-	// Monitoring Subscription (per-distribution)
 	mux.HandleFunc("POST /"+cfAPIVersion+"/distributions/{DistributionId}/monitoring-subscription", cloudTrailRecordedREST("CreateMonitoringSubscription", "cloudfront.amazonaws.com", distResource, handleCFCreateMonitoringSubscription))
 	mux.HandleFunc("GET /"+cfAPIVersion+"/distributions/{DistributionId}/monitoring-subscription", cloudTrailRecordedREST("GetMonitoringSubscription", "cloudfront.amazonaws.com", distResource, handleCFGetMonitoringSubscription))
 	mux.HandleFunc("DELETE /"+cfAPIVersion+"/distributions/{DistributionId}/monitoring-subscription", cloudTrailRecordedREST("DeleteMonitoringSubscription", "cloudfront.amazonaws.com", distResource, handleCFDeleteMonitoringSubscription))
@@ -419,8 +410,7 @@ func handleCFDeleteMonitoringSubscription(w http.ResponseWriter, r *http.Request
 	}{})
 }
 
-// cfRequireIfMatch validates the If-Match header against the current ETag.
-// Returns "" on success, or an error code on failure.
+// Returns "" on success, or an error code.
 func cfRequireIfMatch(r *http.Request, etag string) string {
 	ifMatch := strings.TrimSpace(r.Header.Get("If-Match"))
 	if ifMatch == "" {
@@ -440,8 +430,7 @@ func cfWriteIfMatchError(w http.ResponseWriter, code string) {
 	cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
 }
 
-// cfIfMatches refuses a request whose If-Match header is missing or names
-// another version than etag.
+// Refuse a missing If-Match or one naming another version.
 func cfIfMatches(w http.ResponseWriter, r *http.Request, etag string) bool {
 	if code := cfRequireIfMatch(r, etag); code != "" {
 		cfWriteIfMatchError(w, code)
@@ -450,8 +439,7 @@ func cfIfMatches(w http.ResponseWriter, r *http.Request, etag string) bool {
 	return true
 }
 
-// cfDecodeXML reads the request's XML body into v, refusing a malformed one as
-// MalformedXML naming the element it expected.
+// A malformed body is MalformedXML naming the expected element.
 func cfDecodeXML(w http.ResponseWriter, r *http.Request, element string, v any) bool {
 	if err := xml.NewDecoder(r.Body).Decode(v); err != nil {
 		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode "+element+": "+err.Error())

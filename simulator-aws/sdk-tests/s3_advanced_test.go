@@ -13,10 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestS3_BucketMetadataConfiguration round-trips the V2 S3 Metadata
-// configuration feature (?metadataConfiguration) plus the
-// inventory/journal table sub-config updates, and the legacy V1 metadata
-// table configuration feature (?metadataTable).
+// TestS3_BucketMetadataConfiguration round-trips the S3 Metadata V2
+// configuration (?metadataConfiguration) with its inventory and journal table
+// updates, and the V1 metadata table configuration (?metadataTable).
 func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -24,9 +23,8 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// The regional service root lists the bucket via ListBuckets (the plain
-	// <ListAllMyBucketsResult> envelope — S3 Express ListDirectoryBuckets is a
-	// dedicated-endpoint op the regional surface does not serve).
+	// The regional endpoint lists the bucket through ListBuckets;
+	// ListDirectoryBuckets belongs to the S3 Express One Zone endpoint.
 	lb, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
 	require.NoError(t, err)
 	found := false
@@ -41,7 +39,6 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 		_, _ = client.DeleteBucketMetadataTableConfiguration(ctx, &s3.DeleteBucketMetadataTableConfigurationInput{Bucket: aws.String(bucket)})
 	})
 
-	// CreateBucketMetadataConfiguration (V2).
 	_, err = client.CreateBucketMetadataConfiguration(ctx, &s3.CreateBucketMetadataConfigurationInput{
 		Bucket: aws.String(bucket),
 		MetadataConfiguration: &s3types.MetadataConfiguration{
@@ -58,7 +55,6 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// GetBucketMetadataConfiguration echoes back the destination + table state.
 	getOut, err := client.GetBucketMetadataConfiguration(ctx, &s3.GetBucketMetadataConfigurationInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	require.NotNil(t, getOut.GetBucketMetadataConfigurationResult)
@@ -71,7 +67,6 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	require.NotNil(t, res.InventoryTableConfigurationResult)
 	assert.Equal(t, s3types.InventoryConfigurationStateEnabled, res.InventoryTableConfigurationResult.ConfigurationState)
 
-	// UpdateBucketMetadataInventoryTableConfiguration disables the inventory table.
 	_, err = client.UpdateBucketMetadataInventoryTableConfiguration(ctx, &s3.UpdateBucketMetadataInventoryTableConfigurationInput{
 		Bucket: aws.String(bucket),
 		InventoryTableConfiguration: &s3types.InventoryTableConfigurationUpdates{
@@ -80,7 +75,6 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// UpdateBucketMetadataJournalTableConfiguration changes record expiration.
 	_, err = client.UpdateBucketMetadataJournalTableConfiguration(ctx, &s3.UpdateBucketMetadataJournalTableConfigurationInput{
 		Bucket: aws.String(bucket),
 		JournalTableConfiguration: &s3types.JournalTableConfigurationUpdates{
@@ -98,13 +92,13 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	require.NotNil(t, res2.JournalTableConfigurationResult.RecordExpiration)
 	assert.Equal(t, int32(90), aws.ToInt32(res2.JournalTableConfigurationResult.RecordExpiration.Days))
 
-	// DeleteBucketMetadataConfiguration removes it; a subsequent Get 404s.
+	// After the delete, Get answers 404.
 	_, err = client.DeleteBucketMetadataConfiguration(ctx, &s3.DeleteBucketMetadataConfigurationInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = client.GetBucketMetadataConfiguration(ctx, &s3.GetBucketMetadataConfigurationInput{Bucket: aws.String(bucket)})
 	require.Error(t, err)
 
-	// CreateBucketMetadataTableConfiguration (legacy V1).
+	// The V1 metadata table configuration.
 	tableBucketArn := "arn:aws:s3tables:us-east-1:000000000000:bucket/my-table-bucket"
 	_, err = client.CreateBucketMetadataTableConfiguration(ctx, &s3.CreateBucketMetadataTableConfigurationInput{
 		Bucket: aws.String(bucket),
@@ -129,8 +123,8 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestS3_BucketAbac round-trips the attribute-based-access-control status
-// (?abac) for a general purpose bucket.
+// TestS3_BucketAbac round-trips a general purpose bucket's attribute-based
+// access control status (?abac).
 func TestS3_BucketAbac(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -138,13 +132,12 @@ func TestS3_BucketAbac(t *testing.T) {
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// Default (never set) → Disabled.
+	// A bucket never set reports Disabled.
 	getOut, err := client.GetBucketAbac(ctx, &s3.GetBucketAbacInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	require.NotNil(t, getOut.AbacStatus)
 	assert.Equal(t, s3types.BucketAbacStatusDisabled, getOut.AbacStatus.Status)
 
-	// Enable ABAC, read back.
 	_, err = client.PutBucketAbac(ctx, &s3.PutBucketAbacInput{
 		Bucket:     aws.String(bucket),
 		AbacStatus: &s3types.AbacStatus{Status: s3types.BucketAbacStatusEnabled},
@@ -156,8 +149,8 @@ func TestS3_BucketAbac(t *testing.T) {
 	assert.Equal(t, s3types.BucketAbacStatusEnabled, getOut2.AbacStatus.Status)
 }
 
-// TestS3_RenameObject moves a stored object key→key within a bucket
-// (?renameObject + x-amz-rename-source).
+// TestS3_RenameObject expects ?renameObject with x-amz-rename-source to move a
+// key within its bucket.
 func TestS3_RenameObject(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -180,7 +173,6 @@ func TestS3_RenameObject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The new key exists with the original content.
 	getOut, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String("new/name.txt"),
@@ -191,7 +183,6 @@ func TestS3_RenameObject(t *testing.T) {
 	_ = getOut.Body.Close()
 	assert.Equal(t, body, got)
 
-	// The old key is gone.
 	_, err = client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String("old/name.txt"),
@@ -199,8 +190,8 @@ func TestS3_RenameObject(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestS3_ObjectEncryption updates a stored object's SSE settings
-// (object ?encryption) and verifies the encryption headers round-trip.
+// TestS3_ObjectEncryption expects object ?encryption to change a stored
+// object's server-side encryption, reported in the read headers.
 func TestS3_ObjectEncryption(t *testing.T) {
 	t.Parallel()
 	client := s3Client()
@@ -225,7 +216,6 @@ func TestS3_ObjectEncryption(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The object now reports SSE-KMS on read.
 	headOut, err := client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String("secret.txt"),

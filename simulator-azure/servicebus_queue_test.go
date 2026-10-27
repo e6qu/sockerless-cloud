@@ -233,9 +233,8 @@ func TestServiceBusAMQPDispositionMapping(t *testing.T) {
 	}
 }
 
-// A topic keeps a message only in its subscriptions: with none, the message
-// is accepted and kept nowhere, and a topic's size is the size of what its
-// subscriptions hold.
+// With no subscriptions a message is accepted and kept nowhere; a topic's size
+// is what its subscriptions hold.
 func TestServiceBusTopicKeepsMessagesOnlyInSubscriptions(t *testing.T) {
 	newServiceBusQueueTestStores(t)
 	topicID := sbAdminTopicID("ns", "t")

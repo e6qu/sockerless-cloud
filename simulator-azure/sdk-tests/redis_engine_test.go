@@ -14,8 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// redisLookupHost resolves a cache's hostName through the simulator's DNS, as
-// a client on Azure resolves it.
+// redisLookupHost resolves a cache's hostName through the simulator's DNS.
 func redisLookupHost(t *testing.T, hostName string) string {
 	t.Helper()
 	lookupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -36,9 +35,9 @@ func redisCacheClient(t *testing.T, address string, port int32, password string,
 	return client
 }
 
-// A Standard cache answers at its hostName: over TLS on its sslPort and, while
-// enableNonSslPort holds, in plaintext on its port, to either access key; a
-// regenerated key replaces the old one and a flush empties the cache.
+// A Standard cache answers at its hostName: over TLS on sslPort and, while
+// enableNonSslPort holds, in plaintext on port, to either access key; a
+// regenerated key replaces the old one, and a flush empties the cache.
 func TestRedis_CacheServesItsHostName(t *testing.T) {
 	t.Parallel()
 	rg := "redis-engine-rg"

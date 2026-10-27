@@ -12,20 +12,12 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// CloudWatch metric alarms.
-//
-// Real clients reach the alarm API over all three wire protocols the metric
-// API uses, so the alarm surface mirrors it: the Go SDK / terraform provider
-// use rpc-v2-cbor (POST /service/GraniteServiceVersion20100801/operation/<Op>),
-// and the aws CLI / botocore use either awsJson1.0 (X-Amz-Target
-// GraniteServiceVersion20100801.<Op>) or the legacy query protocol (Action=...,
-// form params, XML) depending on the botocore version. All three surfaces share
-// the cwAlarms store and the state evaluator below, so an alarm created via one
-// protocol is visible through the others.
+// The Go SDK and Terraform provider use rpc-v2-cbor, the AWS CLI awsJson1.0 or
+// the query protocol depending on its botocore version. All three share the
+// cwAlarms store and the evaluator.
 
-// CWAlarm holds a metric alarm's configuration. StateValue is not stored: it is
-// evaluated against the live metric data at describe time, the way real
-// CloudWatch continuously re-evaluates.
+// A describe evaluates the state against live metric data, as CloudWatch
+// continuously re-evaluates.
 type CWAlarm struct {
 	AlarmName               string                 `json:"AlarmName" cbor:"AlarmName"`
 	AlarmArn                string                 `json:"AlarmArn" cbor:"AlarmArn"`
@@ -47,21 +39,16 @@ type CWAlarm struct {
 	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty" cbor:"InsufficientDataActions,omitempty"`
 	Tags                    map[string]string      `json:"Tags,omitempty" cbor:"Tags,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty" cbor:"ActionConfiguration,omitempty"`
-	// ManualState / ManualStateReason hold a temporary SetAlarmState override
-	// that takes precedence over the metric-derived evaluation until cleared.
+	// A SetAlarmState override wins over evaluation until cleared.
 	ManualState       string `json:"-" cbor:"-"`
 	ManualStateReason string `json:"-" cbor:"-"`
-	// StateValue / StateReason / StateUpdatedTimestamp hold the last state the
-	// background evaluator derived and dispatched actions for. DescribeAlarms
-	// continues to evaluate live metric data so an alarm whose metric just
-	// changed reflects it immediately; these fields persist the dispatched
-	// state so transitions are detectable across evaluator ticks.
+	// The last state the evaluator dispatched actions for, kept so it detects
+	// transitions across ticks.
 	StateValue            string `json:"StateValue,omitempty" cbor:"StateValue,omitempty"`
 	StateReason           string `json:"StateReason,omitempty" cbor:"StateReason,omitempty"`
 	StateUpdatedTimestamp int64  `json:"StateUpdatedTimestamp,omitempty" cbor:"StateUpdatedTimestamp,omitempty"`
 }
 
-// cwAlarmByArn finds an alarm by its ARN (the resource id the tagging API uses).
 func cwAlarmByArn(arn string) (CWAlarm, bool) {
 	for _, a := range cwAlarms.List() {
 		if a.AlarmArn == arn {
@@ -76,9 +63,8 @@ type cwTagKV struct {
 	Value string `json:"Value" cbor:"Value"`
 }
 
-// cwResolveAlarmTags converts the request's tag list to a map. When the request
-// carries no tags it preserves the alarm's existing tags — PutMetricAlarm only
-// sets tags on creation; updates manage them through TagResource/UntagResource.
+// PutMetricAlarm sets tags only on creation; a request without tags keeps the
+// existing ones.
 func cwResolveAlarmTags(reqTags []cwTagKV, alarmName string) map[string]string {
 	if len(reqTags) > 0 {
 		m := make(map[string]string, len(reqTags))
@@ -99,9 +85,7 @@ func cwAlarmArn(name string) string {
 	return fmt.Sprintf("arn:aws:cloudwatch:%s:%s:alarm:%s", awsRegion(), awsAccountID(), name)
 }
 
-// cwAlarmBreaches reports whether a datapoint value crosses the threshold for
-// the comparison operator (the four scalar operators; anomaly-band operators
-// aren't modelled).
+// Anomaly-band operators are not modelled.
 func cwAlarmBreaches(v, threshold float64, op string) bool {
 	switch op {
 	case "GreaterThanThreshold":
@@ -117,17 +101,12 @@ func cwAlarmBreaches(v, threshold float64, op string) bool {
 	}
 }
 
-// cwEvaluateAlarmState derives the alarm's StateValue (OK / ALARM /
-// INSUFFICIENT_DATA) from the metric data over the most recent
-// EvaluationPeriods windows. With no datapoints in the window it honours
-// TreatMissingData; otherwise it ALARMs only when every evaluated datapoint
-// breaches.
+// With no datapoints in the window honour TreatMissingData; otherwise ALARM
+// only when every evaluated datapoint breaches.
 func cwEvaluateAlarmState(a CWAlarm) (state, reason string) {
 	return cwEvaluateAlarmStateAt(a, time.Now())
 }
 
-// cwEvaluateAlarmStateAt derives the alarm's state from the evaluation window
-// that ends at at.
 func cwEvaluateAlarmStateAt(a CWAlarm, at time.Time) (state, reason string) {
 	period := a.Period
 	if period <= 0 {
@@ -166,7 +145,7 @@ func cwEvaluateAlarmStateAt(a CWAlarm, at time.Time) (state, reason string) {
 	for k := range buckets {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] }) // newest first
+	sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] })
 
 	evaluated, breaching := 0, 0
 	for _, k := range keys {
@@ -184,8 +163,7 @@ func cwEvaluateAlarmStateAt(a CWAlarm, at time.Time) (state, reason string) {
 	return "OK", "Threshold not crossed"
 }
 
-// cwApplyAlarmStat reduces a bucket by the alarm's statistic — a percentile when
-// ExtendedStatistic (e.g. "p99") is set, otherwise the named Statistic.
+// ExtendedStatistic (e.g. "p99") wins over Statistic.
 func cwApplyAlarmStat(a CWAlarm, vals []float64) float64 {
 	if a.ExtendedStatistic != "" {
 		if p, ok := cwParsePercentile(a.ExtendedStatistic); ok {
@@ -199,7 +177,6 @@ func cwApplyAlarmStat(a CWAlarm, vals []float64) float64 {
 	return cwApplyStat(stat, vals)
 }
 
-// cwParsePercentile parses "p99" / "p99.9" into the percentile 99 / 99.9.
 func cwParsePercentile(s string) (float64, bool) {
 	if len(s) < 2 || (s[0] != 'p' && s[0] != 'P') {
 		return 0, false
@@ -211,7 +188,7 @@ func cwParsePercentile(s string) (float64, bool) {
 	return f, true
 }
 
-// cwPercentile returns the linear-interpolated p-th percentile (0..100) of vals.
+// Linear interpolation; p is 0..100.
 func cwPercentile(vals []float64, p float64) float64 {
 	if len(vals) == 0 {
 		return 0
@@ -233,7 +210,6 @@ func cwPercentile(vals []float64, p float64) float64 {
 	return sorted[lo]
 }
 
-// cwListAlarms returns alarms filtered by an optional name set, sorted by name.
 func cwListAlarms(names []string) []CWAlarm {
 	want := map[string]bool{}
 	for _, n := range names {
@@ -249,8 +225,6 @@ func cwListAlarms(names []string) []CWAlarm {
 	sort.Slice(out, func(i, j int) bool { return out[i].AlarmName < out[j].AlarmName })
 	return out
 }
-
-// ── awsJson1.0 surface (aws CLI) ───────────────────────────────────────────
 
 func registerCloudWatchAlarmsJSON(r *AWSRouter) {
 	r.Register("GraniteServiceVersion20100801.PutMetricAlarm", handleCWJSONPutMetricAlarm)
@@ -304,9 +278,8 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	if req.ActionsEnabled != nil {
 		actionsEnabled = *req.ActionsEnabled
 	}
-	// A new or updated alarm is a fresh entity: the alarm record itself
-	// carries no StateValue, so the evaluator treats the next transition as
-	// coming from INSUFFICIENT_DATA.
+	// The new record carries no StateValue, so the evaluator's next transition
+	// starts from INSUFFICIENT_DATA.
 	cwAlarms.Put(req.AlarmName, CWAlarm{
 		AlarmName:               req.AlarmName,
 		AlarmArn:                cwAlarmArn(req.AlarmName),
@@ -378,8 +351,6 @@ func handleCWJSONDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// cwJSONCompositeAlarm renders a composite alarm as the awsJson CompositeAlarm
-// shape.
 func cwJSONCompositeAlarm(ca CWCompositeAlarm, now time.Time) map[string]any {
 	state := ca.StateValue
 	if state == "" {
@@ -419,8 +390,6 @@ func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ── rpc-v2-cbor surface (Go SDK / terraform) ───────────────────────────────
-
 func registerCloudWatchAlarmsCBOR(srv *sim.Server) {
 	cwCBOR(srv, "PutMetricAlarm", handleCWCBORPutMetricAlarm)
 	cwCBOR(srv, "DescribeAlarms", handleCWCBORDescribeAlarms)
@@ -442,11 +411,8 @@ func cwWriteCBOR(w http.ResponseWriter, v any) {
 	_, _ = w.Write(data)
 }
 
-// cwWriteCBORError writes an rpc-v2-cbor protocol error: the Go SDK rejects any
-// response to a cbor request that lacks the `Smithy-Protocol: rpc-v2-cbor`
-// header, and reads the error code from the cbor body's `__type` and the message
-// from `message` (verified against aws-sdk-go-v2 cloudwatch's getProtocolErrorInfo).
-// The plain JSON `AWSError` shape is only valid for the awsJson surfaces.
+// The Go SDK rejects a cbor response without `Smithy-Protocol: rpc-v2-cbor`
+// and reads the code from `__type` and the message from `message`.
 func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
 	data, err := cwEncMode.Marshal(awsErrorBody("cloudwatch", code, message))
 	if err != nil {
@@ -459,8 +425,6 @@ func cwWriteCBORError(w http.ResponseWriter, code, message string, status int) {
 	_, _ = w.Write(data)
 }
 
-// cwWriteCBORErrorf is the formatted-message form of cwWriteCBORError (argument
-// order mirrors AWSErrorf: code, status, format, args).
 func cwWriteCBORErrorf(w http.ResponseWriter, code string, status int, format string, args ...any) {
 	cwWriteCBORError(w, code, fmt.Sprintf(format, args...), status)
 }
@@ -512,9 +476,8 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	if req.ActionsEnabled != nil {
 		actionsEnabled = *req.ActionsEnabled
 	}
-	// A new or updated alarm is a fresh entity: the alarm record itself
-	// carries no StateValue, so the evaluator treats the next transition as
-	// coming from INSUFFICIENT_DATA.
+	// The new record carries no StateValue, so the evaluator's next transition
+	// starts from INSUFFICIENT_DATA.
 	cwAlarms.Put(req.AlarmName, CWAlarm{
 		AlarmName:               req.AlarmName,
 		AlarmArn:                cwAlarmArn(req.AlarmName),
@@ -540,7 +503,7 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, map[string]any{})
 }
 
-// ── alarm tagging (cbor; terraform's transparent-tagging read path) ─────────
+// Terraform's transparent tagging reads alarm tags here.
 
 func handleCWCBORListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	raw, err := cwReadBody(r)
@@ -636,8 +599,7 @@ func cwSortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// cborMetricAlarm is the DescribeAlarms response shape, config plus the
-// evaluated state. time.Time fields ride cwEncMode's tag-1 encoding.
+// time.Time fields ride cwEncMode's tag-1 encoding.
 type cborMetricAlarm struct {
 	AlarmName               string                 `cbor:"AlarmName"`
 	AlarmArn                string                 `cbor:"AlarmArn"`
@@ -737,9 +699,7 @@ func handleCWCBORDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, resp)
 }
 
-// cwWantAlarmType reports whether an alarm type should be included given the
-// (possibly empty) AlarmTypes filter. An empty filter means MetricAlarm only,
-// matching real DescribeAlarms' default.
+// An empty filter means MetricAlarm only, as DescribeAlarms defaults.
 func cwWantAlarmType(filter []string, t string) bool {
 	if len(filter) == 0 {
 		return t == "MetricAlarm"
@@ -752,8 +712,6 @@ func cwWantAlarmType(filter []string, t string) bool {
 	return false
 }
 
-// cwListCompositeAlarms returns composite alarms filtered by an optional name
-// set, sorted by name.
 func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
 	want := map[string]bool{}
 	for _, n := range names {
@@ -770,7 +728,6 @@ func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
 	return out
 }
 
-// cborCompositeAlarm is the DescribeAlarms CompositeAlarm response shape.
 type cborCompositeAlarm struct {
 	AlarmName               string                 `cbor:"AlarmName"`
 	AlarmArn                string                 `cbor:"AlarmArn"`
@@ -830,8 +787,7 @@ func handleCWCBORDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 	cwWriteCBOR(w, map[string]any{})
 }
 
-// cwAlarmExists reports whether a name resolves to a metric, composite or log
-// alarm — the three alarm types DeleteAlarms accepts.
+// DeleteAlarms accepts metric, composite and log alarms.
 func cwAlarmExists(name string) bool {
 	if _, ok := cwAlarms.Get(name); ok {
 		return true
@@ -843,7 +799,6 @@ func cwAlarmExists(name string) bool {
 	return ok
 }
 
-// cwDeleteAlarms removes the named metric, composite and log alarms.
 func cwDeleteAlarms(names []string) {
 	for _, n := range names {
 		cwAlarms.Delete(n)
@@ -851,8 +806,6 @@ func cwDeleteAlarms(names []string) {
 		cwDeleteLogAlarm(n)
 	}
 }
-
-// ── query surface (botocore / older aws CLI) ───────────────────────────────
 
 func registerCloudWatchAlarmsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricAlarm", handleCWQueryPutMetricAlarm)
@@ -883,13 +836,8 @@ func cwQueryStringList(r *http.Request, prefix string) []string {
 	return out
 }
 
-// cwValidateMetricAlarm enforces the required-numeric-parameter validation
-// PutMetricAlarm needs: EvaluationPeriods is required (minimum 1), and a
-// single-metric alarm (MetricName set) requires Period. Without this a missing
-// or non-numeric value parses to 0 and the alarm is silently created with a
-// nonsensical configuration. The (code, message) mirror this handler's existing
-// missing-required-parameter convention (as used for AlarmName /
-// ComparisonOperator) — the `MissingParameter` query-protocol framework error.
+// EvaluationPeriods is required (minimum 1), and a single-metric alarm needs
+// Period; a missing value would otherwise parse to 0.
 func cwValidateMetricAlarm(metricName string, period, evalPeriods int32) (code, msg string, ok bool) {
 	if evalPeriods < 1 {
 		return "MissingParameter", "The parameter EvaluationPeriods is required.", false
@@ -939,9 +887,8 @@ func handleCWQueryPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tags := cwQueryTags(r)
-	// A new or updated alarm is a fresh entity: the alarm record itself
-	// carries no StateValue, so the evaluator treats the next transition as
-	// coming from INSUFFICIENT_DATA.
+	// The new record carries no StateValue, so the evaluator's next transition
+	// starts from INSUFFICIENT_DATA.
 	cwAlarms.Put(name, CWAlarm{
 		AlarmName:               name,
 		AlarmArn:                cwAlarmArn(name),

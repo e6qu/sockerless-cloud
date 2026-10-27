@@ -24,7 +24,6 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 	require.NotEmpty(t, createResult.FileSystemId)
 	assert.Equal(t, "available", createResult.LifeCycleState)
 
-	// Describe
 	out = runCLI(t, awsCLI("efs", "describe-file-systems",
 		"--file-system-id", createResult.FileSystemId,
 		"--output", "json",
@@ -40,7 +39,6 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 	require.Len(t, descResult.FileSystems, 1)
 	assert.Equal(t, createResult.FileSystemId, descResult.FileSystems[0].FileSystemId)
 
-	// Cleanup
 	runCLI(t, awsCLI("efs", "delete-file-system",
 		"--file-system-id", createResult.FileSystemId,
 	))
@@ -74,7 +72,6 @@ func TestEFS_CreateMountTarget(t *testing.T) {
 	assert.Equal(t, fs.FileSystemId, mt.FileSystemId)
 	assert.Equal(t, "available", mt.LifeCycleState)
 
-	// Describe mount targets
 	out = runCLI(t, awsCLI("efs", "describe-mount-targets",
 		"--file-system-id", fs.FileSystemId,
 		"--output", "json",
@@ -88,7 +85,6 @@ func TestEFS_CreateMountTarget(t *testing.T) {
 	parseJSON(t, out, &descResult)
 	require.Len(t, descResult.MountTargets, 1)
 
-	// Cleanup
 	runCLI(t, awsCLI("efs", "delete-file-system",
 		"--file-system-id", fs.FileSystemId,
 	))
@@ -123,7 +119,6 @@ func TestEFS_CreateAccessPoint(t *testing.T) {
 	require.NotEmpty(t, ap.AccessPointId)
 	assert.Equal(t, fs.FileSystemId, ap.FileSystemId)
 
-	// Describe access points
 	out = runCLI(t, awsCLI("efs", "describe-access-points",
 		"--file-system-id", fs.FileSystemId,
 		"--output", "json",
@@ -137,7 +132,6 @@ func TestEFS_CreateAccessPoint(t *testing.T) {
 	parseJSON(t, out, &descResult)
 	require.Len(t, descResult.AccessPoints, 1)
 
-	// Cleanup
 	runCLI(t, awsCLI("efs", "delete-access-point",
 		"--access-point-id", ap.AccessPointId,
 	))
@@ -160,7 +154,6 @@ func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
 		runCLI(t, awsCLI("efs", "delete-file-system", "--file-system-id", fs.FileSystemId))
 	})
 
-	// File system policy put/describe/delete.
 	policyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"elasticfilesystem:ClientMount","Resource":"*"}]}`
 	out = runCLI(t, awsCLI("efs", "put-file-system-policy",
 		"--file-system-id", fs.FileSystemId,
@@ -186,7 +179,6 @@ func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
 
 	runCLI(t, awsCLI("efs", "delete-file-system-policy", "--file-system-id", fs.FileSystemId))
 
-	// Backup policy put/describe.
 	out = runCLI(t, awsCLI("efs", "put-backup-policy",
 		"--file-system-id", fs.FileSystemId,
 		"--backup-policy", "Status=ENABLED",
@@ -212,7 +204,6 @@ func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
 	parseJSON(t, out, &descBak)
 	assert.Equal(t, "ENABLED", descBak.BackupPolicy.Status)
 
-	// Resource-ARN tagging API.
 	runCLI(t, awsCLI("efs", "tag-resource",
 		"--resource-id", fs.FileSystemId,
 		"--tags", "Key=env,Value=prod", "Key=team,Value=infra",
@@ -235,7 +226,6 @@ func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
 		"--tag-keys", "team",
 	))
 
-	// Legacy file-system tagging API: create-tags / describe-tags / delete-tags.
 	runCLI(t, awsCLI("efs", "create-tags",
 		"--file-system-id", fs.FileSystemId,
 		"--tags", "Key=legacy,Value=yes",
@@ -354,7 +344,6 @@ func TestEFS_DeleteFileSystem(t *testing.T) {
 		"--file-system-id", fs.FileSystemId,
 	))
 
-	// Verify it's gone
 	out = runCLI(t, awsCLI("efs", "describe-file-systems", "--output", "json"))
 	var result struct {
 		FileSystems []struct {

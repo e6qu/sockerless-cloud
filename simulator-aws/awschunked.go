@@ -9,18 +9,9 @@ import (
 	"strings"
 )
 
-// awsChunkedReader unwraps a body sent with AWS chunked-encoding —
-// the framing used by aws-sdk-go-v2 (and other AWS SDKs) when the
-// request body is non-seekable and the SDK must stream the payload.
+// awsChunkedReader unwraps aws-chunked framing, which the SDKs use to stream a
+// non-seekable body; Amazon S3 unwraps it server-side.
 //
-// Real S3 unwraps this framing server-side; the sim must do the same
-// or it would store the chunk-encoding envelope verbatim.
-//
-// Wire format (per AWS documentation + aws-sdk-go-v2's
-// internal/checksum/aws_chunked_encoding.go encoder, inverted):
-//
-//	<chunk-size-hex>[;<extension>=<value>]\r\n
-//	<payload bytes of size chunk-size>\r\n
 //	<chunk-size-hex>[;<extension>=<value>]\r\n
 //	<payload bytes>\r\n
 //	...
@@ -28,29 +19,12 @@ import (
 //	[<trailer-header>: <value>\r\n]*
 //	\r\n
 //
-// Extensions (the `;name=value` suffix after the size) include
-// `chunk-signature=<hex>` for the streaming-signed variant; the
-// decoder ignores extensions because per-chunk signature checking
-// would require replaying the SigV4 streaming-payload chain and is
-// out of scope for the sim's auth-passthrough model. Trailer
-// headers are read and discarded — they carry per-payload checksums
-// like `x-amz-checksum-crc32` that real S3 validates after decode;
-// the sim currently does not enforce them.
-//
-// Sentinel headers that select this decoder live in the caller:
-//
-//	Content-Encoding: aws-chunked
-//	x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD
-//	x-amz-content-sha256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER
-//	x-amz-content-sha256: STREAMING-UNSIGNED-PAYLOAD-TRAILER
-//	x-amz-content-sha256: STREAMING-UNSIGNED-PAYLOAD
-//
-// `x-amz-decoded-content-length` carries the unwrapped payload
-// length; callers can use it as a sentinel and/or pre-size the
-// destination buffer.
+// The reader ignores extensions such as chunk-signature, and reads and
+// discards trailer headers such as x-amz-checksum-crc32, which Amazon S3
+// validates.
 type awsChunkedReader struct {
 	br        *bufio.Reader
-	remaining int64 // bytes left in the current chunk payload
+	remaining int64
 	done      bool
 }
 
@@ -58,8 +32,6 @@ func newAWSChunkedReader(r io.Reader) *awsChunkedReader {
 	return &awsChunkedReader{br: bufio.NewReader(r)}
 }
 
-// Read decodes the next chunked-envelope bytes into p, returning
-// only the unwrapped payload.
 func (a *awsChunkedReader) Read(p []byte) (int, error) {
 	if a.done {
 		return 0, io.EOF
@@ -72,7 +44,6 @@ func (a *awsChunkedReader) Read(p []byte) (int, error) {
 			return 0, io.EOF
 		}
 	}
-	// Limit this read to what's left in the current chunk.
 	want := int64(len(p))
 	if want > a.remaining {
 		want = a.remaining
@@ -83,7 +54,6 @@ func (a *awsChunkedReader) Read(p []byte) (int, error) {
 		return n, err
 	}
 	if a.remaining == 0 {
-		// Consume the per-chunk \r\n trailer.
 		if err := a.consumeCRLF(); err != nil {
 			return n, err
 		}
@@ -91,8 +61,7 @@ func (a *awsChunkedReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// advance reads the next chunk size line; if size==0 reads the
-// trailing headers block and marks the reader done.
+// A zero size reads the trailer block and marks the reader done.
 func (a *awsChunkedReader) advance() error {
 	line, err := a.readLine()
 	if err != nil {
@@ -103,7 +72,6 @@ func (a *awsChunkedReader) advance() error {
 		return err
 	}
 	if size == 0 {
-		// Terminal chunk. Read trailing-header block until blank line.
 		for {
 			tl, err := a.readLine()
 			if err != nil {
@@ -138,8 +106,6 @@ func (a *awsChunkedReader) consumeCRLF() error {
 	return nil
 }
 
-// readLine consumes one CRLF-terminated line and returns the
-// content without the terminator.
 func (a *awsChunkedReader) readLine() (string, error) {
 	line, err := a.br.ReadString('\n')
 	if err != nil {
@@ -151,8 +117,7 @@ func (a *awsChunkedReader) readLine() (string, error) {
 	return line[:len(line)-2], nil
 }
 
-// parseChunkSize parses `<hex-size>[;name=value][;name=value]...`.
-// The extensions are discarded.
+// Extensions after the size are discarded.
 func parseChunkSize(line string) (int64, error) {
 	if i := strings.IndexByte(line, ';'); i >= 0 {
 		line = line[:i]
@@ -171,8 +136,6 @@ func parseChunkSize(line string) (int64, error) {
 	return n, nil
 }
 
-// isAWSChunkedRequest returns true when any header signals the
-// request body is wrapped in AWS chunked-encoding.
 func isAWSChunkedRequest(h interface{ Get(string) string }) bool {
 	if h.Get("Content-Encoding") == "aws-chunked" {
 		return true

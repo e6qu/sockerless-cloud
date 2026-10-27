@@ -22,9 +22,9 @@ func runV2AdminService(t *testing.T) *run.Service {
 
 // Cloud Run v2's hosted build path, and Memorystore's rescheduleMaintenance:
 //
-//	POST /v2/projects/{project}/locations/{location}/builds:submit
-//	POST /v2/projects/{project}/locations/{location}:uploadSource
-//	POST /v1/projects/{project}/locations/{location}/instances/{id}:rescheduleMaintenance
+//   POST /v2/projects/{project}/locations/{location}/builds:submit
+//   POST /v2/projects/{project}/locations/{location}:uploadSource
+//   POST /v1/projects/{project}/locations/{location}/instances/{id}:rescheduleMaintenance
 
 func TestCloudRun_SubmitBuild(t *testing.T) {
 	t.Parallel()

@@ -9,25 +9,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// A project's enrolment in Compute Engine's preview features.
-//
-// Which features exist is Google's to say, and this simulator does not vendor
-// that catalogue — so a feature's description, which the document marks output
-// only, is left out rather than invented. What a project has done about a
-// feature is a different thing and is the caller's own: `activationStatus`
-// says whether the project turned it on, and the rollout operation says how it
-// was rolled out. Both are written by the update, and both are what the read
-// hands back.
-//
-// A feature this project has said nothing about is not found, which is what
-// every other collection here answers for a resource it does not hold. It is
-// also why the listing is the features this project has spoken for rather than
-// every feature Google offers: the simulator can report what it holds, and
-// reporting a catalogue it does not have would be inventing one.
+// A project's enrolment in Compute Engine's preview features. The simulator
+// does not vendor Google's feature catalogue, so the output-only description
+// stays absent; `activationStatus` and the rollout operation are the caller's,
+// written by update and returned by reads. The list holds the features this
+// project has set, and any other feature is not found.
 
 var gcpComputePreviewFeatures sim.Store[map[string]any]
 
-// registerComputePreviewFeatures mounts the update, the read and the listing.
 func registerComputePreviewFeatures(srv *sim.Server) {
 	gcpComputePreviewFeatures = sim.MakeStore[map[string]any](srv.DB(), "compute_preview_features")
 
@@ -53,8 +42,8 @@ func registerComputePreviewFeatures(srv *sim.Server) {
 				"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
 			}
 		}
-		// Only the two the caller owns. The rest of the resource is Google's
-		// account of the feature, and a request cannot write it.
+		// A request writes only these two members; the rest is Google's account of
+		// the feature.
 		for _, member := range []string{"activationStatus", "rolloutOperation"} {
 			if value, given := request[member]; given {
 				held[member] = value
@@ -90,8 +79,7 @@ func registerComputePreviewFeatures(srv *sim.Server) {
 		for _, feature := range held {
 			items = append(items, feature)
 		}
-		// No kind: PreviewFeatureList is one of the few Compute Engine list
-		// shapes the document declares without one.
+		// PreviewFeatureList declares no kind.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"id":       "projects/" + sim.PathParam(r, "project") + "/global/previewFeatures",
 			"selfLink": computeSelfLink(prefix),

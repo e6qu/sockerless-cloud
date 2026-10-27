@@ -10,21 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the EC2 volume / snapshot / recycle-bin / Customer-Owned
-// IP (CoIP) / default-VPC / managed-prefix-list / security-group-reference /
-// launch-template-data / DNS-name-options / Mac-dedicated-host / IPv6 families.
-//
-// EC2 speaks the ec2Query protocol: actions are registered by name and respond
-// with XML whose element/list casing matches the smithy model's ec2QueryName /
-// xmlName traits exactly. Every handler is faithful CRUD over the real
-// sim.Stores defined across the other ec2*.go files (volumes, snapshots, ENIs,
-// VPCs, subnets, security groups, prefix lists, launch templates, instances,
-// CoIP pools), with no synthetic shortcuts.
-
-// EC2 lacks first-class IPv6 fields on the existing EC2NetworkInterface struct,
-// so the IPv6 addresses/prefixes assigned to an ENI live in this id-keyed side
-// store, the same pattern ec2_ebs_snapshot.go uses for a volume's autoEnableIO
-// attribute.
+// EC2NetworkInterface has no IPv6 fields, so an ENI's IPv6 addresses and
+// prefixes live in this side store keyed by ENI id.
 type ec2ENIIPv6State struct {
 	Addresses []string
 	Prefixes  []string
@@ -32,15 +19,12 @@ type ec2ENIIPv6State struct {
 
 var ec2ENIIPv6States sim.Store[ec2ENIIPv6State]
 
-// Replace-root-volume, Mac-modification, and recycled-volume records are kept in
-// dedicated persisted stores so a Describe* / List* reads them back.
 var (
 	ec2ReplaceRootVolumeTasks sim.Store[EC2ReplaceRootVolumeTask]
 	ec2MacModificationTasks   sim.Store[EC2MacModificationTask]
 	ec2RecycledVolumes        sim.Store[EC2Volume]
 )
 
-// EC2ReplaceRootVolumeTask mirrors the SDK ReplaceRootVolumeTask shape.
 type EC2ReplaceRootVolumeTask struct {
 	ReplaceRootVolumeTaskId  string
 	InstanceId               string
@@ -53,8 +37,7 @@ type EC2ReplaceRootVolumeTask struct {
 	Tags                     []EC2Tag
 }
 
-// EC2MacModificationTask mirrors the SDK MacModificationTask shape. TaskType is
-// one of sip-modification | volume-ownership-delegation.
+// TaskType is sip-modification or volume-ownership-delegation.
 type EC2MacModificationTask struct {
 	MacModificationTaskId string
 	InstanceId            string
@@ -79,50 +62,41 @@ func registerEC2VolumesMisc(r *AWSQueryRouter, srv *sim.Server) {
 	ec2ImportSnapshotTasks = sim.MakeStore[EC2ImportSnapshotTask](srv.DB(), "ec2_import_snapshot_tasks")
 
 	for action, h := range map[string]http.HandlerFunc{
-		// Volume / snapshot operations.
 		"CreateSnapshots":      handleCreateSnapshots,
 		"CopyVolumes":          handleCopyVolumes,
 		"DescribeVolumeStatus": handleDescribeVolumeStatus,
 		"EnableVolumeIO":       handleEnableVolumeIO,
 		"ImportVolume":         handleImportVolume,
 
-		// Recycle Bin.
 		"RestoreVolumeFromRecycleBin": handleRestoreVolumeFromRecycleBin,
 		"ListVolumesInRecycleBin":     handleListVolumesInRecycleBin,
 		"ListSnapshotsInRecycleBin":   handleListSnapshotsInRecycleBin,
 		"DescribeLockedSnapshots":     handleDescribeLockedSnapshots,
 		"DescribeImportSnapshotTasks": handleDescribeImportSnapshotTasks,
 
-		// Replace-root-volume + Mac-dedicated-host tasks.
 		"CreateReplaceRootVolumeTask":                        handleCreateReplaceRootVolumeTask,
 		"DescribeReplaceRootVolumeTasks":                     handleDescribeReplaceRootVolumeTasks,
 		"CreateDelegateMacVolumeOwnershipTask":               handleCreateDelegateMacVolumeOwnershipTask,
 		"CreateMacSystemIntegrityProtectionModificationTask": handleCreateMacSipModificationTask,
 		"DescribeMacModificationTasks":                       handleDescribeMacModificationTasks,
 
-		// Customer-Owned IP (CoIP) CIDRs.
 		"CreateCoipCidr": handleCreateCoipCidr,
 		"DeleteCoipCidr": handleDeleteCoipCidr,
 
-		// Default VPC / subnet.
 		"CreateDefaultVpc":    handleCreateDefaultVpc,
 		"CreateDefaultSubnet": handleCreateDefaultSubnet,
 
-		// Managed / AWS-managed prefix lists.
 		"DescribePrefixLists":              handleDescribePrefixLists,
 		"GetManagedPrefixListAssociations": handleGetManagedPrefixListAssociations,
 		"RestoreManagedPrefixListVersion":  handleRestoreManagedPrefixListVersion,
 
-		// Security-group references / stale / for-vpc.
 		"DescribeSecurityGroupReferences": handleDescribeSecurityGroupReferences,
 		"DescribeStaleSecurityGroups":     handleDescribeStaleSecurityGroups,
 		"GetSecurityGroupsForVpc":         handleGetSecurityGroupsForVpc,
 
-		// Launch-template data + version delete.
 		"GetLaunchTemplateData":        handleGetLaunchTemplateData,
 		"DeleteLaunchTemplateVersions": handleDeleteLaunchTemplateVersions,
 
-		// DNS-name-options + VPC endpoint + route-table association + ENI attribute.
 		"ModifyPrivateDnsNameOptions":       handleModifyPrivateDnsNameOptions,
 		"ModifyPublicIpDnsNameOptions":      handleModifyPublicIpDnsNameOptions,
 		"ModifyVpcEndpoint":                 handleModifyVpcEndpoint,
@@ -131,24 +105,20 @@ func registerEC2VolumesMisc(r *AWSQueryRouter, srv *sim.Server) {
 		"DescribeNetworkInterfaceAttribute": handleDescribeNetworkInterfaceAttribute,
 		"SendDiagnosticInterrupt":           handleSendDiagnosticInterrupt,
 
-		// IPv6 address management.
 		"AssignIpv6Addresses":        handleAssignIpv6Addresses,
 		"UnassignIpv6Addresses":      handleUnassignIpv6Addresses,
 		"DescribeIpv6Pools":          handleDescribeIpv6Pools,
 		"GetAssociatedIpv6PoolCidrs": handleGetAssociatedIpv6PoolCidrs,
 		"UnassignPrivateIpAddresses": handleUnassignPrivateIpAddresses,
 
-		// Availability-zone group / default credit specification / VPC tenancy.
 		"ModifyAvailabilityZoneGroup":      handleModifyAvailabilityZoneGroup,
 		"GetDefaultCreditSpecification":    handleGetDefaultCreditSpecification,
 		"ModifyDefaultCreditSpecification": handleModifyDefaultCreditSpecification,
 		"ModifyVpcTenancy":                 handleModifyVpcTenancy,
 
-		// Interruptible capacity-reservation allocation.
 		"CreateInterruptibleCapacityReservationAllocation": handleCreateInterruptibleCapacityReservationAllocation,
 		"UpdateInterruptibleCapacityReservationAllocation": handleUpdateInterruptibleCapacityReservationAllocation,
 
-		// Export / import tasks.
 		"CancelExportTask":    handleCancelExportTask,
 		"DescribeExportTasks": handleDescribeExportTasks,
 		"CancelImportTask":    handleCancelImportTask,
@@ -157,11 +127,7 @@ func registerEC2VolumesMisc(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-// CreateSnapshots — multi-volume snapshot set for an instance.
-
-// handleCreateSnapshots snapshots every EBS volume attached to the instance
-// named by InstanceSpecification.InstanceId (optionally excluding the boot
-// volume or named data volumes), returning the resulting SnapshotInfo set.
+// Optionally excludes the boot volume or named data volumes.
 func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceSpecification.InstanceId")
 	if instID == "" {
@@ -181,8 +147,7 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 	tags := parseTags(r)
 	now := time.Now().UTC()
 
-	// Collect the instance's attached volumes from the volume store. The boot
-	// volume is the one attached at /dev/sda1 or /dev/xvda.
+	// The boot volume is attached at /dev/sda1 or /dev/xvda.
 	var snapshots []EC2Snapshot
 	for _, vol := range ec2Volumes.List() {
 		attached := false
@@ -243,8 +208,7 @@ func handleCreateSnapshots(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// snapshotInfoItemXML renders a SnapshotInfo member. Note SnapshotInfo uses
-// <state> (not the <status> DescribeSnapshots' Snapshot shape uses).
+// SnapshotInfo uses <state>, not the Snapshot shape's <status>.
 func snapshotInfoItemXML(snap EC2Snapshot) string {
 	kms := ""
 	if snap.KmsKeyId != "" {
@@ -255,10 +219,8 @@ func snapshotInfoItemXML(snap EC2Snapshot) string {
 		snap.VolumeSize, xmlEscape(snap.Description), snap.Encrypted, kms, writeTagSetXML(snap.Tags))
 }
 
-// CopyVolumes — duplicate existing volumes into fresh volume ids.
-
 func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
-	// CopyVolumes takes a single SourceVolumeId (scalar wire param).
+	// SourceVolumeId is a scalar.
 	srcID := r.FormValue("SourceVolumeId")
 	if srcID == "" {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter SourceVolumeId", http.StatusBadRequest)
@@ -304,8 +266,6 @@ func handleCopyVolumes(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// DescribeVolumeStatus / EnableVolumeIO.
-
 func handleDescribeVolumeStatus(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "VolumeId")
 	filters := ec2Filters(r)
@@ -332,8 +292,7 @@ func handleDescribeVolumeStatus(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	fmt.Fprintf(&b, `<DescribeVolumeStatusResponse %s><requestId>%s</requestId><volumeStatusSet>`, ec2Xmlns(), sim.NewUUID())
 	for _, vol := range vols {
-		// A healthy volume reports an "ok" status with the io-enabled /
-		// io-performance checks AWS surfaces.
+		// A healthy volume reports "ok" with the io-enabled and io-performance checks.
 		fmt.Fprintf(&b, `<item><volumeId>%s</volumeId><availabilityZone>%s</availabilityZone>`+
 			`<volumeStatus><status>ok</status><details>`+
 			`<item><name>io-enabled</name><status>passed</status></item>`+
@@ -359,8 +318,6 @@ func handleEnableVolumeIO(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<EnableVolumeIOResponse %s><requestId>%s</requestId><return>true</return></EnableVolumeIOResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
-
-// ImportVolume — VM-import conversion task that materializes a new volume.
 
 func handleImportVolume(w http.ResponseWriter, r *http.Request) {
 	az := r.FormValue("AvailabilityZone")
@@ -390,8 +347,6 @@ func handleImportVolume(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), taskID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
 		az, bytes, xmlEscape(desc), bytes, vol.VolumeId, size)
 }
-
-// Recycle Bin — volumes, snapshots, locked snapshots, import-snapshot tasks.
 
 func handleRestoreVolumeFromRecycleBin(w http.ResponseWriter, r *http.Request) {
 	volID := r.FormValue("VolumeId")
@@ -454,14 +409,11 @@ func handleListSnapshotsInRecycleBin(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDescribeLockedSnapshots(w http.ResponseWriter, r *http.Request) {
-	// Snapshot Lock is not exercised by the volume/snapshot CRUD slice, so no
-	// snapshot is in a locked state and the read-back is an empty set.
+	// No snapshot is ever locked in the simulator.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeLockedSnapshotsResponse %s><requestId>%s</requestId><snapshotSet/></DescribeLockedSnapshotsResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
-
-// Replace-root-volume + Mac-dedicated-host tasks.
 
 func handleCreateReplaceRootVolumeTask(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
@@ -514,8 +466,7 @@ func handleDescribeReplaceRootVolumeTasks(w http.ResponseWriter, r *http.Request
 		if len(ids) > 0 && !ec2StrInValues(t.ReplaceRootVolumeTaskId, ids) {
 			continue
 		}
-		// A read-back settles a pending task to succeeded (no synthetic timer),
-		// the same way the snapshot/FSR settles advance on first read.
+		// A read settles a pending task to succeeded.
 		if t.TaskState == "pending" || t.TaskState == "in-progress" {
 			t.TaskState = "succeeded"
 			t.CompleteTime = time.Now().UTC().Format(time.RFC3339)
@@ -588,9 +539,7 @@ func macModificationTaskBodyXML(t EC2MacModificationTask) string {
 	return b.String()
 }
 
-// handleDescribeMacModificationTasks lists the Mac volume-ownership / SIP
-// modification tasks recorded by the Create* handlers, optionally filtered to a
-// set of requested task ids.
+// Optionally filtered to the requested task ids.
 func handleDescribeMacModificationTasks(w http.ResponseWriter, r *http.Request) {
 	wanted := map[string]bool{}
 	for i := 1; ; i++ {
@@ -611,8 +560,6 @@ func handleDescribeMacModificationTasks(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, `<DescribeMacModificationTasksResponse %s><requestId>%s</requestId><macModificationTaskSet>%s</macModificationTaskSet></DescribeMacModificationTasksResponse>`,
 		ec2Xmlns(), sim.NewUUID(), items.String())
 }
-
-// Customer-Owned IP (CoIP) CIDRs on an existing CoIP pool.
 
 func handleCreateCoipCidr(w http.ResponseWriter, r *http.Request) {
 	cidr := r.FormValue("Cidr")
@@ -658,20 +605,17 @@ func handleDeleteCoipCidr(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), cidr, poolID, pool.LocalGatewayRouteTableId)
 }
 
-// Default VPC / subnet.
-
 func handleCreateDefaultVpc(w http.ResponseWriter, r *http.Request) {
-	// A real default VPC is the account's 172.31.0.0/16 VPC with isDefault=true,
-	// DNS support + hostnames on. Real EC2 raises DefaultVpcAlreadyExists when one
-	// already exists, so the sim does the same.
+	// A default VPC is 172.31.0.0/16 with isDefault and DNS support and hostnames
+	// on; a second is DefaultVpcAlreadyExists.
 	for _, v := range ec2Vpcs.List() {
 		if v.IsDefault {
 			ec2ErrorXML(w, "DefaultVpcAlreadyExists", "A default VPC already exists for this account in this region.", http.StatusBadRequest)
 			return
 		}
 	}
-	// "Creates a default VPC with a size /16 IPv4 CIDR block and a default
-	// subnet in each Availability Zone."
+	// "Creates a default VPC with a size /16 IPv4 CIDR block and a default subnet
+	// in each Availability Zone."
 	vpc := EC2Vpc{
 		VpcId:              ec2ID("vpc"),
 		CidrBlock:          "172.31.0.0/16",
@@ -695,7 +639,7 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, code, message, http.StatusBadRequest)
 		return
 	}
-	// A default subnet lives in the account's default VPC.
+	// A default subnet lives in the default VPC.
 	var defVpc EC2Vpc
 	found := false
 	for _, v := range ec2Vpcs.List() {
@@ -731,11 +675,8 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), subnetItemBodyXML(subnet))
 }
 
-// Prefix lists (AWS-managed + customer-managed).
-
-// handleDescribePrefixLists returns the (legacy) DescribePrefixLists view:
-// AWS-managed gateway-endpoint prefix lists (S3 / DynamoDB) plus the
-// customer-managed lists from the managed-prefix-list store.
+// The legacy view: AWS-managed gateway-endpoint lists (Amazon S3, DynamoDB)
+// plus the customer-managed lists.
 func handleDescribePrefixLists(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "PrefixListId")
 	filters := ec2Filters(r)
@@ -775,7 +716,7 @@ func handleDescribePrefixLists(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// shortHash gives a stable 8-hex-char id suffix for a deterministic name.
+// A stable 8-hex-character suffix.
 func shortHash(s string) string {
 	var h uint32 = 2166136261
 	for i := 0; i < len(s); i++ {
@@ -791,8 +732,7 @@ func handleGetManagedPrefixListAssociations(w http.ResponseWriter, r *http.Reque
 		ec2ErrorXML(w, "InvalidPrefixListID.NotFound", fmt.Sprintf("The prefix list ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// A managed prefix list is associated with the security-group rules that
-	// reference it. Derive the associated resources from the SG store honestly.
+	// Associated resources are the security group rules that reference the list.
 	type assocEntry struct{ resID, owner string }
 	var assoc []assocEntry
 	for _, sg := range ec2SecurityGroups.List() {
@@ -825,8 +765,7 @@ func handleRestoreManagedPrefixListVersion(w http.ResponseWriter, r *http.Reques
 		ec2ErrorXML(w, "InvalidPrefixListID.NotFound", fmt.Sprintf("The prefix list ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	// Restoring a prior version bumps the current version to a new number (real
-	// EC2 creates a new version that is a copy of the restored one).
+	// Restoring copies the old version into a new version number.
 	pl.Version++
 	pl.State = "modify-complete"
 	ec2ManagedPrefixLists.Put(id, pl)
@@ -835,15 +774,13 @@ func handleRestoreManagedPrefixListVersion(w http.ResponseWriter, r *http.Reques
 		ec2Xmlns(), sim.NewUUID(), managedPrefixListBodyXML(pl))
 }
 
-// Security-group references / stale / for-vpc — derived from the SG store.
-
 func handleDescribeSecurityGroupReferences(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "GroupId")
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<DescribeSecurityGroupReferencesResponse %s><requestId>%s</requestId><securityGroupReferenceSet>`, ec2Xmlns(), sim.NewUUID())
-	// A reference exists when another SG's rules name one of the queried groups in
-	// a UserIdGroupPair. Derive these honestly from the SG store.
+	// A reference exists when another group's rules name a queried group in a
+	// UserIdGroupPair.
 	for _, target := range ids {
 		for _, sg := range ec2SecurityGroups.List() {
 			for _, p := range append(append([]EC2IpPermission{}, sg.IpPermissions...), sg.IpPermissionsEgress...) {
@@ -865,8 +802,7 @@ func handleDescribeStaleSecurityGroups(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter VpcId", http.StatusBadRequest)
 		return
 	}
-	// A stale rule references a security group that no longer exists (e.g. across
-	// a deleted VPC peering). Derive honestly: a rule referencing an absent group.
+	// A stale rule references a group that no longer exists.
 	w.Header().Set("Content-Type", "text/xml")
 	var b strings.Builder
 	fmt.Fprintf(&b, `<DescribeStaleSecurityGroupsResponse %s><requestId>%s</requestId><staleSecurityGroupSet>`, ec2Xmlns(), sim.NewUUID())
@@ -893,8 +829,7 @@ func handleDescribeStaleSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// stalePermissionsXML returns the <item> elements for rules referencing a group
-// that no longer exists in the store, or "" if none are stale.
+// "" when none is stale.
 func stalePermissionsXML(perms []EC2IpPermission) string {
 	var b strings.Builder
 	for _, p := range perms {
@@ -934,8 +869,6 @@ func handleGetSecurityGroupsForVpc(w http.ResponseWriter, r *http.Request) {
 	b.WriteString(`</securityGroupForVpcSet></GetSecurityGroupsForVpcResponse>`)
 	_, _ = w.Write([]byte(b.String()))
 }
-
-// Launch-template data derived from an existing instance + version delete.
 
 func handleGetLaunchTemplateData(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
@@ -1029,8 +962,6 @@ func handleDeleteLaunchTemplateVersions(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// DNS-name-options + VPC endpoint + route-table association + ENI attribute.
-
 func handleModifyPrivateDnsNameOptions(w http.ResponseWriter, r *http.Request) {
 	instID := r.FormValue("InstanceId")
 	if instID == "" {
@@ -1094,8 +1025,7 @@ func handleReplaceRouteTableAssociation(w http.ResponseWriter, r *http.Request) 
 		ec2ErrorXML(w, "InvalidRouteTableID.NotFound", fmt.Sprintf("The route table ID %q does not exist", newRT), http.StatusBadRequest)
 		return
 	}
-	// Find the route table currently holding the association, capture its subnet,
-	// remove it there, then add the same subnet to the new route table.
+	// Move the subnet's association from its current table to the new one.
 	var subnetID string
 	var main bool
 	for _, rt := range ec2RouteTables.List() {
@@ -1141,7 +1071,7 @@ func handleResetNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Request
 		ec2ErrorXML(w, "InvalidNetworkInterfaceID.NotFound", fmt.Sprintf("The network interface ID %q does not exist", eniID), http.StatusBadRequest)
 		return
 	}
-	// Reset returns sourceDestCheck to the default (enabled).
+	// sourceDestCheck resets to enabled.
 	ec2NetworkInterfaces.Update(eniID, func(eni *EC2NetworkInterface) {
 		eni.SourceDestDisabled = false
 	})
@@ -1200,13 +1130,11 @@ func handleSendDiagnosticInterrupt(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID %q does not exist", instID), http.StatusBadRequest)
 		return
 	}
-	// SendDiagnosticInterrupt has a Unit output: an empty success response.
+	// Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<SendDiagnosticInterruptResponse %s><requestId>%s</requestId></SendDiagnosticInterruptResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
-
-// IPv6 address management on an ENI.
 
 func handleAssignIpv6Addresses(w http.ResponseWriter, r *http.Request) {
 	eniID := r.FormValue("NetworkInterfaceId")
@@ -1294,15 +1222,14 @@ func handleUnassignPrivateIpAddresses(w http.ResponseWriter, r *http.Request) {
 	ec2NetworkInterfaces.Update(eniID, func(eni *EC2NetworkInterface) {
 		eni.SecondaryPrivateIps = removeStrings(eni.SecondaryPrivateIps, toRemove)
 	})
-	// UnassignPrivateIpAddresses has a Unit output: an empty success response.
+	// Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UnassignPrivateIpAddressesResponse %s><requestId>%s</requestId><return>true</return></UnassignPrivateIpAddressesResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeIpv6Pools(w http.ResponseWriter, r *http.Request) {
-	// The sim provisions no BYOIP IPv6 pool, so the read-back is an empty set;
-	// the ipv6PoolSet shape round-trips through the SDK.
+	// The simulator provisions no BYOIP IPv6 pool.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeIpv6PoolsResponse %s><requestId>%s</requestId><ipv6PoolSet/></DescribeIpv6PoolsResponse>`,
 		ec2Xmlns(), sim.NewUUID())
@@ -1319,8 +1246,6 @@ func handleGetAssociatedIpv6PoolCidrs(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// AZ group / default credit specification / VPC tenancy.
-
 func handleModifyAvailabilityZoneGroup(w http.ResponseWriter, r *http.Request) {
 	group := r.FormValue("GroupName")
 	optIn := r.FormValue("OptInStatus")
@@ -1333,8 +1258,7 @@ func handleModifyAvailabilityZoneGroup(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// ec2DefaultCredit is the account-level default credit specification per
-// burstable instance family (t2/t3/t3a/t4g).
+// Per burstable family (t2, t3, t3a, t4g).
 var ec2DefaultCredit sim.Store[string]
 
 func handleGetDefaultCreditSpecification(w http.ResponseWriter, r *http.Request) {
@@ -1345,7 +1269,7 @@ func handleGetDefaultCreditSpecification(w http.ResponseWriter, r *http.Request)
 	}
 	cpuCredits, _ := ec2DefaultCredit.Get(family)
 	if cpuCredits == "" {
-		// AWS default: standard for t2, unlimited for t3/t3a/t4g.
+		// standard for t2, unlimited for t3, t3a and t4g.
 		if family == "t2" {
 			cpuCredits = "standard"
 		} else {
@@ -1388,8 +1312,6 @@ func handleModifyVpcTenancy(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID())
 }
 
-// Interruptible capacity-reservation allocation.
-
 func handleCreateInterruptibleCapacityReservationAllocation(w http.ResponseWriter, r *http.Request) {
 	srcID := r.FormValue("CapacityReservationId")
 	if srcID == "" {
@@ -1414,23 +1336,20 @@ func handleUpdateInterruptibleCapacityReservationAllocation(w http.ResponseWrite
 		ec2Xmlns(), sim.NewUUID(), id, target)
 }
 
-// Export / import tasks.
-
 func handleCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("ExportTaskId")
 	if id == "" {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter ExportTaskId", http.StatusBadRequest)
 		return
 	}
-	// CancelExportTask has a Unit output: an empty success response.
+	// Unit output: an empty success response.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CancelExportTaskResponse %s><requestId>%s</requestId><return>true</return></CancelExportTaskResponse>`,
 		ec2Xmlns(), sim.NewUUID())
 }
 
 func handleDescribeExportTasks(w http.ResponseWriter, r *http.Request) {
-	// The sim creates no instance-export task, so the read-back is an empty set;
-	// the exportTaskSet shape round-trips through the SDK.
+	// The simulator creates no instance export task.
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeExportTasksResponse %s><requestId>%s</requestId><exportTaskSet/></DescribeExportTasksResponse>`,
 		ec2Xmlns(), sim.NewUUID())
@@ -1447,9 +1366,6 @@ func handleCancelImportTask(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), id)
 }
 
-// Small shared helpers.
-
-// removeStrings returns src with every element present in remove dropped.
 func removeStrings(src, remove []string) []string {
 	if len(src) == 0 {
 		return src
@@ -1467,7 +1383,7 @@ func removeStrings(src, remove []string) []string {
 	return kept
 }
 
-// shortNum derives a small stable number from a string for synthesized IPv6.
+// Derives a stable number for synthesized IPv6 addresses.
 func shortNum(s string) uint16 {
 	var h uint16
 	for i := 0; i < len(s); i++ {

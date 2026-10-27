@@ -12,31 +12,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ── PartiQL ───────────────────────────────────────────────────────────────────
-
-// TestDDBPartiQLExecuteStatement covers INSERT / SELECT / UPDATE / DELETE through
-// ExecuteStatement.
 func TestDDBPartiQLExecuteStatement(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "partiql-exec"
 	ddbSimpleTable(t, c, tbl)
 
-	// INSERT
 	_, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
 		Statement:  aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?, 'n': ?}`),
 		Parameters: []ddbtypes.AttributeValue{sS("a"), sN("1")},
 	})
 	require.NoError(t, err)
 
-	// Duplicate INSERT must fail.
 	_, err = c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
 		Statement:  aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`),
 		Parameters: []ddbtypes.AttributeValue{sS("a")},
 	})
 	require.Error(t, err, "duplicate INSERT must fail")
 
-	// SELECT by full key → point read.
+	// A SELECT by full key is a point read.
 	sel, err := c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
 		Statement:  aws.String(`SELECT * FROM "` + tbl + `" WHERE pk = ?`),
 		Parameters: []ddbtypes.AttributeValue{sS("a")},
@@ -45,7 +39,6 @@ func TestDDBPartiQLExecuteStatement(t *testing.T) {
 	require.Len(t, sel.Items, 1)
 	assert.Equal(t, "1", sel.Items[0]["n"].(*ddbtypes.AttributeValueMemberN).Value)
 
-	// UPDATE SET.
 	_, err = c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
 		Statement:  aws.String(`UPDATE "` + tbl + `" SET n = ? WHERE pk = ?`),
 		Parameters: []ddbtypes.AttributeValue{sN("99"), sS("a")},
@@ -58,7 +51,6 @@ func TestDDBPartiQLExecuteStatement(t *testing.T) {
 	require.Len(t, sel2.Items, 1)
 	assert.Equal(t, "99", sel2.Items[0]["n"].(*ddbtypes.AttributeValueMemberN).Value)
 
-	// DELETE.
 	_, err = c.ExecuteStatement(ctx, &dynamodb.ExecuteStatementInput{
 		Statement:  aws.String(`DELETE FROM "` + tbl + `" WHERE pk = ?`),
 		Parameters: []ddbtypes.AttributeValue{sS("a")},
@@ -71,8 +63,8 @@ func TestDDBPartiQLExecuteStatement(t *testing.T) {
 	assert.Empty(t, sel3.Items)
 }
 
-// TestDDBPartiQLSelectFilterAndOrder covers a non-key SELECT (scan + filter) with
-// ORDER BY.
+// TestDDBPartiQLSelectFilterAndOrder covers a non-key SELECT, a filtered scan,
+// with ORDER BY.
 func TestDDBPartiQLSelectFilterAndOrder(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -93,8 +85,7 @@ func TestDDBPartiQLSelectFilterAndOrder(t *testing.T) {
 	assert.Equal(t, "1", out.Items[2]["sk"].(*ddbtypes.AttributeValueMemberN).Value)
 }
 
-// TestDDBPartiQLBatch covers BatchExecuteStatement — per-statement errors don't
-// fail the batch.
+// TestDDBPartiQLBatch expects a statement's error not to fail the batch.
 func TestDDBPartiQLBatch(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -106,7 +97,7 @@ func TestDDBPartiQLBatch(t *testing.T) {
 	out, err := c.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
 		Statements: []ddbtypes.BatchStatementRequest{
 			{Statement: aws.String(`SELECT * FROM "` + tbl + `" WHERE pk = ?`), Parameters: []ddbtypes.AttributeValue{sS("x")}},
-			{Statement: aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`), Parameters: []ddbtypes.AttributeValue{sS("x")}}, // dup → error
+			{Statement: aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`), Parameters: []ddbtypes.AttributeValue{sS("x")}}, // duplicate, so an error
 		},
 	})
 	require.NoError(t, err, "the batch call itself succeeds")
@@ -115,7 +106,7 @@ func TestDDBPartiQLBatch(t *testing.T) {
 	assert.NotNil(t, out.Responses[1].Error, "second statement (duplicate insert) carries a per-item Error")
 }
 
-// TestDDBPartiQLTransaction covers ExecuteTransaction — all-or-nothing.
+// TestDDBPartiQLTransaction expects ExecuteTransaction to apply all or nothing.
 func TestDDBPartiQLTransaction(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -131,11 +122,10 @@ func TestDDBPartiQLTransaction(t *testing.T) {
 	scan, _ := c.Scan(ctx, &dynamodb.ScanInput{TableName: aws.String(tbl)})
 	assert.Equal(t, int32(2), scan.Count)
 
-	// A transaction with a failing statement must roll back entirely.
 	_, err = c.ExecuteTransaction(ctx, &dynamodb.ExecuteTransactionInput{
 		TransactStatements: []ddbtypes.ParameterizedStatement{
 			{Statement: aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`), Parameters: []ddbtypes.AttributeValue{sS("t3")}},
-			{Statement: aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`), Parameters: []ddbtypes.AttributeValue{sS("t1")}}, // dup → cancel
+			{Statement: aws.String(`INSERT INTO "` + tbl + `" VALUE {'pk': ?}`), Parameters: []ddbtypes.AttributeValue{sS("t1")}}, // duplicate, so the transaction cancels
 		},
 	})
 	require.Error(t, err)
@@ -143,9 +133,6 @@ func TestDDBPartiQLTransaction(t *testing.T) {
 	assert.Equal(t, int32(2), scan2.Count, "t3 must not have been inserted (rolled back)")
 }
 
-// ── tail fidelity fixes ───────────────────────────────────────────────────────
-
-// TestDDBDescribeLimits covers the DescribeLimits op.
 func TestDDBDescribeLimits(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -155,7 +142,8 @@ func TestDDBDescribeLimits(t *testing.T) {
 	assert.Greater(t, aws.ToInt64(out.TableMaxWriteCapacityUnits), int64(0))
 }
 
-// TestDDBConsumedCapacity — ReturnConsumedCapacity yields a ConsumedCapacity block.
+// TestDDBConsumedCapacity expects ReturnConsumedCapacity to yield a
+// ConsumedCapacity block.
 func TestDDBConsumedCapacity(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -213,8 +201,8 @@ func TestDDBStoredByteAccountingAndItemLimit(t *testing.T) {
 	assert.Contains(t, err.Error(), "ValidationException")
 }
 
-// TestDDBCreateTableKeySchemaValidation — a key attr missing from
-// AttributeDefinitions is rejected.
+// TestDDBCreateTableKeySchemaValidation expects a key attribute missing from
+// AttributeDefinitions to be rejected.
 func TestDDBCreateTableKeySchemaValidation(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -228,7 +216,8 @@ func TestDDBCreateTableKeySchemaValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "ValidationException")
 }
 
-// TestDDBLegacyAttributeUpdatesAdd — AttributeUpdates with Action ADD increments.
+// TestDDBLegacyAttributeUpdatesAdd expects AttributeUpdates with Action ADD to
+// increment.
 func TestDDBLegacyAttributeUpdatesAdd(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -248,7 +237,8 @@ func TestDDBLegacyAttributeUpdatesAdd(t *testing.T) {
 	assert.Equal(t, "2", got.Item["count"].(*ddbtypes.AttributeValueMemberN).Value, "ADD must increment, not overwrite")
 }
 
-// TestDDBNestedProjection — ProjectionExpression a.b returns only the nested attr.
+// TestDDBNestedProjection expects ProjectionExpression a.b to return only the
+// nested attribute.
 func TestDDBNestedProjection(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -277,20 +267,18 @@ func TestDDBNestedProjection(t *testing.T) {
 	assert.False(t, hasName, "non-projected sibling must be absent")
 }
 
-// TestDDBLegacyExpected — the legacy Expected map gates a write.
 func TestDDBLegacyExpected(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
 	tbl := "legacy-expected"
 	ddbSimpleTable(t, c, tbl)
-	// First write requires the item NOT to exist.
 	_, err := c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tbl),
 		Item:      map[string]ddbtypes.AttributeValue{"pk": sS("u")},
 		Expected:  map[string]ddbtypes.ExpectedAttributeValue{"pk": {Exists: aws.Bool(false)}},
 	})
 	require.NoError(t, err)
-	// Second write with the same Expected must fail (it now exists).
+	// The same Expected fails now that the item exists.
 	_, err = c.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tbl),
 		Item:      map[string]ddbtypes.AttributeValue{"pk": sS("u")},
@@ -299,7 +287,7 @@ func TestDDBLegacyExpected(t *testing.T) {
 	requireAWSErrorCode(t, err, "ConditionalCheckFailedException")
 }
 
-// TestDDBConsistentReadOnGSI — ConsistentRead against a GSI is rejected.
+// TestDDBConsistentReadOnGSI expects ConsistentRead on a GSI to be rejected.
 func TestDDBConsistentReadOnGSI(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -332,10 +320,8 @@ func TestDDBConsistentReadOnGSI(t *testing.T) {
 	assert.True(t, strings.Contains(err.Error(), "ValidationException") || strings.Contains(err.Error(), "onsistent"))
 }
 
-// ── AWS DynamoDB expression-engine fixes (BUG-2150..2153) ─────────────────────
-
-// TestDDBNestedIfNotExists — if_not_exists() and a bare-path copy resolve NESTED
-// document paths, not just top-level attrs (BUG-2150, follow-on to #648).
+// TestDDBNestedIfNotExists expects if_not_exists() and a bare-path copy to
+// resolve nested document paths.
 func TestDDBNestedIfNotExists(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -346,7 +332,6 @@ func TestDDBNestedIfNotExists(t *testing.T) {
 		"a":  &ddbtypes.AttributeValueMemberM{Value: map[string]ddbtypes.AttributeValue{"b": sN("7")}},
 	}})
 	require.NoError(t, err)
-	// if_not_exists(a.b, :z) must find the EXISTING nested 7, so 7 - 1 = 6.
 	_, err = c.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tbl),
 		Key:                       map[string]ddbtypes.AttributeValue{"pk": sS("x")},
@@ -360,8 +345,8 @@ func TestDDBNestedIfNotExists(t *testing.T) {
 	assert.Equal(t, "6", m.Value["b"].(*ddbtypes.AttributeValueMemberN).Value, "nested if_not_exists must use the existing value")
 }
 
-// TestDDBNumberEqualityCanonical — N equality compares by value (5 == 5.0) in a
-// FilterExpression (BUG-2151).
+// TestDDBNumberEqualityCanonical expects N equality by value (5 == 5.0) in a
+// FilterExpression.
 func TestDDBNumberEqualityCanonical(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -379,8 +364,8 @@ func TestDDBNumberEqualityCanonical(t *testing.T) {
 	assert.Equal(t, int32(1), out.Count, "{N:5.0} must equal {N:5}")
 }
 
-// TestDDBBigNumberArithmetic — arithmetic SET keeps full integer precision past
-// 2^53 (BUG-2152).
+// TestDDBBigNumberArithmetic expects arithmetic SET to keep full integer
+// precision past 2^53.
 func TestDDBBigNumberArithmetic(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()
@@ -397,8 +382,8 @@ func TestDDBBigNumberArithmetic(t *testing.T) {
 	assert.Equal(t, "9007199254740994", got.Item["n"].(*ddbtypes.AttributeValueMemberN).Value, "no float64 rounding")
 }
 
-// TestDDBArithmeticNonNumericRejected — +/- on a non-numeric operand errors
-// instead of silently storing 0 (BUG-2153).
+// TestDDBArithmeticNonNumericRejected expects + or - on a non-numeric operand to
+// fail rather than store 0.
 func TestDDBArithmeticNonNumericRejected(t *testing.T) {
 	t.Parallel()
 	c := ddbClient()

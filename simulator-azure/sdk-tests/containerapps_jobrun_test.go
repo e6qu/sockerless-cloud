@@ -15,14 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// acaJobReplicas is a manual job's replica settings.
 type acaJobReplicas struct {
 	parallelism, completions, retryLimit, timeout int32
 }
 
-// createACAReplicaJob creates a manual Container Apps job in the suite's
-// logging environment whose single container runs script under sh, and
-// returns its name.
+// createACAReplicaJob creates a manual job in the suite's logging environment
+// whose container runs script under sh.
 func createACAReplicaJob(t *testing.T, client *armappcontainers.JobsClient, rg, envID string, replicas acaJobReplicas, script string) string {
 	t.Helper()
 	name := uniquename.New("acarun")
@@ -68,8 +66,8 @@ func startACAReplicaJob(t *testing.T, client *armappcontainers.JobsClient, rg, n
 	return *started.Name
 }
 
-// acaJobConsoleHosts returns the distinct hosts the job's replicas logged a
-// line starting with prefix from, once there are want of them.
+// acaJobConsoleHosts returns the distinct hosts whose replicas logged a line
+// starting with prefix, once there are want of them.
 func acaJobConsoleHosts(t *testing.T, jobName, prefix string, want int) []string {
 	t.Helper()
 	kql := fmt.Sprintf(`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == %q`, jobName)
@@ -168,10 +166,9 @@ func TestSDK_ContainerAppsJobs_ReplicaTimeoutStopsTheReplicaForGood(t *testing.T
 	assert.Len(t, acaJobConsoleHosts(t, name, "attempt ", 1), 1, "the timed-out replica was not retried")
 }
 
-// A persistent simulator that restarts takes over a running execution's
-// replica, so a stop after the restart still stops its container; an
-// execution whose replica container is gone after the restart fails, as a
-// replica lost with no retries left does, instead of staying Running.
+// A restarted persistent simulator takes over a running execution's replica,
+// so a stop after the restart still stops its container; an execution whose
+// container is gone fails, as a replica lost with no retries left does.
 func TestSDK_ContainerAppsJobs_ExecutionsResumeAfterASimulatorRestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()

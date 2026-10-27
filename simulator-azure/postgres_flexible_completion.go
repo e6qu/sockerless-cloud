@@ -10,14 +10,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Completion of the Microsoft.DBforPostgreSQL/flexibleServers control plane:
-// provider-level operations metadata, location- and server-scoped capability
-// catalogs, captured log files, quota usages, virtual-network subnet usage,
-// the private-DNS-zone suffix, long-term-retention backups, server threat
-// protection, performance tuning options, cross-server migrations, and the
-// private endpoint connection / private link resource surfaces.
+// The rest of Microsoft.DBforPostgreSQL/flexibleServers: operations, capability
+// catalogs, log files, quota and subnet usage, the private DNS zone suffix,
+// long-term-retention backups, threat protection, tuning options, migrations,
+// and private endpoint connections and private link resources.
 
-// PGMigration mirrors armpostgresqlflexibleservers.MigrationResource.
 type PGMigration struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
@@ -27,7 +24,6 @@ type PGMigration struct {
 	Properties map[string]any    `json:"properties,omitempty"`
 }
 
-// PGThreatProtection mirrors armpostgresqlflexibleservers.ServerThreatProtectionSettingsModel.
 type PGThreatProtection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -35,7 +31,6 @@ type PGThreatProtection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// PGPrivateEndpointConnection mirrors the common-types PrivateEndpointConnection.
 type PGPrivateEndpointConnection struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -43,9 +38,8 @@ type PGPrivateEndpointConnection struct {
 	Properties map[string]any `json:"properties,omitempty"`
 }
 
-// PGLtrBackup mirrors the wire's BackupsLongTermRetentionOperation proxy
-// resource: one long-term-retention backup operation, created by
-// startLtrBackup and read back through ltrBackupOperations.
+// One long-term-retention backup operation, created by startLtrBackup and read
+// through ltrBackupOperations.
 type PGLtrBackup struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -66,10 +60,8 @@ func registerPGFlexibleServerCompletion(srv *sim.Server) {
 	pgPrivateEndpointCxn = sim.MakeStore[PGPrivateEndpointConnection](srv.DB(), "pg_private_endpoint_connections")
 	pgLtrBackups = sim.MakeStore[PGLtrBackup](srv.DB(), "pg_ltr_backups")
 
-	// A long-term-retention capture completes via an in-process goroutine, so
-	// a persisted record still Running after a restart can never finish — its
-	// goroutine died with the previous process. Mark it Failed, mirroring the
-	// operation-status sweep in arm_lro.go for the poll the client holds.
+	// A capture still Running after a restart lost its goroutine; fail it, as
+	// arm_lro.go does for the operation the client polls.
 	for _, b := range pgLtrBackups.List() {
 		if status, _ := b.Properties["status"].(string); status != "Running" {
 			continue
@@ -88,35 +80,30 @@ func registerPGFlexibleServerCompletion(srv *sim.Server) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.DBforPostgreSQL/flexibleServers"
 	const subProvider = "/subscriptions/{subscriptionId}/providers/Microsoft.DBforPostgreSQL"
 
-	// Provider / location-scoped surfaces. Action verbs not in the path
-	// normalization allowlist register at the SDK's casing.
+	// Action verbs outside the path-normalization allowlist register at the SDK's
+	// casing.
 	srv.HandleFunc("GET /providers/Microsoft.DBforPostgreSQL/operations", handlePGOperationsList)
 	srv.HandleFunc("POST /providers/Microsoft.DBforPostgreSQL/getPrivateDnsZoneSuffix", handlePGPrivateDNSZoneSuffix)
 	srv.HandleFunc("GET "+subProvider+"/locations/{locationName}/capabilities", handlePGCapabilitiesByLocation)
 	srv.HandleFunc("GET "+subProvider+"/locations/{locationName}/resourceType/flexibleServers/usages", handlePGQuotaUsages)
 	srv.HandleFunc("POST "+subProvider+"/locations/{locationName}/checkVirtualNetworkSubnetUsage", handlePGVirtualNetworkSubnetUsage)
 
-	// Server-scoped read surfaces.
 	srv.HandleFunc("GET "+armBase+"/{name}/capabilities", handlePGCapabilitiesByServer)
 	srv.HandleFunc("GET "+armBase+"/{name}/logFiles", handlePGLogFiles)
 
-	// Long-term-retention backups.
 	srv.HandleFunc("GET "+armBase+"/{name}/ltrBackupOperations", handlePGLtrBackupList)
 	srv.HandleFunc("GET "+armBase+"/{name}/ltrBackupOperations/{backupName}", handlePGLtrBackupGet)
 	srv.HandleFunc("POST "+armBase+"/{name}/startLtrBackup", handlePGStartLtrBackup)
 	srv.HandleFunc("POST "+armBase+"/{name}/ltrPreBackup", handlePGLtrPreBackup)
 
-	// Server threat protection (advancedThreatProtectionSettings).
 	srv.HandleFunc("GET "+armBase+"/{name}/advancedThreatProtectionSettings", handlePGThreatProtectionList)
 	srv.HandleFunc("GET "+armBase+"/{name}/advancedThreatProtectionSettings/{threatProtectionName}", handlePGThreatProtectionGet)
 	srv.HandleFunc("PUT "+armBase+"/{name}/advancedThreatProtectionSettings/{threatProtectionName}", handlePGThreatProtectionPut)
 
-	// Performance tuning options.
 	srv.HandleFunc("GET "+armBase+"/{name}/tuningOptions", handlePGTuningOptionsList)
 	srv.HandleFunc("GET "+armBase+"/{name}/tuningOptions/{tuningOption}", handlePGTuningOptionGet)
 	srv.HandleFunc("GET "+armBase+"/{name}/tuningOptions/{tuningOption}/recommendations", handlePGTuningRecommendations)
 
-	// Migrations.
 	srv.HandleFunc("PUT "+armBase+"/{name}/migrations/{migrationName}", handlePGMigrationCreate)
 	srv.HandleFunc("GET "+armBase+"/{name}/migrations/{migrationName}", handlePGMigrationGet)
 	srv.HandleFunc("GET "+armBase+"/{name}/migrations", handlePGMigrationList)
@@ -124,7 +111,6 @@ func registerPGFlexibleServerCompletion(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+armBase+"/{name}/migrations/{migrationName}", handlePGMigrationCancel)
 	srv.HandleFunc("POST "+armBase+"/{name}/checkMigrationNameAvailability", handlePGCheckMigrationNameAvailability)
 
-	// Private endpoint connections + private link resources.
 	srv.HandleFunc("GET "+armBase+"/{name}/privateEndpointConnections", handlePGPrivateEndpointConnectionList)
 	srv.HandleFunc("GET "+armBase+"/{name}/privateEndpointConnections/{privateEndpointConnectionName}", handlePGPrivateEndpointConnectionGet)
 	srv.HandleFunc("PUT "+armBase+"/{name}/privateEndpointConnections/{privateEndpointConnectionName}", handlePGPrivateEndpointConnectionPut)
@@ -229,16 +215,11 @@ func handlePGVirtualNetworkSubnetUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// pgLtrCaptureContainers is the numberOfContainers ltrPreBackup reports: the
-// capture writes the server's single data volume into a single backup volume,
-// so one storage container is what the backup will use, however large the
-// database.
+// One backup volume per capture, so one container however large the database.
 const pgLtrCaptureContainers = 1
 
-// pgLtrBackupRequest is the wire shape shared by startLtrBackup
-// (BackupsLongTermRetentionRequest) and ltrPreBackup (LtrPreBackupRequest):
-// backupSettings names the backup; targetDetails — startLtrBackup only —
-// carries the SAS URIs of the storage containers the backup streams into.
+// Shared by startLtrBackup and ltrPreBackup; targetDetails, startLtrBackup
+// only, carries the SAS URIs the backup streams into.
 type pgLtrBackupRequest struct {
 	BackupSettings *struct {
 		BackupName string `json:"backupName"`
@@ -311,12 +292,9 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	pgLtrBackups.Put(b.ID, b)
-	// The capture runs through the operation's own long-running poll: the
-	// record reaches Succeeded, and the poll completes, only once the server's
-	// volume is actually captured. The operation declares its final state via
-	// Location, so the completion payload is what the Location poll answers
-	// with. Sizes are not reported: the capture helper does not measure the
-	// volume, and a number it never read would be an invented one.
+	// The record and the poll reach Succeeded only once the volume is captured;
+	// the final state comes via Location. Sizes are not reported: the capture does
+	// not measure the volume.
 	backupVolume := azurePGLtrBackupVolume(rg, serverName, backupName)
 	opID := startAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
 		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
@@ -334,8 +312,8 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 			backup.Properties["endTime"] = time.Now().UTC().Format(time.RFC3339Nano)
 			backup.Properties["percentComplete"] = float64(100)
 		}) {
-			// The server was deleted while its capture ran, and the cascade
-			// took the backup records; the volume goes with them.
+			// The server was deleted mid-capture and the cascade took the records; the
+			// volume goes too.
 			azurePGRemoveBackupVolume(backupVolume)
 			return nil, &AsyncOperationError{Code: "ResourceNotFound",
 				Message: "The server was deleted while the long-term-retention backup was being captured."}
@@ -353,9 +331,8 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		return payload, nil
 	})
-	// 202 with both LRO headers: Azure-AsyncOperation for the status poll and
-	// Location at operationResults, where the final-state-via-location client
-	// reads the BackupsLongTermRetentionResponse payload.
+	// The final-state-via-location client reads the
+	// BackupsLongTermRetentionResponse at operationResults.
 	location := pgServerLocation(id)
 	apiVersion := r.URL.Query().Get("api-version")
 	w.Header().Set("Azure-AsyncOperation",

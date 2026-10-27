@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// writeTempFile writes content to a temp file and returns its path, for the
-// CLI's fileb:// blob arguments (connection-function code, event objects).
+// writeTempFile backs the CLI's fileb:// blob arguments.
 func writeTempFile(t *testing.T, name string, content []byte) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
@@ -20,8 +19,6 @@ func writeTempFile(t *testing.T, name string, content []byte) string {
 	return p
 }
 
-// TestCloudFront_ConnectionFunction_CLI exercises the connection-function CRUD +
-// lifecycle through the real aws CLI.
 func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 	t.Parallel()
 	name := "clifn-" + time.Now().Format("150405.000000")
@@ -57,7 +54,6 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 		}
 	}()
 
-	// Describe.
 	descOut := runCLI(t, awsCLI("cloudfront", "describe-connection-function", "--identifier", id, "--output", "json"))
 	var desc struct {
 		ConnectionFunctionSummary struct {
@@ -70,7 +66,6 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 	etag := desc.ETag
 	require.NotEmpty(t, etag)
 
-	// Update.
 	updOut := runCLI(t, awsCLI("cloudfront", "update-connection-function",
 		"--id", id,
 		"--if-match", etag,
@@ -83,7 +78,6 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 	parseJSON(t, updOut, &upd)
 	require.NotEmpty(t, upd.ETag)
 
-	// Test.
 	testOut := runCLI(t, awsCLI("cloudfront", "test-connection-function",
 		"--id", id,
 		"--if-match", upd.ETag,
@@ -91,23 +85,18 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 		"--output", "json"))
 	require.Contains(t, testOut, "ConnectionFunctionTestResult")
 
-	// Publish → LIVE.
 	pubOut := runCLI(t, awsCLI("cloudfront", "publish-connection-function",
 		"--id", id, "--if-match", upd.ETag, "--output", "json"))
 	require.Contains(t, pubOut, "LIVE")
 
-	// List.
 	listOut := runCLI(t, awsCLI("cloudfront", "list-connection-functions", "--output", "json"))
 	require.Contains(t, listOut, id)
 
-	// ListDistributionsByConnectionFunction — honest empty.
 	byFnOut := runCLI(t, awsCLI("cloudfront", "list-distributions-by-connection-function",
 		"--connection-function-identifier", id, "--output", "json"))
 	require.Contains(t, byFnOut, "DistributionList")
 }
 
-// TestCloudFront_TestFunction_CLI exercises the CloudFront Functions
-// test-function op through the real aws CLI.
 func TestCloudFront_TestFunction_CLI(t *testing.T) {
 	t.Parallel()
 	name := "clifn-tf-" + time.Now().Format("150405.000000")
@@ -145,8 +134,6 @@ func TestCloudFront_TestFunction_CLI(t *testing.T) {
 	require.Contains(t, testOut, name)
 }
 
-// TestCloudFront_Tagging_CLI exercises tag-resource / untag-resource /
-// list-tags-for-resource on a stored distribution ARN through the aws CLI.
 func TestCloudFront_Tagging_CLI(t *testing.T) {
 	t.Parallel()
 	arn, id, etag := cfCLICreateMinimalDistribution(t)
@@ -167,8 +154,6 @@ func TestCloudFront_Tagging_CLI(t *testing.T) {
 	require.NotContains(t, listOut2, "infra")
 }
 
-// TestCloudFront_CreateStreamingDistributionWithTags_CLI exercises the
-// create-streaming-distribution-with-tags variant through the aws CLI.
 func TestCloudFront_CreateStreamingDistributionWithTags_CLI(t *testing.T) {
 	t.Parallel()
 	caller := "cli-stream-wt-" + time.Now().Format("150405.000000")
@@ -197,8 +182,6 @@ func TestCloudFront_CreateStreamingDistributionWithTags_CLI(t *testing.T) {
 		"--id", created.StreamingDistribution.Id, "--if-match", created.ETag))
 }
 
-// cfCLICreateMinimalDistribution creates a disabled distribution and returns its
-// ARN, ID, and ETag for tagging/teardown.
 func cfCLICreateMinimalDistribution(t *testing.T) (arn, id, etag string) {
 	t.Helper()
 	caller := "cli-complete-" + time.Now().Format("150405.000000")

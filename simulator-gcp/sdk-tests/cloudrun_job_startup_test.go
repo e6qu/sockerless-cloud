@@ -16,8 +16,6 @@ import (
 
 const crJobParent = "projects/test-project/locations/us-central1"
 
-// createRunJob creates a Cloud Run job from template and deletes it when the
-// test ends.
 func createRunJob(t *testing.T, client *run.JobsClient, jobID string, template *runpb.TaskTemplate) string {
 	t.Helper()
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{

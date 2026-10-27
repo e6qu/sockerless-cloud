@@ -11,15 +11,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// CloudWatch metrics — query-protocol surface (the aws CLI / botocore path).
-//
-// The Go SDK speaks rpc-v2-cbor to CloudWatch (handled in cloudwatch_metrics.go
-// under /service/GraniteServiceVersion...), but the aws CLI / botocore use the
-// legacy query protocol (Action=..., form params, XML responses) — so
-// `aws cloudwatch put-metric-data` / `get-metric-statistics` / `list-metrics`
-// previously returned InvalidAction. These handlers serve that surface from the
-// SAME `cwMetrics` store and the SAME period-bucketing + statistic helpers, so
-// data pushed via either protocol reads back through either.
+// Older botocore speaks the query protocol, served from the same cwMetrics
+// store and helpers.
 
 const (
 	cwQueryNamespace = "http://monitoring.amazonaws.com/doc/2010-08-01/"

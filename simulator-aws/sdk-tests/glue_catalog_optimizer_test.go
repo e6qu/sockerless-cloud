@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGlue_Catalog_SDK exercises the Glue multi-catalog CRUD: Create / Get /
-// GetCatalogs / Update / Delete.
 func TestGlue_Catalog_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -62,8 +60,6 @@ func TestGlue_Catalog_SDK(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestGlue_TableOptimizer_SDK exercises Create / Get / Update / BatchGet /
-// ListTableOptimizerRuns / Delete on a table optimizer attached to a table.
 func TestGlue_TableOptimizer_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -164,14 +160,10 @@ func TestGlue_TableOptimizer_SDK(t *testing.T) {
 	assert.Len(t, batch.Failures, 1)
 }
 
-// TestGlue_BatchGet_SDK exercises BatchGetCrawlers / BatchGetJobs /
-// BatchGetTriggers / BatchGetWorkflows / BatchGetCustomEntityTypes /
-// BatchDeleteConnection / BatchUpdatePartition against pre-created resources.
 func TestGlue_BatchGet_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
 
-	// Crawler.
 	crawler := uniquename.New("glue-sdk-batch-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:    aws.String(crawler),
@@ -188,7 +180,6 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Len(t, gc.Crawlers, 1)
 	assert.Equal(t, []string{"no-such-crawler"}, gc.CrawlersNotFound)
 
-	// Job.
 	job := uniquename.New("glue-sdk-batch-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
@@ -203,7 +194,6 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Len(t, gj.Jobs, 1)
 	assert.Equal(t, []string{"no-such-job"}, gj.JobsNotFound)
 
-	// Trigger.
 	trigger := uniquename.New("glue-sdk-batch-trigger")
 	_, err = c.CreateTrigger(ctx, &glue.CreateTriggerInput{
 		Name: aws.String(trigger),
@@ -222,7 +212,6 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Len(t, gt.Triggers, 1)
 	assert.Equal(t, []string{"no-such-trigger"}, gt.TriggersNotFound)
 
-	// Workflow.
 	workflow := uniquename.New("glue-sdk-batch-workflow")
 	_, err = c.CreateWorkflow(ctx, &glue.CreateWorkflowInput{Name: aws.String(workflow)})
 	require.NoError(t, err)
@@ -235,14 +224,13 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Len(t, gw.Workflows, 1)
 	assert.Equal(t, []string{"no-such-workflow"}, gw.MissingWorkflows)
 
-	// Custom entity types (none created — all reported missing).
+	// No custom entity type exists, so all are reported missing.
 	gce, err := c.BatchGetCustomEntityTypes(ctx, &glue.BatchGetCustomEntityTypesInput{
 		Names: []string{"no-such-entity"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"no-such-entity"}, gce.CustomEntityTypesNotFound)
 
-	// BatchDeleteConnection.
 	conn := uniquename.New("glue-sdk-batch-conn")
 	_, err = c.CreateConnection(ctx, &glue.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{
@@ -259,7 +247,6 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Equal(t, []string{conn}, bdc.Succeeded)
 	assert.Contains(t, bdc.Errors, "no-such-conn")
 
-	// BatchUpdatePartition on a partitioned table.
 	db := uniquename.New("glue-sdk-batch-db")
 	tbl := uniquename.New("glue-sdk-batch-tbl")
 	_, err = c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -303,8 +290,6 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	assert.Len(t, bup.Errors, 1)
 }
 
-// TestGlue_Integration_SDK exercises the zero-ETL Integration family plus
-// resource/table properties round-trips.
 func TestGlue_Integration_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
@@ -320,8 +305,7 @@ func TestGlue_Integration_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, name, aws.ToString(created.IntegrationName))
-	// AWS Glue names an integration's ARN by the id it assigns, not by the
-	// integration's name.
+	// AWS Glue names an integration's ARN by the id it assigns, not by its name.
 	assert.Regexp(t, `^arn:aws:glue:[a-z0-9-]+:\d{12}:integration:[0-9a-f-]{36}$`, aws.ToString(created.IntegrationArn))
 	integArn := aws.ToString(created.IntegrationArn)
 	t.Cleanup(func() {
@@ -356,7 +340,6 @@ func TestGlue_Integration_SDK(t *testing.T) {
 	}
 	assert.True(t, foundInbound)
 
-	// Resource properties.
 	const resArn = "arn:aws:glue:us-east-1:123456789012:connection/src-conn"
 	crp, err := c.CreateIntegrationResourceProperty(ctx, &glue.CreateIntegrationResourcePropertyInput{
 		ResourceArn: aws.String(resArn),
@@ -397,7 +380,6 @@ func TestGlue_Integration_SDK(t *testing.T) {
 	}
 	assert.True(t, foundProp)
 
-	// Table properties.
 	const tableResArn = "arn:aws:glue:us-east-1:123456789012:table/target-tbl"
 	_, err = c.CreateIntegrationTableProperties(ctx, &glue.CreateIntegrationTablePropertiesInput{
 		ResourceArn: aws.String(tableResArn),

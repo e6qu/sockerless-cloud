@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createResourceGroup provisions a resource group via the SDK so per-service
-// tests have a real parent scope.
 func createResourceGroup(t *testing.T, name string) {
 	t.Helper()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -20,8 +18,8 @@ func createResourceGroup(t *testing.T, name string) {
 	require.NoError(t, err)
 }
 
-// pgCreateServer provisions a flexible server through the SDK ServersClient and
-// returns once it reports Ready, so the per-resource subtests have a real parent.
+// pgCreateServer creates a flexible server through ServersClient and returns
+// once it reports Ready.
 func pgCreateServer(t *testing.T, rg, name string) {
 	t.Helper()
 	client, err := armpostgresqlflexibleservers.NewServersClient(subscriptionID, &fakeCredential{}, clientOpts())

@@ -27,12 +27,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// acrTaskRun carries out a task file's steps on the build host's container
-// engine, the way the ACR Tasks run engine does on a run's agent: every step
-// shares one volume mounted at /workspace and holding the run's source, cmd
-// steps run containers on a network of the run's own where each answers to
-// its step ID, build steps build with the source as their context, and push
-// steps push to the registries the run holds credentials for.
+// acrTaskRun carries out a task file's steps on the build host's engine, as
+// the ACR Tasks run engine does on an agent: the steps share one volume at
+// /workspace holding the source, cmd steps run on a network of the run's own
+// where each answers to its step ID, and push steps push with the run's
+// credentials.
 type acrTaskRun struct {
 	runID     string
 	log       io.Writer
@@ -40,11 +39,10 @@ type acrTaskRun struct {
 	dockerEnv []string
 	platform  string
 	network   string
-	// dns is the network's sidecar, the resolver every step is handed.
+	// dns is the network sidecar, every step's resolver.
 	dns    netip.Addr
 	volume string
-	// registryHost is the run's registry login server without its port;
-	// registryAuth is the engine API credential the run holds for it.
+	// registryAuth is the engine API credential the run holds for registryHost.
 	registryHost string
 	registryAuth string
 
@@ -65,8 +63,7 @@ func (x *acrTaskRun) logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(x.log, time.Now().UTC().Format("2006/01/02 15:04:05 ")+format+"\n", args...)
 }
 
-// credentialFor is the credential the engine presents to the registry an
-// image names: the run's own for its registry, none for any other.
+// credentialFor presents the run's credential only to its own registry.
 func (x *acrTaskRun) credentialFor(image string) string {
 	if acrBareHost(acrImageDomain(image)) == x.registryHost {
 		return x.registryAuth
@@ -74,9 +71,8 @@ func (x *acrTaskRun) credentialFor(image string) string {
 	return ""
 }
 
-// acrImageDomain is the registry host an image reference names, by the Docker
-// reference grammar: the first path component when it holds a dot or a port
-// or is localhost, Docker Hub otherwise.
+// acrImageDomain applies the Docker reference grammar: the first path
+// component when it holds a dot or a port or is localhost, else Docker Hub.
 func acrImageDomain(image string) string {
 	first, _, ok := strings.Cut(image, "/")
 	if ok && (strings.ContainsAny(first, ".:") || first == "localhost") {
@@ -85,9 +81,8 @@ func acrImageDomain(image string) string {
 	return "docker.io"
 }
 
-// writeProgress writes an engine pull or push progress stream to the run log
-// the way the docker CLI prints one to a non-terminal, and returns the error
-// the stream ends with.
+// writeProgress prints an engine progress stream as the docker CLI does to a
+// non-terminal and returns the stream's terminal error.
 func (x *acrTaskRun) writeProgress(messages iter.Seq2[jsonstream.Message, error]) error {
 	for m, err := range messages {
 		if err != nil {
@@ -109,16 +104,14 @@ func (x *acrTaskRun) writeProgress(messages iter.Seq2[jsonstream.Message, error]
 	return nil
 }
 
-// acrRunTaskFile runs every step of task once its `when` dependencies have
-// succeeded. A step that fails, unless it ignores errors, fails the run and
-// stops the steps still running.
+// acrRunTaskFile runs each step once its `when` dependencies have succeeded. A
+// failing step, unless it ignores errors, fails the run and stops the rest.
 func acrRunTaskFile(ctx context.Context, task *acrTaskFile, x *acrTaskRun) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	// The run's network takes a range of its own so its sidecar holds a
-	// fixed address there; the steps resolve names through that sidecar, as
-	// every workload container does.
+	// The network takes a range of its own so its sidecar holds a fixed address;
+	// the steps resolve names through it.
 	if _, _, err := sim.EnsurePlatformNetwork(ctx, x.network, nil); err != nil {
 		return fmt.Errorf("create the run's network: %w", err)
 	}
@@ -220,8 +213,8 @@ func (x *acrTaskRun) runStep(ctx context.Context, s *acrTaskStep) error {
 	return err
 }
 
-// attempts runs fn once, plus once per repeat, retrying each run that fails up
-// to retries times, retryDelay seconds apart.
+// attempts runs fn once plus once per repeat, retrying each failure up to
+// retries times, retryDelay seconds apart.
 func attempts(ctx context.Context, s *acrTaskStep, fn func() error) error {
 	for run := 0; run <= s.Repeat; run++ {
 		var err error
@@ -253,10 +246,9 @@ func acrWait(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// stepWorkingDirectory resolves a step's working directory inside its
-// container: /workspace unless the step names another, a relative one under
-// /workspace, and the image's own when the step disables the override and
-// names none.
+// stepWorkingDirectory: /workspace unless the step names another, a relative
+// one under /workspace, and the image's own when the step disables the
+// override and names none.
 func stepWorkingDirectory(s *acrTaskStep) string {
 	wd := s.WorkingDirectory
 	if s.DisableWorkingDirectoryOverride {
@@ -271,7 +263,6 @@ func stepWorkingDirectory(s *acrTaskStep) string {
 	return wd
 }
 
-// acrOCIPlatform reads an os[/architecture[/variant]] platform string.
 func acrOCIPlatform(p string) *ocispec.Platform {
 	if p == "" {
 		return nil
@@ -287,9 +278,8 @@ func acrOCIPlatform(p string) *ocispec.Platform {
 	return platform
 }
 
-// acrStepPorts reads a cmd step's `ports` (docker's
-// [ip:][hostPort:]containerPort[/protocol] publish form) and `expose` into the
-// ports its container exposes and binds on the host.
+// acrStepPorts reads `ports` (docker's [ip:][hostPort:]containerPort[/protocol]
+// form) and `expose`.
 func acrStepPorts(publish, expose []string) (network.PortSet, network.PortMap, error) {
 	exposed := network.PortSet{}
 	bindings := network.PortMap{}
@@ -365,9 +355,8 @@ func acrStepPorts(publish, expose []string) (network.PortSet, network.PortMap, e
 	return exposed, bindings, nil
 }
 
-// pullStepImage makes a cmd step's image available on the engine: pulled
-// every time when the step asks to pull, otherwise only when the engine does
-// not hold it for the run's platform.
+// pullStepImage pulls every time when the step asks to, otherwise only when the
+// engine lacks the image for the run's platform.
 func (x *acrTaskRun) pullStepImage(ctx context.Context, image string, always bool) error {
 	platform := acrOCIPlatform(x.platform)
 	if !always {
@@ -483,11 +472,9 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 	return x.collectWorkspace(ctx, name)
 }
 
-// execute starts a step's container and streams its output to the run log
-// until it exits. The log follows the container from its start, so output a
-// short-lived container writes before a reader attaches is not lost; a
-// re-execution reads only what it wrote itself. The wait for the exit is in
-// place before the start, so an exit cannot slip past it.
+// execute follows the log from the container's start, so early output is not
+// lost, and arms the wait before the start so an exit cannot slip past it. A
+// re-execution reads only its own output.
 func (x *acrTaskRun) execute(ctx context.Context, stepID, name string, again bool) error {
 	waitCtx, stopWait := context.WithCancel(ctx)
 	defer stopWait()
@@ -529,8 +516,8 @@ func (x *acrTaskRun) execute(ctx context.Context, stepID, name string, again boo
 	}
 }
 
-// seedVolume copies the run's source into the shared volume through the first
-// container that mounts it, before that container starts.
+// seedVolume copies the source into the shared volume through the first
+// container that mounts it, before it starts.
 func (x *acrTaskRun) seedVolume(ctx context.Context, container string) error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -551,8 +538,8 @@ func (x *acrTaskRun) seedVolume(ctx context.Context, container string) error {
 	return nil
 }
 
-// collectWorkspace reads the shared volume back after a cmd step, so the build
-// steps that follow see what it wrote.
+// collectWorkspace reads the volume back after a cmd step, so later build steps
+// see what it wrote.
 func (x *acrTaskRun) collectWorkspace(ctx context.Context, container string) error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -624,7 +611,6 @@ func (x *acrTaskRun) runBuildStep(ctx context.Context, s *acrTaskStep) error {
 	})
 }
 
-// acrBuildTags reads the image tags a docker build command line names.
 func acrBuildTags(words []string) []string {
 	var tags []string
 	for i := 0; i < len(words); i++ {
@@ -661,10 +647,8 @@ func (x *acrTaskRun) runPushStep(ctx context.Context, s *acrTaskStep) error {
 	return nil
 }
 
-// cleanup removes what the run left on the build host: the step containers it
-// was not asked to keep, the images it built, its network and its volume, and
-// the host copy of its workspace. The registry, not the build host, keeps a
-// run's output.
+// cleanup removes the step containers not kept, the built images, the network,
+// the volume and the workspace copy; the registry keeps the run's output.
 func (x *acrTaskRun) cleanup() {
 	ctx := context.Background()
 	x.mu.Lock()

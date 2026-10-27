@@ -25,10 +25,9 @@ var (
 	placementCloudBuild = placement.Service{Name: "cloudbuild"}
 )
 
-// gcpPlacement maps services to the backend their workloads run on. It starts
-// as the all-containers table, which is what a process built without
-// Configure (the in-process unit tests) runs on; Configure replaces it with
-// the one SIM_PLACEMENT spells.
+// gcpPlacement maps services to the backend their workloads run on: the
+// all-containers table until gcpConfigurePlacement replaces it with the one
+// SIM_PLACEMENT spells, so in-process unit tests run on containers.
 var gcpPlacement = gcpContainerPlacement()
 
 // gcpMicroVMBackend is the node agent's backend once a service is configured
@@ -48,7 +47,6 @@ func gcpContainerPlacement() *placement.Table {
 	return table
 }
 
-// gcpConfigurePlacement reads the placement table from the configuration.
 func gcpConfigurePlacement(cfg *sim.Config) error {
 	table, err := placement.ParseTable(cfg.Placement)
 	if err != nil {

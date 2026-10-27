@@ -12,26 +12,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Cosmos request-unit (RU) charge model + throughput-offer data plane.
+// Request-unit charges and the throughput-offer data plane.
 //
-// Real Cosmos returns an `x-ms-request-charge` header on every data-plane
-// response: a point read of a ~1 KB item costs ~1 RU, a create/upsert/replace
-// of the same item costs ~5 RU, a delete ~5 RU, and a query scales with the
-// number of results it materializes. The cost grows with the serialized item
-// size. The model below is a small, defensible heuristic anchored to Microsoft's
-// documented per-operation RU figures (point read 1 RU/KB, write 5 RU/KB) and
-// verified against the emulator's actual x-ms-request-charge in the differential
-// (cosmos_differential_test.go, the "request-charge-*" scenarios): the emulator
-// charges 1 RU for a small-item point read and ~5–6 RU for a small-item create,
-// which the sim matches to the same order of magnitude.
+// Azure Cosmos DB returns `x-ms-request-charge` on every data-plane response.
+// The model anchors on Microsoft's documented figures (point read 1 RU/KB,
+// write 5 RU/KB) and the emulator's charges in the differential test
+// (cosmos_differential_test.go, "request-charge-*"): 1 RU for a small point
+// read, about 5–6 RU for a small create.
 //
-// A database's or container's dedicated throughput is one record: the Azure
-// Resource Manager throughputSettings/default resource in cosmosThroughputs.
-// The data plane's `offers` resource is that record seen through the NoSQL
-// API: azcosmos's ReadThroughput and ReplaceThroughput query POST /offers for
-// `SELECT * FROM c WHERE c.offerResourceId = '<rid>'`, GET the matched offer by
-// its self-link and PUT the updated ThroughputProperties back, and each of
-// those reads or writes the record Azure Resource Manager serves.
+// Dedicated throughput is one record, the throughputSettings/default resource
+// in cosmosThroughputs; the data plane's `offers` resource is that record
+// through the NoSQL API. azcosmos's ReadThroughput and ReplaceThroughput query
+// POST /offers by offerResourceId, GET the offer by its self-link and PUT it
+// back, all against that record.
 
 func registerCosmosThroughput(srv *sim.Server) {
 	for _, t := range cosmosThroughputs.List() {
@@ -41,8 +34,8 @@ func registerCosmosThroughput(srv *sim.Server) {
 		}
 	}
 
-	// The SDK addresses an offer by its rid-based self-link, which carries a
-	// trailing slash ("offers/<id>/"); register both forms so the GET/PUT match.
+	// The SDK's offer self-link carries a trailing slash ("offers/<id>/"), so
+	// register both forms.
 	srv.HandleFunc("POST /offers", handleCosmosOffersQuery)
 	srv.HandleFunc("GET /offers/{offer}", handleCosmosGetOffer)
 	srv.HandleFunc("GET /offers/{offer}/", handleCosmosGetOffer)
@@ -50,8 +43,6 @@ func registerCosmosThroughput(srv *sim.Server) {
 	srv.HandleFunc("PUT /offers/{offer}/", handleCosmosReplaceOffer)
 }
 
-// cosmosDataRID is the `_rid` of a NoSQL database, or a container when coll is
-// set.
 func cosmosDataRID(account, db, coll string) string {
 	if coll == "" {
 		return cosmosDatabaseRID(account, db)
@@ -61,9 +52,6 @@ func cosmosDataRID(account, db, coll string) string {
 
 const cosmosOfferIDPrefix = "offer_"
 
-// cosmosSQLThroughputID is the Azure Resource Manager identifier of the
-// throughput record of the NoSQL database, or container when coll is set, that
-// the data plane addresses by name.
 func cosmosSQLThroughputID(account, db, coll string) (string, bool) {
 	acct, ok := cosmosAccountByName(account)
 	if !ok {
@@ -78,8 +66,6 @@ func cosmosSQLThroughputID(account, db, coll string) (string, bool) {
 
 var cosmosThroughputsByRID sim.GenerationIndex[CosmosThroughput]
 
-// cosmosThroughputByRID finds the throughput record of the NoSQL resource
-// whose data-plane `_rid` is rid.
 func cosmosThroughputByRID(rid string) (CosmosThroughput, bool) {
 	return cosmosThroughputsByRID.Lookup(cosmosThroughputs, rid, func(t CosmosThroughput) []string {
 		if !strings.Contains(t.ID, "/sqlDatabases/") {
@@ -93,9 +79,8 @@ func cosmosThroughputByRID(rid string) (CosmosThroughput, bool) {
 	})
 }
 
-// cosmosStampThroughput records a write to a throughput resource: the `_etag`
-// and `_ts` both surfaces report, and for a NoSQL resource the `_rid` of the
-// resource the throughput belongs to.
+// cosmosStampThroughput records the `_etag` and `_ts` both surfaces report and,
+// for a NoSQL resource, the owning resource's `_rid`.
 func cosmosStampThroughput(id string, resource map[string]any) {
 	now := time.Now().UTC().Unix()
 	resource["_etag"] = fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1))
@@ -107,10 +92,8 @@ func cosmosStampThroughput(id string, resource map[string]any) {
 	}
 }
 
-// cosmosProvisionThroughputFromHeaders records the dedicated throughput of a
-// NoSQL database or container the data plane just created with a throughput
-// header: manual (x-ms-offer-throughput) or autoscale
-// (x-ms-cosmos-offer-autopilot-settings). No header means shared throughput and
+// Manual (x-ms-offer-throughput) or autoscale
+// (x-ms-cosmos-offer-autopilot-settings); no header means shared throughput and
 // no record, as on the service.
 func cosmosProvisionThroughputFromHeaders(r *http.Request, account, db, coll string) error {
 	manual := strings.TrimSpace(r.Header.Get("x-ms-offer-throughput"))
@@ -150,8 +133,6 @@ func cosmosProvisionThroughputFromHeaders(r *http.Request, account, db, coll str
 	return nil
 }
 
-// cosmosForgetSQLThroughput drops the throughput record of a NoSQL database
-// or container the data plane deleted.
 func cosmosForgetSQLThroughput(account, db, coll string) {
 	if id, ok := cosmosSQLThroughputID(account, db, coll); ok {
 		cosmosThroughputs.Delete(id)
@@ -159,9 +140,8 @@ func cosmosForgetSQLThroughput(account, db, coll string) {
 	}
 }
 
-// handleCosmosOffersQuery serves the SDK's `SELECT * FROM c WHERE
-// c.offerResourceId = '<rid>'` feed query against /offers, returning the matched
-// offer in the `Offers` envelope azcosmos unmarshals.
+// handleCosmosOffersQuery answers in the `Offers` envelope azcosmos
+// unmarshals.
 func handleCosmosOffersQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
@@ -183,8 +163,6 @@ func handleCosmosOffersQuery(w http.ResponseWriter, r *http.Request) {
 	}, cosmosQueryCharge(len(matches)))
 }
 
-// cosmosOfferRIDFromQuery extracts the rid from the SDK's offer query
-// `... WHERE c.offerResourceId = '<rid>'`.
 func cosmosOfferRIDFromQuery(query string) string {
 	const marker = "offerResourceId"
 	i := strings.Index(query, marker)
@@ -204,7 +182,6 @@ func cosmosOfferRIDFromQuery(query string) string {
 	return rest[:end]
 }
 
-// cosmosThroughputByOfferID finds the throughput record an offer id names.
 func cosmosThroughputByOfferID(offerID string) (CosmosThroughput, bool) {
 	rid, ok := strings.CutPrefix(offerID, cosmosOfferIDPrefix)
 	if !ok {
@@ -264,8 +241,6 @@ func handleCosmosReplaceOffer(w http.ResponseWriter, r *http.Request) {
 	cosmosWriteDataCharge(w, http.StatusOK, cosmosOfferBody(t), 1.0)
 }
 
-// cosmosOfferBody renders a NoSQL resource's throughput record as the offer
-// the data plane serves.
 func cosmosOfferBody(t CosmosThroughput) map[string]any {
 	resource, _ := t.Properties["resource"].(map[string]any)
 	rid, _ := resource["_rid"].(string)
@@ -291,10 +266,7 @@ func cosmosOfferBody(t CosmosThroughput) map[string]any {
 	}
 }
 
-// ── RU charge model ──────────────────────────────────────────────────────────
-
-// cosmosItemSizeKB returns the serialized item size in KB (minimum one), the
-// scale factor real Cosmos's RU figures are quoted against.
+// One KB minimum; Microsoft quotes RU figures per KB.
 func cosmosItemSizeKB(body map[string]any) float64 {
 	if body == nil {
 		return 1
@@ -310,39 +282,31 @@ func cosmosItemSizeKB(body map[string]any) float64 {
 	return kb
 }
 
-// cosmosReadCharge is the RU cost of a point read: ~1 RU per KB (Microsoft's
-// documented figure for a point read by id+partition key).
+// About 1 RU per KB, Microsoft's figure for a point read.
 func cosmosReadCharge(body map[string]any) float64 {
 	return cosmosRound(1.0 * cosmosItemSizeKB(body))
 }
 
-// cosmosWriteCharge is the RU cost of a create/upsert/replace/patch: writes cost
-// ~5x a read of the same item, matching the emulator's ~5–6 RU for a small item.
+// About 5x a read, matching the emulator's 5–6 RU for a small item.
 func cosmosWriteCharge(body map[string]any) float64 {
 	return cosmosRound(5.0 * cosmosItemSizeKB(body))
 }
 
-// cosmosDeleteCharge is the RU cost of a point delete (~5 RU, write-class).
 func cosmosDeleteCharge() float64 { return 5.0 }
 
-// cosmosQueryCharge scales with the number of rows the query materialized: a
-// small base plus a per-result increment. An empty result still costs the base.
+// A base plus a per-result increment; an empty result still costs the base.
 func cosmosQueryCharge(results int) float64 {
 	return cosmosRound(2.3 + 0.5*float64(results))
 }
 
-// cosmosMetadataCharge is the flat ~1 RU cost of a small metadata read
-// (database/collection/offer GET, list).
 const cosmosMetadataCharge = 1.0
 
-// cosmosRound rounds an RU charge to the two-decimal precision real Cosmos
-// reports in x-ms-request-charge.
+// Azure Cosmos DB reports charges to two decimals.
 func cosmosRound(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
-// cosmosFormatCharge renders an RU charge the way real Cosmos does (a decimal
-// with no trailing-zero noise), e.g. "1", "5.71", "2.8".
+// No trailing zeros: "1", "5.71", "2.8".
 func cosmosFormatCharge(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }

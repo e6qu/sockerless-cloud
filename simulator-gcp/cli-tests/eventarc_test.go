@@ -128,9 +128,9 @@ func TestEventarcCLI_ChannelProviderConnection(t *testing.T) {
 	assert.Equal(t, channel.Name, connections[0].Channel)
 }
 
-// Eventarc and Cloud Build both keep triggers at the global location. Each
-// list names the collection by its own host, so it holds only that service's
-// triggers.
+// TestEventarcCLI_GlobalTriggersApartFromCloudBuild: Eventarc and Cloud Build
+// both keep triggers at the global location, and each list holds only its own
+// service's triggers.
 func TestEventarcCLI_GlobalTriggersApartFromCloudBuild(t *testing.T) {
 	t.Parallel()
 	const (

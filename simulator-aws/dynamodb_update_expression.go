@@ -9,12 +9,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// DynamoDB UpdateExpression evaluator.
-//
-// Modern clients (aws CLI / SDK / terraform-provider-aws) drive UpdateItem with
-// an UpdateExpression, not the legacy AttributeUpdates parameter. This applies
-// the common subset, in place, against the stored item (attribute values are
-// the wire shape, e.g. {"N":"5"} / {"S":"x"} / {"SS":[...]}):
+// Applies an UpdateExpression to the stored item:
 //
 //	SET  path = operand                 (assignment)
 //	SET  path = operand +|- operand     (numeric arithmetic)
@@ -23,9 +18,7 @@ import (
 //	ADD  path operand                   (number increment, or string/number-set union)
 //	DELETE path operand                 (set-element removal)
 //
-// Placeholders #name (ExpressionAttributeNames) and :val
-// (ExpressionAttributeValues) are resolved. Top-level attribute paths only —
-// nested document paths are not modelled.
+// #name and :val placeholders resolve against the expression attribute maps.
 func ddbApplyUpdateExpression(item map[string]any, expr string, names map[string]string, values map[string]any) error {
 	for kw, body := range ddbSplitUpdateClauses(expr) {
 		switch kw {
@@ -75,9 +68,8 @@ func ddbApplyUpdateExpression(item map[string]any, expr string, names map[string
 	return nil
 }
 
-// ddbSetByPath assigns value at a (possibly nested) document path — a top-level
-// attribute or `a.b[0].c` — creating intermediate map (M) / list (L) containers
-// as DynamoDB does. Setting list index == len appends; > len is an error.
+// Create intermediate M and L containers as DynamoDB does. A list index equal
+// to the length appends; beyond it is an error.
 func ddbSetByPath(item map[string]any, path string, names map[string]string, value any) error {
 	segs := ddbSplitPath(path)
 	if len(segs) == 0 {
@@ -96,8 +88,6 @@ func ddbSetByPath(item map[string]any, path string, names map[string]string, val
 	return nil
 }
 
-// ddbAssignNested returns container (an AttributeValue) with value assigned at
-// the nested segs, creating M/L containers as needed.
 func ddbAssignNested(container any, segs []string, names map[string]string, value any) (any, error) {
 	seg := segs[0]
 	last := len(segs) == 1
@@ -145,7 +135,6 @@ func ddbAssignNested(container any, segs []string, names map[string]string, valu
 	return map[string]any{"M": mm}, nil
 }
 
-// ddbRemoveByPath deletes the attribute at a (possibly nested) document path.
 func ddbRemoveByPath(item map[string]any, path string, names map[string]string) {
 	segs := ddbSplitPath(path)
 	if len(segs) == 0 {
@@ -161,8 +150,7 @@ func ddbRemoveByPath(item map[string]any, path string, names map[string]string) 
 	}
 }
 
-// ddbDeleteNested returns container with the attribute at segs removed; ok is
-// false when the path doesn't exist (container left unchanged).
+// ok is false when the path does not exist.
 func ddbDeleteNested(container any, segs []string, names map[string]string) (any, bool) {
 	seg := segs[0]
 	last := len(segs) == 1
@@ -177,7 +165,7 @@ func ddbDeleteNested(container any, segs []string, names map[string]string) (any
 			return container, false
 		}
 		if last {
-			lst = append(lst[:idx:idx], lst[idx+1:]...) // remove + shift
+			lst = append(lst[:idx:idx], lst[idx+1:]...)
 			return map[string]any{"L": lst}, true
 		}
 		nc, ok := ddbDeleteNested(lst[idx], segs[1:], names)
@@ -205,8 +193,7 @@ func ddbDeleteNested(container any, segs []string, names map[string]string) (any
 	return map[string]any{"M": mm}, true
 }
 
-// ddbSplitUpdateClauses splits an UpdateExpression into {KEYWORD: body}. The
-// four action keywords each appear at most once and introduce a clause.
+// Each of the four action keywords appears at most once.
 func ddbSplitUpdateClauses(expr string) map[string]string {
 	keywords := []string{"SET", "REMOVE", "ADD", "DELETE"}
 	type mark struct {
@@ -214,10 +201,8 @@ func ddbSplitUpdateClauses(expr string) map[string]string {
 		kw       string
 	}
 	var marks []mark
-	// ASCII-only uppercasing that preserves byte length, so the keyword indices
-	// computed against `upper` remain valid offsets into the original `expr`.
-	// strings.ToUpper can change the byte length of non-ASCII / invalid-UTF-8
-	// input, which would make the slice offsets below out-of-range for expr.
+	// strings.ToUpper can change the byte length of non-ASCII input, which would
+	// misalign the keyword offsets into expr.
 	upper := sim.ASCIIFoldUpper(expr)
 	for _, kw := range keywords {
 		for i := 0; i+len(kw) <= len(upper); i++ {
@@ -234,7 +219,6 @@ func ddbSplitUpdateClauses(expr string) map[string]string {
 			break
 		}
 	}
-	// Order clause starts so each body runs to the next clause.
 	for i := 0; i < len(marks); i++ {
 		for j := i + 1; j < len(marks); j++ {
 			if marks[j].idx < marks[i].idx {
@@ -257,8 +241,7 @@ func isWordChar(b byte) bool {
 	return b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
-// ddbSplitTopLevel splits on sep at paren depth 0 (so if_not_exists(a, b)
-// commas are not split).
+// Depth 0 only, so if_not_exists(a, b) commas do not split.
 func ddbSplitTopLevel(s string, sep byte) []string {
 	var parts []string
 	depth, start := 0, 0
@@ -303,8 +286,6 @@ func ddbPathOperand(part string, item map[string]any, names map[string]string, v
 	return ddbResolveName(fields[0], names), operand, nil
 }
 
-// ddbResolveOperand resolves a single operand to its attribute-value: a :value
-// placeholder, or a #name / literal attribute's current value.
 func ddbResolveOperand(token string, item map[string]any, names map[string]string, values map[string]any) (any, error) {
 	token = strings.TrimSpace(token)
 	if strings.HasPrefix(token, ":") {
@@ -314,19 +295,16 @@ func ddbResolveOperand(token string, item map[string]any, names map[string]strin
 		}
 		return v, nil
 	}
-	// A bare path operand (copy-attribute) may be a nested document path
-	// (a.b[0].c), not just a top-level attribute.
+	// A copied attribute may be a nested document path.
 	if v, ok := ddbResolvePath(item, token, names); ok {
 		return v, nil
 	}
 	return nil, nil
 }
 
-// ddbStripParens removes fully-enclosing balanced parentheses from a SET value
-// (repeatedly), so `(if_not_exists(c,:0) - :v)` and `(:z)` evaluate the same as
-// the unparenthesized form — the shape ElectroDB emits for `.subtract()`. Only a
-// pair that wraps the WHOLE string is stripped: `(a) - (b)` is left intact
-// because the first '(' closes before the end.
+// Strip parentheses wrapping the whole string, so `(if_not_exists(c,:0) - :v)`,
+// ElectroDB's `.subtract()` shape, evaluates like the bare form; `(a) - (b)` is
+// left intact.
 func ddbStripParens(s string) string {
 	s = strings.TrimSpace(s)
 	for len(s) >= 2 && s[0] == '(' && s[len(s)-1] == ')' {
@@ -352,11 +330,9 @@ func ddbStripParens(s string) string {
 
 func ddbEvalSetRHS(rhs string, item map[string]any, names map[string]string, values map[string]any) (any, error) {
 	rhs = ddbStripParens(rhs)
-	// Binary +/- on numbers, split at the TOP level FIRST so an operand that is
-	// itself an if_not_exists(...) / list_append(...) call (with its own commas
-	// and parens) resolves as a whole — e.g. `if_not_exists(#c,:0) - :1`. Doing
-	// this before the function-call branch is what makes the arithmetic forms
-	// ElectroDB emits for .add()/.subtract() compute instead of storing null.
+	// Split +/- at the top level before the function-call branch, so an
+	// if_not_exists(...) or list_append(...) operand resolves whole, as in
+	// ElectroDB's `if_not_exists(#c,:0) - :1`.
 	for _, op := range []byte{'+', '-'} {
 		if parts := ddbSplitTopLevel(rhs, op); len(parts) == 2 {
 			a, err := ddbEvalSetOperand(parts[0], item, names, values)
@@ -381,13 +357,10 @@ func ddbEvalSetRHS(rhs string, item map[string]any, names map[string]string, val
 	return ddbEvalSetOperand(rhs, item, names, values)
 }
 
-// ddbEvalSetOperand resolves a single SET operand: an if_not_exists(path,
-// operand) call, a list_append(a, b) call, or a bare :value / #name / path.
 func ddbEvalSetOperand(operand string, item map[string]any, names map[string]string, values map[string]any) (any, error) {
 	operand = ddbStripParens(operand)
-	// An operand beginning with a known function name MUST be a well-formed,
-	// balanced whole call — `if_not_exists(` with no close paren is malformed and
-	// rejected, not silently treated as a path.
+	// A known function prefix must be a balanced whole call; a malformed one is
+	// rejected, not read as a path.
 	for _, fn := range []string{"if_not_exists", "list_append"} {
 		if !ddbHasFuncPrefix(operand, fn) {
 			continue
@@ -419,15 +392,13 @@ func ddbEvalSetOperand(operand string, item map[string]any, names map[string]str
 	return ddbResolveOperand(operand, item, names, values)
 }
 
-// ddbHasFuncPrefix reports whether operand begins with `name(` (case-insensitive).
 func ddbHasFuncPrefix(operand, name string) bool {
 	pfx := name + "("
 	return len(operand) >= len(pfx) && strings.EqualFold(operand[:len(pfx)], pfx)
 }
 
-// ddbWholeFuncCall reports whether operand is exactly a balanced `name(...)`
-// call (case-insensitive name, no trailing top-level operator) and returns the
-// argument text between the outer parens.
+// Returns the arguments when operand is exactly one balanced call with nothing
+// after it.
 func ddbWholeFuncCall(operand, name string) (string, bool) {
 	pfx := name + "("
 	if len(operand) < len(pfx)+1 || !strings.HasSuffix(operand, ")") {
@@ -444,8 +415,6 @@ func ddbWholeFuncCall(operand, name string) (string, bool) {
 		case ')':
 			depth--
 			if depth == 0 {
-				// Whole operand is this single call only when its matching
-				// close paren is the final byte (no trailing top-level op).
 				return operand[len(pfx) : len(operand)-1], i == len(operand)-1
 			}
 		}
@@ -453,8 +422,7 @@ func ddbWholeFuncCall(operand, name string) (string, bool) {
 	return "", false
 }
 
-// ddbListAppend concatenates two L-typed AttributeValues for the list_append()
-// function; a non-list operand contributes nothing (treated as an empty list).
+// A non-list operand contributes nothing.
 func ddbListAppend(a, b any) any {
 	out := []any{}
 	for _, v := range []any{a, b} {
@@ -467,9 +435,7 @@ func ddbListAppend(a, b any) any {
 	return map[string]any{"L": out}
 }
 
-// ddbToNumber parses a numeric AttributeValue into an exact rational (DynamoDB
-// carries up to 38 significant digits — float64 would corrupt large/precise
-// numbers). ok is false when v isn't a number.
+// DynamoDB numbers carry up to 38 significant digits, beyond float64.
 func ddbToNumber(v any) (*big.Rat, bool) {
 	if m, ok := v.(map[string]any); ok {
 		if n, ok := m["N"].(string); ok {
@@ -481,9 +447,7 @@ func ddbToNumber(v any) (*big.Rat, bool) {
 	return nil, false
 }
 
-// ddbNumberValue formats an exact rational back into a DynamoDB number string:
-// integers print exactly at any magnitude; fractional results print as a decimal
-// trimmed to DynamoDB's 38-digit precision.
+// Integers print exactly; fractions trim to 38 digits.
 func ddbNumberValue(r *big.Rat) map[string]any {
 	var s string
 	if r.IsInt() {
@@ -495,7 +459,6 @@ func ddbNumberValue(r *big.Rat) map[string]any {
 	return map[string]any{"N": s}
 }
 
-// ddbAddValues implements ADD: numeric increment, or string/number-set union.
 func ddbAddValues(cur, operand any) any {
 	om, _ := operand.(map[string]any)
 	if om == nil {
@@ -522,7 +485,7 @@ func ddbAddValues(cur, operand any) any {
 			return map[string]any{st: union}
 		}
 	}
-	// number increment (ADD on a missing attribute starts from 0)
+	// ADD on a missing attribute starts from 0.
 	cn, _ := ddbToNumber(cur)
 	if cn == nil {
 		cn = new(big.Rat)
@@ -534,7 +497,6 @@ func ddbAddValues(cur, operand any) any {
 	return ddbNumberValue(new(big.Rat).Add(cn, on))
 }
 
-// ddbDeleteSetElems implements DELETE: remove the operand's elements from a set.
 func ddbDeleteSetElems(cur, operand any) any {
 	cm, _ := cur.(map[string]any)
 	om, _ := operand.(map[string]any)
@@ -558,7 +520,7 @@ func ddbDeleteSetElems(cur, operand any) any {
 			}
 		}
 		if len(kept) == 0 {
-			return nil // emptying a set removes the attribute
+			return nil // Emptying a set removes the attribute.
 		}
 		return map[string]any{st: kept}
 	}

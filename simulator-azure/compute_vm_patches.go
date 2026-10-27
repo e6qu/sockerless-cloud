@@ -10,15 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Patch assessment and installation, and capturing an image from a machine.
-//
-// All three answer from the machine itself. An assessment reports what the
-// guest's own package manager says is upgradable, an installation runs that
-// package manager, and a capture copies the disk the machine is actually
-// running on. Answering any of them from a table would produce a result a
-// caller cannot distinguish from a real one — a machine reported as fully
-// patched because nothing looked, or an image that names a blob holding
-// nothing.
+// Patch assessment and installation, and image capture, answer from the
+// machine: the guest's package manager reports and installs upgrades, and a
+// capture copies the disk the machine runs on.
 
 func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute"
@@ -93,9 +87,8 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 				http.StatusBadRequest)
 			return
 		}
-		// Azure captures an image only from a machine that has been generalized:
-		// a capture of a specialized machine would carry its host name, its
-		// keys and its logs into every machine created from it.
+		// Azure captures only a generalized machine: a specialized one would carry its
+		// host name, keys and logs into every machine created from it.
 		if generalized, _ := azureVMGeneralized.Get(id); !generalized {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Capture is not allowed on VM %q because it has not been generalized.", id)
@@ -110,11 +103,8 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 	})
 }
 
-// azureAssessGuestPatches asks the guest's package manager what it would
-// upgrade. `apt-get --simulate upgrade` reports exactly that without changing
-// anything, and its Inst lines name the package, the version it would move to,
-// and the archive the version comes from — which is what says whether an update
-// is a security update.
+// `apt-get --simulate upgrade` changes nothing, and its Inst lines name the
+// package, target version and archive; the archive marks a security update.
 func azureAssessGuestPatches(ctx context.Context, vmID string) (map[string]any, error) {
 	started := time.Now().UTC()
 	stdout, stderr, exitCode, err := azureGuestExec(ctx, vmID, "LC_ALL=C apt-get --simulate --quiet upgrade 2>/dev/null")
@@ -136,8 +126,7 @@ func azureAssessGuestPatches(ctx context.Context, vmID string) (map[string]any, 
 		other++
 	}
 
-	// Debian and Ubuntu record a pending restart with this file, which is the
-	// signal an operator reads; asking the guest is what makes the answer real.
+	// Debian and Ubuntu record a pending restart with this file.
 	_, _, rebootExit, err := azureGuestExec(ctx, vmID, "test -f /var/run/reboot-required")
 	rebootPending := err == nil && rebootExit == 0
 
@@ -152,13 +141,9 @@ func azureAssessGuestPatches(ctx context.Context, vmID string) (map[string]any, 
 	}, nil
 }
 
-// azureParseAptUpgradePlan reads apt's simulated upgrade. Each upgradable
-// package appears as:
+// azureParseAptUpgradePlan reads lines of the form:
 //
 //	Inst libssl3 [3.0.2-0ubuntu1.10] (3.0.2-0ubuntu1.15 Ubuntu:22.04/jammy-security [amd64])
-//
-// so the name, the target version and the archive all come from the guest
-// rather than from anything invented here.
 func azureParseAptUpgradePlan(plan string, assessed time.Time) []map[string]any {
 	var patches []map[string]any
 	for _, line := range strings.Split(plan, "\n") {
@@ -212,10 +197,8 @@ func azurePatchIsSecurity(patch map[string]any) bool {
 	return false
 }
 
-// azureInstallGuestPatches runs the guest's package manager. The masks a caller
-// supplies select which packages are upgraded, so an installation that names
-// nothing upgrades everything the assessment found — which is what apt's own
-// upgrade does.
+// The caller's masks select packages; none upgrades everything assessed, as
+// apt's own upgrade does.
 func azureInstallGuestPatches(
 	ctx context.Context,
 	vmID string,
@@ -263,8 +246,8 @@ func azureInstallGuestPatches(
 		patchStates = append(patchStates, record)
 	}
 
-	// A restart happens when the caller asked for one, or asked for one if
-	// needed and the guest says one is needed.
+	// Restart when the caller asked, or asked for one if needed and the guest
+	// needs one.
 	rebootStatus := "NotNeeded"
 	pending, _ := available["rebootPending"].(bool)
 	if strings.EqualFold(rebootSetting, "Always") ||
@@ -295,8 +278,7 @@ func azureInstallGuestPatches(
 	}, nil
 }
 
-// azureNameMatchesAnyMask applies apt-style package name masks, where * stands
-// for any run of characters.
+// apt-style masks: * stands for any run of characters.
 func azureNameMatchesAnyMask(name string, masks []string) bool {
 	for _, mask := range masks {
 		if azureNameMatchesMask(name, mask) {
@@ -333,16 +315,11 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-// azureCaptureVMImage commits the disk the machine runs on as an OCI image
-// and writes that image's bytes into the destination container of the
-// storage account the machine's boot diagnostics name. Azure's capture
-// quiesces the file system before copying it, because a disk copied while the
-// guest is mid-write produces an image that boots into a repair; the guest is
-// asked to flush its own buffers for the same reason.
-//
-// The result is the deployment template Azure returns: the image is described
-// as a resource whose osDisk points at the blob the capture wrote, and a
-// machine or an image resource naming that blob boots the committed image.
+// azureCaptureVMImage commits the disk as an OCI image and writes its bytes
+// into the destination container of the boot diagnostics account, asking the
+// guest to flush first: Azure quiesces the file system, as a mid-write copy
+// boots into a repair. It returns the deployment template Azure does, whose
+// osDisk points at the written blob.
 func azureCaptureVMImage(
 	ctx context.Context,
 	vm VirtualMachine,

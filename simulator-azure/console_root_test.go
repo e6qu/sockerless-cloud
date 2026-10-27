@@ -9,9 +9,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Without a console registered the API root is genuinely nothing for a
-// non-Cosmos request, and must stay a 404 rather than redirect into a console
-// that does not exist.
+// Without a console the API root is nothing for a non-Cosmos request: a 404,
+// not a redirect into a console that does not exist.
 func TestBareRootStays404WithoutConsole(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulatorWithUI(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"}, false)
@@ -19,9 +18,8 @@ func TestBareRootStays404WithoutConsole(t *testing.T) {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
-	// Long-running operations complete in a goroutine. One still running
-	// when this test ends would read and write the stores while the next
-	// test rebuilds them.
+	// Long-running operations complete in a goroutine; one still running when
+	// this test ends would race the next test's store rebuild.
 	t.Cleanup(bg.Await)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))

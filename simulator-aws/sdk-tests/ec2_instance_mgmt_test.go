@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEC2_InstanceConnectEndpointLifecycle covers the EC2 Instance Connect
-// Endpoint control plane via the SDK: Create in a subnet (state
-// create-complete, an auto-created ENI, a DNS name), Describe read-back +
-// id-filter, Modify, and Delete.
+// TestEC2_InstanceConnectEndpointLifecycle expects Create to settle
+// create-complete with an ENI and a DNS name.
 func TestEC2_InstanceConnectEndpointLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -52,7 +50,6 @@ func TestEC2_InstanceConnectEndpointLifecycle(t *testing.T) {
 	require.Len(t, desc.InstanceConnectEndpoints[0].Tags, 1)
 	assert.Equal(t, "env", aws.ToString(desc.InstanceConnectEndpoints[0].Tags[0].Key))
 
-	// Filter by subnet-id.
 	bySubnet, err := c.DescribeInstanceConnectEndpoints(ctx, &ec2.DescribeInstanceConnectEndpointsInput{
 		Filters: []types.Filter{{Name: aws.String("subnet-id"), Values: []string{aws.ToString(subnet)}}},
 	})
@@ -78,8 +75,8 @@ func TestEC2_InstanceConnectEndpointLifecycle(t *testing.T) {
 	}
 }
 
-// TestEC2_SerialConsoleAccess covers the account-level serial-console flag:
-// Get (default disabled), Enable, Get (enabled), Disable, Get (disabled).
+// TestEC2_SerialConsoleAccess expects the account's serial console access
+// disabled by default.
 func TestEC2_SerialConsoleAccess(t *testing.T) {
 	c := ec2Client()
 
@@ -100,8 +97,6 @@ func TestEC2_SerialConsoleAccess(t *testing.T) {
 	assert.False(t, aws.ToBool(got2.SerialConsoleAccessEnabled))
 }
 
-// TestEC2_InstanceMetadataDefaults covers the account-level IMDS defaults:
-// Modify sets http-tokens/hop-limit/endpoint, Get reads them back.
 func TestEC2_InstanceMetadataDefaults(t *testing.T) {
 	c := ec2Client()
 
@@ -120,9 +115,6 @@ func TestEC2_InstanceMetadataDefaults(t *testing.T) {
 	assert.Equal(t, types.InstanceMetadataEndpointStateEnabled, got.AccountLevel.HttpEndpoint)
 }
 
-// TestEC2_InstanceEventNotificationAttributes covers the account-level set of
-// tag keys registered for instance-event notifications:
-// Register adds keys, Describe reads them, Deregister removes one.
 func TestEC2_InstanceEventNotificationAttributes(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -153,8 +145,6 @@ func TestEC2_InstanceEventNotificationAttributes(t *testing.T) {
 	assert.Contains(t, dereg.InstanceTagAttribute.InstanceTagKeys, "Name")
 }
 
-// TestEC2_MonitorInstances covers detailed-monitoring toggling plus the
-// reboot/report/reset instance-management ops on a launched instance.
 func TestEC2_MonitorInstances(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -192,7 +182,7 @@ func TestEC2_MonitorInstances(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Disable the source/dest check, then reset it back to the default (true).
+	// Resetting sourceDestCheck restores its default, true.
 	_, err = c.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
 		InstanceId:      aws.String(instID),
 		SourceDestCheck: &types.AttributeBooleanValue{Value: aws.Bool(false)},
@@ -212,8 +202,7 @@ func TestEC2_MonitorInstances(t *testing.T) {
 	assert.True(t, aws.ToBool(attr.SourceDestCheck.Value), "ResetInstanceAttribute restores sourceDestCheck=true")
 }
 
-// TestEC2_ClassicLinkInstances asserts the honest-empty EC2-Classic read: the
-// sim runs only in a VPC, so DescribeClassicLinkInstances returns no instances.
+// TestEC2_ClassicLinkInstances expects no instances: everything runs in a VPC.
 func TestEC2_ClassicLinkInstances(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

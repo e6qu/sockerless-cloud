@@ -22,7 +22,7 @@ const functionsHostNodeImage = "mcr.microsoft.com/azure-functions/node:4.1054.25
 var identifiableFunctionsKey = regexp.MustCompile(`^[A-Za-z0-9_-]{44}AzFu[A-Za-z0-9_-]{6}==$`)
 
 // createStackFunctionApp creates a Linux plan and a Linux function app on the
-// built-in stack linuxFxVersion names, with the given app settings.
+// built-in stack linuxFxVersion names.
 func createStackFunctionApp(t *testing.T, rg, name, linuxFxVersion string, appSettings map[string]string) *armappservice.WebAppsClient {
 	t.Helper()
 	ensureRG(t, rg)
@@ -63,8 +63,7 @@ func createStackFunctionApp(t *testing.T, rg, name, linuxFxVersion string, appSe
 	return client
 }
 
-// functionsHostRequest sends a request to a function app through the App
-// Service front end, with headers set on it.
+// functionsHostRequest sends a request through the App Service front end.
 func functionsHostRequest(t *testing.T, siteName, path string, headers map[string]string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
@@ -82,10 +81,9 @@ func functionsHostRequest(t *testing.T, siteName, path string, headers map[strin
 }
 
 // A Linux function app on Node|22 runs the Azure Functions host image on its
-// deployed content. The host serves the deployed function and answers 404 for
-// a route no function declares, and it enforces the function's authLevel
-// against the keys the ARM key operations serve, since those operations read
-// and write the host's own file secret store.
+// deployed content: the host serves the function, answers 404 for an
+// undeclared route, and enforces authLevel against the keys the ARM key
+// operations serve, which read and write the host's own file secret store.
 func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-func-host-rg", "sdk-func-host-app"
@@ -115,8 +113,7 @@ func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	status, body = functionsHostRequest(t, name, "/api/hello", nil)
 	assert.Equal(t, http.StatusUnauthorized, status, "body: %s", body)
 
-	// The function the content declares is a function of the app, with the
-	// default key the host generates for it.
+	// The declared function lists with the default key the host generates for it.
 	var listed []string
 	pager := client.NewListFunctionsPager(rg, name, nil)
 	for pager.More() {
@@ -146,7 +143,7 @@ func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	status, body = functionsHostRequest(t, name, "/api/hello?code="+*hostKeys.MasterKey, nil)
 	assert.Equal(t, http.StatusOK, status, "the master key opens every function: %s", body)
 
-	// A key set through ARM reaches the running host, and stops working once
+	// A key set through ARM reaches the running host and stops working once
 	// deleted through ARM.
 	_, err = client.CreateOrUpdateFunctionSecret(ctx, rg, name, "hello", "ci", armappservice.KeyInfo{Value: to.Ptr("sdk-ci-function-key")}, nil)
 	require.NoError(t, err)
@@ -175,11 +172,11 @@ func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status, "a token with a forged signature is refused")
 }
 
-// Under the default secret store the Functions host keeps its keys as blobs
-// azure-webjobs-secrets/<site>/host.json in the account the AzureWebJobsStorage
-// connection string names, and the ARM key operations read and write those
-// blobs: a key the host writes there is the key ARM lists, and a key ARM
-// creates lands there, protected as the host protects it on App Service.
+// Under the default secret store the host keeps its keys as the blob
+// azure-webjobs-secrets/<site>/host.json in the AzureWebJobsStorage account,
+// and the ARM key operations read and write it: a key the host writes is the
+// key ARM lists, and a key ARM creates lands there, protected as App Service
+// protects it.
 func TestSDK_FunctionApps_BlobSecretStoreHoldsTheKeys(t *testing.T) {
 	t.Parallel()
 	rg, name, account := "sdk-func-blob-secrets-rg", "sdk-func-blob-secrets", "sdkfuncblobsecrets"

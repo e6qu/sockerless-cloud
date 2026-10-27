@@ -8,11 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for the cross-resource-group move families that joined the
-// dispatch alongside Microsoft.ServiceBus. Each one derives its credential
-// material from the resource ID, which embeds the resource group, so `az
-// resource move` has to re-home the records without rotating the credential.
-// Routes exercised:
+// Each family derives its credential material from the resource ID, which
+// embeds the resource group, so `az resource move` must re-home the records
+// without rotating the credential.
 //
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/moveResources
 //	POST /subscriptions/{subscriptionId}/resourceGroups/{sourceResourceGroupName}/validateMoveResources
@@ -21,10 +19,9 @@ import (
 //	POST …/providers/Microsoft.ContainerRegistry/registries/{registryName}/listCredentials
 //	POST …/providers/Microsoft.EventGrid/topics/{topicName}/listKeys
 
-// TestResourceMoveEventHubNamespaceCLI moves an Event Hubs namespace with
-// `az resource move` and proves the credential survived: the connection
-// strings `az eventhubs namespace authorization-rule keys list` prints are
-// byte-identical afterwards, and the event hub child moved with the namespace.
+// TestResourceMoveEventHubNamespaceCLI: the connection strings
+// `az eventhubs namespace authorization-rule keys list` prints are identical
+// after the move, and the event hub child moved with the namespace.
 func TestResourceMoveEventHubNamespaceCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -88,10 +85,8 @@ func TestResourceMoveEventHubNamespaceCLI(t *testing.T) {
 		"renewing the primary key after the move must serve new material")
 }
 
-// TestResourceMoveRedisCacheCLI moves an Azure Cache for Redis instance and
-// proves `az redis list-keys` serves the same password afterwards. The
-// simulator implements no Redis data plane, so the keys the control plane
-// serves are as far as the credential proof reaches.
+// TestResourceMoveRedisCacheCLI: `az redis list-keys` serves the same password
+// after the move.
 func TestResourceMoveRedisCacheCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -129,9 +124,9 @@ func TestResourceMoveRedisCacheCLI(t *testing.T) {
 	assert.Equal(t, before, after, "a cross-group move must not rotate the cache's access keys")
 }
 
-// TestResourceMoveContainerRegistryCLI moves a container registry and proves
-// `az acr credential show` serves the same admin username and passwords
-// afterwards, so a docker login captured before the move still works.
+// TestResourceMoveContainerRegistryCLI: `az acr credential show` serves the
+// same admin username and passwords after the move, so an earlier docker login
+// still works.
 func TestResourceMoveContainerRegistryCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)
@@ -173,10 +168,9 @@ func TestResourceMoveContainerRegistryCLI(t *testing.T) {
 	assert.Equal(t, before, after, "a cross-group move must not rotate the registry's admin credentials")
 }
 
-// TestResourceMoveEventGridTopicCLI moves an Event Grid custom topic and
-// proves both halves of that hook: `az eventgrid topic key list` serves the
-// same keys afterwards, and the event subscription's inbound reference to the
-// topic was rewritten onto the destination resource ID.
+// TestResourceMoveEventGridTopicCLI: `az eventgrid topic key list` serves the
+// same keys after the move, and the event subscription's reference to the topic
+// names the destination resource ID.
 func TestResourceMoveEventGridTopicCLI(t *testing.T) {
 	t.Parallel()
 	env := startAzLoginSimulator(t)

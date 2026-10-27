@@ -20,18 +20,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Cloud Pub/Sub v1 gRPC data plane. The REST slice owns the stores (topics,
-// subscriptions, queues, snapshots, schema revisions); every RPC here reads and
-// writes those same stores so the REST and gRPC surfaces observe one
-// consistent cloud state. Both surfaces deliver through pubsub_delivery.go.
-//
-// The high-level cloud.google.com/go/pubsub client is gRPC-only and reaches the
-// simulator through PUBSUB_EMULATOR_HOST, the same coordinate it uses to reach
-// Google's own Pub/Sub emulator. Pull, StreamingPull, Acknowledge,
-// and ModifyAckDeadline together model real at-least-once delivery: a message
-// that is not acknowledged before its deadline is redelivered.
-
-// server types + registration
+// Cloud Pub/Sub v1 over gRPC, reading and writing the stores the REST slice
+// owns and delivering through pubsub_delivery.go, so both surfaces see one
+// state. The gRPC-only cloud.google.com/go/pubsub client reaches it at the
+// simulator's gRPC endpoint over TLS with a bearer token.
 
 type pubsubPublisherGRPC struct {
 	pspb.UnimplementedPublisherServer
@@ -51,15 +43,10 @@ func registerPubSubGRPC(gs *grpc.Server) {
 	pspb.RegisterSchemaServiceServer(gs, &pubsubSchemaGRPC{})
 }
 
-// psSnapshotBacklogs holds the per-snapshot message backlog captured at
-// CreateSnapshot time, so a Seek to that snapshot replays exactly the messages
-// that were outstanding in the subscription when the snapshot was taken. This
-// mirrors real Pub/Sub's seek-replay semantics. Snapshots are durable
-// resources, so the captured backlog is stored alongside them (registerPubSub
-// wires the store, keyed like psSnapshots) and is deleted with its snapshot.
+// psSnapshotBacklogs holds the backlog each snapshot captured, so a Seek to it
+// replays exactly the messages outstanding when it was taken. It is keyed like
+// psSnapshots and deleted with the snapshot.
 var psSnapshotBacklogs sim.Store[[]PSMessage]
-
-// proto <-> REST-store converters
 
 func psTopicToProto(t PSTopic) *pspb.Topic {
 	out := &pspb.Topic{
@@ -303,9 +290,8 @@ func psRFC3339FromProto(ts *timestamppb.Timestamp) string {
 	return ts.AsTime().UTC().Format(time.RFC3339Nano)
 }
 
-// psDurationToProto parses a REST "604800s"-style duration string. The REST
-// slice stores durations verbatim as Go time.Duration string forms; this helper
-// accepts both the "Ns" canonical form and Go's default Duration string.
+// psDurationToProto parses a stored duration in the canonical "Ns" form or
+// Go's Duration string.
 func psDurationToProto(s string) *durationpb.Duration {
 	if s == "" {
 		return nil
@@ -323,9 +309,8 @@ func psDurationFromProto(d *durationpb.Duration) string {
 	return d.AsDuration().String()
 }
 
-// psSchemaSettingsToJSON persists a proto SchemaSettings as canonical proto JSON
-// inside the REST store's json.RawMessage field, preserving the field verbatim
-// across create→get round-trips.
+// psSchemaSettingsToJSON stores a proto SchemaSettings as canonical proto
+// JSON in the REST store's raw field.
 func psSchemaSettingsToJSON(ss *pspb.SchemaSettings) json.RawMessage {
 	if ss == nil {
 		return nil
@@ -347,10 +332,6 @@ func psSchemaSettingsFromJSON(raw json.RawMessage) *pspb.SchemaSettings {
 	}
 	return ss
 }
-
-// shared delivery mechanics (operate on the REST-owned stores)
-
-// Publisher RPCs
 
 func (s *pubsubPublisherGRPC) CreateTopic(_ context.Context, req *pspb.Topic) (*pspb.Topic, error) {
 	name := req.GetName()
@@ -470,8 +451,6 @@ func (s *pubsubPublisherGRPC) DetachSubscription(_ context.Context, req *pspb.De
 	psSignalSubscription(name)
 	return &pspb.DetachSubscriptionResponse{}, nil
 }
-
-// Subscriber RPCs
 
 func (s *pubsubSubscriberGRPC) CreateSubscription(_ context.Context, req *pspb.Subscription) (*pspb.Subscription, error) {
 	name := req.GetName()
@@ -642,11 +621,10 @@ func (s *pubsubSubscriberGRPC) Pull(ctx context.Context, req *pspb.PullRequest) 
 	return resp, nil
 }
 
-// StreamingPull is the high-level client's default delivery path. The first
-// request on the stream names the subscription and its flow-control / deadline
-// parameters; subsequent requests carry ack and modack batches. The server keeps
-// the stream open, delivering messages as they appear in the queue, until the
-// client cancels the context.
+// StreamingPull is the high-level client's default delivery path: the first
+// request names the subscription and its flow control and deadline, later
+// ones carry acks and modacks, and the stream delivers as messages arrive
+// until the client cancels.
 func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPullServer) error {
 	ctx := stream.Context()
 
@@ -687,9 +665,8 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 			return context.Cause(ctx)
 		}
 		arrival := psArrivals.Changed(subName)
-		// Count messages currently inflight for this subscription so flow control
-		// is honoured — the client will not ack faster than its handlers run, so
-		// capping outstanding delivery prevents flooding it.
+		// Honour flow control: cap delivery by the subscription's outstanding
+		// messages.
 		outstanding := psOutstanding(sub)
 		budget := maxOutstanding - outstanding
 		if budget > 0 {
@@ -744,8 +721,6 @@ func psStreamingPullReadLoop(stream pspb.Subscriber_StreamingPullServer, subName
 	}
 }
 
-// Seek + Snapshots
-
 func (s *pubsubSubscriberGRPC) Seek(_ context.Context, req *pspb.SeekRequest) (*pspb.SeekResponse, error) {
 	subName := req.GetSubscription()
 	if _, ok := psSubscriptions.Get(subName); !ok {
@@ -771,8 +746,8 @@ func (s *pubsubSubscriberGRPC) Seek(_ context.Context, req *pspb.SeekRequest) (*
 	}
 }
 
-// psSnapshotKeyFromName derives the store key for a snapshot resource name.
-// Snapshot store keys are project/name, mirroring the REST slice's helper.
+// psSnapshotKeyFromName derives a snapshot's store key, project/name, as the
+// REST slice does.
 func psSnapshotKeyFromName(name string) string {
 	parts := strings.Split(name, "/")
 	if len(parts) >= 4 {
@@ -874,8 +849,6 @@ func (s *pubsubSubscriberGRPC) DeleteSnapshot(_ context.Context, req *pspb.Delet
 	psSnapshotBacklogs.Delete(key)
 	return &emptypb.Empty{}, nil
 }
-
-// SchemaService RPCs
 
 func (s *pubsubSchemaGRPC) CreateSchema(_ context.Context, req *pspb.CreateSchemaRequest) (*pspb.Schema, error) {
 	project := psNormalizeProject(req.GetParent())
@@ -1071,9 +1044,8 @@ func (s *pubsubSchemaGRPC) DeleteSchemaRevision(_ context.Context, req *pspb.Del
 	return psSchemaToProto(head), nil
 }
 
-// psNormalizeProject accepts either a bare project id ("proj") or the full
-// resource path form ("projects/proj") the gRPC client sends in the
-// project/parent fields, and returns the bare id.
+// psNormalizeProject returns the bare project ID from "proj" or the
+// "projects/proj" the gRPC client sends.
 func psNormalizeProject(s string) string {
 	s = strings.TrimPrefix(s, "projects/")
 	if i := strings.Index(s, "/"); i >= 0 {

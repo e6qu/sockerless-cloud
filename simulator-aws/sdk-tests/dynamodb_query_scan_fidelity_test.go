@@ -11,20 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDynamoDB_ScanLimitAndQueryFilter pins two fidelity gaps:
-//   - Scan's Limit caps items EXAMINED (ScannedCount), not returned: a filtered
-//     Scan returns Count <= ScannedCount == Limit, with a LastEvaluatedKey to
-//     resume. (Before the fix the loop ran until Limit *matches*, inflating
-//     ScannedCount and the cursor.)
-//   - Query applies an optional FilterExpression after the key condition (it was
-//     silently dropped — the request field didn't exist).
+// TestDynamoDB_ScanLimitAndQueryFilter covers two rules:
+//   - Scan's Limit caps the items examined (ScannedCount), not returned: a
+//     filtered Scan returns Count <= ScannedCount == Limit and a
+//     LastEvaluatedKey to resume.
+//   - Query applies a FilterExpression after the key condition.
 func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 	t.Parallel()
 	queryTable := uniquename.New("qs-query")
 	scanTable := uniquename.New("qs-scan")
 	c := ddbClient()
 
-	// --- Scan: hash-only table, 4 items (sorted a,b,c,d), 2 match kind=x. ---
+	// A hash-only table of 4 items (a, b, c, d), 2 of them kind=x.
 	ddbCoverageTable(t, c, scanTable)
 	for _, it := range []struct{ pk, kind string }{{"a", "x"}, {"b", "y"}, {"c", "x"}, {"d", "y"}} {
 		_, err := c.PutItem(ctx, &dynamodb.PutItemInput{
@@ -47,7 +45,7 @@ func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 	assert.EqualValues(t, 1, scan.Count, "of the first 2 scanned (a,b) only a matches kind=x")
 	assert.NotEmpty(t, scan.LastEvaluatedKey, "items remain beyond the Limit → resume cursor")
 
-	// --- Query: composite key; FilterExpression narrows the key-matched set. ---
+	// A composite key, where FilterExpression narrows the key-matched set.
 	_, err = c.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName:   aws.String(queryTable),
 		BillingMode: ddbtypes.BillingModePayPerRequest,

@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// CLI coverage for a Log Analytics workspace's tables, data collection
-// endpoints and rules, and the Logs Ingestion API that uploads through a
-// rule. The tables go through the native az monitor log-analytics workspace
-// table commands; the endpoints and rules, whose commands ship in a CLI
-// extension, through az rest:
+// A Log Analytics workspace's tables, data collection endpoints and rules, and
+// the Logs Ingestion API that uploads through a rule. The tables go through the
+// native `az monitor log-analytics workspace table` commands; the endpoints and
+// rules, whose commands ship in a CLI extension, through `az rest`.
 //
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/tables
 //	GET+PUT+PATCH+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/tables/{tableName}
@@ -83,9 +82,8 @@ func TestLogAnalytics_CLI_TablesRulesAndIngestion(t *testing.T) {
 	}
 	assert.True(t, names["Builds_CL"] && names["AppTraces"], "the list holds the custom and the Azure tables: %v", names)
 
-	// An environment linking the workspace creates the classic custom log
-	// tables Container Apps writes, and migrate moves one onto data
-	// collection rules.
+	// An environment linking the workspace creates the classic custom log tables
+	// Container Apps writes, and migrate moves one onto data collection rules.
 	runCLI(t, env.command("rest", "--method", "put", "--url",
 		fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/cli-logs-env?api-version=2025-01-01",
 			env.baseURL, subscriptionID, rg),

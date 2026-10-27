@@ -36,12 +36,9 @@ func TestCloudRun_CLI_ArithmeticEval(t *testing.T) {
 	assert.Equal(t, 1, exec.SucceededCount, "expected job to succeed")
 	assert.Equal(t, 0, exec.FailedCount)
 
-	// Poll Cloud Logging until the job's own output is ingested, then assert on
-	// the entry that carries it. "14" occurs all over a log payload — inside
-	// timestamps, inside insert ids — so a substring search over the whole
-	// document is satisfied without the job's output ever being found; the
-	// assertion is on an entry whose textPayload is the evaluated result and
-	// nothing else.
+	// "14" also occurs inside timestamps and insert ids, so match an entry whose
+	// textPayload is the evaluated result and nothing else rather than search the
+	// whole document.
 	var out string
 	var payloads []string
 	require.Eventually(t, func() bool {
@@ -56,14 +53,12 @@ func TestCloudRun_CLI_ArithmeticEval(t *testing.T) {
 	assert.Contains(t, payloads, "14",
 		"expected a Cloud Logging entry whose textPayload is the evaluated result: %s", out)
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", jobURL(jobID), "")
 }
 
 // logTextPayloads returns the trimmed textPayload of every entry in a
-// `gcloud logging read --format json` document. Output that is not a JSON array
-// of entries yields no payloads, so a caller polling for one keeps polling
-// rather than failing from inside the poll.
+// `gcloud logging read --format json` document, and none for output that is
+// not a JSON array, so a poller keeps polling rather than failing mid-poll.
 func logTextPayloads(out string) []string {
 	start := strings.IndexAny(out, "[{")
 	if start < 0 {
@@ -122,6 +117,5 @@ func TestCloudRun_CLI_ArithmeticInvalid(t *testing.T) {
 	assert.Equal(t, 0, exec.SucceededCount)
 	assert.Equal(t, 1, exec.FailedCount, "expected job to fail")
 
-	// Cleanup
 	httpDoJSON(t, "DELETE", jobURL(jobID), "")
 }

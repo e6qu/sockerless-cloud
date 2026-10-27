@@ -15,37 +15,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// S3 Express One Zone. A directory bucket is placed in one Availability Zone
-// and named for it, and a client reaches it by establishing a session rather
-// than by signing each request with its own credentials.
+// A directory bucket sits in one Availability Zone and is named for it, and a
+// client reaches it through a session rather than by signing each request with
+// its own credentials.
 //
-//	GET /{bucket}?session          CreateSession
-//	GET /?x-id=ListDirectoryBuckets ListDirectoryBuckets
-//
-// ListDirectoryBuckets is driven from the CLI suite rather than here: with a
-// BaseEndpoint configured, aws-sdk-go-v2 v1.110.0 resolves that operation onto
-// the S3 Express auth scheme, whose identity resolver demands a bucket the
-// operation does not have, and fails with "get identity: bucket name is
-// missing" before emitting a request. The same call over botocore reaches the
-// endpoint, so the operation is exercised there.
+// The CLI suite covers ListDirectoryBuckets: with a BaseEndpoint,
+// aws-sdk-go-v2 v1.110.0 resolves it onto the S3 Express auth scheme, whose
+// identity resolver demands a bucket the operation lacks and fails with "get
+// identity: bucket name is missing" before sending a request. botocore reaches
+// the endpoint.
 
 const s3ExpressZone = "use1-az4"
 const s3ExpressBucket = "sim-express--use1-az4--x-s3"
 
-// s3ExpressClient is an ordinary S3 client with no endpoint override, so the
-// SDK resolves S3 Express One Zone's own hostnames exactly as it does against
-// Amazon S3 — the regional control endpoint for the bucket calls and the
-// bucket's zonal endpoint for the session and the object calls. simHTTPClient
-// resolves those names to the simulator; nothing else differs.
+// s3ExpressClient is an S3 client with no endpoint override, so the SDK resolves
+// S3 Express One Zone's hostnames as it does against AWS: the regional control
+// endpoint for bucket calls and the bucket's zonal endpoint for sessions and
+// objects. simHTTPClient resolves those names to the simulator.
 func s3ExpressClient() *s3.Client {
 	return s3.NewFromConfig(sdkConfig(), func(o *s3.Options) {
 		o.EndpointOptions.DisableHTTPS = true
 	})
 }
 
-// TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart covers the placement
-// half: a directory bucket carries the zone it sits in, its name has to agree
-// with the Location that placed it, and the two listings are separate surfaces.
+// TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart expects a directory
+// bucket to carry its zone, its name to agree with the Location that placed
+// it, and the two bucket listings to be separate.
 func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 	t.Parallel()
 	admin := s3ExpressClient()
@@ -66,10 +61,9 @@ func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(s3ExpressBucket)}) })
 
-	// A name that does not carry the zone it is placed in is refused: the name
-	// is what makes the bucket addressable at its zonal endpoint. It is not a
-	// directory bucket's name, so the client addresses the ordinary endpoint
-	// with it, which is what a caller who got the name wrong does.
+	// A name without the zone is refused: the name makes the bucket addressable at
+	// its zonal endpoint. Not being a directory bucket name, it goes to the
+	// ordinary endpoint, as a caller who got the name wrong sends it.
 	_, err = s3Client().CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String("sim-express-unzoned"),
 		CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
@@ -97,8 +91,7 @@ func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 	require.Error(t, err, "the name's zone and the Location must agree")
 	assert.Equal(t, "InvalidBucketName", errCodeOf(err))
 
-	// The two listings are separate surfaces: the directory bucket is in one
-	// and not the other.
+	// The directory bucket is in one listing and not the other.
 	listed, err := s3Client().ListBuckets(ctx, &s3.ListBucketsInput{})
 	require.NoError(t, err)
 	for _, b := range listed.Buckets {
@@ -115,10 +108,10 @@ func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 	assert.Contains(t, names, s3ExpressBucket, "ListDirectoryBuckets returns the directory buckets")
 }
 
-// TestS3_SessionOpensTheOneBucketItWasCreatedFor covers the authentication
-// half. CreateSession returns temporary credentials, and they are real: a later
-// request signed with them authenticates as the caller who asked for them, and
-// the session's scope is enforced — one bucket, and the mode it was created in.
+// TestS3_SessionOpensTheOneBucketItWasCreatedFor expects CreateSession's
+// temporary credentials to authenticate later requests as the caller who asked
+// for them, within the session's scope: one bucket, in the mode it was created
+// in.
 func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	t.Parallel()
 	admin := s3ExpressClient()
@@ -143,8 +136,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 		Bucket: aws.String(s3ExpressBucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
-	// A session on a general purpose bucket is refused: only a directory
-	// bucket has a zonal endpoint to establish one on.
+	// Only a directory bucket has a zonal endpoint to open a session on.
 	general := "sim-express-general-purpose"
 	plain := s3Client()
 	_, err = plain.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(general)})
@@ -153,7 +145,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	_, err = plain.CreateSession(ctx, &s3.CreateSessionInput{Bucket: aws.String(general)})
 	require.Error(t, err, "a general purpose bucket has no session")
 
-	// ReadWrite, the default.
+	// ReadWrite is the default.
 	session, err := admin.CreateSession(ctx, &s3.CreateSessionInput{Bucket: aws.String(s3ExpressBucket)})
 	require.NoError(t, err)
 	require.NotNil(t, session.Credentials)
@@ -169,11 +161,9 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 			HTTPClient: sdkHTTPClient},
 			func(o *s3.Options) {
 				o.EndpointOptions.DisableHTTPS = true
-				// This caller drives the session itself, so the SDK must not
-				// establish one of its own: DisableS3ExpressSessionAuth is the
-				// option Amazon's SDK offers for exactly that, and without it
-				// the client would sign with a session it created while
-				// carrying the token of the one under test.
+				// The test drives the session itself, so DisableS3ExpressSessionAuth stops the
+				// SDK from signing with a session of its own while carrying the token of the
+				// one under test.
 				o.DisableS3ExpressSessionAuth = aws.Bool(true)
 				o.APIOptions = append(o.APIOptions, withSessionTokenHeader(aws.ToString(creds.SessionToken)))
 			})
@@ -201,14 +191,10 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 }
 
-// withSessionTokenHeader applies a session's token to the request header, which
-// is how Amazon S3 documents authorizing a Zonal endpoint call made with
-// credentials the caller obtained from CreateSession itself: sign with the
-// temporary credentials, and carry the session token in x-amz-s3session-token.
-// The SDK does this for the sessions it manages; a caller driving a session by
-// hand — which is what the two scope assertions below need, since the SDK only
-// ever manages a ReadWrite session for the bucket being addressed — does it
-// like this, against Amazon S3 exactly as here.
+// withSessionTokenHeader carries a session's token in x-amz-s3session-token,
+// as Amazon S3 documents for a zonal call signed with credentials the caller
+// got from CreateSession. The SDK only manages a ReadWrite session for the
+// addressed bucket, so the scope assertions drive sessions by hand.
 func withSessionTokenHeader(token string) func(*middleware.Stack) error {
 	return func(stack *middleware.Stack) error {
 		return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("withSessionTokenHeader",
@@ -221,10 +207,9 @@ func withSessionTokenHeader(token string) func(*middleware.Stack) error {
 	}
 }
 
-// TestS3_TheSDKEstablishesTheSessionItself covers the path a client actually
-// takes. Addressing a directory bucket with an ordinary client is enough: the
-// SDK recognises the bucket, calls CreateSession on its own, signs with what
-// comes back and carries the session token, and the object round-trips.
+// TestS3_TheSDKEstablishesTheSessionItself expects an ordinary client
+// addressing a directory bucket to call CreateSession, sign with the result,
+// carry the token, and round-trip the object.
 func TestS3_TheSDKEstablishesTheSessionItself(t *testing.T) {
 	t.Parallel()
 	client := s3ExpressClient()

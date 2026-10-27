@@ -12,8 +12,6 @@ import (
 
 const networkMoreAPIVersion = "2024-05-01"
 
-// TestNetwork_PublicIPDdosStatus exercises the public-IP DDoS protection status
-// operation through `az rest`.
 func TestNetwork_PublicIPDdosStatus(t *testing.T) {
 	t.Parallel()
 	pipURL := armURL("Microsoft.Network", "publicIPAddresses/cli-ddos-pip", networkMoreAPIVersion)
@@ -31,10 +29,9 @@ func TestNetwork_PublicIPDdosStatus(t *testing.T) {
 	assert.Equal(t, "False", status.IsWorkloadProtected)
 }
 
-// TestNetwork_LoadBalancerExtraOps exercises the load-balancer operations
-// beyond CRUD through `az rest`: the associated network-interface list, the
-// inbound-NAT port-mapping query, the per-rule health, and the NIC→IP-based
-// pool migration.
+// TestNetwork_LoadBalancerExtraOps exercises the load balancer operations
+// beyond CRUD: the associated network-interface list, the inbound NAT
+// port-mapping query, per-rule health, and the migration to an IP-based pool.
 func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	t.Parallel()
 	pipURL := armURL("Microsoft.Network", "publicIPAddresses/cli-lbx-pip", networkMoreAPIVersion)
@@ -54,7 +51,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	runCLI(t, azRest("PUT", lbURL, body))
 	defer runCLI(t, azRest("DELETE", lbURL, ""))
 
-	// LoadBalancerNetworkInterfaces_List — no NICs reference the pool.
+	// No NICs reference the pool.
 	out := runCLI(t, azRest("GET", armURL("Microsoft.Network", "loadBalancers/cli-lbx/networkInterfaces", networkMoreAPIVersion), ""))
 	var nics struct {
 		Value []any `json:"value"`
@@ -62,7 +59,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	parseJSON(t, out, &nics)
 	assert.Empty(t, nics.Value)
 
-	// LoadBalancers_ListInboundNatRulePortMappings — no inbound NAT rules.
+	// The load balancer has no inbound NAT rules.
 	out = runCLI(t, azRest("POST",
 		armURL("Microsoft.Network", "loadBalancers/cli-lbx/backendAddressPools/pool/queryInboundNatRulePortMapping", networkMoreAPIVersion),
 		`{"ipAddress":"10.0.0.7"}`))
@@ -72,7 +69,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	parseJSON(t, out, &mappings)
 	assert.Empty(t, mappings.InboundNatRulePortMappings)
 
-	// LoadBalancerLoadBalancingRules_Health — zero backends → 0 up / 0 down.
+	// Zero backends: 0 up, 0 down.
 	out = runCLI(t, azRest("POST",
 		armURL("Microsoft.Network", "loadBalancers/cli-lbx/loadBalancingRules/rule/health", networkMoreAPIVersion), ""))
 	var health struct {
@@ -83,7 +80,6 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	assert.Equal(t, 0, health.Up)
 	assert.Equal(t, 0, health.Down)
 
-	// LoadBalancers_MigrateToIpBased — the named pool exists, so it migrates.
 	out = runCLI(t, azRest("POST",
 		armURL("Microsoft.Network", "loadBalancers/cli-lbx/migrateToIpBased", networkMoreAPIVersion),
 		`{"pools":["pool"]}`))
@@ -95,17 +91,11 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	assert.Equal(t, "pool", migrated.MigratedPools[0])
 }
 
-// TestNetwork_SubnetLinksAndVnetDdos exercises the subnet resource/service
-// association link reads and the virtual-network DDoS protection status through
-// `az rest` (all empty without delegated services or attached public IPs).
-//
-// The virtual network and subnet are created first. Reading a child collection
-// of a subnet that was never created and asserting the collection is empty
-// proves nothing about the collection — a handler answering {"value":[]} to any
-// URL of that shape satisfies it — and it pins the simulator answering 200
-// where the real service answers ResourceNotFound. The refusal for a subnet
-// that does not exist is asserted alongside, so "empty" and "absent" stay
-// distinguishable.
+// TestNetwork_SubnetLinksAndVnetDdos reads the subnet resource and service
+// association links and the virtual network DDoS protection status, all empty
+// without delegated services or attached public IPs. It also checks that a
+// missing subnet answers ResourceNotFound: a handler answering {"value":[]}
+// to any URL of that shape would otherwise pass.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	t.Parallel()
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet", networkMoreAPIVersion)
@@ -130,8 +120,7 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	parseJSON(t, out, &svc)
 	assert.Empty(t, svc.Value, "a subnet no service has delegated carries no service association links")
 
-	// The discriminator: these collections belong to the subnet, so a subnet
-	// that does not exist has no collection to read.
+	// These collections belong to the subnet, so a missing subnet has none.
 	missingNav := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/subnets/cli-no-such-subnet/ResourceNavigationLinks", networkMoreAPIVersion)
 	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingNav, "")), "ResourceNotFound",
 		"resource navigation links under a subnet that does not exist must be refused as ResourceNotFound")
@@ -139,12 +128,9 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	assert.Contains(t, runNetworkCLIExpectFailure(t, azRest("GET", missingSvc, "")), "ResourceNotFound",
 		"service association links under a subnet that does not exist must be refused as ResourceNotFound")
 
-	// Listing the DDoS protection status is a long-running operation whose
-	// final state comes via Location, so the addresses are read from the
-	// Location poll rather than from the 202 that starts it. `az rest` prints
-	// response headers only under --debug, which is where the poll URL comes
-	// from; a client that ignored the header would see the empty 202 body and
-	// conclude the network has no addresses at all.
+	// The DDoS protection status list is a long-running operation whose result
+	// comes from the Location poll, not the empty 202 that starts it. `az rest`
+	// prints response headers only under --debug.
 	ddosURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet/ddosProtectionStatus", networkMoreAPIVersion)
 	location := azRestResponseHeader(t, azRest("POST", ddosURL, "", "--debug"), "Location")
 	require.NotEmpty(t, location,
@@ -157,14 +143,11 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 }
 
 // azRestResponseHeader runs an `az rest --debug` command and returns the named
-// response header the client printed. Response headers are how an Azure
-// long-running operation hands back the URL its result is read from, and the
-// Azure CLI shows them only in its debug log.
+// response header, which the Azure CLI shows only in its debug log.
 func azRestResponseHeader(t *testing.T, cmd *exec.Cmd, header string) string {
 	t.Helper()
-	// az prints response headers only in its --debug log, which it writes to
-	// stderr; stdout carries the response body. Both are searched, because
-	// which stream a given az version logs to is not part of its contract.
+	// Search both streams: which one a given az version logs --debug to is not
+	// part of its contract.
 	stdout, stderr := runCLIStreams(t, cmd)
 	out := stderr + "\n" + stdout
 	match := regexp.MustCompile(`'` + regexp.QuoteMeta(header) + `':\s*'([^']+)'`).FindStringSubmatch(out)

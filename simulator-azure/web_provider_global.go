@@ -8,24 +8,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// web_provider_global.go implements the Microsoft.Web provider and
-// subscription singletons: Provider_ListOperations, Validate,
-// VerifyHostingEnvironmentVnet, WebApps_UpdateMachineKey,
-// GetUsagesInLocation_list, ListBillingMeters, ListAseRegions,
-// ListPremierAddOnOffers, the deleted-web-app reads
-// (Global_GetDeletedWebApp[Snapshots], DeletedWebApps_GetDeletedWebAppByLocation)
-// and Global_GetSubscriptionOperationWithAsyncResponse.
-//
-// The catalog-shaped surfaces answer from what the simulator genuinely
-// hosts: it meters no billing and offers no marketplace premier add-ons, and
-// enforces no location quotas, so those collections are truthfully empty. The
-// deleted-web-app reads answer from the retention store a site or slot delete
-// writes (web_backup.go), which is the same record WebApps_RestoreFromDeletedApp
-// replays.
+// The simulator meters no billing, offers no premier add-ons and enforces no
+// location quotas, so those collections are empty. The deleted-web-app reads
+// answer from the retention store a site or slot delete writes
+// (web_backup.go), which WebApps_RestoreFromDeletedApp replays.
 
 func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.HandlerFunc)) {
-	// Provider_ListOperations — the Azure Resource Manager operation
-	// catalog for the Microsoft.Web surfaces this simulator serves.
 	srv.HandleFunc("GET /providers/Microsoft.Web/operations", func(w http.ResponseWriter, _ *http.Request) {
 		op := func(name, resource, operation, description string) map[string]any {
 			return map[string]any{
@@ -61,8 +49,6 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		}})
 	})
 
-	// Validate — verify that a Site / ServerFarm / hosting-environment
-	// description can be created, against the real stores.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/validate", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name       string `json:"name"`
@@ -90,7 +76,6 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		}
 		switch {
 		case strings.EqualFold(req.Type, "Site"):
-			// A site needs a real App Service plan to land on.
 			if req.Properties.ServerFarmID == "" {
 				fail("ServerFarmRequired", "The 'properties.serverFarmId' member is required to validate a Site.")
 				return
@@ -105,9 +90,6 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 				return
 			}
 		case strings.EqualFold(req.Type, "Microsoft.Web/hostingEnvironments"):
-			// An App Service Environment description validates when its name
-			// is still free in the subscription — the environments the
-			// simulator hosts are the ones it checks against.
 			suffix := "/providers/Microsoft.Web/hostingEnvironments/" + req.Name
 			for _, ase := range webHostingEnvironments.List() {
 				if strings.HasSuffix(strings.ToLower(ase.ID), strings.ToLower(suffix)) {
@@ -122,9 +104,6 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"status": "Success"})
 	})
 
-	// VerifyHostingEnvironmentVnet — analyze whether the given virtual
-	// network and subnet exist and can host an App Service Environment,
-	// against the simulator's real Microsoft.Network stores.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/providers/Microsoft.Web/verifyHostingEnvironmentVnet", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		var req struct {
@@ -171,9 +150,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		})
 	})
 
-	// WebApps_UpdateMachineKey — reset the site's machine key. The response
-	// contract carries no schema; the operation's observable effect is the
-	// reset itself, so a verified site answers 200.
+	// The response contract carries no schema; the reset is the whole effect.
 	site("POST", "/updatemachinekey", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -181,36 +158,22 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// GetUsagesInLocation_list — location quota usage. The simulator
-	// enforces no location quotas, so it has none to report (the same
-	// truthful shape as the per-site /usages list).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/usages", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// ListBillingMeters — the simulator meters no billing.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/billingMeters", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// ListAseRegions — the regions that offer App Service Environment
-	// capacity are a region catalog, and the simulator publishes none: its
-	// geoRegions list is empty for the same reason, and an environment is
-	// created in whatever location its request names.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/aseRegions", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// ListPremierAddOnOffers — no marketplace premier add-on offers exist
-	// in the simulator.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/premieraddonoffers", func(w http.ResponseWriter, _ *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 	})
 
-	// Deleted-web-app reads — Global_GetDeletedWebApp,
-	// Global_GetDeletedWebAppSnapshots and
-	// DeletedWebApps_GetDeletedWebAppByLocation — answered from the retention
-	// record a site or slot delete wrote.
 	deletedSiteGet := func(w http.ResponseWriter, r *http.Request) {
 		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
 		if !ok {
@@ -222,8 +185,7 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 	}
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}", deletedSiteGet)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/deletedSites/{deletedSiteId}", deletedSiteGet)
-	// The deleted app's retained snapshot history — the points
-	// DeletedAppRestoreRequest.snapshotTime can name.
+	// The snapshots DeletedAppRestoreRequest.snapshotTime can name.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/deletedSites/{deletedSiteId}/snapshots", func(w http.ResponseWriter, r *http.Request) {
 		row, ok := webDeletedSiteByRequest(sim.PathParam(r, "deletedSiteId"))
 		if !ok {
@@ -240,15 +202,13 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 				"properties": map[string]any{"time": snap.Time},
 			})
 		}
-		// The specification declares this response a bare array of Snapshot,
-		// not a paged collection envelope.
+		// The specification declares a bare array of Snapshot, not a paged
+		// collection.
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// Global_GetSubscriptionOperationWithAsyncResponse — the status of a
-	// Microsoft.Web long-running operation: 204 while the operation record
-	// exists (the operation's outcome travels on the operationStatuses
-	// envelope), 404 for an operation the service never issued.
+	// 204 while the operation record exists (the outcome travels on the
+	// operationStatuses envelope), 404 for an operation never issued.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/locations/{location}/operations/{operationId}", func(w http.ResponseWriter, r *http.Request) {
 		opID := sim.PathParam(r, "operationId")
 		if _, ok := azureAsyncOps.Get(opID); !ok {
@@ -259,10 +219,9 @@ func registerWebProviderGlobal(srv *sim.Server, site func(string, string, http.H
 	})
 }
 
-// webPlanSKUFor derives a site's `properties.sku` member — the SKU tier of
-// its associated App Service plan (Basic, Dynamic, ElasticPremium, …), which
-// real Microsoft.Web/sites reads report and `az webapp` commands depend on.
-// Empty when the plan reference does not resolve.
+// webPlanSKUFor is the SKU tier of the site's App Service plan, which
+// `properties.sku` reports and `az webapp` commands depend on; "" when the
+// plan does not resolve.
 func webPlanSKUFor(serverFarmID string) string {
 	if serverFarmID == "" {
 		return ""
@@ -277,8 +236,7 @@ func webPlanSKUFor(serverFarmID string) string {
 	return plan.Sku.Name
 }
 
-// webValidateLookupPlan resolves an App Service plan by ARM resource ID,
-// case-insensitively on the ID's fixed segments.
+// Match case-insensitively on the ID's fixed segments.
 func webValidateLookupPlan(planID string) (AppServicePlan, bool) {
 	if p, ok := azureAppServicePlans.Get(planID); ok {
 		return p, true

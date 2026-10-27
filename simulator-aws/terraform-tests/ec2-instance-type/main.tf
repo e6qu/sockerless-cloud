@@ -23,8 +23,6 @@ provider "aws" {
   }
 }
 
-# Each filter selects over one published fact: vCPUs, memory in MiB, and
-# architecture.
 data "aws_ec2_instance_types" "graviton_2_vcpus_512_mib" {
   filter {
     name   = "vcpu-info.default-vcpus"

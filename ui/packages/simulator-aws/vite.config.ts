@@ -31,9 +31,14 @@ export default defineConfig({
     },
   },
   server: {
+    // Serve the bundle under /ui/ and forward the rest of the console's origin
+    // to the simulator: /ui/config.json, the auth layer under /auth/, and the
+    // AWS APIs, which the console reaches at its own origin when the cloud
+    // coordinates are empty. S3 addresses a bucket at the origin's root, so no
+    // narrower set of prefixes covers them.
     proxy: {
-      "/health": "http://localhost:4566",
-      "/sim": "http://localhost:4566",
+      "/ui/config.json": "http://localhost:4566",
+      "^/(?!ui(?:/|$))": "http://localhost:4566",
     },
   },
 });

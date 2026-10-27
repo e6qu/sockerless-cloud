@@ -12,13 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Full-fidelity coverage of armappcontainers.Configuration: dapr,
-// identitySettings, maxInactiveRevisions, runtime, and service must
-// round-trip through create/get/patch exactly as the SDK spells them.
+// Every armappcontainers.Configuration member (dapr, identitySettings,
+// maxInactiveRevisions, runtime, service) round-trips through create, get and
+// patch as the SDK spells it.
 
-// fullContainerAppConfiguration builds a Configuration with every member
-// set to a non-default value, so a dropped field surfaces as a mismatch
-// rather than a zero-value coincidence.
+// fullContainerAppConfiguration sets every member to a non-default value, so a
+// dropped field shows as a mismatch, not a zero-value coincidence.
 func fullContainerAppConfiguration() *armappcontainers.Configuration {
 	return &armappcontainers.Configuration{
 		ActiveRevisionsMode:  to.Ptr(armappcontainers.ActiveRevisionsModeMultiple),
@@ -47,9 +46,6 @@ func fullContainerAppConfiguration() *armappcontainers.Configuration {
 	}
 }
 
-// assertFullContainerAppConfiguration checks every member
-// fullContainerAppConfiguration set, on a Configuration read back from
-// the sim.
 func assertFullContainerAppConfiguration(t *testing.T, cfg *armappcontainers.Configuration) {
 	t.Helper()
 	require.NotNil(t, cfg)
@@ -91,10 +87,8 @@ func assertFullContainerAppConfiguration(t *testing.T, cfg *armappcontainers.Con
 	assert.Equal(t, armappcontainers.IdentitySettingsLifeCycleInit, *cfg.IdentitySettings[0].Lifecycle)
 }
 
-// TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip creates
-// an app whose configuration sets every armappcontainers.Configuration
-// member to a non-default value and asserts both the create response and
-// a subsequent GET return them all unchanged.
+// TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip: the create
+// response and a later GET return every member unchanged.
 func TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-cfg-rg"
@@ -133,10 +127,9 @@ func TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip(t *testing.T) 
 	assertFullContainerAppConfiguration(t, got.Properties.Configuration)
 }
 
-// TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings PATCHes a
-// single dapr member (RFC 7396 merge) and asserts every sibling dapr
-// member and every sibling configuration member survives unchanged. Uses
-// raw HTTP because the SDK only exposes CreateOrUpdate (PUT), not PATCH.
+// TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings merge-patches one
+// dapr member; every sibling survives. Raw HTTP, because the SDK exposes only
+// PUT.
 func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-cfg-patch-rg"
@@ -190,7 +183,6 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 	assert.Equal(t, armappcontainers.LogLevelWarn, *cfg.Dapr.LogLevel,
 		"the patched dapr member must take the new value")
 
-	// Sibling dapr members merge member-wise, not wholesale-replace.
 	require.NotNil(t, cfg.Dapr.Enabled)
 	assert.True(t, *cfg.Dapr.Enabled, "dapr.enabled must survive a logLevel-only merge patch")
 	require.NotNil(t, cfg.Dapr.AppID)
@@ -206,7 +198,6 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 	require.NotNil(t, cfg.Dapr.HTTPReadBufferSize)
 	assert.Equal(t, int32(8), *cfg.Dapr.HTTPReadBufferSize)
 
-	// Sibling configuration members are untouched by a dapr-only patch.
 	require.NotNil(t, cfg.MaxInactiveRevisions)
 	assert.Equal(t, int32(7), *cfg.MaxInactiveRevisions)
 	require.NotNil(t, cfg.Runtime)
@@ -219,13 +210,10 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 	require.Len(t, cfg.IdentitySettings, 1)
 }
 
-// TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI deploys an app
-// with dapr enabled and proves the sim runs the real daprd sidecar in
-// the replica's network namespace: a client container in the replica
-// fetches http://localhost:3500/v1.0/metadata and the response — carried
-// through the client container's console log stream, the same observation path
-// TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs uses — reports the
-// configured appId and appPort, proving the configuration reached daprd.
+// TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI: a client container
+// in the replica fetches daprd's http://localhost:3500/v1.0/metadata, and the
+// response, read from its console stream, reports the configured appId and
+// appPort.
 func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-dapr-exec-rg"
@@ -239,9 +227,8 @@ func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
 	envID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.App/managedEnvironments/sim-env"
 
-	// The main container serves HTTP on :8080 (the configured appPort);
-	// the client container shares the replica's network namespace and
-	// polls the daprd metadata endpoint until the sidecar answers.
+	// The main container serves the appPort, 8080; the client container shares
+	// the replica's network namespace and polls daprd until it answers.
 	metadataScript := "until wget -q -O - http://127.0.0.1:3500/v1.0/metadata 2>/dev/null; do sleep 0.5; done; echo"
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, appName, armappcontainers.ContainerApp{
@@ -291,12 +278,8 @@ func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
 		}
 	}()
 
-	// The daprd metadata response proves the real sidecar is serving the
-	// Dapr HTTP API on the replica's localhost with the configured
-	// identity: `id` carries the appId, `appConnectionProperties` the
-	// appPort and protocol daprd was told to reach the app on. The client
-	// container prints it once daprd answers, and its console stream ends
-	// when the container exits.
+	// daprd's metadata carries the appId in `id`, and the appPort and protocol in
+	// `appConnectionProperties`.
 	app, err := client.Get(ctx, rg, appName, nil)
 	require.NoError(t, err)
 	metadata := func(line string) bool {

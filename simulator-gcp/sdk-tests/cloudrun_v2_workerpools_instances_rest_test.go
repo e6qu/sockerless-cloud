@@ -12,14 +12,11 @@ import (
 	runv2 "google.golang.org/api/run/v2"
 )
 
-// Cloud Run v2 Worker Pools and Instances driven through the official
-// Discovery REST clients (google.golang.org/api/run/v2 and /run/v1). The
-// generated clients emit the exact method URIs the Discovery document
-// declares — including the ":verb" IAM spellings and the PATCH update
-// paths — so every registered worker-pool and instance route is pinned to
-// its documented wire shape. The gRPC-transcoding client
-// (cloud.google.com/go/run/apiv2) covers the same resources from the other
-// canonical client; both must agree.
+// google.golang.org/api/run/v2 and /run/v1 emit the exact method URIs the
+// Discovery document declares, the ":verb" IAM spellings and the PATCH paths
+// included, pinning every worker-pool and instance route. The
+// cloud.google.com/go/run/apiv2 tests cover the same resources from the other
+// canonical client.
 
 const (
 	crV2Project  = "test-project"
@@ -47,11 +44,8 @@ func newRunV1RESTService(t *testing.T) *runv1.APIService {
 	return svc
 }
 
-// awaitRunV2Operation re-reads a long-running operation through the real
-// projects.locations.operations.get method and returns it once done. Cloud
-// Run's LROs are addressed by their own resource name, so this is the poll
-// a client performs after any create/patch/delete — never a local shortcut
-// around the returned operation.
+// awaitRunV2Operation polls projects.locations.operations.get until the
+// operation is done, as a client does after any create, patch or delete.
 func awaitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongrunningOperation) *runv2.GoogleLongrunningOperation {
 	t.Helper()
 	got := waitRunV2Operation(t, svc, op)
@@ -59,9 +53,8 @@ func awaitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongr
 	return got
 }
 
-// waitRunV2Operation blocks on run.projects.locations.operations.wait until the
-// operation is done and returns it. The method may answer before the operation
-// is done, so a not-done answer is waited on again.
+// waitRunV2Operation calls run.projects.locations.operations.wait until the
+// operation is done; the method may answer before then.
 func waitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongrunningOperation) *runv2.GoogleLongrunningOperation {
 	t.Helper()
 	require.NotEmpty(t, op.Name, "operation must carry a resource name to wait on")
@@ -76,8 +69,6 @@ func waitRunV2Operation(t *testing.T, svc *runv2.Service, op *runv2.GoogleLongru
 	return got
 }
 
-// lroResponseName decodes the resource name out of an operation's
-// google.protobuf.Any response payload.
 func lroResponseName(t *testing.T, op *runv2.GoogleLongrunningOperation) string {
 	t.Helper()
 	var resource struct {
@@ -95,7 +86,6 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	id := uniquename.New("rest-wp-surface")
 	name := crV2Parent + "/workerPools/" + id
 
-	// Create → LRO polled through operations.get.
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, &runv2.GoogleCloudRunV2WorkerPool{
 		Description: "worker pool under REST-client test",
 		Labels:      map[string]string{"suite": "rest"},
@@ -133,7 +123,6 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	assert.Equal(t, int64(100), got.InstanceSplitStatuses[0].Percent)
 	assert.Regexp(t, "^"+name+"/revisions/"+id+`-00001-[a-z0-9]{3}$`, got.LatestReadyRevision)
 
-	// List.
 	list, err := svc.Projects.Locations.WorkerPools.List(crV2Parent).Do()
 	require.NoError(t, err)
 	var found bool
@@ -168,7 +157,6 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	require.NotNil(t, patched.Scaling)
 	assert.Equal(t, int64(2), patched.Scaling.ManualInstanceCount, "an unmasked field must survive the patch")
 
-	// Revisions: list, get, delete — one per deploy.
 	revs, err := svc.Projects.Locations.WorkerPools.Revisions.List(name).Do()
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(revs.Revisions), 2, "create + patch each materialize a revision")
@@ -231,11 +219,9 @@ func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
 	assert.ElementsMatch(t, []string{"run.workerpools.get", "run.workerpools.update"}, perms.Permissions)
 }
 
-// TestSDK_RunV1REST_WorkerPools_IAMVerbs exercises the Cloud Run Admin v1
-// spelling of the same worker pool's IAM triple
-// (run.projects.locations.workerpools.*, lowercase collection). It is the
-// surface the gcloud CLI calls, and it must address the same resource the v2
-// methods do: a policy written through v1 reads back through v2.
+// TestSDK_RunV1REST_WorkerPools_IAMVerbs drives the Cloud Run Admin v1 IAM
+// triple (run.projects.locations.workerpools.*) that gcloud calls: a policy
+// written through v1 reads back through v2.
 func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 	t.Parallel()
 	v2svc := newRunV2RESTService(t)
@@ -331,7 +317,6 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	}
 	assert.True(t, found, "ListInstances must include the created instance")
 
-	// Patch with an updateMask.
 	revised := servingContainerREST()
 	revised.Env = []*runv2.GoogleCloudRunV2EnvVar{{Name: "REVISION", Value: "2"}}
 	patchOp, err := svc.Projects.Locations.Instances.Patch(name, &runv2.GoogleCloudRunV2Instance{
@@ -411,10 +396,9 @@ func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 }
 
 // TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip sends every writable field of
-// a WorkerPool and its revision template and requires each one back. A field
-// the simulator silently drops is invisible to a create/get smoke test but
-// makes terraform re-plan the resource forever, so the round-trip is asserted
-// field by field.
+// a WorkerPool and its revision template and requires each back: a dropped
+// field passes a create and get smoke test but makes Terraform re-plan the
+// resource forever.
 func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -566,8 +550,6 @@ func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"worker"}, tmpl.VpcAccess.NetworkInterfaces[0].Tags)
 }
 
-// TestSDK_RunV2REST_Instance_FullBodyRoundTrip is the Instance counterpart of
-// the worker-pool full-body round-trip.
 func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
@@ -658,9 +640,8 @@ func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 	assert.Equal(t, "default", got.VpcAccess.NetworkInterfaces[0].Network)
 }
 
-// TestSDK_RunV2REST_WorkerPoolsInstances_NotFound pins the error shape both
-// collections return for an absent resource: HTTP 404, not a 200 with an
-// empty body.
+// TestSDK_RunV2REST_WorkerPoolsInstances_NotFound: both collections answer an
+// absent resource with 404, not a 200 with an empty body.
 func TestSDK_RunV2REST_WorkerPoolsInstances_NotFound(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)

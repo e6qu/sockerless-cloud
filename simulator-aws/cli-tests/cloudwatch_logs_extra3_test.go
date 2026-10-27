@@ -7,11 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLogsIntegrationAndLookupCLI exercises OpenSearch integrations and lookup
-// tables through the aws CLI.
 func TestLogsIntegrationAndLookupCLI(t *testing.T) {
 	t.Parallel()
-	// OpenSearch integration.
 	integName := "cli-opensearch-integration"
 	defer runCLIIgnore(awsCLI("logs", "delete-integration",
 		"--integration-name", integName, "--force"))
@@ -50,7 +47,6 @@ func TestLogsIntegrationAndLookupCLI(t *testing.T) {
 	assert.True(t, foundInteg, "integration should be listed")
 	runCLI(t, awsCLI("logs", "delete-integration", "--integration-name", integName, "--force"))
 
-	// Lookup table.
 	ltName := "cli_lookup_table"
 	body := "key,value\nfoo,bar\n"
 	create := runCLI(t, awsCLI("logs", "create-lookup-table",
@@ -98,11 +94,8 @@ func TestLogsIntegrationAndLookupCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-lookup-table", "--lookup-table-arn", ct.LookupTableArn))
 }
 
-// TestLogsScheduledQueryAndTransformerCLI exercises scheduled queries and
-// per-log-group transformers through the aws CLI.
 func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
 	t.Parallel()
-	// Scheduled query.
 	sqName := "cli-scheduled-query"
 	dest := `{"s3Configuration":{"destinationIdentifier":"s3://cli-sq-bucket","roleArn":"arn:aws:iam::123456789012:role/sq-role"}}`
 	create := runCLI(t, awsCLI("logs", "create-scheduled-query",
@@ -165,7 +158,6 @@ func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
 	assert.Equal(t, cs.ScheduledQueryArn, hsq.ScheduledQueryArn)
 	runCLI(t, awsCLI("logs", "delete-scheduled-query", "--identifier", cs.ScheduledQueryArn))
 
-	// Transformer.
 	lg := "cli-transformer-lg"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", lg))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", lg))
@@ -197,11 +189,8 @@ func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "delete-transformer", "--log-group-identifier", lg))
 }
 
-// TestLogsImportAndStructureCLI exercises import tasks, log-structure reads,
-// deletion protection, anomalies, and log-group listing through the aws CLI.
 func TestLogsImportAndStructureCLI(t *testing.T) {
 	t.Parallel()
-	// Import task.
 	create := runCLI(t, awsCLI("logs", "create-import-task",
 		"--import-source-arn", "arn:aws:s3:::cli-import-bucket",
 		"--import-role-arn", "arn:aws:iam::123456789012:role/import-role",
@@ -240,7 +229,6 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 	parseJSON(t, cancelImp, &cai)
 	assert.Equal(t, ci.ImportId, cai.ImportId)
 
-	// Log-structure reads + deletion protection over a real log group.
 	lg := "cli-structure-lg"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", lg))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", lg))
@@ -267,7 +255,6 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 		"--log-group-identifier", lg,
 		"--deletion-protection-enabled"))
 
-	// Anomalies over a real detector.
 	detOut := runCLI(t, awsCLI("logs", "create-log-anomaly-detector",
 		"--log-group-arn-list", "arn:aws:logs:us-east-1:123456789012:log-group:"+lg,
 		"--detector-name", "cli-anomaly-detector",
@@ -315,7 +302,6 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 		"--pattern-id", "abcdefabcdefabcdefabcdefabcdef123456",
 		"--suppression-type", "INFINITE"))
 
-	// Log-group listing.
 	listLG := runCLI(t, awsCLI("logs", "list-log-groups",
 		"--log-group-name-pattern", "cli-structure", "--output", "json"))
 	var llg struct {

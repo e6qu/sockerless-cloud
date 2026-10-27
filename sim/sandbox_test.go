@@ -125,8 +125,8 @@ func TestSandboxDenyDockerSocketBypasses(t *testing.T) {
 }
 
 func TestSandboxPreservesExistingUser(t *testing.T) {
-	// If the caller already set User, the profile shouldn't override
-	// (Fargate, Cloud Run, ACA all let the image's USER win).
+	// A User the caller already set wins over the profile (AWS Fargate, Cloud
+	// Run and Azure Container Apps all let the image's USER win).
 	hc := &container.HostConfig{}
 	cc := &container.Config{User: "appuser:appgroup"}
 	if err := permissiveUserSandbox.Apply(hc, cc); err != nil {

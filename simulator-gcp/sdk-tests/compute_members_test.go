@@ -8,10 +8,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 )
 
-// The Compute Engine verbs that manage a membership: a target pool's instances
-// and health checks, a network's peerings, and a sole-tenant node group's
-// nodes. Each writes a list the resource carries, so the read beside it is what
-// proves the write landed.
+// Each membership verb writes a list the resource carries, so the read beside
+// it proves the write landed.
 
 func TestCompute_TargetPoolMembership(t *testing.T) {
 	t.Parallel()

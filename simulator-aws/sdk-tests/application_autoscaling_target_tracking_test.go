@@ -25,12 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAppScaling_TargetTrackingScalesECSService proves a target-tracking
-// policy actually adjusts capacity: with CPU pinned well above the target the
-// service's DesiredCount grows toward MaxCapacity; with CPU dropped below the
-// target it shrinks back toward MinCapacity. This is the real Application Auto
-// Scaling engine (AnyScaleFrontendService) reading CloudWatch Metrics and
-// driving ECS UpdateService — the runner-platform autoscaling flow end-to-end.
+// TestAppScaling_TargetTrackingScalesECSService expects a target-tracking
+// policy to read CloudWatch metrics and drive Amazon ECS UpdateService: with
+// CPU well above the target the service's DesiredCount grows toward
+// MaxCapacity, and below it shrinks toward MinCapacity.
 func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	t.Parallel()
 	family := uniquename.New("as-track-task")
@@ -124,8 +122,8 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 		}
 	}
 
-	// putCPU records copies datapoints of value for each of the last minutes,
-	// as the Amazon ECS agent reports one a minute.
+	// putCPU records copies datapoints of value for each of the last minutes, as
+	// the Amazon ECS agent reports one a minute.
 	putCPU := func(value float64, minutes, copies int) {
 		now := time.Now()
 		var data []cwtypes.MetricDatum
@@ -171,7 +169,6 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	}, 30*time.Second, time.Second, "DesiredCount must decrease toward MinCapacity once AlarmLow is in ALARM")
 	assert.GreaterOrEqual(t, desiredCount(), minC)
 
-	// Each capacity change surfaces as a ScalingActivity the alarm caused.
 	actOut, err := asC.DescribeScalingActivities(ctx, &applicationautoscaling.DescribeScalingActivitiesInput{
 		ServiceNamespace:  ns,
 		ResourceId:        aws.String(resourceID),
@@ -192,11 +189,10 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	assert.Empty(t, alarms.MetricAlarms, "deleting the policy deletes the alarms Application Auto Scaling created")
 }
 
-// TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer puts an
-// ALBRequestCountPerTarget policy on an Amazon ECS service: Application Auto
-// Scaling's alarms watch the Sum of RequestCountPerTarget for the target group
-// the ResourceLabel names, and the Application Load Balancer publishes that
-// metric for the requests it routes there.
+// TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer expects an
+// ALBRequestCountPerTarget policy's alarms to watch the Sum of
+// RequestCountPerTarget for the target group the ResourceLabel names, which the
+// Application Load Balancer publishes for the requests it routes there.
 func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) {
 	t.Parallel()
 	ec2c := ec2Client()
@@ -359,8 +355,8 @@ func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) 
 		require.NoError(t, resp.Body.Close())
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	}
-	// The load balancer reports a minute's requests once the minute has
-	// passed, so read the metric on that cadence until every request appears.
+	// The load balancer reports a minute's requests once the minute has passed,
+	// so read the metric on that cadence.
 	routed := func() float64 {
 		stats, err := cwC.GetMetricStatistics(ctx, &cloudwatch.GetMetricStatisticsInput{
 			Namespace:  aws.String("AWS/ApplicationELB"),

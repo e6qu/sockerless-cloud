@@ -14,11 +14,10 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-// cloudRunWorkloadScript runs as a Cloud Run workload's container: it records
-// its start in the Cloud Storage volume at /mnt/bucket under a name its
-// hostname makes unique, logs line and its hostname, and on the stop signal
-// records its stop the same way before it exits. listen, when set, keeps a TCP
-// listener on $PORT for the instance's default startup probe.
+// cloudRunWorkloadScript records its start in the Cloud Storage volume at
+// /mnt/bucket under a name its hostname makes unique, logs line and its
+// hostname, and records its stop the same way on the stop signal. listen keeps
+// a TCP listener on $PORT for the instance's default startup probe.
 func cloudRunWorkloadScript(line string, listen bool) string {
 	listener := ""
 	if listen {
@@ -39,8 +38,6 @@ func cloudRunWorkloadContainer(script string) *runpb.Container {
 	}
 }
 
-// distinctLogHosts returns the hostnames the log lines that start with prefix
-// name, each once.
 func distinctLogHosts(messages []string, prefix string) []string {
 	var hosts []string
 	for _, m := range messages {

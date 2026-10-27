@@ -115,17 +115,11 @@ func main() {
 
 // run serves until ctx ends.
 func run(ctx context.Context, cfg config, out io.Writer) error {
-	udp, err := net.ListenPacket("udp4", cfg.dnsListen)
+	udp, tcp, err := listenDNS(cfg.dnsListen)
 	if err != nil {
-		return fmt.Errorf("listen dns udp %s: %w", cfg.dnsListen, err)
+		return err
 	}
 	defer func() { _ = udp.Close() }()
-	// A stub resolver retries a truncated UDP answer over TCP on the same
-	// port, so the TCP listener takes the port UDP got.
-	tcp, err := net.Listen("tcp4", udp.LocalAddr().String())
-	if err != nil {
-		return fmt.Errorf("listen dns tcp %s: %w", udp.LocalAddr(), err)
-	}
 	defer func() { _ = tcp.Close() }()
 	httpListener, err := net.Listen("tcp4", cfg.httpListen)
 	if err != nil {
@@ -150,6 +144,31 @@ func run(ctx context.Context, cfg config, out io.Writer) error {
 	_ = tcp.Close()
 	wg.Wait()
 	return nil
+}
+
+// listenDNS binds UDP and TCP on one port, because a stub resolver retries a
+// truncated UDP answer over TCP on the same port. For port 0 the kernel picks
+// the UDP port, which another process may already hold for TCP, so a pair that
+// cannot be completed is released and picked again.
+func listenDNS(addr string) (net.PacketConn, net.Listener, error) {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listen dns %s: %w", addr, err)
+	}
+	for attempt := 1; ; attempt++ {
+		udp, err := net.ListenPacket("udp4", addr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("listen dns udp %s: %w", addr, err)
+		}
+		tcp, err := net.Listen("tcp4", udp.LocalAddr().String())
+		if err == nil {
+			return udp, tcp, nil
+		}
+		_ = udp.Close()
+		if port != "0" || !errors.Is(err, syscall.EADDRINUSE) || attempt == 16 {
+			return nil, nil, fmt.Errorf("listen dns tcp %s: %w", udp.LocalAddr(), err)
+		}
+	}
 }
 
 // boundAddrs, when a test sets it, receives the listen addresses.

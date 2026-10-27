@@ -13,28 +13,21 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Application Auto Scaling target tracking. PutScalingPolicy creates the two
-// CloudWatch alarms the service manages for the policy — AlarmHigh, three
-// one-minute periods above the target, and AlarmLow, fifteen one-minute
-// periods below 90% of it — whose actions invoke the policy. The evaluator
-// invokes the policy the way CloudWatch invokes an Auto Scaling action: when
-// an alarm enters ALARM, and once a minute for as long as it stays there. An
-// invocation scales out or in by the target-tracking formula unless the
-// policy's ScaleOutCooldown or ScaleInCooldown since the last activity in the
-// same direction has not yet passed.
+// PutScalingPolicy creates the two alarms Application Auto Scaling manages:
+// AlarmHigh, three one-minute periods above the target, and AlarmLow, fifteen
+// one-minute periods below 90% of it. Like Amazon CloudWatch, the evaluator
+// invokes the policy when an alarm enters ALARM and once a minute while it
+// stays there, subject to the policy's cooldown in that direction.
 
-// appScalingEvalInterval is how often the evaluator reads the alarms. The
-// alarms' periods and the policy's cooldowns, not this cadence, pace scaling.
+// The alarms' periods and the cooldowns, not this cadence, pace scaling.
 const appScalingEvalInterval = time.Second
 
-// appScalingAlarmActionRepeat is how often an alarm that stays in ALARM
-// invokes its Auto Scaling action again: "the alarm continues to invoke the
-// action once per minute that the alarm remains in the new state."
+// "The alarm continues to invoke the action once per minute that the alarm
+// remains in the new state."
 const appScalingAlarmActionRepeat = time.Minute
 
-// appScalingDefaultCooldown is the scale-out and scale-in cooldown the
-// Application Auto Scaling User Guide lists for Amazon ECS services when the
-// policy sets none.
+// The Application Auto Scaling User Guide's Amazon ECS default when the policy
+// sets no cooldown.
 const appScalingDefaultCooldown = 300 * time.Second
 
 const (
@@ -45,15 +38,11 @@ const (
 )
 
 var (
-	appScalingEvalOnce sync.Once
-	// appScalingAlarmInvocations records when each alarm last invoked its
-	// policy, keyed by alarm name.
+	appScalingEvalOnce         sync.Once
 	appScalingAlarmInvocations sync.Map
 )
 
-// startAppScalingEvalLoop launches the periodic target-tracking evaluator. It
-// is idempotent — registering Application Auto Scaling more than once (the
-// in-process build path) does not start a second goroutine.
+// Registering the service more than once starts only one evaluator.
 func startAppScalingEvalLoop(srv *sim.Server) {
 	appScalingEvalOnce.Do(func() {
 		srv.StartBackground("Application Auto Scaling evaluator", func(ctx context.Context) {
@@ -71,10 +60,8 @@ func startAppScalingEvalLoop(srv *sim.Server) {
 	})
 }
 
-// appScalingCapacityController abstracts the "read current capacity" and "apply
-// new capacity" operations for a (ServiceNamespace, ScalableDimension) pair.
-// ECS service DesiredCount is the common case; DynamoDB, Aurora, etc. can plug
-// in by registering against the same dimension string.
+// A capacity controller reads and applies capacity for one
+// (ServiceNamespace, ScalableDimension) pair.
 type appScalingCapacityController interface {
 	Read(target AppScalableTarget) (current int, ok bool)
 	Apply(target AppScalableTarget, newCount int) bool
@@ -84,8 +71,6 @@ var appScalingControllers = map[string]appScalingCapacityController{
 	"ecs:service:DesiredCount": ecsDesiredCountController{},
 }
 
-// AppScalingAlarm is a CloudWatch alarm Application Auto Scaling created for a
-// target tracking policy.
 type AppScalingAlarm struct {
 	AlarmName string `json:"AlarmName"`
 	AlarmARN  string `json:"AlarmARN"`
@@ -93,12 +78,10 @@ type AppScalingAlarm struct {
 	ScaleOut bool `json:"ScaleOut"`
 }
 
-// appScalingPolicyMetric names the CloudWatch metric a target tracking policy
-// tracks. The predefined Amazon ECS metrics resolve to the AWS/ECS namespace
-// with the ClusterName and ServiceName dimensions; ALBRequestCountPerTarget
-// resolves to the RequestCountPerTarget metric of the target group its
-// ResourceLabel names, which an Application Load Balancer publishes as it
-// routes requests.
+// The predefined Amazon ECS metrics resolve to AWS/ECS with ClusterName and
+// ServiceName; ALBRequestCountPerTarget resolves to the RequestCountPerTarget
+// an Application Load Balancer publishes for the target group ResourceLabel
+// names.
 func appScalingPolicyMetric(resourceID string, cfg targetTrackingConfig) (namespace, name string, dims []CWDimension, statistic string, ok bool) {
 	switch {
 	case cfg.CustomizedMetric != nil:
@@ -131,9 +114,7 @@ func appScalingPolicyMetric(resourceID string, cfg targetTrackingConfig) (namesp
 	return "", "", nil, "", false
 }
 
-// appScalingResourceLabelTargetGroup is the TargetGroup dimension of the target
-// group a ResourceLabel names: "app/<load-balancer-name>/<load-balancer-id>"
-// followed by "targetgroup/<target-group-name>/<target-group-id>".
+// A ResourceLabel reads "app/<lb-name>/<lb-id>/targetgroup/<tg-name>/<tg-id>".
 func appScalingResourceLabelTargetGroup(label string) (CWDimension, bool) {
 	loadBalancer, targetGroup, ok := strings.Cut(label, "/targetgroup/")
 	if !ok || strings.Count(loadBalancer, "/") != 2 || !strings.HasPrefix(loadBalancer, "app/") || strings.Count(targetGroup, "/") != 1 {
@@ -142,8 +123,6 @@ func appScalingResourceLabelTargetGroup(label string) (CWDimension, bool) {
 	return CWDimension{Name: "TargetGroup", Value: "targetgroup/" + targetGroup}, true
 }
 
-// appScalingCreateAlarms creates the AlarmHigh and, unless scale-in is
-// disabled, AlarmLow alarms for a target tracking policy.
 func appScalingCreateAlarms(policy AppScalingPolicy, cfg targetTrackingConfig) []AppScalingAlarm {
 	namespace, metricName, dims, statistic, ok := appScalingPolicyMetric(policy.ResourceId, cfg)
 	if !ok {
@@ -183,8 +162,6 @@ func appScalingCreateAlarms(policy AppScalingPolicy, cfg targetTrackingConfig) [
 	return alarms
 }
 
-// appScalingDeleteAlarms deletes the alarms Application Auto Scaling created
-// for a policy.
 func appScalingDeleteAlarms(policy AppScalingPolicy) {
 	for _, alarm := range policy.Alarms {
 		cwAlarms.Delete(alarm.AlarmName)
@@ -192,8 +169,6 @@ func appScalingDeleteAlarms(policy AppScalingPolicy) {
 	}
 }
 
-// appScalingEvaluatePolicies invokes every target tracking policy whose alarm
-// is in ALARM and due an invocation.
 func appScalingEvaluatePolicies(now time.Time) {
 	for _, policy := range appScalingPolicies.List() {
 		if !strings.EqualFold(policy.PolicyType, "TargetTrackingScaling") {
@@ -227,8 +202,7 @@ func appScalingEvaluatePolicies(now time.Time) {
 	}
 }
 
-// appScalingInvokeTargetTracking is one invocation of the policy by one of its
-// alarms: AlarmHigh may only add capacity and AlarmLow only remove it.
+// AlarmHigh may only add capacity and AlarmLow only remove it.
 func appScalingInvokeTargetTracking(policy AppScalingPolicy, cfg targetTrackingConfig, alarm CWAlarm, scaleOut bool, now time.Time) {
 	if !scaleOut && cfg.DisableScaleIn {
 		return
@@ -263,16 +237,15 @@ func appScalingInvokeTargetTracking(policy AppScalingPolicy, cfg targetTrackingC
 	appScalingRecordActivity(policy, target, alarm.AlarmName, current, newCount, now)
 }
 
-// appScalingComputeCapacity is the smallest whole capacity at which the
-// metric, which a target tracking metric must "increase or decrease in inverse
-// proportion to the number of capacity units", no longer exceeds the target:
-// ceil(current * metric / target), clamped to the scalable target's bounds.
+// A target tracking metric must "increase or decrease in inverse proportion
+// to the number of capacity units", so ceil(current * metric / target),
+// clamped to the target's bounds, is the smallest capacity meeting it.
 func appScalingComputeCapacity(current int, metricValue, targetValue float64, minCap, maxCap int) int {
 	if current <= 0 {
 		current = 1
 	}
-	// Round away the binary representation error of the quotient first, so a
-	// metric exactly at a multiple of the target does not ceil one unit high.
+	// Round away the quotient's binary error so a metric at an exact multiple of
+	// the target does not ceil one unit high.
 	raw := math.Round(float64(current)*metricValue/targetValue*1e9) / 1e9
 	newCount := int(math.Ceil(raw))
 	if newCount < 1 {
@@ -281,9 +254,8 @@ func appScalingComputeCapacity(current int, metricValue, targetValue float64, mi
 	return min(max(newCount, minCap), maxCap)
 }
 
-// appScalingCooldownAllows enforces the policy's ScaleOutCooldown or
-// ScaleInCooldown: a scaling activity in one direction waits out the cooldown
-// since the last activity in the same direction.
+// An activity waits out the cooldown since the last activity in the same
+// direction.
 func appScalingCooldownAllows(targetKey string, now time.Time, scaleOut bool, cfg targetTrackingConfig) bool {
 	direction, cooldownSeconds := "scale in", cfg.ScaleInCooldown
 	if scaleOut {
@@ -306,9 +278,6 @@ func appScalingCooldownAllows(targetKey string, now time.Time, scaleOut bool, cf
 	return last.IsZero() || now.Sub(last) >= cooldown
 }
 
-// appScalingRecordActivity writes a ScalingActivity entry describing the
-// change. The sim only records an activity on a real capacity change — never a
-// fabricated "evaluated but unchanged" entry.
 func appScalingRecordActivity(policy AppScalingPolicy, target AppScalableTarget, alarmName string, fromCount, toCount int, now time.Time) {
 	direction := "scale in"
 	if toCount > fromCount {
@@ -329,19 +298,13 @@ func appScalingRecordActivity(policy AppScalingPolicy, target AppScalableTarget,
 	appScalingActivities.Put(activity.ActivityId, activity)
 }
 
-// appScalingActivityID produces an ActivityId that sorts newest-last (the
-// DescribeScalingActivities handler sorts ascending), embedding epoch nanos so
-// successive evaluations never collide.
 func appScalingActivityID(now time.Time) string {
 	return sim.NewUUID() + "-" + strconv.Itoa(int(now.UnixNano()))
 }
 
-// targetTrackingConfig is the typed view over the raw
-// TargetTrackingScalingPolicyConfiguration JSON the policy stores.
 type targetTrackingConfig struct {
 	TargetValue float64
-	// ScaleOutCooldown and ScaleInCooldown are in seconds; nil takes the
-	// service's default.
+	// Cooldowns are in seconds; nil takes the service default.
 	ScaleOutCooldown *int
 	ScaleInCooldown  *int
 	DisableScaleIn   bool
@@ -411,9 +374,8 @@ func parseTargetTrackingConfig(raw []byte) (targetTrackingConfig, bool) {
 
 func falseIfNil(b *bool) bool { return b != nil && *b }
 
-// appScalingAlarmMetricValue is the metric value the alarm's newest period
-// in its evaluation window holds, reduced by the alarm's statistic — the
-// datapoint that put the alarm in ALARM.
+// appScalingAlarmMetricValue returns the newest period's statistic in the
+// alarm's evaluation window: the datapoint that put it in ALARM.
 func appScalingAlarmMetricValue(alarm CWAlarm, now time.Time) (float64, bool) {
 	period := int64(alarm.Period)
 	if period <= 0 {
@@ -442,10 +404,7 @@ func appScalingAlarmMetricValue(alarm CWAlarm, now time.Time) (float64, bool) {
 	return cwApplyAlarmStat(alarm, values), true
 }
 
-// parseECSResourceID splits an Application Auto Scaling ECS resource ID into
-// cluster name and service name. The canonical form is
-// `service/<cluster>/<service>`; the legacy `service/<service>` form (no
-// cluster) resolves against the implicit "default" cluster.
+// The legacy `service/<service>` form resolves against the "default" cluster.
 func parseECSResourceID(resourceID string) (cluster, service string) {
 	if !strings.HasPrefix(resourceID, "service/") {
 		return "", ""
@@ -458,10 +417,7 @@ func parseECSResourceID(resourceID string) (cluster, service string) {
 	return "default", parts[0]
 }
 
-// ecsDesiredCountController implements capacityController for
-// ecs:service:DesiredCount. Reading returns the service's current DesiredCount;
-// applying mutates the service's DesiredCount and asks the real service
-// scheduler to converge durable tasks.
+// Applying a count asks the service scheduler to converge the tasks.
 type ecsDesiredCountController struct{}
 
 func (ecsDesiredCountController) Read(target AppScalableTarget) (int, bool) {

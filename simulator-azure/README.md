@@ -1,6 +1,6 @@
 # simulator-azure
 
-`simulator-azure` is one binary that serves a slice of Microsoft Azure on one
+`simulator-azure` serves a slice of Microsoft Azure from one binary on one
 port, `4568`: the Azure Resource Manager control plane, Microsoft Entra ID's
 token service and Microsoft Graph, and the services' data planes, which it
 tells apart by the request's `Host` as Azure does (`<account>.blob.<host>`,
@@ -31,8 +31,8 @@ only `vX.Y.Z` at its root.
 
 The simulator needs a Docker or Podman engine to run virtual machines,
 Azure Container Apps, Azure Container Instances, App Service and Azure
-Functions sites, Azure Container Registry Tasks runs and Azure Database for
-PostgreSQL servers, and refuses to start without one. `SIM_RUNTIME=process`
+Functions sites, Azure Container Registry Tasks runs, Azure Database for
+PostgreSQL servers and Azure Cache for Redis caches, and refuses to start without one. `SIM_RUNTIME=process`
 starts it without an engine for API-only use; every operation that would run a
 workload is then refused. `GET /health` reports `runtime` and
 `capabilities.workloadExecution`.
@@ -77,6 +77,16 @@ client asks for, such as `https://management.azure.com/.default` or
 `https://vault.azure.net/.default`, and publishes its keys at
 `<endpoint>/<tenant>/discovery/v2.0/keys`. Applications created through
 Microsoft Graph sign in the same way.
+
+Azure Resource Manager authorizes every operation with Azure RBAC, as Azure
+does. The bootstrap service principal is Owner on the tenant root management
+group, which holds every subscription. Any other principal, a managed identity
+among them, does only what its role assignments grant, and a Microsoft Entra
+bearer reaches blobs, queues, tables, Key Vault objects and Event Grid topics
+only through a data role such as Storage Blob Data Reader. A storage account
+whose `allowSharedKeyAccess` is `false` refuses its keys.
+[Identity and access](../docs/iam.md#authorization-with-azure-rbac) describes
+the evaluation.
 
 MSAL, `azidentity` and `azure-identity` accept only an HTTPS authority. A
 client that signs in through one of them needs the simulator's TLS listener
@@ -268,7 +278,7 @@ handler files hold the rest.
 [`docs/architecture.md`](../docs/architecture.md) covers what every simulator
 shares: placement on containers or Firecracker microVMs (Azure's
 `SIM_PLACEMENT` services are `virtualmachines`, `containerapps`,
-`containerinstances` and `web`), network sidecars and persistence. These parts
+`containerinstances`, `web` and `redis`), network sidecars and persistence. These parts
 are Azure's own.
 
 ### Virtual networks
@@ -375,8 +385,8 @@ make simulator-azure/terraform-test  # azurerm and azuread through the HTTPS gat
   `CADDY=/path/to/caddy`). It starts the simulator, then the gateway on free
   ports with its own Caddy state, and runs one test per configuration:
   `main.tf` and the `entra`, `subscription`, `tutorial`, `webslots`,
-  `webkvscm`, `kvconsumers`, `forwardedheaders`, `rgdelete` and `rgmissing`
-  stacks. `TERRAFORM_TEST_ARGS` selects one (`-run TestTerraformApplyDestroy`)
+  `webkvscm`, `kvconsumers`, `forwardedheaders`, `redis`, `rgdelete` and
+  `rgmissing` stacks. `TERRAFORM_TEST_ARGS` selects one (`-run TestTerraformApplyDestroy`)
   and `TERRAFORM_TEST_TIMEOUT` bounds it. On macOS the suite runs in the
   Linux test image, because Go there ignores `SSL_CERT_FILE`.
 
@@ -384,7 +394,8 @@ make simulator-azure/terraform-test  # azurerm and azuread through the HTTPS gat
 
 - Microsoft Entra ID is the simulator's own; it federates no external
   identity provider.
-- Azure Cache for Redis runs no cache engine.
+- Azure Cache for Redis runs real Redis nodes, but refuses `shardCount` above
+  0, and its import and export move no data.
 - A storage account's static website (`.web.`) and Azure Data Lake Storage
   (`.dfs.`) endpoints answer a declared error.
 - Application Insights has no ingestion API; its tables fill from site output.

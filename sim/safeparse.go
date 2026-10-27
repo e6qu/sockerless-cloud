@@ -5,16 +5,18 @@ import (
 	"strings"
 )
 
-// This file centralizes the bounds-safe primitives for parsing untrusted input.
-// Fuzzing has repeatedly found the same panic classes in hand-rolled parsers:
-//   1. case-fold-then-slice — strings.ToLower/ToUpper changes byte length on
-//      non-ASCII / invalid-UTF-8 input, so an index computed in the folded copy
-//      is out of range in the original;
-//   2. unchecked slice/index arithmetic and integer overflow in length math;
-//   3. unbounded allocation / recursion from attacker-controlled sizes.
-// Use ASCIIFold/CaseInsensitiveIndex for case-insensitive matching that feeds an
-// index, and FrameReader for binary wire decoding, instead of raw
-// strings.ToLower + binary.BigEndian + slicing.
+// Bounds-safe primitives for parsing untrusted input. Hand-rolled parsers
+// panic in three ways:
+//  1. case-fold-then-slice — strings.ToLower/ToUpper changes byte length on
+//     non-ASCII or invalid-UTF-8 input, so an index computed in the folded
+//     copy is out of range in the original;
+//  2. unchecked slice and index arithmetic, and integer overflow in length
+//     math;
+//  3. unbounded allocation or recursion from attacker-controlled sizes.
+//
+// Use ASCIIFold and CaseInsensitiveIndex for case-insensitive matching that
+// feeds an index, and FrameReader for binary wire decoding, instead of raw
+// strings.ToLower, binary.BigEndian and slicing.
 
 // ASCIIFold lowercases ONLY ASCII A–Z and is byte-length preserving. Unlike
 // strings.ToLower (Unicode-aware; invalid UTF-8 → 3-byte U+FFFD) it never
@@ -77,7 +79,6 @@ type FrameReader struct {
 	off  int
 }
 
-// NewFrameReader returns a reader positioned at the start of data.
 func NewFrameReader(data []byte) *FrameReader { return &FrameReader{data: data} }
 
 // Remaining reports the number of unread bytes.
