@@ -176,7 +176,9 @@ export TF_VAR_credentials="$TUTORIAL_ROOT/bootstrap-key.json"
 
 Its `token_uri` names the simulator's token endpoint, so the Google provider
 signs a JWT with the key and exchanges it there, as it would at
-`oauth2.googleapis.com`.
+`oauth2.googleapis.com`. The stack deploys into `sockerless`, the project the
+simulator seeds for the bootstrap account, as you'd deploy into your own
+project on Google Cloud.
 
 On an arm64 machine, choose the arm64 Debian image too:
 
