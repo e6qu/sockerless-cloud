@@ -70,7 +70,9 @@ the same commit:
 <!-- doctest: run -->
 ```sh
 cd "$TUTORIAL_ROOT"
-go install ./simulator-aws ./simulator-gcp ./simulator-azure
+go install ./simulator-aws
+go install ./simulator-gcp
+go install ./simulator-azure
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
