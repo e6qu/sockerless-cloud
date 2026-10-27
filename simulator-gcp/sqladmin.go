@@ -615,7 +615,7 @@ func gcpSelfLink(r *http.Request, path string) string {
 	if host == "" {
 		host = "sqladmin.googleapis.com"
 	}
-	return fmt.Sprintf("https://%s%s", host, path)
+	return fmt.Sprintf("%s://%s%s", requestScheme(r), host, path)
 }
 
 func newSQLOperation(project, opType, targetID string) SQLOperation {

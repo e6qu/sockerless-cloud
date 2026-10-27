@@ -534,7 +534,7 @@ A policy (`IAMPolicy`, `iam.go`) holds `bindings`, `auditConfigs`, `etag` and `v
 | Behaviour | Implementation |
 |---|---|
 | `getIamPolicy` on a resource without a policy | Stores and returns an empty policy, version 1, so its etag stays stable. A bucket gets its default legacy-role policy (`gcsSeedDefaultBucketPolicy`). |
-| `setIamPolicy` etag | A non-empty etag that differs from the stored one answers `409 ABORTED` (`gcpIAMETagConflict`). An empty etag overwrites. Every write gets a fresh etag. Writes are serialized by `gcpIAMPolicyWrites`. |
+| `setIamPolicy` etag | A non-empty etag that differs from the stored one answers `409 ABORTED` (`gcpIAMETagConflict`); Cloud Storage bucket policies answer Cloud Storage's own `412 Precondition Failed` (`conditionNotMet`). An empty etag overwrites. Every write gets a fresh etag. Writes are serialized by `gcpIAMPolicyWrites`. |
 | `updateMask` | The default is `bindings,etag`. `auditConfigs` change only when the mask names them. |
 | `version` | Stored as sent, 1 when absent. `options.requestedPolicyVersion` is ignored. |
 | `auditConfigs` | Validated against `ADMIN_READ`, `DATA_READ` and `DATA_WRITE` (`validateIAMAuditConfigs`). |
@@ -736,7 +736,7 @@ curl -s -X PUT "$S/storage/v1/b/iam-demo-bucket/iam" -H "$A" -H "$J" -d @policy.
 The write gave the policy a new etag, so writing `policy.json` again, with the
 etag it was read at, is refused:
 
-<!-- doctest: run expect="\"status\":\"ABORTED\"" expect="HTTP 409" -->
+<!-- doctest: run expect="\"reason\":\"conditionNotMet\"" expect="HTTP 412" -->
 ```sh
 curl -s -w '\nHTTP %{http_code}\n' -X PUT "$S/storage/v1/b/iam-demo-bucket/iam" \
   -H "$A" -H "$J" -d @policy.json

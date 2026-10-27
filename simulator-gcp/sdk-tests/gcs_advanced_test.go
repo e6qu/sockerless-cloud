@@ -56,16 +56,17 @@ func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 	return m
 }
 
-// TestGCS_EmittedURLsHTTPS: Cloud Storage emits selfLink and mediaLink over
-// https://.
-func TestGCS_EmittedURLsHTTPS(t *testing.T) {
+// TestGCS_EmittedURLsResolve: Cloud Storage's selfLink and mediaLink name the
+// origin the request reached, and following them answers the object's
+// metadata and its content.
+func TestGCS_EmittedURLsResolve(t *testing.T) {
 	t.Parallel()
-	bucket := uniquename.New("https-bucket")
+	bucket := uniquename.New("links-bucket")
 	gcsRESTCreate(t, bucket)
 
 	uploadReq, _ := http.NewRequest("POST",
 		baseURL+"/upload/storage/v1/b/"+bucket+"/o?uploadType=media&name=hk",
-		strings.NewReader("https-test"))
+		strings.NewReader("link-test"))
 	uploadReq.Header.Set("Content-Type", "text/plain")
 	uploadResp, err := http.DefaultClient.Do(uploadReq)
 	require.NoError(t, err)
@@ -75,16 +76,27 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 
 	var uploadMeta map[string]any
 	require.NoError(t, json.Unmarshal(uploadBody, &uploadMeta))
-	assert.Truef(t, strings.HasPrefix(uploadMeta["selfLink"].(string), "https://"),
-		"upload selfLink must be https://; got %q", uploadMeta["selfLink"])
-	assert.Truef(t, strings.HasPrefix(uploadMeta["mediaLink"].(string), "https://"),
-		"upload mediaLink must be https://; got %q", uploadMeta["mediaLink"])
-
 	getMeta := gcsObjectMetadataRaw(t, bucket, "hk")
-	assert.Truef(t, strings.HasPrefix(getMeta["selfLink"].(string), "https://"),
-		"GET selfLink must be https://; got %q", getMeta["selfLink"])
-	assert.Truef(t, strings.HasPrefix(getMeta["mediaLink"].(string), "https://"),
-		"GET mediaLink must be https://; got %q", getMeta["mediaLink"])
+	for _, meta := range []map[string]any{uploadMeta, getMeta} {
+		self, _ := meta["selfLink"].(string)
+		media, _ := meta["mediaLink"].(string)
+		require.Truef(t, strings.HasPrefix(self, baseURL+"/storage/v1/b/"+bucket+"/o/"), "selfLink %q", self)
+		require.Truef(t, strings.HasPrefix(media, baseURL+"/download/storage/v1/b/"+bucket+"/o/"), "mediaLink %q", media)
+
+		resp, err := http.Get(self)
+		require.NoError(t, err)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, "selfLink: %s", body)
+		assert.Contains(t, string(body), `"name":"hk"`)
+
+		resp, err = http.Get(media)
+		require.NoError(t, err)
+		body, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, "mediaLink: %s", body)
+		assert.Equal(t, "link-test", string(body))
+	}
 }
 
 // TestGCS_ResumableUpload: the init POST carries the metadata and answers 200
@@ -317,7 +329,8 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 }
 
 // TestGCS_BucketIAMEtagConflict: bucket setIamPolicy refuses a stale etag with
-// 409, treats an empty etag as a blind overwrite, and keeps the default
+// Cloud Storage's 412 Precondition Failed, which gsutil and gcloud retry on,
+// treats an empty etag as a blind overwrite, and keeps the default
 // policy's etag stable across reads.
 func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	t.Parallel()
@@ -344,7 +357,7 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 			{"role": "roles/storage.objectViewer", "members": []string{"user:other@example.com"}},
 		},
 	})
-	require.Equal(t, http.StatusConflict, code, "stale etag must be rejected with 409")
+	require.Equal(t, http.StatusPreconditionFailed, code, "stale etag must be rejected with 412")
 
 	code = bucketIAMSet(t, bucket, map[string]any{
 		"bindings": []map[string]any{
