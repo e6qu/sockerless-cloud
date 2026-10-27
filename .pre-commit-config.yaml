@@ -207,6 +207,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: console-query-client
+        name: Every console query client cancels a stale first load
+        entry: bash scripts/check-console-query-client.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: gh-api-params
         name: Every gh api query parameter is one GitHub defines
         entry: bash scripts/check-gh-api-params.sh

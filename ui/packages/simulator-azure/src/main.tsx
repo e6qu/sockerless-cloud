@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Navigate, Route } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConsoleQueryClient } from "@sockerless/ui-core/query";
 import { AzureApp } from "./portal/AzureApp.js";
 import { HomePage } from "./pages/HomePage.js";
 import { AllServicesPage } from "./pages/AllServicesPage.js";
@@ -13,7 +14,7 @@ import { AppRegistrationPage, AppRegistrationsPage, EntraGroupsPage, EntraOvervi
 import { MonitorActivityLogPage, MonitorLogsPage, MonitorOverviewPage } from "./pages/MonitorPages.js";
 import "./index.css";
 
-const queryClient = new QueryClient({
+const queryClient = new ConsoleQueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
