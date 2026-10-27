@@ -26,10 +26,15 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Consoles.** `ui/` (Bun and Turborepo) builds `ui/packages/simulator-*`
   and `core`. A console reads only real cloud APIs and federates operator
   credentials through its cloud's own federation primitive.
+- **Doc tests.** `testutil/doctest` runs a document's shell blocks as written,
+  in one session, with long-running blocks alongside; an HTML comment before
+  each block says how to run it, and `TestEveryShellBlockIsAnnotated` holds
+  every Markdown file to that. CI's `docs (…)` jobs run the tutorial's three
+  parts, the README's install and quick start, and the contributing
+  tutorial.
 - **Docs.** `README.md` is the front door; `docs/` holds the rest:
   - `tutorial.md`, one stack on all three simulators with Terraform, whose
-    configurations live beside the tests that apply them (CI runs them as
-    `tf (aws tutorial)`, `tf (gcp tutorial)` and `tf (azure tutorial)`);
+    configurations live beside the Terraform tests that apply them;
   - `tutorial-contributing.md`, one change from specification to pull request;
   - `configuration.md`, `iam.md` and `instance-metadata.md` for users;
   - `architecture.md`, `specifications.md`, `maintaining.md` and

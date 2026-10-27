@@ -767,6 +767,16 @@ references by walking every tracked store, because a hand-kept list rots.
 
 ### Authorization and identity
 
+Azure RBAC decides every Azure Resource Manager operation: the bearer gate
+runs before every slice, derives the action from the path and verb as ARM
+names actions, and evaluates `actions` and `notActions` over the caller's and
+its groups' role assignments up to the tenant root management group. The
+bootstrap service principal is Owner through a seeded assignment, not a
+bypass. Storage authorizes bearers by data action, honours
+`allowSharedKeyAccess: false`, and verifies user delegation SAS against its
+key; Key Vault RBAC and Event Grid publish share the evaluator. A test
+principal gets exactly the role assignments the real cloud would require.
+
 Every surface that the cloud authenticates, the simulator authenticates:
 - the AWS REST management services (AWS Amplify, Amazon API Gateway, AWS
   Batch, Amazon EFS, EventBridge Scheduler, Amazon CloudFront, Amazon
@@ -988,6 +998,24 @@ operation takes a scoped drift exemption citing its `BUGS.md` row, and a test
 fails once the row closes or the operation is served.
 
 ## Testing discipline
+
+- **A document's commands are tested as written.** `testutil/doctest` runs
+  every shell block of a tutorial in order, as a reader runs it, and checks the
+  output the text promises. Its first runs found commands that had never
+  worked: `@latest` resolved the simulators and `gcp-bootstrap-key` to a
+  bootstrap `v0.1.0` the module proxy still serves; the Google Cloud stack
+  deployed into a project only the Terraform suite's `TestMain` created; the
+  contributing tutorial ran a microVM-only test. Every shell block in the
+  repository carries an annotation, so a document gains no command nothing
+  runs.
+- **Console tests run against the real simulators.** The console unit tests
+  start the simulators and sign in through Microsoft Entra ID as the consoles
+  do; the mocks they replaced had hidden a SigV4 signer that encoded paths
+  once where every service but Amazon S3 needs them encoded twice.
+- **Comments say what the code cannot.** A pass over every package cut
+  restatements, banners, narration, history and bug IDs, put the rest in
+  active voice, and corrected comments that disagreed with their code. The
+  pass surfaced the fidelity gaps filed as BUG-3778 to 3791.
 
 - **A test waits on the event it asserts**: the SDK's own waiters with short
   delay bounds, `aws … wait`, long polls, Live Tail opened before history is
