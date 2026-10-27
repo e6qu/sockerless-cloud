@@ -196,8 +196,8 @@ func TestGCS_MultipartUploadBodyName(t *testing.T) {
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal(body, &meta))
 	assert.Equal(t, "mpk", meta["name"])
-	assert.Truef(t, strings.HasPrefix(meta["selfLink"].(string), "https://"),
-		"multipart upload selfLink must be https://")
+	assert.Truef(t, strings.HasPrefix(meta["selfLink"].(string), baseURL+"/storage/v1/b/"+bucket+"/o/"),
+		"multipart upload selfLink %q names the origin the request reached", meta["selfLink"])
 }
 
 // POST /storage/v1/b/{bucket}/o/{name}/compose.
