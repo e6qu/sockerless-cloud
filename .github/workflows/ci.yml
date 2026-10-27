@@ -1621,6 +1621,79 @@ jobs:
       - name: Spec-shape ratchet (tf)
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"
 
+  docs:
+    needs: [verified-on-pr, warm-base-images]
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
+    # Runs each tutorial's commands as written (testutil/doctest), one part per
+    # job: the documents fix the simulators' ports, so a job holds one part.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: tutorial aws
+            cloud: aws
+            run: TestDocs/docs/tutorial.md/aws
+          - part: tutorial gcp
+            cloud: gcp
+            run: TestDocs/docs/tutorial.md/gcp
+          - part: tutorial azure
+            cloud: azure
+            run: TestDocs/docs/tutorial.md/azure
+          - part: readme
+            cloud: aws
+            run: TestDocs/README.md
+          - part: contributing tutorial
+            cloud: aws
+            run: TestDocs/docs/tutorial-contributing.md
+    name: docs (${{ matrix.part }})
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/install-go
+        with:
+          cache: 'true'
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+      - name: Load or fetch the base images
+        # Priming a cache: an image the registry refuses fails where it is used.
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
+      - name: Install Terraform
+        env:
+          TERRAFORM_VERSION: 1.16.0
+        run: |
+          set -euo pipefail
+          archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" "$base/$archive"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/sums" \
+            "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS"
+          (cd "$RUNNER_TEMP" && grep " $archive\$" sums | sha256sum --check --strict -)
+          unzip -q -o "$RUNNER_TEMP/$archive" -d /usr/local/bin terraform
+          terraform version
+        timeout-minutes: 3
+      - name: Install Caddy
+        run: bash scripts/install-caddy.sh
+      - name: Run the document
+        run: |
+          cd testutil/doctest
+          go test -tags doctest -count=1 -v -timeout 13m -run '^${{ matrix.run }}$' .
+        timeout-minutes: 14
+
   ui:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
