@@ -1647,6 +1647,66 @@ jobs:
           - part: contributing tutorial
             cloud: aws
             run: TestDocs/docs/tutorial-contributing.md
+          - part: aws readme install
+            cloud: aws
+            run: TestDocs/simulator-aws/README.md/install
+          - part: aws readme image
+            cloud: aws
+            run: TestDocs/simulator-aws/README.md/image
+          - part: aws readme checkout
+            cloud: aws
+            run: TestDocs/simulator-aws/README.md/checkout
+          - part: gcp readme install
+            cloud: gcp
+            run: TestDocs/simulator-gcp/README.md/install
+          - part: gcp readme image
+            cloud: gcp
+            run: TestDocs/simulator-gcp/README.md/image
+          - part: gcp readme checkout
+            cloud: gcp
+            run: TestDocs/simulator-gcp/README.md/checkout
+          - part: azure readme install
+            cloud: azure
+            run: TestDocs/simulator-azure/README.md/install
+          - part: azure readme image
+            cloud: azure
+            run: TestDocs/simulator-azure/README.md/image
+          - part: azure readme checkout
+            cloud: azure
+            run: TestDocs/simulator-azure/README.md/checkout
+          - part: azure readme test
+            cloud: azure
+            run: TestDocs/simulator-azure/README.md/test
+          - part: configuration
+            cloud: aws
+            run: TestDocs/docs/configuration.md
+          - part: maintaining
+            cloud: aws
+            run: TestDocs/docs/maintaining.md
+          - part: specifications
+            cloud: aws
+            run: TestDocs/docs/specifications.md
+          - part: aws sdk-tests readme
+            cloud: aws
+            run: TestDocs/simulator-aws/sdk-tests/README.md
+          - part: aws cli-tests readme
+            cloud: aws
+            run: TestDocs/simulator-aws/cli-tests/README.md
+          - part: aws terraform-tests readme
+            cloud: aws
+            run: TestDocs/simulator-aws/terraform-tests/README.md
+          - part: gcp sdk-tests readme
+            cloud: gcp
+            run: TestDocs/simulator-gcp/sdk-tests/README.md
+          - part: gcp cli-tests readme
+            cloud: gcp
+            run: TestDocs/simulator-gcp/cli-tests/README.md
+          - part: azure sdk-tests readme
+            cloud: azure
+            run: TestDocs/simulator-azure/sdk-tests/README.md
+          - part: azure cli-tests readme
+            cloud: azure
+            run: TestDocs/simulator-azure/cli-tests/README.md
           - part: iam aws
             cloud: aws
             run: TestDocs/docs/iam.md/aws
@@ -1697,7 +1757,13 @@ jobs:
         timeout-minutes: 3
       - name: Install Caddy
         run: bash scripts/install-caddy.sh
+      - uses: ./.github/actions/install-bun
+      - name: Install pre-commit
+        run: pipx install pre-commit
       - name: Run the document
+        env:
+          # The specification fetchers read GitHub through gh.
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd testutil/doctest
           go test -tags doctest -count=1 -v -timeout 13m -run '^${{ matrix.run }}$' .
