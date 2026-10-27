@@ -1624,7 +1624,7 @@ jobs:
   docs:
     needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
-    # Runs each tutorial's commands as written (testutil/doctest), one part per
+    # Runs each document's commands as written (testutil/doctest), one part per
     # job: the documents fix the simulators' ports, so a job holds one part.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1647,6 +1647,15 @@ jobs:
           - part: contributing tutorial
             cloud: aws
             run: TestDocs/docs/tutorial-contributing.md
+          - part: iam aws
+            cloud: aws
+            run: TestDocs/docs/iam.md/aws
+          - part: iam gcp
+            cloud: gcp
+            run: TestDocs/docs/iam.md/gcp
+          - part: iam azure
+            cloud: azure
+            run: TestDocs/docs/iam.md/azure
     name: docs (${{ matrix.part }})
     steps:
       - uses: actions/checkout@v7.0.1

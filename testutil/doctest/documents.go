@@ -7,4 +7,5 @@ var Documents = []string{
 	"docs/tutorial.md",
 	"README.md",
 	"docs/tutorial-contributing.md",
+	"docs/iam.md",
 }
