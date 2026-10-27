@@ -18,6 +18,29 @@ metadata, which [Instance metadata](instance-metadata.md) documents.
 - [Google Cloud](#google-cloud)
 - [Azure](#azure)
 
+## Running the examples
+
+Each cloud's section ends with examples you can run. `TestDocs` in
+`testutil/doctest` runs them as written, one part per cloud, and checks the
+output they say to expect. They need Go, Docker Engine, curl and jq; the AWS
+examples also need AWS CLI version 2, and the Google Cloud examples gcloud and
+openssl.
+
+Clone the repository. Each cloud's examples install that cloud's simulator
+from the clone, and the Google Cloud examples also run a command from it:
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+export SOCKERLESS_SRC="$PWD/sockerless-cloud"
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Each cloud's examples start its simulator in a terminal of its own and stop it
+at the end. A command written `! command` is one the example expects to fail:
+the shell reports success when the command fails, and the error it prints is
+the point of the example.
+
 ## AWS
 
 The AWS simulator (`simulator-aws/`) serves AWS Identity and Access Management (IAM) and AWS Security Token Service (AWS STS) as ordinary service slices. It also runs every signed request through two gates: SigV4 authentication, then call-time IAM authorization. A client signs with real credentials the simulator issued. IAM then evaluates that principal's policies the way AWS does, within the limits listed at the end of this section.
@@ -177,69 +200,165 @@ One service reaches another through its API. `sim.Server.Call` (`sim/call.go`) s
 - **AWS Organizations.** Served (`organizations.go`), including `SERVICE_CONTROL_POLICY` and `RESOURCE_CONTROL_POLICY` documents. The gate does not evaluate either.
 - **Console sign-in.** `ui/packages/simulator-aws/src/console/federation.ts` exchanges the operator's identity provider token for credentials with an unsigned `AssumeRoleWithWebIdentity`, using `RoleSessionName=console`. It caches them until a minute before expiry and signs every console request with them. The console's role and the OIDC provider for its issuer must exist in IAM, as they would in a real account.
 
+<!-- doctest: part name=aws -->
 ### Examples
 
-These commands use AWS CLI 2.38.5 against `go run .` in `simulator-aws` (port 4566), with this environment:
+Install the simulator from the clone:
 
+<!-- doctest: run -->
+```sh
+go -C "$SOCKERLESS_SRC" install ./simulator-aws
+```
+
+Start it in a terminal of its own:
+
+<!-- doctest: background id=aws ready="Listening on" -->
+```sh
+simulator-aws
+```
+
+It listens on port 4566. In your first terminal, point the AWS CLI at it and
+sign in with the seeded key:
+
+<!-- doctest: run expect="\"Arn\": \"arn:aws:iam::123456789012:user/sockerless-sim-admin\"" -->
 ```sh
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_DEFAULT_REGION=us-east-1
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+aws sts get-caller-identity
 ```
+
+The caller is `arn:aws:iam::123456789012:user/sockerless-sim-admin`.
 
 #### A user with one permission
 
-```console
-$ aws iam create-user --user-name alice
-$ aws iam put-user-policy --user-name alice --policy-name sqs-read \
+Create `alice`, allow her one action, and keep her new access key in
+`ALICE_KEY` and `ALICE_SECRET`:
+
+<!-- doctest: run expect="(?m)^AKIA[0-9A-Z]{16}$" -->
+```sh
+aws iam create-user --user-name alice
+aws iam put-user-policy --user-name alice --policy-name sqs-read \
     --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:ListQueues","Resource":"*"}]}'
-$ aws iam create-access-key --user-name alice      # export the returned key as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-$ aws sqs list-queues
+ALICE=$(aws iam create-access-key --user-name alice \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
+read -r ALICE_KEY ALICE_SECRET <<<"$ALICE"
+export ALICE_KEY ALICE_SECRET
+echo "$ALICE_KEY"
+```
+
+As `alice`, list the queues:
+
+<!-- doctest: run expect="\"QueueUrls\": \\[\\]" -->
+```sh
+AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=$ALICE_SECRET aws sqs list-queues
+```
+
+```text
 {
     "QueueUrls": []
 }
-$ aws sqs create-queue --queue-name q1
+```
+
+Her policy does not allow `sqs:CreateQueue`:
+
+<!-- doctest: run expect="\\(AccessDeniedException\\) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue because no identity-based policy allows the sqs:CreateQueue action" -->
+```sh
+! AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=$ALICE_SECRET aws sqs create-queue --queue-name q1
+```
+
+```text
 aws: [ERROR]: An error occurred (AccessDeniedException) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue because no identity-based policy allows the sqs:CreateQueue action
-$ AWS_SECRET_ACCESS_KEY=wrong aws sqs list-queues
+```
+
+A wrong secret fails authentication before IAM evaluates anything:
+
+<!-- doctest: run expect="\\(SignatureDoesNotMatch\\) when calling the ListQueues operation: The request signature we calculated does not match the signature you provided\\." -->
+```sh
+! AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=wrong aws sqs list-queues
+```
+
+```text
 aws: [ERROR]: An error occurred (SignatureDoesNotMatch) when calling the ListQueues operation: The request signature we calculated does not match the signature you provided. Check your AWS Secret Access Key and signing method.
 ```
 
 #### Assume a role
 
-The trust policy names `alice`, so she can assume the role without an identity policy for `sts:AssumeRole`. The administrator, whom the trust policy does not name, cannot.
+Create a role whose trust policy names `alice`, and allow it to list buckets:
 
-```console
-$ aws iam create-role --role-name reader --assume-role-policy-document \
+<!-- doctest: run expect="\"Arn\": \"arn:aws:iam::123456789012:role/reader\"" -->
+```sh
+aws iam create-role --role-name reader --assume-role-policy-document \
     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:user/alice"},"Action":"sts:AssumeRole"}]}'
-$ aws iam put-role-policy --role-name reader --policy-name s3-list \
+aws iam put-role-policy --role-name reader --policy-name s3-list \
     --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:ListAllMyBuckets","Resource":"*"}]}'
-$ aws sts assume-role --role-arn arn:aws:iam::123456789012:role/reader --role-session-name s1   # as test/test
+```
+
+The administrator, whom the trust policy does not name, cannot assume it:
+
+<!-- doctest: run expect="\\(AccessDenied\\) when calling the AssumeRole operation: User: arn:aws:iam::123456789012:user/sockerless-sim-admin is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::123456789012:role/reader" -->
+```sh
+! aws sts assume-role --role-arn arn:aws:iam::123456789012:role/reader --role-session-name s1
+```
+
+```text
 aws: [ERROR]: An error occurred (AccessDenied) when calling the AssumeRole operation: User: arn:aws:iam::123456789012:user/sockerless-sim-admin is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::123456789012:role/reader
-$ aws sts assume-role --role-arn arn:aws:iam::123456789012:role/reader --role-session-name s1 --duration-seconds 900   # as alice
-{
-    "Credentials": {
-        "AccessKeyId": "ASIA4EZ5IQP42JBTWB4U",
-        "SecretAccessKey": "…",
-        "SessionToken": "…",
-        "Expiration": "2026-10-26T01:38:48+00:00"
-    },
-    "AssumedRoleUser": {
-        "AssumedRoleId": "AROAC38764B5-6B2C-47:s1",
-        "Arn": "arn:aws:sts::123456789012:assumed-role/reader/s1"
-    }
-}
-$ aws s3api create-bucket --bucket b1   # with the session's three values exported
+```
+
+`alice` can, without an identity policy for `sts:AssumeRole`, because the trust
+policy names her. Keep the session's credentials in `S1_KEY`, `S1_SECRET` and
+`S1_TOKEN`, and ask who they belong to:
+
+<!-- doctest: run expect="\"Arn\": \"arn:aws:sts::123456789012:assumed-role/reader/s1\"" -->
+```sh
+SESSION=$(AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=$ALICE_SECRET \
+  aws sts assume-role --role-arn arn:aws:iam::123456789012:role/reader \
+    --role-session-name s1 --duration-seconds 900 \
+    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
+read -r S1_KEY S1_SECRET S1_TOKEN <<<"$SESSION"
+export S1_KEY S1_SECRET S1_TOKEN
+AWS_ACCESS_KEY_ID=$S1_KEY AWS_SECRET_ACCESS_KEY=$S1_SECRET AWS_SESSION_TOKEN=$S1_TOKEN \
+  aws sts get-caller-identity
+```
+
+The caller is `arn:aws:sts::123456789012:assumed-role/reader/s1`. The session
+holds the role's permissions and nothing else: it lists buckets, and it cannot
+create one.
+
+<!-- doctest: run expect="\"Buckets\": \\[" -->
+```sh
+AWS_ACCESS_KEY_ID=$S1_KEY AWS_SECRET_ACCESS_KEY=$S1_SECRET AWS_SESSION_TOKEN=$S1_TOKEN \
+  aws s3api list-buckets
+```
+
+<!-- doctest: run expect="\\(AccessDenied\\) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket because no identity-based policy or resource-based policy allows the s3:CreateBucket action" -->
+```sh
+! AWS_ACCESS_KEY_ID=$S1_KEY AWS_SECRET_ACCESS_KEY=$S1_SECRET AWS_SESSION_TOKEN=$S1_TOKEN \
+  aws s3api create-bucket --bucket b1
+```
+
+```text
 aws: [ERROR]: An error occurred (AccessDenied) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket because no identity-based policy or resource-based policy allows the s3:CreateBucket action
 ```
 
 #### Simulate a principal's policy
 
-```console
-$ aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::123456789012:role/reader \
+As the administrator again:
+
+<!-- doctest: run expect="s3:ListAllMyBuckets\\s+allowed" expect="s3:CreateBucket\\s+implicitDeny" -->
+```sh
+aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::123456789012:role/reader \
     --action-names s3:ListAllMyBuckets s3:CreateBucket \
     --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+```
+
+```text
 s3:ListAllMyBuckets	allowed
 s3:CreateBucket	implicitDeny
 ```
+
+Then stop `simulator-aws` with Ctrl-C.
+
+<!-- doctest: stop id=aws -->
 
 ### Limits
 
@@ -359,7 +478,7 @@ simulator's bootstrap application. The simulator seeds the account and a key
 whose RSA private key is published, in `simulator-gcp/iam_bootstrap.go` and
 `testutil/gcpbootstrap`. IAM reports both through `serviceAccounts.get` and
 `keys.list`, as `USER_MANAGED`. `go run
-github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o
+github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@main -o
 bootstrap-key.json` writes the key's credential file, with `token_uri`
 pointing at the simulator. Each client then signs in the documented way:
 
@@ -415,7 +534,7 @@ A policy (`IAMPolicy`, `iam.go`) holds `bindings`, `auditConfigs`, `etag` and `v
 | Behaviour | Implementation |
 |---|---|
 | `getIamPolicy` on a resource without a policy | Stores and returns an empty policy, version 1, so its etag stays stable. A bucket gets its default legacy-role policy (`gcsSeedDefaultBucketPolicy`). |
-| `setIamPolicy` etag | A non-empty etag that differs from the stored one answers `409 ABORTED` (`gcpIAMETagConflict`). An empty etag overwrites. Every write gets a fresh etag. Writes are serialized by `gcpIAMPolicyWrites`. |
+| `setIamPolicy` etag | A non-empty etag that differs from the stored one answers `409 ABORTED` (`gcpIAMETagConflict`); Cloud Storage bucket policies answer Cloud Storage's own `412 Precondition Failed` (`conditionNotMet`). An empty etag overwrites. Every write gets a fresh etag. Writes are serialized by `gcpIAMPolicyWrites`. |
 | `updateMask` | The default is `bindings,etag`. `auditConfigs` change only when the mask names them. |
 | `version` | Stored as sent, 1 when absent. `options.requestedPolicyVersion` is ignored. |
 | `auditConfigs` | Validated against `ADMIN_READ`, `DATA_READ` and `DATA_WRITE` (`validateIAMAuditConfigs`). |
@@ -512,21 +631,50 @@ An access token is not an ID token and fails step 3. The container receives the 
 
 [BUGS.md 3119](../BUGS.md) lists the services and methods that write no entries, including `SignBlob`, `SignJwt` and every `TestIamPermissions`.
 
+<!-- doctest: part name=gcp -->
 ### Examples
 
-These run against `cd simulator-gcp && go run .` on port 4567, with `jq` and `openssl`. They were run against the simulator as it is today. The operator token comes from the bootstrap credential:
+Install the simulator from the clone:
 
+<!-- doctest: run -->
 ```sh
-S=http://localhost:4567
-go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o bootstrap-key.json
-gcloud auth activate-service-account --key-file=bootstrap-key.json
-gcloud config set auth/token_host $S/token
-OP=$(gcloud auth print-access-token)
-A="Authorization: Bearer $OP"; J='Content-Type: application/json'
+go -C "$SOCKERLESS_SRC" install ./simulator-gcp
 ```
+
+Start it in a terminal of its own:
+
+<!-- doctest: background id=gcp ready="Listening on" -->
+```sh
+simulator-gcp
+```
+
+It listens on port 4567. In your first terminal, write the bootstrap
+credential file and sign gcloud in with it. `CLOUDSDK_CONFIG` gives these
+examples a gcloud configuration of their own, so your usual one stays as it
+is. The operator token `OP` and two curl headers, `A` and `J`, serve the
+examples that follow:
+
+<!-- doctest: run expect="Activated service account credentials for: \\[sockerless-bootstrap@sockerless\\.iam\\.gserviceaccount\\.com\\]" -->
+```sh
+export CLOUDSDK_CONFIG="$PWD/gcloud-config" S=http://localhost:4567
+go -C "$SOCKERLESS_SRC" run ./testutil/cmd/gcp-bootstrap-key -o "$PWD/bootstrap-key.json"
+gcloud auth activate-service-account --key-file=bootstrap-key.json
+gcloud config set auth/token_host "$S/token"
+OP=$(gcloud auth print-access-token)
+export OP A="Authorization: Bearer $OP" J='Content-Type: application/json'
+```
+
+Outside a clone, `go run
+github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@main -o
+bootstrap-key.json` writes the same file.
 
 #### A service account's own token, through the real JWT-bearer grant
 
+Create the service account `reader` and a key for it, then sign a JWT with the
+key and exchange it at the token endpoint, as the client libraries do. `RT`
+keeps `reader`'s access token:
+
+<!-- doctest: run expect="\"token_type\": \"Bearer\"" -->
 ```sh
 curl -s -X POST "$S/v1/projects/sockerless/serviceAccounts" -H "$A" -H "$J" \
   -d '{"accountId":"reader"}'
@@ -537,49 +685,144 @@ b64() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 jq -r .private_key reader-key.json > reader.pem
 NOW=$(date +%s)
 H=$(jq -cj '{alg:"RS256",typ:"JWT",kid:.private_key_id}' reader-key.json | b64)
-C=$(jq -cj --arg aud "$S/token" --argjson now $NOW \
+C=$(jq -cj --arg aud "$S/token" --argjson now "$NOW" \
   '{iss:.client_email,scope:"https://www.googleapis.com/auth/cloud-platform",aud:$aud,iat:$now,exp:($now+3600)}' \
   reader-key.json | b64)
 SIG=$(printf '%s.%s' "$H" "$C" | openssl dgst -sha256 -sign reader.pem | b64)
-RT=$(curl -s -X POST "$S/token" \
+curl -s -X POST "$S/token" \
   --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
-  --data-urlencode "assertion=$H.$C.$SIG" | jq -r .access_token)
+  --data-urlencode "assertion=$H.$C.$SIG" > reader-token.json
+jq '{token_type, expires_in}' reader-token.json
+RT=$(jq -r .access_token reader-token.json)
+export H C RT
 ```
 
-A tampered signature answers `{"error":"invalid_grant","error_description":"Invalid JWT Signature."}`. gcloud does the same exchange after `gcloud config set auth/token_host $S/token`, `gcloud config set api_endpoint_overrides/iam $S/` and `gcloud auth activate-service-account --key-file=reader-key.json`.
+The token endpoint verifies the signature. An assertion whose signature covers
+other content is refused:
+
+<!-- doctest: run expect="\\{\"error\":\"invalid_grant\",\"error_description\":\"Invalid JWT Signature\\.\"\\}" -->
+```sh
+BAD=$(printf 'other content' | openssl dgst -sha256 -sign reader.pem | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+curl -s -X POST "$S/token" \
+  --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+  --data-urlencode "assertion=$H.$C.$BAD"
+```
+
+```text
+{"error":"invalid_grant","error_description":"Invalid JWT Signature."}
+```
+
+gcloud does the same exchange after `gcloud config set auth/token_host
+$S/token`, `gcloud config set api_endpoint_overrides/iam $S/` and `gcloud auth
+activate-service-account --key-file=reader-key.json`.
 
 #### Grant a role on a bucket and test it
 
+Create a bucket with uniform bucket-level access, read its policy, add a
+binding for `reader`, and write the policy back:
+
+<!-- doctest: run expect="\\{\"role\":\"roles/storage\\.objectViewer\",\"members\":\\[\"serviceAccount:reader@sockerless\\.iam\\.gserviceaccount\\.com\"\\]\\}" -->
 ```sh
 curl -s -X POST "$S/storage/v1/b?project=sockerless" -H "$A" -H "$J" \
-  -d '{"name":"iam-demo-bucket","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}'
+  -d '{"name":"iam-demo-bucket","iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}' \
+  | jq -c '{name, iamConfiguration}'
 curl -s "$S/storage/v1/b/iam-demo-bucket/iam" -H "$A" \
   | jq '.bindings += [{"role":"roles/storage.objectViewer",
         "members":["serviceAccount:reader@sockerless.iam.gserviceaccount.com"]}]' > policy.json
-curl -s -X PUT "$S/storage/v1/b/iam-demo-bucket/iam" -H "$A" -H "$J" -d @policy.json
-# Replaying policy.json now carries a stale etag: 409 ABORTED.
-
-curl -s "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get&permissions=storage.objects.delete" \
-  -H "Authorization: Bearer $RT"
-# {"kind":"storage#testIamPermissionsResponse","permissions":["storage.objects.get"]}
-curl -s "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get"
-# 401 UNAUTHENTICATED
+curl -s -X PUT "$S/storage/v1/b/iam-demo-bucket/iam" -H "$A" -H "$J" -d @policy.json \
+  | jq -c '.bindings[-1]'
 ```
 
-`testPermissions` reports that `reader` lacks `storage.objects.delete`. However, `DELETE /storage/v1/b/iam-demo-bucket/o/{object}` with `$RT` still answers 204, because Cloud Storage's JSON API does not enforce IAM (see [Enforcement](#google-cloud-enforcement)). To see a real denial, deploy a Cloud Run service without an `allUsers` binding and call its URL with an ID token for an account that lacks `roles/run.invoker`.
+The write gave the policy a new etag, so writing `policy.json` again, with the
+etag it was read at, is refused:
+
+<!-- doctest: run expect="\"reason\":\"conditionNotMet\"" expect="HTTP 412" -->
+```sh
+curl -s -w '\nHTTP %{http_code}\n' -X PUT "$S/storage/v1/b/iam-demo-bucket/iam" \
+  -H "$A" -H "$J" -d @policy.json
+```
+
+Ask, as `reader`, which of two permissions it holds on the bucket:
+
+<!-- doctest: run expect="\\{\"kind\":\"storage#testIamPermissionsResponse\",\"permissions\":\\[\"storage\\.objects\\.get\"\\]\\}" -->
+```sh
+curl -s "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get&permissions=storage.objects.delete" \
+  -H "Authorization: Bearer $RT" | jq -c .
+```
+
+```text
+{"kind":"storage#testIamPermissionsResponse","permissions":["storage.objects.get"]}
+```
+
+A request without a token is refused:
+
+<!-- doctest: run expect="\"status\":\"UNAUTHENTICATED\"" expect="HTTP 401" -->
+```sh
+curl -s -w '\nHTTP %{http_code}\n' \
+  "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get"
+```
+
+`testPermissions` reports that `reader` lacks `storage.objects.delete`, yet
+Cloud Storage's JSON API does not enforce IAM (see
+[Enforcement](#google-cloud-enforcement)), so `reader` deletes an object all
+the same:
+
+<!-- doctest: run expect="HTTP 204" -->
+```sh
+echo hello > hello.txt
+curl -s -X POST "$S/upload/storage/v1/b/iam-demo-bucket/o?uploadType=media&name=hello.txt" \
+  -H "$A" -H 'Content-Type: text/plain' --data-binary @hello.txt | jq -c '{name, size}'
+curl -s -o /dev/null -w 'HTTP %{http_code}\n' -X DELETE \
+  "$S/storage/v1/b/iam-demo-bucket/o/hello.txt" -H "Authorization: Bearer $RT"
+```
+
+To see a real denial, deploy a Cloud Run service without an `allUsers` binding
+and call its URL with an ID token for an account that lacks
+`roles/run.invoker`.
 
 #### Impersonate a service account
 
+Mint a ten-minute access token for `reader` as the operator:
+
+<!-- doctest: run expect="\"accessToken\":\"eyJ" expect="\"expireTime\":\"[0-9T:-]+Z\"" -->
 ```sh
 curl -s -X POST "$S/v1/projects/-/serviceAccounts/reader@sockerless.iam.gserviceaccount.com:generateAccessToken" \
   -H "$A" -H "$J" -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"],"lifetime":"600s"}'
-# {"accessToken":"eyJ…","expireTime":"2026-10-26T01:34:24Z"}
-# "lifetime":"7200s" answers 400 INVALID_ARGUMENT: exceeds the maximum lifetime of 3600s.
-
-gcloud config set api_endpoint_overrides/iamcredentials $S/
-gcloud auth print-access-token --impersonate-service-account=reader@sockerless.iam.gserviceaccount.com
-gcloud auth print-identity-token --audiences=https://hello-abc-uc.a.run.app
 ```
+
+```text
+{"accessToken":"eyJ…","expireTime":"2026-10-26T01:34:24Z"}
+```
+
+A lifetime past the one-hour cap is refused:
+
+<!-- doctest: run expect="Requested lifetime 7200s exceeds the maximum lifetime of 3600s" expect="\"status\":\"INVALID_ARGUMENT\"" expect="HTTP 400" -->
+```sh
+curl -s -w '\nHTTP %{http_code}\n' -X POST \
+  "$S/v1/projects/-/serviceAccounts/reader@sockerless.iam.gserviceaccount.com:generateAccessToken" \
+  -H "$A" -H "$J" -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"],"lifetime":"7200s"}'
+```
+
+gcloud impersonates through the same API once it is pointed at the simulator:
+
+<!-- doctest: run expect="(?m)^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$" -->
+```sh
+gcloud config set api_endpoint_overrides/iamcredentials "$S/"
+gcloud auth print-access-token --impersonate-service-account=reader@sockerless.iam.gserviceaccount.com
+```
+
+It also prints ID tokens for the account it is signed in as. The token's
+claims name the audience and the account:
+
+<!-- doctest: run expect="\"aud\": \"https://hello-abc-uc\\.a\\.run\\.app\"" expect="\"email\": \"sockerless-bootstrap@sockerless\\.iam\\.gserviceaccount\\.com\"" -->
+```sh
+gcloud auth print-identity-token --audiences=https://hello-abc-uc.a.run.app \
+  | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson | {aud, email}'
+```
+
+Then stop `simulator-gcp` with Ctrl-C.
+
+<!-- doctest: stop id=gcp -->
 
 <a id="google-cloud-limits"></a>
 
@@ -856,18 +1099,39 @@ The Azure console signs in through the console's own Shauth layer, then federate
 
 The browser then reads Azure Resource Manager, Log Analytics and Microsoft Graph directly. `SOCKERLESS_CONSOLE_FEDERATION_TENANT` and `SOCKERLESS_CONSOLE_FEDERATION_CLIENT_ID` (a user-assigned identity carrying a federated identity credential for the Shauth issuer) must be set together; `loadConsoleFederation` fails startup otherwise. Without them, `federationTokenEndpoint` is empty and the console stays unauthenticated.
 
+<!-- doctest: part name=azure -->
 ### Examples
 
-Start the simulator with `cd simulator-azure && go run .` (port 4568). The commands below ran against it; output is trimmed.
+Install the simulator from the clone:
 
-**Get a token with the bootstrap secret, then call Azure Resource Manager.**
-
+<!-- doctest: run -->
 ```sh
-S=http://localhost:4568; T=11111111-1111-1111-1111-111111111111
+go -C "$SOCKERLESS_SRC" install ./simulator-azure
+```
+
+Start it in a terminal of its own:
+
+<!-- doctest: background id=azure ready="Listening on" -->
+```sh
+simulator-azure
+```
+
+It listens on port 4568. The examples call the simulator with curl; output is
+trimmed.
+
+#### Get a token with the bootstrap secret, then call Azure Resource Manager
+
+`ARM` keeps the Azure Resource Manager token. Its claims name the bootstrap
+service principal:
+
+<!-- doctest: run expect="\\{\"aud\":\"https://management\\.azure\\.com/\",\"iss\":\"https://sts\\.windows\\.net/11111111-1111-1111-1111-111111111111/\",\"tid\":\"11111111-1111-1111-1111-111111111111\",\"oid\":\"00000000-0000-0000-0000-0000000000b2\",\"appid\":\"test-client-id\",\"idtyp\":\"app\"\\}" expect="\\{\"subscriptionId\":\"00000000-0000-0000-0000-000000000001\",\"tenantId\":\"11111111-1111-1111-1111-111111111111\"\\}" -->
+```sh
+export S=http://localhost:4568 T=11111111-1111-1111-1111-111111111111
 ARM=$(curl -s -X POST "$S/$T/oauth2/v2.0/token" \
   -d grant_type=client_credentials -d client_id=test-client-id \
   -d client_secret=test-client-secret -d scope=https://management.azure.com/.default | jq -r .access_token)
-echo "$ARM" | cut -d. -f2 | base64 -d 2>/dev/null | jq -c '{aud,iss,tid,oid,appid,idtyp}'
+export ARM
+cut -d. -f2 <<<"$ARM" | tr '_-' '/+' | jq -cR '@base64d | fromjson | {aud,iss,tid,oid,appid,idtyp}'
 curl -s "$S/subscriptions?api-version=2022-12-01" -H "Authorization: Bearer $ARM" | jq -c '.value[]|{subscriptionId,tenantId}'
 ```
 
@@ -876,46 +1140,115 @@ curl -s "$S/subscriptions?api-version=2022-12-01" -H "Authorization: Bearer $ARM
 {"subscriptionId":"00000000-0000-0000-0000-000000000001","tenantId":"11111111-1111-1111-1111-111111111111"}
 ```
 
-A wrong secret answers `{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided. …"}`. A call with no bearer answers 401 with `WWW-Authenticate: Bearer authorization_uri="http://localhost:4568/common/oauth2/v2.0/authorize", error="invalid_token", …`.
+A wrong secret gets no token:
 
-**Create a role assignment; see a denied and an allowed Key Vault call.**
-
+<!-- doctest: run expect="\\{\"error\":\"invalid_client\",\"error_description\":\"AADSTS7000215: Invalid client secret provided\\." -->
 ```sh
-SUB=00000000-0000-0000-0000-000000000001
-V=/subscriptions/$SUB/resourceGroups/iam-demo/providers/Microsoft.KeyVault/vaults/iamdemokv
+curl -s -X POST "$S/$T/oauth2/v2.0/token" \
+  -d grant_type=client_credentials -d client_id=test-client-id \
+  -d client_secret=wrong -d scope=https://management.azure.com/.default
+```
+
+```text
+{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided. …"}
+```
+
+A call with no bearer answers 401 with a challenge:
+
+<!-- doctest: run expect="HTTP/1\\.1 401 Unauthorized" expect="(?i)www-authenticate: Bearer authorization_uri=\"http://localhost:4568/common/oauth2/v2\\.0/authorize\", error=\"invalid_token\"" -->
+```sh
+curl -s -o /dev/null -D - "$S/subscriptions?api-version=2022-12-01"
+```
+
+```text
+HTTP/1.1 401 Unauthorized
+Www-Authenticate: Bearer authorization_uri="http://localhost:4568/common/oauth2/v2.0/authorize", error="invalid_token", …
+```
+
+#### Create a role assignment; see a denied and an allowed Key Vault call
+
+Create a resource group and a Key Vault that uses Azure RBAC, as the bootstrap
+principal, which is Owner:
+
+<!-- doctest: run expect="\"https://iamdemokv\\.vault\\.localhost:4568/\"" -->
+```sh
+export SUB=00000000-0000-0000-0000-000000000001
+export V=/subscriptions/$SUB/resourceGroups/iam-demo/providers/Microsoft.KeyVault/vaults/iamdemokv
 curl -s -X PUT "$S/subscriptions/$SUB/resourcegroups/iam-demo?api-version=2021-04-01" \
-  -H "Authorization: Bearer $ARM" -H 'Content-Type: application/json' -d '{"location":"westeurope"}'
+  -H "Authorization: Bearer $ARM" -H 'Content-Type: application/json' -d '{"location":"westeurope"}' \
+  | jq -c '{id, properties}'
 curl -s -X PUT "$S$V?api-version=2023-07-01" -H "Authorization: Bearer $ARM" -H 'Content-Type: application/json' \
-  -d "{\"location\":\"westeurope\",\"properties\":{\"tenantId\":\"$T\",\"sku\":{\"family\":\"A\",\"name\":\"standard\"},\"enableRbacAuthorization\":true}}"
+  -d "{\"location\":\"westeurope\",\"properties\":{\"tenantId\":\"$T\",\"sku\":{\"family\":\"A\",\"name\":\"standard\"},\"enableRbacAuthorization\":true}}" \
+  | jq .properties.vaultUri
+```
+
+The vault's `vaultUri` reads `https://iamdemokv.vault.localhost:4568/`.
+Without TLS configured, the simulator serves that host over plain HTTP, which
+is the URL the calls below use.
+
+Owner grants no data actions, so the principal's Key Vault token (`KV`) cannot
+set a secret yet:
+
+<!-- doctest: run expect="\"innererror\":\\{\"code\":\"ForbiddenByRbac\"\\}" expect="Action: 'Microsoft\\.KeyVault/vaults/secrets/setSecret/action'" expect="Assignment: \\(not found\\)" expect="HTTP 403" -->
+```sh
 KV=$(curl -s -X POST "$S/$T/oauth2/v2.0/token" -d grant_type=client_credentials -d client_id=test-client-id \
   -d client_secret=test-client-secret -d scope=https://vault.azure.net/.default | jq -r .access_token)
-curl -s -X PUT "http://iamdemokv.vault.localhost:4568/secrets/db-password?api-version=7.4" \
+export KV
+curl -s -w '\nHTTP %{http_code}\n' -X PUT "http://iamdemokv.vault.localhost:4568/secrets/db-password?api-version=7.4" \
   -H "Authorization: Bearer $KV" -H 'Content-Type: application/json' -d '{"value":"s3cret"}'
 ```
 
 ```text
-HTTP 403
 {"error":{"code":"Forbidden","innererror":{"code":"ForbiddenByRbac"},"message":"Caller is not authorized to perform action on resource.\r\n…Caller: appid=test-client-id;oid=00000000-0000-0000-0000-0000000000b2;…\r\nAction: 'Microsoft.KeyVault/vaults/secrets/setSecret/action'\r\nResource: '/subscriptions/…/vaults/iamdemokv/secrets/db-password'\r\nAssignment: (not found)…"}}
+HTTP 403
 ```
 
-Assign Key Vault Secrets Officer (`b86a8fe4-44ce-4948-aee5-eccb2c155cd7`) to the bootstrap principal at the vault and retry:
+Assign Key Vault Secrets Officer (`b86a8fe4-44ce-4948-aee5-eccb2c155cd7`) to
+the bootstrap principal at the vault, and set the secret again:
 
+<!-- doctest: run expect="\"scope\":\"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/iam-demo/providers/Microsoft\\.KeyVault/vaults/iamdemokv\"" expect="HTTP 201" expect="\"value\":\"s3cret\"" expect="HTTP 200" -->
 ```sh
-curl -s -X PUT "$S$V/providers/Microsoft.Authorization/roleAssignments/6f1c2a52-0d6e-4c1b-9a59-3c7d1c2b9e01?api-version=2022-04-01" \
+curl -s -w '\nHTTP %{http_code}\n' -X PUT \
+  "$S$V/providers/Microsoft.Authorization/roleAssignments/6f1c2a52-0d6e-4c1b-9a59-3c7d1c2b9e01?api-version=2022-04-01" \
   -H "Authorization: Bearer $ARM" -H 'Content-Type: application/json' \
   -d "{\"properties\":{\"roleDefinitionId\":\"/subscriptions/$SUB/providers/Microsoft.Authorization/roleDefinitions/b86a8fe4-44ce-4948-aee5-eccb2c155cd7\",\"principalId\":\"00000000-0000-0000-0000-0000000000b2\",\"principalType\":\"ServicePrincipal\"}}"
-curl -s -X PUT "http://iamdemokv.vault.localhost:4568/secrets/db-password?api-version=7.4" \
+curl -s -w '\nHTTP %{http_code}\n' -X PUT "http://iamdemokv.vault.localhost:4568/secrets/db-password?api-version=7.4" \
   -H "Authorization: Bearer $KV" -H 'Content-Type: application/json' -d '{"value":"s3cret"}'
 ```
 
 ```text
-HTTP 201  {"id":"…/vaults/iamdemokv/providers/Microsoft.Authorization/roleAssignments/6f1c2a52-…","properties":{"roleDefinitionId":"…/b86a8fe4-…","principalId":"00000000-0000-0000-0000-0000000000b2","scope":"…/vaults/iamdemokv"}}
-HTTP 200  {"id":"https://iamdemokv.vault.localhost:4568/secrets/db-password/8797dfe1-…","value":"s3cret","attributes":{"enabled":true,…}}
+{"id":"…/vaults/iamdemokv/providers/Microsoft.Authorization/roleAssignments/6f1c2a52-…","properties":{"roleDefinitionId":"…/b86a8fe4-…","principalId":"00000000-0000-0000-0000-0000000000b2","scope":"…/vaults/iamdemokv"}}
+HTTP 201
+{"id":"https://iamdemokv.vault.localhost:4568/secrets/db-password/8797dfe1-…","value":"s3cret","attributes":{"enabled":true,…}}
+HTTP 200
 ```
 
-The same principal is still refused `POST /keys/k1/create`, because the role grants only `Microsoft.KeyVault/vaults/secrets/*`: 403 `ForbiddenByRbac`. The Azure Resource Manager token at the vault answers 401 `AKV10022: Invalid audience. Expected https://vault.azure.net, found: https://management.azure.com/.`
+The role grants only `Microsoft.KeyVault/vaults/secrets/*`, so the same
+principal still cannot create a key:
 
-The vault's `vaultUri` reads `https://iamdemokv.vault.localhost:4568/`. Without TLS configured, the simulator serves that host over plain HTTP, which is the URL used above.
+<!-- doctest: run expect="\"innererror\":\\{\"code\":\"ForbiddenByRbac\"\\}" expect="Action: 'Microsoft\\.KeyVault/vaults/keys/create/action'" expect="HTTP 403" -->
+```sh
+curl -s -w '\nHTTP %{http_code}\n' -X POST "http://iamdemokv.vault.localhost:4568/keys/k1/create?api-version=7.4" \
+  -H "Authorization: Bearer $KV" -H 'Content-Type: application/json' -d '{"kty":"RSA"}'
+```
+
+The vault refuses a token minted for another audience, such as the Azure
+Resource Manager token:
+
+<!-- doctest: run expect="AKV10022: Invalid audience\\. Expected https://vault\\.azure\\.net, found: https://management\\.azure\\.com/\\." expect="HTTP 401" -->
+```sh
+curl -s -w '\nHTTP %{http_code}\n' "http://iamdemokv.vault.localhost:4568/secrets/db-password?api-version=7.4" \
+  -H "Authorization: Bearer $ARM"
+```
+
+```text
+{"error":{"code":"Unauthorized","message":"AKV10022: Invalid audience. Expected https://vault.azure.net, found: https://management.azure.com/."}}
+HTTP 401
+```
+
+Then stop `simulator-azure` with Ctrl-C.
+
+<!-- doctest: stop id=azure -->
 
 ### Limits
 

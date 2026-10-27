@@ -12,11 +12,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Route 53 — additional operation slices (health checks, traffic policies,
-// VPC associations, query logging, change/count/geolocation reads). All
-// REST + XML on the /2013-04-01/ path, matching the real Route 53 wire shapes
-// the AWS SDK Go v2 + `aws` CLI parse.
-
 type r53StoredHealthCheck struct {
 	HealthCheck R53HealthCheck
 }
@@ -51,7 +46,6 @@ func registerRoute53Extra(mux *sim.Server) {
 
 	v := "/" + r53APIVersion
 
-	// Health checks
 	mux.HandleFunc("POST "+v+"/healthcheck", cloudTrailRecordedREST("CreateHealthCheck", "route53.amazonaws.com", nil, handleR53CreateHealthCheck))
 	mux.HandleFunc("GET "+v+"/healthcheck", cloudTrailRecordedREST("ListHealthChecks", "route53.amazonaws.com", nil, handleR53ListHealthChecks))
 	mux.HandleFunc("GET "+v+"/healthcheckcount", cloudTrailRecordedREST("GetHealthCheckCount", "route53.amazonaws.com", nil, handleR53GetHealthCheckCount))
@@ -60,7 +54,6 @@ func registerRoute53Extra(mux *sim.Server) {
 	mux.HandleFunc("POST "+v+"/healthcheck/{id}", cloudTrailRecordedREST("UpdateHealthCheck", "route53.amazonaws.com", hcResource, handleR53UpdateHealthCheck))
 	mux.HandleFunc("DELETE "+v+"/healthcheck/{id}", cloudTrailRecordedREST("DeleteHealthCheck", "route53.amazonaws.com", hcResource, handleR53DeleteHealthCheck))
 
-	// Traffic policies
 	mux.HandleFunc("POST "+v+"/trafficpolicy", cloudTrailRecordedREST("CreateTrafficPolicy", "route53.amazonaws.com", nil, handleR53CreateTrafficPolicy))
 	mux.HandleFunc("GET "+v+"/trafficpolicies", cloudTrailRecordedREST("ListTrafficPolicies", "route53.amazonaws.com", nil, handleR53ListTrafficPolicies))
 	mux.HandleFunc("GET "+v+"/trafficpolicies/{id}/versions", cloudTrailRecordedREST("ListTrafficPolicyVersions", "route53.amazonaws.com", tpResource, handleR53ListTrafficPolicyVersions))
@@ -68,18 +61,15 @@ func registerRoute53Extra(mux *sim.Server) {
 	mux.HandleFunc("GET "+v+"/trafficpolicy/{id}/{version}", cloudTrailRecordedREST("GetTrafficPolicy", "route53.amazonaws.com", tpResource, handleR53GetTrafficPolicy))
 	mux.HandleFunc("DELETE "+v+"/trafficpolicy/{id}/{version}", cloudTrailRecordedREST("DeleteTrafficPolicy", "route53.amazonaws.com", tpResource, handleR53DeleteTrafficPolicy))
 
-	// VPC associations
 	mux.HandleFunc("POST "+v+"/hostedzone/{id}/associatevpc", cloudTrailRecordedREST("AssociateVPCWithHostedZone", "route53.amazonaws.com", zoneResource, handleR53AssociateVPC))
 	mux.HandleFunc("POST "+v+"/hostedzone/{id}/disassociatevpc", cloudTrailRecordedREST("DisassociateVPCFromHostedZone", "route53.amazonaws.com", zoneResource, handleR53DisassociateVPC))
 	mux.HandleFunc("GET "+v+"/hostedzonesbyvpc", cloudTrailRecordedREST("ListHostedZonesByVPC", "route53.amazonaws.com", nil, handleR53ListHostedZonesByVPC))
 
-	// Query logging
 	mux.HandleFunc("POST "+v+"/queryloggingconfig", cloudTrailRecordedREST("CreateQueryLoggingConfig", "route53.amazonaws.com", nil, handleR53CreateQueryLoggingConfig))
 	mux.HandleFunc("GET "+v+"/queryloggingconfig", cloudTrailRecordedREST("ListQueryLoggingConfigs", "route53.amazonaws.com", nil, handleR53ListQueryLoggingConfigs))
 	mux.HandleFunc("GET "+v+"/queryloggingconfig/{id}", cloudTrailRecordedREST("GetQueryLoggingConfig", "route53.amazonaws.com", qlResource, handleR53GetQueryLoggingConfig))
 	mux.HandleFunc("DELETE "+v+"/queryloggingconfig/{id}", cloudTrailRecordedREST("DeleteQueryLoggingConfig", "route53.amazonaws.com", qlResource, handleR53DeleteQueryLoggingConfig))
 
-	// Misc counts + geolocation
 	mux.HandleFunc("GET "+v+"/hostedzonecount", cloudTrailRecordedREST("GetHostedZoneCount", "route53.amazonaws.com", nil, handleR53GetHostedZoneCount))
 	mux.HandleFunc("GET "+v+"/geolocation", cloudTrailRecordedREST("GetGeoLocation", "route53.amazonaws.com", nil, handleR53GetGeoLocation))
 	mux.HandleFunc("GET "+v+"/geolocations", cloudTrailRecordedREST("ListGeoLocations", "route53.amazonaws.com", nil, handleR53ListGeoLocations))
@@ -229,8 +219,7 @@ func handleR53CreateHealthCheck(w http.ResponseWriter, r *http.Request) {
 		r53WriteError(w, http.StatusBadRequest, "InvalidInput", "CallerReference is required")
 		return
 	}
-	// CallerReference is the idempotency key. A reused value returns
-	// HealthCheckAlreadyExists, matching real Route 53.
+	// CallerReference is the idempotency key; a reused value returns HealthCheckAlreadyExists.
 	for _, sc := range r53HealthChecks.List() {
 		if sc.HealthCheck.CallerReference == req.CallerReference {
 			r53WriteError(w, http.StatusConflict, "HealthCheckAlreadyExists",
@@ -615,9 +604,8 @@ func handleR53ListTrafficPolicyVersions(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// r53TrafficPolicyType reads the policy document's RecordType. Falls back to
-// "A" when the document doesn't carry one (real Route 53 requires RecordType
-// in the document).
+// r53TrafficPolicyType reads the policy document's RecordType, defaulting to "A"
+// when the document carries none, though Route 53 requires it.
 func r53TrafficPolicyType(document string) string {
 	if i := strings.Index(document, `"RecordType"`); i >= 0 {
 		rest := document[i+len(`"RecordType"`):]
@@ -908,9 +896,8 @@ type R53ListGeoLocationsResponse struct {
 	MaxItems               string                  `xml:"MaxItems"`
 }
 
-// r53GeoLocations is the fixed reference set Route 53 exposes — continents
-// plus a representative sample of countries and subdivisions. The data is
-// static cloud metadata (the same on every account).
+// r53GeoLocations is the fixed reference set Route 53 exposes: the continents
+// plus a representative sample of countries and subdivisions.
 var r53GeoLocations = []R53GeoLocationDetails{
 	{ContinentCode: "AF", ContinentName: "Africa"},
 	{ContinentCode: "AN", ContinentName: "Antarctica"},
@@ -977,9 +964,8 @@ func handleR53ListGeoLocations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// r53ChildID returns an opaque id for non-zone child resources (health
-// checks, traffic policies, query logging configs). Route 53 uses
-// UUID-shaped ids for these; the sim uses a stable random token.
+// r53ChildID returns an opaque id for health checks, traffic policies and query
+// logging configs; Route 53 uses UUID-shaped ids for these.
 func r53ChildID() string {
 	return strings.ToLower(strings.TrimPrefix(r53ChangeID(), "C")) + "-" +
 		strconv.FormatInt(time.Now().UnixNano()%1000000, 10)

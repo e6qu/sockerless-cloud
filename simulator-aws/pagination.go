@@ -177,8 +177,7 @@ func awsMaxResults(v *int32) int {
 	return int(*v)
 }
 
-// sortBy is a convenience wrapper that sorts a slice in-place by a string key
-// and returns it (for chaining).
+// sortBy sorts s in place by key and returns it.
 func sortBy[T any](s []T, key func(T) string) []T {
 	sort.Slice(s, func(i, j int) bool { return key(s[i]) < key(s[j]) })
 	return s

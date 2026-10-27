@@ -16,11 +16,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// buildResourcePolicySim builds the full simulator in-process so the
-// resource-based policy mirror (S3 bucket policy, Lambda function policy,
-// SNS topic policy, SQS queue policy) can be driven through the real
-// service handlers and then resolved via iamResourcePolicyDocsForARN —
-// the entry point the IAM enforcement gate calls.
+// buildResourcePolicySim builds the simulator in-process so the tests drive the
+// real service handlers and resolve through iamResourcePolicyDocsForARN.
 func buildResourcePolicySim(t *testing.T) *sim.Server {
 	t.Helper()
 	t.Setenv("SIM_RUNTIME", "process")
@@ -31,9 +28,7 @@ func buildResourcePolicySim(t *testing.T) *sim.Server {
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
-	// Built but never served: its background workers keep reading
-	// package-level stores after this test ends, and the next test to build a
-	// simulator reassigns those stores underneath them.
+	// Stop the background workers at cleanup: they read package-level stores the next simulator build reassigns.
 	t.Cleanup(srv.StopBackground)
 	return srv
 }
@@ -50,7 +45,6 @@ func TestIAMResourcePolicy_S3BucketPolicyMirror(t *testing.T) {
 	const bucket = "policy-bucket"
 	arn := s3BucketARN(bucket)
 
-	// Create the bucket.
 	if rr := doReq(t, srv, s3SeedReq("PUT", "/"+bucket, nil)); rr.Code != http.StatusOK {
 		t.Fatalf("CreateBucket: status %d body %s", rr.Code, rr.Body.String())
 	}
@@ -168,10 +162,9 @@ func jsonTargetReq(target, body string) *http.Request {
 	return req
 }
 
-// lambdaReq builds a signed Lambda REST request. Lambda's control plane
-// (lambda_enforcement.go) authenticates every request the same way the
-// awsJson/awsQuery control plane does, so REST calls need the same seeded
-// administrator signature queryReq/jsonTargetReq attach for their protocols.
+// lambdaReq builds an AWS Lambda REST request signed with the seeded
+// administrator credential, which Lambda's control plane requires like every
+// other protocol.
 func lambdaReq(method, path, body string) *http.Request {
 	var req *http.Request
 	if body == "" {

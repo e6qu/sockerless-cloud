@@ -8,8 +8,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// gluePartitionKey is the store key for a partition; partition values are
-// ordered and joined under a key that also scopes them to (database, table).
 func gluePartitionKey(database, table string, values []string) string {
 	return database + "/" + table + "/" + strings.Join(values, "\x1f")
 }
@@ -26,8 +24,8 @@ func glueValuesEqual(a, b []string) bool {
 	return true
 }
 
-// glueRequirePartitionTable validates the (database, table) parent exists.
-// Caller holds glueMu. Returns false and writes the error if missing.
+// glueRequirePartitionTable writes the error and returns false when the parent
+// database or table is missing. The caller holds glueMu.
 func glueRequirePartitionTable(w http.ResponseWriter, database, table string) bool {
 	if _, ok := glueDatabases.Get(database); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Database not found: "+database)
@@ -325,8 +323,6 @@ func handleGlueBatchDeletePartition(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// gluePartitionIndexKey is the store key for one (database, table, indexName)
-// partition index.
 func gluePartitionIndexKey(database, table, index string) string {
 	return database + "/" + table + "/" + index
 }
@@ -366,8 +362,8 @@ func handleGlueCreatePartitionIndex(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Partition index already exists: "+req.PartitionIndex.IndexName)
 		return
 	}
-	// Resolve each key name to a KeySchemaElement (Name + Type) from the table's
-	// partition keys, matching the real PartitionIndexDescriptor read-back shape.
+	// Resolve each key name to a KeySchemaElement (Name, Type) from the table's
+	// partition keys, the PartitionIndexDescriptor read-back shape.
 	keyType := func(name string) string {
 		for _, pk := range tbl.PartitionKeys {
 			if glueString(pk["Name"]) == name {

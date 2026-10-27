@@ -11,48 +11,18 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Per-service aws:ResourceTag/<k> resolution for the IAM enforcement gate.
-//
-// Real AWS exposes the tags of the resource a request targets as both
-// aws:ResourceTag/<k> AND the service-prefixed <service>:ResourceTag/<k> (e.g.
-// lambda:ResourceTag/<k>, sqs:ResourceTag/<k>), so a policy conditioned on a
-// resource's tag matches only when the targeted resource carries it. EC2 and
-// ECS (ecs:cluster) live in iam_condition_context.go; the resolvers here cover
-// every other sim service that stores resource tags and has a request→resource
-// mapping:
-//
-//   awsJson  : lambda (REST path), sqs, dynamodb, ecr, logs (CloudWatch Logs),
-//              stepfunctions, kms, secretsmanager, kinesis, glue
-//   awsQuery : sns, elbv2, elasticache
-//   REST     : batch (path arn), s3 (bucket/object tags from the URL path)
-//
-// AWS Systems Manager and AWS WAF resolve the resource the gate authorizes the
-// request against through iamPopulateARNResourceTags, which writes
-// aws:ResourceTag/<k> alone.
-//
-// Each resolver returns the targeted resource's tags as a flat map; the
-// dispatcher then writes both condition-key forms. A resolver that can't find
-// the target (no such resource / no identifying param) returns ok=false and the
-// gate simply leaves those keys unset — exactly as real AWS does when the
-// resource is absent.
-//
-// Two services do not spell their resource tags <service>:ResourceTag/<k>, so
-// they write their own keys (iamPopulateRDSResourceTags /
-// iamPopulateIAMResourceTags) instead of going through that shared loop:
-//
-//   rds : the vendored service reference declares no rds:ResourceTag/${TagKey}
-//         at all. Every RDS resource type spells its own key — a DB instance's
-//         tags are "rds:db-tag/${TagKey}", a DB cluster's
-//         "rds:cluster-tag/${TagKey}", and so on — so which spelling the gate
-//         writes depends on which resource the request targets.
-//   iam : "iam:ResourceTag/${TagKey}" is declared only on the user and role
-//         resources; a policy or an instance profile carries
-//         "aws:ResourceTag/${TagKey}" alone.
+// AWS exposes the tags of the targeted resource as aws:ResourceTag/<k> and
+// <service>:ResourceTag/<k>. Amazon EC2 and Amazon ECS resolve in
+// iam_condition_context.go, and AWS Systems Manager and AWS WAF through
+// iamPopulateARNResourceTags, which writes aws:ResourceTag/<k> alone. The
+// resolvers here return the target's tags, or false when the target is absent,
+// which leaves the keys unset as AWS does. Amazon RDS and IAM spell their keys
+// differently and write their own (iamPopulateRDSResourceTags,
+// iamPopulateIAMResourceTags).
 
-// iamPopulateServiceResourceTags resolves the request's target resource tags
-// for service prefixes other than ec2/ecs and writes aws:ResourceTag/<k> +
-// <service>:ResourceTag/<k>. Returns true when it handled the service (so the
-// caller knows resolution was attempted for this prefix).
+// iamPopulateServiceResourceTags writes aws:ResourceTag/<k> and
+// <service>:ResourceTag/<k> for the targeted resource of any service but EC2 and
+// ECS. It returns true when it handled the service.
 func iamPopulateServiceResourceTags(r *http.Request, service string, ctx map[string][]string) bool {
 	// The two services whose resource-tag condition keys are not spelled
 	// <service>:ResourceTag/<k> write their own.
@@ -115,8 +85,6 @@ func iamPopulateServiceResourceTags(r *http.Request, service string, ctx map[str
 	return true
 }
 
-// iamReadJSONBody reads and restores r.Body so the downstream handler still
-// sees it, returning the bytes for an awsJson resolver to inspect.
 func iamReadJSONBody(r *http.Request) []byte {
 	if r.Body == nil {
 		return nil
@@ -130,11 +98,8 @@ func iamReadJSONBody(r *http.Request) []byte {
 	return body
 }
 
-// ── awsJson services ──────────────────────────────────────────────────
-
-// iamLambdaResourceTags resolves the function the Lambda REST request targets.
-// Function-scoped routes carry the name in the {name} path value; the tag-on
-// routes carry the function ARN in {arn}.
+// iamLambdaResourceTags resolves the targeted function: function-scoped routes
+// carry its name in {name}, the tagging routes its ARN in {arn}.
 func iamLambdaResourceTags(r *http.Request) (map[string]string, bool) {
 	name := sim.PathParam(r, "name")
 	if name == "" {
@@ -146,7 +111,6 @@ func iamLambdaResourceTags(r *http.Request) (map[string]string, bool) {
 	if strings.Contains(name, ":function:") {
 		name = strings.SplitN(name, ":function:", 2)[1]
 	}
-	// A function-name path value may itself be an ARN-less qualifier suffix.
 	if i := strings.LastIndex(name, ":"); i >= 0 && !strings.HasPrefix(name, "arn:") {
 		// Strip a trailing version/alias qualifier (name:qualifier).
 		name = name[:i]
@@ -158,7 +122,6 @@ func iamLambdaResourceTags(r *http.Request) (map[string]string, bool) {
 	return fn.Tags, true
 }
 
-// iamSQSResourceTags resolves the queue named by QueueUrl.
 func iamSQSResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		QueueUrl string `json:"QueueUrl"`
@@ -173,7 +136,6 @@ func iamSQSResourceTags(r *http.Request) (map[string]string, bool) {
 	return q.Tags, true
 }
 
-// iamDynamoDBResourceTags resolves the table named by ResourceArn.
 func iamDynamoDBResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
@@ -197,7 +159,6 @@ func iamDynamoDBResourceTags(r *http.Request) (map[string]string, bool) {
 	return nil, false
 }
 
-// iamECRResourceTags resolves the repository named by resourceArn.
 func iamECRResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		ResourceArn    string `json:"resourceArn"`
@@ -248,7 +209,6 @@ func iamLogsResourceTags(r *http.Request) (map[string]string, bool) {
 	return lg.Tags, true
 }
 
-// iamSFNResourceTags resolves the state machine named by resourceArn.
 func iamSFNResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		ResourceArn     string `json:"resourceArn"`
@@ -294,7 +254,6 @@ func iamKMSResourceTags(r *http.Request) (map[string]string, bool) {
 	return out, true
 }
 
-// iamSecretsManagerResourceTags resolves the secret named by SecretId.
 func iamSecretsManagerResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		SecretId string `json:"SecretId"`
@@ -313,7 +272,6 @@ func iamSecretsManagerResourceTags(r *http.Request) (map[string]string, bool) {
 	return smTagsToMap(s.Tags), true
 }
 
-// iamKinesisResourceTags resolves the stream named by StreamName/StreamARN.
 func iamKinesisResourceTags(r *http.Request) (map[string]string, bool) {
 	var req struct {
 		StreamName string `json:"StreamName"`
@@ -383,8 +341,6 @@ func iamGlueResourceTags(r *http.Request) (map[string]string, bool) {
 	}
 	return nil, false
 }
-
-// ── awsQuery services ─────────────────────────────────────────────────
 
 // iamSNSResourceTags resolves the topic the request targets — the tag ops carry
 // ResourceArn, the topic-scoped ops (DeleteTopic, Publish, …) carry TopicArn.
@@ -477,8 +433,6 @@ func iamWAFv2TagsForARN(arn string) (map[string]string, bool) {
 	return out, true
 }
 
-// ── REST services ─────────────────────────────────────────────────────
-
 // iamBatchResourceTags resolves the compute-environment/job-queue named by the
 // {resourceArn} path value (Batch's tag ops are REST: /v1/tags/{resourceArn}).
 func iamBatchResourceTags(r *http.Request) (map[string]string, bool) {
@@ -547,33 +501,12 @@ func smTagsToMap(tags []SMTag) map[string]string {
 	return out
 }
 
-// ── Amazon RDS: one tag condition key per resource type ───────────────
-//
-// RDS declares no rds:ResourceTag/${TagKey}. Each of its resource types names
-// its own key, so the gate can only write the spelling belonging to the
-// resource the request actually targets. The spellings below are quoted
-// verbatim from the vendored reference
-// (specs/cloud-api/aws/service-reference/rds.servicereference.json.gz,
-// Resources[].ConditionKeys):
-//
-//	db               → "rds:db-tag/${TagKey}"
-//	cluster          → "rds:cluster-tag/${TagKey}"
-//	snapshot         → "rds:snapshot-tag/${TagKey}"
-//	cluster-snapshot → "rds:cluster-snapshot-tag/${TagKey}"
-//	pg               → "rds:pg-tag/${TagKey}"
-//	cluster-pg       → "rds:cluster-pg-tag/${TagKey}"
-//	og               → "rds:og-tag/${TagKey}"
-//	subgrp           → "rds:subgrp-tag/${TagKey}"
-//	secgrp           → "rds:secgrp-tag/${TagKey}"
-//	es               → "rds:es-tag/${TagKey}"
-//
-// Every one of those resource types also declares "aws:ResourceTag/${TagKey}",
-// which the gate keeps writing alongside the RDS spelling.
-//
-// The reference declares one further resource tag key,
-// "rds:ri-tag/${TagKey}" on the reserved-instance resource. The simulator's
-// RDSReservedInstance carries no tags, so there is nothing to resolve and that
-// key stays unset rather than being invented.
+// Amazon RDS declares no rds:ResourceTag/${TagKey}: each resource type names its
+// own key, so write the spelling of the resource the request targets beside
+// aws:ResourceTag/${TagKey}. Per the vendored reference, db, cluster, snapshot,
+// cluster-snapshot, pg, cluster-pg, og, subgrp, secgrp and es each declare
+// rds:<type>-tag/${TagKey}. rds:ri-tag/${TagKey} on a reserved instance stays
+// unset: RDSReservedInstance carries no tags.
 
 // iamRDSResourceKind is one RDS resource type the simulator stores tags on: the
 // segment its ARN carries, the condition-key prefix the reference declares for
@@ -715,20 +648,10 @@ func iamRDSTargetedResource(r *http.Request) (iamRDSResourceKind, map[string]str
 	return iamRDSResourceKind{}, nil, false
 }
 
-// ── AWS Identity and Access Management: its own tagged resources ──────
-//
-// IAM stores tags on its users, roles, policies and instance profiles, and a
-// request naming one is authorized against that resource — so the gate must
-// resolve it, or a policy conditioned on the tags of the role it is about to
-// modify can never match.
-//
-// Per the vendored reference
-// (specs/cloud-api/aws/service-reference/iam.servicereference.json.gz,
-// Resources[].ConditionKeys) "iam:ResourceTag/${TagKey}" is declared on the
-// user and role resources only; the policy and instance-profile resources
-// declare "aws:ResourceTag/${TagKey}" alone. The gate writes exactly that, so
-// an iam:ResourceTag condition on a policy stays unmatched here just as it does
-// on real AWS.
+// IAM stores tags on users, roles, policies and instance profiles. The vendored
+// reference declares iam:ResourceTag/${TagKey} on users and roles only; policies
+// and instance profiles declare aws:ResourceTag/${TagKey} alone, and the gate
+// writes exactly that.
 
 // iamIAMResourceKind is one tagged IAM resource type: the awsQuery member that
 // names one, whether the reference declares iam:ResourceTag/<k> for it, and the

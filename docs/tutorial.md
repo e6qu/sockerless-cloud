@@ -19,13 +19,11 @@ endpoints point at a simulator.
 | Function | AWS Lambda | Cloud Run functions | Azure Functions |
 | Logs and monitoring | Amazon CloudWatch Logs and a metric alarm | A Cloud Logging log-based metric | Log Analytics and Application Insights |
 
-The tutorial is tested end to end. Each cloud's part is a Terraform test that
-applies the same configuration this tutorial applies, checks the same results,
-plans again expecting no changes, and destroys the stack:
-`TestTutorialStack` in `simulator-aws/terraform-tests/tutorial`, and
-`TestTerraformTutorial` in `simulator-gcp/terraform-tests` and
-`simulator-azure/terraform-tests`. CI runs them as `tf (aws tutorial)`,
-`tf (gcp tutorial)` and `tf (azure tutorial)`.
+The tutorial is tested as written. `TestDocs` in `testutil/doctest` runs every
+command below in order, in one shell session, with the long-running ones in
+terminals of their own, and checks the output the steps say to expect. CI runs
+each part as `docs (tutorial aws)`, `docs (tutorial gcp)` and
+`docs (tutorial azure)`.
 
 Do the steps in order. Each part starts and stops its own simulator, so you can
 stop after any part.
@@ -43,10 +41,13 @@ You need:
 
 Check them:
 
+<!-- doctest: run -->
 ```sh
 go version
 docker info --format '{{.ServerVersion}}'
 terraform version
+jq --version
+curl --version | head -n 1
 caddy version
 ```
 
@@ -54,6 +55,7 @@ caddy version
 
 The Terraform configurations live in the repository beside their tests:
 
+<!-- doctest: run -->
 ```sh
 git clone https://github.com/e6qu/sockerless-cloud.git
 cd sockerless-cloud
@@ -62,21 +64,26 @@ export TUTORIAL_ROOT="$PWD"
 
 ## Step 3: Install the three simulators
 
+Build them from the clone, so the simulators and the configurations come from
+the same commit:
+
+<!-- doctest: run -->
 ```sh
-go install github.com/e6qu/sockerless-cloud/simulator-aws@latest
-go install github.com/e6qu/sockerless-cloud/simulator-gcp@latest
-go install github.com/e6qu/sockerless-cloud/simulator-azure@latest
+cd "$TUTORIAL_ROOT"
+go install ./simulator-aws
+go install ./simulator-gcp
+go install ./simulator-azure
+export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-Each command puts a binary in `$(go env GOPATH)/bin`. Make sure that directory
-is on your `PATH`.
-
+<!-- doctest: part name=aws -->
 ## Part 1: AWS
 
 ### Step 4: Start the AWS simulator
 
 In a terminal of its own:
 
+<!-- doctest: background id=aws ready="Listening on" -->
 ```sh
 simulator-aws
 ```
@@ -87,6 +94,7 @@ It listens on port 4566 and prints a `Listening on` line once it's ready.
 
 Back in your first terminal:
 
+<!-- doctest: run -->
 ```sh
 cd "$TUTORIAL_ROOT/simulator-aws/terraform-tests/tutorial"
 terraform init
@@ -103,6 +111,7 @@ a few minutes. The simulator does the work AWS would do:
 
 ### Step 6: Read the results
 
+<!-- doctest: run expect="instance_state = \"running\"" expect="s3_object_body = \"Hello from S3\"" expect="event_source_mapping_state = \"Enabled\"" expect="nat_gateway_public_ip = " -->
 ```sh
 terraform output
 ```
@@ -120,6 +129,7 @@ You should see:
 
 ### Step 7: Confirm the stack is stable
 
+<!-- doctest: run expect="No changes\\." -->
 ```sh
 terraform plan -detailed-exitcode
 ```
@@ -129,18 +139,23 @@ Terraform wrote.
 
 ### Step 8: Destroy the AWS stack
 
+<!-- doctest: run -->
 ```sh
 terraform destroy -auto-approve
 ```
 
 Then stop `simulator-aws` with Ctrl-C.
 
+<!-- doctest: stop id=aws -->
+
+<!-- doctest: part name=gcp -->
 ## Part 2: Google Cloud
 
 ### Step 9: Start the Google Cloud simulator
 
 In a terminal of its own:
 
+<!-- doctest: background id=gcp ready="Listening on" -->
 ```sh
 simulator-gcp
 ```
@@ -154,6 +169,7 @@ The simulator seeds a bootstrap service account,
 published in the repository. Write that key's credential file, the same JSON
 IAM's `keys.create` returns:
 
+<!-- doctest: run -->
 ```sh
 cd "$TUTORIAL_ROOT"
 go run ./testutil/cmd/gcp-bootstrap-key -o "$TUTORIAL_ROOT/bootstrap-key.json"
@@ -162,16 +178,22 @@ export TF_VAR_credentials="$TUTORIAL_ROOT/bootstrap-key.json"
 
 Its `token_uri` names the simulator's token endpoint, so the Google provider
 signs a JWT with the key and exchanges it there, as it would at
-`oauth2.googleapis.com`.
+`oauth2.googleapis.com`. The stack deploys into `sockerless`, the project the
+simulator seeds for the bootstrap account, as you'd deploy into your own
+project on Google Cloud.
 
 On an arm64 machine, choose the arm64 Debian image too:
 
+<!-- doctest: run -->
 ```sh
-export TF_VAR_debian_image_family=debian-12-arm64
+case "$(uname -m)" in
+  aarch64 | arm64) export TF_VAR_debian_image_family=debian-12-arm64 ;;
+esac
 ```
 
 ### Step 11: Apply the Google Cloud stack
 
+<!-- doctest: run -->
 ```sh
 cd "$TUTORIAL_ROOT/simulator-gcp/terraform-tests/fixtures/tutorial"
 terraform init
@@ -186,6 +208,7 @@ Apply does the work Google Cloud would do:
 
 ### Step 12: Read the results
 
+<!-- doctest: run expect="instance_status = \"RUNNING\"" expect="storage_object_content = \"Hello from Cloud Storage\"" expect="function_state = \"ACTIVE\"" expect="firestore_document = \"tutorial-orders/order-1\"" -->
 ```sh
 terraform output
 ```
@@ -202,18 +225,23 @@ You should see:
 
 ### Step 13: Confirm the stack is stable
 
+<!-- doctest: run expect="No changes\\." -->
 ```sh
 terraform plan -detailed-exitcode
 ```
 
 ### Step 14: Destroy the Google Cloud stack
 
+<!-- doctest: run -->
 ```sh
 terraform destroy -auto-approve
 ```
 
 Then stop `simulator-gcp` with Ctrl-C.
 
+<!-- doctest: stop id=gcp -->
+
+<!-- doctest: part name=azure -->
 ## Part 3: Azure
 
 The azurerm provider reaches Azure only over HTTPS, and reaches each storage
@@ -237,6 +265,7 @@ On Linux with systemd-resolved, every `*.localhost` name already resolves to
 The simulator advertises its data planes at the gateway's names, so tell it
 where the gateway listens. In a terminal of its own:
 
+<!-- doctest: background id=azure ready="Listening on" -->
 ```sh
 export SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{
   "storage": {
@@ -262,6 +291,7 @@ It listens on port 4568.
 
 In another terminal, from the repository root:
 
+<!-- doctest: background id=caddy ready="added certificate to cache\",\"subjects\":\\[\"(azure|\\*\\.blob\\.azure|\\*\\.scm\\.azure)\\.sockerless\\.localhost\"" count=3 -->
 ```sh
 cd "$TUTORIAL_ROOT"
 SOCKERLESS_AZURE_SIM_PORT=4568 caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
@@ -270,6 +300,7 @@ SOCKERLESS_AZURE_SIM_PORT=4568 caddy run --config make/https-gateway/Caddyfile -
 Caddy issues the gateway's certificates from a local root it creates. Trust
 that root for Terraform, in your first terminal:
 
+<!-- doctest: run -->
 ```sh
 export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
 ```
@@ -280,6 +311,7 @@ On macOS Caddy keeps its data under
 
 ### Step 18: Apply the Azure stack
 
+<!-- doctest: run -->
 ```sh
 cd "$TUTORIAL_ROOT/simulator-azure/terraform-tests/tutorial"
 terraform init
@@ -296,6 +328,7 @@ would do:
 
 ### Step 19: Read the results and call the function
 
+<!-- doctest: run expect="vm_private_ip = \"10\\.97\\.1\\." expect="function_hostname = \"tutorial-worker\\.azurewebsites\\.net\"" -->
 ```sh
 terraform output
 ```
@@ -310,6 +343,7 @@ You should see:
 Call the function with its host key. The simulator serves every app's
 `azurewebsites.net` host name on its own port, chosen by the `Host` header:
 
+<!-- doctest: run expect="hello from tutorial-worker" -->
 ```sh
 curl -H "Host: $(terraform output -raw function_hostname)" \
   "http://localhost:4568/api/hello?code=$(terraform output -raw function_key)"
@@ -319,17 +353,22 @@ It answers `hello from tutorial-worker`.
 
 ### Step 20: Confirm the stack is stable
 
+<!-- doctest: run expect="No changes\\." -->
 ```sh
 terraform plan -detailed-exitcode
 ```
 
 ### Step 21: Destroy the Azure stack
 
+<!-- doctest: run -->
 ```sh
 terraform destroy -auto-approve
 ```
 
 Then stop Caddy and `simulator-azure` with Ctrl-C.
+
+<!-- doctest: stop id=caddy -->
+<!-- doctest: stop id=azure -->
 
 ## What the stacks leave out
 

@@ -24,9 +24,9 @@ func TestTerraformTutorial(t *testing.T) {
 	require.True(t, strings.HasPrefix(outputs.must(t, "run_service_uri"), "https://tutorial-web-"), outputs.must(t, "run_service_uri"))
 	require.Equal(t, "Hello from Cloud Storage", outputs.must(t, "storage_object_content"))
 	require.Equal(t, "tutorial-orders/order-1", outputs.must(t, "firestore_document"))
-	require.Equal(t, "projects/test-project/subscriptions/tutorial-orders", outputs.must(t, "subscription"))
+	require.Equal(t, "projects/sockerless/subscriptions/tutorial-orders", outputs.must(t, "subscription"))
 	require.Equal(t, "ACTIVE", outputs.must(t, "function_state"))
-	require.Equal(t, "https://us-central1-test-project.cloudfunctions.net/tutorial-worker", outputs.must(t, "function_url"))
+	require.Equal(t, "https://us-central1-sockerless.cloudfunctions.net/tutorial-worker", outputs.must(t, "function_url"))
 	require.Equal(t, "tutorial-worker-errors", outputs.must(t, "log_metric"))
 	requireNoDrift(t, "tutorial")
 }

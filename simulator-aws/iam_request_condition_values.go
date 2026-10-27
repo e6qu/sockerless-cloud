@@ -42,8 +42,6 @@ func iamSetConditionInt(ctx map[string][]string, key string, value *int64) {
 	}
 }
 
-// iamDecodeJSONRequest decodes a JSON request body into request, and reports
-// whether the body held a JSON document.
 func iamDecodeJSONRequest(body []byte, request any) bool {
 	return len(body) > 0 && json.Unmarshal(body, request) == nil
 }

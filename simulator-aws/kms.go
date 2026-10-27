@@ -15,21 +15,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// KMS — runner workflows interact with KMS through Secrets Manager
-// (KmsKeyId), SSM Parameter Store (SecureString + KeyId), S3 SSE-KMS,
-// and direct Encrypt/Decrypt. Without this slice every kms.Encrypt /
-// terraform `aws_kms_key` 404s. Wire format follows the JSON protocol
-// with `X-Amz-Target: TrentService.<Action>`.
-
-// KMSKey is a customer master key. Real KMS wraps a per-key data key
-// in HSM-protected key material; the sim doesn't have an HSM, so the
-// "encryption" is a deterministic envelope (`<keyId>:<base64(plain)>`)
-// — opaque to SDK callers (treated as bytes), reversible by the sim,
-// and round-tripped exactly through the wire shape callers expect.
-// KMSTag is the KMS tag wire shape (`TagKey`/`TagValue`), distinct from the
-// Secrets Manager tag shape (`Key`/`Value`). CreateKey `--tags`, TagResource,
-// and ListResourceTags all speak this shape — reusing SMTag here silently
-// dropped tags because the JSON field names don't match.
+// KMSTag is the AWS KMS tag wire shape (TagKey/TagValue), unlike Secrets Manager's Key/Value.
 type KMSTag struct {
 	TagKey   string `json:"TagKey"`
 	TagValue string `json:"TagValue"`
@@ -46,45 +32,28 @@ type KMSKey struct {
 	CreationDate float64  `json:"CreationDate,omitempty"`
 	Aliases      []string `json:"Aliases,omitempty"`
 	Tags         []KMSTag `json:"Tags,omitempty"`
-	// PolicyJSON holds the JSON-encoded key policy document. Real KMS
-	// stores + returns this as a string (not a parsed object); the sim
-	// follows so GetKeyPolicy round-trips byte-identical to what
-	// CreateKey + PutKeyPolicy received.
+	// AWS KMS stores and returns the key policy as a string, so GetKeyPolicy
+	// round-trips the bytes CreateKey or PutKeyPolicy received.
 	PolicyJSON string           `json:"PolicyJSON,omitempty"`
 	Grants     []map[string]any `json:"Grants,omitempty"`
 	Spec       string           `json:"KeySpec,omitempty"`
-	// RotationEnabled tracks automatic key rotation (EnableKeyRotation /
-	// DisableKeyRotation). RotationPeriodInDays is the rotation cadence,
-	// defaulting to 365 when rotation is turned on. Real KMS reports both
-	// via GetKeyRotationStatus.
+	// RotationPeriodInDays defaults to 365 when rotation turns on.
 	RotationEnabled      bool `json:"RotationEnabled,omitempty"`
 	RotationPeriodInDays int  `json:"RotationPeriodInDays,omitempty"`
-	// Rotations records each completed key rotation (automatic or
-	// on-demand) so ListKeyRotations can report them. Real KMS surfaces a
-	// RotationsListEntry per rotation event.
+	// One entry per completed rotation, automatic or on-demand, for ListKeyRotations.
 	Rotations []KMSRotation `json:"Rotations,omitempty"`
-	// HasImportedMaterial tracks whether EXTERNAL-origin key material has
-	// been imported (ImportKeyMaterial) and not subsequently deleted
-	// (DeleteImportedKeyMaterial). A freshly-created EXTERNAL key starts
-	// PendingImport with no material.
+	// A new EXTERNAL key starts PendingImport with no material.
 	HasImportedMaterial bool `json:"HasImportedMaterial,omitempty"`
-	// MultiRegion marks a multi-region key (CreateKey MultiRegion=true).
-	// PrimaryRegion is the region currently holding the primary; Replicas
-	// records the regions ReplicateKey has produced replicas in. The KeyId
-	// of a multi-region key is shared across all its regional replicas
-	// (real KMS prefixes such IDs with "mrk-").
+	// PrimaryRegion holds the primary; Replicas lists the Regions ReplicateKey
+	// replicated to. Every replica shares the KeyId, which AWS prefixes with "mrk-".
 	MultiRegion   bool     `json:"MultiRegion,omitempty"`
 	PrimaryRegion string   `json:"PrimaryRegion,omitempty"`
 	Replicas      []string `json:"Replicas,omitempty"`
-	// LastUsedOperation / LastUsedDate record the most recent successful
-	// cryptographic operation against this key, surfaced by GetKeyLastUsage.
-	// Empty until the key is first used for crypto.
+	// The last successful cryptographic operation, for GetKeyLastUsage; empty until first use.
 	LastUsedOperation string  `json:"LastUsedOperation,omitempty"`
 	LastUsedDate      float64 `json:"LastUsedDate,omitempty"`
 }
 
-// kmsRecordUsage stamps the last successful cryptographic operation on a key
-// so GetKeyLastUsage can report it. Called from the crypto handlers.
 func kmsRecordUsage(keyId, operation string) {
 	kmsKeys.Update(keyId, func(k *KMSKey) {
 		k.LastUsedOperation = operation
@@ -92,17 +61,15 @@ func kmsRecordUsage(keyId, operation string) {
 	})
 }
 
-// KMSRotation is one entry in the key's rotation history (ListKeyRotations).
 type KMSRotation struct {
 	KeyId        string  `json:"KeyId"`
 	RotationDate float64 `json:"RotationDate"`
 	RotationType string  `json:"RotationType"` // AUTOMATIC | ON_DEMAND
 }
 
-// kmsImportParams holds the per-request wrapping keypair handed out by
-// GetParametersForImport. ImportKeyMaterial decrypts the wrapped material
-// with the RSA private key and uses the decrypted bytes as the CMK's
-// AES-256 key material.
+// kmsImportParams is the wrapping key pair GetParametersForImport hands out;
+// ImportKeyMaterial unwraps the material with its private key into the key's
+// AES-256 material.
 type kmsImportParams struct {
 	KeyId             string
 	ImportToken       string // base64 token
@@ -166,11 +133,8 @@ func registerKMS(r *AWSRouter, srv *sim.Server) {
 	registerKMSMultiRegion(r, srv)
 }
 
-// kmsKeyMetadata builds the KeyMetadata map real KMS returns from CreateKey /
-// DescribeKey / ReplicateKey. For asymmetric and HMAC keys it surfaces the
-// algorithm lists (SigningAlgorithms / EncryptionAlgorithms /
-// KeyAgreementAlgorithms / MacAlgorithms) the real API attaches, so SDK and
-// terraform callers see the same shape.
+// kmsKeyMetadata builds KeyMetadata for CreateKey, DescribeKey and ReplicateKey,
+// with the algorithm lists AWS attaches to asymmetric and HMAC keys.
 func kmsKeyMetadata(key KMSKey) map[string]any {
 	md := map[string]any{
 		"KeyId":        key.KeyId,
@@ -204,19 +168,13 @@ func kmsKeyMetadata(key KMSKey) map[string]any {
 	return md
 }
 
-// kmsDefaultKeyPolicyJSON returns the default key policy that real AWS KMS
-// stamps on a newly-created customer master key when the operator hasn't
-// provided one. Matches the canonical "root account allow-all" doc that
-// real KMS publishes so terraform's GetKeyPolicy refresh round-trips
-// without spurious diffs.
+// kmsDefaultKeyPolicyJSON returns the default key policy AWS KMS gives a key created without one.
 func kmsDefaultKeyPolicyJSON() string {
 	return fmt.Sprintf(`{"Version":"2012-10-17","Id":"key-default-1","Statement":[{"Sid":"Enable IAM User Permissions","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::%s:root"},"Action":"kms:*","Resource":"*"}]}`, awsAccountID())
 }
 
-// handleKMSGetKeyPolicy returns the key policy for a KeyId. Real KMS
-// supports only one policy name ("default"); the sim follows suit.
-// Returns the custom policy stored on CreateKey / PutKeyPolicy if set,
-// otherwise the canonical AWS default key policy.
+// handleKMSGetKeyPolicy returns the stored policy, or the default key policy.
+// AWS KMS supports one policy name, "default".
 func handleKMSGetKeyPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId      string `json:"KeyId"`
@@ -252,10 +210,7 @@ func handleKMSGetKeyPolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSPutKeyPolicy persists the supplied policy doc on the key.
-// Real KMS accepts only one policy name ("default") + the JSON-encoded
-// policy string. terraform-provider-aws calls this when the user
-// supplies `aws_kms_key.policy` and on every subsequent change.
+// handleKMSPutKeyPolicy stores the policy under the only policy name, "default".
 func handleKMSPutKeyPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId      string `json:"KeyId"`
@@ -291,8 +246,6 @@ func handleKMSPutKeyPolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSListResourceTags returns the tag set attached to a KMS key.
-// terraform-provider-aws calls this after CreateKey to populate `tags`.
 func handleKMSListResourceTags(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -316,9 +269,6 @@ func handleKMSListResourceTags(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSTagResource adds or overwrites tags on a key. terraform-provider-aws
-// calls this when `aws_kms_key { tags = {...} }` changes after creation, then
-// polls ListResourceTags until the tags propagate.
 func handleKMSTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string   `json:"KeyId"`
@@ -340,7 +290,6 @@ func handleKMSTagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSUntagResource removes the named tag keys from a key.
 func handleKMSUntagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId   string   `json:"KeyId"`
@@ -372,8 +321,7 @@ func handleKMSUntagResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// mergeKMSTags overlays new tags onto existing ones, replacing values for
-// duplicate keys (real KMS TagResource semantics).
+// mergeKMSTags applies TagResource: a new value replaces the existing one for the same key.
 func mergeKMSTags(existing, incoming []KMSTag) []KMSTag {
 	out := make([]KMSTag, 0, len(existing)+len(incoming))
 	out = append(out, existing...)
@@ -393,9 +341,7 @@ func mergeKMSTags(existing, incoming []KMSTag) []KMSTag {
 	return out
 }
 
-// handleKMSGetKeyRotationStatus returns whether automatic key rotation is
-// enabled. Real AWS defaults to false for customer-managed keys.
-// terraform-provider-aws calls this after CreateKey.
+// Automatic rotation defaults to off for customer managed keys.
 func handleKMSGetKeyRotationStatus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -425,9 +371,8 @@ func handleKMSGetKeyRotationStatus(w http.ResponseWriter, r *http.Request) {
 // EnableKeyRotation is called without RotationPeriodInDays.
 const kmsDefaultRotationPeriodDays = 365
 
-// handleKMSEnableKeyRotation turns on automatic annual rotation for a key.
-// terraform-provider-aws calls this for `aws_kms_key { enable_key_rotation
-// = true }`. RotationPeriodInDays is optional (default 365, range 90–2560).
+// handleKMSEnableKeyRotation turns on automatic rotation; RotationPeriodInDays
+// defaults to 365, range 90–2560.
 func handleKMSEnableKeyRotation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId                string `json:"KeyId"`
@@ -459,7 +404,6 @@ func handleKMSEnableKeyRotation(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSDisableKeyRotation turns off automatic rotation for a key.
 func handleKMSDisableKeyRotation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -499,12 +443,11 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 
 	keyId := sim.NewUUID()
 	if req.MultiRegion {
-		// Real KMS gives multi-region keys an ID prefixed with "mrk-"; the
-		// same ID is shared across every regional replica.
+		// AWS KMS prefixes a multi-region key's ID with "mrk-" and shares it across every replica.
 		keyId = "mrk-" + strings.ReplaceAll(keyId, "-", "")
 	}
-	// CustomerMasterKeySpec is the legacy name for KeySpec; honor it when
-	// KeySpec is absent (older SDKs / terraform versions still send it).
+	// CustomerMasterKeySpec is the deprecated name for KeySpec, which older SDKs and
+	// Terraform versions still send.
 	if req.KeySpec == "" && req.CustomerMasterKeySpec != "" {
 		req.KeySpec = req.CustomerMasterKeySpec
 	}
@@ -517,8 +460,7 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 	if req.KeySpec == "" {
 		req.KeySpec = "SYMMETRIC_DEFAULT"
 	}
-	// An EXTERNAL-origin key has no key material at creation; real KMS
-	// puts it in PendingImport until ImportKeyMaterial runs.
+	// An EXTERNAL key has no material at creation, so it stays PendingImport until ImportKeyMaterial.
 	keyState := "Enabled"
 	if req.Origin == "EXTERNAL" {
 		keyState = "PendingImport"
@@ -542,8 +484,7 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	kmsKeys.Put(keyId, key)
 
-	// AWS_KMS-origin keys get real 256-bit key material generated locally.
-	// EXTERNAL-origin keys remain without material until ImportKeyMaterial.
+	// Generate 256-bit material for an AWS_KMS key; an EXTERNAL key waits for ImportKeyMaterial.
 	if req.Origin != "EXTERNAL" {
 		if _, err := kmsGenerateKeyMaterial(keyId); err != nil {
 			kmsKeys.Delete(keyId)
@@ -652,8 +593,8 @@ func handleKMSScheduleKeyDeletion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSEncrypt encrypts plaintext under a CMK using real AES-256-GCM.
-// The returned CiphertextBlob is authenticated and bound to the source key id.
+// handleKMSEncrypt encrypts with AES-256-GCM; the CiphertextBlob is
+// authenticated and bound to its key id.
 func handleKMSEncrypt(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId     string `json:"KeyId"`
@@ -830,8 +771,7 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidRequest", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// When KeyId is set, resolve it (it may be an ARN or key id) so aliases
-	// filter to that one key, matching the real ListAliases KeyId parameter.
+	// Resolve KeyId, which may be an ID, ARN or alias, so the listing filters to that one key.
 	var filterKeyID string
 	if req.KeyId != "" {
 		keyID, ok := resolveKMSKey(req.KeyId)
@@ -843,15 +783,11 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 		filterKeyID = keyID
 	}
 	out := make([]map[string]any, 0)
-	// `sim.Store` doesn't expose key iteration; instead, walk every
-	// known key and ask listAliasesForKey which alias names point at
-	// it. The alias store is bounded in practice (one alias per key
-	// in most operator setups) so the O(keys × aliases) scan is fine.
+	// Walk the keys and ask listAliasesForKey which aliases point at each.
 	for _, key := range kmsKeys.List() {
 		if filterKeyID != "" && key.KeyId != filterKeyID {
 			continue
 		}
-		// For each key, find aliases pointing at it.
 		for _, alias := range listAliasesForKey(key.KeyId) {
 			out = append(out, map[string]any{
 				"AliasName":   alias,
@@ -872,13 +808,9 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// listAliasesForKey scans the alias store for entries pointing at
-// keyId. The sim's Store doesn't expose key iteration, but the alias
-// table is small enough that a snapshot scan is fine.
+// listAliasesForKey scans the alias names for those pointing at keyId.
 func listAliasesForKey(keyId string) []string {
-	// kmsAliasNames mirrors the alias keys for iteration. It's
-	// maintained alongside kmsAliases in handleKMSCreateAlias and
-	// handleKMSDeleteAlias.
+	// kmsAliasNames mirrors the alias keys for iteration; CreateAlias and DeleteAlias maintain it.
 	var out []string
 	for _, name := range kmsAliasNames.List() {
 		if id, ok := kmsAliases.Get(name); ok && id == keyId {
@@ -888,13 +820,11 @@ func listAliasesForKey(keyId string) []string {
 	return out
 }
 
-// kmsAliasNames holds the alias names for iteration. Real KMS exposes
-// `ListAliases` paginated; the sim returns all at once.
+// kmsAliasNames holds the alias names, which kmsAliases cannot iterate.
 var kmsAliasNames sim.Store[string]
 
-// kmsResolveOr404 decodes a single-KeyId request body and resolves the
-// key, writing the canonical KMS NotFoundException on miss. Returns the
-// resolved KeyId and ok=false (after writing the error) when not found.
+// kmsResolveOr404 resolves keyIdRef, writing NotFoundException and returning
+// false on a miss.
 func kmsResolveOr404(w http.ResponseWriter, r *http.Request, keyIdRef string) (string, bool) {
 	keyId, ok := resolveKMSKey(keyIdRef)
 	if !ok {
@@ -905,8 +835,6 @@ func kmsResolveOr404(w http.ResponseWriter, r *http.Request, keyIdRef string) (s
 	return keyId, true
 }
 
-// handleKMSEnableKey moves a key to the Enabled state. terraform-provider-aws
-// calls this for `aws_kms_key { is_enabled = true }`.
 func handleKMSEnableKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -923,7 +851,6 @@ func handleKMSEnableKey(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSDisableKey moves a key to the Disabled state.
 func handleKMSDisableKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -940,9 +867,7 @@ func handleKMSDisableKey(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSCancelKeyDeletion cancels a scheduled deletion, returning the key
-// to the Disabled state (real KMS disables a key whose deletion is cancelled).
-// Returns the KeyId.
+// AWS KMS returns a key whose deletion is cancelled to Disabled.
 func handleKMSCancelKeyDeletion(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -967,7 +892,6 @@ func handleKMSCancelKeyDeletion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSUpdateKeyDescription updates the free-text description.
 func handleKMSUpdateKeyDescription(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId       string `json:"KeyId"`
@@ -985,8 +909,7 @@ func handleKMSUpdateKeyDescription(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSUpdateAlias re-points an existing alias at a different key.
-// Real KMS requires the alias to already exist and the target key to exist.
+// AWS KMS requires both the alias and the target key to exist.
 func handleKMSUpdateAlias(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AliasName   string `json:"AliasName"`
@@ -1011,10 +934,8 @@ func handleKMSUpdateAlias(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleKMSGenerateRandom returns NumberOfBytes of cryptographically random
-// data. Real KMS sources this from its HSM; the sim uses crypto/rand, which
-// is real randomness — no fakery. The CustomKeyStoreId / Recipient
-// (enclave-attestation) paths aren't modeled; a plain request is honored.
+// crypto/rand stands in for the HSM. The CustomKeyStoreId and Recipient
+// (enclave attestation) parameters are not modelled.
 func handleKMSGenerateRandom(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NumberOfBytes int `json:"NumberOfBytes"`
@@ -1038,9 +959,7 @@ func handleKMSGenerateRandom(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSListKeyPolicies returns the policy names attached to a key. Real
-// KMS supports exactly one policy name ("default"); terraform/SDK callers
-// enumerate via this op.
+// AWS KMS supports exactly one policy name, "default".
 func handleKMSListKeyPolicies(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -1058,9 +977,7 @@ func handleKMSListKeyPolicies(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSListKeyRotations returns the rotation history of a key (each
-// automatic or on-demand rotation recorded so far). A key that has never
-// rotated returns an empty list, matching real KMS.
+// A key that has never rotated returns an empty list.
 func handleKMSListKeyRotations(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId  string `json:"KeyId"`
@@ -1095,9 +1012,8 @@ func handleKMSListKeyRotations(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// handleKMSRotateKeyOnDemand performs an immediate rotation of a symmetric
-// key, recording an ON_DEMAND rotation entry. Real KMS rotates the backing
-// key material and returns the KeyId.
+// handleKMSRotateKeyOnDemand records an ON_DEMAND rotation entry; it generates
+// no new key material.
 func handleKMSRotateKeyOnDemand(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`
@@ -1122,11 +1038,9 @@ func handleKMSRotateKeyOnDemand(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSGetParametersForImport hands back a real RSA wrapping public key
-// (DER-encoded) plus an opaque import token. A real client encrypts its key
-// material against this public key; the sim records the token so
-// ImportKeyMaterial can validate the round-trip. The wrapping key is genuine
-// RSA — no fakery — only the HSM custody is simulated.
+// handleKMSGetParametersForImport returns an RSA wrapping public key (DER) and an
+// import token the simulator records for ImportKeyMaterial; only the HSM custody
+// is simulated.
 func handleKMSGetParametersForImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId             string `json:"KeyId"`
@@ -1183,11 +1097,9 @@ func handleKMSGetParametersForImport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKMSImportKeyMaterial accepts wrapped key material for an EXTERNAL key.
-// The import token must match one previously issued by
-// GetParametersForImport. The sim decrypts the wrapped material with the RSA
-// private key stored alongside the token and uses the decrypted 32 bytes as
-// the CMK's AES-256 key material, then moves the key to Enabled.
+// handleKMSImportKeyMaterial requires a token GetParametersForImport issued,
+// unwraps the material with that token's RSA private key into the key's AES-256
+// material, and enables the key.
 func handleKMSImportKeyMaterial(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId                string  `json:"KeyId"`
@@ -1260,9 +1172,8 @@ func kmsDecryptImportedKeyMaterial(priv *rsa.PrivateKey, alg string, ciphertext 
 	}
 }
 
-// handleKMSDeleteImportedKeyMaterial deletes the imported key material,
-// returning the key to PendingImport. Real KMS makes the key unusable until
-// material is re-imported. Returns the KeyId.
+// handleKMSDeleteImportedKeyMaterial returns the key to PendingImport, unusable
+// until material is imported again.
 func handleKMSDeleteImportedKeyMaterial(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyId string `json:"KeyId"`

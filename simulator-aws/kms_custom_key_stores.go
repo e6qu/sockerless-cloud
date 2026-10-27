@@ -7,14 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// KMS custom key stores. A custom key store binds a KMS key store to an
-// external HSM cluster (AWS CloudHSM) or an external key manager
-// (EXTERNAL_KEY_STORE / XKS). The sim models the control-plane CRUD +
-// connection-state machine real KMS exposes; there is no real HSM, so
-// Connect/Disconnect flip ConnectionState deterministically rather than
-// reaching out to a cluster.
+// No AWS CloudHSM cluster or external key manager stands behind a custom key
+// store, so ConnectCustomKeyStore and DisconnectCustomKeyStore flip
+// ConnectionState without reaching one.
 
-// KMSCustomKeyStore mirrors the CustomKeyStoresListEntry wire shape.
 type KMSCustomKeyStore struct {
 	CustomKeyStoreId   string  `json:"CustomKeyStoreId"`
 	CustomKeyStoreName string  `json:"CustomKeyStoreName"`
@@ -67,8 +63,7 @@ func handleKMSCreateCustomKeyStore(w http.ResponseWriter, r *http.Request) {
 		CustomKeyStoreName: req.CustomKeyStoreName,
 		CustomKeyStoreType: cksType,
 		CloudHsmClusterId:  req.CloudHsmClusterId,
-		// Real KMS creates a custom key store in the DISCONNECTED state; the
-		// operator must call ConnectCustomKeyStore to bring it online.
+		// AWS KMS creates a custom key store DISCONNECTED; ConnectCustomKeyStore brings it online.
 		ConnectionState: "DISCONNECTED",
 		CreationDate:    float64(time.Now().Unix()),
 	}
@@ -125,8 +120,6 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// kmsResolveCustomKeyStore looks up a custom key store by id, writing the
-// canonical not-found error on miss.
 func kmsResolveCustomKeyStore(w http.ResponseWriter, id string) (KMSCustomKeyStore, bool) {
 	ks, ok := kmsCustomKeyStores.Get(id)
 	if !ok {

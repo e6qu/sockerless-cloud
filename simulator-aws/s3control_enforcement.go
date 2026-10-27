@@ -8,35 +8,19 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Call-time IAM enforcement for the Amazon S3 control plane, the way
-// s3Enforced gates the data plane. Each /v20180820 route serves one API
-// operation; AWS authorizes that operation as the action its Service Reference
-// entry names, against the resource the request names — an access point, an
-// Access Grants instance, location or grant, a batch job, a Multi-Region
-// Access Point, a Storage Lens configuration or group. The evaluation is
-// iamAuthorize's, reached through iamEnforceREST, so a control-plane call is
-// judged by exactly the policies a data-plane call is, and an unregistered
-// credential passes here as it does everywhere else in the gate.
+// Call-time IAM enforcement for the Amazon S3 control plane, as s3Enforced gates
+// the data plane. Each /v20180820 route serves one operation, authorized
+// through iamEnforceREST as the action its Service Reference entry names against
+// the resource the request names, so it meets the same policies a data-plane
+// call does. An action that declares no resource type authorizes "*", as AWS
+// publishes; TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares holds the
+// routes to the vendored reference. An operation with a namespace prefix
+// ("s3express:PutAccessPointScope") is authorized as that namespace's action
+// against its ARN format.
 //
-// An operation whose action declares no resource type authorizes "*". That is
-// what AWS publishes about the action rather than a default this file chose,
-// and TestS3ControlRoutesAuthorizeWhatTheReferenceDeclares holds the route
-// table and the vendored reference together.
-//
-// Not every control-plane operation is authorized as an s3 action. AWS
-// publishes the directory-bucket surface as s3express, the Outposts surface as
-// s3-outposts and the transformation callback as s3-object-lambda, each in its
-// own Service Reference; all three are vendored here now, and a route whose
-// operation carries a namespace prefix ("s3express:PutAccessPointScope") is
-// authorized as that namespace's action against that namespace's ARN format.
-//
-// One route still carries no gate, and BUGS.md holds it: the control plane's
-// DeleteBucketLifecycleConfiguration. No vendored document declares an action
-// for it -- the s3 reference lists the operation with an empty authorized-action
-// set, and s3-outposts declares only Get/PutLifecycleConfiguration, whose
-// resource type is an Outposts bucket whose ARN carries an OutpostId this
-// simulator models nothing of. Authorizing it as the s3 lifecycle action would
-// deny the grant real AWS honours.
+// DeleteBucketLifecycleConfiguration carries no gate: no vendored document
+// declares an action for it, and authorizing it as the s3 lifecycle action would
+// deny a grant AWS honours.
 
 // s3ControlRoute is one gated route: the pattern it mounts on, the operation
 // it serves, the resource AWS authorizes that operation against, and the
@@ -177,12 +161,10 @@ func s3ControlAccessGrantsLocationResource(r *http.Request) string {
 	return s3AccessGrantsLocationARN(s3ControlAccountID(r), sim.PathParam(r, "locationId"))
 }
 
-// s3ControlNewAccessGrantsLocationResource is what a registration is
-// authorized against: S3 assigns the location's identifier, so the request
-// carries none and AWS evaluates the call against the type — the same answer
-// iamCreateWildcardARNs derives for every other create whose identifier the
-// service mints. A literal "*" would be a different answer, refusing a policy
-// scoped to the account's locations that real AWS honours.
+// s3ControlNewAccessGrantsLocationResource is what a registration is authorized
+// against. S3 assigns the location's identifier, so AWS evaluates the call
+// against the type wildcard, as iamCreateWildcardARNs does for other creates; a
+// literal "*" would refuse a policy scoped to the account's locations.
 func s3ControlNewAccessGrantsLocationResource(r *http.Request) string {
 	return s3AccessGrantsLocationARN(s3ControlAccountID(r), "*")
 }

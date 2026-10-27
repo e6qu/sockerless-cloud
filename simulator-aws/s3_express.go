@@ -13,24 +13,14 @@ import (
 )
 
 // S3 Express One Zone: directory buckets, the regional control endpoint that
-// lists them, and the session a client establishes before reading or writing
-// one.
-//
-// A directory bucket is a bucket placed in a single Availability Zone, named
-// for the zone it sits in — "<base>--<zone-id>--x-s3" — and reached at a zonal
-// endpoint. Its objects are ordinary objects and are stored the way every other
-// bucket's are; what differs is placement, how the bucket is listed, and how a
-// caller authenticates to it.
-//
-// Authentication is the part that makes this more than a name. A client does
-// not sign each Zonal endpoint request with its own credentials: it calls
-// CreateSession once with them, and Amazon S3 returns temporary credentials
-// scoped to that one bucket, which the client signs with and echoes in the
-// x-amz-s3session-token header. The credentials here are minted into the same
-// store the AWS Security Token Service mints into, so they authenticate as the
-// caller who asked for them and carry that caller's policies — and they are
-// scoped: a session for one bucket does not open another, a ReadOnly session
-// refuses the writes the model says it refuses, and an expired one is refused.
+// lists them, and the session a client establishes before using one. A
+// directory bucket sits in one Availability Zone, is named
+// "<base>--<zone-id>--x-s3" and is reached at a zonal endpoint; its objects are
+// stored like any bucket's. A client calls CreateSession once with its own
+// credentials and signs zonal requests with the temporary credentials S3
+// returns, echoing them in x-amz-s3session-token. Mint them into the AWS STS
+// credential store so they authenticate as the caller under the caller's
+// policies, scoped to one bucket and one mode until they expire.
 
 // s3ExpressSessionTokenHeader carries the session token on a Zonal endpoint
 // request. Its presence is what tells the data plane a session, rather than the
@@ -94,12 +84,9 @@ func s3IsExpressControlHost(host string) bool {
 }
 
 // s3ServeListDirectoryBuckets reports whether this GET on the service root is
-// ListDirectoryBuckets rather than ListBuckets, and serves it if so.
-//
-// Two real clients spell it two ways: the AWS SDK for Go marks the request with
-// the x-id it puts in the operation's URI, and the AWS CLI sends a bare GET.
-// Both reach the regional control endpoint, so either signal identifies the
-// operation.
+// ListDirectoryBuckets rather than ListBuckets, and serves it if so. The AWS SDK
+// for Go adds the x-id from the operation's URI and the AWS CLI sends a bare
+// GET; both reach the regional control endpoint.
 func s3ServeListDirectoryBuckets(w http.ResponseWriter, r *http.Request) bool {
 	if !s3IsListDirectoryBuckets(r) {
 		return false
@@ -181,7 +168,6 @@ type s3SessionCredentials struct {
 // five minutes, and the SDKs refresh on that interval.
 const s3ExpressSessionDuration = 5 * time.Minute
 
-// handleS3CreateSession establishes a session on a directory bucket.
 func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	held, ok := s3Buckets_.Get(bucket)
@@ -258,12 +244,9 @@ var s3ExpressReadOnlyOperations = map[string]bool{
 	"ListMultipartUploads": true,
 }
 
-// s3EnforceExpressSession refuses a Zonal endpoint request whose session does
-// not authorize it, and reports whether it wrote the refusal.
-//
-// A session is scoped to one bucket and to one mode, and it expires. Each of
-// those is a real refusal a caller can provoke, so each is enforced here rather
-// than described.
+// s3EnforceExpressSession refuses a Zonal endpoint request its session does not
+// authorize, and reports whether it wrote the refusal: a session is scoped to
+// one bucket and one mode, and it expires.
 func s3EnforceExpressSession(w http.ResponseWriter, r *http.Request, operation, bucket string) bool {
 	if r.Header.Get(s3ExpressSessionTokenHeader) == "" {
 		return false
@@ -297,13 +280,10 @@ func s3EnforceExpressSession(w http.ResponseWriter, r *http.Request, operation, 
 }
 
 // s3ApplyDirectoryBucketConfiguration validates a CreateBucket that asks for a
-// directory bucket and records the placement on the bucket. It reports whether
-// the bucket may be created; on a refusal it has already written the error.
-//
-// The name is the constraint that matters: Amazon S3 requires a directory
-// bucket to be named for the zone it is placed in, because that is what makes
-// it addressable at its zonal endpoint. A name that does not carry the zone in
-// the Location, or does not end in the directory-bucket suffix, is refused.
+// directory bucket and records its placement, reporting whether the bucket may
+// be created; on a refusal it has written the error. Amazon S3 requires the name
+// to carry the Location's zone and end in the directory-bucket suffix, which
+// makes the bucket addressable at its zonal endpoint.
 func s3ApplyDirectoryBucketConfiguration(
 	w http.ResponseWriter, r *http.Request, b *S3Bucket, locationType, zone, redundancy string,
 ) bool {

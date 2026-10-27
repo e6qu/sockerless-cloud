@@ -40,8 +40,8 @@ func glueSystemLogsBucketName() string {
 	return awsAccountID() + "-glue-system-logs"
 }
 
-// glueSystemLogsURL stores log as the object key names in the bucket AWS Glue
-// hands system logs out of, and returns a presigned URL that downloads it.
+// glueSystemLogsURL stores log under key in the bucket AWS Glue serves system
+// logs from and returns a presigned URL that downloads it.
 func glueSystemLogsURL(r *http.Request, key string, log []byte) (string, error) {
 	bucket := s3EnsureServiceBucket(glueSystemLogsBucketName())
 	if _, err := s3PutServiceObject(bucket, key, log, "text/plain", map[string]string{"aws-service": "glue"}); err != nil {
@@ -50,8 +50,7 @@ func glueSystemLogsURL(r *http.Request, key string, log []byte) (string, error) 
 	return presignedS3URLBase(awsRequestURLBase(r), bucket, key, http.MethodGet), nil
 }
 
-// glueJobRunSystemLog is every line the run's process wrote, in the order it
-// wrote them, from both of the run's log streams.
+// glueJobRunSystemLog returns every line the run's process wrote to either log stream, in write order.
 func glueJobRunSystemLog(runID string) []byte {
 	var events []CWLogEvent
 	for _, group := range []string{glueJobsOutputLogGroup, glueJobsErrorLogGroup} {

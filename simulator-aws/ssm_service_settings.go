@@ -8,14 +8,11 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SSM Service Settings — account-level toggles for SSM features
-// (e.g. /ssm/parameter-store/default-parameter-tier,
-// /ssm/managed-instance/activation-tier). terraform's
-// `aws_ssm_service_setting` resource hits this slice. A setting always
-// exists with an AWS-managed default value; UpdateServiceSetting flips
-// it to a customer value and ResetServiceSetting restores the default.
+// AWS Systems Manager service settings are account-level switches such as
+// /ssm/parameter-store/default-parameter-tier. A setting always has an
+// AWS-managed default; UpdateServiceSetting sets a customer value and
+// ResetServiceSetting restores the default.
 
-// SSMServiceSetting is a single service setting row, keyed by SettingId.
 type SSMServiceSetting struct {
 	SettingId        string  `json:"SettingId"`
 	SettingValue     string  `json:"SettingValue"`
@@ -36,14 +33,12 @@ func registerSSMServiceSettings(r *AWSRouter, srv *sim.Server) {
 }
 
 func ssmServiceSettingARN(settingID string) string {
-	// arn:aws:ssm:<region>:<account>:servicesetting<setting-id-with-leading-slash>
 	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":servicesetting" + ensureLeadingSlash(settingID)
 }
 
-// ssmDefaultServiceSettingValue returns the AWS-managed default value for
-// a setting that has never been customized. The known defaults below
-// mirror real SSM; unknown setting IDs default to "false" with a
-// "Default" status so callers always get a populated ServiceSetting.
+// ssmDefaultServiceSettingValue returns the AWS-managed default of a setting
+// never customized. Systems Manager answers ServiceSettingNotFound for an
+// unknown setting ID; the simulator gives it the default "false".
 func ssmDefaultServiceSettingValue(settingID string) string {
 	switch {
 	case strings.HasSuffix(settingID, "/default-parameter-tier"):
@@ -57,9 +52,8 @@ func ssmDefaultServiceSettingValue(settingID string) string {
 	}
 }
 
-// ssmEffectiveServiceSetting returns the stored (customized) setting or a
-// synthesized AWS-managed default. Status is "Customized" once a customer
-// value has been written, "Default" otherwise.
+// ssmEffectiveServiceSetting returns the customized setting, Status
+// "Customized", or the AWS-managed default, Status "Default".
 func ssmEffectiveServiceSetting(settingID string) SSMServiceSetting {
 	if s, ok := ssmServiceSettings.Get(settingID); ok {
 		return s

@@ -7,17 +7,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Glue — Lake Formation credential-vending unfiltered-metadata reads and
-// Data Quality statistic/profile annotations (AWS JSON 1.1).
-//
-// The simulator has no Lake Formation cell-level filtering, so the "unfiltered"
-// metadata is the full Data Catalog row exactly as stored — which is the faithful
-// result a caller with full table permissions receives. AuthorizedColumns is the
-// complete column list of the table; IsRegisteredWithLakeFormation is false
-// because the simulator registers no catalog resource with Lake Formation.
+// The simulator has no AWS Lake Formation cell-level filtering, so unfiltered
+// metadata is the stored Data Catalog row, which is what a caller with full
+// table permissions receives. AuthorizedColumns lists every column, and
+// IsRegisteredWithLakeFormation is false because the simulator registers nothing
+// with Lake Formation.
 
-// GlueStatisticAnnotation records an inclusion annotation applied to a single
-// Data Quality statistic, scoped by ProfileId + StatisticId.
+// Keyed by ProfileId and StatisticId.
 type GlueStatisticAnnotation struct {
 	ProfileId           string  `json:"ProfileId"`
 	StatisticId         string  `json:"StatisticId"`
@@ -25,8 +21,7 @@ type GlueStatisticAnnotation struct {
 	LastModifiedOn      float64 `json:"LastModifiedOn"`
 }
 
-// GlueProfileAnnotation records the inclusion annotation applied to a whole Data
-// Quality monitoring profile, keyed by ProfileId.
+// Keyed by ProfileId.
 type GlueProfileAnnotation struct {
 	ProfileId           string  `json:"ProfileId"`
 	InclusionAnnotation string  `json:"InclusionAnnotation"`
@@ -55,9 +50,8 @@ func registerGlueUnfilteredDQ(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.ListDataQualityStatisticAnnotations", handleGlueListDataQualityStatisticAnnotations)
 }
 
-// glueTableColumnNames returns every column name declared in the table's
-// StorageDescriptor, in declaration order — the set of columns a fully-authorized
-// caller may read.
+// glueTableColumnNames returns the table's StorageDescriptor columns in
+// declaration order, the set a fully authorized caller may read.
 func glueTableColumnNames(t GlueTable) []string {
 	names := make([]string, 0)
 	if t.StorageDescriptor == nil {
@@ -203,9 +197,8 @@ func handleGlueBatchPutDataQualityStatisticAnnotation(w http.ResponseWriter, r *
 			})
 			continue
 		}
-		// An entry naming a profile no evaluation wrote is reported as the
-		// entry that failed rather than refused for the whole batch, which is
-		// what the per-entry channel is for.
+		// Report an entry naming a profile no evaluation wrote as a failed entry, not a
+		// refusal of the whole batch.
 		if _, known := glueResultForProfile(a.ProfileId); !known {
 			failed = append(failed, map[string]any{
 				"ProfileId":     a.ProfileId,
@@ -237,10 +230,7 @@ func handleGluePutDataQualityProfileAnnotation(w http.ResponseWriter, r *http.Re
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// An annotation is written against a profile an evaluation wrote. Recording
-	// one for a profile that was never issued would keep a judgement about
-	// something that does not exist, and the read of it would report on
-	// nothing.
+	// Annotate only a profile an evaluation wrote; an annotation on one never issued would judge nothing.
 	if glueProfileMissing(w, req.ProfileId) {
 		return
 	}

@@ -11,15 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// This file implements the Lambda event-source-mapping, layer, and
-// reserved-concurrency slices, plus ListFunctionUrlConfigs.
-
-// Event source mappings
-
-// LambdaEventSourceMapping mirrors the EventSourceMappingConfiguration shape.
-// Only the members sockerless / the AWS SDK + CLI + Terraform exercise are
-// stored; the rest of the (large) configuration surface is echoed straight
-// from the request so a round-trip read returns what was written.
+// LambdaEventSourceMapping stores the EventSourceMappingConfiguration members
+// the simulator models and echoes the rest of the configuration from the
+// request, so a read returns what was written.
 type LambdaEventSourceMapping struct {
 	UUID                           string         `json:"UUID"`
 	EventSourceMappingArn          string         `json:"EventSourceMappingArn"`
@@ -55,7 +49,6 @@ type lambdaESMStreamSettings struct {
 	DestinationConfig          *lambdaDestinationConfig `json:"DestinationConfig"`
 }
 
-// apply sets the settings the request names.
 func (s lambdaESMStreamSettings) apply(esm *LambdaEventSourceMapping) {
 	if s.StartingPositionTimestamp != nil {
 		esm.StartingPositionTimestamp = s.StartingPositionTimestamp
@@ -115,9 +108,8 @@ func lambdaESMArn(uuid string) string {
 	return fmt.Sprintf("arn:aws:lambda:%s:%s:event-source-mapping:%s", awsRegion(), awsAccountID(), uuid)
 }
 
-// lambdaResolveFunctionArn turns a FunctionName (bare name, partial ARN, or
-// full ARN) into the canonical function ARN. Real Lambda accepts all three on
-// the event-source-mapping APIs.
+// lambdaResolveFunctionArn turns a FunctionName into the canonical function ARN;
+// AWS Lambda accepts a bare name, a partial ARN or a full ARN.
 func lambdaResolveFunctionArn(functionName string) (string, bool) {
 	name := functionName
 	if strings.Contains(functionName, ":function:") {
@@ -373,10 +365,7 @@ func lambdaNowEpoch() float64 {
 	return float64(time.Now().UnixMilli()) / 1000.0
 }
 
-// Layers + layer versions
-
-// LambdaLayerVersion is one published layer version. Real Lambda assigns the
-// version number monotonically per layer name starting at 1.
+// AWS Lambda numbers a layer's versions from 1, per layer name.
 type LambdaLayerVersion struct {
 	LayerName               string
 	Version                 int64
@@ -390,7 +379,6 @@ type LambdaLayerVersion struct {
 	Content                 []byte
 }
 
-// lambdaLayerContentInput is the LayerVersionContentInput shape.
 type lambdaLayerContentInput struct {
 	S3Bucket        string `json:"S3Bucket,omitempty"`
 	S3Key           string `json:"S3Key,omitempty"`
@@ -535,7 +523,7 @@ func handleLambdaPublishLayerVersion(w http.ResponseWriter, r *http.Request) {
 func handleLambdaListLayerVersions(w http.ResponseWriter, r *http.Request) {
 	layerName := sim.PathParam(r, "layer")
 	versions, _ := lambdaLayers.Get(layerName)
-	// Newest first, matching real Lambda.
+	// Newest first, as AWS Lambda lists them.
 	items := make([]map[string]any, 0, len(versions))
 	for i := len(versions) - 1; i >= 0; i-- {
 		items = append(items, lambdaLayerVersionsListItem(versions[i]))
@@ -687,8 +675,6 @@ func handleLambdaGetLayerVersionByArn(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, response)
 }
 
-// Reserved concurrency
-
 func handleLambdaPutFunctionConcurrency(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")
 	if _, ok := lambdaFunctions.Get(name); !ok {
@@ -769,8 +755,6 @@ func handleLambdaDeleteFunctionConcurrency(w http.ResponseWriter, r *http.Reques
 	lambdaEnvironments.reconcile(name)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// ListFunctionUrlConfigs
 
 func handleLambdaListFunctionUrlConfigs(w http.ResponseWriter, r *http.Request) {
 	name := sim.PathParam(r, "name")

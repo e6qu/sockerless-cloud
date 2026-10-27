@@ -57,7 +57,6 @@ func handleGlueCreateRegistry(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueRegistryName resolves a RegistryId wrapper to the registry name (by name or ARN).
 func glueRegistryName(name, arn string) string {
 	if name != "" {
 		return name
@@ -150,7 +149,6 @@ func handleGlueDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Registry not found: "+name)
 		return
 	}
-	// Delete the registry and any schemas it contains.
 	for _, sc := range glueSchemas.List() {
 		if sc.RegistryName == name {
 			glueSchemas.Delete(glueSchemaKey(name, sc.SchemaName))
@@ -266,8 +264,6 @@ func handleGlueCreateSchema(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueResolveSchema locates a schema from a SchemaId wrapper (by ARN, or by
-// registry name + schema name).
 func glueResolveSchema(schemaArn, schemaName, registryName string) (GlueSchema, bool) {
 	if schemaArn != "" {
 		for _, sc := range glueSchemas.List() {
@@ -349,8 +345,7 @@ func handleGlueDeleteSchema(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// glueSchemaVersionsFor returns all versions belonging to a schema ARN, sorted
-// ascending by VersionNumber.
+// glueSchemaVersionsFor returns a schema's versions in ascending VersionNumber order.
 func glueSchemaVersionsFor(schemaArn string) []GlueSchemaVersion {
 	var out []GlueSchemaVersion
 	for _, v := range glueSchemaVers.List() {
@@ -388,8 +383,7 @@ func handleGlueRegisterSchemaVersion(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Schema not found")
 		return
 	}
-	// If an existing version carries the identical definition, return it
-	// idempotently (matching the real registry's de-dup behavior).
+	// The registry de-duplicates: a definition identical to an existing version returns that version.
 	for _, v := range glueSchemaVersionsFor(sc.SchemaArn) {
 		if v.SchemaDefinition == req.SchemaDefinition {
 			glueWriteJSON(w, http.StatusOK, map[string]any{

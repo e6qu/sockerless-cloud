@@ -34,7 +34,7 @@ variable "debian_image_family" {
 }
 
 provider "google" {
-  project = "test-project"
+  project = "sockerless"
   region  = "us-central1"
 
   credentials           = var.credentials

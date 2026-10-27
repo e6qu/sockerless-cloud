@@ -19,21 +19,16 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
-// Amazon Simple Notification Service (SNS) implements topic publication,
-// subscription filtering, and delivery to Amazon SQS, Lambda, and signed
-// HTTP/HTTPS endpoints.
-//
-// Wire protocol: awsQuery (POST / + Action form param + XML envelope),
-// same as SQS.
+// Amazon SNS publishes to topics, filters subscriptions and delivers to Amazon
+// SQS, AWS Lambda and signed HTTP/HTTPS endpoints, over awsQuery.
 
 type SNSTopic struct {
 	Name string
 	ARN  string
 	Tags map[string]string
-	// Attributes are mutable settings — Policy, DisplayName,
-	// DeliveryPolicy, KmsMasterKeyId, etc. — set via
-	// SetTopicAttributes and surfaced by GetTopicAttributes alongside
-	// the fixed read-only Owner / SubscriptionsConfirmed fields.
+	// Attributes are the mutable settings SetTopicAttributes sets (Policy,
+	// DisplayName, DeliveryPolicy, KmsMasterKeyId); GetTopicAttributes adds the
+	// read-only Owner and SubscriptionsConfirmed.
 	Attributes map[string]string
 }
 
@@ -43,14 +38,13 @@ type SNSSubscription struct {
 	Protocol  string // "sqs", "http", "https", "email", "sms", "lambda", "firehose"
 	Endpoint  string // queue ARN for sqs, URL for http(s), email addr, etc.
 	Confirmed bool
-	// ControlPlaneOrigin is the SNS endpoint coordinate used to form the
-	// SubscribeURL, UnsubscribeURL, and SigningCertURL delivered to HTTP
-	// subscribers. It is internal metadata, not an SNS response member.
+	// ControlPlaneOrigin is the SNS endpoint that forms the SubscribeURL,
+	// UnsubscribeURL and SigningCertURL HTTP subscribers receive; it is no SNS
+	// response member.
 	ControlPlaneOrigin string
-	// Attributes holds the mutable subscription settings set via
-	// SetSubscriptionAttributes — RawMessageDelivery, FilterPolicy,
-	// FilterPolicyScope, DeliveryPolicy, RedrivePolicy — surfaced by
-	// GetSubscriptionAttributes alongside the fixed read-only fields.
+	// Attributes are the mutable settings SetSubscriptionAttributes sets
+	// (RawMessageDelivery, FilterPolicy, FilterPolicyScope, DeliveryPolicy,
+	// RedrivePolicy).
 	Attributes map[string]string
 }
 
@@ -69,9 +63,7 @@ func snsSubscriptionARN(topicName string) string {
 		awsRegion(), awsAccountID(), topicName, sim.NewUUID())
 }
 
-// snsAPIVersion is the canonical AWS SNS API version (Query
-// Protocol). Used to disambiguate Action names from other awsQuery
-// services in the AWSQueryRouter dispatch.
+// The SNS Query API version, which tells its Action names apart in AWSQueryRouter.
 const snsAPIVersion = "2010-03-31"
 
 func registerSNS(r *AWSQueryRouter, srv *sim.Server) {
@@ -101,7 +93,6 @@ func registerSNS(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(snsAPIVersion, "UntagResource", handleSNSUntagResource)
 	r.RegisterVersioned(snsAPIVersion, "ListTagsForResource", handleSNSListTagsForResource)
 
-	// Mobile-push, SMS, and data-protection control-plane slices.
 	registerSNSMobileSMS(r, srv)
 }
 
@@ -122,10 +113,8 @@ func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "InvalidParameter", "Name is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	// CreateTopic carries initial topic attributes as Attributes.entry.N.{key,value}
-	// (the SNS query flattening of the Attributes map). FifoTopic, in
-	// particular, must be set here so the .fifo-suffix coupling and the
-	// per-message FIFO rules apply.
+	// CreateTopic carries initial attributes as Attributes.entry.N.{key,value};
+	// read FifoTopic here so the .fifo-suffix coupling and the FIFO rules apply.
 	attrs := snsCreateTopicAttributes(r)
 	if msg, ok := snsFifoNameAttrMismatch(name, attrs); !ok {
 		snsErrorXML(w, "InvalidParameter", msg, http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -153,8 +142,6 @@ func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "CreateTopic", body, sim.RequestID(r.Context()))
 }
 
-// snsCreateTopicAttributes pulls the initial Attributes map out of a
-// CreateTopic query request (Attributes.entry.N.key / .value).
 func snsCreateTopicAttributes(r *http.Request) map[string]string {
 	out := map[string]string{}
 	for i := 1; i <= 50; i++ {
@@ -167,21 +154,16 @@ func snsCreateTopicAttributes(r *http.Request) map[string]string {
 	return out
 }
 
-// snsTopicIsFifo reports whether a topic is FIFO (FifoTopic=true).
 func snsTopicIsFifo(t SNSTopic) bool {
 	return strings.EqualFold(t.Attributes["FifoTopic"], "true")
 }
 
-// snsTopicContentBasedDedup reports whether the topic has
-// ContentBasedDeduplication enabled.
 func snsTopicContentBasedDedup(t SNSTopic) bool {
 	return strings.EqualFold(t.Attributes["ContentBasedDeduplication"], "true")
 }
 
-// snsFifoNameAttrMismatch enforces the real-SNS coupling between the
-// .fifo name suffix and FifoTopic=true: a topic named "<x>.fifo"
-// requires FifoTopic=true and vice-versa. Returns (errMessage, ok=false)
-// on mismatch.
+// snsFifoNameAttrMismatch enforces SNS's coupling of the .fifo name suffix and
+// FifoTopic=true, returning the error message and false on a mismatch.
 func snsFifoNameAttrMismatch(name string, attrs map[string]string) (string, bool) {
 	hasSuffix := strings.HasSuffix(name, ".fifo")
 	fifoAttr := strings.EqualFold(attrs["FifoTopic"], "true")
@@ -197,12 +179,8 @@ func snsFifoNameAttrMismatch(name string, attrs map[string]string) (string, bool
 func handleSNSDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TopicArn")
 	name := snsTopicNameFromARN(arn)
-	// snsTopics.Delete returning false is fine here — real SNS
-	// DeleteTopic is idempotent and returns success even when the
-	// topic doesn't exist. The cascade-clear below runs either way
-	// so any dangling subscriptions also get cleared.
+	// DeleteTopic is idempotent in SNS; clear the topic's subscriptions either way.
 	snsTopics.Delete(name)
-	// Cascade: drop subscriptions pointing at this topic.
 	for _, sub := range snsSubscriptions.List() {
 		if sub.TopicARN == arn {
 			snsSubscriptions.Delete(sub.ARN)
@@ -253,8 +231,6 @@ func handleSNSGetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "NotFound", "Topic does not exist", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	// Subscription counts are the load-bearing attribute for
-	// real-world consumers (CloudWatch alarms on confirmed-vs-pending).
 	confirmed := 0
 	pending := 0
 	for _, sub := range snsSubscriptions.List() {
@@ -291,10 +267,7 @@ func handleSNSGetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "GetTopicAttributes", b.String(), sim.RequestID(r.Context()))
 }
 
-// handleSNSSetTopicAttributes updates a single (AttributeName,
-// AttributeValue) pair on a topic. terraform-provider-aws emits this
-// repeatedly on aws_sns_topic for DeliveryPolicy / Policy / KmsMasterKeyId /
-// etc.; pre-fix the sim returned InvalidAction and the apply failed.
+// handleSNSSetTopicAttributes sets one AttributeName/AttributeValue pair on a topic.
 func handleSNSSetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TopicArn")
 	name := snsTopicNameFromARN(arn)
@@ -433,14 +406,10 @@ func handleSNSUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "Unsubscribe", "", sim.RequestID(r.Context()))
 }
 
-// handleSNSConfirmSubscription confirms a pending subscription. Real SNS
-// auto-confirms sqs/lambda/application/firehose subscriptions at Subscribe
-// time; HTTP(S)/email subscribers receive a token they echo back here to
-// flip the subscription to confirmed. The sim issues a deterministic token
-// per (topic, subscription) at Subscribe time (snsConfirmationToken); a
-// ConfirmSubscription call resolves that token to its subscription, marks it
-// confirmed, and returns the ARN — and is idempotent on already-confirmed
-// subscriptions, matching real SNS.
+// handleSNSConfirmSubscription confirms a pending subscription. SNS confirms sqs,
+// lambda, application and firehose subscriptions at Subscribe; HTTP(S) and email
+// subscribers echo back the token their confirmation message carried.
+// Confirming is idempotent.
 func handleSNSConfirmSubscription(w http.ResponseWriter, r *http.Request) {
 	topicARN := r.FormValue("TopicArn")
 	token := r.FormValue("Token")
@@ -486,11 +455,8 @@ func snsConfirmationToken(sub SNSSubscription) string {
 	return strings.ReplaceAll(sub.ARN, ":", "")
 }
 
-// handleSNSGetSubscriptionAttributes returns a subscription's attributes —
-// the fixed read-only fields (SubscriptionArn, TopicArn, Protocol, Endpoint,
-// Owner, ConfirmationWasAuthenticated, PendingConfirmation, RawMessageDelivery)
-// plus any FilterPolicy / DeliveryPolicy / RedrivePolicy set via
-// SetSubscriptionAttributes.
+// handleSNSGetSubscriptionAttributes returns a subscription's read-only fields
+// plus any policies SetSubscriptionAttributes set.
 func handleSNSGetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("SubscriptionArn")
 	sub, ok := snsSubscriptions.Get(arn)
@@ -530,10 +496,7 @@ func handleSNSGetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) 
 	snsXMLResponse(w, "GetSubscriptionAttributes", b.String(), sim.RequestID(r.Context()))
 }
 
-// handleSNSSetSubscriptionAttributes stores a single (AttributeName,
-// AttributeValue) pair on a subscription — RawMessageDelivery, FilterPolicy,
-// FilterPolicyScope, DeliveryPolicy, RedrivePolicy. terraform-provider-aws
-// emits this on aws_sns_topic_subscription.
+// handleSNSSetSubscriptionAttributes stores one AttributeName/AttributeValue pair on a subscription.
 func handleSNSSetSubscriptionAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("SubscriptionArn")
 	sub, ok := snsSubscriptions.Get(arn)
@@ -601,10 +564,7 @@ func handleSNSListSubscriptionsByTopic(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "ListSubscriptionsByTopic", b.String(), sim.RequestID(r.Context()))
 }
 
-// handleSNSPublish fans the message out through the real delivery path for
-// each supported protocol.
-// snsPublishEntry is the common publish payload shared by Publish and
-// each PublishBatch entry.
+// snsPublishEntry is the payload Publish and each PublishBatch entry share.
 type snsPublishEntry struct {
 	Id                     string
 	Message                string
@@ -614,10 +574,9 @@ type snsPublishEntry struct {
 	MessageAttributes      map[string]SQSMessageAttribute
 }
 
-// snsValidatePublish applies the per-message validation real SNS
-// performs: non-empty message, the 256 KiB limit, and — for a FIFO
-// topic — the MessageGroupId and dedup requirements. Returns an
-// (errCode, message) pair; empty code means valid.
+// snsValidatePublish applies SNS's per-message checks: a non-empty message, the
+// 256 KiB limit and, on a FIFO topic, MessageGroupId and deduplication. An empty
+// code means valid.
 func snsValidatePublish(t SNSTopic, e snsPublishEntry) (string, string) {
 	if e.Message == "" {
 		return "InvalidParameter", "Invalid parameter: Empty value for parameter Message"
@@ -637,9 +596,7 @@ func snsValidatePublish(t SNSTopic, e snsPublishEntry) (string, string) {
 	return "", ""
 }
 
-// snsARNAccount extracts the account-id field (the 5th colon-delimited
-// segment) from an ARN — arn:aws:<service>:<region>:<account>:<resource>.
-// Returns the empty string when the ARN is malformed.
+// snsARNAccount returns an ARN's account field, or "" for a malformed ARN.
 func snsARNAccount(arn string) string {
 	parts := strings.Split(arn, ":")
 	if len(parts) >= 5 {
@@ -705,10 +662,9 @@ func snsLambdaEventPayload(subscriptionARN string, m snsMessage) []byte {
 }
 
 func handleSNSPublish(w http.ResponseWriter, r *http.Request) {
-	// Publish takes one of three targets. Two of them deliver outside AWS, and
-	// this simulator cannot reach either — but it says so in those words
-	// rather than reporting a missing TopicArn, which is what a caller
-	// publishing an SMS used to be told.
+	// Publish takes TopicArn, TargetArn or PhoneNumber. The simulator cannot reach
+	// the destinations outside AWS and says so, rather than reporting a missing
+	// TopicArn.
 	if phone := r.FormValue("PhoneNumber"); phone != "" {
 		snsExternalDeliveryUnavailable(w, r, snsSMSDeliveryReason)
 		return
@@ -887,8 +843,8 @@ func snsLoadTopicPolicy(t SNSTopic) snsPolicyDoc {
 	}
 	var parsed snsPolicyDoc
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		// A topic policy the sim itself can't parse is corrupt own-data;
-		// surface it loudly rather than silently dropping statements.
+		// A topic policy the simulator cannot parse is corrupt stored data; fail loudly
+		// rather than drop statements.
 		panic(fmt.Sprintf("sns: unparseable topic Policy attribute: %v", err))
 	}
 	if parsed.Version == "" {
@@ -897,10 +853,8 @@ func snsLoadTopicPolicy(t SNSTopic) snsPolicyDoc {
 	return parsed
 }
 
-// snsStoreTopicPolicy serializes the policy doc back onto the topic's Policy
-// attribute and mirrors it into the central resource-policy store (the same
-// path SetTopicAttributes(Policy) uses) so iamResourcePolicyDocsForARN
-// resolves it.
+// snsStoreTopicPolicy writes the policy back to the Policy attribute and mirrors
+// it into the resource-policy store, as SetTopicAttributes(Policy) does.
 func snsStoreTopicPolicy(name string, t SNSTopic, doc snsPolicyDoc) {
 	out := snsMarshalPolicy(doc)
 	if t.Attributes == nil {
@@ -927,8 +881,8 @@ func snsListMembers(r *http.Request, prefix string) []string {
 
 // handleSNSAddPermission appends a statement (Sid=Label, Effect=Allow,
 // Principal={AWS:[<account-root>...]}, Action=[SNS:<action>...],
-// Resource=<topicArn>) to the topic's resource policy. A second AddPermission
-// with the same Label is rejected, matching real SNS.
+// Resource=<topicArn>) to the topic policy; a repeated Label is rejected, as in
+// SNS.
 func handleSNSAddPermission(w http.ResponseWriter, r *http.Request) {
 	topicARN := r.FormValue("TopicArn")
 	label := r.FormValue("Label")
@@ -980,8 +934,8 @@ func handleSNSAddPermission(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "AddPermission", "", sim.RequestID(r.Context()))
 }
 
-// handleSNSRemovePermission removes the statement whose Sid matches Label.
-// Real SNS raises NotFound when no statement carries the label.
+// handleSNSRemovePermission removes the statement whose Sid matches Label; SNS
+// raises NotFound when no statement carries it.
 func handleSNSRemovePermission(w http.ResponseWriter, r *http.Request) {
 	topicARN := r.FormValue("TopicArn")
 	label := r.FormValue("Label")
@@ -1038,8 +992,7 @@ func handleSNSTagResource(w http.ResponseWriter, r *http.Request) {
 			t.Tags[k] = v
 		}
 	})
-	// Real SNS wraps the (empty) result in a <TagResourceResult/> node; the SDK
-	// deserializer requires it to be present.
+	// SNS wraps the empty result in <TagResourceResult/>, which the SDK deserializer requires.
 	snsXMLResponse(w, "TagResource", "<TagResourceResult/>", sim.RequestID(r.Context()))
 }
 

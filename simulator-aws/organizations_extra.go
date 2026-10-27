@@ -8,21 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Organizations — the remaining operation surface beyond organizations.go:
-// LeaveOrganization, CreateGovCloudAccount, the effective-policy validation
-// reads (ListAccountsWithInvalidEffectivePolicy /
-// ListEffectivePolicyValidationErrors), and the responsibility-transfer family
-// (Invite/Update/Terminate/Describe + inbound/outbound lists). awsJson1.1,
-// dispatched by X-Amz-Target AWSOrganizationsV20161128.<Op>. These reuse the
-// account/org/policy stores from organizations.go; responsibility transfers are
-// their own real store.
-
-// OrgResponsibilityTransfer is a real responsibility-transfer resource. A
-// transfer moves a responsibility (today only BILLING) from a source
-// organization to a target organization; the sim, running as a single
-// management account, records the transfer with its status and the source/target
-// management-account participants. Direction marks whether the sim's management
-// account is the originator (OUTBOUND) or the recipient (INBOUND).
+// A transfer moves a responsibility (BILLING) from a source organization to a
+// target one. Direction says whether the simulator's management account
+// originated it (OUTBOUND) or receives it (INBOUND).
 type OrgResponsibilityTransfer struct {
 	Id                 string `json:"Id"`
 	Arn                string `json:"Arn"`
@@ -60,13 +48,9 @@ func registerOrganizationsExtra(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// LeaveOrganization ----------------------------------------------------------
-
-// handleOrgLeaveOrganization removes the *calling* member account from its
-// organization. The real operation takes no input and acts on the caller's
-// account; the sim's caller is always the organization's management account,
-// which can never leave — so it faithfully raises
-// MasterCannotLeaveOrganizationException, matching the real service.
+// LeaveOrganization acts on the caller's account. The simulator's caller is
+// always the management account, which cannot leave, so it raises
+// MasterCannotLeaveOrganizationException.
 func handleOrgLeaveOrganization(w http.ResponseWriter, _ *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -74,13 +58,9 @@ func handleOrgLeaveOrganization(w http.ResponseWriter, _ *http.Request) {
 	AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
 }
 
-// CreateGovCloudAccount ------------------------------------------------------
-
-// handleOrgCreateGovCloudAccount mirrors CreateAccount but also provisions the
-// linked Amazon Web Services GovCloud (US) member account, so the resulting
-// CreateAccountStatus carries both AccountId (commercial) and GovCloudAccountId.
-// Both accounts are created immediately (the request settles to SUCCEEDED) and
-// the status is readable via DescribeCreateAccountStatus.
+// handleOrgCreateGovCloudAccount also provisions the linked AWS GovCloud (US)
+// account, so the status carries AccountId and GovCloudAccountId. Both are
+// created at once and the request settles SUCCEEDED.
 func handleOrgCreateGovCloudAccount(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -131,13 +111,8 @@ func handleOrgCreateGovCloudAccount(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": m})
 }
 
-// Effective-policy validation reads ------------------------------------------
-
-// handleOrgListAccountsWithInvalidEffectivePolicy lists accounts whose effective
-// policy of the given type fails validation. The sim's policies are stored
-// verbatim and never produce an invalid merge, so this is an honest empty list
-// over the real account store — the same shape the real service returns when no
-// account has an invalid effective policy.
+// The simulator stores policies verbatim and validates no merge, so no account
+// has an invalid effective policy and the list is empty.
 func handleOrgListAccountsWithInvalidEffectivePolicy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -159,11 +134,8 @@ func handleOrgListAccountsWithInvalidEffectivePolicy(w http.ResponseWriter, r *h
 	})
 }
 
-// handleOrgListEffectivePolicyValidationErrors lists the validation errors in an
-// account's effective policy of the given type. The sim's policies always merge
-// cleanly, so it returns an honest empty error list (with the account id, policy
-// type and evaluation path echoed) for a real account, matching the real
-// service's shape when the effective policy is valid.
+// The simulator validates no merge, so the error list is empty, with the account
+// id, policy type and evaluation path echoed.
 func handleOrgListEffectivePolicyValidationErrors(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -192,8 +164,6 @@ func handleOrgListEffectivePolicyValidationErrors(w http.ResponseWriter, r *http
 		"EffectivePolicyValidationErrors": []map[string]any{},
 	})
 }
-
-// Responsibility transfers ---------------------------------------------------
 
 // orgResponsibilityTransferArn builds a transfer's ARN. The resource type the
 // Service Reference names is "responsibilitytransfer", but the ARN segment the
@@ -253,11 +223,9 @@ func orgResponsibilityTransferToMap(t OrgResponsibilityTransfer) map[string]any 
 	return m
 }
 
-// handleOrgInviteResponsibilityTransfer creates a new responsibility transfer
-// (status REQUESTED) initiated by the sim's management account toward the target
-// organization, with an associated handshake. It returns the Handshake (matching
-// the real response shape); the transfer is readable via
-// DescribeResponsibilityTransfer and the outbound list.
+// handleOrgInviteResponsibilityTransfer creates a REQUESTED transfer from the
+// simulator's management account to the target organization, with its
+// handshake, and returns the Handshake.
 func handleOrgInviteResponsibilityTransfer(w http.ResponseWriter, r *http.Request) {
 	o, ok := orgRequireOrg(w)
 	if !ok {

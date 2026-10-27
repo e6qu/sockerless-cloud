@@ -292,6 +292,7 @@ ID. A sweep drops the grants and sessions of holders that no longer run.
 instance with an instance profile and `InstanceMetadataTags: enabled`, then
 runs these commands in the guest through AWS Systems Manager:
 
+<!-- doctest: skip reason="runs inside an Amazon EC2 instance; TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession runs it there" -->
 ```sh
 token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
@@ -321,6 +322,7 @@ image in an awsvpc task and a bridge task under a task role. The container
 fetches the credentials twice and checks that both carry the same access key,
 then runs `aws sts get-caller-identity` through the CLI's default chain:
 
+<!-- doctest: skip reason="runs inside an Amazon ECS task's container; TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI runs it there" -->
 ```sh
 curl --fail --silent "$AWS_CONTAINER_CREDENTIALS_FULL_URI"
 aws sts get-caller-identity --query Arn --output text
@@ -483,6 +485,7 @@ number, the workload has no account and `service-accounts/` is empty
 instance whose startup script reads the metadata server by its name, over
 bash's `/dev/tcp`:
 
+<!-- doctest: skip reason="runs inside a Compute Engine instance; TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk runs it there as the startup script" -->
 ```sh
 md() {
   exec 3<>/dev/tcp/metadata.google.internal/80
@@ -504,6 +507,7 @@ boot (`gcpStartupScriptRunner`, `simulator-gcp/compute_instance_vm.go`).
 
 With `curl` in the guest, the equivalent is:
 
+<!-- doctest: skip reason="runs inside a Compute Engine instance; TestMetadata_CloudRunReadsThroughTheOfficialClient sends this request from a Cloud Run container, with Go rather than curl" -->
 ```sh
 curl -s -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
@@ -649,6 +653,7 @@ instance document.
 (`compute_vm_identity_test.go`) run these in the guest, from a shell with no
 HTTP client:
 
+<!-- doctest: skip reason="runs inside an Azure virtual machine; TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata runs it there" -->
 ```sh
 host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}
 exec 3<>/dev/tcp/$host/80
@@ -661,6 +666,7 @@ The token test sends
 without a selector and then with `client_id`, `object_id` and `msi_res_id`,
 and opens Key Vault with each token. With `curl` the same read is:
 
+<!-- doctest: skip reason="runs inside an Azure virtual machine; TestCompute_VirtualMachineManagedIdentityTokens sends this request there, over /dev/tcp rather than curl" -->
 ```sh
 curl -s -H 'Metadata: true' \
   "http://${host}/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net"
@@ -668,6 +674,7 @@ curl -s -H 'Metadata: true' \
 
 An App Service app reads its token from its own code:
 
+<!-- doctest: skip reason="runs inside an App Service app; TestSDK_WebApps_IdentityEndpointMintsTheAppsOwnIdentity sends this request from the app's code, with Go rather than curl" -->
 ```sh
 curl -s -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
   "$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://vault.azure.net"

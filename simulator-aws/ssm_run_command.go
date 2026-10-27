@@ -143,7 +143,6 @@ func ssmStringList(raw any, values map[string][]string) ([]string, error) {
 	return nil, fmt.Errorf("unexpected shape %T", raw)
 }
 
-// ssmParameterReference reads "{{ name }}" as name.
 func ssmParameterReference(s string) (string, bool) {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "{{") || !strings.HasSuffix(s, "}}") {
@@ -285,7 +284,6 @@ func ssmUpdateInvocation(commandID, instanceID string, edit func(*SSMCommandInvo
 	})
 }
 
-// ssmCommandCounts are the finished and failed invocations of a command.
 func ssmCommandCounts(cmd SSMCommand) (completed, errored int) {
 	for _, inv := range cmd.Invocations {
 		switch inv.Status {

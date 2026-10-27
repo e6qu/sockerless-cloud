@@ -13,8 +13,7 @@ import (
 // resetTagStores re-creates the in-memory stores the resolvers read, so each
 // case starts clean without a *sim.Server.
 func resetTagStores() {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	lambdaFunctions = sim.MakeStore[LambdaFunction](nil, "lambda_functions")
 	sqsQueues = sim.MakeStore[SQSQueue](nil, "sqs_queues")
@@ -36,12 +35,10 @@ func resetTagStores() {
 	batchComputeEnvs = sim.MakeStore[BatchComputeEnvironment](nil, "batch_compute_envs")
 }
 
-// jsonRequest builds an awsJson POST request carrying body.
 func jsonRequest(body string) *http.Request {
 	return httptest.NewRequest("POST", "/", strings.NewReader(body))
 }
 
-// formRequest builds an awsQuery POST request with the given form fields.
 func formRequest(fields map[string]string) *http.Request {
 	form := make([]string, 0, len(fields))
 	for k, v := range fields {
@@ -70,8 +67,6 @@ func assertResolved(t *testing.T, service string, r *http.Request, key, val stri
 
 func TestIAMServiceResourceTags(t *testing.T) {
 	resetTagStores()
-
-	// ── awsJson + Lambda REST path ──
 
 	lambdaFunctions.Put("fn1", LambdaFunction{FunctionName: "fn1", Tags: map[string]string{"team": "blue"}})
 	t.Run("lambda_name_path", func(t *testing.T) {
@@ -165,8 +160,6 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			"job", "nightly")
 	})
 
-	// ── awsQuery ──
-
 	snsTopics.Put("alerts", SNSTopic{Tags: map[string]string{"crit": "yes"}})
 	t.Run("sns_arn", func(t *testing.T) {
 		assertResolved(t, "sns",
@@ -174,12 +167,8 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			"crit", "yes")
 	})
 
-	// Amazon RDS is deliberately not exercised here: it declares no
-	// rds:ResourceTag/${TagKey} and spells one key per resource type instead
-	// (rds:db-tag/<k>, rds:cluster-tag/<k>, …), so it is covered by
-	// iam_rds_iam_resource_tags_test.go rather than by assertResolved's
-	// <service>:ResourceTag shape. AWS Identity and Access Management is
-	// covered there too.
+	// Amazon RDS and IAM spell their keys per resource type, so
+	// iam_rds_iam_resource_tags_test.go covers them.
 
 	lbArn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/abc"
 	elbv2LoadBalancers.Put(lbArn, ELBv2LoadBalancer{Tags: map[string]string{"net": "edge"}})
@@ -197,8 +186,6 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			}),
 			"ttl", "60")
 	})
-
-	// ── REST: Batch path arn, S3 bucket/object tags ──
 
 	ceArn := "arn:aws:batch:us-east-1:123456789012:compute-environment/ce1"
 	batchComputeEnvs.Put("ce1", BatchComputeEnvironment{ComputeEnvironmentName: "ce1", ComputeEnvironmentArn: ceArn,
@@ -218,8 +205,6 @@ func TestIAMServiceResourceTags(t *testing.T) {
 		assertResolved(t, "s3", r, "cls", "warm")
 	})
 
-	// ── negative: unknown resource yields no keys (gate leaves them unset) ──
-
 	t.Run("unknown_resource_no_keys", func(t *testing.T) {
 		ctx := map[string][]string{}
 		r := jsonRequest(`{"ResourceArn":"arn:aws:dynamodb:us-east-1:123456789012:table/nope"}`)
@@ -228,8 +213,6 @@ func TestIAMServiceResourceTags(t *testing.T) {
 			t.Fatalf("expected no condition keys for an unknown table, got %v", ctx)
 		}
 	})
-
-	// ── a non-tag-storing service is reported as not-handled ──
 
 	t.Run("unhandled_service", func(t *testing.T) {
 		if iamPopulateServiceResourceTags(jsonRequest(""), "budgets", map[string][]string{}) {

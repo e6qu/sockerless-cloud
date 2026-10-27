@@ -9,14 +9,22 @@ relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
+From a clone, run one service family with `-run`:
+
+<!-- doctest: run expect="(?m)^ok\\s+github\\.com/e6qu/sockerless-cloud/simulator-aws/sdk-tests\\s" -->
 ```sh
-cd simulator-aws/sdk-tests
-go test ./...
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud/simulator-aws/sdk-tests
+go test -run '^TestKMS' ./...
 ```
 
-CI runs the suite through `make -C simulator-aws sdk-test`, sharded by the
-jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
-be reachable, because workloads run as real containers.
+Without `-run`, `go test ./...` runs every test. CI runs the suite through
+`make -C simulator-aws sdk-test`, split by `-run` patterns across the
+`sim (aws sdk …)` jobs in `.github/workflows/ci.yml`, each within a ten-minute
+deadline. The tests of security groups and NAT gateways between neighbouring
+instances run there with Amazon EC2 placed on microVMs
+(`SIM_PLACEMENT=ec2=microvm`). A container engine (Docker or Podman) must be
+reachable, because workloads run as real containers.
 
 ## Client configuration
 

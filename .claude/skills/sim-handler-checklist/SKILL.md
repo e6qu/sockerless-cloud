@@ -21,9 +21,10 @@ Skip for: bug-fixes that don't change the wire shape, doc-only changes, internal
 
 `--debug` traces show *some* of the wire shape but not all of it. The SDK enforces client-side encoding choices (timestamp format, request body wrapper, query-param variants) that never appear on the wire if the request never goes out. The serializer source is authoritative.
 
+<!-- doctest: skip reason="a template: the agent names the operation under review in place of <OpName>" -->
 ```bash
 # For AWS Go SDK v2
-find ~/go/pkg/mod/github.com/aws/aws-sdk-go-v2 -name "serializers.go" \
+find "$(go env GOMODCACHE)"/github.com/aws/aws-sdk-go-v2 -name "serializers.go" \
   | xargs grep -l "<OpName>"
 
 # Inspect: aws-sdk-go-v2/service/<svc>/serializers.go
@@ -50,6 +51,7 @@ When in doubt, the serializer source is the spec. The model's prior on "the obvi
 
 Terraform's `aws` / `google` / `azurerm` providers dereference deeply-nested response fields without nil-checks during their Read function. When the sim returns a minimal response (only the required fields), the provider crashes with `panic: invalid memory address`. The fix is **always** to fill empty containers on the response — never to wait for the crash and patch one field at a time.
 
+<!-- doctest: skip reason="a template: the agent names the provider checkout, service and resource under review" -->
 ```bash
 # Find the provider's Read function for the resource you're adding.
 # (provider is hashicorp/terraform-provider-aws or -google or -azurerm)
@@ -74,6 +76,7 @@ Terraform Read functions sometimes call a different API than the Create. Example
 
 The mechanical check:
 
+<!-- doctest: skip reason="a template: the agent names the provider checkout, service and resource under review" -->
 ```bash
 # Read the provider's Read function for your resource.
 grep -A 5 "func resource<X>Read" \

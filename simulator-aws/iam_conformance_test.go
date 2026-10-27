@@ -12,26 +12,16 @@ import (
 	"time"
 )
 
-// IAM conformance: a spec-derived, mechanical measure of how completely the IAM
-// policy engine implements the real AWS policy grammar — so gaps are visible and
-// tracked rather than discovered later by a consumer. Three layers:
-//
-//  1. iamOperatorCatalog        — every real condition operator, each marked
-//     supported + carrying a probe vector. TestIAMConformance_Operators asserts
-//     every "supported" operator actually evaluates, and every "unsupported" one
-//     safely defaults to no-match (never a silent spurious grant).
-//  2. iamConditionKeyRegistry   — the condition keys the enforcement gate feeds
-//     into the request context, each carrying the probe that builds the gate's
-//     own context and looks the key up in it. A row whose probe finds nothing
-//     IS a known non-conformity (a policy conditioned on it can't enforce yet).
-//  3. the golden corpus (testdata/iam_conformance_vectors.json) — end-to-end
-//     (policy, context, action, resource) → expected decision vectors, run
-//     through iamEvalDecision here and through the REAL AWS SimulateCustomPolicy
-//     oracle in sdk-tests (gated). External ground truth, not self-grading.
-//
-// The catalogs are the authoritative checklist; TestIAMConformance_Ratchet locks
-// the unsupported set so a regression or a silently-added spec item fails CI.
-// Process: docs/SERVICE_CONFORMANCE.md.
+// IAM conformance measures how completely the policy engine implements the AWS
+// policy grammar, in three layers. iamOperatorCatalog lists every AWS condition
+// operator with a probe vector; TestIAMConformance_Operators asserts each
+// supported one evaluates and each unsupported one no-matches.
+// iamConditionKeyRegistry lists the condition keys the gate feeds into the
+// request context, each with a probe that builds the gate's context and looks
+// the key up. testdata/iam_conformance_vectors.json holds (policy, context,
+// action, resource) → decision vectors, run through iamEvalDecision here and
+// through AWS SimulateCustomPolicy in sdk-tests. TestIAMConformance_Ratchet locks
+// the unsupported set, so a regression or an unclassified spec item fails CI.
 
 type iamOperatorSpec struct {
 	name      string
@@ -72,11 +62,8 @@ var iamOperatorCatalog = []iamOperatorSpec{
 	{"BinaryEquals", true, "QUJD", "QUJD", true},
 }
 
-// iamConditionKeySpec is one condition key the enforcement gate is expected to
-// resolve, together with the probe that proves it does. populated is not
-// written down: it is measured by running the probe and looking for probeKey in
-// the context the gate built, so a key that stops being resolved becomes a
-// failing row rather than a stale "true".
+// populated is measured, not written down: run the probe and look for probeKey
+// in the context the gate built, so a key that stops resolving fails its row.
 type iamConditionKeySpec struct {
 	key string
 	// probeKey is the concrete key the probe must produce. For a wildcard row
@@ -86,9 +73,9 @@ type iamConditionKeySpec struct {
 	probe    func(t *testing.T) map[string][]string
 }
 
-// iamConditionKeyRegistry is the map of which condition keys the gate feeds.
-// Add a row with its probe when a new key becomes relevant; a row with no probe
-// cannot claim anything.
+// iamConditionKeyRegistry lists the condition keys the gate feeds. Add a row
+// with its probe when a new key becomes relevant; a row with no probe claims
+// nothing.
 var iamConditionKeyRegistry = []iamConditionKeySpec{
 	{"aws:username", "aws:username", "the caller's IAM user name", iamProbeUserRequestContext},
 	{"aws:userid", "aws:userid", "the caller's unique id", iamProbeUserRequestContext},
@@ -175,7 +162,6 @@ func iamProbeContextFor(t *testing.T, r *http.Request, accessKeyID, action strin
 	return iamRequestConditionContext(r, accessKeyID, principalArn, userName, action)
 }
 
-// iamProbeUserRequestContext is an ordinary signed call by an IAM user.
 func iamProbeUserRequestContext(t *testing.T) map[string][]string {
 	t.Helper()
 	iamProbeSeedUser(t)
@@ -277,8 +263,7 @@ func iamProbeRDSResourceTagContext(t *testing.T) map[string][]string {
 	return iamProbeContextFor(t, r, iamProbeAccessKeyID, "rds:AddTagsToResource")
 }
 
-// iamProbeIAMResourceTagContext is a call against a tagged IAM role, the
-// service whose own resources the tag resolver had no case for.
+// iamProbeIAMResourceTagContext is a call against a tagged IAM role.
 func iamProbeIAMResourceTagContext(t *testing.T) map[string][]string {
 	t.Helper()
 	iamProbeSeedUser(t)
@@ -326,9 +311,7 @@ func iamUnpopulatedConditionKeys(t *testing.T) []string {
 }
 
 // TestIAMConformance_ConditionKeys proves the gate resolves every condition key
-// the registry claims, by building the context the gate builds and looking the
-// key up in it. Before this, the registry's populated column was a hand-written
-// boolean that nothing checked: every row said true and no code had to agree.
+// the registry claims, by building the gate's context and looking the key up.
 func TestIAMConformance_ConditionKeys(t *testing.T) {
 	// The gate reads the simulator's own stores, so the probes run against a
 	// built simulator rather than against nil maps.
@@ -403,16 +386,11 @@ func TestIAMConformance_GoldenCorpus(t *testing.T) {
 	}
 }
 
-// TestIAMConformance_Ratchet locks the set of known non-conformities. When you
-// implement one, decrement the expected count + drop its row; when a new spec
-// item is added unsupported, this fails until it's consciously classified. The
-// failure message is the live non-conformity report.
-//
-// Both counts stand against something measured: an operator row is proved by
-// TestIAMConformance_Operators running the evaluator, and a condition-key row
-// by its probe building the gate's own context and finding the key in it. A
-// literal asserted against a hand-written column would only be restating the
-// column.
+// TestIAMConformance_Ratchet locks the set of known non-conformities.
+// Implementing one means lowering the expected count and dropping its row; a new
+// spec item added unsupported fails until classified. The failure message is the
+// live non-conformity report. Each count stands against a measurement: the
+// evaluator for operator rows, the gate's own context for condition-key rows.
 func TestIAMConformance_Ratchet(t *testing.T) {
 	const wantUnsupportedOperators = 0
 	const wantUnpopulatedConditionKeys = 0

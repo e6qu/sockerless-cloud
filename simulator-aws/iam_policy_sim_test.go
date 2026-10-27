@@ -2,12 +2,8 @@ package main
 
 import "testing"
 
-// A policy written the way CloudWatch Logs policies are always written — with
-// the trailing ":*" that DescribeLogGroups puts on a log group's ARN — must
-// authorize the log-group-level actions. This is exactly the grant the
-// ecs-dev-desktop control plane holds for /edd-dev/workspaces, and matching only
-// the Service Reference's suffix-less form denied FilterLogEvents while claiming
-// the ACTION was not allowed.
+// A policy written with the trailing ":*" DescribeLogGroups puts on a log
+// group's ARN must authorize the log-group-level actions.
 func TestIAMLogGroupPolicySuffixAuthorizesLogGroupActions(t *testing.T) {
 	const group = "arn:aws:logs:us-east-1:123456789012:log-group:/edd-dev/workspaces"
 	stmt := iamStatement{Resource: []string{group + ":*"}}

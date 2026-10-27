@@ -19,14 +19,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
-// AWS WAFv2 — JSON 1.1 over POST / + X-Amz-Target=AWSWAF_20190729.<Op>.
-// Sim covers the CLOUDFRONT scope (global, us-east-1). REGIONAL scope
-// (ALB / API Gateway path) is intentionally out of scope — would
-// compose with the same handlers if a backend needs it later.
-// Resource bodies (Rules, VisibilityConfig, etc.) pass
-// through as opaque json.RawMessage so the sim doesn't need to mirror
-// the full SDK type tree — Terraform round-trips correctly because
-// the wire bytes are preserved.
+// AWS WAF (WAFV2) over awsJson1.1 (X-Amz-Target: AWSWAF_20190729.<Op>), in the
+// CLOUDFRONT and REGIONAL scopes. Rules, VisibilityConfig and the other nested
+// bodies are kept as raw JSON, so every member a client sends round-trips byte
+// for byte.
 
 type WAFWebACL struct {
 	Name                         string          `json:"Name"`
@@ -81,7 +77,7 @@ type wafTag struct {
 	Value string `json:"Value,omitempty"`
 }
 
-// Storage envelopes hold a Scope + LockToken alongside the resource.
+// Each stored resource carries its Scope and LockToken.
 type wafStoredWebACL struct {
 	WebACL    WAFWebACL
 	Scope     string
@@ -110,20 +106,17 @@ type wafStoredRegex struct {
 	Tags      []wafTag
 }
 
-// wafStoredLogging holds a per-web-ACL logging configuration. The full
-// LoggingConfiguration body passes through as opaque json.RawMessage so the
-// sim preserves every wire field; ResourceArn is lifted out for keying and
-// Scope is derived from the ARN path ("global/" → CLOUDFRONT) so ListLogging-
-// Configurations can filter by Scope the way real AWS does.
+// wafStoredLogging holds a web ACL's LoggingConfiguration as raw JSON, with
+// ResourceArn lifted out as the key and Scope derived from the ARN path
+// ("global/" is CLOUDFRONT) for ListLoggingConfigurations to filter on.
 type wafStoredLogging struct {
 	ResourceArn string
 	Scope       string
 	Config      json.RawMessage
 }
 
-// wafStoredAPIKey holds an encrypted-token API key. The wire-form APIKey is a
-// base64-encoded encryption of the token domains plus a creation timestamp;
-// GetDecryptedAPIKey reverses it back to the stored domains + timestamp.
+// wafStoredAPIKey holds an API key: APIKey is the encrypted token of the token
+// domains and creation time that GetDecryptedAPIKey returns.
 type wafStoredAPIKey struct {
 	APIKey       string
 	Scope        string
@@ -132,9 +125,8 @@ type wafStoredAPIKey struct {
 	Version      int
 }
 
-// wafStoredManagedRuleSet holds a customer-managed rule set resource. Managed
-// rule sets are the publisher-side resource AWS Managed Rules vendors use to
-// publish versions of their rule groups; the API exposes full CRUD on them.
+// wafStoredManagedRuleSet holds a managed rule set, the resource AWS Managed
+// Rules vendors publish rule-group versions through.
 type wafStoredManagedRuleSet struct {
 	RuleSet   WAFManagedRuleSet
 	Scope     string
@@ -166,11 +158,9 @@ type wafAssociation struct {
 }
 
 var (
-	// The data plane consults this store on every forwarded request, and a
-	// forwarded request can arrive before this service is registered — a
-	// simulator assembled without it, or a test that mounts one data plane.
-	// An empty store answers the question truthfully (nothing is registered,
-	// so nothing is associated); a nil one panicked in the middle of serving.
+	// The data plane consults this store on every forwarded request, which can
+	// arrive in a simulator assembled without this service; an empty store answers
+	// that nothing is associated, where a nil one would panic.
 	wafWebACLs         sim.Store[wafStoredWebACL] = sim.NewStateStore[wafStoredWebACL]()
 	wafIPSets          sim.Store[wafStoredIPSet]
 	wafRuleGroups      sim.Store[wafStoredRuleGroup]
@@ -180,11 +170,11 @@ var (
 	wafManagedRuleSet  sim.Store[wafStoredManagedRuleSet]
 	wafSampledRequests sim.Store[wafSampledRequest]
 	wafRateWindows     sim.Store[wafRateWindow]
-	// wafPermissionPolicies: rule-group ARN → IAM-style policy JSON document.
+	// wafPermissionPolicies maps a rule group ARN to its policy document.
 	wafPermissionPolicies sim.Store[string]
-	// wafAssociations maps a real cloud resource ARN to its WebACL ARN.
-	// CloudFront distributions and Amplify apps share this authoritative
-	// association state, just as both services are protected through WAFv2.
+	// wafAssociations maps a protected resource's ARN to its web ACL ARN. Amazon
+	// CloudFront distributions and AWS Amplify apps share it, as both are protected
+	// through AWS WAF.
 	wafAssociations sim.Store[wafAssociation] = sim.NewStateStore[wafAssociation]()
 )
 
@@ -195,20 +185,16 @@ func wafRandomID() string {
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }
 
-// wafLockToken returns the optimistic-concurrency token AWS WAFV2 hands back
-// with every entity. The model types it as a UUID exactly as it types an entity
-// id — LockToken and EntityId carry the same pattern — so it is generated the
-// same way. A shorter token is not one the service could have issued, and a
-// client that round-trips it into a request would be sending a malformed value.
+// wafLockToken returns the optimistic-concurrency token AWS WAF hands back with
+// every entity. The model gives LockToken the UUID pattern it gives EntityId, so
+// a client round-trips only a UUID.
 func wafLockToken() string { return wafRandomID() }
 
-// wafARN constructs an ARN. Real AWS convention:
-//
-//	CLOUDFRONT scope: arn:aws:wafv2:us-east-1:<acct>:global/<type>/<name>/<id>
-//	REGIONAL scope:   arn:aws:wafv2:<region>:<acct>:regional/<type>/<name>/<id>
-//
-// The Terraform provider rejects "global" as a region value and expects
-// "us-east-1" with "global/" appearing only in the resource path.
+// wafARN builds an AWS WAF ARN:
+// CLOUDFRONT scope: arn:aws:wafv2:us-east-1:<acct>:global/<type>/<name>/<id>
+// REGIONAL scope:   arn:aws:wafv2:<region>:<acct>:regional/<type>/<name>/<id>
+// The Terraform provider rejects "global" as a region, so "global/" appears only
+// in the resource path.
 func wafARN(scope, resourceType, name, id string) string {
 	region := awsRegion()
 	scopePath := "regional"
@@ -219,8 +205,7 @@ func wafARN(scope, resourceType, name, id string) string {
 	return fmt.Sprintf("arn:aws:wafv2:%s:%s:%s/%s/%s/%s", region, awsAccountID(), scopePath, resourceType, name, id)
 }
 
-// wafKey: stores resources under "<scope>/<id>" so the same Name + Id
-// can collide between scopes (real AWS allows it).
+// wafKey keys a resource by "<scope>/<id>", as AWS WAF lets one Name and Id exist in both scopes.
 func wafKey(scope, id string) string { return scope + "/" + id }
 
 func wafWriteJSON(w http.ResponseWriter, v any) {
@@ -253,79 +238,63 @@ func registerWAFv2(r *AWSRouter, srv *sim.Server) {
 	wafRateWindows = sim.MakeStore[wafRateWindow](srv.DB(), "wafv2_rate_windows")
 	wafSeedManagedRuleSets()
 
-	// WebACL
 	r.Register("AWSWAF_20190729.CreateWebACL", handleWAFCreateWebACL)
 	r.Register("AWSWAF_20190729.GetWebACL", handleWAFGetWebACL)
 	r.Register("AWSWAF_20190729.UpdateWebACL", handleWAFUpdateWebACL)
 	r.Register("AWSWAF_20190729.DeleteWebACL", handleWAFDeleteWebACL)
 	r.Register("AWSWAF_20190729.ListWebACLs", handleWAFListWebACLs)
-	// Association
 	r.Register("AWSWAF_20190729.AssociateWebACL", handleWAFAssociateWebACL)
 	r.Register("AWSWAF_20190729.DisassociateWebACL", handleWAFDisassociateWebACL)
 	r.Register("AWSWAF_20190729.GetWebACLForResource", handleWAFGetWebACLForResource)
 	r.Register("AWSWAF_20190729.ListResourcesForWebACL", handleWAFListResourcesForWebACL)
-	// IPSet
 	r.Register("AWSWAF_20190729.CreateIPSet", handleWAFCreateIPSet)
 	r.Register("AWSWAF_20190729.GetIPSet", handleWAFGetIPSet)
 	r.Register("AWSWAF_20190729.UpdateIPSet", handleWAFUpdateIPSet)
 	r.Register("AWSWAF_20190729.DeleteIPSet", handleWAFDeleteIPSet)
 	r.Register("AWSWAF_20190729.ListIPSets", handleWAFListIPSets)
-	// RuleGroup
 	r.Register("AWSWAF_20190729.CreateRuleGroup", handleWAFCreateRuleGroup)
 	r.Register("AWSWAF_20190729.GetRuleGroup", handleWAFGetRuleGroup)
 	r.Register("AWSWAF_20190729.UpdateRuleGroup", handleWAFUpdateRuleGroup)
 	r.Register("AWSWAF_20190729.DeleteRuleGroup", handleWAFDeleteRuleGroup)
 	r.Register("AWSWAF_20190729.ListRuleGroups", handleWAFListRuleGroups)
-	// RegexPatternSet
 	r.Register("AWSWAF_20190729.CreateRegexPatternSet", handleWAFCreateRegexSet)
 	r.Register("AWSWAF_20190729.GetRegexPatternSet", handleWAFGetRegexSet)
 	r.Register("AWSWAF_20190729.UpdateRegexPatternSet", handleWAFUpdateRegexSet)
 	r.Register("AWSWAF_20190729.DeleteRegexPatternSet", handleWAFDeleteRegexSet)
 	r.Register("AWSWAF_20190729.ListRegexPatternSets", handleWAFListRegexSets)
-	// Tagging
 	r.Register("AWSWAF_20190729.TagResource", handleWAFTagResource)
 	r.Register("AWSWAF_20190729.UntagResource", handleWAFUntagResource)
 	r.Register("AWSWAF_20190729.ListTagsForResource", handleWAFListTagsForResource)
-	// Logging configuration
 	r.Register("AWSWAF_20190729.PutLoggingConfiguration", handleWAFPutLoggingConfiguration)
 	r.Register("AWSWAF_20190729.GetLoggingConfiguration", handleWAFGetLoggingConfiguration)
 	r.Register("AWSWAF_20190729.DeleteLoggingConfiguration", handleWAFDeleteLoggingConfiguration)
 	r.Register("AWSWAF_20190729.ListLoggingConfigurations", handleWAFListLoggingConfigurations)
-	// Sampled requests
 	r.Register("AWSWAF_20190729.GetSampledRequests", handleWAFGetSampledRequests)
 	r.Register("AWSWAF_20190729.GetRevenueStatistics", handleWAFGetRevenueStatistics)
 	r.Register("AWSWAF_20190729.GetRevenueStatisticsSummary", handleWAFGetRevenueStatisticsSummary)
 	r.Register("AWSWAF_20190729.GetRevenueStatisticsTimeSeries", handleWAFGetRevenueStatisticsTimeSeries)
 	r.Register("AWSWAF_20190729.ListSettlementRecords", handleWAFListSettlementRecords)
-	// API keys
 	r.Register("AWSWAF_20190729.CreateAPIKey", handleWAFCreateAPIKey)
 	r.Register("AWSWAF_20190729.DeleteAPIKey", handleWAFDeleteAPIKey)
 	r.Register("AWSWAF_20190729.ListAPIKeys", handleWAFListAPIKeys)
 	r.Register("AWSWAF_20190729.GetDecryptedAPIKey", handleWAFGetDecryptedAPIKey)
-	// Capacity
 	r.Register("AWSWAF_20190729.CheckCapacity", handleWAFCheckCapacity)
-	// Managed rule group / product catalog
 	r.Register("AWSWAF_20190729.DescribeManagedRuleGroup", handleWAFDescribeManagedRuleGroup)
 	r.Register("AWSWAF_20190729.DescribeAllManagedProducts", handleWAFDescribeAllManagedProducts)
 	r.Register("AWSWAF_20190729.DescribeManagedProductsByVendor", handleWAFDescribeManagedProductsByVendor)
 	r.Register("AWSWAF_20190729.ListAvailableManagedRuleGroups", handleWAFListAvailableManagedRuleGroups)
 	r.Register("AWSWAF_20190729.ListAvailableManagedRuleGroupVersions", handleWAFListAvailableManagedRuleGroupVersions)
-	// Managed rule sets (publisher CRUD)
 	r.Register("AWSWAF_20190729.GetManagedRuleSet", handleWAFGetManagedRuleSet)
 	r.Register("AWSWAF_20190729.ListManagedRuleSets", handleWAFListManagedRuleSets)
 	r.Register("AWSWAF_20190729.PutManagedRuleSetVersions", handleWAFPutManagedRuleSetVersions)
 	r.Register("AWSWAF_20190729.UpdateManagedRuleSetVersionExpiryDate", handleWAFUpdateManagedRuleSetVersionExpiryDate)
-	// Permission policy (cross-account rule-group sharing)
 	r.Register("AWSWAF_20190729.PutPermissionPolicy", handleWAFPutPermissionPolicy)
 	r.Register("AWSWAF_20190729.GetPermissionPolicy", handleWAFGetPermissionPolicy)
 	r.Register("AWSWAF_20190729.DeletePermissionPolicy", handleWAFDeletePermissionPolicy)
-	// Mobile SDK releases
 	r.Register("AWSWAF_20190729.GenerateMobileSdkReleaseUrl", handleWAFGenerateMobileSdkReleaseUrl)
 	r.Register("AWSWAF_20190729.GetMobileSdkRelease", handleWAFGetMobileSdkRelease)
 	r.Register("AWSWAF_20190729.ListMobileSdkReleases", handleWAFListMobileSdkReleases)
-	// Firewall Manager managed rule groups
 	r.Register("AWSWAF_20190729.DeleteFirewallManagerRuleGroups", handleWAFDeleteFirewallManagerRuleGroups)
-	// Rate-based statement managed keys + traffic statistics
 	r.Register("AWSWAF_20190729.GetRateBasedStatementManagedKeys", handleWAFGetRateBasedStatementManagedKeys)
 	r.Register("AWSWAF_20190729.GetTopPathStatisticsByTraffic", handleWAFGetTopPathStatisticsByTraffic)
 }
@@ -345,11 +314,9 @@ type wafCreateWebACLReq struct {
 	AssociationConfig    json.RawMessage `json:"AssociationConfig,omitempty"`
 }
 
-// wafEntitySummary builds the summary AWS WAFV2 returns for a created entity.
-// Description is optional and the model's EntityDescription pattern requires at
-// least one character, so an entity created without one carries no Description
-// member rather than an empty string — which is what the service returns and
-// what a client reading the field back can rely on.
+// wafEntitySummary builds the summary AWS WAF returns for a created entity.
+// EntityDescription requires at least one character, so an entity without a
+// description carries no Description member.
 func wafEntitySummary(name, id, description, lockToken, arn string) map[string]any {
 	summary := map[string]any{"Name": name, "Id": id, "LockToken": lockToken, "ARN": arn}
 	if description != "" {
@@ -358,14 +325,11 @@ func wafEntitySummary(name, id, description, lockToken, arn string) map[string]a
 	return summary
 }
 
-// wafEntityNamePattern is the model's EntityName pattern. A name outside it is
-// rejected by the service before anything is created, so accepting one here
-// would let a caller store a name it could never have stored — and every
-// response echoing that name back would then carry a value the model forbids.
+// wafEntityNamePattern is the model's EntityName pattern, which AWS WAF enforces
+// before creating anything.
 var wafEntityNamePattern = regexp.MustCompile(`^[\w\-]+$`)
 
-// wafValidateName reports whether the name is one AWS WAFV2 accepts, writing
-// the service's own rejection when it is not.
+// wafValidateName writes AWS WAF's rejection of a name outside the pattern.
 func wafValidateName(w http.ResponseWriter, name string) bool {
 	if wafEntityNamePattern.MatchString(name) {
 		return true
@@ -513,7 +477,7 @@ func handleWAFDeleteWebACL(w http.ResponseWriter, r *http.Request) {
 		wafWriteError(w, "WAFOptimisticLockException", "LockToken does not match current value")
 		return
 	}
-	// Refuse delete when associated. Mirrors real AWS.
+	// AWS WAF refuses to delete an associated web ACL.
 	for _, association := range wafAssociations.List() {
 		if association.WebACLARN == stored.WebACL.ARN {
 			wafWriteError(w, "WAFAssociatedItemException", "WebACL is still associated with one or more resources")
@@ -649,7 +613,6 @@ func handleWAFGetWebACLForResource(w http.ResponseWriter, r *http.Request) {
 		wafWriteJSON(w, struct{}{})
 		return
 	}
-	// Find the WebACL by ARN
 	for _, s := range wafWebACLs.List() {
 		if s.WebACL.ARN == arn {
 			wafWriteJSON(w, map[string]any{"WebACL": s.WebACL})
@@ -660,8 +623,7 @@ func handleWAFGetWebACLForResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func wafWebACLByARN(arn string) (wafStoredWebACL, bool) {
-	// One row answers, from an index keyed by the store's generation: the
-	// data plane resolves the associated web ACL per proxied request.
+	// The data plane resolves the associated web ACL per proxied request, so read it from an index keyed by the store's generation.
 	return wafWebACLsByARN.Lookup(wafWebACLs, arn,
 		func(stored wafStoredWebACL) []string { return []string{stored.WebACL.ARN} })
 }
@@ -910,7 +872,7 @@ func handleWAFUpdateRuleGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func readBodyJSON(r interface{ Read([]byte) (int, error) }) ([]byte, error) {
-	// Drain the body into memory so we can parse it twice.
+	// Read the whole body so it can be parsed twice.
 	buf := make([]byte, 0, 1024)
 	tmp := make([]byte, 1024)
 	for {
@@ -1211,8 +1173,7 @@ func handleWAFListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// wafScopeFromARN derives the WAFv2 Scope from a web ACL ARN. The path
-// component is "global/" for CLOUDFRONT and "regional/" for REGIONAL.
+// wafScopeFromARN derives the Scope from a web ACL ARN's "global/" or "regional/" path.
 func wafScopeFromARN(arn string) string {
 	if strings.Contains(arn, ":global/") {
 		return "CLOUDFRONT"
@@ -1220,9 +1181,9 @@ func wafScopeFromARN(arn string) string {
 	return "REGIONAL"
 }
 
-// wafWebACLExistsByARN reports whether a web ACL with the given ARN exists.
-// PutLoggingConfiguration targets a web ACL, so the sim validates it the way
-// real AWS does (WAFNonexistentItemException for an unknown web ACL).
+// wafWebACLExistsByARN reports whether a web ACL has the ARN, which
+// PutLoggingConfiguration checks, answering WAFNonexistentItemException
+// otherwise.
 func wafWebACLExistsByARN(arn string) bool {
 	for _, s := range wafWebACLs.List() {
 		if s.WebACL.ARN == arn {
@@ -1668,10 +1629,9 @@ func handleWAFListSettlementRecords(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, map[string]any{"Settlements": []any{}})
 }
 
-// wafEncodeAPIKey produces a wire-form APIKey token. Real AWS returns an opaque
-// encrypted base64 token whose plaintext is the scope, token domains, and a
-// creation timestamp; GetDecryptedAPIKey reverses it against the key the
-// account holds, which is why a token alone never decrypts here either.
+// wafEncodeAPIKey builds an APIKey token. AWS WAF returns an opaque encrypted
+// base64 token of the scope, token domains and creation time, which
+// GetDecryptedAPIKey decrypts only with the key the account holds.
 func wafEncodeAPIKey(scope string, domains []string, created time.Time) string {
 	env := struct {
 		Scope        string   `json:"s"`
@@ -1740,12 +1700,10 @@ func handleWAFListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type apiKeySummary struct {
-		TokenDomains []string `json:"TokenDomains"`
-		APIKey       string   `json:"APIKey"`
-		// CreationTimestamp serializes as epoch-seconds for awsJson1.1.
-		CreationTimestamp int64 `json:"CreationTimestamp"`
-		// Version is the APIKeyVersion integer the SDK expects.
-		Version int `json:"Version,omitempty"`
+		TokenDomains      []string `json:"TokenDomains"`
+		APIKey            string   `json:"APIKey"`
+		CreationTimestamp int64    `json:"CreationTimestamp"`
+		Version           int      `json:"Version,omitempty"`
 	}
 	items := []apiKeySummary{}
 	for _, s := range wafAPIKeys.List() {
@@ -1779,10 +1737,9 @@ func handleWAFGetDecryptedAPIKey(w http.ResponseWriter, r *http.Request) {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
-	// The API key is a resource of the account and scope that created it, so
-	// the store is the only thing that decides whether it decrypts: a key that
-	// was deleted, or one that belongs to another scope, is not this account's
-	// to decrypt however well-formed its token is.
+	// An API key belongs to the account and scope that created it, so only the store
+	// decides whether it decrypts: a deleted key or another scope's key does not,
+	// however well-formed its token.
 	stored, ok := wafAPIKeys.Get(wafKey(req.Scope, req.APIKey))
 	if !ok {
 		wafWriteError(w, "WAFInvalidParameterException", "APIKey is not valid for this scope")
@@ -1794,11 +1751,8 @@ func handleWAFGetDecryptedAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// wafComputeCapacity sums the WCU cost of a rule list. Real WAFv2 assigns a Web
-// ACL Capacity Unit (WCU) cost per statement type; the sim applies a faithful,
-// deterministic per-statement cost model over the supplied rules — a base cost
-// per rule plus the documented incremental costs for the statement kinds that
-// dominate real rule sets. The sum is the same for the same input every time.
+// wafComputeCapacity sums the WCU cost of a rule list: a base cost per rule plus
+// the published incremental cost of each statement kind the simulator models.
 func wafComputeCapacity(rules []json.RawMessage) int64 {
 	var total int64
 	for _, ruleRaw := range rules {
@@ -1809,8 +1763,7 @@ func wafComputeCapacity(rules []json.RawMessage) int64 {
 		total += wafStatementCapacity(rule.Statement)
 	}
 	if total == 0 {
-		// An empty rule set still consumes the minimum capacity (>=1) AWS
-		// returns; CapacityUnit has a documented minimum of 1.
+		// CheckCapacity reports at least 1 WCU.
 		return 1
 	}
 	return total
@@ -1824,9 +1777,8 @@ func wafCapacityFromRawRules(raw json.RawMessage) int64 {
 	return wafComputeCapacity(rules)
 }
 
-// wafStatementCapacity returns the WCU cost of a single statement, recursing
-// into nested statements (And/Or/Not/RateBased) exactly as AWS's capacity model
-// does. The per-kind costs mirror the published WCU table.
+// wafStatementCapacity returns the WCU cost of one statement, recursing into And,
+// Or, Not and RateBased statements.
 func wafStatementCapacity(stmtRaw json.RawMessage) int64 {
 	if len(stmtRaw) == 0 {
 		return 0
@@ -1855,9 +1807,8 @@ func wafStatementCapacity(stmtRaw json.RawMessage) int64 {
 		case "LabelMatchStatement":
 			cost += 1
 		case "RuleGroupReferenceStatement", "ManagedRuleGroupStatement":
-			// Reference statements inherit the referenced group's capacity;
-			// the sim charges a nominal cost since the referenced bytes
-			// aren't supplied to CheckCapacity.
+			// A reference statement costs the referenced group's capacity, which
+			// CheckCapacity's input does not carry; the simulator charges nothing for it.
 			cost += 0
 		case "AndStatement", "OrStatement":
 			var nested struct {
@@ -1905,10 +1856,9 @@ func handleWAFCheckCapacity(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, map[string]any{"Capacity": wafComputeCapacity(req.Rules)})
 }
 
-// wafManagedRuleGroupEntry is one row in AWS's published managed-rule-group
-// catalog. The sim carries a known, static-but-real subset of the AWS Managed
-// Rules catalog so Describe/List ops return the same group names, vendors, and
-// versioning support a real account sees.
+// wafManagedRuleGroupEntry is one row of the AWS Managed Rules catalog. The
+// simulator carries a fixed subset with AWS's group names, vendors, capacities
+// and versioning support.
 type wafManagedRuleGroupEntry struct {
 	VendorName          string
 	Name                string
@@ -1920,8 +1870,7 @@ type wafManagedRuleGroupEntry struct {
 	Labels              []string
 }
 
-// wafManagedCatalog is the static-but-real managed rule group catalog. These are
-// genuine AWS Managed Rules group names, vendors, and capacities.
+// wafManagedCatalog is that subset.
 var wafManagedCatalog = []wafManagedRuleGroupEntry{
 	{
 		VendorName: "AWS", Name: "AWSManagedRulesCommonRuleSet",
@@ -1991,8 +1940,8 @@ func handleWAFDescribeManagedRuleGroup(w http.ResponseWriter, r *http.Request) {
 	for _, l := range entry.Labels {
 		labels = append(labels, map[string]string{"Name": l})
 	}
-	// Synthesize a representative rule list from the labels: each managed rule
-	// is named after the label suffix and counts as a Block action.
+	// The simulator derives the rule list from the group's labels, one Block rule
+	// named after each label suffix, rather than AWS's published rules.
 	rules := []map[string]any{}
 	for _, l := range entry.Labels {
 		parts := strings.Split(l, ":")
@@ -2020,7 +1969,6 @@ func handleWAFDescribeManagedRuleGroup(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, resp)
 }
 
-// wafProductDescriptor builds a managed-product descriptor for a catalog entry.
 func wafProductDescriptor(e wafManagedRuleGroupEntry) map[string]any {
 	return map[string]any{
 		"VendorName":               e.VendorName,
@@ -2122,9 +2070,8 @@ func handleWAFListAvailableManagedRuleGroupVersions(w http.ResponseWriter, r *ht
 		return
 	}
 	type versionSummary struct {
-		Name string `json:"Name"`
-		// LastUpdateTimestamp serializes as epoch-seconds for awsJson1.1.
-		LastUpdateTimestamp int64 `json:"LastUpdateTimestamp"`
+		Name                string `json:"Name"`
+		LastUpdateTimestamp int64  `json:"LastUpdateTimestamp"`
 	}
 	items := []versionSummary{}
 	base := time.Now().Add(-30 * 24 * time.Hour).Unix()
@@ -2145,8 +2092,7 @@ func handleWAFListAvailableManagedRuleGroupVersions(w http.ResponseWriter, r *ht
 	wafWriteJSON(w, resp)
 }
 
-// WAFManagedRuleSet mirrors the SDK ManagedRuleSet type; PublishedVersions maps
-// a version name to its version metadata.
+// WAFManagedRuleSet is the ManagedRuleSet shape; PublishedVersions maps a version name to its metadata.
 type WAFManagedRuleSet struct {
 	Name               string                          `json:"Name"`
 	Id                 string                          `json:"Id"`
@@ -2157,8 +2103,7 @@ type WAFManagedRuleSet struct {
 	LabelNamespace     string                          `json:"LabelNamespace,omitempty"`
 }
 
-// WAFManagedRuleSetVer mirrors the SDK ManagedRuleSetVersion type. Timestamps
-// are epoch-seconds for awsJson1.1.
+// WAFManagedRuleSetVer is the ManagedRuleSetVersion shape.
 type WAFManagedRuleSetVer struct {
 	AssociatedRuleGroupArn string `json:"AssociatedRuleGroupArn,omitempty"`
 	Capacity               int64  `json:"Capacity,omitempty"`
@@ -2168,15 +2113,12 @@ type WAFManagedRuleSetVer struct {
 	ExpiryTimestamp        int64  `json:"ExpiryTimestamp,omitempty"`
 }
 
-// wafSeedManagedRuleSets seeds a known managed rule set per scope. Managed rule
-// sets are publisher-owned resources surfaced through Get/List; AWS has no
-// CreateManagedRuleSet op, so the sim materializes a real-shaped seed set the
-// way an account that subscribed to a published vendor product would see one.
-// PutManagedRuleSetVersions then publishes new versions against the seed.
+// wafSeedManagedRuleSets seeds one managed rule set per scope. AWS WAF has no
+// CreateManagedRuleSet: vendors own the sets and surface them through Get and
+// List. The simulator's seed is a placeholder set, not one AWS publishes.
 func wafSeedManagedRuleSets() {
 	for _, scope := range []string{"CLOUDFRONT", "REGIONAL"} {
-		// EntityId is a UUID, so the seed's id is one; a readable placeholder
-		// with "EXAMPLE" in it is not a value the service could return.
+		// The model types EntityId as a UUID.
 		id := "a1b2c3d4-5678-90ab-cdef-e0a3b1c5d7f9"
 		name := "AWSManagedRulesExampleRuleSet"
 		key := wafKey(scope, id)
@@ -2192,8 +2134,7 @@ func wafSeedManagedRuleSets() {
 				LabelNamespace:    "awswaf:managed:" + name + ":",
 			},
 			Scope: scope,
-			// A lock token is a UUID whoever issued it; a readable placeholder
-			// is not a token a client could round-trip into an update.
+			// The model types LockToken as a UUID.
 			LockToken: "5eed10c0-0000-4000-8000-000000000001",
 		})
 	}
@@ -2278,12 +2219,8 @@ func handleWAFPutManagedRuleSetVersions(w http.ResponseWriter, r *http.Request) 
 	key := wafKey(req.Scope, req.Id)
 	stored, ok := wafManagedRuleSet.Get(key)
 	if !ok {
-		// PutManagedRuleSetVersions on a non-existent set creates it: a
-		// publisher's managed rule set is conjured by its first published
-		// versions. AWS requires the rule set to exist first, but the sim has
-		// no separate create op (there is none in the API), so this op both
-		// creates and publishes — faithful to "managed rule sets are owned by
-		// vendors and surfaced through this op".
+		// The simulator creates a missing rule set on its first PutManagedRuleSetVersions;
+		// AWS WAF requires the set to exist already.
 		id := req.Id
 		if id == "" {
 			id = wafRandomID()
@@ -2366,8 +2303,8 @@ func handleWAFUpdateManagedRuleSetVersionExpiryDate(w http.ResponseWriter, r *ht
 	})
 }
 
-// wafTimestampToUnix coerces an awsJson1.1 timestamp (epoch-seconds number) to
-// an int64 epoch. The SDK serializes timestamps as JSON numbers.
+// wafTimestampToUnix reads an awsJson1.1 timestamp, a JSON number of epoch
+// seconds, as an int64.
 func wafTimestampToUnix(v any) int64 {
 	switch t := v.(type) {
 	case float64:
@@ -2395,7 +2332,6 @@ func handleWAFPutPermissionPolicy(w http.ResponseWriter, r *http.Request) {
 		wafWriteError(w, "WAFInvalidParameterException", "ResourceArn and Policy are required")
 		return
 	}
-	// PutPermissionPolicy targets a rule group ARN.
 	if !strings.Contains(req.ResourceArn, "/rulegroup/") {
 		wafWriteError(w, "WAFInvalidPermissionPolicyException", "Permission policies are only valid on rule groups")
 		return
@@ -2447,8 +2383,8 @@ func handleWAFDeletePermissionPolicy(w http.ResponseWriter, r *http.Request) {
 	wafWriteJSON(w, struct{}{})
 }
 
-// wafMobileSdkRelease is one published WAF mobile SDK release. The sim carries a
-// known, static-but-real set of releases per platform.
+// wafMobileSdkRelease is one published AWS WAF mobile SDK release; the simulator
+// carries a fixed set per platform.
 type wafMobileSdkRelease struct {
 	Platform       string
 	ReleaseVersion string
@@ -2576,8 +2512,8 @@ func handleWAFDeleteFirewallManagerRuleGroups(w http.ResponseWriter, r *http.Req
 		wafWriteError(w, "WAFOptimisticLockException", "WebACLLockToken does not match")
 		return
 	}
-	// Firewall Manager rule groups occupy the reserved priority bands at the
-	// edges of the rule set; deleting them advances the web ACL's lock token.
+	// Firewall Manager rule groups occupy the reserved priority bands at the edges of
+	// the rule set; deleting them advances the web ACL's lock token.
 	target.LockToken = wafLockToken()
 	wafWebACLs.Put(key, *target)
 	wafWriteJSON(w, map[string]any{"NextWebACLLockToken": target.LockToken})
@@ -2654,8 +2590,8 @@ func handleWAFGetTopPathStatisticsByTraffic(w http.ResponseWriter, r *http.Reque
 		wafWriteError(w, "WAFNonexistentItemException", "WebACL not found")
 		return
 	}
-	// No traffic has flowed through the sim, so the statistics are empty —
-	// the real-shaped response for a web ACL with no observed requests.
+	// The simulator records no traffic statistics, so the response is the one for a
+	// web ACL with no observed requests.
 	wafWriteJSON(w, map[string]any{
 		"PathStatistics":    []any{},
 		"TopCategories":     []any{},
@@ -2663,8 +2599,7 @@ func handleWAFGetTopPathStatisticsByTraffic(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// wafSummary is what a List call returns for a web ACL, IP set, rule group or
-// regex pattern set.
+// wafSummary is the List summary of a web ACL, IP set, rule group or regex pattern set.
 type wafSummary struct {
 	Name        string `json:"Name"`
 	Id          string `json:"Id"`
@@ -2673,8 +2608,7 @@ type wafSummary struct {
 	ARN         string `json:"ARN"`
 }
 
-// wafListSummaries answers a List call with the summaries of store's resources
-// in the request's scope, a NextMarker page at a time.
+// wafListSummaries writes a NextMarker page of store's summaries in the request's scope.
 func wafListSummaries[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], field string, summarize func(T) (string, wafSummary)) {
 	var req wafListReq
 	if err := sim.ReadJSON(r, &req); err != nil {

@@ -230,11 +230,10 @@ func TestIAMResourceARNs_SecretsManager(t *testing.T) {
 	}
 }
 
-// TestIAMEnforce_SecretsManagerPrefixScopedGrant evaluates the exact grant an
-// application holds to stash per-workspace tokens — request → derived resource
-// ARN → policy decision. Before the Name derivation existed, CreateSecret
-// resolved to "*" and this grant was denied, which failed every workspace
-// launch while reporting a credential error rather than an authorization one.
+// TestIAMEnforce_SecretsManagerPrefixScopedGrant evaluates the grant an
+// application holds to stash per-workspace tokens, request → derived resource
+// ARN → decision. CreateSecret must derive its ARN from Name for the grant to
+// match.
 func TestIAMEnforce_SecretsManagerPrefixScopedGrant(t *testing.T) {
 	doc := mustDoc(t, `{"Version":"2012-10-17","Statement":[{
 		"Sid":"ManageWorkspaceAgentSecrets",

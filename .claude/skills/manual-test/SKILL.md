@@ -27,12 +27,14 @@ and unit correctness; a manual test proves the **wire contract**.
 
 ### `simulator-{aws,gcp,azure}`
 
+<!-- doctest: skip reason="an agent's smoke recipe: it runs against the change under review, on the simulator's fixed port" -->
 ```bash
 # 1. Build and start (default ports: aws :4566, gcp :4567 plus gRPC :4569, azure :4568).
 #    SIM_RUNTIME=process serves the API without a container engine; omit it
 #    when the test starts workloads.
-make simulator-aws/build
+make simulator-aws/build-api
 SIM_LISTEN_ADDR=:4566 ./simulator-aws/simulator-aws &
+SIM_PID=$!
 
 # 2. Drive it with each adaptor type.
 AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test \
@@ -44,7 +46,7 @@ AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test \
 # Terraform: the provider block from simulator-<cloud>/README.md.
 
 # 3. Clean up.
-pkill -f 'simulator-aws/simulator-aws'
+kill "$SIM_PID"
 ```
 
 Each simulator's README carries its full wiring, with the setup of each
@@ -55,6 +57,7 @@ client it is tested with.
 For clients that insist on HTTPS (the azurerm provider among them), put Caddy
 in front with the repository's configuration:
 
+<!-- doctest: skip reason="an agent's recipe: it puts the gateway in front of the simulator under review" -->
 ```bash
 caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
 # then address https://aws.sockerless.localhost:8443 (or gcp / azure),
@@ -66,6 +69,7 @@ caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
 On macOS, or whenever the host lacks a suite's toolchain, run a simulator's
 suites inside `Dockerfile.test`:
 
+<!-- doctest: skip reason="an agent's recipe for a host without a suite's toolchain: it runs every Azure client suite inside Dockerfile.test" -->
 ```bash
 make simulator-azure/docker-test
 ```

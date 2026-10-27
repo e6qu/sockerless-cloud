@@ -491,12 +491,13 @@ func parseGCSContentRange(s string, chunkLen int64) (start, end, total int64, er
 	return start, end, total, nil
 }
 
-// gcsObjectMetadata renders the object resource with https URLs: the JSON API
-// is HTTPS-only.
+// gcsObjectMetadata renders links on the scheme the request arrived on, so a
+// client can follow them.
 func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 	escapedObject := url.PathEscape(obj.Name)
-	selfLink := fmt.Sprintf("https://%s/storage/v1/b/%s/o/%s", r.Host, obj.Bucket, escapedObject)
-	mediaLink := fmt.Sprintf("https://%s/download/storage/v1/b/%s/o/%s?alt=media", r.Host, obj.Bucket, escapedObject)
+	scheme := requestScheme(r)
+	selfLink := fmt.Sprintf("%s://%s/storage/v1/b/%s/o/%s", scheme, r.Host, obj.Bucket, escapedObject)
+	mediaLink := fmt.Sprintf("%s://%s/download/storage/v1/b/%s/o/%s?alt=media", scheme, r.Host, obj.Bucket, escapedObject)
 	meta := map[string]any{
 		"kind":           "storage#object",
 		"id":             fmt.Sprintf("%s/%s/%s", obj.Bucket, obj.Name, defaultStr(obj.Generation, "1")),

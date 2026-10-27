@@ -12,27 +12,17 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Organizations — a faithful slice of the real service's resource tree:
-// an Organization (management account + a Root), Organizational Units in a tree
-// under the Root, member Accounts placed in the Root or an OU, Policies
-// (SERVICE_CONTROL_POLICY / TAG_POLICY / …) attachable to roots/OUs/accounts,
-// Handshakes (invitations), delegated administrators, AWS service access, a
-// resource policy, and tags. awsJson1.1, dispatched by X-Amz-Target
-// AWSOrganizationsV20161128.<Op>.
-//
-// The org id is stable per process (override with SOCKERLESS_AWS_ORG_ID); the
-// account the sim runs as is the organization's management account. A default
-// organization (with a Root and the management account) is materialized on
-// startup so the aws:PrincipalOrgID IAM condition key always resolves.
+// The organization id is stable per process (SOCKERLESS_AWS_ORG_ID overrides
+// it), and the simulator's account is the management account. Materialize a
+// default organization with a Root and the management account at startup, so
+// aws:PrincipalOrgID always resolves.
 
 func awsOrgID() string {
 	if id := os.Getenv("SOCKERLESS_AWS_ORG_ID"); id != "" {
 		return id
 	}
 	// The model's OrganizationId pattern requires at least ten characters after
-	// the "o-", and the id appears inside every ARN Organizations emits — so an
-	// id one character short makes every one of those ARNs malformed rather
-	// than just this one value.
+	// "o-", and the id appears in every Organizations ARN.
 	return "o-sim0000000"
 }
 
@@ -40,13 +30,10 @@ func awsOrgArn() string {
 	return "arn:aws:organizations::" + awsAccountID() + ":organization/" + awsOrgID()
 }
 
-// AWS-managed FullAWSAccess SCP — present on every real org and attached to the
-// root by default. Its fixed id mirrors the real service.
+// The AWS managed FullAWSAccess SCP exists in every organization, attached to the root by default.
 const orgFullAWSAccessPolicyID = "p-FullAWSAccess"
 
-// Stored shapes -------------------------------------------------------------
-
-// OrgOrganization is the singleton organization row (one per sim process).
+// One organization per simulator process.
 type OrgOrganization struct {
 	Id                 string `json:"Id"`
 	Arn                string `json:"Arn"`
@@ -76,7 +63,6 @@ type OrgRoot struct {
 	EnabledPolicyTypes []string `json:"EnabledPolicyTypes"`
 }
 
-// OrgOU is an organizational unit.
 type OrgOU struct {
 	Id       string `json:"Id"`
 	Arn      string `json:"Arn"`
@@ -109,7 +95,6 @@ type OrgHandshakeParty struct {
 	Type string `json:"Type"`
 }
 
-// OrgCreateAccountStatus tracks an async CreateAccount request.
 type OrgCreateAccountStatus struct {
 	Id                 string `json:"Id"`
 	AccountName        string `json:"AccountName"`
@@ -119,39 +104,32 @@ type OrgCreateAccountStatus struct {
 	AccountId          string `json:"AccountId"`
 }
 
-// OrgDelegatedAdmin is a delegated administrator account for a service.
 type OrgDelegatedAdmin struct {
 	AccountId             string `json:"AccountId"`
 	ServicePrincipal      string `json:"ServicePrincipal"`
 	DelegationEnabledDate int64  `json:"DelegationEnabledDate"`
 }
 
-// OrgServiceAccess is a service principal granted trusted access.
 type OrgServiceAccess struct {
 	ServicePrincipal string `json:"ServicePrincipal"`
 	DateEnabled      int64  `json:"DateEnabled"`
 }
 
-// OrgPolicyAttachment links a policy to a target (root/OU/account).
 type OrgPolicyAttachment struct {
 	PolicyId string `json:"PolicyId"`
 	TargetId string `json:"TargetId"`
 }
 
-// OrgResourcePolicy is the singleton organization resource policy.
 type OrgResourcePolicy struct {
 	Id      string `json:"Id"`
 	Arn     string `json:"Arn"`
 	Content string `json:"Content"`
 }
 
-// OrgTags is a tag set keyed by ResourceId.
 type OrgTags struct {
 	ResourceId string            `json:"ResourceId"`
 	Tags       map[string]string `json:"Tags"`
 }
-
-// State stores ---------------------------------------------------------------
 
 var (
 	orgOrg               sim.Store[OrgOrganization]
@@ -186,13 +164,11 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 
 	orgEnsureDefault()
 
-	// Organization.
 	r.Register("AWSOrganizationsV20161128.CreateOrganization", handleOrgCreateOrganization)
 	r.Register("AWSOrganizationsV20161128.DeleteOrganization", handleOrgDeleteOrganization)
 	r.Register("AWSOrganizationsV20161128.DescribeOrganization", handleOrgDescribeOrganization)
 	r.Register("AWSOrganizationsV20161128.EnableAllFeatures", handleOrgEnableAllFeatures)
 
-	// Accounts.
 	r.Register("AWSOrganizationsV20161128.CreateAccount", handleOrgCreateAccount)
 	r.Register("AWSOrganizationsV20161128.DescribeAccount", handleOrgDescribeAccount)
 	r.Register("AWSOrganizationsV20161128.DescribeCreateAccountStatus", handleOrgDescribeCreateAccountStatus)
@@ -203,19 +179,16 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSOrganizationsV20161128.RemoveAccountFromOrganization", handleOrgRemoveAccountFromOrganization)
 	r.Register("AWSOrganizationsV20161128.CloseAccount", handleOrgCloseAccount)
 
-	// Organizational Units.
 	r.Register("AWSOrganizationsV20161128.CreateOrganizationalUnit", handleOrgCreateOU)
 	r.Register("AWSOrganizationsV20161128.DeleteOrganizationalUnit", handleOrgDeleteOU)
 	r.Register("AWSOrganizationsV20161128.DescribeOrganizationalUnit", handleOrgDescribeOU)
 	r.Register("AWSOrganizationsV20161128.UpdateOrganizationalUnit", handleOrgUpdateOU)
 	r.Register("AWSOrganizationsV20161128.ListOrganizationalUnitsForParent", handleOrgListOUsForParent)
 
-	// Tree navigation.
 	r.Register("AWSOrganizationsV20161128.ListRoots", handleOrgListRoots)
 	r.Register("AWSOrganizationsV20161128.ListChildren", handleOrgListChildren)
 	r.Register("AWSOrganizationsV20161128.ListParents", handleOrgListParents)
 
-	// Policies.
 	r.Register("AWSOrganizationsV20161128.CreatePolicy", handleOrgCreatePolicy)
 	r.Register("AWSOrganizationsV20161128.DeletePolicy", handleOrgDeletePolicy)
 	r.Register("AWSOrganizationsV20161128.DescribePolicy", handleOrgDescribePolicy)
@@ -229,7 +202,6 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSOrganizationsV20161128.DisablePolicyType", handleOrgDisablePolicyType)
 	r.Register("AWSOrganizationsV20161128.DescribeEffectivePolicy", handleOrgDescribeEffectivePolicy)
 
-	// Handshakes.
 	r.Register("AWSOrganizationsV20161128.InviteAccountToOrganization", handleOrgInviteAccount)
 	r.Register("AWSOrganizationsV20161128.AcceptHandshake", handleOrgAcceptHandshake)
 	r.Register("AWSOrganizationsV20161128.DeclineHandshake", handleOrgDeclineHandshake)
@@ -238,7 +210,6 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSOrganizationsV20161128.ListHandshakesForAccount", handleOrgListHandshakesForAccount)
 	r.Register("AWSOrganizationsV20161128.ListHandshakesForOrganization", handleOrgListHandshakesForOrganization)
 
-	// Delegated admin & service access.
 	r.Register("AWSOrganizationsV20161128.RegisterDelegatedAdministrator", handleOrgRegisterDelegatedAdmin)
 	r.Register("AWSOrganizationsV20161128.DeregisterDelegatedAdministrator", handleOrgDeregisterDelegatedAdmin)
 	r.Register("AWSOrganizationsV20161128.ListDelegatedAdministrators", handleOrgListDelegatedAdmins)
@@ -247,18 +218,14 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSOrganizationsV20161128.DisableAWSServiceAccess", handleOrgDisableServiceAccess)
 	r.Register("AWSOrganizationsV20161128.ListAWSServiceAccessForOrganization", handleOrgListServiceAccess)
 
-	// Resource policy.
 	r.Register("AWSOrganizationsV20161128.PutResourcePolicy", handleOrgPutResourcePolicy)
 	r.Register("AWSOrganizationsV20161128.DeleteResourcePolicy", handleOrgDeleteResourcePolicy)
 	r.Register("AWSOrganizationsV20161128.DescribeResourcePolicy", handleOrgDescribeResourcePolicy)
 
-	// Tags.
 	r.Register("AWSOrganizationsV20161128.TagResource", handleOrgTagResource)
 	r.Register("AWSOrganizationsV20161128.UntagResource", handleOrgUntagResource)
 	r.Register("AWSOrganizationsV20161128.ListTagsForResource", handleOrgListTagsForResource)
 }
-
-// Helpers --------------------------------------------------------------------
 
 func orgRootID() string { return "r-sim0" }
 func orgEpoch() int64   { return time.Now().Unix() }
@@ -308,7 +275,7 @@ func orgRandHex(n int) string {
 }
 
 func orgNewAccountID() string {
-	// 12-digit account ids; keep it numeric like the real service.
+	// Account ids are 12 digits.
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	digits := make([]byte, 12)
@@ -374,8 +341,6 @@ func orgEnsureDefault() {
 		TargetId: orgRootID(),
 	})
 }
-
-// Response builders ----------------------------------------------------------
 
 func orgOrgToMap(o OrgOrganization) map[string]any {
 	return map[string]any{
@@ -475,8 +440,8 @@ func orgCreateStatusToMap(s OrgCreateAccountStatus) map[string]any {
 	return m
 }
 
-// orgRequireOrg returns the organization, writing AWSOrganizationsNotInUseException
-// if none exists. The default org always exists unless DeleteOrganization ran.
+// orgRequireOrg writes AWSOrganizationsNotInUseException when no organization
+// exists, which happens only after DeleteOrganization.
 func orgRequireOrg(w http.ResponseWriter) (OrgOrganization, bool) {
 	o, ok := orgOrg.Get(orgSingletonKey)
 	if !ok {
@@ -485,8 +450,6 @@ func orgRequireOrg(w http.ResponseWriter) (OrgOrganization, bool) {
 	}
 	return o, true
 }
-
-// Organization ops -----------------------------------------------------------
 
 func handleOrgCreateOrganization(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -497,7 +460,7 @@ func handleOrgCreateOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := orgOrg.Get(orgSingletonKey); ok {
-		// Real service raises this when the account already runs an org.
+		// AWS raises this when the account already runs an organization.
 		AWSError(w, "AlreadyInOrganizationException", "The provided account is already a member of an organization.", http.StatusBadRequest)
 		return
 	}
@@ -532,8 +495,8 @@ func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	// Real service starts a handshake the other accounts approve. The sim has a
-	// single (management) account, so the handshake is created and returned.
+	// AWS starts a handshake the member accounts approve; the simulator has only
+	// the management account, so it creates and returns the handshake.
 	now := orgEpoch()
 	h := OrgHandshake{
 		Id:                  "h-" + orgRandHex(16),
@@ -549,8 +512,6 @@ func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
 	orgHandshakes.Put(h.Id, h)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
 }
-
-// Account ops ----------------------------------------------------------------
 
 func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
@@ -571,8 +532,7 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	now := orgEpoch()
 	acctID := orgNewAccountID()
-	// The account is created immediately (the request transitions straight to
-	// SUCCEEDED); the real service is async but the sim has no provisioning lag.
+	// The account is created and the request settles SUCCEEDED at once; AWS provisions asynchronously.
 	orgAccounts.Put(acctID, OrgAccount{
 		Id:              acctID,
 		Arn:             orgAccountArn(acctID),
@@ -734,8 +694,6 @@ func handleOrgCloseAccount(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// OU ops ---------------------------------------------------------------------
-
 func orgParentExists(id string) bool {
 	if id == orgRootID() {
 		return true
@@ -789,7 +747,7 @@ func handleOrgDeleteOU(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "OrganizationalUnitNotFoundException", "We can't find an OU with the OrganizationalUnitId that you specified.", http.StatusBadRequest)
 		return
 	}
-	// Reject deletion of a non-empty OU like the real service.
+	// AWS refuses to delete an OU that is not empty.
 	if orgOUHasChildren(req.OrganizationalUnitId) {
 		AWSError(w, "OrganizationalUnitNotEmptyException", "The specified OU is not empty.", http.StatusBadRequest)
 		return
@@ -863,8 +821,6 @@ func handleOrgListOUsForParent(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"OrganizationalUnits": out})
 }
 
-// Tree navigation ------------------------------------------------------------
-
 func handleOrgListRoots(w http.ResponseWriter, _ *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -934,8 +890,6 @@ func handleOrgListParents(w http.ResponseWriter, r *http.Request) {
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Parents": out})
 }
-
-// Policy ops -----------------------------------------------------------------
 
 func handleOrgCreatePolicy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
@@ -1083,11 +1037,9 @@ func handleOrgAttachPolicy(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
-	// A policy governs a target only if its type is enabled in the root, so
-	// attaching one of a type nobody enabled is refused rather than stored:
-	// stored, it would resolve through DescribeEffectivePolicy as though it
-	// governed the target, which is a policy decision the organization never
-	// made. Service control policies are enabled in every root by default.
+	// A policy governs a target only if its type is enabled in the root, so refuse
+	// attaching one of a type no one enabled: stored, DescribeEffectivePolicy would
+	// resolve it. Service control policies are enabled in every root.
 	policy, _ := orgPolicies.Get(req.PolicyId)
 	if !orgPolicyTypeEnabled(policy.Type) {
 		AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
@@ -1378,8 +1330,6 @@ var orgEffectivePolicyTypes = func() map[string]bool {
 }()
 
 func orgEffectivePolicyContent(targetID, policyType string) string {
-	// Walk from the target up to the root, collecting the first policy content
-	// of this type attached along the way.
 	for _, id := range orgPathToRoot(targetID) {
 		for _, at := range orgPolicyAttachments.List() {
 			if at.TargetId != id {
@@ -1417,8 +1367,6 @@ func orgPathToRoot(targetID string) []string {
 	}
 	return path
 }
-
-// Handshake ops --------------------------------------------------------------
 
 func handleOrgInviteAccount(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
@@ -1522,8 +1470,6 @@ func handleOrgListHandshakesForOrganization(w http.ResponseWriter, _ *http.Reque
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshakes": out})
 }
-
-// Delegated admin & service access ------------------------------------------
 
 func orgDelegatedAdminKey(accountID, sp string) string { return accountID + "|" + sp }
 
@@ -1686,8 +1632,6 @@ func handleOrgListServiceAccess(w http.ResponseWriter, _ *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"EnabledServicePrincipals": out})
 }
 
-// Resource policy ------------------------------------------------------------
-
 func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
@@ -1749,8 +1693,6 @@ func handleOrgDescribeResourcePolicy(w http.ResponseWriter, _ *http.Request) {
 		},
 	})
 }
-
-// Tags -----------------------------------------------------------------------
 
 func handleOrgTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {

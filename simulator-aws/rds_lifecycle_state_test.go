@@ -16,9 +16,8 @@ import (
 )
 
 // TestRDSLifecycleActionsRequireTheirSourceState pins Amazon RDS's
-// InvalidDBInstanceState answer for a lifecycle action on an instance that is
-// not in the state the action runs from — starting an instance that is
-// already available used to try to bind its endpoint a second time.
+// InvalidDBInstanceState answer for a lifecycle action on an instance not in the
+// state the action runs from, such as starting an instance already available.
 func TestRDSLifecycleActionsRequireTheirSourceState(t *testing.T) {
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	for _, testCase := range []struct {

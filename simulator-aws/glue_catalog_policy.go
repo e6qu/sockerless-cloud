@@ -112,7 +112,7 @@ func handleGlueGetDataCatalogEncryptionSettings(w http.ResponseWriter, r *http.R
 	settings, _ := glueCatalogSettgs.Get(glueCatalogSettingsKey)
 	dcs := settings.DataCatalogEncryptionSettings
 	if dcs == nil {
-		// AWS returns an empty (default-disabled) settings object when none set.
+		// AWS returns default-disabled settings when none are set.
 		dcs = map[string]any{
 			"EncryptionAtRest":             map[string]any{"CatalogEncryptionMode": "DISABLED"},
 			"ConnectionPasswordEncryption": map[string]any{"ReturnConnectionPasswordEncrypted": false},

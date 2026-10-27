@@ -23,11 +23,9 @@ func init() {
 }
 
 func iamPopulateRDSRequestConditionKeys(r *http.Request, operation string, _ []byte, ctx map[string][]string) {
-	// rds:req-tag/${TagKey} is how RDS spells the tags carried IN the request —
-	// the key the reference declares on all 33 of its tag-on-create and tag
-	// operations, and the only RDS spelling of that fact. RDS's awsQuery tag
-	// member is Tags.Tag.N, not the Tag.N the aws:RequestTag reader looks for,
-	// so a policy holding a create to a required tag had nothing to match.
+	// rds:req-tag/${TagKey} is RDS's spelling of the tags a request carries,
+	// declared on all 33 of its tag-on-create and tag operations. RDS sends them as
+	// Tags.Tag.N, not the Tag.N the aws:RequestTag reader looks for.
 	for _, t := range parseIndexedTags(r, "Tags.Tag") {
 		ctx["rds:req-tag/"+t.Key] = []string{t.Value}
 	}

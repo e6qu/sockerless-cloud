@@ -7,15 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// TestSFN_MapCompletesWhileABackgroundDrainIsInProgress pins that a Map state's
-// own fan-out is not the kind of work a drain may drop.
-//
-// bg.Go drops what it is handed once a drain has begun — correct for work that
-// outlives the request that asked for it, and fatal for a fan-out the caller
-// joins. A dropped worker leaves the feed blocked on a channel nobody reads; a
-// dropped feed leaves the collector blocked on a channel nobody closes. Either
-// way the Map never returns and its map run stays RUNNING for good, which is
-// not a slow finish but no finish at all.
+// TestSFN_MapCompletesWhileABackgroundDrainIsInProgress pins that a drain never
+// drops a Map state's own fan-out. bg.Go drops work once a drain begins, which
+// suits work that outlives its request but not a fan-out the caller joins: a
+// dropped worker or feed blocks the Map forever and leaves its map run RUNNING.
 func TestSFN_MapCompletesWhileABackgroundDrainIsInProgress(t *testing.T) {
 	hold := make(chan struct{})
 	bg.Go(func() { <-hold })

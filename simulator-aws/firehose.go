@@ -67,12 +67,9 @@ func firehoseNormalizeEncryption(keyType, keyARN string) (FirehoseEncryption, er
 }
 
 // firehoseAuthorizeCustomerKeyUse proves the delivery stream's role may use the
-// stream's customer-managed CMK for one cryptographic operation. Amazon Data
-// Firehose reaches AWS KMS through its own regional endpoint on the principal's
-// behalf, so the role's policies are evaluated with kms:ViaService set to
-// firehose.<region>.amazonaws.com — which is how a KMS permission is narrowed
-// to use through Firehose alone and refused to anything else. A stream
-// encrypted with the AWS-owned key calls no customer key and needs no grant.
+// stream's customer managed key. Amazon Data Firehose calls AWS KMS on the role's
+// behalf, so evaluate the role's policies with kms:ViaService set to
+// firehose.<region>.amazonaws.com. A stream on the AWS owned key needs no check.
 func firehoseAuthorizeCustomerKeyUse(stream FirehoseDeliveryStream, action string) error {
 	if stream.Encryption.Status != "ENABLED" || stream.Encryption.KeyType != "CUSTOMER_MANAGED_CMK" {
 		return nil

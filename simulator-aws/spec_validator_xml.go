@@ -168,16 +168,11 @@ func (v *xmlShapeValidator) outputMembers(target string) (map[string]smithyMembe
 	return shape.Members, true
 }
 
-// validateRestXML covers S3 / CloudFront / Route 53 REST routes. The
-// operation is identified by the mux pattern that served the request
-// plus the smithy URI's query-string literals; non-restXml routes pass
-// through untouched.
 // restXMLKey is the "METHOD <normalized-uri>" the served route indexes an
-// operation by. It is the mux pattern for a path-addressed request; a
-// host-addressed data plane is resolved by what it serves instead, because the
-// path it matches belongs to a different operation — a read through an Object
-// Lambda access point carries the object key as the whole path, which matches
-// the bucket route ListObjects lives on.
+// operation by: the mux pattern for a path-addressed request, and for a
+// host-addressed data plane what it serves, since a read through an Object
+// Lambda access point carries the object key as the whole path and matches the
+// ListObjects bucket route.
 func (st *specValidatorState) restXMLKey(req *http.Request) (string, bool) {
 	if _, ok := s3ObjectLambdaHostAccessPoint(req.Host); ok &&
 		(req.Method == http.MethodGet || req.Method == http.MethodHead) {
@@ -192,11 +187,10 @@ func (st *specValidatorState) restXMLKey(req *http.Request) (string, bool) {
 		return "", false // method-less or host-addressed pattern: not a restXml surface
 	}
 	key := method + " " + normalizeAWSPath(strings.TrimSuffix(path, "{$}"))
-	// "/{bucket}/" addresses the bucket, not an object with an empty key.
-	// The S3 routes dispatch it to the bucket handler, so the operation its
-	// response is checked against has to be the bucket's too -- otherwise a
-	// PutBucketPolicy sent with a trailing slash is read as a PutObject and
-	// its 204 reported as a status PutObject does not declare.
+	// "/{bucket}/" addresses the bucket, which the S3 routes dispatch to the bucket
+	// handler, so check the response against the bucket's operation; read as
+	// PutObject, a PutBucketPolicy with a trailing slash would report its 204 as
+	// undeclared.
 	if strings.HasSuffix(key, "/{+}") && s3PathIsBucketOnly(req) {
 		key = strings.TrimSuffix(key, "/{+}")
 	}
@@ -400,9 +394,9 @@ func payloadRootName(member string, ref smithyMemberRef, shape smithyShapeDef, t
 	return member
 }
 
-// payloadRootNames additionally accepts the target shape's short name —
-// real AWS serializers vary between the member name and the shape name
-// when neither carries an xmlName trait.
+// payloadRootNames also accepts the target shape's short name: AWS serializers
+// vary between the member name and the shape name when neither carries an
+// xmlName.
 func payloadRootNames(member string, ref smithyMemberRef, shape smithyShapeDef, target string) map[string]bool {
 	names := map[string]bool{payloadRootName(member, ref, shape, target): true}
 	if traitString(ref.Traits, "smithy.api#xmlName") == "" && traitString(shape.Traits, "smithy.api#xmlName") == "" {
@@ -730,12 +724,10 @@ func truncateForDetail(s string) string {
 	return s
 }
 
-// looksLikeXML accepts an XML Content-Type or, absent one, a body that
-// starts with an XML declaration / element.
 // isEventStreamResponse reports whether the response is an AWS event stream
-// (application/vnd.amazon.eventstream) — a framed multi-message body the SDK's
-// eventstream decoder consumes, which carries no single XML/JSON envelope to
-// shape-validate (e.g. S3 SelectObjectContent, Logs StartLiveTail).
+// (application/vnd.amazon.eventstream), a framed body the SDK decoder consumes
+// with no single XML or JSON envelope to validate (S3 SelectObjectContent, Logs
+// StartLiveTail).
 func isEventStreamResponse(respHeader http.Header) bool {
 	return strings.Contains(respHeader.Get("Content-Type"), "vnd.amazon.eventstream")
 }

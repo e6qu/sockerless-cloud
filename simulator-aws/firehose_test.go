@@ -11,8 +11,7 @@ import (
 )
 
 func TestFirehoseEncryptedBufferPersistsCiphertextAndDestination(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	kmsKeyMaterial = sim.MakeStore[[]byte](nil, "kms_key_material")
 	plaintext := []byte("sensitive Firehose payload")

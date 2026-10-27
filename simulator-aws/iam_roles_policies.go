@@ -11,18 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM role permissions-boundary + description updates, instance-profile
-// tagging, managed-policy versioning, policy↔entity introspection, and
-// policy context-key extraction. These round out the managed-policy and role
-// surfaces registered in iam.go: terraform-provider-aws's aws_iam_policy uses
-// CreatePolicyVersion/SetDefaultPolicyVersion when a policy document changes,
-// aws_iam_role.permissions_boundary uses Put/DeleteRolePermissionsBoundary,
-// and audit tooling reads ListEntitiesForPolicy / GetContextKeysForPolicy.
-
-// IAMPolicyVersion is one stored version of a managed policy. Version v1 is
-// created implicitly by CreatePolicy (its document lives on IAMPolicy until a
-// second version exists); CreatePolicyVersion adds v2..v5. The default version
-// is tracked by IAMPolicy.DefaultVersionId.
+// Version v1 lives on IAMPolicy until a second version exists;
+// CreatePolicyVersion adds v2 to v5. IAMPolicy.DefaultVersionId names the
+// default.
 type IAMPolicyVersion struct {
 	PolicyArn  string `json:"policyArn"`
 	VersionId  string `json:"versionId"`
@@ -30,9 +21,8 @@ type IAMPolicyVersion struct {
 	CreateDate string `json:"createDate"`
 }
 
-// IAMInstanceProfileTagSet holds the tags attached to one instance profile.
-// The IAMInstanceProfile struct (iam.go) has no Tags field, so tags are kept
-// in their own store keyed by instance-profile name.
+// IAMInstanceProfile has no Tags field, so keep tags in their own store keyed by
+// instance-profile name.
 type IAMInstanceProfileTagSet struct {
 	InstanceProfileName string   `json:"instanceProfileName"`
 	Tags                []IAMTag `json:"tags"`
@@ -168,9 +158,8 @@ func handleIAMListInstanceProfileTags(w http.ResponseWriter, r *http.Request) {
 </ListInstanceProfileTagsResponse>`, iamXmlns, iamTagsXML(set.Tags), sim.NewUUID())
 }
 
-// iamPolicyVersionList returns every stored version of the policy, including
-// the implicit v1 (whose document lives on IAMPolicy until a later version is
-// created), sorted by ascending numeric version id.
+// iamPolicyVersionList returns every version of the policy, the implicit v1
+// included, in ascending numeric order.
 func iamPolicyVersionList(p IAMPolicy) []IAMPolicyVersion {
 	versions := iamPolicyVersions.Filter(func(v IAMPolicyVersion) bool {
 		return v.PolicyArn == p.Arn
@@ -195,7 +184,6 @@ func iamPolicyVersionList(p IAMPolicy) []IAMPolicyVersion {
 	return versions
 }
 
-// iamVersionNum parses the numeric portion of a "vN" policy version id.
 func iamVersionNum(id string) int {
 	return atoiDefault(strings.TrimPrefix(id, "v"), 0)
 }
@@ -253,9 +241,7 @@ func handleIAMCreatePolicyVersion(w http.ResponseWriter, r *http.Request) {
 </CreatePolicyVersionResponse>`, iamXmlns, iamPolicyVersionXML(ver, setAsDefault), sim.NewUUID())
 }
 
-// iamPolicyVersionXML renders a <PolicyVersion>. CreatePolicyVersion omits the
-// Document element (per the real API); GetPolicyVersion includes it. The
-// includeDoc flag distinguishes the two.
+// iamPolicyVersionXML renders a <PolicyVersion> without its Document, the shape CreatePolicyVersion returns.
 func iamPolicyVersionXML(v IAMPolicyVersion, isDefault bool) string {
 	return fmt.Sprintf("<PolicyVersion><VersionId>%s</VersionId><IsDefaultVersion>%t</IsDefaultVersion><CreateDate>%s</CreateDate></PolicyVersion>",
 		v.VersionId, isDefault, v.CreateDate)
@@ -413,9 +399,8 @@ func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleIAMListPoliciesGrantingServiceAccess reports, per requested service
-// namespace, which of the identity's attached managed + inline policies grant
-// at least one action in that namespace. The grant is derived from the real
-// policy documents (an action like "s3:*" or "*" matches the "s3" namespace).
+// namespace, which of the identity's policies grant an action in it; "s3:*" and
+// "*" both match s3.
 func handleIAMListPoliciesGrantingServiceAccess(w http.ResponseWriter, r *http.Request) {
 	principalArn := r.FormValue("Arn")
 	namespaces := iamQueryList(r, "ServiceNamespaces")
@@ -468,8 +453,6 @@ func handleIAMListPoliciesGrantingServiceAccess(w http.ResponseWriter, r *http.R
 </ListPoliciesGrantingServiceAccessResponse>`, iamXmlns, entries.String(), sim.NewUUID())
 }
 
-// iamGrantingPolicy bundles a policy document with the metadata
-// ListPoliciesGrantingServiceAccess reports for it.
 type iamGrantingPolicy struct {
 	doc        iamPolicyDoc
 	name       string
@@ -479,9 +462,6 @@ type iamGrantingPolicy struct {
 	entityName string
 }
 
-// iamPoliciesForPrincipal collects the managed (attached) and inline policies
-// of a user or role principal ARN, with the metadata
-// ListPoliciesGrantingServiceAccess reports.
 func iamPoliciesForPrincipal(principalArn string) []iamGrantingPolicy {
 	var out []iamGrantingPolicy
 	addManaged := func(policyArn string) {

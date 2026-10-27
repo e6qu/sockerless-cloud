@@ -10,13 +10,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Glue — Catalog (multi-catalog), Table Optimizer, BatchGet*, and zero-ETL
-// Integration families. AWS JSON 1.1 (X-Amz-Target: AWSGlue.<Op>). Faithful CRUD
-// on real sim.Stores; the BatchGet* ops read the existing Glue stores (crawlers,
-// jobs, triggers, workflows, connections) defined in glue.go, read-only.
-
-// GlueCatalog models a Glue Data Catalog (the multi-catalog feature). Keyed by
-// the catalog name; the response carries CatalogId == Name and a ResourceArn.
+// Keyed by catalog name; the response carries CatalogId == Name.
 type GlueCatalog struct {
 	CatalogId         string            `json:"CatalogId"`
 	Name              string            `json:"Name"`
@@ -30,9 +24,8 @@ type GlueCatalog struct {
 	Tags              map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueTableOptimizer models a table optimizer attached to a (catalog, database,
-// table, type) where type is compaction/retention/orphan_file_deletion. The
-// wire shape (TableOptimizer) uses camelCase member names.
+// Type is compaction, retention or orphan_file_deletion. The TableOptimizer wire
+// shape uses camelCase member names.
 type GlueTableOptimizer struct {
 	CatalogId     string                   `json:"-"`
 	DatabaseName  string                   `json:"-"`
@@ -43,10 +36,9 @@ type GlueTableOptimizer struct {
 	Runs          []GlueTableOptimizerRun  `json:"-"`
 }
 
-// GlueTableOptimizerConfig is stored verbatim to preserve the nested wire shape.
+// Store verbatim to keep the nested wire shape.
 type GlueTableOptimizerConfig map[string]any
 
-// GlueTableOptimizerRun is one optimizer run record (TableOptimizerRun shape).
 type GlueTableOptimizerRun struct {
 	EventType      string  `json:"eventType,omitempty"`
 	StartTimestamp float64 `json:"startTimestamp,omitempty"`
@@ -54,7 +46,6 @@ type GlueTableOptimizerRun struct {
 	Error          string  `json:"error,omitempty"`
 }
 
-// GlueIntegration models a zero-ETL integration keyed by IntegrationName.
 type GlueIntegration struct {
 	IntegrationName             string            `json:"IntegrationName"`
 	IntegrationArn              string            `json:"IntegrationArn"`
@@ -70,8 +61,7 @@ type GlueIntegration struct {
 	Tags                        []map[string]any  `json:"Tags,omitempty"`
 }
 
-// GlueIntegrationResourceProperty holds the source/target processing properties
-// for an integration, keyed by ResourceArn.
+// Keyed by ResourceArn.
 type GlueIntegrationResourceProperty struct {
 	ResourceArn                string         `json:"ResourceArn"`
 	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
@@ -79,8 +69,7 @@ type GlueIntegrationResourceProperty struct {
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
 }
 
-// GlueIntegrationTableProperties holds the source/target table configuration for
-// an integration's replicated table, keyed by ResourceArn + TableName.
+// Keyed by ResourceArn and TableName.
 type GlueIntegrationTableProperties struct {
 	ResourceArn       string         `json:"ResourceArn"`
 	TableName         string         `json:"TableName"`
@@ -96,8 +85,6 @@ var (
 	glueIntegTableProps sim.Store[GlueIntegrationTableProperties]
 )
 
-// registerGlueCatalogOptimizer registers the Catalog / Table Optimizer / BatchGet /
-// Integration awsJson1.1 operations onto the shared Glue router.
 func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	glueCatalogs = sim.MakeStore[GlueCatalog](srv.DB(), "glue_catalogs")
 	glueTableOptimizers = sim.MakeStore[GlueTableOptimizer](srv.DB(), "glue_table_optimizers")
@@ -105,14 +92,12 @@ func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	glueIntegResProps = sim.MakeStore[GlueIntegrationResourceProperty](srv.DB(), "glue_integration_resource_properties")
 	glueIntegTableProps = sim.MakeStore[GlueIntegrationTableProperties](srv.DB(), "glue_integration_table_properties")
 
-	// Catalog (multi-catalog).
 	r.Register("AWSGlue.CreateCatalog", handleGlueCreateCatalog)
 	r.Register("AWSGlue.GetCatalog", handleGlueGetCatalog)
 	r.Register("AWSGlue.GetCatalogs", handleGlueGetCatalogs)
 	r.Register("AWSGlue.UpdateCatalog", handleGlueUpdateCatalog)
 	r.Register("AWSGlue.DeleteCatalog", handleGlueDeleteCatalog)
 
-	// Table Optimizer.
 	r.Register("AWSGlue.CreateTableOptimizer", handleGlueCreateTableOptimizer)
 	r.Register("AWSGlue.GetTableOptimizer", handleGlueGetTableOptimizer)
 	r.Register("AWSGlue.BatchGetTableOptimizer", handleGlueBatchGetTableOptimizer)
@@ -120,7 +105,6 @@ func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.DeleteTableOptimizer", handleGlueDeleteTableOptimizer)
 	r.Register("AWSGlue.ListTableOptimizerRuns", handleGlueListTableOptimizerRuns)
 
-	// BatchGet families reading existing stores.
 	r.Register("AWSGlue.BatchGetCrawlers", handleGlueBatchGetCrawlers)
 	r.Register("AWSGlue.BatchGetJobs", handleGlueBatchGetJobs)
 	r.Register("AWSGlue.BatchGetTriggers", handleGlueBatchGetTriggers)
@@ -129,21 +113,18 @@ func registerGlueCatalogOptimizer(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.BatchDeleteConnection", handleGlueBatchDeleteConnection)
 	r.Register("AWSGlue.BatchUpdatePartition", handleGlueBatchUpdatePartition)
 
-	// Integration (zero-ETL).
 	r.Register("AWSGlue.CreateIntegration", handleGlueCreateIntegration)
 	r.Register("AWSGlue.DescribeIntegrations", handleGlueDescribeIntegrations)
 	r.Register("AWSGlue.ModifyIntegration", handleGlueModifyIntegration)
 	r.Register("AWSGlue.DeleteIntegration", handleGlueDeleteIntegration)
 	r.Register("AWSGlue.DescribeInboundIntegrations", handleGlueDescribeInboundIntegrations)
 
-	// Integration resource properties.
 	r.Register("AWSGlue.CreateIntegrationResourceProperty", handleGlueCreateIntegrationResourceProperty)
 	r.Register("AWSGlue.GetIntegrationResourceProperty", handleGlueGetIntegrationResourceProperty)
 	r.Register("AWSGlue.UpdateIntegrationResourceProperty", handleGlueUpdateIntegrationResourceProperty)
 	r.Register("AWSGlue.DeleteIntegrationResourceProperty", handleGlueDeleteIntegrationResourceProperty)
 	r.Register("AWSGlue.ListIntegrationResourceProperties", handleGlueListIntegrationResourceProperties)
 
-	// Integration table properties.
 	r.Register("AWSGlue.CreateIntegrationTableProperties", handleGlueCreateIntegrationTableProperties)
 	r.Register("AWSGlue.GetIntegrationTableProperties", handleGlueGetIntegrationTableProperties)
 	r.Register("AWSGlue.UpdateIntegrationTableProperties", handleGlueUpdateIntegrationTableProperties)
@@ -155,7 +136,6 @@ func glueCatalogArn(name string) string {
 	return fmt.Sprintf("arn:aws:glue:%s:%s:catalog/%s", awsRegion(), awsAccountID(), name)
 }
 
-// glueIntegrationArn is the ARN of the integration AWS Glue assigned id to.
 func glueIntegrationArn(id string) string {
 	return fmt.Sprintf("arn:aws:glue:%s:%s:integration:%s", awsRegion(), awsAccountID(), id)
 }
@@ -311,8 +291,7 @@ func handleGlueDeleteCatalog(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// glueCatalogWire emits the Catalog output shape, omitting the Tags member which
-// the SDK Catalog shape does not carry (tags ride GetTags).
+// Omit Tags: the Catalog shape does not carry it; tags ride GetTags.
 func glueCatalogWire(c GlueCatalog) map[string]any {
 	m := map[string]any{
 		"CatalogId":   c.CatalogId,
@@ -336,7 +315,6 @@ func glueCatalogWire(c GlueCatalog) map[string]any {
 	return m
 }
 
-// glueTableOptimizerKey scopes an optimizer to its table + type.
 func glueTableOptimizerKey(database, table, optType string) string {
 	return database + "/" + table + "/" + optType
 }
@@ -645,9 +623,8 @@ func handleGlueBatchGetWorkflows(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// handleGlueBatchGetCustomEntityTypes reads the (not-yet-populated) custom entity
-// type store; with no CreateCustomEntityType slice all requested names are
-// reported as not found — the faithful response shape for unknown names.
+// handleGlueBatchGetCustomEntityTypes reports every requested name as not found;
+// it does not consult glueCustomEntityTypes.
 func handleGlueBatchGetCustomEntityTypes(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Names []string `json:"Names"`
@@ -939,7 +916,7 @@ func handleGlueDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueResolveIntegration finds an integration by name or ARN. Caller holds glueMu.
+// glueResolveIntegration finds an integration by name or ARN. The caller holds glueMu.
 func glueResolveIntegration(identifier string) (GlueIntegration, bool) {
 	if integ, ok := glueIntegrations.Get(identifier); ok {
 		return integ, true
@@ -1134,13 +1111,9 @@ func glueIntegTablePropKey(resourceArn, tableName string) string {
 	return resourceArn + "\x1f" + tableName
 }
 
-// handleGlueListIntegrationTableProperties lists the integration table properties
-// in the account, a page at a time (Marker, MaxRecords). A filter narrows the
-// list: SourceArn and TargetArn match the resource the properties were created
-// for, and SourceTableName and TargetTableName match the table name. A filter
-// name the operation does not define is an InvalidInputException rather than a
-// filter silently ignored. Entries are ordered by resource and table so a
-// Marker names the same position on every call.
+// A filter name the operation does not define is an InvalidInputException.
+// Order entries by resource and table so a Marker names the same position on
+// every call.
 func handleGlueListIntegrationTableProperties(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Marker     string `json:"Marker"`

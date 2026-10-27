@@ -10,11 +10,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM groups + the cross-principal effective-policy resolution that call-time
-// enforcement and STS use. A user's effective policies are its own inline +
-// attached policies PLUS the inline + attached policies of every group it
-// belongs to (real IAM group inheritance). Role policy docs are resolved the
-// same way the SimulatePrincipalPolicy path does.
+// A user's effective policies are its own inline and attached policies plus
+// those of every group it belongs to.
 
 type IAMGroup struct {
 	GroupName  string
@@ -41,7 +38,6 @@ type IAMGroupAttachedPolicy struct {
 	PolicyName string
 }
 
-// IAMUserBoundary records a user's permission-boundary managed-policy ARN.
 type IAMUserBoundary struct {
 	UserName  string
 	PolicyArn string
@@ -81,7 +77,6 @@ func registerIAMGroups(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ListUsers", handleIAMListUsers)
 }
 
-// iamPolicyDocsForRole collects a role's inline + attached managed policy docs.
 func iamPolicyDocsForRole(roleName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
 	for _, row := range iamRolePolicies.ListPrefix(iamOwnedKeyPrefix(roleName)) {
@@ -105,9 +100,9 @@ func iamPolicyDocsForRole(roleName string) []iamPolicyDoc {
 	return docs
 }
 
-// iamPermissionBoundaryDocs returns the policy documents of a user's permission
-// boundary (empty when none is set). A boundary caps the user's effective
-// permissions to the intersection of its identity policies and the boundary.
+// iamPermissionBoundaryDocs returns a user's permissions boundary documents,
+// empty when none is set. The boundary caps effective permissions at its
+// intersection with the identity policies.
 func iamPermissionBoundaryDocs(userName string) []iamPolicyDoc {
 	if userName == "" {
 		return nil
@@ -141,8 +136,6 @@ func handleIAMDeleteUserBoundary(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "DeleteUserPermissionsBoundary")
 }
 
-// iamEffectivePolicyDocsForUser is the user's own policies plus the policies of
-// every group the user belongs to (IAM group inheritance).
 func iamEffectivePolicyDocsForUser(userName string) []iamPolicyDoc {
 	docs := iamPolicyDocsForUser(userName)
 	for _, m := range iamGroupMembersByUser.LookupAll(iamGroupMembers, userName, func(m IAMGroupMember) []string {
@@ -394,8 +387,7 @@ func iamGroupInnerXML(g IAMGroup) string {
 		xmlEscape(g.Path), xmlEscape(g.GroupName), g.GroupId, xmlEscape(g.Arn), g.CreateDate)
 }
 
-// iamUserInnerXML is the user's fields without the <User> wrapper, for embedding
-// inside <member> elements (ListUsers, GetGroup Users list).
+// iamUserInnerXML emits the user's fields without the <User> wrapper, for <member> elements.
 func iamUserInnerXML(u IAMUser) string {
 	return fmt.Sprintf("<Path>%s</Path><UserName>%s</UserName><UserId>%s</UserId><Arn>%s</Arn><CreateDate>%s</CreateDate>",
 		xmlEscape(u.Path), xmlEscape(u.UserName), u.UserId, xmlEscape(u.Arn), u.CreateDate)

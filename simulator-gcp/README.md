@@ -13,17 +13,72 @@ and `SOCKERLESS_SPEC_VALIDATE` checks live responses against them.
 
 ## Run it
 
+Install it with Go, run the release image, or build it from a checkout.
+
+`go install` takes the newest commit with `@main`. Go pins a release by its
+commit, because the repository tags only `vX.Y.Z` at its root: replace `main`
+with the release commit. Don't use `@latest`, which resolves to an old
+bootstrap version the module proxy still serves.
+
+<!-- doctest: part name=install -->
+<!-- doctest: run -->
 ```sh
-# A release. Go pins it by its commit: the repository tags only vX.Y.Z at its root.
-go install github.com/e6qu/sockerless-cloud/simulator-gcp@<release-commit>
+go install github.com/e6qu/sockerless-cloud/simulator-gcp@main
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Start it in a terminal of its own. It prints `Listening on` once port 4567
+answers:
+
+<!-- doctest: background id=gcp ready="Listening on" -->
+```sh
 simulator-gcp
+```
 
-# The release image, API-only.
-docker run --rm -p 4567:4567 -p 4569:4569 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-gcp:vX.Y.Z
+`GET /health` reports how it runs:
 
-# A checkout, with the console embedded (-tags console). Run from the repository root.
+<!-- doctest: run expect="\"runtime\":\"docker\"" expect="\"workloadExecution\":true" -->
+```sh
+curl -s http://localhost:4567/health
+```
+
+<!-- doctest: part name=image -->
+The release image runs API-only:
+
+<!-- x-release-please-start-version -->
+<!-- doctest: background id=image ready="Listening on" -->
+```sh
+docker run --rm -p 4567:4567 -p 4569:4569 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-gcp:v3.1.0
+```
+<!-- x-release-please-end -->
+
+<!-- doctest: run expect="\"runtime\":\"process\"" expect="\"workloadExecution\":false" -->
+```sh
+curl -s http://localhost:4567/health
+```
+
+<!-- doctest: part name=checkout -->
+A checkout builds the console and embeds it with `-tags console`:
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
 (cd ui && bun install && bunx turbo run build --filter=@sockerless/ui-simulator-gcp)
-make simulator-gcp/build && ./simulator-gcp/simulator-gcp
+make simulator-gcp/build
+export PATH="$PWD/simulator-gcp:$PATH"
+```
+
+<!-- doctest: background id=gcp ready="Listening on" -->
+```sh
+simulator-gcp
+```
+
+The console answers under `/ui/`:
+
+<!-- doctest: run expect="(?i)<!doctype html>" -->
+```sh
+curl -s http://localhost:4567/ui/
 ```
 
 `go install` and a plain `go build` embed no console; the release binaries and
@@ -72,9 +127,11 @@ Write the key as a service-account credential file, the JSON IAM's
 `keys.create` returns. Its `token_uri` names the simulator's token endpoint;
 `-token-uri` sets another port:
 
+<!-- doctest: run expect="\"client_email\": \"sockerless-bootstrap@sockerless\\.iam\\.gserviceaccount\\.com\"" -->
 ```sh
-go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o bootstrap-key.json
+go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@main -o bootstrap-key.json
 # In a checkout: go run ./testutil/cmd/gcp-bootstrap-key -o bootstrap-key.json
+grep client_email bootstrap-key.json
 ```
 
 A client signs a JWT with the key and exchanges it at `token_uri`, as it does
@@ -86,6 +143,7 @@ through Cloud Resource Manager, and other accounts and keys through IAM.
 
 ### gcloud
 
+<!-- doctest: run expect="Creating gs://demo/" expect="sockerless-bootstrap@sockerless\\.iam\\.gserviceaccount\\.com" -->
 ```sh
 export CLOUDSDK_CONFIG=$PWD/gcloud-sim   # keep the simulator out of your own configuration
 gcloud auth activate-service-account --key-file=bootstrap-key.json
@@ -308,9 +366,21 @@ the Cloud Run service behind it with the function's name taken off the path.
 The simulator answers both on its own port: a `lbplane.HostRouter` claims each
 request by its `Host` and hands every other request to the APIs.
 
+With gcloud configured as above, deploy a service, mint an ID token for its
+URL, and call it at the simulator's port by its host:
+
+<!-- doctest: run expect="Service URL: https://hello-[a-z0-9]+-us-central1\\.a\\.run\\.app" expect="(?m)^hello$" -->
 ```sh
-curl -H "Host: my-fn-<hash>-us-central1.a.run.app" -H "Authorization: Bearer $ID_TOKEN" \
-  http://localhost:4567/hello
+gcloud config set api_endpoint_overrides/run http://localhost:4567/
+gcloud config set api_endpoint_overrides/serviceusage http://localhost:4567/
+HTTP_PROXY=http://localhost:4567 gcloud run deploy hello --region=us-central1 --quiet \
+  --image=mirror.gcr.io/library/busybox:latest \
+  --command=sh --args=-c,'mkdir -p /www && echo hello > /www/index.html && exec httpd -f -p 8080 -h /www'
+URL=$(HTTP_PROXY=http://localhost:4567 gcloud run services describe hello \
+  --region=us-central1 --format='value(status.url)')
+ID_TOKEN=$(gcloud auth print-identity-token --audiences="$URL")
+
+curl -H "Host: ${URL#https://}" -H "Authorization: Bearer $ID_TOKEN" http://localhost:4567/
 ```
 
 The front end starts an instance when none is running, and passes the

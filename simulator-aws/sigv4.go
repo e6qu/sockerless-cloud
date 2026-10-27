@@ -14,27 +14,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SigV4 request-authentication gate.
-//
-// Before this gate, the simulator read the caller's access-key id straight out
-// of the cleartext `Authorization: AWS4-HMAC-SHA256 Credential=<AKID>/…` field
-// and never checked the `Signature=` component. Any client could therefore
-// present any registered principal's access-key id and be treated as that
-// principal — impersonation with no proof of possession of the secret.
-//
-// sigv4Verify closes that hole by recomputing the SigV4 signature the way the
-// real AWS front end does: it rebuilds the canonical request from the actual
-// request (method, canonical URI, canonical query, the signed headers, and the
-// payload hash the client declared), derives the SigV4 signing key from the
-// principal's stored secret access key, and constant-time-compares the result
-// with the presented signature. A tampered signature, an unknown or inactive
-// key, an expired temporary credential, or a session-token mismatch is
-// rejected with the same error the real service returns.
-//
-// The gate runs at every chokepoint that resolves a request to a registered
-// principal: the control-plane dispatcher (POST /), the S3 REST handlers,
-// AWS Lambda's REST control plane, and the REST routes awsRESTAuthenticate
-// guards. Authentication (this gate) runs first, then authorization.
+// sigv4Verify recomputes the SigV4 signature as the AWS front end does: it
+// rebuilds the canonical request (method, canonical URI, canonical query, signed
+// headers, declared payload hash), derives the signing key from the principal's
+// stored secret and compares in constant time. A tampered signature, an unknown
+// or inactive key, an expired temporary credential or a session-token mismatch
+// fails with the service's own error. The gate runs, before authorization, at
+// every chokepoint that resolves a principal: POST /, the S3 REST handlers,
+// Lambda's REST control plane and awsRESTAuthenticate's routes.
 
 // sigv4Result reports whether a request carried a credential at all. Whether an
 // absent credential is fatal depends on the surface (the control plane requires
@@ -87,16 +74,11 @@ func parseCredScope(s string) (credScope, bool) {
 	return credScope{accessKeyID: parts[0], date: parts[1], region: parts[2], service: parts[3]}, true
 }
 
-// sigv4Verify authenticates a request. body is the already-buffered request body
-// used only to compute the payload hash when the request omits the
-// x-amz-content-sha256 header; callers that must not consume a streaming body
-// (S3 uploads) pass nil and rely on the header, which S3 clients always send.
-//
-// aws-sdk-go-v2's v4 signer double-URI-encodes the canonical path for every
-// service except S3 (S3's client middleware sets DisableURIPathEscaping, the
-// one exemption the SigV4 spec itself carves out); this is sigv4Verify's
-// default (doubleEncodePath=true). Call sigv4VerifyS3 for the S3 REST gate,
-// the sole single-encode surface.
+// sigv4Verify authenticates a request. body is the buffered request body, hashed
+// only when the request omits x-amz-content-sha256; a caller that must not
+// consume a streaming body (S3 uploads) passes nil and relies on the header,
+// which S3 clients always send. aws-sdk-go-v2 double-encodes the canonical path
+// for every service except S3; sigv4VerifyS3 serves that single-encode surface.
 func sigv4Verify(r *http.Request, body []byte) (sigv4Result, *sigv4Error) {
 	return sigv4VerifyEncoding(r, body, true)
 }
@@ -279,19 +261,11 @@ func sigv4CanonicalRequest(r *http.Request, signedHeaders []string, canonicalQue
 	}, "\n")
 }
 
-// sigv4CanonicalURI builds the canonical URI path. Real AWS's SigV4 spec
-// double-URI-encodes the path for every service except S3, and
-// aws-sdk-go-v2's v4 signer implements exactly that (S3's client middleware
-// sets DisableURIPathEscaping; every other service — including the
-// control-plane dispatcher at path "/", where the distinction is moot, and
-// Lambda's REST control plane, whose ARN path segments contain ':' — does
-// not). doubleEncodePath=false reproduces the S3 gate's existing behavior
-// unchanged: a single pass of awsURIEncode over the request's decoded path.
-// doubleEncodePath=true mirrors the SDK's two passes: r.URL.EscapedPath()
-// (the server-observed wire path — Go's http server reconstructs this from
-// what the client actually sent) re-encoded a second time, so a literal ':'
-// or other reserved character the wire path carried unescaped becomes %3A
-// exactly as the client's second signer pass computed it.
+// sigv4CanonicalURI builds the canonical URI. SigV4 double-encodes the path for
+// every service except S3, as aws-sdk-go-v2 does. doubleEncodePath=false applies
+// one awsURIEncode pass over the decoded path (S3); true re-encodes
+// r.URL.EscapedPath(), the wire path, so a ':' the wire carried unescaped
+// becomes %3A as the signer's second pass computed it.
 func sigv4CanonicalURI(r *http.Request, doubleEncodePath bool) string {
 	// A virtual-hosted request on a directory bucket's zonal endpoint was
 	// rewritten onto a path the router works in; the client signed the path it

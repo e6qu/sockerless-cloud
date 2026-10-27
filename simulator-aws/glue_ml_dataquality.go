@@ -9,14 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS Glue — ML Transforms, Data Quality (rulesets, evaluation/recommendation
-// runs, results, models) and Column-Statistics-Task families. AWS JSON 1.1
-// protocol (X-Amz-Target: AWSGlue.<Op>), sharing glue.go's mutex, write
-// helpers, and pagination. Runs settle to a terminal state synchronously since
-// the simulator has no async backend; results over no real data are
-// empty/zero-but-shaped (no fabricated metrics).
+// Runs settle to a terminal state synchronously: the simulator has no AWS Glue
+// compute backend. Results over no data are empty but shaped, never fabricated
+// metrics.
 
-// GlueMLTransform models a machine learning transform keyed by TransformId.
 type GlueMLTransform struct {
 	TransformId       string            `json:"TransformId"`
 	Name              string            `json:"Name"`
@@ -37,8 +33,7 @@ type GlueMLTransform struct {
 	Tags              map[string]string `json:"Tags,omitempty"`
 }
 
-// glueMLTransformWire strips Tags from the response — the real MLTransform
-// shape has no Tags member (tags ride GetTags / ListMLTransforms input).
+// Drop Tags: the MLTransform shape has none (tags ride GetTags).
 type glueMLTransformWire struct {
 	GlueMLTransform
 }
@@ -56,7 +51,6 @@ func (t glueMLTransformWire) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// GlueDataQualityRuleset models a Data Quality ruleset keyed by name.
 type GlueDataQualityRuleset struct {
 	Name                             string            `json:"Name"`
 	Description                      string            `json:"Description,omitempty"`
@@ -69,9 +63,7 @@ type GlueDataQualityRuleset struct {
 	Tags                             map[string]string `json:"Tags,omitempty"`
 }
 
-// glueRuleCount counts the rules in a DQDL ruleset string (the number of
-// commas at the top level of the "Rules = [ ... ]" block, +1). The simulator
-// keeps this faithful to the stored ruleset text rather than fabricating one.
+// glueRuleCount counts the top-level comma-separated rules in a DQDL "Rules = [ ... ]" block.
 func glueRuleCount(ruleset string) *int {
 	open := strings.Index(ruleset, "[")
 	closeI := strings.LastIndex(ruleset, "]")
@@ -87,8 +79,7 @@ func glueRuleCount(ruleset string) *int {
 	return &count
 }
 
-// GlueDQRulesetEvaluationRun models a Data Quality ruleset evaluation run keyed
-// by RunId. It settles SUCCEEDED synchronously, producing a result row.
+// Settles SUCCEEDED synchronously and produces a result row.
 type GlueDQRulesetEvaluationRun struct {
 	RunId                string         `json:"RunId"`
 	DataSource           map[string]any `json:"DataSource,omitempty"`
@@ -105,8 +96,7 @@ type GlueDQRulesetEvaluationRun struct {
 	ResultIds            []string       `json:"ResultIds,omitempty"`
 }
 
-// GlueDQRuleRecommendationRun models a Data Quality rule-recommendation run
-// keyed by RunId. It settles SUCCEEDED synchronously and recommends a ruleset.
+// Settles SUCCEEDED synchronously and recommends a ruleset.
 type GlueDQRuleRecommendationRun struct {
 	RunId                            string         `json:"RunId"`
 	DataSource                       map[string]any `json:"DataSource,omitempty"`
@@ -123,9 +113,7 @@ type GlueDQRuleRecommendationRun struct {
 	DataQualitySecurityConfiguration string         `json:"DataQualitySecurityConfiguration,omitempty"`
 }
 
-// GlueDataQualityResult models the result row produced by a ruleset evaluation
-// run, keyed by ResultId. Over no real data it carries an empty (but shaped)
-// rule-result set — no fabricated metrics.
+// Over no real data a result carries an empty but shaped rule-result set.
 type GlueDataQualityResult struct {
 	ResultId               string           `json:"ResultId"`
 	ProfileId              string           `json:"ProfileId,omitempty"`
@@ -150,8 +138,7 @@ type GlueDataQualityResult struct {
 	PublishRequest    string            `json:"PublishRequest,omitempty"`
 }
 
-// GlueColumnStatsTaskSettings models per-(database,table) column-statistics
-// task settings.
+// Keyed by database and table.
 type GlueColumnStatsTaskSettings struct {
 	DatabaseName          string        `json:"DatabaseName"`
 	TableName             string        `json:"TableName"`
@@ -165,8 +152,7 @@ type GlueColumnStatsTaskSettings struct {
 	SettingSource         string        `json:"SettingSource,omitempty"`
 }
 
-// GlueColumnStatsTaskRun models one column-statistics task run keyed by its
-// ColumnStatisticsTaskRunId. It settles SUCCEEDED synchronously.
+// Settles SUCCEEDED synchronously.
 type GlueColumnStatsTaskRun struct {
 	ColumnStatisticsTaskRunId string   `json:"ColumnStatisticsTaskRunId"`
 	DatabaseName              string   `json:"DatabaseName"`
@@ -194,14 +180,11 @@ var (
 	glueCSTaskRuns   sim.Store[GlueColumnStatsTaskRun]
 )
 
-// glueCSTaskKey is the store key for column-statistics task settings, scoped to
-// a (database, table) pair.
 func glueCSTaskKey(database, table string) string {
 	return database + "/" + table
 }
 
-// glueHashID returns a 32-char hex id (no dashes) shaped like the real Glue
-// HashString ids.
+// glueHashID returns a 32-character hex id shaped like Glue's HashString ids.
 func glueHashID() string {
 	return strings.ReplaceAll(uuid.New().String(), "-", "")
 }
@@ -215,7 +198,6 @@ func registerGlueMLDataQuality(r *AWSRouter, srv *sim.Server) {
 	glueCSTaskSettgs = sim.MakeStore[GlueColumnStatsTaskSettings](srv.DB(), "glue_cs_task_settings")
 	glueCSTaskRuns = sim.MakeStore[GlueColumnStatsTaskRun](srv.DB(), "glue_cs_task_runs")
 
-	// ML Transforms.
 	r.Register("AWSGlue.CreateMLTransform", handleGlueCreateMLTransform)
 	r.Register("AWSGlue.GetMLTransform", handleGlueGetMLTransform)
 	r.Register("AWSGlue.GetMLTransforms", handleGlueGetMLTransforms)
@@ -223,26 +205,22 @@ func registerGlueMLDataQuality(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.UpdateMLTransform", handleGlueUpdateMLTransform)
 	r.Register("AWSGlue.DeleteMLTransform", handleGlueDeleteMLTransform)
 
-	// Data Quality rulesets.
 	r.Register("AWSGlue.CreateDataQualityRuleset", handleGlueCreateDataQualityRuleset)
 	r.Register("AWSGlue.GetDataQualityRuleset", handleGlueGetDataQualityRuleset)
 	r.Register("AWSGlue.ListDataQualityRulesets", handleGlueListDataQualityRulesets)
 	r.Register("AWSGlue.UpdateDataQualityRuleset", handleGlueUpdateDataQualityRuleset)
 	r.Register("AWSGlue.DeleteDataQualityRuleset", handleGlueDeleteDataQualityRuleset)
 
-	// Data Quality ruleset evaluation runs.
 	r.Register("AWSGlue.StartDataQualityRulesetEvaluationRun", handleGlueStartDataQualityRulesetEvaluationRun)
 	r.Register("AWSGlue.GetDataQualityRulesetEvaluationRun", handleGlueGetDataQualityRulesetEvaluationRun)
 	r.Register("AWSGlue.CancelDataQualityRulesetEvaluationRun", handleGlueCancelDataQualityRulesetEvaluationRun)
 	r.Register("AWSGlue.ListDataQualityRulesetEvaluationRuns", handleGlueListDataQualityRulesetEvaluationRuns)
 
-	// Data Quality rule recommendation runs.
 	r.Register("AWSGlue.StartDataQualityRuleRecommendationRun", handleGlueStartDataQualityRuleRecommendationRun)
 	r.Register("AWSGlue.GetDataQualityRuleRecommendationRun", handleGlueGetDataQualityRuleRecommendationRun)
 	r.Register("AWSGlue.CancelDataQualityRuleRecommendationRun", handleGlueCancelDataQualityRuleRecommendationRun)
 	r.Register("AWSGlue.ListDataQualityRuleRecommendationRuns", handleGlueListDataQualityRuleRecommendationRuns)
 
-	// Data Quality results + models.
 	r.Register("AWSGlue.GetDataQualityResult", handleGlueGetDataQualityResult)
 	r.Register("AWSGlue.BatchGetDataQualityResult", handleGlueBatchGetDataQualityResult)
 	r.Register("AWSGlue.ListDataQualityResults", handleGlueListDataQualityResults)
@@ -254,13 +232,11 @@ func registerGlueMLDataQuality(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.BatchGetDataQualityResultV2", handleGlueBatchGetDataQualityResultV2)
 	r.Register("AWSGlue.ListDataQualityResultsV2", handleGlueListDataQualityResultsV2)
 
-	// Column-statistics task settings.
 	r.Register("AWSGlue.CreateColumnStatisticsTaskSettings", handleGlueCreateColumnStatisticsTaskSettings)
 	r.Register("AWSGlue.GetColumnStatisticsTaskSettings", handleGlueGetColumnStatisticsTaskSettings)
 	r.Register("AWSGlue.UpdateColumnStatisticsTaskSettings", handleGlueUpdateColumnStatisticsTaskSettings)
 	r.Register("AWSGlue.DeleteColumnStatisticsTaskSettings", handleGlueDeleteColumnStatisticsTaskSettings)
 
-	// Column-statistics task runs.
 	r.Register("AWSGlue.StartColumnStatisticsTaskRun", handleGlueStartColumnStatisticsTaskRun)
 	r.Register("AWSGlue.GetColumnStatisticsTaskRun", handleGlueGetColumnStatisticsTaskRun)
 	r.Register("AWSGlue.GetColumnStatisticsTaskRuns", handleGlueGetColumnStatisticsTaskRuns)
@@ -336,8 +312,7 @@ func handleGlueGetMLTransform(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Transform not found: "+req.TransformId)
 		return
 	}
-	// GetMLTransform returns the transform's members at the top level (not
-	// nested), per the response shape — emit via the Tags-stripping wire form.
+	// GetMLTransform returns the transform's members at the top level, without Tags.
 	b, _ := json.Marshal(glueMLTransformWire{t})
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
@@ -650,17 +625,15 @@ func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *ht
 	runID := glueHashID()
 	now := glueEpochNow()
 
-	// Settle synchronously: one result row per ruleset evaluated. Over no real
-	// data the row carries an empty (but shaped) rule-result set.
+	// Settle synchronously with one result row per ruleset; over no real data each
+	// row carries an empty but shaped rule-result set.
 	resultIDs := make([]string, 0, len(req.RulesetNames))
 	for _, name := range req.RulesetNames {
 		resID := "dqresult-" + glueHashID()[:16]
-		// The profile the evaluation writes its statistics to. It is the
-		// identifier the data-quality model operations take, and the result is
-		// the only place the API hands one out — GetDataQualityModel and
-		// PutDataQualityProfileAnnotation are unreachable without it. Only the
-		// identifier is modelled: the profile's statistics come from analysing
-		// the data source, which this evaluation does not read.
+		// Record the profile the evaluation writes to: the result is the only place the
+		// API hands out the identifier GetDataQualityModel and
+		// PutDataQualityProfileAnnotation take. The evaluation reads no data, so model
+		// only the identifier, not the profile's statistics.
 		glueDQResults.Put(resID, GlueDataQualityResult{
 			ResultId:               resID,
 			ProfileId:              glueHashID(),
@@ -726,9 +699,8 @@ func handleGlueCancelDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *h
 		glueWriteError(w, "EntityNotFoundException", "EvaluationRun not found: "+req.RunId)
 		return
 	}
-	// The run already settled SUCCEEDED synchronously; a cancel of a terminal
-	// run leaves it terminal, matching the real service which only cancels
-	// in-flight runs. Record the cancel attempt by stamping LastModifiedOn.
+	// The run already settled SUCCEEDED and the service cancels only in-flight runs,
+	// so leave it terminal and stamp LastModifiedOn.
 	run.LastModifiedOn = glueEpochNow()
 	glueDQEvalRuns.Put(req.RunId, run)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
@@ -762,8 +734,7 @@ func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *h
 
 	runID := glueHashID()
 	now := glueEpochNow()
-	// Over no real data the recommendation is an empty (but shaped) ruleset —
-	// no fabricated rules.
+	// Over no real data the recommendation is an empty ruleset.
 	recommended := "Rules = [ ]"
 	run := GlueDQRuleRecommendationRun{
 		RunId:                            runID,
@@ -782,8 +753,7 @@ func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *h
 	}
 	glueDQRecRuns.Put(runID, run)
 
-	// If a CreatedRulesetName was requested, materialize the recommended
-	// ruleset as a real ruleset row that links back to this run.
+	// Materialize the recommended ruleset as a row linked back to this run.
 	if req.CreatedRulesetName != "" {
 		if _, exists := glueDQRulesets.Get(req.CreatedRulesetName); !exists {
 			glueDQRulesets.Put(req.CreatedRulesetName, GlueDataQualityRuleset{
@@ -842,8 +812,6 @@ func handleGlueListDataQualityRuleRecommendationRuns(w http.ResponseWriter, r *h
 	}, "Runs", 100)
 }
 
-// glueDQResultPayload renders a stored result row as a GetDataQualityResult /
-// DataQualityResult response map.
 func glueDQResultPayload(res GlueDataQualityResult) map[string]any {
 	m := map[string]any{
 		"ResultId":    res.ResultId,
@@ -947,17 +915,14 @@ func handleGlueListDataQualityStatistics(w http.ResponseWriter, r *http.Request)
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// The simulator computes no statistics over its empty result rows, so the
-	// statistic list is empty (but shaped) — no fabricated statistics.
+	// The simulator computes no statistics, so the list is empty.
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Statistics": []any{}})
 }
 
-// A result is stored under its own id while the data-quality model operations
-// name the profile the evaluation wrote to, so the result is reachable from the
-// profile only through an index — a read of one row must not walk the store.
+// Data-quality model operations name the profile, but the store keys results by
+// their own id; index results by profile so a lookup does not walk the store.
 var glueResultsByProfile sim.GenerationIndex[GlueDataQualityResult]
 
-// glueResultProfileKeys names a data-quality result by the profile it wrote.
 func glueResultProfileKeys(result GlueDataQualityResult) []string {
 	if result.ProfileId == "" {
 		return nil
@@ -965,7 +930,6 @@ func glueResultProfileKeys(result GlueDataQualityResult) []string {
 	return []string{result.ProfileId}
 }
 
-// glueResultForProfile finds the evaluation result that wrote a profile.
 func glueResultForProfile(profileID string) (GlueDataQualityResult, bool) {
 	if profileID == "" || glueDQResults == nil {
 		return GlueDataQualityResult{}, false
@@ -1000,10 +964,8 @@ func handleGlueGetDataQualityModel(w http.ResponseWriter, r *http.Request) {
 	if glueProfileMissing(w, req.ProfileId) {
 		return
 	}
-	// A model is trained from the statistics an evaluation collects over time,
-	// and this simulator collects none, so no profile has one. Reporting
-	// SUCCEEDED would say a model was trained and is ready to be read, which
-	// the very next call disproves.
+	// The simulator collects no statistics, so no profile has a trained model;
+	// reporting SUCCEEDED would claim a model the next call cannot read.
 	glueWriteError(w, "EntityNotFoundException",
 		"No data quality model has been trained for profile "+req.ProfileId+".")
 }
@@ -1280,8 +1242,8 @@ func handleGlueStopColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Reques
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// Find the most recent run for this (database, table). A terminal run can't
-	// be stopped — the real service raises ColumnStatisticsTaskNotRunningException.
+	// Stop the table's most recent run; a terminal run raises
+	// ColumnStatisticsTaskNotRunningException, as the service does.
 	glueMu.Lock()
 	defer glueMu.Unlock()
 

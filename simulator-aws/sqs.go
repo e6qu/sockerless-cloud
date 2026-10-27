@@ -20,14 +20,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
-// Amazon Simple Queue Service (SQS) implements managed standard and FIFO
-// queues for direct producers and service delivery from Amazon SNS,
-// EventBridge, EventBridge Scheduler, Lambda, and AWS Step Functions.
-//
-// Wire protocol note: AWS migrated SQS from awsQuery to awsJson1_0
-// in late 2023 (aws-sdk-go-v2 service/sqs v1.28+). All current SDK
-// callers dispatch via `X-Amz-Target: AmazonSQS.<Action>` against
-// POST /, with JSON request + JSON response bodies.
+// Amazon SQS standard and FIFO queues, fed by producers and by Amazon SNS,
+// EventBridge, EventBridge Scheduler, AWS Lambda and AWS Step Functions. SQS
+// speaks awsJson1_0 (`X-Amz-Target: AmazonSQS.<Action>`), as aws-sdk-go-v2
+// service/sqs has since v1.28.
 
 // SQSQueue is the durable provider-side record for a standard or FIFO queue.
 // Messages remain stored until DeleteMessage, retention expiry, purge, or
@@ -43,12 +39,9 @@ type SQSQueue struct {
 	// Messages also carries the FIFO deduplication records, which outlive
 	// message deletion for the five-minute deduplication interval.
 	Messages msgq.Queue[sqsPayload]
-	// Attributes stores every operator-supplied queue attribute
-	// from CreateQueue / SetQueueAttributes — DelaySeconds,
-	// MessageRetentionPeriod, MaximumMessageSize, RedrivePolicy,
-	// KmsMasterKeyId, FifoQueue, ContentBasedDeduplication, etc.
-	// GetQueueAttributes echoes these alongside the system-emitted
-	// values (QueueArn, CreatedTimestamp, message counts).
+	// Attributes stores every queue attribute CreateQueue or SetQueueAttributes set;
+	// GetQueueAttributes adds the system values (QueueArn, CreatedTimestamp, message
+	// counts).
 	Attributes map[string]string
 }
 
@@ -59,7 +52,6 @@ type sqsPayload struct {
 	MD5OfMessageAttributes string                         `json:"md5OfMessageAttributes,omitempty"`
 }
 
-// SQSMessage is a message as a receiver sees it.
 type SQSMessage struct {
 	MessageId               string
 	Body                    string
@@ -119,11 +111,10 @@ type SQSMessageAttribute struct {
 	BinaryValue []byte `json:"BinaryValue,omitempty"`
 }
 
-// sqsMessageAttributeMD5 computes the MD5 digest of a message-attribute set the
-// way real SQS does (the aws-sdk-go-v2 client validates it on receive), per
-// https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-message-metadata.html:
-// attributes sorted by name, each encoded as length-prefixed name + data-type,
-// a transport byte (1 string/number, 2 binary), then the length-prefixed value.
+// sqsMessageAttributeMD5 digests a message-attribute set as SQS does, which
+// aws-sdk-go-v2 checks on receive: attributes sorted by name, each a
+// length-prefixed name and data type, a transport byte (1 string or number, 2
+// binary), then the length-prefixed value.
 func sqsMessageAttributeMD5(attrs map[string]SQSMessageAttribute) string {
 	if len(attrs) == 0 {
 		return ""
@@ -162,11 +153,9 @@ func sqsMessageAttributeMD5(attrs map[string]SQSMessageAttribute) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// sqsSelectMessageAttributeSubset returns the stored attributes restricted to
-// the requested names ("All" / ".*" select everything), the way ReceiveMessage
-// scopes them. Returns nil when none match. The typed subset lets the caller
-// both render it and recompute MD5OfMessageAttributes over exactly the returned
-// set.
+// sqsSelectMessageAttributeSubset returns the stored attributes ReceiveMessage's
+// names select ("All" or ".*" select all), or nil; the caller renders the subset
+// and recomputes MD5OfMessageAttributes over it.
 func sqsSelectMessageAttributeSubset(attrs map[string]SQSMessageAttribute, requested []string) map[string]SQSMessageAttribute {
 	if len(attrs) == 0 || len(requested) == 0 {
 		return nil
@@ -191,8 +180,6 @@ func sqsSelectMessageAttributeSubset(attrs map[string]SQSMessageAttribute, reque
 	return out
 }
 
-// sqsRenderMessageAttributes renders an attribute set into the ReceiveMessage
-// JSON response shape.
 func sqsRenderMessageAttributes(attrs map[string]SQSMessageAttribute) map[string]any {
 	out := map[string]any{}
 	for name, a := range attrs {
@@ -222,12 +209,9 @@ const (
 	sqsDeduplicationWindow      = 5 * time.Minute
 )
 
-// sqsQueueURL builds the canonical queue URL real SQS emits.
-// external: real-AWS canonical `sqs.<region>.amazonaws.com` host;
-// the aws-sdk-go-v2 SQS client treats the queue URL as an opaque
-// key (used as the QueueUrl input to every subsequent operation)
-// rather than dereferencing it directly, so this works for SDK
-// callers configured with a sim endpoint.
+// sqsQueueURL builds the queue URL SQS emits, on AWS's
+// `sqs.<region>.amazonaws.com` host; the SDK uses it only as the QueueUrl key of
+// later calls and never dereferences it.
 func sqsQueueURL(name string) string {
 	return fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s",
 		awsRegion(), awsAccountID(), name)
@@ -238,10 +222,9 @@ func sqsQueueARN(name string) string {
 		awsRegion(), awsAccountID(), name)
 }
 
-// sqsEnqueueByARN delivers a plain-body message into the queue named by its ARN,
-// reporting whether the queue exists. The sim's internal event delivery (SNS /
-// EventBridge → SQS) calls this after the delivery has been authorized against
-// the queue's resource policy.
+// sqsEnqueueByARN delivers a plain-body message to the queue an ARN names and
+// reports whether the queue exists. Internal delivery (SNS or EventBridge to SQS)
+// calls it after authorizing against the queue policy.
 func sqsEnqueueByARN(queueARN, body string) bool {
 	name := queueARN
 	if i := strings.LastIndex(queueARN, ":"); i >= 0 {
@@ -254,11 +237,9 @@ func sqsEnqueueByARN(queueARN, body string) bool {
 	return true
 }
 
-// sqsParseRedrivePolicy extracts the dead-letter target ARN and the
-// maxReceiveCount threshold from a queue's stored RedrivePolicy attribute.
-// SQS serializes RedrivePolicy as a JSON string with maxReceiveCount as a
-// JSON string number; the helper tolerates both numeric and string forms.
-// ok is false when the queue has no usable RedrivePolicy.
+// sqsParseRedrivePolicy returns a RedrivePolicy's dead-letter target ARN and
+// maxReceiveCount, which SQS writes as a JSON string number; a number is
+// accepted too. ok is false without a usable policy.
 func sqsParseRedrivePolicy(attrs map[string]string) (dlqARN string, maxReceiveCount int, ok bool) {
 	raw, present := attrs["RedrivePolicy"]
 	if !present || strings.TrimSpace(raw) == "" {
@@ -292,8 +273,6 @@ func sqsParseRedrivePolicy(attrs map[string]string) (dlqARN string, maxReceiveCo
 	return rp.DeadLetterTargetArn, maxReceiveCount, true
 }
 
-// sqsNameFromARN returns the trailing resource name of an SQS ARN
-// (arn:aws:sqs:<region>:<account>:<name> → <name>).
 func sqsNameFromARN(arn string) string {
 	if i := strings.LastIndex(arn, ":"); i >= 0 {
 		return arn[i+1:]
@@ -301,11 +280,10 @@ func sqsNameFromARN(arn string) string {
 	return arn
 }
 
-// sqsEnqueueRedrives moves each message into the dead-letter queue named by
-// dlqARN, matching real SQS ReceiveMessage-side redrive: the message leaves the
-// source queue, gets a fresh MessageId, and its ApproximateReceiveCount resets
-// to zero on the DLQ. An empty dlqARN or a missing DLQ drops the messages, the
-// way real SQS behaves when the configured DLQ has been deleted.
+// sqsEnqueueRedrives moves each message to the dead-letter queue dlqARN names,
+// as SQS redrives on receive: the message leaves the source, takes a new
+// MessageId and restarts its receive count. With no DLQ, or a deleted one, the
+// messages are dropped, as in SQS.
 func sqsEnqueueRedrives(dlqARN string, msgs []msgq.Message[sqsPayload]) {
 	if dlqARN == "" || len(msgs) == 0 {
 		return
@@ -353,9 +331,8 @@ func registerSQS(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonSQS.PurgeQueue", handleSQSPurgeQueue)
 }
 
-// queueNameFromURL extracts the queue name from a queue URL or
-// from the bare name. Real SQS callers pass the URL on
-// every op after CreateQueue.
+// queueNameFromURL returns the queue name from a queue URL, which SQS callers
+// pass after CreateQueue, or from a bare name.
 func queueNameFromURL(s string) string {
 	if i := strings.LastIndex(s, "/"); i >= 0 {
 		return s[i+1:]
@@ -371,9 +348,8 @@ func sqsQueueDoesNotExist(w http.ResponseWriter) {
 	sqsErrorJSON(w, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 }
 
-// sqsNumericAttributes are the queue attributes whose values must be
-// integer-valued. Real SQS rejects a non-numeric value for any of these
-// with InvalidParameterValue at CreateQueue / SetQueueAttributes time.
+// sqsNumericAttributes must hold integers: SQS rejects any other value with
+// InvalidParameterValue at CreateQueue or SetQueueAttributes.
 var sqsNumericAttributes = []string{
 	"VisibilityTimeout",
 	"DelaySeconds",
@@ -382,9 +358,8 @@ var sqsNumericAttributes = []string{
 	"ReceiveMessageWaitTimeSeconds",
 }
 
-// sqsValidateNumericAttributes returns the first numeric attribute whose
-// value is present but not parseable as an integer, mirroring real SQS's
-// InvalidParameterValue rejection. ok is false when a value is invalid.
+// sqsValidateNumericAttributes returns the first numeric attribute whose value
+// is not an integer, with ok false.
 func sqsValidateNumericAttributes(attrs map[string]string) (msg string, ok bool) {
 	ranges := map[string][2]int{
 		"VisibilityTimeout":             {0, 43200},
@@ -444,8 +419,8 @@ func handleSQSCreateQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing, ok := sqsQueues.Get(req.QueueName); ok {
-		// Real SQS is idempotent only on an identical-attribute Create; the same
-		// name with different attribute values is a QueueNameExists error.
+		// SQS treats CreateQueue as idempotent only with identical attributes;
+		// differing ones are QueueNameExists.
 		if sqsAttributesEqual(existing.Attributes, req.Attributes) {
 			sim.WriteJSON(w, http.StatusOK, map[string]string{"QueueUrl": existing.URL})
 			return
@@ -464,10 +439,7 @@ func handleSQSCreateQueue(w http.ResponseWriter, r *http.Request) {
 		Tags:              map[string]string{},
 		Attributes:        map[string]string{},
 	}
-	// Persist every operator-supplied attribute. VisibilityTimeout
-	// is mirrored to the typed field for hot-path use by Receive;
-	// every attribute is also retained in the Attributes map so
-	// GetQueueAttributes echoes them all back.
+	// Persist every attribute; VisibilityTimeout also goes to the typed field Receive reads.
 	for k, v := range req.Attributes {
 		q.Attributes[k] = v
 		if k == "VisibilityTimeout" {
@@ -498,12 +470,9 @@ func handleSQSDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleSQSPurgeQueue removes every message currently held in the
-// queue without deleting the queue itself. Real SQS allows one
-// PurgeQueue per minute; the sim doesn't enforce that throttle
-// because the surface that depends on it (testing-time purge to
-// reset a queue between runs) explicitly works around it. The
-// queue's Attributes / Tags are preserved across the purge.
+// handleSQSPurgeQueue removes every message, keeping the queue's attributes and
+// tags. SQS allows one PurgeQueue per queue per minute; the simulator does not
+// enforce that.
 func handleSQSPurgeQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueueUrl string `json:"QueueUrl"`
@@ -517,8 +486,8 @@ func handleSQSPurgeQueue(w http.ResponseWriter, r *http.Request) {
 		sqsQueueDoesNotExist(w)
 		return
 	}
-	// Clear under the store's single write lock so a concurrent ReceiveMessage
-	// or SendMessage mutation isn't clobbered by a snapshot-and-write-back.
+	// Clear under the store's write lock so a concurrent receive or send is not
+	// overwritten by a snapshot write-back.
 	sqsQueues.Update(name, func(q *SQSQueue) { q.Messages.Purge() })
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -596,11 +565,7 @@ func handleSQSGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	counts := q.Messages.Count(sqsPolicy(q), time.Now())
 	visibleCount, invisibleCount, delayedCount := counts.Available, counts.Held, counts.Delayed
 
-	// Start with system-emitted attributes; layer in operator-set
-	// attributes (DelaySeconds, MessageRetentionPeriod, etc.) on
-	// top so an explicit operator value wins over any default.
-	// VisibilityTimeout is sourced from the typed field so the
-	// CreateQueue → SetQueueAttributes hot path stays consistent.
+	// Layer the queue's own attributes over the system ones, taking VisibilityTimeout from the typed field.
 	allAttrs := map[string]string{
 		"QueueArn":                              q.ARN,
 		"VisibilityTimeout":                     strconv.Itoa(q.VisibilityTimeout),
@@ -616,10 +581,7 @@ func handleSQSGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	for k, v := range q.Attributes {
 		allAttrs[k] = v
 	}
-	// VisibilityTimeout in the Attributes map may diverge from the
-	// typed field if SetQueueAttributes only updated the map; the
-	// typed field is the source of truth for the seen-on-receive
-	// behavior, so it wins.
+	// The typed VisibilityTimeout field governs receives, so it wins over a diverging map entry.
 	allAttrs["VisibilityTimeout"] = strconv.Itoa(q.VisibilityTimeout)
 	out := map[string]string{}
 	for k, v := range allAttrs {
@@ -675,9 +637,8 @@ func handleSQSSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// sqsSendEntry is the common send payload shared by SendMessage and
-// each SendMessageBatch entry. The batch entry carries an Id; the
-// single-send path leaves it empty.
+// sqsSendEntry is the payload SendMessage and each SendMessageBatch entry share;
+// only a batch entry carries an Id.
 type sqsSendEntry struct {
 	Id                     string                         `json:"Id"`
 	MessageBody            string                         `json:"MessageBody"`
@@ -687,11 +648,9 @@ type sqsSendEntry struct {
 	MessageDeduplicationId string                         `json:"MessageDeduplicationId"`
 }
 
-// sqsValidateSend applies the per-message validation real SQS performs
-// before enqueue: non-empty body, the queue's message-size limit (1 MiB by
-// default), and — for a FIFO queue — the MessageGroupId and dedup
-// requirements. It returns an (errCode, message) pair on failure; empty code
-// means the entry is valid.
+// sqsValidateSend applies SQS's per-message checks: a non-empty body, the
+// queue's size limit (1 MiB by default) and, on a FIFO queue, MessageGroupId and
+// deduplication. An empty code means valid.
 func sqsValidateSend(q SQSQueue, e sqsSendEntry) (string, string) {
 	if e.MessageBody == "" {
 		return "MissingParameter", "MessageBody is required"
@@ -739,8 +698,6 @@ func sqsDeduplicationKey(q SQSQueue, e sqsSendEntry) (key, id string) {
 	return key, id
 }
 
-// sqsEnqueue appends a validated entry to the queue and returns the
-// SDK-shaped result fields.
 func sqsEnqueue(name string, e sqsSendEntry) (result sqsEnqueueResult) {
 	hash := md5.Sum([]byte(e.MessageBody))
 	result.MD5OfBody = hex.EncodeToString(hash[:])
@@ -826,12 +783,10 @@ func handleSQSSendMessage(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// handleSQSSendMessageBatch sends up to 10 messages in a single call,
-// reporting per-entry success/failure the way real SQS does. Batch-level
-// failures (empty list, >10 entries, duplicate Ids, or a total payload over the
-// queue's message-size limit) are returned as top-level errors; per-entry
-// validation failures (e.g. a FIFO entry missing MessageGroupId) land in
-// the Failed array with HTTP 200, matching the real wire contract.
+// handleSQSSendMessageBatch sends up to 10 messages. Batch-level failures (no
+// entries, more than 10, duplicate Ids, total size over the limit) are
+// top-level errors; per-entry failures (a FIFO entry without MessageGroupId) go
+// to Failed with HTTP 200, as in SQS.
 func handleSQSSendMessageBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueueUrl string         `json:"QueueUrl"`
@@ -1071,9 +1026,8 @@ func handleSQSDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// sqsReceiptHandleInvalid reports the canonical ReceiptHandleIsInvalid error
-// real SQS raises when a receipt handle doesn't correspond to any message
-// currently held by the queue.
+// sqsReceiptHandleInvalid writes ReceiptHandleIsInvalid, which SQS raises for a
+// handle that matches no message the queue holds.
 func sqsReceiptHandleInvalid(w http.ResponseWriter, handle string) {
 	w.Header().Set("x-amzn-query-error", "ReceiptHandleIsInvalid;Sender")
 	sqsErrorJSON(w, "ReceiptHandleIsInvalid",
@@ -1150,12 +1104,10 @@ func handleSQSDeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sqsApplyVisibility moves the visibility deadline of the message identified
-// by the receipt handle to now+timeout, mirroring ChangeMessageVisibility. It
-// reports whether the handle matched a message and whether that message was in
-// flight (a handle that matches a message no longer hidden is
-// MessageNotInflight on real SQS). A negative timeout is rejected by the
-// caller before this runs.
+// sqsApplyVisibility moves the visibility deadline of the message a receipt
+// handle names to now+timeout, as ChangeMessageVisibility does, and reports
+// whether the handle matched and whether the message was in flight (SQS answers
+// MessageNotInflight otherwise). The caller rejects a negative timeout.
 func sqsApplyVisibility(name, handle string, timeout int) (matched, inflight bool) {
 	sqsQueues.Update(name, func(qq *SQSQueue) {
 		_, matched, inflight = qq.Messages.Extend(handle, time.Duration(timeout)*time.Second, sqsPolicy(*qq), time.Now())
@@ -1281,9 +1233,7 @@ func handleSQSChangeMessageVisibilityBatch(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// sqsPolicyDocument parses the queue's stored Policy attribute into a mutable
-// document, returning a fresh empty document (Version 2012-10-17, no
-// statements) when none is stored yet.
+// sqsPolicyDocument parses the queue's Policy attribute, or returns an empty 2012-10-17 document.
 func sqsPolicyDocument(raw string) (map[string]any, []map[string]any, error) {
 	policy := map[string]any{
 		"Version":   "2012-10-17",
@@ -1308,10 +1258,9 @@ func sqsPolicyDocument(raw string) (map[string]any, []map[string]any, error) {
 	return policy, statements, nil
 }
 
-// sqsStoreQueuePolicy persists a queue policy document into both the queue's
-// Attributes["Policy"] (the GetQueueAttributes read-back source) and the central
-// IAM resource-policy mirror (the enforcement-gate read source) — the same two
-// destinations SetQueueAttributes(Policy) writes. An empty policy clears both.
+// sqsStoreQueuePolicy writes the policy to Attributes["Policy"] and to the IAM
+// resource-policy mirror, as SetQueueAttributes(Policy) does; an empty policy
+// clears both.
 func sqsStoreQueuePolicy(name, queueARN, policyJSON string) {
 	sqsQueues.Update(name, func(q *SQSQueue) {
 		if q.Attributes == nil {
@@ -1330,10 +1279,9 @@ func sqsStoreQueuePolicy(name, queueARN, policyJSON string) {
 	}
 }
 
-// handleSQSAddPermission appends an Allow statement (Sid=Label) to the queue's
-// resource policy granting the named AWS accounts the named SQS actions, the way
-// real SQS's AddPermission does. The actions are stored prefixed with "SQS:" and
-// the principals as the account-root ARNs SQS canonicalizes bare account IDs to.
+// handleSQSAddPermission appends an Allow statement (Sid=Label) granting the
+// named accounts the named actions, stored as "SQS:" actions and account-root
+// principals, as SQS canonicalizes them.
 func handleSQSAddPermission(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueueUrl      string   `json:"QueueUrl"`
@@ -1368,7 +1316,7 @@ func handleSQSAddPermission(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, s := range statements {
 		if sid, _ := s["Sid"].(string); sid == req.Label {
-			// Real SQS rejects a duplicate label.
+			// SQS rejects a duplicate label.
 			sqsErrorJSON(w, "InvalidParameterValue",
 				"Value "+req.Label+" for parameter Label is invalid. Reason: Already exists.",
 				http.StatusBadRequest)
@@ -1400,9 +1348,8 @@ func handleSQSAddPermission(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleSQSRemovePermission removes the statement with Sid=Label from the
-// queue's resource policy. Removing the last statement clears the policy
-// entirely, the way real SQS's RemovePermission does.
+// handleSQSRemovePermission removes the statement with Sid=Label; removing the
+// last statement clears the policy, as in SQS.
 func handleSQSRemovePermission(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueueUrl string `json:"QueueUrl"`
@@ -1520,9 +1467,8 @@ func handleSQSListQueueTags(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags})
 }
 
-// sqsQueueIsFifo reports whether the queue is a FIFO queue, per its
-// FifoQueue attribute (real SQS keys FIFO behavior off this attribute,
-// which CreateQueue requires to agree with the .fifo name suffix).
+// sqsQueueIsFifo reports the FifoQueue attribute, which SQS keys FIFO behaviour
+// off and CreateQueue holds to the .fifo suffix.
 func sqsQueueIsFifo(q SQSQueue) bool {
 	return strings.EqualFold(q.Attributes["FifoQueue"], "true")
 }
@@ -1534,10 +1480,8 @@ func sqsContentBasedDedup(q SQSQueue) bool {
 	return strings.EqualFold(q.Attributes["ContentBasedDeduplication"], "true")
 }
 
-// sqsFifoNameAttrMismatch enforces the real-SQS coupling between the
-// .fifo name suffix and the FifoQueue=true attribute: a queue named
-// "<x>.fifo" requires FifoQueue=true, and FifoQueue=true requires the
-// .fifo suffix. It returns (errMessage, ok=false) on a mismatch.
+// sqsFifoNameAttrMismatch enforces SQS's coupling of the .fifo suffix and
+// FifoQueue=true, returning the error message and false on a mismatch.
 func sqsFifoNameAttrMismatch(name string, attrs map[string]string) (string, bool) {
 	hasSuffix := strings.HasSuffix(name, ".fifo")
 	fifoAttr := strings.EqualFold(attrs["FifoQueue"], "true")
@@ -1545,9 +1489,7 @@ func sqsFifoNameAttrMismatch(name string, attrs map[string]string) (string, bool
 		return "The name of a FIFO queue can only include alphanumeric characters, hyphens, or underscores, must end with the .fifo suffix and be 1 to 80 in length", false
 	}
 	if hasSuffix && !fifoAttr {
-		// Real SQS rejects the '.' in a non-FIFO queue name: a dot is
-		// only valid as part of the trailing .fifo suffix, which is
-		// itself only valid when FifoQueue=true.
+		// SQS allows a dot in a queue name only in the .fifo suffix of a FIFO queue.
 		return "Can only include alphanumeric characters, hyphens, or underscores. 1 to 80 in length", false
 	}
 	return "", true

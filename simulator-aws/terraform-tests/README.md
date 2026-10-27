@@ -8,11 +8,23 @@ assigns every package to one `tf (aws …)` shard in `.github/workflows/ci.yml`.
 
 ## Running
 
+From the root of a clone, run one stack, directly and through the HTTPS
+gateway:
+
+<!-- doctest: run -->
 ```sh
-make simulator-aws/terraform-test                                    # every package
-make simulator-aws/terraform-test TERRAFORM_TEST_PACKAGES=./tutorial # one stack
-make simulator-aws/terraform-https-test                              # through the HTTPS gateway
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
+make simulator-aws/terraform-test TERRAFORM_TEST_PACKAGES=./tutorial
 ```
+
+<!-- doctest: run -->
+```sh
+make simulator-aws/terraform-https-test TERRAFORM_TEST_PACKAGES=./tutorial
+```
+
+Without `TERRAFORM_TEST_PACKAGES`, each target runs every package; CI runs
+one package per `tf (aws …)` job.
 
 The targets build the simulator once and pass it to every package through
 `SOCKERLESS_AWS_SIMULATOR_BINARY`; `go test ./...` in this directory builds it

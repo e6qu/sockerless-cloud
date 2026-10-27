@@ -12,17 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This file implements a further slice of the AWS Glue awsJson1.1 surface:
-// custom entity types, usage profiles, the Glue Identity Center singleton,
-// table search, schema/registry updates, schema-version metadata, schema diffs,
-// job source-control sync, user-defined-function updates, resource-policy
-// enumeration, and the code-generation helpers (mapping/plan/dataflow/script/
-// dashboard). All CRUD operates on real sim.Stores; reads come back from the
-// same stores writes go to. The Data Catalog stores defined in glue.go
-// (glueTables, glueUDFs, glueSchemas, glueRegistries, glueSchemaVers,
-// glueResourcePols) are read/written directly.
-
-// GlueCustomEntityType models a custom sensitive-data pattern keyed by name.
 type GlueCustomEntityType struct {
 	Name         string            `json:"Name"`
 	RegexString  string            `json:"RegexString"`
@@ -30,8 +19,7 @@ type GlueCustomEntityType struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueUsageProfile models a Glue usage profile keyed by name. Configuration
-// carries the SessionConfiguration / JobConfiguration maps verbatim.
+// Configuration carries SessionConfiguration and JobConfiguration verbatim.
 type GlueUsageProfile struct {
 	Name           string            `json:"Name"`
 	Description    string            `json:"Description,omitempty"`
@@ -41,7 +29,6 @@ type GlueUsageProfile struct {
 	Tags           map[string]string `json:"Tags,omitempty"`
 }
 
-// GlueIdentityCenterConfig models the singleton Glue Identity Center config.
 type GlueIdentityCenterConfig struct {
 	ApplicationArn                string   `json:"ApplicationArn"`
 	InstanceArn                   string   `json:"InstanceArn"`
@@ -49,8 +36,7 @@ type GlueIdentityCenterConfig struct {
 	UserBackgroundSessionsEnabled *bool    `json:"UserBackgroundSessionsEnabled,omitempty"`
 }
 
-// GlueSchemaVersionMetadataEntry stores one metadata value for a schema-version
-// key. The metadata map is per schema-version-id: key -> ordered values.
+// One entry per metadata value; a schema version maps each key to an ordered list of values.
 type GlueSchemaVersionMetadataEntry struct {
 	SchemaVersionId string  `json:"SchemaVersionId"`
 	MetadataKey     string  `json:"MetadataKey"`
@@ -65,15 +51,12 @@ var (
 	glueSchemaVerMetadata sim.Store[GlueSchemaVersionMetadataEntry]
 )
 
-// glueIdentityCenterKey is the single store key for the Identity Center config.
 const glueIdentityCenterKey = "default"
 
-// glueSchemaVerMetadataKey keys one metadata entry by schema-version-id + key + value.
 func glueSchemaVerMetadataKey(versionID, key, value string) string {
 	return versionID + "\x00" + key + "\x00" + value
 }
 
-// registerGlueEntityCatalog2 registers this Glue sub-service's awsJson1.1 operations.
 func registerGlueEntityCatalog2(r *AWSRouter, srv *sim.Server) {
 	glueCustomEntityTypes = sim.MakeStore[GlueCustomEntityType](srv.DB(), "glue_custom_entity_types")
 	glueUsageProfiles = sim.MakeStore[GlueUsageProfile](srv.DB(), "glue_usage_profiles")
@@ -376,7 +359,6 @@ func handleGlueDeleteUsageProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	glueUsageProfiles.Delete(req.Name)
-	// DeleteUsageProfileResponse has no members.
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -460,7 +442,6 @@ func handleGlueUpdateIdentityCenter(w http.ResponseWriter, r *http.Request) {
 		cfg.UserBackgroundSessionsEnabled = req.UserBackgroundSessionsEnabled
 	}
 	glueIdentityCenter.Put(glueIdentityCenterKey, cfg)
-	// UpdateGlueIdentityCenterConfigurationResponse has no members.
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -478,7 +459,6 @@ func handleGlueDeleteIdentityCenter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	glueIdentityCenter.Delete(glueIdentityCenterKey)
-	// DeleteGlueIdentityCenterConfigurationResponse has no members.
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -555,9 +535,8 @@ func handleGlueSearchTables(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueTableMatchesSearch applies the free-text search and Key/Value filters to a
-// table. SearchText fuzzy-matches the table or database name; filters do an
-// exact match on the supported keys (Name, DatabaseName, TableType).
+// SearchText fuzzy-matches the table or database name; filters match exactly on
+// Name, DatabaseName and TableType.
 func glueTableMatchesSearch(t GlueTable, search string, filters []struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
@@ -583,8 +562,7 @@ func glueTableMatchesSearch(t GlueTable, search string, filters []struct {
 				return false
 			}
 		default:
-			// Unknown filter key matches nothing, mirroring the real
-			// service which only indexes known properties.
+			// The service indexes only known properties, so an unknown filter key matches nothing.
 			return false
 		}
 	}
@@ -746,9 +724,7 @@ func handleGlueCheckSchemaVersionValidity(w http.ResponseWriter, r *http.Request
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueValidateSchemaDefinition validates a schema definition for the supplied
-// data format. AVRO and JSON definitions must parse as JSON; PROTOBUF
-// definitions must be non-empty text.
+// AVRO and JSON definitions must parse as JSON; a PROTOBUF definition must be non-empty.
 func glueValidateSchemaDefinition(dataFormat, def string) (bool, string) {
 	switch strings.ToUpper(dataFormat) {
 	case "AVRO", "JSON":
@@ -881,8 +857,7 @@ func handleGlueQuerySchemaVersionMetadata(w http.ResponseWriter, r *http.Request
 		keyFilter[m.MetadataKey] = true
 	}
 
-	// Group entries by metadata key. The first entry for a key is the primary
-	// MetadataValue; subsequent ones land in OtherMetadataValueList.
+	// The first entry for a key is MetadataValue; later ones go to OtherMetadataValueList.
 	type group struct {
 		primary GlueSchemaVersionMetadataEntry
 		others  []GlueSchemaVersionMetadataEntry
@@ -994,8 +969,8 @@ func handleGlueRemoveSchemaVersionMetadata(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// glueResolveSchemaVersion resolves a schema version from an explicit
-// SchemaVersionId, or from a SchemaId + version number (or latest).
+// glueResolveSchemaVersion resolves a version from SchemaVersionId, or from a
+// SchemaId plus a version number or latest.
 func glueResolveSchemaVersion(versionID, schemaArn, schemaName, registryName string, versionNumber int64, latest bool) (GlueSchemaVersion, bool) {
 	if versionID != "" {
 		return glueSchemaVers.Get(versionID)
@@ -1058,8 +1033,7 @@ func handleGlueGetSchemaVersionsDiff(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Diff": diff})
 }
 
-// glueSchemaDiff produces a JsonPatch-format string describing the difference
-// between two schema definitions. Identical definitions yield "[]".
+// glueSchemaDiff returns a JsonPatch string; identical definitions yield "[]".
 func glueSchemaDiff(first, second string) string {
 	if first == second {
 		return "[]"
@@ -1074,8 +1048,6 @@ func glueSchemaDiff(first, second string) string {
 	return string(b)
 }
 
-// glueAsJSONValue returns s as a JSON value if it parses, otherwise as a JSON
-// string literal.
 func glueAsJSONValue(s string) string {
 	var v any
 	if json.Unmarshal([]byte(s), &v) == nil {
@@ -1093,10 +1065,8 @@ func handleGlueUpdateSourceControlFromJob(w http.ResponseWriter, r *http.Request
 	glueSourceControlSync(w, r)
 }
 
-// glueSourceControlSync handles both directions of source-control sync. Both
-// operations take the same input shape and return only the JobName; the sync
-// records the source-control link onto the job's DefaultArguments so a
-// subsequent GetJob reads it back.
+// Both sync directions share one input shape and return only JobName. Record the
+// source-control link in the job's DefaultArguments so GetJob reads it back.
 func glueSourceControlSync(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobName         string `json:"JobName"`
@@ -1194,7 +1164,6 @@ func handleGlueUpdateUserDefinedFunction(w http.ResponseWriter, r *http.Request)
 		udf.ResourceUris = req.FunctionInput.ResourceUris
 	}
 	glueUDFs.Put(key, udf)
-	// UpdateUserDefinedFunctionResponse has no members.
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1272,8 +1241,7 @@ func handleGlueGetMapping(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, map[string]any{"Mapping": mapping})
 }
 
-// glueColumnMapping derives a 1:1 MappingEntry list from a source table's
-// StorageDescriptor columns to the named target table.
+// glueColumnMapping maps each source column 1:1 onto the target table.
 func glueColumnMapping(src GlueTable, sourceTable, targetTable string) []map[string]any {
 	mapping := make([]map[string]any, 0)
 	for _, col := range glueTableColumns(src) {
@@ -1294,8 +1262,6 @@ type glueColumn struct {
 	typ  string
 }
 
-// glueTableColumns extracts the (name, type) columns from a table's
-// StorageDescriptor.Columns list.
 func glueTableColumns(t GlueTable) []glueColumn {
 	var cols []glueColumn
 	if t.StorageDescriptor == nil {
@@ -1389,9 +1355,8 @@ func handleGlueGetDataflowGraph(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueParseScriptToDag derives a code-generation DAG from a Python script. Each
-// assignment of the form `name = Transform.apply(...)` becomes a node; nodes are
-// chained by sequential edges.
+// Each `name = Transform.apply(...)` assignment becomes a node, chained to the
+// previous one by an edge.
 func glueParseScriptToDag(script string) (nodes []map[string]any, edges []map[string]any) {
 	var ids []string
 	for _, line := range strings.Split(script, "\n") {

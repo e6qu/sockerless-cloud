@@ -43,11 +43,9 @@ func iamAssertDerived(t *testing.T, got []string, want ...string) {
 	}
 }
 
-// A rule's ARN arrives inside a priority entry rather than under a member of
-// its own, so the parameter name is a path. The coverage probe fills each
-// member with one scalar and therefore cannot express that shape at all — it
-// counts this operation as underived — which is why the real shape is pinned
-// here rather than by tuning the probe to know about one operation.
+// A rule's ARN arrives inside a priority entry, so the parameter name is a path.
+// The coverage probe fills each member with one scalar and cannot express that
+// shape, so pin it here.
 func TestIAMResourceARNs_ELBReadsARuleARNNestedInAPriority(t *testing.T) {
 	const rule = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/lb/0123456789abcdef/fedcba9876543210/1122334455667788"
 	iamAssertDerived(t, iamDeriveQuery("SetRulePriorities", "2015-12-01",
@@ -159,9 +157,8 @@ func TestIAMResourceARNs_SQSTakesTheQueueFromItsURLOrARN(t *testing.T) {
 		"SourceArn="+dead+"&DestinationArn="+queue), dead, queue)
 }
 
-// A secret is addressed by SecretId, which the API accepts as either its name
-// or its full ARN, and named in Name at creation — where SecretId does not
-// exist yet (GitHub issue #889).
+// A secret is addressed by SecretId, which the API accepts as its name or full
+// ARN, and named in Name at creation, where SecretId does not exist yet.
 func TestIAMResourceARNs_SecretsManagerTakesTheNameOrTheARN(t *testing.T) {
 	const secret = "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-password"
 	iamAssertDerived(t, iamDeriveJSON("secretsmanager", "GetSecretValue",
@@ -202,11 +199,10 @@ func TestIAMResourceARNs_ApplicationAutoScalingFillsTheResourceId(t *testing.T) 
 }
 
 // AWS Security Token Service resources are identities, each named its own way:
-// the assume-role family names the role by its full ARN, AssumeRoot names the
-// member account whose root user the call becomes, and GetFederationToken
-// names the federated user the call mints. The coverage probe cannot express
-// AssumeRoot's shape — it fills TargetPrincipal with a placeholder where a
-// real request carries a twelve-digit account id — so it is pinned here.
+// the assume-role family names the role by ARN, AssumeRoot the member account
+// whose root user the call becomes, and GetFederationToken the federated user it
+// mints. The coverage probe fills TargetPrincipal with a placeholder rather than
+// a twelve-digit account id, so pin AssumeRoot here.
 func TestIAMResourceARNs_STSNamesTheIdentityEachCallIsAbout(t *testing.T) {
 	const role = "arn:aws:iam::123456789012:role/deploy"
 	iamAssertDerived(t, iamDeriveQueryFor("sts", "AssumeRole", "2011-06-15",
@@ -268,8 +264,7 @@ func TestIAMResourceARNs_CloudMapTakesTheIdOrResolvesTheName(t *testing.T) {
 // queue is what the reference authorizes the cancel against. An unknown
 // handle resolves to nothing rather than to an invented queue.
 func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	sqsMoveTasks = sim.MakeStore[SQSMessageMoveTask](nil, "sqs_move_tasks")
 	const dead = "arn:aws:sqs:us-east-1:123456789012:orders-dlq"
@@ -288,8 +283,7 @@ func TestIAMResourceARNs_SQSResolvesACancelledMoveThroughItsTask(t *testing.T) {
 // what knows which namespace and service the operation acted on, and their
 // recorded ARNs are what the gate asks for.
 func TestIAMResourceARNs_CloudMapResolvesAnOperationToWhatItActedOn(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	cmNamespaces = sim.MakeStore[CMNamespace](nil, "cloudmap_namespaces")
 	cmServices = sim.MakeStore[CMService](nil, "cloudmap_services")

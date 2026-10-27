@@ -12,11 +12,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM users, access keys, and user policies — the credential→principal→policy
-// binding that call-time IAM enforcement (iam_enforcement.go) resolves from a
-// request's SigV4 access-key id. Roles already existed (iam.go); this adds the
-// user surface plus inline (PutUserPolicy) and managed (AttachUserPolicy)
-// attachments, all on the query protocol like the rest of IAM.
+// IAM users, access keys and user policies bind the SigV4 access key the
+// enforcement gate resolves to a principal and its policies.
 
 type IAMUser struct {
 	UserName   string
@@ -77,18 +74,11 @@ func registerIAMUsers(r *AWSQueryRouter, srv *sim.Server) {
 	seedRootAdminCredential()
 }
 
-// Bootstrap administrator credential. A real AWS account is created with a root
-// credential already able to act; the simulator provisions an equivalent
-// well-known administrator so a client has a credential to sign its first
-// request with (creating any further IAM key itself requires an existing signed
-// caller — the chicken-and-egg the SigV4 gate would otherwise deadlock on).
-//
-// The access-key/secret pair is the long-standing "test"/"test" coordinate the
-// SDK, CLI, and Terraform test surfaces already configure (AWS_ACCESS_KEY_ID),
-// so the credential clients present is the credential the simulator verifies
-// against — the "differ only in coordinates" rule, with real SigV4 crypto in
-// between. It carries an inline AdministratorAccess policy so it authorizes
-// every action, matching an account administrator.
+// Bootstrap administrator credential. An AWS account starts with a root
+// credential able to act; the simulator provisions an equivalent administrator
+// so a client can sign its first request, since creating an IAM key needs a
+// signed caller. Its key pair is "test"/"test", and an inline AdministratorAccess
+// policy authorizes every action.
 const (
 	seedAdminUserName  = "sockerless-sim-admin"
 	seedAdminAccessKey = "test"
@@ -177,8 +167,7 @@ func handleIAMDeleteUser(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
-	// Real IAM refuses to delete a user that still has dependents attached —
-	// the caller must detach them first — rather than silently orphaning them.
+	// IAM refuses to delete a user that still has dependents attached.
 	if msg := iamUserDeleteConflict(name); msg != "" {
 		iamErrorXML(w, "DeleteConflict", msg, http.StatusConflict)
 		return

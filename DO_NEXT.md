@@ -2,6 +2,12 @@
 
 ## Next
 
+- **Google Cloud IAM enforcement** (BUG-3735, P1): one gate on every REST and
+  gRPC method, from sourced permissions and ancestor policies, with the
+  bootstrap account an owner by binding.
+- **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3791), service
+  by service, each with its SDK, CLI and Terraform tests.
+
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**
   (BUG-3465). Merge the release pull request release-please opens after this
   pull request and confirm its run attaches darwin binaries and the AWS images,

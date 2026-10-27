@@ -22,18 +22,26 @@ Each release is one `vX.Y.Z` tag. The [GitHub Release](https://github.com/e6qu/s
 carries the binaries for linux and darwin, amd64 and arm64, each with its
 console embedded, and multi-architecture container images:
 
+<!-- x-release-please-start-version -->
+<!-- doctest: background id=image ready="Listening on" -->
 ```sh
 docker run --rm -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/e6qu/sockerless-simulator-aws:v3.0.1
+  ghcr.io/e6qu/sockerless-simulator-aws:v3.1.0
 ```
+<!-- x-release-please-end -->
+<!-- doctest: stop id=image -->
 
 The simulators are Go modules in subdirectories, which a `vX.Y.Z` tag can't
-version, so `go install` pins the release commit (or `@latest`):
+version. `go install` takes the newest commit with `@main`, or a release with
+its release commit (`@<commit>`). Don't use `@latest`: it resolves to an old
+bootstrap version the module proxy still serves.
 
+<!-- doctest: run -->
 ```sh
-go install github.com/e6qu/sockerless-cloud/simulator-aws@latest
-go install github.com/e6qu/sockerless-cloud/simulator-gcp@latest
-go install github.com/e6qu/sockerless-cloud/simulator-azure@latest
+go install github.com/e6qu/sockerless-cloud/simulator-aws@main
+go install github.com/e6qu/sockerless-cloud/simulator-gcp@main
+go install github.com/e6qu/sockerless-cloud/simulator-azure@main
+export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
 A simulator needs a Docker or Podman engine to run workloads.
@@ -41,6 +49,7 @@ A simulator needs a Docker or Podman engine to run workloads.
 
 ## Quick start
 
+<!-- doctest: background id=sims ready="Listening on" count=3 -->
 ```sh
 simulator-aws & simulator-gcp & simulator-azure &
 ```
@@ -50,6 +59,7 @@ at each one.
 
 AWS takes the seeded `test` access key:
 
+<!-- doctest: run expect="(?m) hello$" -->
 ```sh
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
        AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
@@ -58,8 +68,9 @@ aws s3 mb s3://hello && aws s3 ls
 
 Google Cloud takes the seeded bootstrap service account's key:
 
+<!-- doctest: run expect="gs://hello/" -->
 ```sh
-go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@latest -o bootstrap-key.json
+go run github.com/e6qu/sockerless-cloud/testutil/cmd/gcp-bootstrap-key@main -o bootstrap-key.json
 gcloud auth activate-service-account --key-file=bootstrap-key.json
 gcloud config set auth/token_host http://localhost:4567/token
 gcloud config set api_endpoint_overrides/storage http://localhost:4567/
@@ -68,6 +79,7 @@ gcloud storage buckets create gs://hello --project=sockerless && gcloud storage 
 
 Azure takes the seeded bootstrap application's client secret:
 
+<!-- doctest: run expect="\"value\"" -->
 ```sh
 AZ_TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
   -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
@@ -79,7 +91,7 @@ curl -s -H "Authorization: Bearer $AZ_TOKEN" \
 [The tutorial](docs/tutorial.md) builds the same application stack on all
 three with Terraform: a network with NAT, a virtual machine, a container
 service, object storage, a database, a queue, a function and monitoring. CI
-runs it end to end.
+runs it, and this page's commands, as written.
 
 ## Documentation
 

@@ -8,19 +8,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SSM Parameter Store — runner workflows pull configuration values
-// (database hosts, feature flags, sometimes secrets via SecureString)
-// from the Parameter Store. `aws ssm get-parameter`,
-// `aws-actions/aws-ssm-fetch-parameters`, and terraform's
-// `aws_ssm_parameter` data source all hit this slice. Without it the
-// runner setup fails before any actual workload runs.
-
-// SSMParameter mirrors `aws.ssm.Parameter`. Real Parameter Store
-// supports String, StringList, and SecureString types; the sim
-// stores all three the same way (the value bytes are just JSON
-// strings — SecureString in real AWS is KMS-encrypted but the sim
-// doesn't have a KMS slice yet, so SecureString round-trips in the
-// clear).
+// SSMParameter is an AWS Systems Manager Parameter Store parameter of type
+// String, StringList or SecureString. Parameter Store encrypts a SecureString
+// value with AWS KMS; the simulator stores it in the clear.
 type SSMParameter struct {
 	Name             string  `json:"Name"`
 	Type             string  `json:"Type"`
@@ -35,10 +25,8 @@ type SSMParameter struct {
 	AllowedPattern   string  `json:"AllowedPattern,omitempty"`
 }
 
-// SSMTag mirrors `aws.ssm.Tag` — used by AddTagsToResource /
-// RemoveTagsFromResource / ListTagsForResource. Real SSM tags are
-// resource-scoped (per Parameter, per Document, etc.), keyed by the
-// (ResourceType, ResourceId) pair.
+// SSMTag is a tag on a Systems Manager resource, keyed by the (ResourceType,
+// ResourceId) pair.
 type SSMTag struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
@@ -46,9 +34,9 @@ type SSMTag struct {
 
 var ssmParams sim.Store[SSMParameter]
 
-// ssmResourceTags maps "<ResourceType>/<ResourceId>" → []SSMTag.
-// Real SSM stores tags out-of-band from the resource itself; the sim
-// follows suit so tag CRUD doesn't mutate the parameter row.
+// ssmResourceTags maps "<ResourceType>/<ResourceId>" to its tags, held apart from
+// the resource as Systems Manager holds them, so tagging never rewrites the
+// resource row.
 var ssmResourceTags sim.Store[[]SSMTag]
 
 func ssmTagKey(resourceType, resourceID string) string {
@@ -111,7 +99,7 @@ func ssmTagOnCreate(resourceType, resourceID string, tags []SSMTag) {
 }
 
 func ssmParamArn(name string) string {
-	// Real ARN: arn:aws:ssm:<region>:<account>:parameter<name-with-leading-slash>
+	// The ARN path keeps the parameter name's leading slash.
 	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":parameter" + ensureLeadingSlash(name)
 }
 
@@ -146,11 +134,8 @@ func registerSSMParameterStore(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonSSM.ListTagsForResource", handleSSMListTagsForResource)
 }
 
-// handleSSMAddTagsToResource attaches tags to a Parameter / Document /
-// MaintenanceWindow / etc. Real SSM accepts any of the documented
-// ResourceType values; the sim only models Parameter today (Documents
-// + Windows aren't implemented). terraform-provider-aws calls this
-// after PutParameter when tags are set.
+// handleSSMAddTagsToResource merges tags onto a resource; a repeated key replaces
+// its value. It checks that the resource exists only for a Parameter.
 func handleSSMAddTagsToResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceType string   `json:"ResourceType"`
@@ -174,7 +159,6 @@ func handleSSMAddTagsToResource(w http.ResponseWriter, r *http.Request) {
 	}
 	key := ssmTagKey(req.ResourceType, req.ResourceId)
 	existing, _ := ssmResourceTags.Get(key)
-	// Real SSM upsert semantics: re-tag with same Key replaces Value.
 	merged := make([]SSMTag, 0, len(existing)+len(req.Tags))
 	override := map[string]string{}
 	for _, t := range req.Tags {
@@ -190,8 +174,7 @@ func handleSSMAddTagsToResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleSSMRemoveTagsFromResource removes tag keys from a resource.
-// Real SSM silently ignores missing keys; the sim mirrors that.
+// handleSSMRemoveTagsFromResource removes tag keys; Systems Manager ignores keys the resource lacks.
 func handleSSMRemoveTagsFromResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceType string   `json:"ResourceType"`
@@ -222,10 +205,7 @@ func handleSSMRemoveTagsFromResource(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleSSMListTagsForResource returns the tag set for a resource.
-// terraform-provider-aws calls this after PutParameter / on refresh
-// to populate the resource's `tags` attribute. Real SSM returns an
-// empty TagList (not nil) when nothing is attached.
+// handleSSMListTagsForResource returns a resource's tags, an empty TagList when it has none.
 func handleSSMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceType string `json:"ResourceType"`
@@ -239,7 +219,6 @@ func handleSSMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidResourceId", "ResourceType and ResourceId are required", http.StatusBadRequest)
 		return
 	}
-	// Validate the underlying resource exists when we model it.
 	if req.ResourceType == "Parameter" {
 		if !ssmParameterExists(req.ResourceId) {
 			AWSErrorf(w, "InvalidResourceId", http.StatusBadRequest,
@@ -428,7 +407,6 @@ func handleSSMGetParametersByPath(w http.ResponseWriter, r *http.Request) {
 			return false
 		}
 		if !req.Recursive {
-			// Direct children only — no further `/` after the prefix.
 			rest := paramName[len(prefix):]
 			if strings.Contains(rest, "/") {
 				return false
@@ -447,16 +425,15 @@ func handleSSMGetParametersByPath(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ssmParameterFilter is a GetParametersByPath ParameterFilters entry.
 type ssmParameterFilter struct {
 	Key    string   `json:"Key"`
 	Option string   `json:"Option"`
 	Values []string `json:"Values"`
 }
 
-// ssmMatchesParameterFilters applies the supported ParameterFilters keys
-// (Type / Tier / DataType / Name) with the Equals (default) or BeginsWith
-// option. An empty filter set matches everything.
+// ssmMatchesParameterFilters applies the Type, Tier, DataType and Name
+// ParameterFilters with the Equals (default) or BeginsWith option; an empty set
+// matches everything.
 func ssmMatchesParameterFilters(p SSMParameter, filters []ssmParameterFilter) bool {
 	for _, f := range filters {
 		var field string
@@ -470,7 +447,7 @@ func ssmMatchesParameterFilters(p SSMParameter, filters []ssmParameterFilter) bo
 		case "Name":
 			field = ensureLeadingSlash(p.Name)
 		default:
-			// Unsupported filter key: don't exclude on a key we can't evaluate.
+			// The simulator does not evaluate other keys (Label, tag:<key>) and lets them match.
 			continue
 		}
 		matched := false

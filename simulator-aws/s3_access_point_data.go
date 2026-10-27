@@ -9,17 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The access point data plane.
-//
 // An access point is an addressable front door onto one bucket, reached at
-// `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, and what makes it
-// more than an alias is that it narrows what can be done through it: its scope
-// names the key prefixes it reaches and the operations it allows, and a request
-// outside either is refused however the caller's own policies read.
-//
-// The bucket arrives in the hostname, so the request is mapped onto the path
-// the router works in the same way a directory bucket's zonal request is, and
-// the signature is still verified against the path the client sent.
+// `<name>-<account>.s3-accesspoint.<region>.amazonaws.com`, and it narrows what
+// can be done through it: its scope names the key prefixes it reaches and the
+// operations it allows, and a request outside either is refused whatever the
+// caller's own policies say. The bucket arrives in the hostname, so map the
+// request onto the router's path as a directory bucket's zonal request is, and
+// verify the signature against the path the client sent.
 
 // s3AccessPointContextKey carries the access point a request was addressed
 // through, for the condition keys that describe it.

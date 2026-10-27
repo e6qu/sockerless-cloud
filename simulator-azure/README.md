@@ -13,21 +13,76 @@ vendored in [`specs/cloud-api/azure/`](../specs/cloud-api/azure/), and
 
 ## Run it
 
-Install a release, run its container image, or build from a checkout:
+Install it with Go, run the release image, or build it from a checkout.
 
+`go install` takes the newest commit with `@main`. Go pins a release by its
+commit, because the repository tags only `vX.Y.Z` at its root: replace `main`
+with the release commit. Don't use `@latest`, which resolves to an old
+bootstrap version the module proxy still serves.
+
+<!-- doctest: part name=install -->
+<!-- doctest: run -->
 ```sh
-go install github.com/e6qu/sockerless-cloud/simulator-azure@<release-commit> && simulator-azure
+go install github.com/e6qu/sockerless-cloud/simulator-azure@main
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
 
-docker run --rm -p 4568:4568 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-azure:vX.Y.Z
+Start it in a terminal of its own. It prints `Listening on` once port 4568
+answers:
 
-# From the repository root: build the console, then embed it with -tags console.
+<!-- doctest: background id=azure ready="Listening on" -->
+```sh
+simulator-azure
+```
+
+`GET /health` reports how it runs:
+
+<!-- doctest: run expect="\"runtime\":\"docker\"" expect="\"workloadExecution\":true" -->
+```sh
+curl -s http://localhost:4568/health
+```
+
+<!-- doctest: part name=image -->
+The release image runs API-only:
+
+<!-- x-release-please-start-version -->
+<!-- doctest: background id=image ready="Listening on" -->
+```sh
+docker run --rm -p 4568:4568 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-azure:v3.1.0
+```
+<!-- x-release-please-end -->
+
+<!-- doctest: run expect="\"runtime\":\"process\"" expect="\"workloadExecution\":false" -->
+```sh
+curl -s http://localhost:4568/health
+```
+
+<!-- doctest: part name=checkout -->
+A checkout builds the console and embeds it with `-tags console`:
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
 (cd ui && bun install && bunx turbo run build --filter=@sockerless/ui-simulator-azure)
-make simulator-azure/build && ./simulator-azure/simulator-azure
+make simulator-azure/build
+export PATH="$PWD/simulator-azure:$PATH"
+```
+
+<!-- doctest: background id=azure ready="Listening on" -->
+```sh
+simulator-azure
+```
+
+The console answers under `/ui/`:
+
+<!-- doctest: run expect="(?i)<!doctype html>" -->
+```sh
+curl -s http://localhost:4568/ui/
 ```
 
 `go install` and a plain `go build` embed no console; the release binaries and
-image embed it. Go pins a release by its commit, because the repository tags
-only `vX.Y.Z` at its root.
+image embed it.
 
 The simulator needs a Docker or Podman engine to run virtual machines,
 Azure Container Apps, Azure Container Instances, App Service and Azure
@@ -135,7 +190,9 @@ Over plain HTTP, mint a token and pass it to `az rest`, as the CLI suite's
 `azRest` (`cli-tests/helpers_test.go`) does for every Azure Resource Manager
 call, with an isolated `AZURE_CONFIG_DIR`:
 
+<!-- doctest: run expect="\"provisioningState\": \"Succeeded\"" -->
 ```sh
+export AZURE_CONFIG_DIR=$PWD/az-sim   # keep the simulator out of your own configuration
 TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
   -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
   --data-urlencode scope=https://management.azure.com/.default | jq -r .access_token)
@@ -143,14 +200,31 @@ az rest --method PUT --headers "Authorization=Bearer $TOKEN" --body '{"location"
   --url "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/my-rg?api-version=2021-04-01"
 ```
 
-For the native commands, register the TLS listener as a cloud and log in, as
+For the native commands, restart the simulator with a TLS listener. Stop the
+plain one with Ctrl-C, make a certificate for `localhost` (here a self-signed
+one), and start it again with the certificate:
+
+<!-- doctest: stop id=azure -->
+<!-- doctest: run -->
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=localhost \
+  -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -keyout sim-key.pem -out sim-cert.pem
+```
+
+<!-- doctest: background id=azure-tls ready="Listening on" -->
+```sh
+SIM_TLS_CERT=sim-cert.pem SIM_TLS_KEY=sim-key.pem simulator-azure
+```
+
+Then register the TLS listener as a cloud and log in, as
 `TestAzLogin_ServicePrincipalAgainstSimulatorCloud` (`cli-tests/az_login_test.go`)
 does. `--endpoint-active-directory` takes the AD FS form, `<endpoint>/adfs`,
 the one authority shape MSAL resolves against the configured host.
 `REQUESTS_CA_BUNDLE` names the certificate authority the CLI trusts:
 
+<!-- doctest: run expect="\"name\": \"my-rg\"" expect="\"provisioningState\": \"Succeeded\"" -->
 ```sh
-export REQUESTS_CA_BUNDLE=/path/to/ca.pem
+export REQUESTS_CA_BUNDLE=$PWD/sim-cert.pem
 az cloud register -n sockerless-sim \
   --endpoint-resource-manager https://localhost:4568 \
   --endpoint-active-directory https://localhost:4568/adfs \
@@ -174,10 +248,11 @@ it (`*.blob.`, `*.file.`, `*.queue.`, `*.table.`, `*.vault.`, `*.servicebus.`,
 `*.eventgrid.`, `*.documents.`, `*.azurecr.`, `*.scm.`), and forwards to the
 simulator at `SOCKERLESS_AZURE_SIM_PORT` (default 4568).
 
-Start the simulator advertising the gateway's names, start Caddy from the
-repository root, and trust Caddy's local root (on macOS it lives under
-`~/Library/Application Support/Caddy/`):
+Stop the TLS simulator with Ctrl-C. In a terminal of its own, start the
+simulator advertising the gateway's names, and Caddy from the repository root:
 
+<!-- doctest: stop id=azure-tls -->
+<!-- doctest: background id=gateway ready="Listening on|added certificate to cache\",\"subjects\":\\[\"azure\\.sockerless\\.localhost\"" count=2 -->
 ```sh
 G=azure.sockerless.localhost:8443
 SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{
@@ -187,7 +262,17 @@ SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{
   "eventGrid": "https://{topic}.eventgrid.'$G'/api/events", "acr": "https://{name}.azurecr.'$G'/",
   "appServiceScm": "https://{name}.scm.'$G'/"}' simulator-azure &
 caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
+```
+
+Back in your first terminal, trust Caddy's local root (on macOS it lives under
+`~/Library/Application Support/Caddy/`) and read the cloud's endpoints through
+the gateway:
+
+<!-- doctest: run expect="\"resourceManager\": ?\"https://azure\\.sockerless\\.localhost:8443/?\"" -->
+```sh
 export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
+curl -s --cacert "$SSL_CERT_FILE" \
+  "https://azure.sockerless.localhost:8443/metadata/endpoints?api-version=2022-09-01"
 ```
 
 The templates fill `primaryEndpoints`, `vaultUri`, `serviceBusEndpoint`,
@@ -320,11 +405,32 @@ with the key its JWKS publishes.
 The App Service front end routes by `Host`. A request for an app's or slot's
 host name (`<site>.azurewebsites.net`, `<site>-<slot>.azurewebsites.net`, or a
 bound custom host name) goes to that site's container, which the front end
-starts if none is running:
+starts if none is running. Create an app whose container serves a page, then
+request it by its host name:
 
+<!-- doctest: run expect="(?m)^hello$" -->
 ```sh
-curl -H "Host: my-func.azurewebsites.net" "http://localhost:4568/api/hello?code=$FUNCTION_KEY"
+TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
+  -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
+  --data-urlencode scope=https://management.azure.com/.default | jq -r .access_token)
+RG=/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/my-rg
+put() { curl -s -w '\n' -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "http://localhost:4568$RG$1" -d "$2"; }
+put "?api-version=2021-04-01" '{"location":"eastus"}'
+put "/providers/Microsoft.Web/serverfarms/my-plan?api-version=2023-12-01" \
+  '{"location":"eastus","kind":"linux","sku":{"name":"B1"},"properties":{"reserved":true}}'
+put "/providers/Microsoft.Web/sites/my-app?api-version=2023-12-01" '{"location":"eastus",
+  "kind":"app,linux,container","properties":{
+  "serverFarmId":"'$RG'/providers/Microsoft.Web/serverfarms/my-plan","siteConfig":{
+  "linuxFxVersion":"DOCKER|mirror.gcr.io/library/busybox:latest",
+  "appCommandLine":"sh -c \"mkdir -p /www && echo hello > /www/index.html && exec httpd -f -p 80 -h /www\""}}}'
+
+curl -H "Host: my-app.azurewebsites.net" http://localhost:4568/
 ```
+
+A function app's HTTP trigger takes its key in `code`, as
+[Step 19 of the tutorial](../docs/tutorial.md#step-19-read-the-results-and-call-the-function)
+shows.
 
 A site runs its `linuxFxVersion`: a `DOCKER|<image>`, the App Service image for
 `NODE|20-lts`, `NODE|22-lts` or `PYTHON|3.12`, or the Azure Functions host for
@@ -364,11 +470,29 @@ lock sessions.
 
 ## Test it
 
+<!-- doctest: part name=test -->
+From the root of a clone:
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
+```
+
+<!-- doctest: run -->
 ```sh
 make simulator-azure/unit-test       # the module's own tests: no engine
-make simulator-azure/sdk-test        # Azure SDK for Go clients
-make simulator-azure/cli-test        # the Azure CLI
-make simulator-azure/terraform-test  # azurerm and azuread through the HTTPS gateway
+```
+
+Each client suite's target runs the whole suite, which CI splits across
+jobs. Narrow one with `-run`:
+
+<!-- doctest: run -->
+```sh
+make simulator-azure/sdk-test SDK_TEST_ARGS="-run '^TestKeyVault' ./..."     # Azure SDK for Go clients
+make simulator-azure/cli-test CLI_TEST_ARGS="-run '^TestPrivateDNS' ./..."   # the Azure CLI
+make simulator-azure/terraform-test \
+  TERRAFORM_TEST_ARGS="-run TestTerraformMissingResourceGroupRefusesApply"  # azurerm and azuread through the HTTPS gateway
 ```
 
 - **Unit tests** check every registered route against the vendored Swagger
@@ -385,8 +509,8 @@ make simulator-azure/terraform-test  # azurerm and azuread through the HTTPS gat
   `CADDY=/path/to/caddy`). It starts the simulator, then the gateway on free
   ports with its own Caddy state, and runs one test per configuration:
   `main.tf` and the `entra`, `subscription`, `tutorial`, `webslots`,
-  `webkvscm`, `kvconsumers`, `forwardedheaders`, `redis`, `rgdelete` and
-  `rgmissing` stacks. `TERRAFORM_TEST_ARGS` selects one (`-run TestTerraformApplyDestroy`)
+  `webkvscm`, `kvconsumers`, `forwardedheaders`, `redis`, `rbac`, `rgdelete`
+  and `rgmissing` stacks. `TERRAFORM_TEST_ARGS` selects one (`-run TestTerraformApplyDestroy`)
   and `TERRAFORM_TEST_TIMEOUT` bounds it. On macOS the suite runs in the
   Linux test image, because Go there ignores `SSL_CERT_FILE`.
 

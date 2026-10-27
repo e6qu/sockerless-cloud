@@ -60,6 +60,7 @@ Each row must point at a real file/line/test function — generic ✓ marks with
 
 Run this check per surface touched:
 
+<!-- doctest: skip reason="a template: the agent names the cloud and service under review in place of <cloud>-<service>" -->
 ```bash
 # Surface tables in scope:
 git diff --name-only origin/main...HEAD | grep -E "simulator-.+/[^/]+\.go$" | xargs -I{} basename {} .go | sort -u

@@ -8,28 +8,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The Amazon S3 condition keys that describe a Batch Operations job or the
-// prefix an Access Grants grant or location covers.
-//
-// These are how an S3 control-plane policy says something about the *work*
-// rather than about the ARN: let this role create jobs only for the tagging
-// operation, only below a priority its pipeline reserves; let it retag or
-// re-prioritise a job only when the job already running is the kind it owns;
-// let it hand out grants only inside one prefix. The service reference
-// declares every one of them against a control-plane action the simulator now
-// serves, and the gate built none of them, so each such policy was evaluated
-// against a context missing the key it tests — and a condition on an absent
-// key never matches, so the policy denied exactly the request it was written
-// to allow.
-//
-// Two shapes of key live here and they are derived differently. The Request*
-// keys are what the call asks for, read from the request itself. The Existing*
-// keys and the two scopes are facts about the resource the call names, read
-// from the store the handler behind the gate would read. A request that names
-// no such resource, or names one that does not exist, leaves its keys unset:
-// the call is about to fail with NoSuchJob or a location-not-exists error, and
-// a policy that tests the key must deny rather than compare against a value
-// this file made up.
+// Amazon S3 Batch Operations job keys and S3 Access Grants scope keys. The
+// Request* keys come from the request; the Existing* keys and the two scopes
+// from the store the handler would read. A request naming no such resource, or
+// one that does not exist, leaves its keys unset: the call is about to fail, and
+// a policy testing the key must deny rather than compare against an invented
+// value.
 func init() {
 	registerIAMRequestConditionPopulator("s3", iamPopulateS3ControlConditionKeys)
 }
@@ -62,17 +46,10 @@ func iamPopulateS3ControlConditionKeys(r *http.Request, operation string, body [
 		iamSetS3JobPriority(ctx, "s3:RequestJobPriority", r.URL.Query().Get("priority"))
 		iamPopulateS3ExistingJobConditionKeys(r, ctx)
 	case "UpdateJobStatus", "PutJobTagging", "DeleteJobTagging":
-		// s3:JobSuspendedCause is declared on UpdateJobStatus and is not set
-		// here. It is the reason S3 suspended the job, which the service
-		// writes and the caller never sends: JobDescriptor carries it as
-		// SuspendedCause, "the reason why the specified job was suspended. A
-		// job is only suspended if you create it through the Amazon S3
-		// console", typed as a plain 1..1024 string with no enumeration. This
-		// simulator suspends a job when the create asks for confirmation and
-		// records no cause for it, so there is nothing to read; the vendored
-		// model publishes no value AWS would have written either. Filling the
-		// key in would be inventing the string a policy compares against, and
-		// a wrong string matches a policy that must not match.
+		// s3:JobSuspendedCause stays unset: S3 writes the cause and the caller never
+		// sends it, the model types it as a free-form string, and the simulator records
+		// none when it suspends a job awaiting confirmation. An invented string could
+		// match a policy that must not match.
 		iamPopulateS3ExistingJobConditionKeys(r, ctx)
 	case "CreateAccessGrant":
 		// The grant does not exist yet, so its scope is the one the request

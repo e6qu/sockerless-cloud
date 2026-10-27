@@ -8,11 +8,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SSM Resource Data Sync — terraform's `aws_ssm_resource_data_sync`
-// resource hits this slice. A sync streams inventory / parameter data to
-// an S3 destination (SyncType "SyncToDestination") or aggregates from
-// source accounts ("SyncFromSource"). The sim round-trips the nested
-// S3Destination / SyncSource structures verbatim as raw JSON.
+// AWS Systems Manager resource data syncs stream inventory or parameter data to
+// an Amazon S3 destination (SyncType "SyncToDestination") or aggregate it from
+// source accounts ("SyncFromSource"). The nested S3Destination and SyncSource
+// structures round-trip verbatim as raw JSON.
 
 // SSMResourceDataSync is a configured data sync, keyed by SyncName.
 type SSMResourceDataSync struct {

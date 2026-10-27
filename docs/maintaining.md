@@ -22,6 +22,7 @@ flowchart LR
 
 ## Setting up
 
+<!-- doctest: run -->
 ```sh
 git clone https://github.com/e6qu/sockerless-cloud.git
 cd sockerless-cloud

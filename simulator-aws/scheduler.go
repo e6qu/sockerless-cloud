@@ -13,13 +13,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 )
 
-// EventBridge Scheduler — terraform-provider-aws declares `aws_scheduler_schedule`
-// (and `aws_scheduler_schedule_group`) for cron/rate-driven task invocation. This
-// is a separate service from EventBridge rules/buses (eventbridge.go): it speaks
-// the REST-JSON protocol over `scheduler.amazonaws.com` with path-addressed
-// resources (`/schedules/{Name}`), not the X-Amz-Target JSON protocol. Names live
-// in the path; the schedule group is a query parameter (`groupName`) or, for
-// ListSchedules, `ScheduleGroup`.
+// Amazon EventBridge Scheduler is separate from EventBridge rules and buses
+// (eventbridge.go): it speaks REST-JSON over scheduler.amazonaws.com with
+// path-addressed resources (`/schedules/{Name}`). The schedule group is the
+// `groupName` query parameter, or `ScheduleGroup` for ListSchedules.
 
 // Schedule is a single scheduled invocation. Target and FlexibleTimeWindow are
 // held as raw JSON so they round-trip byte-exact through Get/Update.
@@ -79,14 +76,11 @@ func registerScheduler(srv *sim.Server) {
 	srv.HandleFunc("DELETE /schedule-groups/{Name}", schedulerRecorded("DeleteScheduleGroup", handleSchedulerDeleteScheduleGroup))
 	srv.HandleFunc("GET /schedule-groups", schedulerRecorded("ListScheduleGroups", handleSchedulerListScheduleGroups))
 
-	// Resource tagging shares the real path `/tags/{ResourceArn}` with other
-	// REST-JSON services (e.g. Amplify) that the collapsed-port sim mounts on the
-	// same mux. The real clouds disambiguate by service hostname; the sim reads
-	// the in-band SigV4 signing service (`.../scheduler/aws4_request`) from the
-	// Authorization header and routes scheduler-signed `/tags/...` traffic here
-	// before it reaches the shared mux, leaving every other service's tag traffic
-	// to fall through untouched.
-	// Register the ops so CloudTrail lookup surfaces scheduler tag calls.
+	// Tagging shares `/tags/{ResourceArn}` with other REST-JSON services (AWS
+	// Amplify) on the same mux. AWS tells them apart by hostname; route a request
+	// whose SigV4 credential scope names the scheduler service here before it
+	// reaches the shared mux, and register the operations so CloudTrail lookup
+	// surfaces them.
 	restRegisterOp("scheduler.amazonaws.com", "TagResource")
 	restRegisterOp("scheduler.amazonaws.com", "UntagResource")
 	restRegisterOp("scheduler.amazonaws.com", "ListTagsForResource")
@@ -104,12 +98,8 @@ func registerScheduler(srv *sim.Server) {
 	startSchedulerFiringLoop(srv, schedules, schedulerFireRecs)
 }
 
-// schedulerRecorded wraps a Scheduler REST handler so its API call is recorded
-// in CloudTrail. Scheduler is a REST/JSON service registered directly on the
-// server mux (path-addressed, no X-Amz-Target), so it bypasses the central
-// `POST /` recording middleware — every Scheduler operation must record itself
-// so real CloudTrail-style lookup surfaces Scheduler API calls against
-// scheduler.amazonaws.com.
+// schedulerRecorded records a Scheduler REST call in CloudTrail: path-addressed
+// Scheduler routes bypass the central `POST /` recorder.
 func schedulerRecorded(eventName string, h http.HandlerFunc) http.HandlerFunc {
 	restRegisterOp("scheduler.amazonaws.com", eventName)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -542,17 +532,14 @@ func handleSchedulerDeleteScheduleGroup(w http.ResponseWriter, r *http.Request) 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// SchedulerTag mirrors the wire scheduler#Tag shape.
 type SchedulerTag struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
 }
 
-// schedulerSignedRequest reports whether the request's SigV4 Authorization
-// header names "scheduler" as the signing service (Credential=AKID/date/region/
-// scheduler/aws4_request) — the in-band discriminator that tells the shared
-// `/tags/...` route this traffic belongs to EventBridge Scheduler, not another
-// service mounted on the same mux.
+// schedulerSignedRequest reports whether the SigV4 credential scope names
+// "scheduler" as the signing service, which tells the shared `/tags/...` route
+// the request is Scheduler's.
 func schedulerSignedRequest(r *http.Request) bool {
 	auth := r.Header.Get("Authorization")
 	i := strings.Index(auth, "Credential=")
@@ -607,9 +594,9 @@ func schedulerServeTags(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// schedulerResourceExists reports whether a tag ResourceArn refers to a known
-// schedule or schedule-group, so tag ops fail with ResourceNotFoundException
-// for an unknown ARN as real AWS does.
+// schedulerResourceExists reports whether a tag ResourceArn names a known
+// schedule or schedule group, so tag operations on an unknown ARN fail with
+// ResourceNotFoundException, as in AWS.
 func schedulerResourceExists(arn string) bool {
 	if strings.Contains(arn, ":schedule-group/") {
 		name := arn[strings.LastIndex(arn, "/")+1:]

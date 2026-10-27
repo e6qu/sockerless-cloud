@@ -8,18 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS Glue — machine-learning task runs, crawler/column-statistics schedules,
-// materialized-view refresh runs, workflow-run properties, trigger listing/update,
-// job bookmarks, and the connection-type registry. AWS JSON 1.1.
-//
-// There is no Spark/crawler compute backend in the simulator, so task runs and
-// refresh runs settle to a terminal SUCCEEDED state synchronously with honestly
-// empty/zero result shapes — never fabricated metrics. Schedules toggle a stored
-// state flag on the existing crawler; column-statistics schedules and bookmarks
-// are tracked in dedicated stores keyed by the resources they belong to.
+// The simulator has no Spark or crawler compute, so task runs and refresh runs
+// settle SUCCEEDED synchronously with empty or zero result shapes, never
+// fabricated metrics.
 
-// GlueMLTaskRun models one machine-learning transform task run, keyed by
-// TransformId + TaskRunId.
+// Keyed by TransformId and TaskRunId.
 type GlueMLTaskRun struct {
 	TransformId    string         `json:"TransformId"`
 	TaskRunId      string         `json:"TaskRunId"`
@@ -33,8 +26,7 @@ type GlueMLTaskRun struct {
 	ExecutionTime  int            `json:"ExecutionTime"`
 }
 
-// GlueMVRefreshTaskRun models one materialized-view refresh task run, keyed by
-// CatalogId + MaterializedViewRefreshTaskRunId.
+// Keyed by CatalogId and MaterializedViewRefreshTaskRunId.
 type GlueMVRefreshTaskRun struct {
 	CustomerId                       string  `json:"CustomerId,omitempty"`
 	MaterializedViewRefreshTaskRunId string  `json:"MaterializedViewRefreshTaskRunId"`
@@ -49,17 +41,15 @@ type GlueMVRefreshTaskRun struct {
 	RefreshType                      string  `json:"RefreshType,omitempty"`
 }
 
-// GlueColumnStatsSchedule tracks a column-statistics task run schedule for a
-// table, keyed by database/table.
+// Keyed by database and table.
 type GlueColumnStatsSchedule struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
 	State        string `json:"State"`
 }
 
-// GlueJobBookmark holds the job bookmark entry keyed by job name. The simulator
-// has no incremental ETL backend, so the bookmark is the catalog of resume
-// metadata clients write/read; Reset clears the bookmark payload.
+// Keyed by job name. The simulator runs no incremental ETL, so the bookmark holds
+// the resume metadata clients write; ResetJobBookmark clears it.
 type GlueJobBookmark struct {
 	JobName     string `json:"JobName"`
 	Version     int    `json:"Version"`
@@ -69,7 +59,7 @@ type GlueJobBookmark struct {
 	JobBookmark string `json:"JobBookmark,omitempty"`
 }
 
-// GlueConnectionType models a registered connection type keyed by ConnectionType.
+// Keyed by ConnectionType.
 type GlueConnectionType struct {
 	ConnectionType    string            `json:"ConnectionType"`
 	ConnectionTypeArn string            `json:"ConnectionTypeArn"`
@@ -86,7 +76,6 @@ var (
 	glueConnectionTypes sim.Store[GlueConnectionType]
 )
 
-// registerGlueMLTasksSchedules registers this Glue sub-service's awsJson1.1 operations.
 func registerGlueMLTasksSchedules(r *AWSRouter, srv *sim.Server) {
 	glueMLTaskRuns = sim.MakeStore[GlueMLTaskRun](srv.DB(), "glue_ml_task_runs")
 	glueMVRefreshRuns = sim.MakeStore[GlueMVRefreshTaskRun](srv.DB(), "glue_mv_refresh_runs")
@@ -135,13 +124,12 @@ func registerGlueMLTasksSchedules(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.TestConnection", handleGlueTestConnection)
 }
 
-// glueMLTaskRunKey scopes a task run to its transform.
 func glueMLTaskRunKey(transformID, taskRunID string) string {
 	return transformID + "\x00" + taskRunID
 }
 
-// glueStartMLTaskRunHandler returns a handler that starts a task run of the given
-// TaskType against an existing ML transform and settles it to SUCCEEDED.
+// glueStartMLTaskRunHandler starts a taskType run against an existing ML
+// transform and settles it SUCCEEDED.
 func glueStartMLTaskRunHandler(taskType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -405,7 +393,6 @@ func handleGlueUpdateCrawlerSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Schedule == "" {
-		// An empty schedule removes the schedule from the crawler.
 		crawler.Schedule = nil
 	} else {
 		crawler.Schedule = &GlueSchedule{ScheduleExpression: req.Schedule, State: "SCHEDULED"}
@@ -434,8 +421,7 @@ func handleGlueGetCrawlerMetrics(w http.ResponseWriter, r *http.Request) {
 			names = append(names, c.Name)
 		}
 	}
-	// Metrics for stored crawlers only; the simulator runs no crawl, so the
-	// runtime/table counters are honestly zero.
+	// The simulator runs no crawl, so the runtime and table counters are zero.
 	var metrics []map[string]any
 	for _, name := range names {
 		if _, ok := glueCrawlers.Get(name); !ok {
@@ -485,8 +471,8 @@ func handleGlueListCrawls(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Crawler not found: "+req.CrawlerName)
 		return
 	}
-	// The simulator runs no crawls; StartCrawler does not produce a history row,
-	// so ListCrawls honestly returns an empty crawl history for the crawler.
+	// The simulator runs no crawl and StartCrawler records no history, so ListCrawls
+	// returns an empty history.
 	var crawls []map[string]any
 	maxR := 0
 	if req.MaxResults != nil {
@@ -536,7 +522,7 @@ func handleGlueStartMaterializedViewRefreshTaskRun(w http.ResponseWriter, r *htt
 	if req.FullRefresh != nil && *req.FullRefresh {
 		refreshType = "FULL"
 	}
-	// No materialized-view compute backend; the refresh settles synchronously.
+	// The simulator has no materialized-view compute; the refresh settles synchronously.
 	glueMVRefreshRuns.Put(glueMVRefreshKey(req.CatalogId, runID), GlueMVRefreshTaskRun{
 		CustomerId:                       req.CatalogId,
 		MaterializedViewRefreshTaskRunId: runID,
@@ -602,8 +588,8 @@ func handleGlueStopMaterializedViewRefreshTaskRun(w http.ResponseWriter, r *http
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// glueMVRefreshRunsByCatalog returns key→run for all stored refresh runs in a
-// catalog. Caller holds glueMu.
+// glueMVRefreshRunsByCatalog returns key→run for a catalog's refresh runs. The
+// caller holds glueMu.
 func glueMVRefreshRunsByCatalog(catalogID string) map[string]GlueMVRefreshTaskRun {
 	out := map[string]GlueMVRefreshTaskRun{}
 	for _, run := range glueMVRefreshRuns.List() {
@@ -658,7 +644,7 @@ func handleGlueListMaterializedViewRefreshTaskRuns(w http.ResponseWriter, r *htt
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueWfRunKey mirrors the key scheme used by StartWorkflowRun in glue.go.
+// Same key scheme as StartWorkflowRun.
 func glueWfRunKey(name, runID string) string {
 	return name + "\x00" + runID
 }
@@ -792,7 +778,7 @@ func handleGlueResumeWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Workflow run not found: "+req.RunId)
 		return
 	}
-	// Each resume creates a new run with a fresh ID; it settles synchronously.
+	// Each resume creates a run with a fresh ID that settles synchronously.
 	newRunID := "wr_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	now := glueEpochNow()
 	glueWfRuns.Put(glueWfRunKey(req.Name, newRunID), GlueWorkflowRun{
@@ -937,7 +923,7 @@ func handleGlueGetJobBookmark(w http.ResponseWriter, r *http.Request) {
 	}
 	bm, ok := glueJobBookmarks.Get(req.JobName)
 	if !ok {
-		// No bookmark recorded yet; AWS returns a zeroed entry for the job.
+		// With no bookmark recorded, AWS returns a zeroed entry for the job.
 		bm = GlueJobBookmark{JobName: req.JobName}
 	}
 	glueWriteJSON(w, http.StatusOK, map[string]any{"JobBookmarkEntry": bm})
@@ -964,7 +950,6 @@ func handleGlueResetJobBookmark(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Job not found: "+req.JobName)
 		return
 	}
-	// Reset clears the bookmark payload back to the initial state for the job.
 	bm := GlueJobBookmark{JobName: req.JobName}
 	glueJobBookmarks.Put(req.JobName, bm)
 	glueWriteJSON(w, http.StatusOK, map[string]any{"JobBookmarkEntry": bm})
@@ -1035,11 +1020,8 @@ func handleGlueDescribeConnectionType(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueSupportedConnectionTypes is the connection-type catalogue AWS Glue
-// publishes, transcribed from the ConnectionType enum the vendored model
-// declares — the same kind of transcription as the AWS Lambda runtime images
-// and the ElastiCache engine versions. It is not invented: the model is where
-// the list comes from, and the list is what ListConnectionTypes returns.
+// Transcribed from the ConnectionType enum in the vendored AWS Glue model;
+// ListConnectionTypes returns this list.
 var glueSupportedConnectionTypes = []string{
 	"ADOBEANALYTICS", "ASANA", "AZURECOSMOS", "AZURESQL",
 	"BIGQUERY", "BLACKBAUD", "BLACKBAUDRAISEREDGENXT", "CIRCLECI",
@@ -1075,17 +1057,10 @@ func handleGlueListConnectionTypes(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
-	// The connection types AWS Glue supports, which is what this operation
-	// lists: ConnectionTypeBrief.ConnectionType is the model's ConnectionType
-	// enum, so a name outside it cannot appear here. Registering a custom
-	// connector takes a free-form NameString and describes back as one, and
-	// those are the caller's own — they are not this catalogue, and listing
-	// them here put a value in a field whose type cannot hold it.
-	//
-	// Only the names are answered. The rest of a brief — the vendor, the
-	// display name, the logo, the categories and capabilities — is AWS's own
-	// catalogue copy, which this simulator does not have and will not invent;
-	// every one of those members is optional.
+	// ConnectionTypeBrief.ConnectionType is the model's ConnectionType enum, so list
+	// only this catalogue, never a custom connector's free-form name. Answer only the
+	// names: the vendor, display name, logo, categories and capabilities are AWS's
+	// own catalogue copy, all optional, and the simulator does not invent them.
 	briefs := make([]map[string]any, 0, len(glueSupportedConnectionTypes))
 	for _, name := range glueSupportedConnectionTypes {
 		briefs = append(briefs, map[string]any{"ConnectionType": name})
@@ -1137,8 +1112,7 @@ func handleGlueTestConnection(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "InvalidInputException", "ConnectionName is required")
 		return
 	}
-	// A named connection must exist for the test to validate; the simulator has
-	// no real network reachability backend, so a stored connection tests OK.
+	// The simulator probes no network reachability, so any stored connection tests OK.
 	if _, ok := glueConnections.Get(req.ConnectionName); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Connection not found: "+req.ConnectionName)
 		return

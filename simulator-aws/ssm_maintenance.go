@@ -10,19 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// SSM Maintenance Windows — terraform's `aws_ssm_maintenance_window`,
-// `aws_ssm_maintenance_window_target`, and `aws_ssm_maintenance_window_task`
-// resources hit this slice. A window owns a recurring schedule plus a set
-// of registered targets and tasks; the sim models all three as real
-// control-plane state.
+// AWS Systems Manager maintenance windows: a window owns a recurring schedule
+// and its registered targets and tasks.
 
-// SSMTarget is the Key/Values filter shared by targets and tasks.
 type SSMTarget struct {
 	Key    string   `json:"Key"`
 	Values []string `json:"Values"`
 }
 
-// SSMMaintenanceWindow is a recurring window definition.
 type SSMMaintenanceWindow struct {
 	WindowId                 string  `json:"WindowId"`
 	Name                     string  `json:"Name"`
@@ -40,7 +35,6 @@ type SSMMaintenanceWindow struct {
 	ModifiedDate             float64 `json:"ModifiedDate"`
 }
 
-// SSMMaintenanceWindowTarget is a registered target within a window.
 type SSMMaintenanceWindowTarget struct {
 	WindowId         string      `json:"WindowId"`
 	WindowTargetId   string      `json:"WindowTargetId"`
@@ -51,7 +45,6 @@ type SSMMaintenanceWindowTarget struct {
 	Description      string      `json:"Description,omitempty"`
 }
 
-// SSMMaintenanceWindowTask is a registered task within a window.
 type SSMMaintenanceWindowTask struct {
 	WindowId       string            `json:"WindowId"`
 	WindowTaskId   string            `json:"WindowTaskId"`
@@ -93,8 +86,7 @@ func registerSSMMaintenanceWindows(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonSSM.DescribeMaintenanceWindowTasks", handleSSMDescribeTasks)
 }
 
-// newSSMWindowID returns an "mw-" + 17 lowercase hex chars ID per the
-// MaintenanceWindowId pattern ^mw-[0-9a-f]{17}$.
+// newSSMWindowID returns an ID matching ^mw-[0-9a-f]{17}$.
 func newSSMWindowID() string {
 	b := make([]byte, 9)
 	_, _ = rand.Read(b)
@@ -105,9 +97,8 @@ func ssmWindowKey(windowID, id string) string {
 	return windowID + "/" + id
 }
 
-// ssmWindowIdentityWire projects a window onto MaintenanceWindowIdentity
-// (DescribeMaintenanceWindows). This shape lacks AllowUnassociatedTargets,
-// CreatedDate, and ModifiedDate — emit only its defined members.
+// ssmWindowIdentityWire projects a window onto MaintenanceWindowIdentity, which
+// lacks AllowUnassociatedTargets, CreatedDate and ModifiedDate.
 func ssmWindowIdentityWire(m SSMMaintenanceWindow) map[string]any {
 	out := map[string]any{
 		"WindowId": m.WindowId,
@@ -135,8 +126,7 @@ func ssmWindowIdentityWire(m SSMMaintenanceWindow) map[string]any {
 	return out
 }
 
-// ssmWindowWire projects a window onto the GetMaintenanceWindow /
-// UpdateMaintenanceWindow shape, which adds AllowUnassociatedTargets.
+// ssmWindowWire projects a window onto the GetMaintenanceWindow shape, which adds AllowUnassociatedTargets.
 func ssmWindowWire(m SSMMaintenanceWindow) map[string]any {
 	out := ssmWindowIdentityWire(m)
 	out["AllowUnassociatedTargets"] = m.AllowUnassociatedTargets
@@ -201,7 +191,6 @@ func handleSSMDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssmWindows.Delete(req.WindowId)
-	// Cascade-delete registered targets/tasks.
 	for _, t := range ssmWindowTargets.List() {
 		if t.WindowId == req.WindowId {
 			ssmWindowTargets.Delete(ssmWindowKey(t.WindowId, t.WindowTargetId))
@@ -544,8 +533,7 @@ func ssmTargetsWire(targets []SSMTarget) []map[string]any {
 	return out
 }
 
-// ssmDescribePage answers a Describe call with the wire form of store's
-// resources, a NextToken page at a time.
+// ssmDescribePage writes a NextToken page of store's resources in their wire form.
 func ssmDescribePage[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], key func(T) string, wire func(T) map[string]any, field string) {
 	var req struct {
 		NextToken  string `json:"NextToken"`

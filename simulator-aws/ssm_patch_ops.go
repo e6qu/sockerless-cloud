@@ -11,24 +11,16 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// SSM Patch Manager patch-group + patch-read surface, OpsMetadata,
-// resource policies, and parameter history/labels. These complete the
-// SSM slice on top of the patch-baseline store (ssm_patch_baselines.go)
-// and the parameter store (ssm_parameters.go).
-//
-// All ops are awsJson1.1 (X-Amz-Target: AmazonSSM.<Op>). Timestamps are
-// emitted as epoch-second JSON numbers, matching the existing SSM
-// handlers.
-//
-// Patch-scan data (instance patch states/patches, patch-group state)
-// comes from a managed-node agent reporting scan results in real AWS.
-// The sim has no managed nodes, so those reads are honest-empty: real
-// response shapes with zero rows / zero counts, never fabricated patch
-// compliance.
+// AWS Systems Manager Patch Manager patch groups and patch reads, OpsMetadata,
+// resource policies, and parameter history and labels, over awsJson1.1 with
+// epoch-second timestamps.
+// Patch Manager fills patch states and patch-group state from the scans the SSM
+// Agent on a managed node reports. The simulator's managed nodes run no patch
+// scan, so these reads return the real shapes with no rows and zero counts.
 
-// SSMPatchGroupRegistration ties a patch group to a baseline. Real SSM
-// keys the registration on (patch group, operating system): a patch
-// group can register with at most one baseline per OS.
+// SSMPatchGroupRegistration ties a patch group to a baseline. Systems Manager
+// keys a registration on (patch group, operating system), so a group registers
+// with at most one baseline per operating system.
 type SSMPatchGroupRegistration struct {
 	PatchGroup      string `json:"PatchGroup"`
 	OperatingSystem string `json:"OperatingSystem"`
@@ -46,9 +38,9 @@ type SSMOpsMetadata struct {
 	LastModifiedUser string            `json:"LastModifiedUser"`
 }
 
-// SSMResourcePolicy is a JSON policy document attached to an SSM resource
-// ARN (e.g. an OpsItemGroup). Real SSM versions policies with a PolicyId
-// + PolicyHash pair for optimistic concurrency.
+// SSMResourcePolicy is a policy document attached to a Systems Manager resource
+// ARN such as an OpsItemGroup, versioned by a PolicyId and PolicyHash pair for
+// optimistic concurrency.
 type SSMResourcePolicy struct {
 	ResourceArn string `json:"ResourceArn"`
 	PolicyId    string `json:"PolicyId"`
@@ -56,10 +48,9 @@ type SSMResourcePolicy struct {
 	Policy      string `json:"Policy"`
 }
 
-// SSMParameterVersionRow is one historical version of a parameter, plus
-// the labels attached to that version. The live parameter store keeps
-// only the latest version; this store keeps every version for
-// GetParameterHistory and the label ops.
+// SSMParameterVersionRow is one version of a parameter and the labels on it. The
+// parameter store keeps only the latest version; this store keeps every version
+// for GetParameterHistory and the label operations.
 type SSMParameterVersionRow struct {
 	Name             string   `json:"Name"`
 	Type             string   `json:"Type"`
@@ -119,8 +110,6 @@ func registerSSMPatchOps(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// Patch group registration / reads
-
 func handleSSMRegisterPatchBaselineForPatchGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		BaselineId string `json:"BaselineId"`
@@ -171,8 +160,7 @@ func handleSSMDeregisterPatchBaselineForPatchGroup(w http.ResponseWriter, r *htt
 		AWSError(w, "ValidationException", "BaselineId and PatchGroup are required", http.StatusBadRequest)
 		return
 	}
-	// Remove any registration of this group pointing at the baseline,
-	// regardless of OS (a group can only be registered once per OS).
+	// A group registers once per operating system, so remove every registration of it to this baseline.
 	for _, reg := range ssmPatchGroups.List() {
 		if reg.PatchGroup == req.PatchGroup && reg.BaselineId == req.BaselineId {
 			ssmPatchGroups.Delete(ssmPatchGroupKey(reg.OperatingSystem, reg.PatchGroup))
@@ -268,8 +256,7 @@ func handleSSMDescribePatchGroupState(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "PatchGroup is required", http.StatusBadRequest)
 		return
 	}
-	// No managed nodes report scan data in the sim: every count is an
-	// honest zero, matching a patch group with no scanned instances.
+	// No managed node reports patch scans, so every count is zero.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Instances":                          0,
 		"InstancesWithInstalledPatches":      0,
@@ -289,9 +276,8 @@ func handleSSMDescribeAvailablePatches(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// The catalog of vendor-published patches is sourced from the cloud's
-	// patch repositories. The sim has no upstream repo to mirror, so the
-	// available-patch list is honest-empty rather than fabricated.
+	// Patch Manager lists vendor-published patches from the operating systems' patch
+	// repositories; the simulator mirrors none, so the list is empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Patches": []map[string]any{},
 	})
@@ -316,9 +302,8 @@ func handleSSMDescribeEffectivePatchesForPatchBaseline(w http.ResponseWriter, r 
 			"Patch baseline %s doesn't exist.", req.BaselineId)
 		return
 	}
-	// The effective patch set is computed by evaluating the baseline's
-	// approval rules against the vendor patch catalog. With no upstream
-	// catalog to evaluate against, the effective set is honest-empty.
+	// Patch Manager evaluates the baseline's approval rules against the vendor patch
+	// catalog; with no catalog, the effective set is empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"EffectivePatches": []map[string]any{},
 	})
@@ -338,8 +323,7 @@ func handleSSMDescribeInstancePatches(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "InstanceId is required", http.StatusBadRequest)
 		return
 	}
-	// Per-node patch compliance comes from a node's scan results; the sim
-	// has no scanned nodes, so this is honest-empty.
+	// No managed node reports patch scans, so a node has no patches.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Patches": []map[string]any{},
 	})
@@ -383,12 +367,9 @@ func handleSSMDescribeInstancePatchStatesForPatchGroup(w http.ResponseWriter, r 
 	})
 }
 
-// ssmPatchPropertyValues maps an OperatingSystem to the catalog of values
-// for the requested PatchProperty. Real SSM returns the distinct property
-// values seen across the vendor patch catalog for that OS. The sim mirrors
-// the well-known AWS-published value sets so callers enumerating, for
-// example, the available CLASSIFICATION values for AMAZON_LINUX_2 get the
-// real set rather than nothing.
+// ssmPatchPropertyValues maps an OperatingSystem to the values of each
+// PatchProperty. Systems Manager returns the distinct values across the vendor
+// patch catalog; the simulator carries AWS's published value sets.
 var ssmPatchPropertyValues = map[string]map[string][]string{
 	"WINDOWS": {
 		"PRODUCT":        {"Windows10", "WindowsServer2016", "WindowsServer2019", "WindowsServer2022"},
@@ -438,8 +419,7 @@ func handleSSMDescribePatchProperties(w http.ResponseWriter, r *http.Request) {
 	}
 	props := make([]map[string]string, 0, len(values))
 	for _, v := range values {
-		// Each PatchPropertyEntry is a single-key map keyed by the property
-		// name (the AttributeName), valued by the property value.
+		// A PatchPropertyEntry is a single-key map from the property name to its value.
 		props = append(props, map[string]string{req.Property: v})
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -460,9 +440,9 @@ func handleSSMGetDeployablePatchSnapshotForInstance(w http.ResponseWriter, r *ht
 		AWSError(w, "ValidationException", "InstanceId and SnapshotId are required", http.StatusBadRequest)
 		return
 	}
-	// The snapshot download URL is a presigned S3 object that AWS-RunPatchBaseline
-	// pulls the baseline manifest from. The sim returns a deterministic,
-	// well-formed S3 URL scoped by snapshot ID.
+	// AWS-RunPatchBaseline downloads the baseline manifest from a presigned Amazon S3
+	// URL. The simulator returns an unsigned URL derived from the snapshot ID, with no
+	// object behind it.
 	url := "https://patch-baseline-snapshot-" + awsRegion() + ".s3." + awsRegion() +
 		".amazonaws.com/" + req.SnapshotId
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -472,13 +452,10 @@ func handleSSMGetDeployablePatchSnapshotForInstance(w http.ResponseWriter, r *ht
 	})
 }
 
-// OpsMetadata
-
 func ssmOpsMetadataArn(resourceID string) string {
-	// Real OpsMetadata ARN: arn:aws:ssm:<region>:<account>:opsmetadata/<resource-path>.
-	// The resource ID is itself an ARN of the Application Manager resource;
-	// AWS appends its path under opsmetadata/. The sim builds a stable ARN
-	// from a hash so the same resource maps to the same OpsMetadata ARN.
+	// An OpsMetadata ARN is arn:aws:ssm:<region>:<account>:opsmetadata/<resource-path>,
+	// with the path of the Application Manager resource the ID names. The simulator
+	// substitutes a hash of the resource ID for that path.
 	h := sha256.Sum256([]byte(resourceID))
 	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() +
 		":opsmetadata/aws/ssm/" + hex.EncodeToString(h[:8]) + "/opsmetadata"
@@ -609,7 +586,7 @@ func handleSSMListOpsMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	all := ssmOpsMetadata.Filter(func(m SSMOpsMetadata) bool {
 		for _, f := range req.Filters {
-			// The only documented filter key is the resource ID.
+			// ResourceId is the only documented filter key.
 			if f.Key != "resourceId" && f.Key != "ResourceId" {
 				continue
 			}
@@ -647,9 +624,8 @@ func handleSSMListOpsMetadata(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// handleSSMGetOpsSummary aggregates OpsData. The sim has no OpsData
-// aggregation pipeline (resource-data-sync ingest), so it returns an
-// honest-empty entity list with the real GetOpsSummary shape.
+// handleSSMGetOpsSummary aggregates OpsData. The simulator ingests no OpsData, so
+// it returns an empty entity list.
 func handleSSMGetOpsSummary(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SyncName string `json:"SyncName"`
@@ -662,8 +638,6 @@ func handleSSMGetOpsSummary(w http.ResponseWriter, r *http.Request) {
 		"Entities": []map[string]any{},
 	})
 }
-
-// Resource policies
 
 func ssmPolicyHash(policy string) string {
 	h := sha256.Sum256([]byte(policy))
@@ -687,8 +661,7 @@ func handleSSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	existing, exists := ssmResPolicies.Get(req.ResourceArn)
 	if exists {
-		// Update path: PolicyId + PolicyHash must match the current version
-		// (optimistic concurrency), matching real SSM.
+		// An update must carry the current PolicyId and PolicyHash.
 		if req.PolicyId == "" || req.PolicyHash == "" {
 			AWSError(w, "ResourcePolicyConflictException",
 				"PolicyId and PolicyHash are required to update an existing policy.", http.StatusBadRequest)
@@ -778,17 +751,10 @@ func handleSSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// Parameter history + labels
-
-// ssmSyncParameterVersions reconciles the version-history store with the
-// live parameter. The live parameter store keeps only the latest version
-// of each parameter; the history store accumulates a row per version so
-// GetParameterHistory and the label ops have something to read. Whenever
-// the live parameter advances to a version not yet recorded, a row is
-// appended here. This keeps history faithful for every version the sim
-// has actually observed (each PutParameter bumps Version, and the next
-// read reconciles the new version into history) without the parameter
-// store needing to know about this slice.
+// ssmSyncParameterVersions appends a history row for each parameter version not
+// yet recorded, so GetParameterHistory and the label operations see every
+// version PutParameter wrote, without the parameter store knowing about the
+// history store.
 func ssmSyncParameterVersions(p SSMParameter) []SSMParameterVersionRow {
 	key := ensureLeadingSlash(p.Name)
 	rows, _ := ssmParamVersions.Get(key)
@@ -876,10 +842,9 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ssmValidLabel mirrors the real label constraints: labels can't start
-// with a number, can't be over 100 chars, and only allow the documented
-// character set. The sim enforces the start-with-number + length rules
-// (the most common reason a label is rejected).
+// ssmValidLabel enforces the label length limit of 100 and the ban on a leading
+// digit. Systems Manager also restricts labels to a documented character set,
+// which the simulator does not check.
 func ssmValidLabel(label string) bool {
 	if label == "" || len(label) > 100 {
 		return false
@@ -934,8 +899,7 @@ func handleSSMLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 			invalid = append(invalid, l)
 			continue
 		}
-		// A label is unique to one version: detach it from any other
-		// version before attaching it here, matching real SSM.
+		// A label names one version, so detach it from every other version first.
 		for j := range rows {
 			rows[j].Labels = ssmRemoveLabel(rows[j].Labels, l)
 		}

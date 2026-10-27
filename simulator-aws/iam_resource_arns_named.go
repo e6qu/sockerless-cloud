@@ -7,25 +7,15 @@ import (
 	"strings"
 )
 
-// A request that carries the ARN of the resource it is about has named that
-// resource outright, and no assembly is needed. Services nest that ARN wherever
-// their own shapes put it — WAFv2 under LoggingConfiguration.ResourceArn,
-// Elastic Load Balancing under RulePriorities.member.N.RuleArn, CloudWatch Logs
-// under filterLogGroupArn — so the whole request is read rather than a list of
-// member names that would have to grow with every shape a service adds.
-//
-// What makes that safe is the acceptance test rather than the search. Requests
-// routinely carry ARNs for resources they are not about: a KMS key beside a
-// backup, a role beside a cluster, a log destination beside a query. So an ARN
-// is taken only when it matches an ARN format published for one of the resource
-// types the action itself declares — the same limit the Amazon RDS reader
-// applies to the ARNs its requests carry, generalised to every service.
-//
-// The match is deliberately strict. An identifier is read as one path segment,
-// which is what nearly every published format means, and a format whose
-// identifier really does span segments simply fails to match: a missed
-// derivation costs a resource-scoped grant, while a loose match would hand out
-// one the request never asked for.
+// A request carrying the ARN of the resource it is about names it outright.
+// Services nest that ARN wherever their shapes put it (WAFv2
+// LoggingConfiguration.ResourceArn, Elastic Load Balancing
+// RulePriorities.member.N.RuleArn, CloudWatch Logs filterLogGroupArn), so read
+// the whole request. Requests also carry ARNs they are not about (a KMS key
+// beside a backup, a role beside a cluster), so take an ARN only when it matches
+// a format published for a type the action declares. Read an identifier as one
+// path segment: a missed derivation costs a resource-scoped grant, while a loose
+// match hands out one the request never asked for.
 func iamARNsNamingADeclaredType(r *http.Request, service string, types []string, region, account string) []string {
 	if len(types) == 0 {
 		return nil
@@ -78,10 +68,9 @@ func iamARNsNamingADeclaredType(r *http.Request, service string, types []string,
 // ends one is the punctuation of the document around it, never of the ARN.
 var iamARNLiteral = regexp.MustCompile(`arn:[a-z0-9-]*:[^"'\s,}\]&]+`)
 
-// iamARNPathVariable reports whether a published ARN format's identifier is a
-// name that may itself contain "/": a secret named edd/workspace/ws-1, an SSM
-// parameter hierarchy, an IAM name under its path. Every other identifier ends
-// at the next "/".
+// iamARNPathVariable reports whether a published ARN format's identifier may
+// itself contain "/": a secret named team/app/db, an SSM parameter hierarchy, an
+// IAM name under its path. Every other identifier ends at the next "/".
 func iamARNPathVariable(name string) bool {
 	switch name {
 	case "SecretId", "ParameterNameWithoutLeadingSlash", "EntityPath":

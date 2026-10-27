@@ -12,23 +12,14 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Account reports, service-last-accessed, Organizations-root credential
-// management, cross-account delegation requests, and outbound web-identity
-// federation. All awsQuery (XML) on the shared IAM router.
-//
-// The account summary, account-authorization details, and credential report
-// are computed from the real IAM stores (iamUsers/iamGroups/iamRoles/
-// iamPolicies and their attachment stores), not fabricated counts. Service-
-// last-accessed rows are derived from the principal's attached/inline-policy
-// service namespaces. The Organizations-root toggles, outbound web-identity
-// federation state, and STS token-version preference are account-level state
-// stores; delegation requests are a real store with a status lifecycle.
+// Compute the account summary, authorization details and credential report from
+// the IAM stores, never fabricated counts. Derive service-last-accessed rows from
+// the service namespaces of the principal's policies.
 
-// IAMServiceJob backs the asynchronous service-last-accessed and
-// Organizations-access-report flows. AWS returns a JobId from the Generate*
-// call and the Get* call reports JobStatus plus the settled rows. The sim
-// settles every job COMPLETED immediately and records the principal/entity-
-// path the Generate* call named so the Get* call can derive honest rows.
+// AWS returns a JobId from a Generate* call and the Get* call reports JobStatus
+// with the rows. The simulator settles each job COMPLETED at once and records the
+// principal or entity path the Generate* call named, from which Get* derives the
+// rows.
 type IAMServiceJob struct {
 	JobId      string
 	JobType    string // SERVICE_LEVEL or ACTION_LEVEL (service-last-accessed); empty for org reports
@@ -58,9 +49,8 @@ type IAMDelegationRequest struct {
 	ExpirationTime      string
 }
 
-// IAMAccountFeature is an account-level feature/preference flag — the
-// Organizations-root toggles, the outbound web-identity-federation state, and
-// the STS global-endpoint token version. One row per feature key.
+// One row per feature key: the Organizations root toggles, the outbound web
+// identity federation state and the STS global endpoint token version.
 type IAMAccountFeature struct {
 	Key   string
 	Value string
@@ -75,39 +65,33 @@ var (
 
 func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
 	for action, h := range map[string]http.HandlerFunc{
-		// Account reports / summary.
-		"GetAccountSummary":              handleIAMGetAccountSummary,
-		"GetAccountAuthorizationDetails": handleIAMGetAccountAuthorizationDetails,
-		"GenerateCredentialReport":       handleIAMGenerateCredentialReport,
-		"GetCredentialReport":            handleIAMGetCredentialReport,
-		// Service last accessed.
-		"GenerateServiceLastAccessedDetails":        handleIAMGenerateServiceLastAccessed,
-		"GetServiceLastAccessedDetails":             handleIAMGetServiceLastAccessed,
-		"GetServiceLastAccessedDetailsWithEntities": handleIAMGetServiceLastAccessedWithEntities,
-		"GenerateOrganizationsAccessReport":         handleIAMGenerateOrganizationsAccessReport,
-		"GetOrganizationsAccessReport":              handleIAMGetOrganizationsAccessReport,
-		// Organizations root.
+		"GetAccountSummary":                             handleIAMGetAccountSummary,
+		"GetAccountAuthorizationDetails":                handleIAMGetAccountAuthorizationDetails,
+		"GenerateCredentialReport":                      handleIAMGenerateCredentialReport,
+		"GetCredentialReport":                           handleIAMGetCredentialReport,
+		"GenerateServiceLastAccessedDetails":            handleIAMGenerateServiceLastAccessed,
+		"GetServiceLastAccessedDetails":                 handleIAMGetServiceLastAccessed,
+		"GetServiceLastAccessedDetailsWithEntities":     handleIAMGetServiceLastAccessedWithEntities,
+		"GenerateOrganizationsAccessReport":             handleIAMGenerateOrganizationsAccessReport,
+		"GetOrganizationsAccessReport":                  handleIAMGetOrganizationsAccessReport,
 		"EnableOrganizationsRootCredentialsManagement":  handleIAMEnableOrgRootCredentials,
 		"DisableOrganizationsRootCredentialsManagement": handleIAMDisableOrgRootCredentials,
 		"EnableOrganizationsRootSessions":               handleIAMEnableOrgRootSessions,
 		"DisableOrganizationsRootSessions":              handleIAMDisableOrgRootSessions,
 		"ListOrganizationsFeatures":                     handleIAMListOrganizationsFeatures,
-		// Delegation requests.
-		"CreateDelegationRequest":    handleIAMCreateDelegationRequest,
-		"GetDelegationRequest":       handleIAMGetDelegationRequest,
-		"ListDelegationRequests":     handleIAMListDelegationRequests,
-		"AcceptDelegationRequest":    handleIAMAcceptDelegationRequest,
-		"RejectDelegationRequest":    handleIAMRejectDelegationRequest,
-		"AssociateDelegationRequest": handleIAMAssociateDelegationRequest,
-		"UpdateDelegationRequest":    handleIAMUpdateDelegationRequest,
-		"SendDelegationToken":        handleIAMSendDelegationToken,
-		// Outbound web-identity federation.
-		"EnableOutboundWebIdentityFederation":  handleIAMEnableOutboundWebIdentityFederation,
-		"DisableOutboundWebIdentityFederation": handleIAMDisableOutboundWebIdentityFederation,
-		"GetOutboundWebIdentityFederationInfo": handleIAMGetOutboundWebIdentityFederationInfo,
-		// Misc account preferences / summary.
-		"SetSecurityTokenServicePreferences": handleIAMSetSecurityTokenServicePreferences,
-		"GetHumanReadableSummary":            handleIAMGetHumanReadableSummary,
+		"CreateDelegationRequest":                       handleIAMCreateDelegationRequest,
+		"GetDelegationRequest":                          handleIAMGetDelegationRequest,
+		"ListDelegationRequests":                        handleIAMListDelegationRequests,
+		"AcceptDelegationRequest":                       handleIAMAcceptDelegationRequest,
+		"RejectDelegationRequest":                       handleIAMRejectDelegationRequest,
+		"AssociateDelegationRequest":                    handleIAMAssociateDelegationRequest,
+		"UpdateDelegationRequest":                       handleIAMUpdateDelegationRequest,
+		"SendDelegationToken":                           handleIAMSendDelegationToken,
+		"EnableOutboundWebIdentityFederation":           handleIAMEnableOutboundWebIdentityFederation,
+		"DisableOutboundWebIdentityFederation":          handleIAMDisableOutboundWebIdentityFederation,
+		"GetOutboundWebIdentityFederationInfo":          handleIAMGetOutboundWebIdentityFederationInfo,
+		"SetSecurityTokenServicePreferences":            handleIAMSetSecurityTokenServicePreferences,
+		"GetHumanReadableSummary":                       handleIAMGetHumanReadableSummary,
 	} {
 		r.Register(action, h)
 	}
@@ -117,18 +101,13 @@ func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
 	iamCredReportGen = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_cred_report_gen")
 }
 
-// iamResultXML writes a standard awsQuery IAM response wrapping the supplied
-// `<{op}Result>` inner XML.
 func iamResultXML(w http.ResponseWriter, op, inner string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><%sResult>%s</%sResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
 		op, op, inner, op, sim.NewUUID(), op)
 }
 
-// Account summary
-
-// handleIAMGetAccountSummary returns the SummaryMap of real entity counts and
-// the fixed account quotas, computed from the live IAM stores.
+// handleIAMGetAccountSummary counts the entities in the IAM stores and reports the fixed account quotas.
 func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 	users := len(iamUsers.List())
 	groups := len(iamGroups.List())
@@ -137,7 +116,7 @@ func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 	instanceProfiles := len(iamInstanceProfiles.List())
 	mfaInUse := 0 // MFA devices aren't modeled with an enabled flag; report 0.
 
-	// policyVersions: one default version per managed policy.
+	// Each managed policy has one default version.
 	policyVersions := policies
 
 	entries := []struct {
@@ -183,8 +162,8 @@ func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 	iamResultXML(w, "GetAccountSummary", b.String())
 }
 
-// iamGlobalEndpointTokenVersionNum maps the stored STS token-version preference
-// to the integer the account summary reports (1 = v1Token, 2 = v2Token).
+// iamGlobalEndpointTokenVersionNum reports the stored STS token version as the
+// summary's integer (1 = v1Token, 2 = v2Token).
 func iamGlobalEndpointTokenVersionNum() int {
 	if f, ok := iamAccountFlags.Get("GlobalEndpointTokenVersion"); ok && f.Value == "v2Token" {
 		return 2
@@ -192,10 +171,6 @@ func iamGlobalEndpointTokenVersionNum() int {
 	return 1
 }
 
-// Account authorization details
-
-// handleIAMGetAccountAuthorizationDetails enumerates the real users, groups,
-// roles, and managed policies with their inline + attached policies, paginated.
 func handleIAMGetAccountAuthorizationDetails(w http.ResponseWriter, r *http.Request) {
 	var userXML, groupXML, roleXML, policyXML strings.Builder
 
@@ -249,17 +224,14 @@ func handleIAMGetAccountAuthorizationDetails(w http.ResponseWriter, r *http.Requ
 	iamResultXML(w, "GetAccountAuthorizationDetails", inner)
 }
 
-// iamRoleDetailInnerXML emits the RoleDetail-shaped fields (no <Role> wrapper)
-// for the account-authorization-details enumeration: same identity fields as
-// the role plus the assume-role policy document.
+// iamRoleDetailInnerXML emits RoleDetail's fields without the <Role> wrapper:
+// the role's identity fields plus its assume-role policy document.
 func iamRoleDetailInnerXML(role IAMRole) string {
 	doc := urlQueryEscapeIAM(role.AssumeRolePolicyDocument)
 	return fmt.Sprintf("<Path>%s</Path><RoleName>%s</RoleName><RoleId>%s</RoleId><Arn>%s</Arn><CreateDate>%s</CreateDate><AssumeRolePolicyDocument>%s</AssumeRolePolicyDocument>",
 		xmlEscape(role.Path), xmlEscape(role.RoleName), role.RoleId, xmlEscape(role.Arn), role.CreateDate, doc)
 }
 
-// iamInlinePolicy is a name + URL-encoded document used in the *PolicyList
-// detail lists.
 type iamInlinePolicy struct {
 	Name string
 	Doc  string
@@ -309,7 +281,6 @@ func iamInlinePolicyListXML(field string, policies []iamInlinePolicy) string {
 	return b.String()
 }
 
-// iamAttachedRef is a managed-policy attachment (name + arn).
 type iamAttachedRef struct {
 	Name string
 	Arn  string
@@ -382,10 +353,8 @@ func iamManagedPolicyDetailXML(p IAMPolicy) string {
 		xmlEscape(p.Description), p.CreateDate, p.CreateDate, urlQueryEscapeIAM(p.PolicyDocument), p.DefaultVersionId, p.CreateDate)
 }
 
-// Credential report
-
 // handleIAMGenerateCredentialReport reports STARTED on the first call and
-// COMPLETE thereafter — the real two-call generate→ready flow.
+// COMPLETE after, IAM's two-call generate-then-ready flow.
 func handleIAMGenerateCredentialReport(w http.ResponseWriter, r *http.Request) {
 	state := "STARTED"
 	desc := "No report exists. Starting a new report generation task"
@@ -398,8 +367,7 @@ func handleIAMGenerateCredentialReport(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("<State>%s</State><Description>%s</Description>", state, xmlEscape(desc)))
 }
 
-// handleIAMGetCredentialReport returns a real CSV over the existing users,
-// base64-encoded, in the text/csv format AWS uses.
+// handleIAMGetCredentialReport returns the report as base64-encoded text/csv, as AWS does.
 func handleIAMGetCredentialReport(w http.ResponseWriter, r *http.Request) {
 	csv := iamBuildCredentialReportCSV()
 	content := base64.StdEncoding.EncodeToString([]byte(csv))
@@ -408,9 +376,6 @@ func handleIAMGetCredentialReport(w http.ResponseWriter, r *http.Request) {
 	iamResultXML(w, "GetCredentialReport", inner)
 }
 
-// iamBuildCredentialReportCSV renders the AWS credential-report CSV header plus
-// one row per user (and the synthetic <root_account> row AWS always emits),
-// derived from the real user + access-key stores.
 func iamBuildCredentialReportCSV() string {
 	header := "user,arn,user_creation_time,password_enabled,password_last_used,password_last_changed,password_next_rotation,mfa_active,access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date,access_key_1_last_used_region,access_key_1_last_used_service,access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date,access_key_2_last_used_region,access_key_2_last_used_service,cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
 
@@ -461,7 +426,6 @@ func boolToCSV(b bool) string {
 	return "false"
 }
 
-// csvField defends the CSV against commas/quotes in a value.
 func csvField(s string) string {
 	if s == "" {
 		return "N/A"
@@ -472,10 +436,8 @@ func csvField(s string) string {
 	return s
 }
 
-// Service last accessed
-
-// handleIAMGenerateServiceLastAccessed records a job for the named principal
-// and returns its JobId. The job settles COMPLETED immediately.
+// handleIAMGenerateServiceLastAccessed records a job for the principal that
+// settles COMPLETED immediately.
 func handleIAMGenerateServiceLastAccessed(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("Arn")
 	if arn == "" {
@@ -496,9 +458,7 @@ func handleIAMGenerateServiceLastAccessed(w http.ResponseWriter, r *http.Request
 	iamResultXML(w, "GenerateServiceLastAccessedDetails", fmt.Sprintf("<JobId>%s</JobId>", job.JobId))
 }
 
-// handleIAMGetServiceLastAccessed returns COMPLETED plus the service-last-
-// accessed rows derived from the principal's attached/inline-policy service
-// namespaces.
+// Derive the rows from the service namespaces of the principal's policies.
 func handleIAMGetServiceLastAccessed(w http.ResponseWriter, r *http.Request) {
 	job, ok := iamServiceJobs.Get(r.FormValue("JobId"))
 	if !ok {
@@ -521,8 +481,7 @@ func handleIAMGetServiceLastAccessed(w http.ResponseWriter, r *http.Request) {
 	iamResultXML(w, "GetServiceLastAccessedDetails", inner)
 }
 
-// handleIAMGetServiceLastAccessedWithEntities reports the entity (the principal
-// itself) that last accessed the requested service namespace.
+// The principal itself is the only entity reported.
 func handleIAMGetServiceLastAccessedWithEntities(w http.ResponseWriter, r *http.Request) {
 	job, ok := iamServiceJobs.Get(r.FormValue("JobId"))
 	if !ok {
@@ -540,9 +499,8 @@ func handleIAMGetServiceLastAccessedWithEntities(w http.ResponseWriter, r *http.
 	iamResultXML(w, "GetServiceLastAccessedDetailsWithEntities", inner)
 }
 
-// iamServiceNamespacesForPrincipal collects the unique service namespaces (the
-// part before the colon in an Action like "s3:GetObject") from the principal's
-// inline + attached managed policy documents.
+// iamServiceNamespacesForPrincipal collects the distinct service prefixes ("s3"
+// in "s3:GetObject") from the principal's inline and attached policies.
 func iamServiceNamespacesForPrincipal(arn string) []string {
 	docs := iamPolicyDocsForArn(arn)
 	seen := map[string]bool{}
@@ -566,8 +524,6 @@ func iamServiceNamespacesForPrincipal(arn string) []string {
 	return out
 }
 
-// iamPolicyDocsForArn collects a principal's effective inline + attached
-// managed policy documents, resolved by the entity the ARN names.
 func iamPolicyDocsForArn(arn string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
 	addManaged := func(policyArn string) {
@@ -613,7 +569,6 @@ func iamPolicyDocsForArn(arn string) []iamPolicyDoc {
 	return docs
 }
 
-// iamNameFromArn returns the entity name (last path segment) from an IAM ARN.
 func iamNameFromArn(arn string) string {
 	if i := strings.LastIndex(arn, "/"); i >= 0 {
 		return arn[i+1:]
@@ -624,8 +579,7 @@ func iamNameFromArn(arn string) string {
 	return arn
 }
 
-// iamEntityForArn resolves an ARN to (name, type, id, path) for the
-// with-entities response. Type is the policyOwnerEntityType (USER/ROLE/GROUP).
+// Type is the policyOwnerEntityType (USER, ROLE or GROUP).
 func iamEntityForArn(arn string) (name, etype, id, path string) {
 	name = iamNameFromArn(arn)
 	switch {
@@ -647,17 +601,13 @@ func iamEntityForArn(arn string) (name, etype, id, path string) {
 	}
 }
 
-// iamServiceDisplayName maps a service namespace to a human-readable name. AWS
-// returns a friendly ServiceName; the namespace is the authoritative key, so a
-// title-cased namespace is an honest, deterministic display value.
+// AWS returns a friendly ServiceName; the simulator title-cases the namespace, the authoritative key.
 func iamServiceDisplayName(ns string) string {
 	if ns == "" {
 		return ns
 	}
 	return strings.ToUpper(ns[:1]) + ns[1:]
 }
-
-// Organizations access report
 
 func handleIAMGenerateOrganizationsAccessReport(w http.ResponseWriter, r *http.Request) {
 	entityPath := r.FormValue("EntityPath")
@@ -682,9 +632,7 @@ func handleIAMGetOrganizationsAccessReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	// The accessible services are the union of all configured managed-policy
-	// service namespaces in the account — the honest set this account has
-	// granted somewhere.
+	// Accessible services are the union of service namespaces across the account's managed policies.
 	namespaces := iamAllConfiguredServiceNamespaces()
 	var rows strings.Builder
 	rows.WriteString("<AccessDetails>")
@@ -699,8 +647,6 @@ func handleIAMGetOrganizationsAccessReport(w http.ResponseWriter, r *http.Reques
 	iamResultXML(w, "GetOrganizationsAccessReport", inner)
 }
 
-// iamAllConfiguredServiceNamespaces returns the union of service namespaces
-// referenced by every managed policy in the account.
 func iamAllConfiguredServiceNamespaces() []string {
 	seen := map[string]bool{}
 	for _, p := range iamPolicies.List() {
@@ -722,9 +668,6 @@ func iamAllConfiguredServiceNamespaces() []string {
 	return out
 }
 
-// Organizations root credential management / sessions
-
-// iamOrgId returns the deterministic Organizations id for this account.
 func iamOrgId() string {
 	if f, ok := iamAccountFlags.Get("OrganizationId"); ok && f.Value != "" {
 		return f.Value
@@ -742,9 +685,7 @@ func iamSetOrgFeature(key string, enabled bool) {
 	}
 }
 
-// iamEnabledFeaturesXML renders the EnabledFeatures list from the stored
-// org-root feature flags. AWS's enum values are RootCredentialsManagement and
-// RootSessions.
+// AWS's EnabledFeatures values are RootCredentialsManagement and RootSessions.
 func iamEnabledFeaturesXML() string {
 	var b strings.Builder
 	b.WriteString("<EnabledFeatures>")
@@ -786,8 +727,6 @@ func handleIAMDisableOrgRootSessions(w http.ResponseWriter, r *http.Request) {
 func handleIAMListOrganizationsFeatures(w http.ResponseWriter, r *http.Request) {
 	iamOrgFeaturesResult(w, "ListOrganizationsFeatures")
 }
-
-// Delegation requests
 
 func iamDelegationRequestXML(d IAMDelegationRequest) string {
 	var b strings.Builder
@@ -888,9 +827,8 @@ func handleIAMListDelegationRequests(w http.ResponseWriter, r *http.Request) {
 	iamResultXML(w, "ListDelegationRequests", inner)
 }
 
-// iamTransitionDelegation applies fn to the named delegation request and
-// updates its UpdatedTime, returning false (with a NoSuchEntity error written)
-// if it doesn't exist.
+// iamTransitionDelegation applies fn and stamps UpdatedTime; it writes
+// NoSuchEntity and returns false when the request does not exist.
 func iamTransitionDelegation(w http.ResponseWriter, id string, fn func(*IAMDelegationRequest)) bool {
 	if !iamDelegations.Update(id, func(d *IAMDelegationRequest) {
 		fn(d)
@@ -951,8 +889,6 @@ func handleIAMSendDelegationToken(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "SendDelegationToken")
 }
 
-// STS preferences + human-readable summary
-
 func handleIAMSetSecurityTokenServicePreferences(w http.ResponseWriter, r *http.Request) {
 	version := r.FormValue("GlobalEndpointTokenVersion")
 	if version != "v1Token" && version != "v2Token" {
@@ -960,13 +896,10 @@ func handleIAMSetSecurityTokenServicePreferences(w http.ResponseWriter, r *http.
 		return
 	}
 	iamAccountFlags.Put("GlobalEndpointTokenVersion", IAMAccountFeature{Key: "GlobalEndpointTokenVersion", Value: version})
-	// SetSecurityTokenServicePreferences has no output (Unit) — empty result.
 	iamEmptyResultXML(w, "SetSecurityTokenServicePreferences")
 }
 
-// handleIAMGetHumanReadableSummary returns the natural-language summary of an
-// entity's effective permissions, derived from the service namespaces its
-// policies reference.
+// Derive the summary from the service namespaces the entity's policies reference.
 func handleIAMGetHumanReadableSummary(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("EntityArn")
 	if arn == "" {
@@ -991,7 +924,7 @@ func handleIAMGetHumanReadableSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // urlQueryEscapeIAM URL-encodes a policy document the way IAM returns embedded
-// documents (RFC 3986, like GetRolePolicy / GetPolicyVersion).
+// documents (GetRolePolicy, GetPolicyVersion).
 func urlQueryEscapeIAM(s string) string {
 	return url.QueryEscape(s)
 }

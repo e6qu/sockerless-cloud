@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration` | ✓ `simulator-aws/s3control_misc.go:41::handleS3DeleteBucketLifecycleConfiguration` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v20180820/bucket/{bucket}/lifecycleconfiguration` | ✓ `simulator-aws/s3control_misc.go:32::handleS3DeleteBucketLifecycleConfiguration` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

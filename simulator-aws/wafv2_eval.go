@@ -126,11 +126,9 @@ func wafEvaluateStatement(raw json.RawMessage, evaluation *wafEvaluation, depth 
 	return wafMatchResult{}
 }
 
-// The four WAF evaluation lookups below each resolve one resource by its ARN,
-// and every one used to decode its whole store per evaluated request. WAF runs
-// on the data-plane path of every request whose web ACL is associated, so the
-// scans were paid per proxied request; each is answered from an index keyed by
-// the store's generation instead.
+// WAF evaluation runs on every request to a resource with an associated web
+// ACL, so each lookup by ARN reads an index keyed by the store's generation
+// rather than decoding the whole store per request.
 var (
 	wafIPSetsByARN     sim.GenerationIndex[wafStoredIPSet]
 	wafRegexSetsByARN  sim.GenerationIndex[wafStoredRegex]

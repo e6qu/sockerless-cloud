@@ -9,17 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// RDS proxies, IAM-role associations, DB security groups, certificates,
-// automated backups, log files, parameter/option-group copies, event
-// subscription source identifiers, and pending maintenance actions —
-// the awsQuery surface beyond the core instance/cluster lifecycle in
-// rds.go. Every handler performs faithful CRUD against a real sim.Store
-// and emits the exact awsQuery XML shape the AWS SDK Go v2 and aws CLI
-// parse (per specs/cloud-api/aws/rds.smithy.json.gz). No database engine
-// is simulated; statuses settle to "available"/"active" inline.
+// No proxy or connection pooler runs behind these resources: statuses settle to
+// "available" or "active" synchronously.
 
-// RDSProxy models an RDS Proxy — a managed connection pooler fronting a
-// set of DB instances/clusters. Status settles to "available" inline.
+// RDSProxy is an RDS Proxy fronting DB instances or clusters; Status settles to "available" on create.
 type RDSProxy struct {
 	DBProxyName       string
 	EngineFamily      string
@@ -55,9 +48,7 @@ type RDSProxyEndpoint struct {
 	Tags                map[string]string
 }
 
-// RDSProxyTarget models a single registered target (a DB instance or DB
-// cluster) of a proxy's default target group. The key is
-// proxyName + "/" + targetID.
+// Keyed by proxyName + "/" + targetID.
 type RDSProxyTarget struct {
 	DBProxyName      string
 	Type             string // RDS_INSTANCE | TRACKED_CLUSTER
@@ -68,8 +59,7 @@ type RDSProxyTarget struct {
 	Port             int
 }
 
-// RDSProxyTargetGroup models the default target group of a proxy. RDS
-// proxies have exactly one target group named "default".
+// Every proxy has exactly one target group, "default".
 type RDSProxyTargetGroup struct {
 	TargetGroupId             string
 	TargetGroupName           string
@@ -109,8 +99,7 @@ type rdsEC2SecurityGroup struct {
 	Status                  string
 }
 
-// rdsRole models one IAM-role association (RoleArn + FeatureName) on a
-// DB cluster or DB instance. Keyed by resourceID in its store.
+// Keyed by resource ID.
 type rdsRoleSet struct {
 	ResourceID string
 	Roles      []rdsRole
@@ -122,8 +111,7 @@ type rdsRole struct {
 	Status      string
 }
 
-// rdsMaintenanceActions holds the pending maintenance actions for one
-// resource (keyed by the resource's ARN).
+// Keyed by the resource's ARN.
 type rdsMaintenanceActions struct {
 	ResourceIdentifier string
 	Actions            []rdsPendingAction
@@ -165,7 +153,6 @@ func registerRDSProxiesRoles(r *AWSQueryRouter, srv *sim.Server) {
 	rdsInstanceRoles = sim.MakeStore[rdsRoleSet](srv.DB(), "rds_instance_roles")
 	rdsPendingMaintenance = sim.MakeStore[rdsMaintenanceActions](srv.DB(), "rds_pending_maintenance")
 
-	// DB proxies
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBProxy", handleRDSCreateProxy)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBProxies", handleRDSDescribeProxies)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBProxy", handleRDSModifyProxy)
@@ -180,43 +167,35 @@ func registerRDSProxiesRoles(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "RegisterDBProxyTargets", handleRDSRegisterProxyTargets)
 	r.RegisterVersioned(rdsAPIVersion, "DeregisterDBProxyTargets", handleRDSDeregisterProxyTargets)
 
-	// IAM role associations
 	r.RegisterVersioned(rdsAPIVersion, "AddRoleToDBCluster", handleRDSAddRoleToCluster)
 	r.RegisterVersioned(rdsAPIVersion, "RemoveRoleFromDBCluster", handleRDSRemoveRoleFromCluster)
 	r.RegisterVersioned(rdsAPIVersion, "AddRoleToDBInstance", handleRDSAddRoleToInstance)
 	r.RegisterVersioned(rdsAPIVersion, "RemoveRoleFromDBInstance", handleRDSRemoveRoleFromInstance)
 
-	// DB security groups (EC2-Classic style)
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBSecurityGroup", handleRDSCreateSecurityGroup)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBSecurityGroups", handleRDSDescribeSecurityGroups)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteDBSecurityGroup", handleRDSDeleteSecurityGroup)
 	r.RegisterVersioned(rdsAPIVersion, "AuthorizeDBSecurityGroupIngress", handleRDSAuthorizeSecurityGroupIngress)
 	r.RegisterVersioned(rdsAPIVersion, "RevokeDBSecurityGroupIngress", handleRDSRevokeSecurityGroupIngress)
 
-	// Certificates
 	r.RegisterVersioned(rdsAPIVersion, "DescribeCertificates", handleRDSDescribeCertificates)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyCertificates", handleRDSModifyCertificates)
 
-	// Automated backups
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBInstanceAutomatedBackups", handleRDSDescribeInstanceAutomatedBackups)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteDBInstanceAutomatedBackup", handleRDSDeleteInstanceAutomatedBackup)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBClusterAutomatedBackups", handleRDSDescribeClusterAutomatedBackups)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteDBClusterAutomatedBackup", handleRDSDeleteClusterAutomatedBackup)
 
-	// Log files
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBLogFiles", handleRDSDescribeLogFiles)
 	r.RegisterVersioned(rdsAPIVersion, "DownloadDBLogFilePortion", handleRDSDownloadLogFilePortion)
 
-	// Parameter / option group copies
 	r.RegisterVersioned(rdsAPIVersion, "CopyDBClusterParameterGroup", handleRDSCopyClusterParameterGroup)
 	r.RegisterVersioned(rdsAPIVersion, "CopyDBParameterGroup", handleRDSCopyParameterGroup)
 	r.RegisterVersioned(rdsAPIVersion, "CopyOptionGroup", handleRDSCopyOptionGroup)
 
-	// Event subscription source identifiers
 	r.RegisterVersioned(rdsAPIVersion, "AddSourceIdentifierToSubscription", handleRDSAddSourceIdentifier)
 	r.RegisterVersioned(rdsAPIVersion, "RemoveSourceIdentifierFromSubscription", handleRDSRemoveSourceIdentifier)
 
-	// Pending maintenance actions
 	r.RegisterVersioned(rdsAPIVersion, "ApplyPendingMaintenanceAction", handleRDSApplyPendingMaintenanceAction)
 	r.RegisterVersioned(rdsAPIVersion, "DescribePendingMaintenanceActions", handleRDSDescribePendingMaintenanceActions)
 
@@ -259,8 +238,6 @@ func rdsInstanceAutoBackupARN(resID string) string {
 func rdsClusterAutoBackupARN(resID string) string {
 	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster-auto-backup:%s", awsRegion(), awsAccountID(), resID)
 }
-
-// DB proxies
 
 func renderRDSProxyInner(p RDSProxy) string {
 	var b strings.Builder
@@ -428,8 +405,6 @@ func handleRDSDeleteProxy(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteDBProxy", renderRDSProxy(p), sim.RequestID(r.Context()))
 }
 
-// DB proxy endpoints
-
 func renderRDSProxyEndpointInner(e RDSProxyEndpoint) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<DBProxyEndpointName>%s</DBProxyEndpointName>", xmlEscape(e.DBProxyEndpointName))
@@ -566,8 +541,6 @@ func handleRDSDeleteProxyEndpoint(w http.ResponseWriter, r *http.Request) {
 	rdsProxyEndpoints.Delete(name)
 	rdsXMLResponse(w, "DeleteDBProxyEndpoint", renderRDSProxyEndpoint(e), sim.RequestID(r.Context()))
 }
-
-// DB proxy targets and target groups
 
 func rdsProxyTargetKey(proxy string, t RDSProxyTarget) string {
 	id := t.RdsResourceId
@@ -753,8 +726,6 @@ func handleRDSDeregisterProxyTargets(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeregisterDBProxyTargets", "", sim.RequestID(r.Context()))
 }
 
-// IAM role associations on clusters / instances
-
 func rdsAddRole(store sim.Store[rdsRoleSet], resID, roleArn, feature string) {
 	rs, ok := store.Get(resID)
 	if !ok {
@@ -835,8 +806,6 @@ func handleRDSRemoveRoleFromInstance(w http.ResponseWriter, r *http.Request) {
 	rdsRemoveRole(rdsInstanceRoles, id, r.FormValue("RoleArn"), r.FormValue("FeatureName"))
 	rdsXMLResponse(w, "RemoveRoleFromDBInstance", "", sim.RequestID(r.Context()))
 }
-
-// DB security groups (EC2-Classic style)
 
 func renderRDSDBSecurityGroup(g RDSDBSecurityGroup) string {
 	var b strings.Builder
@@ -986,8 +955,6 @@ func handleRDSRevokeSecurityGroupIngress(w http.ResponseWriter, r *http.Request)
 	rdsXMLResponse(w, "RevokeDBSecurityGroupIngress", renderRDSDBSecurityGroup(updated), sim.RequestID(r.Context()))
 }
 
-// Parameter / option group copies
-
 // rdsCopyGroup is the shared copy-a-named-group flow (cluster parameter group /
 // parameter group / option group): validate the source/target/description,
 // 404 if the source is absent, reject a duplicate target, then build + store +
@@ -1068,8 +1035,6 @@ func handleRDSCopyOptionGroup(w http.ResponseWriter, r *http.Request) {
 		}, renderRDSOptionGroup)
 }
 
-// Event subscription source identifiers
-
 func handleRDSAddSourceIdentifier(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("SubscriptionName")
 	sourceID := r.FormValue("SourceIdentifier")
@@ -1116,8 +1081,6 @@ func handleRDSRemoveSourceIdentifier(w http.ResponseWriter, r *http.Request) {
 	updated, _ := rdsEventSubscriptions.Get(name)
 	rdsXMLResponse(w, "RemoveSourceIdentifierFromSubscription", renderRDSEventSubscription(updated), sim.RequestID(r.Context()))
 }
-
-// Pending maintenance actions
 
 func rdsEnsureMaintenanceActions(resourceID string) rdsMaintenanceActions {
 	if m, ok := rdsPendingMaintenance.Get(resourceID); ok {
@@ -1201,7 +1164,7 @@ func handleRDSApplyPendingMaintenanceAction(w http.ResponseWriter, r *http.Reque
 
 func handleRDSDescribePendingMaintenanceActions(w http.ResponseWriter, r *http.Request) {
 	resArn := r.FormValue("ResourceIdentifier")
-	// Seed a pending action for every known instance/cluster.
+	// Materialize a pending maintenance action for every instance and cluster before listing.
 	for _, inst := range rdsInstances.List() {
 		rdsEnsureMaintenanceActions(inst.ARN)
 	}

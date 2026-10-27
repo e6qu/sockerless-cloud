@@ -282,7 +282,11 @@ func registerIAM(srv *sim.Server) {
 		gcpIAMPolicyWrites.Lock()
 		defer gcpIAMPolicyWrites.Unlock()
 		current, present := resourcePolicies.Get("bucket/" + bucket)
-		if gcpIAMETagConflict(w, policy.Etag, current.Etag, present) {
+		// Cloud Storage refuses a stale etag as its own failed precondition,
+		// 412, which gsutil and gcloud retry on; Resource Manager's 409 ABORTED
+		// is not its answer.
+		if policy.Etag != "" && (!present || policy.Etag != current.Etag) {
+			writeGCSPreconditionFailed(w)
 			return
 		}
 		policy.Etag = gcpPolicyETag()

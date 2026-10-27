@@ -1,11 +1,8 @@
 package main
 
-// SSM Session Manager AgentMessage emitter for the ECS exec WebSocket.
-// The backend (backends/ecs/exec_cloud.go) expects the server side of
-// the exec channel to speak the AWS Session Manager binary protocol:
-// real AWS does, so the simulator has to as well. Wire layout
-// matches backends/ecs/ssm_proto.go — see that file + AWS's
-// session-manager-plugin source for the 120-byte fixed header format.
+// AWS Systems Manager Session Manager AgentMessage framing for the Amazon ECS
+// ExecuteCommand WebSocket, whose server side speaks the Session Manager binary
+// protocol. The 120-byte fixed header follows AWS's session-manager-plugin.
 
 import (
 	"crypto/sha256"
@@ -32,30 +29,28 @@ const (
 	ssmFlagsSynFin      = uint64(3)
 )
 
-// MessageType constants (right-padded with spaces to 32 bytes).
+// MessageType values, right-padded with spaces to 32 bytes.
 const (
 	ssmMTOutputStreamData = "output_stream_data"
 	ssmMTInputStreamData  = "input_stream_data"
 	ssmMTChannelClosed    = "channel_closed"
 )
 
-// PayloadType constants. Backend decoder maps 1 → Docker stream 1
-// (stdout) and 11 → stream 2 (stderr); 12 signals process exit.
+// PayloadType values: 1 carries stdout, 11 stderr, and 12 the process exit
+// code.
 const (
 	ssmPayloadStdout   = uint32(1)
 	ssmPayloadStderr   = uint32(11)
 	ssmPayloadExitCode = uint32(12)
 )
 
-// outputSequence is a monotonic per-process counter applied to every
-// emitted output_stream_data frame. Real AWS uses a per-session
-// counter; the simulator uses process-global which is equivalent for
-// single-session tests (what the e2e suite exercises).
+// outputSequence numbers every outbound frame. Session Manager numbers frames
+// per session; the simulator numbers them per process, which only a single
+// session per process sees as equivalent.
 var outputSequence int64
 
 // buildSSMOutputFrame wraps a payload chunk in an output_stream_data
-// AgentMessage. payloadType selects stdout (1), stderr (11), or
-// exit-code (12).
+// AgentMessage of payloadType.
 func buildSSMOutputFrame(payloadType uint32, payload []byte) []byte {
 	digest := sha256.Sum256(payload)
 	out := make([]byte, ssmFixedHeaderLen+len(payload))
@@ -75,9 +70,9 @@ func buildSSMOutputFrame(payloadType uint32, payload []byte) []byte {
 
 	id := uuid.New()
 	idBytes, _ := id.MarshalBinary()
-	// AWS Java-style putUuid: LSL (UUID bytes 8-15) at offset 64, MSL (bytes 0-7) at offset 72.
-	copy(out[64:72], idBytes[8:16]) // LSL
-	copy(out[72:80], idBytes[0:8])  // MSL
+	// Write the UUID as AWS's Java putUuid does: bytes 8-15 at offset 64, bytes 0-7 at offset 72.
+	copy(out[64:72], idBytes[8:16])
+	copy(out[72:80], idBytes[0:8])
 
 	copy(out[80:112], digest[:])
 	binary.BigEndian.PutUint32(out[112:116], payloadType)
@@ -86,19 +81,13 @@ func buildSSMOutputFrame(payloadType uint32, payload []byte) []byte {
 	return out
 }
 
-// decodeSSMInputFrame parses an inbound AgentMessage from the backend's
-// stdin pipe and returns the payload bytes, the frame's MessageType
-// (`input_stream_data` for stdin data, `acknowledge` for sequence acks,
-// etc), and whether the FIN flag is set (indicating no more frames will
-// follow). Real ssm-agent only forwards `input_stream_data` payloads to
-// the user process and closes the user's stdin after the FIN frame; the
-// simulator must do the same so binary stdin (tar archives, gzip-
-// compressed input, etc) reaches the process intact, and tar / cat /
-// other readers see EOF when the backend is done sending.
+// decodeSSMInputFrame parses an inbound AgentMessage into its payload, its
+// MessageType (input_stream_data, acknowledge, ...) and whether it carries FIN.
+// SSM Agent forwards only input_stream_data payloads to the process and closes
+// its stdin after FIN, so binary stdin arrives intact and readers see EOF.
 func decodeSSMInputFrame(b []byte) (payload []byte, messageType string, fin bool, err error) {
-	// The frame comes off an attacker-controlled WebSocket; FrameReader bounds
-	// every read so a giant/overflowing payload length can't slice past the
-	// buffer (no manual length arithmetic to get wrong).
+	// The frame comes off an untrusted WebSocket; FrameReader bounds every read so
+	// a declared payload length cannot slice past the buffer.
 	r := sim.NewFrameReader(b)
 	header, herr := r.Take(ssmFixedHeaderLen)
 	if herr != nil {
@@ -114,8 +103,7 @@ func decodeSSMInputFrame(b []byte) (payload []byte, messageType string, fin bool
 	return payload, mt, (flags & 2) != 0, nil
 }
 
-// buildSSMChannelClosed builds the channel_closed frame that tells the
-// backend decoder to terminate cleanly. Payload can be empty.
+// buildSSMChannelClosed builds the empty channel_closed frame that ends the session.
 func buildSSMChannelClosed() []byte {
 	payload := []byte{}
 	digest := sha256.Sum256(payload)
@@ -136,9 +124,9 @@ func buildSSMChannelClosed() []byte {
 
 	id := uuid.New()
 	idBytes, _ := id.MarshalBinary()
-	// AWS Java-style putUuid: LSL (UUID bytes 8-15) at offset 64, MSL (bytes 0-7) at offset 72.
-	copy(out[64:72], idBytes[8:16]) // LSL
-	copy(out[72:80], idBytes[0:8])  // MSL
+	// Write the UUID as AWS's Java putUuid does: bytes 8-15 at offset 64, bytes 0-7 at offset 72.
+	copy(out[64:72], idBytes[8:16])
+	copy(out[72:80], idBytes[0:8])
 
 	copy(out[80:112], digest[:])
 	binary.BigEndian.PutUint32(out[112:116], 0) // PayloadType 0 for control

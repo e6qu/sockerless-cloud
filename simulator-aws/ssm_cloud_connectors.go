@@ -9,19 +9,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Systems Manager cloud connectors — the control plane that registers a
-// non-AWS cloud (today: Microsoft Azure) as a managed-node source for Systems
-// Manager. A connector names the IAM role Systems Manager assumes, the AWS
-// Config connector it feeds, and the Azure tenant/application to reach.
-//
-// ValidateCloudConnector performs the checks the real operation performs
-// against the resources it can see: the IAM role must exist and must trust the
-// Systems Manager service principal, and each configured Azure subscription
-// target is reported. Every finding is derived from stored state — a connector
-// pointing at a role the IAM slice does not hold reports the real
-// AwsRoleAssumptionFailed finding, never a canned "valid".
+// AWS Systems Manager cloud connectors register a non-AWS cloud, Microsoft Azure,
+// as a source of managed nodes. A connector names the IAM role Systems Manager
+// assumes, the AWS Config connector it feeds, and the Azure tenant and
+// application to reach.
+// ValidateCloudConnector derives every finding from stored state: the IAM role
+// must exist and trust the Systems Manager service principal, and each
+// configured Azure subscription target is reported. A role IAM does not hold
+// yields AwsRoleAssumptionFailed.
 
-// SSMCloudConnector is one registered cloud connector, keyed by CloudConnectorId.
 type SSMCloudConnector struct {
 	CloudConnectorId   string          `json:"CloudConnectorId"`
 	CloudConnectorArn  string          `json:"CloudConnectorArn"`
@@ -69,8 +65,8 @@ func ssmCloudConnectorARN(id string) string {
 }
 
 // ssmParseCloudConnectorConfiguration decodes the CloudConnectorConfiguration
-// union and reports whether it names exactly one modeled member with the
-// members that member requires.
+// union and checks that it names exactly one modeled member with that member's
+// required fields.
 func ssmParseCloudConnectorConfiguration(raw json.RawMessage) (ssmCloudConnectorConfiguration, string) {
 	var cfg ssmCloudConnectorConfiguration
 	if len(raw) == 0 {
@@ -119,8 +115,7 @@ func handleSSMCreateCloudConnector(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", msg, http.StatusBadRequest)
 		return
 	}
-	// The display name identifies the connector for an operator; a second
-	// connector with the same name conflicts with the existing one.
+	// A second connector with the same display name conflicts with the first.
 	for _, c := range ssmCloudConnectors.List() {
 		if c.DisplayName == req.DisplayName {
 			AWSErrorf(w, "ConflictException", http.StatusBadRequest,
@@ -177,8 +172,7 @@ func handleSSMGetCloudConnector(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// ssmSortedCloudConnectors returns the stored connectors ordered by creation
-// time then id, so pagination is stable.
+// ssmSortedCloudConnectors orders connectors by creation time, then ID, for stable pages.
 func ssmSortedCloudConnectors() []SSMCloudConnector {
 	out := ssmCloudConnectors.List()
 	sort.Slice(out, func(i, j int) bool {
@@ -190,8 +184,7 @@ func ssmSortedCloudConnectors() []SSMCloudConnector {
 	return out
 }
 
-// ssmCloudConnectorMatchesFilters applies the modeled SubscriptionId / TenantId
-// filters against the connector's Azure configuration.
+// ssmCloudConnectorMatchesFilters applies the SubscriptionId and TenantId filters to the Azure configuration.
 func ssmCloudConnectorMatchesFilters(c SSMCloudConnector, filters []struct {
 	FilterKey    string   `json:"FilterKey"`
 	FilterValues []string `json:"FilterValues"`
@@ -326,9 +319,6 @@ func handleSSMDeleteCloudConnector(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CloudConnectorId": req.CloudConnectorId})
 }
 
-// ssmCloudConnectorFindings derives the validation findings for a connector
-// from the state the simulator holds: the IAM role behind RoleArn and the Azure
-// targets the configuration names.
 func ssmCloudConnectorFindings(c SSMCloudConnector) []map[string]any {
 	findings := make([]map[string]any, 0)
 

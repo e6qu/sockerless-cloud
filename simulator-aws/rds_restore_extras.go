@@ -10,19 +10,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// registerRDSRestoreExtras mounts the second tranche of Amazon RDS
-// (Aurora) control-plane operations on top of the core slice in
-// rds.go: point-in-time / S3 restores, reserved instances, blue/green
-// deployments (rds_blue_green.go), zero-ETL integrations, tenant databases, Aurora
-// Limitless shard groups, database activity streams, Aurora backtrack,
-// snapshot-export tasks, and the remaining cluster / snapshot-attribute
-// / static-describe operations.
-//
-// Every handler does faithful CRUD against real sim.Store rows (the
-// restores create a new instance/cluster from the stored source; the
-// named resources persist and read back; toggles flip a status field)
-// and renders the exact awsQuery XML shapes RDS returns, matching the
-// rds.smithy.json.gz spec the runtime validator checks against.
 func registerRDSRestoreExtras(r *AWSQueryRouter, srv *sim.Server) {
 	rdsReservedInstances = sim.MakeStore[RDSReservedInstance](srv.DB(), "rds_reserved_instances")
 	rdsBlueGreenDeployments = sim.MakeStore[RDSBlueGreenDeployment](srv.DB(), "rds_bluegreen_deployments")
@@ -35,58 +22,48 @@ func registerRDSRestoreExtras(r *AWSQueryRouter, srv *sim.Server) {
 	rdsHTTPEndpointEnabled = sim.MakeStore[bool](srv.DB(), "rds_http_endpoint_enabled")
 	rdsClusterSnapshotAttrs = sim.MakeStore[[]string](srv.DB(), "rds_cluster_snapshot_attributes")
 
-	// Restore family.
 	r.RegisterVersioned(rdsAPIVersion, "RestoreDBClusterFromSnapshot", handleRDSRestoreClusterFromSnapshot)
 	r.RegisterVersioned(rdsAPIVersion, "RestoreDBClusterToPointInTime", handleRDSRestoreClusterToPointInTime)
 	r.RegisterVersioned(rdsAPIVersion, "RestoreDBInstanceToPointInTime", handleRDSRestoreInstanceToPointInTime)
 	r.RegisterVersioned(rdsAPIVersion, "RestoreDBClusterFromS3", handleRDSRestoreClusterFromS3)
 	r.RegisterVersioned(rdsAPIVersion, "RestoreDBInstanceFromS3", handleRDSRestoreInstanceFromS3)
 
-	// Reserved instances.
 	r.RegisterVersioned(rdsAPIVersion, "DescribeReservedDBInstances", handleRDSDescribeReservedInstances)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeReservedDBInstancesOfferings", handleRDSDescribeReservedInstancesOfferings)
 	r.RegisterVersioned(rdsAPIVersion, "PurchaseReservedDBInstancesOffering", handleRDSPurchaseReservedInstancesOffering)
 
-	// Blue/green deployments.
 	r.RegisterVersioned(rdsAPIVersion, "CreateBlueGreenDeployment", handleRDSCreateBlueGreenDeployment)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeBlueGreenDeployments", handleRDSDescribeBlueGreenDeployments)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteBlueGreenDeployment", handleRDSDeleteBlueGreenDeployment)
 	r.RegisterVersioned(rdsAPIVersion, "SwitchoverBlueGreenDeployment", handleRDSSwitchoverBlueGreenDeployment)
 
-	// Zero-ETL integrations.
 	r.RegisterVersioned(rdsAPIVersion, "CreateIntegration", handleRDSCreateIntegration)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeIntegrations", handleRDSDescribeIntegrations)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyIntegration", handleRDSModifyIntegration)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteIntegration", handleRDSDeleteIntegration)
 
-	// Tenant databases.
 	r.RegisterVersioned(rdsAPIVersion, "CreateTenantDatabase", handleRDSCreateTenantDatabase)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeTenantDatabases", handleRDSDescribeTenantDatabases)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyTenantDatabase", handleRDSModifyTenantDatabase)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteTenantDatabase", handleRDSDeleteTenantDatabase)
 
-	// Aurora Limitless shard groups.
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBShardGroup", handleRDSCreateShardGroup)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBShardGroups", handleRDSDescribeShardGroups)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBShardGroup", handleRDSModifyShardGroup)
 	r.RegisterVersioned(rdsAPIVersion, "DeleteDBShardGroup", handleRDSDeleteShardGroup)
 	r.RegisterVersioned(rdsAPIVersion, "RebootDBShardGroup", handleRDSRebootShardGroup)
 
-	// Database activity streams.
 	r.RegisterVersioned(rdsAPIVersion, "StartActivityStream", handleRDSStartActivityStream)
 	r.RegisterVersioned(rdsAPIVersion, "StopActivityStream", handleRDSStopActivityStream)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyActivityStream", handleRDSModifyActivityStream)
 
-	// Aurora backtrack.
 	r.RegisterVersioned(rdsAPIVersion, "BacktrackDBCluster", handleRDSBacktrackCluster)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBClusterBacktracks", handleRDSDescribeClusterBacktracks)
 
-	// Snapshot-export tasks.
 	r.RegisterVersioned(rdsAPIVersion, "StartExportTask", handleRDSStartExportTask)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeExportTasks", handleRDSDescribeExportTasks)
 	r.RegisterVersioned(rdsAPIVersion, "CancelExportTask", handleRDSCancelExportTask)
 
-	// Cluster operations.
 	r.RegisterVersioned(rdsAPIVersion, "RebootDBCluster", handleRDSRebootCluster)
 	r.RegisterVersioned(rdsAPIVersion, "ResetDBClusterParameterGroup", handleRDSResetClusterParameterGroup)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBClusterEndpoint", handleRDSModifyClusterEndpoint)
@@ -96,21 +73,16 @@ func registerRDSRestoreExtras(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(rdsAPIVersion, "EnableHttpEndpoint", handleRDSEnableHTTPEndpoint)
 	r.RegisterVersioned(rdsAPIVersion, "DisableHttpEndpoint", handleRDSDisableHTTPEndpoint)
 
-	// Cluster-snapshot attributes and ModifyDBSnapshot.
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBClusterSnapshotAttribute", handleRDSModifyClusterSnapshotAttribute)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBClusterSnapshotAttributes", handleRDSDescribeClusterSnapshotAttributes)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBSnapshot", handleRDSModifySnapshot)
 
-	// Static describes (real-shaped catalogs / defaults).
 	r.RegisterVersioned(rdsAPIVersion, "DescribeOptionGroupOptions", handleRDSDescribeOptionGroupOptions)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeEngineDefaultParameters", handleRDSDescribeEngineDefaultParameters)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeEngineDefaultClusterParameters", handleRDSDescribeEngineDefaultClusterParameters)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeSourceRegions", handleRDSDescribeSourceRegions)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBMajorEngineVersions", handleRDSDescribeDBMajorEngineVersions)
 }
-
-// Stores for the resources introduced here. The instance/cluster/snapshot
-// stores are declared in rds.go and reused.
 
 var (
 	rdsReservedInstances    sim.Store[RDSReservedInstance]
@@ -121,9 +93,8 @@ var (
 	rdsExportTasks          sim.Store[RDSExportTask]
 )
 
-// RDSReservedInstance models a purchased reserved DB instance — a row
-// created by PurchaseReservedDBInstancesOffering from a catalog
-// offering. The reservation is a billing artifact; no engine runs.
+// RDSReservedInstance is a reserved DB instance PurchaseReservedDBInstancesOffering
+// bought from a catalog offering: a billing record with no engine behind it.
 type RDSReservedInstance struct {
 	ReservedDBInstanceId          string
 	ReservedDBInstancesOfferingId string
@@ -188,8 +159,7 @@ type RDSShardGroup struct {
 	Tags                   map[string]string
 }
 
-// RDSExportTask models a snapshot-to-S3 export task. With no real
-// engine extract, the task settles to COMPLETE inline (100%).
+// RDSExportTask is a snapshot export to Amazon S3. No export runs: the task settles COMPLETE (100%) at once.
 type RDSExportTask struct {
 	ExportTaskIdentifier string
 	SourceArn            string
@@ -206,12 +176,9 @@ type RDSExportTask struct {
 	ExportOnly           []string
 }
 
-// Restore family
-
-// rdsClusterFromSource builds a new RDSCluster row from an optional
-// source cluster/snapshot, applying the new identifier and any
-// request overrides. It centralizes the shared restore shape so the
-// four cluster-restore handlers don't clone it.
+// rdsClusterFromSource builds a new cluster row from an optional source cluster
+// or snapshot, with the new identifier and request overrides, for the four
+// cluster-restore handlers.
 func rdsClusterFromSource(r *http.Request, newID, engine, engineVersion string) RDSCluster {
 	port := rdsDefaultPort(engine)
 	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
@@ -592,10 +559,7 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 	return inst, "", ""
 }
 
-// Reserved instances
-
-// rdsReservedOfferings is the small real-shaped offering catalog the
-// sim serves. The IDs are fixed so a purchase referencing one resolves.
+// rdsReservedOfferings is the offering catalog the simulator serves; fixed IDs let a purchase resolve one.
 var rdsReservedOfferings = []RDSReservedInstance{
 	{
 		ReservedDBInstancesOfferingId: "438012d3-4052-4cc7-b2e3-8d3372e0e706",
@@ -748,8 +712,6 @@ func handleRDSPurchaseReservedInstancesOffering(w http.ResponseWriter, r *http.R
 	rdsXMLResponse(w, "PurchaseReservedDBInstancesOffering", renderRDSReservedInstance(ri), sim.RequestID(r.Context()))
 }
 
-// Zero-ETL integrations
-
 // renderRDSIntegrationInner emits the Integration member fields without
 // a wrapping element. The single-resource ops (Create/Modify/Delete)
 // bind their output to the Integration shape directly, so its members
@@ -879,8 +841,6 @@ func handleRDSDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteIntegration", renderRDSIntegrationInner(in), sim.RequestID(r.Context()))
 }
 
-// Tenant databases
-
 func rdsTenantKey(instanceID, tenantName string) string {
 	return instanceID + "/" + tenantName
 }
@@ -1001,8 +961,6 @@ func handleRDSDeleteTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	t.Status = "deleting"
 	rdsXMLResponse(w, "DeleteTenantDatabase", renderRDSTenantDatabase(t), sim.RequestID(r.Context()))
 }
-
-// Aurora Limitless shard groups
 
 // renderRDSShardGroupInner emits the DBShardGroup member fields without
 // a wrapping element — the Create/Modify/Delete/Reboot ops bind their
@@ -1127,11 +1085,9 @@ func handleRDSRebootShardGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "RebootDBShardGroup", renderRDSShardGroupInner(g), sim.RequestID(r.Context()))
 }
 
-// Database activity streams (per-cluster status toggle)
-
-// rdsActivityStreamStatus holds the current activity-stream status for a
-// cluster ARN: started | stopped. With no real Kinesis stream, the
-// status simply toggles. Empty status == stopped/not-started.
+// rdsActivityStreamStatus holds each cluster ARN's activity-stream status,
+// started or stopped (empty). No Kinesis stream backs it; the status only
+// toggles.
 var rdsActivityStreamStatus sim.Store[string]
 
 func handleRDSStartActivityStream(w http.ResponseWriter, r *http.Request) {
@@ -1190,11 +1146,8 @@ func handleRDSModifyActivityStream(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyActivityStream", b.String(), sim.RequestID(r.Context()))
 }
 
-// Aurora backtrack
-
-// rdsClusterBacktracks holds recorded backtracks keyed by cluster
-// identifier. Backtrack rewinds an Aurora MySQL cluster to a prior
-// timestamp; the sim records the request as a completed backtrack row.
+// rdsClusterBacktracks holds backtracks by cluster identifier. The simulator
+// records a backtrack as completed without rewinding the cluster's data.
 var rdsClusterBacktracks sim.Store[[]rdsBacktrack]
 
 type rdsBacktrack struct {
@@ -1277,8 +1230,6 @@ func handleRDSDescribeClusterBacktracks(w http.ResponseWriter, r *http.Request) 
 	b.WriteString("</DBClusterBacktracks>")
 	rdsXMLResponse(w, "DescribeDBClusterBacktracks", b.String(), sim.RequestID(r.Context()))
 }
-
-// Snapshot-export tasks
 
 func renderRDSExportTask(t RDSExportTask) string {
 	var b strings.Builder
@@ -1390,8 +1341,6 @@ func handleRDSCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "CancelExportTask", renderRDSExportTask(t), sim.RequestID(r.Context()))
 }
 
-// Cluster operations
-
 func handleRDSRebootCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
 	cl, ok := rdsClusters.Get(id)
@@ -1475,8 +1424,8 @@ func handleRDSFailoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := r.FormValue("TargetDbClusterIdentifier")
-	// Failover promotes the target cluster to writer: move it to the head
-	// of the member list (index 0 == writer in renderRDSGlobalCluster).
+	// Promote the target cluster to writer by moving it first;
+	// renderRDSGlobalCluster treats index 0 as the writer.
 	if target != "" {
 		rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
 			var reordered []string
@@ -1555,8 +1504,6 @@ func handleRDSDisableHTTPEndpoint(w http.ResponseWriter, r *http.Request) {
 // rdsHTTPEndpointEnabled tracks the RDS Data API (Aurora Serverless v1
 // HTTP endpoint) enablement per resource ARN.
 var rdsHTTPEndpointEnabled sim.Store[bool]
-
-// Cluster-snapshot attributes and ModifyDBSnapshot
 
 // rdsClusterSnapshotAttrs holds the "restore" attribute values granted
 // per cluster-snapshot identifier.
@@ -1656,8 +1603,6 @@ func handleRDSModifySnapshot(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "ModifyDBSnapshot", renderRDSSnapshot(snap), sim.RequestID(r.Context()))
 }
 
-// Static describes (real-shaped catalogs / engine defaults)
-
 func handleRDSDescribeOptionGroupOptions(w http.ResponseWriter, r *http.Request) {
 	engine := r.FormValue("EngineName")
 	if engine == "" {
@@ -1735,8 +1680,6 @@ func handleRDSDescribeDBMajorEngineVersions(w http.ResponseWriter, r *http.Reque
 	b.WriteString("</DBMajorEngineVersions>")
 	rdsXMLResponse(w, "DescribeDBMajorEngineVersions", b.String(), sim.RequestID(r.Context()))
 }
-
-// Small shared helpers
 
 func rdsParseFloat(s string) float64 {
 	var f float64

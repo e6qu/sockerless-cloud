@@ -12,14 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// registerSSMOpsItems wires the OpsCenter (OpsItems), Maintenance Window
-// execution-side reads, Session Manager, and hybrid-activation slices of
-// Amazon Systems Manager (SSM). All are awsJson1.1 actions on the shared
-// AmazonSSM router. The maintenance-window execution handlers read off the
-// window/task control-plane stores owned by ssm_maintenance.go and settle a
-// deterministic execution record per window on read.
+// registerSSMOpsItems mounts the OpsCenter, maintenance-window execution,
+// Session Manager and hybrid-activation actions of AWS Systems Manager on the
+// shared awsJson1.1 AmazonSSM router.
 
-// SSMOpsItem is an OpsCenter operational item.
 type SSMOpsItem struct {
 	OpsItemId        string                       `json:"OpsItemId"`
 	OpsItemArn       string                       `json:"OpsItemArn"`
@@ -41,13 +37,11 @@ type SSMOpsItem struct {
 	OperationalData  map[string]SSMOpsItemDataVal `json:"OperationalData,omitempty"`
 }
 
-// SSMOpsItemDataVal is one OperationalData map value.
 type SSMOpsItemDataVal struct {
 	Value string `json:"Value"`
 	Type  string `json:"Type,omitempty"`
 }
 
-// SSMOpsItemRelatedItem is an OpsItem-to-resource association.
 type SSMOpsItemRelatedItem struct {
 	AssociationId    string  `json:"AssociationId"`
 	OpsItemId        string  `json:"OpsItemId"`
@@ -60,7 +54,6 @@ type SSMOpsItemRelatedItem struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-// SSMOpsItemEvent is one entry in an OpsItem's activity timeline.
 type SSMOpsItemEvent struct {
 	OpsItemId   string  `json:"OpsItemId"`
 	EventId     string  `json:"EventId"`
@@ -71,8 +64,9 @@ type SSMOpsItemEvent struct {
 	CreatedTime float64 `json:"CreatedTime"`
 }
 
-// SSMSession is a Session Manager session. The WebSocket data plane is out of
-// scope; StartSession returns the session metadata (id/token/streamUrl) only.
+// SSMSession is a Session Manager session. StartSession returns the session's
+// id, token and stream URL; the simulator serves no WebSocket data plane behind
+// the URL.
 type SSMSession struct {
 	SessionId    string  `json:"SessionId"`
 	Target       string  `json:"Target"`
@@ -86,7 +80,6 @@ type SSMSession struct {
 	StreamUrl    string  `json:"StreamUrl"`
 }
 
-// SSMActivation is a hybrid managed-instance registration activation.
 type SSMActivation struct {
 	ActivationId        string   `json:"ActivationId"`
 	ActivationCode      string   `json:"ActivationCode"`
@@ -117,7 +110,6 @@ func registerSSMOpsItems(r *AWSRouter, srv *sim.Server) {
 	ssmActivations = sim.MakeStore[SSMActivation](srv.DB(), "ssm_activations")
 
 	for target, h := range map[string]http.HandlerFunc{
-		// OpsItems (OpsCenter).
 		"AmazonSSM.CreateOpsItem":                  handleSSMCreateOpsItem,
 		"AmazonSSM.DeleteOpsItem":                  handleSSMDeleteOpsItem,
 		"AmazonSSM.GetOpsItem":                     handleSSMGetOpsItem,
@@ -128,7 +120,6 @@ func registerSSMOpsItems(r *AWSRouter, srv *sim.Server) {
 		"AmazonSSM.ListOpsItemEvents":              handleSSMListOpsItemEvents,
 		"AmazonSSM.ListOpsItemRelatedItems":        handleSSMListOpsItemRelatedItems,
 
-		// Maintenance Window execution-side reads/updates.
 		"AmazonSSM.CancelMaintenanceWindowExecution":                  handleSSMCancelMaintenanceWindowExecution,
 		"AmazonSSM.DescribeMaintenanceWindowExecutions":               handleSSMDescribeMaintenanceWindowExecutions,
 		"AmazonSSM.DescribeMaintenanceWindowExecutionTasks":           handleSSMDescribeMaintenanceWindowExecutionTasks,
@@ -142,14 +133,12 @@ func registerSSMOpsItems(r *AWSRouter, srv *sim.Server) {
 		"AmazonSSM.UpdateMaintenanceWindowTarget":                     handleSSMUpdateMaintenanceWindowTarget,
 		"AmazonSSM.UpdateMaintenanceWindowTask":                       handleSSMUpdateMaintenanceWindowTask,
 
-		// Session Manager.
 		"AmazonSSM.StartSession":        handleSSMStartSession,
 		"AmazonSSM.ResumeSession":       handleSSMResumeSession,
 		"AmazonSSM.TerminateSession":    handleSSMTerminateSession,
 		"AmazonSSM.DescribeSessions":    handleSSMDescribeSessions,
 		"AmazonSSM.GetConnectionStatus": handleSSMGetConnectionStatus,
 
-		// Hybrid activations.
 		"AmazonSSM.CreateActivation":    handleSSMCreateActivation,
 		"AmazonSSM.DeleteActivation":    handleSSMDeleteActivation,
 		"AmazonSSM.DescribeActivations": handleSSMDescribeActivations,
@@ -157,8 +146,6 @@ func registerSSMOpsItems(r *AWSRouter, srv *sim.Server) {
 		r.Register(target, h)
 	}
 }
-
-// OpsItems
 
 func newSSMOpsItemID() string {
 	b := make([]byte, 14)
@@ -245,8 +232,8 @@ func ssmOpsItemWire(o SSMOpsItem) map[string]any {
 	return out
 }
 
-// ssmOpsItemSummaryWire projects an OpsItem onto OpsItemSummary, the
-// DescribeOpsItems list element (no Description/Notifications/Version).
+// ssmOpsItemSummaryWire projects an OpsItem onto OpsItemSummary, which omits
+// Description, Notifications and Version.
 func ssmOpsItemSummaryWire(o SSMOpsItem) map[string]any {
 	out := map[string]any{
 		"OpsItemId":        o.OpsItemId,
@@ -554,7 +541,6 @@ func handleSSMListOpsItemEvents(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// The OpsItemId filter scopes events to a single item.
 	var wantOpsItem string
 	for _, f := range req.Filters {
 		if f.Key == "OpsItemId" && len(f.Values) > 0 {
@@ -633,31 +619,26 @@ func handleSSMListOpsItemRelatedItems(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// Maintenance Window executions
-//
-// The sim has no native maintenance-window trigger, so a window's execution is
-// settled deterministically on read: a single SUCCESS execution per window,
-// one task-execution per registered task, one invocation per task. The IDs are
-// derived from the window/task IDs so successive reads are stable.
+// The simulator runs no maintenance window on its schedule; instead it reports
+// one SUCCESS execution per window on read, with one task execution and one
+// invocation per registered task, under IDs derived from the window and task IDs
+// so reads agree.
 
 const ssmMWExecStatus = "SUCCESS"
 
-// ssmWindowExecID returns a deterministic UUID-shaped execution id for a window.
 func ssmWindowExecID(windowID string) string {
 	return uuid.NewSHA1(uuid.Nil, []byte("mwexec/"+windowID)).String()
 }
 
-// ssmWindowExecTaskID returns a deterministic task-execution id for a task.
 func ssmWindowExecTaskID(windowTaskID string) string {
 	return uuid.NewSHA1(uuid.Nil, []byte("mwexectask/"+windowTaskID)).String()
 }
 
-// ssmWindowExecInvocationID returns a deterministic invocation id for a task.
 func ssmWindowExecInvocationID(windowTaskID string) string {
 	return uuid.NewSHA1(uuid.Nil, []byte("mwexecinv/"+windowTaskID)).String()
 }
 
-// ssmWindowForExec finds the window whose deterministic execution id matches.
+// ssmWindowForExec finds the window whose derived execution ID is execID.
 func ssmWindowForExec(execID string) (SSMMaintenanceWindow, bool) {
 	for _, m := range ssmWindows.List() {
 		if ssmWindowExecID(m.WindowId) == execID {
@@ -667,7 +648,6 @@ func ssmWindowForExec(execID string) (SSMMaintenanceWindow, bool) {
 	return SSMMaintenanceWindow{}, false
 }
 
-// ssmTasksForWindow returns the registered tasks of a window, ordered.
 func ssmTasksForWindow(windowID string) []SSMMaintenanceWindowTask {
 	var tasks []SSMMaintenanceWindowTask
 	for _, t := range ssmWindowTasks.List() {
@@ -848,8 +828,8 @@ func handleSSMGetMaintenanceWindowExecution(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// ssmTaskForExecTask finds the registered task whose deterministic
-// task-execution id matches, scoped to the window owning the execution.
+// ssmTaskForExecTask finds the registered task whose derived task-execution ID is
+// taskExecID, within the window that owns execID.
 func ssmTaskForExecTask(execID, taskExecID string) (SSMMaintenanceWindow, SSMMaintenanceWindowTask, bool) {
 	m, ok := ssmWindowForExec(execID)
 	if !ok {
@@ -1031,8 +1011,7 @@ func handleSSMDescribeMaintenanceWindowsForTarget(w http.ResponseWriter, r *http
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// A window matches a target if it has a registered target. Project the
-	// windows that own at least one registered target.
+	// A window owns a target when it has a registered target.
 	owners := map[string]bool{}
 	for _, t := range ssmWindowTargets.List() {
 		owners[t.WindowId] = true
@@ -1220,8 +1199,6 @@ func handleSSMUpdateMaintenanceWindowTask(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// Session Manager
-
 func newSSMSessionID() string {
 	return "sockerless-" + uuid.New().String()[:24]
 }
@@ -1325,7 +1302,7 @@ func handleSSMDescribeSessions(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// State "Active" => Connected/Connecting; "History" => terminated etc.
+	// State "Active" selects Connected and Connecting sessions; "History" selects ended ones.
 	active := req.State == "" || req.State == "Active"
 	var all []SSMSession
 	for _, s := range ssmSessions.List() {
@@ -1381,7 +1358,6 @@ func handleSSMGetConnectionStatus(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Target is required", http.StatusBadRequest)
 		return
 	}
-	// An instance is "connected" if it has an active session, else "notconnected".
 	status := "notconnected"
 	for _, s := range ssmSessions.List() {
 		if s.Target == req.Target && (s.Status == "Connected" || s.Status == "Connecting") {
@@ -1394,8 +1370,6 @@ func handleSSMGetConnectionStatus(w http.ResponseWriter, r *http.Request) {
 		"Status": status,
 	})
 }
-
-// Hybrid activations
 
 func newSSMActivationID() string {
 	return uuid.New().String()
@@ -1429,7 +1403,7 @@ func handleSSMCreateActivation(w http.ResponseWriter, r *http.Request) {
 	if limit == 0 {
 		limit = 1
 	}
-	exp := now + 86400 // default 24h
+	exp := now + 86400
 	if req.ExpirationDate != nil {
 		exp = *req.ExpirationDate
 	}

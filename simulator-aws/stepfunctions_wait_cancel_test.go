@@ -5,12 +5,9 @@ import (
 	"time"
 )
 
-// A Wait state's duration is whatever the definition says: Seconds and
-// Timestamp are accepted as given, and neither the step limit nor the nesting
-// depth guard bounds them. Cancellation is therefore the only thing that ends a
-// long Wait early, and every caller that cannot wait years depends on it —
-// including FuzzSFNExecute, which parked a worker on a thirty-one-year timer
-// until it was given a cancel channel that actually closes.
+// Neither the step limit nor the nesting-depth guard bounds a Wait state's
+// Seconds or Timestamp, so only cancellation ends a long Wait early; every
+// caller that cannot wait years, FuzzSFNExecute among them, depends on it.
 func TestWaitStateHonoursCancellationPromptly(t *testing.T) {
 	const def = `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":999999999,"End":true}}}`
 

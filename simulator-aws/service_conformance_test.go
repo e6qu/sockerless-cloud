@@ -9,12 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// s3ImplementedOps enumerates the S3 operations the sim implements. S3 is REST:
-// its operation isn't a router registration but is composed at request time from
-// method + path + the query subresource (s3BucketOperationName /
-// s3ObjectOperationName). So we drive those functions over the method ×
-// subresource matrix and collect the operation names they yield — the REST
-// analogue of reading the awsJson/query routers.
+// s3ImplementedOps enumerates the S3 operations the simulator implements. S3
+// composes its operation at request time from method, path and query subresource
+// (s3BucketOperationName, s3ObjectOperationName), so drive those over the method
+// × subresource matrix.
 func s3ImplementedOps() map[string]bool {
 	// Three operations are not compositions of the method × subresource matrix
 	// below, so they are named here: ListBuckets and ListDirectoryBuckets are
@@ -82,10 +80,10 @@ func s3ImplementedOps() map[string]bool {
 	// x-amz-copy-source header.
 	add(objReq("PUT", "uploadId=x&partNumber=1", map[string]string{"x-amz-copy-source": "/src/key"}))
 
-	// The sim composes some op names with a "Bucket" infix that the real S3 API
-	// omits (GetBucketPublicAccessBlock vs the API's GetPublicAccessBlock) and
-	// names a couple of subresources more verbosely; expose the API-canonical
-	// aliases so functional coverage isn't undercounted by a naming difference.
+	// The simulator composes some names with a "Bucket" infix the S3 API omits
+	// (GetBucketPublicAccessBlock for GetPublicAccessBlock) and names a few
+	// subresources more verbosely; expose the API's names so coverage is not
+	// undercounted.
 	for op := range ops {
 		if alias := strings.Replace(op, "BucketPublicAccessBlock", "PublicAccessBlock", 1); alias != op {
 			ops[alias] = true
@@ -97,29 +95,17 @@ func s3ImplementedOps() map[string]bool {
 	return ops
 }
 
-// Service API conformance: a spec-derived, mechanical measure of how completely a
-// sim service implements its real AWS operation surface, so gaps are *measured*
-// (and ratcheted) rather than discovered later by a consumer. This is the
-// service-API analogue of the IAM policy-engine conformance gate
-// (iam_conformance_test.go); the repeatable process is docs/SERVICE_CONFORMANCE.md.
-//
-// For a service it loads the vendored Smithy model (the authoritative operation
-// list), computes which operations the sim's routers register, and reports
-// coverage. TestServiceConformance_Ratchet locks each service's set of
-// not-yet-implemented operations: the list IS the live non-conformity report,
-// and an op that gets implemented (or a model that grows) must be reflected here.
+// Service API conformance measures how completely a service implements its AWS
+// operation surface: load the vendored Smithy model, compute which operations
+// the routers register, and report coverage. TestServiceConformance_Ratchet
+// locks each service's unimplemented set; the list is the live non-conformity
+// report.
 
-// serviceConformanceCatalog maps a service's Smithy shape name to the set of its
-// real operations the sim does NOT implement yet — the tracked non-conformities.
-// The ratchet locks this; implement an op (or grow the model) and the entry must
-// shrink/grow with it. Discovered + maintained via TestServiceConformance_Coverage.
-//
-// Scope: the awsJson (X-Amz-Target) + awsQuery (versioned Action) services, whose
-// operations are introspectable from the routers. REST services compose their
-// operation from method + path + query subresource at request time (e.g. S3's
-// op-name is `Get/Put/Delete` + a subresource suffix, not a router registration),
-// so they are measured by their own enumeration harness instead — S3 via
-// s3ImplementedOps + TestServiceConformance_S3Ratchet.
+// serviceConformanceCatalog maps a service's Smithy shape name to the
+// operations the simulator does not implement. It covers the awsJson and
+// awsQuery services, whose operations the routers expose; REST services compose
+// their operation at request time and have their own harness (S3:
+// s3ImplementedOps and TestServiceConformance_S3Ratchet).
 var serviceConformanceCatalog = map[string][]string{
 	// CloudWatch monitoring: all operations implemented.
 	"GraniteServiceVersion20100801": {},
@@ -148,33 +134,25 @@ var serviceConformanceCatalog = map[string][]string{
 	// KMS: all operations implemented (real Go-stdlib crypto for Sign/Verify/MAC/
 	// data-key-pairs/ECDH; custom key stores; grants; multi-region keys).
 	"TrentService": {},
-	// ELBv2: all operations implemented (the mutual-TLS trust-store surface closed).
+	// ELBv2: all operations implemented.
 	"ElasticLoadBalancing_v10": {},
 	"AmazonSQS":                {},
-	// SNS / EventBridge / DynamoDB: all remaining operations are implemented.
+	// SNS / EventBridge / DynamoDB: all operations implemented.
 	"AmazonSimpleNotificationService": {},
 	"AWSEvents":                       {},
 	// Amazon DynamoDB: all operations implemented, vector search included.
 	"DynamoDB_20120810": {},
-	// ECS: all real operations are implemented.
+	// ECS: all operations implemented.
 	"AmazonEC2ContainerServiceV20141113": {},
 }
 
-// legacyQueryRegistrars maps a service's Smithy service-shape name to the
-// registration entry point that mounts that service's query-protocol actions.
-//
-// The AWSQueryRouter's unversioned bucket (version "") holds every action
-// registered through Register(action, handler) rather than RegisterVersioned:
-// services whose action names are globally unique across AWS (Amazon EC2, AWS
-// Identity and Access Management, AWS Security Token Service, and Amazon
-// CloudWatch's query surface) mount there. That bucket carries NO service
-// identity of its own — the key is the empty string, not a service — so the
-// only way to learn which service owns an action in it is to observe which
-// registration entry point mounted it. Each entry point below is therefore run
-// against a FRESH router and the actions it mounts in the unversioned bucket
-// are recorded as that service's (see legacyQueryOwnership). An action nobody
-// here claims stays unattributed and is credited to NO service, so a service
-// can never be credited with an operation it does not serve.
+// legacyQueryRegistrars maps a Smithy service shape to the entry point that
+// mounts its query actions. The query router's unversioned bucket (Register
+// rather than RegisterVersioned) holds the actions of services whose names are
+// globally unique (Amazon EC2, IAM, AWS STS, Amazon CloudWatch's query surface)
+// and carries no service identity, so run each entry point against a fresh
+// router and attribute what it mounts. An action nobody claims is credited to no
+// service.
 var legacyQueryRegistrars = map[string]func(r *AWSQueryRouter, srv *sim.Server){
 	"AmazonEC2":                        registerEC2,
 	"AWSIdentityManagementV20100508":   registerIAM,
@@ -239,7 +217,7 @@ type conformanceRouters struct {
 }
 
 // conformanceRegistrations builds the simulator and measures its registration
-// surface, including honest ownership of the unversioned query bucket.
+// surface, with the unversioned query bucket's ownership.
 func conformanceRegistrations(t *testing.T) conformanceRouters {
 	t.Helper()
 	srv, jsonRouter, queryRouter := buildConformanceSimulator(t)
@@ -252,11 +230,10 @@ func conformanceRegistrations(t *testing.T) conformanceRouters {
 	}
 }
 
-// TestServiceConformance_LegacyQueryAttribution keeps the unversioned query
-// bucket honest: every action in it must be attributable to exactly one
-// service. A new service that starts mounting actions there without being
-// listed in legacyQueryRegistrars fails here rather than silently going
-// uncredited (or, worse, being credited to everyone).
+// TestServiceConformance_LegacyQueryAttribution requires every action in the
+// unversioned query bucket to be attributable to exactly one service, so a new
+// service mounting there unlisted fails rather than going uncredited or credited
+// to everyone.
 func TestServiceConformance_LegacyQueryAttribution(t *testing.T) {
 	srv, _, queryRouter := buildConformanceSimulator(t)
 	_, unattributed, ambiguous := legacyQueryOwnership(t, srv, queryRouter.VersionedActions()[""])
@@ -396,15 +373,12 @@ func serviceImplementedCount(m *smithyService, r conformanceRouters) int {
 	return len(registered)
 }
 
-// serviceCoverageFloor locks the implemented-operation COUNT for services tracked
-// by coverage rather than an exact missing-list: the awsQuery/ec2Query giants
-// (Amazon EC2, RDS, Glue, …) whose hundreds of unimplemented ops would bloat the
-// catalog, and the REST services (Route 53, EFS) measured via restRegisteredOps.
-// The count must EQUAL the floor — a drop is a regression; implementing more ops
-// must bump the floor (the ratchet ratchets up). Every count here is the number
-// of operations THIS service registers: an operation another service mounts in
-// the query router's unversioned bucket is never counted for it (see
-// legacyQueryRegistrars).
+// serviceCoverageFloor locks the implemented-operation count for services
+// tracked by coverage rather than an exact missing list: the awsQuery and
+// ec2Query giants and the REST services measured via restRegisteredOps. The
+// count must equal the floor: a drop is a regression, and implementing more
+// raises the floor. A count includes only operations the service itself
+// registers.
 var serviceCoverageFloor = map[string]int{
 	"AmazonEC2":                            807, // ec2Query
 	"AWSBudgetServiceGateway":              26,  // AWS Budgets (awsJson1.1)
@@ -422,7 +396,7 @@ var serviceCoverageFloor = map[string]int{
 	"Route53AutoNaming_v20170314":          30,  // Cloud Map / ServiceDiscovery
 	"AWSDnsV20130401":                      71,  // Route 53 (REST)
 	"MagnolioAPIService_v20150201":         31,  // EFS (REST)
-	// restJson1 services measured via the REST registry (Part B).
+	// restJson1 services measured via the REST registry.
 	"AWSGirApiService":        85,  // AWS Lambda
 	"AWSBatchV20160810":       48,  // AWS Batch
 	"BackplaneControlService": 124, // Amazon API Gateway
@@ -495,40 +469,10 @@ func TestServiceConformance_Coverage(t *testing.T) {
 	}
 }
 
-// s3ConformanceMissing is S3's ratchet: the three modelled S3 operations the
-// simulator does not serve. Every other operation in the vendored model is
-// implemented, so this list is the whole of S3's gap and it is not a backlog.
-//
-// READ THIS BEFORE ADDING THEM. All three are **scoped out by decision**, not
-// left undone by oversight, and the reason is the same for each: none of them
-// is addressed to the regional `s3.<region>.amazonaws.com` surface the
-// simulator hosts. The Smithy model routes each to a different endpoint family
-// through endpoint rules, so "implement the operation" is really "host another
-// endpoint family and build the feature behind it":
-//
-// Every operation the S3 model declares is served, including the two features
-// this list was written for.
-//
-// S3 Object Lambda is assembled: access points, Object Lambda access points,
-// the read path that hands a transformation function a route token and the URL
-// to read the original object from, and the WriteGetObjectResponse callback the
-// function answers on. What the function wrote is what the caller receives.
-//
-// S3 Express One Zone is assembled: directory buckets as their own bucket type,
-// named for the zone they are placed in and listed apart from general purpose
-// buckets; the regional control endpoint and the zonal bucket endpoints, which
-// a client reaches by resolving them rather than by overriding an endpoint; and
-// session authentication, where CreateSession mints credentials into the same
-// store the Security Token Service mints into, so a request signed with them
-// authenticates as the caller who asked for them — scoped to the one bucket, to
-// the mode the session was created in, and until it expires.
-//
-// The entries this list used to carry said each feature "only means anything
-// once" its endpoint family, bucket type and authentication exist, and that the
-// condition to revisit was building the feature rather than mounting a bare
-// handler. That is what was built.
-//
-// The list is locked by TestServiceConformance_S3Ratchet.
+// s3ConformanceMissing is S3's ratchet: the modelled operations the simulator
+// does not serve. Every operation the vendored S3 model declares is served, S3
+// Object Lambda and S3 Express One Zone included, so the list is empty;
+// TestServiceConformance_S3Ratchet locks it.
 var s3ConformanceMissing = []string{}
 
 // TestServiceConformance_S3Ratchet locks S3's REST operation-coverage gap set,
@@ -575,19 +519,14 @@ func TestServiceConformance_S3Coverage(t *testing.T) {
 		}
 	}
 	sort.Strings(missing)
-	// "missing" reads as a backlog and invites someone to close it. These
-	// three are scoped out by decision — each belongs to an endpoint family
-	// this simulator does not host — and s3ConformanceMissing carries the
-	// reasoning and the condition that would justify revisiting it.
+	// Report unserved operations as the decisions s3ConformanceMissing records, not as a backlog.
 	t.Logf("AmazonS3: %d/%d operations implemented; %d not served by decision (see s3ConformanceMissing): %v",
 		len(m.Ops)-len(missing), len(m.Ops), len(missing), missing)
 }
 
-// TestServiceConformance_Ratchet locks each catalogued service's set of
-// not-yet-implemented operations. The recorded list IS the live non-conformity
-// report: implement one → remove it here and the test passes with fewer gaps;
-// a model update that adds an op fails until it's classified. This is what makes
-// "is service X complete?" a measured, enforced number instead of a claim.
+// TestServiceConformance_Ratchet locks each catalogued service's unimplemented
+// operations: implementing one means removing it here, and a model update that
+// adds one fails until it is classified.
 func TestServiceConformance_Ratchet(t *testing.T) {
 	models := loadSmithyModels(t)
 	routers := conformanceRegistrations(t)

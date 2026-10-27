@@ -36,7 +36,6 @@ type IAMAttachedPolicy struct {
 	PolicyName string
 }
 
-// IAMPolicy is a managed policy (Microsoft.IAM/policies).
 type IAMPolicy struct {
 	PolicyName       string   `json:"policyName"`
 	PolicyId         string   `json:"policyId"`
@@ -49,8 +48,7 @@ type IAMPolicy struct {
 	Tags             []IAMTag `json:"tags,omitempty"`
 }
 
-// IAMInstanceProfile is a Microsoft.IAM/instanceProfiles resource. Each
-// instance profile can hold at most one role (real AWS constraint).
+// An instance profile holds at most one role.
 type IAMInstanceProfile struct {
 	InstanceProfileName string `json:"instanceProfileName"`
 	InstanceProfileId   string `json:"instanceProfileId"`
@@ -95,17 +93,12 @@ func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ListRolePolicies", handleIAMListRolePolicies)
 	r.Register("ListInstanceProfilesForRole", handleIAMListInstanceProfilesForRole)
 
-	// Managed policies — canonical TF flow CreateRole → CreatePolicy →
-	// AttachRolePolicy needs at least Create + Get + Delete + List.
 	r.Register("CreatePolicy", handleIAMCreatePolicy)
 	r.Register("GetPolicy", handleIAMGetPolicy)
 	r.Register("DeletePolicy", handleIAMDeletePolicy)
 	r.Register("ListPolicies", handleIAMListPolicies)
 	r.Register("GetPolicyVersion", handleIAMGetPolicyVersion)
 
-	// Instance profiles — needed to bind a role to an EC2 / ECS task
-	// launch template. CreateInstanceProfile → AddRoleToInstanceProfile
-	// is the canonical pair.
 	r.Register("CreateInstanceProfile", handleIAMCreateInstanceProfile)
 	r.Register("GetInstanceProfile", handleIAMGetInstanceProfile)
 	r.Register("DeleteInstanceProfile", handleIAMDeleteInstanceProfile)
@@ -113,7 +106,6 @@ func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("AddRoleToInstanceProfile", handleIAMAddRoleToInstanceProfile)
 	r.Register("RemoveRoleFromInstanceProfile", handleIAMRemoveRoleFromInstanceProfile)
 
-	// Service-linked roles + OIDC providers (iam_slr_oidc.go)
 	registerIAMPolicySimulation(r)
 	registerIAMSLRandOIDC(r, srv)
 	registerIAMLists(r)
@@ -126,10 +118,8 @@ func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	registerIAMAccountReports(r, srv)
 }
 
-// iamRoleFieldsXML emits the inner role fields without the `<Role>`
-// wrapper. Used inline inside `<member>` elements where AWS's XML
-// schema puts role fields directly under member (instance profile
-// Roles list, ListAttachedRolePolicies list members, etc.).
+// iamRoleFieldsXML emits the role fields without the <Role> wrapper, for list
+// <member> elements where IAM's XML puts them directly under the member.
 func iamRoleFieldsXML(role IAMRole) string {
 	doc := url.QueryEscape(role.AssumeRolePolicyDocument)
 	maxSession := role.MaxSessionDuration
@@ -196,9 +186,8 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 </CreateRoleResponse>`, iamRoleXML(role), sim.NewUUID())
 }
 
-// handleIAMUpdateRole updates a role's description / max-session-duration. The
-// provider calls it when aws_iam_role.{description,max_session_duration} change
-// (assume-role policy goes through UpdateAssumeRolePolicy instead).
+// handleIAMUpdateRole updates Description and MaxSessionDuration; the
+// assume-role policy goes through UpdateAssumeRolePolicy.
 func handleIAMUpdateRole(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("RoleName")
 	if !iamRoles.Update(name, func(role *IAMRole) {
@@ -215,7 +204,6 @@ func handleIAMUpdateRole(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "UpdateRole")
 }
 
-// handleIAMTagRole adds/overwrites tags on a role (aws_iam_role.tags changes).
 func handleIAMTagRole(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("RoleName")
 	newTags := iamParseTags(r)
@@ -228,7 +216,6 @@ func handleIAMTagRole(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "TagRole")
 }
 
-// handleIAMUntagRole removes the named tag keys from a role.
 func handleIAMUntagRole(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("RoleName")
 	remove := map[string]bool{}
@@ -254,8 +241,7 @@ func handleIAMUntagRole(w http.ResponseWriter, r *http.Request) {
 	iamEmptyResultXML(w, "UntagRole")
 }
 
-// iamMergeTags overwrites existing tag values by key and appends new keys,
-// preserving order — the TagRole upsert semantics.
+// iamMergeTags applies TagRole's upsert: overwrite existing keys in place and append new ones.
 func iamMergeTags(existing, incoming []IAMTag) []IAMTag {
 	out := append([]IAMTag(nil), existing...)
 	for _, nt := range incoming {
@@ -274,9 +260,7 @@ func iamMergeTags(existing, incoming []IAMTag) []IAMTag {
 	return out
 }
 
-// iamEmptyResultXML emits the canonical empty-result response IAM mutating ops
-// return. The empty `<{op}Result/>` node is required by some deserializers
-// (e.g. UpdateRole) and harmlessly skipped by the others (TagRole/UntagRole).
+// Some deserializers (UpdateRole) require the empty <{op}Result/> node; the others skip it.
 func iamEmptyResultXML(w http.ResponseWriter, op string) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><%sResult/><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></%sResponse>`,
@@ -308,8 +292,7 @@ func handleIAMDeleteRole(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
-	// Real IAM refuses to delete a role that still has policies attached or is
-	// referenced by an instance profile — detach/remove them first.
+	// IAM refuses to delete a role that still has policies attached or belongs to an instance profile.
 	for _, p := range iamRolePolicies.List() {
 		if p.RoleName == name {
 			iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must delete policies first.", http.StatusConflict)
@@ -525,11 +508,6 @@ func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
 </ListRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
-// Managed policies + instance profiles. The canonical TF flow is
-// CreateRole → CreatePolicy → AttachRolePolicy → CreateInstanceProfile
-// → AddRoleToInstanceProfile; without these handlers, terraform-
-// provider-aws fails at step 2 (CreatePolicy InvalidAction).
-
 func iamPolicyXML(p IAMPolicy) string {
 	return fmt.Sprintf(`<PolicyName>%s</PolicyName><PolicyId>%s</PolicyId><Arn>%s</Arn><Path>%s</Path><DefaultVersionId>%s</DefaultVersionId><CreateDate>%s</CreateDate><AttachmentCount>0</AttachmentCount><PermissionsBoundaryUsageCount>0</PermissionsBoundaryUsageCount><IsAttachable>true</IsAttachable><Description>%s</Description>%s`,
 		p.PolicyName, p.PolicyId, p.Arn, p.Path, p.DefaultVersionId, p.CreateDate, p.Description, iamTagsXML(p.Tags))
@@ -709,8 +687,7 @@ func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
 	}
-	// Real IAM refuses to delete an instance profile that still has a role —
-	// the caller must RemoveRoleFromInstanceProfile first.
+	// IAM refuses to delete an instance profile that still holds a role.
 	if ip.RoleName != "" {
 		iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must remove roles from instance profile first.", http.StatusConflict)
 		return

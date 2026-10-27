@@ -747,8 +747,7 @@ func rdsRecoverInstanceSnapshots() {
 			continue
 		}
 		if rdsSnapshotSourceGone(snapshot) {
-			// rdsMoveVolumesToKindNames moved the instance's data into the
-			// snapshot's volume.
+			// The source is gone, so rdsMoveVolumesToKindNames already moved its data into the snapshot's volume.
 			rdsSettleSnapshot(id, "available", "")
 			continue
 		}

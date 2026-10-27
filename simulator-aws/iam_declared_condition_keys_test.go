@@ -17,27 +17,15 @@ import (
 )
 
 // Every condition key the vendored AWS Service Reference declares on an action
-// is either resolvable by this simulator's authorization gate or listed here
-// with the reason it is not.
-//
-// iamConditionKeyRegistry (iam_conformance_test.go) proves that the keys the
-// gate claims are really built, by running the gate's own populators. It says
-// nothing about the keys AWS declares and the gate never mentions: those were
-// counted by hand into BUGS.md, and a hand count goes stale the moment a
-// reference refresh adds an action. This test closes that side. It is a static
-// measure and deliberately makes the weaker claim: that no code in the package
-// so much as names the key. A key that IS named still owes its proof to the
-// registry probe; a key that is named nowhere cannot possibly reach a policy,
-// so a condition written on it silently never matches.
-//
-// When a reference refresh introduces a key, this test fails until the key is
-// either populated or classified below with a concrete reason. "Not implemented
-// yet" is not a reason — say what the simulator would have to model first.
-//
-// A row matches one key, or a family when it ends in "*": the
-// kms:RecipientAttestation measurements share one reason and are one row. Every
-// row must match a key some vendored action declares, and no row may match a
-// key the gate now resolves, so the list cannot outlive what it excuses.
+// is either resolvable by the authorization gate or listed here with the reason
+// it is not. iamConditionKeyRegistry proves the keys the gate claims are built;
+// this static measure covers the keys AWS declares and the gate never names,
+// since a key named nowhere cannot reach a policy and a condition on it never
+// matches. A reference refresh that adds a key fails this test until the key is
+// populated or classified with a concrete reason: say what the simulator would
+// have to model first. A row matches one key, or a family when it ends in "*".
+// Every row must match a declared key and none may match a key the gate
+// resolves, so the list cannot outlive what it excuses.
 type iamUnmodelledConditionKey struct {
 	match  string
 	reason string
@@ -236,7 +224,6 @@ func (row iamUnmodelledConditionKey) matches(key string) bool {
 	return strings.EqualFold(row.match, key)
 }
 
-// iamClassifiedUnmodelled returns the row covering a key, if any.
 func iamClassifiedUnmodelled(key string) (iamUnmodelledConditionKey, bool) {
 	for _, row := range iamUnmodelledConditionKeys {
 		if row.matches(key) {
@@ -474,9 +461,9 @@ func iamServiceResourceTagServices(t *testing.T) map[string]bool {
 	return services
 }
 
-// TestIAM_DeclaredConditionKeysAreResolvedOrClassified fails when a declared
-// key is neither named by the gate nor classified as unmodelled, and when a
-// classified key has since been wired (so the list cannot rot into an excuse).
+// TestIAM_DeclaredConditionKeysAreResolvedOrClassified fails when a declared key
+// is neither named by the gate nor classified as unmodelled, and when a
+// classified key is resolved.
 func TestIAM_DeclaredConditionKeysAreResolvedOrClassified(t *testing.T) {
 	declared := iamDeclaredConditionKeys(t)
 	pkg := readIAMPackageKeys(t)

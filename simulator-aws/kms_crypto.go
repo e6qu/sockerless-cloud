@@ -20,18 +20,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
-// KMS crypto: real AES-256-GCM for symmetric operations and real Go-stdlib
-// cryptography for asymmetric/MAC operations. No fake signatures, MACs, or
-// ciphertexts — Sign/Verify, GenerateMac/VerifyMac, data-key-pairs, and ECDH
-// all use persisted real key material.
-//
-// Symmetric ciphertext blob format v1:
-//   magic    [3]byte  "SK1"
-//   version  [1]byte  0x01
-//   keyIdLen [2]byte  big-endian uint16
-//   keyId    []byte
-//   nonce    [12]byte AES-GCM nonce
-//   ciphertext+tag []byte
+// Symmetric operations use AES-256-GCM, and asymmetric and MAC operations Go's
+// standard library, all over persisted key material. A symmetric ciphertext blob
+// (v1) is: magic "SK1" (3 bytes), version 0x01 (1), key id length (2,
+// big-endian), key id, AES-GCM nonce (12), then ciphertext and tag.
 
 const kmsBlobMagic = "SK1"
 const kmsBlobVersion = byte(0x01)
@@ -57,11 +49,9 @@ func registerKMSKeyMaterial(srv *sim.Server) {
 	kmsKeyMaterial = sim.MakeStore[[]byte](srv.DB(), "kms_key_material")
 }
 
-// KMSKeyMaterial holds the real backing key bytes for an asymmetric or HMAC
-// CMK. KMS never exposes the private material on the wire, so the sim keeps
-// it in a side store keyed by KeyId. For an asymmetric key, PrivateKeyDER is
-// the PKCS#8 DER of the real RSA/ECDSA private key generated for that KeySpec.
-// For an HMAC key, HMACSecret is the raw MAC key bytes.
+// AWS KMS never exposes private material, so keep it in a side store keyed by
+// KeyId: the PKCS#8 DER of the RSA or ECDSA key for an asymmetric key, the raw
+// MAC key for an HMAC key.
 type KMSKeyMaterial struct {
 	KeyId         string `json:"KeyId"`
 	PrivateKeyDER []byte `json:"PrivateKeyDER,omitempty"`
@@ -152,7 +142,6 @@ func kmsIsHMACSpec(spec string) bool {
 	return false
 }
 
-// kmsEllipticCurveFor maps an ECC KeySpec to its stdlib curve.
 func kmsEllipticCurveFor(spec string) elliptic.Curve {
 	switch spec {
 	case "ECC_NIST_P256", "ECC_SECG_P256K1":
@@ -185,12 +174,10 @@ func kmsEnsureKeyMaterial(keyId string) error {
 	return err
 }
 
-// kmsGetKeyMaterial returns the persisted AES key for a CMK.
 func kmsGetKeyMaterial(keyId string) ([]byte, bool) {
 	return kmsKeyMaterial.Get(keyId)
 }
 
-// kmsDeleteKeyMaterial removes the key material for a CMK.
 func kmsDeleteKeyMaterial(keyId string) {
 	kmsKeyMaterial.Delete(keyId)
 }
@@ -252,8 +239,7 @@ func kmsDecryptBytes(blob []byte) (keyId string, plaintext []byte, ok bool) {
 	return keyId, plaintext, true
 }
 
-// kmsIsUsable reports whether a CMK can currently perform cryptographic
-// operations. Keys in Disabled or PendingDeletion states must reject crypto.
+// Disabled and PendingDeletion keys reject cryptographic operations.
 func kmsIsUsable(key KMSKey) bool {
 	return key.KeyState == "Enabled"
 }
@@ -265,7 +251,6 @@ func kmsCryptoDisabledError(w http.ResponseWriter, op string) {
 		"%s is disabled.", op)
 }
 
-// kmsKeyPolicyArn returns the ARN used as the resource-policy key for a CMK.
 func kmsKeyPolicyArn(keyId string) string {
 	return kmsKeyArn(keyId)
 }
@@ -363,7 +348,6 @@ func kmsHashForSigningAlg(alg string, message []byte) ([]byte, crypto.Hash) {
 	}
 }
 
-// isPSS reports whether a signing algorithm uses RSASSA-PSS padding.
 func isPSS(alg string) bool { return strings.HasPrefix(alg, "RSASSA_PSS") }
 
 func handleKMSSign(w http.ResponseWriter, r *http.Request) {

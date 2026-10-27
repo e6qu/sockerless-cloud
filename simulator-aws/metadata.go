@@ -19,7 +19,6 @@ import (
 // its task metadata endpoint, and a workload running under a role the
 // container credentials endpoint (role_credentials.go).
 
-// imdsInstancesByIP finds the instance a metadata request comes from.
 var imdsInstancesByIP workloadhost.MetadataIndex[EC2Instance]
 
 func registerHostMetadata(srv *sim.Server) {
@@ -64,11 +63,11 @@ func registerHostMetadata(srv *sim.Server) {
 }
 
 // ecsTaskOwnsMetadataRequest reports whether a request that arrived through a
-// network sidecar comes from the awsvpc task whose metadata it asks for:
-// the task's own VPC network and its elastic network interface address. The
-// task metadata endpoint is task-local on Amazon ECS, so another task's
-// containers find nothing there. A request from the simulator's own listener,
-// or for a task without an interface of its own, is answered as before.
+// network sidecar comes from the awsvpc task whose metadata it asks for: the
+// task's own VPC network and ENI address. The task metadata endpoint is
+// task-local on Amazon ECS, so another task's containers find nothing there. A
+// request through the simulator's own listener, or for a task without an
+// interface of its own, passes.
 func ecsTaskOwnsMetadataRequest(taskID string, r *http.Request) bool {
 	network := sim.SidecarNetwork(r.Context())
 	if network == "" {

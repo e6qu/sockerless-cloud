@@ -19,13 +19,9 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// The request a client sends for one operation, rendered from the vendored
-// Smithy model in the operation's own protocol, with every member the input
-// declares filled in. A condition key is only ever built from something the
-// request carries, so the probe that asks "does the gate build this key for
-// this action" has to carry everything a request of that action can carry:
-// the tags a create takes, the encryption context a KMS call takes, the
-// headers an Amazon S3 write takes.
+// Render the request a client sends for one operation from the vendored Smithy
+// model, in the operation's own protocol, with every input member filled: the
+// gate builds a condition key only from what the request carries.
 
 // iamKeyProbeDepth bounds how deep the filler descends into nested
 // structures. Every condition key the gate reads sits within a few levels of
@@ -33,7 +29,6 @@ import (
 // without end.
 const iamKeyProbeDepth = 7
 
-// iamKeyProbeModel is one vendored model as the probe renders it.
 type iamKeyProbeModel struct {
 	idx *smithyModelIndex
 	// service is the IAM service prefix the model's actions are authorized
@@ -81,7 +76,6 @@ func iamKeyProbeXMLNamespace(traits map[string]json.RawMessage) string {
 	return ""
 }
 
-// iamKeyProbeFill fills one operation's members.
 type iamKeyProbeFill struct {
 	model     *iamKeyProbeModel
 	operation string
@@ -286,7 +280,6 @@ func (f *iamKeyProbeFill) document(target, member string, depth int, seen map[st
 	return f.str(member), true
 }
 
-// queryMember writes one member as awsQuery or ec2Query form parameters.
 func (f *iamKeyProbeFill) queryMember(form url.Values, prefix string, ref smithyMemberRef, member string, depth int, seen map[string]bool, ec2 bool) {
 	shape, kind := f.shape(ref.Target)
 	if _, isEnum := iamKeyProbeEnumValue(shape); isEnum {
@@ -360,7 +353,6 @@ func iamKeyProbeQueryName(member string, ref smithyMemberRef, ec2 bool) string {
 	return member
 }
 
-// xmlElement writes one member as restXml.
 func (f *iamKeyProbeFill) xmlElement(b *strings.Builder, name string, ref smithyMemberRef, member string, depth int, seen map[string]bool, xmlns string) {
 	shape, kind := f.shape(ref.Target)
 	if _, isEnum := iamKeyProbeEnumValue(shape); isEnum {
@@ -445,7 +437,6 @@ func (f *iamKeyProbeFill) jsonRequest(target, contentType string) *http.Request 
 	return r
 }
 
-// queryRequest is an awsQuery or ec2Query request.
 func (f *iamKeyProbeFill) queryRequest(ec2 bool) *http.Request {
 	form := url.Values{}
 	input, _ := f.shape(f.model.inputs[f.operation])
@@ -461,7 +452,6 @@ func (f *iamKeyProbeFill) queryRequest(ec2 bool) *http.Request {
 	return r
 }
 
-// cborRequest is a Smithy RPC v2 CBOR request.
 func (f *iamKeyProbeFill) cborRequest() *http.Request {
 	body, _ := f.document(f.model.inputs[f.operation], "", 0, map[string]bool{}, false, true)
 	if body == nil {

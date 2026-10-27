@@ -10,13 +10,10 @@ import (
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
 
-// consoleAssets stands in for the embedded single-page application. The
-// simulator mounts its Shauth relying party from RegisterUI, which the
-// `console` build reaches through registerUI with the embedded `dist`
-// directory, and a plain build only when SIM_CONSOLE_DIR names a bundle. Handing
-// RegisterUI a filesystem directly exercises the mounting contract itself, so
-// these tests assert the wiring under every build tag rather than only the one
-// that embeds the console.
+// consoleAssets stands in for the embedded console. RegisterUI mounts the
+// Shauth relying party; the `console` build reaches it with the embedded `dist`
+// directory and a plain build only through SIM_CONSOLE_DIR, so handing it a
+// filesystem directly asserts the wiring under every build tag.
 func consoleAssets() fstest.MapFS {
 	return fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>console</title>")}}
 }
@@ -25,24 +22,15 @@ func consoleAssets() fstest.MapFS {
 // mounts whether or not an identity provider is configured.
 const consoleConfigPath = "/ui/config.json"
 
-// ensureConsoleRegistered mounts the console — and with it the Shauth relying
-// party — if the build has not already done so.
-//
-// The `console` build embeds the console and registers it during
-// buildSimulator; a plain build, which is how `make unit-test` and CI run,
-// registers none. Registering unconditionally panics on the first
-// of those with a duplicate-pattern conflict, and skipping it entirely tests
-// nothing on the second. Probing the mux covers both, and asserts the same
-// contract either way.
+// ensureConsoleRegistered mounts the console and its Shauth relying party unless
+// the build already did. The `console` build registers them in buildSimulator
+// and a plain build (unit tests, CI) does not; registering twice panics on a
+// duplicate pattern, so probe the mux first.
 func ensureConsoleRegistered(srv *sim.Server) {
-	// Probe the console config, which RegisterUI mounts unconditionally, and
-	// require an EXACT pattern match. A catch-all subtree — Cloud Storage's
-	// `/{bucket}/{object...}`, for one — matches this path too, so "some
-	// pattern answered" would report the console as registered when it is not
-	// and the registration would be skipped.
-	// The session path would be the wrong signal: with no identity provider
-	// configured the console is still registered while the relying party is
-	// not, and re-registering would conflict on the console's own routes.
+	// Probe the console config, which RegisterUI always mounts, and require an exact
+	// pattern match: a catch-all subtree (Amazon S3's `/{bucket}/{key...}`) matches
+	// this path too. The session path would be the wrong signal: without an identity
+	// provider the console is registered while the relying party is not.
 	probe := httptest.NewRequest(http.MethodGet, consoleConfigPath, nil)
 	if _, pattern := srv.Mux().Handler(probe); pattern == "GET "+consoleConfigPath {
 		return
@@ -50,16 +38,11 @@ func ensureConsoleRegistered(srv *sim.Server) {
 	srv.RegisterUI(consoleAssets(), sim.ConsoleOptions{Coordinates: sim.BrowserFederationCoordinates})
 }
 
-// Shauth is an ADDITION to the AWS simulator's own authentication, never a
-// replacement for it: the AWS surface keeps demanding a valid Signature
-// Version 4 request, and Shauth sits alongside as the console's OpenID Connect
-// relying party whose assertion the console federates through
-// AssumeRoleWithWebIdentity into real AWS credentials.
-//
-// The ui-auth package is unit-tested on its own, which proves the package and
-// not the wiring. This asserts the AWS simulator actually mounts it, so the
-// integration cannot regress unnoticed. simulator-gcp and simulator-azure
-// carry the same test; the contract is shared and the three must not drift.
+// Shauth adds to the AWS simulator's authentication and never replaces it: the
+// AWS surface still demands SigV4, and Shauth is the console's OpenID Connect
+// relying party, whose assertion the console federates through
+// AssumeRoleWithWebIdentity. Assert the simulator mounts it; simulator-gcp and
+// simulator-azure carry the same test.
 
 func awsShauthConfig() sim.Config {
 	return sim.Config{

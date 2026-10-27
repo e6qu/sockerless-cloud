@@ -478,15 +478,13 @@ func sfnSigningName(service string) string {
 
 type sfnActorKey struct{}
 
-// sfnWithRole is ctx for running a state machine whose tasks call AWS
-// services as a session of role, which AWS Step Functions assumes for
-// stateMachineArn.
+// sfnWithRole returns ctx for a state machine whose tasks call AWS services as a
+// session of role, which AWS Step Functions assumes for stateMachineArn.
 func sfnWithRole(ctx context.Context, role, stateMachineArn string) context.Context {
 	return context.WithValue(ctx, sfnActorKey{}, awsActor{Service: "states.amazonaws.com", Source: stateMachineArn, Role: role})
 }
 
-// sfnTaskActor is who a task state's service call is made as: a session of
-// the execution's role.
+// sfnTaskActor returns the session of the execution's role that a task's service call runs as.
 func sfnTaskActor(ctx context.Context) (awsActor, *sfnExecutionError) {
 	actor, ok := ctx.Value(sfnActorKey{}).(awsActor)
 	if !ok || actor.Role == "" {
@@ -524,7 +522,6 @@ func sfnInvokeAWSSDK(ctx context.Context, resource string, input any) (any, *sfn
 	return awsSDKInvoke(ctx, actor, parts[0], parts[1], input)
 }
 
-// awsSDKImplemented reports whether awsSDKInvoke can call service.
 func awsSDKImplemented(service string) bool {
 	_, restJSON := sfnAWSRESTJSONOperations[service]
 	_, restXML := sfnAWSRESTXMLOperations[service]
@@ -533,9 +530,9 @@ func awsSDKImplemented(service string) bool {
 	return restJSON || restXML || query || json
 }
 
-// awsSDKInvoke calls one AWS API operation as actor through the service's
-// API, named as an AWS SDK integration names it: the SDK's service name and
-// lower-camel operation name, whose Smithy operation name starts uppercase.
+// awsSDKInvoke calls one AWS API operation as actor, named as an AWS SDK
+// integration names it: the SDK's service name and the lower-camel operation
+// name, whose Smithy name starts uppercase.
 func awsSDKInvoke(ctx context.Context, actor awsActor, service, action string, input any) (any, *sfnExecutionError) {
 	if _, restJSONService := sfnAWSRESTJSONOperations[service]; restJSONService {
 		return sfnInvokeRESTJSONService(ctx, actor, service, action, input)
@@ -649,8 +646,7 @@ func sfnDescribeECSTasks(ctx context.Context, taskARNs []string) ([]ECSTask, *sf
 	return sfnDecodeECSTasks(response["tasks"])
 }
 
-// ecsClusterNameFromTaskARN reads the cluster segment of
-// arn:aws:ecs:region:account:task/cluster/id.
+// ecsClusterNameFromTaskARN returns the cluster segment of arn:aws:ecs:region:account:task/cluster/id.
 func ecsClusterNameFromTaskARN(taskARN string) string {
 	_, path, _ := strings.Cut(taskARN, ":task/")
 	cluster, _, _ := strings.Cut(path, "/")
@@ -694,10 +690,10 @@ func sfnWaitForECSTasks(ctx context.Context, tasks []ECSTask, output map[string]
 
 // sfnAwaitSettled waits for a resource to settle. check reads it through its
 // service's API as the execution's role and names the store item whose next
-// write is worth another read, or none once the resource settled, so the wait
-// sleeps between changes instead of reading on a timer. cancel aborts the
-// wait and abort stops the resource, unless the simulator itself is stopping:
-// the next process resumes the wait from its checkpoint.
+// write warrants another read, or none once it settled, so the wait sleeps
+// between changes instead of on a timer. cancel aborts the wait and abort stops
+// the resource, unless the simulator itself is stopping: the next process
+// resumes the wait from its checkpoint.
 func sfnAwaitSettled(ctx context.Context, cancel <-chan struct{}, changes *signals.Keyed[string], pending string,
 	check func() (any, string, *sfnExecutionError), abort func()) (any, *sfnExecutionError) {
 	for {
@@ -770,9 +766,9 @@ func sfnDecodeECSTasks(value any) ([]ECSTask, *sfnExecutionError) {
 	return tasks, nil
 }
 
-// sfnStopECSTasks stops the tasks through StopTask as the execution's role. A
-// stop the service refuses is logged: the aborting execution has nowhere else
-// to report it.
+// sfnStopECSTasks stops the tasks through StopTask as the execution's role, and
+// logs a stop the service refuses, which the aborting execution cannot report
+// elsewhere.
 func sfnStopECSTasks(ctx context.Context, tasks []ECSTask, reason string) {
 	for _, task := range tasks {
 		if _, stopErr := sfnServiceCall(ctx, "ECS.", "ecs", "AmazonEC2ContainerServiceV20141113.StopTask", "application/x-amz-json-1.1",
@@ -833,10 +829,9 @@ func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any
 	}
 }
 
-// sfnCamelCaseMembers renames a task's PascalCase parameters to the
-// camelCase members of a service whose API spells them so, at every depth.
-// Use it only for operations whose input holds no free-form map, where every
-// object key is a member name.
+// sfnCamelCaseMembers renames a task's PascalCase parameters, at every depth, to
+// the camelCase members of a service whose API spells them so. Use it only for
+// an input with no free-form map, where every object key is a member name.
 func sfnCamelCaseMembers(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -1381,10 +1376,8 @@ func sfnRunMap(ctx context.Context, state sfnState, stateName string, input, con
 		sfnMapRuns.Put(run.MapRunArn, run)
 		mapRun = &run
 		defer func() {
-			// Through Update, like every other writer of this record. A read,
-			// a mutation and a write would be correct only for as long as the
-			// workers are joined before this runs, and would then lose the
-			// counters silently the first time one was not.
+			// Update, as every other writer of this record does: a separate read and write
+			// would lose the counters if a worker were still running.
 			now := sfnEpochNow()
 			sfnMapRuns.Update(run.MapRunArn, func(finished *SFNMapRun) {
 				finished.StopDate = &now
@@ -1412,10 +1405,9 @@ func sfnRunMap(ctx context.Context, state sfnState, stateName string, input, con
 	work := make(chan int)
 	resultCh := make(chan itemResult, len(items))
 	var workers sync.WaitGroup
-	// The map's own fan-out is joined below, so it goes through bg.JoinedGo: a
-	// dropped worker leaves the feed blocked on a channel nobody reads, and a
-	// dropped feed leaves the collector blocked on a channel nobody closes.
-	// Either way the map run stays RUNNING for good rather than finishing late.
+	// The caller joins this fan-out, so it runs through bg.JoinedGo, which a drain
+	// cannot drop: a dropped worker or feed would block the map forever and leave
+	// its map run RUNNING.
 	for worker := 0; worker < maxConcurrency; worker++ {
 		workers.Add(1)
 		bg.JoinedGo(func() {

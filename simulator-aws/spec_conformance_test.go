@@ -155,10 +155,9 @@ func loadSmithyModels(t *testing.T) []*smithyService {
 
 func buildConformanceSimulator(t *testing.T) (*sim.Server, *AWSRouter, *AWSQueryRouter) {
 	t.Helper()
-	// Building a simulator replaces the package-level stores, so asynchronous work
-	// a previous test left running must finish first: a DynamoDB DescribeTable
-	// starts a background usage refresh, and one still reading ddbTables raced
-	// the next test's registerDynamoDB on the race detector.
+	// Building a simulator replaces the package-level stores, so asynchronous work a
+	// previous test left running (DynamoDB DescribeTable's background usage refresh)
+	// must finish first.
 	bg.Await()
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, jsonRouter, queryRouter, err := buildSimulatorWithOptions(
@@ -168,12 +167,9 @@ func buildConformanceSimulator(t *testing.T) (*sim.Server, *AWSRouter, *AWSQuery
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}
-	// A simulator built but never served still starts its background workers,
-	// and they keep reading package-level state after the test that built them
-	// has finished — the next test to build one reassigns those stores under a
-	// checker still sweeping them, which the race detector reports as a write
-	// racing a read with neither in the test's own code. Stopping them is the
-	// caller's job, as StopBackground's own documentation says.
+	// A simulator built but never served still starts its background workers, which
+	// keep reading package-level state the next build reassigns; stopping them is
+	// the caller's job, as StopBackground documents.
 	t.Cleanup(srv.StopBackground)
 	return srv, jsonRouter, queryRouter
 }

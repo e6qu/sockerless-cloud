@@ -50,8 +50,7 @@ func s3ObjectAnnotationsOf(bucket, key string) []s3Annotation {
 	return found
 }
 
-// s3ValidAnnotationName reports whether a name is acceptable. Real S3 rejects an
-// empty name and caps the length; both answers are modeled errors.
+// s3ValidAnnotationName reports whether name is acceptable: S3 rejects an empty name and caps the length.
 func s3ValidAnnotationName(name string) (code, msg string, ok bool) {
 	switch {
 	case name == "":
@@ -138,8 +137,8 @@ func handleS3GetObjectAnnotation(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(ann.Payload)
 }
 
-// handleS3DeleteObjectAnnotation removes one annotation. Real S3 answers 204 No
-// Content, and deleting an annotation that is not there is not an error.
+// handleS3DeleteObjectAnnotation removes one annotation; S3 answers 204 No
+// Content, even when the annotation is not there.
 func handleS3DeleteObjectAnnotation(w http.ResponseWriter, r *http.Request) {
 	bucket := sim.PathParam(r, "bucket")
 	key := sim.PathParam(r, "key")

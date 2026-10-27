@@ -10,21 +10,34 @@ NAT'`) and repeat the steps for your own change.
 [Maintaining](maintaining.md) describes the machinery the steps run through;
 [`AGENTS.md`](../AGENTS.md) holds the rules.
 
+The commands run from a clone of the repository; `TestDocs` in
+`testutil/doctest` runs every one of them as written.
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
+```
+
 ## Step 1: Start from the records
 
+<!-- doctest: run expect="BUG-3754|\\| 3754 \\|" -->
 ```sh
 cat STATUS.md DO_NEXT.md
-grep -n "regional NAT" BUGS.md
+grep -n "NAT gateway" BUGS.md
 ```
 
 The change started from a `BUGS.md` row: CreateNatGateway refused `regional`
-with `UnsupportedOperation`. A change either closes a row or adds one, and
-updates the continuity files in the same commit.
+with `UnsupportedOperation`. The change deleted that row and added the rows
+for what it left open, 3754 and 3755, which the `grep` finds. A change either
+closes a row or adds one, and updates the continuity files in the same
+commit.
 
 ## Step 2: Read the contract in the vendored specification
 
 The EC2 model is already vendored, so the operation's shape is one `jq` away:
 
+<!-- doctest: run expect="AvailabilityMode" expect="regional" -->
 ```sh
 zcat specs/cloud-api/aws/ec2.smithy.json.gz \
   | jq '.shapes["com.amazonaws.ec2#CreateNatGatewayRequest"].members | keys'
@@ -115,15 +128,25 @@ What a test may and may not do:
 
 Run them:
 
+<!-- doctest: run -->
 ```sh
-make simulator-aws/sdk-test SDK_TEST_ARGS='-run RegionalNatGateway'
+make simulator-aws/sdk-test SDK_TEST_ARGS="-run 'RegionalNatGateway(AutomaticZones|ManualZones|Refusals)'"
 make simulator-aws/cli-test CLI_TEST_ARGS='-run RegionalNatGateway'
 make simulator-aws/terraform-test TERRAFORM_TEST_PACKAGES=./nat-gateway-regional
 make simulator-aws/unit-test   # the specification gates
 ```
 
+The data-plane test routes instances through each zone's gateway, which only
+the microVM backend does, so it needs a Linux host with `/dev/kvm`:
+
+<!-- doctest: skip reason="needs /dev/kvm; CI runs it in the sim (aws sdk ec2-microvm) shard" -->
+```sh
+SIM_PLACEMENT=ec2=microvm make simulator-aws/sdk-test SDK_TEST_ARGS='-run RegionalNatGatewayCarriesEachZonesConnections'
+```
+
 ## Step 5: Regenerate the records
 
+<!-- doctest: run -->
 ```sh
 bash scripts/seed-surface-tables.sh
 git diff --stat specs/SIM_SURFACE_TABLES/
@@ -143,6 +166,7 @@ In the same commit, in the past tense, describing the end state:
 
 ## Step 7: Commit
 
+<!-- doctest: skip reason="commits the reader's own change; this walkthrough's clone has none" -->
 ```sh
 git add -A
 git commit -m "feat(aws): serve Amazon EC2 regional NAT gateways"
@@ -158,6 +182,7 @@ A failing hook is fixed at its cause, never skipped.
 
 ## Step 8: Push and drive the pull request to green
 
+<!-- doctest: skip reason="pushes to the reader's fork" -->
 ```sh
 git fetch origin main && git rebase origin/main
 git push -u origin <branch>

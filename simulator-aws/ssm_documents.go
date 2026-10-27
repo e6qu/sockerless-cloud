@@ -10,14 +10,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SSM Documents — a versioned named document (Command / Automation /
-// Session / etc. content). terraform's `aws_ssm_document` resource and
-// `aws ssm create-document` / `get-document` hit this slice; runners
-// that pin a Command document for Run Command flows depend on it. The
-// sim stores the full version history so GetDocument / ListDocumentVersions
-// / UpdateDocumentDefaultVersion behave like real SSM.
+// AWS Systems Manager documents: named Command, Automation, Session and other
+// content, with the full version history GetDocument, ListDocumentVersions and
+// UpdateDocumentDefaultVersion read.
 
-// SSMDocumentVersion is one immutable revision of a document's content.
 type SSMDocumentVersion struct {
 	DocumentVersion string  `json:"DocumentVersion"`
 	VersionName     string  `json:"VersionName,omitempty"`
@@ -29,7 +25,6 @@ type SSMDocumentVersion struct {
 	ReviewStatus    string  `json:"ReviewStatus"`
 }
 
-// SSMDocument is the mutable document envelope plus its version history.
 type SSMDocument struct {
 	Name           string               `json:"Name"`
 	DisplayName    string               `json:"DisplayName,omitempty"`
@@ -78,11 +73,10 @@ func ssmDocVersion(d SSMDocument, version string) (SSMDocumentVersion, bool) {
 	return SSMDocumentVersion{}, false
 }
 
-// ssmOmitEmptyStrings drops members whose value is the empty string. AWS Systems
-// Manager omits an optional string it has no value for, and several of these are
-// pattern-constrained — a document with no version name has no VersionName
-// member, where an empty one is a value the model forbids and a client cannot
-// send back.
+// ssmOmitEmptyStrings drops members whose value is the empty string. Systems
+// Manager omits an optional string it has no value for, and several are
+// pattern-constrained, so an empty one is a value the model forbids and a client
+// cannot send back.
 func ssmOmitEmptyStrings(m map[string]any, keys ...string) map[string]any {
 	for _, key := range keys {
 		if v, ok := m[key].(string); ok && v == "" {
@@ -92,8 +86,7 @@ func ssmOmitEmptyStrings(m map[string]any, keys ...string) map[string]any {
 	return m
 }
 
-// ssmDocumentDescriptionWire projects the DocumentDescription shape
-// (CreateDocument / DescribeDocument / UpdateDocument responses).
+// ssmDocumentDescriptionWire projects the DocumentDescription shape.
 func ssmDocumentDescriptionWire(d SSMDocument, v SSMDocumentVersion) map[string]any {
 	return ssmOmitEmptyStrings(map[string]any{
 		"Name":            d.Name,
@@ -370,8 +363,7 @@ func handleSSMUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Content is required", http.StatusBadRequest)
 		return
 	}
-	// Real SSM rejects an update whose content is identical to the
-	// latest version (DuplicateDocumentContent).
+	// Systems Manager rejects content identical to the latest version with DuplicateDocumentContent.
 	latest, _ := ssmDocVersion(doc, "$LATEST")
 	if latest.Content == req.Content {
 		AWSErrorf(w, "DuplicateDocumentContent", http.StatusBadRequest,

@@ -98,10 +98,8 @@ type kinesisIterator struct {
 	IssuedAt int64
 }
 
-// KinesisConsumer is an enhanced fan-out consumer registered against a stream
-// ARN. Its ARN embeds the creation timestamp
-// (arn:...:stream/Name/consumer/CName:<ts>) exactly as real Kinesis does, so
-// re-registering after a delete yields a distinct ARN.
+// Its ARN embeds the creation timestamp (arn:...:stream/Name/consumer/CName:<ts>),
+// as Kinesis does, so re-registering after a delete yields a distinct ARN.
 type KinesisConsumer struct {
 	ConsumerName              string            `json:"ConsumerName"`
 	ConsumerARN               string            `json:"ConsumerARN"`
@@ -111,9 +109,7 @@ type KinesisConsumer struct {
 	Tags                      map[string]string `json:"Tags,omitempty"`
 }
 
-// KinesisAccountSettings holds the account-level minimum-throughput billing
-// commitment (DescribeAccountSettings / UpdateAccountSettings). A single row
-// keyed by the account id.
+// The account-level minimum-throughput billing commitment, one row keyed by account id.
 type KinesisAccountSettings struct {
 	Status               string  `json:"Status"`
 	StartedAt            float64 `json:"StartedAt"`
@@ -281,9 +277,8 @@ func kinesisListStreamSummary(s KinesisStream) map[string]any {
 	}
 }
 
-// kinesisSetEncryption mirrors real Kinesis: an unencrypted stream reports
-// EncryptionType=NONE and omits KeyId; a KMS-encrypted one reports its type
-// and key id.
+// An unencrypted stream reports EncryptionType=NONE without KeyId; a
+// KMS-encrypted one reports its type and key.
 func kinesisSetEncryption(out map[string]any, s KinesisStream) {
 	if s.EncryptionType == "" {
 		out["EncryptionType"] = "NONE"
@@ -420,9 +415,8 @@ func handleKinesisDescribeStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	desc := kinesisStreamDescription(stream)
-	// Real DescribeStream paginates shards by Limit (default/max 100/10000) +
-	// ExclusiveStartShardId, and sets HasMoreShards when more remain — mirror
-	// the correct ListShards sibling rather than returning every shard.
+	// DescribeStream pages shards by Limit (default 100, max 10000) and
+	// ExclusiveStartShardId, setting HasMoreShards when more remain.
 	shards := append([]KinesisShard(nil), stream.Shards...)
 	sort.Slice(shards, func(i, j int) bool { return shards[i].ShardId < shards[j].ShardId })
 	if req.ExclusiveStartShardId != "" {
@@ -481,19 +475,15 @@ func handleKinesisListStreams(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(names)
 
-	// Real Kinesis caps the page at Limit (default/max 100). Both
-	// ExclusiveStartStreamName (legacy cursor) and NextToken (modern cursor,
-	// which the SDK paginator uses) resume after a stream name; NextToken wins
-	// if both are present, matching the service's precedence.
+	// Kinesis caps the page at Limit (default and max 100). ExclusiveStartStreamName
+	// and NextToken both resume after a stream name; NextToken wins.
 	limit := req.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
 	start := req.ExclusiveStartStreamName
 	if req.NextToken != "" {
-		// NextToken is opaque in real Kinesis; decode it back to the
-		// last-returned stream name. ExclusiveStartStreamName is the plain-name
-		// legacy cursor and is used as-is.
+		// NextToken is opaque; decode it to the last-returned stream name.
 		if name, ok := kinesisDecodeStreamToken(req.NextToken); ok {
 			start = name
 		} else {
@@ -563,9 +553,8 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NextToken is an opaque cursor; in real Kinesis it encodes the stream
-	// identity and the resume position, so a paginating client supplies only
-	// NextToken (never StreamName/StreamARN). Decode it to recover both.
+	// Kinesis's opaque NextToken carries the stream and the resume position, so a
+	// paginating client sends NextToken alone.
 	streamName, streamARN, start := req.StreamName, req.StreamARN, req.ExclusiveStartShardId
 	if req.NextToken != "" {
 		tokStream, tokShard, ok := kinesisDecodeShardToken(req.NextToken)
@@ -583,12 +572,11 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shards are returned in ShardId order so paging is deterministic.
 	shards := make([]KinesisShard, len(stream.Shards))
 	copy(shards, stream.Shards)
 	sort.Slice(shards, func(i, j int) bool { return shards[i].ShardId < shards[j].ShardId })
 
-	// MaxResults caps a page (real Kinesis allows up to 10000; default 10000).
+	// MaxResults caps a page (default and max 10000).
 	maxResults := req.MaxResults
 	if maxResults <= 0 || maxResults > 10000 {
 		maxResults = 10000
@@ -614,10 +602,9 @@ func handleKinesisListShards(w http.ResponseWriter, r *http.Request) {
 	writeKinesisJSON(w, http.StatusOK, out)
 }
 
-// kinesisEncodeShardToken / kinesisDecodeShardToken make ListShards' NextToken
-// an opaque cursor carrying the stream name and the last-returned shard id, so a
-// paginating client resumes by passing only NextToken — matching real Kinesis,
-// whose token must not be combined with StreamName/StreamARN.
+// kinesisEncodeShardToken carries the stream name and the last-returned shard id
+// in ListShards' NextToken; Kinesis rejects the token combined with StreamName or
+// StreamARN.
 func kinesisEncodeShardToken(streamName, shardID string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(streamName + "\x00" + shardID))
 }
@@ -1312,8 +1299,7 @@ func kinesisStreamByARN(streamARN string) (KinesisStream, bool) {
 	return kinesisStreams.Get(name)
 }
 
-// kinesisConsumerKey is the store key for a consumer: its ARN, which is unique
-// per registration (carries the creation timestamp).
+// The ARN is unique per registration: it carries the creation timestamp.
 func kinesisConsumerKey(consumerARN string) string { return consumerARN }
 
 func kinesisConsumerByStreamAndName(streamARN, consumerName string) (KinesisConsumer, bool) {
@@ -1486,9 +1472,8 @@ func handleKinesisListStreamConsumers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NextToken is opaque and (per the API) unambiguously identifies the stream,
-	// so a paginating client omits StreamARN when supplying it. Decode it to
-	// recover the stream ARN and the resume position (last-returned consumer ARN).
+	// NextToken identifies the stream, so a paginating client omits StreamARN;
+	// decode the stream ARN and the last-returned consumer ARN from it.
 	streamARN, start := req.StreamARN, ""
 	if req.NextToken != "" {
 		tokStream, tokConsumer, ok := kinesisDecodeShardToken(req.NextToken)
@@ -1746,7 +1731,6 @@ func kinesisNextShardID(stream KinesisStream) string {
 	return fmt.Sprintf("shardId-%012d", maxN+1)
 }
 
-// kinesisOpenShardCount counts shards with no EndingSequenceNumber (still open).
 func kinesisOpenShardCount(shards []KinesisShard) int64 {
 	var open int64
 	for _, sh := range shards {

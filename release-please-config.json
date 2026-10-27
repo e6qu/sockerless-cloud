@@ -7,7 +7,24 @@
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
-      "extra-files": []
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "README.md"
+        },
+        {
+          "type": "generic",
+          "path": "simulator-aws/README.md"
+        },
+        {
+          "type": "generic",
+          "path": "simulator-gcp/README.md"
+        },
+        {
+          "type": "generic",
+          "path": "simulator-azure/README.md"
+        }
+      ]
     }
   }
 }

@@ -7,16 +7,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// AWS Glue Data Catalog export configuration: the account-wide switch that
-// exports the catalog's metadata to Amazon S3 Tables. One configuration
-// exists per account, PutDataCatalogExportConfiguration writes it, and
-// GetDataCatalogExportConfiguration reads it back with the status and
-// timestamps the write produced. The export's status tracks the setting the
-// caller chose — ENABLED settles to ENABLED, DISABLED to DISABLED — because
-// this simulator performs the configuration change synchronously and holds no
-// intermediate ENABLING window a caller could observe.
+// One AWS Glue Data Catalog export configuration exists per account. The
+// simulator applies a change synchronously, so the status settles straight to
+// the chosen setting with no observable ENABLING window.
 
-// GlueDataCatalogExportConfiguration is the stored account-wide configuration.
 type GlueDataCatalogExportConfiguration struct {
 	ExportSetting           string         `json:"exportSetting"`
 	Status                  string         `json:"status"`
@@ -69,8 +63,7 @@ func handleGluePutDataCatalogExportConfiguration(w http.ResponseWriter, r *http.
 func handleGlueGetDataCatalogExportConfiguration(w http.ResponseWriter, r *http.Request) {
 	configuration, ok := glueExportConfigurations.Get(glueExportConfigurationKey)
 	if !ok {
-		// No configuration has been put: real Glue reports the export
-		// disabled rather than a missing resource.
+		// With no configuration put, AWS Glue reports the export DISABLED, not a missing resource.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"ExportSetting": "DISABLED",
 			"Status":        "DISABLED",

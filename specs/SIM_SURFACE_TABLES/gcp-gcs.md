@@ -17,10 +17,10 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /storage/v1/b/{bucket}/notificationConfigs` | ○ `simulator-gcp/gcs.go:903::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:911::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/notificationConfigs` | ✓ `simulator-gcp/gcs.go:921::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:961::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/notificationConfigs` | ○ `simulator-gcp/gcs.go:904::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:912::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/notificationConfigs` | ✓ `simulator-gcp/gcs.go:922::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:962::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs_buckets.go:115::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs_buckets.go:117::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/storageLayout` | ✓ `simulator-gcp/gcs_buckets.go:119::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

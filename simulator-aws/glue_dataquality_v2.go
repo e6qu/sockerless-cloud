@@ -125,8 +125,8 @@ func glueDQResultPublishedOn(res GlueDataQualityResult) float64 {
 	return res.CompletedOn
 }
 
-// glueDQResultScore is the ratio of passed rules to all rules, which is how
-// the service defines Score; a result with no rule results has none.
+// The service defines Score as passed rules over all rules; a result with no
+// rule results has none.
 func glueDQResultScore(res GlueDataQualityResult) *float64 {
 	if res.Score != nil {
 		return res.Score
@@ -313,8 +313,7 @@ func handleGlueListDataQualityResultsV2(w http.ResponseWriter, r *http.Request) 
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueDQResultOnTable reports whether a result evaluated the named Glue
-// table. A filter that omits CatalogId means the caller's own catalog.
+// An omitted CatalogId means the caller's own catalog.
 func glueDQResultOnTable(res GlueDataQualityResult, database, table, catalog string) bool {
 	glueTable, _ := res.DataSource["GlueTable"].(map[string]any)
 	if glueTable == nil {

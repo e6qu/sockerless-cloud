@@ -11,10 +11,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// These pin the ARN the gate requests for the services BUG-2907 named. The
-// assertions are the ARN shapes the AWS Service Reference publishes for each
-// resource type, not what the code happens to build: an ARN that is merely
-// self-consistent still denies every policy written against the real one.
+// Pin the ARN the gate requests to the shapes the AWS Service Reference publishes
+// for each resource type, not to what the code happens to build: a
+// self-consistent ARN still denies every policy written against the real one.
 
 func iamJSONRequest(target, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -646,11 +645,9 @@ func TestIAMResourceARNs_EC2CreateScopesToTheTypeItMints(t *testing.T) {
 		"ec2:CreateVpc", "arn:aws:ec2:us-east-1:123456789012:vpc/*")
 }
 
-// The whole point of deriving the resource: a policy scoped to one volume
-// allows that volume and denies another, end to end — request, derived ARN,
-// policy decision. Before the derivation existed both were denied, because a
-// request authorized against a literal "*" matches only a policy whose Resource
-// is itself "*".
+// A policy scoped to one volume allows that volume and denies another, end to
+// end: request, derived ARN, policy decision. A request authorized against a
+// literal "*" matches only a policy whose Resource is "*".
 func TestIAMEnforce_EC2VolumeScopedGrant(t *testing.T) {
 	doc := mustDoc(t, `{"Version":"2012-10-17","Statement":[{
 		"Effect":"Allow",
@@ -911,8 +908,7 @@ func TestIAMResourceARNs_EC2TagsDeriveEachIdFromItsPrefix(t *testing.T) {
 // simulator's own state, so the derived ARN is the one the resource actually
 // has.
 func TestIAMResourceARNs_EC2ResolvesAssociationsToTheirParents(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	ec2RouteTables = sim.MakeStore[EC2RouteTable](nil, "ec2_route_tables")
 	ec2ElasticIPs = sim.MakeStore[EC2ElasticIP](nil, "ec2_elastic_ips")
@@ -1120,8 +1116,7 @@ func TestIAMEnforce_SSMParameterScopedGrant(t *testing.T) {
 // is merely well-shaped would still deny every policy written against the real
 // one.
 func TestIAMResourceARNs_RDSResolvesTheIdentifiersNoRequestNames(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	rdsCustomEngineVersions = sim.MakeStore[RDSCustomEngineVersion](nil, "rds_custom_engine_versions")
 	rdsProxyTargetGroups = sim.MakeStore[RDSProxyTargetGroup](nil, "rds_proxy_target_groups")
@@ -1161,9 +1156,8 @@ func TestIAMResourceARNs_RDSResolvesTheIdentifiersNoRequestNames(t *testing.T) {
 	})
 }
 
-// The published shapes, pinned. A custom engine version's ARN carries three
-// parts and a proxy target group's carries one; the simulator built two and two
-// before, so a policy written against either real resource matched nothing.
+// The published shapes: a custom engine version's ARN carries three parts and a
+// proxy target group's one.
 func TestIAMResourceARNs_RDSARNsTakeTheirPublishedShape(t *testing.T) {
 	const cev = "arn:aws:rds:us-east-1:123456789012:cev:custom-oracle-ee/19.cdb_cev1/9a1e-4f2b"
 	if got := rdsCustomEngineVersionARN("custom-oracle-ee", "19.cdb_cev1", "9a1e-4f2b"); got != cev {
@@ -1488,8 +1482,7 @@ func iamAutoScalingRequest(action string, params map[string]string) *http.Reques
 // actually given, which is the only thing a policy written against that resource
 // can match.
 func TestIAMResourceARNs_AutoScalingResolvesTheARNTheResourceHas(t *testing.T) {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	autoScalingGroups = sim.MakeStore[AutoScalingGroup](nil, "autoscaling_groups")
 	asLaunchConfigurations = sim.MakeStore[ASLaunchConfiguration](nil, "autoscaling_launch_configurations")
@@ -1517,9 +1510,7 @@ func TestIAMResourceARNs_AutoScalingResolvesTheARNTheResourceHas(t *testing.T) {
 }
 
 // The published shape carries an assigned identifier and then the name the
-// resource is addressed by. A launch configuration's identifier slot held the
-// name itself, which made its ARN a restatement of the name rather than the
-// resource's own — so a policy written against the real ARN matched nothing.
+// resource is addressed by, so the ARN is not the name restated.
 func TestIAMResourceARNs_AutoScalingARNsTakeTheirPublishedShape(t *testing.T) {
 	group := autoScalingGroupARN("orders")
 	if !strings.HasSuffix(group, ":autoScalingGroupName/orders") {
@@ -1759,15 +1750,11 @@ func TestIAMResourceARNs_CreateTaskSetScopesToItsService(t *testing.T) {
 }
 
 // TestIAMResourceARNs_DataQualityRunNamesItsRuleset pins the AWS Glue
-// data-quality derivation, which the coverage probe cannot express.
-//
-// These operations declare the dataQualityRuleset type and name a run or a
-// result — the ruleset they are about is the one that run evaluated, which only
-// the simulator's own state records. The probe fills RunId with a placeholder,
-// no run answers to it, and the derivation correctly declines; so the
-// derivation is real and measures as absent, the same way the Systems Manager
-// tagging family did before its type was named. This test is where it is
-// actually held.
+// data-quality derivation, which the coverage probe cannot express. These
+// operations declare the dataQualityRuleset type and name a run or a result; the
+// ruleset is the one that run evaluated, which only the simulator's state
+// records. The probe fills RunId with a placeholder no run answers to, so this
+// test is where the derivation is held.
 func TestIAMResourceARNs_DataQualityRunNamesItsRuleset(t *testing.T) {
 	const glue = "arn:aws:glue:us-east-1:123456789012:dataQualityRuleset/"
 
@@ -1933,14 +1920,9 @@ func TestIAMResourceARNs_IAMNamesItsResourceIndirectly(t *testing.T) {
 }
 
 // TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName pins that an AWS WAFv2
-// request naming its web ACL by ARN derives it whatever the operation is
-// called.
-//
-// The reader picks a resource type from the operation's name suffix — GetWebACL
-// gives webacl — which is what lets a request carrying only a name and a scope
-// be assembled into an ARN. It is not a precondition for reading an ARN the
-// request already carries, and treating it as one left GetSampledRequests and
-// DeleteFirewallManagerRuleGroups deriving nothing at all.
+// request naming its web ACL by ARN derives it whatever the operation is called
+// (GetSampledRequests, DeleteFirewallManagerRuleGroups). The name-suffix match
+// only assembles an ARN from a name and a scope.
 func TestIAMResourceARNs_WAFv2ARNBeatsTheOperationName(t *testing.T) {
 	const acl = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/front/0123"
 

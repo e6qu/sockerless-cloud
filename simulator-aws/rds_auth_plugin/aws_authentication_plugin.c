@@ -5,7 +5,8 @@
  * the plugin before it reaches the engine, so the plugin trusts the relayed
  * login the way the PostgreSQL engine's trust method does.
  *
- * The plugin needs no C library: build it with build.sh.
+ * The plugin needs no C library; rds_iam_authentication_plugin.go compiles it
+ * on the container engine.
  */
 
 #define MYSQL_AUTHENTICATION_PLUGIN 7

@@ -5,35 +5,16 @@ import (
 	"strings"
 )
 
-// Iterable forms on an AWS Glue Data Catalog asset.
-//
-// Nothing in the business-context API creates an iterable form. The vendored
-// AWS Glue model's asset operations are PutAssetType, PutAsset, GetAsset,
-// UpdateAsset, DeleteAsset, SearchAssets, PutAttachment, DeleteAttachment,
-// ListIterableForms and BatchGetIterableForms, plus the glossary operations —
-// and no input shape carries an iterable form or one of its items.
-// IterableFormMap appears in exactly one place, GetAssetOutput, where it is
-// described as "The iterable forms available on the asset, keyed by form name
-// (for example, columns)". PutAttachment, DeleteAttachment,
-// AssociateGlossaryTerms and DisassociateGlossaryTerms each take an
-// IterableFormName plus an ItemIdentifier to annotate an item that is already
-// there.
-//
-// An iterable form is therefore the catalog object's own repeating structure,
-// surfaced on the asset that describes it: "Lists the items in an iterable form
-// on an asset in Glue Data Catalog. For example, lists the columns of a table
-// asset" (ListIterableForms). An asset that names a Data Catalog table by the
-// table's ARN carries that table's columns iterable form, one item per column
-// of the table's storage descriptor. An asset that names anything else carries
-// no iterable form, and the two readers answer EntityNotFoundException for a
-// form name on it — which is what the service answers for a form an asset does
-// not have.
-//
-// Item-level attachments and glossary terms are the parts callers do write, so
-// they are stored on the asset and merged onto the derived items here.
+// Nothing in the AWS Glue business-context API creates an iterable form: no
+// input shape carries one, and only GetAssetOutput's IterableFormMap reports
+// them. An iterable form is the catalog object's own repeating structure, so an
+// asset that names a Data Catalog table by ARN carries that table's columns form,
+// one item per storage-descriptor column. Any other asset carries none, and the
+// readers answer EntityNotFoundException, as the service does for a form an
+// asset lacks. Callers write item-level attachments and glossary terms; store
+// those on the asset and merge them onto the derived items.
 
-// glueColumnsIterableFormName is the form name and form type id of the columns
-// iterable form — the example AWS gives for both.
+// The columns form's name and form type id, as AWS's own example gives both.
 const glueColumnsIterableFormName = "columns"
 
 // glueAssetIterableForms returns the iterable forms an asset carries, keyed by
@@ -79,11 +60,9 @@ func glueAssetIterableForms(asset GlueBusinessAsset) map[string]GlueBusinessIter
 	return forms
 }
 
-// glueAssetTableColumns returns the columns of the Data Catalog table an asset
-// identifier names, and whether the identifier named a table at all. The
-// identifier is the table's ARN — arn:aws:glue:<region>:<account>:table/<db>/<table>
-// — which is how AWS names a catalog table and which the AssetId pattern
-// (^[a-zA-Z0-9\-\:\/\.\_\*]+$) admits.
+// glueAssetTableColumns returns the columns of the Data Catalog table an asset ID
+// names by ARN (arn:aws:glue:<region>:<account>:table/<db>/<table>), and whether
+// it named a table at all.
 func glueAssetTableColumns(assetID string) ([]map[string]any, bool) {
 	resourceType, resource := glueResourceFromARN(assetID)
 	if !strings.HasPrefix(assetID, "arn:") || resourceType != "table" {
@@ -112,10 +91,9 @@ func glueAssetTableColumns(assetID string) ([]map[string]any, bool) {
 	return columns, true
 }
 
-// glueStoredIterableItem returns the asset's stored annotations for one item of
-// an iterable form, creating the form's entry when this is the first annotation
-// on it. It reports false when the form or the item is not one the asset
-// carries — an identifier may be the item's id or its name.
+// glueStoredIterableItem returns the asset's stored annotations for one item,
+// creating the form's entry on first use. It reports false when the asset
+// carries no such form or item; itemIdentifier may be the item's id or name.
 func glueStoredIterableItem(
 	asset *GlueBusinessAsset, formName, itemIdentifier string,
 ) (GlueBusinessIterableItem, bool) {
@@ -149,8 +127,6 @@ func glueStoredIterableItem(
 	return item, true
 }
 
-// glueStoreIterableItemAnnotations writes an item's attachments and glossary
-// terms back onto the asset.
 func glueStoreIterableItemAnnotations(
 	asset *GlueBusinessAsset, formName string, item GlueBusinessIterableItem,
 ) {

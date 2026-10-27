@@ -14,17 +14,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// IAM service-linked roles (SLRs) + OIDC providers. Extends iam.go.
-// Same AWS Query Protocol (POST / + Action=<Op>, form-encoded body,
-// XML response, namespace https://iam.amazonaws.com/doc/2010-05-08/).
-//
-// Sim policy:
-//   - SLR creation accepts any service principal (e.g.,
-//     "cloudfront.amazonaws.com", "amplify.amazonaws.com") — no
-//     allowlist. Real AWS gates this to specific services.
-//   - SLR deletion is eager: GetServiceLinkedRoleDeletionStatus
-//     returns SUCCEEDED immediately. Real AWS goes through
-//     IN_PROGRESS → SUCCEEDED over seconds.
+// Unlike AWS, CreateServiceLinkedRole accepts any service principal, and
+// GetServiceLinkedRoleDeletionStatus reports SUCCEEDED at once rather than
+// passing through IN_PROGRESS.
 
 type IAMServiceLinkedRole struct {
 	RoleName                 string
@@ -57,11 +49,9 @@ func registerIAMSLRandOIDC(r *AWSQueryRouter, srv *sim.Server) {
 	iamOIDCProviders = sim.MakeStore[IAMOIDCProvider](srv.DB(), "iam_oidc_providers")
 	iamSLRDeletions = sim.MakeStore[string](srv.DB(), "iam_service_linked_role_deletions")
 
-	// Service-linked roles
 	r.Register("CreateServiceLinkedRole", handleIAMCreateServiceLinkedRole)
 	r.Register("DeleteServiceLinkedRole", handleIAMDeleteServiceLinkedRole)
 	r.Register("GetServiceLinkedRoleDeletionStatus", handleIAMGetSLRDeletionStatus)
-	// OIDC providers
 	r.Register("CreateOpenIDConnectProvider", handleIAMCreateOIDCProvider)
 	r.Register("GetOpenIDConnectProvider", handleIAMGetOIDCProvider)
 	r.Register("TagOpenIDConnectProvider", handleIAMTagOIDCProvider)
@@ -74,11 +64,10 @@ func registerIAMSLRandOIDC(r *AWSQueryRouter, srv *sim.Server) {
 }
 
 func iamSLRName(servicePrincipal, customSuffix string) string {
-	// AWSServiceRoleFor<Service> where <Service> is derived from the
-	// principal. cloudfront.amazonaws.com → CloudFrontLogger (real AWS
-	// uses service-specific suffixes; sim does a simple title-case map
-	// over a known list, falling back to PascalCase of the leading
-	// segment).
+	// AWSServiceRoleFor<Service>, with the suffix from a known-principal table
+	// (cloudfront.amazonaws.com → CloudFrontLogger) and otherwise the principal's
+	// leading label in PascalCase. AWS uses a service-specific suffix for every
+	// service.
 	known := map[string]string{
 		"cloudfront.amazonaws.com":        "CloudFrontLogger",
 		"amplify.amazonaws.com":           "Amplify",
@@ -92,11 +81,8 @@ func iamSLRName(servicePrincipal, customSuffix string) string {
 	}
 	suffix := known[servicePrincipal]
 	if suffix == "" {
-		// Fallback: take the leading service token + PascalCase.
-		// SplitN always returns ≥1 element but the first can be empty
-		// (e.g. principal ".foo"), so guard the leading character and
-		// title-case rune-aware (a multibyte first rune must not be
-		// sliced mid-byte).
+		// SplitN can yield an empty first element (".foo"); title-case rune-aware so a
+		// multibyte first rune is not split.
 		parts := strings.SplitN(servicePrincipal, ".", 2)
 		if parts[0] != "" {
 			rs := []rune(parts[0])
@@ -127,10 +113,7 @@ func iamPutServiceLinkedRole(name, servicePrincipal, description string) IAMServ
 		Description:              description,
 	}
 	iamSLRs.Put(name, role)
-	// Real AWS exposes the SLR via GetRole as well. Terraform's
-	// aws_iam_service_linked_role.Read calls GetRole with the full
-	// role name — store an IAMRole shadow in the regular store so
-	// that path finds the same record.
+	// AWS exposes a service-linked role through GetRole too, so keep an IAMRole shadow in the role store.
 	iamRoles.Put(name, IAMRole{
 		RoleName:                 role.RoleName,
 		RoleId:                   role.RoleId,
