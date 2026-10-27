@@ -30,13 +30,14 @@ Delete outright, no rewrite:
 - **Narration.** `// loop over the items`, `// return the result`, `// Create bucket` above `handleCreateBucket`.
 - **Justification and apology.** Why a choice was reasonable belongs in the commit message.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Banner lines and rules
-rg -n '^\s*//\s*[-=~*_+#]{4,}\s*$' --type-add 'src:*.{go,ts,tsx}' --type src
-rg -n '^\s*//\s*[-=~*_]{2,}\s*\w' --type src
+rg -n '^\s*//\s*[-=~*_+#]{4,}\s*$' -t go -t ts
+rg -n '^\s*//\s*[-=~*_]{2,}\s*\w' -t go -t ts
 
 # Single-line doc comments directly above the symbol they name
-rg -n -B0 -A1 '^// [A-Za-z_][A-Za-z0-9_]* (is|are|returns|holds|reports|represents|defines|wraps|stores) ' --type src
+rg -n -B0 -A1 '^// [A-Za-z_][A-Za-z0-9_]* (is|are|returns|holds|reports|represents|defines|wraps|stores) ' -t go -t ts
 ```
 
 Nothing requires a Go doc comment here: `staticcheck` runs with ST1020/ST1021/ST1022 off, so an exported symbol whose name says everything gets none.
@@ -52,8 +53,9 @@ Write comments, documentation, tutorials and READMEs in **active voice, imperati
 | this is called when the bucket is deleted | the delete path calls this |
 | the entries are seeded at creation | seed the entries at creation |
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
-rg -n '^\s*//.*\b(is|are|was|were|be|been|being)\s+[a-z]+(ed|en)\b' --type src
+rg -n '^\s*//.*\b(is|are|was|were|be|been|being)\s+[a-z]+(ed|en)\b' -t go -t ts
 rg -n '\b(is|are|was|were)\s+[a-z]+ed\s+by\b' -g '*.md'
 ```
 
@@ -63,26 +65,27 @@ Some hits are legitimate — "the field is deprecated", "the value is encoded as
 
 Words that anchor a comment to a point in time:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Direct evolution language
 rg -nC1 -i '// .*\b(previously|earlier|now |before this|after this|formerly|historically|used to|legacy of|prior to|in (phase|bug|PR) [0-9])\b' \
-  --type-add 'src:*.{go,ts,tsx,js,jsx,py,rs}' \
-  --type src \
+  -t go -t ts -t js -t py -t rust \
   -g '!*_test.go' -g '!vendor/' -g '!node_modules/'
 
 # Multi-line docblocks with evolution language
 rg -nC2 -i '\b(was|were)\s+(broken|missing|incorrect|wrong|deprecated|replaced|removed)\b' \
-  --type src
+  -t go -t ts
 ```
 
 ### Pattern B — phase / bug / PR references in code
 
 `AGENTS.md` (§ Comment only what the code cannot say) codifies this — keep phase, bug and PR metadata in commits, PR descriptions and `BUGS.md` only. Inline references rot when phases close.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Phase / BUG / PR / issue references in code comments
 rg -nC1 '// .*\b(Phase\s+\d+|BUG-\d+|PR\s*#\d+|issue\s*#\d+|#\d{2,})\b' \
-  --type src \
+  -t go -t ts \
   -g '!*_test.go'
 
 # Test files: allowed for regression-check naming, but only if the
@@ -94,26 +97,29 @@ rg -nC1 '// .*\b(Phase\s+\d+|BUG-\d+|PR\s*#\d+|issue\s*#\d+|#\d{2,})\b' \
 
 The fix-narration shape — comments that orient around the diff that introduced them rather than the current behaviour:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC1 -i '// .*\b(the fix|the patch|this fix|this patch|fixed by|hotfix|workaround for)\b' \
-  --type src
+  -t go -t ts
 ```
 
 ### Pattern D — comparative framing
 
 Comments that explain the code by contrast with a prior shape:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC2 -i '// .*\b(instead of|as opposed to|rather than|whereas|unlike (the )?(previous|earlier|old))\b' \
-  --type src
+  -t go -t ts
 ```
 
 `instead of` and `rather than` are sometimes legitimate when comparing two CURRENT options ("use openStreamingBody rather than io.ReadAll(r.Body)") — keep those. Flag the variants that compare against a removed/superseded shape.
 
 ### Pattern E — date / version anchors
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
-rg -nC1 -i '// .*\b(202[0-9]-[01][0-9]|q[1-4] 202[0-9]|since version|as of [a-z]+ 202)\b' --type src
+rg -nC1 -i '// .*\b(202[0-9]-[01][0-9]|q[1-4] 202[0-9]|since version|as of [a-z]+ 202)\b' -t go -t ts
 ```
 
 External vendor dates ("Cloud Run SDK 1.x", "go-azure-sdk v0.20240515") are fine — those describe an external dependency's pinned version. Internal dates ("added 2026-05-24") are not.
@@ -186,14 +192,15 @@ runSmokeExec(t, ctx, resp.ID, ..., "step-2")
 
 Run a clean-pass sweep before commit:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Should produce zero output on a clean tree.
 rg -n '// .*\b(previously|earlier|now |before this|after this|formerly|historically|used to|in (phase|bug|PR) [0-9])\b' \
-  --type-add 'src:*.{go,ts,tsx}' --type src \
+  -t go -t ts \
   -g '!*_test.go' -g '!vendor/' -g '!node_modules/'
 
 # Phase / BUG references in code (excluding *.md docs):
-rg -n '\b(Phase\s+\d+|BUG-\d+)\b' --type-add 'src:*.{go,ts,tsx}' --type src \
+rg -n '\b(Phase\s+\d+|BUG-\d+)\b' -t go -t ts \
   -g '!vendor/'
 ```
 

@@ -63,15 +63,16 @@ Skip for: handlers that only read query parameters or fixed-shape JSON request b
 
 Before the sim handler reads `r.Body`, identify which streaming modes the SDK can put on the wire. The serializer source is authoritative:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # AWS Go SDK v2 — find streaming-mode branches
-rg -n 'STREAMING-|aws-chunked' ~/go/pkg/mod/github.com/aws/aws-sdk-go-v2/
+rg -n 'STREAMING-|aws-chunked' "$(go env GOMODCACHE)"/github.com/aws/aws-sdk-go-v2/
 
 # Azure Go SDK — find chunked / SSE-C branches
-rg -n 'aws-chunked|x-ms-encryption' ~/go/pkg/mod/github.com/!azure/
+rg -n 'aws-chunked|x-ms-encryption' "$(go env GOMODCACHE)"/github.com/'!azure'/
 
 # GCS Go client — find multipart/resumable branches
-rg -n 'multipart/related|X-Upload-Content' ~/go/pkg/mod/cloud.google.com/go/storage/
+rg -n 'multipart/related|X-Upload-Content' "$(go env GOMODCACHE)"/cloud.google.com/go/storage/
 ```
 
 ### Step 2 — branch on the sentinel before reading
@@ -141,13 +142,14 @@ For AWS, this test must run against the sim with **TLS enabled** (set `SIM_TLS_C
 
 Find body-reading sim handlers that don't inspect any sentinel header:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Handlers that ReadAll(r.Body) — check each for the branching pattern
-rg -nB2 -A6 'io\.ReadAll\(r\.Body\)' simulator-
+rg -nB2 -A6 'io\.ReadAll\(r\.Body\)' simulator-*/
 
 # Handlers that don't mention Content-Encoding or x-amz-content-sha256
 # within 30 lines of the body read — suspicious
-for f in $(rg -l 'io\.ReadAll\(r\.Body\)' simulator-); do
+for f in $(rg -l 'io\.ReadAll\(r\.Body\)' simulator-*/); do
   if ! rg -q 'Content-Encoding|x-amz-content-sha256|x-amz-decoded-content-length|multipart/related' "$f"; then
     echo "$f"
   fi
@@ -166,9 +168,10 @@ A helper added in a PR is not automatically called by other handlers in the same
 
 **Verification grep — to be run as part of every PR audit**:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Every upload-shaped handler file
-for f in $(rg -l 'PUT\s|POST\s|PATCH\s' --type go simulator- | rg '(dataplane|blob|storage|files|bucket|queue|registry)'); do
+for f in $(rg -l 'PUT\s|POST\s|PATCH\s' --type go simulator-*/ | rg '(dataplane|blob|storage|files|bucket|queue|registry)'); do
   # Find io.ReadAll/io.Copy without an openStreamingBody/awsChunkedReader pair within 5 lines
   awk '
     /io\.ReadAll\(r\.Body\)|io\.Copy\([^,]+,\s*r\.Body\)/ {

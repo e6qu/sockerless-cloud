@@ -28,6 +28,7 @@ Before you commit any change to a wire-facing handler or response shape, answer 
 
 Run the real adaptor against the real cloud with verbose logging:
 
+<!-- doctest: skip reason="a template: the agent runs the client command under review with its debug flag" -->
 ```bash
 aws --debug ec2 describe-instances 2>&1
 gcloud --log-http run jobs list
@@ -45,6 +46,7 @@ spec.** Not what the model thinks; what the adaptor actually does.
 for paths the request never reaches (because validation rejected it first). For
 SDK-driven handlers the **serializer source code is the authoritative spec**:
 
+<!-- doctest: skip reason="a template: the agent names the operation under review in place of <OpName>" -->
 ```bash
 # AWS Go SDK v2
 find "$(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2" -name "serializers.go" \
@@ -79,6 +81,7 @@ reports "couldn't find resource". Causes:
 
 Check what your resource's Read does in the provider version `terraform-tests` pins:
 
+<!-- doctest: skip reason="a template: the agent names the provider checkout, version, service and resource under review" -->
 ```bash
 git -C <terraform-provider-aws checkout> show v<pinned>:internal/service/<svc>/<resource>.go \
   | grep -A 50 "func resource<X>Read"

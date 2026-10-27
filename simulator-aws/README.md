@@ -11,17 +11,72 @@ and `SOCKERLESS_SPEC_VALIDATE` checks live responses against them.
 
 ## Run it
 
+Install it with Go, run the release image, or build it from a checkout.
+
+`go install` takes the newest commit with `@main`. Go pins a release by its
+commit, because the repository tags only `vX.Y.Z` at its root: replace `main`
+with the release commit. Don't use `@latest`, which resolves to an old
+bootstrap version the module proxy still serves.
+
+<!-- doctest: part name=install -->
+<!-- doctest: run -->
 ```sh
-# A release. Go pins it by its commit: the repository tags only vX.Y.Z at its root.
-go install github.com/e6qu/sockerless-cloud/simulator-aws@<release-commit>
+go install github.com/e6qu/sockerless-cloud/simulator-aws@main
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Start it in a terminal of its own. It prints `Listening on` once port 4566
+answers:
+
+<!-- doctest: background id=aws ready="Listening on" -->
+```sh
 simulator-aws
+```
 
-# The release image, API-only.
-docker run --rm -p 4566:4566 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-aws:vX.Y.Z
+`GET /health` reports how it runs:
 
-# A checkout, with the console embedded (-tags console). Run from the repository root.
+<!-- doctest: run expect="\"runtime\":\"docker\"" expect="\"workloadExecution\":true" -->
+```sh
+curl -s http://localhost:4566/health
+```
+
+<!-- doctest: part name=image -->
+The release image runs API-only:
+
+<!-- x-release-please-start-version -->
+<!-- doctest: background id=image ready="Listening on" -->
+```sh
+docker run --rm -p 4566:4566 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-aws:v3.1.0
+```
+<!-- x-release-please-end -->
+
+<!-- doctest: run expect="\"runtime\":\"process\"" expect="\"workloadExecution\":false" -->
+```sh
+curl -s http://localhost:4566/health
+```
+
+<!-- doctest: part name=checkout -->
+A checkout builds the console and embeds it with `-tags console`:
+
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
 (cd ui && bun install && bunx turbo run build --filter=@sockerless/ui-simulator-aws)
-make simulator-aws/build && ./simulator-aws/simulator-aws
+make simulator-aws/build
+export PATH="$PWD/simulator-aws:$PATH"
+```
+
+<!-- doctest: background id=aws ready="Listening on" -->
+```sh
+simulator-aws
+```
+
+The console answers under `/ui/`:
+
+<!-- doctest: run expect="(?i)<!doctype html>" -->
+```sh
+curl -s http://localhost:4566/ui/
 ```
 
 `go install` and a plain `go build` embed no console; the release image does.
@@ -93,6 +148,7 @@ there gives the `<service>.localhost` endpoint host-prefixed operations need.
 
 ### AWS CLI
 
+<!-- doctest: run expect="\"Arn\": \"arn:aws:iam::123456789012:user/sockerless-sim-admin\"" expect="\"QueueUrl\": \"https://sqs\\.us-east-1\\.amazonaws\\.com/123456789012/demo\"" -->
 ```sh
 export AWS_ENDPOINT_URL=http://localhost:4566
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test

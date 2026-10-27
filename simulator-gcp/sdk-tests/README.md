@@ -9,13 +9,20 @@ relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
+From a clone, run one service family with `-run`:
+
+<!-- doctest: run expect="(?m)^ok\\s+github\\.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests\\s" -->
 ```sh
-cd simulator-gcp/sdk-tests
-go test ./...
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud/simulator-gcp/sdk-tests
+go test -run '^TestPubSub' ./...
 ```
 
-CI runs the suite through `make -C simulator-gcp sdk-test`, sharded by the
-jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
+Without `-run`, `go test ./...` runs every test. CI runs the suite through
+`make -C simulator-gcp sdk-test`, split by `-run` patterns across the
+`sim (gcp sdk …)` jobs in `.github/workflows/ci.yml`. The firewall and Cloud
+NAT tests between neighbouring instances run there with Compute Engine placed
+on microVMs (`SIM_PLACEMENT=compute=microvm`). A container engine (Docker or Podman) must
 be reachable, because workloads run as real containers.
 
 ## Client configuration

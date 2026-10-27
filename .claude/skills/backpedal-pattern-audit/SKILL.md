@@ -24,6 +24,7 @@ Skip for: per-bug fix work (use the per-pattern specialist skill instead), routi
 `BUGS.md` holds only open bugs; a bug leaves it when it is fixed. Read the
 resolved ones back out of git:
 
+<!-- doctest: skip reason="an audit the skill's agent runs over the history: its output is the material it classifies" -->
 ```bash
 # Every BUGS.md row or entry a commit removed, newest first
 git log -p --format='commit %h %ad %s' --date=short -- BUGS.md \
@@ -59,6 +60,7 @@ For each shape, count entries and list their bug IDs and fixing commits. A 3+ co
 
 For each candidate shape, check whether a specialist skill already exists under `.claude/skills/`:
 
+<!-- doctest: skip reason="the skill's agent lists the skills it compares each repeat group against" -->
 ```bash
 ls .claude/skills/
 ```

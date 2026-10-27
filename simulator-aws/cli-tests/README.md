@@ -10,13 +10,18 @@ when the command fails.
 
 ## Running
 
+From a clone, run one service family with `-run`:
+
+<!-- doctest: run expect="(?m)^ok\\s+github\\.com/e6qu/sockerless-cloud/simulator-aws/cli-tests\\s" -->
 ```sh
-cd simulator-aws/cli-tests
-go test ./...
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud/simulator-aws/cli-tests
+go test -run '^TestKMSCLI' ./...
 ```
 
-CI runs the suite through `make -C simulator-aws cli-test`, sharded by the
-jobs in `.github/workflows/ci.yml`.
+Without `-run`, `go test ./...` runs every test. CI runs the suite through
+`make -C simulator-aws cli-test`, split by `-run` patterns across the
+`sim (aws cli …)` jobs in `.github/workflows/ci.yml`.
 
 ## CLI configuration
 

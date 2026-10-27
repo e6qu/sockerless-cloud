@@ -35,6 +35,7 @@ A URL that's neither is a wire-protocol bug.
 
 Grep for response-shape fields that carry URLs. AWS / GCP / Azure all have predictable field names:
 
+<!-- doctest: skip reason="a template: the agent names the simulator and file under review in place of <cloud> and <file>" -->
 ```bash
 # Look for URL-bearing struct field tags in the sim under review
 rg -n '`json:"[^"]*(?:[uU]ri|[uU]rl|[lL]ink|[eE]ndpoint|[hH]ref)' simulator-<cloud>/
@@ -94,12 +95,13 @@ type AppHookEvent struct {
 
 Quick scan for URL-bearing fields without round-trip coverage:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Find every URL-bearing field tag in the AWS sim
 rg -n '`json:"[^"]*(?:[uU]ri|[uU]rl|[lL]ink|[eE]ndpoint|[hH]ref)' simulator-aws/
 
 # Find every fmt.Sprintf composing a URL inside a sim
-rg -n 'fmt\.Sprintf\([^)]*://' simulator-
+rg -n 'fmt\.Sprintf\([^)]*://' simulator-*/
 
 # Cross-reference: every URL-emitting struct, then grep its field name
 # in the sim's tests directory. Fields with zero hits in tests are

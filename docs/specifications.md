@@ -151,24 +151,40 @@ them for the core services.
 
 ## Adding or refreshing a specification
 
-To serve a new service or API version:
+To serve a new service or API version, run the fetchers from the root of a
+clone:
 
+<!-- doctest: run -->
 ```sh
-# AWS: vendor the service's Smithy model, pinned to a commit of aws-sdk-go-v2
-scripts/fetch-aws-spec.sh ecs
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
+```
+
+<!-- doctest: run expect="Vendored .*/ecs\\.servicereference\\.json\\.gz" expect="Vendored .*/storage-v1\\.discovery\\.json\\.gz" expect="Vendored .*/imds-managed-identity-token\\.md\\.gz" -->
+```sh
+# AWS: vendor the service authorization reference
 scripts/fetch-aws-service-reference.sh ecs
 
 # Google Cloud: vendor a Discovery document
 scripts/fetch-gcp-discovery.sh storage.googleapis.com v1
 
+# Any cloud: vendor the documentation page that states the behaviour
+scripts/fetch-azure-doc.sh MicrosoftDocs/entra-docs \
+  docs/identity/managed-identities-azure-resources/how-to-use-vm-token.md imds-managed-identity-token
+```
+
+The AWS model and Azure Swagger fetchers resolve their pin through the GitHub
+API with `gh`, so sign in with `gh auth login` first:
+
+<!-- doctest: run expect="Vendored .*/ecs\\.smithy\\.json\\.gz" expect="Vendored .*/app-arm-containerapps-2025-01-01" -->
+```sh
+# AWS: vendor the service's Smithy model, pinned to a commit of aws-sdk-go-v2
+scripts/fetch-aws-spec.sh ecs
+
 # Azure: vendor a Swagger document under a local name
 scripts/fetch-azure-spec.sh \
   specification/app/resource-manager/Microsoft.App/ContainerApps/stable/2025-01-01/ContainerApps.json \
   app-arm-containerapps-2025-01-01
-
-# Any cloud: vendor the documentation page that states the behaviour
-scripts/fetch-azure-doc.sh MicrosoftDocs/azure-docs-rest-apis \
-  docs-ref-conceptual/storageservices/Put-Block-List.md storage-put-block-list live
 ```
 
 Each fetcher validates the document, gzips it and writes its `SOURCES.md` row.

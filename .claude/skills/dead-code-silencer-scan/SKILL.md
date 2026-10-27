@@ -22,6 +22,7 @@ Skip for: generated code (`*_gen.go`, `goverter` output, `cd-protocol` types), g
 
 ### Pattern A — import silencers
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # `var _ = pkg.Fn` at package scope (the "keep import" pattern)
 rg -n '^var\s+_\s*=\s*[a-z]\w*\.[A-Z]\w*' --type go \
@@ -40,6 +41,7 @@ rg -l '^var\s+_\s*=' --type go simulator-aws/ simulator-gcp/ simulator-azure/ ui
 
 The directive itself is a signal — without the directive, `staticcheck` would surface the dead code.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # All nolint:unused directives, with the line being silenced
 rg -nC2 '//nolint:unused' --type go -g '!*_gen.go' -g '!vendor/'
@@ -52,6 +54,7 @@ rg -nB1 -A2 'nolint:unused.*(consumer|subsequent|later commit|future)' --type go
 
 The BUG-1023 / 1034 shape — a function exists but every caller has been removed; comment says "kept for diagnostics."
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # `func stringifyFoo` or similar diagnostic helpers — verify each has callers
 rg -n '^func\s+\w+\s*\([^)]*\)\s*\w*\s*\{?\s*$' --type go -g '!*_test.go' -g '!*_gen.go' \
@@ -70,6 +73,7 @@ rg -n '^func\s+\w+\s*\([^)]*\)\s*\w*\s*\{?\s*$' --type go -g '!*_test.go' -g '!*
 
 The BUG-1021 `flexInt64` shape — a type defined to mirror another type "in case a future endpoint needs it."
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC3 '//.*[Rr]eserved for' --type go -g '!*_test.go' -g '!vendor/'
 rg -nC3 '//.*[Nn]ot consumed by any' --type go -g '!*_test.go' -g '!vendor/'
@@ -81,6 +85,7 @@ rg -nC3 '//.*[Ii]n case' --type go -g '!*_test.go' -g '!vendor/'
 
 The BUG-1021 + BUG-1020 shape — the nolint directive claims the consumer ships in a later commit, but the commit either landed (consumer exists now → drop the directive) or never came (dead code).
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC1 '//.*(consumers? (ship|land|come|will))' --type go -g '!vendor/'
 ```

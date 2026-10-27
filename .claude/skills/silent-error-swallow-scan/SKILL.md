@@ -24,6 +24,7 @@ Skip for: pure-data fixtures, generated code (`*_gen.go`), vendor / `go.work.sum
 
 The most-common shape in the BUGS catalogue. The function returns an error; we drop it; downstream assumes the destination struct is fully populated.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Bare _ assignment on json.Unmarshal / Decode
 rg -nC1 '_\s*=\s*json\.(Unmarshal|NewDecoder)' \
@@ -45,6 +46,7 @@ rg -nC2 'NewDecoder\([^)]+\)\.Decode\(' --type go \
 
 Same shape as A but in the **two-value-with-`_`-in-position-2** form: `data, _ := io.ReadAll(r.Body)` followed within a few lines by `_ = xml.Unmarshal(data, &req)` (or json / yaml / toml) is a two-stacked silent error chain. Pattern A's grep catches the second line but misses the first; this pattern catches the read side directly.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # Two-value reads with discarded error position-2 — io.ReadAll, io.Copy, ioutil.ReadAll
 rg -nC1 ',\s*_\s*:?=\s*io\.(ReadAll|Copy)\(' --type go \
@@ -61,6 +63,7 @@ If `r.Body` ReadAll is followed within ±5 lines by a `_ = json/xml/yaml/toml.Un
 
 Same shape, different codec. The historical bug-fix sweep for `SOCKERLESS_LABELS` (BUG-1019) was this.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC1 '_\s*=\s*(base64|hex)\.[A-Z]\w*Decode' --type go -g '!*_test.go'
 rg -nC1 '_\s*=\s*url\.(Parse|QueryUnescape|PathUnescape)' --type go -g '!*_test.go'
@@ -70,6 +73,7 @@ rg -nC1 '_\s*=\s*url\.(Parse|QueryUnescape|PathUnescape)' --type go -g '!*_test.
 
 BUGS 1025 + 1033 hit this. `io.Copy(w, rc)` returning an error in the response stream typically means client disconnect (recoverable, log at Debug) or simulator-side I/O failure (log at Error). Either way, not silent.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC1 '_\s*,\s*_\s*=\s*io\.Copy' --type go -g '!*_test.go'
 # Also the bare-stmt form:
@@ -78,6 +82,7 @@ rg -n 'io\.Copy\([^)]+\)$' --type go -g '!*_test.go' | rg -v '_, err :='
 
 ### Pattern D — explicit `_ = err` after a function returning error
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # err assigned via :=, then dropped on the next line
 rg -nC3 ':=\s*\w[\w.]*\(' --type go -g '!*_test.go' \
@@ -88,6 +93,7 @@ rg -nC3 ':=\s*\w[\w.]*\(' --type go -g '!*_test.go' \
 
 The "fallback" shape that `AGENTS.md`'s no-fallbacks rule refuses.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # if err != nil block whose body is a comment + nothing (or fallback assignment)
 rg -nC2 'if err != nil \{' --type go -g '!*_test.go' | rg -B1 -A1 'fallback|best.effort|fire.and.forget|silently|degrade'
@@ -97,6 +103,7 @@ rg -nC2 'if err != nil \{' --type go -g '!*_test.go' | rg -B1 -A1 'fallback|best
 
 BUG-1025 hit this specifically; in the predecessor monorepo, bleephub's smart-HTTP advertise path silently swallowed `pktline.Encoder.Encodef` + `Flush` errors.
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 rg -nC1 '_\s*=\s*\w*pktline\w*\.' --type go -g '!*_test.go'
 rg -nC1 'pktline\.[A-Z]\w*\([^)]+\)$' --type go -g '!*_test.go'

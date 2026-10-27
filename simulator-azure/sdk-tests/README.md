@@ -9,15 +9,22 @@ relative `replace` onto the simulator; it is never installed.
 
 ## Running
 
+From a clone, run one service family with `-run`:
+
+<!-- doctest: run expect="(?m)^ok\\s+github\\.com/e6qu/sockerless-cloud/simulator-azure/sdk-tests\\s" -->
 ```sh
-cd simulator-azure/sdk-tests
-go test ./...
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud/simulator-azure/sdk-tests
+go test -run '^TestKeyVault' ./...
 ```
 
-CI runs the suite through `make -C simulator-azure sdk-test`, sharded by the
-jobs in `.github/workflows/ci.yml`. A container engine (Docker or Podman) must
+Without `-run`, `go test ./...` runs every test. CI runs the suite through
+`make -C simulator-azure sdk-test`, split by `-run` patterns across the
+`sim (azure sdk …)` jobs in `.github/workflows/ci.yml`. The network security
+group and NAT gateway tests between neighbouring machines run there with
+virtual machines placed on microVMs. A container engine (Docker or Podman) must
 be reachable, because workloads run as real containers.
 
 ## Client configuration
 
-Clients take a cloud configuration whose Azure Resource Manager and Microsoft Entra endpoints are the simulator, and credentials the simulator's Microsoft Entra slice issues — the configuration a client of a sovereign Azure cloud takes, with different coordinates. Microsoft's Cosmos DB emulator runs once for the suite, started from `TestMain`, for the Cosmos DB differential tests. No test branches on running against the simulator.
+Clients take a cloud configuration whose Azure Resource Manager and Microsoft Entra endpoints are the simulator, and credentials the simulator's Microsoft Entra slice issues — the configuration a client of a sovereign Azure cloud takes, with different coordinates. Microsoft's Cosmos DB emulator runs once for the suite, started from `TestMain` when `-run` selects a Cosmos DB differential test. No test branches on running against the simulator.

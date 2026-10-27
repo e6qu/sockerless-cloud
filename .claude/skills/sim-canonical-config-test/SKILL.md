@@ -148,18 +148,19 @@ When editing an existing test:
 
 Quick scan for the most common refused patterns:
 
+<!-- doctest: skip reason="a review scan the skill's agent runs and triages: its matches are findings, so it has no expected output" -->
 ```bash
 # AWS SDK v2 path-prefix workaround
-rg -n 'BaseEndpoint\s*=\s*aws\.String\([^)]*\+\s*"/' simulator-
+rg -n 'BaseEndpoint\s*=\s*aws\.String\([^)]*\+\s*"/' simulator-*/
 
 # gcloud path-prefix override
-rg -n 'WithEndpoint\([^)]*\+\s*"/' simulator-
+rg -n 'WithEndpoint\([^)]*\+\s*"/' simulator-*/
 
 # AWS CLI path-prefixed endpoint
-rg -n '--endpoint-url[= ]\$[A-Z_]+/[a-z]' simulator-
+rg -n -e '--endpoint-url[= ]\$[A-Z_]+/[a-z]' simulator-*/
 
 # Unconditional InsecureSkipVerify without a sim-cert comment in the same line
-rg -B1 -A1 'InsecureSkipVerify\s*:\s*true' simulator- \
+rg -B1 -A1 'InsecureSkipVerify\s*:\s*true' simulator-*/ \
   | rg -v 'self-signed|sim cert|simulator cert'
 ```
 

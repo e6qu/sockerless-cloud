@@ -90,8 +90,15 @@ the route doesn't exist.
 
 Some clients only reach a cloud over HTTPS, or address each storage account,
 namespace or site by host name. azurerm is one. For those, run Caddy with the
-repository's configuration from the repository root:
+repository's configuration from the root of a clone:
 
+<!-- doctest: run -->
+```sh
+git clone https://github.com/e6qu/sockerless-cloud.git
+cd sockerless-cloud
+```
+
+<!-- doctest: background id=caddy ready="added certificate to cache.*\"aws\\.sockerless\\.localhost\"" -->
 ```sh
 caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
 ```
@@ -107,3 +114,24 @@ simulator ports. Caddy issues the certificates from its own local root,
 `~/.local/share/caddy/pki/authorities/local/root.crt` on Linux. Point a client
 at it with `SSL_CERT_FILE`. [The tutorial](tutorial.md#part-3-azure) runs
 azurerm through this gateway.
+
+Start a simulator behind it, the AWS one here, from the clone:
+
+<!-- doctest: run -->
+```sh
+go install ./simulator-aws
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+<!-- doctest: background id=aws ready="Listening on" -->
+```sh
+simulator-aws
+```
+
+Then reach it through the gateway, trusting Caddy's root:
+
+<!-- doctest: run expect="\"provider\":\"aws\"" -->
+```sh
+export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
+curl -s --cacert "$SSL_CERT_FILE" https://aws.sockerless.localhost:8443/health
+```
