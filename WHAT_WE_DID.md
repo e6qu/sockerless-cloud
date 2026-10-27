@@ -39,7 +39,9 @@ tree, so a stale pin passes every workspace build while the installed binary
 lacks the fix. A support-module change lands in two pushes — push, pin the
 pushed commit, push again — and the pin moves onto the merge commit
 afterwards, because a pin on a branch head stops resolving once the branch is
-deleted.
+deleted. The scheduled dependency bump follows the same sequence: when
+`make upgrade-deps` moves `sim` or `ui-auth`, the bump job pushes, pins the
+simulators on that commit, and pushes again.
 
 `sim.Main` is the startup every binary runs, described by a `sim.Program`: the
 provider and default port, a `Configure` hook, the cloud's `Build`, and a

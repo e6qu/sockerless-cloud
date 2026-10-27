@@ -124,7 +124,24 @@ jobs:
           git commit -m 'chore(deps): adopt the newest versions that cleared the quarantine' \
             -m "$(git diff --cached --name-only | sed 's/^/- /')"
           git push --force origin "$branch"
-          cat > "$RUNNER_TEMP/bump-body.md" <<'BODY'
+          # A support module that moved needs its pins on the pushed commit,
+          # which only exists once the push above lands: the second push of
+          # AGENTS.md's two-push sequence.
+          bump=$(git rev-parse HEAD)
+          pinned=
+          for support in sim ui-auth; do
+            git diff --quiet HEAD~1 HEAD -- "$support" && continue
+            for m in simulator-aws simulator-gcp simulator-azure; do
+              (cd "$m" && GOWORK=off go get "github.com/e6qu/sockerless-cloud/$support@$bump" && GOWORK=off go mod tidy)
+            done
+            pinned="$pinned $support"
+          done
+          if [ -n "$pinned" ]; then
+            git add -A
+            git commit -m "chore(deps): pin${pinned} at the bump commit"
+            git push origin "$branch"
+          fi
+          cat >"$RUNNER_TEMP/bump-body.md" <<'BODY'
           Opened by the scheduled dependency-freshness run, which fails on `main` when a pin is behind the newest version that has cleared the adoption quarantine and until now had nowhere to put the bump.
 
           Only the Go modules are upgraded mechanically, by `make upgrade-deps`. If the run also reported a Terraform constraint or a GitHub Actions tag, those are bumped by hand — a provider bump needs `terraform init -upgrade`, and an action's new major can need a workflow change.
