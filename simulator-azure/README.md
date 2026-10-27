@@ -252,7 +252,7 @@ Stop the TLS simulator with Ctrl-C. In a terminal of its own, start the
 simulator advertising the gateway's names, and Caddy from the repository root:
 
 <!-- doctest: stop id=azure-tls -->
-<!-- doctest: background id=gateway ready="Listening on|serving initial configuration" count=2 -->
+<!-- doctest: background id=gateway ready="Listening on|added certificate to cache\",\"subjects\":\\[\"azure\\.sockerless\\.localhost\"" count=2 -->
 ```sh
 G=azure.sockerless.localhost:8443
 SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON='{

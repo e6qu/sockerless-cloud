@@ -291,7 +291,7 @@ It listens on port 4568.
 
 In another terminal, from the repository root:
 
-<!-- doctest: background id=caddy ready="serving initial configuration" -->
+<!-- doctest: background id=caddy ready="added certificate to cache\",\"subjects\":\\[\"(azure|\\*\\.blob\\.azure|\\*\\.scm\\.azure)\\.sockerless\\.localhost\"" count=3 -->
 ```sh
 cd "$TUTORIAL_ROOT"
 SOCKERLESS_AZURE_SIM_PORT=4568 caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
