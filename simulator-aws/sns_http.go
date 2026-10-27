@@ -30,11 +30,9 @@ var (
 	snsSigningCertName string
 )
 
-// SNSSigningIdentity is the persisted Amazon SNS message-signing key pair.
-// Real SNS keeps the same signing certificate available at its published
-// SigningCertURL long after a message was delivered, so the identity is
-// created once and reused across simulator restarts — otherwise every
-// previously delivered message would reference a cert URL that now 404s.
+// SNSSigningIdentity is the persisted SNS message-signing key pair. SNS keeps a
+// signing certificate at its SigningCertURL long after delivery, so create the
+// identity once and reuse it across restarts.
 type SNSSigningIdentity struct {
 	PrivateKeyPEM  []byte
 	CertificatePEM []byte

@@ -21,8 +21,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// AWS Step Functions — AWS JSON 1.0 protocol (X-Amz-Target: AWSStepFunctions.<Op>).
-// Executions run a small ASL interpreter for the state types exercised by sockerless.
+// AWS Step Functions over awsJson1.0 (X-Amz-Target: AWSStepFunctions.<Op>).
+// Executions run an Amazon States Language interpreter.
 
 type SFNStateMachine struct {
 	StateMachineArn         string         `json:"stateMachineArn"`
@@ -86,8 +86,7 @@ type SFNTag struct {
 var (
 	sfnStateMachines sim.Store[SFNStateMachine]
 	sfnExecutions    sim.Store[SFNExecution]
-	// sfnExecutionChanges wakes a parent waiting on a nested execution when
-	// the store writes it.
+	// sfnExecutionChanges wakes a parent waiting on a nested execution when the store writes it.
 	sfnExecutionChanges = signals.New[string]()
 	sfnCancels          sync.Map
 	sfnMu               sync.Mutex
@@ -117,8 +116,6 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSStepFunctions.ListExecutions", handleSFNListExecutions)
 	r.Register("AWSStepFunctions.StopExecution", handleSFNStopExecution)
 
-	// Activities — named task-poll resources with an ARN, plus the
-	// task-token lifecycle GetActivityTask/SendTask* manage.
 	sfnActivities = sim.MakeStore[SFNActivity](srv.DB(), "sfn_activities")
 	sfnActivityTasks = sim.Announcing(sim.MakeStore[SFNActivityTask](srv.DB(), "sfn_activity_tasks"), sfnActivityTaskChanges)
 	r.Register("AWSStepFunctions.CreateActivity", handleSFNCreateActivity)
@@ -130,8 +127,7 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSStepFunctions.SendTaskFailure", handleSFNSendTaskFailure)
 	r.Register("AWSStepFunctions.SendTaskHeartbeat", handleSFNSendTaskHeartbeat)
 
-	// State-machine versions (numbered immutable snapshots) + aliases
-	// (named pointers with a routingConfiguration to versions).
+	// An alias routes traffic across one or two versions by its routingConfiguration.
 	sfnVersions = sim.MakeStore[SFNStateMachineVersion](srv.DB(), "sfn_sm_versions")
 	sfnAliases = sim.MakeStore[SFNStateMachineAlias](srv.DB(), "sfn_sm_aliases")
 	r.Register("AWSStepFunctions.PublishStateMachineVersion", handleSFNPublishStateMachineVersion)
@@ -142,7 +138,6 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSStepFunctions.ListStateMachineAliases", handleSFNListStateMachineAliases)
 	r.Register("AWSStepFunctions.UpdateStateMachineAlias", handleSFNUpdateStateMachineAlias)
 
-	// Execution-scoped read/redrive + Map Run aggregation.
 	r.Register("AWSStepFunctions.DescribeStateMachineForExecution", handleSFNDescribeStateMachineForExecution)
 	r.Register("AWSStepFunctions.RedriveExecution", handleSFNRedriveExecution)
 	sfnMapRuns = sim.MakeStore[SFNMapRun](srv.DB(), "sfn_map_runs")
@@ -150,7 +145,6 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSStepFunctions.ListMapRuns", handleSFNListMapRuns)
 	r.Register("AWSStepFunctions.UpdateMapRun", handleSFNUpdateMapRun)
 
-	// Synchronous state / state-machine evaluation.
 	r.Register("AWSStepFunctions.TestState", handleSFNTestState)
 	r.Register("AWSStepFunctions.StartSyncExecution", handleSFNStartSyncExecution)
 }
@@ -218,8 +212,7 @@ func handleSFNCreateStateMachine(w http.ResponseWriter, r *http.Request) {
 		sfnWriteError(w, "ValidationException", "versionDescription requires publish to be true")
 		return
 	}
-	// Validate the ASL definition at create time (the validator AWS runs);
-	// a malformed/empty definition is an InvalidDefinition error.
+	// Step Functions validates the definition at create time and answers InvalidDefinition.
 	if err := sfnValidateDefinition(req.Definition); err != nil {
 		sfnWriteError(w, "InvalidDefinition", err.Error())
 		return
@@ -586,9 +579,8 @@ func handleSFNValidateStateMachineDefinition(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
-	// `diagnostics` is required, so a valid definition answers with an empty
-	// list rather than omitting it: a generated client reads the field without
-	// checking, and "no diagnostics" is a list of none, not an absent list.
+	// `diagnostics` is required, so a valid definition answers with an empty list:
+	// a generated client reads the field unchecked.
 	sfnWriteJSON(w, http.StatusOK, map[string]any{
 		"result":      "OK",
 		"diagnostics": []map[string]string{},
@@ -727,52 +719,48 @@ type sfnProcessorConfig struct {
 }
 
 type sfnState struct {
-	Type           string           `json:"Type"`
-	Comment        string           `json:"Comment"`
-	QueryLanguage  string           `json:"QueryLanguage"`
-	Next           string           `json:"Next"`
-	End            bool             `json:"End"`
-	InputPath      json.RawMessage  `json:"InputPath"`
-	Parameters     map[string]any   `json:"Parameters"`
-	Arguments      any              `json:"Arguments"`
-	Result         *json.RawMessage `json:"Result"`
-	ResultSelector map[string]any   `json:"ResultSelector"`
-	ResultPath     json.RawMessage  `json:"ResultPath"`
-	OutputPath     json.RawMessage  `json:"OutputPath"`
-	Assign         map[string]any   `json:"Assign"`
-	Output         json.RawMessage  `json:"Output"`
-	Seconds        *int             `json:"Seconds"`
-	SecondsPath    string           `json:"SecondsPath"`
-	Timestamp      string           `json:"Timestamp"`
-	TimestampPath  string           `json:"TimestampPath"`
-	Error          string           `json:"Error"`
-	ErrorPath      string           `json:"ErrorPath"`
-	Cause          string           `json:"Cause"`
-	CausePath      string           `json:"CausePath"`
-	// Task
-	Resource             string         `json:"Resource"`
-	TimeoutSeconds       *int           `json:"TimeoutSeconds"`
-	TimeoutSecondsPath   string         `json:"TimeoutSecondsPath"`
-	HeartbeatSeconds     *int           `json:"HeartbeatSeconds"`
-	HeartbeatSecondsPath string         `json:"HeartbeatSecondsPath"`
-	Retry                []sfnRetrier   `json:"Retry"`
-	Catch                []sfnCatcher   `json:"Catch"`
-	Credentials          map[string]any `json:"Credentials"`
-	// Choice
-	Choices []sfnChoiceRule `json:"Choices"`
-	Default string          `json:"Default"`
-	// Parallel
-	Branches []sfnDefinition `json:"Branches"`
-	// Map
-	Iterator                   *sfnDefinition  `json:"Iterator"`
-	ItemProcessor              *sfnDefinition  `json:"ItemProcessor"`
-	ItemsPath                  string          `json:"ItemsPath"`
-	Items                      json.RawMessage `json:"Items"`
-	ItemSelector               map[string]any  `json:"ItemSelector"`
-	MaxConcurrency             int             `json:"MaxConcurrency"`
-	Label                      string          `json:"Label"`
-	ToleratedFailurePercentage *float64        `json:"ToleratedFailurePercentage"`
-	ToleratedFailureCount      *int            `json:"ToleratedFailureCount"`
+	Type                       string           `json:"Type"`
+	Comment                    string           `json:"Comment"`
+	QueryLanguage              string           `json:"QueryLanguage"`
+	Next                       string           `json:"Next"`
+	End                        bool             `json:"End"`
+	InputPath                  json.RawMessage  `json:"InputPath"`
+	Parameters                 map[string]any   `json:"Parameters"`
+	Arguments                  any              `json:"Arguments"`
+	Result                     *json.RawMessage `json:"Result"`
+	ResultSelector             map[string]any   `json:"ResultSelector"`
+	ResultPath                 json.RawMessage  `json:"ResultPath"`
+	OutputPath                 json.RawMessage  `json:"OutputPath"`
+	Assign                     map[string]any   `json:"Assign"`
+	Output                     json.RawMessage  `json:"Output"`
+	Seconds                    *int             `json:"Seconds"`
+	SecondsPath                string           `json:"SecondsPath"`
+	Timestamp                  string           `json:"Timestamp"`
+	TimestampPath              string           `json:"TimestampPath"`
+	Error                      string           `json:"Error"`
+	ErrorPath                  string           `json:"ErrorPath"`
+	Cause                      string           `json:"Cause"`
+	CausePath                  string           `json:"CausePath"`
+	Resource                   string           `json:"Resource"`
+	TimeoutSeconds             *int             `json:"TimeoutSeconds"`
+	TimeoutSecondsPath         string           `json:"TimeoutSecondsPath"`
+	HeartbeatSeconds           *int             `json:"HeartbeatSeconds"`
+	HeartbeatSecondsPath       string           `json:"HeartbeatSecondsPath"`
+	Retry                      []sfnRetrier     `json:"Retry"`
+	Catch                      []sfnCatcher     `json:"Catch"`
+	Credentials                map[string]any   `json:"Credentials"`
+	Choices                    []sfnChoiceRule  `json:"Choices"`
+	Default                    string           `json:"Default"`
+	Branches                   []sfnDefinition  `json:"Branches"`
+	Iterator                   *sfnDefinition   `json:"Iterator"`
+	ItemProcessor              *sfnDefinition   `json:"ItemProcessor"`
+	ItemsPath                  string           `json:"ItemsPath"`
+	Items                      json.RawMessage  `json:"Items"`
+	ItemSelector               map[string]any   `json:"ItemSelector"`
+	MaxConcurrency             int              `json:"MaxConcurrency"`
+	Label                      string           `json:"Label"`
+	ToleratedFailurePercentage *float64         `json:"ToleratedFailurePercentage"`
+	ToleratedFailureCount      *int             `json:"ToleratedFailureCount"`
 }
 
 type sfnRetrier struct {
@@ -792,8 +780,8 @@ type sfnCatcher struct {
 	Output      json.RawMessage `json:"Output"`
 }
 
-// sfnChoiceRule is one Choice rule: a data-test (optionally nested via
-// And/Or/Not) plus the Next state to transition to when it matches.
+// sfnChoiceRule is one Choice rule: a data test, optionally nested through And,
+// Or and Not, and the Next state it selects.
 type sfnChoiceRule struct {
 	Condition                      json.RawMessage `json:"Condition"`
 	Assign                         map[string]any  `json:"Assign"`
@@ -937,9 +925,8 @@ func sfnStartExecution(execARN, definition, input string, cancel <-chan struct{}
 
 // sfnRunExecution interprets the execution until it ends, StopExecution aborts
 // it, or the simulator's lifetime ctx ends. A stopping simulator ends the task
-// in flight and leaves the execution RUNNING, which the next process resumes
-// from its checkpoint, rather than failing it with the interrupted task's
-// error.
+// in flight but leaves the execution RUNNING for the next process to resume from
+// its checkpoint, rather than failing it with the interrupted task's error.
 func sfnRunExecution(ctx context.Context, execARN, definition, input string, cancel <-chan struct{}) {
 	defer sfnCancels.Delete(execARN)
 
@@ -1059,9 +1046,9 @@ func sfnRunTopLevelDefinition(ctx context.Context, def sfnDefinition, input stri
 	}
 }
 
-// sfnMaxNestingDepth bounds Parallel/Map branch recursion so a pathologically
-// nested definition can't overflow the goroutine stack and crash the process.
-// AWS's own ASL nesting limit is far below this.
+// sfnMaxNestingDepth bounds Parallel and Map recursion so a pathologically nested
+// definition cannot overflow the goroutine stack; AWS's own nesting limit is far
+// lower.
 const sfnMaxNestingDepth = 200
 
 func sfnRunDefDepthWithVariables(ctx context.Context, def sfnDefinition, input string, cancel <-chan struct{}, depth int, inheritedVariables map[string]any) (string, string, error) {
@@ -1407,7 +1394,7 @@ func sfnEnterState(def sfnDefinition, state sfnState, current string, data, exec
 func sfnLambdaNameFromResource(resource string) (string, bool) {
 	if i := strings.Index(resource, ":function:"); i >= 0 {
 		name := resource[i+len(":function:"):]
-		if j := strings.IndexByte(name, ':'); j >= 0 { // strip a :version/:alias suffix
+		if j := strings.IndexByte(name, ':'); j >= 0 {
 			name = name[:j]
 		}
 		return name, name != ""
@@ -1698,8 +1685,6 @@ func handleSFNStopExecution(w http.ResponseWriter, r *http.Request) {
 }
 
 func sfnNameFromARN(arn string) string {
-	// arn:aws:states:us-east-1:123456789012:stateMachine:name
-	// arn:aws:states:us-east-1:123456789012:execution:name:execName
 	parts := strings.Split(arn, ":")
 	if len(parts) >= 7 {
 		return parts[6]
@@ -1739,12 +1724,9 @@ func sfnRemoveTags(current []SFNTag, keys []string) []SFNTag {
 	return sfnMapToTags(tagMap)
 }
 
-// ── Activities ────────────────────────────────────────────────────────────
-//
-// An activity is a named task-poll resource: a worker polls GetActivityTask
-// for work and reports back via SendTaskSuccess/SendTaskFailure/
-// SendTaskHeartbeat. A Task state with `Resource: arn:...:activity:NAME`
-// schedules a task token onto the activity's queue; the worker drains it.
+// An activity is a task queue: a worker polls GetActivityTask and reports through
+// SendTaskSuccess, SendTaskFailure and SendTaskHeartbeat. A Task state whose
+// Resource is arn:...:activity:NAME schedules a task token on it.
 
 type SFNActivity struct {
 	ActivityArn  string   `json:"activityArn"`
@@ -1753,8 +1735,7 @@ type SFNActivity struct {
 	Tags         []SFNTag `json:"tags,omitempty"`
 }
 
-// SFNActivityTask is one scheduled-but-not-yet-completed activity task,
-// keyed by its opaque task token.
+// SFNActivityTask is an activity task not yet completed, keyed by its task token.
 type SFNActivityTask struct {
 	TaskToken   string  `json:"taskToken"`
 	ActivityArn string  `json:"activityArn"`
@@ -1769,8 +1750,8 @@ type SFNActivityTask struct {
 var (
 	sfnActivities    sim.Store[SFNActivity]
 	sfnActivityTasks sim.Store[SFNActivityTask]
-	// sfnActivityTaskChanges announces a task token when the store writes
-	// its task: a worker taking it, a heartbeat, a result.
+	// sfnActivityTaskChanges announces a task token when the store writes its task:
+	// a worker taking it, a heartbeat, a result.
 	sfnActivityTaskChanges = signals.New[string]()
 )
 
@@ -1792,8 +1773,7 @@ func handleSFNCreateActivity(w http.ResponseWriter, r *http.Request) {
 	defer sfnMu.Unlock()
 
 	arn := sfnARN("activity:" + req.Name)
-	// CreateActivity is idempotent on (name) — re-creating returns the
-	// existing ARN and original creation date.
+	// CreateActivity is idempotent on the name, returning the existing ARN and creation date.
 	if existing, ok := sfnActivities.Get(req.Name); ok {
 		sfnWriteJSON(w, http.StatusOK, map[string]any{
 			"activityArn":  existing.ActivityArn,
@@ -2006,12 +1986,9 @@ func handleSFNSendTaskHeartbeat(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ── State machine versions + aliases ──────────────────────────────────────
-//
-// PublishStateMachineVersion snapshots the current definition+role into a
-// numbered, immutable version (arn:...:stateMachine:Name:N). An alias is a
-// named pointer (arn:...:stateMachine:Name:aliasName) whose
-// routingConfiguration weights traffic across one or two versions.
+// PublishStateMachineVersion snapshots the definition and role into an immutable
+// version, arn:...:stateMachine:Name:N. An alias, arn:...:stateMachine:Name:alias,
+// weights traffic across one or two versions by its routingConfiguration.
 
 type SFNStateMachineVersion struct {
 	StateMachineVersionArn  string         `json:"stateMachineVersionArn"`
@@ -2050,8 +2027,6 @@ var (
 	sfnAliasNonNumeric  = regexp.MustCompile(`[A-Za-z_.-]`)
 )
 
-// sfnNextVersionNumber returns 1 + the highest existing version number for a
-// state machine.
 func sfnNextVersionNumber(smName string) int {
 	max := 0
 	for _, v := range sfnVersions.List() {
@@ -2140,14 +2115,12 @@ func handleSFNDeleteStateMachineVersion(w http.ResponseWriter, r *http.Request) 
 	sfnWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// sfnAliasKey is the store key for an alias: the state-machine name joined
-// with the alias name, so aliases are unique per state machine.
+// sfnAliasKey keys an alias by state machine and alias name, so aliases are unique per state machine.
 func sfnAliasKey(smName, aliasName string) string {
 	return smName + "/" + aliasName
 }
 
-// sfnSMNameFromVersionArn pulls the state-machine name out of a version ARN
-// (arn:...:stateMachine:Name:N).
+// sfnSMNameFromVersionArn returns the state machine name in arn:...:stateMachine:Name:N.
 func sfnSMNameFromVersionArn(arn string) string {
 	parts := strings.Split(arn, ":")
 	if len(parts) >= 7 {
@@ -2207,8 +2180,6 @@ func handleSFNCreateStateMachineAlias(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sfnAliasByArn resolves an alias by its full ARN
-// (arn:...:stateMachine:Name:aliasName).
 func sfnAliasByArn(arn string) (SFNStateMachineAlias, bool) {
 	for _, a := range sfnAliases.List() {
 		if a.StateMachineAliasArn == arn {
@@ -2402,8 +2373,6 @@ func handleSFNDeleteStateMachineAlias(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ── DescribeStateMachineForExecution + RedriveExecution ───────────────────
-
 func handleSFNDescribeStateMachineForExecution(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExecutionArn string `json:"executionArn"`
@@ -2461,9 +2430,7 @@ func handleSFNRedriveExecution(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Redrive only applies to a terminal, non-successful execution
-	// (FAILED/ABORTED/TIMED_OUT). A RUNNING or SUCCEEDED execution is not
-	// redrivable.
+	// Only a FAILED, ABORTED or TIMED_OUT execution can be redriven.
 	if exec.Status == "RUNNING" || exec.Status == "SUCCEEDED" {
 		sfnMu.Unlock()
 		sfnWriteError(w, "ExecutionNotRedrivable", "Execution is not redrivable: "+req.ExecutionArn)
@@ -2511,10 +2478,8 @@ func handleSFNRedriveExecution(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, map[string]any{"redriveDate": now})
 }
 
-// ── Map Runs ──────────────────────────────────────────────────────────────
-//
 // A Map Run aggregates the child workflow executions a Distributed Map state
-// launches. It is keyed by its mapRunArn and tied to the parent execution.
+// launches, keyed by mapRunArn and tied to the parent execution.
 
 type SFNMapRun struct {
 	MapRunArn                  string   `json:"mapRunArn"`
@@ -2669,11 +2634,8 @@ func handleSFNUpdateMapRun(w http.ResponseWriter, r *http.Request) {
 	sfnWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ── TestState + StartSyncExecution ────────────────────────────────────────
-//
-// TestState runs a single state synchronously; StartSyncExecution runs the
-// whole state machine synchronously and returns the terminal result. Both
-// reuse the same ASL interpreter that backs StartExecution.
+// TestState runs one state and StartSyncExecution a whole state machine
+// synchronously, on the interpreter StartExecution uses.
 
 func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -2766,8 +2728,7 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 			state.Result = &result
 		}
 	}
-	// Force the single state to be terminal so the interpreter returns its
-	// result rather than chasing a Next that isn't in the wrapper.
+	// Make the state terminal so the interpreter returns its result instead of following a Next outside the wrapper.
 	nextState := state.Next
 	state.Next = ""
 	state.End = true
@@ -2926,8 +2887,7 @@ func sfnParallelMapStateCount(definition sfnDefinition) int {
 	return count
 }
 
-// sfnRetag replaces the tags of the state machine or activity arn names with
-// what retag makes of them.
+// sfnRetag replaces the tags of the state machine or activity arn names with retag's result.
 func sfnRetag(w http.ResponseWriter, arn string, retag func([]SFNTag) []SFNTag) {
 	sfnMu.Lock()
 	defer sfnMu.Unlock()

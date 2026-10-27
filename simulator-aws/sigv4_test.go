@@ -17,8 +17,7 @@ import (
 // resetCredentialStores re-creates the in-memory credential stores the SigV4
 // gate resolves against, so each case starts from a known set.
 func resetCredentialStores() {
-	// Background work from an earlier test must finish before the stores
-	// it is reading are replaced.
+	// Wait for an earlier test's background work before replacing the stores it reads.
 	bg.Await()
 	iamAccessKeys = sim.MakeStore[IAMAccessKey](nil, "iam_access_keys")
 	iamTempCreds = sim.MakeStore[IAMTempCred](nil, "iam_temp_creds")
@@ -130,9 +129,9 @@ func TestSigV4_TamperedSignature(t *testing.T) {
 	}
 }
 
-// TestSigV4_ForgedPrincipal is the core of the vulnerability: an attacker holding
-// its own key signs but puts a victim's access-key id in the Credential field.
-// Verification must fail because the signature was computed with the wrong secret.
+// TestSigV4_ForgedPrincipal: an attacker signs with its own key but names a
+// victim's access-key id in Credential, and verification fails because the
+// wrong secret signed it.
 func TestSigV4_ForgedPrincipal(t *testing.T) {
 	resetCredentialStores()
 	iamAccessKeys.Put("AKIAVICTIMADMINKEY001", IAMAccessKey{

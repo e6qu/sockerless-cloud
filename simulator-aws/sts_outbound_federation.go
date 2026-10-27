@@ -14,12 +14,10 @@ import (
 )
 
 // IAM outbound identity federation: once an account enables it, AWS STS
-// GetWebIdentityToken issues JWTs for the caller's identity, signed by keys the
-// account's issuer publishes. The issuer is unique per account —
-// `https://<id>.tokens.sts.global.api.aws` — and serves the OpenID Connect
-// discovery document at /.well-known/openid-configuration and the JSON Web Key
-// Set at /.well-known/jwks.json, so any relying party verifies the token the
-// way it verifies any OpenID Connect issuer.
+// GetWebIdentityToken issues JWTs for the caller, signed by keys the account's
+// issuer, `https://<id>.tokens.sts.global.api.aws`, publishes at
+// /.well-known/openid-configuration and /.well-known/jwks.json, so a relying
+// party verifies them as it verifies any OpenID Connect issuer.
 
 const (
 	outboundFederationEnabledKey = "OutboundWebIdentityFederation"
@@ -225,8 +223,7 @@ func handleSTSGetWebIdentityToken(w http.ResponseWriter, r *http.Request) {
 </GetWebIdentityTokenResponse>`, xmlEscape(token), exp.Format(time.RFC3339), sim.NewUUID())
 }
 
-// stsRequestTags reads the Tags.member.N.Key / .Value pairs of an AWS Query
-// request.
+// stsRequestTags reads an AWS Query request's Tags.member.N.Key and .Value pairs.
 func stsRequestTags(r *http.Request) (map[string]string, bool) {
 	tags := map[string]string{}
 	for i := 1; ; i++ {

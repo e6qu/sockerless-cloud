@@ -11,32 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// SSM Inventory + Compliance + Nodes + managed-instance information +
-// document-permissions slice. These are the read/report-back surfaces
-// that fleet-management tooling (and the `aws ssm` CLI / terraform's
-// inventory-adjacent data sources) hit on top of the document control
-// plane in ssm_documents.go.
-//
-//   - Inventory: a managed node reports typed item lists (PutInventory)
-//     keyed by (instance, type-name); GetInventory / ListInventoryEntries
-//     read them back, GetInventorySchema describes the item types, and
-//     DeleteInventory/DescribeInventoryDeletions model the async schema
-//     deletion job.
-//   - Compliance: PutComplianceItems records compliance items per
-//     (resource, compliance-type); the List* ops read items and roll up
-//     compliant/non-compliant counts.
-//   - Nodes / managed-instance information: a node becomes "managed" the
-//     moment it reports inventory or compliance, so DescribeInstance-
-//     Information / DescribeInstanceProperties / ListNodes enumerate the
-//     same set. DeregisterManagedInstance / UpdateManagedInstanceRole
-//     mutate a managed-instance row.
-//   - Document permissions: an account-share list layered over the
-//     existing ssmDocuments store.
-//   - Change Calendar state, plus the just-in-time node-access token /
-//     request records.
+// AWS Systems Manager Inventory, Compliance, managed-node information and
+// document permissions, beside the document control plane in ssm_documents.go:
+// - Inventory: PutInventory stores typed item lists per (instance, type name);
+// GetInventory and ListInventoryEntries read them back, GetInventorySchema
+// describes the types, and DeleteInventory starts a deletion job
+// DescribeInventoryDeletions reports.
+// - Compliance: PutComplianceItems stores items per (resource, compliance
+// type), which the List operations read and tally.
+// - Managed nodes: a node is managed once it reports inventory or compliance,
+// so DescribeInstanceInformation, DescribeInstanceProperties and ListNodes
+// enumerate one set.
+// - Document permissions: an account-share list over ssmDocuments.
+// - Change Calendar state and just-in-time node-access requests.
 
-// SSMInventoryEntry is one captured inventory item type for a node:
-// the typed content (a list of attribute maps) plus capture metadata.
+// SSMInventoryEntry is one inventory type a node reported: its attribute maps and capture metadata.
 type SSMInventoryEntry struct {
 	InstanceId    string              `json:"InstanceId"`
 	TypeName      string              `json:"TypeName"`
@@ -46,8 +35,6 @@ type SSMInventoryEntry struct {
 	Content       []map[string]string `json:"Content"`
 }
 
-// SSMComplianceItem is one recorded compliance item for a resource,
-// scoped by compliance type.
 type SSMComplianceItem struct {
 	ResourceId     string            `json:"ResourceId"`
 	ResourceType   string            `json:"ResourceType"`
@@ -62,9 +49,9 @@ type SSMComplianceItem struct {
 	ExecutionTime  float64           `json:"ExecutionTime"`
 }
 
-// SSMManagedInstance is a node Systems Manager knows about. A node is
-// registered the moment it reports inventory or compliance (real SSM
-// tracks a node as soon as its agent checks in).
+// SSMManagedInstance is a node Systems Manager knows about, registered when it
+// first reports inventory or compliance, as Systems Manager tracks a node once
+// its agent checks in.
 type SSMManagedInstance struct {
 	InstanceId       string  `json:"InstanceId"`
 	PingStatus       string  `json:"PingStatus"`
@@ -82,7 +69,7 @@ type SSMManagedInstance struct {
 	LastPingDateTime float64 `json:"LastPingDateTime"`
 }
 
-// SSMInventoryDeletion is the async deletion job created by DeleteInventory.
+// SSMInventoryDeletion is the deletion job DeleteInventory starts.
 type SSMInventoryDeletion struct {
 	DeletionId        string  `json:"DeletionId"`
 	TypeName          string  `json:"TypeName"`
@@ -93,15 +80,13 @@ type SSMInventoryDeletion struct {
 	RemainingCount    int     `json:"RemainingCount"`
 }
 
-// SSMDocShare is the per-document account-share list (PermissionType SHARE).
 type SSMDocShare struct {
 	Name       string   `json:"Name"`
 	AccountIds []string `json:"AccountIds"`
 	Version    string   `json:"Version"`
 }
 
-// SSMAccessRequest is a just-in-time node-access request and its issued
-// short-lived credentials.
+// SSMAccessRequest is a just-in-time node-access request and the short-lived credentials it issued.
 type SSMAccessRequest struct {
 	AccessRequestId string  `json:"AccessRequestId"`
 	Status          string  `json:"Status"`
@@ -159,21 +144,18 @@ func registerSSMInventory(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ssmInvKey keys an inventory entry by (instance, type-name).
 func ssmInvKey(instanceID, typeName string) string {
 	return instanceID + "\x00" + typeName
 }
 
-// ssmComplianceKey keys a compliance item by (resource, type, item-id).
 func ssmComplianceKey(resourceID, complianceType, itemID string) string {
 	return resourceID + "\x00" + complianceType + "\x00" + itemID
 }
 
-// ssmTrackManagedInstance upserts a managed-instance row, registering the
-// node the first time it reports inventory/compliance and refreshing the
-// last-ping time on every subsequent report. A node that reports only
-// through these calls states no platform: SSM Agent reports a node's platform
-// when it registers the node (ssmRegisterManagedNode).
+// ssmTrackManagedInstance registers a node on its first inventory or compliance
+// report and refreshes its last ping on each later one. Such a node states no
+// platform: SSM Agent reports the platform when it registers the node
+// (ssmRegisterManagedNode).
 func ssmTrackManagedInstance(instanceID string) {
 	now := float64(time.Now().Unix())
 	if mi, ok := ssmManagedInstances.Get(instanceID); ok {
@@ -195,8 +177,8 @@ func ssmTrackManagedInstance(instanceID string) {
 	})
 }
 
-// ssmInstanceInformationWire is the InstanceInformation / InstanceProperty
-// members a node states; a member the node has no value for is left out.
+// ssmInstanceInformationWire projects the InstanceInformation and
+// InstanceProperty members a node states, leaving out those it has no value for.
 func ssmInstanceInformationWire(m SSMManagedInstance) map[string]any {
 	info := map[string]any{
 		"InstanceId":       m.InstanceId,
@@ -273,7 +255,6 @@ func handleSSMGetInventory(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Group the captured entries by node into result entities.
 	byNode := map[string][]SSMInventoryEntry{}
 	for _, e := range ssmInventory.List() {
 		byNode[e.InstanceId] = append(byNode[e.InstanceId], e)
@@ -319,9 +300,8 @@ func ssmInvContentWire(content []map[string]string) []map[string]string {
 	return content
 }
 
-// ssmKnownInventoryTypes returns the inventory type names known to the
-// account: the AWS-managed core types plus any custom type a node has
-// reported.
+// ssmKnownInventoryTypes returns the AWS-managed core inventory types and every
+// custom type a node reported.
 func ssmKnownInventoryTypes() []string {
 	seen := map[string]bool{
 		"AWS:InstanceInformation": true,
@@ -386,10 +366,9 @@ func ssmInventoryDisplayName(typeName string) string {
 	return strings.TrimPrefix(typeName, "AWS:")
 }
 
-// ssmInventoryAttributes returns the attribute schema for a type. For
-// reported custom types we derive the attributes from the captured
-// content keys so the schema reflects real data; AWS-managed types get a
-// representative set.
+// ssmInventoryAttributes returns a type's attribute schema: the content keys
+// nodes reported for it, or a fixed minimal set for an AWS-managed type nobody
+// has reported yet.
 func ssmInventoryAttributes(typeName string) []map[string]any {
 	keys := map[string]bool{}
 	for _, e := range ssmInventory.List() {
@@ -403,8 +382,6 @@ func ssmInventoryAttributes(typeName string) []map[string]any {
 		}
 	}
 	if len(keys) == 0 {
-		// AWS-managed type with no reported content yet: a minimal,
-		// stable attribute set.
 		keys["Name"] = true
 	}
 	names := make([]string, 0, len(keys))
@@ -414,9 +391,8 @@ func ssmInventoryAttributes(typeName string) []map[string]any {
 	sort.Strings(names)
 	out := make([]map[string]any, 0, len(names))
 	for _, n := range names {
-		// InventoryAttributeDataType spells its members lowercase — "string"
-		// and "number" — and an attribute whose type is not one of them is a
-		// type the service does not have.
+		// InventoryAttributeDataType spells its members lowercase, "string" and
+		// "number", and has no others.
 		out = append(out, map[string]any{
 			"Name":     n,
 			"DataType": "string",
@@ -441,7 +417,6 @@ func handleSSMDeleteInventory(w http.ResponseWriter, r *http.Request) {
 			"The parameter type name isn't valid.")
 		return
 	}
-	// Count and (unless dry-run) drop matching entries.
 	total := 0
 	var matched []string
 	for _, e := range ssmInventory.List() {
@@ -566,9 +541,8 @@ func handleSSMListInventoryEntries(w http.ResponseWriter, r *http.Request) {
 		"SchemaVersion": schemaVersion,
 		"Entries":       ssmInvContentWire(page),
 	}
-	// An instance with nothing recorded for the type has no capture time, and
-	// the model constrains the member to a real timestamp — so it is absent
-	// rather than empty.
+	// The model holds CaptureTime to a real timestamp, so an instance with nothing
+	// recorded for the type omits it.
 	if captureTime != "" {
 		resp["CaptureTime"] = captureTime
 	}
@@ -609,9 +583,8 @@ func handleSSMPutComplianceItems(w http.ResponseWriter, r *http.Request) {
 	if resourceType == "" {
 		resourceType = "ManagedInstance"
 	}
-	// COMPLETE upload (the default) replaces the items for this
-	// (resource, type); PARTIAL appends. Either way the existing items
-	// for this resource+type that we don't re-list go away on COMPLETE.
+	// A COMPLETE upload, the default, replaces the resource's items of this type;
+	// PARTIAL adds to them.
 	if !strings.EqualFold(req.UploadType, "PARTIAL") {
 		for _, c := range ssmComplianceItems.List() {
 			if c.ResourceId == req.ResourceId && c.ComplianceType == req.ComplianceType {
@@ -708,8 +681,6 @@ func containsStr(s []string, v string) bool {
 	return false
 }
 
-// ssmSeveritySummary tallies compliance items by severity for the
-// SeveritySummary shape.
 func ssmSeveritySummary(items []SSMComplianceItem) map[string]any {
 	var critical, high, medium, low, informational, unspecified int
 	for _, c := range items {
@@ -758,7 +729,6 @@ func handleSSMListComplianceSummaries(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// One summary item per compliance type.
 	byType := map[string][]SSMComplianceItem{}
 	for _, c := range ssmComplianceItems.List() {
 		byType[c.ComplianceType] = append(byType[c.ComplianceType], c)
@@ -802,7 +772,6 @@ func handleSSMListResourceComplianceSummaries(w http.ResponseWriter, r *http.Req
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// One summary per (resource, compliance type).
 	type rcKey struct{ resource, ctype string }
 	byKey := map[rcKey][]SSMComplianceItem{}
 	for _, c := range ssmComplianceItems.List() {
@@ -941,9 +910,7 @@ func handleSSMListNodesSummary(w http.ResponseWriter, r *http.Request) {
 	if len(req.Aggregators) > 0 && req.Aggregators[0].AttributeName != "" {
 		attr = req.Aggregators[0].AttributeName
 	}
-	// Each summary entry is a string map of attribute-name -> value
-	// (NodeSummary is a string map): the grouped attribute value plus
-	// the Count.
+	// NodeSummary is a string map: the grouped attribute value and the Count.
 	byVal := map[string]int{}
 	for _, m := range ssmManagedInstanceList() {
 		byVal[ssmNodeAttributeValue(m, attr)]++
@@ -1208,7 +1175,6 @@ func handleSSMUpdateDocumentMetadata(w http.ResponseWriter, r *http.Request) {
 			"The specified SSM document doesn't exist.")
 		return
 	}
-	// Apply the review action to the targeted version's review status.
 	reviewStatus := ""
 	switch strings.ToUpper(req.DocumentReviews.Action) {
 	case "SENDFORREVIEW":
@@ -1268,8 +1234,7 @@ func handleSSMListDocumentMetadataHistory(w http.ResponseWriter, r *http.Request
 			"CreateTime":   doc.CreatedDate,
 			"UpdatedTime":  doc.CreatedDate,
 			"ReviewStatus": reviewStatus,
-			// Reviewer is a principal's name, not its ARN: the model admits no
-			// colon in it, so an ARN here is a value the service never returns.
+			// The model admits no colon in Reviewer, so it carries a principal's name, never an ARN.
 			"Reviewer": "root",
 			"Comment":  []map[string]any{},
 		},
@@ -1297,11 +1262,9 @@ func handleSSMGetCalendarState(w http.ResponseWriter, r *http.Request) {
 	if atTime == "" {
 		atTime = time.Now().UTC().Format(time.RFC3339)
 	}
-	// The calendar state is the intersection of every referenced
-	// Change-Calendar document's default state. A Change Calendar
-	// document's first mainStep action selects the default type:
-	// "aws:openHours" => default OPEN, "aws:closedHours" => default
-	// CLOSED. With no entries, the document's default state governs.
+	// Any referenced calendar whose content reads as default-closed closes the
+	// state. The simulator evaluates no calendar events, and reports the next
+	// transition a fixed 24 hours ahead.
 	state := "OPEN"
 	for _, name := range req.CalendarNames {
 		doc, ok := ssmDocuments.Get(name)
@@ -1323,10 +1286,8 @@ func handleSSMGetCalendarState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ssmCalendarDefaultClosed reports whether a Change-Calendar document's
-// default state is CLOSED. The iCalendar content carries an
-// X-WR-CALDESC / X-CALENDAR-TYPE property; "DEFAULT-CLOSED" means the
-// default state is CLOSED.
+// ssmCalendarDefaultClosed reports whether a Change Calendar document's content
+// contains "CLOSED", which also matches "DEFAULT-CLOSED".
 func ssmCalendarDefaultClosed(content string) bool {
 	up := strings.ToUpper(content)
 	return strings.Contains(up, "DEFAULT-CLOSED") || strings.Contains(up, "CLOSED")
@@ -1352,7 +1313,7 @@ func handleSSMStartAccessRequest(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Targets is required", http.StatusBadRequest)
 		return
 	}
-	// An access-request id is "oi-" followed by exactly twelve hex digits.
+	// An access-request ID is "oi-" and twelve hex digits.
 	id := "oi-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 	now := time.Now()
 	ar := SSMAccessRequest{
@@ -1385,8 +1346,7 @@ func handleSSMGetAccessToken(w http.ResponseWriter, r *http.Request) {
 			"The specified access request doesn't exist.")
 		return
 	}
-	// Settle the status deterministically on read: an approved request
-	// whose credentials have expired reports Expired.
+	// An approved request whose credentials have expired reports Expired.
 	status := ar.Status
 	if strings.EqualFold(status, "Approved") && float64(time.Now().Unix()) > ar.ExpirationTime {
 		status = "Expired"

@@ -9,20 +9,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SNS mobile-push, SMS, and data-protection control-plane slices. These are
-// the non-pub/sub corners of the SNS API surface terraform / SDK consumers
-// reach: platform applications + endpoints (aws_sns_platform_application),
-// the SMS sandbox (CreateSMSSandboxPhoneNumber → VerifySMSSandboxPhoneNumber),
-// account-wide SMS attributes, the phone-number opt-out list, origination
-// numbers, and per-topic data-protection policies.
-//
-// Wire protocol is the same awsQuery envelope the rest of SNS uses
-// (snsXMLResponse / snsErrorXML), keyed off the SNS API version.
+// Amazon SNS mobile push, SMS and data protection: platform applications and
+// endpoints, the SMS sandbox, account SMS attributes, the opt-out list,
+// origination numbers and per-topic data-protection policies, over SNS's
+// awsQuery envelope.
 
-// SNSPlatformApplication models a mobile-push platform application —
-// arn:aws:sns:<region>:<account>:app/<platform>/<name>. Attributes hold the
-// credential + event-topic settings (PlatformCredential, EventEndpointCreated,
-// Enabled, …) the SDK reads back via GetPlatformApplicationAttributes.
+// SNSPlatformApplication is a mobile-push platform application
+// (arn:aws:sns:<region>:<account>:app/<platform>/<name>). Attributes hold
+// PlatformCredential, EventEndpointCreated, Enabled and the rest
+// GetPlatformApplicationAttributes reads.
 type SNSPlatformApplication struct {
 	ARN        string
 	Name       string
@@ -30,8 +25,8 @@ type SNSPlatformApplication struct {
 	Attributes map[string]string
 }
 
-// SNSPlatformEndpoint models a device endpoint registered under a platform
-// application — arn:aws:sns:<region>:<account>:endpoint/<platform>/<name>/<uuid>.
+// SNSPlatformEndpoint is a device endpoint under a platform application
+// (…:endpoint/<platform>/<name>/<uuid>).
 type SNSPlatformEndpoint struct {
 	ARN                    string
 	PlatformApplicationARN string
@@ -39,17 +34,15 @@ type SNSPlatformEndpoint struct {
 	Attributes             map[string]string
 }
 
-// SNSSandboxPhoneNumber models the Pending/Verified state returned by the
-// Amazon SNS SMS sandbox once its telecommunications carrier has delivered an
-// out-of-band one-time password.
+// SNSSandboxPhoneNumber is an SMS sandbox number, Pending until the carrier
+// delivers its one-time password and Verified after.
 type SNSSandboxPhoneNumber struct {
 	PhoneNumber  string
 	LanguageCode string
 	Status       string // "Pending" | "Verified"
 }
 
-// SNSOriginationNumber models a phone number provisioned for the account that
-// SNS can send from — surfaced by ListOriginationNumbers.
+// SNSOriginationNumber is a number the account sends SMS from, which ListOriginationNumbers lists.
 type SNSOriginationNumber struct {
 	PhoneNumber  string
 	Iso2Country  string
@@ -70,24 +63,19 @@ var (
 	snsTopicDataPolicies sim.Store[snsKV]
 )
 
-// snsKV is a single keyed string value, used for the account-scoped singleton
-// stores (SMS attributes, sandbox account status) and the per-resource
-// data-protection policy store.
+// snsKV is one keyed string, for the account singletons (SMS attributes, sandbox
+// status) and the per-topic data-protection policies.
 type snsKV struct {
 	Key   string
 	Value string
 }
 
-// snsOptOutEntry is one opted-out destination phone number.
 type snsOptOutEntry struct {
 	PhoneNumber string
 }
 
-// snsSandboxAccountKey is the fixed key under which the per-account sandbox
-// status singleton is stored. A real account starts in the sandbox; an
-// explicit (sim-internal) transition out is not modelled because no public
-// API moves it — production accounts leave the sandbox via an AWS support
-// request, which has no SDK/CLI surface.
+// An account starts in the SMS sandbox and leaves it only through an AWS support
+// request, which no API exposes.
 const snsSandboxAccountKey = "account"
 
 func registerSNSMobileSMS(r *AWSQueryRouter, srv *sim.Server) {
@@ -100,28 +88,24 @@ func registerSNSMobileSMS(r *AWSQueryRouter, srv *sim.Server) {
 	snsSandboxAccount = sim.MakeStore[snsKV](srv.DB(), "sns_sandbox_account")
 	snsTopicDataPolicies = sim.MakeStore[snsKV](srv.DB(), "sns_data_protection_policies")
 
-	// Platform applications (mobile push).
 	r.RegisterVersioned(snsAPIVersion, "CreatePlatformApplication", handleSNSCreatePlatformApplication)
 	r.RegisterVersioned(snsAPIVersion, "DeletePlatformApplication", handleSNSDeletePlatformApplication)
 	r.RegisterVersioned(snsAPIVersion, "GetPlatformApplicationAttributes", handleSNSGetPlatformApplicationAttributes)
 	r.RegisterVersioned(snsAPIVersion, "SetPlatformApplicationAttributes", handleSNSSetPlatformApplicationAttributes)
 	r.RegisterVersioned(snsAPIVersion, "ListPlatformApplications", handleSNSListPlatformApplications)
 
-	// Platform endpoints (devices under a platform application).
 	r.RegisterVersioned(snsAPIVersion, "CreatePlatformEndpoint", handleSNSCreatePlatformEndpoint)
 	r.RegisterVersioned(snsAPIVersion, "DeleteEndpoint", handleSNSDeleteEndpoint)
 	r.RegisterVersioned(snsAPIVersion, "GetEndpointAttributes", handleSNSGetEndpointAttributes)
 	r.RegisterVersioned(snsAPIVersion, "SetEndpointAttributes", handleSNSSetEndpointAttributes)
 	r.RegisterVersioned(snsAPIVersion, "ListEndpointsByPlatformApplication", handleSNSListEndpointsByPlatformApplication)
 
-	// SMS sandbox.
 	r.RegisterVersioned(snsAPIVersion, "CreateSMSSandboxPhoneNumber", handleSNSCreateSMSSandboxPhoneNumber)
 	r.RegisterVersioned(snsAPIVersion, "DeleteSMSSandboxPhoneNumber", handleSNSDeleteSMSSandboxPhoneNumber)
 	r.RegisterVersioned(snsAPIVersion, "VerifySMSSandboxPhoneNumber", handleSNSVerifySMSSandboxPhoneNumber)
 	r.RegisterVersioned(snsAPIVersion, "ListSMSSandboxPhoneNumbers", handleSNSListSMSSandboxPhoneNumbers)
 	r.RegisterVersioned(snsAPIVersion, "GetSMSSandboxAccountStatus", handleSNSGetSMSSandboxAccountStatus)
 
-	// SMS / phone numbers.
 	r.RegisterVersioned(snsAPIVersion, "GetSMSAttributes", handleSNSGetSMSAttributes)
 	r.RegisterVersioned(snsAPIVersion, "SetSMSAttributes", handleSNSSetSMSAttributes)
 	r.RegisterVersioned(snsAPIVersion, "CheckIfPhoneNumberIsOptedOut", handleSNSCheckIfPhoneNumberIsOptedOut)
@@ -129,7 +113,6 @@ func registerSNSMobileSMS(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(snsAPIVersion, "OptInPhoneNumber", handleSNSOptInPhoneNumber)
 	r.RegisterVersioned(snsAPIVersion, "ListOriginationNumbers", handleSNSListOriginationNumbers)
 
-	// Data-protection policy (per topic).
 	r.RegisterVersioned(snsAPIVersion, "PutDataProtectionPolicy", handleSNSPutDataProtectionPolicy)
 	r.RegisterVersioned(snsAPIVersion, "GetDataProtectionPolicy", handleSNSGetDataProtectionPolicy)
 }
@@ -182,8 +165,7 @@ func handleSNSCreatePlatformApplication(w http.ResponseWriter, r *http.Request) 
 	if app.Attributes == nil {
 		app.Attributes = map[string]string{}
 	}
-	// Enabled defaults to true on a freshly-created application, matching
-	// real SNS's GetPlatformApplicationAttributes read-back.
+	// Enabled defaults to true on a new application, as GetPlatformApplicationAttributes reports.
 	if _, ok := app.Attributes["Enabled"]; !ok {
 		app.Attributes["Enabled"] = "true"
 	}
@@ -196,9 +178,8 @@ func handleSNSCreatePlatformApplication(w http.ResponseWriter, r *http.Request) 
 
 func handleSNSDeletePlatformApplication(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("PlatformApplicationArn")
-	// DeletePlatformApplication is idempotent — success even if absent.
+	// DeletePlatformApplication succeeds even when the application is absent.
 	snsPlatformApps.Delete(arn)
-	// Cascade: drop endpoints registered under this application.
 	for _, ep := range snsPlatformEndpts.List() {
 		if ep.PlatformApplicationARN == arn {
 			snsPlatformEndpts.Delete(ep.ARN)
@@ -265,9 +246,9 @@ func handleSNSListPlatformApplications(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "ListPlatformApplications", b.String(), sim.RequestID(r.Context()))
 }
 
-// snsPlatformEndpointARN derives an endpoint ARN from its parent application
-// ARN by swapping the leading `app/` segment for `endpoint/` and appending a
-// UUID, matching the real-SNS endpoint ARN shape.
+// snsPlatformEndpointARN derives an endpoint ARN from its application's by
+// swapping the `app/` segment for `endpoint/` and appending a UUID, SNS's
+// endpoint ARN shape.
 func snsPlatformEndpointARN(appARN string) string {
 	base := strings.Replace(appARN, ":app/", ":endpoint/", 1)
 	return fmt.Sprintf("%s/%s", base, sim.NewUUID())
@@ -285,9 +266,8 @@ func handleSNSCreatePlatformEndpoint(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "NotFound", "PlatformApplication does not exist", http.StatusNotFound, reqID)
 		return
 	}
-	// Real SNS is idempotent on (application, token): a CreatePlatformEndpoint
-	// with a token already registered returns the existing endpoint ARN rather
-	// than creating a duplicate.
+	// CreatePlatformEndpoint is idempotent on (application, token): a registered
+	// token returns its existing endpoint ARN.
 	for _, ep := range snsPlatformEndpts.List() {
 		if ep.PlatformApplicationARN == appARN && ep.Token == token {
 			body := fmt.Sprintf(
@@ -323,7 +303,7 @@ func handleSNSCreatePlatformEndpoint(w http.ResponseWriter, r *http.Request) {
 
 func handleSNSDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("EndpointArn")
-	// DeleteEndpoint is idempotent — success even if absent.
+	// DeleteEndpoint succeeds even when the endpoint is absent.
 	snsPlatformEndpts.Delete(arn)
 	snsXMLResponse(w, "DeleteEndpoint", "", sim.RequestID(r.Context()))
 }
@@ -399,9 +379,9 @@ func handleSNSCreateSMSSandboxPhoneNumber(w http.ResponseWriter, r *http.Request
 		snsErrorXML(w, "InvalidParameter", "PhoneNumber is required", http.StatusBadRequest, reqID)
 		return
 	}
-	// The sandbox verifies a number by sending it a one-time password over
-	// SMS, so it needs the same carrier Publish does. Failing here is what
-	// stops a derivable or log-delivered code standing in for a real message.
+	// The sandbox verifies a number by sending it a one-time password over SMS,
+	// which needs the carrier Publish needs; failing here keeps a derivable or
+	// logged code from standing in for a delivered message.
 	_ = reqID
 	snsExternalDeliveryUnavailable(w, r, snsSMSDeliveryReason)
 }
@@ -559,8 +539,7 @@ func handleSNSOptInPhoneNumber(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "InvalidParameter", "phoneNumber is required", http.StatusBadRequest, reqID)
 		return
 	}
-	// OptInPhoneNumber removes the number from the opt-out list. Real SNS is
-	// idempotent — success regardless of whether it was opted out.
+	// OptInPhoneNumber removes the number from the opt-out list; SNS succeeds whether or not it was opted out.
 	snsOptedOutNumbers.Delete(phone)
 	snsXMLResponse(w, "OptInPhoneNumber", "<OptInPhoneNumberResult/>", reqID)
 }
@@ -636,14 +615,10 @@ func handleSNSGetDataProtectionPolicy(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "GetDataProtectionPolicy", body, reqID)
 }
 
-// Amazon SNS delivers to two destinations that are not AWS coordinates: a
-// telecommunications carrier for SMS, and Apple's and Google's own push hosts
-// for mobile push. Neither is configurable through any AWS API, so there is
-// nothing for this simulator to point at and nothing it can faithfully
-// pretend. Every path that would reach one fails, and says exactly which
-// external dependency is missing and why — a caller that reads the error
-// knows the simulator's boundary rather than hunting a defect, and a test
-// cannot mistake a manufactured success for delivery.
+// SNS delivers SMS through a telecommunications carrier and mobile push through
+// Apple's and Google's push hosts; no AWS API configures either, so the
+// simulator has nothing to point at. Every path that would reach one fails and
+// names the missing external dependency.
 const (
 	snsSMSDeliveryReason = "Amazon SNS delivers SMS through a telecommunications carrier. " +
 		"A carrier is not an AWS-configurable coordinate — no AWS API provisions one — so this " +
@@ -658,15 +633,9 @@ const (
 		"the API defines them, and only the hand-off to Apple or Google is impossible."
 )
 
-// snsExternalDeliveryUnavailable answers a request that would have to reach an
-// external provider.
-//
-// The code stays InternalError, which is what this simulator has always
-// answered for a delivery it cannot perform, and the reason goes in the
-// message. Two alternatives were tried and are worse: EndpointDisabled claims
-// a device endpoint was disabled, which is a different fact and untrue here,
-// and a 503 makes the AWS SDK retry — three attempts against a condition that
-// is permanent, turning one clear failure into a slow one.
+// snsExternalDeliveryUnavailable answers a request that would reach an external
+// provider with InternalError and the reason. EndpointDisabled would claim a
+// disabled endpoint, and a 503 would make the SDK retry a permanent condition.
 func snsExternalDeliveryUnavailable(w http.ResponseWriter, r *http.Request, reason string) {
 	snsErrorXML(w, "InternalError", reason, http.StatusInternalServerError, sim.RequestID(r.Context()))
 }

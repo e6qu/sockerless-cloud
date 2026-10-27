@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// FuzzDecodeSSMInputFrame feeds arbitrary bytes (the frame comes off the ECS
-// ExecuteCommand WebSocket) through the SSM input-frame decoder. A declared
-// payload length must never slice past the buffer.
+// FuzzDecodeSSMInputFrame feeds arbitrary bytes, as an Amazon ECS ExecuteCommand
+// WebSocket delivers them, through the AWS Systems Manager input-frame decoder. A
+// declared payload length must never slice past the buffer.
 func FuzzDecodeSSMInputFrame(f *testing.F) {
 	hdr := make([]byte, ssmFixedHeaderLen)
 	f.Add([]byte{})

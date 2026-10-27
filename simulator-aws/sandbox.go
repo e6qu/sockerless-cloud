@@ -16,14 +16,13 @@ var SandboxLambda = sim.SandboxProfile{
 	User:             "1051:1051", // sbx_user1051
 	CapDrop:          []string{"ALL"},
 	NoNewPrivileges:  true,
-	TmpfsSize:        "size=512m", // configurable in real Lambda; sim uses the default
+	TmpfsSize:        "size=512m", // Lambda's ephemeral storage is configurable; the simulator always uses the default 512 MB.
 	DenyDockerSocket: true,
 	DenyHostNetwork:  true,
 }
 
-// SandboxFargate matches ECS Fargate's task isolation. Fargate
-// permits more flexibility than Lambda (e.g. user from image) but
-// still denies host net + docker.sock + privileged.
+// SandboxFargate matches Amazon ECS on AWS Fargate: the image's USER may win,
+// but host networking, the Docker socket and privileged mode stay denied.
 var SandboxFargate = sim.SandboxProfile{
 	Privileged:       false,
 	ReadonlyRootfs:   false,

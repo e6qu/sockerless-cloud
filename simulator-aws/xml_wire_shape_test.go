@@ -6,18 +6,16 @@ import (
 	"testing"
 )
 
-// Regression net for XML wire shapes the Smithy models pin down but SDK
-// deserializers silently tolerate (they don't key on root element names
-// or unknown elements). The runtime spec validator flags these classes
-// when armed; these assertions keep the fixed shapes pinned in plain
-// test runs too.
+// SDK deserializers ignore root element names and unknown elements, so these
+// tests pin the XML wire shapes the Smithy models declare; the runtime spec
+// validator checks the same classes only when armed.
 
-// TestS3BucketConfigurationListRoots pins the response root elements of
-// the four bucket configuration-list operations to the models'
-// xmlName / shape-name serialization (s3.smithy.json.gz): analytics
-// lists serialize as the singular <ListBucketAnalyticsConfigurationResult>,
-// inventory and metrics drop the "Bucket" infix, and intelligent-tiering
-// (no xmlName trait) takes the output shape name.
+// TestS3BucketConfigurationListRoots pins the response roots of the four bucket
+// configuration-list operations to the xmlName or shape name s3.smithy.json.gz
+// declares: analytics serializes as the singular
+// <ListBucketAnalyticsConfigurationResult>, inventory and metrics drop the
+// "Bucket" infix, and intelligent-tiering, with no xmlName, takes the output
+// shape name.
 func TestS3BucketConfigurationListRoots(t *testing.T) {
 	srv, _, _ := buildConformanceSimulator(t)
 
@@ -53,9 +51,8 @@ func TestS3BucketConfigurationListRoots(t *testing.T) {
 	}
 }
 
-// TestEC2DescribeInstanceTypesVCpuInfoCasing pins the vCpuInfo element
-// to the model's xmlName ("vCpuInfo", capital C — ec2.smithy.json.gz
-// InstanceTypeInfo.VCpuInfo).
+// TestEC2DescribeInstanceTypesVCpuInfoCasing pins the vCpuInfo element to the
+// xmlName ec2.smithy.json.gz declares on InstanceTypeInfo.VCpuInfo.
 func TestEC2DescribeInstanceTypesVCpuInfoCasing(t *testing.T) {
 	srv, _, _ := buildConformanceSimulator(t)
 

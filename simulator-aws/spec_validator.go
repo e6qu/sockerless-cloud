@@ -16,30 +16,16 @@ import (
 )
 
 // Runtime wire-shape validation against the vendored Smithy models
-// (specs/cloud-api/aws/). Armed when SOCKERLESS_SPEC_VALIDATE (report
-// file) is set; SOCKERLESS_SPEC_DIR must then point at the vendored spec
-// directory. Coverage:
-//
-//   - awsJson1.0 / awsJson1.1 (X-Amz-Target routing): success responses
-//     are validated member-by-member against the operation's output
-//     shape — members the spec doesn't define and primitive type
-//     mismatches are violations.
-//   - awsQuery / ec2Query (POST / with Action+Version form params):
-//     success XML is validated against the protocol envelope
-//     (<OpResponse><OpResult>…</OpResult><ResponseMetadata/> for
-//     awsQuery; flat <OpResponse> + <requestId> for ec2Query) and the
-//     output shape, honoring xmlName / xmlFlattened traits. See
-//     spec_validator_xml.go.
-//   - restXml (S3 / CloudFront / Route 53 REST routes): the operation is
-//     identified by matching the served mux pattern + query-string
-//     literals against the models' smithy.api#http traits; the XML body
-//     is validated against the output shape with httpHeader /
-//     httpPrefixHeaders / httpResponseCode members excluded and
-//     httpPayload members serving as the document root.
-//
-// restJson1 path operations are exercised by the static surface gate +
-// SDK suites; their shape validation rides the same report mechanism
-// when added.
+// (specs/cloud-api/aws/), armed when SOCKERLESS_SPEC_VALIDATE names a report file;
+// SOCKERLESS_SPEC_DIR must then name the vendored spec directory. awsJson1.0 and
+// awsJson1.1 success responses are checked member by member against the output
+// shape. awsQuery and ec2Query success XML is checked against the protocol
+// envelope and the output shape, honouring xmlName and xmlFlattened (see
+// spec_validator_xml.go). restXml routes (S3, CloudFront, Route 53) are
+// identified by matching the served mux pattern and query literals against the
+// smithy.api#http traits, and the body is checked with header- and
+// status-bound members excluded and httpPayload members as the root. restJson1
+// operations are covered by the static surface gate and the SDK suites.
 
 type smithyShapeDef struct {
 	Type    string                     `json:"type"`
@@ -596,13 +582,9 @@ func validateSmithyValue(idx *smithyModelIndex, op, shapeID, path string, v any,
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "type-mismatch", Field: path, Detail: fmt.Sprintf("spec %s is a %s, response has %T", shapeID, shape.Type, v)})
 			return
 		}
-		// A smithy.api#pattern is as much a part of the wire contract as the
-		// type is, and it is where identity-bearing strings are pinned: an ARN
-		// or an instance id whose shape carries a pattern is not merely "a
-		// string", and a value well-formed enough to deserialize can still name
-		// something that does not exist. Checking the type alone accepts those
-		// silently, which is how a malformed ARN reached every AWS
-		// Organizations response.
+		// A smithy.api#pattern is part of the wire contract: it pins identity-bearing
+		// strings such as ARNs and instance ids, and a value that deserializes can still
+		// name something that does not exist.
 		if re := idx.pattern(shapeID, shape); re != nil && !re.MatchString(s) {
 			*out = append(*out, sim.SpecViolation{Op: op, Kind: "pattern-mismatch", Field: path,
 				Detail: fmt.Sprintf("spec %s requires %s, response has %q", shapeID, re.String(), s)})
@@ -665,9 +647,8 @@ func (idx *smithyModelIndex) pattern(shapeID string, shape smithyShapeDef) *rege
 	return re
 }
 
-// validateSmithyPrimitive covers smithy.api# prelude targets.
-// smithyEnumValues lists the wire values an enum shape declares, in the order
-// the model writes them.
+// smithyEnumValues lists the wire values an enum shape declares, in model
+// order.
 func smithyEnumValues(shape smithyShapeDef) []string {
 	values := make([]string, 0, len(shape.Members))
 	for name, ref := range shape.Members {

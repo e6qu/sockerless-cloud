@@ -9,19 +9,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// SSM State Manager associations + Automation + Run Command.
-//
-// State Manager binds an SSM document to a set of targets (instance IDs or
-// tag/resource-group Targets) on a schedule; each binding is a versioned
-// Association (AssociationId is a UUID) whose status settles Pending→Success.
-// Automation runs a document as a multi-step workflow (AutomationExecutionId is
-// a UUID) with real-shaped StepExecutions, and exposes an execution-preview
-// surface. Run Command dispatches a document to instances (CommandId is a UUID),
-// producing a per-instance CommandInvocation. All async state settles
-// deterministically on read — there are no synthetic timers — so a control
-// plane reads back a terminal Success the first time it polls.
+// AWS Systems Manager State Manager associations, Automation and Run Command.
+// An association binds a document to targets on a schedule, as versioned
+// revisions under a UUID AssociationId. Automation runs a document as a workflow
+// of StepExecutions, with an execution-preview surface. Run Command dispatches a
+// document to managed nodes and records a CommandInvocation per node. The
+// simulator settles association and automation state on read, not by applying the
+// document, so the first poll reads a terminal Success.
 
-// SSMAssociationVersion is one immutable revision of an association's binding.
 type SSMAssociationVersion struct {
 	AssociationVersion    string              `json:"AssociationVersion"`
 	CreatedDate           float64             `json:"CreatedDate"`
@@ -41,7 +36,6 @@ type SSMAssociationVersion struct {
 	AutomationTargetParam string              `json:"AutomationTargetParameterName,omitempty"`
 }
 
-// SSMAssociation is a State Manager binding plus its version history.
 type SSMAssociation struct {
 	AssociationId         string                  `json:"AssociationId"`
 	Name                  string                  `json:"Name"`
@@ -69,8 +63,8 @@ type SSMAssociation struct {
 	Executions            []SSMAssociationExec    `json:"Executions"`
 }
 
-// SSMAssociationExec is one execution of an association (created on demand by
-// StartAssociationsOnce / on first read), already settled to Success.
+// SSMAssociationExec is one execution of an association, which
+// StartAssociationsOnce or the first read creates already settled to Success.
 type SSMAssociationExec struct {
 	ExecutionId        string  `json:"ExecutionId"`
 	AssociationVersion string  `json:"AssociationVersion"`
@@ -80,7 +74,6 @@ type SSMAssociationExec struct {
 	ResourceId         string  `json:"ResourceId"`
 }
 
-// SSMAutomationStep is one StepExecution of an automation workflow.
 type SSMAutomationStep struct {
 	StepName      string  `json:"StepName"`
 	Action        string  `json:"Action"`
@@ -92,7 +85,6 @@ type SSMAutomationStep struct {
 	IsEnd         bool    `json:"IsEnd"`
 }
 
-// SSMAutomationExecution is an Automation workflow run.
 type SSMAutomationExecution struct {
 	AutomationExecutionId string              `json:"AutomationExecutionId"`
 	DocumentName          string              `json:"DocumentName"`
@@ -109,7 +101,7 @@ type SSMAutomationExecution struct {
 	Targets               []SSMTarget         `json:"Targets,omitempty"`
 }
 
-// SSMExecutionPreview is a StartExecutionPreview/GetExecutionPreview record.
+// SSMExecutionPreview is a StartExecutionPreview record, read back by GetExecutionPreview.
 type SSMExecutionPreview struct {
 	ExecutionPreviewId string  `json:"ExecutionPreviewId"`
 	DocumentName       string  `json:"DocumentName"`
@@ -117,7 +109,6 @@ type SSMExecutionPreview struct {
 	EndedAt            float64 `json:"EndedAt"`
 }
 
-// SSMCommandInvocation is the per-instance result of a SendCommand dispatch.
 type SSMCommandInvocation struct {
 	InstanceId       string `json:"InstanceId"`
 	Status           string `json:"Status"`
@@ -132,7 +123,6 @@ type SSMCommandInvocation struct {
 	ExecutionElapsed string `json:"ExecutionElapsedTime,omitempty"`
 }
 
-// SSMCommand is a Run Command dispatch plus its per-instance invocations.
 type SSMCommand struct {
 	CommandId       string                 `json:"CommandId"`
 	DocumentName    string                 `json:"DocumentName"`
@@ -197,8 +187,8 @@ func registerSSMAssociations(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ssmDocExists validates a referenced SSM document name: the account's own
-// documents and the AWS-managed ones the simulator carries.
+// ssmDocExists reports whether a document name is one of the account's documents
+// or one of the AWS-managed documents the simulator carries.
 func ssmDocExists(name string) bool {
 	if name == "" {
 		return false
@@ -210,7 +200,6 @@ func ssmDocExists(name string) bool {
 	return ok
 }
 
-// ssmAssociationDescriptionWire projects AssociationDescription.
 func ssmAssociationDescriptionWire(a SSMAssociation) map[string]any {
 	out := map[string]any{
 		"Name":                      a.Name,
@@ -261,9 +250,8 @@ func ssmAssociationDescriptionWire(a SSMAssociation) map[string]any {
 	return out
 }
 
-// ssmAssociationResources returns the resource IDs an association targets — the
-// explicit InstanceId or the values of an InstanceIds Target — used to shape
-// per-target execution and effective-instance views.
+// ssmAssociationResources returns the resource IDs an association targets: its
+// InstanceId or the values of an InstanceIds Target.
 func ssmAssociationResources(a SSMAssociation) []string {
 	var ids []string
 	if a.InstanceId != "" {
@@ -299,7 +287,6 @@ type ssmCreateAssociationReq struct {
 	Tags                          []SSMTag            `json:"Tags"`
 }
 
-// ssmBuildAssociation creates a fresh association from a request entry.
 func ssmBuildAssociation(req ssmCreateAssociationReq) SSMAssociation {
 	now := float64(time.Now().Unix())
 	a := SSMAssociation{
@@ -323,10 +310,8 @@ func ssmBuildAssociation(req ssmCreateAssociationReq) SSMAssociation {
 		Date:                  now,
 		LastUpdateDate:        now,
 		LastExecutionDate:     now,
-		// On-demand associations (no schedule) settle to Success immediately;
-		// scheduled ones start Pending until their first execution. Either way
-		// the sim has no synthetic timer — the next read of a scheduled
-		// association settles it.
+		// An association with no schedule settles to Success at once; a scheduled one
+		// stays Pending until the next read settles it.
 		StatusName: "Pending",
 	}
 	a.Versions = []SSMAssociationVersion{ssmAssociationVersionOf(a)}
@@ -354,9 +339,8 @@ func ssmAssociationVersionOf(a SSMAssociation) SSMAssociationVersion {
 	}
 }
 
-// ssmSettleAssociation moves a Pending association to its terminal Success on
-// read and records an execution row, mirroring State Manager applying the
-// document. Deterministic — no timer.
+// ssmSettleAssociation moves a Pending association to Success and records an
+// execution, without applying the document.
 func ssmSettleAssociation(a SSMAssociation) SSMAssociation {
 	if a.StatusName == "Pending" {
 		a.StatusName = "Success"
@@ -463,8 +447,8 @@ func handleSSMDeleteAssociation(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ssmResolveAssociation finds an association by AssociationId, or by the
-// (Name, InstanceId) pair real SSM also accepts.
+// ssmResolveAssociation finds an association by AssociationId, or by the (Name,
+// InstanceId) pair Systems Manager also accepts.
 func ssmResolveAssociation(id, name, instanceID string) (SSMAssociation, bool) {
 	if id != "" {
 		return ssmAssociations.Get(id)
@@ -937,8 +921,8 @@ func handleSSMDescribeInstanceAssociationsStatus(w http.ResponseWriter, r *http.
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// ssmAssociationsForInstance returns associations bound to an instance, either
-// by explicit InstanceId or by an InstanceIds Target.
+// ssmAssociationsForInstance returns the associations that bind an instance, by
+// InstanceId or by an InstanceIds Target.
 func ssmAssociationsForInstance(instanceID string) []SSMAssociation {
 	var out []SSMAssociation
 	for _, a := range ssmAssociations.List() {
@@ -979,8 +963,8 @@ func handleSSMStartAssociationsOnce(w http.ResponseWriter, r *http.Request) {
 func ssmBuildAutomation(docName, docVersion, mode, changeReq string, params map[string][]string, targets []SSMTarget) SSMAutomationExecution {
 	now := float64(time.Now().Unix())
 	id := uuid.New().String()
-	// One real-shaped, already-settled step per execution — the sim runs the
-	// document synchronously, so GetAutomationExecution reads back Success.
+	// The simulator records one settled step per execution rather than running the
+	// document's steps, so GetAutomationExecution reads back Success.
 	step := SSMAutomationStep{
 		StepName:      "runStep",
 		Action:        "aws:runShellScript",
@@ -1317,9 +1301,8 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 			targets = append(targets, t.Values...)
 		}
 	}
-	// A command runs on managed nodes: instances whose SSM Agent reports and
-	// whose machine is up. Any other target fails the whole request, as
-	// Systems Manager refuses it.
+	// A command runs only on managed nodes, instances whose SSM Agent reports and
+	// whose machine is up; Systems Manager refuses the whole request otherwise.
 	var invalid []string
 	for _, id := range targets {
 		if _, ok := ec2WorkloadHandle(id); !ok || !ssmManagedNodeOnline(id) {
@@ -1363,9 +1346,8 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 		ExpiresAfter:    now + float64(timeout),
 		Status:          "Pending",
 		StatusDetail:    "Pending",
-		// A command always reports a concurrency and an error threshold: AWS
-		// applies its documented defaults when the request names none, so an
-		// unset member is not empty on the wire.
+		// Systems Manager applies its documented MaxConcurrency and MaxErrors defaults
+		// when the request names none, so the wire never carries them empty.
 		MaxConcurrency: ssmOrDefault(req.MaxConcurrency, "50"),
 		MaxErrors:      ssmOrDefault(req.MaxErrors, "0"),
 		TimeoutSeconds: timeout,
@@ -1428,7 +1410,7 @@ func handleSSMCancelCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cmd.Status == "Success" {
-		// A finished command can't be cancelled; real SSM no-ops.
+		// Systems Manager accepts a CancelCommand on a finished command and does nothing.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
@@ -1576,9 +1558,9 @@ func handleSSMGetCommandInvocation(w http.ResponseWriter, r *http.Request) {
 			"The command ID and managed node ID you specified didn't match any invocations.")
 		return
 	}
-	// ExecutionStartDateTime / ExecutionElapsedTime / ExecutionEndDateTime are
-	// StringDateTime members on this op (ISO-8601 / duration strings), unlike
-	// the epoch-number DateTime used elsewhere.
+	// On this operation ExecutionStartDateTime, ExecutionElapsedTime and
+	// ExecutionEndDateTime are StringDateTime (ISO 8601 and duration strings), not
+	// epoch-number DateTime.
 	out := map[string]any{
 		"CommandId":              cmd.CommandId,
 		"InstanceId":             req.InstanceId,

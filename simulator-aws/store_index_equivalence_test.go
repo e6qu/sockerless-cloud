@@ -8,11 +8,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The hosting data plane resolves a branch's newest successful job, that job's
-// files, and — for domain verification and certificate validation — a CNAME in
-// any hosted zone. Each ran over a whole store per request and is now indexed,
-// so each is checked here against the scan it replaced rather than against a
-// hand-written expectation that could drift with it.
+// The AWS Amplify Hosting data plane resolves a branch's newest successful job,
+// that job's files and, for domain verification and certificate validation, a
+// CNAME in any hosted zone, all through indexes. Each is checked against a scan
+// of the whole store, not a hand-written expectation that could drift with it.
 
 func seedAmplifyIndexStores(t *testing.T) {
 	t.Helper()
@@ -52,7 +51,7 @@ func seedAmplifyIndexStores(t *testing.T) {
 func TestAmplifyHostingLookupsMatchTheirScans(t *testing.T) {
 	seedAmplifyIndexStores(t)
 
-	// The scan the index replaced: every job in the process, filtered.
+	// The equivalent scan: every job in the process, filtered.
 	scanLatest := func(app, branch string) (amplifyStoredJob, bool) {
 		var jobs []amplifyStoredJob
 		for _, j := range amplifyJobs.List() {
@@ -158,7 +157,7 @@ func TestRoute53CNAMELookupMatchesTheZoneScan(t *testing.T) {
 		t.Error("a record in a zone that does not cover the domain must not verify")
 	}
 
-	// The index answers exactly the set the scan did.
+	// The index answers exactly the set the scan does.
 	var want []string
 	for _, z := range r53Zones.List() {
 		for _, rec := range z.Records {

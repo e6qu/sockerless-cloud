@@ -10,12 +10,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// SSM Patch Baselines — terraform's `aws_ssm_patch_baseline` and
-// `aws_ssm_default_patch_baseline` resources hit this slice. A baseline
-// scopes patch approval rules to an operating system; one baseline per
-// OS can be the account default. The sim round-trips the nested
-// GlobalFilters / ApprovalRules / Sources structures verbatim as raw
-// JSON so it never silently drops a member the SDK sent.
+// AWS Systems Manager patch baselines scope patch approval rules to an operating
+// system, and one baseline per operating system can be the account default. The
+// nested GlobalFilters, ApprovalRules and Sources round-trip verbatim as raw JSON.
 
 type SSMPatchBaseline struct {
 	BaselineId                       string          `json:"BaselineId"`
@@ -34,16 +31,14 @@ type SSMPatchBaseline struct {
 	ModifiedDate                     float64         `json:"ModifiedDate"`
 }
 
-// SSMDefaultBaseline maps an OperatingSystem to its account-default
-// baseline. Keyed by OperatingSystem in the store.
+// SSMDefaultBaseline records an operating system's account-default baseline.
 type SSMDefaultBaseline struct {
 	OperatingSystem string `json:"OperatingSystem"`
 	BaselineId      string `json:"BaselineId"`
 }
 
 var (
-	ssmPatchBaselines sim.Store[SSMPatchBaseline]
-	// ssmDefaultBaselines maps an OperatingSystem → default baseline.
+	ssmPatchBaselines   sim.Store[SSMPatchBaseline]
 	ssmDefaultBaselines sim.Store[SSMDefaultBaseline]
 )
 
@@ -60,8 +55,7 @@ func registerSSMPatchBaselines(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonSSM.RegisterDefaultPatchBaseline", handleSSMRegisterDefaultPatchBaseline)
 }
 
-// newSSMBaselineID returns a "pb-" + 17 lowercase hex chars ID, matching
-// the real-AWS baseline ID shape (the BaselineId pattern allows it).
+// newSSMBaselineID returns a "pb-" ID of 17 lowercase hex digits, as AWS issues.
 func newSSMBaselineID() string {
 	b := make([]byte, 9)
 	_, _ = rand.Read(b)
@@ -166,7 +160,7 @@ func handleSSMDeletePatchBaseline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssmPatchBaselines.Delete(req.BaselineId)
-	// Clear any default mapping that pointed at it.
+	// Clear any default that pointed at the baseline.
 	for _, d := range ssmDefaultBaselines.List() {
 		if d.BaselineId == req.BaselineId {
 			ssmDefaultBaselines.Delete(d.OperatingSystem)
@@ -308,16 +302,16 @@ func handleSSMGetDefaultPatchBaseline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ssmDefaultBaselineID resolves the baseline a default read answers with for an
-// operating system. Shared with the IAM derivation, which authorizes that read
-// against the same baseline the read returns — two answers to one question
-// have to come from one place.
+// ssmDefaultBaselineID resolves the baseline a default read returns for an
+// operating system. The IAM derivation shares it, so authorization checks the
+// same baseline the read returns.
 func ssmDefaultBaselineID(os string) string {
 	if def, ok := ssmDefaultBaselines.Get(os); ok && def.BaselineId != "" {
 		return def.BaselineId
 	}
-	// Real SSM always has an AWS-managed default per OS, so a caller that
-	// registered none still gets a baseline.
+	// Systems Manager always has an AWS-managed default per operating system. The
+	// simulator names it by a made-up "pb-aws-default-<os>" ID rather than AWS's
+	// published baseline IDs.
 	return "arn:aws:ssm:" + awsRegion() + ":" + awsAccountID() + ":patchbaseline/pb-aws-default-" + os
 }
 

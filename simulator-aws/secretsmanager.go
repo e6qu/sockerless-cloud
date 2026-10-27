@@ -13,9 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// randIntn returns a non-negative pseudo-random integer in [0, n)
-// using crypto/rand. Used by GetRandomPassword to draw characters
-// from the configured pool.
+// randIntn returns a uniform integer in [0, n) from crypto/rand.
 func randIntn(n int) int {
 	if n <= 0 {
 		return 0
@@ -25,25 +23,10 @@ func randIntn(n int) int {
 	return int(binary.BigEndian.Uint64(b[:])>>1) % n
 }
 
-// Secrets Manager — sockerless runner workflows commonly fetch DB
-// credentials, API tokens, and service-account keys from this slice.
-// Without it, every `aws-actions/configure-aws-credentials` follow-up
-// or `aws secretsmanager get-secret-value` 404s. Wire format follows
-// the JSON protocol with `X-Amz-Target: secretsmanager.<Action>`.
-
-// SMSecret is a Secrets Manager secret. Real Secrets Manager stores
-// a per-version history keyed by VersionId; each version carries a
-// set of staging labels (AWSCURRENT, AWSPREVIOUS, AWSPENDING, plus
-// arbitrary user-defined labels). The newest version always carries
-// AWSCURRENT; the immediately-prior version carries AWSPREVIOUS;
-// older versions carry no canonical stage (and are typically
-// auto-removed after a deprecation window). The sim retains the full
-// version history so ListSecretVersionIds and version-id-selected
-// GetSecretValue round-trip correctly.
-//
-// VersionId on the top-level struct points to the AWSCURRENT
-// version for backward compatibility with handlers that read it
-// directly; the canonical view is the Versions slice.
+// SMSecret keeps its full version history so ListSecretVersionIds and
+// version-selected GetSecretValue round-trip. The newest version carries
+// AWSCURRENT and the one before it AWSPREVIOUS. VersionId mirrors the AWSCURRENT
+// version for handlers that read it; Versions is the canonical view.
 type SMSecret struct {
 	ARN              string            `json:"ARN"`
 	Name             string            `json:"Name"`
@@ -60,29 +43,27 @@ type SMSecret struct {
 	SecretBinary     []byte            `json:"SecretBinary,omitempty"`
 	Tags             []SMTag           `json:"Tags,omitempty"`
 	Versions         []SMSecretVersion `json:"Versions,omitempty"`
-	// ResourcePolicy is the raw policy JSON attached via PutResourcePolicy
-	// (and mirrored into the central IAM resource-policy store).
+	// ResourcePolicy is the raw policy PutResourcePolicy attached, mirrored into
+	// the IAM resource-policy store.
 	ResourcePolicy string `json:"ResourcePolicy,omitempty"`
-	// Rotation state. RotationEnabled flips on RotateSecret with rules and
-	// off on CancelRotateSecret; the rule fields drive DescribeSecret.
+	// RotateSecret with rules turns rotation on and CancelRotateSecret turns it
+	// off; DescribeSecret reports the rules.
 	RotationEnabled   bool            `json:"RotationEnabled,omitempty"`
 	RotationLambdaARN string          `json:"RotationLambdaARN,omitempty"`
 	RotationRules     SMRotationRules `json:"RotationRules,omitempty"`
 	NextRotationDate  float64         `json:"NextRotationDate,omitempty"`
 	LastRotatedDate   float64         `json:"LastRotatedDate,omitempty"`
-	// Replicas is the per-secret replication-status list managed by the
-	// ReplicateSecretToRegions / RemoveRegionsFromReplication ops.
+	// Replicas is the replication-status list ReplicateSecretToRegions and
+	// RemoveRegionsFromReplication manage.
 	Replicas []SMReplicationStatus `json:"Replicas,omitempty"`
 }
 
-// SMRotationRules mirrors the RotationRulesType structure.
 type SMRotationRules struct {
 	AutomaticallyAfterDays int64  `json:"AutomaticallyAfterDays,omitempty"`
 	Duration               string `json:"Duration,omitempty"`
 	ScheduleExpression     string `json:"ScheduleExpression,omitempty"`
 }
 
-// SMReplicationStatus mirrors one ReplicationStatusType entry.
 type SMReplicationStatus struct {
 	Region           string  `json:"Region,omitempty"`
 	KmsKeyId         string  `json:"KmsKeyId,omitempty"`
@@ -96,7 +77,6 @@ type SMReplicaRegionRequest struct {
 	KmsKeyId string `json:"KmsKeyId"`
 }
 
-// SMSecretVersion is one entry in the per-secret version history.
 type SMSecretVersion struct {
 	VersionId    string   `json:"VersionId"`
 	CreatedDate  float64  `json:"CreatedDate"`
@@ -105,21 +85,16 @@ type SMSecretVersion struct {
 	Stages       []string `json:"VersionStages,omitempty"`
 }
 
-// addNewVersion appends a new version to the secret's history,
-// promotes it to AWSCURRENT, demotes the prior AWSCURRENT to
-// AWSPREVIOUS, and clears AWSPREVIOUS off any older entry. The
-// new version's ID is returned.
-//
-// Real Secrets Manager: a new version is created on CreateSecret,
-// PutSecretValue, and RotateSecret. UpdateSecret only mints a new
-// version when SecretString or SecretBinary changes.
+// addNewVersion appends a version, makes it AWSCURRENT, demotes the prior
+// AWSCURRENT to AWSPREVIOUS, clears AWSPREVIOUS from older ones, and returns the
+// new ID. CreateSecret, PutSecretValue and RotateSecret create a version;
+// UpdateSecret does only when SecretString or SecretBinary changes.
 func (s *SMSecret) addNewVersion(secretString string, secretBinary []byte) string {
 	now := float64(time.Now().Unix())
 	newID := sim.NewUUID()
 
-	// Demote prior AWSCURRENT → AWSPREVIOUS; drop AWSPREVIOUS off
-	// older versions (real SM keeps them but with empty stages
-	// once they fall out of the recent-two window).
+	// Demote the prior AWSCURRENT to AWSPREVIOUS; older versions keep no stage once
+	// they leave the recent two.
 	for i := range s.Versions {
 		newStages := s.Versions[i].Stages[:0]
 		for _, stg := range s.Versions[i].Stages {
@@ -127,7 +102,6 @@ func (s *SMSecret) addNewVersion(secretString string, secretBinary []byte) strin
 			case "AWSCURRENT":
 				newStages = append(newStages, "AWSPREVIOUS")
 			case "AWSPREVIOUS":
-				// drop
 			default:
 				newStages = append(newStages, stg)
 			}
@@ -146,10 +120,8 @@ func (s *SMSecret) addNewVersion(secretString string, secretBinary []byte) strin
 	return newID
 }
 
-// versionByIDOrStage selects a version by either VersionId (UUID)
-// or VersionStage (canonical or user-defined label). Real
-// GetSecretValue prefers VersionId when both are set; the sim
-// matches that precedence.
+// versionByIDOrStage selects a version by VersionId or VersionStage;
+// GetSecretValue prefers VersionId when both are set.
 func (s *SMSecret) versionByIDOrStage(versionID, stage string) (SMSecretVersion, bool) {
 	if versionID != "" {
 		for _, v := range s.Versions {
@@ -172,8 +144,7 @@ func (s *SMSecret) versionByIDOrStage(versionID, stage string) (SMSecretVersion,
 	return SMSecretVersion{}, false
 }
 
-// SMTag mirrors `aws.Tag`. Real Secrets Manager tags propagate to
-// CloudTrail and AWS Config; the sim just round-trips them.
+// SMTag is the Secrets Manager tag shape (Key/Value).
 type SMTag struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
@@ -182,9 +153,8 @@ type SMTag struct {
 var smSecrets sim.Store[SMSecret]
 
 func smArnForRegion(name, region string) string {
-	// Real ARN format: arn:aws:secretsmanager:<region>:<account>:secret:<name>-<6-char-suffix>.
-	// The suffix is a per-secret random string; we use a deterministic
-	// 6-char slice so tests can match on prefix.
+	// Secrets Manager appends a random 6-character suffix to the secret name in its
+	// ARN; the simulator derives the suffix deterministically.
 	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
 		region, awsAccountID(), name, sim.NewUUID()[:6])
 }
@@ -289,12 +259,7 @@ func smUpdate(key string, update func(*SMSecret)) {
 	}
 }
 
-// handleSMGetResourcePolicy returns the resource policy attached to a
-// secret. Real Secrets Manager returns the {ARN, Name, ResourcePolicy}
-// triple — ResourcePolicy is the empty string when no policy is set
-// (the most common case for fresh secrets, including everything created
-// in this sim). terraform-provider-aws calls this after CreateSecret to
-// populate the resource's `policy` attribute.
+// handleSMGetResourcePolicy returns the secret's {ARN, Name, ResourcePolicy}.
 func handleSMGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId string `json:"SecretId"`
@@ -309,11 +274,8 @@ func handleSMGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 			"Secrets Manager can't find the specified secret: %s", req.SecretId)
 		return
 	}
-	// Real Secrets Manager omits ResourcePolicy entirely when no policy
-	// is attached (the SDK's response struct has it as *string + omitempty).
-	// Returning ResourcePolicy: "" makes terraform-provider-aws try to
-	// JSON-parse the empty string and crash with "unexpected end of JSON
-	// input". Match real behavior: omit the field unless a policy exists.
+	// Secrets Manager omits ResourcePolicy when no policy is attached; an empty
+	// string makes terraform-provider-aws fail parsing it as JSON.
 	resp := map[string]any{
 		"ARN":  secret.ARN,
 		"Name": secret.Name,
@@ -324,8 +286,7 @@ func handleSMGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// resolveSMSecret accepts either a Name or full ARN and returns the
-// stored secret. Mirrors how the other SM handlers do lookup.
+// resolveSMSecret returns the stored secret a name or ARN names.
 func smRequestRegion(r *http.Request) string {
 	if region := iamRequestedRegion(r); region != "" {
 		return region
@@ -479,15 +440,15 @@ func handleSMGetSecretValue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if secret.DeletedDate != 0 {
-		// A secret scheduled for deletion can't have its value read until
-		// it is restored. Real AWS returns InvalidRequestException.
+		// Secrets Manager refuses to read a secret scheduled for deletion until it is
+		// restored (InvalidRequestException).
 		AWSErrorf(w, "InvalidRequestException", http.StatusBadRequest,
 			"You can't perform this operation on the secret because it was marked for deletion.")
 		return
 	}
 	version, found := secret.versionByIDOrStage(req.VersionId, req.VersionStage)
 	if !found {
-		// Real AWS returns this exact code/message on a miss.
+		// Secrets Manager answers a miss with this code and message.
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"Secrets Manager can't find the specified secret value for VersionId: %s VersionStage: %s",
 			req.VersionId, req.VersionStage)
@@ -507,7 +468,7 @@ func handleSMGetSecretValue(w http.ResponseWriter, r *http.Request) {
 		resp["SecretBinary"] = base64.StdEncoding.EncodeToString(version.SecretBinary)
 	}
 
-	// Real AWS records LastAccessedDate on read.
+	// Secrets Manager records LastAccessedDate on read.
 	smSecrets.Update(smStoreKey(smSecretRegion(secret), secret.Name), func(s *SMSecret) {
 		s.LastAccessedDate = float64(time.Now().Unix())
 	})
@@ -635,8 +596,7 @@ func handleSMUpdateSecret(w http.ResponseWriter, r *http.Request) {
 		if req.KmsKeyId != "" {
 			s.KmsKeyId = req.KmsKeyId
 		}
-		// Real SM only mints a new version when the secret bytes
-		// change; metadata-only updates leave VersionId untouched.
+		// Secrets Manager mints a new version only when the secret bytes change.
 		if req.SecretString != "" || len(req.SecretBinary) > 0 {
 			s.SecretString = req.SecretString
 			s.SecretBinary = req.SecretBinary
@@ -719,8 +679,7 @@ func handleSMDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	if req.ForceDeleteWithoutRecovery {
-		// Hard delete: the secret is removed immediately and is not
-		// recoverable. DeletionDate is "now" in this case.
+		// A forced delete removes the secret at once; DeletionDate is now.
 		iamDeleteResourcePolicy(secret.ARN)
 		smSecrets.Delete(name)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -730,10 +689,9 @@ func handleSMDeleteSecret(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// Soft delete: schedule the secret for deletion after a recovery
-	// window (default 30 days, real-AWS bounds 7..30). The secret stays
-	// in the store, marked with DeletedDate, until RestoreSecret clears
-	// it or the window elapses. GetSecretValue rejects it meanwhile.
+	// A scheduled delete keeps the secret, marked with DeletedDate, for a recovery
+	// window (default 30 days, 7 to 30) until RestoreSecret clears it or the window
+	// elapses; GetSecretValue refuses it meanwhile.
 	window := req.RecoveryWindowInDays
 	if window == 0 {
 		window = 30
@@ -823,7 +781,7 @@ func smSecretMatchesFilter(s SMSecret, f smFilter) bool {
 			return primaryRegion == v
 		})
 	}
-	return true // unknown filter key → lenient (don't exclude)
+	return true // an unknown key excludes nothing
 }
 
 func handleSMListSecrets(w http.ResponseWriter, r *http.Request) {
@@ -847,9 +805,8 @@ func handleSMListSecrets(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SMSecret{}
 	}
-	// Apply the server-side Filters (AND-combined across filters, OR within a
-	// filter's Values), matching real Secrets Manager — a tag-key filter
-	// matching no secret returns [].
+	// Filters AND across keys and OR within a key's Values, as Secrets Manager
+	// applies them; a tag-key filter matching nothing returns [].
 	if len(req.Filters) > 0 {
 		filtered := make([]SMSecret, 0, len(all))
 		for _, s := range all {
@@ -903,7 +860,7 @@ func handleSMTagResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	smUpdate(name, func(s *SMSecret) {
-		// Real AWS overwrites by Key when tagging the same key twice.
+		// Secrets Manager overwrites a tag by Key.
 		merged := make(map[string]string)
 		for _, t := range s.Tags {
 			merged[t.Key] = t.Value
@@ -916,10 +873,8 @@ func handleSMTagResource(w http.ResponseWriter, r *http.Request) {
 			s.Tags = append(s.Tags, SMTag{Key: k, Value: v})
 		}
 	})
-	// Real Secrets Manager TagResource returns 200 with the awsJson1_1
-	// Content-Type and an empty body. Set the Content-Type explicitly
-	// so the SDK's deserialiser sees the right MIME; an unset header
-	// would default to text/plain on Go's net/http.
+	// TagResource answers 200 with an empty body. Set the awsJson1_1 Content-Type,
+	// which net/http would otherwise default to text/plain.
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(http.StatusOK)
 }
@@ -967,31 +922,9 @@ func resolveSecretKeyForRequest(r *http.Request, idOrArn string) (string, bool) 
 	return smStoreKey(smSecretRegion(secret), secret.Name), true
 }
 
-// handleSMListSecretVersionIds returns the per-secret version history
-// real Secrets Manager exposes. The standard pattern is:
-//
-//	out, _ := client.ListSecretVersionIds(ctx, &..ListSecretVersionIdsInput{SecretId: aws.String(name)})
-//	// then pick a VersionId from out.Versions and pass it to GetSecretValue.
-//
-// Audit / rotation / cross-cloud-sync workflows that need to read a
-// specific past version (rather than just AWSCURRENT) depend on
-// this op. Real wire shape:
-//
-//	{
-//	  "ARN":  "<secret arn>",
-//	  "Name": "<secret name>",
-//	  "Versions": [
-//	    {"VersionId": "<uuid>", "CreatedDate": <unix>, "VersionStages": ["AWSCURRENT"]},
-//	    {"VersionId": "<uuid>", "CreatedDate": <unix>, "VersionStages": ["AWSPREVIOUS"]},
-//	    ...
-//	  ],
-//	  "NextToken": null
-//	}
-//
-// IncludeDeprecated controls whether versions with empty stage list
-// are returned. MaxResults / NextToken provide pagination shape;
-// the sim emits all versions in one page (paginated responses are
-// for very-old secrets with hundreds of rotations).
+// handleSMListSecretVersionIds returns the secret's version history;
+// IncludeDeprecated adds the versions with no stage. The simulator returns every
+// version in one page.
 func handleSMListSecretVersionIds(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId          string `json:"SecretId"`
@@ -1011,8 +944,7 @@ func handleSMListSecretVersionIds(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(secret.Versions))
 	for _, v := range secret.Versions {
-		// "Deprecated" versions are those with no stage labels.
-		// Real SM excludes them unless IncludeDeprecated is set.
+		// A version with no stage is deprecated; Secrets Manager excludes it unless IncludeDeprecated is set.
 		if !req.IncludeDeprecated && len(v.Stages) == 0 {
 			continue
 		}
@@ -1023,9 +955,8 @@ func handleSMListSecretVersionIds(w http.ResponseWriter, r *http.Request) {
 		if len(v.Stages) > 0 {
 			entry["VersionStages"] = v.Stages
 		}
-		// Real SM also returns LastAccessedDate per-version; the
-		// sim tracks last-access on the secret rather than per-
-		// version, so this is intentionally omitted.
+		// Secrets Manager also reports LastAccessedDate per version; the simulator
+		// tracks it per secret, so omit it.
 		out = append(out, entry)
 	}
 	resp := map[string]any{
@@ -1036,10 +967,8 @@ func handleSMListSecretVersionIds(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// handleSMGetRandomPassword generates a random password per the
-// constraints in the request — used by rotation logic and by
-// `aws secretsmanager get-random-password` directly. The op is
-// stateless: no store reads or writes.
+// handleSMGetRandomPassword generates a password to the request's constraints,
+// reading and writing no store.
 func handleSMGetRandomPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PasswordLength          int64  `json:"PasswordLength"`
@@ -1056,7 +985,7 @@ func handleSMGetRandomPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.PasswordLength == 0 {
-		req.PasswordLength = 32 // real-SM default
+		req.PasswordLength = 32 // Secrets Manager's default
 	}
 	if req.PasswordLength < 4 || req.PasswordLength > 4096 {
 		AWSError(w, "InvalidParameterException",
@@ -1072,9 +1001,8 @@ func handleSMGetRandomPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMPutResourcePolicy attaches a resource-based policy to a secret.
-// The policy JSON is stored on the secret AND mirrored into the central IAM
-// resource-policy store (like SNS/SQS/Lambda) so the enforcement gate sees it.
+// handleSMPutResourcePolicy attaches a resource-based policy and mirrors it into
+// the IAM resource-policy store for the enforcement gate.
 func handleSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId          string `json:"SecretId"`
@@ -1107,7 +1035,6 @@ func handleSMPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMDeleteResourcePolicy removes the resource-based policy from a secret.
 func handleSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId string `json:"SecretId"`
@@ -1133,10 +1060,9 @@ func handleSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMValidateResourcePolicy checks a candidate policy for syntactic
-// validity. Real Secrets Manager returns PolicyValidationPassed plus a list of
-// per-check ValidationErrors. The sim validates that the document is parseable
-// JSON; a malformed document fails validation with a SYNTAX error entry.
+// handleSMValidateResourcePolicy reports PolicyValidationPassed and
+// ValidationErrors. The simulator checks only that the document parses as JSON;
+// a malformed one fails with a SYNTAX entry.
 func handleSMValidateResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId       string `json:"SecretId"`
@@ -1166,10 +1092,8 @@ func handleSMValidateResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMRestoreSecret cancels a scheduled deletion, returning the secret to
-// active use. Clears DeletedDate. Real AWS errors if the secret isn't scheduled
-// for deletion only in that there's nothing to restore — it returns 200 either
-// way, so the sim is permissive and just clears the flag.
+// handleSMRestoreSecret clears DeletedDate, cancelling a scheduled deletion. It
+// answers 200 whether or not a deletion was scheduled.
 func handleSMRestoreSecret(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId string `json:"SecretId"`
@@ -1194,10 +1118,8 @@ func handleSMRestoreSecret(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMRotateSecret turns on rotation for a secret. With RotateImmediately
-// (the default), it mints a fresh AWSCURRENT version — mirroring how the real
-// service invokes the rotation Lambda which calls PutSecretValue. The returned
-// VersionId is the new version (or AWSCURRENT if rotation was deferred).
+// handleSMRotateSecret turns rotation on. With RotateImmediately (the default)
+// it mints a new AWSCURRENT version and returns its VersionId.
 func handleSMRotateSecret(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId           string          `json:"SecretId"`
@@ -1228,10 +1150,9 @@ func handleSMRotateSecret(w http.ResponseWriter, r *http.Request) {
 			s.RotationRules = req.RotationRules
 		}
 		if rotateNow {
-			// Rotation produces a new version of the secret value. The
-			// real flow runs the rotation Lambda which calls
-			// PutSecretValue; the sim re-stores the current value under a
-			// fresh version to model the version-id change rotation causes.
+			// AWS rotates by invoking the rotation Lambda, which calls PutSecretValue; the
+			// simulator re-stores the current value under a new version without invoking
+			// it.
 			newVersionID = s.addNewVersion(s.SecretString, s.SecretBinary)
 			s.LastRotatedDate = float64(now.Unix())
 			s.LastChangedDate = float64(now.Unix())
@@ -1279,9 +1200,9 @@ func handleSMCancelRotateSecret(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMBatchGetSecretValue returns the AWSCURRENT value for each secret named
-// in SecretIdList (or matched by Filters). Secrets that can't be found or read
-// are reported in Errors rather than failing the whole call, matching real AWS.
+// handleSMBatchGetSecretValue returns the AWSCURRENT value of each secret
+// SecretIdList names or Filters match. A secret that cannot be found or read
+// goes to Errors rather than failing the call, as in AWS.
 func handleSMBatchGetSecretValue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretIdList []string   `json:"SecretIdList"`
@@ -1293,7 +1214,7 @@ func handleSMBatchGetSecretValue(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidRequestException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Real AWS rejects mixing SecretIdList and Filters.
+	// Secrets Manager rejects SecretIdList combined with Filters.
 	if len(req.SecretIdList) > 0 && len(req.Filters) > 0 {
 		AWSError(w, "InvalidParameterException",
 			"Either 'SecretIdList' or 'Filters' must be provided, but not both.", http.StatusBadRequest)
@@ -1376,10 +1297,9 @@ func handleSMBatchGetSecretValue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSMUpdateSecretVersionStage moves a staging label between versions. With
-// MoveToVersionId set it attaches the label there; with RemoveFromVersionId it
-// detaches it. This is how AWSCURRENT/AWSPREVIOUS are repositioned during a
-// rotation finalize step.
+// handleSMUpdateSecretVersionStage attaches a staging label to MoveToVersionId
+// and detaches it from RemoveFromVersionId, which is how a rotation repositions
+// AWSCURRENT and AWSPREVIOUS.
 func handleSMUpdateSecretVersionStage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SecretId            string `json:"SecretId"`
@@ -1689,9 +1609,8 @@ func generateRandomPassword(length int, exclude string, useNum, usePunct, useUpp
 		pool = append(pool, build(spaceChar))
 	}
 	if len(pool) == 0 {
-		// Real SM rejects an empty pool with InvalidParameterException;
-		// the simulator defaults to all-lowercase rather than erroring
-		// so a misconfigured caller still gets a password back.
+		// Secrets Manager rejects an empty pool with InvalidParameterException; the
+		// simulator falls back to lowercase letters instead.
 		pool = append(pool, lowerChars)
 	}
 	all := strings.Join(pool, "")

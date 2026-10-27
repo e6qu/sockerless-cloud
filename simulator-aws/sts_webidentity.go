@@ -13,16 +13,12 @@ import (
 // stsOIDCVerifiers caches the external issuers AWS STS federates.
 var stsOIDCVerifiers = oidcfed.New()
 
-// verifyWebIdentityToken verifies a web identity token the way STS does for
-// AssumeRoleWithWebIdentity: it finds the IAM OpenID Connect identity provider
-// registered for the token's issuer and verifies the token against that
-// issuer — real discovery, real JSON Web Key Set, real signature, issuer, and
-// expiry — then checks the audience against the provider's client ID list. It
-// returns the subject STS reports as SubjectFromWebIdentityToken.
-//
-// This is the console's federation path: an operator signed in through the
-// deployment's identity provider exchanges that assertion for temporary
-// credentials, exactly as a workload federating into AWS does.
+// verifyWebIdentityToken verifies a token as AWS STS does for
+// AssumeRoleWithWebIdentity: it finds the IAM OpenID Connect provider registered
+// for the token's issuer, verifies the signature, issuer and expiry through the
+// issuer's discovery document and JSON Web Key Set, and checks the audience
+// against the provider's client IDs. The console federates its operators through
+// this same path.
 func verifyWebIdentityToken(ctx context.Context, rawToken string) (webIdentity, error) {
 	issuer, err := oidcfed.UnverifiedIssuer(rawToken)
 	if err != nil {
@@ -137,8 +133,7 @@ func webIdentityClaimValues(claim any) []string {
 }
 
 // oidcProviderForIssuer finds the IAM OpenID Connect provider registered for an
-// issuer. AWS stores a provider's URL without its scheme, so the issuer is
-// matched with the scheme stripped.
+// issuer, compared without its scheme, as IAM stores a provider's URL.
 func oidcProviderForIssuer(issuer string) (IAMOIDCProvider, bool) {
 	want := oidcfed.NormalizeIssuer(issuer)
 	for _, provider := range iamOIDCProviders.List() {

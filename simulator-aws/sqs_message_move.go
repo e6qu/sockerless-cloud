@@ -12,23 +12,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
-// SQS dead-letter-queue redrive surface: ListDeadLetterSourceQueues plus the
-// message-move task lifecycle (StartMessageMoveTask / ListMessageMoveTasks /
-// CancelMessageMoveTask). These let an operator redrive messages that have
-// landed in a dead-letter queue back to their original source queue — the
-// AWS-native alternative to writing a bespoke consumer that drains the DLQ.
-//
-// Wire protocol matches the rest of SQS: awsJson1_0, dispatched via
-// `X-Amz-Target: AmazonSQS.<Action>` (registered through the shared awsJson
-// router below). The request/response member names mirror the
-// com.amazonaws.sqs Smithy model exactly — notably the response of
-// ListDeadLetterSourceQueues uses the lowercase `queueUrls` member.
+// Amazon SQS dead-letter-queue redrive: ListDeadLetterSourceQueues and the
+// message-move task lifecycle (StartMessageMoveTask, ListMessageMoveTasks,
+// CancelMessageMoveTask), over awsJson1_0. Member names follow the
+// com.amazonaws.sqs Smithy model, including ListDeadLetterSourceQueues' lowercase
+// `queueUrls`.
 
-// SQSMessageMoveTask is one DLQ-redrive task. Real SQS keys a task by an opaque
-// TaskHandle (a base64 blob); the sim uses a generated UUID, treated by every
-// caller as opaque. A task moves messages from SourceArn (a dead-letter queue)
-// to DestinationArn (the original source queue, or an operator-specified
-// destination), reporting progress via ApproximateNumberOfMessagesMoved.
+// SQSMessageMoveTask is one redrive task, moving messages from SourceArn (a
+// dead-letter queue) to DestinationArn. SQS issues an opaque base64 TaskHandle;
+// the simulator issues a UUID, which callers treat as equally opaque.
 type SQSMessageMoveTask struct {
 	TaskHandle                        string
 	SourceArn                         string
@@ -56,10 +48,9 @@ func registerSQSMessageMove(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// sqsRedriveTargetARN returns the deadLetterTargetArn configured on the queue's
-// RedrivePolicy attribute, or "" when the queue has no RedrivePolicy. Real SQS
-// stores the RedrivePolicy as a JSON string under the RedrivePolicy attribute,
-// e.g. {"deadLetterTargetArn":"arn:aws:sqs:...:dlq","maxReceiveCount":"3"}.
+// sqsRedriveTargetARN returns the deadLetterTargetArn of the queue's
+// RedrivePolicy, a JSON string such as
+// {"deadLetterTargetArn":"arn:aws:sqs:...:dlq","maxReceiveCount":"3"}, or "".
 func sqsRedriveTargetARN(q SQSQueue) string {
 	raw := q.Attributes["RedrivePolicy"]
 	if raw == "" {
@@ -87,9 +78,9 @@ func sqsSourceQueuesForDLQ(dlqARN string) []SQSQueue {
 	return out
 }
 
-// handleSQSListDeadLetterSourceQueues lists the source queues whose RedrivePolicy
-// targets the given dead-letter queue. The given QueueUrl identifies the DLQ; its
-// ARN is matched against every queue's RedrivePolicy.deadLetterTargetArn.
+// handleSQSListDeadLetterSourceQueues lists the queues whose
+// RedrivePolicy.deadLetterTargetArn is the ARN of the dead-letter queue QueueUrl
+// names.
 func handleSQSListDeadLetterSourceQueues(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueueUrl   string `json:"QueueUrl"`
@@ -121,8 +112,8 @@ func handleSQSListDeadLetterSourceQueues(w http.ResponseWriter, r *http.Request)
 	sim.WriteJSON(w, http.StatusOK, out)
 }
 
-// sqsQueueByARN resolves a queue from its ARN, mirroring the way the move-task
-// ops accept ARNs (SourceArn / DestinationArn) rather than queue URLs.
+// sqsQueueByARN resolves a queue from an ARN, which the move-task operations take
+// in place of a queue URL.
 func sqsQueueByARN(arn string) (SQSQueue, bool) {
 	name := arn
 	if i := strings.LastIndex(arn, ":"); i >= 0 {
@@ -131,19 +122,17 @@ func sqsQueueByARN(arn string) (SQSQueue, bool) {
 	return sqsQueues.Get(name)
 }
 
-// sqsResourceNotFound emits the ResourceNotFoundException real SQS raises for the
-// message-move ops when a source/destination/task can't be resolved.
+// sqsResourceNotFound writes the ResourceNotFoundException SQS raises when a
+// move-task operation names an unknown queue or task.
 func sqsResourceNotFound(w http.ResponseWriter, message string) {
 	sqsErrorJSON(w, "ResourceNotFoundException", message, http.StatusNotFound)
 }
 
-// handleSQSStartMessageMoveTask starts a DLQ-redrive task: it moves every message
-// currently held in the source dead-letter queue back to the destination queue
-// (the operator-specified DestinationArn, or — when blank — the original source
-// queue whose RedrivePolicy targets this DLQ), then settles the task to COMPLETED.
-//
-// The redrive is a real store mutation: messages are dequeued from the DLQ and
-// enqueued onto the destination queue, not a no-op count.
+// handleSQSStartMessageMoveTask moves every message in the source dead-letter
+// queue to DestinationArn, or without one to the source queue whose
+// RedrivePolicy targets it, and settles the task COMPLETED before returning.
+// SQS moves messages asynchronously at MaxNumberOfMessagesPerSecond; the
+// simulator does not.
 func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SourceArn                    string `json:"SourceArn"`
@@ -164,9 +153,7 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the destination: an explicit DestinationArn, else the single
-	// source queue whose RedrivePolicy targets this DLQ. Real SQS requires the
-	// source to be a dead-letter queue with at least one configured source.
+	// SQS requires the source to be a dead-letter queue with at least one source queue.
 	destArn := req.DestinationArn
 	if destArn == "" {
 		sources := sqsSourceQueuesForDLQ(source.ARN)
@@ -184,10 +171,8 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Move every message from the source DLQ to the destination queue. Amazon
-	// SQS treats each redriven message as a new enqueue, so the common enqueue
-	// path assigns a new message ID, enqueue timestamp, FIFO sequence number,
-	// receipt state, and the destination queue's delivery delay.
+	// SQS enqueues each redriven message anew: a new message ID, enqueue timestamp,
+	// FIFO sequence number and receive state, and the destination's delivery delay.
 	var moved []msgq.Message[sqsPayload]
 	sqsQueues.Update(source.Name, func(q *SQSQueue) {
 		moved = q.Messages.Remove(func(msgq.Message[sqsPayload]) bool { return true })
@@ -210,8 +195,7 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 		ApproximateNumberOfMessagesToMove: int64(len(moved)),
 		StartedTimestamp:                  time.Now().UnixMilli(),
 	}
-	// DestinationArn is only echoed back when the caller specified it (the
-	// model documents a NULL field when StartMessageMoveTask omitted it).
+	// The model leaves DestinationArn null when StartMessageMoveTask omitted it.
 	if req.DestinationArn != "" {
 		task.DestinationArn = dest.ARN
 	}
@@ -220,11 +204,8 @@ func handleSQSStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"TaskHandle": task.TaskHandle})
 }
 
-// handleSQSListMessageMoveTasks lists the message-move tasks for a source ARN,
-// most-recent first, capped at MaxResults (default 1, upper limit 10 per the
-// model). A task's TaskHandle is only populated for RUNNING tasks, matching the
-// real response; the sim settles tasks to COMPLETED synchronously, so the handle
-// is omitted for the COMPLETED/CANCELLED entries it returns.
+// handleSQSListMessageMoveTasks lists a source ARN's tasks newest first, up to
+// MaxResults (default 1, at most 10). Only a RUNNING task carries its TaskHandle.
 func handleSQSListMessageMoveTasks(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SourceArn  string `json:"SourceArn"`
@@ -283,10 +264,8 @@ func handleSQSListMessageMoveTasks(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Results": results})
 }
 
-// handleSQSCancelMessageMoveTask cancels a running message-move task and returns
-// the count of messages already moved. A task that has already settled (COMPLETED
-// / CANCELLED / FAILED) can't be cancelled — real SQS raises ResourceNotFoundException
-// because only RUNNING tasks are cancellable.
+// handleSQSCancelMessageMoveTask cancels a RUNNING task and returns the count
+// already moved; SQS answers ResourceNotFoundException for a settled task.
 func handleSQSCancelMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TaskHandle string `json:"TaskHandle"`

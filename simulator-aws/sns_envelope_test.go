@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestSNSNotificationEnvelopeValidJSON verifies snsNotificationEnvelope
-// always emits parseable JSON, even when the embedded CloudWatch alarm
-// message contains control characters that fmt.Sprintf("%q") would render
-// as \x escapes (invalid in JSON).
+// TestSNSNotificationEnvelopeValidJSON verifies snsNotificationEnvelope emits
+// parseable JSON even when the embedded alarm message holds control characters,
+// which fmt.Sprintf("%q") would render as \x escapes JSON rejects.
 func TestSNSNotificationEnvelopeValidJSON(t *testing.T) {
 	// Simulate a CloudWatch alarm JSON payload whose AlarmName contains a
 	// control character. json.Marshal escapes it as \u0001, so the message
@@ -41,9 +40,9 @@ func TestSNSNotificationEnvelopeValidJSON(t *testing.T) {
 }
 
 func TestSNSNotificationEnvelopeQuotesAndBackslashes(t *testing.T) {
-	// Issue #734: a CloudWatch alarm description containing quotes, newlines,
-	// and backslashes must round-trip through the SNS->SQS envelope as valid
-	// JSON at both the outer envelope layer and the inner Message layer.
+	// A CloudWatch alarm description with quotes, newlines and backslashes
+	// round-trips through the SNS-to-SQS envelope as valid JSON, in the envelope and
+	// in its Message.
 	message := `{"AlarmName":"cpu\"alarm","AlarmDescription":"cpu above 50 \"adversarial\" line1\nline2 \\path","Region":"us-east-1"}`
 	subject := `ALARM: "cpu\"alarm" in us-east-1`
 	envelopeStr := snsNotificationEnvelope("arn:aws:sns:us-east-1:123456789012:t", "msg-id", subject, message, nil)
