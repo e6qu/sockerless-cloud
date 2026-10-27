@@ -27,7 +27,10 @@ func TestEveryShellBlockIsAnnotated(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range strings.Fields(string(out)) {
-		if strings.HasPrefix(f, "specs/cloud-api/") || strings.HasPrefix(f, "specs/SIM_SURFACE_TABLES/") || f == "CHANGELOG.md" {
+		// Vendored and generated files, and the review checklists agents load,
+		// are not documents a reader follows.
+		if strings.HasPrefix(f, "specs/cloud-api/") || strings.HasPrefix(f, "specs/SIM_SURFACE_TABLES/") ||
+			strings.HasPrefix(f, ".claude/") || f == "CHANGELOG.md" {
 			continue
 		}
 		if _, err := Parse(filepath.Join(root, f)); err != nil {
