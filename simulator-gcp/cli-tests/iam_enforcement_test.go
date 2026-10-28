@@ -3,6 +3,7 @@ package gcp_cli_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
@@ -46,4 +47,37 @@ func TestIAMEnforcementObjectViewerCLI(t *testing.T) {
 	runCLI(t, gcloudCLI("storage", "buckets", "add-iam-policy-binding", "gs://"+bucket,
 		"--member=serviceAccount:"+email, "--role=roles/storage.objectAdmin"))
 	runCLI(t, gcloudSAActivatedCLI(saConfig, "storage", "rm", "gs://"+bucket+"/object.txt"))
+}
+
+// A project's creator becomes its Owner: a service account that holds only
+// Project Creator on a folder creates a project there with gcloud, then
+// deletes it, which only an Owner may.
+func TestIAMEnforcementProjectCreatorOwnsProjectCLI(t *testing.T) {
+	t.Parallel()
+	accountID := uniquename.New("cli-creator-sa")
+	email := accountID + "@" + project + ".iam.gserviceaccount.com"
+	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID, "--format=json"))
+	keyFile := filepath.Join(tmpDir, accountID+".json")
+	runCLI(t, gcloudCLI("iam", "service-accounts", "keys", "create", keyFile, "--iam-account="+email))
+
+	out := runCLI(t, gcloudCLI("resource-manager", "folders", "create",
+		"--display-name=cli-creator-owns", "--organization="+cliOrganizationID, "--format=json"))
+	var folder cliV2Folder
+	parseJSONObject(t, out, &folder)
+	folderID := strings.TrimPrefix(folder.Name, "folders/")
+	runCLI(t, gcloudCLI("resource-manager", "folders", "add-iam-policy-binding", folderID,
+		"--member=serviceAccount:"+email, "--role=roles/resourcemanager.projectCreator"))
+
+	saConfig := filepath.Join(tmpDir, "gcloud-"+accountID)
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "config", "set", "auth/token_host", baseURL+"/token"))
+	for _, api := range []string{"cloudresourcemanager", "serviceusage", "cloudbilling"} {
+		runCLI(t, gcloudSAActivatedCLI(saConfig, "config", "set", "api_endpoint_overrides/"+api, baseURL+"/"))
+	}
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "auth", "activate-service-account", "--key-file="+keyFile))
+
+	id := uniquename.New("cli-creator")
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "projects", "create", id, "--folder="+folderID))
+	policy := runCLI(t, gcloudCLI("projects", "get-iam-policy", id, "--format=json"))
+	assert.Contains(t, policy, `"serviceAccount:`+email+`"`)
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "projects", "delete", id, "--quiet"))
 }

@@ -449,7 +449,7 @@ HTTPS gateway, which needs `caddy` (or `CADDY=/path/to/caddy`).
 - The REST APIs accept only access tokens the token endpoint minted. A client
   that signs its own JWT for an API audience, as the Cloud Client Libraries
   for Python generated from protocol buffers do, gets 401.
-- 741 of 2,891 Discovery methods have no sourced permission; IAM admits only an Owner to them
+- 718 of 2,891 Discovery methods have no sourced permission; IAM admits only an Owner to them
   ([`docs/iam.md`](../docs/iam.md#google-cloud-enforcement)).
 - `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and
   `Spanner.FetchCacheUpdate` answer `UNIMPLEMENTED`.

@@ -96,6 +96,35 @@ var gateMethodPermissions = map[string]gateOverride{
 	// iam-roles-billing.md.gz.
 	"cloudbilling.billingAccounts.get":  gatePermissions("billing.accounts.get"),
 	"cloudbilling.billingAccounts.list": gatePermissions("billing.accounts.list"),
+	// Resource Manager publishes no permission for polling its operations,
+	// and a Project Creator, who holds no operations permission
+	// (iam-roles-resourcemanager.md.gz), polls the create it started.
+	"cloudresourcemanager.operations.get": gateCRMOperation,
+}
+
+// gateCRMOperation authorizes a Resource Manager operation poll as a read of
+// the project or folder the operation produced.
+func gateCRMOperation(_ *gateCall, resource string) []gateCheck {
+	unsourced := []gateCheck{{unsourced: true, resource: resource}}
+	if crOperations == nil {
+		return unsourced
+	}
+	op, ok := crOperations.Get(resource)
+	if !ok {
+		return nil
+	}
+	response, _ := op.Response.(map[string]any)
+	if id, _ := response["projectId"].(string); id != "" {
+		return []gateCheck{{permission: "resourcemanager.projects.get", resource: "projects/" + id}}
+	}
+	name, _ := response["name"].(string)
+	switch {
+	case strings.HasPrefix(name, "projects/"):
+		return []gateCheck{{permission: "resourcemanager.projects.get", resource: name}}
+	case strings.HasPrefix(name, "folders/"):
+		return []gateCheck{{permission: "resourcemanager.folders.get", resource: name}}
+	}
+	return unsourced
 }
 
 // gateFirestoreWrites are the permissions of a commit or batch write: a
@@ -341,6 +370,14 @@ func gateResource(call *gateCall, c gateDiscoveryMatch) (string, bool) {
 			if _, path, ok := strings.Cut(strings.TrimPrefix(parent, "//"), "/"); ok && strings.HasPrefix(parent, "//") {
 				return path, false
 			}
+			return parent, false
+		}
+	case id == "iam.locations.workforcePools.list":
+		if parent := call.query.Get("parent"); parent != "" {
+			return parent, false
+		}
+	case id == "iam.locations.workforcePools.create":
+		if parent, _ := call.fields()["parent"].(string); parent != "" {
 			return parent, false
 		}
 	case id == "logging.entries.write":

@@ -123,16 +123,28 @@ func rolesOf(page string) ([]role, []string) {
 		}
 		permissions := wildcardSpan.ReplaceAllString(m[4], "")
 		for _, c := range codeSpan.FindAllStringSubmatch(permissions, -1) {
-			r.IncludedPermissions = append(r.IncludedPermissions, strings.TrimSpace(c[1]))
+			r.IncludedPermissions = append(r.IncludedPermissions, permissionName(strings.TrimSpace(c[1])))
 		}
 		sort.Strings(r.IncludedPermissions)
 		roles = append(roles, r)
 	}
 	var permissions []string
 	for _, m := range permissionHead.FindAllStringSubmatch(page, -1) {
-		permissions = append(permissions, m[1])
+		permissions = append(permissions, permissionName(m[1]))
 	}
 	return roles, permissions
+}
+
+// serviceQualified is the spelling some pages give a permission,
+// iam.googleapis.com/workforcePools.list, with the slash an underscore in a
+// heading's id.
+var serviceQualified = regexp.MustCompile(`^([a-z]+)\.googleapis\.com[/_](.+)$`)
+
+// permissionName is a permission as APIs check it and policies name it: the
+// page's wildcard headings and IAM's refusals spell iam.googleapis.com/x.verb
+// as iam.x.verb.
+func permissionName(p string) string {
+	return serviceQualified.ReplaceAllString(p, "$1.$2")
 }
 
 // storageMethods reads Cloud Storage's "IAM permissions for JSON methods"

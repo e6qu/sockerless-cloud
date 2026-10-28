@@ -601,6 +601,9 @@ test.describe("IAM", () => {
 
   test("lists the predefined roles", async ({ page }) => {
     await page.goto("/ui/iam-admin/roles");
+    const filter = page.getByRole("combobox", { name: "Filter" });
+    await filter.fill("ID: roles/viewer");
+    await filter.press("Enter");
     await expect(page.getByTestId("iam-roles-table")).toContainText("roles/viewer");
   });
 

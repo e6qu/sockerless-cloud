@@ -599,6 +599,8 @@ A service acting for one of its resources calls the target API as its agent (`gc
 
 A method no source gives a permission for is **unsourced**: only a principal bound to `roles/owner` on the resource or an ancestor performs it, since Owner holds every permission Google defines. A permission a method table names that no vendored role page lists (Cloud Storage's `storage.objects.viewFullContext`) is unsourced the same way. [BUGS.md](../BUGS.md) lists the unsourced methods by service.
 
+A project's creator becomes its Owner (`crmGrantCreatorOwner`), as the Project Creator role's description says, so a principal holding only `roles/resourcemanager.projectCreator` deletes the project it created. Polling a Resource Manager operation needs the read permission on the project or folder the operation produced (`gateCRMOperation`): Resource Manager publishes none for `operations.get`, yet a Project Creator polls its own create. A role page that spells a permission `iam.googleapis.com/workforcePools.list` names `iam.workforcePools.list`, the spelling its wildcard headings and IAM's refusals use.
+
 Some methods need no permission: every `testIamPermissions`, the IAM catalogs (`roles.get` and `roles.list` on predefined roles, `queryTestablePermissions`, `queryGrantableRoles`, `lintPolicy`, `queryAuditableServices`), and Resource Manager's `projects.list`, `projects.search`, `folders.search` and `organizations.search`, as well as `projects.create` without a parent.
 
 A refused call answers 403 in its API's shape:
@@ -863,7 +865,7 @@ Then stop `simulator-gcp` with Ctrl-C.
 
 | Gap | Tracked |
 |---|---|
-| 741 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
+| 718 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
 | Basic roles follow the roles overview, not Google's console lists; a method's secondary permissions (`iam.serviceAccounts.actAs` on deploy, Cloud Storage's footnoted ones) are not checked; BigQuery dataset access entries grant nothing; list and search results are not filtered to what the caller may see; `iam.automaticIamGrantsForDefaultServiceAccounts` is not honoured; a refused call writes no audit entry. | [3770](../BUGS.md) |
 | The Artifact Registry Docker data plane does not evaluate repository policies. | [3742](../BUGS.md) |
 | Impersonation ignores `delegates` and serves disabled accounts. | [3742](../BUGS.md) |

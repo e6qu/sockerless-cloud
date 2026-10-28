@@ -838,7 +838,10 @@ email check, and basic roles grant no impersonation, as on Google Cloud. A
 method no source covers admits only an Owner, and `BUGS.md` counts them. A
 bucket's `projectOwner:` convenience member matches project bindings the way
 every other binding does, so a workforce pool's principal set granted Owner
-covers the pool's subjects on the project's buckets too.
+covers the pool's subjects on the project's buckets too. A project's creator
+becomes its Owner, as the Project Creator role documents, and a Resource
+Manager operation poll reads the project it produced, since Google publishes
+no permission for it and a Project Creator polls its own create.
 
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions
