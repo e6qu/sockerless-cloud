@@ -147,7 +147,12 @@ func gcpProjectGrantsRole(project, role, principal string, at time.Time) bool {
 				continue
 			}
 			for _, member := range binding.Members {
-				if member == "allUsers" || member == principal || member == "allAuthenticatedUsers" {
+				// A convenience member names a project's basic-role holders;
+				// one bound at the project would name itself.
+				if kind, _, ok := strings.Cut(member, ":"); ok && gcpConvenienceRoles[kind] != "" {
+					continue
+				}
+				if gcpMemberMatches(member, principal, at) {
 					return true
 				}
 			}

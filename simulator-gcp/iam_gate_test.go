@@ -231,3 +231,19 @@ func TestIAMGate_PoolPrincipalSetCoversThePoolsSubjects(t *testing.T) {
 		}
 	}
 }
+
+// A project Owner granted through a pool's principal set holds the bucket
+// permissions a bucket's default policy grants projectOwner.
+func TestIAMGate_ConvenienceMembersCoverPoolPrincipals(t *testing.T) {
+	gateTestServer(t)
+	const subject = "principal://iam.googleapis.com/locations/global/workforcePools/operators/subject/alice"
+	gcpProjectPolicies.Put("project/"+gcpTestProjectID, IAMPolicy{Bindings: []IAMBinding{{
+		Role: gcpRoleOwner, Members: []string{"principalSet://iam.googleapis.com/locations/global/workforcePools/operators/*"},
+	}}})
+	if !gcpMemberMatches("projectOwner:"+gcpTestProjectID, subject, time.Now()) {
+		t.Fatal("projectOwner does not cover a subject of the pool the project's Owner binding names")
+	}
+	if gcpMemberMatches("projectEditor:"+gcpTestProjectID, subject, time.Now()) {
+		t.Fatal("projectEditor covers a subject that holds only Owner")
+	}
+}

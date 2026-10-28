@@ -835,7 +835,10 @@ resource and every ancestor up to the organization. A gRPC call is decided as
 the REST call its `google.api.http` binding spells. The bootstrap account is
 an Owner through a seeded organization `roles/owner` binding rather than an
 email check, and basic roles grant no impersonation, as on Google Cloud. A
-method no source covers admits only an Owner, and `BUGS.md` counts them.
+method no source covers admits only an Owner, and `BUGS.md` counts them. A
+bucket's `projectOwner:` convenience member matches project bindings the way
+every other binding does, so a workforce pool's principal set granted Owner
+covers the pool's subjects on the project's buckets too.
 
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions
