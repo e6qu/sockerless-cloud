@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConsoleQueryClient } from "@sockerless/ui-core/query";
 import { expect } from "vitest";
 import { uniqueName } from "@sockerless/ui-core/testing";
 import { createIAMRole, createLambdaFunction, fetchIAMRole } from "../api.js";
@@ -56,7 +57,7 @@ export async function enabledButton(testId: string): Promise<HTMLButtonElement> 
 }
 
 function queryClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return new ConsoleQueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 }
 
 export function renderWithQuery(ui: React.ReactElement) {

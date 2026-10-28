@@ -39,7 +39,9 @@ tree, so a stale pin passes every workspace build while the installed binary
 lacks the fix. A support-module change lands in two pushes — push, pin the
 pushed commit, push again — and the pin moves onto the merge commit
 afterwards, because a pin on a branch head stops resolving once the branch is
-deleted.
+deleted. The scheduled dependency bump follows the same sequence: when
+`make upgrade-deps` moves `sim` or `ui-auth`, the bump job pushes, pins the
+simulators on that commit, and pushes again.
 
 `sim.Main` is the startup every binary runs, described by a `sim.Program`: the
 provider and default port, a `Configure` hook, the cloud's `Build`, and a
@@ -969,6 +971,13 @@ nothing is a fake. A console gap whose API the simulator does not serve is a
 - **Attach document-level shortcut listeners before paint.** The Alt+S and
   "/" search shortcuts attach in `useLayoutEffect`, so a key pressed right
   after load is never lost.
+- **A write's refresh starts after the write.** TanStack Query joins an
+  invalidation onto a fetch still in flight when the query has no data yet,
+  so a repository created while the list's first `DescribeRepositories` was
+  in flight closed its dialog over an empty list. Every console builds a
+  `ConsoleQueryClient` (`@sockerless/ui-core/query`), which cancels that
+  fetch before it invalidates, and `check-console-query-client.sh` refuses a
+  plain `QueryClient`.
 
 ## Measurement and gates
 

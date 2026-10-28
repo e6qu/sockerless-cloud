@@ -2170,6 +2170,9 @@ jobs:
       - name: No script assigns a name zsh reserves
         run: bash scripts/check-zsh-special-vars.sh
         timeout-minutes: 5
+      - name: Every console query client cancels a stale first load
+        run: bash scripts/check-console-query-client.sh
+        timeout-minutes: 5
       - name: Every gh api query parameter is one GitHub defines
         run: bash scripts/check-gh-api-params.sh
         timeout-minutes: 5

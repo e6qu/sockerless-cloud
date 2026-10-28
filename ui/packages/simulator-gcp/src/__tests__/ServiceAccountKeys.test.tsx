@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConsoleQueryClient } from "@sockerless/ui-core/query";
 import { ServiceAccountKeysTable } from "../pages/ServiceAccountDetailPage.js";
 import { ServiceAccountKeyMintedDialog, gcloudUsage } from "../pages/ServiceAccountKeyMintedDialog.js";
 import { CreateServiceAccountDialog } from "../pages/ServiceAccountsPage.js";
@@ -129,7 +130,7 @@ describe("gcloudUsage", () => {
 
 describe("CreateServiceAccountDialog", () => {
   function renderDialog() {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const queryClient = new ConsoleQueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     return render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>

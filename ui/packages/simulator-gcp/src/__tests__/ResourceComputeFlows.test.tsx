@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConsoleQueryClient } from "@sockerless/ui-core/query";
 import { signInToConsole } from "@sockerless/ui-core/testing";
 import { CloudRunJobsPage } from "../pages/CloudRunJobsPage.js";
 import { CloudFunctionsPage } from "../pages/CloudFunctionsPage.js";
@@ -23,7 +24,7 @@ afterEach(() => {
 });
 
 function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const queryClient = new ConsoleQueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>

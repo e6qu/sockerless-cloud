@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Navigate, Route } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConsoleQueryClient } from "@sockerless/ui-core/query";
 import { GcpApp } from "./console/index.js";
 import { AllProductsPage, DashboardPage, WelcomePage } from "./pages/HomePages.js";
 import { CreateProjectPage } from "./pages/CreateProjectPage.js";
@@ -51,7 +52,7 @@ import { IamPage, IamRolesPage } from "./pages/IamPage.js";
 import { WorkforcePoolsPage } from "./pages/WorkforcePoolsPage.js";
 import "./index.css";
 
-const queryClient = new QueryClient({
+const queryClient = new ConsoleQueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
