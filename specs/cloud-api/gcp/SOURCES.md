@@ -9,15 +9,11 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261014` | 2026-10-19T13:08:08Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
-| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
 | `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261009` | 2026-10-21T11:39:24Z |
 | `bigtableadmin-v2.discovery.json.gz` | `bigtableadmin.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261017` | 2026-10-21T11:39:25Z |
-| `cloudrun-v1.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-21T11:39:25Z |
-| `cloudrun-v2.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261016` | 2026-10-21T11:39:25Z |
 | `compute-v1.discovery.json.gz` | `www.googleapis.com` | `discovery/v1/apis/compute/v1/rest` | Apache-2.0 | `revision 20261016` | 2026-10-21T11:39:25Z |
 | `dns-v1.discovery.json.gz` | `dns.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261019` | 2026-10-21T11:39:25Z |
 | `iamcredentials-v1.discovery.json.gz` | `iamcredentials.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-21T11:39:25Z |
-| `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-21T11:39:25Z |
 | `serviceusage-v1.discovery.json.gz` | `serviceusage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-21T11:39:26Z |
 | `sqladmin-v1.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-21T11:39:26Z |
 | `sqladmin-v1beta4.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1beta4` | Apache-2.0 | `revision 20261006` | 2026-10-21T11:39:26Z |
@@ -63,7 +59,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `bigquery-time-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/time_functions` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:44:55Z |
 | `bigquery-timestamp-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/timestamp_functions` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:44:56Z |
 | `bigquery-writing-results.md.gz` | `docs.cloud.google.com` | `bigquery/docs/writing-results` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:44:57Z |
-| `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261022` | 2026-10-28T08:44:59Z |
 | `cloudrun-container-contract.md.gz` | `docs.cloud.google.com` | `run/docs/container-contract` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:00Z |
 | `cloudrun-job-max-retries.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-retries` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:01Z |
 | `cloudrun-job-parallelism.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/parallelism` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:02Z |
@@ -73,7 +68,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-max-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-instances` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:06Z |
 | `cloudrun-min-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/min-instances` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:07Z |
 | `cloudrun-private-networking.md.gz` | `docs.cloud.google.com` | `run/docs/securing/private-networking` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:08Z |
-| `cloudtasks-v2.discovery.json.gz` | `cloudtasks.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261020` | 2026-10-28T08:45:09Z |
 | `compute-service-accounts.md.gz` | `docs.cloud.google.com` | `compute/docs/access/service-accounts` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:11Z |
 | `dataflow-audit-logging.md.gz` | `docs.cloud.google.com` | `dataflow/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:45:12Z |
 | `firestore-security-iam.md.gz` | `docs.cloud.google.com` | `firestore/docs/security/iam` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:45:13Z |
@@ -129,4 +123,10 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `tasks-creating-http-target-tasks.md.gz` | `docs.cloud.google.com` | `tasks/docs/creating-http-target-tasks` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:12Z |
 | `tasks-quotas.md.gz` | `docs.cloud.google.com` | `tasks/docs/quotas` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:12Z |
 | `vpcaccess-audit-logging.md.gz` | `docs.cloud.google.com` | `vpc/docs/serverless-vpc-access-audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:47:13Z |
-| `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-28T08:47:14Z |
+| `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261022` | 2026-10-28T12:46:29Z |
+| `cloudrun-v1.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261023` | 2026-10-28T12:46:29Z |
+| `cloudrun-v2.discovery.json.gz` | `run.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261023` | 2026-10-28T12:46:29Z |
+| `cloudtasks-v2.discovery.json.gz` | `cloudtasks.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261020` | 2026-10-28T12:46:30Z |
+| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261023` | 2026-10-28T12:46:30Z |
+| `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-28T12:46:30Z |
+| `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-28T12:46:30Z |
