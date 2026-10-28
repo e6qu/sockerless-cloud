@@ -591,7 +591,7 @@ A service acting for one of its resources calls the target API as its agent (`gc
    1. the method tables Cloud Storage (`storage-iam-json.md.gz`) and Pub/Sub (`pubsub-access-control.md.gz`) publish, compiled into the catalog with what each permission is checked on (the project, a source or destination object, the topic a request names);
    2. `gateMethodPermissions`, the methods whose identifiers do not spell their permission, each citing its vendored page: Firestore's document methods (`firestore-security-iam.md.gz`), Spanner's session methods (`spanner-iam.md.gz`), the Service Account Credentials methods, Cloud Logging's `entries.write`;
    3. the service's vendored audit-logging page (`audit_methods_vendored.json`), for Cloud Run, Cloud SQL, BigQuery, Cloud Logging, Resource Manager, Service Usage, Serverless VPC Access, API Gateway and Dataflow, and their operations and locations mixins;
-   4. Google's `service.resource.verb` convention over the method's RPC (`auditRPC.permission`, with the RPC exceptions `auditRPCPermissions` lists) or Discovery identifier (`gateConventionPermission`).
+   4. Google's `service.resource.verb` convention over the method's RPC (`auditRPC.permission`, with the RPC exceptions `auditRPCPermissions` lists) or Discovery identifier (`gateConventionPermission`). A nested collection takes the singular collections above it, as Google names it (`gateNestedConventionPermissions`): providers under `workforcePools` check `iam.workforcePoolProviders.*`.
 
    A permission counts only when a served service defines it in the vendored catalog; Cloud Storage's footnoted permissions, which a method checks only in the case the footnote names, are not required.
 3. **Resource.** The permission is checked on the relative name the path addresses (a create on its parent collection), or the target its table names.
@@ -865,7 +865,7 @@ Then stop `simulator-gcp` with Ctrl-C.
 
 | Gap | Tracked |
 |---|---|
-| 715 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
+| 671 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
 | Basic roles follow the roles overview, not Google's console lists; a method's secondary permissions (`iam.serviceAccounts.actAs` on deploy, Cloud Storage's footnoted ones) are not checked; BigQuery dataset access entries grant nothing; list and search results are not filtered to what the caller may see; `iam.automaticIamGrantsForDefaultServiceAccounts` is not honoured; a refused call writes no audit entry. | [3770](../BUGS.md) |
 | The Artifact Registry Docker data plane does not evaluate repository policies. | [3742](../BUGS.md) |
 | Impersonation ignores `delegates` and serves disabled accounts. | [3742](../BUGS.md) |

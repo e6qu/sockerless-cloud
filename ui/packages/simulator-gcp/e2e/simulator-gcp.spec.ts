@@ -591,6 +591,9 @@ test.describe("IAM", () => {
     await page.getByTestId("iam-grant-member").fill(member);
     await page.getByTestId("iam-grant-role").selectOption("roles/viewer");
     await page.getByTestId("iam-grant-submit").click();
+    const filter = page.getByRole("combobox", { name: "Filter" });
+    await filter.fill(`Principal: ${member}`);
+    await filter.press("Enter");
     const table = page.getByTestId("iam-grants-table");
     await expect(table).toContainText(member);
     await table.getByRole("button", { name: `Actions for ${member}` }).click();

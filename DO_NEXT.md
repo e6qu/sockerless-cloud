@@ -3,7 +3,7 @@
 ## Next
 
 - **Google Cloud methods without a sourced permission** (BUG-3769): vendor the
-  remaining services' permission tables so the 715 Owner-only methods take
+  remaining services' permission tables so the 671 Owner-only methods take
   their real permission.
 - **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3791), service
   by service, each with its SDK, CLI and Terraform tests.

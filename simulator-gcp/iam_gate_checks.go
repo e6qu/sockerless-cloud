@@ -272,7 +272,55 @@ func gateCandidatePermissions(call *gateCall, c gateDiscoveryMatch, resource str
 		}
 		out = append(out, rpc.permission(request(), resource))
 	}
-	return append(out, gateConventionPermission(c))
+	return append(append(out, gateConventionPermission(c)), gateNestedConventionPermissions(c)...)
+}
+
+// gateNestedConventionPermissions name a nested collection's permissions the
+// way Google does, by the singular collections above it: providers under
+// workforcePools are iam.workforcePoolProviders.*, their keys
+// iam.workforcePoolProviderKeys.* (iam-roles-iam.md.gz). Innermost first; only a
+// name the catalog defines counts.
+func gateNestedConventionPermissions(c gateDiscoveryMatch) []string {
+	parts := strings.Split(c.method.id, ".")
+	if len(parts) < 4 {
+		return nil
+	}
+	verb := parts[len(parts)-1]
+	if mapped, ok := gateConventionVerbs[verb]; ok {
+		verb = mapped
+	}
+	prefix := c.method.api.name
+	if mapped, ok := gatePermissionPrefixes[prefix]; ok {
+		prefix = mapped
+	}
+	var collections []string
+	for _, part := range parts[1 : len(parts)-1] {
+		switch part {
+		case "projects", "locations", "organizations", "folders":
+			continue
+		}
+		collections = append(collections, part)
+	}
+	var out []string
+	for n := 2; n <= len(collections); n++ {
+		nested := collections[len(collections)-n:]
+		name := gateSingular(nested[0])
+		for i, collection := range nested[1:] {
+			if i < len(nested)-2 {
+				collection = gateSingular(collection)
+			}
+			name += strings.ToUpper(collection[:1]) + collection[1:]
+		}
+		out = append(out, prefix+"."+name+"."+verb)
+	}
+	return out
+}
+
+func gateSingular(collection string) string {
+	if stem, ok := strings.CutSuffix(collection, "ies"); ok {
+		return stem + "y"
+	}
+	return strings.TrimSuffix(collection, "s")
 }
 
 // gateVendored is the vendored audit-logging entry of a method the page names
