@@ -1222,7 +1222,11 @@ downloads Go from the module proxy with retries.
 A CI cache needs a fallback key. The lint shards restored only an exact
 match, so every pin or dependency move linted `simulator-aws` cold, and a
 runner lost mid-lint saved nothing; each shard now keeps its own Go and
-golangci-lint cache and restores the newest older entry. The browser jobs
+golangci-lint cache and restores the newest older entry. A cold lint of
+`simulator-aws` at golangci-lint's default concurrency, one analysis per CPU,
+held 14 GB and the kernel killed the 16 GB runner, which GitHub reports as a
+runner shutdown; `.golangci.yml` runs two analyses at once, which peak under
+4 GB and finish sooner. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.

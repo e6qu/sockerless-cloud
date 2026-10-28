@@ -2,6 +2,9 @@ version: "2"
 
 run:
   timeout: 15m
+  # One analysis per CPU of a 4-CPU runner holds about 14 GB on a cold cache
+  # for simulator-aws, and the kernel kills the 16 GB runner; two hold under 4.
+  concurrency: 2
 
 linters:
   enable:
