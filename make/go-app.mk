@@ -19,6 +19,7 @@
 # Optional — for non-workspace builds:
 #   GO_BUILD_FLAGS   : extra `go build` flags
 #   GO_ENV           : env prepended to every go invocation (e.g. GOWORK=off)
+#   LINT_ENV         : env prepended to the lint target's go vet and golangci-lint
 #
 # REPO_ROOT_REL is the path from the leaf Makefile to the repository root:
 # ../.. unless the leaf sets it, and ".." in a simulator-<cloud>/ leaf.
@@ -110,14 +111,14 @@ upgrade-deps: ## bump every direct require in go.mod to its latest (this reposit
 	$(GO_ENV) go mod tidy
 
 lint: ## go vet, gofmt and golangci-lint
-	$(GO_ENV) go vet ./...
+	$(GO_ENV) $(LINT_ENV) go vet ./...
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
 	  printf "$(COLOR_RED)gofmt -l .$(COLOR_RESET)\n%s\n" "$$unformatted"; \
 	  exit 1; \
 	fi
 	@command -v golangci-lint >/dev/null 2>&1 || { printf "$(COLOR_RED)golangci-lint is not on PATH: install v2.15.0, the version CI runs$(COLOR_RESET)\n"; exit 1; }
-	$(GO_ENV) golangci-lint run ./...
+	$(GO_ENV) $(LINT_ENV) golangci-lint run ./...
 
 clean: ## remove built binary + dist
 	rm -f $(APP_NAME)

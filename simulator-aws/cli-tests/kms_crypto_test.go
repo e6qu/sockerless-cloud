@@ -289,3 +289,46 @@ func TestKMSCLI_MultiRegionAndRetireGrant(t *testing.T) {
 		"--key-id", grantKey,
 		"--grant-id", grant.GrantId))
 }
+
+// TestKMSCLI_MLKEMEncapsulateDecapsulate encapsulates a shared secret to an
+// ML_KEM_768 key and decapsulates the ciphertext back to the same secret.
+func TestKMSCLI_MLKEMEncapsulateDecapsulate(t *testing.T) {
+	t.Parallel()
+	keyId := kmsCLICreateKey(t,
+		"--key-spec", "ML_KEM_768",
+		"--key-usage", "ENCAPSULATE_DECAPSULATE")
+
+	pubOut := runCLI(t, awsCLI("kms", "get-public-key",
+		"--key-id", keyId, "--output", "json"))
+	var pub struct {
+		PublicKey               string   `json:"PublicKey"`
+		EncapsulationAlgorithms []string `json:"EncapsulationAlgorithms"`
+	}
+	parseJSON(t, pubOut, &pub)
+	require.NotEmpty(t, pub.PublicKey)
+	assert.Equal(t, []string{"ML_KEM"}, pub.EncapsulationAlgorithms)
+
+	encOut := runCLI(t, awsCLI("kms", "encapsulate",
+		"--key-id", keyId,
+		"--encapsulation-algorithm", "ML_KEM",
+		"--output", "json"))
+	var enc struct {
+		SharedSecret               string `json:"SharedSecret"`
+		SharedSecretCiphertextBlob string `json:"SharedSecretCiphertextBlob"`
+		EncapsulationAlgorithm     string `json:"EncapsulationAlgorithm"`
+	}
+	parseJSON(t, encOut, &enc)
+	require.NotEmpty(t, enc.SharedSecret)
+	assert.Equal(t, "ML_KEM", enc.EncapsulationAlgorithm)
+
+	decOut := runCLI(t, awsCLI("kms", "decapsulate",
+		"--key-id", keyId,
+		"--encapsulation-algorithm", "ML_KEM",
+		"--shared-secret-ciphertext-blob", enc.SharedSecretCiphertextBlob,
+		"--output", "json"))
+	var dec struct {
+		SharedSecret string `json:"SharedSecret"`
+	}
+	parseJSON(t, decOut, &dec)
+	assert.Equal(t, enc.SharedSecret, dec.SharedSecret)
+}

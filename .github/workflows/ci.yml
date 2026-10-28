@@ -53,9 +53,7 @@ jobs:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: lint (${{ matrix.shard }})
-    # On Ubuntu 26.04 runners the simulators shard lost its runner mid-lint on
-    # about half its runs; the simulator suites run on Ubuntu 24.04 too.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # The lint step keeps its own limit; the job's leaves room for the setup
     # before it and the cache save after it, which a missed build cache slows.
     timeout-minutes: 15

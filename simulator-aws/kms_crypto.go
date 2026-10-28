@@ -41,6 +41,7 @@ func registerKMSCrypto(r *AWSRouter, srv *sim.Server) {
 	r.Register("TrentService.GenerateDataKeyPair", handleKMSGenerateDataKeyPair)
 	r.Register("TrentService.GenerateDataKeyPairWithoutPlaintext", handleKMSGenerateDataKeyPairWithoutPlaintext)
 	r.Register("TrentService.DeriveSharedSecret", handleKMSDeriveSharedSecret)
+	registerKMSMLKEM(r)
 }
 
 var kmsKeyMaterial sim.Store[[]byte]
@@ -51,11 +52,12 @@ func registerKMSKeyMaterial(srv *sim.Server) {
 
 // AWS KMS never exposes private material, so keep it in a side store keyed by
 // KeyId: the PKCS#8 DER of the RSA or ECDSA key for an asymmetric key, the raw
-// MAC key for an HMAC key.
+// MAC key for an HMAC key, the seed of an ML-KEM key.
 type KMSKeyMaterial struct {
 	KeyId         string `json:"KeyId"`
 	PrivateKeyDER []byte `json:"PrivateKeyDER,omitempty"`
 	HMACSecret    []byte `json:"HMACSecret,omitempty"`
+	MLKEMSeed     []byte `json:"MLKEMSeed,omitempty"`
 }
 
 var kmsAsymmetricKeyMaterial sim.Store[KMSKeyMaterial]
@@ -290,6 +292,12 @@ func kmsEnsureAsymmetricMaterial(keyId, spec string) (KMSKeyMaterial, error) {
 			return m, err
 		}
 		m.HMACSecret = secret
+	case kmsIsMLKEMSpec(spec):
+		seed, err := kmsNewMLKEMSeed(spec)
+		if err != nil {
+			return m, err
+		}
+		m.MLKEMSeed = seed
 	case spec == "RSA_2048" || spec == "RSA_3072" || spec == "RSA_4096":
 		bits := 2048
 		switch spec {
@@ -490,33 +498,14 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, _ := kmsKeys.Get(keyId)
-	if !kmsIsAsymmetricSpec(key.Spec) {
+	if !kmsIsAsymmetricSpec(key.Spec) && !kmsIsMLKEMSpec(key.Spec) {
 		AWSErrorf(w, "InvalidKeyUsageException", http.StatusBadRequest,
 			"%s is not an asymmetric key.", kmsKeyArn(keyId))
 		return
 	}
-	mat, err := kmsEnsureAsymmetricMaterial(keyId, key.Spec)
+	pubDER, err := kmsPublicKeyDER(keyId, key.Spec)
 	if err != nil {
-		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
-		return
-	}
-	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
-	if err != nil {
-		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
-		return
-	}
-	var pubDER []byte
-	switch k := priv.(type) {
-	case *rsa.PrivateKey:
-		pubDER, err = x509.MarshalPKIXPublicKey(&k.PublicKey)
-	case *ecdsa.PrivateKey:
-		pubDER, err = x509.MarshalPKIXPublicKey(&k.PublicKey)
-	default:
-		AWSError(w, "KMSInternalException", "unsupported key material", http.StatusInternalServerError)
-		return
-	}
-	if err != nil {
-		AWSError(w, "KMSInternalException", "failed to marshal public key", http.StatusInternalServerError)
+		AWSError(w, "KMSInternalException", "failed to export public key", http.StatusInternalServerError)
 		return
 	}
 	resp := map[string]any{
@@ -535,7 +524,37 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 	if algs := kmsKeyAgreementAlgorithmsFor(key.Spec, key.KeyUsage); len(algs) > 0 {
 		resp["KeyAgreementAlgorithms"] = algs
 	}
+	if algs := kmsEncapsulationAlgorithmsFor(key.Spec, key.KeyUsage); len(algs) > 0 {
+		resp["EncapsulationAlgorithms"] = algs
+	}
 	sim.WriteJSON(w, http.StatusOK, resp)
+}
+
+// kmsPublicKeyDER returns the DER SubjectPublicKeyInfo of an asymmetric or
+// ML-KEM key.
+func kmsPublicKeyDER(keyId, spec string) ([]byte, error) {
+	if kmsIsMLKEMSpec(spec) {
+		_, pub, _, err := kmsMLKEMKeyPair(keyId, spec)
+		if err != nil {
+			return nil, err
+		}
+		return kmsMLKEMPublicKeyDER(spec, pub)
+	}
+	mat, err := kmsEnsureAsymmetricMaterial(keyId, spec)
+	if err != nil {
+		return nil, err
+	}
+	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
+	if err != nil {
+		return nil, err
+	}
+	switch k := priv.(type) {
+	case *rsa.PrivateKey:
+		return x509.MarshalPKIXPublicKey(&k.PublicKey)
+	case *ecdsa.PrivateKey:
+		return x509.MarshalPKIXPublicKey(&k.PublicKey)
+	}
+	return nil, errKMSUnsupportedSpec
 }
 
 // kmsHMACHash maps a MAC algorithm to its hash constructor.

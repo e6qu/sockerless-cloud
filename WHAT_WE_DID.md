@@ -843,6 +843,13 @@ becomes its Owner, as the Project Creator role documents, and a Resource
 Manager operation poll reads the project it produced, since Google publishes
 no permission for it and a Project Creator polls its own create.
 
+AWS KMS serves ML-KEM (FIPS 203) key pairs: `ML_KEM_512`, `ML_KEM_768` and
+`ML_KEM_1024` keys with `ENCAPSULATE_DECAPSULATE` usage, kept as their 64-byte
+seed, answer `Encapsulate`, `Decapsulate` and `GetPublicKey`, whose
+SubjectPublicKeyInfo carries the NIST `id-alg-ml-kem-*` OID. The SDK test
+encapsulates with Go's `crypto/mlkem` against the simulator's `circl`, so two
+implementations agree on every secret.
+
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions
 reference lists per resource type — a resource outside the reference supplies
@@ -1222,13 +1229,13 @@ downloads Go from the module proxy with retries.
 A CI cache needs a fallback key. The lint shards restored only an exact
 match, so every pin or dependency move linted `simulator-aws` cold, and a
 runner lost mid-lint saved nothing; each shard now keeps its own Go and
-golangci-lint cache and restores the newest older entry. A cold lint of
-`simulator-aws` at golangci-lint's default concurrency, one analysis per CPU,
-held 14 GB and the kernel killed the 16 GB runner, which GitHub reports as a
-runner shutdown; `.golangci.yml` runs two analyses at once, which peak under
-4 GB and finish sooner. The lint job runs on `ubuntu-24.04`: on Ubuntu 26.04
-runners the simulators shard still lost its runner mid-lint on about half its
-runs. The browser jobs
+golangci-lint cache and restores the newest older entry. On a cold cache,
+`go vet` and golangci-lint's package loading compile `simulator-aws`'s one
+package and its test variant, each near 7 GB, and the Go command runs them
+side by side: 14 GB, and the 16 GB runner went down mid-lint, which GitHub
+reports as a runner shutdown. `simulator-aws/Makefile` lints with
+`GOFLAGS=-p=1`, one compile at a time, which peaks under 10 GB; a soft
+`GOMEMLIMIT` held 12 GB and ran slower. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.
