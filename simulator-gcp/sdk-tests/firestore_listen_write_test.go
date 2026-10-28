@@ -37,6 +37,7 @@ func fsStringValue(s string) *firestorepb.Value {
 // from the last token.
 func TestFirestore_GRPC_WriteStream(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-write-stream")
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-write-stream/databases/(default)"
 	const docName = database + "/documents/inbox/msg1"
@@ -108,6 +109,7 @@ func TestFirestore_GRPC_WriteStream(t *testing.T) {
 
 func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-write-stream-bad")
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-write-stream-bad/databases/(default)"
 
@@ -141,6 +143,7 @@ func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
 
 func TestFirestore_GRPC_ListenStream(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-listen-raw")
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-listen-raw/databases/(default)"
 	const parent = database + "/documents"
@@ -229,6 +232,7 @@ func TestFirestore_GRPC_ListenStream(t *testing.T) {
 // reported as removed from the target's view.
 func TestFirestore_GRPC_ListenQueryTarget(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-listen-query")
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-listen-query/databases/(default)"
 	const parent = database + "/documents"

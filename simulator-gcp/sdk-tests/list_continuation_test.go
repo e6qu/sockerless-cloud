@@ -72,6 +72,7 @@ func TestCloudKMSGRPC_ListKeyRingsResumesAfterTheLastKeyRingReturned(t *testing.
 	t.Parallel()
 	client := newKMSGRPCClient(t)
 	parent := "projects/" + uniquename.New("kms-continuation") + "/locations/global"
+	ensureProject(t, strings.Split(parent, "/")[1])
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := client.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{Parent: parent, KeyRingId: id, KeyRing: &kmspb.KeyRing{}})
@@ -120,6 +121,7 @@ func TestCloudRunV1_JobsListResumesAfterTheLastJobReturned(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
 	parent := "namespaces/" + uniquename.New("run-v1-continuation")
+	ensureProject(t, strings.TrimPrefix(parent, "namespaces/"))
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -156,6 +158,7 @@ func TestIAM_CustomRolesListResumesAfterTheLastRoleReturned(t *testing.T) {
 	t.Parallel()
 	svc := iamService(t)
 	parent := "projects/" + uniquename.New("iam-continuation")
+	ensureProject(t, strings.TrimPrefix(parent, "projects/"))
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := svc.Projects.Roles.Create(parent, &iam.CreateRoleRequest{

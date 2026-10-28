@@ -30,6 +30,7 @@ import (
 
 func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "excl-test-project")
 	svc := loggingRESTService(t)
 	parent := "projects/excl-test-project"
 	name := parent + "/exclusions/sdk-exclusion"
@@ -73,7 +74,7 @@ func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
 func TestLogging_ExclusionCRUD_OrganizationScope(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
-	parent := "organizations/123456789"
+	parent := "organizations/123456789012"
 	name := parent + "/exclusions/org-exclusion"
 
 	created, err := svc.Organizations.Exclusions.Create(parent, &loggingrpc.LogExclusion{
@@ -94,7 +95,7 @@ func TestLogging_ExclusionCRUD_OrganizationScope(t *testing.T) {
 func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
-	parent := "organizations/987654321"
+	parent := "organizations/123456789012"
 	resourceName := parent + "/sinks/org-sink"
 
 	created, err := svc.Organizations.Sinks.Create(parent, &loggingrpc.LogSink{
@@ -105,7 +106,7 @@ func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "org-sink", created.Name)
 	assert.Equal(t, resourceName, created.ResourceName)
-	assert.Equal(t, "serviceAccount:service-org-987654321@gcp-sa-logging.iam.gserviceaccount.com", created.WriterIdentity,
+	assert.Equal(t, "serviceAccount:service-org-123456789012@gcp-sa-logging.iam.gserviceaccount.com", created.WriterIdentity,
 		"an organization's sink writes as the organization's Cloud Logging service agent")
 
 	got, err := svc.Organizations.Sinks.Get(resourceName).Do()
@@ -138,6 +139,7 @@ func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
 
 func TestLogging_BucketAndViewCRUD_ProjectScope(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bucket-test-project")
 	svc := loggingRESTService(t)
 	parent := "projects/bucket-test-project/locations/global"
 	bucketName := parent + "/buckets/sdk-bucket"
@@ -213,7 +215,7 @@ func TestLogging_BucketAndViewCRUD_ProjectScope(t *testing.T) {
 func TestLogging_BucketCRUD_OrganizationScope(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
-	parent := "organizations/555000111/locations/global"
+	parent := "organizations/123456789012/locations/global"
 	bucketName := parent + "/buckets/org-bucket"
 
 	created, err := svc.Organizations.Locations.Buckets.Create(parent, &loggingrpc.LogBucket{
@@ -232,6 +234,7 @@ func TestLogging_BucketCRUD_OrganizationScope(t *testing.T) {
 
 func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "link-test-project")
 	svc := loggingRESTService(t)
 	locParent := "projects/link-test-project/locations/global"
 	bucketName := locParent + "/buckets/link-bucket"
@@ -269,6 +272,7 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 // the settings and CMEK settings name it.
 func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "logging-agent-project")
 	svc := loggingRESTService(t)
 	const project = "logging-agent-project"
 	number := requireProject(t, project)
@@ -301,6 +305,7 @@ func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
 // reads back the count the operation reports and the exported entries.
 func TestLogging_EntriesCopy(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "copy-test-project")
 	svc := loggingRESTService(t)
 	const project = "copy-test-project"
 	const logID = "copy-source"

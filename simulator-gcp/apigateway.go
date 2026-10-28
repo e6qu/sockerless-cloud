@@ -157,9 +157,9 @@ func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, gw
 		policy.Bindings = append(policy.Bindings,
 			IAMBinding(binding))
 	}
+	name := fmt.Sprintf("projects/%s/locations/%s/gateways/%s", sim.PathParam(r, "project"), sim.PathParam(r, "location"), gw)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(fmt.Sprintf(
-			"projects/%s/locations/%s/gateways/%s", sim.PathParam(r, "project"), sim.PathParam(r, "location"), gw)))})
+		"permissions": gcpAnswerTestIamPermissions(r, name, policy, req.Permissions, gcpIAMResourceNamed(name))})
 }
 
 func handleGCPAPIGWCreateApi(w http.ResponseWriter, r *http.Request) {

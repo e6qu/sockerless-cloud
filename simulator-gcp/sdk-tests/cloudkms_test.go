@@ -171,6 +171,7 @@ func requireKMSErrorCode(t *testing.T, err error, code int) {
 func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-lifecycle"
 	ringName := parent + "/keyRings/" + ringID
@@ -213,6 +214,7 @@ func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
 func TestCloudKMSEncryptDecryptSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-crypto"
 	ringName := parent + "/keyRings/" + ringID
@@ -290,6 +292,7 @@ func TestCloudKMSEncryptDecryptSDK(t *testing.T) {
 func TestCloudKMSCryptoKeyManagementSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-mgmt"
 	ringName := parent + "/keyRings/" + ringID
@@ -338,6 +341,7 @@ func TestCloudKMSCryptoKeyManagementSDK(t *testing.T) {
 
 func kmsNewRing(t *testing.T, svc *cloudkms.Service, ringID string) (string, string) {
 	t.Helper()
+	ensureProject(t, "sdk-kms-project")
 	parent := "projects/sdk-kms-project/locations/global"
 	ringName := parent + "/keyRings/" + ringID
 	_, err := svc.Projects.Locations.KeyRings.Create(parent, &cloudkms.KeyRing{}).KeyRingId(ringID).Do()
@@ -391,6 +395,7 @@ func TestCloudKMSIamPolicySDK(t *testing.T) {
 func TestCloudKMSGenerateRandomBytesSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	location := "projects/sdk-kms-project/locations/global"
 
 	resp, err := svc.Projects.Locations.GenerateRandomBytes(location, &cloudkms.GenerateRandomBytesRequest{
@@ -650,6 +655,7 @@ func TestCloudKMSImportJobSDK(t *testing.T) {
 func TestCloudKMSEkmConnectionSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	location := "projects/sdk-kms-project/locations/us-central1"
 
 	conn, err := svc.Projects.Locations.EkmConnections.Create(location, &cloudkms.EkmConnection{
@@ -681,6 +687,7 @@ func TestCloudKMSEkmConnectionSDK(t *testing.T) {
 func TestCloudKMSKeyHandleSDK(t *testing.T) {
 	t.Parallel()
 	svc := kmsService(t)
+	ensureProject(t, "sdk-kms-project")
 	location := "projects/sdk-kms-project/locations/us-east1"
 
 	op, err := svc.Projects.Locations.KeyHandles.Create(location, &cloudkms.KeyHandle{

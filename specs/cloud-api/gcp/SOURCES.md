@@ -94,3 +94,39 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
 | `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-26T12:50:11Z |
 | `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-26T12:50:11Z |
+| `storage-iam-json.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-json` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:21Z |
+| `iam-roles-apigateway.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/apigateway` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:35Z |
+| `iam-roles-artifactregistry.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/artifactregistry` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:38Z |
+| `iam-roles-bigquery.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigquery` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:42Z |
+| `iam-roles-bigtable.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigtable` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:44Z |
+| `iam-roles-billing.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/billing` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:46Z |
+| `iam-roles-cloudbuild.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudbuild` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:47Z |
+| `iam-roles-cloudfunctions.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudfunctions` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:49Z |
+| `iam-roles-cloudkms.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudkms` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:54Z |
+| `iam-roles-resourcemanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/resourcemanager` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:25:59Z |
+| `iam-roles-run.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/run` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:14Z |
+| `iam-roles-cloudscheduler.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudscheduler` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:15Z |
+| `iam-roles-cloudtasks.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudtasks` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:16Z |
+| `iam-roles-compute.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/compute` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:41Z |
+| `iam-roles-dataflow.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dataflow` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:43Z |
+| `iam-roles-dns.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dns` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:46Z |
+| `iam-roles-eventarc.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/eventarc` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:48Z |
+| `iam-roles-firestore.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/firestore` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:50Z |
+| `iam-roles-iam.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/iam` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:54Z |
+| `iam-roles-logging.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:57Z |
+| `iam-roles-pubsub.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/pubsub` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:26:59Z |
+| `iam-roles-redis.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/redis` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:01Z |
+| `iam-roles-secretmanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/secretmanager` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:02Z |
+| `iam-roles-serviceusage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/serviceusage` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:06Z |
+| `iam-roles-spanner.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/spanner` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:08Z |
+| `iam-roles-cloudsql.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudsql` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:10Z |
+| `iam-roles-storage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/storage` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:13Z |
+| `iam-roles-vpcaccess.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/vpcaccess` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:14Z |
+| `pubsub-access-control.md.gz` | `docs.cloud.google.com` | `pubsub/docs/access-control` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:23Z |
+| `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-23` | 2026-10-26T12:27:24Z |
+| `iam-service-agents.md.gz` | `docs.cloud.google.com` | `iam/docs/service-agents` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:26Z |
+| `iam-roles-overview.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-overview` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:27Z |
+| `firestore-security-iam.md.gz` | `docs.cloud.google.com` | `firestore/docs/security/iam` | CC-BY-4.0 | `modified2026-10-23` | 2026-10-26T12:27:28Z |
+| `spanner-iam.md.gz` | `docs.cloud.google.com` | `spanner/docs/iam` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:29Z |
+| `iam-service-account-impersonation.md.gz` | `docs.cloud.google.com` | `iam/docs/service-account-impersonation` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:30Z |
+| `compute-service-accounts.md.gz` | `docs.cloud.google.com` | `compute/docs/access/service-accounts` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-26T12:27:31Z |

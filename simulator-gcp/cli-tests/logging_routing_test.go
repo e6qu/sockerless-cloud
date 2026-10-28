@@ -13,6 +13,7 @@ import (
 func TestLogging_CLI_DefaultSinkExclusionsAndViews(t *testing.T) {
 	t.Parallel()
 	const project = "cli-logging-routing"
+	runCLI(t, gcloudCLI("projects", "create", project, "--organization="+cliOrganizationID, "--format=json"))
 
 	runCLI(t, gcloudCLI("logging", "sinks", "update", "_Default",
 		"--add-exclusion=name=drop-debug,filter=severity=DEBUG", "--project="+project, "--quiet"))

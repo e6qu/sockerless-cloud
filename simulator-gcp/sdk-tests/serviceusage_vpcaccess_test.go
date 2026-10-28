@@ -37,6 +37,7 @@ func vpcAccessService(t *testing.T) *vpcaccess.Service {
 // gone. Enabling a service mints the operation in the top-level
 // operations/{id} collection that get and delete address.
 func TestServiceUsage_OperationDelete(t *testing.T) {
+	ensureProject(t, "su-op-delete")
 	svc := serviceUsageService(t)
 
 	enabled, err := svc.Services.Enable(
@@ -65,6 +66,7 @@ func TestServiceUsage_OperationDelete(t *testing.T) {
 // Service Usage reports a service the project never enabled as DISABLED.
 func TestServiceUsage_GetReportsDisabledUntilEnabled(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "su-get-state")
 	svc := serviceUsageService(t)
 	const name = "projects/su-get-state/services/pubsub.googleapis.com"
 

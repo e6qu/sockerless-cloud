@@ -18,6 +18,7 @@ import (
 // which reports CREATING and then RUNNING.
 func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-wp-project")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-wp-project/locations/us-central1"
 	poolID := fmt.Sprintf("pool-%d", time.Now().UnixNano())
@@ -101,6 +102,7 @@ func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 
 func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-ghe-project")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-ghe-project"
 	cfgID := fmt.Sprintf("ghe-%d", time.Now().UnixNano())
@@ -164,6 +166,7 @@ func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 
 func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-ghe-rgn")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-ghe-rgn/locations/us-east1"
 	cfgID := fmt.Sprintf("ghe-rgn-%d", time.Now().UnixNano())
@@ -201,6 +204,7 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 
 func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-bb-project")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-bb-project/locations/us-central1"
 	cfgID := fmt.Sprintf("bb-%d", time.Now().UnixNano())

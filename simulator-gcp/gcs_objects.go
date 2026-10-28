@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"slices"
 	"strconv"
@@ -306,8 +307,8 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 	// mounted without a method so the literal "/v2/" routes outrank it. It answers
 	// 404 for a first segment that names no bucket, so it does not shadow
 	// unrelated top-level paths with a Cloud Storage-shaped 404. The credential
-	// gate does not cover a pattern that matches every URI, so it verifies the
-	// bearer itself once the bucket resolves.
+	// and IAM gates do not cover a pattern that matches every URI, so it verifies
+	// the bearer and storage.objects.get itself once the bucket resolves.
 	srv.HandleFunc("/{bucket}/{object...}", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
@@ -323,12 +324,27 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			http.NotFound(w, r)
 			return
 		}
-		// A V4 signed URL authorizes the request in place of a bearer token.
+		// A V4 signed URL authorizes the request in place of a bearer token,
+		// with its signer's permissions.
+		var principal string
 		if signed, authorized := gcsSignedURLAuthorized(w, r); signed {
 			if !authorized {
 				return
 			}
+			email, _, _ := strings.Cut(r.URL.Query().Get("X-Goog-Credential"), "/")
+			principal = "serviceAccount:" + email
 		} else if !verifyRequestBearer(w, r) {
+			return
+		} else {
+			principal = gcpRequestPrincipal(r)
+		}
+		check := gateCheck{permission: "storage.objects.get", bucket: bucketName, object: objectName}
+		if !gateHolds(principal, check) {
+			w.Header().Set("Content-Type", "application/xml; charset=UTF-8")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(xml.Header))
+			_ = xml.NewEncoder(w).Encode(gcsXMLErrorBody{Code: "AccessDenied", Message: "Access denied.",
+				Details: gateDeniedMessage(principal, gateDecision{api: "storage"}, check)})
 			return
 		}
 		key := bucketName + "/" + objectName

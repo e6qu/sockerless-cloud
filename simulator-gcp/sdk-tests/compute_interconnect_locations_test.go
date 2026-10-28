@@ -13,6 +13,7 @@ import (
 // what the source states, and what the source does not state stays empty.
 func TestCompute_InterconnectLocationsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "interconnect-location-project")
 	svc := computeService(t)
 	const project = "interconnect-location-project"
 

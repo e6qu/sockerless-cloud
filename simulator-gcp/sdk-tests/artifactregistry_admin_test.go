@@ -31,6 +31,7 @@ func arAdminService(t *testing.T) *artifactregistry.Service {
 // lifecycle directly.
 func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-admin")
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniquename.New("subres-repo")
@@ -82,6 +83,7 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 
 func TestArtifactRegistry_Rules(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-admin")
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniquename.New("rules-repo")
@@ -116,6 +118,7 @@ func TestArtifactRegistry_Rules(t *testing.T) {
 
 func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-admin")
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniquename.New("iam-repo")
@@ -153,6 +156,7 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 
 func TestArtifactRegistry_ProjectSettingsAndVPCSC(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-admin-settings")
 	svc := arAdminService(t)
 	project := "ar-admin-settings"
 	location := "us-central1"

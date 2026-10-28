@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iam/v1"
 	"google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/idtoken"
@@ -55,6 +57,7 @@ func invokerIDToken(t *testing.T, serviceURI string) string {
 // when the test ends.
 func createServiceAccount(t *testing.T, project, accountID string) string {
 	t.Helper()
+	ensureProject(t, project)
 	svc := iamService(t)
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/"+project,
 		&iam.CreateServiceAccountRequest{AccountId: accountID}).Do()
@@ -117,15 +120,23 @@ func revokeOnService(t *testing.T, client *run.ServicesClient, service, role, me
 }
 
 // editProjectPolicy applies edit to the project's IAM policy through Cloud
-// Resource Manager.
+// Resource Manager, reading the policy again when a concurrent writer's
+// change moved its etag.
 func editProjectPolicy(t *testing.T, project string, edit func(*cloudresourcemanager.Policy)) {
 	t.Helper()
 	svc := crmService(t)
-	policy, err := svc.Projects.GetIamPolicy(project, &cloudresourcemanager.GetIamPolicyRequest{}).Do()
-	require.NoError(t, err)
-	edit(policy)
-	_, err = svc.Projects.SetIamPolicy(project, &cloudresourcemanager.SetIamPolicyRequest{Policy: policy}).Do()
-	require.NoError(t, err)
+	for {
+		policy, err := svc.Projects.GetIamPolicy(project, &cloudresourcemanager.GetIamPolicyRequest{}).Do()
+		require.NoError(t, err)
+		edit(policy)
+		_, err = svc.Projects.SetIamPolicy(project, &cloudresourcemanager.SetIamPolicyRequest{Policy: policy}).Do()
+		var apiErr *googleapi.Error
+		if errors.As(err, &apiErr) && apiErr.Code == http.StatusConflict {
+			continue
+		}
+		require.NoError(t, err)
+		return
+	}
 }
 
 // createInvokableServiceIn creates a service in parent and deletes it when the
@@ -228,7 +239,7 @@ func TestSDK_CloudRunV2Services_InvokerIAMOnTheService(t *testing.T) {
 func TestSDK_CloudRunV2Services_InvokerInheritedFromTheProject(t *testing.T) {
 	t.Parallel()
 	project := uniquename.New("run-inv")
-	ensureV1Project(t, crmService(t), project)
+	ensureProject(t, project)
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/"+project+"/locations/us-central1", "v2-svc-inherit", echoService())
 	email := createServiceAccount(t, project, uniquename.New("sdk-proj-inv"))

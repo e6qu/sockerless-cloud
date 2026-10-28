@@ -203,10 +203,10 @@ func TestResourceManagerV3_CapabilityConfigsOnAnOrganizationAndProject(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, scoped.Name, byID.Name)
 
-	// A parent this deployment does not have is the parent's own refusal, not
-	// an empty listing.
+	// A parent this deployment does not have is refused as one the caller may
+	// not read, rather than listed empty.
 	_, err = svc.Folders.CapabilityConfigs.List("folders/404404404404").Do()
-	requireCapabilityConfigRefusal(t, err, 404, "")
+	requireCapabilityConfigRefusal(t, err, 403, "")
 	_, err = projectConfigs.List("projects/no-such-project-here").Do()
 	requireCapabilityConfigRefusal(t, err, 403, "")
 }

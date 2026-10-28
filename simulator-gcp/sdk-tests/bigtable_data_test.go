@@ -16,6 +16,7 @@ import (
 // `cloud.google.com/go/bigtable` over gRPC with the bootstrap credential.
 func TestBigtable_DataPlane(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-data-proj")
 	const (
 		project  = "bt-data-proj"
 		instance = "bt-data-inst"
@@ -130,6 +131,7 @@ var btFilterCounter int
 // families; callers name them so every test owns a private keyspace.
 func btSetupDataPlane(t *testing.T, project, instance, table string, families ...string) *bigtable.Table {
 	t.Helper()
+	ensureProject(t, project)
 
 	iac, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptions()...)
 	require.NoError(t, err)
@@ -191,6 +193,7 @@ func btCellStr(row bigtable.Row) []string {
 // deterministic cells and asserts which survive.
 func TestBigtable_DataPlane_Filters(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-filt-proj")
 	const (
 		project  = "bt-filt-proj"
 		instance = "bt-filt-inst"
@@ -404,6 +407,7 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 // DeleteCellsInFamily and DeleteTimestampRange.
 func TestBigtable_DataPlane_Mutations(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-mut-proj")
 	const (
 		project  = "bt-mut-proj"
 		instance = "bt-mut-inst"

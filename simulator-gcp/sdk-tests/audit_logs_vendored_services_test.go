@@ -182,7 +182,7 @@ func TestAuditLogs_OperationLastEntries(t *testing.T) {
 	t.Parallel()
 
 	projectID := uniquename.New("audit-create")
-	op, err := crmService(t).Projects.Create(&crmv1.Project{ProjectId: projectID}).Do()
+	op, err := crmService(t).Projects.Create(&crmv1.Project{ProjectId: projectID, Parent: &crmv1.ResourceId{Type: "organization", Id: "123456789012"}}).Do()
 	require.NoError(t, err)
 	entry, payload := auditActivityEntryIn(t, projectID, "CreateProject", "projects/"+projectID)
 	assert.Equal(t, "resourcemanager.projects.create", auditPermission(t, payload))

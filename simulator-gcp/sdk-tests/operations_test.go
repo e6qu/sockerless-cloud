@@ -38,6 +38,7 @@ func awaitLRO[T any](t *testing.T, name string, get func() (T, error), isDone fu
 // service's.
 func TestGCP_Operations_List(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "su-ops-list")
 	svc := serviceUsageService(t)
 	const project = "projects/su-ops-list"
 	enabled := map[string]bool{}
@@ -61,7 +62,7 @@ func TestGCP_Operations_List(t *testing.T) {
 	require.NotContains(t, listed, jobOp, "a Cloud Run operation is not Service Usage's")
 
 	// The Cloud Run job's operation stays in its location's own collection.
-	resp, err := http.Get(baseURL + "/v2/projects/p1/locations/us-central1/operations")
+	resp, err := http.Get(baseURL + "/v2/projects/ops-run-project/locations/us-central1/operations")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -94,6 +95,7 @@ func TestGCP_Operations_List(t *testing.T) {
 // while the pages are read, and each operation still lists exactly once.
 func TestGCP_Operations_ListPagesAndFiltersDone(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "su-ops-pages")
 	svc := serviceUsageService(t)
 	created := map[string]bool{}
 	for _, service := range []string{"pubsub.googleapis.com", "run.googleapis.com", "storage.googleapis.com"} {
@@ -132,9 +134,10 @@ func serviceUsageOperations(t *testing.T, call *serviceusage.OperationsListCall)
 
 func gcpCreateJobOperation(t *testing.T, location, jobID string) string {
 	t.Helper()
+	ensureProject(t, "ops-run-project")
 	body := `{"template":{"template":{"containers":[{"image":"mirror.gcr.io/library/alpine:latest"}]}}}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		baseURL+"/v2/projects/p1/locations/"+location+"/jobs?jobId="+jobID,
+		baseURL+"/v2/projects/ops-run-project/locations/"+location+"/jobs?jobId="+jobID,
 		strings.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
@@ -195,12 +196,38 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create project %s: %v", harnessProject, err)
 	}
 	harnessProjectNumber = number
+	if err := grantHarnessTokenCreator(); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to grant the bootstrap account the Service Account Token Creator role: %v", err)
+	}
 
 	code := m.Run()
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.RemoveAll(tlsDir)
 	os.Exit(code)
+}
+
+// grantHarnessTokenCreator grants the bootstrap account the Service Account
+// Token Creator role on the test organization, which the tests that
+// impersonate a service account need: no basic role, Owner included, carries
+// iam.serviceAccounts.getAccessToken.
+func grantHarnessTokenCreator() error {
+	c, err := resourcemanager.NewOrganizationsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	policy, err := c.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: crmTestOrg})
+	if err != nil {
+		return err
+	}
+	policy.Bindings = append(policy.Bindings, &iampb.Binding{
+		Role:    "roles/iam.serviceAccountTokenCreator",
+		Members: []string{"serviceAccount:" + gcpbootstrap.Email},
+	})
+	_, err = c.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{Resource: crmTestOrg, Policy: policy})
+	return err
 }
 
 // harnessProject is the project the tests address. TestMain creates it the

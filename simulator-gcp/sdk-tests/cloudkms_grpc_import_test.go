@@ -60,6 +60,7 @@ func kmsMacSign(t *testing.T, c *kms.KeyManagementClient, versionName string, da
 
 func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "kms-grpc-project")
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-import-jobs")
 
@@ -467,6 +468,7 @@ func kmsAwaitVersionState(t *testing.T, c *kms.KeyManagementClient, name string,
 // the REST reads do.
 func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "kms-grpc-project")
 	c := newKMSGRPCClient(t)
 	location := "projects/kms-grpc-project/locations/global"
 

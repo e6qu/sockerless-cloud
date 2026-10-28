@@ -25,6 +25,7 @@ func newFSAdminClient(t *testing.T) *admin.FirestoreAdminClient {
 
 func TestFirestoreAdmin_Databases(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-admin-db")
 	c := newFSAdminClient(t)
 	parent := "projects/fs-admin-db"
 
@@ -73,6 +74,7 @@ func TestFirestoreAdmin_Databases(t *testing.T) {
 
 func TestFirestoreAdmin_Indexes(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-admin-idx")
 	c := newFSAdminClient(t)
 	cgParent := "projects/fs-admin-idx/databases/(default)/collectionGroups/users"
 
@@ -135,6 +137,7 @@ func TestFirestoreAdmin_Indexes(t *testing.T) {
 
 func TestFirestoreAdmin_Fields(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-admin-field")
 	c := newFSAdminClient(t)
 	fieldName := "projects/fs-admin-field/databases/(default)/collectionGroups/users/fields/email"
 
@@ -189,6 +192,7 @@ func TestFirestoreAdmin_Fields(t *testing.T) {
 
 func TestFirestoreAdmin_BackupSchedules(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "fs-admin-bs")
 	c := newFSAdminClient(t)
 	dbParent := "projects/fs-admin-bs/databases/(default)"
 

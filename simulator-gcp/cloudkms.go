@@ -1672,7 +1672,7 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 			IAMBinding(binding))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})
+		"permissions": gcpAnswerTestIamPermissions(r, resource, policy, req.Permissions, gcpIAMResourceNamed(resource))})
 }
 
 // kmsHandleGenerateRandomBytes reads crypto/rand and returns a CRC32C over

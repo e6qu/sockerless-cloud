@@ -32,7 +32,8 @@ func newRunV1(t *testing.T) *run.APIService {
 func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	const namespace = "test-project-knative-children"
+	const namespace = "knative-children"
+	ensureProject(t, namespace)
 
 	created, err := svc.Namespaces.Services.Create("namespaces/"+namespace, &run.Service{
 		Metadata: &run.ObjectMeta{Name: "svc-children"},
@@ -106,6 +107,7 @@ func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-domainmappings"
+	ensureProject(t, namespace)
 
 	created, err := svc.Namespaces.Domainmappings.Create("namespaces/"+namespace, &run.DomainMapping{
 		Metadata: &run.ObjectMeta{Name: "www.example.com"},
@@ -140,6 +142,7 @@ func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
 // exhausted list serialized as an empty JSON array, not null.
 func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "test-project-ad")
 	svc := newRunV1(t)
 	resp, err := svc.Namespaces.Authorizeddomains.List("namespaces/test-project-ad").Do()
 	require.NoError(t, err)
@@ -185,6 +188,7 @@ func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 
 func TestCloudRunV1_RegionalMirror_RoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "test-project-regional")
 	svc := newRunV1(t)
 	const project = "test-project-regional"
 	const location = "us-central1"

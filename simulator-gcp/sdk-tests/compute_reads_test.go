@@ -13,6 +13,7 @@ import (
 
 func TestCompute_RegionZonesAndImageFamilyView(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 	const project, region, zone = "reads-project", "us-central1", "us-central1-a"
 
@@ -98,6 +99,7 @@ func TestCompute_UsableSubnetworks(t *testing.T) {
 
 func TestCompute_SnapshotKeyImageDeprecationAndRegionalResize(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 	const project, region = "writes-project", "us-central1"
 

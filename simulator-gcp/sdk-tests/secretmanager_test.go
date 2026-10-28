@@ -23,6 +23,7 @@ func secretManagerService(t *testing.T) *secretmanager.Service {
 
 func TestSecretManagerSecretLifecycleSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-secret-project")
 	svc := secretManagerService(t)
 	parent := "projects/sdk-secret-project"
 	secretID := "sdk-lifecycle-secret"
@@ -81,6 +82,7 @@ func TestSecretManagerSecretLifecycleSDK(t *testing.T) {
 
 func TestSecretManager_ListPagination(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "pagination-sm-project")
 	svc := secretManagerService(t)
 	proj := "pagination-sm-project"
 
@@ -142,6 +144,7 @@ func TestSecretManager_GetSecret_NotFound_ErrorClassification(t *testing.T) {
 // projects/{p}/locations/{loc}/secrets.
 func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-regional-project")
 	svc := secretManagerService(t)
 	location := "us-central1"
 	parent := "projects/sdk-regional-project/locations/" + location
@@ -228,6 +231,7 @@ func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 // testIamPermissions echoes the requested permissions.
 func TestSecretManager_IamPolicySDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-iam-project")
 	svc := secretManagerService(t)
 	parent := "projects/sdk-iam-project"
 	secretID := "sdk-iam-secret"
@@ -275,6 +279,7 @@ func TestSecretManager_IamPolicySDK(t *testing.T) {
 
 func TestSecretManager_LocationsSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-loc-project")
 	svc := secretManagerService(t)
 	project := "projects/sdk-loc-project"
 

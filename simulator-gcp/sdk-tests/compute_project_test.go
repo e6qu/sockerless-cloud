@@ -12,6 +12,7 @@ import (
 )
 
 func TestCompute_ProjectDefaultsAndSetVerbs(t *testing.T) {
+	ensureProject(t, "project-verbs")
 	svc := computeService(t)
 	const project = "project-verbs"
 	number := requireProject(t, project)

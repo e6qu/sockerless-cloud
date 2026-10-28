@@ -135,6 +135,10 @@ Shared mechanisms, one package each:
   documents, Cloud Tasks and Cloud Scheduler among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three
   methods, each named in the simulator's README. Every gRPC service is crossed against its REST door.
+  One IAM gate decides every authenticated REST and gRPC call from the
+  method's sourced permission and the policies on the resource and its
+  ancestors; the bootstrap account is an Owner through an organization-level
+  `roles/owner` binding.
 - **Azure**: 2,653 of 2,660 Swagger operations across 122 documents are
   served; the seven others answer a declared 501.
 - **Coverage ratchets** hold a served floor and every document's declared

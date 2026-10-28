@@ -76,6 +76,7 @@ func TestGCEMetadataServerGcloudCredentials(t *testing.T) {
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
 		"--display-name=Metadata ADC SA", "--format=json"))
+	grantProjectRole(t, "serviceAccount:"+email, "roles/iam.serviceAccountViewer")
 
 	const job = "cli-metadata-gcloud"
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,

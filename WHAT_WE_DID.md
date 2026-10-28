@@ -824,6 +824,19 @@ App Service's reference resolution reusing the same decision. Managed
 identities get their own `IDENTITY_HEADER` per app, slot, container app or
 job.
 
+Google Cloud IAM once decided a call in four places only, so a service
+account holding `roles/storage.objectViewer` deleted objects. One gate
+(`iam_gate.go`) now fronts every authenticated REST and gRPC method: it
+resolves the call to its Discovery method, takes the method's permission from
+the first source that names one (the method tables Cloud Storage and Pub/Sub
+publish, a cited per-method table, the service's audit-logging page, then
+Google's `service.resource.verb` convention), and evaluates the policies on the
+resource and every ancestor up to the organization. A gRPC call is decided as
+the REST call its `google.api.http` binding spells. The bootstrap account is
+an Owner through a seeded organization `roles/owner` binding rather than an
+email check, and basic roles grant no impersonation, as on Google Cloud. A
+method no source covers admits only an Owner, and `BUGS.md` counts them.
+
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions
 reference lists per resource type — a resource outside the reference supplies

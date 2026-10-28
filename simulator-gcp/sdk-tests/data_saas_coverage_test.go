@@ -26,6 +26,7 @@ func bqService(t *testing.T) *bigquery.Service {
 
 func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cov-project")
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -67,6 +68,7 @@ func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
 
 func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cov-project")
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -105,6 +107,7 @@ func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
 
 func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cov-project")
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -197,6 +200,7 @@ func bqGetQueryResultsMembers(t *testing.T, project, jobID string) []string {
 
 func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cov-project")
 	svc, err := firestore.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),

@@ -17,6 +17,7 @@ func TestSpanner_SplitPointsQuorumScansAndAdapter(t *testing.T) {
 	t.Parallel()
 	svc := spannerAdminService(t, ctx)
 	const project, instance, database = "spanner-verbs", "prod", "app"
+	ensureProject(t, project)
 	parent := "projects/" + project + "/instances/" + instance
 	name := parent + "/databases/" + database
 

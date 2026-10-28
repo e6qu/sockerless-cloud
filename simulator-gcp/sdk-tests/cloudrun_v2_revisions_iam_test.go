@@ -143,6 +143,7 @@ func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 // in the sim, so wait returns the done operation immediately).
 func TestSDK_CloudRunV2_Operations_DeleteAndWait(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "test-project-ops")
 	services := newServicesClient(t)
 	parent := "projects/test-project-ops/locations/us-central1"
 	id := uniquename.New("v2-svc-ops")

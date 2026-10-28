@@ -148,6 +148,7 @@ func TestCrossDoor_CloudKMS(t *testing.T) {
 
 func TestCrossDoor_SecretManager(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-secrets")
 	rest := secretManagerService(t)
 	grpcClient := newSecretManagerGRPCClient(t)
 	const parent = "projects/cross-door-secrets"
@@ -179,6 +180,7 @@ func TestCrossDoor_SecretManager(t *testing.T) {
 
 func TestCrossDoor_Firestore(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-fs")
 	rest, err := firestore.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	grpcClient := fsRawGRPCClient(t)
@@ -260,6 +262,7 @@ func TestCrossDoor_PubSub(t *testing.T) {
 
 func TestCrossDoor_CloudLogging(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-logging")
 	rest, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	grpcClient := newLoggingV2Client(t)
@@ -300,6 +303,7 @@ func TestCrossDoor_CloudLogging(t *testing.T) {
 
 func TestCrossDoor_PubSubSchemas(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-ps-schemas")
 	rest := pubsubService(t)
 	const project = "cross-door-ps-schemas"
 	parent := "projects/" + project
@@ -340,6 +344,7 @@ func TestCrossDoor_PubSubSchemas(t *testing.T) {
 // operations surface reports.
 func TestCrossDoor_Operations(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-ops")
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project = "cross-door-ops"
 	instance, _ := bigtableAdminGRPCInstance(t, ia, project, "inst", "c1")

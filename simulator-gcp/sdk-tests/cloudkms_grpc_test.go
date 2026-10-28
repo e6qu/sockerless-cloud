@@ -42,6 +42,7 @@ func newKMSGRPCClient(t *testing.T) *kms.KeyManagementClient {
 
 func kmsKeyRingForTest(t *testing.T, c *kms.KeyManagementClient, ringID string) string {
 	t.Helper()
+	ensureProject(t, "kms-grpc-project")
 	parent := "projects/kms-grpc-project/locations/global"
 	kr, err := c.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{
 		Parent:    parent,
@@ -81,6 +82,7 @@ func kmsFirstVersionName(t *testing.T, c *kms.KeyManagementClient, keyName strin
 
 func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "kms-grpc-project")
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-ring-crud")
 
@@ -395,6 +397,7 @@ func TestCloudKMS_GRPC_RawEncryptDecrypt(t *testing.T) {
 
 func TestCloudKMS_GRPC_GenerateRandomBytes(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "kms-grpc-project")
 	c := newKMSGRPCClient(t)
 	location := "projects/kms-grpc-project/locations/global"
 

@@ -37,6 +37,7 @@ type btFixture struct {
 
 func newBTFixture(t *testing.T, project, instanceID, tableID, family string) btFixture {
 	t.Helper()
+	ensureProject(t, project)
 
 	instanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project, simGRPCClientOptions()...)
 	require.NoError(t, err)
@@ -86,6 +87,7 @@ func btSetCellMutation(family, qualifier, value string) *btpb.Mutation {
 // one that does not exist.
 func TestBigtable_PingAndWarm(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-ping-proj")
 	f := newBTFixture(t, "bt-ping-proj", "bt-ping-inst", "events", "cf")
 
 	_, err := f.data.PingAndWarm(ctx, &btpb.PingAndWarmRequest{Name: f.instance})
@@ -106,6 +108,7 @@ func TestBigtable_PingAndWarm(t *testing.T) {
 // stop polling.
 func TestBigtable_GetClientConfiguration(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-config-proj")
 	f := newBTFixture(t, "bt-config-proj", "bt-config-inst", "events", "cf")
 
 	config, err := f.data.GetClientConfiguration(ctx, &btpb.GetClientConfigurationRequest{InstanceName: f.instance})
@@ -218,6 +221,7 @@ func TestBigtable_OpenTableSessionPermissions(t *testing.T) {
 // and holds it to the subset the view was created with.
 func TestBigtable_OpenAuthorizedViewSession(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-view-proj")
 	const project = "bt-view-proj"
 	f := newBTFixture(t, project, "bt-view-inst", "events", "cf")
 

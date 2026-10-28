@@ -82,7 +82,7 @@ func TestCloudBilling_AccountLifecycleAndProjectLink(t *testing.T) {
 	)
 	require.NoError(t, err)
 	const projectID = "billing-link-proj"
-	_, err = crm.Projects.Create(&crmv1.Project{ProjectId: projectID}).Do()
+	_, err = crm.Projects.Create(&crmv1.Project{ProjectId: projectID, Parent: &crmv1.ResourceId{Type: "organization", Id: "123456789012"}}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = crm.Projects.Delete(projectID).Do() })
 

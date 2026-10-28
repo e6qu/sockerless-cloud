@@ -10,6 +10,7 @@ import (
 
 func bqMakeDataset(t *testing.T, svc *bigquery.Service, project, dataset string) {
 	t.Helper()
+	ensureProject(t, project)
 	_, err := svc.Datasets.Insert(project, &bigquery.Dataset{
 		DatasetReference: &bigquery.DatasetReference{ProjectId: project, DatasetId: dataset},
 	}).Do()

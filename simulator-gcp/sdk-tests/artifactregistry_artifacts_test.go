@@ -76,6 +76,7 @@ func arDownloadFile(t *testing.T, svc *artifactregistry.Service, name string) []
 // and Version; exportArtifact writes that file into Cloud Storage.
 func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-generic")
 	svc := arAdminService(t)
 	parent := "projects/ar-generic/locations/us-central1"
 	repo := arCreateFormatRepository(t, svc, parent, uniquename.New("generic-repo"), "GENERIC")
@@ -222,6 +223,7 @@ func arTestDebPackage(t *testing.T, pkg, version, arch string) []byte {
 // publishes each under the package and version its control file declares.
 func TestArtifactRegistry_ImportAptArtifactsFromCloudStorage(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-apt-import")
 	svc := arAdminService(t)
 	parent := "projects/ar-apt-import/locations/us-central1"
 	repo := arCreateFormatRepository(t, svc, parent, uniquename.New("apt-repo"), "APT")

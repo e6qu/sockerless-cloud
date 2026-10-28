@@ -37,6 +37,7 @@ func metadataReader(t *testing.T) func(path string, header http.Header) serviceA
 // requests a test makes reach the same container.
 func metadataReaderIn(t *testing.T, project string) func(path string, header http.Header) serviceAnswer {
 	t.Helper()
+	ensureProject(t, project)
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/"+project+"/locations/us-central1", "metadata-reader", &runpb.Service{
 		Template: &runpb.RevisionTemplate{
@@ -251,6 +252,7 @@ func TestMetadata_CloudRunReadsThroughTheOfficialClient(t *testing.T) {
 // found.
 func TestMetadata_CloudRunSubscribesToProjectAttributes(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "metadata-subscribe")
 	const project = "metadata-subscribe"
 	requireProject(t, project)
 	compute := computeService(t)

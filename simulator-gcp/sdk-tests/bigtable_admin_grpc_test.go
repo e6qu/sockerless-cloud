@@ -39,6 +39,7 @@ func bigtableAdminGRPCConn(t *testing.T) (adminpb.BigtableInstanceAdminClient, a
 
 func bigtableAdminGRPCInstance(t *testing.T, ia adminpb.BigtableInstanceAdminClient, project, instanceID, clusterID string) (string, string) {
 	t.Helper()
+	ensureProject(t, project)
 	op, err := ia.CreateInstance(ctx, &adminpb.CreateInstanceRequest{
 		Parent:     "projects/" + project,
 		InstanceId: instanceID,
@@ -665,6 +666,7 @@ func bigtableTestDescriptorSet(t *testing.T, message string) []byte {
 
 func TestBigtableAdminGRPC_TableUpdatesConsistencyAndDropRowRange(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-grpc-tables")
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const (
 		project    = "bt-grpc-tables"
@@ -929,6 +931,7 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 // cluster's.
 func TestBigtableAdminGRPC_MemoryLayers(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-grpc-memory")
 	ia, _, _ := bigtableAdminGRPCConn(t)
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, "bt-grpc-memory", "inst", "c1")
 	name := cluster + "/memoryLayer"

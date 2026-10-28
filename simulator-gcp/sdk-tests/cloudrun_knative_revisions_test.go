@@ -15,7 +15,8 @@ import (
 func TestCloudRunV1_ReplaceDeploysARevisionOnlyForAChangedTemplate(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	const namespace = "test-project-knative-revision-rules"
+	const namespace = "knative-revision-rules"
+	ensureProject(t, namespace)
 	parent := "namespaces/" + namespace
 	name := "rules-svc"
 	created, err := svc.Namespaces.Services.Create(parent, knativeServiceBody(name, nil)).Do()

@@ -37,6 +37,7 @@ func grpcOperation(t *testing.T, ops longrunningpb.OperationsClient, name string
 // and metadata, naming the method and its resource, deletes included.
 func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ops-grpc-project")
 	conn, err := grpc.NewClient(grpcAddr, simGRPCDialOptions(simTokenSource())...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })

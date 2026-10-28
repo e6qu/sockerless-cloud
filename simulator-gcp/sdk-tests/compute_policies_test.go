@@ -14,6 +14,7 @@ import (
 
 func TestCompute_SecurityPolicyRuleLifecycle(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "armor-project")
 	svc := computeService(t)
 	const project = "armor-project"
 

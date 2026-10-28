@@ -1519,6 +1519,16 @@ data "google_service_account_access_token" "tf_sa_token" {
   target_service_account = google_service_account.tf_sa.email
   scopes                 = ["https://www.googleapis.com/auth/cloud-platform"]
   lifetime               = "600s"
+
+  depends_on = [google_service_account_iam_member.tf_sa_token_creator]
+}
+
+# No basic role carries iam.serviceAccounts.getAccessToken, so the applying
+# account takes the Service Account Token Creator role on the account first.
+resource "google_service_account_iam_member" "tf_sa_token_creator" {
+  service_account_id = google_service_account.tf_sa.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com"
 }
 
 # The data source never re-reads `lifetime`, so the token's claim span is the

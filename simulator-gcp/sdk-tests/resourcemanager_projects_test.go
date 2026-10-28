@@ -269,7 +269,7 @@ func TestResourceManagerProjects_V1Lifecycle(t *testing.T) {
 	assert.Empty(t, bi.BillingAccountName)
 
 	// Duplicate create is a real 409.
-	_, err = svc.Projects.Create(&crmv1.Project{ProjectId: projectID}).Do()
+	_, err = svc.Projects.Create(&crmv1.Project{ProjectId: projectID, Parent: &crmv1.ResourceId{Type: "organization", Id: "123456789012"}}).Do()
 	require.Error(t, err)
 	var gerr *googleapi.Error
 	require.ErrorAs(t, err, &gerr)

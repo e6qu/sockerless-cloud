@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -73,6 +74,7 @@ func iamSeedBootstrapServiceAccount() error {
 	if _, ok := crmProjects.Get(gcpBootstrapProjectID); !ok {
 		return fmt.Errorf("the default project %s does not exist", gcpBootstrapProjectID)
 	}
+	iamSeedBootstrapOwner()
 	saName := fmt.Sprintf("projects/%s/serviceAccounts/%s", gcpBootstrapProjectID, gcpBootstrapServiceAccountEmail)
 	if _, ok := iamServiceAccounts.Get(saName); !ok {
 		iamServiceAccounts.Put(saName, GCPServiceAccount{
@@ -142,4 +144,22 @@ func iamSeedBootstrapServiceAccount() error {
 		CertificatePEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})),
 	})
 	return nil
+}
+
+// iamSeedBootstrapOwner grants the bootstrap service account the Owner role
+// on the organization every bootstrap resource hangs off, the binding that
+// makes it the administrator of the projects and folders under it. A
+// persisted organization policy is kept as it is.
+func iamSeedBootstrapOwner() {
+	key := "organization/" + strings.TrimPrefix(crmDefaultOrganization, "organizations/")
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
+	if _, ok := gcpResourcePolicies.Get(key); ok {
+		return
+	}
+	gcpResourcePolicies.Put(key, IAMPolicy{
+		Bindings: []IAMBinding{{Role: gcpRoleOwner, Members: []string{"serviceAccount:" + gcpBootstrapServiceAccountEmail}}},
+		Etag:     gcpPolicyETag(),
+		Version:  1,
+	})
 }

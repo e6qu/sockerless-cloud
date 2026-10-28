@@ -89,6 +89,7 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 
 func TestCloudSQL_NewPublishedInstanceFieldsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "published-fields-project")
 	const (
 		project  = "published-fields-project"
 		instance = "published-fields"

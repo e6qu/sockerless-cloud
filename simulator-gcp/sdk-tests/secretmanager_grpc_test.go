@@ -2,13 +2,13 @@ package gcp_sdk_test
 
 import (
 	"errors"
-	"fmt"
 	"hash/crc32"
 	"testing"
 
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	smpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -38,28 +38,13 @@ func newSecretManagerGRPCClient(t *testing.T) *secretmanager.Client {
 	return cli
 }
 
-// smGRPCProjectParent gives each test its own project, so parallel runs never
-// collide in the shared store.
+// smGRPCProjectParent gives each test a fresh project of its own, so parallel
+// runs never collide on one project's secrets.
 func smGRPCProjectParent(t *testing.T) string {
 	t.Helper()
-	return fmt.Sprintf("projects/sm-grpc-%s", smGRPCUniqueSuffix(t))
-}
-
-func smGRPCUniqueSuffix(t *testing.T) string {
-	t.Helper()
-	name := t.Name()
-	out := make([]byte, 0, len(name))
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			out = append(out, byte(r))
-		case r >= 'A' && r <= 'Z':
-			out = append(out, byte(r-'A'+'a'))
-		default:
-			out = append(out, '-')
-		}
-	}
-	return string(out)
+	project := uniquename.New("sm-grpc")
+	ensureProject(t, project)
+	return "projects/" + project
 }
 
 func smGRPCCreateSecret(t *testing.T, c *secretmanager.Client, parent, secretID string) string {
@@ -104,6 +89,7 @@ func TestSecretManager_GRPC_CreateAddAccess(t *testing.T) {
 
 func TestSecretManager_GRPC_ManagedCloudSQLRotation(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sm-managed-rotation")
 	const (
 		project      = "sm-managed-rotation"
 		location     = "us-central1"
@@ -405,6 +391,7 @@ func TestSecretManager_GRPC_IamPolicy(t *testing.T) {
 // simulator treating the project as a path component.
 func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sm-grpc-missing")
 	c := newSecretManagerGRPCClient(t)
 
 	_, err := c.GetSecret(ctx, &smpb.GetSecretRequest{Name: "projects/sm-grpc-missing/secrets/never"})

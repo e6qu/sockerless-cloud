@@ -10,6 +10,7 @@ import (
 
 func TestCompute_URLMapValidateChecksItsTestsAgainstItsOwnRouting(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "validate-project")
 	svc := computeService(t)
 	const project = "validate-project"
 

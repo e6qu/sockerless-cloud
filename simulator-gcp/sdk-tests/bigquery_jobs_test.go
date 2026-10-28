@@ -18,6 +18,7 @@ import (
 
 func bqClient(t *testing.T, project string) *bigquery.Client {
 	t.Helper()
+	ensureProject(t, project)
 	client, err := bigquery.NewClient(ctx, project,
 		option.WithEndpoint(baseURL+"/bigquery/v2/"),
 		option.WithTokenSource(simTokenSource()),

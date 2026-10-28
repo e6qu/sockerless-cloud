@@ -21,6 +21,7 @@ import (
 func TestOAuth2_LegacyTokenEndpoint(t *testing.T) {
 	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "legacy-token-endpoint-sa")
+	grantOnProject(t, "test-project", "roles/iam.serviceAccountViewer", "serviceAccount:legacy-token-endpoint-sa@test-project.iam.gserviceaccount.com")
 	keyFile["token_uri"] = baseURL + "/o/oauth2/token"
 
 	creds := tokenSourceFromKeyFile(t, keyFile)

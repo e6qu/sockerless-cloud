@@ -23,11 +23,14 @@ func serviceUsageState(t *testing.T, name string) string {
 func TestTerraformProjectService(t *testing.T) {
 	const name = "projects/tf-service-usage/services/pubsub.googleapis.com"
 	const fixture = "project-service"
-	require.Equal(t, "DISABLED", serviceUsageState(t, name), "a never-enabled service is DISABLED")
-
 	cleanTerraformFixture(t, "fixtures/"+fixture)
 	out, err := runTimed(t, "terraform init "+fixture, terraformCmdInDir("fixtures/"+fixture, "init"))
 	require.NoError(t, err, "terraform init failed:\n%s", out)
+	out, err = runTimed(t, "terraform apply "+fixture+" (project)", terraformCmdInDir("fixtures/"+fixture,
+		"apply", "-auto-approve", "-target=google_project.usage"))
+	require.NoError(t, err, "terraform apply failed:\n%s", out)
+	require.Equal(t, "DISABLED", serviceUsageState(t, name), "a never-enabled service is DISABLED")
+
 	out, err = runTimed(t, "terraform apply "+fixture, terraformCmdInDir("fixtures/"+fixture, "apply", "-auto-approve"))
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 	require.Equal(t, "tf-service-usage/pubsub.googleapis.com", readOutputsInDir(t, "fixtures/"+fixture).must(t, "id"))

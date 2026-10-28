@@ -521,8 +521,13 @@ func TestAuditLogs_DiscoveryAndIAMServices(t *testing.T) {
 	}
 
 	policy := gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/audit-ds:getIamPolicy", `{}`)
-	gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/audit-ds:setIamPolicy",
-		`{"policy":{"etag":"`+policy["etag"].(string)+`","bindings":[{"role":"roles/viewer","members":["user:a@example.com"]}]}}`)
+	bindings, _ := policy["bindings"].([]any)
+	policy["bindings"] = append(bindings, map[string]any{"role": "roles/viewer", "members": []string{"user:a@example.com"}})
+	updated, err := json.Marshal(map[string]any{"policy": policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/audit-ds:setIamPolicy", string(updated))
 	set := auditEntries(t, srv, "audit-ds", auditLogActivity, `protoPayload.methodName="SetIamPolicy"`)
 	if len(set) != 1 {
 		t.Fatalf("want one SetIamPolicy entry, got %v", set)

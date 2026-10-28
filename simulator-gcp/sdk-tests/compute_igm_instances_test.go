@@ -13,6 +13,7 @@ import (
 
 func createManagedGroup(t *testing.T, svc *compute.Service, project, zone, name string) {
 	t.Helper()
+	ensureProject(t, project)
 	_, err := svc.InstanceGroupManagers.Insert(project, zone, &compute.InstanceGroupManager{
 		Name:             name,
 		BaseInstanceName: name,

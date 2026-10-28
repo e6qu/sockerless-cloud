@@ -12,9 +12,8 @@ func (p *msRedisPlane) connectAs(token string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	principal, owner := gcpSubjectPrincipal(claims.Sub)
-	policies := gcpHierarchyPolicies(resourceProject(p.name))
-	held := gcpPermissionsHeldUnder(principal, owner, policies, []string{msRedisConnectPermission}, gcpIAMResourceNamed(p.name))
+	policies := gcpPolicyChain(p.name)
+	held := gcpPermissionsHeldUnder(gcpSubjectPrincipal(claims.Sub), policies, []string{msRedisConnectPermission}, gcpIAMResourceNamed(p.name))
 	if len(held) != 1 {
 		return "", false
 	}

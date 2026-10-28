@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -328,6 +329,13 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 	return resp.StatusCode
 }
 
+// withBucketBinding is policy's bindings plus one: a policy set without the
+// bucket's convenience bindings takes the project's owners off the bucket.
+func withBucketBinding(policy map[string]any, role, member string) []any {
+	bindings, _ := policy["bindings"].([]any)
+	return append(slices.Clone(bindings), map[string]any{"role": role, "members": []string{member}})
+}
+
 // TestGCS_BucketIAMEtagConflict: bucket setIamPolicy refuses a stale etag with
 // Cloud Storage's 412 Precondition Failed, which gsutil and gcloud retry on,
 // treats an empty etag as a blind overwrite, and keeps the default
@@ -344,25 +352,19 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	assert.Equal(t, etag1, p2["etag"], "default bucket-policy etag must persist across reads")
 
 	code := bucketIAMSet(t, bucket, map[string]any{
-		"etag": etag1,
-		"bindings": []map[string]any{
-			{"role": "roles/storage.objectViewer", "members": []string{"user:dev@example.com"}},
-		},
+		"etag":     etag1,
+		"bindings": withBucketBinding(p1, "roles/storage.objectViewer", "user:dev@example.com"),
 	})
 	require.Equal(t, http.StatusOK, code)
 
 	code = bucketIAMSet(t, bucket, map[string]any{
-		"etag": etag1, // stale
-		"bindings": []map[string]any{
-			{"role": "roles/storage.objectViewer", "members": []string{"user:other@example.com"}},
-		},
+		"etag":     etag1, // stale
+		"bindings": withBucketBinding(p1, "roles/storage.objectViewer", "user:other@example.com"),
 	})
 	require.Equal(t, http.StatusPreconditionFailed, code, "stale etag must be rejected with 412")
 
 	code = bucketIAMSet(t, bucket, map[string]any{
-		"bindings": []map[string]any{
-			{"role": "roles/storage.objectViewer", "members": []string{"user:blind@example.com"}},
-		},
+		"bindings": withBucketBinding(p1, "roles/storage.objectViewer", "user:blind@example.com"),
 	})
 	require.Equal(t, http.StatusOK, code, "empty etag is a permitted blind overwrite")
 }

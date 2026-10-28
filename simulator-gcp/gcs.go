@@ -1007,8 +1007,7 @@ type GCSRapidCache struct {
 // gcsWriteTestPermissions answers a testIamPermissions with the requested
 // permissions the caller holds under the policies that govern the resource.
 func gcsWriteTestPermissions(w http.ResponseWriter, r *http.Request, policies []IAMPolicy, resource gcpIAMResource) {
-	principal, owner := gcpRequestPrincipal(r)
-	held := gcpPermissionsHeldUnder(principal, owner, policies, r.URL.Query()["permissions"], resource)
+	held := gcpPermissionsHeldUnder(gcpRequestPrincipal(r), policies, r.URL.Query()["permissions"], resource)
 	resp := map[string]any{"kind": "storage#testIamPermissionsResponse"}
 	if len(held) > 0 {
 		resp["permissions"] = held

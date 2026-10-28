@@ -13,6 +13,7 @@ import (
 func TestLogging_CLI_BuiltInBuckets(t *testing.T) {
 	t.Parallel()
 	const project = "cli-logging-defaults"
+	runCLI(t, gcloudCLI("projects", "create", project, "--organization="+cliOrganizationID, "--format=json"))
 
 	var def struct {
 		RetentionDays int `json:"retentionDays"`

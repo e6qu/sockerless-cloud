@@ -97,6 +97,7 @@ func TestCloudBuild_ApproveRejectsABuildThatIsNotPending(t *testing.T) {
 
 func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-run")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-run/locations/us-central1"
 
@@ -132,6 +133,7 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 
 func TestCloudBuild_BitbucketConnectedRepositories(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-bitbucket")
 	svc := cloudbuildService(t)
 	parent := "projects/cb-bitbucket/locations/us-central1"
 

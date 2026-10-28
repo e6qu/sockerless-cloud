@@ -31,6 +31,7 @@ func debianFamily() string {
 // listing of the project, and a name the project does not hold is not found.
 func TestCompute_PublicImageCatalog(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 
 	family, err := svc.Images.GetFromFamily("debian-cloud", "debian-12").Do()
@@ -312,6 +313,7 @@ func TestCompute_MachineTypeCatalog(t *testing.T) {
 // allows its port to an instance booted after it.
 func TestCompute_FirewallRulesFilterWhatAnInstanceReceives(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 	const project, zone, region = "firewall-project", "us-central1-a", "us-central1"
 	subnet := createInstanceSubnetwork(t, svc, project, region, "fw-net", "10.87.0.0/24")

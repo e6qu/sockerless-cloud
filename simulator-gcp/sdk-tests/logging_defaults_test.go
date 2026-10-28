@@ -19,6 +19,7 @@ import (
 // to the _Required sink.
 func TestLogging_BuiltInBucketsRouteAndRetain_SDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-logging-defaults")
 	svc := loggingRESTService(t)
 	const parent = "projects/sdk-logging-defaults"
 
@@ -57,7 +58,10 @@ func TestLogging_BuiltInBucketsRouteAndRetain_SDK(t *testing.T) {
 		}
 		return payloads
 	}
-	assert.Equal(t, []string{"admin activity"}, read("_Required"))
+	// _Required also holds the project creation's own audit entry.
+	requiredPayloads := read("_Required")
+	assert.Contains(t, requiredPayloads, "admin activity")
+	assert.NotContains(t, requiredPayloads, "application")
 	assert.Equal(t, []string{"application"}, read("_Default"))
 
 	updated, err := svc.Projects.Locations.Buckets.Patch(parent+"/locations/global/buckets/_Default",

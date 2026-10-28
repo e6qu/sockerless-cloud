@@ -30,6 +30,7 @@ func cloudDNSResolver() *net.Resolver {
 // they are written.
 func TestDNS_PublicZoneAnswersOverDNS(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "dns-serve-project")
 	svc := dnsService(t)
 	const project = "dns-serve-project"
 	const zoneName = "dns-serve-zone"

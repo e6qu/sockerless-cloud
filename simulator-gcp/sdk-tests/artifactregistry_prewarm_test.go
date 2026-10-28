@@ -22,6 +22,7 @@ import (
 
 func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-prewarm")
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm/locations/us-central1"
 	repoID := uniquename.New("prewarm-repo")
@@ -97,6 +98,7 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 // streamLocation is optional: an unset one caches the artifact where it lives.
 func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-prewarm-default")
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-default/locations/europe-west1"
 	repoID := uniquename.New("dflt-repo")
@@ -123,6 +125,7 @@ func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 
 func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-prewarm-bad")
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-bad/locations/us-central1"
 	repoID := uniquename.New("bad-repo")
@@ -167,6 +170,7 @@ func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 // methods, so neither may shadow the other.
 func TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-verb-share")
 	svc := arAdminService(t)
 	parent := "projects/ar-verb-share/locations/us-central1"
 	repoID := uniquename.New("share-repo")
