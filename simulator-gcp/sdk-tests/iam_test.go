@@ -953,7 +953,7 @@ func TestIAM_WorkforcePoolCRUD(t *testing.T) {
 	location := "locations/global"
 
 	op, err := svc.Locations.WorkforcePools.Create(location,
-		&iam.WorkforcePool{DisplayName: "Staff Pool", Parent: "organizations/123"}).
+		&iam.WorkforcePool{DisplayName: "Staff Pool", Parent: crmTestOrg}).
 		WorkforcePoolId("staff-pool").Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
