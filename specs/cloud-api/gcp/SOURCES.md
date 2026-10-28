@@ -16,7 +16,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `iamcredentials-v1.discovery.json.gz` | `iamcredentials.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-21T11:39:25Z |
 | `sqladmin-v1.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-21T11:39:26Z |
 | `sqladmin-v1beta4.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1beta4` | Apache-2.0 | `revision 20261006` | 2026-10-21T11:39:26Z |
-| `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20261018` | 2026-10-22T11:39:07Z |
 | `logging-v2.discovery.json.gz` | `logging.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261016` | 2026-10-22T11:39:07Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-22T21:20:42Z |
 | `artifactregistry-v1.discovery.json.gz` | `artifactregistry.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-23T11:42:07Z |
@@ -68,7 +67,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-private-networking.md.gz` | `docs.cloud.google.com` | `run/docs/securing/private-networking` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:08Z |
 | `compute-service-accounts.md.gz` | `docs.cloud.google.com` | `compute/docs/access/service-accounts` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:11Z |
 | `dataflow-audit-logging.md.gz` | `docs.cloud.google.com` | `dataflow/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:45:12Z |
-| `firestore-security-iam.md.gz` | `docs.cloud.google.com` | `firestore/docs/security/iam` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:45:13Z |
 | `iam-conditions-attribute-reference.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-attribute-reference` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:16Z |
 | `iam-conditions-resource-attributes.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-resource-attributes` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:17Z |
 | `iam-roles-apigateway.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/apigateway` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:19Z |
@@ -104,7 +102,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:52Z |
 | `logging-audit-logging.md.gz` | `docs.cloud.google.com` | `logging/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:46:52Z |
 | `logging-resource-list.md.gz` | `docs.cloud.google.com` | `logging/docs/api/v2/resource-list` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:54Z |
-| `pubsub-access-control.md.gz` | `docs.cloud.google.com` | `pubsub/docs/access-control` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:56Z |
 | `resource-manager-audit-logging.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:58Z |
 | `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:59Z |
 | `run-audit-logging.md.gz` | `docs.cloud.google.com` | `run/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:47:00Z |
@@ -113,7 +110,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `scheduler-retry-jobs.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/retry-jobs` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:03Z |
 | `service-usage-audit-logging.md.gz` | `docs.cloud.google.com` | `service-usage/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:47:03Z |
 | `spanner-iam.md.gz` | `docs.cloud.google.com` | `spanner/docs/iam` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:05Z |
-| `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-28T08:47:06Z |
 | `sql-audit-logging.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:47:07Z |
 | `storage-iam-json.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-json` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:08Z |
 | `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:10Z |
@@ -130,3 +126,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `apigateway-v1.discovery.json.gz` | `apigateway.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261021` | 2026-10-28T17:21:20Z |
 | `serviceusage-v1.discovery.json.gz` | `serviceusage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-28T17:21:21Z |
 | `tasks-quotas.md.gz` | `docs.cloud.google.com` | `tasks/docs/quotas` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-28T17:21:28Z |
+| `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20261018` | 2026-10-28T18:19:59Z |
+| `firestore-security-iam.md.gz` | `docs.cloud.google.com` | `firestore/docs/security/iam` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-28T18:20:01Z |
+| `pubsub-access-control.md.gz` | `docs.cloud.google.com` | `pubsub/docs/access-control` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-28T18:20:03Z |
+| `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261023` | 2026-10-28T18:20:04Z |
