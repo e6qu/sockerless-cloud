@@ -136,6 +136,14 @@ func kmsIsAsymmetricSpec(spec string) bool {
 	return false
 }
 
+func kmsIsCustomerMasterKeySpec(spec string) bool {
+	switch spec {
+	case "SYMMETRIC_DEFAULT", "SM2":
+		return true
+	}
+	return kmsIsAsymmetricSpec(spec) || kmsIsHMACSpec(spec)
+}
+
 func kmsIsHMACSpec(spec string) bool {
 	switch spec {
 	case "HMAC_224", "HMAC_256", "HMAC_384", "HMAC_512":
@@ -509,11 +517,15 @@ func handleKMSGetPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{
-		"KeyId":                 kmsKeyArn(keyId),
-		"PublicKey":             pubDER, // SDK base64-encodes on the wire
-		"CustomerMasterKeySpec": key.Spec,
-		"KeySpec":               key.Spec,
-		"KeyUsage":              key.KeyUsage,
+		"KeyId":     kmsKeyArn(keyId),
+		"PublicKey": pubDER, // SDK base64-encodes on the wire
+		"KeySpec":   key.Spec,
+		"KeyUsage":  key.KeyUsage,
+	}
+	// CustomerMasterKeySpec is deprecated, and its enum stops before the ML-DSA,
+	// Ed25519 and ML-KEM specs, which KMS answers without it.
+	if kmsIsCustomerMasterKeySpec(key.Spec) {
+		resp["CustomerMasterKeySpec"] = key.Spec
 	}
 	if algs := kmsSigningAlgorithmsFor(key.Spec); len(algs) > 0 && key.KeyUsage == "SIGN_VERIFY" {
 		resp["SigningAlgorithms"] = algs
