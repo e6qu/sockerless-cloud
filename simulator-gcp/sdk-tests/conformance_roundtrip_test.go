@@ -44,6 +44,7 @@ import (
 
 func TestConformance_DNSManagedZoneLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -67,6 +68,7 @@ func TestConformance_DNSManagedZoneLabelsRoundTrip(t *testing.T) {
 
 func TestConformance_BigQueryTablePartitioningRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := bigquery.NewService(ctx, option.WithEndpoint(baseURL+"/bigquery/v2/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	proj := "conformance-project"
@@ -128,6 +130,7 @@ func TestConformance_PubSubTopicSchemaSettingsRoundTrip(t *testing.T) {
 
 func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
@@ -171,6 +174,7 @@ func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 
 func TestConformance_ArtifactRegistryRepoLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project/locations/us-central1"
@@ -199,6 +203,7 @@ func TestConformance_ArtifactRegistryRepoLabelsRoundTrip(t *testing.T) {
 
 func TestConformance_SecretManagerAnnotationsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := secretmanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project"
@@ -259,6 +264,7 @@ func TestConformance_IAMBindingConditionRoundTrip(t *testing.T) {
 
 func TestConformance_LoggingMetricValueExtractorRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project"
@@ -303,6 +309,7 @@ func requireGoogleErr(t *testing.T, err error, code int, gcpStatus string) {
 // backendService answers 409 ALREADY_EXISTS rather than overwriting.
 func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conformance-project"
@@ -320,6 +327,7 @@ func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 // healthCheck answers 404 NOT_FOUND, not a DONE operation.
 func TestConformance_ComputeDeleteMissingNotFound(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -366,6 +374,7 @@ func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 // with the same triggerId answers 409 ALREADY_EXISTS.
 func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
@@ -412,6 +421,7 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 
 func TestConformance_LoggingDeleteMissingSinkNotFound(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -751,6 +761,7 @@ func runFirestoreQuery(t *testing.T, url, body string) []*firestore.RunQueryResp
 
 func TestConformance_GCSBucketUpdateVersioning(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -771,6 +782,7 @@ func TestConformance_GCSBucketUpdateVersioning(t *testing.T) {
 
 func TestConformance_GCSBucketUpdateLabels(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -794,6 +806,7 @@ func TestConformance_GCSBucketUpdateLabels(t *testing.T) {
 
 func TestConformance_GCSObjectUpdateMetadata(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
