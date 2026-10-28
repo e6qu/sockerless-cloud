@@ -34,7 +34,11 @@ for mod in $sorted; do
   echo "lint: $mod"
   # The timeout is .golangci.yml's alone: a shorter one here fails the largest
   # module's package load on a busy machine.
-  if ! (cd "$mod" && golangci-lint run ./...); then
+  # The module's Makefile sets LINT_ENV where its lint needs one, as
+  # simulator-aws's one compile at a time does.
+  lint_env=$(sed -n 's/^LINT_ENV *:= *//p' "$mod/Makefile" 2>/dev/null)
+  # shellcheck disable=SC2086
+  if ! (cd "$mod" && env $lint_env golangci-lint run ./...); then
     failed=1
   fi
 done

@@ -19,7 +19,7 @@ const testImage = "mirror.gcr.io/library/busybox:latest"
 
 // cloudInitImage is an image whose distribution's cloud images carry
 // cloud-init.
-const cloudInitImage = "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
+const cloudInitImage = "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
 
 type lineSink struct {
 	mu    sync.Mutex

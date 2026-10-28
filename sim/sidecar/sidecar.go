@@ -25,7 +25,7 @@ import (
 )
 
 // goImage compiles the sidecar on the engine.
-const goImage = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
+const goImage = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
 
 const dockerfile = `FROM ` + goImage + ` AS build
 ARG GOPROXY

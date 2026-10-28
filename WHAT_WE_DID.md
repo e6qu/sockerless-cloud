@@ -1234,8 +1234,9 @@ golangci-lint cache and restores the newest older entry. On a cold cache,
 package and its test variant, each near 7 GB, and the Go command runs them
 side by side: 14 GB, and the 16 GB runner went down mid-lint, which GitHub
 reports as a runner shutdown. `simulator-aws/Makefile` lints with
-`GOFLAGS=-p=1`, one compile at a time, which peaks under 10 GB; a soft
-`GOMEMLIMIT` held 12 GB and ran slower. The browser jobs
+`GOFLAGS=-p=1`, one compile at a time, which peaks under 10 GB, and the
+pre-commit lint hook reads the same `LINT_ENV`; a soft `GOMEMLIMIT` held
+12 GB and ran slower. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.
