@@ -30339,12 +30339,12 @@
   {
    "service": "apigee.googleapis.com",
    "email": "service-PROJECT_NUMBER@gcp-sa-apigee.iam.gserviceaccount.com",
-   "role": "roles/apigee.coreServiceAgent"
+   "role": "roles/apigee.serviceAgent"
   },
   {
    "service": "apigee.googleapis.com",
    "email": "service-PROJECT_NUMBER@gcp-sa-apigee.iam.gserviceaccount.com",
-   "role": "roles/apigee.serviceAgent"
+   "role": "roles/apigee.coreServiceAgent"
   },
   {
    "service": "apihub.googleapis.com",
@@ -30870,11 +30870,6 @@
    "service": "networkconnectivity.googleapis.com",
    "email": "service-PROJECT_NUMBER@gcp-sa-networkconnectivity.iam.gserviceaccount.com",
    "role": "roles/networkconnectivity.serviceAgent"
-  },
-  {
-   "service": "networkmanagement.googleapis.com",
-   "email": "service-PROJECT_NUMBER@gcp-sa-networkmanagement.iam.gserviceaccount.com",
-   "role": "roles/networkmanagement.serviceAgent"
   },
   {
    "service": "notebooks.googleapis.com",

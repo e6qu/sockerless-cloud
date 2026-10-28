@@ -819,7 +819,7 @@ ten-minute access token for it:
 ```sh
 gcloud config set api_endpoint_overrides/iam $S/
 gcloud iam service-accounts add-iam-policy-binding reader@sockerless.iam.gserviceaccount.com \
-  --member=serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com \
+  --project=sockerless --member=serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com \
   --role=roles/iam.serviceAccountTokenCreator
 curl -s -X POST "$S/v1/projects/-/serviceAccounts/reader@sockerless.iam.gserviceaccount.com:generateAccessToken" \
   -H "$A" -H "$J" -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"],"lifetime":"600s"}'
@@ -865,7 +865,7 @@ Then stop `simulator-gcp` with Ctrl-C.
 
 | Gap | Tracked |
 |---|---|
-| 718 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
+| 715 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
 | Basic roles follow the roles overview, not Google's console lists; a method's secondary permissions (`iam.serviceAccounts.actAs` on deploy, Cloud Storage's footnoted ones) are not checked; BigQuery dataset access entries grant nothing; list and search results are not filtered to what the caller may see; `iam.automaticIamGrantsForDefaultServiceAccounts` is not honoured; a refused call writes no audit entry. | [3770](../BUGS.md) |
 | The Artifact Registry Docker data plane does not evaluate repository policies. | [3742](../BUGS.md) |
 | Impersonation ignores `delegates` and serves disabled accounts. | [3742](../BUGS.md) |

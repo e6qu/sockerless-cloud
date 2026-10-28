@@ -105,12 +105,12 @@ var gateMethodPermissions = map[string]gateOverride{
 // gateCRMOperation authorizes a Resource Manager operation poll as a read of
 // the project or folder the operation produced.
 func gateCRMOperation(_ *gateCall, resource string) []gateCheck {
-	unsourced := []gateCheck{{unsourced: true, resource: resource}}
 	if crOperations == nil {
-		return unsourced
+		return nil
 	}
 	op, ok := crOperations.Get(resource)
 	if !ok {
+		// The handler answers an operation that does not exist with 404.
 		return nil
 	}
 	response, _ := op.Response.(map[string]any)
@@ -124,7 +124,7 @@ func gateCRMOperation(_ *gateCall, resource string) []gateCheck {
 	case strings.HasPrefix(name, "folders/"):
 		return []gateCheck{{permission: "resourcemanager.folders.get", resource: name}}
 	}
-	return unsourced
+	return []gateCheck{{unsourced: true, resource: resource}}
 }
 
 // gateFirestoreWrites are the permissions of a commit or batch write: a

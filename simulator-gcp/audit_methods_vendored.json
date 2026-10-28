@@ -37,7 +37,7 @@
    "service": "dataflow.googleapis.com"
   }
  ],
- "retrieved": "2026-10-24",
+ "retrieved": "2026-10-28",
  "note": "Each service's audited methods, read from its audit-logging page vendored under specs/cloud-api/gcp/ by scripts/gen-gcp-audit-methods.go. logType is the audit log category the page states: ADMIN_WRITE for Admin Activity, and for Data Access the broadest data type among the permissions the method checks. Resource Manager lists its operations as versioned identifiers without permissions.",
  "methods": [
   {
@@ -528,6 +528,153 @@
     {
      "permission": "bigquery.datasets.update",
      "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryRead.CreateReadSession",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.readsessions.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryRead.ReadRows",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.readsessions.getData",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryRead.SplitReadStream",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.readsessions.update",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.AppendRows",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.BatchCommitWriteStreams",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.CreateWriteStream",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.FinalizeWriteStream",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.FlushRows",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1.BigQueryWrite.GetWriteStream",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1beta1.BigQueryStorage.CreateReadSession",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.readsessions.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.storage.v1beta2.BigQueryRead.CreateReadSession",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.readsessions.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
     }
    ],
    "longRunning": false
@@ -1744,10 +1891,6 @@
    "method": "cloudsql.backups.list",
    "logType": "ADMIN_READ",
    "permissions": [
-    {
-     "permission": "cloudsql.backupRuns.list",
-     "type": "ADMIN_READ"
-    },
     {
      "permission": "cloudsql.instances.list",
      "type": "ADMIN_READ"
@@ -3264,10 +3407,6 @@
    "logType": "ADMIN_WRITE",
    "permissions": [
     {
-     "permission": "run.operations.get",
-     "type": "ADMIN_READ"
-    },
-    {
      "permission": "run.services.delete",
      "type": "ADMIN_WRITE"
     }
@@ -3625,6 +3764,10 @@
    "permissions": [
     {
      "permission": "run.services.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "run.services.setIamPolicy",
      "type": "ADMIN_WRITE"
     }
    ],
@@ -4036,7 +4179,7 @@
      "type": "ADMIN_WRITE"
     }
    ],
-   "longRunning": true
+   "longRunning": false
   },
   {
    "service": "serviceusage.googleapis.com",
