@@ -1226,9 +1226,9 @@ golangci-lint cache and restores the newest older entry. A cold lint of
 `simulator-aws` at golangci-lint's default concurrency, one analysis per CPU,
 held 14 GB and the kernel killed the 16 GB runner, which GitHub reports as a
 runner shutdown; `.golangci.yml` runs two analyses at once, which peak under
-4 GB and finish sooner. The lint step logs the runner's memory and disk every
-15 seconds, because a runner the kernel stops logs nothing after the stop.
-The browser jobs
+4 GB and finish sooner. The lint job runs on `ubuntu-24.04`: on Ubuntu 26.04
+runners the simulators shard still lost its runner mid-lint on about half its
+runs. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.

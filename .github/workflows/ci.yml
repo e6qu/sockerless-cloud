@@ -53,7 +53,9 @@ jobs:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: lint (${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    # On Ubuntu 26.04 runners the simulators shard lost its runner mid-lint on
+    # about half its runs; the simulator suites run on Ubuntu 24.04 too.
+    runs-on: ubuntu-24.04
     # The lint step keeps its own limit; the job's leaves room for the setup
     # before it and the cache save after it, which a missed build cache slows.
     timeout-minutes: 15
@@ -93,13 +95,8 @@ jobs:
           GOBIN="$(go env GOPATH)/bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
           "$(go env GOPATH)/bin/golangci-lint" --version
       - name: Lint
-        # A runner the kernel stops logs nothing after it, so the step logs its
-        # memory and disk while it runs and the last reading survives the stop.
         run: |
           set -e
-          (while sleep 15; do
-            echo "runner: $(free -m | awk '/^Mem:/ {print "mem used " $3 " MB, available " $7 " MB"}'), disk free $(df -m --output=avail / | tail -1) MB, largest $(ps -eo rss=,comm= --sort=-rss | head -1 | awk '{print $2 " " int($1/1024) " MB"}')"
-          done) &
           for module in ${{ matrix.modules }}; do
             echo "=== $module ==="
             make "$module/lint"
