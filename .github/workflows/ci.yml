@@ -1803,7 +1803,10 @@ jobs:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: browser (${{ matrix.package }})
-    runs-on: ubuntu-latest
+    # The release scripts/install-passt.sh takes pasta and its AppArmor
+    # profile from; on a newer one that profile refuses pasta its user
+    # namespace and Chromium never starts.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false

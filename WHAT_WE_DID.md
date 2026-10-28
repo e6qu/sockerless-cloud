@@ -975,7 +975,9 @@ nothing is a fake. A console gap whose API the simulator does not serve is a
   (`isolated-chromium.sh`): it sees only its loopback and a tap nothing
   changes, and reaches the console and its identity provider on the host's
   loopback at unchanged URLs. The leading user namespace lets pasta map UID 0
-  as root or not. Retrying or serialising the tests would have left the cause
+  as root or not. The job runs on `ubuntu-24.04`, the release the pinned
+  passt package and its AppArmor profile come from: on Ubuntu 26.04 the
+  profile refuses pasta its user namespace. Retrying or serialising the tests would have left the cause
   in place.
 - **Stop the webServer with SIGTERM.** Playwright kills its webServer's
   process group with SIGKILL by default, so the backend script's exit trap
