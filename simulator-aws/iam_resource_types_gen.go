@@ -1180,6 +1180,7 @@ var iamActionResourceTypes = map[string][]string{
 	"ecr:PutImageTagMutability":                                        {"repository"},
 	"ecr:PutLifecyclePolicy":                                           {"repository"},
 	"ecr:ReplicateImage":                                               {"repository"},
+	"ecr:ReplicateImageDelete":                                         {"repository"},
 	"ecr:SetRepositoryPolicy":                                          {"repository"},
 	"ecr:StartImageScan":                                               {"repository"},
 	"ecr:StartLifecyclePolicyPreview":                                  {"repository"},

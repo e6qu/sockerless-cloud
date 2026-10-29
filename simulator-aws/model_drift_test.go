@@ -41,6 +41,9 @@ var modelScopedDriftExemptions = map[string]string{
 	"ecr.smithy.json.gz:ListReplicationBackfills":           "BUGS.md 3794",
 	"ecr.smithy.json.gz:StartReplicationBackfill":           "BUGS.md 3794",
 	"ecr.smithy.json.gz:StopReplicationBackfill":            "BUGS.md 3794",
+	// Amazon EC2 published Capacity Manager supportability scores on
+	// 2026-10-28, and the SDK release that carries them is in its quarantine.
+	"ec2.smithy.json.gz:GetCapacityManagerSupportabilityScores": "BUGS.md 3796",
 }
 
 var modelDriftExemptions = map[string]string{

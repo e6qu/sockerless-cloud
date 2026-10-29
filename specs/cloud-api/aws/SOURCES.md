@@ -59,7 +59,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `provisioned-concurrency.md.gz` | `docs.aws.amazon.com` | `lambda/latest/dg/provisioned-concurrency.md` | CC-BY-SA-4.0 | `sha25667ae2f5c417ac8855555f04ecb551ed55e3d8d6f70ccc6f3535bb4991d70ccd7` | 2026-10-25T04:33:10Z |
 | `lambda-runtime-environment.md.gz` | `docs.aws.amazon.com` | `lambda/latest/dg/lambda-runtime-environment.md` | CC-BY-SA-4.0 | `sha25631b66cafc244d8682fd50b817bab321e6704dede89731327ca9e55ef6bff9646` | 2026-10-25T04:33:10Z |
 | `invocation-async-error-handling.md.gz` | `docs.aws.amazon.com` | `lambda/latest/dg/invocation-async-error-handling.md` | CC-BY-SA-4.0 | `sha2566546603faddf94266360390f5ebe8caf6a4f4124b8e95564dd22b4c6f3e1007b` | 2026-10-25T04:33:10Z |
-| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `d2bd6ccdc490c5abe561ce7250a68d196e790378` | 2026-10-28T12:44:22Z |
 | `ecr.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecr.json` | Apache-2.0 | `4099cd1909e2dd0f1567718f1efafa168d57b036` | 2026-10-28T12:44:24Z |
 | `ecs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecs.json` | Apache-2.0 | `d2bd6ccdc490c5abe561ce7250a68d196e790378` | 2026-10-28T12:44:25Z |
 | `kms.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/kms.json` | Apache-2.0 | `4099cd1909e2dd0f1567718f1efafa168d57b036` | 2026-10-28T12:44:26Z |
+| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `836d535f46e357bfcd221e2357760e320a602c26` | 2026-10-29T08:02:46Z |
