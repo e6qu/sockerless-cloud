@@ -239,6 +239,7 @@ func registerEC2CapacityFleet(r *AWSQueryRouter, srv *sim.Server) {
 
 	r.Register("DescribeSpotPriceHistory", handleDescribeSpotPriceHistory)
 	r.Register("GetSpotPlacementScores", handleGetSpotPlacementScores)
+	r.Register("GetCapacityManagerSupportabilityScores", handleGetCapacityManagerSupportabilityScores)
 
 	r.Register("DescribeScheduledInstances", handleDescribeScheduledInstances)
 	r.Register("DescribeScheduledInstanceAvailability", handleDescribeScheduledInstanceAvailability)

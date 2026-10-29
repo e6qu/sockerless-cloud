@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.12
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.7.8
-	github.com/aws/aws-sdk-go-v2/service/acm v1.50.7
+	github.com/aws/aws-sdk-go-v2/service/acm v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.56.7
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.49.2
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.52.4
@@ -22,7 +22,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.3
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.7
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.2
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.342.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.343.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.67.1
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.103.0
 	github.com/aws/aws-sdk-go-v2/service/efs v1.51.1

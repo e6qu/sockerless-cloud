@@ -3,28 +3,28 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp
 go 1.26.3
 
 require (
-	cel.dev/cel-go v0.33.0
-	cloud.google.com/go/apigateway v1.17.0
-	cloud.google.com/go/artifactregistry v1.28.0
+	cel.dev/cel-go v0.33.1
+	cloud.google.com/go/apigateway v1.17.1
+	cloud.google.com/go/artifactregistry v1.28.1
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.36.0
-	cloud.google.com/go/cloudtasks v1.21.0
-	cloud.google.com/go/eventarc v1.27.0
-	cloud.google.com/go/firestore v1.29.0
-	cloud.google.com/go/functions v1.27.0
-	cloud.google.com/go/iam v1.15.0
-	cloud.google.com/go/kms v1.36.0
-	cloud.google.com/go/logging v1.21.0
-	cloud.google.com/go/longrunning v1.4.0
+	cloud.google.com/go/cloudbuild v1.36.1
+	cloud.google.com/go/cloudtasks v1.21.1
+	cloud.google.com/go/eventarc v1.27.1
+	cloud.google.com/go/firestore v1.29.1
+	cloud.google.com/go/functions v1.27.1
+	cloud.google.com/go/iam v1.15.1
+	cloud.google.com/go/kms v1.36.1
+	cloud.google.com/go/logging v1.21.1
+	cloud.google.com/go/longrunning v1.4.1
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/redis v1.28.0
-	cloud.google.com/go/resourcemanager v1.18.0
-	cloud.google.com/go/run v1.24.0
-	cloud.google.com/go/scheduler v1.18.0
-	cloud.google.com/go/secretmanager v1.23.0
-	cloud.google.com/go/serviceusage v1.16.0
+	cloud.google.com/go/redis v1.28.1
+	cloud.google.com/go/resourcemanager v1.18.1
+	cloud.google.com/go/run v1.24.1
+	cloud.google.com/go/scheduler v1.18.1
+	cloud.google.com/go/secretmanager v1.23.1
+	cloud.google.com/go/serviceusage v1.16.1
 	cloud.google.com/go/spanner v1.96.1
-	cloud.google.com/go/vpcaccess v1.16.0
+	cloud.google.com/go/vpcaccess v1.16.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0

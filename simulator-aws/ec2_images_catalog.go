@@ -12,7 +12,7 @@ import (
 const (
 	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
 	ec2Ubuntu2404OCI      = "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
-	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
+	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880"
 )
 
 const (
