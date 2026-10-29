@@ -160,13 +160,13 @@ git clone https://github.com/e6qu/sockerless-cloud.git
 cd sockerless-cloud
 ```
 
-<!-- doctest: run expect="Vendored .*/ecs\\.servicereference\\.json\\.gz" expect="Vendored .*/storage-v1\\.discovery\\.json\\.gz" expect="Vendored .*/imds-managed-identity-token\\.md\\.gz" -->
+<!-- doctest: run expect="Vendored .*/ecs\\.servicereference\\.json\\.gz" expect="Vendored .*/translation-v3\\.discovery\\.json\\.gz" expect="Vendored .*/imds-managed-identity-token\\.md\\.gz" -->
 ```sh
 # AWS: vendor the service authorization reference
 scripts/fetch-aws-service-reference.sh ecs
 
 # Google Cloud: vendor a Discovery document
-scripts/fetch-gcp-discovery.sh storage.googleapis.com v1
+scripts/fetch-gcp-discovery.sh translation.googleapis.com v3
 
 # Any cloud: vendor the documentation page that states the behaviour
 scripts/fetch-azure-doc.sh MicrosoftDocs/entra-docs \
