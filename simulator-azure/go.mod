@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261028184445-53e90e605899
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261029191552-7d9cc477d5cf
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a
 	github.com/go-git/go-git/v5 v5.19.3
 	github.com/gorilla/websocket v1.5.3
@@ -71,7 +71,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
