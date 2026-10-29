@@ -1238,7 +1238,10 @@ side by side: 14 GB, and the 16 GB runner went down mid-lint, which GitHub
 reports as a runner shutdown. `simulator-aws/Makefile` lints with
 `GOFLAGS=-p=1`, one compile at a time, which peaks under 10 GB, and the
 pre-commit lint hook reads the same `LINT_ENV`; a soft `GOMEMLIMIT` held
-12 GB and ran slower. The browser jobs
+12 GB and ran slower. A document part that needs a few containers names them with
+`base_images_match` in both the docs and warm-base-images matrices: the
+contributing tutorial loads 2 of `simulator-aws`'s 37 images, since loading
+all of them left its tests no room in the job's 15 minutes. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.

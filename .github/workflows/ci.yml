@@ -339,7 +339,7 @@ jobs:
   warm-base-images:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
-    name: warm base images (${{ matrix.cloud }}${{ matrix.base_images && ', one stack' || '' }})
+    name: warm base images (${{ matrix.cloud }}${{ matrix.label && format(', {0}', matrix.label) || '' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -353,7 +353,14 @@ jobs:
           - {cloud: sim, module: sim}
           # The tf stack that names its own small set (Amazon RDS blue/green).
           - cloud: aws
+            label: one stack
             base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
+          # The contributing tutorial's tests start a network sidecar and an
+          # Amazon Linux instance: two images of the module's 37.
+          - cloud: aws
+            module: simulator-aws
+            label: contributing tutorial
+            base_images_match: "/golang:|/amazonlinux:"
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Resolve the base images the simulator jobs run containers from
@@ -363,7 +370,7 @@ jobs:
         run: |
           images="${{ matrix.base_images }}"
           if [ -z "$images" ]; then
-            images="$(bash scripts/base-images-for.sh ${{ matrix.module }} | tr '\n' ' ')"
+            images="$(bash scripts/base-images-for.sh ${{ matrix.module }} | grep -E '${{ matrix.base_images_match || '.' }}' | tr '\n' ' ')"
           fi
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
@@ -373,7 +380,7 @@ jobs:
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
-          restore-keys: ${{ !matrix.base_images && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
+          restore-keys: ${{ !matrix.base_images && !matrix.base_images_match && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
       - name: Fetch the base images
         if: steps.base-images.outputs.cache-hit != 'true'
         run: |
@@ -1636,6 +1643,8 @@ jobs:
           - part: contributing tutorial
             cloud: aws
             run: TestDocs/docs/tutorial-contributing.md
+            # Loading all 37 of the module's images took the job past its budget.
+            base_images_match: "/golang:|/amazonlinux:"
           - part: aws readme install
             cloud: aws
             run: TestDocs/simulator-aws/README.md/install
@@ -1714,7 +1723,7 @@ jobs:
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
-          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | grep -E '${{ matrix.base_images_match || '.' }}' | tr '\n' ' ')"
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Restore the base images
@@ -1722,7 +1731,7 @@ jobs:
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
-          restore-keys: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+          restore-keys: ${{ !matrix.base_images_match && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
       - name: Load or fetch the base images
         # Priming a cache: an image the registry refuses fails where it is used.
         continue-on-error: true
