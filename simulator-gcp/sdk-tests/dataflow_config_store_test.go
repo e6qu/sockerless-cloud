@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,9 @@ func TestDataflow_ConfigStoreSettingsAreResolvedWhereTheyAreSet(t *testing.T) {
 	t.Parallel()
 	svc := dataflowService(t)
 	const location, id = "us-central1", "max-workers"
-	const project, folder, org = "settings-project", "1234", "5678"
+	const project, org = "settings-project", "123456789012"
+	folder := strings.TrimPrefix(createTestFolder(t, "dataflow-settings"), "folders/")
+	createProjectUnder(t, project, "folders/"+folder)
 
 	projectParent := "projects/" + project + "/locations/" + location
 	folderParent := "folders/" + folder + "/locations/" + location

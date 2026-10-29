@@ -601,6 +601,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		}
 		crmProjects.Put(p.ProjectId, p)
 		iamEnsureComputeDefaultServiceAccount(p)
+		crmGrantCreatorOwner(p, gcpRequestPrincipal(r))
 		sim.WriteJSON(w, http.StatusOK, crmV1LRO(p))
 	})
 
@@ -869,4 +870,23 @@ func crmSearch[S, M any](w http.ResponseWriter, r *http.Request, store sim.Store
 		out = append(out, convert(v))
 	}
 	crmWriteSearchPage(w, member, out, gcpAsc(name), req.PageSize, req.PageToken)
+}
+
+// crmGrantCreatorOwner makes a new project's creator its Owner: "Once a user
+// creates a project, they're automatically granted the owner role for that
+// project" (iam-roles-resourcemanager.md.gz, Project Creator).
+func crmGrantCreatorOwner(p CRMProject, creator string) {
+	if creator == "" {
+		return
+	}
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
+	key := "project/" + p.ProjectId
+	policy, _ := gcpProjectPolicies.Get(key)
+	policy.Bindings = append(policy.Bindings, IAMBinding{Role: gcpRoleOwner, Members: []string{creator}})
+	policy.Etag = gcpPolicyETag()
+	if policy.Version == 0 {
+		policy.Version = 1
+	}
+	gcpProjectPolicies.Put(key, policy)
 }

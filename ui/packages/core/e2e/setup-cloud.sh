@@ -244,8 +244,9 @@ case "$SIMULATOR_SETUP" in
   gcp-console-federation)
     # The console federates its operator the way a deployment wires Workforce
     # Identity Federation: a workforce pool, an OpenID Connect provider beneath
-    # it for the issuer the console signs operators in with, and an allow
-    # policy granting the pool's principals the project.
+    # it for the issuer the console signs operators in with, and allow
+    # policies granting the pool's principals the project and, on the
+    # organization that owns the pool, the workforce pools' read.
     if [[ -z "${FEDERATION_ISSUER:-}" || -z "${FEDERATION_CLIENT_ID:-}" || -z "${FEDERATION_POOL:-}" ||
       -z "${FEDERATION_PROVIDER:-}" || -z "${FEDERATION_PROJECT:-}" ]]; then
       echo "ERROR: FEDERATION_ISSUER, FEDERATION_CLIENT_ID, FEDERATION_POOL, FEDERATION_PROVIDER, and FEDERATION_PROJECT are required" >&2
@@ -271,6 +272,11 @@ case "$SIMULATOR_SETUP" in
     member="principalSet://iam.googleapis.com/locations/global/workforcePools/${FEDERATION_POOL}/*"
     gcp_post "/v1/projects/${FEDERATION_PROJECT}:setIamPolicy" \
       "$(jq -c --arg member "$member" '{policy: (. | .bindings = ((.bindings // []) + [{role: "roles/owner", members: [$member]}]))}' <<<"$policy")"
+    policy="$(curl --fail --silent --show-error --request POST \
+      --header "Content-Type: application/json" --header "Authorization: Bearer ${gcp_token}" \
+      --data '{}' "$SIMULATOR_URL/v1/organizations/123456789012:getIamPolicy")"
+    gcp_post "/v1/organizations/123456789012:setIamPolicy" \
+      "$(jq -c --arg member "$member" '{policy: (. | .bindings = ((.bindings // []) + [{role: "roles/iam.workforcePoolViewer", members: [$member]}]))}' <<<"$policy")"
     ;;
   azure-console-federation)
     # The console federates its operator the way a deployment wires Microsoft

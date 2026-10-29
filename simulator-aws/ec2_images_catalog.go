@@ -11,7 +11,7 @@ import (
 // scripts/check-latest-deps.sh keeps the pins current.
 const (
 	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
-	ec2Ubuntu2404OCI      = "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
+	ec2Ubuntu2404OCI      = "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
 	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
 )
 

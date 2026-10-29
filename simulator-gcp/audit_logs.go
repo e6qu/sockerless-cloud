@@ -93,7 +93,7 @@ func auditCallerFromCredential(authorization, remoteAddr, userAgent string) audi
 	if err != nil || claims.Sub == "" {
 		return caller
 	}
-	caller.member, _ = gcpSubjectPrincipal(claims.Sub)
+	caller.member = gcpSubjectPrincipal(claims.Sub)
 	if strings.Contains(claims.Sub, "@") {
 		caller.authenticationInfo["principalEmail"] = claims.Sub
 		caller.authenticationInfo["principalSubject"] = caller.member

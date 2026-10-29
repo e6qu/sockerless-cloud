@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -107,10 +108,11 @@ func gcsReplaceObjectACL(bucket, object, generation string, entries []GCSObjectA
 	}
 }
 
+var gcsObjectACLsByObject sim.GenerationIndex[GCSObjectACL]
+
 func gcsObjectACLEntries(bucket, object string) []GCSObjectACL {
-	items := gcsObjectACLs.Filter(func(a GCSObjectACL) bool {
-		return a.Bucket == bucket && a.Object == object
-	})
+	items := slices.Clone(gcsObjectACLsByObject.LookupAll(gcsObjectACLs, bucket+"/"+object,
+		func(a GCSObjectACL) []string { return []string{a.Bucket + "/" + a.Object} }))
 	sort.Slice(items, func(i, j int) bool { return items[i].Entity < items[j].Entity })
 	return items
 }

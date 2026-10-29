@@ -57,6 +57,7 @@ func createRedisInstance(t *testing.T, svc *redis.Service, parent, id string, in
 // string getAuthString returns.
 func TestMemorystoreRedis_InstanceServesRedis(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "redis-engine")
 	svc := redisService(t)
 	parent := "projects/redis-engine/locations/us-central1"
 	inst := createRedisInstance(t, svc, parent, "served", &redis.Instance{
@@ -216,6 +217,7 @@ func TestMemorystore_ImportAndExportInstance(t *testing.T) {
 // each shard's RDB snapshot, which export writes to the bucket.
 func TestMemorystoreRedis_ClusterServesRedis(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "redis-cluster-engine")
 	svc := redisService(t)
 	gcs := storageClient(t)
 	t.Cleanup(func() { gcs.Close() })

@@ -219,6 +219,13 @@ func TestMain(m *testing.M) {
 		simCmd.Process.Kill()
 		log.Fatalf("Failed to create project %s: %v\n%s", project, err, out)
 	}
+	// The tests that impersonate a service account need the Service Account
+	// Token Creator role, which no basic role carries, Owner included.
+	if out, err := gcloudCLI("organizations", "add-iam-policy-binding", cliOrganizationID,
+		"--member=serviceAccount:"+gcpbootstrap.Email, "--role=roles/iam.serviceAccountTokenCreator").CombinedOutput(); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to grant the bootstrap account the Service Account Token Creator role: %v\n%s", err, out)
+	}
 	// Enable the APIs the suite drives, as a user does on a new project before
 	// using them: gcloud reads a service's state before some commands and
 	// offers to enable it, and Service Usage reports a never-enabled service
@@ -585,4 +592,11 @@ func parseDescribedResource(t *testing.T, data string, target any) {
 	if err := json.Unmarshal(rendered[0], target); err != nil {
 		t.Fatalf("Failed to parse described resource into %T: %v\nData: %s", target, err, data)
 	}
+}
+
+// grantProjectRole binds member to role on the suite's project.
+func grantProjectRole(t *testing.T, member, role string) {
+	t.Helper()
+	runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", project,
+		"--member="+member, "--role="+role, "--condition=None", "--format=json"))
 }

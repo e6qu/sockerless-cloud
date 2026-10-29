@@ -40,7 +40,8 @@ func knativeListContinue(meta *run.ListMeta) string {
 func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	const namespace = "test-project-knative-list-params"
+	const namespace = "knative-list-params"
+	ensureProject(t, namespace)
 	parent := "namespaces/" + namespace
 
 	names := []string{"list-svc-a", "list-svc-b", "list-svc-c"}
@@ -123,7 +124,8 @@ func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	const namespace = "test-project-knative-children-list-params"
+	const namespace = "knative-children-list-params"
+	ensureProject(t, namespace)
 	parent := "namespaces/" + namespace
 
 	for _, name := range []string{"child-svc-a", "child-svc-b"} {
@@ -209,7 +211,8 @@ func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) 
 func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	const namespace = "test-project-knative-domainmappings-list-params"
+	const namespace = "knative-dm-list-params"
+	ensureProject(t, namespace)
 	parent := "namespaces/" + namespace
 
 	_, err := svc.Namespaces.Services.Create(parent,

@@ -88,7 +88,7 @@ func createWorkforceProvider(t *testing.T, issuerURI, audience string) string {
 	location := "locations/global"
 	poolID := fmt.Sprintf("sts-pool-%d", time.Now().UnixNano())
 	_, err := svc.Locations.WorkforcePools.Create(location,
-		&iam.WorkforcePool{DisplayName: "STS Pool", Parent: "organizations/123"}).
+		&iam.WorkforcePool{DisplayName: "STS Pool", Parent: crmTestOrg}).
 		WorkforcePoolId(poolID).Do()
 	require.NoError(t, err)
 

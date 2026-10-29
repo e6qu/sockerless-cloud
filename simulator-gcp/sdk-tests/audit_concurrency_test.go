@@ -18,6 +18,7 @@ import (
 // AddSecretVersion calls each get a distinct version ID, numbered 1..n.
 func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-sm-concurrency")
 	svc := secretManagerService(t)
 	parent := "projects/sdk-sm-concurrency"
 	secretID := "concurrent-versions"
@@ -72,6 +73,7 @@ func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 
 func TestSecretManager_ListFilter(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-sm-filter")
 	svc := secretManagerService(t)
 	parent := "projects/sdk-sm-filter"
 
@@ -97,6 +99,7 @@ func TestSecretManager_ListFilter(t *testing.T) {
 
 func TestCloudKMS_ConcurrentCreateVersion_UniqueIDs(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-kms-concurrency")
 	svc := kmsService(t)
 	parent := "projects/sdk-kms-concurrency/locations/global"
 	ringID := "concurrency-ring"

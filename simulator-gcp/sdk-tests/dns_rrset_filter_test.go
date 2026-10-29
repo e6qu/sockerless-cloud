@@ -12,6 +12,7 @@ import (
 // record sets matching the name and type parameters.
 func TestDNS_RrsetsListNameTypeFilter(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "rrset-filter-proj")
 	svc := dnsService(t)
 	const project = "rrset-filter-proj"
 

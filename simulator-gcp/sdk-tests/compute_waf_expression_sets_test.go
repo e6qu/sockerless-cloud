@@ -13,6 +13,7 @@ import (
 // rule, so the answer carries the signature identifiers and their sensitivity.
 func TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "waf-expression-project")
 	svc := computeService(t)
 	const project = "waf-expression-project"
 

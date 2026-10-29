@@ -20,6 +20,7 @@ func TestFirestore_ChangeStreams(t *testing.T) {
 	t.Parallel()
 	svc := firestoreAdminService(t)
 	const project, database = "streams-project", "(default)"
+	ensureProject(t, project)
 	parent := "projects/" + project + "/databases/" + database
 
 	created, err := svc.Projects.Databases.ChangeStreams.Create(parent,

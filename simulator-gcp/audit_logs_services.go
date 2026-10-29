@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // auditRESTClaims resolve a REST call to the API that serves it when two APIs
@@ -247,6 +249,8 @@ func auditServiceAccountResource(sa GCPServiceAccount) *MonitoredResource {
 // auditLookupServiceAccount finds the service account a resource name
 // addresses by email or unique ID, under its project or the - wildcard; a
 // unique ID also finds a deleted account, which undelete addresses.
+var iamServiceAccountsByUniqueID sim.GenerationIndex[GCPServiceAccount]
+
 func auditLookupServiceAccount(name string) (GCPServiceAccount, bool) {
 	if iamServiceAccounts == nil {
 		return GCPServiceAccount{}, false
@@ -259,7 +263,8 @@ func auditLookupServiceAccount(name string) (GCPServiceAccount, bool) {
 	if strings.Contains(id, "@") {
 		return iamServiceAccounts.Get("projects/" + gcpProjectFromEmail(id) + "/serviceAccounts/" + id)
 	}
-	for _, sa := range iamServiceAccounts.Filter(func(sa GCPServiceAccount) bool { return sa.UniqueId == id }) {
+	if sa, ok := iamServiceAccountsByUniqueID.Lookup(iamServiceAccounts, id,
+		func(sa GCPServiceAccount) []string { return []string{sa.UniqueId} }); ok {
 		return sa, true
 	}
 	if deleted, ok := iamDeletedServiceAccounts.Get(id); ok {

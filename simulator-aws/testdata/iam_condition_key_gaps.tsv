@@ -144,6 +144,7 @@ kms:CreateGrant	kms:GrantIsForAWSResource	via-service
 kms:CreateGrant	kms:ViaService	via-service
 kms:CreateKey	aws:ResourceTag/${TagKey}	create-names-no-resource
 kms:CreateKey	kms:ViaService	via-service
+kms:Decapsulate	kms:ViaService	via-service
 kms:Decrypt	kms:RecipientAttestation:ImageSha384	unmodelled
 kms:Decrypt	kms:RecipientAttestation:NitroTPMPCR0	unmodelled
 kms:Decrypt	kms:RecipientAttestation:NitroTPMPCR1	unmodelled
@@ -269,6 +270,7 @@ kms:DisableKey	kms:ViaService	via-service
 kms:DisableKeyRotation	kms:ViaService	via-service
 kms:EnableKey	kms:ViaService	via-service
 kms:EnableKeyRotation	kms:ViaService	via-service
+kms:Encapsulate	kms:ViaService	via-service
 kms:Encrypt	kms:ViaService	via-service
 kms:GenerateDataKey	kms:EncryptionAlgorithm	no-request-member
 kms:GenerateDataKey	kms:RecipientAttestation:ImageSha384	unmodelled

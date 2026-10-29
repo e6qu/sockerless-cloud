@@ -239,6 +239,7 @@ func TestIAMServiceAccountKeysActivateCLI(t *testing.T) {
 
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
 		"--display-name=CLI Keys SA", "--format=json"))
+	grantProjectRole(t, "serviceAccount:"+email, "roles/iam.serviceAccountViewer")
 
 	// Mint a key; gcloud decodes privateKeyData and writes the credential file.
 	keyFile := filepath.Join(tmpDir, "cli-keys-sa.json")
@@ -343,6 +344,7 @@ func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
 
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
 		"--project="+project, "--format=json"))
+	grantProjectRole(t, "serviceAccount:"+email, "roles/iam.serviceAccountViewer")
 
 	// A reduced lifetime is honoured, and both halves of that — a living
 	// token is accepted, a dead one is refused — are read from a pair of

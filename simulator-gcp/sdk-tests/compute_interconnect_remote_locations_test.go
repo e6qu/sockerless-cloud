@@ -13,6 +13,7 @@ import (
 // four provider pages Google publishes.
 func TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "interconnect-remote-project")
 	svc := computeService(t)
 	const project = "interconnect-remote-project"
 

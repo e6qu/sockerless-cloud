@@ -32,4 +32,27 @@ func iamEnsureComputeDefaultServiceAccount(p CRMProject) {
 		Email:       email,
 		DisplayName: "Compute Engine default service account",
 	})
+	iamSeedProjectGrants(p)
+}
+
+// iamSeedProjectGrants grants what Google grants a project when its APIs are
+// enabled: the Editor role to the Compute Engine default service account
+// and the Google APIs Service Agent (compute-service-accounts.md.gz), and to
+// each served service's agent the role iam-service-agents.md.gz names.
+func iamSeedProjectGrants(p CRMProject) {
+	number := strings.TrimPrefix(p.Name, "projects/")
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
+	key := "project/" + p.ProjectId
+	policy, _ := gcpProjectPolicies.Get(key)
+	policy.Bindings = append(policy.Bindings, IAMBinding{Role: gcpRoleEditor, Members: []string{
+		"serviceAccount:" + computeDefaultServiceAccountEmail(number),
+		"serviceAccount:" + number + "@cloudservices.gserviceaccount.com",
+	}})
+	policy.Bindings = append(policy.Bindings, gcpProjectServiceAgents(number)...)
+	policy.Etag = gcpPolicyETag()
+	if policy.Version == 0 {
+		policy.Version = 1
+	}
+	gcpProjectPolicies.Put(key, policy)
 }

@@ -1,7 +1,7 @@
 # The build images come from mirror.gcr.io, Google's copy of Docker's official
 # images, pinned to the index digest Docker Hub serves for the same tag: Docker
 # Hub limits anonymous pulls per address, and shared CI runners exhaust it.
-FROM mirror.gcr.io/library/golang:1.27-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS builder
+FROM mirror.gcr.io/library/golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
 WORKDIR /src
 # The context carries the console bundle at simulator-azure/dist, which the
 # binary embeds with -tags console: build it first (the build-console action,

@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fluentui/react-components": "^9.74.11",
+    "@fluentui/react-components": "^9.75.0",
     "@fluentui/react-icons": "^2.0.344",
     "@sockerless/ui-core": "workspace:*",
     "@tanstack/react-query": "^5.105.0",

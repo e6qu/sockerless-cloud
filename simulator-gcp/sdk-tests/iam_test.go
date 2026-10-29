@@ -70,6 +70,7 @@ func TestIAM_CreateServiceAccount(t *testing.T) {
 // overwriting the existing account.
 func TestIAM_CreateServiceAccountDuplicateConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "dup-sa-project")
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/dup-sa-project",
@@ -146,6 +147,7 @@ func TestIAM_ListServiceAccounts(t *testing.T) {
 // ListServiceAccounts previously dropped (it returned the whole set, no token).
 func TestIAM_ListServiceAccountsPagination(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "iam-page-project")
 	svc := iamService(t)
 	const project = "projects/iam-page-project"
 	for _, id := range []string{"sa-a", "sa-b", "sa-c"} {
@@ -157,12 +159,13 @@ func TestIAM_ListServiceAccountsPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	page1, err := svc.Projects.ServiceAccounts.List(project).PageSize(2).Do()
+	// The project also holds its Compute Engine default service account.
+	page1, err := svc.Projects.ServiceAccounts.List(project).PageSize(3).Do()
 	require.NoError(t, err)
-	require.Len(t, page1.Accounts, 2)
-	require.NotEmpty(t, page1.NextPageToken, "pageSize=2 over 3 accounts → NextPageToken")
+	require.Len(t, page1.Accounts, 3)
+	require.NotEmpty(t, page1.NextPageToken, "pageSize=3 over 4 accounts → NextPageToken")
 
-	page2, err := svc.Projects.ServiceAccounts.List(project).PageSize(2).PageToken(page1.NextPageToken).Do()
+	page2, err := svc.Projects.ServiceAccounts.List(project).PageSize(3).PageToken(page1.NextPageToken).Do()
 	require.NoError(t, err)
 	assert.Len(t, page2.Accounts, 1)
 }
@@ -296,6 +299,7 @@ func TestIAMCredentials_GenerateIdToken_RequiresAudience(t *testing.T) {
 
 func TestIAM_ServiceAccountKeysCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sa-keys-project")
 	svc := iamService(t)
 
 	// Create a parent service account.
@@ -357,6 +361,7 @@ func TestIAM_ServiceAccountKeysCRUD(t *testing.T) {
 // that parses uniqueId as a number must not choke on hex digits.
 func TestIAM_ServiceAccountUniqueIdNumeric(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "uid-project")
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/uid-project",
@@ -390,15 +395,15 @@ func TestIAM_PredefinedRolesGetList(t *testing.T) {
 	t.Parallel()
 	svc := iamService(t)
 
-	list, err := svc.Roles.List().Do()
-	require.NoError(t, err)
-	require.NotEmpty(t, list.Roles)
 	names := map[string]bool{}
-	for _, role := range list.Roles {
-		names[role.Name] = true
-		assert.Empty(t, role.IncludedPermissions, "BASIC view omits includedPermissions")
-		assert.Equal(t, "GA", role.Stage)
-	}
+	require.NoError(t, svc.Roles.List().Pages(ctx, func(page *iam.ListRolesResponse) error {
+		for _, role := range page.Roles {
+			names[role.Name] = true
+			assert.Empty(t, role.IncludedPermissions, "BASIC view omits includedPermissions")
+			assert.Contains(t, []string{"GA", "BETA", "ALPHA", "DEPRECATED"}, role.Stage, role.Name)
+		}
+		return nil
+	}))
 	for _, want := range []string{"roles/viewer", "roles/editor", "roles/owner"} {
 		assert.True(t, names[want], "list must include %s", want)
 	}
@@ -442,25 +447,24 @@ func crmService(t *testing.T) *cloudresourcemanager.Service {
 	return svc
 }
 
-// ensureV1Project creates the project a test's IAM verbs address — the real
-// API answers 403 PERMISSION_DENIED for a project that does not exist.
-func ensureV1Project(t *testing.T, svc *cloudresourcemanager.Service, projectID string) {
-	t.Helper()
-	_, err := svc.Projects.Create(&cloudresourcemanager.Project{ProjectId: projectID}).Do()
-	require.NoError(t, err)
-}
-
 func TestIAM_ProjectIAMPolicy(t *testing.T) {
 	svc := crmService(t)
 	project := "iam-policy-project"
-	ensureV1Project(t, svc, project)
+	ensureProject(t, project)
 
-	// GetIamPolicy on a fresh project returns empty bindings.
+	// A new project's policy grants its own service accounts and agents.
 	policy, err := svc.Projects.GetIamPolicy(project,
 		&cloudresourcemanager.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, policy.Etag)
-	assert.Empty(t, policy.Bindings, "a project nobody has granted a role on has no bindings")
+	var editors []string
+	for _, b := range policy.Bindings {
+		if b.Role == "roles/editor" {
+			editors = b.Members
+		}
+	}
+	assert.Contains(t, editors, "serviceAccount:"+requireProject(t, project)+"-compute@developer.gserviceaccount.com",
+		"a new project grants its Compute Engine default service account Editor")
 
 	// SetIamPolicy — add a binding.
 	updated, err := svc.Projects.SetIamPolicy(project,
@@ -493,7 +497,7 @@ func TestIAM_ProjectIAMPolicy(t *testing.T) {
 func TestIAM_ProjectIAMPolicyEtagConflict(t *testing.T) {
 	svc := crmService(t)
 	project := "iam-etag-project"
-	ensureV1Project(t, svc, project)
+	ensureProject(t, project)
 
 	cur, err := svc.Projects.GetIamPolicy(project,
 		&cloudresourcemanager.GetIamPolicyRequest{}).Do()
@@ -544,7 +548,7 @@ func TestIAM_ProjectIAMPolicyEtagConflict(t *testing.T) {
 func TestIAM_ProjectIAMPolicyInvalidMember(t *testing.T) {
 	svc := crmService(t)
 	project := "iam-bad-member-project"
-	ensureV1Project(t, svc, project)
+	ensureProject(t, project)
 
 	for _, bad := range []string{
 		"robot@example.com",     // no type prefix
@@ -587,6 +591,7 @@ func TestIAM_ProjectIAMPolicyInvalidMember(t *testing.T) {
 // delete/undelete — the full custom-role lifecycle.
 func TestIAM_CustomRoleCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "custom-role-project")
 	svc := iamService(t)
 	const parent = "projects/custom-role-project"
 
@@ -670,7 +675,7 @@ func TestIAM_CustomRoleCRUD(t *testing.T) {
 func TestIAM_OrganizationCustomRole(t *testing.T) {
 	t.Parallel()
 	svc := iamService(t)
-	const parent = "organizations/123456"
+	const parent = "organizations/123456789012"
 
 	created, err := svc.Organizations.Roles.Create(parent, &iam.CreateRoleRequest{
 		RoleId: "orgRole",
@@ -696,6 +701,7 @@ func TestIAM_OrganizationCustomRole(t *testing.T) {
 // getIamPolicy / setIamPolicy / testIamPermissions on a service account.
 func TestIAM_ServiceAccountAsResourceIAM(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sa-iam-project")
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-iam-project",
@@ -768,6 +774,7 @@ func TestIAM_ServiceAccountAsResourceIAM(t *testing.T) {
 //	POST /v1/permissions:queryTestablePermissions
 func TestIAM_ServiceAccountDisableEnablePatch(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sa-toggle-project")
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-toggle-project",
@@ -818,6 +825,7 @@ func TestIAM_ServiceAccountDisableEnablePatch(t *testing.T) {
 // body without an updateMask.
 func TestIAM_ServiceAccountUpdatePut(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sa-put-project")
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-put-project",
@@ -855,6 +863,7 @@ func iamPoolFromOp(t *testing.T, op *iam.Operation) iam.WorkloadIdentityPool {
 // undelete, plus the providers sub-collection.
 func TestIAM_WorkloadIdentityPoolCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "wif-project")
 	svc := iamService(t)
 	parent := "projects/wif-project/locations/global"
 
@@ -944,7 +953,7 @@ func TestIAM_WorkforcePoolCRUD(t *testing.T) {
 	location := "locations/global"
 
 	op, err := svc.Locations.WorkforcePools.Create(location,
-		&iam.WorkforcePool{DisplayName: "Staff Pool", Parent: "organizations/123"}).
+		&iam.WorkforcePool{DisplayName: "Staff Pool", Parent: crmTestOrg}).
 		WorkforcePoolId("staff-pool").Do()
 	require.NoError(t, err)
 	require.True(t, op.Done)
@@ -1000,6 +1009,7 @@ func TestIAM_WorkforcePoolCRUD(t *testing.T) {
 // created credential carries a clientSecret.
 func TestIAM_OAuthClientCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "oauth-project")
 	svc := iamService(t)
 	parent := "projects/oauth-project/locations/global"
 

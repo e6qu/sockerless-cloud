@@ -51,6 +51,8 @@ func iamPopulateKMSRequestConditionKeys(_ *http.Request, operation string, body 
 		}
 	case "DeriveSharedSecret":
 		set.str("kms:KeyAgreementAlgorithm", "KeyAgreementAlgorithm")
+	case "Encapsulate", "Decapsulate":
+		set.str("kms:EncapsulationAlgorithm", "EncapsulationAlgorithm")
 	case "GenerateMac", "VerifyMac":
 		set.str("kms:MacAlgorithm", "MacAlgorithm")
 	case "Sign", "Verify":

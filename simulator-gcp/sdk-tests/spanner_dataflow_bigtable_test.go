@@ -285,6 +285,7 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 
 func TestDataflow_GlobalJobSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "global-df-project")
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -314,6 +315,7 @@ func TestDataflow_GlobalJobSDK(t *testing.T) {
 
 func TestDataflow_SnapshotsSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "snap-project")
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -358,6 +360,7 @@ func TestDataflow_SnapshotsSDK(t *testing.T) {
 
 func TestDataflow_TemplatesSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "tmpl-project")
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -479,6 +482,7 @@ func TestBigtable_InstanceClusterTableSDK(t *testing.T) {
 // materialized views; locations and operations.
 func TestBigtable_AdminSurfaceSDK(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-admin")
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 

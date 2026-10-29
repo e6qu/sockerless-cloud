@@ -62,7 +62,9 @@ func main() {
 			// minted, unless it targets an exempt surface (token minters,
 			// OpenID Connect discovery and JWKS, health, GCE metadata, the
 			// console, application monitoring, the OCI registry). The
-			// outermost wrap, so it sees the final handler chain.
+			// outermost wrap, so it sees the final handler chain. Inside it,
+			// IAM policy decides every authenticated call.
+			srv.WrapHandler(iamGateMiddleware(srv))
 			srv.WrapHandler(bearerAuthMiddleware(srv))
 			return srv, nil
 		},
@@ -264,8 +266,8 @@ func registerAllGRPCServices(gs *grpc.Server) {
 // call's credential before it runs.
 func newGRPCServer() *grpc.Server {
 	gs := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(authUnaryInterceptor, auditUnaryInterceptor),
-		grpc.ChainStreamInterceptor(authStreamInterceptor),
+		grpc.ChainUnaryInterceptor(authUnaryInterceptor, auditUnaryInterceptor, iamGateUnaryInterceptor),
+		grpc.ChainStreamInterceptor(authStreamInterceptor, iamGateStreamInterceptor),
 	)
 	registerAllGRPCServices(gs)
 	return gs

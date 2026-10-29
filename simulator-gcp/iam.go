@@ -438,7 +438,7 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 		}
 		policy, _ := store.Get(resource)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})
+			"permissions": gcpAnswerTestIamPermissions(r, resource, policy, req.Permissions, gcpIAMResourceNamed(resource))})
 	default:
 		http.NotFound(w, r)
 	}

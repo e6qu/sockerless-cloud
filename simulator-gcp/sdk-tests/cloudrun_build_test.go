@@ -30,6 +30,7 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 	t.Parallel()
 	runSvc := runV2AdminService(t)
 	project := uniquename.New("cr-build")
+	ensureProject(t, project)
 	parent := "projects/" + project + "/locations/us-central1"
 	bucket, object := "run-sources-"+project+"-us-central1", "services/source.zip"
 
@@ -77,6 +78,7 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 
 func TestMemorystore_RescheduleMaintenance(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ms-reschedule")
 	svc := redisService(t)
 	parent := "projects/ms-reschedule/locations/us-central1"
 

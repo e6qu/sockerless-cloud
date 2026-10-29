@@ -392,7 +392,7 @@ Each limit has a `BUGS.md` row. Those marked "observed" were reproduced against 
 
 ## Google Cloud
 
-The Google Cloud simulator (`simulator-gcp/`) serves Identity and Access Management (IAM), the IAM Service Account Credentials API, the Security Token Service, the OAuth 2.0 token endpoint and the Compute Engine metadata server. Every token it issues is an RS256 JWT it signs itself, and every data-plane request must carry one. Authorization is narrower than authentication: the simulator evaluates IAM policies in `testIamPermissions` and at a few enforcement points, and serves every other call to any authenticated caller. Read [Enforcement](#google-cloud-enforcement) before you rely on a denial.
+The Google Cloud simulator (`simulator-gcp/`) serves Identity and Access Management (IAM), the IAM Service Account Credentials API, the Security Token Service, the OAuth 2.0 token endpoint and the Compute Engine metadata server. Every token it issues is an RS256 JWT it signs itself, and every data-plane request must carry one. IAM policy then decides every call: the caller performs a method only when a policy on the resource or one of its ancestors grants the permission the method requires. Read [Enforcement](#google-cloud-enforcement) for how each method's permission is derived and what a refusal looks like.
 
 ### Principals
 
@@ -400,8 +400,9 @@ The Google Cloud simulator (`simulator-gcp/`) serves Identity and Access Managem
 |---|---|---|---|
 | Service account | `projects.serviceAccounts.create` (`iam_service_accounts.go`) | JWT-bearer grant, impersonation, metadata server | `serviceAccount:{email}` |
 | Compute Engine default service account | Seeded with each project (`iamEnsureComputeDefaultServiceAccount`) | Same | `serviceAccount:{number}-compute@developer.gserviceaccount.com` |
-| Workforce Identity Federation subject | Security Token Service exchange (`sts.go`) | `POST /v1/token` | none (see [Limits](#google-cloud-limits)) |
-| Bootstrap service account `sockerless-bootstrap@sockerless.iam.gserviceaccount.com` | Seeded at startup in project `sockerless` (`iamSeedBootstrapServiceAccount`, `iam_bootstrap.go`), with the published key `49c4c9ee1dffb89ca13534183ea5e484e46abaaa` | JWT-bearer grant signed with that key | `serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com` |
+| Workforce Identity Federation subject | Security Token Service exchange (`sts.go`) | `POST /v1/token` | `principal://iam.googleapis.com/locations/{l}/workforcePools/{p}/subject/{s}` |
+| Bootstrap service account `sockerless-bootstrap@sockerless.iam.gserviceaccount.com` | Seeded at startup in project `sockerless` (`iamSeedBootstrapServiceAccount`, `iam_bootstrap.go`), with the published key `49c4c9ee1dffb89ca13534183ea5e484e46abaaa`, and bound to `roles/owner` on `organizations/123456789012` (`iamSeedBootstrapOwner`) | JWT-bearer grant signed with that key | `serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com` |
+| Service agents, such as `service-{number}@gcp-sa-eventarc.iam.gserviceaccount.com` | Bound to their roles with each project (`iamSeedProjectGrants`) | Minted in-process when a service acts for one of its resources (`gcpCallAs`) | `serviceAccount:{email}` |
 
 The simulator holds no users and no groups, because it serves no Cloud Identity or Google Workspace directory. `validateIAMMembers` (`iam.go`) accepts `user:`, `group:` and `domain:` members, but no token names a user, group or domain, so those bindings never match a caller.
 
@@ -437,8 +438,10 @@ Only workforce pool providers take part in a token exchange. The Security Token 
 | `allUsers` | Every caller, with or without a token |
 | `allAuthenticatedUsers` | Every caller whose token names a principal |
 | `serviceAccount:{email}` | A token whose `sub` is that email (`gcpSubjectPrincipal`) |
-| `projectOwner:{p}`, `projectEditor:{p}`, `projectViewer:{p}` | A caller that holds `roles/owner`, `roles/editor` or `roles/viewer` on project `p` (`gcpProjectGrantsRole`) |
-| `principal://…`, `principalSet://…`, `user:`, `group:`, `domain:` | Nobody today |
+| `principal://iam.googleapis.com/locations/…/subject/{s}` | A workforce token for that subject |
+| `projectOwner:{p}`, `projectEditor:{p}`, `projectViewer:{p}` | A caller that holds `roles/owner`, `roles/editor` or `roles/viewer` on project `p`, granted there or on an ancestor (`gcpProjectGrantsRole`) |
+| `principalSet://iam.googleapis.com/locations/…/workforcePools/{pool}/*` | A workforce token for any subject of that pool |
+| Other `principalSet://…`, `user:`, `group:`, `domain:` | Nobody today |
 
 ### Tokens
 
@@ -455,7 +458,7 @@ Real Google access tokens are opaque. A client must treat the simulator's the sa
 
 `bearerAuthMiddleware` (`token_signing.go`) wraps the REST mux. For every request that a Google API method routes, `verifyRequestBearer` requires `Authorization: Bearer`, verifies the signature, issuer, audience and expiry (`verifiedAccessTokenClaims`), and rejects a revoked workforce session. A failure answers `401 UNAUTHENTICATED`. Unrouted paths answer `404` before the credential is examined (`publishesAPIMethod`).
 
-`isAuthExempt` lists what a client reaches without a token: the token endpoints, `/v1/introspect`, Discovery documents, `/.well-known/`, `/health`, `/computeMetadata/` (gated by `Metadata-Flavor` instead), the console under `/ui/` and `/auth/`, the Artifact Registry Docker data plane (its own token service, `ar_dataplane_auth.go`), and `*.run.app` hosts (the Cloud Run front end authenticates invokers itself). The Cloud Storage XML data plane (`GET /{bucket}/{object}`) checks the bearer itself, or a V4 signed URL in its place (`gcsSignedURLAuthorized`).
+`isAuthExempt` lists what a client reaches without a token: the token endpoints, `/v1/introspect`, Discovery documents, `/.well-known/`, `/health`, `/computeMetadata/` (gated by `Metadata-Flavor` instead), the console under `/ui/` and `/auth/`, the Artifact Registry Docker data plane (its own token service, `ar_dataplane_auth.go`), and `*.run.app` hosts (the Cloud Run front end authenticates invokers itself). The Cloud Storage XML data plane (`GET /{bucket}/{object}`) checks the bearer itself, or a V4 signed URL in its place (`gcsSignedURLAuthorized`), whose signer it then authorizes as the caller.
 
 The gRPC listener (the HTTP port plus two, or `SIM_GCP_GRPC_PORT`) verifies the bearer in each call's `authorization` metadata with the same check (`grpc_auth.go`), and refuses a missing or invalid one with `UNAUTHENTICATED` and an `ErrorInfo` detail. Google's client libraries send credentials only over TLS, so `SIM_GCP_GRPC_TLS_CERT` and `SIM_GCP_GRPC_TLS_KEY` make the port a TLS front end that serves both gRPC and REST, as Google's hosts do.
 
@@ -503,7 +506,7 @@ The IAM Service Account Credentials methods share IAM's path, `POST /v1/projects
 | `signBlob` | `keyId` and `signedBlob`, an RSASSA-PKCS1-v1_5 SHA-256 signature by the system-managed key. |
 | `signJwt` | `keyId` and `signedJwt`, an RS256 JWS by the system-managed key. |
 
-Impersonation checks only that the target account exists. The simulator does not check `iam.serviceAccounts.getAccessToken` or `getOpenIdToken` on the caller, does not follow `delegates`, and impersonates a disabled account. `getAllowedLocations` answers an unrestricted trust boundary (`encodedLocations: "0x0"`).
+The caller needs `iam.serviceAccounts.getAccessToken` (`generateAccessToken`), `getOpenIdToken` (`generateIdToken`), `signBlob` or `signJwt` on the target account, which the Service Account Token Creator role (`roles/iam.serviceAccountTokenCreator`) grants and no basic role does: even an Owner grants itself that role on the account first. The simulator does not follow `delegates`, and impersonates a disabled account. `getAllowedLocations` answers an unrestricted trust boundary (`encodedLocations: "0x0"`).
 
 #### Security Token Service
 
@@ -541,10 +544,11 @@ A policy (`IAMPolicy`, `iam.go`) holds `bindings`, `auditConfigs`, `etag` and `v
 
 #### Roles and permissions
 
-`gcpRoleIncludedPermissions` resolves a role to its permissions from two sources:
+`gcpRoleGrants` (`iam_catalog.go`) decides whether a role includes a permission:
 
-- **Predefined roles**: a hand-curated list in `gcpPredefinedRoles` (`iam_roles.go`), not the full Google catalog and not a vendored file. It holds `roles/owner`, `roles/editor`, `roles/viewer`, `roles/run.invoker`, `roles/iam.serviceAccountUser`, `roles/redis.dbConnectionUser`, `roles/pubsub.publisher`, `roles/storage.objectViewer`, `objectCreator` and `objectAdmin`, and the six `roles/storage.legacy*` roles. Each carries only the permissions the simulator checks; `roles/owner`, for instance, lists seven. `roles.get` and `roles.list` serve this list.
-- **Custom roles**: `projects.roles.*` and `organizations.roles.*` (`registerCustomRoles`) store `includedPermissions`, `stage` and a soft-delete flag. `permissions.queryTestablePermissions` answers the union of the predefined roles' permissions and a fixed list in `gcpTestablePermissions`.
+- **Predefined roles** come from `iam_catalog_vendored.json`, which `scripts/gen-gcp-iam-catalog.go` compiles from the role and permission pages of every served service (`specs/cloud-api/gcp/iam-roles-*.md.gz`): 357 roles, service agent roles among them, and the 2,620 permissions the services define. `roles.get` and `roles.list` serve them with the etag `AA==` Google gives every predefined role, and `permissions.queryTestablePermissions` answers the permissions.
+- **Basic roles** (`roles/owner`, `roles/editor`, `roles/viewer`): Google lists their permissions only in its console, so `gcpBasicRoleGrants` follows the roles overview (`iam-roles-overview.md.gz`). Viewer holds the read-only permissions (verbs `get…`, `list…`, `search…`, `read`, `select`, `query…`, `lookup…`), Editor every permission except those that manage access (`setIamPolicy`, `iam.roles.*` writes), tag bindings and billing, and Owner every permission. Neither Owner nor Editor holds the service account credential permissions (`getAccessToken`, `getOpenIdToken`, `signBlob`, `signJwt`, `implicitDelegation`). In Cloud Storage a basic role holds only the permissions `storage-iam-roles.md.gz` lists as intrinsic; a project's members reach its buckets and objects through the convenience members of each bucket's policy.
+- **Custom roles**: `projects.roles.*` and `organizations.roles.*` (`registerCustomRoles`) store `includedPermissions`, `stage` and a soft-delete flag. A deleted role, or one at stage `DISABLED`, grants nothing.
 
 A role the simulator does not define grants nothing.
 
@@ -560,35 +564,63 @@ An expression that fails to compile or evaluate is false, so its binding grants 
 
 #### Evaluation and inheritance
 
-`gcpPermissionsHeldBy` collects the permissions of every binding that both matches the caller and whose condition holds, then answers the requested permissions in request order. Policies combine by union (`gcpPermissionsHeldUnder`). The simulator serves no deny policies (IAM v2) and no principal access boundary enforcement.
+`gcpPermissionsHeldBy` collects the roles of every binding that both matches the caller and whose condition holds, then answers the requested permissions those roles include, in request order. Policies combine by union (`gcpPermissionsHeldUnder`). The simulator serves no deny policies (IAM v2) and no principal access boundary enforcement.
 
-Which policies apply depends on the caller of the evaluation:
+`gcpPolicyChain` (`iam_gate_policies.go`) gathers the policies that govern a resource named by its relative name, outermost first: the organization's and each folder's above the project (`crmOrgPolicyAncestry`), the project's, then the policy of each resource on the path down to it, as a key ring's policy governs its keys. A Cloud Storage bucket adds its own policy and, while uniform bucket-level access is off, its ACL read as legacy roles; an object adds its policy and ACL (`gcsBucketPolicies`, `gcsObjectPolicies`). A resource outside any project, folder or organization, such as a billing account or a global operation, inherits the organization `organizations/123456789012`.
 
-| Evaluation | Policies combined |
-|---|---|
-| `testIamPermissions` through `handleResourceIAM` (projects, folders, organizations, service accounts, generic resources) | The resource's own policy only |
-| Cloud Storage `testPermissions` on a bucket, managed folder or object | Project, bucket, then the managed folder's or object's own policy, plus ACLs as roles while uniform bucket-level access is off (`gcsBucketPolicies`, `gcsObjectPolicies`) |
-| Cloud Run invoker check, Memorystore for Redis IAM auth | Project, its folders and organization (`gcpHierarchyPolicies`, which walks `crmOrgPolicyAncestry`); Cloud Run adds the service's own policy |
-| Cloud Storage notification create | Project and topic policy |
+Every `testIamPermissions`, the Cloud Run invoker check, Memorystore for Redis IAM `AUTH` and the Cloud Storage service agent's publish check evaluate the same chain.
 
-The bootstrap service account is the account's owner: `gcpSubjectPrincipal` recognises its email, and the owner holds every permission it asks about (`gcpAnswerForPrincipal`). No IAM binding records this, so the project's `getIamPolicy` shows no `roles/owner` member for it.
+Google grants roles the simulator grants as real bindings, visible through `getIamPolicy`:
+
+| Member | Role | Where | Seeded by |
+|---|---|---|---|
+| Bootstrap service account | `roles/owner` | `organizations/123456789012` | `iamSeedBootstrapOwner`, at startup |
+| Compute Engine default service account, Google APIs Service Agent (`{number}@cloudservices.gserviceaccount.com`) | `roles/editor` | Each project (`compute-service-accounts.md.gz`) | `iamSeedProjectGrants`, when the project is created |
+| Each served service's agent, such as `service-{number}@gcp-sa-pubsub.iam.gserviceaccount.com` | The role `iam-service-agents.md.gz` names, such as `roles/pubsub.serviceAgent` | Each project | `iamSeedProjectGrants` |
+
+A service acting for one of its resources calls the target API as its agent (`gcpCallAs`), so Cloud Scheduler publishes with `roles/cloudscheduler.serviceAgent` and Eventarc builds its transport topic with `roles/eventarc.serviceAgent`. A workload calls as the account its metadata server hands it a token for. Writing a project's or the organization's policy without these bindings removes them, as it does on Google Cloud.
 
 <a id="google-cloud-enforcement"></a>
 
 #### Enforcement
 
-Only the following code paths evaluate a policy before acting. Every other method serves any caller with a valid bearer token, whatever the policy says.
+`iamGateMiddleware` (REST, inside `bearerAuthMiddleware`) and `iamGateUnaryInterceptor` / `iamGateStreamInterceptor` (gRPC) decide every authenticated call (`iam_gate.go`). A gRPC call is decided as the REST call its `google.api.http` binding spells; a streaming call is decided on its first message.
 
-| Where | Permission | Refusal |
-|---|---|---|
-| Cloud Run front end on `*.run.app` (`cloudRunInvokerAuthorized`, `cloudrun_frontend.go`) | `run.routes.invoke` | `403` HTML page; `401` with `WWW-Authenticate` for a bad token |
-| Memorystore for Redis Cluster IAM `AUTH` (`msRedisPlane.connectAs`, `memorystore_redis_relay.go`) | `redis.clusters.connect` | The engine refuses the `AUTH` |
-| Cloud Storage `notifications.insert` (`gcsAgentMayPublish`) | `pubsub.topics.publish` held by the Cloud Storage service agent | `403 forbidden` |
-| All `testIamPermissions` methods | As requested | Omits the permission |
+1. **Method.** The call resolves to the Discovery method that describes its path (`gateMatchDiscovery`, over every embedded Discovery document). Where two APIs publish one path, the host decides, then the claims `auditRESTClaims` records; an operations path several APIs share admits a caller holding either API's permission.
+2. **Permission**, from the first source that names one (`gateChecks`, `iam_gate_checks.go`):
+   1. the method tables Cloud Storage (`storage-iam-json.md.gz`) and Pub/Sub (`pubsub-access-control.md.gz`) publish, compiled into the catalog with what each permission is checked on (the project, a source or destination object, the topic a request names);
+   2. `gateMethodPermissions`, the methods whose identifiers do not spell their permission, each citing its vendored page: Firestore's document methods (`firestore-security-iam.md.gz`), Spanner's session methods (`spanner-iam.md.gz`), the Service Account Credentials methods, Cloud Logging's `entries.write`;
+   3. the service's vendored audit-logging page (`audit_methods_vendored.json`), for Cloud Run, Cloud SQL, BigQuery, Cloud Logging, Resource Manager, Service Usage, Serverless VPC Access, API Gateway and Dataflow, and their operations and locations mixins;
+   4. Google's `service.resource.verb` convention over the method's RPC (`auditRPC.permission`, with the RPC exceptions `auditRPCPermissions` lists) or Discovery identifier (`gateConventionPermission`). A nested collection takes the singular collections above it, as Google names it (`gateNestedConventionPermissions`): providers under `workforcePools` check `iam.workforcePoolProviders.*`.
 
-The Artifact Registry Docker data plane (`arAuthorizeV2`) maps each method to `downloadArtifacts`, `uploadArtifacts` or `deleteArtifacts`, but refuses only anonymous tokens and missing repositories. It does not read the repository's policy.
+   A permission counts only when a served service defines it in the vendored catalog; Cloud Storage's footnoted permissions, which a method checks only in the case the footnote names, are not required.
+3. **Resource.** The permission is checked on the relative name the path addresses (a create on its parent collection), or the target its table names.
+4. **Decision.** The caller must hold every permission under `gcpPolicyChain` of its resource. A Cloud Storage bucket that does not exist is admitted, so the handler answers 404, as Cloud Storage does whoever asks. So is a project that does not exist on Compute Engine, Cloud Storage and Pub/Sub (`gateAnswersUnknownProject`), which resolve the project before they authorize; every other API refuses it, as a project the caller may not read.
 
-The simulator does not derive a required permission per method for authorization. `audit_methods_vendored.json` records the permission each audited method checks, compiled by `scripts/gen-gcp-audit-methods.go` from the vendored audit-logging pages, but only Cloud Audit Logs reads it (`auditVendoredMethod.permission`).
+A method no source gives a permission for is **unsourced**: only a principal bound to `roles/owner` on the resource or an ancestor performs it, since Owner holds every permission Google defines. A permission a method table names that no vendored role page lists (Cloud Storage's `storage.objects.viewFullContext`) is unsourced the same way. [BUGS.md](../BUGS.md) lists the unsourced methods by service.
+
+A project's creator becomes its Owner (`crmGrantCreatorOwner`), as the Project Creator role's description says, so a principal holding only `roles/resourcemanager.projectCreator` deletes the project it created. Polling a Resource Manager operation needs the read permission on the project or folder the operation produced (`gateCRMOperation`): Resource Manager publishes none for `operations.get`, yet a Project Creator polls its own create. A role page that spells a permission `iam.googleapis.com/workforcePools.list` names `iam.workforcePools.list`, the spelling its wildcard headings and IAM's refusals use.
+
+Some methods need no permission: every `testIamPermissions`, the IAM catalogs (`roles.get` and `roles.list` on predefined roles, `queryTestablePermissions`, `queryGrantableRoles`, `lintPolicy`, `queryAuditableServices`), and Resource Manager's `projects.list`, `projects.search`, `folders.search` and `organizations.search`, as well as `projects.create` without a parent.
+
+A refused call answers 403 in its API's shape:
+
+| API | Refusal |
+|---|---|
+| Cloud Storage | `{"error":{"code":403,"message":"{email} does not have storage.objects.delete access to the Google Cloud Storage object. Permission 'storage.objects.delete' denied on resource (or it may not exist).","errors":[{"domain":"global","reason":"forbidden",…}]}}`; a bucket or project names `bucket` or `Google Cloud project` |
+| Compute Engine | `Required 'compute.instances.get' permission for 'projects/{p}/zones/{z}/instances/{i}'`, reason `forbidden` |
+| BigQuery | `Access Denied: Table p:d.t: Permission bigquery.tables.getData denied on table p:d.t (or it may not exist).`, reason `accessDenied` |
+| Pub/Sub | `PERMISSION_DENIED`, `User not authorized to perform this action.` |
+| Spanner | `PERMISSION_DENIED`, `Caller is missing IAM permission spanner.databases.select on resource projects/…/databases/d.` |
+| Firestore | `PERMISSION_DENIED`, `Missing or insufficient permissions.` |
+| Resource Manager, and any unsourced method | `PERMISSION_DENIED`, `The caller does not have permission` |
+| Every other API | `PERMISSION_DENIED`, `Permission '{permission}' denied on resource '{name}' (or it may not exist).`, with an `ErrorInfo` of reason `IAM_PERMISSION_DENIED`, domain `iam.googleapis.com` and metadata `permission` and `resource` |
+
+Over gRPC the call fails with `codes.PermissionDenied` and the same message, and the `ErrorInfo` detail where the REST answer carries one.
+
+A refused call reaches no handler, so Cloud Audit Logs writes no entry for it.
+
+The Cloud Storage XML data plane checks `storage.objects.get` itself, through the same bucket and object policies. The Artifact Registry Docker data plane (`arAuthorizeV2`, which maps each request to `downloadArtifacts`, `uploadArtifacts` or `deleteArtifacts` but refuses only anonymous tokens) and the Cloud Run front end decide their own callers; the front end checks `run.routes.invoke` (`cloudRunInvokerAuthorized`).
 
 ### Workload identity
 
@@ -626,7 +658,7 @@ An access token is not an ID token and fails step 3. The container receives the 
 
 - Admin Activity entries are always written. Data Access entries are written only when the project policy's `auditConfigs` enable the log type for the service or `allServices`, minus `exemptedMembers` (`auditDataAccessEnabled`).
 - `authenticationInfo` carries `principalEmail` and `principalSubject` from the bearer token (`auditCallerFromCredential`).
-- `authorizationInfo` names the permission from the vendored table or the service's own table, always with `granted: true`, because no audited call is denied.
+- `authorizationInfo` names the permission from the vendored table or the service's own table, always with `granted: true`: a call the IAM gate refuses never reaches the audit layer.
 - No service writes Policy Denied entries.
 
 [BUGS.md 3119](../BUGS.md) lists the services and methods that write no entries, including `SignBlob`, `SignJwt` and every `TestIamPermissions`.
@@ -762,30 +794,33 @@ curl -s -w '\nHTTP %{http_code}\n' \
   "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get"
 ```
 
-`testPermissions` reports that `reader` lacks `storage.objects.delete`, yet
-Cloud Storage's JSON API does not enforce IAM (see
-[Enforcement](#google-cloud-enforcement)), so `reader` deletes an object all
-the same:
+Upload an object as the operator. `reader` reads it, and its delete is refused
+for the permission `testPermissions` reported missing:
 
-<!-- doctest: run expect="HTTP 204" -->
+<!-- doctest: run expect="(?m)^hello$" expect="reader@sockerless\\.iam\\.gserviceaccount\\.com does not have storage\\.objects\\.delete access" expect="HTTP 403" -->
 ```sh
 echo hello > hello.txt
 curl -s -X POST "$S/upload/storage/v1/b/iam-demo-bucket/o?uploadType=media&name=hello.txt" \
   -H "$A" -H 'Content-Type: text/plain' --data-binary @hello.txt | jq -c '{name, size}'
-curl -s -o /dev/null -w 'HTTP %{http_code}\n' -X DELETE \
+curl -s "$S/storage/v1/b/iam-demo-bucket/o/hello.txt?alt=media" -H "Authorization: Bearer $RT"
+curl -s -w '\nHTTP %{http_code}\n' -X DELETE \
   "$S/storage/v1/b/iam-demo-bucket/o/hello.txt" -H "Authorization: Bearer $RT"
 ```
 
-To see a real denial, deploy a Cloud Run service without an `allUsers` binding
-and call its URL with an ID token for an account that lacks
-`roles/run.invoker`.
+Bind `roles/storage.objectAdmin` the same way and the delete answers 204.
 
 #### Impersonate a service account
 
-Mint a ten-minute access token for `reader` as the operator:
+Basic roles hold no impersonation permission, so even the bootstrap Owner
+first takes the Service Account Token Creator role on `reader`. Then mint a
+ten-minute access token for it:
 
 <!-- doctest: run expect="\"accessToken\":\"eyJ" expect="\"expireTime\":\"[0-9T:-]+Z\"" -->
 ```sh
+gcloud config set api_endpoint_overrides/iam $S/
+gcloud iam service-accounts add-iam-policy-binding reader@sockerless.iam.gserviceaccount.com \
+  --project=sockerless --member=serviceAccount:sockerless-bootstrap@sockerless.iam.gserviceaccount.com \
+  --role=roles/iam.serviceAccountTokenCreator
 curl -s -X POST "$S/v1/projects/-/serviceAccounts/reader@sockerless.iam.gserviceaccount.com:generateAccessToken" \
   -H "$A" -H "$J" -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"],"lifetime":"600s"}'
 ```
@@ -830,15 +865,13 @@ Then stop `simulator-gcp` with Ctrl-C.
 
 | Gap | Tracked |
 |---|---|
-| IAM is not enforced on control-plane or data-plane methods outside the [Enforcement](#google-cloud-enforcement) table. | [3735](../BUGS.md) |
-| The Artifact Registry Docker data plane does not evaluate the repository's policy. | [3742](../BUGS.md) |
-| Impersonation checks no `getAccessToken` or `getOpenIdToken` permission, ignores `delegates`, and serves disabled accounts. | [3742](../BUGS.md) |
-| A deleted custom role still grants its permissions; `stage: DISABLED` is not honoured. | [3742](../BUGS.md) |
-| `principal://` and `principalSet://` members never match. Workforce tokens carry a bare `locations/…` subject, and no attribute mapping produces a principal set. | [3742](../BUGS.md) |
+| 671 of 2,891 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
+| Basic roles follow the roles overview, not Google's console lists; a method's secondary permissions (`iam.serviceAccounts.actAs` on deploy, Cloud Storage's footnoted ones) are not checked; BigQuery dataset access entries grant nothing; list and search results are not filtered to what the caller may see; `iam.automaticIamGrantsForDefaultServiceAccounts` is not honoured; a refused call writes no audit entry. | [3770](../BUGS.md) |
+| The Artifact Registry Docker data plane does not evaluate repository policies. | [3742](../BUGS.md) |
+| Impersonation ignores `delegates` and serves disabled accounts. | [3742](../BUGS.md) |
+| `principalSet://` members other than a whole pool (`…/*`) never match; no attribute mapping produces a principal set. | [3742](../BUGS.md) |
 | Workload identity pools take no part in token exchange; the Security Token Service accepts only workforce providers. | [3742](../BUGS.md) |
-| Resource-level `testIamPermissions` does not include the hierarchy's policies; Cloud Storage includes only the project. | [3742](../BUGS.md) |
 | `requestedPolicyVersion` is ignored. | [3742](../BUGS.md) |
-| The predefined role catalog is a curated subset. | [3742](../BUGS.md) |
 | A V4 signed URL signed by `signBlob` (system-managed key) is not verified: `serviceAccountSigned` reads only user-managed keys. | [3742](../BUGS.md) |
 | No deny policies, principal access boundaries, groups, users or `tokeninfo`. | [3742](../BUGS.md) |
 | The metadata server ignores an instance's configured scopes. | [3751](../BUGS.md) |

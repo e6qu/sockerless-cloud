@@ -217,6 +217,7 @@ func TestSDK_ServiceUsage_OperationsCancel(t *testing.T) {
 func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 	t.Parallel()
 	svc := loggingOpsService(t)
+	cancelFolder := createTestFolder(t, "logging-cancel-folder")
 
 	type scopeOps struct {
 		name        string
@@ -238,7 +239,7 @@ func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 		},
 		{
 			name: "folders",
-			loc:  "folders/123456/locations/us-central1",
+			loc:  cancelFolder + "/locations/us-central1",
 			createAsync: func(parent, id string) (*logging.Operation, error) {
 				return svc.Folders.Locations.Buckets.CreateAsync(parent, &logging.LogBucket{}).BucketId(id).Do()
 			},
@@ -249,7 +250,7 @@ func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 		},
 		{
 			name: "organizations",
-			loc:  "organizations/987654/locations/us-central1",
+			loc:  "organizations/123456789012/locations/us-central1",
 			createAsync: func(parent, id string) (*logging.Operation, error) {
 				return svc.Organizations.Locations.Buckets.CreateAsync(parent, &logging.LogBucket{}).BucketId(id).Do()
 			},

@@ -137,9 +137,13 @@ grep client_email bootstrap-key.json
 A client signs a JWT with the key and exchanges it at `token_uri`, as it does
 at `oauth2.googleapis.com`, and presents the access token it gets back. The
 token endpoint refuses a JWT-bearer grant without an assertion. The bootstrap
-account owns every project, `sockerless` among them; create other projects
-through Cloud Resource Manager, and other accounts and keys through IAM.
-[`docs/iam.md`](../docs/iam.md#google-cloud) covers identity in depth.
+account holds `roles/owner` on the organization `organizations/123456789012`,
+so it owns every project created under it, `sockerless` among them; create
+other projects there through Cloud Resource Manager, and other accounts and
+keys through IAM. IAM policy decides every call: any other account performs
+only what a binding on the resource or an ancestor grants it.
+[`docs/iam.md`](../docs/iam.md#google-cloud) covers identity and authorization
+in depth.
 
 ### gcloud
 
@@ -445,6 +449,8 @@ HTTPS gateway, which needs `caddy` (or `CADDY=/path/to/caddy`).
 - The REST APIs accept only access tokens the token endpoint minted. A client
   that signs its own JWT for an API audience, as the Cloud Client Libraries
   for Python generated from protocol buffers do, gets 401.
+- 671 of 2,891 Discovery methods have no sourced permission; IAM admits only an Owner to them
+  ([`docs/iam.md`](../docs/iam.md#google-cloud-enforcement)).
 - `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and
   `Spanner.FetchCacheUpdate` answer `UNIMPLEMENTED`.
 - Cloud DNS private, forwarding and peering zones, response policies and a DNS

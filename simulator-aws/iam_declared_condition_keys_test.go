@@ -48,8 +48,6 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"from PutEvents' Source would be a guess that a policy could match on."},
 	{"events:SystemMetadata/ContentType", "Arrived with events:PutRawEvents and is also declared on PutEvents, but neither the " +
 		"Service Reference nor the Service Authorization Reference says what value it carries (2026-09-25)."},
-	{"kms:EncapsulationAlgorithm", "Declared only on kms:Encapsulate and kms:Decapsulate, operations the vendored " +
-		"KMS model does not contain and the simulator does not serve."},
 	{"lambda:Request/WebFunctionAuthType", "Declared only on lambda:CreateWebFunction, CreateWebFunctionEndpoint and " +
 		"UpdateWebFunctionEndpoint, operations the vendored Lambda model does not contain and the simulator does not serve."},
 	{"lambda:Resource/WebFunctionAuthType", "Declared only on lambda:DeleteWebFunctionEndpoint, GetWebFunctionEndpoint and " +

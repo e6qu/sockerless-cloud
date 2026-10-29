@@ -1392,7 +1392,7 @@ func loadCasedRequestMembers(t *testing.T, service string) map[string]map[string
 // scopes the CloudWatch metric operations with cloudwatch:namespace instead.
 // Deriving a resource for them would invent an association AWS's model does not
 // state.
-const iamDerivationCoverageFloor = 2023
+const iamDerivationCoverageFloor = 2025
 
 // TestIAMResourceDerivationCoverage measures how much of the simulator's served
 // surface authorizes against a real resource rather than the "*" fallback, and

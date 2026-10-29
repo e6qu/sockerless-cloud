@@ -11,6 +11,9 @@ GO_PACKAGE     := .
 UI_PACKAGE     := simulator-aws
 DEFAULT_PORT   := 4566
 GO_ENV         := CGO_ENABLED=0
+# Linting compiles the simulator's one package and its test variant, each near
+# 7 GB on a cold cache; two at once exhaust a 16 GB CI runner.
+LINT_ENV       := GOFLAGS=-p=1
 GO_LDFLAGS      := -s -w
 RUN_ENV        := SIM_LISTEN_ADDR=:4566
 RUN_FLAGS      :=

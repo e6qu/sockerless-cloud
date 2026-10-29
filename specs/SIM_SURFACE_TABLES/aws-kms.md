@@ -66,6 +66,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action TrentService.RevokeGrant` | ✓ `simulator-aws/kms_grants.go:30::handleKMSRevokeGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TrentService.GenerateDataKeyWithoutPlaintext` | ✓ `simulator-aws/kms_grants.go:31::handleKMSGenerateDataKeyWithoutPlaintext` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TrentService.ReEncrypt` | ✓ `simulator-aws/kms_grants.go:32::handleKMSReEncrypt` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action TrentService.Encapsulate` | ✓ `simulator-aws/kms_mlkem.go:20::handleKMSEncapsulate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action TrentService.Decapsulate` | ✓ `simulator-aws/kms_mlkem.go:21::handleKMSDecapsulate` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TrentService.RetireGrant` | ✓ `simulator-aws/kms_multiregion.go:11::handleKMSRetireGrant` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TrentService.ListRetirableGrants` | ✓ `simulator-aws/kms_multiregion.go:12::handleKMSListRetirableGrants` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action TrentService.ReplicateKey` | ✓ `simulator-aws/kms_multiregion.go:13::handleKMSReplicateKey` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

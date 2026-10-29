@@ -82,6 +82,7 @@ func TestCompute_TargetPoolMembership(t *testing.T) {
 
 func TestCompute_NetworkPeering(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "peering-project")
 	svc := computeService(t)
 	const project = "peering-project"
 

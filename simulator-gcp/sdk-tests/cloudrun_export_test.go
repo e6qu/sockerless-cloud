@@ -20,6 +20,7 @@ func TestCloudRunV2_UploadSourceAndExportImage(t *testing.T) {
 	t.Parallel()
 	svc := cloudRunV2Service(t)
 	const project, location = "run-export", "us-central1"
+	ensureProject(t, project)
 	parent := "projects/" + project + "/locations/" + location
 
 	upload, err := svc.Projects.Locations.SourceUploads.Upload(parent,

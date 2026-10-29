@@ -277,6 +277,7 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	t.Cleanup(func() { _ = shutdownPersistentSimulator(cmd) })
 
 	clientOptions := []option.ClientOption{option.WithEndpoint(endpoint), option.WithTokenSource(simTokenSourceFor(endpoint))}
+	ensureProjectAt(t, endpoint, "test-project")
 	pools, err := run.NewWorkerPoolsRESTClient(ctx, clientOptions...)
 	require.NoError(t, err)
 	defer pools.Close()

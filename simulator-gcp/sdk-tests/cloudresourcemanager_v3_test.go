@@ -132,13 +132,14 @@ func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed", got.DisplayName)
 
+	destination := createTestFolder(t, "crm-project-destination")
 	mop, err := svc.Projects.Move(got.Name, &crm.MoveProjectRequest{
-		DestinationParent: "folders/000000000001",
+		DestinationParent: destination,
 	}).Do()
 	require.NoError(t, err)
 	assert.True(t, mop.Done)
 
-	list, err := svc.Projects.List().Parent("folders/000000000001").Do()
+	list, err := svc.Projects.List().Parent(destination).Do()
 	require.NoError(t, err)
 	var found bool
 	for _, p := range list.Projects {
@@ -172,7 +173,7 @@ func TestResourceManagerV3_ProjectIAM(t *testing.T) {
 	const name = "projects/crm-iam-proj"
 
 	// IAM verbs address an existing project; a missing one is a real 403.
-	cop, err := svc.Projects.Create(&crm.Project{ProjectId: "crm-iam-proj"}).Do()
+	cop, err := svc.Projects.Create(&crm.Project{ProjectId: "crm-iam-proj", Parent: "organizations/123456789012"}).Do()
 	require.NoError(t, err)
 	require.True(t, cop.Done)
 
@@ -229,8 +230,9 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "crm-folder-2", got.DisplayName)
 
+	destination := createTestFolder(t, "crm-folder-destination")
 	moved, err := svc.Folders.Move(name, &crm.MoveFolderRequest{
-		DestinationParent: "folders/000000000099",
+		DestinationParent: destination,
 	}).Do()
 	require.NoError(t, err)
 	var moveMetadata crm.MoveFolderMetadata
@@ -238,10 +240,10 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 	assert.Equal(t, crm.MoveFolderMetadata{
 		DisplayName:       "crm-folder-2",
 		SourceParent:      "organizations/123456789012",
-		DestinationParent: "folders/000000000099",
+		DestinationParent: destination,
 	}, moveMetadata)
 
-	list, err := svc.Folders.List().Parent("folders/000000000099").Do()
+	list, err := svc.Folders.List().Parent(destination).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, list.Folders)
 
@@ -270,6 +272,7 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 
 func TestResourceManagerV3_Liens(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "crm-lien-proj")
 	svc := crmV3Service(t)
 
 	lien, err := svc.Liens.Create(&crm.Lien{
@@ -402,7 +405,7 @@ func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 	require.NoError(t, err)
 	valueName := crmOpResourceName(t, vop)
 
-	const resource = "//cloudresourcemanager.googleapis.com/projects/735298346299"
+	resource := "//cloudresourcemanager.googleapis.com/projects/" + requireProject(t, "crm-tags-bound")
 	_, err = svc.TagBindings.Create(&crm.TagBinding{
 		Parent: resource, TagValue: valueName,
 	}).Do()
@@ -417,7 +420,7 @@ func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 
 	// A resource nothing was bound to has none.
 	none, err := svc.EffectiveTags.List().
-		Parent("//cloudresourcemanager.googleapis.com/projects/735298346298").Do()
+		Parent("//cloudresourcemanager.googleapis.com/projects/" + requireProject(t, "crm-tags-unbound")).Do()
 	require.NoError(t, err)
 	assert.Empty(t, none.EffectiveTags)
 
@@ -442,7 +445,7 @@ func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 	assert.Equal(t, "yes", effective.EffectiveTags["123456789012/inforce"])
 
 	// A folder capability reports the value it was set to.
-	const capability = "folders/123456789012/capabilities/app-management"
+	capability := createTestFolder(t, "crm-tags-capability") + "/capabilities/app-management"
 	_, err = svc.Folders.Capabilities.Patch(capability, &crm.Capability{Value: true}).Do()
 	require.NoError(t, err)
 	got, err := svc.Folders.Capabilities.Get(capability).Do()

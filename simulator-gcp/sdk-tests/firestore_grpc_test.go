@@ -19,6 +19,7 @@ import (
 // none.
 func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
+	ensureProject(t, project)
 	c, err := firestore.NewClient(ctx, project, simGRPCClientOptions()...)
 	if err != nil {
 		t.Fatalf("firestore.NewClient (gRPC): %v", err)

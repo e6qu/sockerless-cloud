@@ -56,6 +56,7 @@ func TestCompute_ZonalDiskVerbs(t *testing.T) {
 
 func TestCompute_ZonalDiskAsyncReplication(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "disk-replica")
 	svc := computeService(t)
 	const project, zone, name = "disk-replica", "us-central1-a", "primary"
 

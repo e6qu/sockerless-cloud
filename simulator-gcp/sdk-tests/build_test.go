@@ -246,6 +246,7 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 // existing bucket, so a test can rerun in one process (`-count`).
 func createBucket(t *testing.T, project, name string) {
 	t.Helper()
+	ensureProject(t, project)
 	requireProject(t, project)
 	url := fmt.Sprintf("%s/storage/v1/b?project=%s", baseURL, project)
 	req, err := http.NewRequest("POST", url, strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)))
@@ -295,6 +296,7 @@ func cloudbuildService(t *testing.T) *cloudbuild.Service {
 
 func TestCloudBuild_TriggerCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-trigger-project")
 	svc := cloudbuildService(t)
 	project := "cb-trigger-project"
 

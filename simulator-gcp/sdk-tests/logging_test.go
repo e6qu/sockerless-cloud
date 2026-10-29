@@ -248,6 +248,7 @@ func loggingRESTService(t *testing.T) *loggingrpc.Service {
 
 func TestLogging_SinkCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sink-test-project")
 	svc := loggingRESTService(t)
 	project := "sink-test-project"
 	parent := "projects/" + project
@@ -299,6 +300,7 @@ func TestLogging_SinkCRUD(t *testing.T) {
 
 func TestLogging_MetricCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "metric-test-project")
 	svc := loggingRESTService(t)
 	project := "metric-test-project"
 	parent := "projects/" + project

@@ -74,6 +74,7 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 // or `latest` when the newest version is disabled, answers FAILED_PRECONDITION.
 func TestSecretManager_AccessDisabledVersionFails(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-disabled-project")
 	svc := secretManagerService(t)
 	parent := "projects/sdk-disabled-project"
 	secretID := "disabled-access-secret"

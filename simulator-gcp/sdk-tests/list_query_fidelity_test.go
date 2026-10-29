@@ -22,6 +22,7 @@ func requireInvalidArgument(t *testing.T, err error) {
 // INVALID_ARGUMENT rather than listing everything.
 func TestSecretManagerListRejectsMalformedFilter(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-filter-project")
 	svc := secretManagerService(t)
 	_, err := svc.Projects.Secrets.List("projects/sdk-filter-project").Filter(`labels.env="dev`).Do()
 	requireInvalidArgument(t, err)
@@ -29,6 +30,7 @@ func TestSecretManagerListRejectsMalformedFilter(t *testing.T) {
 
 func TestLoggingEntriesListRejectsMalformedQueryAndToken(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "sdk-filter-project")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	_, err = svc.Entries.List(&logging.ListLogEntriesRequest{

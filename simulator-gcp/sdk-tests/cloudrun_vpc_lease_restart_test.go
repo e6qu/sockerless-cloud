@@ -27,6 +27,7 @@ func TestSDK_CloudRun_AdoptedVPCEgressKeepsItsAddressAcrossARestart(t *testing.T
 	t.Cleanup(func() { _ = shutdownPersistentSimulator(cmd) })
 
 	const project, region = "vpc-lease-restart", "us-central1"
+	ensureProjectAt(t, endpoint, project)
 	tokens := simTokenSourceFor(endpoint)
 	computeSvc, err := compute.NewService(ctx, option.WithEndpoint(endpoint+"/compute/v1/"), option.WithTokenSource(tokens))
 	require.NoError(t, err)

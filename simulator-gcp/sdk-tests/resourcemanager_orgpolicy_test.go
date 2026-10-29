@@ -620,9 +620,10 @@ func TestResourceManagerV2_Folders(t *testing.T) {
 		perms.Permissions,
 		"the response carries the requested set")
 
+	// A folder that does not exist reads as one the caller may not read.
 	_, err = svc.Folders.Get("folders/999999999999").Do()
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 404, apiErr.Code)
+	assert.Equal(t, 403, apiErr.Code)
 }
 
 func TestResourceManagerV1_OrganizationsAndAncestry(t *testing.T) {
@@ -677,17 +678,22 @@ func TestResourceManagerV1_OrganizationsAndAncestry(t *testing.T) {
 	require.Len(t, v3Found.Organizations, 1)
 	assert.Equal(t, "organizations/123456789012", v3Found.Organizations[0].Name)
 
-	_, err = v3.Organizations.SetIamPolicy("organizations/123456789012", &crm.SetIamPolicyRequest{
-		Policy: &crm.Policy{Bindings: []*crm.Binding{{
-			Role:    "roles/resourcemanager.organizationAdmin",
-			Members: []string{"user:org-admin@example.com"},
-		}}},
-	}).Do()
+	current, err := v3.Organizations.GetIamPolicy("organizations/123456789012", &crm.GetIamPolicyRequest{}).Do()
+	require.NoError(t, err)
+	current.Bindings = append(current.Bindings, &crm.Binding{
+		Role:    "roles/resourcemanager.organizationAdmin",
+		Members: []string{"user:org-admin@example.com"},
+	})
+	_, err = v3.Organizations.SetIamPolicy("organizations/123456789012", &crm.SetIamPolicyRequest{Policy: current}).Do()
 	require.NoError(t, err)
 	orgPolicy, err := v3.Organizations.GetIamPolicy("organizations/123456789012", &crm.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
-	require.Len(t, orgPolicy.Bindings, 1)
-	assert.Equal(t, "roles/resourcemanager.organizationAdmin", orgPolicy.Bindings[0].Role)
+	var roles []string
+	for _, b := range orgPolicy.Bindings {
+		roles = append(roles, b.Role)
+	}
+	assert.Contains(t, roles, "roles/resourcemanager.organizationAdmin")
+	assert.Contains(t, roles, "roles/owner", "the bootstrap account's Owner binding stays")
 
 	orgPerms, err := v3.Organizations.TestIamPermissions("organizations/123456789012", &crm.TestIamPermissionsRequest{
 		Permissions: []string{"resourcemanager.organizations.get", "resourcemanager.organizations.getIamPolicy"},
@@ -766,7 +772,7 @@ func TestResourceManagerLiens_BothAPIVersionsShareOneCollection(t *testing.T) {
 	// collection is for: DeleteProject refuses while it is in place, over
 	// either API version, and succeeds once it is removed.
 	const lienedProject = "sdk-liened-project"
-	createOp, err := v1.Projects.Create(&crmv1.Project{ProjectId: lienedProject}).Do()
+	createOp, err := v1.Projects.Create(&crmv1.Project{ProjectId: lienedProject, Parent: &crmv1.ResourceId{Type: "organization", Id: "123456789012"}}).Do()
 	require.NoError(t, err)
 	require.True(t, createOp.Done)
 

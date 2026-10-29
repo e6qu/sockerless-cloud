@@ -16,7 +16,9 @@ func TestArtifactRegistry_ListRepositoriesPagination(t *testing.T) {
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
-	parent := "projects/" + uniquename.New("ar-page-project") + "/locations/us-central1"
+	project := uniquename.New("ar-page-project")
+	ensureProject(t, project)
+	parent := "projects/" + project + "/locations/us-central1"
 	for _, id := range []string{"repo-a", "repo-b", "repo-c"} {
 		_, err = svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{
 			Format: "DOCKER",

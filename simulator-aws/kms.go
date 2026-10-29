@@ -159,6 +159,9 @@ func kmsKeyMetadata(key KMSKey) map[string]any {
 	if algs := kmsKeyAgreementAlgorithmsFor(key.Spec, key.KeyUsage); len(algs) > 0 {
 		md["KeyAgreementAlgorithms"] = algs
 	}
+	if algs := kmsEncapsulationAlgorithmsFor(key.Spec, key.KeyUsage); len(algs) > 0 {
+		md["EncapsulationAlgorithms"] = algs
+	}
 	if algs := kmsMacAlgorithmsFor(key.Spec); len(algs) > 0 {
 		md["MacAlgorithms"] = algs
 	}
@@ -459,6 +462,11 @@ func handleKMSCreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.KeySpec == "" {
 		req.KeySpec = "SYMMETRIC_DEFAULT"
+	}
+	if kmsIsMLKEMSpec(req.KeySpec) != (req.KeyUsage == "ENCAPSULATE_DECAPSULATE") {
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest,
+			"KeyUsage %s is not compatible with KeySpec %s", req.KeyUsage, req.KeySpec)
+		return
 	}
 	// An EXTERNAL key has no material at creation, so it stays PendingImport until ImportKeyMaterial.
 	keyState := "Enabled"

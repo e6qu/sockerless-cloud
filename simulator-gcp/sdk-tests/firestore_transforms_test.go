@@ -17,6 +17,7 @@ import (
 // wire shapes.
 func newFSClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
+	ensureProject(t, project)
 	c, err := firestore.NewRESTClient(ctx, project,
 		option.WithEndpoint(baseURL),
 		option.WithTokenSource(simTokenSource()),

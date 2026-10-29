@@ -96,7 +96,7 @@ func TestWorkforceExternalAccountGcloudLogin(t *testing.T) {
 	poolName := "locations/global/workforcePools/" + poolID
 	httpDoJSON(t, http.MethodPost,
 		baseURL+"/v1/locations/global/workforcePools?workforcePoolId="+poolID,
-		`{"displayName":"Workforce Login Pool","parent":"organizations/sockerless"}`)
+		`{"displayName":"Workforce Login Pool","parent":"organizations/`+cliOrganizationID+`"}`)
 	httpDoJSON(t, http.MethodPost,
 		baseURL+"/v1/"+poolName+"/providers?workforcePoolProviderId=idp",
 		fmt.Sprintf(`{"displayName":"Login IdP","oidc":{"issuerUri":%q,"clientId":%q},"attributeMapping":{"google.subject":"assertion.sub"}}`,

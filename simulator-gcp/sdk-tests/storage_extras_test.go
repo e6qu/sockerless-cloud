@@ -396,18 +396,19 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketIamPermsBucket)
 
-	setPolicy := &storageapi.Policy{
-		Bindings: []*storageapi.PolicyBindings{{
-			Role:    "roles/storage.admin",
-			Members: []string{"user:liz@example.com"},
-		}},
-	}
-	_, err := svc.Buckets.SetIamPolicy(bucketIamPermsBucket, setPolicy).Do()
+	setPolicy, err := svc.Buckets.GetIamPolicy(bucketIamPermsBucket).Do()
+	require.NoError(t, err)
+	before := len(setPolicy.Bindings)
+	setPolicy.Bindings = append(setPolicy.Bindings, &storageapi.PolicyBindings{
+		Role:    "roles/storage.admin",
+		Members: []string{"user:liz@example.com"},
+	})
+	_, err = svc.Buckets.SetIamPolicy(bucketIamPermsBucket, setPolicy).Do()
 	require.NoError(t, err)
 
 	read, err := svc.Buckets.GetIamPolicy(bucketIamPermsBucket).Do()
 	require.NoError(t, err)
-	require.Len(t, read.Bindings, 1)
+	require.Len(t, read.Bindings, before+1)
 
 	perms, err := svc.Buckets.TestIamPermissions(bucketIamPermsBucket,
 		[]string{"storage.buckets.get", "storage.buckets.delete"}).Do()

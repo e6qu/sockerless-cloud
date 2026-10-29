@@ -103,6 +103,8 @@ func gcsIAMResource(bucket, name, kind string) gcpIAMResource {
 	return gcpIAMResource{Name: name, Type: kind, Service: "storage.googleapis.com", project: owner.Project}
 }
 
+var gcsBucketACLsByBucket sim.GenerationIndex[GCSBucketACL]
+
 // gcsBucketPolicies are the policies that govern a bucket and what it holds:
 // its project's, its own, and, while uniform bucket-level access is off, its
 // ACL read as the legacy role Cloud Storage maps each ACL role to.
@@ -112,12 +114,13 @@ func gcsBucketPolicies(name string) []IAMPolicy {
 	if !ok {
 		own = gcsDefaultBucketPolicy(bucket.Project)
 	}
-	policies := []IAMPolicy{gcpProjectPolicy(bucket.Project), own}
+	policies := append(gcpHierarchyPolicies(bucket.Project), own)
 	if gcsUniformBucketLevelAccess(bucket) {
 		return policies
 	}
 	var acl IAMPolicy
-	for _, entry := range gcsBucketACLs.Filter(func(a GCSBucketACL) bool { return a.Bucket == name }) {
+	for _, entry := range gcsBucketACLsByBucket.LookupAll(gcsBucketACLs, name,
+		func(a GCSBucketACL) []string { return []string{a.Bucket} }) {
 		acl.Bindings = append(acl.Bindings, IAMBinding{
 			Role: gcsBucketACLRoles[entry.Role], Members: gcsACLMembers(bucket, entry.Entity)})
 	}

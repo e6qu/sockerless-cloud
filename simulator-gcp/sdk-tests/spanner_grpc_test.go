@@ -364,6 +364,7 @@ func spannerReadAll[T any](t *testing.T, it *spanner.RowIterator) []T {
 
 func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID string, ddl []string) {
 	t.Helper()
+	ensureProject(t, project)
 	svc, err := spanneradmin.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 

@@ -18,6 +18,7 @@ const avroDef = `{"type":"record","name":"Avro","fields":[{"name":"id","type":"s
 // rollback → deleteRevision → delete.
 func TestPubSub_SchemaLifecycle(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "schema-project")
 	svc := pubsubService(t)
 	const project = "schema-project"
 	parent := "projects/" + project
@@ -112,6 +113,7 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 // everything would pass the acceptance half alone.
 func TestPubSub_SchemaValidate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "schema-validate-project")
 	svc := pubsubService(t)
 	const project = "schema-validate-project"
 	parent := "projects/" + project
@@ -188,6 +190,7 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 // and verifies testIamPermissions echoes the requested set.
 func TestPubSub_SchemaIAM(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "schema-iam-project")
 	svc := pubsubService(t)
 	const project = "schema-iam-project"
 	parent := "projects/" + project

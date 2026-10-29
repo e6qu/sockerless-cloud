@@ -62,6 +62,7 @@ func startQuotaIsolatedSim(t *testing.T, budget float64) string {
 func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 2)
+	ensureProjectAt(t, url, "quota-test")
 
 	client, err := run.NewServicesRESTClient(ctx,
 		option.WithEndpoint(url),
@@ -106,6 +107,7 @@ func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
+	ensureProjectAt(t, url, "quota-qt")
 
 	client, err := run.NewServicesRESTClient(ctx,
 		option.WithEndpoint(url),
@@ -129,18 +131,18 @@ func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 		}
 	}
 
-	op, err := client.CreateService(ctx, mkSvc("projects/qt/locations/us-central1", "svc-a"))
+	op, err := client.CreateService(ctx, mkSvc("projects/quota-qt/locations/us-central1", "svc-a"))
 	require.NoError(t, err)
 	_, err = op.Wait(ctx)
 	require.NoError(t, err)
 
-	_, err = client.CreateService(ctx, mkSvc("projects/qt/locations/us-central1", "svc-b"))
+	_, err = client.CreateService(ctx, mkSvc("projects/quota-qt/locations/us-central1", "svc-b"))
 	require.Error(t, err, "us-central1 second deploy should be rejected")
 	assert.Contains(t, err.Error(), "Quota exceeded for total allowable CPU per project per region",
 		"the rejection must be the quota rejection, not some other failure")
 
 	// europe-west1 has its own bucket; deploy there must succeed.
-	op, err = client.CreateService(ctx, mkSvc("projects/qt/locations/europe-west1", "svc-c"))
+	op, err = client.CreateService(ctx, mkSvc("projects/quota-qt/locations/europe-west1", "svc-c"))
 	require.NoError(t, err, "europe-west1 deploy should not be blocked by us-central1's exhaustion")
 	_, err = op.Wait(ctx)
 	require.NoError(t, err)
@@ -152,6 +154,7 @@ func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
 	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
+	ensureProjectAt(t, url, "quota-qt")
 
 	fnClient, err := functions.NewFunctionRESTClient(ctx,
 		option.WithEndpoint(url),
@@ -162,7 +165,7 @@ func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
 
 	mkFn := func(id string) *functionspb.CreateFunctionRequest {
 		return &functionspb.CreateFunctionRequest{
-			Parent:     "projects/qt/locations/us-central1",
+			Parent:     "projects/quota-qt/locations/us-central1",
 			FunctionId: id,
 			Function: &functionspb.Function{
 				Environment: functionspb.Environment_GEN_2,

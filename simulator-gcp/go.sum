@@ -82,8 +82,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261027110114-c2e83274225f h1:PW+E440OniwhKTwL/Vg+NxY44Ko4iFUd1nAoCdwNpqA=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261027110114-c2e83274225f/go.mod h1:DGPRlwNBl5MKpHo7kNE3GCvSxYULiT6mim52YG1WtdE=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261028184445-53e90e605899 h1:koFgLyh4Lku2N2ccxQR4L5ni8WfXNN9sNtahSweyi/o=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261028184445-53e90e605899/go.mod h1:DGPRlwNBl5MKpHo7kNE3GCvSxYULiT6mim52YG1WtdE=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a h1:SsaRk2k+V+9fWv1d7bEY63DvqQYFOFBJgsw/vxrTvt8=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a/go.mod h1:40g2Tr7iYURL01fHLQEFddpfNpIamO7UUdAuKqaJ2v8=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=

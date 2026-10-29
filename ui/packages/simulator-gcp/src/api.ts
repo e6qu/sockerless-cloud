@@ -1594,8 +1594,18 @@ export const setProjectIamPolicy = (project: string, policy: IamPolicy): Promise
   authorizedJSONPost<IamPolicy>(`/v3/projects/${project}:setIamPolicy`, { policy });
 
 // roles.list — the predefined roles a grant can name.
-export const fetchIamRoles = async (): Promise<IamRole[]> =>
-  (await authorizedJSON<{ roles?: IamRole[] }>("/v1/roles")).roles ?? [];
+export const fetchIamRoles = async (): Promise<IamRole[]> => {
+  const roles: IamRole[] = [];
+  let pageToken = "";
+  do {
+    const page = await authorizedJSON<{ roles?: IamRole[]; nextPageToken?: string }>(
+      `/v1/roles${pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : ""}`,
+    );
+    roles.push(...(page.roles ?? []));
+    pageToken = page.nextPageToken ?? "";
+  } while (pageToken);
+  return roles;
+};
 
 // A write a create page sends and shows under Equivalent code.
 export interface ApiRequest {

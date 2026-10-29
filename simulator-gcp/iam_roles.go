@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -375,60 +373,10 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 	})
 }
 
-// gcpTestablePermissions returns the representative catalog of permissions the
-// sim advertises as testable (includable in a custom role). It's the union of
-// every permission referenced by the predefined roles plus the common
-// service-prefixed permissions the repo's tests exercise. This bounds the
-// catalog to what the sim can faithfully model rather than GCP's full ~7000.
+// gcpTestablePermissions is the catalog queryTestablePermissions serves:
+// every permission the served services define.
 func gcpTestablePermissions() []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(p string) {
-		if !seen[p] {
-			seen[p] = true
-			out = append(out, p)
-		}
-	}
-	for _, role := range gcpPredefinedRoles() {
-		for _, p := range role.IncludedPermissions {
-			add(p)
-		}
-	}
-	for _, p := range []string{
-		"resourcemanager.projects.get",
-		"resourcemanager.projects.update",
-		"resourcemanager.projects.list",
-		"resourcemanager.projects.setIamPolicy",
-		"resourcemanager.projects.getIamPolicy",
-		"storage.buckets.get",
-		"storage.buckets.list",
-		"storage.buckets.create",
-		"storage.buckets.update",
-		"storage.buckets.delete",
-		"storage.buckets.getIamPolicy",
-		"storage.buckets.setIamPolicy",
-		"storage.objects.get",
-		"storage.objects.list",
-		"storage.objects.create",
-		"storage.objects.delete",
-		"storage.objects.update",
-		"iam.serviceAccounts.actAs",
-		"iam.serviceAccounts.get",
-		"iam.serviceAccounts.list",
-		"iam.serviceAccounts.create",
-		"iam.serviceAccounts.delete",
-		"iam.serviceAccounts.getIamPolicy",
-		"iam.serviceAccounts.setIamPolicy",
-		"iam.roles.get",
-		"iam.roles.list",
-		"iam.roles.create",
-		"iam.roles.update",
-		"iam.roles.delete",
-	} {
-		add(p)
-	}
-	sort.Strings(out)
-	return out
+	return gcpCatalog().permissions
 }
 
 // gcpAuditableServices is the catalog iamPolicies.queryAuditableServices
@@ -616,199 +564,49 @@ func gcpCustomRoleJSON(role GCPCustomRole, full bool) map[string]any {
 	return out
 }
 
-// gcpPredefinedRole is a curated (Google-managed) IAM role as returned by
-// roles.get / roles.list.
+// gcpPredefinedRole is a Google-managed IAM role as roles.get and roles.list
+// return it.
 type gcpPredefinedRole struct {
 	Name                string
 	Title               string
 	Description         string
+	Stage               string
 	IncludedPermissions []string
 }
 
-// gcpPredefinedRoles returns the bounded representative set of predefined roles
-// the sim serves. Etag is deterministic per-role (these roles are immutable),
-// so a roles.get round-trips a stable etag. This is intentionally a handful of
-// roles, not the full GCP catalog.
+// gcpBasicRoles are the legacy basic roles, described as roles.get
+// describes them.
+var gcpBasicRoles = []gcpPredefinedRole{
+	{Name: gcpRoleViewer, Title: "Viewer", Description: "View most Google Cloud resources. See the list of included permissions.", Stage: "GA"},
+	{Name: gcpRoleEditor, Title: "Editor", Description: "View, create, update, and delete most Google Cloud resources. See the list of included permissions.", Stage: "GA"},
+	{Name: gcpRoleOwner, Title: "Owner", Description: "Full access to most Google Cloud resources. See the list of included permissions.", Stage: "GA"},
+}
+
+// gcpPredefinedRoles are the roles roles.list serves: the basic roles and
+// every predefined role of the served services.
 func gcpPredefinedRoles() []gcpPredefinedRole {
-	return []gcpPredefinedRole{
-		{
-			Name:        "roles/viewer",
-			Title:       "Viewer",
-			Description: "Read access to all resources.",
-			IncludedPermissions: []string{
-				"resourcemanager.projects.get",
-				"storage.buckets.get",
-				"storage.objects.get",
-				"storage.objects.list",
-			},
-		},
-		{
-			Name:        "roles/editor",
-			Title:       "Editor",
-			Description: "Edit access to all resources.",
-			IncludedPermissions: []string{
-				"resourcemanager.projects.get",
-				"run.jobs.run",
-				"run.routes.invoke",
-				"storage.buckets.get",
-				"storage.buckets.update",
-				"storage.objects.create",
-				"storage.objects.delete",
-				"storage.objects.get",
-				"storage.objects.list",
-			},
-		},
-		{
-			Name:        "roles/owner",
-			Title:       "Owner",
-			Description: "Full access to all resources.",
-			IncludedPermissions: []string{
-				"resourcemanager.projects.get",
-				"resourcemanager.projects.setIamPolicy",
-				"iam.serviceAccounts.create",
-				"iam.serviceAccounts.delete",
-				"run.jobs.run",
-				"run.routes.invoke",
-				"storage.buckets.setIamPolicy",
-			},
-		},
-		{
-			Name:        "roles/redis.dbConnectionUser",
-			Title:       "Cloud Memorystore Redis Db Connection User",
-			Description: "Connect to a Memorystore for Redis Cluster cluster that authenticates with IAM.",
-			IncludedPermissions: []string{
-				"redis.clusters.connect",
-			},
-		},
-		{
-			Name:        "roles/run.invoker",
-			Title:       "Cloud Run Invoker",
-			Description: "Invoke Cloud Run services and execute Cloud Run jobs.",
-			IncludedPermissions: []string{
-				"run.jobs.run",
-				"run.routes.invoke",
-			},
-		},
-		{
-			Name:        "roles/iam.serviceAccountUser",
-			Title:       "Service Account User",
-			Description: "Run operations as the service account.",
-			IncludedPermissions: []string{
-				"iam.serviceAccounts.actAs",
-				"iam.serviceAccounts.get",
-				"iam.serviceAccounts.list",
-			},
-		},
-		{
-			Name:        "roles/storage.objectViewer",
-			Title:       "Storage Object Viewer",
-			Description: "Read access to GCS objects.",
-			IncludedPermissions: []string{
-				"storage.objects.get",
-				"storage.objects.list",
-			},
-		},
-		{
-			Name:        "roles/storage.objectCreator",
-			Title:       "Storage Object Creator",
-			Description: "Access to create objects in GCS.",
-			IncludedPermissions: []string{
-				"storage.objects.create",
-			},
-		},
-		{
-			Name:        "roles/storage.objectAdmin",
-			Title:       "Storage Object Admin",
-			Description: "Full control of GCS objects.",
-			IncludedPermissions: []string{
-				"storage.objects.create",
-				"storage.objects.delete",
-				"storage.objects.get",
-				"storage.objects.getIamPolicy",
-				"storage.objects.list",
-				"storage.objects.restore",
-				"storage.objects.setIamPolicy",
-				"storage.objects.update",
-			},
-		},
-		{
-			Name:        "roles/storage.legacyBucketReader",
-			Title:       "Storage Legacy Bucket Reader",
-			Description: "Read access to buckets with object listing.",
-			IncludedPermissions: []string{
-				"storage.buckets.get",
-				"storage.objects.list",
-			},
-		},
-		{
-			Name:        "roles/storage.legacyBucketWriter",
-			Title:       "Storage Legacy Bucket Writer",
-			Description: "Read access to buckets with object listing/creation/deletion.",
-			IncludedPermissions: []string{
-				"storage.buckets.get",
-				"storage.objects.create",
-				"storage.objects.delete",
-				"storage.objects.list",
-				"storage.objects.restore",
-			},
-		},
-		{
-			Name:        "roles/storage.legacyBucketOwner",
-			Title:       "Storage Legacy Bucket Owner",
-			Description: "Read and write access to existing buckets with object listing/creation/deletion.",
-			IncludedPermissions: []string{
-				"storage.buckets.get",
-				"storage.buckets.getIamPolicy",
-				"storage.buckets.setIamPolicy",
-				"storage.buckets.update",
-				"storage.objects.create",
-				"storage.objects.delete",
-				"storage.objects.list",
-				"storage.objects.restore",
-			},
-		},
-		{
-			Name:        "roles/storage.legacyObjectReader",
-			Title:       "Storage Legacy Object Reader",
-			Description: "Read access to objects without listing.",
-			IncludedPermissions: []string{
-				"storage.objects.get",
-			},
-		},
-		{
-			Name:        "roles/storage.legacyObjectOwner",
-			Title:       "Storage Legacy Object Owner",
-			Description: "Read/write access to existing objects without listing.",
-			IncludedPermissions: []string{
-				"storage.objects.get",
-				"storage.objects.getIamPolicy",
-				"storage.objects.setIamPolicy",
-				"storage.objects.update",
-			},
-		},
-		{
-			Name:        "roles/pubsub.publisher",
-			Title:       "Pub/Sub Publisher",
-			Description: "Publish messages to a topic.",
-			IncludedPermissions: []string{
-				"pubsub.topics.publish",
-			},
-		},
+	roles := make([]gcpPredefinedRole, 0, len(gcpBasicRoles)+len(gcpCatalog().roles))
+	for _, basic := range gcpBasicRoles {
+		basic.IncludedPermissions = gcpBasicRoleIncludedPermissions(basic.Name)
+		roles = append(roles, basic)
 	}
+	for _, r := range gcpCatalog().roles {
+		roles = append(roles, gcpPredefinedRole(r))
+	}
+	return roles
 }
 
 // gcpRoleJSON renders a predefined role into the roles.get / roles.list wire
 // shape. includedPermissions is omitted unless full (roles.list defaults to
-// BASIC view, which carries no permissions; roles.get returns FULL).
+// BASIC view, which carries no permissions; roles.get returns FULL). Basic
+// and predefined roles always carry the etag AA==.
 func gcpRoleJSON(role gcpPredefinedRole, full bool) map[string]any {
 	out := map[string]any{
 		"name":        role.Name,
 		"title":       role.Title,
 		"description": role.Description,
-		"stage":       "GA",
-		// Predefined roles are immutable; a deterministic etag keeps
-		// roles.get idempotent across reads.
-		"etag": base64.StdEncoding.EncodeToString([]byte(role.Name)),
+		"stage":       role.Stage,
+		"etag":        "AA==",
 	}
 	if full {
 		out["includedPermissions"] = role.IncludedPermissions

@@ -20,6 +20,7 @@ func cloudKMSService(t *testing.T) *cloudkms.Service {
 // the enrolment behind it. Neither reports a policy nobody set.
 func TestCloudKMS_EffectiveKeyAccessJustificationsConfig(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "kaj-project")
 	svc := cloudKMSService(t)
 	const project = "kaj-project"
 

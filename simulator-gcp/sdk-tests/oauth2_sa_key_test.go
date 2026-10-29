@@ -72,6 +72,7 @@ func tokenSourceFromKeyFile(t *testing.T, keyFile map[string]any) *google.Creden
 func TestOAuth2_MintedServiceAccountKey_EndToEnd(t *testing.T) {
 	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "minted-key-sa")
+	grantOnProject(t, "test-project", "roles/iam.serviceAccountViewer", "serviceAccount:minted-key-sa@test-project.iam.gserviceaccount.com")
 	creds := tokenSourceFromKeyFile(t, keyFile)
 
 	// The JWT-bearer exchange succeeds only because the assertion verifies

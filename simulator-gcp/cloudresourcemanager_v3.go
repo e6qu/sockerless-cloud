@@ -355,6 +355,7 @@ func registerCRMProjects(srv *sim.Server, projectPolicies sim.Store[IAMPolicy], 
 		}
 		projects.Put(p.ProjectId, p)
 		iamEnsureComputeDefaultServiceAccount(p)
+		crmGrantCreatorOwner(p, gcpRequestPrincipal(r))
 		// The project is gettable and ready when the create returns, since the
 		// operation completes inside the request.
 		sim.WriteJSON(w, http.StatusOK, crmLROWithMetadata(p, typeProject, map[string]any{

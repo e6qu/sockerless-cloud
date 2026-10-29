@@ -425,6 +425,7 @@ func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string
 
 func createAndRunJobInProject(t *testing.T, project, jobID string, image string, cmd []string, timeout string) jobRun {
 	t.Helper()
+	ensureProject(t, project)
 	containers := []map[string]any{
 		{
 			"image": image,

@@ -28,6 +28,7 @@ func computeService(t *testing.T) *compute.Service {
 // default network has the same ranges in every project.
 func createInstanceSubnetwork(t *testing.T, svc *compute.Service, project, region, name, cidr string) string {
 	t.Helper()
+	ensureProject(t, project)
 	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
 	require.NoError(t, err)
 	_, err = svc.Subnetworks.Insert(project, region, &compute.Subnetwork{
@@ -99,6 +100,7 @@ func TestCompute_ListNetworks(t *testing.T) {
 
 func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string) string {
 	t.Helper()
+	ensureProject(t, project)
 	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Networks.Delete(project, name).Context(ctx).Do() })
@@ -589,6 +591,7 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 
 func TestCompute_InstanceTemplateCRUD(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "tmpl-test-project")
 	svc := computeService(t)
 	project := "tmpl-test-project"
 

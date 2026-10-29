@@ -29,6 +29,7 @@ func arChunkedMedia() []byte {
 
 func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-resumable")
 	svc := arAdminService(t)
 	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniquename.New("files-repo"), "GENERIC")
 	content := arChunkedMedia()
@@ -57,6 +58,7 @@ func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
 
 func TestArtifactRegistry_ResumableGenericUpload(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "ar-resumable")
 	svc := arAdminService(t)
 	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniquename.New("generic-repo-19a5"), "GENERIC")
 	content := arChunkedMedia()

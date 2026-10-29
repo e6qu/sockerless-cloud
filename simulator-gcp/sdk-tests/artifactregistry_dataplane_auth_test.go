@@ -134,6 +134,7 @@ func arFollowChallenge(t *testing.T, challenge map[string]string, authorization 
 // which is the only way one comes into existence.
 func arCreateRepository(t *testing.T, project, location, repoID string) {
 	t.Helper()
+	ensureProject(t, project)
 	arCreateRepositoryFrom(t, project, location, repoID, &artifactregistry.Repository{Format: "DOCKER"})
 }
 
@@ -142,6 +143,7 @@ func arCreateRepository(t *testing.T, project, location, repoID string) {
 // docker.io.
 func arCreateDockerHubRemoteRepository(t *testing.T, project, location, repoID string) {
 	t.Helper()
+	ensureProject(t, project)
 	arCreateRepositoryFrom(t, project, location, repoID, &artifactregistry.Repository{
 		Format: "DOCKER",
 		Mode:   "REMOTE_REPOSITORY",
@@ -153,6 +155,7 @@ func arCreateDockerHubRemoteRepository(t *testing.T, project, location, repoID s
 
 func arCreateRepositoryFrom(t *testing.T, project, location, repoID string, repository *artifactregistry.Repository) {
 	t.Helper()
+	ensureProject(t, project)
 	service, err := artifactregistry.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),

@@ -2,9 +2,9 @@
 
 ## Next
 
-- **Google Cloud IAM enforcement** (BUG-3735, P1): one gate on every REST and
-  gRPC method, from sourced permissions and ancestor policies, with the
-  bootstrap account an owner by binding.
+- **Google Cloud methods without a sourced permission** (BUG-3769): vendor the
+  remaining services' permission tables so the 671 Owner-only methods take
+  their real permission.
 - **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 

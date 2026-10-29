@@ -43,6 +43,7 @@ func TestCompute_NetworkInsertRequiresAName(t *testing.T) {
 // literal as a regular expression against the whole field.
 func TestCompute_ListFilterRegexForm(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "regex-filter-project")
 	svc := computeService(t)
 	const project = "regex-filter-project"
 	for _, name := range []string{"web-check", "web-check-2", "db-check"} {

@@ -51,7 +51,7 @@ func TestCloudBillingCLI_AccountsAndProjectLink(t *testing.T) {
 	assert.Equal(t, "cli-spend", described.DisplayName)
 
 	const projectID = "cli-billing-proj"
-	runCLI(t, gcloudCLI("projects", "create", projectID, "--format=json"))
+	runCLI(t, gcloudCLI("projects", "create", projectID, "--organization="+cliOrganizationID, "--format=json"))
 	t.Cleanup(func() {
 		_ = gcloudCLI("projects", "delete", projectID, "--quiet").Run()
 	})

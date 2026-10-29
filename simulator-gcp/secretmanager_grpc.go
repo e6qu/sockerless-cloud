@@ -700,7 +700,7 @@ func (s *secretManagerGRPC) TestIamPermissions(ctx context.Context, req *iampb.T
 	}
 	policy, _ := gcpResourceIAMStore().Get(resource)
 	return &iampb.TestIamPermissionsResponse{
-		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, policy, req.GetPermissions(), gcpIAMResourceNamed(resource))}, nil
+		Permissions: gcpAnswerTestIamPermissionsForContext(ctx, resource, policy, req.GetPermissions(), gcpIAMResourceNamed(resource))}, nil
 }
 
 // smPolicyToProto converts the REST-store IAMPolicy into the proto Policy,

@@ -2,7 +2,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "8.8.1"
+      version = "8.9.0"
     }
   }
 }
@@ -17,8 +17,9 @@ provider "google" {
   # google_service_account is routed through iambeta.NewClient; the
   # google_service_account_key resource is routed through the handwritten IAM
   # client, which honours iam_custom_endpoint.
-  iam_beta_custom_endpoint = "${var.endpoint}/v1/"
-  iam_custom_endpoint      = "${var.endpoint}/v1/"
+  iam_beta_custom_endpoint         = "${var.endpoint}/v1/"
+  iam_custom_endpoint              = "${var.endpoint}/v1/"
+  resource_manager_custom_endpoint = "${var.endpoint}/v1/"
 }
 
 variable "endpoint" {
@@ -35,6 +36,13 @@ resource "google_service_account" "key_owner" {
   display_name = "tf service-account key owner"
 }
 
+# The data-plane read the key's token makes lists the project's accounts.
+resource "google_project_iam_member" "key_owner_viewer" {
+  project = "test-project"
+  role    = "roles/iam.serviceAccountViewer"
+  member  = google_service_account.key_owner.member
+}
+
 # The credential an operator provisions for a non-interactive client. The
 # provider creates it through projects.serviceAccounts.keys.create and reads it
 # back through keys.get; private_key carries the base64 PKCS#8 credential file
@@ -45,7 +53,8 @@ resource "google_service_account_key" "key" {
 }
 
 output "service_account_email" {
-  value = google_service_account.key_owner.email
+  value      = google_service_account.key_owner.email
+  depends_on = [google_project_iam_member.key_owner_viewer]
 }
 
 output "key_name" {

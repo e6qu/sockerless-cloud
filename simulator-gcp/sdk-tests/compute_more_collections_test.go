@@ -16,6 +16,7 @@ import (
 
 func TestCompute_CrossSiteNetworkLifecycle(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "xsn-project")
 	svc := computeService(t)
 	const project = "xsn-project"
 
@@ -83,6 +84,7 @@ func TestCompute_RegionalBackendBucketCarriesItsUsableSubset(t *testing.T) {
 
 func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "interconnect-project")
 	svc := computeService(t)
 	const project = "interconnect-project"
 
@@ -214,6 +216,7 @@ func TestCompute_VmExtensionPolicyZonalAndGlobal(t *testing.T) {
 // project's enrolment in one is the caller's own.
 func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "preview-project")
 	svc := computeService(t)
 	const project = "preview-project"
 
@@ -304,6 +307,7 @@ func TestCompute_LicenceCodePolicy(t *testing.T) {
 // reports none, which is an answer rather than a refusal.
 func TestCompute_ReliabilityRisksAreObservedNotPublished(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "risk-project")
 	svc := computeService(t)
 	const project = "risk-project"
 

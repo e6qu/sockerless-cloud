@@ -824,6 +824,34 @@ App Service's reference resolution reusing the same decision. Managed
 identities get their own `IDENTITY_HEADER` per app, slot, container app or
 job.
 
+Google Cloud IAM once decided a call in four places only, so a service
+account holding `roles/storage.objectViewer` deleted objects. One gate
+(`iam_gate.go`) now fronts every authenticated REST and gRPC method: it
+resolves the call to its Discovery method, takes the method's permission from
+the first source that names one (the method tables Cloud Storage and Pub/Sub
+publish, a cited per-method table, the service's audit-logging page, then
+Google's `service.resource.verb` convention), and evaluates the policies on the
+resource and every ancestor up to the organization. A gRPC call is decided as
+the REST call its `google.api.http` binding spells. The bootstrap account is
+an Owner through a seeded organization `roles/owner` binding rather than an
+email check, and basic roles grant no impersonation, as on Google Cloud. A
+method no source covers admits only an Owner, and `BUGS.md` counts them. A
+bucket's `projectOwner:` convenience member matches project bindings the way
+every other binding does, so a workforce pool's principal set granted Owner
+covers the pool's subjects on the project's buckets too. A project's creator
+becomes its Owner, as the Project Creator role documents, and a Resource
+Manager operation poll reads the project it produced, since Google publishes
+no permission for it and a Project Creator polls its own create.
+
+AWS KMS serves ML-KEM (FIPS 203) key pairs: `ML_KEM_512`, `ML_KEM_768` and
+`ML_KEM_1024` keys with `ENCAPSULATE_DECAPSULATE` usage, kept as their 64-byte
+seed, answer `Encapsulate`, `Decapsulate` and `GetPublicKey`, whose
+SubjectPublicKeyInfo carries the NIST `id-alg-ml-kem-*` OID. The SDK test
+encapsulates with Go's `crypto/mlkem` against the simulator's `circl`, so two
+implementations agree on every secret. The CLI suites and the AWS documents
+install the current AWS CLI v2 through `scripts/install-aws-cli.sh`, since the
+runner image's CLI predates `aws kms encapsulate`.
+
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions
 reference lists per resource type — a resource outside the reference supplies
@@ -962,7 +990,9 @@ nothing is a fake. A console gap whose API the simulator does not serve is a
   (`isolated-chromium.sh`): it sees only its loopback and a tap nothing
   changes, and reaches the console and its identity provider on the host's
   loopback at unchanged URLs. The leading user namespace lets pasta map UID 0
-  as root or not. Retrying or serialising the tests would have left the cause
+  as root or not. The job runs on `ubuntu-24.04`, the release the pinned
+  passt package and its AppArmor profile come from: on Ubuntu 26.04 the
+  profile refuses pasta its user namespace. Retrying or serialising the tests would have left the cause
   in place.
 - **Stop the webServer with SIGTERM.** Playwright kills its webServer's
   process group with SIGKILL by default, so the backend script's exit trap
@@ -1201,7 +1231,17 @@ downloads Go from the module proxy with retries.
 A CI cache needs a fallback key. The lint shards restored only an exact
 match, so every pin or dependency move linted `simulator-aws` cold, and a
 runner lost mid-lint saved nothing; each shard now keeps its own Go and
-golangci-lint cache and restores the newest older entry. The browser jobs
+golangci-lint cache and restores the newest older entry. On a cold cache,
+`go vet` and golangci-lint's package loading compile `simulator-aws`'s one
+package and its test variant, each near 7 GB, and the Go command runs them
+side by side: 14 GB, and the 16 GB runner went down mid-lint, which GitHub
+reports as a runner shutdown. `simulator-aws/Makefile` lints with
+`GOFLAGS=-p=1`, one compile at a time, which peaks under 10 GB, and the
+pre-commit lint hook reads the same `LINT_ENV`; a soft `GOMEMLIMIT` held
+12 GB and ran slower. A document part that needs a few containers names them with
+`base_images_match` in both the docs and warm-base-images matrices: the
+contributing tutorial loads 2 of `simulator-aws`'s 37 images, since loading
+all of them left its tests no room in the job's 15 minutes. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.

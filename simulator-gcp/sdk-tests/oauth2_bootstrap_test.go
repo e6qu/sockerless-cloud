@@ -44,7 +44,7 @@ func TestOAuth2_BootstrapServiceAccount(t *testing.T) {
 	require.NoError(t, err)
 	crm, err := cloudresourcemanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithCredentials(creds))
 	require.NoError(t, err)
-	ensureV1Project(t, crm, "bootstrap-owner")
+	ensureProject(t, "bootstrap-owner")
 	requested := []string{"resourcemanager.projects.get", "resourcemanager.projects.setIamPolicy", "iam.serviceAccounts.create"}
 	held, err := crm.Projects.TestIamPermissions("bootstrap-owner",
 		&cloudresourcemanager.TestIamPermissionsRequest{Permissions: requested}).Do()

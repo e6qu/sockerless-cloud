@@ -13,6 +13,7 @@ import (
 
 func TestCompute_InstancesBulkInsert(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 	const project, zone = "bulk-project", "us-central1-a"
 	subnet := createInstanceSubnetwork(t, svc, project, "us-central1", "bulk-net", "10.81.0.0/24")

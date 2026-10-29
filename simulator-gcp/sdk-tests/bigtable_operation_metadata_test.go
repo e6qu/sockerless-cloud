@@ -42,6 +42,7 @@ func bigtableRequireInterval(t *testing.T, what string, start, end *timestamppb.
 // naming the request it tracks.
 func TestBigtableAdminGRPC_OperationMetadata(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "bt-grpc-metadata")
 	ia, ta, ops := bigtableAdminGRPCConn(t)
 	const project = "bt-grpc-metadata"
 

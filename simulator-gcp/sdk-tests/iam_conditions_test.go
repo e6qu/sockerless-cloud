@@ -110,6 +110,14 @@ func TestIAMConditions_CloudKMSResourceAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none.Permissions, "a condition on another resource type does not hold on the key ring")
 
+	// The ring's binding reaches the key, whose resource.type it matches.
+	inherited, err := principal.kms.Projects.Locations.KeyRings.CryptoKeys.TestIamPermissions(keyName,
+		&cloudkms.TestIamPermissionsRequest{Permissions: asked}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"cloudkms.cryptoKeys.get"}, inherited.Permissions)
+	_, err = owner.Projects.Locations.KeyRings.SetIamPolicy(ringName, &cloudkms.SetIamPolicyRequest{Policy: &cloudkms.Policy{}}).Do()
+	require.NoError(t, err)
+
 	// A condition naming another key does not hold on this one.
 	_, err = owner.Projects.Locations.KeyRings.CryptoKeys.SetIamPolicy(keyName, kmsConditionalPolicy(principal.role, principal.member, &cloudkms.Expr{
 		Title: "other key", Expression: `resource.name.endsWith("/cryptoKeys/other")`,

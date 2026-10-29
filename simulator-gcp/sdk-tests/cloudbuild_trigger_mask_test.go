@@ -14,6 +14,7 @@ import (
 // body sends a different value for; Terraform drifts otherwise.
 func TestCloudBuild_TriggerPatchUpdateMask(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cb-mask-project")
 	svc := cloudbuildService(t)
 	project := "cb-mask-project"
 

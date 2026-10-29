@@ -210,6 +210,8 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 		PrivateKey  string `json:"private_key"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &keyFile))
+	// A signed URL reads with its signer's permissions.
+	grantOnBucket(t, bucket, "roles/storage.objectViewer", "serviceAccount:"+keyFile.ClientEmail)
 
 	sign := func(expires time.Duration) string {
 		signed, err := storage.SignedURL(bucketSignedUrlBucket, "dir/asset name", &storage.SignedURLOptions{

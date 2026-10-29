@@ -53,6 +53,7 @@ func outsideListener(t *testing.T) (address string, lastRemote func() string) {
 // the nat_gateway resource with the instance that opened it.
 func TestCompute_CloudNATCarriesAnInstancesConnections(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "debian-cloud")
 	svc := computeService(t)
 	const project, zone, region = "nat-project", "us-central1-a", "us-central1"
 	subnet := createInstanceSubnetwork(t, svc, project, region, "nat-net", "10.85.0.0/24")

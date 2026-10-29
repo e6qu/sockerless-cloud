@@ -57,6 +57,7 @@ func sqlBlueGreenCall(t *testing.T, method, path string, body any) (*http.Respon
 
 func seedCloudSQLInstance(t *testing.T, project, name string) *sqladmin.Service {
 	t.Helper()
+	ensureProject(t, project)
 	svc, err := sqladmin.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	_, err = svc.Instances.Insert(project, &sqladmin.DatabaseInstance{

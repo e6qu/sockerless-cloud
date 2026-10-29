@@ -16,6 +16,7 @@ import (
 // instance that is not running yet.
 func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name, cidr string) {
 	t.Helper()
+	ensureProject(t, project)
 	subnet := createInstanceSubnetwork(t, svc, project, "us-central1", "verbs-net", cidr)
 	op, err := svc.Instances.Insert(project, zone, &compute.Instance{
 		Name:        name,

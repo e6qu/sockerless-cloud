@@ -374,14 +374,6 @@ flowchart LR
 - **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric
   alert rules, so nothing on Azure can alarm on a metric.
 - **Filestore.** Google Cloud has no managed file share.
-- **Authorization on Google Cloud.** Every simulator verifies every
-  credential, but Google Cloud applies IAM policies in four places only
-  ([Identity and access](iam.md) lists where). AWS evaluates its policy
-  language on every call and Azure evaluates Azure RBAC on every Azure
-  Resource Manager operation and on the Storage, Key Vault and Event Grid
-  data actions. The fix is the gate those two have: derive each method's
-  permission from the specification, evaluate the resource hierarchy's
-  policies, and refuse.
 
 ### Extractions, ranked by value over effort
 

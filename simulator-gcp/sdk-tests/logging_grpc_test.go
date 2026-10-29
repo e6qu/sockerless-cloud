@@ -68,17 +68,20 @@ func loggingListLogNames(t *testing.T, c *vkit.Client, parent string) []string {
 
 func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "logging-grpc-listlogs")
 	c := newLoggingV2Client(t)
 	parent := "projects/logging-grpc-listlogs"
 	kept := parent + "/logs/kept"
 	doomed := parent + "/logs/doomed"
+	// The project's creation wrote its Admin Activity audit entry.
+	audit := parent + "/logs/cloudaudit.googleapis.com%2Factivity"
 
 	loggingWriteTextEntry(t, c, kept, "kept entry")
 	loggingWriteTextEntry(t, c, doomed, "doomed entry")
 
 	// Only logs that hold entries are listed, and the entry that was written is
 	// the one the log reports.
-	require.Equal(t, []string{doomed, kept}, loggingListLogNames(t, c, parent))
+	require.Equal(t, []string{audit, doomed, kept}, loggingListLogNames(t, c, parent))
 
 	entry, err := c.ListLogEntries(ctx, &loggingpb.ListLogEntriesRequest{
 		ResourceNames: []string{parent},
@@ -89,9 +92,8 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	require.Equal(t, "doomed entry", entry.GetTextPayload())
 
 	// DeleteLog removes the log's entries, so the log stops being listed, and
-	// writes an Admin Activity audit entry, so the audit log starts.
+	// writes its own Admin Activity audit entry, so the audit log stays.
 	require.NoError(t, c.DeleteLog(ctx, &loggingpb.DeleteLogRequest{LogName: doomed}))
-	audit := parent + "/logs/cloudaudit.googleapis.com%2Factivity"
 	require.Equal(t, []string{audit, kept}, loggingListLogNames(t, c, parent))
 
 	_, err = c.ListLogEntries(ctx, &loggingpb.ListLogEntriesRequest{
@@ -113,12 +115,15 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 
 func TestCloudLogging_GRPC_ListLogsPaginates(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "logging-grpc-paging")
 	c := newLoggingV2Client(t)
 	parent := "projects/logging-grpc-paging"
-	want := []string{parent + "/logs/a", parent + "/logs/b", parent + "/logs/c"}
-	for _, name := range want {
+	written := []string{parent + "/logs/a", parent + "/logs/b", parent + "/logs/c"}
+	for _, name := range written {
 		loggingWriteTextEntry(t, c, name, "entry")
 	}
+	// The project's creation wrote its Admin Activity audit entry.
+	want := append(written, parent+"/logs/cloudaudit.googleapis.com%2Factivity")
 
 	// PageSize 1 makes the client walk three pages with the listing's tokens.
 	it := c.ListLogs(ctx, &loggingpb.ListLogsRequest{Parent: parent, PageSize: 1})
@@ -203,7 +208,9 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
 	t.Parallel()
 	c := newLoggingV2Client(t)
-	parent := "projects/" + uniquename.New("logging-grpc-tail")
+	project := uniquename.New("logging-grpc-tail")
+	ensureProject(t, project)
+	parent := "projects/" + project
 	logName := parent + "/logs/tailed"
 	other := parent + "/logs/not-tailed"
 
@@ -286,6 +293,7 @@ probing:
 
 func TestCloudLogging_GRPC_TailLogEntriesRejectsAnOutOfRangeBufferWindow(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "logging-grpc-tail")
 	c := newLoggingV2Client(t)
 	tailCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

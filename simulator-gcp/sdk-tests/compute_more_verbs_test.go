@@ -177,6 +177,7 @@ func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
 
 func TestCompute_ForwardingRuleTargetLabelsAndProxyUrlMap(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "lb-more")
 	svc := computeService(t)
 	const project = "lb-more"
 

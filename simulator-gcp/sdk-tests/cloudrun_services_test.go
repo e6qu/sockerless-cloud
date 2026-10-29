@@ -29,6 +29,7 @@ func TestCloudRunServices_RunV1ClientRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	const namespace = "test-project-runv1"
+	ensureProject(t, namespace)
 	created, err := svc.Namespaces.Services.Create("namespaces/"+namespace, &run.Service{
 		ApiVersion: "serving.knative.dev/v1",
 		Kind:       "Service",
@@ -114,6 +115,7 @@ func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
 func TestCloudRunServices_ReplaceBumpsGeneration(t *testing.T) {
 	t.Parallel()
 	namespace := "test-project-replace"
+	ensureProject(t, namespace)
 
 	createBody := `{
 		"metadata":{"name":"svc-rev"},

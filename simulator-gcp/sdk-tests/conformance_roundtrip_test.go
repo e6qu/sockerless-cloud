@@ -44,6 +44,7 @@ import (
 
 func TestConformance_DNSManagedZoneLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -67,6 +68,7 @@ func TestConformance_DNSManagedZoneLabelsRoundTrip(t *testing.T) {
 
 func TestConformance_BigQueryTablePartitioningRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := bigquery.NewService(ctx, option.WithEndpoint(baseURL+"/bigquery/v2/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	proj := "conformance-project"
@@ -128,6 +130,7 @@ func TestConformance_PubSubTopicSchemaSettingsRoundTrip(t *testing.T) {
 
 func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
@@ -171,6 +174,7 @@ func TestConformance_EventarcTriggerChannelRoundTrip(t *testing.T) {
 
 func TestConformance_ArtifactRegistryRepoLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project/locations/us-central1"
@@ -199,6 +203,7 @@ func TestConformance_ArtifactRegistryRepoLabelsRoundTrip(t *testing.T) {
 
 func TestConformance_SecretManagerAnnotationsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := secretmanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project"
@@ -233,7 +238,7 @@ func TestConformance_IAMBindingConditionRoundTrip(t *testing.T) {
 	svc, err := cloudresourcemanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	project := "conf-iam-condition-project"
-	ensureV1Project(t, svc, project)
+	ensureProject(t, project)
 
 	_, err = svc.Projects.SetIamPolicy(project, &cloudresourcemanager.SetIamPolicyRequest{
 		Policy: &cloudresourcemanager.Policy{
@@ -259,6 +264,7 @@ func TestConformance_IAMBindingConditionRoundTrip(t *testing.T) {
 
 func TestConformance_LoggingMetricValueExtractorRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := "projects/conformance-project"
@@ -303,6 +309,7 @@ func requireGoogleErr(t *testing.T, err error, code int, gcpStatus string) {
 // backendService answers 409 ALREADY_EXISTS rather than overwriting.
 func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conformance-project"
@@ -320,6 +327,7 @@ func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 // healthCheck answers 404 NOT_FOUND, not a DONE operation.
 func TestConformance_ComputeDeleteMissingNotFound(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -366,6 +374,7 @@ func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 // with the same triggerId answers 409 ALREADY_EXISTS.
 func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client, err := eventarc.NewRESTClient(ctx, serviceHostOptions(eventarcHost)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
@@ -412,6 +421,7 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 
 func TestConformance_LoggingDeleteMissingSinkNotFound(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -425,7 +435,7 @@ func TestConformance_IAMSetPolicyStaleEtagAborted(t *testing.T) {
 	svc, err := cloudresourcemanager.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	project := "conformance-iam-etag-project"
-	ensureV1Project(t, svc, project)
+	ensureProject(t, project)
 
 	got, err := svc.Projects.GetIamPolicy(project, &cloudresourcemanager.GetIamPolicyRequest{}).Do()
 	require.NoError(t, err)
@@ -455,6 +465,7 @@ func TestConformance_IAMSetPolicyStaleEtagAborted(t *testing.T) {
 // maxResults and pageToken; the Compute SDK never sends pageSize.
 func TestConformance_ComputeListPaginatesByMaxResults(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-compute-pagination")
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conf-compute-pagination"
@@ -489,6 +500,7 @@ func TestConformance_ComputeListPaginatesByMaxResults(t *testing.T) {
 // pageToken and stamps dns#resourceRecordSetsListResponse.
 func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-dns-pagination")
 	svc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conf-dns-pagination"
@@ -580,6 +592,7 @@ func TestConformance_EventarcTriggersPaginate(t *testing.T) {
 
 func TestConformance_DataflowJobsPaginate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-dataflow-pagination")
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conf-dataflow-pagination"
@@ -610,6 +623,7 @@ func TestConformance_DataflowJobsPaginate(t *testing.T) {
 
 func TestConformance_LoggingEntriesPaginate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-logging-pagination")
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const logName = "projects/conf-logging-pagination/logs/conf-pag-log"
@@ -648,6 +662,7 @@ func TestConformance_LoggingEntriesPaginate(t *testing.T) {
 
 func TestConformance_BigQueryDatasetsPaginate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-bq-pagination")
 	svc, err := bigquery.NewService(ctx, option.WithEndpoint(baseURL+"/bigquery/v2/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const project = "conf-bq-pagination"
@@ -676,6 +691,7 @@ func TestConformance_BigQueryDatasetsPaginate(t *testing.T) {
 // LESS_THAN and GREATER_THAN operators.
 func TestConformance_FirestoreListAndQueryPagination(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-firestore-pagination")
 	svc, err := firestore.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	const db = "projects/conf-firestore-pagination/databases/(default)"
@@ -745,6 +761,7 @@ func runFirestoreQuery(t *testing.T, url, body string) []*firestore.RunQueryResp
 
 func TestConformance_GCSBucketUpdateVersioning(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -765,6 +782,7 @@ func TestConformance_GCSBucketUpdateVersioning(t *testing.T) {
 
 func TestConformance_GCSBucketUpdateLabels(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -788,6 +806,7 @@ func TestConformance_GCSBucketUpdateLabels(t *testing.T) {
 
 func TestConformance_GCSObjectUpdateMetadata(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	client := storageClient(t)
 	defer client.Close()
 
@@ -820,6 +839,7 @@ func TestConformance_GCSObjectUpdateMetadata(t *testing.T) {
 
 func TestConformance_SpannerInstanceUpdateNodeCount(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-spanner-project")
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -856,6 +876,7 @@ func TestConformance_SpannerInstanceUpdateNodeCount(t *testing.T) {
 
 func TestConformance_KMSCreateAndToggleCryptoKeyVersion(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-kms-project")
 	svc, err := cloudkms.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -929,6 +950,7 @@ func TestConformance_CloudBuildListBuilds(t *testing.T) {
 
 func TestConformance_BigtableModifyColumnFamilies(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-bt-project")
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -973,6 +995,7 @@ func TestConformance_BigtableModifyColumnFamilies(t *testing.T) {
 
 func TestConformance_BigtableInstanceAndClusterUpdate(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-bt-upd-project")
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -1010,6 +1033,7 @@ func TestConformance_BigtableInstanceAndClusterUpdate(t *testing.T) {
 
 func TestConformance_MemorystoreRedisPatchUpdateMask(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-redis-project")
 	svc, err := redis.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -1039,6 +1063,7 @@ func TestConformance_MemorystoreRedisPatchUpdateMask(t *testing.T) {
 
 func TestConformance_CloudSQLPatchMergesSettings(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-sql-project")
 	svc, err := sqladmin.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -1075,6 +1100,7 @@ func TestConformance_CloudSQLPatchMergesSettings(t *testing.T) {
 
 func TestConformance_CloudFunctionsUpdateAndGenerateUploadUrl(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conf-gcf-project")
 	client, err := functions.NewFunctionRESTClient(ctx,
 		option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)

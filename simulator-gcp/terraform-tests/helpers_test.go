@@ -185,6 +185,10 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create project %s: %v", harnessProject, err)
 	}
 	harnessProjectNumber = number
+	if err := grantHarnessTokenCreator(); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to grant the bootstrap account the Service Account Token Creator role: %v", err)
+	}
 
 	if os.Getenv("SOCKERLESS_TF_HTTPS_GATEWAY") == "1" {
 		gatewayDir, err := os.MkdirTemp("", "gcp-https-gateway-*")
@@ -324,6 +328,50 @@ func createHarnessProject() (string, error) {
 		return "", fmt.Errorf("create operation failed: %d %s", op.Error.Code, op.Error.Message)
 	}
 	return strings.TrimPrefix(op.Response.Name, "projects/"), nil
+}
+
+// grantHarnessTokenCreator binds the bootstrap account to the Service Account
+// Token Creator role at the organization: the fixtures that mint tokens for
+// another account need it, and no basic role carries it, Owner included.
+func grantHarnessTokenCreator() error {
+	post := func(path string, body any) (map[string]any, error) {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		answer, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("POST %s answered %d: %s", path, resp.StatusCode, answer)
+		}
+		var policy map[string]any
+		return policy, json.Unmarshal(answer, &policy)
+	}
+	const organization = "/v1/organizations/123456789012"
+	policy, err := post(organization+":getIamPolicy", map[string]any{})
+	if err != nil {
+		return err
+	}
+	bindings, _ := policy["bindings"].([]any)
+	policy["bindings"] = append(bindings, map[string]any{
+		"role":    "roles/iam.serviceAccountTokenCreator",
+		"members": []string{"serviceAccount:" + gcpbootstrap.Email},
+	})
+	_, err = post(organization+":setIamPolicy", map[string]any{"policy": policy})
+	return err
 }
 
 // The dependency lock beside each configuration is untracked local state, so

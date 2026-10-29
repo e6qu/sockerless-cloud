@@ -93,6 +93,7 @@ func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
 
 func TestSDK_CloudRunServiceV1V2AreOneResource(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-version-project")
 	const (
 		project  = "cross-version-project"
 		location = "us-central1"

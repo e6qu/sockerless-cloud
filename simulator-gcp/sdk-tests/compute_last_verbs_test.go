@@ -40,6 +40,7 @@ func TestCompute_AddressMoveBetweenScopes(t *testing.T) {
 
 func TestCompute_UpdateReplacesAFirewallAndABackendService(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "typed-updates")
 	svc := computeService(t)
 	const project = "typed-updates"
 

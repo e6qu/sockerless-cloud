@@ -34,6 +34,16 @@ var modelScopedDriftExemptions = map[string]string{
 	// quarantine, so no SDK test can drive an implementation yet.
 	"ec2.smithy.json.gz:GetTransitGatewayAttachmentNatConfiguration":    "BUGS.md 3574",
 	"ec2.smithy.json.gz:ModifyTransitGatewayAttachmentNatConfiguration": "BUGS.md 3574",
+	// Amazon EC2 image findings need Amazon Inspector's AMI scans, and Amazon
+	// ECR replication backfill needs replication that copies images.
+	"ec2.smithy.json.gz:GetImageFindings":                   "BUGS.md 3794",
+	"ecr.smithy.json.gz:DescribeReplicationBackfillResults": "BUGS.md 3794",
+	"ecr.smithy.json.gz:ListReplicationBackfills":           "BUGS.md 3794",
+	"ecr.smithy.json.gz:StartReplicationBackfill":           "BUGS.md 3794",
+	"ecr.smithy.json.gz:StopReplicationBackfill":            "BUGS.md 3794",
+	// Amazon EC2 published Capacity Manager supportability scores on
+	// 2026-10-28, and the SDK release that carries them is in its quarantine.
+	"ec2.smithy.json.gz:GetCapacityManagerSupportabilityScores": "BUGS.md 3796",
 }
 
 var modelDriftExemptions = map[string]string{

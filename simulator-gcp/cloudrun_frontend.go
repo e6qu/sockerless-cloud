@@ -320,10 +320,10 @@ func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, invoked c
 			policies = append(policies, own)
 		}
 	}
-	mayInvoke := func(principal string, owner bool) bool {
-		return len(gcpPermissionsHeldUnder(principal, owner, policies, []string{"run.routes.invoke"}, resource)) == 1
+	mayInvoke := func(principal string) bool {
+		return len(gcpPermissionsHeldUnder(principal, policies, []string{"run.routes.invoke"}, resource)) == 1
 	}
-	if mayInvoke("", false) {
+	if mayInvoke("") {
 		return true
 	}
 	forbidden := fmt.Sprintf("Your client does not have permission to get URL <code>%s</code> from this server.",
