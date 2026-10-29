@@ -848,7 +848,9 @@ AWS KMS serves ML-KEM (FIPS 203) key pairs: `ML_KEM_512`, `ML_KEM_768` and
 seed, answer `Encapsulate`, `Decapsulate` and `GetPublicKey`, whose
 SubjectPublicKeyInfo carries the NIST `id-alg-ml-kem-*` OID. The SDK test
 encapsulates with Go's `crypto/mlkem` against the simulator's `circl`, so two
-implementations agree on every secret.
+implementations agree on every secret. The CLI suites and the AWS documents
+install the current AWS CLI v2 through `scripts/install-aws-cli.sh`, since the
+runner image's CLI predates `aws kms encapsulate`.
 
 Google Cloud IAM answers `testIamPermissions` from the stored policy, with
 `cel-go` evaluating conditions against the attributes the IAM Conditions

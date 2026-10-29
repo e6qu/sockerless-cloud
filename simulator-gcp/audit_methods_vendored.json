@@ -37,7 +37,7 @@
    "service": "dataflow.googleapis.com"
   }
  ],
- "retrieved": "2026-10-28",
+ "retrieved": "2026-10-29",
  "note": "Each service's audited methods, read from its audit-logging page vendored under specs/cloud-api/gcp/ by scripts/gen-gcp-audit-methods.go. logType is the audit log category the page states: ADMIN_WRITE for Admin Activity, and for Data Access the broadest data type among the permissions the method checks. Resource Manager lists its operations as versioned identifiers without permissions.",
  "methods": [
   {

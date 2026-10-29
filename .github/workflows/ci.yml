@@ -1234,18 +1234,7 @@ jobs:
         run: |
           bash scripts/install-caddy.sh
       - name: Install latest AWS CLI v2
-        # The ubuntu-runner-bundled aws CLI lags; newer service operations (e.g.
-        # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
-        # latest v2 so the cli-tests exercise every operation for real.
-        run: |
-          curl --fail --location --show-error --silent \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-          unzip -q -o /tmp/awscliv2.zip -d /tmp
-          sudo /tmp/aws/install --update
-          hash -r
-          aws --version
+        run: bash scripts/install-aws-cli.sh
       # Same contract as the SDK job: the CLI shards run real containers,
       # the Glue shard's python:3.9 among them.
       - name: Resolve the base images this job runs containers from
@@ -1760,6 +1749,10 @@ jobs:
       - uses: ./.github/actions/install-bun
       - name: Install pre-commit
         run: pipx install pre-commit
+      - name: Install latest AWS CLI v2
+        if: matrix.cloud == 'aws'
+        run: bash scripts/install-aws-cli.sh
+        timeout-minutes: 5
       - name: Run the document
         env:
           # The specification fetchers read GitHub through gh.
