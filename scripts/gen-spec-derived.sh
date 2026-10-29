@@ -12,3 +12,4 @@ go run scripts/gen-aws-error-message-members.go
 go run scripts/generate-sfn-rest-integrations.go
 bash scripts/gen-aws-iam-resource-types.sh
 go run scripts/gen-gcp-audit-methods.go
+go run scripts/gen-gcp-iam-catalog.go

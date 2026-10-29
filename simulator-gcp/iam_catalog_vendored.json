@@ -29,10 +29,11 @@
   "iam-roles-vpcaccess.md.gz",
   "storage-iam-json.md.gz",
   "pubsub-access-control.md.gz",
+  "method-permissions.json.gz",
   "storage-iam-roles.md.gz",
   "iam-service-agents.md.gz"
  ],
- "note": "Compiled by scripts/gen-gcp-iam-catalog.go from the pages under specs/cloud-api/gcp/: predefined roles and the permissions each served service defines, the permissions Cloud Storage's JSON methods and Pub/Sub's methods require (keyed by Discovery method ID), the Cloud Storage permissions basic roles hold intrinsically, and the service agents granted a role on their project.",
+ "note": "Compiled by scripts/gen-gcp-iam-catalog.go from the pages under specs/cloud-api/gcp/: predefined roles and the permissions each served service defines, the permissions Cloud Storage's JSON methods, Pub/Sub's methods and the methods whose REST reference pages state one require (keyed by Discovery method ID), the Cloud Storage permissions basic roles hold intrinsically, and the service agents granted a role on their project.",
  "roles": [
   {
    "name": "roles/apigateway.admin",
@@ -29791,6 +29792,1953 @@
   "vpcaccess.operations.list"
  ],
  "methods": {
+  "artifactregistry.projects.locations.getVpcscConfig": [
+   {
+    "permission": "artifactregistry.vpcscconfigs.get"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.aptArtifacts.import": [
+   {
+    "permission": "artifactregistry.aptartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.aptArtifacts.upload": [
+   {
+    "permission": "artifactregistry.aptartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.exportArtifact": [
+   {
+    "permission": "artifactregistry.repositories.exportArtifacts"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.genericArtifacts.upload": [
+   {
+    "permission": "artifactregistry.repositories.uploadArtifacts"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.goModules.upload": [
+   {
+    "permission": "artifactregistry.gomodules.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.googetArtifacts.import": [
+   {
+    "permission": "artifactregistry.googetartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.googetArtifacts.upload": [
+   {
+    "permission": "artifactregistry.googetartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.kfpArtifacts.upload": [
+   {
+    "permission": "artifactregistry.kfpartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.yumArtifacts.import": [
+   {
+    "permission": "artifactregistry.yumartifacts.create"
+   }
+  ],
+  "artifactregistry.projects.locations.repositories.yumArtifacts.upload": [
+   {
+    "permission": "artifactregistry.yumartifacts.create"
+   }
+  ],
+  "bigtableadmin.projects.instances.clusters.backups.copy": [
+   {
+    "permission": "bigtable.backups.create"
+   },
+   {
+    "permission": "bigtable.backups.read",
+    "on": "field:sourceBackup",
+    "optional": true
+   }
+  ],
+  "bigtableadmin.projects.instances.clusters.getMemoryLayer": [
+   {
+    "permission": "bigtable.memoryLayers.get"
+   }
+  ],
+  "bigtableadmin.projects.instances.tables.restore": [
+   {
+    "permission": "bigtable.tables.create"
+   },
+   {
+    "permission": "bigtable.backups.restore",
+    "on": "field:backup",
+    "optional": true
+   }
+  ],
+  "cloudbuild.projects.githubEnterpriseConfigs.create": [
+   {
+    "permission": "cloudbuild.integrations.create"
+   }
+  ],
+  "cloudbuild.projects.githubEnterpriseConfigs.delete": [
+   {
+    "permission": "cloudbuild.integrations.delete"
+   }
+  ],
+  "cloudbuild.projects.githubEnterpriseConfigs.get": [
+   {
+    "permission": "cloudbuild.integrations.get"
+   }
+  ],
+  "cloudbuild.projects.githubEnterpriseConfigs.list": [
+   {
+    "permission": "cloudbuild.integrations.list"
+   }
+  ],
+  "cloudbuild.projects.locations.getDefaultServiceAccount": [
+   {
+    "permission": "cloudbuild.builds.get"
+   }
+  ],
+  "cloudbuild.projects.locations.githubEnterpriseConfigs.create": [
+   {
+    "permission": "cloudbuild.integrations.create"
+   }
+  ],
+  "cloudbuild.projects.locations.githubEnterpriseConfigs.delete": [
+   {
+    "permission": "cloudbuild.integrations.delete"
+   }
+  ],
+  "cloudbuild.projects.locations.githubEnterpriseConfigs.get": [
+   {
+    "permission": "cloudbuild.integrations.get"
+   }
+  ],
+  "cloudbuild.projects.locations.githubEnterpriseConfigs.list": [
+   {
+    "permission": "cloudbuild.integrations.list"
+   }
+  ],
+  "cloudbuild.projects.locations.triggers.delete": [
+   {
+    "permission": "cloudbuild.builds.create"
+   }
+  ],
+  "cloudbuild.projects.locations.triggers.webhook": [
+   {
+    "permission": "cloudbuild.builds.create"
+   }
+  ],
+  "cloudbuild.projects.triggers.delete": [
+   {
+    "permission": "cloudbuild.builds.create",
+    "on": "field:name",
+    "optional": true
+   }
+  ],
+  "cloudbuild.projects.triggers.webhook": [
+   {
+    "permission": "cloudbuild.builds.create",
+    "on": "field:name",
+    "optional": true
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.abortFunctionUpgrade": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.commitFunctionUpgrade": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.commitFunctionUpgradeAsGen2": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.detachFunction": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.redirectFunctionUpgradeTraffic": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.rollbackFunctionUpgradeTraffic": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.functions.setupFunctionUpgradeConfig": [
+   {
+    "permission": "cloudfunctions.functions.generationUpgrade"
+   }
+  ],
+  "cloudfunctions.projects.locations.runtimes.list": [],
+  "cloudkms.folders.getAutokeyConfig": [
+   {
+    "permission": "cloudkms.autokeyConfigs.get"
+   }
+  ],
+  "cloudkms.folders.updateAutokeyConfig": [
+   {
+    "permission": "cloudkms.autokeyConfigs.update"
+   }
+  ],
+  "cloudkms.projects.getAutokeyConfig": [
+   {
+    "permission": "cloudkms.autokeyConfigs.get"
+   }
+  ],
+  "cloudkms.projects.locations.getEkmConfig": [
+   {
+    "permission": "cloudkms.ekmConfigs.get"
+   }
+  ],
+  "cloudkms.projects.updateAutokeyConfig": [
+   {
+    "permission": "cloudkms.autokeyConfigs.update"
+   }
+  ],
+  "cloudresourcemanager.folders.clearOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudresourcemanager.folders.getEffectiveOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.folders.getOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.folders.listAvailableOrgPolicyConstraints": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.folders.listOrgPolicies": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.folders.setOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudresourcemanager.organizations.clearOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudresourcemanager.organizations.getEffectiveOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.organizations.getOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.organizations.listAvailableOrgPolicyConstraints": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.organizations.listOrgPolicies": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.organizations.setOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudresourcemanager.projects.clearOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudresourcemanager.projects.getAncestry": [
+   {
+    "permission": "resourcemanager.projects.get"
+   }
+  ],
+  "cloudresourcemanager.projects.getEffectiveOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.projects.getOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.projects.listAvailableOrgPolicyConstraints": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.projects.listOrgPolicies": [
+   {
+    "permission": "orgpolicy.policy.get"
+   }
+  ],
+  "cloudresourcemanager.projects.setOrgPolicy": [
+   {
+    "permission": "orgpolicy.policy.set"
+   }
+  ],
+  "cloudscheduler.projects.locations.jobs.resume": [
+   {
+    "permission": "cloudscheduler.jobs.enable"
+   }
+  ],
+  "cloudtasks.projects.locations.queues.tasks.batchCreate": [
+   {
+    "permission": "cloudtasks.tasks.create"
+   }
+  ],
+  "cloudtasks.projects.locations.queues.tasks.buffer": [
+   {
+    "permission": "cloudtasks.tasks.create"
+   }
+  ],
+  "compute.backendBuckets.setEdgeSecurityPolicy": [
+   {
+    "permission": "compute.backendBuckets.setSecurityPolicy"
+   }
+  ],
+  "compute.backendServices.getEffectiveSecurityPolicies": [
+   {
+    "permission": "compute.backendServices.getEffectiveSecurityPolicies"
+   }
+  ],
+  "compute.backendServices.getHealth": [
+   {
+    "permission": "compute.backendServices.get"
+   }
+  ],
+  "compute.backendServices.listUsable": [
+   {
+    "permission": "compute.instances.use",
+    "on": "field:instance",
+    "optional": true
+   }
+  ],
+  "compute.backendServices.setEdgeSecurityPolicy": [
+   {
+    "permission": "compute.backendServices.setSecurityPolicy"
+   }
+  ],
+  "compute.disks.bulkSetLabels": [
+   {
+    "permission": "compute.disks.setLabels"
+   }
+  ],
+  "compute.firewallPolicies.addRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.firewallPolicies.getAssociation": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.firewallPolicies.getRule": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.firewallPolicies.patchRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.firewallPolicies.removeRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.globalNetworkEndpointGroups.listNetworkEndpoints": [
+   {
+    "permission": "compute.globalNetworkEndpointGroups.get"
+   }
+  ],
+  "compute.globalOperations.wait": [
+   {
+    "permission": "compute.globalOperations.get"
+   }
+  ],
+  "compute.globalOrganizationOperations.delete": [
+   {
+    "permission": "compute.globalOperations.delete"
+   }
+  ],
+  "compute.globalOrganizationOperations.get": [
+   {
+    "permission": "compute.globalOperations.get"
+   }
+  ],
+  "compute.globalOrganizationOperations.list": [
+   {
+    "permission": "compute.globalOperations.list"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.aggregatedList": [
+   {
+    "permission": "compute.vmExtensionPolicies.list"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.delete": [
+   {
+    "permission": "compute.vmExtensionPolicies.delete"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.get": [
+   {
+    "permission": "compute.vmExtensionPolicies.get"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.insert": [
+   {
+    "permission": "compute.vmExtensionPolicies.create"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.list": [
+   {
+    "permission": "compute.vmExtensionPolicies.list"
+   }
+  ],
+  "compute.globalVmExtensionPolicies.update": [
+   {
+    "permission": "compute.vmExtensionPolicies.update"
+   }
+  ],
+  "compute.imageFamilyViews.get": [
+   {
+    "permission": "compute.imageFamilyViews.get"
+   }
+  ],
+  "compute.imageViews.get": [
+   {
+    "permission": "compute.images.get"
+   }
+  ],
+  "compute.imageViews.list": [
+   {
+    "permission": "compute.images.list"
+   }
+  ],
+  "compute.instanceGroupManagerResizeRequests.cancel": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagerResizeRequests.delete": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagerResizeRequests.get": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.instanceGroupManagerResizeRequests.insert": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagerResizeRequests.list": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.instanceGroupManagers.abandonInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.applyUpdatesToInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.createInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.deleteInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.deletePerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.listErrors": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.instanceGroupManagers.listManagedInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.instanceGroupManagers.listPerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.instanceGroupManagers.patchPerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.recreateInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.resize": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.resumeInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.setInstanceTemplate": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.setTargetPools": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   },
+   {
+    "permission": "compute.targetPools.get",
+    "on": "field:targetPools",
+    "optional": true
+   }
+  ],
+  "compute.instanceGroupManagers.startInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.stopInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.suspendInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroupManagers.updatePerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.instanceGroups.addInstances": [
+   {
+    "permission": "compute.instanceGroups.update"
+   },
+   {
+    "permission": "compute.instances.use",
+    "on": "field:instance",
+    "optional": true
+   }
+  ],
+  "compute.instanceGroups.listInstances": [
+   {
+    "permission": "compute.instanceGroups.get"
+   }
+  ],
+  "compute.instanceGroups.removeInstances": [
+   {
+    "permission": "compute.instanceGroups.update"
+   }
+  ],
+  "compute.instanceGroups.setNamedPorts": [
+   {
+    "permission": "compute.instanceGroups.update"
+   }
+  ],
+  "compute.instances.reportHostAsFaulty": [
+   {
+    "permission": "compute.instances.update"
+   }
+  ],
+  "compute.interconnectAttachmentGroups.getIamPolicy": [
+   {
+    "permission": "compute.interconnectAttachmentGroups.getIamPolicy"
+   }
+  ],
+  "compute.interconnectAttachmentGroups.getOperationalStatus": [
+   {
+    "permission": "compute.interconnectAttachmentGroups.get"
+   }
+  ],
+  "compute.interconnectAttachmentGroups.setIamPolicy": [
+   {
+    "permission": "compute.interconnectAttachmentGroups.setIamPolicy"
+   }
+  ],
+  "compute.interconnectGroups.getIamPolicy": [
+   {
+    "permission": "compute.interconnectGroups.getIamPolicy"
+   }
+  ],
+  "compute.interconnectGroups.getOperationalStatus": [
+   {
+    "permission": "compute.interconnectGroups.get"
+   }
+  ],
+  "compute.interconnectGroups.setIamPolicy": [
+   {
+    "permission": "compute.interconnectGroups.setIamPolicy"
+   }
+  ],
+  "compute.interconnects.getDiagnostics": [
+   {
+    "permission": "compute.interconnects.get"
+   }
+  ],
+  "compute.networkEndpointGroups.listNetworkEndpoints": [
+   {
+    "permission": "compute.networkEndpointGroups.get"
+   }
+  ],
+  "compute.networkFirewallPolicies.addAssociation": [
+   {
+    "permission": "compute.networks.setFirewallPolicy",
+    "on": "field:attachmentTarget",
+    "optional": true
+   }
+  ],
+  "compute.networkFirewallPolicies.addPacketMirroringRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.addRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.aggregatedList": [
+   {
+    "permission": "compute.firewallPolicies.list"
+   }
+  ],
+  "compute.networkFirewallPolicies.cloneRules": [
+   {
+    "permission": "compute.firewallPolicies.get",
+    "on": "field:sourceFirewallPolicy",
+    "optional": true
+   }
+  ],
+  "compute.networkFirewallPolicies.delete": [
+   {
+    "permission": "compute.firewallPolicies.delete"
+   }
+  ],
+  "compute.networkFirewallPolicies.get": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.networkFirewallPolicies.getAssociation": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.networkFirewallPolicies.getIamPolicy": [
+   {
+    "permission": "compute.firewallPolicies.getIamPolicy"
+   }
+  ],
+  "compute.networkFirewallPolicies.getPacketMirroringRule": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.networkFirewallPolicies.getRule": [
+   {
+    "permission": "compute.firewallPolicies.get"
+   }
+  ],
+  "compute.networkFirewallPolicies.insert": [
+   {
+    "permission": "compute.firewallPolicies.create"
+   }
+  ],
+  "compute.networkFirewallPolicies.list": [
+   {
+    "permission": "compute.firewallPolicies.list"
+   }
+  ],
+  "compute.networkFirewallPolicies.patchPacketMirroringRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.patchRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.removePacketMirroringRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.removeRule": [
+   {
+    "permission": "compute.firewallPolicies.update"
+   }
+  ],
+  "compute.networkFirewallPolicies.setIamPolicy": [
+   {
+    "permission": "compute.firewallPolicies.setIamPolicy"
+   }
+  ],
+  "compute.networks.cancelRequestRemovePeering": [
+   {
+    "permission": "compute.networks.removePeering"
+   }
+  ],
+  "compute.networks.requestRemovePeering": [
+   {
+    "permission": "compute.networks.removePeering"
+   }
+  ],
+  "compute.nodeGroups.listNodes": [
+   {
+    "permission": "compute.nodeGroups.get"
+   }
+  ],
+  "compute.organizationSecurityPolicies.addRule": [
+   {
+    "permission": "compute.securityPolicies.update"
+   }
+  ],
+  "compute.organizationSecurityPolicies.delete": [
+   {
+    "permission": "compute.securityPolicies.delete"
+   }
+  ],
+  "compute.organizationSecurityPolicies.get": [
+   {
+    "permission": "compute.securityPolicies.get"
+   }
+  ],
+  "compute.organizationSecurityPolicies.getAssociation": [
+   {
+    "permission": "compute.securityPolicies.get"
+   }
+  ],
+  "compute.organizationSecurityPolicies.getRule": [
+   {
+    "permission": "compute.securityPolicies.get"
+   }
+  ],
+  "compute.organizationSecurityPolicies.insert": [
+   {
+    "permission": "compute.securityPolicies.create"
+   }
+  ],
+  "compute.organizationSecurityPolicies.list": [
+   {
+    "permission": "compute.securityPolicies.list"
+   }
+  ],
+  "compute.organizationSecurityPolicies.listAssociations": [
+   {
+    "permission": "compute.organizations.listAssociations"
+   }
+  ],
+  "compute.organizationSecurityPolicies.listPreconfiguredExpressionSets": [
+   {
+    "permission": "compute.securityPolicies.list"
+   }
+  ],
+  "compute.organizationSecurityPolicies.removeRule": [
+   {
+    "permission": "compute.securityPolicies.update"
+   }
+  ],
+  "compute.publicAdvertisedPrefixes.announce": [
+   {
+    "permission": "compute.publicAdvertisedPrefixes.announce"
+   }
+  ],
+  "compute.publicAdvertisedPrefixes.withdraw": [
+   {
+    "permission": "compute.publicAdvertisedPrefixes.withdraw"
+   }
+  ],
+  "compute.regionAutoscalers.delete": [
+   {
+    "permission": "compute.autoscalers.delete"
+   }
+  ],
+  "compute.regionAutoscalers.get": [
+   {
+    "permission": "compute.autoscalers.get"
+   }
+  ],
+  "compute.regionAutoscalers.insert": [
+   {
+    "permission": "compute.instanceGroupManagers.use",
+    "on": "field:target",
+    "optional": true
+   }
+  ],
+  "compute.regionAutoscalers.list": [
+   {
+    "permission": "compute.autoscalers.list"
+   }
+  ],
+  "compute.regionAutoscalers.patch": [
+   {
+    "permission": "compute.instanceGroupManagers.use",
+    "on": "field:target",
+    "optional": true
+   }
+  ],
+  "compute.regionAutoscalers.update": [
+   {
+    "permission": "compute.autoscalers.update",
+    "on": "field:autoscaler",
+    "optional": true
+   },
+   {
+    "permission": "compute.instanceGroupManagers.use",
+    "on": "field:target",
+    "optional": true
+   }
+  ],
+  "compute.regionBackendServices.getHealth": [
+   {
+    "permission": "compute.regionBackendServices.get"
+   }
+  ],
+  "compute.regionBackendServices.listUsable": [
+   {
+    "permission": "compute.instances.use",
+    "on": "field:instance",
+    "optional": true
+   }
+  ],
+  "compute.regionCommitments.aggregatedList": [
+   {
+    "permission": "compute.commitments.list"
+   }
+  ],
+  "compute.regionCommitments.get": [
+   {
+    "permission": "compute.commitments.get"
+   }
+  ],
+  "compute.regionCommitments.insert": [
+   {
+    "permission": "compute.commitments.create"
+   }
+  ],
+  "compute.regionCommitments.list": [
+   {
+    "permission": "compute.commitments.list"
+   }
+  ],
+  "compute.regionCommitments.update": [
+   {
+    "permission": "compute.commitments.update"
+   }
+  ],
+  "compute.regionCompositeHealthChecks.getHealth": [
+   {
+    "permission": "compute.regionCompositeHealthChecks.get"
+   }
+  ],
+  "compute.regionDiskTypes.get": [
+   {
+    "permission": "compute.diskTypes.get"
+   }
+  ],
+  "compute.regionDiskTypes.list": [
+   {
+    "permission": "compute.diskTypes.list"
+   }
+  ],
+  "compute.regionDisks.addResourcePolicies": [
+   {
+    "permission": "compute.resourcePolicies.use",
+    "on": "field:resourcePolicies",
+    "optional": true
+   }
+  ],
+  "compute.regionDisks.bulkInsert": [
+   {
+    "permission": "compute.disks.create"
+   }
+  ],
+  "compute.regionDisks.createSnapshot": [
+   {
+    "permission": "compute.snapshots.setLabels",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "compute.instantSnapshots.useReadOnly",
+    "on": "field:sourceInstantSnapshot",
+    "optional": true
+   }
+  ],
+  "compute.regionDisks.delete": [
+   {
+    "permission": "compute.disks.delete"
+   }
+  ],
+  "compute.regionDisks.get": [
+   {
+    "permission": "compute.disks.get"
+   }
+  ],
+  "compute.regionDisks.getIamPolicy": [
+   {
+    "permission": "compute.disks.getIamPolicy"
+   }
+  ],
+  "compute.regionDisks.insert": [
+   {
+    "permission": "compute.snapshots.useReadOnly",
+    "on": "field:sourceSnapshot",
+    "optional": true
+   },
+   {
+    "permission": "compute.images.useReadOnly",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "compute.disks.setLabels",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "compute.disks.useReadOnly",
+    "on": "field:sourceDisk",
+    "optional": true
+   },
+   {
+    "permission": "compute.instantSnapshots.useReadOnly",
+    "on": "field:sourceInstantSnapshot",
+    "optional": true
+   },
+   {
+    "permission": "compute.storagePools.use",
+    "on": "field:storagePool",
+    "optional": true
+   }
+  ],
+  "compute.regionDisks.list": [
+   {
+    "permission": "compute.disks.list"
+   }
+  ],
+  "compute.regionDisks.removeResourcePolicies": [
+   {
+    "permission": "compute.disks.removeResourcePolicies"
+   }
+  ],
+  "compute.regionDisks.resize": [
+   {
+    "permission": "compute.disks.resize"
+   }
+  ],
+  "compute.regionDisks.setIamPolicy": [
+   {
+    "permission": "compute.disks.setIamPolicy"
+   }
+  ],
+  "compute.regionDisks.setLabels": [
+   {
+    "permission": "compute.disks.setLabels"
+   }
+  ],
+  "compute.regionDisks.startAsyncReplication": [
+   {
+    "permission": "compute.disks.startAsyncReplication"
+   }
+  ],
+  "compute.regionDisks.stopAsyncReplication": [
+   {
+    "permission": "compute.disks.stopAsyncReplication"
+   }
+  ],
+  "compute.regionDisks.updateKmsKey": [
+   {
+    "permission": "compute.disks.updateKmsKey"
+   }
+  ],
+  "compute.regionHealthSources.getHealth": [
+   {
+    "permission": "compute.regionHealthSources.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagerResizeRequests.cancel": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagerResizeRequests.delete": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagerResizeRequests.get": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagerResizeRequests.insert": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagerResizeRequests.list": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.abandonInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.applyUpdatesToInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.createInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.delete": [
+   {
+    "permission": "compute.instanceGroupManagers.delete"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.deleteInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.deletePerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.get": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.insert": [
+   {
+    "permission": "compute.targetPools.get",
+    "on": "field:targetPools",
+    "optional": true
+   },
+   {
+    "permission": "compute.httpsHealthChecks.use",
+    "on": "field:healthCheck",
+    "optional": true
+   }
+  ],
+  "compute.regionInstanceGroupManagers.list": [
+   {
+    "permission": "compute.instanceGroupManagers.list"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.listErrors": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.listManagedInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.listPerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.get"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.patch": [
+   {
+    "permission": "compute.targetPools.get",
+    "on": "field:targetPools",
+    "optional": true
+   }
+  ],
+  "compute.regionInstanceGroupManagers.patchPerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.recreateInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.resize": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.resumeInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.setInstanceTemplate": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.setTargetPools": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   },
+   {
+    "permission": "compute.targetPools.get",
+    "on": "field:targetPools",
+    "optional": true
+   }
+  ],
+  "compute.regionInstanceGroupManagers.startInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.stopInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.suspendInstances": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroupManagers.updatePerInstanceConfigs": [
+   {
+    "permission": "compute.instanceGroupManagers.update"
+   }
+  ],
+  "compute.regionInstanceGroups.get": [
+   {
+    "permission": "compute.instanceGroups.get"
+   }
+  ],
+  "compute.regionInstanceGroups.list": [
+   {
+    "permission": "compute.instanceGroups.list"
+   }
+  ],
+  "compute.regionInstanceGroups.listInstances": [
+   {
+    "permission": "compute.instanceGroups.get"
+   }
+  ],
+  "compute.regionInstanceGroups.setNamedPorts": [
+   {
+    "permission": "compute.instanceGroups.update"
+   }
+  ],
+  "compute.regionInstanceTemplates.delete": [
+   {
+    "permission": "compute.instanceTemplates.delete"
+   }
+  ],
+  "compute.regionInstanceTemplates.get": [
+   {
+    "permission": "compute.instanceTemplates.get"
+   }
+  ],
+  "compute.regionInstanceTemplates.insert": [
+   {
+    "permission": "compute.networks.get",
+    "on": "field:network",
+    "optional": true
+   },
+   {
+    "permission": "properties.networkInterfaces",
+    "on": "field:network",
+    "optional": true
+   },
+   {
+    "permission": "compute.subnetworks.get",
+    "on": "field:subnetwork",
+    "optional": true
+   },
+   {
+    "permission": "properties.networkInterfaces",
+    "on": "field:subnetwork",
+    "optional": true
+   },
+   {
+    "permission": "compute.images.get",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "properties.disks",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "compute.instances.get",
+    "on": "field:sourceInstance",
+    "optional": true
+   }
+  ],
+  "compute.regionInstanceTemplates.list": [
+   {
+    "permission": "compute.instanceTemplates.list"
+   }
+  ],
+  "compute.regionInstances.bulkInsert": [
+   {
+    "permission": "compute.instanceTemplates.useReadOnly",
+    "on": "field:sourceInstanceTemplate",
+    "optional": true
+   },
+   {
+    "permission": "compute.instances.setTags",
+    "on": "field:tags",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.tags.items",
+    "on": "field:tags",
+    "optional": true
+   },
+   {
+    "permission": "compute.addresses.use",
+    "on": "field:natIP",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.networkInterfaces",
+    "on": "field:natIP",
+    "optional": true
+   },
+   {
+    "permission": "compute.images.useReadOnly",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.disks",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "compute.disks.setLabels",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.disks",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "compute.snapshots.useReadOnly",
+    "on": "field:sourceSnapshot",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.disks",
+    "on": "field:sourceSnapshot",
+    "optional": true
+   },
+   {
+    "permission": "compute.storagePools.use",
+    "on": "field:storagePool",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.disks",
+    "on": "field:storagePool",
+    "optional": true
+   },
+   {
+    "permission": "compute.instances.setMetadata",
+    "on": "field:metadata",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.metadata.kind",
+    "on": "field:metadata",
+    "optional": true
+   },
+   {
+    "permission": "compute.instances.setServiceAccount",
+    "on": "field:serviceAccounts",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.serviceAccounts",
+    "on": "field:serviceAccounts",
+    "optional": true
+   },
+   {
+    "permission": "iam.serviceAccounts.actAs",
+    "on": "field:email",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.serviceAccounts",
+    "on": "field:email",
+    "optional": true
+   },
+   {
+    "permission": "compute.instances.setLabels",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.guestAccelerators",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "compute.resourcePolicies.use",
+    "on": "field:resourcePolicies",
+    "optional": true
+   },
+   {
+    "permission": "instanceProperties.confidentialInstanceConfig",
+    "on": "field:resourcePolicies",
+    "optional": true
+   },
+   {
+    "permission": "instanceFlexibilityPolicy.instanceSelections",
+    "on": "field:sourceImage",
+    "optional": true
+   },
+   {
+    "permission": "instanceFlexibilityPolicy.instanceSelections",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "instanceFlexibilityPolicy.instanceSelections",
+    "on": "field:sourceSnapshot",
+    "optional": true
+   },
+   {
+    "permission": "instanceFlexibilityPolicy.instanceSelections",
+    "on": "field:storagePool",
+    "optional": true
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.delete": [
+   {
+    "permission": "compute.instantSnapshotGroups.delete"
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.get": [
+   {
+    "permission": "compute.instantSnapshotGroups.get"
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.getIamPolicy": [
+   {
+    "permission": "compute.instantSnapshotGroups.getIamPolicy"
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.insert": [
+   {
+    "permission": "compute.instantSnapshotGroups.create"
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.list": [
+   {
+    "permission": "compute.instantSnapshotGroups.list"
+   }
+  ],
+  "compute.regionInstantSnapshotGroups.setIamPolicy": [
+   {
+    "permission": "compute.instantSnapshotGroups.setIamPolicy"
+   }
+  ],
+  "compute.regionInstantSnapshots.delete": [
+   {
+    "permission": "compute.instantSnapshots.delete"
+   }
+  ],
+  "compute.regionInstantSnapshots.get": [
+   {
+    "permission": "compute.instantSnapshots.get"
+   }
+  ],
+  "compute.regionInstantSnapshots.getIamPolicy": [
+   {
+    "permission": "compute.instantSnapshots.getIamPolicy"
+   }
+  ],
+  "compute.regionInstantSnapshots.insert": [
+   {
+    "permission": "compute.disks.useReadOnly",
+    "on": "field:sourceDisk",
+    "optional": true
+   },
+   {
+    "permission": "compute.instantSnapshots.setLabels",
+    "on": "field:labels",
+    "optional": true
+   }
+  ],
+  "compute.regionInstantSnapshots.list": [
+   {
+    "permission": "compute.instantSnapshots.list"
+   }
+  ],
+  "compute.regionInstantSnapshots.setIamPolicy": [
+   {
+    "permission": "compute.instantSnapshots.setIamPolicy"
+   }
+  ],
+  "compute.regionInstantSnapshots.setLabels": [
+   {
+    "permission": "compute.instantSnapshots.setLabels"
+   }
+  ],
+  "compute.regionNetworkEndpointGroups.listNetworkEndpoints": [
+   {
+    "permission": "compute.regionNetworkEndpointGroups.get"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.addAssociation": [
+   {
+    "permission": "compute.networks.setFirewallPolicy",
+    "on": "field:attachmentTarget",
+    "optional": true
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.addRule": [
+   {
+    "permission": "compute.regionFirewallPolicies.update"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.cloneRules": [
+   {
+    "permission": "compute.regionFirewallPolicies.get",
+    "on": "field:sourceFirewallPolicy",
+    "optional": true
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.delete": [
+   {
+    "permission": "compute.regionFirewallPolicies.delete"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.get": [
+   {
+    "permission": "compute.regionFirewallPolicies.get"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.getAssociation": [
+   {
+    "permission": "compute.regionFirewallPolicies.get"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.getEffectiveFirewalls": [
+   {
+    "permission": "compute.networks.getRegionEffectiveFirewalls",
+    "on": "field:network",
+    "optional": true
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.getIamPolicy": [
+   {
+    "permission": "compute.regionFirewallPolicies.getIamPolicy"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.getRule": [
+   {
+    "permission": "compute.regionFirewallPolicies.get"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.insert": [
+   {
+    "permission": "compute.regionFirewallPolicies.create"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.list": [
+   {
+    "permission": "compute.regionFirewallPolicies.list"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.patchAssociation": [
+   {
+    "permission": "compute.networks.setFirewallPolicy",
+    "on": "field:attachmentTarget",
+    "optional": true
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.patchRule": [
+   {
+    "permission": "compute.regionFirewallPolicies.update"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.removeRule": [
+   {
+    "permission": "compute.regionFirewallPolicies.update"
+   }
+  ],
+  "compute.regionNetworkFirewallPolicies.setIamPolicy": [
+   {
+    "permission": "compute.regionFirewallPolicies.setIamPolicy"
+   }
+  ],
+  "compute.regionOperations.wait": [
+   {
+    "permission": "compute.regionOperations.get"
+   }
+  ],
+  "compute.regionSecurityPolicies.addRule": [
+   {
+    "permission": "compute.regionSecurityPolicies.update"
+   }
+  ],
+  "compute.regionSecurityPolicies.getRule": [
+   {
+    "permission": "compute.regionSecurityPolicies.get"
+   }
+  ],
+  "compute.regionSecurityPolicies.patchRule": [
+   {
+    "permission": "compute.regionSecurityPolicies.update"
+   }
+  ],
+  "compute.regionSecurityPolicies.removeRule": [
+   {
+    "permission": "compute.regionSecurityPolicies.update"
+   }
+  ],
+  "compute.regionSnapshotSettings.get": [
+   {
+    "permission": "compute.snapshotSettings.get"
+   }
+  ],
+  "compute.regionSnapshots.delete": [
+   {
+    "permission": "compute.snapshots.delete"
+   }
+  ],
+  "compute.regionSnapshots.get": [
+   {
+    "permission": "compute.snapshots.get"
+   }
+  ],
+  "compute.regionSnapshots.getIamPolicy": [
+   {
+    "permission": "compute.snapshots.getIamPolicy"
+   }
+  ],
+  "compute.regionSnapshots.insert": [
+   {
+    "permission": "compute.disks.createSnapshot",
+    "on": "field:sourceDisk",
+    "optional": true
+   },
+   {
+    "permission": "compute.snapshots.setLabels",
+    "on": "field:labels",
+    "optional": true
+   },
+   {
+    "permission": "compute.instantSnapshots.useReadOnly",
+    "on": "field:sourceInstantSnapshot",
+    "optional": true
+   }
+  ],
+  "compute.regionSnapshots.list": [
+   {
+    "permission": "compute.snapshots.list"
+   }
+  ],
+  "compute.regionSnapshots.setIamPolicy": [
+   {
+    "permission": "compute.snapshots.setIamPolicy"
+   }
+  ],
+  "compute.regionSnapshots.setLabels": [
+   {
+    "permission": "compute.snapshots.setLabels"
+   }
+  ],
+  "compute.regionSnapshots.updateKmsKey": [
+   {
+    "permission": "compute.snapshots.updateKmsKey"
+   }
+  ],
+  "compute.regionZones.list": [
+   {
+    "permission": "compute.zones.list"
+   }
+  ],
+  "compute.reservationBlocks.getIamPolicy": [
+   {
+    "permission": "compute.reservationBlocks.getIamPolicy"
+   }
+  ],
+  "compute.reservationBlocks.setIamPolicy": [
+   {
+    "permission": "compute.reservationBlocks.setIamPolicy"
+   }
+  ],
+  "compute.reservationSlots.getHealth": [
+   {
+    "permission": "compute.reservationSlots.get"
+   }
+  ],
+  "compute.reservationSlots.getVersion": [
+   {
+    "permission": "compute.reservationSlots.get"
+   }
+  ],
+  "compute.reservationSubBlocks.getIamPolicy": [
+   {
+    "permission": "compute.reservationSubBlocks.getIamPolicy"
+   }
+  ],
+  "compute.reservationSubBlocks.getVersion": [
+   {
+    "permission": "compute.reservationSubBlocks.get"
+   }
+  ],
+  "compute.reservationSubBlocks.setIamPolicy": [
+   {
+    "permission": "compute.reservationSubBlocks.setIamPolicy"
+   }
+  ],
+  "compute.reservations.getIamPolicy": [
+   {
+    "permission": "compute.reservations.getIamPolicy"
+   }
+  ],
+  "compute.reservations.setIamPolicy": [
+   {
+    "permission": "compute.reservations.setIamPolicy"
+   }
+  ],
+  "compute.routers.deleteNamedSet": [
+   {
+    "permission": "compute.routers.deleteNamedSet"
+   }
+  ],
+  "compute.routers.getNamedSet": [
+   {
+    "permission": "compute.routers.getNamedSet"
+   }
+  ],
+  "compute.routers.getNatIpInfo": [
+   {
+    "permission": "compute.routers.get"
+   }
+  ],
+  "compute.routers.getNatMappingInfo": [
+   {
+    "permission": "compute.routers.get"
+   }
+  ],
+  "compute.routers.getRouterStatus": [
+   {
+    "permission": "compute.routers.get"
+   }
+  ],
+  "compute.routers.listNamedSets": [
+   {
+    "permission": "compute.routers.listNamedSets"
+   }
+  ],
+  "compute.routers.patchNamedSet": [
+   {
+    "permission": "compute.routers.updateNamedSet"
+   }
+  ],
+  "compute.routers.patchRoutePolicy": [
+   {
+    "permission": "compute.routers.updateRoutePolicy"
+   }
+  ],
+  "compute.routers.preview": [
+   {
+    "permission": "compute.routers.get"
+   }
+  ],
+  "compute.routers.updateNamedSet": [
+   {
+    "permission": "compute.routers.updateNamedSet"
+   }
+  ],
+  "compute.securityPolicies.addRule": [
+   {
+    "permission": "compute.securityPolicies.update"
+   }
+  ],
+  "compute.securityPolicies.getRule": [
+   {
+    "permission": "compute.securityPolicies.get"
+   }
+  ],
+  "compute.securityPolicies.listPreconfiguredExpressionSets": [
+   {
+    "permission": "compute.securityPolicies.list"
+   }
+  ],
+  "compute.securityPolicies.patchRule": [
+   {
+    "permission": "compute.securityPolicies.update"
+   }
+  ],
+  "compute.securityPolicies.removeRule": [
+   {
+    "permission": "compute.securityPolicies.update"
+   }
+  ],
+  "compute.storagePoolTypes.aggregatedList": [
+   {
+    "permission": "compute.storagePoolTypes.list"
+   }
+  ],
+  "compute.storagePoolTypes.get": [
+   {
+    "permission": "compute.storagePoolTypes.get"
+   }
+  ],
+  "compute.storagePoolTypes.list": [
+   {
+    "permission": "compute.storagePoolTypes.list"
+   }
+  ],
+  "compute.storagePools.listDisks": [
+   {
+    "permission": "compute.storagePools.get"
+   }
+  ],
+  "compute.targetPools.getHealth": [
+   {
+    "permission": "compute.targetPools.get"
+   }
+  ],
+  "compute.targetPools.setBackup": [
+   {
+    "permission": "compute.targetPools.update"
+   }
+  ],
+  "compute.targetTcpProxies.setBackendService": [
+   {
+    "permission": "compute.backendServices.use",
+    "on": "field:service",
+    "optional": true
+   }
+  ],
+  "compute.targetTcpProxies.setProxyHeader": [
+   {
+    "permission": "compute.targetTcpProxies.update"
+   }
+  ],
+  "compute.vpnGateways.getStatus": [
+   {
+    "permission": "compute.vpnGateways.get"
+   }
+  ],
+  "compute.zoneOperations.wait": [
+   {
+    "permission": "compute.zoneOperations.get"
+   }
+  ],
+  "compute.zoneVmExtensionPolicies.delete": [
+   {
+    "permission": "compute.vmExtensionPolicies.delete"
+   }
+  ],
+  "compute.zoneVmExtensionPolicies.get": [
+   {
+    "permission": "compute.vmExtensionPolicies.get"
+   }
+  ],
+  "compute.zoneVmExtensionPolicies.insert": [
+   {
+    "permission": "compute.vmExtensionPolicies.create"
+   }
+  ],
+  "compute.zoneVmExtensionPolicies.list": [
+   {
+    "permission": "compute.vmExtensionPolicies.list"
+   }
+  ],
+  "compute.zoneVmExtensionPolicies.update": [
+   {
+    "permission": "compute.vmExtensionPolicies.update"
+   }
+  ],
+  "eventarc.projects.locations.getGoogleChannelConfig": [
+   {
+    "permission": "eventarc.googleChannelConfigs.get"
+   }
+  ],
+  "eventarc.projects.locations.messageBuses.listEnrollments": [
+   {
+    "permission": "eventarc.messageBuses.get"
+   }
+  ],
+  "iamcredentials.locations.workforcePools.getAllowedLocations": [
+   {
+    "permission": "iam.workforcePools.get"
+   }
+  ],
+  "iamcredentials.projects.locations.workloadIdentityPools.getAllowedLocations": [
+   {
+    "permission": "iam.workloadIdentityPools.get"
+   }
+  ],
+  "iamcredentials.projects.serviceAccounts.getAllowedLocations": [
+   {
+    "permission": "iam.serviceAccounts.get"
+   }
+  ],
+  "logging.billingAccounts.locations.recentQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.billingAccounts.locations.savedQueries.create": [
+   {
+    "permission": "logging.queries.create"
+   }
+  ],
+  "logging.billingAccounts.locations.savedQueries.delete": [
+   {
+    "permission": "logging.queries.delete"
+   }
+  ],
+  "logging.billingAccounts.locations.savedQueries.get": [
+   {
+    "permission": "logging.queries.get"
+   }
+  ],
+  "logging.billingAccounts.locations.savedQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.folders.locations.recentQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.folders.locations.savedQueries.create": [
+   {
+    "permission": "logging.queries.create"
+   }
+  ],
+  "logging.folders.locations.savedQueries.delete": [
+   {
+    "permission": "logging.queries.delete"
+   }
+  ],
+  "logging.folders.locations.savedQueries.get": [
+   {
+    "permission": "logging.queries.get"
+   }
+  ],
+  "logging.folders.locations.savedQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.organizations.locations.recentQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.organizations.locations.savedQueries.create": [
+   {
+    "permission": "logging.queries.create"
+   }
+  ],
+  "logging.organizations.locations.savedQueries.delete": [
+   {
+    "permission": "logging.queries.delete"
+   }
+  ],
+  "logging.organizations.locations.savedQueries.get": [
+   {
+    "permission": "logging.queries.get"
+   }
+  ],
+  "logging.organizations.locations.savedQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.projects.locations.recentQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
+  "logging.projects.locations.savedQueries.create": [
+   {
+    "permission": "logging.queries.create"
+   }
+  ],
+  "logging.projects.locations.savedQueries.delete": [
+   {
+    "permission": "logging.queries.delete"
+   }
+  ],
+  "logging.projects.locations.savedQueries.get": [
+   {
+    "permission": "logging.queries.get"
+   }
+  ],
+  "logging.projects.locations.savedQueries.list": [
+   {
+    "permission": "logging.queries.list"
+   }
+  ],
   "pubsub.projects.schemas.commit": [
    {
     "permission": "pubsub.schemas.commit"
@@ -30008,6 +31956,66 @@
    }
   ],
   "pubsub.projects.topics.testIamPermissions": [],
+  "run.namespaces.authorizeddomains.list": [
+   {
+    "permission": "run.authorizeddomains.list"
+   }
+  ],
+  "run.namespaces.domainmappings.create": [
+   {
+    "permission": "run.domainmappings.create"
+   }
+  ],
+  "run.namespaces.domainmappings.delete": [
+   {
+    "permission": "run.domainmappings.delete"
+   }
+  ],
+  "run.namespaces.domainmappings.get": [
+   {
+    "permission": "run.domainmappings.get"
+   }
+  ],
+  "run.namespaces.domainmappings.list": [
+   {
+    "permission": "run.domainmappings.list"
+   }
+  ],
+  "run.namespaces.instances.replaceInstance": [
+   {
+    "permission": "run.instances.update"
+   }
+  ],
+  "run.namespaces.workerpools.replaceWorkerPool": [
+   {
+    "permission": "run.workerpools.update"
+   }
+  ],
+  "run.projects.locations.sourceUploads.upload": [
+   {
+    "permission": "run.locations.uploadSource"
+   }
+  ],
+  "serviceusage.services.batchGet": [
+   {
+    "permission": "serviceusage.services.get"
+   }
+  ],
+  "spanner.projects.instances.databases.sessions.adaptMessage": [
+   {
+    "permission": "spanner.databases.adapt"
+   }
+  ],
+  "spanner.projects.instances.databases.sessions.adapter": [
+   {
+    "permission": "spanner.sessions.create"
+   }
+  ],
+  "spanner.projects.instances.move": [
+   {
+    "permission": "spanner.instances.update"
+   }
+  ],
   "storage.anywhereCaches.disable": [
    {
     "permission": "storage.anywhereCaches.disable"

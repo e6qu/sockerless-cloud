@@ -228,6 +228,48 @@ check_gcp_doc() {
   rm -f "$page"
 }
 
+# check_gcp_method_table re-reads a sample of the reference pages
+# method-permissions.json.gz was compiled from, a different slice each day, and
+# reports drift when a page was updated after the table read it. Checking every
+# page would fetch some 350 pages of 2 MB each per run.
+check_gcp_method_table() {
+  local sources="$1" file="$2" pin="$3" size="${SPEC_FRESHNESS_GCP_SAMPLE:-8}"
+  local table="$ROOT/specs/cloud-api/gcp/$file" rows count day start i page updated live body stale=""
+  if ! [[ "$size" =~ ^[1-9][0-9]*$ ]]; then
+    echo "SPEC_FRESHNESS_GCP_SAMPLE must be a positive integer, got $size" >&2
+    fail=1
+    return 0
+  fi
+  mapfile -t rows < <(gzip -dc "$table" | jq -r '.methods | to_entries | sort_by(.key)[] | "\(.value.page) \(.value.updated)"')
+  count="${#rows[@]}"
+  if [ "$count" -eq 0 ]; then
+    echo "?     $file: holds no methods"
+    fail=1
+    return 0
+  fi
+  day=$(( $(date -u +%s) / 86400 ))
+  start=$(( (day * size) % count ))
+  body="$(mktemp)"
+  for ((i = 0; i < size && i < count; i++)); do
+    read -r page updated <<<"${rows[$(( (start + i) % count ))]}"
+    if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$body" "https://docs.cloud.google.com$page" 2>/dev/null; then
+      echo "?     $file: cannot fetch $page"
+      fail=1
+      continue
+    fi
+    live="$(grep -o 'Last updated [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} UTC' "$body" | head -1 | sed 's/Last updated \(.*\) UTC/\1/')"
+    if [ -n "$live" ] && [[ "$updated" < "$live" ]]; then
+      stale="$stale $page ($updated, now $live)"
+    fi
+  done
+  rm -f "$body"
+  if [ -n "$stale" ]; then
+    report_drift "$sources" "$file" "$pin" "$file: reference pages updated since the table read them:$stale"
+  else
+    echo "ok    $file ($size of $count reference pages sampled, none updated since $pin)"
+  fi
+}
+
 check_gcp() {
   local sources="$ROOT/specs/cloud-api/gcp/SOURCES.md"
   local probes="${SPEC_FRESHNESS_GCP_PROBES:-3}"
@@ -249,8 +291,12 @@ check_gcp() {
     srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
     url="https://$host/${srcpath//\\/}"
-    case "$pin" in modified*)
+    case "$pin" in
+    modified*)
       check_gcp_doc "$sources" "$file" "$url" "$pin" "$capture_dir"
+      continue ;;
+    sampled*)
+      check_gcp_method_table "$sources" "$file" "$pin"
       continue ;;
     esac
     revisions=()

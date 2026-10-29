@@ -294,6 +294,22 @@ func serviceAgents(page string) []serviceAgent {
 	return out
 }
 
+// referenceMethods reads the permissions the methods' REST reference pages
+// state, which scripts/fetch-gcp-method-permissions.go compiles.
+func referenceMethods() map[string][]requirement {
+	var tbl struct {
+		Methods map[string]struct {
+			Requirements []requirement `json:"requirements"`
+		} `json:"methods"`
+	}
+	check(json.Unmarshal([]byte(readPage("method-permissions.json.gz")), &tbl))
+	out := map[string][]requirement{}
+	for id, row := range tbl.Methods {
+		out[id] = row.Requirements
+	}
+	return out
+}
+
 func storageDiscoveryMethods() map[string]bool {
 	f, err := os.Open(specDir + "storage-v1.discovery.json.gz")
 	check(err)
@@ -355,9 +371,14 @@ func main() {
 	for id, reqs := range pubsubMethods(readPage("pubsub-access-control.md.gz")) {
 		methods[id] = reqs
 	}
+	for id, reqs := range referenceMethods() {
+		if _, ok := methods[id]; !ok {
+			methods[id] = reqs
+		}
+	}
 	agents := serviceAgents(readPage("iam-service-agents.md.gz"))
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Email < agents[j].Email })
-	sources = append(sources, "storage-iam-json.md.gz", "pubsub-access-control.md.gz", "storage-iam-roles.md.gz", "iam-service-agents.md.gz")
+	sources = append(sources, "storage-iam-json.md.gz", "pubsub-access-control.md.gz", "method-permissions.json.gz", "storage-iam-roles.md.gz", "iam-service-agents.md.gz")
 
 	payload := struct {
 		Sources           []string                 `json:"sources"`
@@ -370,8 +391,8 @@ func main() {
 	}{
 		Sources: sources,
 		Note: "Compiled by scripts/gen-gcp-iam-catalog.go from the pages under specs/cloud-api/gcp/: predefined roles and " +
-			"the permissions each served service defines, the permissions Cloud Storage's JSON methods and Pub/Sub's methods " +
-			"require (keyed by Discovery method ID), the Cloud Storage permissions basic roles hold intrinsically, and the " +
+			"the permissions each served service defines, the permissions Cloud Storage's JSON methods, Pub/Sub's methods and " +
+			"the methods whose REST reference pages state one require (keyed by Discovery method ID), the Cloud Storage permissions basic roles hold intrinsically, and the " +
 			"service agents granted a role on their project.",
 		Roles:             roles,
 		Permissions:       permissions,

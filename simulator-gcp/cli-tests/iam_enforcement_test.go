@@ -81,3 +81,35 @@ func TestIAMEnforcementProjectCreatorOwnsProjectCLI(t *testing.T) {
 	assert.Contains(t, policy, `"serviceAccount:`+email+`"`)
 	runCLI(t, gcloudSAActivatedCLI(saConfig, "projects", "delete", id, "--quiet"))
 }
+
+// A method's REST reference page names its permission: Compute Viewer holds
+// compute.instanceGroupManagers.get, which listManagedInstances requires, and
+// not compute.instanceGroupManagers.update, which resize requires.
+func TestIAMEnforcementReferencePagePermissionsCLI(t *testing.T) {
+	t.Parallel()
+	accountID := uniquename.New("cli-mig-viewer")
+	email := accountID + "@" + project + ".iam.gserviceaccount.com"
+	template := uniquename.New("cli-mig-tmpl")
+	group := uniquename.New("cli-mig")
+	const zone = "us-central1-a"
+
+	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID, "--format=json"))
+	keyFile := filepath.Join(tmpDir, accountID+".json")
+	runCLI(t, gcloudCLI("iam", "service-accounts", "keys", "create", keyFile, "--iam-account="+email))
+	runCLI(t, gcloudCLI("compute", "instance-templates", "create", template, "--machine-type=n1-standard-1", "--quiet"))
+	runCLI(t, gcloudCLI("compute", "instance-groups", "managed", "create", group,
+		"--template="+template, "--size=0", "--zone="+zone))
+	runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", project,
+		"--member=serviceAccount:"+email, "--role=roles/compute.viewer"))
+
+	saConfig := filepath.Join(tmpDir, "gcloud-"+accountID)
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "config", "set", "auth/token_host", baseURL+"/token"))
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "config", "set", "api_endpoint_overrides/compute", baseURL+"/"))
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "auth", "activate-service-account", "--key-file="+keyFile))
+
+	runCLI(t, gcloudSAActivatedCLI(saConfig, "compute", "instance-groups", "managed", "list-instances", group,
+		"--zone="+zone, "--format=json"))
+	out := gcloudCLIFails(t, gcloudSAActivatedCLI(saConfig, "compute", "instance-groups", "managed", "resize", group,
+		"--size=1", "--zone="+zone))
+	assert.Contains(t, out, "compute.instanceGroupManagers.update", "a viewer resizes the group: %s", out)
+}
