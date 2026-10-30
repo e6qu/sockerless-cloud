@@ -369,7 +369,7 @@ and checks that the answer names the task.
 The root `GET /` with `Metadata-Flavor: Google` from a workload answers the
 listing `computeMetadata/`. It is the residency probe the Google auth
 libraries send before they resolve Application Default Credentials.
-`registerComputeMetadataDirectories` handles it in a wrapper ahead of the mux,
+`registerMetadataResidencyProbe` handles it in a wrapper ahead of the mux,
 because the console also owns `/`.
 
 `simulator-gcp/token_signing.go` exempts `/computeMetadata/` from bearer
@@ -377,39 +377,71 @@ authentication.
 
 ### Paths
 
-`registerComputeMetadata` (`simulator-gcp/metadata.go`) serves the leaves, and
-one tree, `gceMetadataEntry`, describes the directories, the listings and the
-recursive JSON. Leaves answer `Content-Type: application/text`. Only
-`cloudrun-container-contract.md.gz` under `specs/cloud-api/gcp/` is vendored;
-no Compute Engine metadata page is.
+`registerComputeMetadata` (`simulator-gcp/metadata.go`) mounts one handler on
+`/computeMetadata/v1/{path...}`, and `resolveMetadataPath` walks one tree,
+`gceMetadataEntry`, to answer it, so a listing never names a key that does not
+answer. The vendored sources under `specs/cloud-api/gcp/` are
+`compute-metadata-predefined-keys.md.gz`, `compute-metadata-querying.md.gz`,
+`compute-verifying-instance-identity.md.gz`,
+`compute-metadata-guest-attributes.md.gz`,
+`compute-metadata-live-migration-notice.md.gz` and
+`cloudrun-container-contract.md.gz`. Each workload reads only the keys its
+service documents; any other key answers **404**.
 
 | Path under `/computeMetadata/v1/` | Answer | Value from | Source |
 |---|---|---|---|
-| `project/project-id` | Text | The workload's project, resolved through Cloud Resource Manager | Cloud Run contract |
-| `project/numeric-project-id` | Text, or 404 when Cloud Resource Manager holds no number | Cloud Resource Manager | Cloud Run contract |
-| `project/attributes/`, `project/attributes/{key}` | Listing; text | `commonInstanceMetadata` of the project (`gceProjectAttributes`) | none vendored |
-| `instance/id` | Text | Compute Engine: the instance's numeric `id`. Cloud Run: the container's engine ID. Cloud Build: `1000000000001` | Cloud Run contract |
-| `instance/name` | Text | The instance's name, else `sim-instance-1` | none vendored |
-| `instance/hostname` | Text | `<name>.<zone>.c.<project>.internal` | none vendored |
-| `instance/zone` | Text | `projects/<number>/zones/<zone>`; for Cloud Run `projects/<number>/zones/<region>-1`; for Cloud Build the `zone` query parameter or `us-central1-a` | Cloud Run container contract |
+| `project/project-id` | Text | The workload's project, resolved through Cloud Resource Manager | Predefined keys |
+| `project/numeric-project-id` | Text, or 404 when Cloud Resource Manager holds no number | Cloud Resource Manager | Predefined keys |
+| `project/attributes/`, `project/attributes/{key}` | Listing; text | `commonInstanceMetadata` of the project (`gceProjectAttributes`) | Predefined keys |
+| `instance/id` | Text | Compute Engine: the instance's numeric `id`. Cloud Run: the container's engine ID. Cloud Build: 404 | Predefined keys, Cloud Run contract |
+| `instance/name`, `instance/hostname` | Text | Compute Engine only: the name, and `<name>.<zone>.c.<project>.internal` | Predefined keys |
+| `instance/zone` | Text | Compute Engine: `projects/<number>/zones/<zone>`. Cloud Run: `projects/<number>/zones/<region>-1`. Cloud Build: 404 | Predefined keys, Cloud Run contract |
 | `instance/region` | Text, Cloud Run only | `projects/<number>/regions/<region>` from the resource name | Cloud Run contract |
-| `instance/attributes/`, `instance/attributes/{key}` | Listing; text | The instance's `metadata.items`, `startup-script` and `user-data` among them; empty outside Compute Engine | none vendored |
-| `instance/network-interfaces/`, `…/{nic}/`, `…/{nic}/{key}` | Listing; text | Compute Engine only: `ip`, `mac`, `mtu` (1460), `network` (`projects/<number>/networks/<name>`), `gateway`, `subnetmask`, and on interface 0 `dns-servers` | Cloud Run contract (worker pools) |
-| `instance/network-interfaces/{nic}/access-configs/{n}/{key}` | Text | `external-ip`, `type` | none vendored |
-| `instance/service-accounts/` | Listing `default/` and `<email>/` | The workload's account | none vendored |
-| `instance/service-accounts/{sa}/` | Listing `aliases`, `email`, `identity`, `scopes`, `token` | `{sa}` is `default` or the account's email | none vendored |
+| `instance/machine-type` | Text, Compute Engine only | `projects/<number>/machineTypes/<type>` | Predefined keys |
+| `instance/image` | Text, Compute Engine only | `projects/<image-project>/global/images/<name>` the boot disk was initialized from (`gcpInstanceBootImage`) | Predefined keys |
+| `instance/cpu-platform` | Text, Compute Engine only | The instance's `cpuPlatform`: its `minCpuPlatform`, or the zone's `Intel Skylake` | Predefined keys |
+| `instance/description` | Text, Compute Engine only | The instance's `description` | Predefined keys |
+| `instance/tags` | JSON array by default, Compute Engine only | `tags.items`, which `setTags` changes | Querying metadata |
+| `instance/maintenance-event` | `NONE`, Compute Engine only | The simulator runs no host maintenance | Live migration notices |
+| `instance/disks/`, `…/{n}/`, `…/{n}/{key}` | Listing; text | Compute Engine only: `device-name`, `index`, `interface`, `mode`, `type` of each attached disk | Predefined keys |
+| `instance/guest-attributes/`, `…/{namespace}/`, `…/{namespace}/{key}` | Listing; text; **403** `Guest attributes endpoint access is disabled.` unless `enable-guest-attributes` is `TRUE` on the instance or its project | What the guest wrote | Guest attributes |
+| `instance/attributes/`, `instance/attributes/{key}` | Listing; text | The instance's `metadata.items`, `startup-script` and `user-data` among them; empty outside Compute Engine | Predefined keys |
+| `instance/network-interfaces/`, `…/{nic}/`, `…/{nic}/{key}` | Listing; text | Compute Engine: `ip`, `mac`, `mtu` (1460), `network` (`projects/<number>/networks/<name>`), `gateway`, `subnetmask`, and on interface 0 `dns-servers`. A Cloud Run worker pool or instance with Direct VPC: `0/ip`, its address on the subnetwork. Otherwise empty | Predefined keys, Cloud Run contract |
+| `instance/network-interfaces/{nic}/access-configs/{n}/{key}` | Text | `external-ip`, `type` | Predefined keys |
+| `instance/service-accounts/` | Listing `default/` and `<email>/` | The workload's account | Predefined keys |
+| `instance/service-accounts/{sa}/` | Listing `aliases`, `email`, `identity`, `scopes`, `token` | `{sa}` is `default` or the account's email | Predefined keys |
 | `instance/service-accounts/{sa}/email` | Text | The account | Cloud Run contract |
-| `instance/service-accounts/{sa}/aliases` | `default` | Fixed | none vendored |
-| `instance/service-accounts/{sa}/scopes` | `https://www.googleapis.com/auth/cloud-platform` | Fixed | none vendored |
-| `instance/service-accounts/{sa}/token` | JSON `access_token`, `expires_in`, `token_type: Bearer` | `signAccessToken` | Cloud Run contract |
-| `instance/service-accounts/{sa}/identity?audience=…` | JWT text; **400** without `audience` | `signIdentityToken` | none vendored |
+| `instance/service-accounts/{sa}/aliases` | `default` | Fixed | Predefined keys |
+| `instance/service-accounts/{sa}/scopes` | One scope per line | Compute Engine: the scopes of the instance's `serviceAccounts[0]`. Cloud Run and Cloud Build: `cloud-platform` | Predefined keys |
+| `instance/service-accounts/{sa}/token` | JSON `access_token`, `expires_in`, `token_type: Bearer` | `signScopedAccessToken` | Querying metadata |
+| `instance/service-accounts/{sa}/identity?audience=…` | JWT text; **400** without `audience` | `signIdentityTokenWith` | Verify VM identity |
 | `universe/universe-domain` | `googleapis.com` | Fixed | none vendored |
 
 An account other than the workload's own, under its email or any other name,
-answers **404**. The `scopes` and `format` query parameters of `token` and
-`identity` are not read.
+answers **404**.
 
-### Directories, recursion and waiting
+- **`token`** carries the account's scopes. With `enforce_scopes` set to
+  `true`, `1`, `yes` or `y`, or with `enable-access-token-enforce-scopes` set
+  to `TRUE` on the instance or its project, a `scopes` parameter (a
+  comma-separated list) downscopes the token to the scopes it names; a scope
+  the account does not hold answers **400**. Any other `enforce_scopes` value
+  answers **400** (`metadataTokenScopes`).
+- **`identity`** takes `format` (`standard`, the default, or `full`) and
+  `licenses` (`TRUE` or `FALSE`); any other value answers **400**. A Compute
+  Engine instance's `full` token carries `google.compute_engine` with
+  `project_id`, `project_number`, `zone`, `instance_id`, `instance_name` and
+  `instance_creation_timestamp`, and with `licenses=TRUE` `license_id`: the
+  codes the licences collection issued for the licences of the boot image
+  (`gceIdentityInstanceClaims`).
+- **Guest attributes.** A guest `PUT`s a value (at most 256 KiB) to
+  `instance/guest-attributes/{namespace}/{key}` and `DELETE`s it there; a
+  namespace or key outside `[A-Za-z0-9_-]`, or a key over 128 bytes, answers
+  **400** (`registerGuestAttributeWrites`,
+  `simulator-gcp/metadata_guest_attributes.go`).
+  `instances.getGuestAttributes` reads them from outside by `queryPath` or
+  `variableKey`, and a deleted instance's attributes go with it.
+
+### Directories, recursion and formats
 
 - A directory path ending in `/` answers its children, one per line, a
   directory child with a trailing slash. The same path without the slash
@@ -418,20 +450,24 @@ answers **404**. The `scopes` and `format` query parameters of `token` and
 - `?recursive=true` on a directory answers the subtree as JSON, each
   kebab-case key spelled in camelCase (`numeric-project-id` becomes
   `numericProjectId`), with `token` and `identity` left out
-  (`metadataRecursiveValue`). Attribute keys and interface indexes keep their
-  own spelling.
-- `alt` is not read: a leaf always answers text and a recursive directory
-  always answers JSON.
+  (`metadataRecursiveValue`). `disks/`, `network-interfaces/` and
+  `access-configs/` are arrays. Attribute keys and guest attribute names keep
+  their own spelling.
+- `alt=json` answers a leaf as JSON (`id` as a number) and a listing as a JSON
+  array; `alt=text` answers a list such as `tags` one value per line and a
+  recursive directory as `path value` lines, `0/device-name boot`. Any other
+  `alt` answers **400** (`metadataFormat`).
 - Every answer carries an `ETag`: the first 8 bytes of the SHA-256 of the body,
   in hex (`gceMetadataAnswer.etag`, `simulator-gcp/metadata_wait.go`).
 - `?wait_for_change=true` holds the read until the body's ETag differs from
   `last_etag`, or from the body when the read arrived if no `last_etag` was
   sent (`gceMetadataServe`). `timeout_sec` bounds the wait and answers the
   content as it then is; a value that is not a non-negative integer answers
-  **400** `Non-negative integer expected for timeout_sec`. The wait sleeps on
-  `gceMetadataChanges`, which every store the tree renders from announces its
-  writes to; no timer polls. A key that a write removes ends the wait with
-  **404**.
+  **400** `Non-negative integer expected for timeout_sec`. A wait on a
+  directory listing, rather than its recursive form, or on `token` or
+  `identity`, answers **400**. The wait sleeps on `gceMetadataChanges`, which
+  every store the tree renders from announces its writes to; no timer polls. A
+  key that a write removes ends the wait with **404**.
 
 ### Cloud Run, Cloud Run functions and Cloud Build
 
@@ -441,9 +477,11 @@ region from the resource name and the service account from the revision,
 instance, execution template or worker-pool template. A Cloud Run functions
 function runs as the Cloud Run service it creates (`cloudfunctions.go`), so it
 is placed the same way. A Cloud Build step is placed by
-`cloudBuildWorkloadFromLabels` and runs as the build's service account. On
-Cloud Run, `instance/region` is served, `instance/attributes/` is empty and
-`instance/network-interfaces/` is empty. A revision's containers also get
+`cloudBuildWorkloadFromLabels` and runs as the build's service account. Cloud
+Run reads the instance keys its container contract states: `id`, `region`, the
+`<region>-1` `zone`, and for a worker pool or instance with Direct VPC
+(`cloudRunDirectVPC`) `network-interfaces/0/ip`. Cloud Build documents no
+instance keys, so a step reads none. A revision's containers also get
 `K_SERVICE`, `K_REVISION` and `K_CONFIGURATION` (`cloudrunservices.go`).
 
 ### How Google Cloud mints tokens
@@ -455,26 +493,29 @@ Compute Engine default service account,
 number, the workload has no account and `service-accounts/` is empty
 (`defaultServiceAccount`).
 
-- **Access token.** `signAccessToken` signs an RS256 JWT with the simulator's
-  access-token key: `iss`, `aud` (the simulator's access-token audience),
-  `sub` (the account email), `iat`, `exp` and `scope: cloud-platform`. It
-  lasts one hour. Every request mints a new one; the endpoint keeps no cache.
-  The simulator's bearer middleware verifies it like any other token, so the
-  workload calls Google Cloud APIs with it.
-- **ID token.** `signIdentityToken` signs an RS256 JWT with `aud` set to the
-  requested audience and `azp`, `sub` and `email` set to the account email,
-  `email_verified: true`, valid for one hour. A Cloud Run service's invoker
-  check accepts it. A Google API refuses it as an access token
+- **Access token.** `signScopedAccessToken` signs an RS256 JWT with the
+  simulator's access-token key: `iss`, `aud` (the simulator's access-token
+  audience), `sub` (the account email), `iat`, `exp` and `scope`, the granted
+  scopes separated by spaces. It lasts one hour. Every request mints a new one;
+  the endpoint keeps no cache. The simulator's bearer middleware verifies it
+  like any other token, so the workload calls Google Cloud APIs with it.
+- **ID token.** `signIdentityTokenWith` signs an RS256 JWT with `aud` set to
+  the requested audience and `azp`, `sub` and `email` set to the account
+  email, `email_verified: true`, valid for one hour. A Cloud Run service's
+  invoker check accepts it. A Google API refuses it as an access token
   (`TestMetadata_CloudRunReadsThroughTheOfficialClient`).
 
 ### Instance data's sources
 
 | Field | Source |
 |---|---|
-| `id`, `name`, `zone` | The `ComputeInstance` record, read again at each request so `setMetadata` and `setTags` apply at once |
+| `id`, `name`, `zone`, `machine-type`, `description`, `tags`, `disks/*`, `cpu-platform` | The `ComputeInstance` record, read again at each request so `setMetadata` and `setTags` apply at once |
+| `image` | The boot disk's `initializeParams.sourceImage`, or its disk's `sourceImage` |
 | `attributes/*` | `metadata.items` from `instances.insert` and `setMetadata` |
+| `guest-attributes/*` | What the guest wrote, held per instance in `compute_guest_attributes` |
 | `network-interfaces/*` | `networkInterfaces[n]`, its subnetwork's `gatewayAddress` and `ipCidrRange`; `mac` from `gceInterfaceMAC` of the address |
 | `dns-servers` | The resolver the machine booted with |
+| `scopes` | `serviceAccounts[0].scopes` |
 | `project/attributes/*` | `projects.setCommonInstanceMetadata` |
 | `numeric-project-id` | Cloud Resource Manager |
 
@@ -518,13 +559,15 @@ curl -s -H 'Metadata-Flavor: Google' \
 | Suite | Test | Covers |
 |---|---|---|
 | SDK | `TestMetadata_FromOutsideEveryWorkload` (`sdk-tests/metadata_test.go`) | 404 without the flavor header coming back for a non-workload |
-| SDK | `TestMetadata_CloudRunReadsThroughTheOfficialClient` | `cloud.google.com/go/compute/metadata`, listings, recursive reads, flavor header, residency probe, access and ID tokens, empty attributes, Application Default Credentials |
+| SDK | `TestMetadata_CloudRunReadsThroughTheOfficialClient` | `cloud.google.com/go/compute/metadata`, listings, recursive reads, the Cloud Run instance keys and the ones it lacks, `alt`, enforced scopes, flavor header, residency probe, access and ID tokens, empty attributes, Application Default Credentials |
+| SDK | `TestMetadata_CloudRunDirectVPCReadsItsAddress` | `network-interfaces/0/ip` of a Cloud Run instance with Direct VPC |
 | SDK | `TestMetadata_CloudRunSubscribesToProjectAttributes` | `Subscribe`: `wait_for_change` with `last_etag`, a change and a removal |
 | SDK | `TestMetadataSDK_CloudRunWorkloadIdentity` (`metadata_credentials_test.go`) | The workload's identity through the official client |
-| SDK | `TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk` | Instance and project keys from a Compute Engine guest |
+| SDK | `TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk` | Instance and project keys from a Compute Engine guest, a downscoped token, a full identity token, and a guest attribute read back through `instances.getGuestAttributes` |
 | CLI | `TestGCEMetadataServerGcloudCredentials` (`cli-tests/metadata_gcloud_test.go`) | `gcloud auth list`, `print-access-token`, `application-default print-access-token` inside a Cloud Run job's network namespace |
-| CLI | `TestGcloudComputeInstances_Lifecycle` (`cli-tests/compute_instances_test.go`) | `instance/name` from a guest |
+| CLI | `TestGcloudComputeInstances_Lifecycle` (`cli-tests/compute_instances_test.go`) | `instance/name` from a guest; a guest attribute read back with `gcloud compute instances get-guest-attributes` |
 | Unit | `TestMetadataDirectoryListingsResolve`, `TestMetadataRootResidencyProbe`, `TestMetadataDirectoryRedirectsToTrailingSlash`, `TestMetadataRecursiveOmitsMintedLeaves`, `TestMetadataDirectoryRequiresFlavorHeader`, `TestMetadataReadWaitsForAChange`, `TestMetadataPlacesCloudRunWorkloads` | The tree, redirects, recursion and waits |
+| Unit | `TestMetadataServesTheInstanceKeys`, `TestMetadataTokenScopes`, `TestMetadataIdentityFormats`, `TestMetadataGuestAttributes`, `TestMetadataServesWhatEachServiceDocuments` (`metadata_keys_test.go`) | Every instance key and format, scopes, identity formats, guest attributes, and the keys Cloud Run and Cloud Build read |
 | Terraform | none | The provider reads no metadata server |
 
 ## Azure

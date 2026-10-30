@@ -181,11 +181,31 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 			if wasRunning {
 				transition = "PowerState/stopping"
 			}
-			if !azureClaimVMOperation(id, transition) {
+			// A redeploy of a machine with Scheduled Events on waits for its
+			// Redeploy event, and the machine keeps running until the event starts.
+			scheduled := action == "redeploy" && azureScheduledEventsEnabled(id)
+			claimTransition := transition
+			if scheduled {
+				claimTransition = ""
+			}
+			if !azureClaimVMOperation(id, claimTransition) {
 				azureVMOperationConflict(w, action, id)
 				return
 			}
+			var event *azureScheduledEvent
+			if scheduled {
+				event = azureScheduleVMEvent(vm, azureRedeployEvent)
+			}
 			opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+				if scheduled {
+					if event != nil {
+						azureStartScheduledEvent(ctx, id, event)
+						defer azureEndScheduledEvent(id, event)
+					}
+					if transition != "" {
+						azureVMStates.Put(id, transition)
+					}
+				}
 				if err := azureHaltVM(ctx, id); err != nil {
 					azureVMStates.Put(id, priorState)
 					return azureVMHaltFailure(id, err)
@@ -231,17 +251,36 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 		}
 		deletes := strings.EqualFold(vm.Properties.EvictionPolicy, "Delete")
 		priorState, _ := azureVMStates.Get(id)
+		// An eviction of a machine with Scheduled Events on waits for its
+		// Preempt event, and the machine keeps running until the event starts.
+		scheduled := azureScheduledEventsEnabled(id)
 		var claimed bool
-		if deletes {
+		switch {
+		case deletes:
 			claimed = azureClaimVMOperationAs(id, "Deleting", "")
-		} else {
+		case scheduled:
+			claimed = azureClaimVMOperation(id, "")
+		default:
 			claimed = azureClaimVMOperation(id, "PowerState/deallocating")
 		}
 		if !claimed {
 			azureVMOperationConflict(w, "SimulateEviction", id)
 			return
 		}
+		var event *azureScheduledEvent
+		if scheduled {
+			event = azureScheduleVMEvent(vm, azurePreemptEvent)
+		}
 		azureRunVMWork(id, func(ctx context.Context) *AsyncOperationError {
+			if scheduled {
+				if event != nil {
+					azureStartScheduledEvent(ctx, id, event)
+					defer azureEndScheduledEvent(id, event)
+				}
+				if !deletes {
+					azureVMStates.Put(id, "PowerState/deallocating")
+				}
+			}
 			if deletes {
 				if err := azureDestroyVM(ctx, vm); err != nil {
 					logger.Error().Err(err).Str("vm", id).Msg("failed to delete an evicted virtual machine")

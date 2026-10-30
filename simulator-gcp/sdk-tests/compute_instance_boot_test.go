@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -125,6 +127,21 @@ echo "subnetmask=$(md /computeMetadata/v1/instance/network-interfaces/0/subnetma
 echo "network=$(md /computeMetadata/v1/instance/network-interfaces/0/network)"
 echo "external-ip=$(md /computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)"
 echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
+echo "machine-type=$(md /computeMetadata/v1/instance/machine-type)"
+echo "cpu-platform=$(md /computeMetadata/v1/instance/cpu-platform)"
+echo "image=$(md /computeMetadata/v1/instance/image)"
+echo "description=$(md /computeMetadata/v1/instance/description)"
+echo "tags=$(md /computeMetadata/v1/instance/tags)"
+echo "tags-text=$(md '/computeMetadata/v1/instance/tags?alt=text' | tr '\n' ',')"
+echo "disks=$(md '/computeMetadata/v1/instance/disks/?recursive=true')"
+echo "maintenance-event=$(md /computeMetadata/v1/instance/maintenance-event)"
+echo "scopes=$(md /computeMetadata/v1/instance/service-accounts/default/scopes | tr '\n' ',')"
+echo "downscoped=$(md '/computeMetadata/v1/instance/service-accounts/default/token?enforce_scopes=true&scopes=https://www.googleapis.com/auth/devstorage.read_only')"
+echo "identity=$(md '/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://verifier.example&format=full')"
+exec 3<>/dev/tcp/metadata.google.internal/80
+printf 'PUT /computeMetadata/v1/instance/guest-attributes/startup/boot HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\nContent-Length: %d\r\n\r\n%s' "${#n}" "$n" >&3
+echo "guest-attribute=$(head -1 <&3 | tr -d '\r')"
+exec 3<&-
 `
 	// Every instance of the project reads the project's common metadata.
 	number := requireProject(t, project)
@@ -137,7 +154,13 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	instance := func(name, sourceImage string) *compute.Instance {
 		return &compute.Instance{
 			Name:        name,
+			Description: "boots and reads its metadata",
 			MachineType: "e2-micro",
+			Tags:        &compute.Tags{Items: []string{"boot-web", "boot-db"}},
+			ServiceAccounts: []*compute.ServiceAccount{{Email: "default", Scopes: []string{
+				"https://www.googleapis.com/auth/devstorage.read_only",
+				"https://www.googleapis.com/auth/logging.write",
+			}}},
 			Disks: []*compute.AttachedDisk{{
 				Boot: true, AutoDelete: true,
 				InitializeParams: &compute.AttachedDiskInitializeParams{SourceImage: sourceImage},
@@ -149,6 +172,7 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 			Metadata: &compute.Metadata{Items: []*compute.MetadataItems{
 				{Key: "startup-script", Value: googleapi.String(startupScript)},
 				{Key: "marker", Value: googleapi.String("from-metadata")},
+				{Key: "enable-guest-attributes", Value: googleapi.String("TRUE")},
 			}},
 		}
 	}
@@ -188,6 +212,39 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	require.Len(t, iface.AccessConfigs, 1)
 	assert.NotEmpty(t, iface.AccessConfigs[0].NatIP, "an access config naming no address gets an ephemeral one")
 	assert.Contains(t, console, "startup-script: external-ip="+iface.AccessConfigs[0].NatIP)
+
+	// The predefined instance keys come from the instance resource, each in
+	// the format the metadata server answers it in.
+	assert.Contains(t, console, "startup-script: machine-type=projects/"+number+"/machineTypes/e2-micro")
+	assert.Contains(t, console, "startup-script: cpu-platform="+got.CpuPlatform)
+	assert.NotEmpty(t, got.CpuPlatform, "instances.get reports the platform the instance runs on")
+	assert.Contains(t, console, "startup-script: image=projects/debian-cloud/global/images/debian-12-bookworm-")
+	assert.Contains(t, console, "startup-script: description=boots and reads its metadata")
+	assert.Contains(t, console, `startup-script: tags=["boot-web","boot-db"]`, "tags answer as JSON by default")
+	assert.Contains(t, console, "startup-script: tags-text=boot-web,boot-db\n")
+	assert.Contains(t, console, `startup-script: disks=[{"deviceName":"`+name+`","index":0,"interface":"SCSI","mode":"READ_WRITE","type":"PERSISTENT"}]`)
+	assert.Contains(t, console, "startup-script: maintenance-event=NONE")
+	assert.Contains(t, console, "startup-script: scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write\n")
+	downscoped := consoleValue(t, console, "downscoped")
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(downscoped), &token), downscoped)
+	assert.Equal(t, "https://www.googleapis.com/auth/devstorage.read_only", jwtClaims(t, token.AccessToken)["scope"],
+		"an enforce_scopes read mints a token for the scopes it names")
+	engine, _ := jwtClaims(t, consoleValue(t, console, "identity"))["google"].(map[string]any)["compute_engine"].(map[string]any)
+	assert.Equal(t, name, engine["instance_name"], "a full identity token names the instance")
+	assert.Equal(t, strconv.FormatUint(got.Id, 10), engine["instance_id"])
+	assert.Equal(t, zone, engine["zone"])
+	assert.Equal(t, project, engine["project_id"])
+
+	// The guest attribute the script wrote reads back through the API.
+	assert.True(t, strings.HasSuffix(consoleValue(t, console, "guest-attribute"), " 200 OK"), "the metadata server took the write")
+	attributes, err := svc.Instances.GetGuestAttributes(project, zone, name).QueryPath("startup/").Do()
+	require.NoError(t, err)
+	require.NotNil(t, attributes.QueryValue)
+	require.Len(t, attributes.QueryValue.Items, 1)
+	assert.Equal(t, compute.GuestAttributesEntry{Namespace: "startup", Key: "boot", Value: "1"}, *attributes.QueryValue.Items[0])
 
 	// A stop keeps the disk: the next boot counts on, and runs the
 	// startup-script the metadata holds when it boots.
@@ -261,6 +318,33 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, 400, gerr.Code)
 	assert.Contains(t, gerr.Message, "Machine type with name 'x9-enormous-64' does not exist")
+}
+
+// consoleValue is what the startup-script printed after `key=` on the serial
+// console.
+func consoleValue(t *testing.T, console, key string) string {
+	t.Helper()
+	marker := "startup-script: " + key + "="
+	at := strings.Index(console, marker)
+	require.GreaterOrEqual(t, at, 0, "the console carries no %s", marker)
+	value := console[at+len(marker):]
+	if end := strings.IndexByte(value, '\n'); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
+}
+
+// jwtClaims decodes a JWT's payload, as a verifier does once it has checked
+// the signature.
+func jwtClaims(t *testing.T, token string) map[string]any {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3, "%q is no JWT", token)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	require.NoError(t, err)
+	claims := map[string]any{}
+	require.NoError(t, json.Unmarshal(payload, &claims))
+	return claims
 }
 
 // awaitSerialPortOutput reads the serial console by offset, as gcloud tails

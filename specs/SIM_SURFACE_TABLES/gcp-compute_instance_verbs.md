@@ -22,6 +22,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/getIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:436::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/setIamPolicy` | ✓ `simulator-gcp/compute_instance_verbs.go:439::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{resource}/testIamPermissions` | ✓ `simulator-gcp/compute_instance_verbs.go:442::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/getGuestAttributes` | ✓ `simulator-gcp/compute_instance_verbs.go:446::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

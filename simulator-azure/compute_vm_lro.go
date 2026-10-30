@@ -179,6 +179,7 @@ func azureForgetVM(id string) {
 	azureVMStates.Delete(id)
 	azureVMProvisioningErrors.Delete(id)
 	azureVMGeneralized.Delete(id)
+	azureForgetScheduledEvents(id)
 	azureReconcileAutoRegisteredRecords()
 }
 

@@ -1387,11 +1387,29 @@ func registerVirtualMachines(srv *sim.Server) {
 				return
 			}
 			priorState, _ := azureVMStates.Get(id)
-			if !azureClaimVMOperation(id, action.transition) {
+			// A restart of a machine with Scheduled Events on waits for its Reboot
+			// event, and the machine keeps running until the event starts.
+			scheduled := action.name == "restart" && azureScheduledEventsEnabled(id)
+			transition := action.transition
+			if scheduled {
+				transition = ""
+			}
+			if !azureClaimVMOperation(id, transition) {
 				azureVMOperationConflict(w, action.name, id)
 				return
 			}
+			var event *azureScheduledEvent
+			if scheduled {
+				event = azureScheduleVMEvent(vm, azureRebootEvent)
+			}
 			opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+				if scheduled {
+					if event != nil {
+						azureStartScheduledEvent(ctx, id, event)
+						defer azureEndScheduledEvent(id, event)
+					}
+					azureVMStates.Put(id, action.transition)
+				}
 				if action.halt {
 					if err := azureHaltVM(ctx, id); err != nil {
 						azureVMStates.Put(id, priorState)

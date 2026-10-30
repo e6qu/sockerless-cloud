@@ -253,7 +253,7 @@ func ecsAdoptRunningTask(task ECSTask, definition ECSTaskDefinition, existing []
 		if name == "" {
 			return fmt.Errorf("task %s Amazon ECS container %s has no container identity label", task.TaskArn, container.ID)
 		}
-		handle, err := backend.Adopt(context.Background(), container.ID, sim.ContainerConfig{CancelGracePeriod: processes.StopGrace[name]}, sink)
+		handle, err := backend.Adopt(context.Background(), container.ID, sim.ContainerConfig{CancelGracePeriod: processes.StopGrace[name]}, sink.For(name))
 		if err != nil {
 			return fmt.Errorf("adopt Amazon ECS task %s container %s: %w", task.TaskArn, name, err)
 		}

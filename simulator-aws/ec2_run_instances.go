@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -249,23 +250,37 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	if m := ltData.MetadataOptions; m != nil {
 		ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags, ltMetaIpv6 = m.HttpTokens, m.HttpEndpoint, m.HttpPutResponseHopLimit, m.InstanceMetadataTags, m.HttpProtocolIpv6
 	}
-	metaTokens := ec2FormOrLT(r, "MetadataOptions.HttpTokens", ltMetaTokens)
-	if metaTokens == "" {
-		// An AMI registered with ImdsSupport v2.0 launches instances requiring
-		// IMDSv2.
-		metaTokens = "optional"
-		if img, ok := ec2LookupImage(imageID); ok && img.ImdsSupport == "v2.0" {
-			metaTokens = "required"
+	// Each option takes the launch's value, then the account's default, then
+	// (tokens and hop limit only) the AMI's, then EC2's.
+	account := ec2AccountSettings()
+	amiV2 := false
+	if img, ok := ec2LookupImage(imageID); ok && img.ImdsSupport == "v2.0" {
+		amiV2 = true
+	}
+	firstSet := func(values ...string) string {
+		for _, v := range values {
+			if v != "" {
+				return v
+			}
 		}
+		return ""
 	}
-	metaEndpoint := ec2FormOrLT(r, "MetadataOptions.HttpEndpoint", ltMetaEndpoint)
-	if metaEndpoint == "" {
-		metaEndpoint = "enabled"
+	amiTokens, amiHop := "", ""
+	if amiV2 {
+		amiTokens, amiHop = "required", "2"
 	}
-	metaTags := ec2FormOrLT(r, "MetadataOptions.InstanceMetadataTags", ltMetaTags)
-	if metaTags == "" {
-		metaTags = "disabled"
+	accountHop := ""
+	if account.MetadataHopLimit > 0 {
+		accountHop = strconv.Itoa(account.MetadataHopLimit)
 	}
+	metaTokens := firstSet(ec2FormOrLT(r, "MetadataOptions.HttpTokens", ltMetaTokens), account.MetadataHttpTokens, amiTokens, "optional")
+	if account.MetadataTokensEnforced == "enabled" && metaTokens != "required" {
+		ec2ErrorXML(w, "UnsupportedOperation", "You can't launch instances with IMDSv1 because httpTokensEnforced is enabled for this account. Either launch the instance with httpTokens=required or contact your account owner to disable httpTokensEnforced using the ModifyInstanceMetadataDefaults API or the account settings in the EC2 console.", http.StatusBadRequest)
+		return
+	}
+	metaEndpoint := firstSet(ec2FormOrLT(r, "MetadataOptions.HttpEndpoint", ltMetaEndpoint), account.MetadataHttpEndpoint, "enabled")
+	metaTags := firstSet(ec2FormOrLT(r, "MetadataOptions.InstanceMetadataTags", ltMetaTags), account.MetadataInstanceTags, "disabled")
+	metaHop := firstSet(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), accountHop, amiHop, "1")
 	rootSize, rootType := runInstancesRootBlockDevice(r, ltData)
 	base := EC2InstanceCreateSpec{
 		Context:                  r.Context(),
@@ -293,7 +308,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		RootVolumeType:           rootType,
 		MetadataHttpTokens:       metaTokens,
 		MetadataHttpEndpoint:     metaEndpoint,
-		MetadataHopLimit:         ec2AtoiOr(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), 1),
+		MetadataHopLimit:         ec2AtoiOr(metaHop, 1),
 		MetadataInstanceTags:     metaTags,
 		MetadataHttpProtocolIpv6: ec2FormOrLT(r, "MetadataOptions.HttpProtocolIpv6", ltMetaIpv6),
 		Placement:                placement,

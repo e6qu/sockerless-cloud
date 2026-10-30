@@ -531,6 +531,43 @@ systemd's SIGRTMIN+4 and busybox's SIGUSR2 so a guest's own poweroff ends it.
 The metadata services read the instance's current record; each cloud's
 metadata service answers its own workloads and nothing else, since an
 invented default machine answered every other caller.
+An EC2 launch takes each metadata option from the launch, then the account's
+`ModifyInstanceMetadataDefaults`, then (tokens and hop limit) the AMI, then
+EC2's default, as the vendored options page orders them, and an account that
+enforces IMDSv2 refuses an IMDSv1 launch with `UnsupportedOperation`. Each
+Amazon ECS container has an `ECS_CONTAINER_METADATA_URI_V4` of its own, which
+answers that container's record, the engine's stats at `/stats` and the task's
+at `/task/stats`; a container that has not started has no stats, because the
+engine's one-shot read waits on it. Amazon ECS issues no
+`AWS_CONTAINER_AUTHORIZATION_TOKEN` (EKS Pod Identity does), so neither does
+the simulator. Each awslogs container writes to its own
+`<prefix>/<container>/<task>` stream; a shared sink once put every
+container's lines in the first one's.
+
+The Google Cloud metadata server resolved every read against one tree, so a
+listing named nothing that did not answer, and each workload read only the
+keys its service documented: a Compute Engine instance its predefined keys,
+a Cloud Run container the id, region, `<region>-1` zone and Direct VPC address
+its container contract states, a Cloud Build step no instance keys at all.
+The fixed `sim-instance-1`, `1000000000001` and `us-central1-a` answers went,
+since a fixed answer reads as a real instance. The vendored Compute Engine
+pages set `alt`, the token's enforced scopes, the identity token's `full`
+format and the guest attributes a guest writes; scopes came from the
+instance's service account rather than a constant `cloud-platform`.
+
+The Azure Instance Metadata Service follows its vendored Learn pages
+(`imds-instance-metadata-service`, `imds-scheduled-events`,
+`imds-load-balancer-metadata`): each category refuses an absent or unserved
+`api-version` with the documented body and its three newest versions, route
+parameters walk the document to any node, a leaf answers only with
+`format=text`, and the network section carries each IP configuration's public
+address. Load balancer metadata lists the Standard load balancers' rules that
+reach the machine's interface. Scheduled Events turn on with the machine's
+first request and off after 24 hours without one; while on, a restart, a
+redeploy and a Spot eviction schedule a Reboot, Redeploy or Preempt event with
+the documented minimum notice and wait for the guest's `StartRequests`
+approval or `NotBefore`, so a machine that never asks keeps the immediate
+operation.
 
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init

@@ -171,6 +171,7 @@ lives.
 | `azure-eventhub` | [`azure-eventhub`](SIM_SURFACE_TABLES/azure-eventhub.md) | [`azure-eventhub`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-eventhubs` | [`azure-eventhubs`](SIM_SURFACE_TABLES/azure-eventhubs.md) | [`azure-eventhubs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-functions` | [`azure-functions`](SIM_SURFACE_TABLES/azure-functions.md) | [`azure-functions`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-imds_scheduled_events` | [`azure-imds_scheduled_events`](SIM_SURFACE_TABLES/azure-imds_scheduled_events.md) | [`azure-imds_scheduled_events`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-insights_dataplane` | [`azure-insights_dataplane`](SIM_SURFACE_TABLES/azure-insights_dataplane.md) | [`azure-insights_dataplane`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-keyvault` | [`azure-keyvault`](SIM_SURFACE_TABLES/azure-keyvault.md) | [`azure-keyvault`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-keyvault_managedhsm` | [`azure-keyvault_managedhsm`](SIM_SURFACE_TABLES/azure-keyvault_managedhsm.md) | [`azure-keyvault_managedhsm`](SIM_TEST_COVERAGE_MATRIX.md) |

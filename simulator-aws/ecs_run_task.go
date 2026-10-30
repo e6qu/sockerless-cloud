@@ -14,12 +14,23 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// Create the log stream before the container starts so it exists once the
-// task is RUNNING. The awslogs driver creates the group only with
-// awslogs-create-group "true"; a missing group fails the start with
-// ResourceInitializationError.
-func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, error) {
-	var sink sim.LogSink = discardLogSink{}
+// ecsTaskLogSinks holds each container's awslogs sink, keyed by container
+// name; a container without the awslogs driver writes nowhere.
+type ecsTaskLogSinks map[string]sim.LogSink
+
+func (s ecsTaskLogSinks) For(container string) sim.LogSink {
+	if sink, ok := s[container]; ok {
+		return sink
+	}
+	return discardLogSink{}
+}
+
+// Create each container's log stream, <prefix>/<container name>/<task ID>,
+// before the containers start so it exists once the task is RUNNING. The
+// awslogs driver creates the group only with awslogs-create-group "true"; a
+// missing group fails the start with ResourceInitializationError.
+func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (ecsTaskLogSinks, error) {
+	sinks := ecsTaskLogSinks{}
 	for _, cd := range td.ContainerDefinitions {
 		if cd.LogConfiguration == nil || cd.LogConfiguration.LogDriver != "awslogs" {
 			continue
@@ -40,9 +51,6 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, er
 				CreationTime: nowMs,
 			})
 		}
-		if _, ok := sink.(discardLogSink); !ok {
-			continue
-		}
 
 		logStreamName := fmt.Sprintf("%s/%s/%s", streamPrefix, cd.Name, taskID)
 		key := cwEventsKey(logGroup, logStreamName)
@@ -58,9 +66,9 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, er
 			})
 			cwLogEvents.Open(key)
 		}
-		sink = &cwLogSink{logGroup: logGroup, logStream: logStreamName}
+		sinks[cd.Name] = &cwLogSink{logGroup: logGroup, logStream: logStreamName}
 	}
-	return sink, nil
+	return sinks, nil
 }
 
 // The service scheduler launches through the same path as RunTask.

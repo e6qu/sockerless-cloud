@@ -104,23 +104,30 @@ func signWithAccessKey(claims map[string]any) string {
 // signed with the simulator's access-token key. Every data-plane access token
 // the simulator mints flows through here.
 func signAccessToken(subject string, issuedAt, expiresAt time.Time) string {
+	return signScopedAccessToken(subject, []string{cloudPlatformScope}, issuedAt, expiresAt)
+}
+
+// signScopedAccessToken is signAccessToken for the OAuth scopes the token
+// grants.
+func signScopedAccessToken(subject string, scopes []string, issuedAt, expiresAt time.Time) string {
 	return signWithAccessKey(map[string]any{
 		"iss":   googleTokenIssuer,
 		"aud":   simAccessTokenAudience,
 		"sub":   subject,
 		"iat":   issuedAt.Unix(),
 		"exp":   expiresAt.Unix(),
-		"scope": "https://www.googleapis.com/auth/cloud-platform",
+		"scope": strings.Join(scopes, " "),
 	})
 }
 
-// signIdentityToken issues the RS256 identity token the GCE metadata server's
+// signIdentityTokenWith issues the RS256 identity token the metadata server's
 // `service-accounts/{sa}/identity` endpoint hands a workload: the bearer it
 // presents when invoking a Cloud Run service, whose single `aud` is the
 // requested audience — the service URL. The subject and email are the
-// workload's service-account email.
-func signIdentityToken(subject, audience string, issuedAt, expiresAt time.Time) string {
-	return signWithAccessKey(map[string]any{
+// workload's service-account email; a full-format Compute Engine token carries
+// its `google` claim in extra.
+func signIdentityTokenWith(subject, audience string, issuedAt, expiresAt time.Time, extra map[string]any) string {
+	claims := map[string]any{
 		"iss":            googleTokenIssuer,
 		"aud":            audience,
 		"azp":            subject,
@@ -129,7 +136,11 @@ func signIdentityToken(subject, audience string, issuedAt, expiresAt time.Time) 
 		"email_verified": true,
 		"iat":            issuedAt.Unix(),
 		"exp":            expiresAt.Unix(),
-	})
+	}
+	for name, value := range extra {
+		claims[name] = value
+	}
+	return signWithAccessKey(claims)
 }
 
 // signInvokeIDToken issues the RS256 ID token the OAuth2 token endpoint returns

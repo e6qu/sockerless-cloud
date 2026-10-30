@@ -63,3 +63,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `ecs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecs.json` | Apache-2.0 | `d2bd6ccdc490c5abe561ce7250a68d196e790378` | 2026-10-28T12:44:25Z |
 | `kms.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/kms.json` | Apache-2.0 | `4099cd1909e2dd0f1567718f1efafa168d57b036` | 2026-10-28T12:44:26Z |
 | `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `836d535f46e357bfcd221e2357760e320a602c26` | 2026-10-29T08:02:46Z |
+| `ec2-instance-metadata-options.md.gz` | `docs.aws.amazon.com` | `AWSEC2/latest/UserGuide/configuring-instance-metadata-options.md` | CC-BY-SA-4.0 | `sha256b7f1c3fa6e29096d711bd9477ad669d0fb4e0533ff8525b2a225d64e1ce4f266` | 2026-10-30T11:12:48Z |
+| `ec2-imds-new-instances.md.gz` | `docs.aws.amazon.com` | `AWSEC2/latest/UserGuide/configuring-IMDS-new-instances.md` | CC-BY-SA-4.0 | `sha25696d269c4ad661460121b16ad24e33a80c0a2c0ebf091fa9ba022ff9ecfefc7d7` | 2026-10-30T11:13:02Z |
+| `ec2-troubleshooting-launch.md.gz` | `docs.aws.amazon.com` | `AWSEC2/latest/UserGuide/troubleshooting-launch.md` | CC-BY-SA-4.0 | `sha256b8af47c643d54571ade86f862407df744fc419866b47222b41055544c93c813e` | 2026-10-30T11:13:19Z |
+| `ec2-instance-metadata-retrieval.md.gz` | `docs.aws.amazon.com` | `AWSEC2/latest/UserGuide/instancedata-data-retrieval.md` | CC-BY-SA-4.0 | `sha25601b8b03eca2d358a8cc060b26a801a3e5af0f813dc918844e5d2a75874f9a0b3` | 2026-10-30T11:19:56Z |

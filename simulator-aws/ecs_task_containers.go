@@ -123,7 +123,7 @@ func ecsEFSVolumeHost(cfg *ECSEfsVolumeConfig) (string, error) {
 	return host, nil
 }
 
-func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sink sim.LogSink, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
+func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sinks ecsTaskLogSinks, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
 	if len(td.ContainerDefinitions) == 0 {
 		return nil, nil
 	}
@@ -302,7 +302,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Command:           cd.EntryPoint,
 			Args:              command,
 			WorkingDir:        cd.WorkingDirectory,
-			Env:               workloadhost.MergeEnv(cmdEnv, metadata.Env),
+			Env:               workloadhost.MergeEnv(cmdEnv, metadata.Env, ecsContainerMetadataEnv(metadata.Env, i)),
 			Name:              containerName,
 			Labels: map[string]string{
 				"sockerless-sim-task":           taskID,
@@ -359,9 +359,9 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		}
 		var handle placement.Handle
 		if networkMode == ecsNetworkModeAwsvpc && i > 0 {
-			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sink)
+			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sinks.For(cd.Name))
 		} else {
-			handle, err = metadata.place(ctx, backend, cfg, sink)
+			handle, err = metadata.place(ctx, backend, cfg, sinks.For(cd.Name))
 		}
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
@@ -536,17 +536,22 @@ func ecsTaskMetadataV4(taskID string) (map[string]any, bool) {
 	}, true
 }
 
-func ecsContainerMetadataV4(taskID string) (map[string]any, bool) {
+func ecsContainerMetadataV4(taskID, container string) (map[string]any, bool) {
 	task, ok := ecsTasks.Get(taskID)
 	if !ok {
 		return nil, false
 	}
 	td, ok := ecsTaskDefinitionByArn(task.TaskDefinitionArn)
-	if !ok || len(td.ContainerDefinitions) == 0 {
+	if !ok {
 		return nil, false
 	}
 	eniIP, _, _ := ecsTaskENIInfo(taskID)
-	return ecsTaskContainerMetadata(taskID, task, td, td.ContainerDefinitions[0], eniIP)
+	for _, cd := range td.ContainerDefinitions {
+		if cd.Name == container {
+			return ecsTaskContainerMetadata(taskID, task, td, cd, eniIP)
+		}
+	}
+	return nil, false
 }
 
 // Creates the VPC network at the first attach. Every failure is returned so an

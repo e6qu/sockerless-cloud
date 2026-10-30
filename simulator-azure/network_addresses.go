@@ -327,20 +327,6 @@ func azurePrimaryIPConfig(nic NetworkInterface) NetworkInterfaceIPConfiguration 
 	return nic.Properties.IPConfigurations[azurePrimaryIPConfigIndex(nic)]
 }
 
-func azureNICSecondaryAddresses(nic NetworkInterface) []net.IP {
-	primary := azurePrimaryIPConfigIndex(nic)
-	var out []net.IP
-	for i, ipcfg := range nic.Properties.IPConfigurations {
-		if i == primary {
-			continue
-		}
-		if ip := net.ParseIP(ipcfg.Properties.PrivateIPAddress); ip != nil {
-			out = append(out, ip)
-		}
-	}
-	return out
-}
-
 // A configuration keeps the address it held in prev unless it asks for another
 // static one; addresses of dropped configurations return to the subnet first,
 // so a new configuration may take one. A failed write leaves prev's leases as

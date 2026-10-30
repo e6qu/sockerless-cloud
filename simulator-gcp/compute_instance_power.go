@@ -181,6 +181,7 @@ func registerComputeInstancePower(srv *sim.Server) {
 			}
 			if m.remove {
 				gcpInstances.Delete(link)
+				gcpForgetGuestAttributes(link)
 				gcpReleaseInstanceAddresses(moving)
 				gcpDeleteInstanceDisks(moving)
 				computeOpFinish(op.Name, nil)

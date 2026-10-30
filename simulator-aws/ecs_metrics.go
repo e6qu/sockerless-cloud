@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,6 +168,24 @@ func ecsTaskReservation(task ECSTask) (cpu, mem float64) {
 		mem = memSum
 	}
 	return cpu, mem
+}
+
+// The engine's stats document for a container, as the engine wrote it.
+func ecsRawContainerStats(ctx context.Context, containerID string) (json.RawMessage, error) {
+	cli := sim.DockerClient()
+	if cli == nil || containerID == "" {
+		return nil, fmt.Errorf("no container engine stats for %q", containerID)
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := cli.ContainerStats(readCtx, containerID, mobyclient.ContainerStatsOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var raw json.RawMessage
+	err = json.NewDecoder(res.Body).Decode(&raw)
+	return raw, err
 }
 
 func ecsReadContainerStats(ctx context.Context, cli *mobyclient.Client, containerID string) (mobycontainer.StatsResponse, error) {

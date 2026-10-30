@@ -23,6 +23,9 @@ type gceMetadataWorkload struct {
 	// metadata server reports by its own id and its region.
 	cloudRunInstance string
 	region           string
+	// vpcAddress is the address a Cloud Run worker pool or instance with
+	// Direct VPC holds on its subnetwork.
+	vpcAddress string
 }
 
 // gceMetadataCaller places the caller of a metadata request: a Compute Engine
@@ -112,6 +115,9 @@ func containerMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 				}
 				w, ok := cloudRunWorkloadFromLabels(c.Labels)
 				w.cloudRunInstance = c.ID
+				if cloudRunDirectVPC(c.Labels) {
+					w.vpcAddress = addr.Unmap().String()
+				}
 				return w, ok
 			}
 		}
@@ -152,6 +158,23 @@ func cloudRunWorkloadFromLabels(labels map[string]string) (gceMetadataWorkload, 
 		return w, true
 	}
 	return gceMetadataWorkload{}, false
+}
+
+// cloudRunDirectVPC is whether the Cloud Run worker pool or instance a
+// container belongs to sits on a VPC network through Direct VPC, the case
+// Cloud Run's container contract reports `network-interfaces/0/ip` for.
+func cloudRunDirectVPC(labels map[string]string) bool {
+	var vpc *VpcAccess
+	if name := labels[cloudRunWorkerPoolLabel]; name != "" {
+		if pool, ok := crv2WorkerPools.Get(name); ok && pool.Template != nil {
+			vpc = pool.Template.VpcAccess
+		}
+	} else if name := labels[cloudRunResourceLabel]; strings.Contains(name, "/instances/") {
+		if inst, ok := crv2Instances.Get(name); ok {
+			vpc = inst.VpcAccess
+		}
+	}
+	return vpc != nil && len(vpc.NetworkInterfaces) > 0
 }
 
 // cloudBuildWorkloadFromLabels reads the project and service account of the

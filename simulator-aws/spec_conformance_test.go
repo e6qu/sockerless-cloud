@@ -299,6 +299,7 @@ var allowedNonSpecRoutes = map[string]string{
 	// EC2 Instance Metadata Service (IMDSv2) — documented AWS surface
 	// (SDK credential/region resolution), not modeled in any Smithy spec.
 	"PUT /latest/api/token":                                                      "IMDSv2 token endpoint",
+	"GET /latest/user-data":                                                      "IMDS user data",
 	"GET /latest/meta-data/{$}":                                                  "IMDS root listing",
 	"GET /latest/meta-data/ami-id":                                               "IMDS",
 	"GET /latest/meta-data/instance-id":                                          "IMDS",
@@ -343,8 +344,10 @@ var allowedNonSpecRoutes = map[string]string{
 
 	// ECS task metadata endpoint v4 — documented AWS surface
 	// (ECS_CONTAINER_METADATA_URI_V4), not in the ECS Smithy model.
-	"GET /v4/{id}":      "ECS task metadata v4 (container)",
-	"GET /v4/{id}/task": "ECS task metadata v4 (task)",
+	"GET /v4/{id}":            "ECS task metadata v4 (container)",
+	"GET /v4/{id}/task":       "ECS task metadata v4 (task)",
+	"GET /v4/{id}/stats":      "ECS task metadata v4 (container stats)",
+	"GET /v4/{id}/task/stats": "ECS task metadata v4 (task stats)",
 
 	// The container credentials endpoint — documented AWS surface
 	// (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI / _FULL_URI) the SDKs' container

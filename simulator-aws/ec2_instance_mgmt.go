@@ -49,11 +49,12 @@ type EC2AccountInstanceSettings struct {
 	EventNotificationTagKeys []string
 	IncludeAllTagsOfInstance bool
 	// MetadataConfigured false means no defaults: an empty accountLevel element.
-	MetadataConfigured   bool
-	MetadataHttpTokens   string
-	MetadataHopLimit     int
-	MetadataHttpEndpoint string
-	MetadataInstanceTags string
+	MetadataConfigured     bool
+	MetadataHttpTokens     string
+	MetadataHopLimit       int
+	MetadataHttpEndpoint   string
+	MetadataInstanceTags   string
+	MetadataTokensEnforced string
 }
 
 var (
@@ -415,6 +416,9 @@ func handleGetInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
 		if s.MetadataInstanceTags != "" {
 			fmt.Fprintf(&fields, "<instanceMetadataTags>%s</instanceMetadataTags>", s.MetadataInstanceTags)
 		}
+		if s.MetadataTokensEnforced != "" {
+			fmt.Fprintf(&fields, "<httpTokensEnforced>%s</httpTokensEnforced>", s.MetadataTokensEnforced)
+		}
 		fields.WriteString("<managedBy>account</managedBy>")
 		body = "<accountLevel>" + fields.String() + "</accountLevel>"
 	}
@@ -424,20 +428,30 @@ func handleGetInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
 
 func handleModifyInstanceMetadataDefaults(w http.ResponseWriter, r *http.Request) {
 	s := ec2AccountSettings()
-	if v := r.FormValue("HttpTokens"); v != "" {
-		s.MetadataHttpTokens = v
-		s.MetadataConfigured = true
+	// "no-preference" (-1 for the hop limit) clears the account's value, so a
+	// launch falls through to the AMI and the EC2 default.
+	set := func(field *string, name string) {
+		switch v := r.FormValue(name); v {
+		case "":
+		case "no-preference":
+			*field = ""
+			s.MetadataConfigured = true
+		default:
+			*field = v
+			s.MetadataConfigured = true
+		}
 	}
+	set(&s.MetadataHttpTokens, "HttpTokens")
+	set(&s.MetadataHttpEndpoint, "HttpEndpoint")
+	set(&s.MetadataInstanceTags, "InstanceMetadataTags")
+	set(&s.MetadataTokensEnforced, "HttpTokensEnforced")
 	if v := r.FormValue("HttpPutResponseHopLimit"); v != "" {
-		s.MetadataHopLimit = ec2AtoiOr(v, s.MetadataHopLimit)
-		s.MetadataConfigured = true
-	}
-	if v := r.FormValue("HttpEndpoint"); v != "" {
-		s.MetadataHttpEndpoint = v
-		s.MetadataConfigured = true
-	}
-	if v := r.FormValue("InstanceMetadataTags"); v != "" {
-		s.MetadataInstanceTags = v
+		hop := ec2AtoiOr(v, 0)
+		if hop != -1 && (hop < 1 || hop > 64) {
+			ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The value '%s' for HttpPutResponseHopLimit is invalid. Specify a value from 1 to 64, or -1 for no preference.", v), http.StatusBadRequest)
+			return
+		}
+		s.MetadataHopLimit = max(hop, 0)
 		s.MetadataConfigured = true
 	}
 	ec2PutAccountSettings(s)
