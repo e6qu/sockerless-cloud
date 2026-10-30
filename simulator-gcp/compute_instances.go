@@ -46,6 +46,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				inst.MachineType, inst.MachineType[strings.LastIndex(inst.MachineType, "/")+1:], zone)}
 		}
 		inst.Status = ComputeInstanceRunning
+		inst.CpuPlatform = gcpInstanceCPUPlatform(*inst)
 		if inst.LabelFingerprint == "" {
 			inst.LabelFingerprint = sim.NewUUID()[:8]
 		}
@@ -225,6 +226,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 						Msg("failed to remove the machine of a Compute Engine instance that never came up")
 				}
 				instances.Delete(booting.SelfLink)
+				gcpForgetGuestAttributes(booting.SelfLink)
 				gcpReleaseInstanceAddresses(booting)
 				gcpDeleteInstanceDisks(booting)
 				computeOpFinish(op.Name, err)

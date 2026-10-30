@@ -35,23 +35,48 @@ func metadataTreeServer(t *testing.T) func(path string) *httptest.ResponseRecord
 	}
 }
 
-// metadataReaderServer is the simulator metadataTreeServer reads from.
+// metadataReaderSelfLink is the instance metadataReaderServer runs.
+const metadataReaderSelfLink = "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a/instances/metadata-reader"
+
+// metadataReaderScopes are the access scopes the reader's service account
+// holds.
+var metadataReaderScopes = []string{
+	"https://www.googleapis.com/auth/devstorage.read_only",
+	"https://www.googleapis.com/auth/logging.write",
+}
+
+// metadataReaderServer is the simulator metadataTreeServer reads from: a
+// Compute Engine instance with guest attributes enabled, two disks, network
+// tags and a service account holding metadataReaderScopes.
 func metadataReaderServer(t *testing.T) *sim.Server {
 	t.Helper()
 	srv := metadataTestSimulator(t, func(srv *sim.Server) { gcpTestCreateProject(t, srv, gcpTestProjectID) })
-	selfLink := "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a/instances/metadata-reader"
 	inst := ComputeInstance{
-		Id:       "4815162342",
-		Name:     "metadata-reader",
-		SelfLink: selfLink,
-		Zone:     "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a",
+		Id:                "4815162342",
+		Name:              "metadata-reader",
+		Description:       "reads its own metadata",
+		SelfLink:          metadataReaderSelfLink,
+		CreationTimestamp: "2026-10-30T10:00:00Z",
+		Zone:              "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a",
+		MachineType:       "projects/" + gcpTestProjectID + "/zones/us-central1-a/machineTypes/e2-small",
+		Tags:              &ComputeInstanceTags{Items: []string{"http-server", "db-client"}},
+		Metadata:          &ComputeInstanceMetadata{Items: []ComputeInstanceMetadataItem{{Key: "enable-guest-attributes", Value: "TRUE"}}},
+		Disks: []ComputeInstanceDisk{
+			{DeviceName: "boot", Index: 0, Boot: true, Interface: "SCSI", Mode: "READ_WRITE", Type: "PERSISTENT",
+				InitializeParams: map[string]any{"sourceImage": "projects/debian-cloud/global/images/family/debian-12"}},
+			{DeviceName: "data", Index: 1, Interface: "NVME", Mode: "READ_ONLY", Type: "PERSISTENT"},
+		},
+		ServiceAccounts: []map[string]any{{
+			"email":  gcpTestProjectNumber(t) + "-compute@developer.gserviceaccount.com",
+			"scopes": []any{metadataReaderScopes[0], metadataReaderScopes[1]},
+		}},
 		NetworkInterfaces: []ComputeNetworkInterface{{
 			Name:      "nic0",
 			Network:   "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/global/networks/default",
 			NetworkIP: metadataReaderAddress,
 		}},
 	}
-	gcpInstances.Put(selfLink, inst)
+	gcpInstances.Put(metadataReaderSelfLink, inst)
 	gcpMetadataInstancesByIP.Store(metadataReaderAddress, inst)
 	t.Cleanup(func() { gcpMetadataInstancesByIP.Delete(metadataReaderAddress) })
 	return srv

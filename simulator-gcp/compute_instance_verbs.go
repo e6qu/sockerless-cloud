@@ -10,11 +10,10 @@ import (
 )
 
 // The verbs a Compute Engine instance carries beyond its lifecycle each write
-// something a later read returns, and the tests beside them read it back. Four
+// something a later read returns, and the tests beside them read it back. Three
 // are declared NotImplemented, since answering them means inventing what the
-// hardware or guest would say: the console screenshot, the shielded instance
-// identity (the vTPM endorsement key), the guest attributes, and the
-// diagnostic interrupt.
+// hardware would say: the console screenshot, the shielded instance identity
+// (the vTPM endorsement key), and the diagnostic interrupt.
 
 // gcpComputeInstanceGroups is the instance-group store, shared so the referrers
 // read can report the groups an instance belongs to.
@@ -81,6 +80,7 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 			return err
 		}
 		instance.MinCpuPlatform = req.MinCpuPlatform
+		instance.CpuPlatform = gcpInstanceCPUPlatform(*instance)
 		return nil
 	})
 
@@ -443,15 +443,19 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
 	})
 
-	// Mount the four inventing verbs so the gap shows on the wire rather than as
+	srv.HandleFunc("GET "+base+"/{name}/getGuestAttributes", func(w http.ResponseWriter, r *http.Request) {
+		if _, instance, ok := load(w, r); ok {
+			handleGetGuestAttributes(w, r, instance)
+		}
+	})
+
+	// Mount the three inventing verbs so the gap shows on the wire rather than as
 	// an instance that does not exist.
 	for verb, why := range map[string]string{
 		"screenshot": "the console screenshot is a capture of the machine's framebuffer, " +
 			"and an invented image is not one",
 		"getShieldedInstanceIdentity": "the shielded instance identity is the machine's vTPM " +
 			"endorsement key, and generated key material would not be it",
-		"getGuestAttributes": "guest attributes are written by an agent inside the guest, " +
-			"and this instance runs none",
 		"sendDiagnosticInterrupt": "a diagnostic interrupt is a non-maskable interrupt the " +
 			"hypervisor delivers, which nothing here can deliver",
 	} {

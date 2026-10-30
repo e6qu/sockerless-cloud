@@ -21,7 +21,8 @@ func debianFamily() string {
 }
 
 // cliStartupScript counts its boots on the disk and reads the metadata server
-// by the name every guest resolves it under, both onto the serial console.
+// by the name every guest resolves it under, both onto the serial console, and
+// records its boot as a guest attribute.
 const cliStartupScript = `#!/bin/bash
 n=0
 [ -f /var/lib/sockerless-boots ] && n=$(cat /var/lib/sockerless-boots)
@@ -31,6 +32,9 @@ echo "boot=$n"
 exec 3<>/dev/tcp/metadata.google.internal/80
 printf 'GET /computeMetadata/v1/instance/name HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\n\r\n' >&3
 echo "name=$(sed -e '1,/^\r$/d' <&3)"
+exec 3<>/dev/tcp/metadata.google.internal/80
+printf 'PUT /computeMetadata/v1/instance/guest-attributes/startup/boot HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\nContent-Length: %d\r\n\r\n%s' "${#n}" "$n" >&3
+echo "guest-attribute=$(head -1 <&3 | tr -d '\r')"
 `
 
 func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
@@ -59,6 +63,7 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 		"--image-family="+debianFamily(),
 		"--image-project=debian-cloud",
 		"--metadata-from-file=startup-script="+script,
+		"--metadata=enable-guest-attributes=TRUE",
 		"--no-address",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "create: %s", out)
@@ -80,6 +85,14 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 		"--zone="+zone, "--port=2").Output()
 	require.NoError(t, err, "serial port 2")
 	require.NotContains(t, string(second), "startup-script", "only the first serial port carries the console")
+
+	// The guest attribute the script wrote through the metadata server reads
+	// back from outside the instance.
+	require.Regexp(t, `startup-script: guest-attribute=HTTP/1\.[01] 200 OK`, console)
+	out, err = gcloudCLI("compute", "instances", "get-guest-attributes", name,
+		"--zone="+zone, "--query-path=startup/", "--format=value(namespace,key,value)").CombinedOutput()
+	require.NoError(t, err, "get-guest-attributes: %s", out)
+	require.Equal(t, "startup\tboot\t1", strings.TrimSpace(string(out)))
 
 	// Read each transition back off the instance: Compute Engine reports a stopped
 	// instance as TERMINATED and a restarted one as RUNNING, so a verb that

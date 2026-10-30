@@ -608,6 +608,7 @@ type ComputeInstance struct {
 	// them.
 	DeletionProtection              bool             `json:"deletionProtection,omitempty"`
 	MinCpuPlatform                  string           `json:"minCpuPlatform,omitempty"`
+	CpuPlatform                     string           `json:"cpuPlatform,omitempty"`
 	GuestAccelerators               []map[string]any `json:"guestAccelerators,omitempty"`
 	ResourcePolicies                []string         `json:"resourcePolicies,omitempty"`
 	ShieldedInstanceConfig          map[string]any   `json:"shieldedInstanceConfig,omitempty"`
@@ -1238,6 +1239,19 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 	return subnetLink, nil
 }
 
+// gcpZoneCPUPlatform is the one CPU platform every zone of the simulator
+// offers.
+const gcpZoneCPUPlatform = "Intel Skylake"
+
+// gcpInstanceCPUPlatform is the platform an instance runs on: the minimum it
+// names, or the zone's own.
+func gcpInstanceCPUPlatform(inst ComputeInstance) string {
+	if inst.MinCpuPlatform != "" && inst.MinCpuPlatform != "Automatic" {
+		return inst.MinCpuPlatform
+	}
+	return gcpZoneCPUPlatform
+}
+
 // registerComputeZones serves the zones list and get; gcloud probes a zone's
 // existence before disk CRUD.
 func registerComputeZones(srv *sim.Server) {
@@ -1250,7 +1264,7 @@ func registerComputeZones(srv *sim.Server) {
 			"status":                "UP",
 			"selfLink":              fmt.Sprintf("projects/%s/zones/%s", project, zone),
 			"region":                fmt.Sprintf("projects/%s/regions/%s", project, regionFromZone(zone)),
-			"availableCpuPlatforms": []string{"Intel Skylake"},
+			"availableCpuPlatforms": []string{gcpZoneCPUPlatform},
 		}
 	}
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}", func(w http.ResponseWriter, r *http.Request) {

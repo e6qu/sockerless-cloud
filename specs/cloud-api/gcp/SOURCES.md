@@ -131,3 +131,8 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:09Z |
 | `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:10Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-29T18:08:02Z |
+| `compute-metadata-predefined-keys.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/predefined-metadata-keys` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:13:06Z |
+| `compute-metadata-querying.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/querying-metadata` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:13:08Z |
+| `compute-verifying-instance-identity.md.gz` | `docs.cloud.google.com` | `compute/docs/instances/verifying-instance-identity` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:07Z |
+| `compute-metadata-guest-attributes.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/manage-guest-attributes` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:08Z |
+| `compute-metadata-live-migration-notice.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/getting-live-migration-notice` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:17:09Z |

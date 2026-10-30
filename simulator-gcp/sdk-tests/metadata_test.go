@@ -4,18 +4,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 	computeapi "google.golang.org/api/compute/v1"
 	"google.golang.org/api/iam/v1"
 	"google.golang.org/api/option"
+	runv2 "google.golang.org/api/run/v2"
 )
 
 // The metadata server answers the workloads Google Cloud runs and nothing
@@ -221,6 +224,57 @@ func TestMetadata_CloudRunReadsThroughTheOfficialClient(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
+	// Cloud Run's container contract states the instance's id, its region and
+	// the `<region>-1` zone it reports for want of one, and no name or
+	// hostname.
+	t.Run("documented instance keys", func(t *testing.T) {
+		assert.Equal(t, "projects/"+harnessProjectNumber+"/zones/us-central1-1", clientGet(t, "instance/zone"))
+		assert.Equal(t, "projects/"+harnessProjectNumber+"/regions/us-central1", clientGet(t, "instance/region"))
+		assert.NotEmpty(t, clientGet(t, "instance/id"))
+		for _, key := range []string{"instance/name", "instance/hostname", "instance/machine-type"} {
+			answer := get("/client/get?path="+url.QueryEscape(key), nil)
+			assert.Equal(t, http.StatusNotFound, answer.status, "%s: %s", key, answer.body)
+		}
+		assert.Empty(t, strings.TrimSpace(clientGet(t, "instance/network-interfaces/")),
+			"a service on no VPC network holds no interface")
+	})
+
+	// alt=json and alt=text override each key's own format.
+	t.Run("output formats", func(t *testing.T) {
+		answer := get(metadataRaw("project/project-id?alt=json"), metadataFlavor)
+		require.Equal(t, http.StatusOK, answer.status, answer.body)
+		assert.Equal(t, `"test-project"`, answer.body)
+		answer = get(metadataRaw("project/?recursive=true&alt=text"), metadataFlavor)
+		require.Equal(t, http.StatusOK, answer.status, answer.body)
+		assert.Contains(t, strings.Split(answer.body, "\n"), "project-id test-project")
+		answer = get(metadataRaw("instance/service-accounts/?alt=json"), metadataFlavor)
+		require.Equal(t, http.StatusOK, answer.status, answer.body)
+		var listing []string
+		require.NoError(t, json.Unmarshal([]byte(answer.body), &listing), answer.body)
+		assert.Contains(t, listing, "default/")
+	})
+
+	// A read that enforces scopes mints a token for scopes the account holds
+	// and is refused one it does not; enforce_scopes set to false is refused
+	// too.
+	t.Run("enforced scopes", func(t *testing.T) {
+		const cloudPlatform = "https://www.googleapis.com/auth/cloud-platform"
+		answer := get(metadataRaw("instance/service-accounts/default/token?enforce_scopes=true&scopes="+cloudPlatform), metadataFlavor)
+		require.Equal(t, http.StatusOK, answer.status, answer.body)
+		var tok struct {
+			AccessToken string `json:"access_token"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(answer.body), &tok), answer.body)
+		assert.Equal(t, cloudPlatform, jwtClaims(t, tok.AccessToken)["scope"])
+		for _, refused := range []string{
+			"enforce_scopes=true&scopes=https://www.googleapis.com/auth/gmail.readonly",
+			"enforce_scopes=false&scopes=" + cloudPlatform,
+		} {
+			answer = get(metadataRaw("instance/service-accounts/default/token?"+refused), metadataFlavor)
+			assert.Equal(t, http.StatusBadRequest, answer.status, "%s: %s", refused, answer.body)
+		}
+	})
+
 	// A Cloud Run container is no Compute Engine instance: it has no custom
 	// metadata.
 	t.Run("no instance attributes", func(t *testing.T) {
@@ -243,6 +297,50 @@ func TestMetadata_CloudRunReadsThroughTheOfficialClient(t *testing.T) {
 		_, err = svc.Projects.ServiceAccounts.List("projects/test-project").Do()
 		require.NoError(t, err, "the data plane accepts the token the workload's credentials minted")
 	})
+}
+
+// A Cloud Run instance with Direct VPC reads the address it holds on its
+// subnetwork at network-interfaces/0/ip, as Cloud Run's container contract
+// states for worker pools and instances on a VPC network.
+func TestMetadata_CloudRunDirectVPCReadsItsAddress(t *testing.T) {
+	t.Parallel()
+	const subnetRange = "10.93.0.0/24"
+	createInstanceSubnetwork(t, computeService(t), "test-project", "us-central1", "md-vpc-net", subnetRange)
+	svc := newRunV2RESTService(t)
+	id := uniquename.New("md-vpc")
+	name := crV2Parent + "/instances/" + id
+	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
+		Containers: []*runv2.GoogleCloudRunV2Container{{Image: metadataClientImageName}},
+		VpcAccess: &runv2.GoogleCloudRunV2VpcAccess{
+			NetworkInterfaces: []*runv2.GoogleCloudRunV2NetworkInterface{{Network: "md-vpc-net", Subnetwork: "md-vpc-net"}},
+		},
+	}).InstanceId(id).Do()
+	require.NoError(t, err)
+	awaitRunV2Operation(t, svc, op)
+	t.Cleanup(func() {
+		if delOp, err := svc.Projects.Locations.Instances.Delete(name).Do(); err == nil {
+			awaitRunV2Operation(t, svc, delOp)
+		}
+	})
+	_, err = svc.Projects.Locations.Instances.SetIamPolicy(name, &runv2.GoogleIamV1SetIamPolicyRequest{
+		Policy: &runv2.GoogleIamV1Policy{Bindings: []*runv2.GoogleIamV1Binding{{
+			Role: "roles/run.invoker", Members: []string{"serviceAccount:" + sdkInvokerEmail(t)},
+		}}},
+	}).Do()
+	require.NoError(t, err)
+	inst, err := svc.Projects.Locations.Instances.Get(name).Do()
+	require.NoError(t, err)
+	require.Len(t, inst.Urls, 1)
+	header := http.Header{"Authorization": {"Bearer " + invokerIDToken(t, inst.Urls[0])}, "X-Metadata-Flavor": {"Google"}}
+
+	listing := invokeServiceRaw(t, inst.Urls[0], metadataRaw("instance/network-interfaces/"), header)
+	require.Equal(t, http.StatusOK, listing.status, listing.body)
+	assert.Equal(t, "0/\n", listing.body)
+	answer := invokeServiceRaw(t, inst.Urls[0], metadataRaw("instance/network-interfaces/0/ip"), header)
+	require.Equal(t, http.StatusOK, answer.status, answer.body)
+	address, err := netip.ParseAddr(answer.body)
+	require.NoError(t, err, answer.body)
+	assert.True(t, netip.MustParsePrefix(subnetRange).Contains(address), "%s is an address of %s", address, subnetRange)
 }
 
 // A container long-polls the metadata server through the official client's

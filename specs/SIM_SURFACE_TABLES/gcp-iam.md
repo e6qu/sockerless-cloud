@@ -118,8 +118,8 @@ The extractor reads the route out of a single string literal, so a registration 
 | `GET /v1/projects/{project}/serviceAccounts` | ✓ `simulator-gcp/iam_service_accounts.go:363::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/serviceAccounts/{email}` | ✓ `simulator-gcp/iam_service_accounts.go:69::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v1/projects/{project}/serviceAccounts/{email}` | ✓ `simulator-gcp/iam_service_accounts.go:84::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /.well-known/openid-configuration` | ○ `simulator-gcp/token_signing.go:229::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /.well-known/jwks.json` | ○ `simulator-gcp/token_signing.go:235::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /.well-known/openid-configuration` | ○ `simulator-gcp/token_signing.go:240::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /.well-known/jwks.json` | ○ `simulator-gcp/token_signing.go:246::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -139,10 +139,14 @@ func registerComputeMore2(srv *sim.Server) {
 	registerComputeRegionDiskTypesCatalog(srv)
 }
 
+// gcpComputeLicenses holds the project licences, keyed by their path.
+var gcpComputeLicenses sim.Store[map[string]any]
+
 // registerComputeLicenses serves the global licenses collection on its own:
 // LicensesListResponse declares no `kind`, which the shared list helper
 // always stamps.
 func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]any]) {
+	gcpComputeLicenses = store
 	const collection = "licenses"
 	base := computeScopeMux(cScopeGlobal, collection)
 	relPath := func(r *http.Request, name string) string {

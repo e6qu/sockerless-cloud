@@ -544,6 +544,17 @@ the simulator. Each awslogs container writes to its own
 `<prefix>/<container>/<task>` stream; a shared sink once put every
 container's lines in the first one's.
 
+The Google Cloud metadata server resolved every read against one tree, so a
+listing named nothing that did not answer, and each workload read only the
+keys its service documented: a Compute Engine instance its predefined keys,
+a Cloud Run container the id, region, `<region>-1` zone and Direct VPC address
+its container contract states, a Cloud Build step no instance keys at all.
+The fixed `sim-instance-1`, `1000000000001` and `us-central1-a` answers went,
+since a fixed answer reads as a real instance. The vendored Compute Engine
+pages set `alt`, the token's enforced scopes, the identity token's `full`
+format and the guest attributes a guest writes; scopes came from the
+instance's service account rather than a constant `cloud-platform`.
+
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
 already did). On the root disk, the readiness marker, cloud-init's
