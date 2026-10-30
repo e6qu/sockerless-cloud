@@ -62,8 +62,8 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 		t.Fatalf("stream reports event timestamps (%d, %d) with no events", created.FirstEventTimestamp, created.LastEventTimestamp)
 	}
 
-	sink.WriteLog(sim.LogLine{Stream: "stdout", Text: "listening on :3000"})
-	sink.WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError"})
+	sink.For("app").WriteLog(sim.LogLine{Stream: "stdout", Text: "listening on :3000"})
+	sink.For("app").WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError"})
 
 	events, _ := cwStreamEvents(key)
 	if len(events) != 2 {
@@ -122,7 +122,7 @@ func TestECSTaskLogSinkFiresLogGroupMetricFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink.WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError: state cookie missing"})
+	sink.For("app").WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError: state cookie missing"})
 
 	data, ok := cwMetrics.Get(metricsKey("EDD/Dev", "ControlPlaneErrors", nil))
 	if !ok || len(data) != 1 {

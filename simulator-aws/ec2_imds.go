@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -369,6 +370,20 @@ func registerEC2IMDS(srv *sim.Server) {
 			return
 		}
 		imdsText(w, name)
+	})
+	// The user data as launched, base64 decoded; 404 when the instance has none.
+	srv.HandleFunc("GET /latest/user-data", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		data, err := base64.StdEncoding.DecodeString(inst.UserData)
+		if inst.UserData == "" || err != nil {
+			imdsNotFound(w)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(data)
 	})
 	registerEC2IMDSNetwork(srv)
 	registerEC2IMDSIdentity(srv)

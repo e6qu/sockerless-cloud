@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,8 +98,21 @@ func TestEC2_SerialConsoleAccess(t *testing.T) {
 	assert.False(t, aws.ToBool(got2.SerialConsoleAccessEnabled))
 }
 
+// The account's defaults decide a launch's metadata options that the launch
+// itself leaves unset, and enforcement refuses a launch that would allow
+// IMDSv1. The test is serial: the defaults are the account's, and the
+// parallel tests launch under them.
 func TestEC2_InstanceMetadataDefaults(t *testing.T) {
 	c := ec2Client()
+	t.Cleanup(func() {
+		_, err := c.ModifyInstanceMetadataDefaults(ctx, &ec2.ModifyInstanceMetadataDefaultsInput{
+			HttpTokens:              types.MetadataDefaultHttpTokensStateNoPreference,
+			HttpPutResponseHopLimit: aws.Int32(-1),
+			HttpEndpoint:            types.DefaultInstanceMetadataEndpointStateNoPreference,
+			HttpTokensEnforced:      types.DefaultHttpTokensEnforcedStateNoPreference,
+		})
+		require.NoError(t, err)
+	})
 
 	_, err := c.ModifyInstanceMetadataDefaults(ctx, &ec2.ModifyInstanceMetadataDefaultsInput{
 		HttpTokens:              types.MetadataDefaultHttpTokensStateRequired,
@@ -113,6 +127,30 @@ func TestEC2_InstanceMetadataDefaults(t *testing.T) {
 	assert.Equal(t, types.HttpTokensStateRequired, got.AccountLevel.HttpTokens)
 	assert.Equal(t, int32(3), aws.ToInt32(got.AccountLevel.HttpPutResponseHopLimit))
 	assert.Equal(t, types.InstanceMetadataEndpointStateEnabled, got.AccountLevel.HttpEndpoint)
+
+	instID := launchInstanceFor(t, c, "10.218.0.0/16")
+	desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instID}})
+	require.NoError(t, err)
+	options := desc.Reservations[0].Instances[0].MetadataOptions
+	require.NotNil(t, options)
+	assert.Equal(t, types.HttpTokensStateRequired, options.HttpTokens, "a launch that sets no tokens takes the account's")
+	assert.Equal(t, int32(3), aws.ToInt32(options.HttpPutResponseHopLimit))
+
+	_, err = c.ModifyInstanceMetadataDefaults(ctx, &ec2.ModifyInstanceMetadataDefaultsInput{
+		HttpTokensEnforced: types.DefaultHttpTokensEnforcedStateEnabled,
+	})
+	require.NoError(t, err)
+	got, err = c.GetInstanceMetadataDefaults(ctx, &ec2.GetInstanceMetadataDefaultsInput{})
+	require.NoError(t, err)
+	assert.Equal(t, types.HttpTokensEnforcedStateEnabled, got.AccountLevel.HttpTokensEnforced)
+	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+		MetadataOptions: &types.InstanceMetadataOptionsRequest{HttpTokens: types.HttpTokensStateOptional},
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "enforcement refuses a launch that allows IMDSv1")
+	assert.Equal(t, "UnsupportedOperation", apiErr.ErrorCode())
 }
 
 func TestEC2_InstanceEventNotificationAttributes(t *testing.T) {

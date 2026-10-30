@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,6 +55,8 @@ func TestECSTaskMetadataV4_UnknownTask(t *testing.T) {
 // /latest/meta-data/tags/instance/{key}, and at
 // /latest/meta-data/iam/security-credentials/{role} a session of its profile's
 // role named for the instance.
+const imdsUserData = "#!/bin/sh\necho user-data-ran\n"
+
 func TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -87,6 +90,7 @@ func TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession(t *testing.T) {
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 		IamInstanceProfile: &types.IamInstanceProfileSpecification{Name: aws.String(name)},
 		MetadataOptions:    &types.InstanceMetadataOptionsRequest{InstanceMetadataTags: types.InstanceMetadataTagsStateEnabled},
+		UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte(imdsUserData))),
 		TagSpecifications: []types.TagSpecification{{
 			ResourceType: types.ResourceTypeInstance,
 			Tags:         []types.Tag{{Key: aws.String("Name"), Value: aws.String(name)}, {Key: aws.String("team"), Value: aws.String("platform")}},
@@ -116,6 +120,8 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, "401", status(`-H "X-aws-ec2-metadata-token: AQunknown" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/instance-id"`))
 	assert.Equal(t, "400", status(`-X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 21601" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"`), "a TTL over six hours is refused")
 	assert.Equal(t, "400", status(`-X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"`), "a token request without a TTL is refused")
+
+	assert.Equal(t, imdsUserData, imds("/latest/user-data"), "the instance reads its user data as launched")
 
 	listing := imds("/latest/meta-data/")
 	for _, entry := range []string{"ami-id", "iam/", "instance-id", "instance-type", "local-ipv4", "placement/", "tags/"} {

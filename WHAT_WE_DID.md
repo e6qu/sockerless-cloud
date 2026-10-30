@@ -531,6 +531,18 @@ systemd's SIGRTMIN+4 and busybox's SIGUSR2 so a guest's own poweroff ends it.
 The metadata services read the instance's current record; each cloud's
 metadata service answers its own workloads and nothing else, since an
 invented default machine answered every other caller.
+An EC2 launch takes each metadata option from the launch, then the account's
+`ModifyInstanceMetadataDefaults`, then (tokens and hop limit) the AMI, then
+EC2's default, as the vendored options page orders them, and an account that
+enforces IMDSv2 refuses an IMDSv1 launch with `UnsupportedOperation`. Each
+Amazon ECS container has an `ECS_CONTAINER_METADATA_URI_V4` of its own, which
+answers that container's record, the engine's stats at `/stats` and the task's
+at `/task/stats`; a container that has not started has no stats, because the
+engine's one-shot read waits on it. Amazon ECS issues no
+`AWS_CONTAINER_AUTHORIZATION_TOKEN` (EKS Pod Identity does), so neither does
+the simulator. Each awslogs container writes to its own
+`<prefix>/<container>/<task>` stream; a shared sink once put every
+container's lines in the first one's.
 
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
