@@ -920,8 +920,14 @@ jobs:
           rm -rf "$RUNNER_TEMP/go-build"
           docker image prune -af
           sudo apt-get clean
+          # Some ubuntu-24.04 runners carry a 72 GB disk rather than 145 GB, and
+          # the base-image archive alone fills what is left of it. The runner's
+          # preinstalled SDKs nothing here uses hold the room it needs.
+          if [ "$(df -m --output=avail / | tail -1 | tr -d ' ')" -lt 20480 ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          fi
           df -h
-        timeout-minutes: 3
+        timeout-minutes: 5
       # These suites run real containers — the DynamoDB Local differential
       # oracle, the alpine workload a Batch job runs, the database engines the
       # Amazon RDS data plane starts — and the registry caps anonymous requests
