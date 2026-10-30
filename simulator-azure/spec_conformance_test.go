@@ -228,6 +228,15 @@ var allowedNonSpecAzurePrefixes = map[string]string{
 	"/msi/token":          "App Service MSI token endpoint",
 	"/metadata/endpoints": "ARM cloud-environment metadata bootstrap (terraform metadata_host)",
 
+	// IMDS route parameters, load balancer metadata, Scheduled Events and the
+	// version list: documented on Microsoft Learn
+	// (imds-instance-metadata-service.md.gz, imds-load-balancer-metadata.md.gz,
+	// imds-scheduled-events.md.gz) and absent from the IMDS swagger.
+	"/metadata/instance/":       "IMDS route parameters under /metadata/instance",
+	"/metadata/loadbalancer":    "IMDS load balancer metadata",
+	"/metadata/scheduledevents": "IMDS Scheduled Events",
+	"/metadata/versions":        "IMDS supported API versions",
+
 	// The vendored 2021-05 Service Bus data-plane swagger covers only ATOM entity
 	// management; the send/receive/lock REST operations are documented but
 	// unswaggered.

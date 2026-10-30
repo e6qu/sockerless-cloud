@@ -555,6 +555,20 @@ pages set `alt`, the token's enforced scopes, the identity token's `full`
 format and the guest attributes a guest writes; scopes came from the
 instance's service account rather than a constant `cloud-platform`.
 
+The Azure Instance Metadata Service follows its vendored Learn pages
+(`imds-instance-metadata-service`, `imds-scheduled-events`,
+`imds-load-balancer-metadata`): each category refuses an absent or unserved
+`api-version` with the documented body and its three newest versions, route
+parameters walk the document to any node, a leaf answers only with
+`format=text`, and the network section carries each IP configuration's public
+address. Load balancer metadata lists the Standard load balancers' rules that
+reach the machine's interface. Scheduled Events turn on with the machine's
+first request and off after 24 hours without one; while on, a restart, a
+redeploy and a Spot eviction schedule a Reboot, Redeploy or Preempt event with
+the documented minimum notice and wait for the guest's `StartRequests`
+approval or `NotBefore`, so a machine that never asks keeps the immediate
+operation.
+
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
 already did). On the root disk, the readiness marker, cloud-init's

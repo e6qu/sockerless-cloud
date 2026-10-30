@@ -672,7 +672,13 @@ var azureNonSpecRequestPrefixes = []string{
 	"/beta/",              // Microsoft Graph beta surface (spec lives in msgraph-metadata)
 	"/msi/token",          // App Service MSI token endpoint
 	"/metadata/endpoints", // ARM cloud-environment metadata bootstrap (terraform metadata_host)
-	"/sockerless/",        // the simulator's own channels from its sidecars
+	// IMDS route parameters and categories the Learn pages document and the
+	// IMDS swagger omits.
+	"/metadata/instance/",
+	"/metadata/loadbalancer",
+	"/metadata/scheduledevents",
+	"/metadata/versions",
+	"/sockerless/", // the simulator's own channels from its sidecars
 }
 
 func azureNonSpecRequestPath(p string) bool {

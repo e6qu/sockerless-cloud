@@ -92,27 +92,28 @@ func registerMetadata(srv *sim.Server) {
 	// the address its network interface holds. Every read requires the
 	// `Metadata: true` header.
 	registerAzureInstanceAttestation(srv)
-	srv.HandleFunc("GET /metadata/instance", func(w http.ResponseWriter, r *http.Request) {
-		vm, ok := azureIMDSRequest(w, r)
-		if !ok {
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"compute": azureIMDSCompute(vm), "network": azureIMDSNetwork(vm)})
-	})
-	srv.HandleFunc("GET /metadata/instance/compute", func(w http.ResponseWriter, r *http.Request) {
-		vm, ok := azureIMDSRequest(w, r)
-		if !ok {
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, azureIMDSCompute(vm))
-	})
-	srv.HandleFunc("GET /metadata/instance/network", func(w http.ResponseWriter, r *http.Request) {
-		vm, ok := azureIMDSRequest(w, r)
-		if !ok {
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, azureIMDSNetwork(vm))
-	})
+	srv.HandleFunc("GET /metadata/versions", handleAzureIMDSVersions)
+	srv.HandleFunc("GET /metadata/instance", handleAzureIMDSInstance)
+	srv.HandleFunc("GET /metadata/instance/{route...}", handleAzureIMDSInstance)
+	srv.HandleFunc("GET /metadata/loadbalancer", handleAzureIMDSLoadBalancer)
+	srv.HandleFunc("GET /metadata/loadbalancer/{route...}", handleAzureIMDSLoadBalancer)
+	registerAzureScheduledEvents(srv)
+}
+
+// handleAzureIMDSVersions lists the supported API versions, oldest first; the
+// endpoint takes no version itself.
+func handleAzureIMDSVersions(w http.ResponseWriter, r *http.Request) {
+	if !mustMetadataHeader(w, r) {
+		return
+	}
+	if _, ok := azureIMDSRequest(w, r); !ok {
+		return
+	}
+	versions := make([]string, len(azureIMDSVersions))
+	for i, version := range azureIMDSVersions {
+		versions[len(versions)-1-i] = version
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"apiVersions": versions})
 }
 
 // azureIMDSRequest admits an instance metadata read: one carrying the
@@ -212,15 +213,15 @@ func azureIMDSCompute(vm azureMetadataVM) map[string]any {
 }
 
 // azureIMDSNetwork is the network section of the instance document: the
-// machine's interface, its addresses and its subnet.
+// machine's interface, the private and public address of each of its IP
+// configurations, and its subnet.
 func azureIMDSNetwork(vm azureMetadataVM) map[string]any {
-	var primary string
-	var secondaries []string
-	if len(vm.NIC.Properties.IPConfigurations) > 0 {
-		primary = azurePrimaryIPConfig(vm.NIC).Properties.PrivateIPAddress
-		for _, secondary := range azureNICSecondaryAddresses(vm.NIC) {
-			secondaries = append(secondaries, secondary.String())
-		}
+	addresses := []map[string]any{}
+	for _, ipcfg := range azureIMDSIPConfigurations(vm.NIC) {
+		addresses = append(addresses, map[string]any{
+			"privateIpAddress": ipcfg.Properties.PrivateIPAddress,
+			"publicIpAddress":  azureIPConfigPublicAddress(ipcfg),
+		})
 	}
 	var subnets []map[string]any
 	if subnet, ok := azureSubnets.Get(vm.SubnetID); ok {
@@ -231,13 +232,43 @@ func azureIMDSNetwork(vm azureMetadataVM) map[string]any {
 	return map[string]any{
 		"interface": []map[string]any{{
 			"ipv4": map[string]any{
-				"ipAddress": azureIMDSIPAddresses(primary, secondaries),
+				"ipAddress": addresses,
 				"subnet":    subnets,
 			},
 			"ipv6":       map[string]any{"ipAddress": []any{}},
 			"macAddress": strings.ReplaceAll(vm.NIC.Properties.MacAddress, "-", ""),
 		}},
 	}
+}
+
+// azureIMDSIPConfigurations lists an interface's IP configurations, the
+// primary first, then each secondary that holds a private address.
+func azureIMDSIPConfigurations(nic NetworkInterface) []NetworkInterfaceIPConfiguration {
+	if len(nic.Properties.IPConfigurations) == 0 {
+		return nil
+	}
+	primary := azurePrimaryIPConfigIndex(nic)
+	out := []NetworkInterfaceIPConfiguration{nic.Properties.IPConfigurations[primary]}
+	for i, ipcfg := range nic.Properties.IPConfigurations {
+		if i != primary && ipcfg.Properties.PrivateIPAddress != "" {
+			out = append(out, ipcfg)
+		}
+	}
+	return out
+}
+
+// azureIPConfigPublicAddress is the address of the public IP address an IP
+// configuration is associated with: empty when it has none, or none is
+// allocated yet.
+func azureIPConfigPublicAddress(ipcfg NetworkInterfaceIPConfiguration) string {
+	if ipcfg.Properties.PublicIPAddress == nil || ipcfg.Properties.PublicIPAddress.ID == "" || azurePublicIPs == nil {
+		return ""
+	}
+	pip, ok := azurePublicIPs.Get(ipcfg.Properties.PublicIPAddress.ID)
+	if !ok {
+		return ""
+	}
+	return pip.Properties.PublicIPAddress
 }
 
 func azureSubscriptionFromID(id, defaultSubscription string) string {
@@ -326,6 +357,9 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 		if !mustMetadataHeader(w, r) {
 			return
 		}
+		if _, ok := azureIMDSQuery(w, r, azureIMDSAttestedVersions); !ok {
+			return
+		}
 		// The nonce is the caller's replay protection: it signs what the caller
 		// asked to have signed, so a document minted for one challenge cannot
 		// answer another.
@@ -403,15 +437,4 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 	// the statement being attested and the proof it was this deployment that
 	// made it.
 	return base64.StdEncoding.EncodeToString(append(append(document, '.'), signed...)), nil
-}
-
-// azureIMDSIPAddresses lists an interface's private addresses the way the
-// Instance Metadata Service does: the primary IP configuration's first, then
-// each secondary's.
-func azureIMDSIPAddresses(primary string, secondaries []string) []map[string]any {
-	out := []map[string]any{{"privateIpAddress": primary, "publicIpAddress": ""}}
-	for _, address := range secondaries {
-		out = append(out, map[string]any{"privateIpAddress": address, "publicIpAddress": ""})
-	}
-	return out
 }
