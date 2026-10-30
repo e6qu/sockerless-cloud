@@ -380,7 +380,7 @@ func serviceImplementedCount(m *smithyService, r conformanceRouters) int {
 // raises the floor. A count includes only operations the service itself
 // registers.
 var serviceCoverageFloor = map[string]int{
-	"AmazonEC2":                            807, // ec2Query
+	"AmazonEC2":                            808, // ec2Query
 	"AWSBudgetServiceGateway":              26,  // AWS Budgets (awsJson1.1)
 	"AWSSecurityTokenServiceV20110615":     11,  // STS (awsQuery, unversioned)
 	"AWSIdentityManagementV20100508":       180, // IAM (awsQuery, unversioned)

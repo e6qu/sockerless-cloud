@@ -635,7 +635,13 @@ only `docker build` as a CLI call.
 
 RunTask commits each task's declared memory and CPU against the simulator's
 own cgroup or machine, with in-flight reservations in the ledger so two
-concurrent RunTasks cannot both take the last slot. A task belongs to the
+concurrent RunTasks cannot both take the last slot. Amazon EC2 Capacity
+Manager's supportability scores read the same host: what its CPUs and memory
+hold once running instances and placed tasks take theirs, divided by each
+instance type's size, banded high, medium and low against the requested amount
+as AWS documents. Every Availability Zone the simulator serves shares that
+host, so zones score alike and the aggregate is the best combination's score.
+A task belongs to the
 deployment that started it by `startedBy`. An awsvpc task creates its
 interface at `RunTask`, so DeleteSubnet refuses while it holds it. The task
 metadata endpoint waits for its task's start to settle, because a container
@@ -829,8 +835,9 @@ account holding `roles/storage.objectViewer` deleted objects. One gate
 (`iam_gate.go`) now fronts every authenticated REST and gRPC method: it
 resolves the call to its Discovery method, takes the method's permission from
 the first source that names one (the method tables Cloud Storage and Pub/Sub
-publish, a cited per-method table, the service's audit-logging page, then
-Google's `service.resource.verb` convention), and evaluates the policies on the
+publish, each method's REST reference page, a cited per-method table, the
+service's audit-logging page, then Google's `service.resource.verb`
+convention), and evaluates the policies on the
 resource and every ancestor up to the organization. A gRPC call is decided as
 the REST call its `google.api.http` binding spells. The bootstrap account is
 an Owner through a seeded organization `roles/owner` binding rather than an
@@ -842,6 +849,15 @@ covers the pool's subjects on the project's buckets too. A project's creator
 becomes its Owner, as the Project Creator role documents, and a Resource
 Manager operation poll reads the project it produced, since Google publishes
 no permission for it and a Project Creator polls its own create.
+
+A REST reference page states its method's permission in prose that Discovery
+does not carry, so `scripts/fetch-gcp-method-permissions.go` compiles the pages
+into `method-permissions.json.gz` once, with each page's "Last updated" date.
+Its rows tell a verb apart from the convention's guess: Compute Engine's
+`instanceGroupManagers.listManagedInstances` needs `get` and `resize` needs
+`update`. Re-fetching several hundred pages on every freshness run costs more
+than it buys, so the freshness check samples a rotating slice of them each day
+and reports a page dated after its row.
 
 AWS KMS serves ML-KEM (FIPS 203) key pairs: `ML_KEM_512`, `ML_KEM_768` and
 `ML_KEM_1024` keys with `ENCAPSULATE_DECAPSULATE` usage, kept as their 64-byte

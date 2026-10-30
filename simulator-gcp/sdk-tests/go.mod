@@ -3,30 +3,30 @@ module github.com/e6qu/sockerless-cloud/simulator-gcp/sdk-tests
 go 1.26.0
 
 require (
-	cloud.google.com/go/apigateway v1.17.0
-	cloud.google.com/go/artifactregistry v1.28.0
-	cloud.google.com/go/bigquery v1.86.0
+	cloud.google.com/go/apigateway v1.17.1
+	cloud.google.com/go/artifactregistry v1.28.1
+	cloud.google.com/go/bigquery v1.86.1
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.36.0
-	cloud.google.com/go/cloudtasks v1.21.0
-	cloud.google.com/go/eventarc v1.27.0
-	cloud.google.com/go/firestore v1.29.0
-	cloud.google.com/go/functions v1.27.0
-	cloud.google.com/go/iam v1.15.0
-	cloud.google.com/go/kms v1.36.0
-	cloud.google.com/go/logging v1.21.0
-	cloud.google.com/go/redis v1.28.0
-	cloud.google.com/go/resourcemanager v1.18.0
-	cloud.google.com/go/run v1.24.0
-	cloud.google.com/go/scheduler v1.18.0
-	cloud.google.com/go/secretmanager v1.23.0
+	cloud.google.com/go/cloudbuild v1.36.1
+	cloud.google.com/go/cloudtasks v1.21.1
+	cloud.google.com/go/eventarc v1.27.1
+	cloud.google.com/go/firestore v1.29.1
+	cloud.google.com/go/functions v1.27.1
+	cloud.google.com/go/iam v1.15.1
+	cloud.google.com/go/kms v1.36.1
+	cloud.google.com/go/logging v1.21.1
+	cloud.google.com/go/redis v1.28.1
+	cloud.google.com/go/resourcemanager v1.18.1
+	cloud.google.com/go/run v1.24.1
+	cloud.google.com/go/scheduler v1.18.1
+	cloud.google.com/go/secretmanager v1.23.1
 	cloud.google.com/go/storage v1.70.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.309.0
+	google.golang.org/api v0.310.0
 	google.golang.org/genproto v0.0.0-20261026165753-2ffab32bce7e
 	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e
 	google.golang.org/grpc v1.85.0
@@ -64,7 +64,7 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
-	cloud.google.com/go/longrunning v1.4.0
+	cloud.google.com/go/longrunning v1.4.1
 	cloud.google.com/go/monitoring v1.32.0 // indirect
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/pubsub/v2 v2.8.0 // indirect

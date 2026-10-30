@@ -45,14 +45,14 @@ var gcpPublicImages = []gcpPublicImage{
 		Description:  "Debian, Debian GNU/Linux, 12 (bookworm), amd64 built on 20251001",
 		Architecture: "X86_64", DiskSizeGb: 10,
 		Licenses: []string{"projects/debian-cloud/global/licenses/debian-12-bookworm"},
-		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61", Architecture: "linux/amd64"},
+		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880", Architecture: "linux/amd64"},
 	},
 	{
 		Project: "debian-cloud", Name: "debian-12-bookworm-arm64-v20251001", Family: "debian-12-arm64",
 		Description:  "Debian, Debian GNU/Linux, 12 (bookworm), arm64 built on 20251001",
 		Architecture: "ARM64", DiskSizeGb: 10,
 		Licenses: []string{"projects/debian-cloud/global/licenses/debian-12-bookworm"},
-		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61", Architecture: "linux/arm64"},
+		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880", Architecture: "linux/arm64"},
 	},
 	{
 		Project: "ubuntu-os-cloud", Name: "ubuntu-2404-noble-amd64-v20251001", Family: "ubuntu-2404-lts-amd64",

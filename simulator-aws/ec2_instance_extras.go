@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 
@@ -894,33 +893,7 @@ func handleDisableInstanceSqlHaStandbyDetections(w http.ResponseWriter, r *http.
 }
 
 func handleGetInstanceTypesFromInstanceRequirements(w http.ResponseWriter, r *http.Request) {
-	minVcpus := ec2AtoiOr(r.FormValue("InstanceRequirements.VCpuCount.Min"), 0)
-	maxVcpus := ec2AtoiOr(r.FormValue("InstanceRequirements.VCpuCount.Max"), 0)
-	minMem := ec2AtoiOr(r.FormValue("InstanceRequirements.MemoryMiB.Min"), 0)
-	maxMem := ec2AtoiOr(r.FormValue("InstanceRequirements.MemoryMiB.Max"), 0)
-	arches := ec2ParamList(r, "ArchitectureType")
-
-	var matches []string
-	catalog, _ := ec2InstanceTypeCatalog()
-	for _, t := range catalog {
-		if minVcpus > 0 && t.VCpus < minVcpus {
-			continue
-		}
-		if maxVcpus > 0 && t.VCpus > maxVcpus {
-			continue
-		}
-		if minMem > 0 && t.MemoryMiB < minMem {
-			continue
-		}
-		if maxMem > 0 && t.MemoryMiB > maxMem {
-			continue
-		}
-		if len(arches) > 0 && !slices.ContainsFunc(t.Architectures, func(a string) bool { return ec2StrInValues(a, arches) }) {
-			continue
-		}
-		matches = append(matches, t.Name)
-	}
-	sort.Strings(matches)
+	matches := ec2InstanceTypesMatching(r, "InstanceRequirements", "ArchitectureType")
 	var items strings.Builder
 	for _, name := range matches {
 		fmt.Fprintf(&items, "<item><instanceType>%s</instanceType></item>", name)

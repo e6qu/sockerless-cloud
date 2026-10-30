@@ -6,7 +6,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | Local file | Upstream repo / host | Upstream path | License | Pinned at | Fetched (UTC) |
 |---|---|---|---|---|---|
 | `discovery-v1.discovery.json.gz` | `discovery.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20200806` | 2026-10-06T10:43:37Z |
-| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
 | `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261009` | 2026-10-21T11:39:24Z |
 | `bigtableadmin-v2.discovery.json.gz` | `bigtableadmin.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261017` | 2026-10-21T11:39:25Z |
@@ -37,7 +36,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-job-parallelism.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/parallelism` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:02Z |
 | `cloudrun-job-task-timeout.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/task-timeout` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:03Z |
 | `cloudrun-logging.md.gz` | `docs.cloud.google.com` | `run/docs/logging` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:04Z |
-| `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:05Z |
 | `cloudrun-max-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-instances` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:06Z |
 | `cloudrun-min-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/min-instances` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:07Z |
 | `cloudrun-private-networking.md.gz` | `docs.cloud.google.com` | `run/docs/securing/private-networking` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:45:08Z |
@@ -48,11 +46,9 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `iam-roles-overview.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-overview` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:23Z |
 | `iam-service-account-impersonation.md.gz` | `docs.cloud.google.com` | `iam/docs/service-account-impersonation` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:48Z |
 | `iam-service-agents.md.gz` | `docs.cloud.google.com` | `iam/docs/service-agents` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:46:50Z |
-| `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:52Z |
 | `logging-audit-logging.md.gz` | `docs.cloud.google.com` | `logging/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:46:52Z |
 | `logging-resource-list.md.gz` | `docs.cloud.google.com` | `logging/docs/api/v2/resource-list` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:54Z |
 | `resource-manager-audit-logging.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:58Z |
-| `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:46:59Z |
 | `run-audit-logging.md.gz` | `docs.cloud.google.com` | `run/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-28T08:47:00Z |
 | `run-managing-access.md.gz` | `docs.cloud.google.com` | `run/docs/securing/managing-access` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:01Z |
 | `scheduler-cron-job-schedules.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/cron-job-schedules` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-28T08:47:02Z |
@@ -108,7 +104,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `iam-roles-cloudbuild.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudbuild` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:20Z |
 | `iam-roles-cloudfunctions.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudfunctions` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:22Z |
 | `iam-roles-cloudkms.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudkms` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:24Z |
-| `iam-roles-cloudscheduler.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudscheduler` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:26Z |
 | `iam-roles-cloudsql.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudsql` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:28Z |
 | `iam-roles-cloudtasks.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudtasks` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:29Z |
 | `iam-roles-compute.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/compute` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:04Z |
@@ -127,6 +122,12 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `iam-roles-spanner.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/spanner` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:41Z |
 | `iam-roles-storage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/storage` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:46Z |
 | `iam-roles-vpcaccess.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/vpcaccess` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:47Z |
-| `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-29T07:32:48Z |
 | `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:50Z |
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261026` | 2026-10-29T07:32:51Z |
+| `method-permissions.json.gz` | `docs.cloud.google.com` | `(each method's REST reference page)` | CC-BY-4.0 | `sampled2026-10-29` | 2026-10-29T17:42:15Z |
+| `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261025` | 2026-10-29T17:54:02Z |
+| `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:07Z |
+| `iam-roles-cloudscheduler.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudscheduler` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:08Z |
+| `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:09Z |
+| `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:10Z |
+| `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-29T18:08:02Z |

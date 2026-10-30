@@ -99,9 +99,14 @@ refresh_gcp() {
   srcpath="$(field "$row" 3)"
   # A documentation page, vendored as Markdown, refreshes from the live page:
   # the capture is the page as served, which the fetcher converts itself.
-  case "$file" in *.md.gz)
+  case "$file" in
+  *.md.gz)
     echo "refresh google documentation page $srcpath ($file)"
     bash "$ROOT/scripts/fetch-gcp-doc.sh" "$srcpath" "${file%.md.gz}"
+    return ;;
+  method-permissions.json.gz)
+    echo "refresh the methods' reference-page permissions ($file)"
+    (cd "$ROOT" && go run scripts/fetch-gcp-method-permissions.go)
     return ;;
   esac
   # `$discovery/rest?version=v2` for a per-host document, and
