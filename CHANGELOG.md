@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.2.0](https://github.com/e6qu/sockerless-cloud/compare/v3.1.0...v3.2.0) (2026-10-30)
+
+
+### Features
+
+* **gcp:** enforce IAM policy on every REST and gRPC method ([#362](https://github.com/e6qu/sockerless-cloud/issues/362)) ([023d8ed](https://github.com/e6qu/sockerless-cloud/commit/023d8ed276b0130c1e2d64c668a13438a7f1435d))
+
+
+### Bug Fixes
+
+* **azure:** detect a Container Apps target port and drop consumer-aware behaviour ([#365](https://github.com/e6qu/sockerless-cloud/issues/365)) ([b382342](https://github.com/e6qu/sockerless-cloud/commit/b38234202d7cf5780e5f61b2f0fdd376407b9a60))
+* close the instance metadata gaps across AWS, Google Cloud and Azure ([#366](https://github.com/e6qu/sockerless-cloud/issues/366)) ([1059c23](https://github.com/e6qu/sockerless-cloud/commit/1059c23b09d8ba86ad29ec6d1d874968abe2e8d7))
+* **gcp:** take each method's permission from its REST reference page; feat(aws): EC2 supportability scores ([#364](https://github.com/e6qu/sockerless-cloud/issues/364)) ([3464638](https://github.com/e6qu/sockerless-cloud/commit/34646385028dd66bf0b344b7b0bf60b2e7c0eeaa))
+
 ## [3.1.0](https://github.com/e6qu/sockerless-cloud/compare/v3.0.1...v3.1.0) (2026-10-27)
 
 
