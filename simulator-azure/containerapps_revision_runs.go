@@ -132,7 +132,7 @@ func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 	containers := wl.app.Properties.Template.Containers
 	members := make([]workload.Member, 0, len(containers)+1)
 	for i, c := range containers {
-		container := acaAppContainer(wl.app, c, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
+		container := acaAppContainer(wl.app, c, wl.rev.Name, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
 		container.Config.Labels[acaRevisionLabel] = wl.rev.ID
 		container.Config.Labels[acaReplicaLabel] = replica.name
 		container.Config.Labels[acaContainerLabel] = c.Name
@@ -559,7 +559,7 @@ func acaIngressEnabled(app ContainerApp) bool {
 // the app's containers start.
 func (wl acaRevisionWorkload) runInitContainers(ctx context.Context, backend placement.Backend, replica *acaReplica, pod func(*sim.ContainerConfig)) error {
 	for i, c := range wl.app.Properties.Template.InitContainers {
-		container := acaAppContainer(wl.app, c, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
+		container := acaAppContainer(wl.app, c, wl.rev.Name, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
 		container.Config.Name += "-init"
 		container.Config.Labels[acaRevisionLabel] = wl.rev.ID
 		container.Config.Labels[acaReplicaLabel] = replica.name

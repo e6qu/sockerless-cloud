@@ -12,17 +12,29 @@ function unique(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+const transitionsDisabled = new WeakSet<Page>();
+
+/** Turns CSS transitions and animations off in this document and in every one
+ *  the page loads after it, so an audit measures settled colours rather than a
+ *  transition's frame. */
+async function disableTransitions(page: Page) {
+  if (transitionsDisabled.has(page)) return;
+  transitionsDisabled.add(page);
+  // An init script runs before the document has a head, so adopt a sheet
+  // instead of appending a style element.
+  const install = () => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync("*, *::before, *::after { transition: none !important; animation: none !important; }");
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  };
+  await page.addInitScript(install);
+  await page.evaluate(install);
+}
+
 /** Forces the console into the requested visual mode through its own Settings
- * menu, with transitions off so contrast is measured at settled colours. */
+ * menu. */
 async function ensureTheme(page: Page, theme: "light" | "dark") {
-  await page.evaluate(() => {
-    const id = "e2e-disable-transitions";
-    if (document.getElementById(id)) return;
-    const style = document.createElement("style");
-    style.id = id;
-    style.textContent = "*, *::before, *::after { transition: none !important; animation: none !important; }";
-    document.head.append(style);
-  });
+  await disableTransitions(page);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("menuitemcheckbox", { name: theme === "dark" ? "Dark" : "Light" }).click();
   await expect
@@ -664,8 +676,9 @@ test.describe("Accessibility in both visual modes", () => {
       path: "/ui/iam",
       open: async (page) => {
         await page.getByTestId("iam-create-user").click();
-        await expect(page.getByRole("dialog", { name: "Create user" })).toBeVisible();
-        await page.waitForTimeout(400);
+        const dialog = page.getByRole("dialog", { name: "Create user" });
+        await expect(dialog).toBeVisible();
+        await expect(dialog).toHaveCSS("opacity", "1");
       },
     },
   ];
@@ -673,6 +686,7 @@ test.describe("Accessibility in both visual modes", () => {
     for (const target of TARGETS) {
       test(`${target.name} has no detectable violations (${theme})`, async ({ page }) => {
         await page.goto(target.path);
+        await disableTransitions(page);
         await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
         if (theme === "dark") await ensureTheme(page, "dark");
         if (target.open) await target.open(page);

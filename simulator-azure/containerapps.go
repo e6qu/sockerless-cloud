@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/gorilla/websocket"
-	dockerclient "github.com/moby/moby/client"
 )
 
 type ContainerAppJob struct {
@@ -585,7 +583,6 @@ func registerContainerApps(srv *sim.Server) {
 
 	// The exec WebSocket takes the command in the `command` query parameter and
 	// bridges to a `docker exec` against the execution's container.
-	srv.HandleFunc("POST "+basePath+"/jobs/{jobName}/executions/{execName}/exec", handleACAJobExec)
 }
 
 // acaSettleJobIdentity brings the directory in step with the job's
@@ -608,106 +605,6 @@ func acaSettleJobIdentity(w http.ResponseWriter, job, prev ContainerAppJob) bool
 		return false
 	}
 	return true
-}
-
-// handleACAJobExec bridges to the main container of the execution's first
-// running replica.
-func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
-	sub := sim.PathParam(r, "subscriptionId")
-	rg := sim.PathParam(r, "resourceGroupName")
-	jobName := sim.PathParam(r, "jobName")
-	execName := sim.PathParam(r, "execName")
-	command := r.URL.Query().Get("command")
-	if command == "" {
-		AzureError(w, "BadRequest", "command query parameter is required", http.StatusBadRequest)
-		return
-	}
-
-	execID := armResourceID(sub, rg, "Microsoft.App", "jobs", jobName, "executions", execName)
-	var handle placement.Handle
-	if v, ok := acaJobRuns.Load(execID); ok {
-		if run, ok := v.(*acaJobRun); ok {
-			handle = run.mainContainer()
-		}
-	}
-	if handle == nil {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-			"No running execution container for '%s/%s'", jobName, execName)
-		return
-	}
-
-	conn, err := acaWSUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close() //nolint:errcheck
-
-	cli := sim.DockerClient()
-	if cli == nil {
-		_ = conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "docker client not initialised"))
-		return
-	}
-
-	// Run through `sh -c` so arbitrary shell expressions work.
-	execCfg := dockerclient.ExecCreateOptions{
-		Cmd:          []string{"sh", "-c", command},
-		AttachStdin:  true,
-		AttachStdout: true,
-		AttachStderr: true,
-	}
-	ctx := r.Context()
-	execResp, err := cli.ExecCreate(ctx, handle.ID(), execCfg)
-	if err != nil {
-		_ = conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
-		return
-	}
-	attach, err := cli.ExecAttach(ctx, execResp.ID, dockerclient.ExecAttachOptions{})
-	if err != nil {
-		_ = conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
-		return
-	}
-	defer attach.Close()
-
-	// The protocol does not split stdout and stderr on the wire, so the client
-	// receives the engine's multiplexed stream.
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		buf := make([]byte, 4096)
-		for {
-			n, rerr := attach.Reader.Read(buf)
-			if n > 0 {
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					return
-				}
-			}
-			if rerr != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		if _, werr := attach.Conn.Write(msg); werr != nil {
-			break
-		}
-	}
-	_ = attach.CloseWrite()
-	<-done
-
-	_ = conn.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		time.Now().Add(5*time.Second),
-	)
 }
 
 var acaWSUpgrader = websocket.Upgrader{
