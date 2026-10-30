@@ -99,3 +99,39 @@ func TestProcessExitEndsTheChildrenItLeftBehind(t *testing.T) {
 		t.Fatalf("exit code %d, want 3", p.result.code)
 	}
 }
+
+// A stop delivers SIGTERM only to a process that catches it, as the kernel
+// does for a namespace's PID 1: a trap exits on it, and a process with none
+// runs until the SIGKILL the grace ends in.
+func TestStopSignalsAsANamespaceInit(t *testing.T) {
+	children := make(chan os.Signal, 1)
+	signal.Notify(children, syscall.SIGCHLD)
+	defer signal.Stop(children)
+	go exits.reap(children)
+	stopped := func(script string) exitResult {
+		logs := newLogBook()
+		_, lines, stopFollowing := logs.follow()
+		defer stopFollowing()
+		p := newProcess("", "", processSpec{Command: []string{"sh", "-c", script}, StopGrace: 500 * time.Millisecond}, logs)
+		if err := p.start(); err != nil {
+			t.Fatal(err)
+		}
+		// The trap is installed before the shell reports ready.
+		for ready := false; !ready; {
+			select {
+			case line := <-lines:
+				ready = line.Text == "ready"
+			case <-time.After(10 * time.Second):
+				t.Fatalf("%q never reported ready", script)
+			}
+		}
+		p.stop()
+		return p.wait()
+	}
+	if got := stopped(`trap 'exit 143' TERM; echo ready; while :; do sleep 0.1; done`); got.code != 143 {
+		t.Fatalf("a process that traps SIGTERM exited %d, want 143", got.code)
+	}
+	if got := stopped(`echo ready; exec sleep 60`); got.code != 137 {
+		t.Fatalf("a process with no SIGTERM handler exited %d, want 137 from the SIGKILL", got.code)
+	}
+}
