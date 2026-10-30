@@ -323,7 +323,7 @@ type process struct {
 	root   string
 	spec   processSpec
 	logs   *logBook
-	cmd    *exec.Cmd
+	pid    int
 	done   chan struct{}
 	result exitResult
 }
@@ -354,7 +354,7 @@ func (p *process) start() error {
 	if err != nil {
 		return fmt.Errorf("start %s: %w", p.spec.Command[0], err)
 	}
-	p.cmd = cmd
+	p.pid = pid
 	var pipes sync.WaitGroup
 	pipes.Add(2)
 	go func() { defer pipes.Done(); p.copyLines("stdout", stdout); _ = stdout.Close() }()
@@ -515,17 +515,23 @@ func (p *process) wait() exitResult {
 // process only when it has a handler for it, so a workload that catches no
 // SIGTERM runs on until the SIGKILL.
 func (p *process) stop() {
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.pid == 0 {
 		return
 	}
-	if catchesSignal(p.cmd.Process.Pid, syscall.SIGTERM) {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	// The PID is the process's until done closes, when its reaper has
+	// collected it.
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	if catchesSignal(p.pid, syscall.SIGTERM) {
+		_ = syscall.Kill(p.pid, syscall.SIGTERM)
 	}
 	select {
 	case <-p.done:
 	case <-time.After(p.spec.StopGrace):
-		_ = p.cmd.Process.Kill()
-		killGroup(p.cmd.Process.Pid)
+		killGroup(p.pid)
 	}
 }
 
