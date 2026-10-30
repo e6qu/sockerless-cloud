@@ -10,14 +10,14 @@ require (
 	cloud.google.com/go/cloudbuild v1.36.1
 	cloud.google.com/go/cloudtasks v1.21.1
 	cloud.google.com/go/eventarc v1.27.1
-	cloud.google.com/go/firestore v1.29.1
+	cloud.google.com/go/firestore v1.29.2
 	cloud.google.com/go/functions v1.27.1
 	cloud.google.com/go/iam v1.15.1
 	cloud.google.com/go/kms v1.36.1
 	cloud.google.com/go/logging v1.21.1
 	cloud.google.com/go/longrunning v1.4.1
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/redis v1.28.1
+	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
 	cloud.google.com/go/run v1.24.1
 	cloud.google.com/go/scheduler v1.18.1

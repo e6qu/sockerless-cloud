@@ -59,14 +59,14 @@ var gcpPublicImages = []gcpPublicImage{
 		Description:  "Canonical, Ubuntu, 24.04 LTS, amd64 noble image built on 2025-10-01",
 		Architecture: "X86_64", DiskSizeGb: 10,
 		Licenses: []string{"projects/ubuntu-os-cloud/global/licenses/ubuntu-2404-lts-amd64"},
-		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c", Architecture: "linux/amd64"},
+		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852", Architecture: "linux/amd64"},
 	},
 	{
 		Project: "ubuntu-os-cloud", Name: "ubuntu-2404-noble-arm64-v20251001", Family: "ubuntu-2404-lts-arm64",
 		Description:  "Canonical, Ubuntu, 24.04 LTS, arm64 noble image built on 2025-10-01",
 		Architecture: "ARM64", DiskSizeGb: 10,
 		Licenses: []string{"projects/ubuntu-os-cloud/global/licenses/ubuntu-2404-lts-arm64"},
-		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c", Architecture: "linux/arm64"},
+		Image:    vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852", Architecture: "linux/arm64"},
 	},
 }
 
