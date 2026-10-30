@@ -81,7 +81,7 @@ func ec2ReapplyIngress(vpcID string) {
 		if !ok || taskVPC != vpcID {
 			return true
 		}
-		if handle := procs.Handles[procs.MainContainerName]; handle != nil {
+		if handle := procs.mainHandle(); handle != nil {
 			ec2SetIngress(ctx, "task "+taskID, handle, ec2IngressStages(groups))
 		}
 		return true

@@ -94,7 +94,7 @@ func ecsSampleServiceMetrics(ctx context.Context, now time.Time) {
 		cpuReserved, memReserved := ecsTaskReservation(task)
 		var cpuUsed, memUsed float64
 		cpuKnown, memKnown := true, true
-		for _, handle := range procs.Handles {
+		for _, handle := range procs.handleList() {
 			if handle == nil || handle.ID() == "" {
 				continue
 			}

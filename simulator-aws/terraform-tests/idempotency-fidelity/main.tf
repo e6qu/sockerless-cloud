@@ -143,6 +143,13 @@ resource "aws_ecs_task_definition" "this" {
     stopTimeout = 2
     image       = "mirror.gcr.io/library/nginx:latest"
     essential   = true
+    dependsOn   = [{ containerName = "setup", condition = "SUCCESS" }]
+    }, {
+    name         = "setup"
+    stopTimeout  = 2
+    startTimeout = 30
+    image        = "mirror.gcr.io/library/busybox:latest"
+    essential    = false
   }])
   runtime_platform {
     cpu_architecture        = "ARM64"

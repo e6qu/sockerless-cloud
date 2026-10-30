@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,8 +60,12 @@ type ECSContainerDefinition struct {
 	// means the platform default.
 	StopTimeout *int `json:"stopTimeout,omitempty"`
 	// The runtime decodes healthCheck and secrets; every other field rides `raw`.
-	HealthCheck json.RawMessage `json:"healthCheck,omitempty"`
-	Secrets     json.RawMessage `json:"secrets,omitempty"`
+	HealthCheck json.RawMessage          `json:"healthCheck,omitempty"`
+	Secrets     json.RawMessage          `json:"secrets,omitempty"`
+	DependsOn   []ECSContainerDependency `json:"dependsOn,omitempty"`
+	// Seconds a container that depends on this one waits for it to reach a
+	// COMPLETE, SUCCESS or HEALTHY condition, counted from this one's start.
+	StartTimeout *int `json:"startTimeout,omitempty"`
 
 	// raw holds the exact registered bytes. The provider hashes the whole
 	// containerDefinitions JSON as ForceNew, so dropping any field forces a new
@@ -88,6 +94,11 @@ func (c ECSContainerDefinition) MarshalJSON() ([]byte, error) {
 	}
 	type alias ECSContainerDefinition
 	return json.Marshal(alias(c))
+}
+
+type ECSContainerDependency struct {
+	ContainerName string `json:"containerName"`
+	Condition     string `json:"condition"`
 }
 
 type ECSKeyValuePair struct {
@@ -241,6 +252,8 @@ type ECSTaskContainer struct {
 	RuntimeId         string                `json:"runtimeId,omitempty"`
 	NetworkBindings   []ECSNetworkBinding   `json:"networkBindings,omitempty"`
 	NetworkInterfaces []ECSNetworkInterface `json:"networkInterfaces,omitempty"`
+	// Set only for a container whose definition declares a healthCheck.
+	HealthStatus string `json:"healthStatus,omitempty"`
 }
 
 // A bridge-network task advertises its host ports through these.
@@ -306,6 +319,9 @@ type ECSTask struct {
 	NetworkConfiguration *ECSTaskNetworkConfig `json:"networkConfiguration,omitempty"`
 	StartedBy            string                `json:"startedBy,omitempty"`
 	ContainerInstanceArn string                `json:"containerInstanceArn,omitempty"`
+	// Set only for a task with a container whose definition declares a
+	// healthCheck.
+	HealthStatus string `json:"healthStatus,omitempty"`
 	// Internal state for resuming a task whose containers had not started at a
 	// restart.
 	VolumeHosts map[string]string `json:"-"`
@@ -377,10 +393,125 @@ var (
 )
 
 type ecsTaskProcesses struct {
-	MainContainerName string
-	Handles           map[string]placement.Handle
 	// Each container's SIGTERM-to-SIGKILL grace, from its stopTimeout.
 	StopGrace map[string]time.Duration
+	Essential map[string]bool
+
+	// A task's containers are placed one at a time while readers already hold
+	// the task's processes.
+	mu sync.Mutex
+	// The container owning the task's network namespace, which takes the
+	// task's ingress and route.
+	mainContainerName string
+	handles           map[string]placement.Handle
+}
+
+func newECSTaskProcesses(td ECSTaskDefinition, mainContainerName string) *ecsTaskProcesses {
+	return &ecsTaskProcesses{
+		StopGrace:         ecsTaskStopGrace(td),
+		Essential:         ecsTaskEssential(td),
+		mainContainerName: mainContainerName,
+		handles:           make(map[string]placement.Handle, len(td.ContainerDefinitions)),
+	}
+}
+
+// Amazon ECS treats a container whose definition omits essential as
+// essential.
+func ecsContainerEssential(cd ECSContainerDefinition) bool {
+	return cd.Essential == nil || *cd.Essential
+}
+
+func ecsTaskEssential(td ECSTaskDefinition) map[string]bool {
+	essential := make(map[string]bool, len(td.ContainerDefinitions))
+	for _, cd := range td.ContainerDefinitions {
+		essential[cd.Name] = ecsContainerEssential(cd)
+	}
+	return essential
+}
+
+func (p *ecsTaskProcesses) setHandle(name string, h placement.Handle) {
+	p.mu.Lock()
+	p.handles[name] = h
+	p.mu.Unlock()
+}
+
+func (p *ecsTaskProcesses) setMain(name string) {
+	p.mu.Lock()
+	p.mainContainerName = name
+	p.mu.Unlock()
+}
+
+// The handle of the container owning the task's network namespace.
+func (p *ecsTaskProcesses) mainHandle() placement.Handle {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.handles[p.mainContainerName]
+}
+
+func (p *ecsTaskProcesses) handleList() []placement.Handle {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]placement.Handle, 0, len(p.handles))
+	for _, h := range p.handles {
+		out = append(out, h)
+	}
+	return out
+}
+
+func (p *ecsTaskProcesses) named() map[string]placement.Handle {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return maps.Clone(p.handles)
+}
+
+// A running container holding the task's network namespace, the owner first;
+// nil once every container placed has exited.
+func (p *ecsTaskProcesses) liveNamespaceHandle() placement.Handle {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	running := func(h placement.Handle) bool {
+		if h == nil {
+			return false
+		}
+		select {
+		case <-h.Exited():
+			return false
+		default:
+			return true
+		}
+	}
+	if h := p.handles[p.mainContainerName]; running(h) {
+		return h
+	}
+	names := slices.Sorted(maps.Keys(p.handles))
+	for _, name := range names {
+		if h := p.handles[name]; running(h) {
+			return h
+		}
+	}
+	return nil
+}
+
+// The namespace owner goes last, after every container that joined it.
+func (p *ecsTaskProcesses) removalOrder() []placement.Handle {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]placement.Handle, 0, len(p.handles))
+	for name, h := range p.handles {
+		if name != p.mainContainerName {
+			out = append(out, h)
+		}
+	}
+	if h := p.handles[p.mainContainerName]; h != nil {
+		out = append(out, h)
+	}
+	return out
 }
 
 // 30 seconds on Fargate and the EC2 agent's ECS_CONTAINER_STOP_TIMEOUT
@@ -407,12 +538,12 @@ func (p *ecsTaskProcesses) firstHandle() placement.Handle {
 	if p == nil {
 		return nil
 	}
-	if p.MainContainerName != "" {
-		if h := p.Handles[p.MainContainerName]; h != nil {
-			return h
-		}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h := p.handles[p.mainContainerName]; h != nil {
+		return h
 	}
-	for _, h := range p.Handles {
+	for _, h := range p.handles {
 		return h
 	}
 	return nil
@@ -422,10 +553,12 @@ func (p *ecsTaskProcesses) handleFor(containerName string) placement.Handle {
 	if p == nil {
 		return nil
 	}
-	if containerName != "" {
-		return p.Handles[containerName]
+	if containerName == "" {
+		return p.firstHandle()
 	}
-	return p.firstHandle()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.handles[containerName]
 }
 
 // A lifecycle step can stop waiting for it when the simulator shuts down.
@@ -462,7 +595,7 @@ func stopECSTaskProcesses(ctx context.Context, p *ecsTaskProcesses) {
 	// takes as long as its slowest container. A cancelled ctx ends the wait, not
 	// the stop.
 	var stopping sync.WaitGroup
-	for _, h := range p.Handles {
+	for _, h := range p.handleList() {
 		if h == nil {
 			continue
 		}
@@ -485,7 +618,7 @@ func ecsAbandonTaskStart(taskID string, p *ecsTaskProcesses) {
 	if p == nil {
 		return
 	}
-	for _, handle := range p.Handles {
+	for _, handle := range p.handleList() {
 		if handle == nil || handle.ID() == "" {
 			continue
 		}
@@ -504,16 +637,7 @@ func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProce
 	if ctx.Err() != nil {
 		return
 	}
-	handles := make([]placement.Handle, 0, len(p.Handles))
-	for name, handle := range p.Handles {
-		if name != p.MainContainerName {
-			handles = append(handles, handle)
-		}
-	}
-	if mainHandle := p.Handles[p.MainContainerName]; mainHandle != nil {
-		handles = append(handles, mainHandle)
-	}
-	for _, handle := range handles {
+	for _, handle := range p.removalOrder() {
 		if handle == nil || handle.ID() == "" {
 			continue
 		}

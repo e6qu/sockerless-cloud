@@ -181,8 +181,10 @@ func ecsFinishTaskStop(ctx context.Context, taskID string) {
 	if !ok || existing.LastStatus == ECSTaskStatusStopped {
 		return
 	}
+	procs := &ecsTaskProcesses{}
 	if v, ok := ecsProcessHandles.LoadAndDelete(taskID); ok {
-		if procs, ok := v.(*ecsTaskProcesses); ok {
+		if held, ok := v.(*ecsTaskProcesses); ok {
+			procs = held
 			cleanupECSTaskProcesses(ctx, taskID, procs)
 		}
 	}
@@ -191,37 +193,12 @@ func ecsFinishTaskStop(ctx context.Context, taskID string) {
 		return
 	}
 
-	now := ecsEpochSeconds()
-	transitioned := false
-	var doomedVolumes []string
-	ecsTasks.Update(taskID, func(t *ECSTask) {
-		if t.LastStatus == ECSTaskStatusStopped {
-			return
-		}
-		transitioned = true
-		t.LastStatus = ECSTaskStatusStopped
-		t.DesiredStatus = ECSTaskStatusStopped
-		t.StoppedAt = &now
-		// A container killed after its stop timeout exits 137 (128+SIGKILL), as
-		// Fargate reports.
-		exitCode := 137
-		for j := range t.Containers {
-			t.Containers[j].LastStatus = "STOPPED"
-			t.Containers[j].ExitCode = &exitCode
-		}
-		doomedVolumes = ecsReleaseTaskAttachments(t)
-	})
-	ecsDeleteManagedVolumes(doomedVolumes)
-	if !transitioned {
+	// A container killed after its stop timeout exits 137 (128+SIGKILL), as
+	// Fargate reports, and its handle reports that.
+	if !ecsMarkTaskStopped(taskID, procs) {
 		return
 	}
-	instanceKey := ecsContainerInstanceKeyFromARN(existing.ContainerInstanceArn)
-	switch existing.LastStatus {
-	case ECSTaskStatusProvisioning, ECSTaskStatusPending:
-		ecsUpdateContainerInstanceTaskCounts(instanceKey, -1, 0)
-	case ECSTaskStatusRunning:
-		ecsUpdateContainerInstanceTaskCounts(instanceKey, 0, -1)
-	}
+	ecsReleaseTaskCount(ecsContainerInstanceKeyFromARN(existing.ContainerInstanceArn), existing.LastStatus)
 	if task, ok := ecsTasks.Get(taskID); ok {
 		ecsRequestServiceReconcileForTask(task)
 	}

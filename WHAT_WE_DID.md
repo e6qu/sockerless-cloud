@@ -685,12 +685,33 @@ lists, while vCPUs overcommit as a hypervisor's do. Spot placement scores read
 it too, 10 at three times the target and linear below, never under 1.
 A task belongs to the
 deployment that started it by `startedBy`. An awsvpc task creates its
-interface at `RunTask`, so DeleteSubnet refuses while it holds it. The task
-metadata endpoint waits for its task's start to settle, because a container
-that read it at once found a 404. Express Mode and gateways build their load
+interface at `RunTask`, so DeleteSubnet refuses while it holds it. A
+container's metadata endpoint waits only for that container's placement,
+because a container that read it at once found a 404 and a task-wide wait
+would hold a running setup container until the container waiting on it
+started. Express Mode and gateways build their load
 balancers, certificates and scaling through the services' APIs as the
 infrastructure role; writing straight into another service's store skipped
 that service's rules.
+
+A task's containers start in their `dependsOn` order, as the Amazon ECS agent
+starts them: each waits until every dependency has started (`START`), exited
+(`COMPLETE`), exited 0 (`SUCCESS`) or passed its health check (`HEALTHY`). The
+dependency's own `startTimeout`, counted from its start, bounds the three
+conditions after `START`, and no timeout applies when it is unset, since the
+developer guide bounds the wait only when one is specified. A `SUCCESS`
+dependency that exits non-zero, or one whose timeout runs out, stops the task
+without starting the container waiting on it. The task stays PENDING, with the
+waiting container PENDING, until every container has started or exited,
+because the agent reports a task at its containers' earliest state. A
+non-essential container that exits stops alone with its own exit code; an
+essential one stops the task. Health checks run on the definition's interval
+through the workload's exec, with Docker's retries and start-period rules,
+and set `healthStatus` on the container and, from the essential containers
+that declare one, on the task. In awsvpc mode the first container placed owns
+the task's network namespace; once every container in it has exited, the
+next one placed takes the task's interface in a new namespace, because a
+container cannot join the namespace of one that is gone.
 
 A regional NAT gateway is a VPC-level gateway. In automatic mode it takes an
 address in every zone that has a subnet and follows subnets as they come and
