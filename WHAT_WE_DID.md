@@ -1024,6 +1024,10 @@ nothing is a fake. A console gap whose API the simulator does not serve is a
   `ConsoleQueryClient` (`@sockerless/ui-core/query`), which cancels that
   fetch before it invalidates, and `check-console-query-client.sh` refuses a
   plain `QueryClient`.
+- **Audit settled colours.** An accessibility audit that ran during a
+  transition measured a frame's contrast, so each console installs a
+  no-transitions sheet as an init script before the audit and waits on the
+  element's settled state, never on a sleep.
 
 ## Measurement and gates
 
@@ -1196,6 +1200,13 @@ fails once the row closes or the operation is served.
 - **Container Apps.** A CLI test waits for a template change to provision
   before splitting traffic with `latest`, which resolves to the latest ready
   revision; splitting at once landed on the earlier revision on a slow runner.
+  HTTP ingress that names no target port scans the replica's TCP ports, as
+  Container Apps documents, and targets the one that accepts; none or several
+  set no target. Containers receive the platform's own variables
+  (`CONTAINER_APP_NAME`, `CONTAINER_APP_REVISION`, `CONTAINER_APP_PORT` and
+  the rest, and `CONTAINER_APP_JOB_NAME` and `CONTAINER_APP_JOB_EXECUTION_NAME`
+  in a job) rather than a `PORT` of 8080, and the job execution `exec` route,
+  which no `Microsoft.App` API defines, is gone.
 - **Lint.** From golangci-lint v2.15.0 errcheck counts a receive from an error
   channel that drops the value; proxies signal completion on a channel of
   their own instead.

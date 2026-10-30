@@ -51,15 +51,15 @@ func acaIngressServesHost(host string) bool {
 	return ok && rev.Active
 }
 
-// Defaults to 8080 when ingress declares no port.
-func acaIngressTargetPort(app ContainerApp) int32 {
+// The target port ingress declares; unset, Container Apps detects it.
+func acaIngressTargetPort(app ContainerApp) (int32, bool) {
 	if app.Properties.Configuration != nil &&
 		app.Properties.Configuration.Ingress != nil &&
 		app.Properties.Configuration.Ingress.TargetPort != nil &&
 		*app.Properties.Configuration.Ingress.TargetPort > 0 {
-		return *app.Properties.Configuration.Ingress.TargetPort
+		return *app.Properties.Configuration.Ingress.TargetPort, true
 	}
-	return 8080
+	return 0, false
 }
 
 // A handler wrapper runs this lookup ahead of every request.
@@ -154,6 +154,12 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		return
 	}
 
+	port, err := acaReplicaTargetPort(r.Context(), app, ip)
+	if err != nil {
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q: %v", app.Name, err)
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	if err != nil {
@@ -164,7 +170,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 	// Ingress passes the client's Host header and carries WebSocket upgrades.
 	up := lbplane.Upstream{
 		Scheme:        "http",
-		Address:       net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
+		Address:       net.JoinHostPort(ip, strconv.Itoa(int(port))),
 		Path:          r.URL.EscapedPath(),
 		RawQuery:      r.URL.RawQuery,
 		RequestHeader: acaIngressForwardedHeaders(r, app),

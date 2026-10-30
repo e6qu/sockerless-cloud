@@ -275,7 +275,6 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	// connect to verbatim; the simulator shapes its own.
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/execSessions/{sessionID}":   "sim-emitted exec WebSocket bridge (real API returns an opaque webSocketUri)",
 	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ContainerInstance/containerGroups/{containerGroupName}/containers/{containerName}/attachSessions/{sessionID}": "sim-emitted attach WebSocket bridge (real API returns an opaque webSocketUri)",
-	"POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/jobs/{jobName}/executions/{execName}/exec":                                                               "sim-emitted exec WebSocket bridge (real API returns an opaque execEndpoint)",
 
 	// An app's eventStreamEndpoint names a data-plane host serving these with a
 	// getAuthToken bearer; no swagger describes them.

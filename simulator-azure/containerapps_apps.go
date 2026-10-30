@@ -760,11 +760,8 @@ func acaEnvironmentName(id string) string {
 	return id
 }
 
-func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID string, metadataEnv, secrets map[string]string) workload.Container {
+func acaAppContainer(app ContainerApp, c JobContainer, revision, replica string, envID string, metadataEnv, secrets map[string]string) workload.Container {
 	cmdEnv := acaContainerEnv(c, secrets)
-	if _, ok := cmdEnv["PORT"]; !ok {
-		cmdEnv["PORT"] = "8080"
-	}
 
 	var binds []string
 	if app.Properties.Template != nil && len(app.Properties.Template.Volumes) > 0 && len(c.VolumeMounts) > 0 {
@@ -801,7 +798,7 @@ func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID str
 		RegistryAuth:      acrWorkloadRegistryAuth(c.Image, acaAppWorkloadRegistries(app, secrets)),
 		Command:           c.Command,
 		Args:              c.Args,
-		Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
+		Env:               workloadhost.MergeEnv(acaAppBuiltinEnv(app, revision, replica, envID), cmdEnv, metadataEnv),
 		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "aca-app-replica",
@@ -811,6 +808,23 @@ func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID str
 		Binds:   binds,
 		Sandbox: SandboxACA,
 	}}
+}
+
+// The variables Container Apps adds to every app container.
+func acaAppBuiltinEnv(app ContainerApp, revision, replica, envID string) map[string]string {
+	env := map[string]string{
+		"CONTAINER_APP_NAME":         app.Name,
+		"CONTAINER_APP_REVISION":     revision,
+		"CONTAINER_APP_REPLICA_NAME": replica,
+	}
+	if e, ok := acaEnvironments.Get(envID); ok && e.Properties.DefaultDomain != "" {
+		env["CONTAINER_APP_ENV_DNS_SUFFIX"] = e.Properties.DefaultDomain
+		env["CONTAINER_APP_HOSTNAME"] = revision + "." + e.Properties.DefaultDomain
+	}
+	if port, ok := acaIngressTargetPort(app); ok {
+		env["CONTAINER_APP_PORT"] = strconv.Itoa(int(port))
+	}
+	return env
 }
 
 type acaAppLogSink struct {

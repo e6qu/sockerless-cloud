@@ -61,8 +61,10 @@ func acaProbeKind(t string) string {
 }
 
 // acaDefaultProbes: Container Apps adds a TCP probe of each type the template
-// leaves unset to the container its ingress targets.
-func acaDefaultProbes(port int32) map[string]acaProbe {
+// leaves unset to the container its ingress targets, on the target port it
+// detects when ingress names none.
+func acaDefaultProbes(app ContainerApp) map[string]acaProbe {
+	port, _ := acaIngressTargetPort(app)
 	tcp := &ContainerAppProbeTCPSocket{Port: port}
 	return map[string]acaProbe{
 		acaProbeStartup: {kind: acaProbeStartup, tcp: tcp, initialDelay: time.Second, period: time.Second,
@@ -81,7 +83,7 @@ func acaContainerProbes(app ContainerApp, c JobContainer, ingressTarget bool) ma
 		probes[probe.kind] = probe
 	}
 	if ingressTarget && acaIngressEnabled(app) {
-		for kind, probe := range acaDefaultProbes(acaIngressTargetPort(app)) {
+		for kind, probe := range acaDefaultProbes(app) {
 			if _, set := probes[kind]; !set {
 				probes[kind] = probe
 			}
@@ -157,7 +159,15 @@ func (p acaProbe) check(ctx context.Context, address string) error {
 		if host == "" {
 			host = address
 		}
-		return lbplane.ProbeTCP(ctx, net.JoinHostPort(host, strconv.Itoa(int(p.tcp.Port))), p.timeout)
+		port := p.tcp.Port
+		if port == 0 {
+			detected, err := acaDetectedPortCached(ctx, host)
+			if err != nil {
+				return err
+			}
+			port = detected
+		}
+		return lbplane.ProbeTCP(ctx, net.JoinHostPort(host, strconv.Itoa(int(port))), p.timeout)
 	}
 	host := p.http.Host
 	if host == "" {

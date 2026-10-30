@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -205,23 +204,6 @@ func (r *acaJobRun) track(index int, group *workload.Group) jobrun.Workload {
 	r.live[index] = group
 	r.mu.Unlock()
 	return &acaReplicaWorkload{run: r, index: index, group: group}
-}
-
-// mainContainer serves console exec: the lowest-numbered running replica's.
-func (r *acaJobRun) mainContainer() placement.Handle {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	indexes := make([]int, 0, len(r.live))
-	for i := range r.live {
-		indexes = append(indexes, i)
-	}
-	sort.Ints(indexes)
-	for _, i := range indexes {
-		if g := r.live[i]; g.Main != nil {
-			return g.Main
-		}
-	}
-	return nil
 }
 
 type acaReplicaWorkload struct {
@@ -508,8 +490,11 @@ func startACAJobContainers(ctx context.Context, execID, execName string, index, 
 			RegistryAuth: acrWorkloadRegistryAuth(c.Image, registries),
 			Command:      c.Command,
 			Args:         c.Args,
-			Env:          workloadhost.MergeEnv(acaContainerEnv(c, secrets), metadataEnv),
-			Name:         name,
+			Env: workloadhost.MergeEnv(map[string]string{
+				"CONTAINER_APP_JOB_NAME":           job.Name,
+				"CONTAINER_APP_JOB_EXECUTION_NAME": execName,
+			}, acaContainerEnv(c, secrets), metadataEnv),
+			Name: name,
 			Labels: map[string]string{
 				"sockerless-sim-type":                "aca-job-execution",
 				acaJobExecutionLabel:                 execID,

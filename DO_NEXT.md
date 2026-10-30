@@ -5,7 +5,7 @@
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 383
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
-- **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3791), service
+- **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3784, 3786 to 3789 and 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**
