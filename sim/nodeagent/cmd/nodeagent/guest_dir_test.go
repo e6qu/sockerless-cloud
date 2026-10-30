@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -46,5 +47,29 @@ func TestWaitForSocketReportsAnEndedProcess(t *testing.T) {
 	}
 	if waited := time.Since(began); waited > time.Second {
 		t.Fatalf("waited %s after the process ended", waited)
+	}
+}
+
+// A socket Firecracker has bound but not yet listens on refuses connections,
+// and waitForSocket does not report it open until it listens.
+func TestWaitForSocketWaitsForTheListener(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "firecracker.socket")
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Close(fd) }()
+	if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForSocket(context.Background(), path, 100*time.Millisecond, nil, ""); err == nil {
+		t.Fatal("waitForSocket reported a socket that does not listen as open")
+	}
+	if err := syscall.Listen(fd, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForSocket(context.Background(), path, time.Minute, nil, ""); err != nil {
+		t.Fatal(err)
 	}
 }

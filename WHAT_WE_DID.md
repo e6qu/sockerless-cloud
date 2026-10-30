@@ -467,6 +467,10 @@ running it:
 - Firecracker's API server admits a handful of connections and answers 503
   past that, so the agent's client closes its connection after each request.
 - A guest's API socket path is a digest of its ID, to stay within 107 bytes.
+- Firecracker creates its API socket file at bind and accepts connections
+  only once it listens, so the agent waits for the socket to accept a
+  connection, not for the file: a restarted guest whose first request landed
+  in between failed with `connection refused`.
 - guestinit ended machines with a power-off, which halts a microVM's
   processor and leaves it running for the hypervisor: every guest exit had
   been the agent's fifteen-second backstop kill. guestinit reboots instead,
