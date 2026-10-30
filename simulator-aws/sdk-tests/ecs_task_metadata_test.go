@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -25,12 +26,14 @@ func TestECS_TaskMetadataV4PerContainerRecordAndStats(t *testing.T) {
 	_, err := ecsc.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
 	require.NoError(t, err)
 	logGroup := "/ecs/metadata-stats"
-	read := `wget -qO- "$ECS_CONTAINER_METADATA_URI_V4"; echo; echo STATS; wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/stats"; echo; echo TASKSTATS; wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/task/stats"; echo`
+	// Each container reads while both run, then stays up so neither read races
+	// the task's end.
+	read := `wget -qO- "$ECS_CONTAINER_METADATA_URI_V4"; echo; echo STATS; wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/stats"; echo; echo TASKSTATS; wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/task/stats"; echo; echo DONE; exec sleep 600`
 	container := func(name string) ecstypes.ContainerDefinition {
-		cd := ecstypes.ContainerDefinition{
+		return ecstypes.ContainerDefinition{
 			Name:      aws.String(name),
 			Image:     aws.String("mirror.gcr.io/library/busybox:latest"),
-			Essential: aws.Bool(name == "first"),
+			Essential: aws.Bool(true),
 			Command:   []string{"sh", "-c", read},
 			LogConfiguration: &ecstypes.LogConfiguration{
 				LogDriver: ecstypes.LogDriverAwslogs,
@@ -41,12 +44,6 @@ func TestECS_TaskMetadataV4PerContainerRecordAndStats(t *testing.T) {
 				},
 			},
 		}
-		// The essential container starts once the other has logged and exited,
-		// so the task's end cannot cut the other short.
-		if name == "first" {
-			cd.DependsOn = []ecstypes.ContainerDependency{{ContainerName: aws.String("second"), Condition: ecstypes.ContainerConditionComplete}}
-		}
-		return cd
 	}
 	td, err := ecsc.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("metadata-stats"),
@@ -69,7 +66,9 @@ func TestECS_TaskMetadataV4PerContainerRecordAndStats(t *testing.T) {
 	require.Len(t, run.Tasks, 1)
 	taskArn := aws.ToString(run.Tasks[0].TaskArn)
 	cleanupECSTask(t, ecsc, clusterName, taskArn)
-	waitTaskStopped(t, ecsc, clusterName, taskArn)
+	require.NoError(t, ecs.NewTasksRunningWaiter(ecsc).Wait(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName), Tasks: []string{taskArn},
+	}, 2*time.Minute))
 
 	logged := func(name string) string {
 		events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
@@ -83,8 +82,20 @@ func TestECS_TaskMetadataV4PerContainerRecordAndStats(t *testing.T) {
 		}
 		return strings.Join(lines, "\n")
 	}
+	// CloudWatch Logs offers nothing to wait on, so read the streams on the
+	// suite's waiter cadence until both containers have finished their reads.
+	outs := map[string]string{}
+	require.Eventually(t, func() bool {
+		for _, name := range []string{"first", "second"} {
+			outs[name] = logged(name)
+			if !strings.Contains(outs[name], "DONE") {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Minute, waiterMinDelay)
 	for _, name := range []string{"first", "second"} {
-		out := logged(name)
+		out := outs[name]
 		record, rest, found := strings.Cut(out, "STATS")
 		require.True(t, found, "container %s logged no stats: %s", name, out)
 		assert.Contains(t, record, `"Name":"`+name+`"`, "container %s reads its own record", name)
