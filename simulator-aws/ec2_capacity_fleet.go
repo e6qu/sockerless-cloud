@@ -1318,20 +1318,6 @@ func handleDescribeSpotPriceHistory(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
-func handleGetSpotPlacementScores(w http.ResponseWriter, r *http.Request) {
-	regions := ec2ParamList(r, "RegionNames")
-	if len(regions) == 0 {
-		regions = []string{awsRegion()}
-	}
-	var items strings.Builder
-	for _, region := range regions {
-		fmt.Fprintf(&items, "<item><region>%s</region><score>9</score></item>", region)
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<GetSpotPlacementScoresResponse %s><requestId>%s</requestId><spotPlacementScoreSet>%s</spotPlacementScoreSet></GetSpotPlacementScoresResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
-}
-
 func handleDescribeScheduledInstanceAvailability(w http.ResponseWriter, r *http.Request) {
 	az := awsAvailabilityZone()
 	token := sim.NewUUID()

@@ -175,7 +175,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action DescribeSpotDatafeedSubscription` | ✓ `simulator-aws/ec2_capacity_fleet.go:237::handleDescribeSpotDatafeedSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DeleteSpotDatafeedSubscription` | ✓ `simulator-aws/ec2_capacity_fleet.go:238::handleDeleteSpotDatafeedSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeSpotPriceHistory` | ○ `simulator-aws/ec2_capacity_fleet.go:240::handleDescribeSpotPriceHistory` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetSpotPlacementScores` | ○ `simulator-aws/ec2_capacity_fleet.go:241::handleGetSpotPlacementScores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetSpotPlacementScores` | ✓ `simulator-aws/ec2_capacity_fleet.go:241::handleGetSpotPlacementScores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action GetCapacityManagerSupportabilityScores` | ✓ `simulator-aws/ec2_capacity_fleet.go:242::handleGetCapacityManagerSupportabilityScores` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeScheduledInstances` | ✓ `simulator-aws/ec2_capacity_fleet.go:244::handleDescribeScheduledInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action DescribeScheduledInstanceAvailability` | ○ `simulator-aws/ec2_capacity_fleet.go:245::handleDescribeScheduledInstanceAvailability` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

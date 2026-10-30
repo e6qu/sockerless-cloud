@@ -336,6 +336,15 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		ec2HostCapacityMu.Lock()
+		if !ec2HostHoldsInstanceType(instanceType, "") {
+			ec2HostCapacityMu.Unlock()
+			if i < minCount {
+				ec2ErrorXML(w, "InsufficientInstanceCapacity", ec2InsufficientCapacity, http.StatusInternalServerError)
+				return
+			}
+			break
+		}
 		privateIP := ""
 		if i == 0 {
 			privateIP = r.FormValue("PrivateIpAddress")
@@ -346,6 +355,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		if privateIP == "" {
 			ip, err := AllocateSubnetIP(subnetID)
 			if err != nil {
+				ec2HostCapacityMu.Unlock()
 				if i < minCount {
 					ec2ErrorXML(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
 					return
@@ -358,6 +368,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		spec.PrivateIP = privateIP
 		spec.AmiLaunchIndex = i
 		inst, err := ec2CreateInstance(spec)
+		ec2HostCapacityMu.Unlock()
 		if err != nil {
 			if i < minCount {
 				ec2ErrorXML(w, "InsufficientFreeAddressesInSubnet", fmt.Sprintf("failed to attach real EC2 network interface: %v", err), http.StatusServiceUnavailable)

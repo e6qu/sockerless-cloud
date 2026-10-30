@@ -677,7 +677,12 @@ Manager's supportability scores read the same host: what its CPUs and memory
 hold once running instances and placed tasks take theirs, divided by each
 instance type's size, banded high, medium and low against the requested amount
 as AWS documents. Every Availability Zone the simulator serves shares that
-host, so zones score alike and the aggregate is the best combination's score.
+host, so zones score alike and the aggregate is the best combination's score. The
+same host bounds a launch by memory: `RunInstances`, `StartInstances` and
+Auto Scaling refuse an instance the host's free memory cannot hold with
+`InsufficientInstanceCapacity`, the server error the vendored error-code page
+lists, while vCPUs overcommit as a hypervisor's do. Spot placement scores read
+it too, 10 at three times the target and linear below, never under 1.
 A task belongs to the
 deployment that started it by `startedBy`. An awsvpc task creates its
 interface at `RunTask`, so DeleteSubnet refuses while it holds it. The task

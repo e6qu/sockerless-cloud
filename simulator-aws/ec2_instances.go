@@ -368,12 +368,21 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 			inst, _ = ec2Instances.Get(id)
 			current = inst.State
 		default:
+			// A stopped instance's memory returns to the host; starting it takes it
+			// back, if the host still holds it.
+			ec2HostCapacityMu.Lock()
+			if !ec2HostHoldsInstanceType(inst.InstanceType, id) {
+				ec2HostCapacityMu.Unlock()
+				ec2ErrorXML(w, "InsufficientInstanceCapacity", ec2InsufficientCapacity, http.StatusInternalServerError)
+				return
+			}
 			// pending until the init is ready, then running.
 			inst.State = "pending"
 			inst.StateTransitionReason = ""
 			inst.StateReasonCode = ""
 			inst.StateReasonMessage = ""
 			ec2Instances.Put(id, inst)
+			ec2HostCapacityMu.Unlock()
 			ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
 			ec2StartInstance(id)
 			current = inst.State

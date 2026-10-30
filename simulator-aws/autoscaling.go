@@ -1080,8 +1080,14 @@ func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause str
 	}
 	var launches []asLaunch
 	for range n {
+		ec2HostCapacityMu.Lock()
+		if !ec2HostHoldsInstanceType(spec.instanceType, "") {
+			ec2HostCapacityMu.Unlock()
+			return launches, fmt.Errorf("InsufficientInstanceCapacity: %s", ec2InsufficientCapacity)
+		}
 		ip, err := AllocateSubnetIP(subnetID)
 		if err != nil {
+			ec2HostCapacityMu.Unlock()
 			return launches, err
 		}
 		inst, err := ec2CreateInstance(EC2InstanceCreateSpec{
@@ -1097,6 +1103,7 @@ func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause str
 			KeyName:       spec.keyName,
 			State:         "pending",
 		})
+		ec2HostCapacityMu.Unlock()
 		if err != nil {
 			return launches, err
 		}
