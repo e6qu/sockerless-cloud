@@ -54,6 +54,7 @@ var sources = []source{
 	{"vpcaccess-audit-logging.md.gz", "vpcaccess.googleapis.com"},
 	{"api-gateway-audit-logging.md.gz", "apigateway.googleapis.com"},
 	{"dataflow-audit-logging.md.gz", "dataflow.googleapis.com"},
+	{"cloudquotas-audit-logging.md.gz", "cloudquotas.googleapis.com"},
 }
 
 var (

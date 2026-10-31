@@ -691,11 +691,13 @@ func adoptCloudRunJobTask(r *cloudRunJobRun, t jobrun.Task, group []placement.Ex
 		releaseMounts()
 		return nil, err
 	}
+	cpu := cloudRunAdoptCPU(r.project, resourceLocation(r.execName), containers)
 	return &cloudRunTaskWorkload{
 		group: &workload.Group{Main: handles[0], Sidecars: handles[1:]},
 		release: func() {
 			releaseMounts()
 			releaseAddress()
+			cpu.release()
 		},
 	}, nil
 }

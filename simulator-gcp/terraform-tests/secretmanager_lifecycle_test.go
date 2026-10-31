@@ -41,10 +41,10 @@ func terraformCmdInDir(dir string, args ...string) *exec.Cmd {
 	}
 	// Give terraform its own process group so runTimed can reap its tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(append(os.Environ(),
+	cmd.Env = append(append(append(os.Environ(),
 		"TF_VAR_endpoint="+tfEndpoint,
 		"TF_VAR_credentials="+credentialsFile,
-	), bigtableEnv()...)
+	), bigtableEnv()...), serviceHostProxyEnv()...)
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, "SSL_CERT_FILE="+caCertFile)
 	}

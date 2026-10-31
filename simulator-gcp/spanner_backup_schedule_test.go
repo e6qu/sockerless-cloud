@@ -76,7 +76,7 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 
 	post := func(path, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "http://"+spannerHost+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
@@ -86,9 +86,9 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 		return rec
 	}
 
-	post("/spanner/v1/projects/"+project+"/instances",
+	post("/v1/projects/"+project+"/instances",
 		`{"instanceId":"`+instance+`","instance":{"displayName":"`+instance+`","nodeCount":1}}`)
-	post("/spanner/v1/"+instanceName+"/databases",
+	post("/v1/"+instanceName+"/databases",
 		`{"createStatement":"CREATE DATABASE `+"`"+database+"`"+`","extraStatements":["CREATE TABLE Rows (Id STRING(36) NOT NULL, Body STRING(MAX)) PRIMARY KEY (Id)"]}`)
 
 	// Write through the same engine the data plane executes against.
@@ -100,7 +100,7 @@ func TestSpannerBackupScheduleTakesRealBackup(t *testing.T) {
 		t.Fatalf("insert rows: %v", err)
 	}
 
-	post("/spanner/v1/"+dbName+"/backupSchedules?backupScheduleId=nightly",
+	post("/v1/"+dbName+"/backupSchedules?backupScheduleId=nightly",
 		`{"retentionDuration":"86400s","spec":{"cronSpec":{"text":"0 2 * * *"}},"fullBackupSpec":{}}`)
 
 	scheduleName := dbName + "/backupSchedules/nightly"

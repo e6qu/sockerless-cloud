@@ -10,8 +10,8 @@ import (
 // and BUGS.md quote. A method that gains a sourced permission lowers the
 // ceiling; a refreshed Discovery document moves the total.
 const (
-	gateMethodTotal   = 2891
-	gateUnsourcedCeil = 383
+	gateMethodTotal   = 2947
+	gateUnsourcedCeil = 391
 )
 
 // TestIAMGate_SourcedPermissionCoverage renders every Discovery method's first

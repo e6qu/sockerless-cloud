@@ -1,16 +1,11 @@
 package gcp_sdk_test
 
 import (
-	"fmt"
-	"log"
-	"net"
-	"os"
-	"os/exec"
-	"strings"
+	"net/http"
 	"testing"
 
-	"github.com/e6qu/sockerless-cloud/testutil/simready"
-
+	cloudquotas "cloud.google.com/go/cloudquotas/apiv1"
+	"cloud.google.com/go/cloudquotas/apiv1/cloudquotaspb"
 	functions "cloud.google.com/go/functions/apiv2"
 	"cloud.google.com/go/functions/apiv2/functionspb"
 	run "cloud.google.com/go/run/apiv2"
@@ -18,176 +13,146 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// startQuotaIsolatedSim spawns a dedicated simulator with the regional CPU
-// quota set to budget, so quota rejections cannot reach other tests; the
-// shared simulator runs with quota off.
-func startQuotaIsolatedSim(t *testing.T, budget float64) string {
+const cpuQuotaMessage = "Quota exceeded for total allowable CPU per project per region"
+
+func newQuotasClient(t *testing.T) *cloudquotas.Client {
 	t.Helper()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	client, err := cloudquotas.NewRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	grpcPort := ln2.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	ln2.Close()
+	t.Cleanup(func() { client.Close() })
+	return client
+}
 
-	cmd := exec.Command(binaryPath)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
-		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
-		fmt.Sprintf("SIM_GCP_CPU_QUOTA_PER_REGION=%g", budget),
-		"SIM_GCP_CPU_QUOTA_WINDOW=1m",
-	)
-	cmd.Stdout = os.Stdout
-	startErr := simready.Start(cmd, os.Stderr)
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
+// setRunCPUQuota sets a project's Cloud Run CPU quota in a region through the
+// quota preference id, creating it when it does not exist.
+func setRunCPUQuota(t *testing.T, client *cloudquotas.Client, project, id, region string, milliCPU int64, ignore ...cloudquotaspb.QuotaSafetyCheck) *cloudquotaspb.QuotaPreference {
+	t.Helper()
+	pref, err := client.UpdateQuotaPreference(ctx, &cloudquotaspb.UpdateQuotaPreferenceRequest{
+		QuotaPreference: &cloudquotaspb.QuotaPreference{
+			Name:         "projects/" + project + "/locations/global/quotaPreferences/" + id,
+			Service:      "run.googleapis.com",
+			QuotaId:      "CpuAllocPerProjectRegion",
+			Dimensions:   map[string]string{"region": region},
+			QuotaConfig:  &cloudquotaspb.QuotaConfig{PreferredValue: milliCPU},
+			ContactEmail: "quota-owner@example.com",
+		},
+		AllowMissing:       true,
+		IgnoreSafetyChecks: ignore,
 	})
-	if startErr != nil {
-		log.Fatalf("isolated sim did not start listening: %v", startErr)
-	}
-	return fmt.Sprintf("http://127.0.0.1:%d", port)
+	require.NoError(t, err)
+	require.Equal(t, milliCPU, pref.GetQuotaConfig().GetGrantedValue().GetValue())
+	return pref
 }
 
-// TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget: with
-// SIM_GCP_CPU_QUOTA_PER_REGION at 2 vCPU and 1-vCPU services, the third deploy
-// fails with "Quota exceeded for total allowable CPU per project per region".
-func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
-	t.Parallel()
-	url := startQuotaIsolatedSim(t, 2)
-	ensureProjectAt(t, url, "quota-test")
-
-	client, err := run.NewServicesRESTClient(ctx,
-		option.WithEndpoint(url),
-		option.WithTokenSource(simTokenSourceFor(url)),
-	)
-	require.NoError(t, err)
-	defer client.Close()
-
-	mkSvc := func(id string) *runpb.CreateServiceRequest {
-		return &runpb.CreateServiceRequest{
-			Parent:    "projects/quota-test/locations/us-central1",
-			ServiceId: id,
-			Service: &runpb.Service{
-				Template: &runpb.RevisionTemplate{
-					Containers: []*runpb.Container{{
-						Image: "gcr.io/quota-test/hello",
-						Resources: &runpb.ResourceRequirements{
-							Limits: map[string]string{"cpu": "1", "memory": "512Mi"},
-						},
-					}},
-				},
-			},
-		}
-	}
-
-	for i, id := range []string{"svc-a", "svc-b"} {
-		op, err := client.CreateService(ctx, mkSvc(id))
-		require.NoError(t, err, "service %d (%s) CreateService should succeed under budget", i, id)
-		_, err = op.Wait(ctx)
-		require.NoError(t, err, "service %d (%s) LRO should complete", i, id)
-	}
-
-	_, err = client.CreateService(ctx, mkSvc("svc-c"))
-	require.Error(t, err, "third deploy should be rejected; over budget=2")
-	if !strings.Contains(err.Error(), "Quota exceeded for total allowable CPU per project per region") {
-		t.Errorf("expected canonical quota message in error; got %q", err.Error())
-	}
+func oneCPUService() *runpb.Service {
+	tmpl := instanceTemplate(nil, 0)
+	tmpl.Containers[0].Resources = &runpb.ResourceRequirements{Limits: map[string]string{"cpu": "1", "memory": "512Mi"}}
+	return &runpb.Service{Template: tmpl}
 }
 
-// TestSDK_RegionalCPUQuota_PartitionedByRegion: Cloud Run quotas are per
-// project and region, so exhausting us-central1 leaves europe-west1 free.
-func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
-	t.Parallel()
-	url := startQuotaIsolatedSim(t, 1)
-	ensureProjectAt(t, url, "quota-qt")
-
-	client, err := run.NewServicesRESTClient(ctx,
-		option.WithEndpoint(url),
-		option.WithTokenSource(simTokenSourceFor(url)),
-	)
-	require.NoError(t, err)
-	defer client.Close()
-
-	mkSvc := func(parent, id string) *runpb.CreateServiceRequest {
-		return &runpb.CreateServiceRequest{
-			Parent:    parent,
-			ServiceId: id,
-			Service: &runpb.Service{
-				Template: &runpb.RevisionTemplate{
-					Containers: []*runpb.Container{{
-						Image:     "gcr.io/quota-test/hello",
-						Resources: &runpb.ResourceRequirements{Limits: map[string]string{"cpu": "1"}},
-					}},
-				},
-			},
-		}
+func deployOneCPU(client *run.ServicesClient, parent, id string) (*runpb.Service, error) {
+	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{Parent: parent, ServiceId: id, Service: oneCPUService()})
+	if err != nil {
+		return nil, err
 	}
-
-	op, err := client.CreateService(ctx, mkSvc("projects/quota-qt/locations/us-central1", "svc-a"))
-	require.NoError(t, err)
-	_, err = op.Wait(ctx)
-	require.NoError(t, err)
-
-	_, err = client.CreateService(ctx, mkSvc("projects/quota-qt/locations/us-central1", "svc-b"))
-	require.Error(t, err, "us-central1 second deploy should be rejected")
-	assert.Contains(t, err.Error(), "Quota exceeded for total allowable CPU per project per region",
-		"the rejection must be the quota rejection, not some other failure")
-
-	// europe-west1 has its own bucket; deploy there must succeed.
-	op, err = client.CreateService(ctx, mkSvc("projects/quota-qt/locations/europe-west1", "svc-c"))
-	require.NoError(t, err, "europe-west1 deploy should not be blocked by us-central1's exhaustion")
-	_, err = op.Wait(ctx)
-	require.NoError(t, err)
+	return op.Wait(ctx)
 }
 
-// TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy: CreateFunction creates
-// the function's Cloud Run service, whose container CPU limit is the function's
-// AvailableCpu, so the same regional quota applies.
-func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
-	t.Parallel()
-	url := startQuotaIsolatedSim(t, 1)
-	ensureProjectAt(t, url, "quota-qt")
+// runInstance sends the service one request, which starts the instance that
+// serves it and keeps holding its CPU.
+func runInstance(t *testing.T, client *run.ServicesClient, svc *runpb.Service) {
+	t.Helper()
+	grantOnService(t, client, svc.Name, "roles/run.invoker", "serviceAccount:"+sdkInvokerEmail(t), nil)
+	code, _, body := invokeService(t, invokerIDToken(t, svc.Uri), svc.Uri, http.MethodGet, "/", "")
+	require.Equal(t, http.StatusOK, code, body)
+}
 
-	fnClient, err := functions.NewFunctionRESTClient(ctx,
-		option.WithEndpoint(url),
-		option.WithTokenSource(simTokenSourceFor(url)),
-	)
+func requireCPUQuotaRefusal(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Contains(t, err.Error(), cpuQuotaMessage)
+}
+
+// A project's running Cloud Run instances hold their CPU against the regional
+// quota a Cloud Quotas preference sets: a deploy whose first instance does not
+// fit is refused, and fits again once the instances holding the CPU go away
+// or the preference rises.
+func TestSDK_RegionalCPUQuota_CloudRunDeployHonoursQuotaPreference(t *testing.T) {
+	t.Parallel()
+	const project = "sdk-run-cpu-quota"
+	ensureProject(t, project)
+	quotas := newQuotasClient(t)
+	setRunCPUQuota(t, quotas, project, "run-cpu-us-central1", "us-central1", 1500,
+		cloudquotaspb.QuotaSafetyCheck_QUOTA_DECREASE_PERCENTAGE_TOO_HIGH)
+
+	client := newServicesClient(t)
+	parent := "projects/" + project + "/locations/us-central1"
+	svcA, err := deployOneCPU(client, parent, "quota-a")
+	require.NoError(t, err)
+	runInstance(t, client, svcA)
+
+	_, err = deployOneCPU(client, parent, "quota-b")
+	requireCPUQuotaRefusal(t, err)
+
+	other, err := deployOneCPU(client, "projects/"+project+"/locations/europe-west1", "quota-eu")
+	require.NoError(t, err, "europe-west1 keeps its own quota")
+	cleanupService(t, client, other.Name)
+
+	del, err := client.DeleteService(ctx, &runpb.DeleteServiceRequest{Name: svcA.Name})
+	require.NoError(t, err)
+	_, err = del.Wait(ctx)
+	require.NoError(t, err)
+
+	svcB, err := deployOneCPU(client, parent, "quota-b")
+	require.NoError(t, err, "the deleted service's instance no longer holds CPU")
+	cleanupService(t, client, svcB.Name)
+	runInstance(t, client, svcB)
+
+	_, err = deployOneCPU(client, parent, "quota-c")
+	requireCPUQuotaRefusal(t, err)
+
+	setRunCPUQuota(t, quotas, project, "run-cpu-us-central1", "us-central1", 2500)
+	svcC, err := deployOneCPU(client, parent, "quota-c")
+	require.NoError(t, err, "the raised preference has room for a second instance")
+	cleanupService(t, client, svcC.Name)
+}
+
+// CreateFunction deploys the function's Cloud Run service, whose container
+// CPU is the function's availableCpu, under the same regional quota.
+func TestSDK_RegionalCPUQuota_CloudFunctionsDeployHonoursQuotaPreference(t *testing.T) {
+	t.Parallel()
+	const project = "sdk-gcf-cpu-quota"
+	ensureProject(t, project)
+	quotas := newQuotasClient(t)
+	setRunCPUQuota(t, quotas, project, "run-cpu-us-central1", "us-central1", 500,
+		cloudquotaspb.QuotaSafetyCheck_QUOTA_DECREASE_PERCENTAGE_TOO_HIGH)
+
+	fnClient, err := functions.NewFunctionRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	defer fnClient.Close()
-
-	mkFn := func(id string) *functionspb.CreateFunctionRequest {
-		return &functionspb.CreateFunctionRequest{
-			Parent:     "projects/quota-qt/locations/us-central1",
-			FunctionId: id,
+	create := func() error {
+		op, err := fnClient.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
+			Parent:     "projects/" + project + "/locations/us-central1",
+			FunctionId: "quota-fn",
 			Function: &functionspb.Function{
-				Environment: functionspb.Environment_GEN_2,
-				BuildConfig: &functionspb.BuildConfig{
-					Runtime:    "go124",
-					EntryPoint: "Stub",
-				},
-				ServiceConfig: &functionspb.ServiceConfig{
-					AvailableCpu:    "1",
-					AvailableMemory: "512Mi",
-				},
+				Environment:   functionspb.Environment_GEN_2,
+				BuildConfig:   &functionspb.BuildConfig{Runtime: "go124", EntryPoint: "Handle"},
+				ServiceConfig: &functionspb.ServiceConfig{AvailableCpu: "1", AvailableMemory: "512Mi"},
 			},
+		})
+		if err != nil {
+			return err
 		}
+		_, err = op.Wait(ctx)
+		return err
 	}
+	requireCPUQuotaRefusal(t, create())
 
-	op, err := fnClient.CreateFunction(ctx, mkFn("fn-a"))
-	require.NoError(t, err)
-	_, err = op.Wait(ctx)
-	require.NoError(t, err)
-
-	_, err = fnClient.CreateFunction(ctx, mkFn("fn-b"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Quota exceeded for total allowable CPU per project per region",
-		"gcf CreateFunction over-quota must surface the canonical message; gcf backend matches on it")
+	setRunCPUQuota(t, quotas, project, "run-cpu-us-central1", "us-central1", 1000)
+	require.NoError(t, create())
 }

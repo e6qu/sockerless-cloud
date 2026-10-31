@@ -117,6 +117,16 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 	if _, err := cloudRunContainerStartOrder(containers); err != nil {
 		return nil, nil, err
 	}
+	cpu, err := cloudRunHoldCPU(g.project, g.region, containers)
+	if err != nil {
+		return nil, nil, err
+	}
+	cpuHeld := true
+	defer func() {
+		if cpuHeld {
+			cpu.release()
+		}
+	}()
 
 	volByName := make(map[string]Volume)
 	for _, v := range g.volumes {
@@ -215,7 +225,11 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 		}
 		return nil, nil, err
 	}
-	return group, releaseMounts, nil
+	cpuHeld = false
+	return group, func() {
+		releaseMounts()
+		cpu.release()
+	}, nil
 }
 
 // cloudRunMemberStartup is the startup probe of container c, run through the

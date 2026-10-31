@@ -42,9 +42,12 @@ provider "google" {
   redis_custom_endpoint             = "${var.endpoint}/v1/"
   sql_custom_endpoint               = "${var.endpoint}/sql/v1beta4/"
   vpc_access_custom_endpoint        = "${var.endpoint}/v1/"
-  spanner_custom_endpoint           = "${var.endpoint}/spanner/v1/"
-  bigtable_custom_endpoint          = "${var.bigtable_endpoint}/v2/"
-  dataflow_custom_endpoint          = "${var.endpoint}/v1b3/"
+  cloud_quotas_custom_endpoint      = "${var.endpoint}/v1/"
+  # Cloud SQL Admin publishes Spanner's /v1/projects/{p}/instances paths, so
+  # Spanner takes its own host, which reaches the simulator as the HTTP proxy.
+  spanner_custom_endpoint  = "http://spanner.googleapis.com/v1/"
+  bigtable_custom_endpoint = "${var.bigtable_endpoint}/v2/"
+  dataflow_custom_endpoint = "${var.endpoint}/v1b3/"
   # google_service_account builds on iambeta.NewClient, which only
   # iam_beta_custom_endpoint routes.
   iam_beta_custom_endpoint = "${var.endpoint}/v1/"

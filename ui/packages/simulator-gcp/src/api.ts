@@ -1020,16 +1020,19 @@ export interface SpannerDatabase {
   databaseDialect?: string;
 }
 
-const spannerParent = (project: string) => `/spanner/v1/projects/${project}/instances`;
+// Cloud SQL Admin publishes Spanner's /v1/projects/{p}/instances paths, so the
+// console reaches Spanner at its own host.
+const SPANNER = "spanner";
+const spannerParent = (project: string) => `/v1/projects/${project}/instances`;
 
 export const fetchSpannerInstances = async (project: string): Promise<SpannerInstance[]> =>
-  (await authorizedJSON<{ instances?: SpannerInstance[] }>(spannerParent(project))).instances ?? [];
+  (await authorizedJSON<{ instances?: SpannerInstance[] }>(spannerParent(project), SPANNER)).instances ?? [];
 
 export const fetchSpannerInstance = (project: string, name: string): Promise<SpannerInstance> =>
-  authorizedJSON<SpannerInstance>(`${spannerParent(project)}/${name}`);
+  authorizedJSON<SpannerInstance>(`${spannerParent(project)}/${name}`, SPANNER);
 
 export const fetchSpannerDatabases = async (project: string, instance: string): Promise<SpannerDatabase[]> =>
-  (await authorizedJSON<{ databases?: SpannerDatabase[] }>(`${spannerParent(project)}/${instance}/databases`))
+  (await authorizedJSON<{ databases?: SpannerDatabase[] }>(`${spannerParent(project)}/${instance}/databases`, SPANNER))
     .databases ?? [];
 
 // projects.instances.create — the body carries instanceId plus the Instance;
@@ -1039,23 +1042,26 @@ export const createSpannerInstance = (
   instanceId: string,
   config: { displayName: string; nodeCount: number },
 ): Promise<CrmOperation> =>
-  authorizedJSONPost<CrmOperation>(spannerParent(project), {
-    instanceId,
-    instance: {
-      config: `projects/${project}/instanceConfigs/regional-${CONSOLE_REGION}`,
-      displayName: config.displayName,
-      nodeCount: config.nodeCount,
+  authorizedJSONPost<CrmOperation>(
+    spannerParent(project),
+    {
+      instanceId,
+      instance: {
+        config: `projects/${project}/instanceConfigs/regional-${CONSOLE_REGION}`,
+        displayName: config.displayName,
+        nodeCount: config.nodeCount,
+      },
     },
-  });
+    SPANNER,
+  );
 
 export const deleteSpannerInstance = (project: string, name: string): Promise<unknown> =>
-  authorizedJSONDelete(`${spannerParent(project)}/${name}`);
+  authorizedJSONDelete(`${spannerParent(project)}/${name}`, SPANNER);
 
 // operations.get for the Spanner collection: the operation name is already a
-// full resource path ("projects/p/instances/i/operations/o"), addressed under
-// the /spanner/v1 prefix.
+// full resource path ("projects/p/instances/i/operations/o").
 export const fetchSpannerOperation = (name: string): Promise<CrmOperation> =>
-  authorizedJSON<CrmOperation>(`/spanner/v1/${name}`);
+  authorizedJSON<CrmOperation>(`/v1/${name}`, SPANNER);
 
 export const waitSpannerOperation = async (operation: CrmOperation): Promise<CrmOperation> => {
   let current = operation;

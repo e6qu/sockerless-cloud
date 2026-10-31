@@ -298,6 +298,8 @@ type cloudRunServiceInstance struct {
 	ready    chan struct{}
 	address  string
 	startErr error
+	// cpu is the regional CPU quota the instance holds until it stops.
+	cpu *cloudRunCPUHold
 	// releaseMounts ends the ingestion of writes through the instance's
 	// Cloud Storage volumes once its containers have stopped.
 	releaseMounts func()
@@ -381,6 +383,16 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 		return nil, err
 	}
 	project := resourceProject(name)
+	cpu, err := cloudRunHoldCPU(project, resourceLocation(name), containers)
+	if err != nil {
+		return nil, err
+	}
+	cpuHeld := true
+	defer func() {
+		if cpuHeld {
+			cpu.release()
+		}
+	}()
 	bindsFor := serviceBindsFor(volumes)
 	binds := make([][]string, len(containers))
 	auths := make([]string, len(containers))
@@ -414,6 +426,7 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 	releaseMounts := func() {
 		mounts()
 		netw.done()
+		cpu.release()
 	}
 	mountsHeld := true
 	defer func() {
@@ -477,8 +490,9 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 		stop:          stop,
 		ready:         make(chan struct{}),
 		releaseMounts: releaseMounts,
+		cpu:           cpu,
 	}
-	mountsHeld = false
+	mountsHeld, cpuHeld = false, false
 
 	// The first container to start owns the network namespace the others
 	// join, and with it the published ingress port, the network the
@@ -738,10 +752,7 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 // deploys, whichever surface wrote it.
 func createCloudRunService(w http.ResponseWriter, svc ServiceV2, project, location, serviceID string) (ServiceV2, bool) {
 	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
-	// Debit the revision's CPU against the per-project, per-region sliding-window
-	// budget SIM_GCP_CPU_QUOTA_PER_REGION sets; an exhausted budget fails the
-	// deploy with Cloud Run's quota error.
-	if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
+	if !cloudRunDeployFits(project, location, svc) {
 		regionalCPUQuotaErrorJSON(w, name)
 		return ServiceV2{}, false
 	}
@@ -770,8 +781,7 @@ func updateCloudRunService(w http.ResponseWriter, existing, update ServiceV2) (S
 		return ServiceV2{}, false
 	}
 
-	// A new revision's CPU load debits the regional budget too.
-	if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
+	if templateChanged && !cloudRunDeployFits(project, location, update) {
 		regionalCPUQuotaErrorJSON(w, existing.Name)
 		return ServiceV2{}, false
 	}

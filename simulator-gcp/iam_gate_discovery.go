@@ -19,9 +19,6 @@ import (
 type gateDiscoveryAPI struct {
 	name string
 	host string
-	// mount is the path the simulator serves the API under when it is not
-	// the API's own: Cloud Spanner's /spanner.
-	mount string
 }
 
 type gateDiscoverySeg struct {
@@ -55,8 +52,6 @@ type gateDiscoveryMatch struct {
 	params   map[string]string
 	relative string
 }
-
-var gateDiscoveryMounts = map[string]string{"spanner": "/spanner"}
 
 var gateDiscoveryMethods = sync.OnceValues(func() ([]*gateDiscoveryMethod, error) {
 	files, err := fs.Glob(discoveryDocuments, "discovery/*.discovery.json.gz")
@@ -103,7 +98,7 @@ var gateDiscoveryMethods = sync.OnceValues(func() ([]*gateDiscoveryMethod, error
 		if err != nil {
 			return nil, fmt.Errorf("%s: rootUrl: %w", file, err)
 		}
-		api := &gateDiscoveryAPI{name: doc.Name, host: root.Host, mount: gateDiscoveryMounts[doc.Name]}
+		api := &gateDiscoveryAPI{name: doc.Name, host: root.Host}
 		add := func(m rawMethod) {
 			if m.ID == "" || m.HTTPMethod == "" {
 				return
@@ -117,7 +112,7 @@ var gateDiscoveryMethods = sync.OnceValues(func() ([]*gateDiscoveryMethod, error
 				seen[path] = true
 				dm.templates = append(dm.templates, gateCompileTemplate(path, doc.Name))
 			}
-			base := api.mount + "/" + strings.Trim(doc.BasePath, "/")
+			base := "/" + strings.Trim(doc.BasePath, "/")
 			rels := []string{m.FlatPath, m.Path}
 			// A path whose parameter carries no literal of its own matches any
 			// request; flatPath spells the same method without it.
@@ -239,10 +234,11 @@ func (t gateDiscoveryTemplate) match(req []string) (map[string]string, bool) {
 	return values, true
 }
 
-// gateMatchDiscovery resolves a call to the Discovery methods that describe
-// it most specifically: one per API, since two APIs can publish one path,
-// which their hosts tell apart on Google Cloud.
-func gateMatchDiscovery(httpMethod, escapedPath string) []gateDiscoveryMatch {
+// gateMatchDiscovery resolves a call to the service the request's host names
+// to the Discovery methods that describe it most specifically: one per API,
+// since two APIs can publish one path, which their hosts tell apart on Google
+// Cloud.
+func gateMatchDiscovery(service, httpMethod, escapedPath string) []gateDiscoveryMatch {
 	methods, err := gateDiscoveryMethods()
 	if err != nil {
 		return nil
@@ -254,7 +250,7 @@ func gateMatchDiscovery(httpMethod, escapedPath string) []gateDiscoveryMatch {
 		if m.httpMethod != httpMethod {
 			continue
 		}
-		if m.api.mount != "" && !strings.HasPrefix(escapedPath, m.api.mount+"/") {
+		if !gcpServiceAddressable(service, m.api.host) {
 			continue
 		}
 		for _, t := range m.templates {

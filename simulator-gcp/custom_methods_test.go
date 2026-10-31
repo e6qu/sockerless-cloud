@@ -122,7 +122,7 @@ func TestUnservedCustomMethodsAreMethodNotFound(t *testing.T) {
 			name:   "SpannerUnroutedSessionsMethod",
 			method: http.MethodPost,
 			host:   "spanner.googleapis.com",
-			path:   "/spanner/v1/projects/test-project/instances/inst/databases/db/sessions:notAMethod",
+			path:   "/v1/projects/test-project/instances/inst/databases/db/sessions:notAMethod",
 			body:   `{}`,
 		},
 		{
@@ -202,7 +202,7 @@ func TestServedCustomMethodsStillReachTheResource(t *testing.T) {
 	// The sub-router that answers unrouted tails with method-not-found still
 	// routes Spanner CreateSession.
 	status, body = gcpDo(t, srv, http.MethodPost, "spanner.googleapis.com",
-		"/spanner/v1/projects/test-project/instances/inst/databases/db/sessions", `{}`)
+		"/v1/projects/test-project/instances/inst/databases/db/sessions", `{}`)
 	if status == http.StatusNotFound && strings.Contains(body, "Method not found.") {
 		t.Fatalf("CreateSession: answered method-not-found (%s) — the sub-router lost a served route", strings.TrimSpace(body))
 	}
