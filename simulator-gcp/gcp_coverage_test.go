@@ -36,6 +36,8 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudbuild-v1":           114,
 	"cloudfunctions-v2":       42,
 	"cloudkms-v1":             174,
+	"cloudquotas-v1":          56,
+	"cloudquotas-v1beta":      56,
 	"cloudresourcemanager-v1": 76,
 	"cloudresourcemanager-v2": 24,
 	"cloudresourcemanager-v3": 184,
@@ -109,6 +111,15 @@ var gcpMethodFloor = map[string]int{
 	"discovery-v1": 2,
 
 	"cloudkms-v1": 174,
+
+	// Cloud Quotas, on both the v1 and the v1beta spelling: a project's quota
+	// preferences and quota infos. The folder and organization containers hold
+	// only folder- and organization-level quotas, of which no quota the
+	// simulator enforces is one; the quota adjuster acts on usage history and
+	// the gdcQuotaInfos on Google Distributed Cloud zones, neither of which the
+	// simulator holds.
+	"cloudquotas-v1":     12,
+	"cloudquotas-v1beta": 12,
 
 	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,

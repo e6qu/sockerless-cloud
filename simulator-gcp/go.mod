@@ -50,6 +50,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.3 // indirect
+	cloud.google.com/go/cloudquotas v1.14.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/pubsub/v2 v2.8.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect

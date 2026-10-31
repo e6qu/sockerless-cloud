@@ -132,12 +132,8 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 		return nil, err
 	}
 
-	// Initialise the regional CPU quota tracker before route registration —
-	// CreateService / UpdateService / CreateFunction handlers debit against
-	// the singleton. SIM_GCP_CPU_QUOTA_PER_REGION env wires the budget;
-	// unset/zero disables quota enforcement.
-	initRegionalCPUQuota()
 	initMediaUploadSessions(srv)
+	registerCloudQuotas(srv)
 
 	// Register GCP service routes (HTTP/REST)
 	registerCloudRunJobs(srv)

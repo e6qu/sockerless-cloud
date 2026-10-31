@@ -82,6 +82,7 @@ var discoveryDirectoryJSON []byte
 type gcpDiscoveryDirectory struct {
 	Items          []json.RawMessage   `json:"items"`
 	CentralRest    map[string][]string `json:"centralRest"`
+	Unlisted       []string            `json:"unlisted"`
 	DefaultVersion map[string]*string  `json:"defaultVersion"`
 
 	entries []gcpDirectoryEntry

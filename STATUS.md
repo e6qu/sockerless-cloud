@@ -131,8 +131,8 @@ Shared mechanisms, one package each:
   (`testdata/iam_condition_key_gaps.tsv`), and authorizes tag-on-create as the
   service's tagging action; Query, JSON, REST and Smithy RPC v2 CBOR routes
   all pass it.
-- **Google Cloud**: every method spelling across the 33 vendored Discovery
-  documents, Cloud Tasks and Cloud Scheduler among them, reaches a route that
+- **Google Cloud**: every method spelling across the 35 vendored Discovery
+  documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three
   methods, each named in the simulator's README. Every gRPC service is crossed against its REST door.
   One IAM gate decides every authenticated REST and gRPC call from the

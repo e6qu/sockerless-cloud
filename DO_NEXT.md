@@ -2,7 +2,7 @@
 
 ## Next
 
-- **Google Cloud methods without a sourced permission** (BUG-3769): the 383
+- **Google Cloud methods without a sourced permission** (BUG-3769): the 391
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
 - **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3784, 3786 to 3789 and 3791), service

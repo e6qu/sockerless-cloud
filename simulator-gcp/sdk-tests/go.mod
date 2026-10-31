@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/bigquery v1.86.1
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.36.1
+	cloud.google.com/go/cloudquotas v1.14.1
 	cloud.google.com/go/cloudtasks v1.21.1
 	cloud.google.com/go/eventarc v1.27.1
 	cloud.google.com/go/firestore v1.29.2

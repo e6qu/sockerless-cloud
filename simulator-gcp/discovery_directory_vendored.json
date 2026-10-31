@@ -1,7 +1,7 @@
 {
  "source": "https://www.googleapis.com/discovery/v1/apis",
  "retrieved": "2026-10-06",
- "note": "items holds, verbatim, every entry of the Discovery service directory list whose name and version the simulator embeds a document for. centralRest lists, per host, the ids whose document GET https://{host}/discovery/v1/apis/{name}/{version}/rest answered 200 rather than 404 on the retrieval date. defaultVersion is the version GET https://{name}.googleapis.com/$discovery/rest answered with no version parameter.",
+ "note": "items holds, verbatim, every entry of the Discovery service directory list whose name and version the simulator embeds a document for. centralRest lists, per host, the ids whose document GET https://{host}/discovery/v1/apis/{name}/{version}/rest answered 200 rather than 404 on the retrieval date. defaultVersion is the version GET https://{name}.googleapis.com/$discovery/rest answered with no version parameter. unlisted holds the ids of embedded documents the directory list does not carry and no central getRest host serves, which only their own host does: cloudquotas, checked 2026-10-31.",
  "items": [
   {
    "kind": "discovery#directoryItem",
@@ -556,6 +556,10 @@
    "vpcaccess:v1"
   ]
  },
+ "unlisted": [
+  "cloudquotas:v1",
+  "cloudquotas:v1beta"
+ ],
  "defaultVersion": {
   "apigateway": "v1beta",
   "artifactregistry": "v1beta2",
@@ -565,6 +569,7 @@
   "cloudbuild": "v2",
   "cloudfunctions": "v2beta",
   "cloudkms": "v1",
+  "cloudquotas": "v1beta",
   "cloudresourcemanager": "v3",
   "cloudscheduler": "v1beta1",
   "cloudtasks": "v2beta3",

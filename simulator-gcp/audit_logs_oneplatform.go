@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	_ "cloud.google.com/go/cloudquotas/apiv1/cloudquotaspb"
+	_ "cloud.google.com/go/cloudquotas/apiv1beta/cloudquotaspb"
 	_ "cloud.google.com/go/firestore/apiv1/admin/adminpb"
 	_ "cloud.google.com/go/iam/admin/apiv1/adminpb"
 	"google.golang.org/genproto/googleapis/api/annotations"
@@ -64,6 +66,8 @@ var auditOnePlatformServices = []auditAPI{
 	{service: "google.logging.v2.MetricsServiceV2"},
 	{service: "google.api.serviceusage.v1.ServiceUsage"},
 	{service: "google.cloud.vpcaccess.v1.VpcAccessService"},
+	{service: "google.api.cloudquotas.v1.CloudQuotas"},
+	{service: "google.api.cloudquotas.v1beta.CloudQuotas"},
 	{service: "google.cloud.scheduler.v1.CloudScheduler"},
 	{service: "google.cloud.tasks.v2.CloudTasks"},
 	{service: "google.cloud.apigateway.v1.ApiGatewayService"},

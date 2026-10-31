@@ -42,6 +42,7 @@ provider "google" {
   redis_custom_endpoint             = "${var.endpoint}/v1/"
   sql_custom_endpoint               = "${var.endpoint}/sql/v1beta4/"
   vpc_access_custom_endpoint        = "${var.endpoint}/v1/"
+  cloud_quotas_custom_endpoint      = "${var.endpoint}/v1/"
   # Cloud SQL Admin publishes Spanner's /v1/projects/{p}/instances paths, so
   # Spanner takes its own host, which reaches the simulator as the HTTP proxy.
   spanner_custom_endpoint  = "http://spanner.googleapis.com/v1/"

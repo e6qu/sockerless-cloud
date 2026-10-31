@@ -628,6 +628,19 @@ listens (BUG-3242 holds hosts that cannot route). A Cloud Run function is the
 Cloud Run service CreateFunction creates, also served at its
 cloudfunctions.net URL.
 
+Cloud Run's regional CPU quota was once a sliding window of CPU-minutes each
+deploy debited, sized by two simulator variables that Google Cloud does not
+have. It became what `cloudrun-quotas.md.gz` describes: the milli vCPU every
+running instance of a service, function, job task or worker pool holds in its
+project and region, from start to stop, against the value Cloud Quotas holds
+in effect for `run.googleapis.com`'s `CpuAllocPerProjectRegion`, set through
+the Cloud Quotas API's quota preferences (v1 and v1beta, gated and audited
+from `cloudquotas-audit-logging.md.gz`). A deleted or unrouted revision's
+instances stop holding CPU when the change completes, not when their
+containers finish stopping, so a client that deletes and redeploys sees the
+room at once. Cloud Quotas is absent from the public Discovery directory, so
+the directory capture names it as unlisted.
+
 `RunJob` answers with an operation that stays running while the execution
 runs and completes from the execution's settle; `operations.wait` blocks on
 the signal `gcpFinishOperation` raises. A restarted simulator keeps every
