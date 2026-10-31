@@ -60,6 +60,10 @@ Each mechanism the three simulators built alone moved into one cloud-neutral
 package, with wire shapes, error envelopes and names left in the cloud's
 module. What each move taught:
 
+- **`EnsureEngineBuild`**: a build holds a file lock named for its tag across
+  processes as well as a lock within one. Two test binaries sharing an engine
+  had built the sidecar's tag at once, and while the engine named the second
+  result, the first found no image to create its container from.
 - **`archive`**: every zip and tar extraction goes through an `os.Root` with a
   size limit; a string-prefix containment check let a sibling directory
   through.
