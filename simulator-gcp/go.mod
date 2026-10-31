@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/artifactregistry v1.28.1
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.36.1
+	cloud.google.com/go/cloudquotas v1.14.1
 	cloud.google.com/go/cloudtasks v1.21.1
 	cloud.google.com/go/eventarc v1.27.1
 	cloud.google.com/go/firestore v1.29.2
@@ -28,7 +29,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261030233430-b6572a28866f
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261031175939-86f05da2de85
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
@@ -50,7 +51,6 @@ require (
 
 require (
 	cel.dev/expr v0.25.3 // indirect
-	cloud.google.com/go/cloudquotas v1.14.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/pubsub/v2 v2.8.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
