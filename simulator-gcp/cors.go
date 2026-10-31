@@ -57,7 +57,7 @@ func (w *gcpCORSResponseWriter) WriteHeader(code int) {
 		w.wroteHeader = true
 		h := w.Header()
 		h.Del("Vary")
-		h["Vary"] = []string{"X-Origin", "Referer", "Origin"}
+		h["Vary"] = []string{"X-Origin", "Referer", "Origin,Accept-Encoding"}
 		var exposed []string
 		names := make([]string, 0, len(h))
 		for name := range h {

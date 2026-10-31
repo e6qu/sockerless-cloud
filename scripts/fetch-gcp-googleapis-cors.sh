@@ -4,22 +4,31 @@
 # with an Origin header, into specs/cloud-api/gcp/googleapis-cors.http.gz.
 #
 # Google documents no CORS contract for its JSON APIs, so the front end's own
-# answer is the source. The capture keeps the status lines and headers and
-# drops the volatile date and server-timing values. With OUT set it writes
-# there and leaves SOURCES.md alone, which is how scripts/check-spec-freshness.sh
-# compares a fresh capture with the vendored one.
+# answer is the source. The capture keeps what a client depends on: the status
+# code, the CORS, Vary, Content-Type and WWW-Authenticate headers in name order,
+# and the JSON body with its keys sorted, since the front end orders the
+# ErrorInfo metadata differently from one answer to the next. Transport
+# headers, which an HTTPS proxy on the way may add or drop, are left out. With
+# OUT set it writes there and leaves SOURCES.md alone, which is how
+# scripts/check-spec-freshness.sh compares a fresh capture with the vendored
+# one.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 out="${OUT:-$root/specs/cloud-api/gcp/googleapis-cors.http.gz}"
 url='https://spanner.googleapis.com/v1/projects/p/instances'
 origin='http://localhost:4567'
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
 capture() {
-	# An HTTPS proxy's own "Connection Established" response precedes Google's.
-	curl -sS --max-time 60 -o /dev/null -D - "$@" | tr -d '\r' |
-		awk 'tolower($0) ~ /^http\/1\.[01] 200 connection established/ { skip = 1; next } skip && /^$/ { skip = 0; next } !skip' |
-		grep -v -i -E '^(date|server-timing):'
+	curl -sS --max-time 60 -o "$work/body" -D "$work/headers" -w '%{http_code}' "$@" | sed 's/^/HTTP /'
+	echo
+	tr -d '\r' <"$work/headers" | grep -i -E '^(access-control-[a-z-]+|vary|content-type|www-authenticate):' |
+		sed -E 's/^([^:]+):/\L\1:/' | sort -s -t: -k1,1
+	if [ -s "$work/body" ]; then
+		jq -S . "$work/body"
+	fi
 }
 
 {

@@ -80,7 +80,7 @@ func TestCORSFollowsGooglesFrontEnd(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, get)
 	h = rec.Header()
-	if h.Get("Access-Control-Allow-Origin") != origin || strings.Join(h.Values("Vary"), ",") != "X-Origin,Referer,Origin" ||
+	if h.Get("Access-Control-Allow-Origin") != origin || strings.Join(h.Values("Vary"), ",") != "X-Origin,Referer,Origin,Accept-Encoding" ||
 		!strings.HasPrefix(h.Get("Access-Control-Expose-Headers"), "vary,vary,vary,") ||
 		!strings.HasSuffix(h.Get("Access-Control-Expose-Headers"), ",content-encoding,date,server,content-length") ||
 		h.Get("Access-Control-Allow-Credentials") != "" {
