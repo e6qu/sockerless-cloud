@@ -123,7 +123,22 @@ func ecsEFSVolumeHost(cfg *ECSEfsVolumeConfig) (string, error) {
 	return host, nil
 }
 
-func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sinks ecsTaskLogSinks, launchType string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
+// A start that fails stops the containers it placed; exitCodes holds how each
+// of them exited.
+type ecsStartFailure struct {
+	err       error
+	exitCodes map[string]int
+}
+
+func (e *ecsStartFailure) Error() string { return e.err.Error() }
+func (e *ecsStartFailure) Unwrap() error { return e.err }
+
+// Places each container once every dependency its dependsOn names has reached
+// its condition, as the Amazon ECS agent does, and registers the task's
+// processes before the first placement so a running container reads its
+// metadata while a later one still waits. It returns errECSTaskStartPreempted
+// when the task starts stopping first, leaving the processes to the stop.
+func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefinition, taskTags []ECSTag, overrides *ECSTaskOverride, taskVolumeHosts map[string]string, sinks ecsTaskLogSinks, launchType, containerInstanceKey string, phases *ecsPhaseTimer) (*ecsTaskProcesses, error) {
 	if len(td.ContainerDefinitions) == 0 {
 		return nil, nil
 	}
@@ -161,24 +176,29 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		volMap[v.Name] = ecsTaskVolumePrefix(taskID) + v.Name
 	}
 
-	processes := &ecsTaskProcesses{
-		MainContainerName: td.ContainerDefinitions[0].Name,
-		Handles:           make(map[string]placement.Handle, len(td.ContainerDefinitions)),
-		StopGrace:         ecsTaskStopGrace(td),
-	}
+	processes := newECSTaskProcesses(td, td.ContainerDefinitions[0].Name)
 	backend, err := awsPlacement.For(ecsPlacementService(launchType))
 	if err != nil {
 		return nil, err
 	}
 	// A start interrupted by shutdown is not a failed task: remove its containers
-	// at once and leave the task PENDING.
+	// at once and leave the task PENDING. A failed start marks the task stopping
+	// first, so the watches of the containers it stops record nothing.
 	fail := func(err error) (*ecsTaskProcesses, error) {
+		ecsProcessHandles.CompareAndDelete(taskID, processes)
 		if ctx.Err() != nil {
 			ecsAbandonTaskStart(taskID, processes)
 			return nil, fmt.Errorf("%w: %w", errECSTaskStartInterrupted, err)
 		}
+		ecsTasks.Update(taskID, func(t *ECSTask) { t.DesiredStatus = ECSTaskStatusStopped })
 		cleanupECSTaskProcesses(context.Background(), taskID, processes)
-		return nil, err
+		exitCodes := map[string]int{}
+		for name, handle := range processes.named() {
+			if handle != nil {
+				exitCodes[name] = handle.Wait().ExitCode
+			}
+		}
+		return nil, &ecsStartFailure{err: err, exitCodes: exitCodes}
 	}
 	// awsvpc gets the task its own ENI in the VPC, host shares the instance's
 	// network stack, none has no connectivity, bridge uses the default bridge.
@@ -216,7 +236,6 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		}
 		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
 	}
-	var mainDockerID string
 
 	// Pull every image before any container starts, as the agent does, recording
 	// pullStartedAt and pullStoppedAt; Amazon ECS sets both even when cached, and
@@ -254,10 +273,12 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	})
 	phases.Mark("image-pull")
 
-	for i, cd := range td.ContainerDefinitions {
-		if cd.Image == "" {
-			continue
-		}
+	// The first container placed owns the task's network namespace and the rest
+	// join it. Once every container in it has exited, the next one placed owns a
+	// new namespace on the same interface, as a container that follows a
+	// completed setup container does.
+	placeContainer := func(i int) (placement.Handle, error) {
+		cd := td.ContainerDefinitions[i]
 		containerOverride := ecsContainerOverrideFor(overrides, cd.Name)
 		cmdEnv := make(map[string]string, len(cd.Environment))
 		for _, ev := range cd.Environment {
@@ -313,28 +334,20 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Binds:     binds,
 			Sandbox:   ecsTaskSandbox(launchType),
 		}
-		// Docker Desktop does not route a VM's bridge addresses to the host, so
-		// publish the declared ports on loopback for Elastic Load Balancing. The task
-		// IP stays the public coordinate. The first container owns the shared
-		// namespace and publishes every container's ports.
-		if networkMode == ecsNetworkModeAwsvpc && i == 0 {
-			for _, each := range td.ContainerDefinitions {
-				for _, mapping := range each.PortMappings {
-					if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
-						cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
-					}
-				}
-			}
-		}
 		cfg.MemoryBytes, cfg.NanoCPU = ecsContainerResourceLimits(td, cd)
+
+		var owner placement.Handle
+		if networkMode == ecsNetworkModeAwsvpc {
+			owner = processes.liveNamespaceHandle()
+		}
 		switch {
 		case networkMode == ecsNetworkModeHost:
 			cfg.NetworkMode = "host"
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 		case networkMode == ecsNetworkModeNone:
 			cfg.NetworkMode = "none"
-		case networkMode == ecsNetworkModeAwsvpc && i > 0:
-			// Every container joins the first's namespace and shares the task ENI.
+		case networkMode == ecsNetworkModeAwsvpc && owner != nil:
+			// Every container joins the owner's namespace and shares the task ENI.
 		case networkMode == ecsNetworkModeAwsvpc:
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			cfg.Network = taskNetwork.Name
@@ -347,6 +360,17 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			if _, subnetID, ok := ecsTaskENIInfo(taskID); ok {
 				cfg.Gateway = ec2SubnetGateway(subnetID)
 			}
+			// Docker Desktop does not route a VM's bridge addresses to the host, so
+			// publish the declared ports on loopback for Elastic Load Balancing. The
+			// task IP stays the public coordinate. The owner publishes every
+			// container's ports.
+			for _, each := range td.ContainerDefinitions {
+				for _, mapping := range each.PortMappings {
+					if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
+						cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
+					}
+				}
+			}
 		default:
 			// Each container gets its own address on the platform network.
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
@@ -354,34 +378,107 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			cfg.DNS = taskNetwork.DNS()
 		}
 
+		if owner != nil {
+			return backend.PlaceMember(ctx, owner.ID(), cfg, sinks.For(cd.Name))
+		}
+		handle, err := metadata.place(ctx, backend, cfg, sinks.For(cd.Name))
+		if err != nil {
+			return nil, err
+		}
+		if networkMode == ecsNetworkModeAwsvpc {
+			processes.setMain(cd.Name)
+			// The interface now belongs to its groups, which neighbours' permissions
+			// expand over.
+			if _, vpcID, ok := ecsTaskENIGroups(taskID); ok {
+				ec2ReapplyIngress(vpcID)
+			}
+		}
+		return handle, nil
+	}
+
+	ecsProcessHandles.Store(taskID, processes)
+	var waiting []int
+	for i, cd := range td.ContainerDefinitions {
+		if cd.Image != "" {
+			waiting = append(waiting, i)
+		}
+	}
+	started := make(map[string]time.Time, len(waiting))
+	for len(waiting) > 0 {
+		// Take the change signal before reading the task, so a change between the
+		// read and the wait ends the wait.
+		changed := ecsTaskChanges.Changed(taskID)
+		task, ok := ecsTasks.Get(taskID)
+		if !ok || ecsTaskStartPreempted(task, processes.Essential) {
+			return processes, errECSTaskStartPreempted
+		}
+		now := time.Now()
+		next := -1
+		var deadline time.Time
+		for position, i := range waiting {
+			met, expires, err := ecsContainerDependenciesMet(td, td.ContainerDefinitions[i], task.Containers, started, now)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: %v\n", taskID, err)
+				return fail(err)
+			}
+			if met {
+				next = position
+				break
+			}
+			if !expires.IsZero() && (deadline.IsZero() || expires.Before(deadline)) {
+				deadline = expires
+			}
+		}
+		if next < 0 {
+			var expired <-chan time.Time
+			var timer *time.Timer
+			if !deadline.IsZero() {
+				timer = time.NewTimer(deadline.Sub(now))
+				expired = timer.C
+			}
+			select {
+			case <-changed:
+			case <-expired:
+			case <-ctx.Done():
+			}
+			if timer != nil {
+				timer.Stop()
+			}
+			if err := ctx.Err(); err != nil {
+				return fail(err)
+			}
+			continue
+		}
+
+		i := waiting[next]
+		waiting = slices.Delete(waiting, next, next+1)
+		cd := td.ContainerDefinitions[i]
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		var handle placement.Handle
-		if networkMode == ecsNetworkModeAwsvpc && i > 0 {
-			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sinks.For(cd.Name))
-		} else {
-			handle, err = metadata.place(ctx, backend, cfg, sinks.For(cd.Name))
-		}
+		handle, err := placeContainer(i)
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
 		}
-		if i == 0 {
-			mainDockerID = handle.ID()
-			if networkMode == ecsNetworkModeAwsvpc {
-				// The interface now belongs to its groups, which neighbours' permissions
-				// expand over.
-				if _, vpcID, ok := ecsTaskENIGroups(taskID); ok {
-					ec2ReapplyIngress(vpcID)
+		processes.setHandle(cd.Name, handle)
+		started[cd.Name] = handle.StartedAt()
+		hasHealthCheck := ecsContainerHealthCheck(cd) != nil
+		ecsTasks.Update(taskID, func(t *ECSTask) {
+			for j := range t.Containers {
+				if t.Containers[j].Name != cd.Name {
+					continue
+				}
+				t.Containers[j].LastStatus = "RUNNING"
+				if hasHealthCheck {
+					t.Containers[j].HealthStatus = ecsHealthUnknown
 				}
 			}
-		}
-		processes.Handles[cd.Name] = handle
+			t.HealthStatus = ecsTaskHealthStatus(td, t.Containers)
+		})
+		ecsContainerPlacements.Announce(taskID)
+		ecsWatchTaskContainer(taskID, containerInstanceKey, processes, cd.Name, handle)
+		ecsMonitorContainerHealth(taskID, cd, handle)
 		phases.Mark("container:" + cd.Name)
-	}
-
-	if len(processes.Handles) == 0 {
-		return nil, nil
 	}
 	return processes, nil
 }
@@ -516,13 +613,13 @@ func ecsTaskMetadataV4(taskID string) (map[string]any, bool) {
 	td, _ := ecsTaskDefinitionByArn(task.TaskDefinitionArn)
 	eniIP, _, _ := ecsTaskENIInfo(taskID)
 	family, revision := ecsTaskDefinitionFamilyRevision(task.TaskDefinitionArn)
+	// A container still waiting on its dependencies has not been created, and
+	// the agent lists only created containers.
 	var containers []map[string]any
 	for _, cd := range td.ContainerDefinitions {
-		container, ok := ecsTaskContainerMetadata(taskID, task, td, cd, eniIP)
-		if !ok {
-			return nil, false
+		if container, ok := ecsTaskContainerMetadata(taskID, task, td, cd, eniIP); ok {
+			containers = append(containers, container)
 		}
-		containers = append(containers, container)
 	}
 	return map[string]any{
 		"Cluster":       task.ClusterArn,

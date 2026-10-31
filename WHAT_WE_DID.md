@@ -467,6 +467,10 @@ running it:
 - Firecracker's API server admits a handful of connections and answers 503
   past that, so the agent's client closes its connection after each request.
 - A guest's API socket path is a digest of its ID, to stay within 107 bytes.
+- Firecracker creates its API socket file at bind and accepts connections
+  only once it listens, so the agent waits for the socket to accept a
+  connection, not for the file: a restarted guest whose first request landed
+  in between failed with `connection refused`.
 - guestinit ended machines with a power-off, which halts a microVM's
   processor and leaves it running for the hypervisor: every guest exit had
   been the agent's fifteen-second backstop kill. guestinit reboots instead,
@@ -677,15 +681,41 @@ Manager's supportability scores read the same host: what its CPUs and memory
 hold once running instances and placed tasks take theirs, divided by each
 instance type's size, banded high, medium and low against the requested amount
 as AWS documents. Every Availability Zone the simulator serves shares that
-host, so zones score alike and the aggregate is the best combination's score.
+host, so zones score alike and the aggregate is the best combination's score. The
+same host bounds a launch by memory: `RunInstances`, `StartInstances` and
+Auto Scaling refuse an instance the host's free memory cannot hold with
+`InsufficientInstanceCapacity`, the server error the vendored error-code page
+lists, while vCPUs overcommit as a hypervisor's do. Spot placement scores read
+it too, 10 at three times the target and linear below, never under 1.
 A task belongs to the
 deployment that started it by `startedBy`. An awsvpc task creates its
-interface at `RunTask`, so DeleteSubnet refuses while it holds it. The task
-metadata endpoint waits for its task's start to settle, because a container
-that read it at once found a 404. Express Mode and gateways build their load
+interface at `RunTask`, so DeleteSubnet refuses while it holds it. A
+container's metadata endpoint waits only for that container's placement,
+because a container that read it at once found a 404 and a task-wide wait
+would hold a running setup container until the container waiting on it
+started. Express Mode and gateways build their load
 balancers, certificates and scaling through the services' APIs as the
 infrastructure role; writing straight into another service's store skipped
 that service's rules.
+
+A task's containers start in their `dependsOn` order, as the Amazon ECS agent
+starts them: each waits until every dependency has started (`START`), exited
+(`COMPLETE`), exited 0 (`SUCCESS`) or passed its health check (`HEALTHY`). The
+dependency's own `startTimeout`, counted from its start, bounds the three
+conditions after `START`, and no timeout applies when it is unset, since the
+developer guide bounds the wait only when one is specified. A `SUCCESS`
+dependency that exits non-zero, or one whose timeout runs out, stops the task
+without starting the container waiting on it. The task stays PENDING, with the
+waiting container PENDING, until every container has started or exited,
+because the agent reports a task at its containers' earliest state. A
+non-essential container that exits stops alone with its own exit code; an
+essential one stops the task. Health checks run on the definition's interval
+through the workload's exec, with Docker's retries and start-period rules,
+and set `healthStatus` on the container and, from the essential containers
+that declare one, on the task. In awsvpc mode the first container placed owns
+the task's network namespace; once every container in it has exited, the
+next one placed takes the task's interface in a new namespace, because a
+container cannot join the namespace of one that is gone.
 
 A regional NAT gateway is a VPC-level gateway. In automatic mode it takes an
 address in every zone that has a subnet and follows subnets as they come and

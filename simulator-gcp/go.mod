@@ -10,14 +10,14 @@ require (
 	cloud.google.com/go/cloudbuild v1.36.1
 	cloud.google.com/go/cloudtasks v1.21.1
 	cloud.google.com/go/eventarc v1.27.1
-	cloud.google.com/go/firestore v1.29.1
+	cloud.google.com/go/firestore v1.29.2
 	cloud.google.com/go/functions v1.27.1
 	cloud.google.com/go/iam v1.15.1
 	cloud.google.com/go/kms v1.36.1
 	cloud.google.com/go/logging v1.21.1
 	cloud.google.com/go/longrunning v1.4.1
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/redis v1.28.1
+	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
 	cloud.google.com/go/run v1.24.1
 	cloud.google.com/go/scheduler v1.18.1
@@ -28,7 +28,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261029191552-7d9cc477d5cf
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261030233430-b6572a28866f
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3

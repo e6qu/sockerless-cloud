@@ -110,12 +110,16 @@ func (g *guest) patchDrive(ctx context.Context, driveID, path string) error {
 
 func (g *guest) vsockPath() string { return filepath.Join(g.dir, "v.sock") }
 
-// waitForSocket waits for Firecracker to open its API socket, and gives up
-// with Firecracker's own output when the process ends first.
+// waitForSocket waits for Firecracker's API socket to accept a connection,
+// and gives up with Firecracker's own output when the process ends first.
+// The socket file appears at bind, before Firecracker listens on it, so its
+// existence alone does not mean a request can connect.
 func waitForSocket(ctx context.Context, path string, timeout time.Duration, ended <-chan struct{}, consolePath string) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		if _, err := os.Stat(path); err == nil {
+		var d net.Dialer
+		if conn, err := d.DialContext(ctx, "unix", path); err == nil {
+			_ = conn.Close()
 			return nil
 		}
 		if time.Now().After(deadline) {

@@ -278,7 +278,7 @@ func ec2ReapplyRoutes(vpcID string) {
 		if subnet, ok := ec2Subnets.Get(subnetID); !ok || subnet.VpcId != vpcID {
 			return true
 		}
-		if handle := procs.Handles[procs.MainContainerName]; handle != nil {
+		if handle := procs.mainHandle(); handle != nil {
 			ec2SetGateway(ctx, "task "+taskID, handle, ec2SubnetGateway(subnetID))
 		}
 		return true

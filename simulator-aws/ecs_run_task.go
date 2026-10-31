@@ -12,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // ecsTaskLogSinks holds each container's awslogs sink, keyed by container
@@ -422,10 +423,7 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 	}
 
 	ecsTasks.Update(id, func(t *ECSTask) {
-		t.LastStatus = ECSTaskStatusPending
-		for j := range t.Containers {
-			t.Containers[j].LastStatus = "PENDING"
-		}
+		ecsResetTaskContainers(t)
 		for j := range t.Attachments {
 			if t.Attachments[j].Type == "ElasticNetworkInterface" {
 				t.Attachments[j].Status = "ATTACHING"
@@ -474,68 +472,112 @@ func ecsStartTask(ctx context.Context, id string, td ECSTaskDefinition, taskTags
 
 	var processes *ecsTaskProcesses
 	if err == nil {
-		processes, err = startECSTaskContainers(ctx, id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, phases)
+		processes, err = startECSTaskContainers(ctx, id, td, taskTags, overrides, taskVolumeHosts, sink, launchType, containerInstanceKey, phases)
 	}
 	if errors.Is(err, errECSTaskStartInterrupted) {
 		ecsLogInterruptedStart(id)
 		return
 	}
+	if errors.Is(err, errECSTaskStartPreempted) {
+		return
+	}
 	if err != nil {
 		// Log the cause; otherwise only StoppedReason records it.
 		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
-		stoppedAt := ecsEpochSeconds()
-		var doomedVolumes []string
-		var resourceErr *ecsResourceInitializationError
-		resourceFailure := errors.As(err, &resourceErr)
-		ecsTasks.Update(id, func(t *ECSTask) {
-			t.LastStatus = ECSTaskStatusStopped
-			t.DesiredStatus = ECSTaskStatusStopped
-			t.StoppedAt = &stoppedAt
-			t.StopCode = "EssentialContainerExited"
-			t.StoppedReason = fmt.Sprintf("Container start failed: %v", err)
-			if resourceFailure {
-				t.StopCode = "TaskFailedToStart"
-				t.StoppedReason = resourceErr.Error()
-			}
-			exitCode := -1
-			for j := range t.Containers {
-				t.Containers[j].LastStatus = "STOPPED"
-				if !resourceFailure {
-					t.Containers[j].ExitCode = &exitCode
-				}
-			}
-			doomedVolumes = ecsReleaseTaskAttachments(t)
-		})
-		ecsDeleteManagedVolumes(doomedVolumes)
-		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
-		if task, ok := ecsTasks.Get(id); ok {
-			ecsRequestServiceReconcileForTask(task)
-		}
+		ecsStopFailedStart(id, containerInstanceKey, "Container start failed: ", err)
 		return
 	}
 
-	// Store handles before RUNNING so an observer of RUNNING sees them.
+	if ecsMarkTaskRunning(id, processes) {
+		// The pull is the only phase the API exposes, and rarely the slow one.
+		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING %s\n", id, phases.Summary())
+		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
+	}
+	if task, ok := ecsTasks.Get(id); ok {
+		ecsRequestServiceReconcileForTask(task)
+	}
+}
+
+// Every container starts PENDING, with no exit code or health yet.
+func ecsResetTaskContainers(t *ECSTask) {
+	t.LastStatus = ECSTaskStatusPending
+	for j := range t.Containers {
+		t.Containers[j].LastStatus = "PENDING"
+		t.Containers[j].ExitCode = nil
+		t.Containers[j].HealthStatus = ""
+	}
+	t.HealthStatus = ""
+}
+
+// A task is RUNNING once each container has started or exited, as the agent
+// reports a task at the earliest state of its containers. A task already
+// stopping stays where it is, for its stop to finish.
+func ecsMarkTaskRunning(id string, processes *ecsTaskProcesses) bool {
+	var essential map[string]bool
 	if processes != nil {
-		ecsProcessHandles.Store(id, processes)
+		essential = processes.Essential
 	}
 	now := ecsEpochSeconds()
+	running := false
 	ecsTasks.Update(id, func(t *ECSTask) {
+		if ecsTaskStartPreempted(*t, essential) {
+			return
+		}
+		running = true
 		t.LastStatus = ECSTaskStatusRunning
 		t.Connectivity = "CONNECTED"
 		t.StartedAt = &now
-		for j := range t.Containers {
-			t.Containers[j].LastStatus = "RUNNING"
-		}
 		for j := range t.Attachments {
 			t.Attachments[j].Status = "ATTACHED"
 		}
 	})
-	// The pull is the only phase the API exposes, and rarely the slow one.
-	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING %s\n", id, phases.Summary())
-	ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
-	if processes != nil {
-		ecsWatchTaskProcesses(id, containerInstanceKey, processes)
-	}
+	return running
+}
+
+// A start that failed stops the task. Each container the start placed keeps
+// how it exited; one that never started has no exit code, except after a
+// placement failure, which marks every unplaced container -1.
+func ecsStopFailedStart(id, containerInstanceKey, reasonPrefix string, err error) {
+	stoppedAt := ecsEpochSeconds()
+	var doomedVolumes []string
+	var resourceErr *ecsResourceInitializationError
+	resourceFailure := errors.As(err, &resourceErr)
+	var startErr *ecsStartFailure
+	errors.As(err, &startErr)
+	var dependencyErr *ecsDependencyError
+	dependencyFailure := errors.As(err, &dependencyErr)
+	ecsTasks.Update(id, func(t *ECSTask) {
+		t.LastStatus = ECSTaskStatusStopped
+		t.DesiredStatus = ECSTaskStatusStopped
+		t.StoppedAt = &stoppedAt
+		t.StopCode = "EssentialContainerExited"
+		t.StoppedReason = reasonPrefix + err.Error()
+		if resourceFailure {
+			t.StopCode = "TaskFailedToStart"
+			t.StoppedReason = resourceErr.Error()
+		}
+		for j := range t.Containers {
+			c := &t.Containers[j]
+			c.LastStatus = "STOPPED"
+			if c.ExitCode != nil || resourceFailure {
+				continue
+			}
+			if startErr != nil {
+				if code, ok := startErr.exitCodes[c.Name]; ok {
+					c.ExitCode = &code
+					continue
+				}
+			}
+			if dependencyFailure {
+				continue
+			}
+			exitCode := -1
+			c.ExitCode = &exitCode
+		}
+		doomedVolumes = ecsReleaseTaskAttachments(t)
+	})
+	ecsDeleteManagedVolumes(doomedVolumes)
+	ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 	if task, ok := ecsTasks.Get(id); ok {
 		ecsRequestServiceReconcileForTask(task)
 	}
@@ -568,20 +610,34 @@ func ecsTaskStartBegins(id string) func() {
 	}
 }
 
-// So a container reading its metadata at once finds its task's containers.
-func ecsAwaitTaskStart(ctx context.Context, id string) {
-	v, ok := ecsTaskStarts.Load(id)
-	if !ok {
-		return
-	}
-	settled, ok := v.(chan struct{})
-	if !ok {
-		return
-	}
-	sim.DeclareOpenEndedWait(ctx)
-	select {
-	case <-settled:
-	case <-ctx.Done():
+// A container reading its metadata at once may arrive before its handle is
+// stored; wait for that container alone, not the task's later containers.
+func ecsAwaitContainerPlaced(ctx context.Context, taskID, container string) {
+	declared := false
+	for {
+		placed := ecsContainerPlacements.Changed(taskID)
+		if dockerID, _ := ecsTaskDockerInfo(taskID, container); dockerID != "" {
+			return
+		}
+		v, ok := ecsTaskStarts.Load(taskID)
+		if !ok {
+			return
+		}
+		settled, ok := v.(chan struct{})
+		if !ok {
+			return
+		}
+		if !declared {
+			sim.DeclareOpenEndedWait(ctx)
+			declared = true
+		}
+		select {
+		case <-placed:
+		case <-settled:
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -624,52 +680,120 @@ func ecsLogInterruptedStart(taskID string) {
 }
 
 func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTaskProcesses) {
-	for _, handle := range processes.Handles {
-		var result sim.ProcessResult
-		_ = bg.WatchThen(func() { result = handle.Wait() }, func() {
-			lifecycleLock := ecsTaskLifecycleLock(taskID)
-			lifecycleLock.Lock()
-			defer lifecycleLock.Unlock()
-			owned, ownsLifecycle := ecsProcessHandles.LoadAndDelete(taskID)
-			if !ownsLifecycle {
+	for name, handle := range processes.named() {
+		ecsWatchTaskContainer(taskID, containerInstanceKey, processes, name, handle)
+	}
+}
+
+// A non-essential container that exits stops alone, keeping its exit code; an
+// essential one stops the task. A container stopped by the task's own stop
+// records nothing here: the stop does.
+func ecsWatchTaskContainer(taskID, containerInstanceKey string, processes *ecsTaskProcesses, name string, handle placement.Handle) {
+	var result sim.ProcessResult
+	_ = bg.WatchThen(func() { result = handle.Wait() }, func() {
+		exitCode := result.ExitCode
+		ecsTasks.Update(taskID, func(t *ECSTask) {
+			if t.LastStatus == ECSTaskStatusStopped || t.DesiredStatus == ECSTaskStatusStopped {
 				return
 			}
-			ownedProcesses, ok := owned.(*ecsTaskProcesses)
-			if !ok {
-				panic("Amazon ECS task process registry contained a non-process value")
-			}
-			cleanupECSTaskProcesses(context.Background(), taskID, ownedProcesses)
-			stoppedAt := ecsEpochSeconds()
-			transitioned := false
-			var doomedVolumes []string
-			ecsTasks.Update(taskID, func(t *ECSTask) {
-				if t.LastStatus == ECSTaskStatusStopped {
-					return
-				}
-				transitioned = true
-				t.LastStatus = ECSTaskStatusStopped
-				t.StoppedAt = &stoppedAt
-				// A container exiting while the task stops does not change the stop's code and
-				// reason.
-				if t.DesiredStatus != ECSTaskStatusStopped {
-					t.DesiredStatus = ECSTaskStatusStopped
-					t.StopCode = "EssentialContainerExited"
-					t.StoppedReason = "Essential container in task exited"
-				}
-				exitCode := result.ExitCode
-				for j := range t.Containers {
+			for j := range t.Containers {
+				if t.Containers[j].Name == name {
 					t.Containers[j].LastStatus = "STOPPED"
 					t.Containers[j].ExitCode = &exitCode
 				}
-				doomedVolumes = ecsReleaseTaskAttachments(t)
-			})
-			ecsDeleteManagedVolumes(doomedVolumes)
-			if transitioned {
-				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, 0, -1)
-				if task, ok := ecsTasks.Get(taskID); ok {
-					ecsRequestServiceReconcileForTask(task)
-				}
 			}
 		})
+		if processes.Essential[name] {
+			ecsStopTaskForEssentialExit(taskID, containerInstanceKey)
+		}
+	})
+}
+
+func ecsStopTaskForEssentialExit(taskID, containerInstanceKey string) {
+	lifecycleLock := ecsTaskLifecycleLock(taskID)
+	lifecycleLock.Lock()
+	defer lifecycleLock.Unlock()
+	owned, ownsLifecycle := ecsProcessHandles.LoadAndDelete(taskID)
+	if !ownsLifecycle {
+		return
+	}
+	ownedProcesses, ok := owned.(*ecsTaskProcesses)
+	if !ok {
+		panic("Amazon ECS task process registry contained a non-process value")
+	}
+	prior, ok := ecsTasks.Get(taskID)
+	if !ok || prior.LastStatus == ECSTaskStatusStopped {
+		return
+	}
+	// A container exiting while the task stops does not change the stop's code
+	// and reason.
+	ecsTasks.Update(taskID, func(t *ECSTask) {
+		if t.DesiredStatus != ECSTaskStatusStopped {
+			t.DesiredStatus = ECSTaskStatusStopped
+			t.StopCode = "EssentialContainerExited"
+			t.StoppedReason = "Essential container in task exited"
+		}
+	})
+	cleanupECSTaskProcesses(context.Background(), taskID, ownedProcesses)
+	if ecsMarkTaskStopped(taskID, ownedProcesses) {
+		ecsReleaseTaskCount(containerInstanceKey, prior.LastStatus)
+		if task, ok := ecsTasks.Get(taskID); ok {
+			ecsRequestServiceReconcileForTask(task)
+		}
+	}
+}
+
+// Every container stops. One that already exited keeps its exit code, one the
+// stop ended reports how it exited, and one that never started has none.
+// Call it once processes' containers have exited.
+func ecsMarkTaskStopped(taskID string, processes *ecsTaskProcesses) bool {
+	exitCodes := map[string]int{}
+	for name, handle := range processes.named() {
+		if handle != nil {
+			exitCodes[name] = handle.Wait().ExitCode
+		}
+	}
+	stoppedAt := ecsEpochSeconds()
+	transitioned := false
+	var doomedVolumes []string
+	ecsTasks.Update(taskID, func(t *ECSTask) {
+		if t.LastStatus == ECSTaskStatusStopped {
+			return
+		}
+		transitioned = true
+		t.LastStatus = ECSTaskStatusStopped
+		t.DesiredStatus = ECSTaskStatusStopped
+		t.StoppedAt = &stoppedAt
+		for j := range t.Containers {
+			c := &t.Containers[j]
+			wasRunning := c.LastStatus == "RUNNING"
+			c.LastStatus = "STOPPED"
+			if c.ExitCode != nil {
+				continue
+			}
+			if exitCode, ok := exitCodes[c.Name]; ok {
+				c.ExitCode = &exitCode
+				continue
+			}
+			// A running container whose handle this process does not hold was killed
+			// after its stop timeout: 128+SIGKILL.
+			if wasRunning {
+				killed := 137
+				c.ExitCode = &killed
+			}
+		}
+		doomedVolumes = ecsReleaseTaskAttachments(t)
+	})
+	ecsDeleteManagedVolumes(doomedVolumes)
+	return transitioned
+}
+
+// A stopped task leaves its container instance's pending or running count.
+func ecsReleaseTaskCount(containerInstanceKey string, prior ECSTaskStatus) {
+	switch prior {
+	case ECSTaskStatusProvisioning, ECSTaskStatusPending:
+		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
+	case ECSTaskStatusRunning:
+		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, 0, -1)
 	}
 }

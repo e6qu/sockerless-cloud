@@ -32,7 +32,7 @@ const (
 	firecrackerVersion = "v1.15.1"
 	kernelVersion      = "6.1.155"
 	goImage            = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
-	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
+	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
 )
 
 // The release archives and CI kernels Firecracker publishes, by architecture.

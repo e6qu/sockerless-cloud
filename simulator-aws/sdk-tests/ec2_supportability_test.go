@@ -96,3 +96,51 @@ func TestEC2_CapacityManagerSupportabilityScores(t *testing.T) {
 	require.True(t, errors.As(err, &apiErr), "an unknown zone ID is refused: %v", err)
 	assert.Equal(t, "InvalidParameterValue", apiErr.ErrorCode())
 }
+
+// An instance type whose memory no host holds is refused with the server
+// error Amazon EC2 answers when it has no capacity for a launch.
+func TestEC2_RunInstancesRefusesATypeTheHostCannotHold(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
+		InstanceType: types.InstanceType("u7in-32tb.224xlarge"),
+		MinCount:     aws.Int32(1), MaxCount: aws.Int32(1),
+	})
+	terminateEC2InstancesOnCleanup(t, c, run)
+	var apiErr smithy.APIError
+	require.True(t, errors.As(err, &apiErr), "a 32 TiB instance launched: %v", err)
+	assert.Equal(t, "InsufficientInstanceCapacity", apiErr.ErrorCode())
+}
+
+// Spot placement scores read the host's capacity: a target past any host
+// scores 1, a Region the simulator does not serve scores 1, and a
+// single-zone request scores each zone.
+func TestEC2_SpotPlacementScoresReadTheHost(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+	huge, err := c.GetSpotPlacementScores(ctx, &ec2.GetSpotPlacementScoresInput{
+		TargetCapacity: aws.Int32(1_000_000),
+		InstanceTypes:  []string{"t3.micro"},
+		RegionNames:    []string{"us-east-1", "ap-southeast-7"},
+	})
+	require.NoError(t, err)
+	require.Len(t, huge.SpotPlacementScores, 2)
+	for _, s := range huge.SpotPlacementScores {
+		assert.Equal(t, int32(1), aws.ToInt32(s.Score), aws.ToString(s.Region))
+	}
+
+	zones, err := c.DescribeAvailabilityZones(ctx, &ec2.DescribeAvailabilityZonesInput{})
+	require.NoError(t, err)
+	single, err := c.GetSpotPlacementScores(ctx, &ec2.GetSpotPlacementScoresInput{
+		TargetCapacity:         aws.Int32(1),
+		InstanceTypes:          []string{"t3.nano"},
+		SingleAvailabilityZone: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, single.SpotPlacementScores, len(zones.AvailabilityZones))
+	for i, s := range single.SpotPlacementScores {
+		assert.Equal(t, aws.ToString(zones.AvailabilityZones[i].ZoneId), aws.ToString(s.AvailabilityZoneId))
+		assert.Equal(t, aws.ToInt32(single.SpotPlacementScores[0].Score), aws.ToInt32(s.Score), "zones on one host score alike")
+	}
+}

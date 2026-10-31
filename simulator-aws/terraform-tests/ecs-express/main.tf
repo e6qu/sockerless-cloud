@@ -4,7 +4,7 @@ terraform {
       source = "hashicorp/aws"
       # aws_ecs_express_gateway_service first shipped in terraform-provider-aws
       # v6.23.0.
-      version = "6.70.0"
+      version = "6.71.0"
     }
   }
 }

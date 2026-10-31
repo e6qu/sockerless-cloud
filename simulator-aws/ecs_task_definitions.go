@@ -59,6 +59,11 @@ func handleECSRegisterTaskDefinition(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if message := ecsContainerDependenciesInvalid(req.ContainerDefinitions); message != "" {
+		AWSError(w, "ClientException", message, http.StatusBadRequest)
+		return
+	}
+
 	ecsRevisionMu.Lock()
 	ecsRevisions[req.Family]++
 	revision := ecsRevisions[req.Family]

@@ -47,7 +47,7 @@ func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 	_, err = c.ReplaceImageInstanceTypeSpecification(ctx, &ec2.ReplaceImageInstanceTypeSpecificationInput{
 		ImageId: aws.String(imageID),
 		InstanceTypeSpecification: &types.InstanceTypeSpecificationRequest{
-			SupportedInstanceTypes:   []string{"t3.*", "m5.large"},
+			SupportedInstanceTypes:   []string{"t3.*", "t2.micro"},
 			UnsupportedInstanceTypes: []string{"t3.nano"},
 		},
 	})
@@ -66,7 +66,7 @@ func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 		}
 		return out
 	}
-	assert.ElementsMatch(t, []string{"t3.*", "m5.large"}, names(spec.SupportedInstanceTypes))
+	assert.ElementsMatch(t, []string{"t3.*", "t2.micro"}, names(spec.SupportedInstanceTypes))
 	assert.ElementsMatch(t, []string{"t3.nano"}, names(spec.UnsupportedInstanceTypes))
 }
 
@@ -106,7 +106,7 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 
-	err = launch(types.InstanceTypeM5Large)
+	err = launch(types.InstanceTypeT2Micro)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 
@@ -120,7 +120,7 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 	require.Len(t, described.Images, 1)
 	assert.Nil(t, described.Images[0].InstanceTypeSpecification)
 
-	require.NoError(t, launch(types.InstanceTypeM5Large))
+	require.NoError(t, launch(types.InstanceTypeT2Micro))
 }
 
 // With only unsupported entries, everything launches except what they match.
@@ -136,7 +136,7 @@ func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 	_, err = c.ReplaceImageInstanceTypeSpecification(ctx, &ec2.ReplaceImageInstanceTypeSpecificationInput{
 		ImageId: aws.String(imageID),
 		InstanceTypeSpecification: &types.InstanceTypeSpecificationRequest{
-			UnsupportedInstanceTypes: []string{"m5.*"},
+			UnsupportedInstanceTypes: []string{"t2.*"},
 		},
 	})
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 	}
 
 	require.NoError(t, launch(types.InstanceTypeT3Micro))
-	err = launch(types.InstanceTypeM5Large)
+	err = launch(types.InstanceTypeT2Micro)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "InvalidParameterCombination")
 }

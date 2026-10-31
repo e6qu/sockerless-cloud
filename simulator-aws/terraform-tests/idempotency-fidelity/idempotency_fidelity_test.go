@@ -17,6 +17,7 @@ import (
 //   - aws_lb (no minimum_load_balancer_capacity)
 //   - aws_lb_listener HTTPS certificate_arn
 //   - tags on aws_cloudwatch_log_group / aws_dynamodb_table / aws_ecr_repository
+//   - aws_ecs_task_definition container_definitions dependsOn and startTimeout
 func TestIdempotencyFidelity(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")

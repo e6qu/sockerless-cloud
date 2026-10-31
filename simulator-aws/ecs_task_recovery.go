@@ -73,15 +73,11 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 	if current, exists := ecsTasks.Get(taskID); !exists || current.DesiredStatus == ECSTaskStatusStopped {
 		return
 	}
-	ecsTasks.Update(taskID, func(current *ECSTask) {
-		current.LastStatus = ECSTaskStatusPending
-		for index := range current.Containers {
-			current.Containers[index].LastStatus = "PENDING"
-		}
-	})
+	ecsTasks.Update(taskID, ecsResetTaskContainers)
 	phases := newECSPhaseTimer(time.Now)
 	sink, err := ecsTaskCloudWatchSink(definition, taskID)
 	phases.Mark("log-stream")
+	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
 	var processes *ecsTaskProcesses
 	if err == nil {
 		processes, err = startECSTaskContainers(
@@ -93,6 +89,7 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 			task.VolumeHosts,
 			sink,
 			task.LaunchType,
+			containerInstanceKey,
 			phases,
 		)
 	}
@@ -100,57 +97,16 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 		ecsLogInterruptedStart(taskID)
 		return
 	}
-	containerInstanceKey := ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn)
-	if err != nil {
-		stoppedAt := ecsEpochSeconds()
-		var doomedVolumes []string
-		var resourceErr *ecsResourceInitializationError
-		resourceFailure := errors.As(err, &resourceErr)
-		ecsTasks.Update(taskID, func(current *ECSTask) {
-			current.LastStatus = ECSTaskStatusStopped
-			current.DesiredStatus = ECSTaskStatusStopped
-			current.StoppedAt = &stoppedAt
-			current.StopCode = "EssentialContainerExited"
-			current.StoppedReason = fmt.Sprintf("Container start failed after control-plane restart: %v", err)
-			if resourceFailure {
-				current.StopCode = "TaskFailedToStart"
-				current.StoppedReason = resourceErr.Error()
-			}
-			exitCode := -1
-			for index := range current.Containers {
-				current.Containers[index].LastStatus = "STOPPED"
-				if !resourceFailure {
-					current.Containers[index].ExitCode = &exitCode
-				}
-			}
-			doomedVolumes = ecsReleaseTaskAttachments(current)
-		})
-		ecsDeleteManagedVolumes(doomedVolumes)
-		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
-		if current, ok := ecsTasks.Get(taskID); ok {
-			ecsRequestServiceReconcileForTask(current)
-		}
+	if errors.Is(err, errECSTaskStartPreempted) {
 		return
 	}
-	startedAt := ecsEpochSeconds()
-	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING (resumed after restart) %s\n", taskID, phases.Summary())
-	if processes != nil {
-		ecsProcessHandles.Store(taskID, processes)
+	if err != nil {
+		ecsStopFailedStart(taskID, containerInstanceKey, "Container start failed after control-plane restart: ", err)
+		return
 	}
-	ecsTasks.Update(taskID, func(current *ECSTask) {
-		current.LastStatus = ECSTaskStatusRunning
-		current.Connectivity = "CONNECTED"
-		current.StartedAt = &startedAt
-		for index := range current.Containers {
-			current.Containers[index].LastStatus = "RUNNING"
-		}
-		for index := range current.Attachments {
-			current.Attachments[index].Status = "ATTACHED"
-		}
-	})
-	ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
-	if processes != nil {
-		ecsWatchTaskProcesses(taskID, containerInstanceKey, processes)
+	if ecsMarkTaskRunning(taskID, processes) {
+		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING (resumed after restart) %s\n", taskID, phases.Summary())
+		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
 	}
 	if current, ok := ecsTasks.Get(taskID); ok {
 		ecsRequestServiceReconcileForTask(current)
@@ -235,11 +191,19 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 
 func ecsAdoptRunningTask(task ECSTask, definition ECSTaskDefinition, existing []placement.Existing) error {
 	taskID := task.TaskID()
-	processes := &ecsTaskProcesses{
-		MainContainerName: definition.ContainerDefinitions[0].Name,
-		Handles:           make(map[string]placement.Handle, len(existing)),
-		StopGrace:         ecsTaskStopGrace(definition),
+	// The first container in definition order still running owns the namespace.
+	adopted := map[string]bool{}
+	for _, container := range existing {
+		adopted[container.Labels["sockerless-sim-task-container"]] = true
 	}
+	mainName := definition.ContainerDefinitions[0].Name
+	for _, cd := range definition.ContainerDefinitions {
+		if adopted[cd.Name] {
+			mainName = cd.Name
+			break
+		}
+	}
+	processes := newECSTaskProcesses(definition, mainName)
 	sink, err := ecsTaskCloudWatchSink(definition, taskID)
 	if err != nil {
 		return fmt.Errorf("adopt Amazon ECS task %s: %w", task.TaskArn, err)
@@ -257,7 +221,12 @@ func ecsAdoptRunningTask(task ECSTask, definition ECSTaskDefinition, existing []
 		if err != nil {
 			return fmt.Errorf("adopt Amazon ECS task %s container %s: %w", task.TaskArn, name, err)
 		}
-		processes.Handles[name] = handle
+		processes.setHandle(name, handle)
+		for _, cd := range definition.ContainerDefinitions {
+			if cd.Name == name {
+				ecsMonitorContainerHealth(taskID, cd, handle)
+			}
+		}
 	}
 	ecsProcessHandles.Store(taskID, processes)
 	ecsWatchTaskProcesses(taskID, ecsContainerInstanceKeyFromARN(task.ContainerInstanceArn), processes)

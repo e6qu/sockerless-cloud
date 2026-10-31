@@ -323,7 +323,7 @@ type process struct {
 	root   string
 	spec   processSpec
 	logs   *logBook
-	cmd    *exec.Cmd
+	pid    int
 	done   chan struct{}
 	result exitResult
 }
@@ -354,7 +354,7 @@ func (p *process) start() error {
 	if err != nil {
 		return fmt.Errorf("start %s: %w", p.spec.Command[0], err)
 	}
-	p.cmd = cmd
+	p.pid = pid
 	var pipes sync.WaitGroup
 	pipes.Add(2)
 	go func() { defer pipes.Done(); p.copyLines("stdout", stdout); _ = stdout.Close() }()
@@ -510,18 +510,47 @@ func (p *process) wait() exitResult {
 }
 
 // stop sends the process SIGTERM and, once the grace has passed, SIGKILL to
-// its whole group.
+// its whole group. A container's process is PID 1 of its own PID namespace,
+// and the kernel delivers a signal sent from outside the namespace to that
+// process only when it has a handler for it, so a workload that catches no
+// SIGTERM runs on until the SIGKILL.
 func (p *process) stop() {
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.pid == 0 {
 		return
 	}
-	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	// The PID is the process's until done closes, when its reaper has
+	// collected it.
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	if catchesSignal(p.pid, syscall.SIGTERM) {
+		_ = syscall.Kill(p.pid, syscall.SIGTERM)
+	}
 	select {
 	case <-p.done:
 	case <-time.After(p.spec.StopGrace):
-		_ = p.cmd.Process.Kill()
-		killGroup(p.cmd.Process.Pid)
+		killGroup(p.pid)
 	}
+}
+
+// catchesSignal reports whether pid has a handler installed for sig, read from
+// the SigCgt mask in /proc/<pid>/status.
+func catchesSignal(pid int, sig syscall.Signal) bool {
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		mask, ok := strings.CutPrefix(line, "SigCgt:")
+		if !ok {
+			continue
+		}
+		bits, err := strconv.ParseUint(strings.TrimSpace(mask), 16, 64)
+		return err == nil && bits&(1<<(uint(sig)-1)) != 0
+	}
+	return false
 }
 
 // environ is a process's environment: its own variables over a PATH, and

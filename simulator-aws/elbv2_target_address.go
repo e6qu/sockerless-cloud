@@ -113,7 +113,7 @@ func ecsPublishedTargetPort(privateIP string, containerPort int, vpcID string) (
 		if !ok {
 			panic("Amazon ECS task process registry contained a non-process value")
 		}
-		for _, handle := range processes.Handles {
+		for _, handle := range processes.handleList() {
 			if port, err := handle.PublishedPort(context.Background(), containerPort); err == nil && port > 0 {
 				return port, true
 			}

@@ -189,9 +189,11 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	if err != nil || len(members) != 1 || members[0].ID != member.ID() || !members[0].Running {
 		t.Fatalf("Find lists the member as %+v (%v)", members, err)
 	}
+	// busybox httpd catches no SIGTERM, so as a container's PID 1 it runs on
+	// until the SIGKILL its stop grace ends in.
 	member.Cancel()
-	if result := member.Wait(); result.ExitCode != 143 {
-		t.Fatalf("the stopped member exited %d, want 143 from SIGTERM", result.ExitCode)
+	if result := member.Wait(); result.ExitCode != 137 {
+		t.Fatalf("the stopped member exited %d, want 137 from the SIGKILL", result.ExitCode)
 	}
 	select {
 	case <-handle.Exited():
