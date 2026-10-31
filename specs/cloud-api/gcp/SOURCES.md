@@ -136,7 +136,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `compute-verifying-instance-identity.md.gz` | `docs.cloud.google.com` | `compute/docs/instances/verifying-instance-identity` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:07Z |
 | `compute-metadata-guest-attributes.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/manage-guest-attributes` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:08Z |
 | `compute-metadata-live-migration-notice.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/getting-live-migration-notice` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:17:09Z |
-| `googleapis-cors.http.gz` | `spanner.googleapis.com` | `OPTIONS and GET v1/projects/p/instances with Origin` | — | `live capture` | 2026-10-31T16:22:08Z |
 | `cloudquotas-v1.discovery.json.gz` | `cloudquotas.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-31T16:20:44Z |
 | `cloudrun-quotas.md.gz` | `docs.cloud.google.com` | `run/quotas` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T16:20:49Z |
 | `cloudquotas-overview.md.gz` | `docs.cloud.google.com` | `docs/quotas/overview` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-31T16:20:49Z |
@@ -144,3 +143,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudquotas-common-use-cases.md.gz` | `docs.cloud.google.com` | `docs/quotas/implement-common-use-cases` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-31T16:22:50Z |
 | `cloudquotas-v1beta.discovery.json.gz` | `cloudquotas.googleapis.com` | `$discovery/rest?version=v1beta` | Apache-2.0 | `revision 20261022` | 2026-10-31T16:26:49Z |
 | `cloudquotas-audit-logging.md.gz` | `docs.cloud.google.com` | `docs/quotas/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-31T16:30:20Z |
+| `googleapis-cors.http.gz` | `spanner.googleapis.com` | `OPTIONS and GET v1/projects/p/instances with Origin` | — | `captured2026-10-31` | 2026-10-31T18:38:08Z |

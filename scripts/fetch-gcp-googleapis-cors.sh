@@ -5,11 +5,13 @@
 #
 # Google documents no CORS contract for its JSON APIs, so the front end's own
 # answer is the source. The capture keeps the status lines and headers and
-# drops the volatile date and server-timing values.
+# drops the volatile date and server-timing values. With OUT set it writes
+# there and leaves SOURCES.md alone, which is how scripts/check-spec-freshness.sh
+# compares a fresh capture with the vendored one.
 set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
-out="$root/specs/cloud-api/gcp/googleapis-cors.http.gz"
+out="${OUT:-$root/specs/cloud-api/gcp/googleapis-cors.http.gz}"
 url='https://spanner.googleapis.com/v1/projects/p/instances'
 origin='http://localhost:4567'
 
@@ -32,10 +34,11 @@ capture() {
 	echo "> Origin: $origin"
 	capture "$url" -H "Origin: $origin"
 } | gzip -n -9 >"$out"
+[ -z "${OUT:-}" ] || exit 0
 
 fetched="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sources="$root/specs/cloud-api/gcp/SOURCES.md"
-row="| \`googleapis-cors.http.gz\` | \`spanner.googleapis.com\` | \`OPTIONS and GET v1/projects/p/instances with Origin\` | — | \`live capture\` | $fetched |"
+row="| \`googleapis-cors.http.gz\` | \`spanner.googleapis.com\` | \`OPTIONS and GET v1/projects/p/instances with Origin\` | — | \`captured${fetched%%T*}\` | $fetched |"
 python3 - "$sources" "$row" <<'PY'
 import sys
 path, row = sys.argv[1], sys.argv[2]
