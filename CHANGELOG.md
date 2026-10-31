@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/e6qu/sockerless-cloud/compare/v3.2.0...v3.3.0) (2026-10-31)
+
+
+### Features
+
+* **aws:** bound EC2 launches by host memory, score Spot placement, and order ECS containers ([#367](https://github.com/e6qu/sockerless-cloud/issues/367)) ([2fe1b82](https://github.com/e6qu/sockerless-cloud/commit/2fe1b82dc6ecfb2a3a64995898724504d8a72a8f))
+
 ## [3.2.0](https://github.com/e6qu/sockerless-cloud/compare/v3.1.0...v3.2.0) (2026-10-30)
 
 

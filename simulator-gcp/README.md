@@ -48,7 +48,7 @@ The release image runs API-only:
 <!-- x-release-please-start-version -->
 <!-- doctest: background id=image ready="Listening on" -->
 ```sh
-docker run --rm -p 4567:4567 -p 4569:4569 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-gcp:v3.2.0
+docker run --rm -p 4567:4567 -p 4569:4569 -e SIM_RUNTIME=process ghcr.io/e6qu/sockerless-simulator-gcp:v3.3.0
 ```
 <!-- x-release-please-end -->
 
