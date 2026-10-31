@@ -136,3 +136,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `compute-verifying-instance-identity.md.gz` | `docs.cloud.google.com` | `compute/docs/instances/verifying-instance-identity` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:07Z |
 | `compute-metadata-guest-attributes.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/manage-guest-attributes` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:08Z |
 | `compute-metadata-live-migration-notice.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/getting-live-migration-notice` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:17:09Z |
+| `googleapis-cors.http.gz` | `spanner.googleapis.com` | `OPTIONS and GET v1/projects/p/instances with Origin` | — | `live capture` | 2026-10-31T16:22:08Z |

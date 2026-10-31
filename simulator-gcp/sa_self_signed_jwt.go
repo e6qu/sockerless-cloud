@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -12,6 +13,8 @@ import (
 // selfSignedJWTClockSkew is the leeway the verifier gives a client clock that
 // runs ahead of the simulator's when it stamps iat.
 const selfSignedJWTClockSkew = 5 * time.Minute
+
+var errSelfSignedJWTExpired = errors.New("the self-signed JWT has expired")
 
 // isServiceAccountSelfSignedJWT reports whether raw claims to be a JWT a
 // service account signed itself: its iss and sub both name the account.
@@ -39,10 +42,11 @@ func isServiceAccountSelfSignedJWT(raw string) bool {
 // verifySelfSignedServiceAccountJWT verifies a self-signed service-account JWT
 // as Google does: RS256 under the key its kid names, one IAM registered for the
 // account and has not disabled, on an account that is not disabled; iss and sub
-// the account's email; aud an API's service URL, or a scope claim in its place;
-// and iat and exp a window of at most an hour that contains now. The caller is
-// the service account.
-func verifySelfSignedServiceAccountJWT(raw string, now time.Time) (accessTokenClaims, error) {
+// the account's email; aud the service URL of the API called, one of services
+// (any API's for none), or a scope claim in its place; and iat and exp a
+// window of at most an hour that contains now. The caller is the service
+// account.
+func verifySelfSignedServiceAccountJWT(raw string, now time.Time, services []string) (accessTokenClaims, error) {
 	var none accessTokenClaims
 	signed, grantErr := verifyServiceAccountJWT(raw)
 	if grantErr != nil {
@@ -63,6 +67,8 @@ func verifySelfSignedServiceAccountJWT(raw string, now time.Time) (accessTokenCl
 		return none, errors.New("the self-signed JWT carries neither an aud nor a scope claim")
 	case hasAud && (!isString || !isGoogleAPIServiceURL(aud)):
 		return none, fmt.Errorf("the self-signed JWT's audience %v is not a Google API service URL", claims.Aud)
+	case hasAud && len(services) > 0 && !slices.Contains(services, googleAPIServiceHost(aud)):
+		return none, fmt.Errorf("the self-signed JWT's audience %s is not the service URL of %s", aud, strings.Join(services, " or "))
 	case claims.Iat == 0 || claims.Exp == 0:
 		return none, errors.New("the self-signed JWT carries no iat or exp claim")
 	case claims.Exp-claims.Iat > int64(time.Hour/time.Second):
@@ -70,7 +76,7 @@ func verifySelfSignedServiceAccountJWT(raw string, now time.Time) (accessTokenCl
 	case now.Add(selfSignedJWTClockSkew).Before(time.Unix(claims.Iat, 0)):
 		return none, errors.New("the self-signed JWT was issued in the future")
 	case !now.Before(time.Unix(claims.Exp, 0)):
-		return none, errors.New("the self-signed JWT has expired")
+		return none, errSelfSignedJWTExpired
 	}
 	return claims, nil
 }
@@ -86,4 +92,9 @@ func isGoogleAPIServiceURL(aud string) bool {
 	host = strings.TrimSuffix(host, "/")
 	name, ok := strings.CutSuffix(host, ".googleapis.com")
 	return ok && name != "" && !strings.ContainsAny(name, "/:")
+}
+
+// googleAPIServiceHost is the API host a service URL names.
+func googleAPIServiceHost(aud string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(aud, "https://"), "/")
 }

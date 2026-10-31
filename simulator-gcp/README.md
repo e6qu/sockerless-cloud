@@ -161,19 +161,20 @@ gcloud iam service-accounts list
 ```
 
 Set one `api_endpoint_overrides/<api>` per API, with the trailing `/`; the
-`CLOUDSDK_API_ENDPOINT_OVERRIDES_<API>` variables do the same. A few take a
-path: `bigquery` is `http://localhost:4567/bigquery/v2/` and `spanner` is
-`http://localhost:4567/spanner/`. `bq` asks gcloud for its token through
-`auth/token_host`, so set that too.
+`CLOUDSDK_API_ENDPOINT_OVERRIDES_<API>` variables do the same. One takes a
+path: `bigquery` is `http://localhost:4567/bigquery/v2/`. `bq` asks gcloud for
+its token through `auth/token_host`, so set that too.
 
 Two kinds of request need the simulator as gcloud's HTTP proxy
 (`export HTTP_PROXY=http://localhost:4567`). gcloud puts the region in front
 of a regional API's host (`us-central1-localhost:4567` for Cloud Run), which
-the proxy resolves. And Eventarc, Cloud Build, Serverless VPC Access and Cloud
-Scheduler share paths with other APIs, so Google tells them apart by host:
-override them with their real hosts, such as
+the proxy resolves. And Eventarc, Cloud Build, Serverless VPC Access, Cloud
+Scheduler and Spanner share paths with other APIs, so Google tells them apart
+by host: override them with their real hosts, such as
 `http://eventarc.googleapis.com/`, and the proxy delivers each request with
-that `Host`.
+that `Host`. The simulator also answers a service at its own host name, as a
+universe domain: `http://spanner.localhost:4567/` is Spanner, for a client
+that resolves `*.localhost` to the loopback address, as browsers do.
 
 `gcloudCLI` in [`cli-tests/helpers_test.go`](cli-tests/helpers_test.go) runs
 every command of the CLI suite with this configuration, after
@@ -295,7 +296,7 @@ registers every REST slice, and `registerAllGRPCServices` every gRPC service.
 | Developer tools | Artifact Registry, with its Docker registry | `artifactregistry.googleapis.com`, `<location>-docker.pkg.dev` | REST | [artifactregistry](../specs/SIM_SURFACE_TABLES/gcp-artifactregistry.md) |
 | Storage | Cloud Storage | `storage.googleapis.com` | REST | [gcs](../specs/SIM_SURFACE_TABLES/gcp-gcs.md), [batch](../specs/SIM_SURFACE_TABLES/gcp-gcs_batch.md), [ACLs](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_acls.md), [IAM](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_iam.md), [contexts](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_contexts.md), [restore](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_restore.md) |
 | Databases | Firestore | `firestore.googleapis.com` | REST, gRPC | [firestore](../specs/SIM_SURFACE_TABLES/gcp-firestore.md), [document verbs](../specs/SIM_SURFACE_TABLES/gcp-firestore_document_verbs.md), [change streams](../specs/SIM_SURFACE_TABLES/gcp-firestore_change_streams.md) |
-| Databases | Spanner | `spanner.googleapis.com` (REST under `/spanner/v1/`) | REST, gRPC | [spanner](../specs/SIM_SURFACE_TABLES/gcp-spanner.md) |
+| Databases | Spanner | `spanner.googleapis.com` | REST, gRPC | [spanner](../specs/SIM_SURFACE_TABLES/gcp-spanner.md) |
 | Databases | Bigtable: Bigtable Admin API and Bigtable Data API | `bigtableadmin.googleapis.com`, `bigtable.googleapis.com` | REST and gRPC; data gRPC only | [bigtable](../specs/SIM_SURFACE_TABLES/gcp-bigtable.md) |
 | Databases | Cloud SQL | `sqladmin.googleapis.com` | REST | [sqladmin](../specs/SIM_SURFACE_TABLES/gcp-sqladmin.md), [blue-green](../specs/SIM_SURFACE_TABLES/gcp-sqladmin_blue_green.md) |
 | Databases | Memorystore for Redis and Memorystore for Redis Cluster | `redis.googleapis.com` | REST | [memorystore_redis](../specs/SIM_SURFACE_TABLES/gcp-memorystore_redis.md) |

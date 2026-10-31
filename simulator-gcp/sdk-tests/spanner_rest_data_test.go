@@ -6,13 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/option"
 	"google.golang.org/api/spanner/v1"
 )
 
 func TestSpanner_RESTDataPlane(t *testing.T) {
 	t.Parallel()
-	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanner.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	const instance = "rest-data"

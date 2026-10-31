@@ -91,11 +91,23 @@ async function exchangeFederatedToken(config: ConsoleConfig): Promise<string> {
 // authorizedFetch reaches a real Google Cloud API path at the configured cloud
 // coordinate, attaching a federated credential when the console is wired to an
 // identity provider.
-export async function authorizedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+//
+// A service whose paths another API publishes too — Spanner's
+// /v1/projects/{p}/instances is Cloud SQL Admin's — is reached at its own host,
+// `<service>.<universe domain>`, the universe domain being the coordinate's
+// host: spanner.googleapis.com for https://googleapis.com, and
+// spanner.localhost:4567 for a simulator at http://localhost:4567. That call
+// is cross-origin, and Google's API front end admits no credentialed one, so it
+// carries the token alone.
+export async function authorizedFetch(path: string, init: RequestInit = {}, service?: string): Promise<Response> {
   const config = await consoleConfig();
   const headers = new Headers(init.headers);
   if (config.identityEndpoint) {
     headers.set("Authorization", `Bearer ${await federatedToken(config)}`);
+  }
+  if (service) {
+    const universe = new URL(config.cloudApiEndpoint || window.location.origin);
+    return fetch(`${universe.protocol}//${service}.${universe.host}${path}`, { ...init, headers, credentials: "omit" });
   }
   return fetch(`${config.cloudApiEndpoint ?? ""}${path}`, { ...init, headers, credentials: "include" });
 }
@@ -141,8 +153,8 @@ async function gcpErrorFromResponse(path: string, response: Response): Promise<G
 
 // authorizedJSON reads a real Google Cloud API path as JSON, raising the API's
 // own error rather than masking it.
-export async function authorizedJSON<T>(path: string): Promise<T> {
-  const response = await authorizedFetch(path);
+export async function authorizedJSON<T>(path: string, service?: string): Promise<T> {
+  const response = await authorizedFetch(path, {}, service);
   if (!response.ok) {
     throw await gcpErrorFromResponse(path, response);
   }
@@ -151,12 +163,16 @@ export async function authorizedJSON<T>(path: string): Promise<T> {
 
 // authorizedJSONPost posts a JSON body to a real Google Cloud API path — the
 // shape Cloud Logging's `entries:list` and other list-by-POST methods take.
-export async function authorizedJSONPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await authorizedFetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+export async function authorizedJSONPost<T>(path: string, body: unknown, service?: string): Promise<T> {
+  const response = await authorizedFetch(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    service,
+  );
   if (!response.ok) {
     throw await gcpErrorFromResponse(path, response);
   }
@@ -184,8 +200,8 @@ export async function authorizedJSONPatch<T>(path: string, body: unknown): Promi
 // with a JSON body (an Empty `{}`, or a long-running Operation); a few —
 // storage.buckets.delete among them — answer 204 No Content with nothing to
 // parse, which the caller reads as an empty value rather than a parse error.
-export async function authorizedJSONDelete<T>(path: string): Promise<T> {
-  const response = await authorizedFetch(path, { method: "DELETE" });
+export async function authorizedJSONDelete<T>(path: string, service?: string): Promise<T> {
+  const response = await authorizedFetch(path, { method: "DELETE" }, service);
   if (!response.ok) {
     throw await gcpErrorFromResponse(path, response);
   }

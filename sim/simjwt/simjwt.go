@@ -277,6 +277,10 @@ func Discovery(issuer, jwksURI string, responseTypes []string, signers ...*Signe
 
 // Options are the registered-claim checks Verify applies beyond the
 // signature. An empty Issuer or Audience is not checked.
+// ErrExpired is the error Verify returns for a token whose signature and
+// claims hold but whose expiry has passed.
+var ErrExpired = errors.New("token has expired")
+
 type Options struct {
 	Issuer        string
 	Audience      string
@@ -359,7 +363,7 @@ func Verify(raw string, claims any, opts Options, signers ...*Signer) error {
 		return nil
 	}
 	if time.Now().After(time.Unix(int64(exp), 0)) {
-		return errors.New("token has expired")
+		return ErrExpired
 	}
 	return nil
 }

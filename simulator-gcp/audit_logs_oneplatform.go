@@ -24,9 +24,6 @@ import (
 // auditAPI is an RPC service whose calls the simulator audits.
 type auditAPI struct {
 	service protoreflect.FullName
-	// restPrefix is the path the simulator serves the API's REST bindings
-	// under, "" for the bindings' own paths.
-	restPrefix string
 	// methodName is the methodName the service records for an RPC; nil for
 	// the RPC's full name.
 	methodName func(protoreflect.MethodDescriptor) string
@@ -56,8 +53,8 @@ var auditOnePlatformServices = []auditAPI{
 	{service: "google.devtools.cloudbuild.v1.CloudBuild"},
 	{service: "google.cloud.eventarc.v1.Eventarc"},
 	{service: "google.cloud.redis.v1.CloudRedis"},
-	{service: "google.spanner.admin.instance.v1.InstanceAdmin", restPrefix: "/spanner"},
-	{service: "google.spanner.admin.database.v1.DatabaseAdmin", restPrefix: "/spanner"},
+	{service: "google.spanner.admin.instance.v1.InstanceAdmin"},
+	{service: "google.spanner.admin.database.v1.DatabaseAdmin"},
 	{service: "google.bigtable.admin.v2.BigtableInstanceAdmin"},
 	{service: "google.bigtable.admin.v2.BigtableTableAdmin"},
 	{service: "google.firestore.admin.v1.FirestoreAdmin"},
@@ -237,7 +234,7 @@ func auditLoadRPCs() error {
 				rule, _ := proto.GetExtension(m.Options(), annotations.E_Http).(*annotations.HttpRule)
 				if rule != nil {
 					for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
-						binding, err := auditCompileBinding(rpc, r, api.restPrefix)
+						binding, err := auditCompileBinding(rpc, r)
 						if err != nil {
 							auditRPCsErr = fmt.Errorf("audit logs: %s: %w", m.FullName(), err)
 							return
@@ -275,7 +272,7 @@ func auditRPCLogType(m protoreflect.MethodDescriptor, host, vendoredKey string) 
 	return auditAdminWrite, true
 }
 
-func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule, prefix string) (*auditHTTPBinding, error) {
+func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule) (*auditHTTPBinding, error) {
 	b := &auditHTTPBinding{rpc: rpc, body: rule.GetBody()}
 	var template string
 	switch p := rule.GetPattern().(type) {
@@ -297,7 +294,7 @@ func auditCompileBinding(rpc *auditRPC, rule *annotations.HttpRule, prefix strin
 	if !strings.HasPrefix(template, "/") {
 		return nil, fmt.Errorf("path template %q does not start with /", template)
 	}
-	template = strings.TrimPrefix(prefix+template, "/")
+	template = strings.TrimPrefix(template, "/")
 	depth, colon := 0, -1
 	for i, c := range template {
 		switch c {
@@ -427,10 +424,11 @@ func auditCustomMethodSuffix(segment string) bool {
 	return true
 }
 
-// auditMatchREST is the audited RPC a REST call reaches and the variables its
-// path binds, when exactly one API publishes the path.
-func auditMatchREST(method, escapedPath string) (*auditHTTPBinding, map[string]string, bool) {
-	candidates := auditMatchRESTCandidates(method, escapedPath)
+// auditMatchREST is the audited RPC a REST call to the service a host names
+// reaches and the variables its path binds, when exactly one API publishes
+// the path.
+func auditMatchREST(service, method, escapedPath string) (*auditHTTPBinding, map[string]string, bool) {
+	candidates := auditMatchRESTCandidates(service, method, escapedPath)
 	if len(candidates) == 0 {
 		return nil, nil, false
 	}
@@ -446,7 +444,7 @@ type auditRESTCandidate struct {
 // auditMatchRESTCandidates are the bindings that match a REST call most
 // specifically, one per API: two APIs can publish the same path, which their
 // hosts tell apart on Google Cloud.
-func auditMatchRESTCandidates(method, escapedPath string) []auditRESTCandidate {
+func auditMatchRESTCandidates(service, method, escapedPath string) []auditRESTCandidate {
 	if err := auditLoadRPCs(); err != nil {
 		return nil
 	}
@@ -459,6 +457,9 @@ func auditMatchRESTCandidates(method, escapedPath string) []auditRESTCandidate {
 	}
 	var best []auditRESTCandidate
 	for _, b := range auditBindings {
+		if !gcpServiceAddressable(service, b.rpc.serviceName) {
+			continue
+		}
 		vars, ok := b.match(method, parts, custom)
 		if !ok {
 			continue

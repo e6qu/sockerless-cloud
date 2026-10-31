@@ -150,6 +150,19 @@ handler is held to.
 - **A delivery leaves a record.** A refused Amazon SNS delivery had left no
   trace, so a test watched 500 ms for an invoke that must not happen; the
   delivery-status log made the refusal observable.
+- **Two APIs that publish one path are told apart by host.** Spanner's REST
+  routes had lived under a `/spanner/v1/` the real service does not have,
+  because Cloud SQL Admin publishes the same `/v1/projects/{p}/instances`.
+  They are registered on `spanner.googleapis.com` instead, and the IAM gate
+  and the audit log resolve Spanner's methods only for a call whose host names
+  it. A client reaches that host through the simulator as its HTTP proxy, or
+  at `spanner.<the simulator's host name>` under `.localhost`, the simulator's
+  universe domain. The console reaches Spanner there, cross-origin, so the
+  simulator answers CORS on a service host as Google's front end does, from a
+  capture of that front end's answer. Every check that asks the route table
+  whether a method publishes a call, the bearer check first among them, sees
+  the canonical host too: one that saw the request's own host found no route
+  for `spanner.localhost` and let it through without a credential.
 - **A served count is not proof a handler exists.** A multi-segment wildcard
   counted Cloud Storage's per-object ACLs as served while `objects.get`
   answered them; a served method must reach a route naming its literal path
@@ -863,7 +876,10 @@ Every surface that the cloud authenticates, the simulator authenticates:
 - the Google Cloud gRPC listener verifies every call's bearer, over a TLS
   front end because Google's clients send credentials only over TLS;
 - Google Cloud accepts a service account's self-signed JWT, as google-auth
-  sends by default;
+  sends by default, only at the API whose service URL is its audience, and
+  names each refusal in an `ErrorInfo` with the `google.api.ErrorReason`
+  (`CREDENTIALS_MISSING`, `ACCESS_TOKEN_EXPIRED`,
+  `ACCESS_TOKEN_TYPE_UNSUPPORTED`) and the service and RPC the call reached;
 - Microsoft Graph requires a token with Graph's audience, and the password
   grant checks a verifier of the password Graph stored.
 

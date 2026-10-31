@@ -38,6 +38,10 @@ type auditPending struct {
 	complete        func(status int, requestBody, responseBody []byte) (auditRecord, bool)
 }
 
+var auditResolvers = []func(*http.Request) (*auditPending, bool){
+	auditResolveGCS, auditResolveCRM, auditResolveDiscovery, auditResolveOnePlatform,
+}
+
 func auditLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hostname := lbplane.Hostname(r.Host)
@@ -45,21 +49,17 @@ func auditLogMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		pending, ok := auditResolveGCS(r)
-		if !ok {
-			pending, ok = auditResolveCRM(r)
+		// A call to a host that names a service is that service's, whichever
+		// other API publishes the same path.
+		host := gcpServiceFromHost(r)
+		var pending *auditPending
+		for _, resolve := range auditResolvers {
+			if p, ok := resolve(r); ok && (host == "" || host == p.serviceLabel) {
+				pending = p
+				break
+			}
 		}
-		if !ok {
-			pending, ok = auditResolveDiscovery(r)
-		}
-		if !ok {
-			pending, ok = auditResolveOnePlatform(r)
-		}
-		if !ok {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if host := gcpServiceFromHost(r); host != "" && host != pending.serviceLabel {
+		if pending == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -190,7 +190,7 @@ func auditRESTStatus(status int, body []byte) map[string]any {
 // auditResolveOnePlatform resolves a REST call to an audited RPC through the
 // RPC's google.api.http binding.
 func auditResolveOnePlatform(r *http.Request) (*auditPending, bool) {
-	candidates := auditMatchRESTCandidates(r.Method, r.URL.EscapedPath())
+	candidates := auditMatchRESTCandidates(gcpServiceFromHost(r), r.Method, r.URL.EscapedPath())
 	if len(candidates) == 0 {
 		return nil, false
 	}

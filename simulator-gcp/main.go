@@ -66,6 +66,9 @@ func main() {
 			// IAM policy decides every authenticated call.
 			srv.WrapHandler(iamGateMiddleware(srv))
 			srv.WrapHandler(bearerAuthMiddleware(srv))
+			// A browser's preflight carries no credential: Google's front end
+			// answers it before the service authenticates the call.
+			srv.WrapHandler(gcpCORSMiddleware)
 			return srv, nil
 		},
 		Start: startGCPListeners,

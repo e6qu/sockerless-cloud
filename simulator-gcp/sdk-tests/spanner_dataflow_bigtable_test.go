@@ -30,7 +30,7 @@ func awaitSpannerLRO(t *testing.T, name string, get func() (*spanner.Operation, 
 
 func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 	t.Parallel()
-	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanner.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	op, err := svc.Projects.Instances.Create("projects/test-project", &spanner.CreateInstanceRequest{
@@ -96,7 +96,7 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 
 func TestSpanner_InstanceConfigSDK(t *testing.T) {
 	t.Parallel()
-	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanner.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	const parent = "projects/test-project"
@@ -209,7 +209,7 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 // route and the response shape.
 func TestSpanner_ScansListSDK(t *testing.T) {
 	t.Parallel()
-	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanner.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	resp, err := svc.Scans.List("scans").Do()

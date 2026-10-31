@@ -209,12 +209,22 @@ func normalizeGCPPath(p string) string {
 	return p
 }
 
-// gcpMountPrefixes maps the simulator's mount prefixes to the service they
-// disambiguate. Google separates services by host; on one port Spanner's
-// "/v1/projects/{p}/instances" would collide with Cloud SQL's. The prefix is
-// stripped before matching, and the rest must be a real method path.
-var gcpMountPrefixes = map[string]string{
-	"/spanner": "spanner-v1.discovery.json.gz",
+// gcpHostRoutes maps the hosts routes are registered on to the API each
+// serves: Spanner's "/v1/projects/{p}/instances" is Cloud SQL Admin's at the
+// bare coordinate, so Spanner's routes take its host, and the path must be a
+// method of the host's document.
+var gcpHostRoutes = map[string]string{
+	"spanner.googleapis.com": "spanner-v1.discovery.json.gz",
+}
+
+// gcpRouteHost splits a pattern's path into the host it is registered on, if
+// any, and the path.
+func gcpRouteHost(path string) (string, string) {
+	if strings.HasPrefix(path, "/") {
+		return "", path
+	}
+	host, rest, _ := strings.Cut(path, "/")
+	return host, "/" + rest
 }
 
 // allowedNonSpecGCPRoutes lists the registered patterns no Discovery document
@@ -428,17 +438,14 @@ func TestRoutesExistInDiscoveryDocs(t *testing.T) {
 			continue
 		}
 
-		mounted := false
-		for prefix, file := range gcpMountPrefixes {
-			if strings.HasPrefix(path, prefix+"/") {
-				mounted = true
-				if !matchesAnySpec(byFile[file], method, strings.TrimPrefix(path, prefix)) {
-					offenders = append(offenders, pattern+"  (mount "+prefix+": not a method of "+file+")")
-				}
-				break
+		if host, hostPath := gcpRouteHost(path); host != "" {
+			file, ok := gcpHostRoutes[host]
+			switch {
+			case !ok:
+				offenders = append(offenders, pattern+"  (host "+host+" serves no vendored document)")
+			case !matchesAnySpec(byFile[file], method, hostPath):
+				offenders = append(offenders, pattern+"  (host "+host+": not a method of "+file+")")
 			}
-		}
-		if mounted {
 			continue
 		}
 
@@ -478,11 +485,7 @@ func TestVendoredDiscoveryDocsAreConsumed(t *testing.T) {
 		if !found {
 			continue
 		}
-		for prefix := range gcpMountPrefixes {
-			if strings.HasPrefix(path, prefix+"/") {
-				path = strings.TrimPrefix(path, prefix)
-			}
-		}
+		_, path = gcpRouteHost(path)
 		for _, d := range docs {
 			if !used[d.File] && matchesAnySpec(byFile[d.File], method, path) {
 				used[d.File] = true

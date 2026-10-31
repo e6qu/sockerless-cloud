@@ -384,15 +384,23 @@ func terraformCmd(args ...string) *exec.Cmd {
 	// grandchildren with one kill(-pgid); otherwise a timed-out command leaves
 	// orphaned, spinning plugins that starve later runs into cascading timeouts.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(append(os.Environ(),
+	cmd.Env = append(append(append(os.Environ(),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
 		"TF_VAR_credentials="+credentialsFile,
 		"TF_VAR_debian_image_family="+debianImageFamily(),
-	), bigtableEnv()...)
+	), bigtableEnv()...), serviceHostProxyEnv()...)
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SSL_CERT_FILE=%s", caCertFile))
 	}
 	return cmd
+}
+
+// serviceHostProxyEnv delivers a terraform process's requests to a Google API
+// host, the endpoint of a service whose paths another API publishes too, to
+// the simulator as its HTTP proxy. Go proxies no request to a loopback
+// address, so the simulator's own coordinate is reached directly.
+func serviceHostProxyEnv() []string {
+	return []string{"HTTP_PROXY=" + baseURL, "http_proxy=" + baseURL}
 }
 
 // bigtableEnv points a terraform process's Bigtable client at the gRPC port's

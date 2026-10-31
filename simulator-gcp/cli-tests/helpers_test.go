@@ -447,7 +447,7 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_FIRESTORE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_REDIS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_SQL="+baseURL+"/",
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_SPANNER="+baseURL+"/spanner/",
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_SPANNER="+spannerEndpoint,
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_DATAFLOW="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_BIGTABLE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_BIGTABLEADMIN="+baseURL+"/",
@@ -463,6 +463,8 @@ const (
 	vpcAccessEndpoint  = "http://vpcaccess.googleapis.com/"
 	// Cloud Scheduler's jobs.get shares its URI with a Cloud Run Admin v1 verb.
 	cloudSchedulerEndpoint = "http://cloudscheduler.googleapis.com/"
+	// Cloud SQL Admin publishes Spanner's /v1/projects/{p}/instances paths.
+	spannerEndpoint = "http://spanner.googleapis.com/"
 )
 
 // gcloudSAActivatedCLI creates a gcloud command bound to an isolated config
