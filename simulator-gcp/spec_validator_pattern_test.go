@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -83,5 +84,27 @@ func TestDiscoveryValidatorMemoizesTheCompiledPattern(t *testing.T) {
 	}
 	if again := sch.patternRE(); again != first {
 		t.Error("the compiled pattern is not memoized, so every response recompiles it")
+	}
+}
+
+// Spanner and Cloud SQL Admin publish one instances path: under Spanner's host
+// the call is validated against Spanner's document, and without it against
+// Cloud SQL Admin's, never Spanner's.
+func TestDiscoveryValidatorMatchesAHostOnlyServiceByHost(t *testing.T) {
+	idx, err := loadDiscoveryIndex("../specs/cloud-api/gcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const path = "/v1/projects/p/instances/i"
+	for service, want := range map[string]string{"spanner": "spanner-v1.discovery.json.gz", "": "sqladmin-v1.discovery.json.gz"} {
+		matches := idx.match(service, http.MethodGet, path)
+		if len(matches) == 0 {
+			t.Fatalf("GET %s for host service %q matches no method", path, service)
+		}
+		for _, m := range matches {
+			if m.method.doc.file != want {
+				t.Errorf("GET %s for host service %q matches %s in %s, want %s", path, service, m.method.op, m.method.doc.file, want)
+			}
+		}
 	}
 }

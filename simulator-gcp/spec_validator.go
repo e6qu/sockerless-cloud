@@ -115,17 +115,17 @@ type discoverySpecMethod struct {
 	templates   []specTemplate
 }
 
-// discoverySpecMountPrefixes maps mount prefixes to the document they
-// disambiguate, as gcpMountPrefixes does: a request under a prefix matches
-// only that document's methods, after the prefix is stripped.
-var discoverySpecMountPrefixes = map[string]string{
-	"/spanner": "spanner-v1.discovery.json.gz",
+// discoverySpecHostOnly maps the services of gcpHostOnlyServices to their
+// documents: a request whose host names one matches only that document's
+// methods, and no other request matches them.
+var discoverySpecHostOnly = map[string]string{
+	"spanner": "spanner-v1.discovery.json.gz",
 }
 
 // discoveryIndex is the request-time matcher over every vendored method.
 type discoveryIndex struct {
 	defaultMethods []*discoverySpecMethod
-	mounted        map[string][]*discoverySpecMethod
+	hostOnly       map[string][]*discoverySpecMethod
 }
 
 // applyDiscoverySupplement merges a document's supplement into the schemas the
@@ -174,9 +174,9 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 	if err != nil || len(paths) == 0 {
 		return nil, fmt.Errorf("no Discovery documents under %s (glob err: %v)", dir, err)
 	}
-	mountByFile := map[string]string{}
-	for prefix, file := range discoverySpecMountPrefixes {
-		mountByFile[file] = prefix
+	serviceByFile := map[string]string{}
+	for service, file := range discoverySpecHostOnly {
+		serviceByFile[file] = service
 	}
 
 	type rawMethod struct {
@@ -201,7 +201,7 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 		Resources map[string]rawResource `json:"resources"`
 	}
 
-	idx := &discoveryIndex{mounted: map[string][]*discoverySpecMethod{}}
+	idx := &discoveryIndex{hostOnly: map[string][]*discoverySpecMethod{}}
 	for _, p := range paths {
 		f, err := os.Open(p)
 		if err != nil {
@@ -332,8 +332,8 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 		if len(methods) == 0 {
 			return nil, fmt.Errorf("%s: no REST methods found", p)
 		}
-		if prefix, ok := mountByFile[doc.file]; ok {
-			idx.mounted[prefix] = append(idx.mounted[prefix], methods...)
+		if service, ok := serviceByFile[doc.file]; ok {
+			idx.hostOnly[service] = append(idx.hostOnly[service], methods...)
 		} else {
 			idx.defaultMethods = append(idx.defaultMethods, methods...)
 		}
@@ -344,7 +344,7 @@ func loadDiscoveryIndex(dir string) (*discoveryIndex, error) {
 		sort.Slice(ms, func(i, j int) bool { return ms[i].op < ms[j].op })
 	}
 	sortMethods(idx.defaultMethods)
-	for _, ms := range idx.mounted {
+	for _, ms := range idx.hostOnly {
 		sortMethods(ms)
 	}
 	return idx, nil
@@ -491,15 +491,12 @@ type specMatch struct {
 // Google separates by host can describe one URI (Eventarc and Cloud Build both
 // own "v1/projects/{p}/locations/{l}/triggers"), so every equally specific
 // candidate is returned, and the response conforms when it satisfies any.
-// A path under a mount prefix matches only that document.
-func (idx *discoveryIndex) match(httpMethod, escapedPath string) []specMatch {
+// A call to the host of a host-only service ("" for none) matches only that
+// service's document.
+func (idx *discoveryIndex) match(service, httpMethod, escapedPath string) []specMatch {
 	methods := idx.defaultMethods
-	for prefix, ms := range idx.mounted {
-		if strings.HasPrefix(escapedPath, prefix+"/") {
-			methods = ms
-			escapedPath = strings.TrimPrefix(escapedPath, prefix)
-			break
-		}
+	if ms, ok := idx.hostOnly[service]; ok {
+		methods = ms
 	}
 	// Split the escaped path: percent-encoded separators inside a path
 	// parameter (GCS object names) must stay one segment, exactly as the
@@ -564,7 +561,7 @@ func armSpecValidator(srv *sim.Server) error {
 		if isOCIRegistryPath(req.URL.EscapedPath()) {
 			return nil
 		}
-		matches := idx.match(req.Method, req.URL.EscapedPath())
+		matches := idx.match(gcpServiceFromHost(req), req.Method, req.URL.EscapedPath())
 		if len(matches) == 0 {
 			return nil // not a Discovery method: the static conformance gate owns route shape
 		}
