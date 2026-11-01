@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.1](https://github.com/e6qu/sockerless-cloud/compare/v3.3.0...v3.3.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **gcp:** serve Spanner at its own host, serve Cloud Quotas, and type credential refusals ([#369](https://github.com/e6qu/sockerless-cloud/issues/369)) ([aca9445](https://github.com/e6qu/sockerless-cloud/commit/aca94453ee20a0a3bcccf6e75921d76e1515a28c))
+
 ## [3.3.0](https://github.com/e6qu/sockerless-cloud/compare/v3.2.0...v3.3.0) (2026-10-31)
 
 
