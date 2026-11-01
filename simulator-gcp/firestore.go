@@ -207,7 +207,7 @@ func fsDatabasePrefix(project, database string) string {
 // the one it holds as unchanged, so millisecond granularity would hide the
 // second of two writes inside one millisecond.
 func fsNow() string {
-	return time.Now().UTC().Truncate(time.Microsecond).Format("2006-01-02T15:04:05.000000Z")
+	return time.Now().UTC().Truncate(time.Microsecond).Format(fsTimestampLayout)
 }
 
 func fsFullName(project, database, docPath string) string {

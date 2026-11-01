@@ -329,6 +329,11 @@ func secretManagerSecretPostAction(w http.ResponseWriter, r *http.Request, paren
 	}
 	secretName := parent + "/" + secretID
 	if _, ok := smSecrets.Get(secretName); !ok {
+		// testIamPermissions on a missing secret answers an empty set, not NOT_FOUND.
+		if action == "testIamPermissions" {
+			sim.WriteJSON(w, http.StatusOK, map[string]any{})
+			return
+		}
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "secret %s not found", secretName)
 		return
 	}

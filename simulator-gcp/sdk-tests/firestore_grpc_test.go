@@ -389,3 +389,46 @@ func TestFirestore_GRPC_ListCollectionIds(t *testing.T) {
 		t.Errorf("collections = %v, want %v", got, want)
 	}
 }
+
+// TestFirestore_GRPC_TimesKeepMicroseconds: Firestore keeps a timestamp to the
+// microsecond and rounds any further precision down, in field values and in a
+// document's create and update times alike. A write guarded by the update time
+// a read returned must therefore match the stored one exactly.
+func TestFirestore_GRPC_TimesKeepMicroseconds(t *testing.T) {
+	t.Parallel()
+	c := newFSGRPCClient(t, "fs-grpc-micros")
+	doc := c.Collection("micros").Doc("d1")
+
+	written := time.Date(2025, 6, 27, 12, 0, 0, 123456789, time.UTC)
+	if _, err := doc.Create(ctx, map[string]any{"ts": written}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	snap, err := doc.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	got, _ := snap.DataAt("ts")
+	if want := written.Truncate(time.Microsecond); !got.(time.Time).Equal(want) {
+		t.Errorf("ts = %v, want %v", got, want)
+	}
+	for name, at := range map[string]time.Time{"createTime": snap.CreateTime, "updateTime": snap.UpdateTime} {
+		if at.Nanosecond()%int(time.Microsecond) != 0 {
+			t.Errorf("%s %v carries precision below a microsecond", name, at)
+		}
+	}
+
+	result, err := doc.Update(ctx, []firestore.Update{{Path: "n", Value: int64(1)}}, firestore.LastUpdateTime(snap.UpdateTime))
+	if err != nil {
+		t.Fatalf("Update guarded by the update time Get returned: %v", err)
+	}
+	after, err := doc.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !after.UpdateTime.Equal(result.UpdateTime) {
+		t.Errorf("updateTime read back %v, want the %v the write returned", after.UpdateTime, result.UpdateTime)
+	}
+	if _, err := doc.Update(ctx, []firestore.Update{{Path: "n", Value: int64(2)}}, firestore.LastUpdateTime(snap.UpdateTime)); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("Update guarded by a superseded update time: %v, want FailedPrecondition", err)
+	}
+}

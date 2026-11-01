@@ -59,3 +59,23 @@ func TestCloudBuildCLI_SubmitRunsContainerStepsOverAZipSource(t *testing.T) {
 	}, 180*time.Second, time.Second, "the build never finished")
 	assert.Equal(t, "SUCCESS", status)
 }
+
+// `gcloud builds submit` of a config whose step names a secretEnv the build's
+// availableSecrets does not define is refused before the build queues.
+func TestCloudBuildCLI_SubmitRefusesAnUndeclaredSecretEnv(t *testing.T) {
+	t.Parallel()
+	config := filepath.Join(t.TempDir(), "cloudbuild.yaml")
+	require.NoError(t, os.WriteFile(config, []byte(`steps:
+- name: `+cliWorkloadImage+`
+  entrypoint: sh
+  args: ["-c", "test -n \"$$DECLARED\""]
+  secretEnv: ["DECLARED", "UNDECLARED"]
+availableSecrets:
+  secretManager:
+  - versionName: projects/`+project+`/secrets/cli-declared/versions/latest
+    env: DECLARED
+`), 0o644))
+	out := gcloudCLIFails(t, gcloudCLI("builds", "submit", "--no-source", "--config="+config, "--async"))
+	assert.Contains(t, out, "INVALID_ARGUMENT")
+	assert.Contains(t, out, "UNDECLARED")
+}

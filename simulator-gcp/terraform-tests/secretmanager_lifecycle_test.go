@@ -32,6 +32,20 @@ func TestTerraformSecretManagerUpdateDelete(t *testing.T) {
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
 
+// TestTerraformSecretManagerRefusesMissingProject: a project that does not
+// exist grants nobody anything, so the provider cannot create a secret in it.
+func TestTerraformSecretManagerRefusesMissingProject(t *testing.T) {
+	fixtureDir := filepath.Join("fixtures", "secretmanager-missing-project")
+	cleanTerraformFixture(t, fixtureDir)
+
+	out, err := runTimed(t, "terraform init", terraformCmdInDir(fixtureDir, "init"))
+	require.NoError(t, err, "terraform init failed:\n%s", out)
+
+	out, err = runTimed(t, "terraform apply", terraformCmdInDir(fixtureDir, "apply", "-auto-approve"))
+	require.Error(t, err, "a secret was created in a project that does not exist:\n%s", out)
+	require.Contains(t, string(out), "Error 403")
+}
+
 func terraformCmdInDir(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("terraform", initUpgrading(args)...)
 	if filepath.IsAbs(dir) {

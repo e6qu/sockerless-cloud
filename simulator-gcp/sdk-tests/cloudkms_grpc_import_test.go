@@ -16,15 +16,14 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // The Cloud KMS gRPC surface beyond the key lifecycle and crypto: the ImportJob
 // family and its two imports, the trusted-key-wrapped export and import pair,
-// the deletes (which answer with an operation), the RetiredResource reads and
-// the Decapsulate refusal. cloud.google.com/go/kms speaks gRPC only.
+// and the deletes (which answer with an operation). cloud.google.com/go/kms
+// speaks gRPC only.
 
 // kmsWrapForImportJob RSA-OAEP encrypts the material under the job's wrapping
 // public key, the whole wrapped blob for the direct RSA_OAEP_*_SHA256 import
@@ -461,57 +460,4 @@ func kmsAwaitVersionState(t *testing.T, c *kms.KeyManagementClient, name string,
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-}
-
-// TestCloudKMS_GRPC_RetiredResources: the simulator records no RetiredResource
-// on deletion, so the reads report an empty location and a missing record, as
-// the REST reads do.
-func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
-	t.Parallel()
-	ensureProject(t, "kms-grpc-project")
-	c := newKMSGRPCClient(t)
-	location := "projects/kms-grpc-project/locations/global"
-
-	it := c.ListRetiredResources(ctx, &kmspb.ListRetiredResourcesRequest{Parent: location})
-	for {
-		rr, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		require.NoError(t, err)
-		require.NotEmpty(t, rr.GetName())
-	}
-
-	_, err := c.GetRetiredResource(ctx, &kmspb.GetRetiredResourceRequest{Name: location + "/retiredResources/never"})
-	requireGRPCCode(t, err, codes.NotFound)
-}
-
-// TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason: the simulator offers no
-// post-quantum key encapsulation and refuses Decapsulate rather than invent a
-// shared secret.
-func TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason(t *testing.T) {
-	t.Parallel()
-	c := newKMSGRPCClient(t)
-	ringName := kmsKeyRingForTest(t, c, "grpc-decapsulate")
-
-	key, err := c.CreateCryptoKey(ctx, &kmspb.CreateCryptoKeyRequest{
-		Parent:      ringName,
-		CryptoKeyId: "kem",
-		CryptoKey: &kmspb.CryptoKey{
-			Purpose:         kmspb.CryptoKey_ENCRYPT_DECRYPT,
-			VersionTemplate: &kmspb.CryptoKeyVersionTemplate{Algorithm: kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION},
-		},
-	})
-	require.NoError(t, err)
-	versionName := key.GetName() + "/cryptoKeyVersions/1"
-
-	_, err = c.Decapsulate(ctx, &kmspb.DecapsulateRequest{
-		Name:       versionName,
-		Ciphertext: kmsRandomBytes(t, 32),
-	})
-	requireGRPCCode(t, err, codes.FailedPrecondition)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Contains(t, st.Message(), "decapsulate is not supported")
-	require.Contains(t, st.Message(), versionName)
 }

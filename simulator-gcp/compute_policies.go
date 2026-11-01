@@ -526,6 +526,7 @@ func registerComputePolicies(srv *sim.Server) {
 		return sim.MakeStore[map[string]any](srv.DB(), table)
 	}
 
+	gcpHierarchicalFirewallPolicies = mk("compute_org_firewall_policies")
 	families := []computePolicyFamily{
 		// Cloud Armor security policies: project-global, regional, and the
 		// organization spelling that carries associations and a move.
@@ -539,7 +540,7 @@ func registerComputePolicies(srv *sim.Server) {
 
 		// Firewall policies, organization spelling; compute_more3.go registers the
 		// project-global and regional network firewall policies.
-		{base: "/compute/v1/locations/global/firewallPolicies", store: mk("compute_org_firewall_policies"),
+		{base: "/compute/v1/locations/global/firewallPolicies", store: gcpHierarchicalFirewallPolicies,
 			kind: "compute#firewallPolicy", scope: cScopeGlobal, rules: true, associations: true,
 			listAssociations: true, move: true, cloneRulesVerb: "cloneRules", sourceQueryParam: "sourceFirewallPolicy",
 			iam: true, testIamPermission: true},

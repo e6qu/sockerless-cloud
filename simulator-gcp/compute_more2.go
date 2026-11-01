@@ -108,10 +108,8 @@ func registerComputeMore2(srv *sim.Server) {
 	registerComputeSslPoliciesAvailableFeatures(srv, cScopeGlobal)
 	registerComputeSslPoliciesAvailableFeatures(srv, cScopeRegion)
 
-	// IAM policy triplet for the resources the Discovery document exposes
-	// it on. The policy is stored per resource and round-tripped as
-	// google.iam.v1.Policy (version / bindings / auditConfigs / etag).
-	iamStore := mk("compute_iam_policies")
+	// The IAM policy triplet for the resources the Discovery document exposes
+	// it on.
 	iamFamilies := []struct {
 		scope      computeScopeKind
 		collection string
@@ -128,7 +126,7 @@ func registerComputeMore2(srv *sim.Server) {
 		{cScopeZone, "storagePools"},
 	}
 	for _, f := range iamFamilies {
-		registerComputeIAMTriplet(srv, f.scope, f.collection, iamStore)
+		registerComputeIAMTriplet(srv, f.scope, f.collection)
 	}
 
 	// Read-only catalog collections (GCP-defined types a client enumerates
@@ -451,120 +449,32 @@ var computeTLSCipherFeatures = []string{
 }
 
 // registerComputeIAMTriplet serves getIamPolicy, setIamPolicy and
-// testIamPermissions for one scoped collection, storing the Policy per
-// resource self-link path.
-func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collection string, store sim.Store[map[string]any]) {
+// testIamPermissions for one scoped collection from the shared resource-policy
+// store the IAM gate reads.
+func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collection string) {
 	base := computeScopeMux(scope, collection)
-	resourceKey := func(r *http.Request) string {
-		project := sim.PathParam(r, "project")
-		return fmt.Sprintf("projects/%s/%s/%s/%s", project, computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
+	policyName := func(r *http.Request) string {
+		return fmt.Sprintf("compute/projects/%s/%s/%s/%s",
+			sim.PathParam(r, "project"), computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
 	}
-
 	srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		key := resourceKey(r)
-		if pol, ok := store.Get(key); ok {
-			sim.WriteJSON(w, http.StatusOK, pol)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, emptyComputeIamPolicy())
+		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
 	})
-
 	srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		key := resourceKey(r)
-		var body map[string]any
-		if err := sim.ReadJSON(r, &body); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		pol := buildComputeIamPolicy(body)
-		store.Put(key, pol)
-		sim.WriteJSON(w, http.StatusOK, pol)
+		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
 	})
+	registerComputeTestIamPermissions(srv, scope, collection)
+}
 
+// registerComputeTestIamPermissions serves testIamPermissions for one scoped
+// collection: the requested permissions the caller holds on the resource.
+func registerComputeTestIamPermissions(srv *sim.Server, scope computeScopeKind, collection string) {
+	base := computeScopeMux(scope, collection)
 	srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Permissions []string `json:"permissions"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		// Echo every requested permission as granted; the stored policy is not
-		// consulted.
-		granted := req.Permissions
-		if granted == nil {
-			granted = []string{}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": granted})
+		name := fmt.Sprintf("compute/projects/%s/%s/%s/%s",
+			sim.PathParam(r, "project"), computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
+		handleResourceIAM(w, r, gcpResourcePolicies, name, "testIamPermissions")
 	})
-}
-
-func emptyComputeIamPolicy() map[string]any {
-	return map[string]any{
-		"version":  1,
-		"etag":     computeFingerprint(),
-		"bindings": []map[string]any{},
-	}
-}
-
-// buildComputeIamPolicy reads a setIamPolicy body, whose Policy may be wrapped
-// in `policy` or given top-level, and normalizes its bindings for storage.
-func buildComputeIamPolicy(body map[string]any) map[string]any {
-	if body == nil {
-		body = map[string]any{}
-	}
-	src, _ := body["policy"].(map[string]any)
-	if src == nil {
-		src = body
-	}
-	var b []map[string]any
-	if raw, ok := src["bindings"]; ok {
-		b = normalizeBindings(raw)
-	}
-	if len(b) == 0 {
-		if raw, ok := body["bindings"]; ok {
-			b = normalizeBindings(raw)
-		}
-	}
-	if b == nil {
-		b = []map[string]any{}
-	}
-	tag, _ := src["etag"].(string)
-	if tag == "" {
-		if t, ok := body["etag"].(string); ok {
-			tag = t
-		}
-	}
-	if tag == "" {
-		tag = computeFingerprint()
-	}
-	ver := int64(1)
-	if v, ok := src["version"].(float64); ok {
-		ver = int64(v)
-	}
-	pol := map[string]any{
-		"version":  ver,
-		"etag":     tag,
-		"bindings": b,
-	}
-	if ac, ok := src["auditConfigs"]; ok {
-		pol["auditConfigs"] = ac
-	}
-	return pol
-}
-
-func normalizeBindings(raw any) []map[string]any {
-	arr, ok := raw.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(arr))
-	for _, e := range arr {
-		if m, ok := e.(map[string]any); ok {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 // registerComputeNodeTypesCatalog serves the zonal nodeTypes list, get and

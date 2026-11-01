@@ -74,6 +74,10 @@ func TestGCPOperationsCarryTheirServicesMetadata(t *testing.T) {
 		}
 		return out
 	}
+	// Autokey provisions a KeyHandle's key only where an AutokeyConfig enables it.
+	do("cloudkms.googleapis.com", http.MethodPatch,
+		"/v1/projects/sockerless/autokeyConfig?updateMask=keyProjectResolutionMode",
+		`{"keyProjectResolutionMode":"RESOURCE_PROJECT"}`)
 
 	for _, tc := range []struct {
 		name, host, method, path, body string
@@ -140,7 +144,7 @@ func TestGCPOperationsCarryTheirServicesMetadata(t *testing.T) {
 		},
 		{
 			name: "Cloud KMS KeyHandle", host: "cloudkms.googleapis.com", method: http.MethodPost,
-			path: "/v1/projects/p/locations/us-central1/keyHandles?keyHandleId=meta-kh", body: `{"resourceTypeSelector":"storage.googleapis.com/Bucket"}`,
+			path: "/v1/projects/sockerless/locations/us-central1/keyHandles?keyHandleId=meta-kh", body: `{"resourceTypeSelector":"storage.googleapis.com/Bucket"}`,
 			wantType: "type.googleapis.com/google.cloud.kms.v1.CreateKeyHandleMetadata",
 		},
 	} {
@@ -181,8 +185,18 @@ func TestGCPKeyHandleOperationReadsBackOverGRPC(t *testing.T) {
 	}
 	t.Cleanup(srv.StopBackground)
 
+	enable := httptest.NewRequest(http.MethodPatch,
+		"http://cloudkms.googleapis.com/v1/projects/sockerless/autokeyConfig?updateMask=keyProjectResolutionMode",
+		strings.NewReader(`{"keyProjectResolutionMode":"RESOURCE_PROJECT"}`))
+	enable.Header.Set("Content-Type", "application/json")
+	enabled := httptest.NewRecorder()
+	srv.ServeHTTP(enabled, enable)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable Autokey: %d %s", enabled.Code, enabled.Body)
+	}
+
 	req := httptest.NewRequest(http.MethodPost,
-		"http://cloudkms.googleapis.com/v1/projects/p/locations/us-central1/keyHandles?keyHandleId=grpc-kh",
+		"http://cloudkms.googleapis.com/v1/projects/sockerless/locations/us-central1/keyHandles?keyHandleId=grpc-kh",
 		strings.NewReader(`{"resourceTypeSelector":"storage.googleapis.com/Bucket"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -208,8 +222,9 @@ func TestGCPKeyHandleOperationReadsBackOverGRPC(t *testing.T) {
 	if err := op.GetResponse().UnmarshalTo(handle); err != nil {
 		t.Fatalf("response is not a KeyHandle: %v", err)
 	}
-	if handle.GetName() != "projects/p/locations/us-central1/keyHandles/grpc-kh" ||
-		handle.GetResourceTypeSelector() != "storage.googleapis.com/Bucket" {
+	if handle.GetName() != "projects/sockerless/locations/us-central1/keyHandles/grpc-kh" ||
+		handle.GetResourceTypeSelector() != "storage.googleapis.com/Bucket" ||
+		!strings.HasPrefix(handle.GetKmsKey(), "projects/sockerless/locations/us-central1/keyRings/autokey/cryptoKeys/123456789012-storage-Bucket-") {
 		t.Fatalf("KeyHandle = %v", handle)
 	}
 }

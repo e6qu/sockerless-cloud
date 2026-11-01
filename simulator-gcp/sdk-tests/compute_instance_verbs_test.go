@@ -208,15 +208,130 @@ func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "verbs-reads", "us-central1-a", "member"
+	// A folder of its own keeps the hierarchical policy this test attaches out
+	// of every other project's effective set.
+	folder := createTestFolder(t, "verbs-reads-folder")
+	createProjectUnder(t, project, folder)
 	createVerbInstance(t, svc, project, zone, name, "10.76.0.0/24")
 
 	referrers, err := svc.Instances.ListReferrers(project, zone, name).Do()
 	require.NoError(t, err)
 	assert.Empty(t, referrers.Items, "the instance belongs to no group yet")
 
+	network := "projects/" + project + "/global/networks/verbs-net"
+	// A VPC rule without targets reaches every instance on the network; one
+	// naming a tag the instance lacks reaches none of them.
+	for _, fw := range []*compute.Firewall{
+		{Name: "reads-all", Network: network, SourceRanges: []string{"10.0.0.0/8"},
+			Allowed: []*compute.FirewallAllowed{{IPProtocol: "tcp", Ports: []string{"22"}}}},
+		{Name: "reads-tagged", Network: network, SourceRanges: []string{"10.0.0.0/8"}, TargetTags: []string{"web"},
+			Allowed: []*compute.FirewallAllowed{{IPProtocol: "tcp", Ports: []string{"80"}}}},
+	} {
+		_, err := svc.Firewalls.Insert(project, fw).Do()
+		require.NoError(t, err)
+	}
+
+	// A network firewall policy, a regional one and a hierarchical one, each
+	// attached where it governs this network.
+	_, err = svc.NetworkFirewallPolicies.Insert(project, &compute.FirewallPolicy{Name: "reads-global"}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.AddRule(project, "reads-global", &compute.FirewallPolicyRule{
+		Priority: 100, Action: "allow", Direction: "INGRESS",
+		Match: &compute.FirewallPolicyRuleMatcher{SrcIpRanges: []string{"10.0.0.0/8"}},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.AddRule(project, "reads-global", &compute.FirewallPolicyRule{
+		Priority: 200, Action: "deny", Direction: "INGRESS",
+		Match:                 &compute.FirewallPolicyRuleMatcher{SrcIpRanges: []string{"0.0.0.0/0"}},
+		TargetServiceAccounts: []string{"nobody@verbs-reads.iam.gserviceaccount.com"},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.AddAssociation(project, "reads-global", &compute.FirewallPolicyAssociation{
+		Name: "reads-global-net", AttachmentTarget: "https://www.googleapis.com/compute/v1/" + network,
+	}).Do()
+	require.NoError(t, err)
+
+	_, err = svc.RegionNetworkFirewallPolicies.Insert(project, "us-central1", &compute.FirewallPolicy{Name: "reads-regional"}).Do()
+	require.NoError(t, err)
+	_, err = svc.RegionNetworkFirewallPolicies.AddRule(project, "us-central1", "reads-regional", &compute.FirewallPolicyRule{
+		Priority: 300, Action: "allow", Direction: "EGRESS",
+		Match: &compute.FirewallPolicyRuleMatcher{DestIpRanges: []string{"0.0.0.0/0"}},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.RegionNetworkFirewallPolicies.AddAssociation(project, "us-central1", "reads-regional", &compute.FirewallPolicyAssociation{
+		Name: "reads-regional-net", AttachmentTarget: network,
+	}).Do()
+	require.NoError(t, err)
+
+	_, err = svc.FirewallPolicies.Insert(&compute.FirewallPolicy{Name: "reads-hierarchy", ShortName: "reads-hierarchy"}).
+		ParentId(folder).Do()
+	require.NoError(t, err)
+	_, err = svc.FirewallPolicies.AddRule("reads-hierarchy", &compute.FirewallPolicyRule{
+		Priority: 10, Action: "goto_next", Direction: "INGRESS",
+		Match: &compute.FirewallPolicyRuleMatcher{SrcIpRanges: []string{"192.168.0.0/16"}},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.FirewallPolicies.AddAssociation("reads-hierarchy", &compute.FirewallPolicyAssociation{
+		Name: "reads-folder", AttachmentTarget: folder,
+	}).Do()
+	require.NoError(t, err)
+
 	effective, err := svc.Instances.GetEffectiveFirewalls(project, zone, name, "nic0").Do()
 	require.NoError(t, err)
-	assert.NotNil(t, effective)
+	assert.Equal(t, []string{"reads-all"}, effectiveFirewallNames(effective.Firewalls),
+		"the instance carries no web tag, so only the untargeted rule reaches it")
+	require.Len(t, effective.FirewallPolicys, 3)
+	hierarchy, global, regional := effective.FirewallPolicys[0], effective.FirewallPolicys[1], effective.FirewallPolicys[2]
+	assert.Equal(t, "HIERARCHY", hierarchy.Type)
+	assert.Equal(t, "reads-hierarchy", hierarchy.ShortName)
+	require.Len(t, hierarchy.Rules, 1)
+	assert.Equal(t, "goto_next", hierarchy.Rules[0].Action)
+	assert.Equal(t, "NETWORK", global.Type)
+	assert.Equal(t, "reads-global", global.Name)
+	assert.Equal(t, int64(1000), global.Priority, "an association without a priority takes the default 1000")
+	require.Len(t, global.Rules, 1, "the rule naming a service account the instance does not run as is left out")
+	assert.Equal(t, int64(100), global.Rules[0].Priority)
+	assert.Equal(t, "NETWORK_REGIONAL", regional.Type)
+	assert.Equal(t, "reads-regional", regional.Name)
+	require.Len(t, regional.Rules, 1)
+	assert.Equal(t, "EGRESS", regional.Rules[0].Direction)
+
+	_, err = svc.Instances.GetEffectiveFirewalls(project, zone, name, "nic7").Do()
+	require.Error(t, err, "the instance has no such interface")
+
+	// The network's own read reaches every rule on the network, and leaves the
+	// regional policies to regionNetworkFirewallPolicies.getEffectiveFirewalls.
+	onNetwork, err := svc.Networks.GetEffectiveFirewalls(project, "verbs-net").Do()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"reads-all", "reads-tagged"}, effectiveFirewallNames(onNetwork.Firewalls))
+	require.Len(t, onNetwork.FirewallPolicys, 2)
+	assert.Equal(t, "HIERARCHY", onNetwork.FirewallPolicys[0].Type)
+	assert.Equal(t, "NETWORK", onNetwork.FirewallPolicys[1].Type)
+	assert.Len(t, onNetwork.FirewallPolicys[1].Rules, 2, "a network-wide read keeps the rules that target instances")
+
+	inRegion, err := svc.RegionNetworkFirewallPolicies.GetEffectiveFirewalls(project, "us-central1", network).Do()
+	require.NoError(t, err)
+	require.Len(t, inRegion.FirewallPolicys, 3)
+	assert.Equal(t, "NETWORK_REGIONAL", inRegion.FirewallPolicys[2].Type)
+	elsewhere, err := svc.RegionNetworkFirewallPolicies.GetEffectiveFirewalls(project, "europe-west1", network).Do()
+	require.NoError(t, err)
+	assert.Len(t, elsewhere.FirewallPolicys, 2, "a regional policy governs its own region only")
+
+	// Detaching the network policy takes it out of the effective set.
+	_, err = svc.NetworkFirewallPolicies.RemoveAssociation(project, "reads-global").Name("reads-global-net").Do()
+	require.NoError(t, err)
+	detached, err := svc.Networks.GetEffectiveFirewalls(project, "verbs-net").Do()
+	require.NoError(t, err)
+	require.Len(t, detached.FirewallPolicys, 1)
+	assert.Equal(t, "HIERARCHY", detached.FirewallPolicys[0].Type)
+}
+
+func effectiveFirewallNames(firewalls []*compute.Firewall) []string {
+	names := []string{}
+	for _, fw := range firewalls {
+		names = append(names, fw.Name)
+	}
+	return names
 }
 
 // The four that can only be answered by inventing what the hardware or the

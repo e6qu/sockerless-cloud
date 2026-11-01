@@ -1,9 +1,8 @@
 package main
 
 import (
-	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -99,15 +98,20 @@ type kmsStoredCryptoKey struct {
 	// lock so concurrent CreateCryptoKeyVersion calls never collide. It never
 	// reaches the wire.
 	VersionSeq int `json:"versionSeq,omitempty"`
+	// Autokey marks a key Autokey provisioned for a KeyHandle, which
+	// DeleteCryptoKey refuses. It never reaches the wire.
+	Autokey bool `json:"autokey,omitempty"`
 }
 
 // kmsKeyMaterialRecord holds a version's non-exportable key material, keyed by
 // version name. Symmetric and MAC keys keep raw bytes in Key; asymmetric keys
-// keep an RSA or EC private key in PrivatePEM (PKCS#8), whose public half
-// getPublicKey derives.
+// keep an RSA, EC or Ed25519 private key in PrivatePEM (PKCS#8), whose public
+// half getPublicKey derives; ML-KEM keys and HPKE wrapping keys keep the
+// private-key seed their standard defines in Seed.
 type kmsKeyMaterialRecord struct {
 	Key        []byte `json:"key,omitempty"`
 	PrivatePEM []byte `json:"privatePem,omitempty"`
+	Seed       []byte `json:"seed,omitempty"`
 }
 
 // kmsIamPolicy mirrors google.iam.v1.Policy as the Cloud KMS Discovery document
@@ -126,7 +130,8 @@ type kmsIamBinding struct {
 	Condition json.RawMessage `json:"condition,omitempty"`
 }
 
-// kmsImportJob is the wire ImportJob; its wrapping key is a real RSA key pair.
+// kmsImportJob is the wire ImportJob; its wrapping key is a real RSA or HPKE
+// KEM key pair.
 type kmsImportJob struct {
 	Name             string             `json:"name"`
 	ImportMethod     string             `json:"importMethod,omitempty"`
@@ -139,10 +144,12 @@ type kmsImportJob struct {
 	ExpireEventTime  string             `json:"expireEventTime,omitempty"`
 	Attestation      json.RawMessage    `json:"attestation,omitempty"`
 	CryptoKeyBackend string             `json:"cryptoKeyBackend,omitempty"`
+	PublicKeyFormat  string             `json:"publicKeyFormat,omitempty"`
 }
 
 type kmsWrappingPubKey struct {
-	Pem string `json:"pem,omitempty"`
+	Pem  string `json:"pem,omitempty"`
+	Data []byte `json:"data,omitempty"`
 }
 
 // kmsEkmConnection is the wire EkmConnection: metadata naming an external key
@@ -350,8 +357,8 @@ func registerCloudKMS(srv *sim.Server) {
 			return
 		}
 		name := ringName + "/cryptoKeys/" + id
-		if _, exists := kmsCryptoKeys.Get(name); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "CryptoKey %s already exists", name)
+		if err := kmsCryptoKeyNameFree(name); err != nil {
+			GCPStatusError(w, err)
 			return
 		}
 		purpose := req.Purpose
@@ -366,6 +373,10 @@ func registerCloudKMS(srv *sim.Server) {
 			if req.VersionTemplate.Algorithm != "" {
 				algorithm = req.VersionTemplate.Algorithm
 			}
+		}
+		if err := kmsCheckAlgorithmServed(algorithm); err != nil {
+			GCPStatusError(w, err)
+			return
 		}
 		stored := kmsStoredCryptoKey{
 			Name:             name,
@@ -383,14 +394,14 @@ func registerCloudKMS(srv *sim.Server) {
 		// Cloud KMS creates the first version of every purpose unless the caller opts
 		// out. Only (RAW_)ENCRYPT_DECRYPT keys use `primary`; asymmetric and MAC
 		// operations name a version.
-		if r.URL.Query().Get("skipInitialVersionCreation") != "true" {
+		if !gcpQueryBool(r, "skipInitialVersionCreation") {
 			ver, err := kmsCreateVersionForAlg(name, "1", protection, algorithm)
 			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate key version: %v", err)
+				GCPStatusError(w, err)
 				return
 			}
 			stored.VersionSeq = 1
-			if r.URL.Query().Get("trustedWrappingEnabled") == "true" {
+			if gcpQueryBool(r, "trustedWrappingEnabled") {
 				versionName := name + "/cryptoKeyVersions/" + ver
 				version, _ := kmsGetCryptoKeyVersion(versionName)
 				version.TrustedWrappingEnabled = true
@@ -572,7 +583,7 @@ func registerCloudKMS(srv *sim.Server) {
 		next := fmt.Sprintf("%d", assigned)
 		versionID, err := kmsCreateVersion(keyName, next, key.ProtectionLevel, key.Algorithm)
 		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate key version: %v", err)
+			GCPStatusError(w, err)
 			return
 		}
 		v, _ := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + versionID)
@@ -640,9 +651,7 @@ func registerCloudKMS(srv *sim.Server) {
 			kmsHandleRawDecrypt(w, r, name)
 			return
 		case "decapsulate":
-			// Key-encapsulation (ML-KEM / X-Wing) decapsulation is unimplemented;
-			// refuse it rather than invent a shared secret.
-			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "decapsulate is not supported for CryptoKeyVersion %s", name)
+			kmsHandleDecapsulate(w, r, name)
 			return
 		}
 		if action != "destroy" && action != "restore" {
@@ -692,9 +701,9 @@ func registerCloudKMSExtras(srv *sim.Server) {
 			GCPError(w, http.StatusBadRequest, reason, "FAILED_PRECONDITION")
 			return
 		}
-		kmsCryptoKeys.Delete(name)
-		kmsIamPolicies.Delete(name)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+		retired := kmsRetireCryptoKey(name)
+		sim.WriteJSON(w, http.StatusOK, kmsDoneOperation(name, "DeleteCryptoKeyMetadata",
+			map[string]any{"retiredResource": retired.Name}))
 	})
 
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}", func(w http.ResponseWriter, r *http.Request) {
@@ -710,7 +719,7 @@ func registerCloudKMSExtras(srv *sim.Server) {
 		}
 		kmsCryptoKeyVersions.Delete(name)
 		kmsKeyMaterial.Delete(name)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+		sim.WriteJSON(w, http.StatusOK, kmsDoneOperation(name, "DeleteCryptoKeyVersionMetadata", nil))
 	})
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions/{cryptoKeyVersion}/publicKey", func(w http.ResponseWriter, r *http.Request) {
@@ -788,26 +797,10 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 		if protection == "" {
 			protection = kmsDefaultProtectionLevel
 		}
-		var bits int
-		switch req.ImportMethod {
-		case "RSA_OAEP_3072_SHA1_AES_256", "RSA_OAEP_3072_SHA256_AES_256", "RSA_OAEP_3072_SHA256":
-			bits = 3072
-		case "RSA_OAEP_4096_SHA1_AES_256", "RSA_OAEP_4096_SHA256_AES_256", "RSA_OAEP_4096_SHA256":
-			bits = 4096
-		default:
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "unsupported importMethod %q", req.ImportMethod)
-			return
-		}
-		// Generate a real wrapping key of the size importMethod selects; the private
-		// half never leaves the service.
-		priv, err := rsa.GenerateKey(rand.Reader, bits)
+		// The private half of the wrapping key never leaves the service.
+		material, pub, err := kmsNewImportJobKey(req.ImportMethod, protection)
 		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate wrapping key: %v", err)
-			return
-		}
-		pemStr, err := kmsPublicKeyPEM(&priv.PublicKey)
-		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not encode wrapping public key: %v", err)
+			GCPStatusError(w, err)
 			return
 		}
 		now := kmsNow()
@@ -816,17 +809,12 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 			ImportMethod:    req.ImportMethod,
 			ProtectionLevel: protection,
 			State:           "ACTIVE",
-			PublicKey:       &kmsWrappingPubKey{Pem: pemStr},
+			PublicKey:       pub,
 			CreateTime:      now,
 			GenerateTime:    now,
 		}
-		privatePEM, err := kmsPrivateKeyPEM(priv)
-		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not encode wrapping private key: %v", err)
-			return
-		}
 		kmsImportJobs.Put(name, job)
-		kmsImportJobMaterial.Put(name, kmsKeyMaterialRecord{PrivatePEM: privatePEM})
+		kmsImportJobMaterial.Put(name, material)
 		sim.WriteJSON(w, http.StatusOK, job)
 	})
 
@@ -853,7 +841,12 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "ImportJob %s not found", name)
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, job)
+		view, err := kmsImportJobView(job, r.URL.Query().Get("publicKeyFormat"))
+		if err != nil {
+			GCPStatusError(w, err)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, view)
 	})
 
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs/{importJobAction}", func(w http.ResponseWriter, r *http.Request) {
@@ -1032,43 +1025,28 @@ func kmsRegisterEkm(srv *sim.Server) {
 }
 
 // kmsRegisterKeyHandles answers create with a completed operation whose
-// response is the KeyHandle, as Autokey does.
+// response is the KeyHandle, once Autokey has provisioned the key it names.
 func kmsRegisterKeyHandles(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/keyHandles", func(w http.ResponseWriter, r *http.Request) {
 		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
-		id := r.URL.Query().Get("keyHandleId")
-		if id == "" {
-			id = sim.NewUUID()
-		}
 		var req kmsKeyHandle
 		if err := sim.ReadJSON(r, &req); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		name := kmsLocationName(r) + "/keyHandles/" + id
-		if _, exists := kmsKeyHandles.Get(name); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "KeyHandle %s already exists", name)
+		kh, err := kmsCreateKeyHandle(project, location, r.URL.Query().Get("keyHandleId"), req.ResourceTypeSelector)
+		if err != nil {
+			GCPStatusError(w, err)
 			return
 		}
-		kmsKey := req.KmsKey
-		if kmsKey == "" {
-			// Autokey provisions a CMEK for the handle; record its key path under an
-			// autokey ring.
-			kmsKey = fmt.Sprintf("projects/%s/locations/%s/keyRings/autokey/cryptoKeys/%s", project, location, id)
-		}
-		kh := kmsKeyHandle{Name: name, KmsKey: kmsKey, ResourceTypeSelector: req.ResourceTypeSelector}
-		kmsKeyHandles.Put(name, kh)
-		op := kmsLRO(project, location, kh, "KeyHandle", "CreateKeyHandleMetadata")
-		sim.WriteJSON(w, http.StatusOK, op)
+		sim.WriteJSON(w, http.StatusOK, kmsLRO(project, location, kh, "KeyHandle", "CreateKeyHandleMetadata"))
 	})
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyHandles", func(w http.ResponseWriter, r *http.Request) {
-		prefix := kmsLocationName(r) + "/keyHandles/"
-		var all []kmsKeyHandle
-		for _, kh := range kmsKeyHandles.List() {
-			if strings.HasPrefix(kh.Name, prefix) {
-				all = append(all, kh)
-			}
+		all, err := kmsListKeyHandles(kmsLocationName(r), r.URL.Query().Get("filter"))
+		if err != nil {
+			GCPStatusError(w, err)
+			return
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsKeyHandle) string { return v.Name }))
@@ -1470,6 +1448,9 @@ func kmsVersionUndeletable(v kmsCryptoKeyVersion) string {
 // kmsCryptoKeyUndeletable reports why a CryptoKey cannot be deleted, or "":
 // every version must already be deleted, since the delete does not cascade.
 func kmsCryptoKeyUndeletable(keyName string) string {
+	if key, ok := kmsCryptoKeys.Get(keyName); ok && key.Autokey {
+		return fmt.Sprintf("CryptoKey %s was created by Autokey and cannot be deleted", keyName)
+	}
 	if remaining := kmsCryptoKeyVersionsOf(keyName); len(remaining) > 0 {
 		return fmt.Sprintf("CryptoKey %s still has %d CryptoKeyVersion(s); delete them first", keyName, len(remaining))
 	}
@@ -1940,37 +1921,36 @@ func kmsHandleGetPublicKey(w http.ResponseWriter, r *http.Request, versionName s
 		return
 	}
 	material, ok := kmsKeyMaterial.Get(versionName)
-	if !ok || len(material.PrivatePEM) == 0 {
+	if !ok {
 		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "CryptoKeyVersion %s has no public key (not an asymmetric key)", versionName)
 		return
 	}
-	pub, err := kmsPublicFromPEM(material.PrivatePEM)
+	export, err := kmsExportPublicKey(version, material, r.URL.Query().Get("publicKeyFormat"))
 	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not derive public key: %v", err)
+		GCPStatusError(w, err)
 		return
 	}
-	pemStr, err := kmsPublicKeyPEM(pub)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not encode public key: %v", err)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"name":            versionName,
-		"pem":             pemStr,
-		"pemCrc32c":       fmt.Sprintf("%d", kmsCRC([]byte(pemStr))),
 		"algorithm":       version.Algorithm,
 		"protectionLevel": version.ProtectionLevel,
-		"publicKeyFormat": "PEM",
-	})
+		"publicKeyFormat": export.Format,
+	}
+	if export.Pem != "" {
+		resp["pem"] = export.Pem
+		resp["pemCrc32c"] = fmt.Sprintf("%d", kmsCRC([]byte(export.Pem)))
+	} else {
+		resp["publicKey"] = map[string]any{
+			"data":           base64.StdEncoding.EncodeToString(export.Data),
+			"crc32cChecksum": fmt.Sprintf("%d", kmsCRC(export.Data)),
+		}
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 func kmsHandleAsymmetricSign(w http.ResponseWriter, r *http.Request, versionName string) {
 	version, material, ok := kmsLoadEnabledVersion(w, versionName)
 	if !ok {
-		return
-	}
-	if len(material.PrivatePEM) == 0 || !strings.Contains(version.Algorithm, "SIGN") {
-		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "CryptoKeyVersion %s is not an asymmetric-sign key", versionName)
 		return
 	}
 	var req struct {
@@ -1983,58 +1963,35 @@ func kmsHandleAsymmetricSign(w http.ResponseWriter, r *http.Request, versionName
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-
-	priv, err := kmsPrivateFromPEM(material.PrivatePEM)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not parse private key: %v", err)
-		return
-	}
-
-	// The client supplies the message (data) or its SHA-256 digest; hash data
-	// with SHA-256 when no digest is given.
-	var digest []byte
+	in := kmsSignInput{Digest: map[string][]byte{}}
 	verifiedDigest := false
-	verifiedData := false
-	if d, ok := req.Digest["sha256"]; ok && d != "" {
-		digest, err = kmsDecodeBytes(d)
+	for field, encoded := range req.Digest {
+		if encoded == "" {
+			continue
+		}
+		digest, err := kmsDecodeBytes(encoded)
 		if err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "digest.sha256 must be base64: %v", err)
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "digest.%s must be base64: %v", field, err)
 			return
 		}
-		verifiedDigest, ok = kmsVerifyCRC(w, digest, req.DigestCrc32c, "digest")
-		if !ok {
+		in.Digest[field] = digest
+		if verifiedDigest, ok = kmsVerifyCRC(w, digest, req.DigestCrc32c, "digest"); !ok {
 			return
 		}
-	} else {
-		data, err := kmsDecodeBytes(req.Data)
-		if err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "data must be base64: %v", err)
-			return
-		}
-		verifiedData, ok = kmsVerifyCRC(w, data, req.DataCrc32c, "data")
-		if !ok {
-			return
-		}
-		sum := sha256.Sum256(data)
-		digest = sum[:]
 	}
-
-	var sig []byte
-	switch key := priv.(type) {
-	case *rsa.PrivateKey:
-		if strings.Contains(version.Algorithm, "PSS") {
-			sig, err = rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA256})
-		} else {
-			sig, err = rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest)
-		}
-	case *ecdsa.PrivateKey:
-		sig, err = ecdsa.SignASN1(rand.Reader, key, digest)
-	default:
-		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "unsupported asymmetric-sign key type")
+	data, err := kmsDecodeBytes(req.Data)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "data must be base64: %v", err)
 		return
 	}
+	in.Data = data
+	verifiedData, ok := kmsVerifyCRC(w, data, req.DataCrc32c, "data")
+	if !ok {
+		return
+	}
+	sig, err := kmsAsymmetricSign(version, material, in)
 	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "signing failed: %v", err)
+		GCPStatusError(w, err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -2044,6 +2001,42 @@ func kmsHandleAsymmetricSign(w http.ResponseWriter, r *http.Request, versionName
 		"verifiedDigestCrc32c": verifiedDigest,
 		"verifiedDataCrc32c":   verifiedData,
 		"protectionLevel":      version.ProtectionLevel,
+	})
+}
+
+func kmsHandleDecapsulate(w http.ResponseWriter, r *http.Request, versionName string) {
+	version, material, ok := kmsLoadEnabledVersion(w, versionName)
+	if !ok {
+		return
+	}
+	var req struct {
+		Ciphertext       string `json:"ciphertext"`
+		CiphertextCrc32c *int64 `json:"ciphertextCrc32c,string,omitempty"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	ciphertext, err := kmsDecodeBytes(req.Ciphertext)
+	if err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "ciphertext must be base64: %v", err)
+		return
+	}
+	verified, ok := kmsVerifyCRC(w, ciphertext, req.CiphertextCrc32c, "ciphertext")
+	if !ok {
+		return
+	}
+	secret, err := kmsDecapsulate(version, material, ciphertext)
+	if err != nil {
+		GCPStatusError(w, err)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"name":                     versionName,
+		"sharedSecret":             base64.StdEncoding.EncodeToString(secret),
+		"sharedSecretCrc32c":       fmt.Sprintf("%d", kmsCRC(secret)),
+		"verifiedCiphertextCrc32c": verified,
+		"protectionLevel":          version.ProtectionLevel,
 	})
 }
 
@@ -2083,7 +2076,7 @@ func kmsHandleAsymmetricDecrypt(w http.ResponseWriter, r *http.Request, versionN
 		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "asymmetric-decrypt requires an RSA key")
 		return
 	}
-	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, rsaKey, ciphertext, nil)
+	plaintext, err := rsa.DecryptOAEP(cryptoHashForAlg(version.Algorithm).New(), rand.Reader, rsaKey, ciphertext, nil)
 	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Decryption failed: verify the ciphertext")
 		return
@@ -2131,18 +2124,8 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		return
 	}
 	jobMaterial, ok := kmsImportJobMaterial.Get(req.ImportJob)
-	if !ok || len(jobMaterial.PrivatePEM) == 0 {
-		GCPError(w, http.StatusInternalServerError, "ImportJob wrapping key material is unavailable", "INTERNAL")
-		return
-	}
-	privateKey, err := kmsPrivateFromPEM(jobMaterial.PrivatePEM)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "ImportJob private key is invalid: %v", err)
-		return
-	}
-	rsaPrivate, ok := privateKey.(*rsa.PrivateKey)
 	if !ok {
-		GCPError(w, http.StatusInternalServerError, "ImportJob wrapping key is not RSA", "INTERNAL")
+		GCPError(w, http.StatusInternalServerError, "ImportJob wrapping key material is unavailable", "INTERNAL")
 		return
 	}
 	if (req.WrappedKey == "") == (req.RsaAesWrappedKey == "") {
@@ -2158,9 +2141,9 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "wrapped key must be base64: %v", err)
 		return
 	}
-	raw, err := kmsUnwrapImportJobMaterial(rsaPrivate, job.ImportMethod, wrapped)
+	raw, err := kmsUnwrapImported(job, jobMaterial, wrapped)
 	if err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "could not unwrap key material: %v", err)
+		GCPStatusError(w, err)
 		return
 	}
 	algorithm := req.Algorithm
@@ -2426,6 +2409,10 @@ func kmsImportedMaterialRecord(algorithm string, raw []byte) (kmsKeyMaterialReco
 			if wantBits != 0 && rsaKey.N.BitLen() != wantBits {
 				return kmsKeyMaterialRecord{}, fmt.Errorf("algorithm %s requires a %d-bit RSA private key", algorithm, wantBits)
 			}
+		case algorithm == "EC_SIGN_ED25519":
+			if _, ok := privateKey.(ed25519.PrivateKey); !ok {
+				return kmsKeyMaterialRecord{}, fmt.Errorf("algorithm %s requires an Ed25519 private key", algorithm)
+			}
 		case strings.HasPrefix(algorithm, "EC_SIGN_"):
 			ecKey, ok := privateKey.(*ecdsa.PrivateKey)
 			if !ok {
@@ -2521,50 +2508,13 @@ func kmsCreateVersion(keyName, versionID, protection, algorithm string) (string,
 }
 
 // kmsCreateVersionForAlg mints an ENABLED version with real key material for
-// the algorithm family: AES-256 bytes for symmetric, an HMAC key for HMAC_*,
-// RSA-2048 for RSA_*, EC P-256 for EC_SIGN_*.
+// its algorithm.
 func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (string, error) {
 	versionName := keyName + "/cryptoKeyVersions/" + versionID
 	now := kmsNow()
-	rec := kmsKeyMaterialRecord{}
-	switch {
-	case strings.HasPrefix(algorithm, "RSA_"):
-		bits := 2048
-		switch {
-		case strings.Contains(algorithm, "4096"):
-			bits = 4096
-		case strings.Contains(algorithm, "3072"):
-			bits = 3072
-		}
-		priv, err := rsa.GenerateKey(rand.Reader, bits)
-		if err != nil {
-			return "", err
-		}
-		pemBytes, err := kmsPrivateKeyPEM(priv)
-		if err != nil {
-			return "", err
-		}
-		rec.PrivatePEM = pemBytes
-	case strings.HasPrefix(algorithm, "EC_SIGN_"):
-		curve := elliptic.P256()
-		if strings.Contains(algorithm, "P384") {
-			curve = elliptic.P384()
-		}
-		priv, err := ecdsa.GenerateKey(curve, rand.Reader)
-		if err != nil {
-			return "", err
-		}
-		pemBytes, err := kmsPrivateKeyPEM(priv)
-		if err != nil {
-			return "", err
-		}
-		rec.PrivatePEM = pemBytes
-	default:
-		material, err := simkms.NewKey()
-		if err != nil {
-			return "", err
-		}
-		rec.Key = material
+	rec, err := kmsGenerateMaterial(algorithm)
+	if err != nil {
+		return "", err
 	}
 	kmsCryptoKeyVersions.Put(versionName, kmsCryptoKeyVersion{
 		Name:            versionName,
@@ -2660,6 +2610,8 @@ func kmsPublicFromPEM(pemBytes []byte) (any, error) {
 		return &k.PublicKey, nil
 	case *ecdsa.PrivateKey:
 		return &k.PublicKey, nil
+	case ed25519.PrivateKey:
+		return k.Public(), nil
 	default:
 		return nil, fmt.Errorf("unsupported private key type %T", priv)
 	}

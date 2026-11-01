@@ -976,6 +976,21 @@ unique ID, because a new account may take the email during the window. A
 custom role once never granted, because the lookup used its id where the
 store keyed by full name.
 
+Cloud KMS signs with the digest each key's algorithm names and refuses a
+digest of another type, signs raw data for the algorithms that take it, and
+backs Ed25519 keys with Ed25519. ML-KEM-768 and ML-KEM-1024 keys decapsulate
+through `crypto/mlkem`, and HPKE import jobs open their wrapped keys through
+`crypto/hpke`. An algorithm the Go standard library cannot back answers
+UNIMPLEMENTED: creating one had silently produced symmetric material. A
+deleted key leaves a retired resource that holds its name, and Autokey
+provisions the key ring and key a key handle names. Compute Engine and Secret
+Manager `testIamPermissions` answer from the policy the IAM gate reads, where
+two shared Compute helpers had echoed the request, and `getEffectiveFirewalls`
+assembles the VPC rules and firewall policies that apply. Cloud Build refuses
+a `secretEnv` no build secret defines, Cloud Logging drops two LogSink body
+fields the API does not have, and Firestore keeps microsecond times over gRPC,
+which also let update-time preconditions match.
+
 ### Work that settles behind the request
 
 AWS work the services finish later finishes later in the simulator, gated on

@@ -228,7 +228,7 @@ func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 
 // TestSecretManager_IamPolicySDK: getIamPolicy returns an empty default,
 // setIamPolicy persists a binding getIamPolicy reads back, and
-// testIamPermissions echoes the requested permissions.
+// testIamPermissions answers the permissions the caller holds.
 func TestSecretManager_IamPolicySDK(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "sdk-iam-project")
@@ -268,13 +268,45 @@ func TestSecretManager_IamPolicySDK(t *testing.T) {
 	require.Len(t, got.Bindings, 1)
 	require.Equal(t, "user:alice@example.com", got.Bindings[0].Members[0])
 
-	// testIamPermissions echoes the requested permission set.
+	// The bootstrap account holds Owner through the organization, and so
+	// every Secret Manager permission it asks about.
 	perms := []string{"secretmanager.versions.access", "secretmanager.secrets.get"}
 	tested, err := svc.Projects.Secrets.TestIamPermissions(secretName, &secretmanager.TestIamPermissionsRequest{
 		Permissions: perms,
 	}).Do()
 	require.NoError(t, err)
-	require.ElementsMatch(t, perms, tested.Permissions)
+	require.Equal(t, perms, tested.Permissions)
+
+	// A service account bound to nothing holds nothing.
+	_, _, unboundKey := mintServiceAccountKeyFile(t, "sm-unbound-sa")
+	asUnbound, err := secretmanager.NewService(ctx, option.WithEndpoint(baseURL),
+		option.WithTokenSource(tokenSourceFromKeyFile(t, unboundKey).TokenSource))
+	require.NoError(t, err)
+	none, err := asUnbound.Projects.Secrets.TestIamPermissions(secretName, &secretmanager.TestIamPermissionsRequest{
+		Permissions: perms,
+	}).Do()
+	require.NoError(t, err)
+	require.Empty(t, none.Permissions)
+
+	// A secret that does not exist answers an empty set, not NOT_FOUND.
+	missing, err := svc.Projects.Secrets.TestIamPermissions(parent+"/secrets/sdk-iam-absent", &secretmanager.TestIamPermissionsRequest{
+		Permissions: perms,
+	}).Do()
+	require.NoError(t, err)
+	require.Empty(t, missing.Permissions)
+}
+
+// TestSecretManager_CreateSecretInMissingProjectSDK: a project that does not
+// exist grants nobody anything, so a secret cannot be created in it.
+func TestSecretManager_CreateSecretInMissingProjectSDK(t *testing.T) {
+	t.Parallel()
+	svc := secretManagerService(t)
+	_, err := svc.Projects.Secrets.Create("projects/sdk-secret-no-such-project", &secretmanager.Secret{
+		Replication: &secretmanager.Replication{Automatic: &secretmanager.Automatic{}},
+	}).SecretId("orphan").Do()
+	var apiErr *googleapi.Error
+	require.True(t, errors.As(err, &apiErr), "want a googleapi error, got %v", err)
+	require.Equal(t, 403, apiErr.Code)
 }
 
 func TestSecretManager_LocationsSDK(t *testing.T) {

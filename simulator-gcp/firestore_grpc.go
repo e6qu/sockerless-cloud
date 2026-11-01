@@ -34,8 +34,9 @@ import (
 // (fsApplyWrite, fsEvaluateQuery, fsEvalPrecondition), so no document state or
 // query logic lives here.
 
-// fsTimestampLayout matches nowTimestamp's millisecond-truncated RFC3339 form.
-const fsTimestampLayout = "2006-01-02T15:04:05.000Z"
+// fsTimestampLayout is fsNow's form: Firestore keeps a time to the
+// microsecond and rounds any further precision down.
+const fsTimestampLayout = "2006-01-02T15:04:05.000000Z"
 
 type firestoreGRPC struct {
 	fspb.UnimplementedFirestoreServer
@@ -175,21 +176,18 @@ func fsTimestampToProto(s string) *timestamppb.Timestamp {
 	if s == "" {
 		return nil
 	}
-	t, err := time.Parse(fsTimestampLayout, s)
+	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		t, err = time.Parse(time.RFC3339, s)
-		if err != nil {
-			return nil
-		}
+		return nil
 	}
-	return timestamppb.New(t.UTC().Truncate(time.Millisecond))
+	return timestamppb.New(t.UTC().Truncate(time.Microsecond))
 }
 
 func fsTimestampFromProto(ts *timestamppb.Timestamp) string {
 	if ts == nil {
 		return ""
 	}
-	return ts.AsTime().UTC().Truncate(time.Millisecond).Format(fsTimestampLayout)
+	return ts.AsTime().UTC().Truncate(time.Microsecond).Format(fsTimestampLayout)
 }
 
 func fsPreconditionFromProto(p *fspb.Precondition) *fsPrecondition {

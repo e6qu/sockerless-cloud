@@ -210,7 +210,7 @@ func registerComputeTargetPoolMembers(srv *sim.Server) {
 	})
 
 	// The IAM verbs on a target pool are registered by the shared
-	// registerComputeIAMTriplet, beside every other collection that declares
+	// registerComputeTestIamPermissions, beside every other collection that declares
 	// them.
 
 	// The health a pool reports for one of its instances: what the pool's
@@ -447,15 +447,7 @@ func registerComputeNetworkPeerings(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		rules := []any{}
-		if gcpFirewalls != nil {
-			for _, firewall := range gcpFirewalls.List() {
-				if firewall.Network == key {
-					rules = append(rules, firewall)
-				}
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"firewalls": rules})
+		writeComputeEffectiveFirewalls(w, computeEffectiveTarget{project: sim.PathParam(r, "project"), network: key})
 	})
 }
 

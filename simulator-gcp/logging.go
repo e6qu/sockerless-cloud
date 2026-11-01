@@ -124,17 +124,16 @@ type LoggingSink struct {
 	Name string `json:"name"`
 	// ResourceName is the output-only full path projects/{p}/sinks/{name}; Cloud
 	// Logging returns the short identifier in Name.
-	ResourceName         string                  `json:"resourceName,omitempty"`
-	Destination          string                  `json:"destination"`
-	Filter               string                  `json:"filter,omitempty"`
-	Description          string                  `json:"description,omitempty"`
-	Disabled             bool                    `json:"disabled,omitempty"`
-	WriterIdentity       string                  `json:"writerIdentity,omitempty"`
-	UniqueWriterIdentity bool                    `json:"uniqueWriterIdentity,omitempty"`
-	Exclusions           []LoggingExclusion      `json:"exclusions,omitempty"`
-	IncludeChildren      bool                    `json:"includeChildren,omitempty"`
-	InterceptChildren    bool                    `json:"interceptChildren,omitempty"`
-	BigqueryOptions      *LoggingBigQueryOptions `json:"bigqueryOptions,omitempty"`
+	ResourceName      string                  `json:"resourceName,omitempty"`
+	Destination       string                  `json:"destination"`
+	Filter            string                  `json:"filter,omitempty"`
+	Description       string                  `json:"description,omitempty"`
+	Disabled          bool                    `json:"disabled,omitempty"`
+	WriterIdentity    string                  `json:"writerIdentity,omitempty"`
+	Exclusions        []LoggingExclusion      `json:"exclusions,omitempty"`
+	IncludeChildren   bool                    `json:"includeChildren,omitempty"`
+	InterceptChildren bool                    `json:"interceptChildren,omitempty"`
+	BigqueryOptions   *LoggingBigQueryOptions `json:"bigqueryOptions,omitempty"`
 }
 
 type LoggingExclusion struct {
@@ -589,9 +588,9 @@ func loggingServiceAgent(parent string) (string, bool) {
 }
 
 // loggingUniqueWriter reads the uniqueWriterIdentity query parameter of
-// sinks.create and sinks.update, or else the LogSink body field.
-func loggingUniqueWriter(r *http.Request, sink LoggingSink) bool {
-	return r.URL.Query().Get("uniqueWriterIdentity") == "true" || sink.UniqueWriterIdentity
+// sinks.create and sinks.update; LogSink has no such field.
+func loggingUniqueWriter(r *http.Request) bool {
+	return gcpQueryBool(r, "uniqueWriterIdentity")
 }
 
 func normalizeLoggingMetric(project string, metric LoggingMetric) LoggingMetric {
@@ -625,7 +624,10 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
 		return
 	}
-	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	// writerIdentity is output only: sinks.create sets it from
+	// uniqueWriterIdentity, never from the body.
+	sink.WriterIdentity = ""
+	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r))
 	if !ok {
 		crmProjectPermissionDenied(w)
 		return
@@ -679,10 +681,10 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if loggingUniqueWriter(r, sink) && strings.HasPrefix(sink.WriterIdentity, "serviceAccount:cloud-logs@") {
+	if loggingUniqueWriter(r) && strings.HasPrefix(sink.WriterIdentity, "serviceAccount:cloud-logs@") {
 		sink.WriterIdentity = ""
 	}
-	sink, ok = normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	sink, ok = normalizeLoggingSink(project, sink, loggingUniqueWriter(r))
 	if !ok {
 		crmProjectPermissionDenied(w)
 		return

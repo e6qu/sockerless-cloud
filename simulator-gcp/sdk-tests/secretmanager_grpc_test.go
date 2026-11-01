@@ -387,8 +387,8 @@ func TestSecretManager_GRPC_IamPolicy(t *testing.T) {
 
 // TestSecretManager_GRPC_NotFoundCodes: GetSecret, GetSecretVersion,
 // AccessSecretVersion and AddSecretVersion answer NotFound for a missing
-// resource, while CreateSecret under an unknown project succeeds, the
-// simulator treating the project as a path component.
+// resource. CreateSecret refuses a project that does not exist, which grants
+// nobody anything, and a parent that names no project.
 func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "sm-grpc-missing")
@@ -408,6 +408,16 @@ func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
 		Payload: &smpb.SecretPayload{Data: []byte("x")},
 	})
 	requireGRPCCode(t, err, codes.NotFound)
+
+	automatic := &smpb.Secret{Replication: &smpb.Replication{
+		Replication: &smpb.Replication_Automatic_{Automatic: &smpb.Replication_Automatic{}},
+	}}
+	_, err = c.CreateSecret(ctx, &smpb.CreateSecretRequest{
+		Parent: "projects/sm-grpc-no-such-project", SecretId: "orphan", Secret: automatic,
+	})
+	requireGRPCCode(t, err, codes.PermissionDenied)
+	_, err = c.CreateSecret(ctx, &smpb.CreateSecretRequest{SecretId: "orphan", Secret: automatic})
+	requireGRPCCode(t, err, codes.InvalidArgument)
 
 	parent := smGRPCProjectParent(t)
 	name := smGRPCCreateSecret(t, c, parent, "dup")

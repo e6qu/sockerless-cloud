@@ -125,3 +125,17 @@ func TestLogging_ReadWithFilter(t *testing.T) {
 		assert.Contains(t, e.TextPayload, "ERROR")
 	}
 }
+
+// `gcloud logging sinks create` asks for a unique writer identity through the
+// uniqueWriterIdentity parameter, and the sink writes as the project's Cloud
+// Logging service agent.
+func TestLogging_CLI_SinkWriterIdentityIsTheServiceAgent(t *testing.T) {
+	t.Parallel()
+	number := strings.TrimSpace(runCLI(t, gcloudCLI("projects", "describe", project, "--format=value(projectNumber)")))
+	runCLI(t, gcloudCLI("logging", "sinks", "create", "cli-writer-sink",
+		"storage.googleapis.com/cli-writer-sink-bucket", "--quiet"))
+	t.Cleanup(func() { runCLI(t, gcloudCLI("logging", "sinks", "delete", "cli-writer-sink", "--quiet")) })
+	writer := strings.TrimSpace(runCLI(t, gcloudCLI("logging", "sinks", "describe", "cli-writer-sink",
+		"--format=value(writerIdentity)")))
+	assert.Equal(t, "serviceAccount:service-"+number+"@gcp-sa-logging.iam.gserviceaccount.com", writer)
+}

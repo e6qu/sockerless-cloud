@@ -285,6 +285,16 @@ func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "serviceAccount:"+agent, sink.WriterIdentity)
 
+	// Only the uniqueWriterIdentity parameter chooses the writer: LogSink's
+	// writerIdentity is output only, so one the body carries is not adopted.
+	shared, err := svc.Projects.Sinks.Create("projects/"+project, &loggingrpc.LogSink{
+		Name:           "shared-sink",
+		Destination:    "storage.googleapis.com/agent-sink-bucket",
+		WriterIdentity: "serviceAccount:" + agent,
+	}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "serviceAccount:cloud-logs@"+project+".iam.gserviceaccount.com", shared.WriterIdentity)
+
 	settings, err := svc.Projects.GetSettings("projects/" + project).Do()
 	require.NoError(t, err)
 	assert.Equal(t, agent, settings.LoggingServiceAccountId)

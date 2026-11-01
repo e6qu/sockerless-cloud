@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -35,14 +34,79 @@ import (
 // crypto helpers the REST slice in cloudkms.go uses, and takes resource names
 // verbatim.
 
-// cloudKmsGRPC serves every RPC the generated service declares. Decapsulate
-// answers the same FAILED_PRECONDITION as the REST spelling.
+// cloudKmsGRPC serves every RPC the generated service declares.
 type cloudKmsGRPC struct {
 	kmspb.UnimplementedKeyManagementServiceServer
 }
 
+// cloudKmsAutokeyGRPC serves google.cloud.kms.v1.Autokey's three RPCs.
+type cloudKmsAutokeyGRPC struct {
+	kmspb.UnimplementedAutokeyServer
+}
+
 func registerCloudKMSGRPC(gs *grpc.Server) {
 	kmspb.RegisterKeyManagementServiceServer(gs, &cloudKmsGRPC{})
+	kmspb.RegisterAutokeyServer(gs, &cloudKmsAutokeyGRPC{})
+}
+
+func (s *cloudKmsAutokeyGRPC) CreateKeyHandle(ctx context.Context, req *kmspb.CreateKeyHandleRequest) (*longrunningpb.Operation, error) {
+	parent := kmsNormalizeName(req.GetParent())
+	parts := strings.Split(parent, "/")
+	if len(parts) != 4 || parts[0] != "projects" || parts[2] != "locations" {
+		return nil, status.Errorf(codes.InvalidArgument, "parent %q is not projects/{project}/locations/{location}", parent)
+	}
+	kh, err := kmsCreateKeyHandle(parts[1], parts[3], req.GetKeyHandleId(), req.GetKeyHandle().GetResourceTypeSelector())
+	if err != nil {
+		return nil, err
+	}
+	result, err := anypb.New(kmsKeyHandleToProto(kh))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not build operation result: %v", err)
+	}
+	meta, err := anypb.New(&kmspb.CreateKeyHandleMetadata{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "could not build operation metadata: %v", err)
+	}
+	op := &longrunningpb.Operation{
+		Name:     parent + "/operations/" + sim.NewUUID(),
+		Metadata: meta,
+		Done:     true,
+		Result:   &longrunningpb.Operation_Response{Response: result},
+	}
+	if err := grpcRecordOperation(op); err != nil {
+		return nil, err
+	}
+	return op, nil
+}
+
+func (s *cloudKmsAutokeyGRPC) GetKeyHandle(ctx context.Context, req *kmspb.GetKeyHandleRequest) (*kmspb.KeyHandle, error) {
+	name := kmsNormalizeName(req.GetName())
+	kh, ok := kmsKeyHandles.Get(name)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "KeyHandle %s not found", name)
+	}
+	return kmsKeyHandleToProto(kh), nil
+}
+
+func (s *cloudKmsAutokeyGRPC) ListKeyHandles(ctx context.Context, req *kmspb.ListKeyHandlesRequest) (*kmspb.ListKeyHandlesResponse, error) {
+	handles, err := kmsListKeyHandles(kmsNormalizeName(req.GetParent()), req.GetFilter())
+	if err != nil {
+		return nil, err
+	}
+	all := make([]*kmspb.KeyHandle, 0, len(handles))
+	for _, kh := range handles {
+		all = append(all, kmsKeyHandleToProto(kh))
+	}
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(v *kmspb.KeyHandle) string { return v.GetName() }))
+	if err != nil {
+		return nil, err
+	}
+	return &kmspb.ListKeyHandlesResponse{KeyHandles: page, NextPageToken: next}, nil
+}
+
+func kmsKeyHandleToProto(kh kmsKeyHandle) *kmspb.KeyHandle {
+	return &kmspb.KeyHandle{Name: kh.Name, KmsKey: kh.KmsKey, ResourceTypeSelector: kh.ResourceTypeSelector}
 }
 
 // kmsNormalizeName strips a doubled leading "projects/" from a full path.
@@ -340,8 +404,8 @@ func (s *cloudKmsGRPC) CreateCryptoKey(ctx context.Context, req *kmspb.CreateCry
 		return nil, status.Error(codes.InvalidArgument, "crypto_key is required")
 	}
 	name := ringName + "/cryptoKeys/" + req.GetCryptoKeyId()
-	if _, exists := kmsCryptoKeys.Get(name); exists {
-		return nil, status.Errorf(codes.AlreadyExists, "CryptoKey %s already exists", name)
+	if err := kmsCryptoKeyNameFree(name); err != nil {
+		return nil, err
 	}
 
 	purpose := kmsPurposeString(ck.GetPurpose())
@@ -357,6 +421,9 @@ func (s *cloudKmsGRPC) CreateCryptoKey(ctx context.Context, req *kmspb.CreateCry
 		if alg := vt.GetAlgorithm().String(); alg != "CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED" {
 			algorithm = alg
 		}
+	}
+	if err := kmsCheckAlgorithmServed(algorithm); err != nil {
+		return nil, err
 	}
 
 	stored := kmsStoredCryptoKey{
@@ -378,7 +445,7 @@ func (s *cloudKmsGRPC) CreateCryptoKey(ctx context.Context, req *kmspb.CreateCry
 	if !req.GetSkipInitialVersionCreation() {
 		ver, err := kmsCreateVersionForAlg(name, "1", protection, algorithm)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "could not generate key version: %v", err)
+			return nil, err
 		}
 		stored.VersionSeq = 1
 		if purpose == kmsPurposeEncryptDecrypt || purpose == "RAW_ENCRYPT_DECRYPT" {
@@ -485,7 +552,7 @@ func (s *cloudKmsGRPC) CreateCryptoKeyVersion(ctx context.Context, req *kmspb.Cr
 	}
 	versionID, err := kmsCreateVersionForAlg(keyName, next, protection, algorithm)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not generate key version: %v", err)
+		return nil, err
 	}
 	v, _ := kmsGetCryptoKeyVersion(keyName + "/cryptoKeyVersions/" + versionID)
 	// trusted_wrapping_enabled marks the version exportable under a trusted
@@ -579,24 +646,26 @@ func (s *cloudKmsGRPC) GetPublicKey(ctx context.Context, req *kmspb.GetPublicKey
 		return nil, status.Errorf(codes.NotFound, "CryptoKeyVersion %s not found", name)
 	}
 	material, ok := kmsKeyMaterial.Get(name)
-	if !ok || len(material.PrivatePEM) == 0 {
+	if !ok {
 		return nil, status.Errorf(codes.FailedPrecondition, "CryptoKeyVersion %s has no public key (not an asymmetric key)", name)
 	}
-	pub, err := kmsPublicFromPEM(material.PrivatePEM)
+	export, err := kmsExportPublicKey(version, material, req.GetPublicKeyFormat().String())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not derive public key: %v", err)
+		return nil, err
 	}
-	pemStr, err := kmsPublicKeyPEM(pub)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not encode public key: %v", err)
-	}
-	return &kmspb.PublicKey{
+	out := &kmspb.PublicKey{
 		Name:            name,
-		Pem:             pemStr,
 		Algorithm:       kmsAlgorithmFromString(version.Algorithm),
 		ProtectionLevel: kmsProtectionLevelFromString(version.ProtectionLevel),
-		PublicKeyFormat: kmspb.PublicKey_PEM,
-	}, nil
+		PublicKeyFormat: kmspb.PublicKey_PublicKeyFormat(kmspb.PublicKey_PublicKeyFormat_value[export.Format]),
+	}
+	if export.Pem != "" {
+		out.Pem = export.Pem
+		out.PemCrc32C = kmsInt64Value(kmsCRC([]byte(export.Pem)))
+	} else {
+		out.PublicKey = &kmspb.ChecksummedData{Data: export.Data, Crc32CChecksum: kmsInt64Value(kmsCRC(export.Data))}
+	}
+	return out, nil
 }
 
 func (s *cloudKmsGRPC) Encrypt(ctx context.Context, req *kmspb.EncryptRequest) (*kmspb.EncryptResponse, error) {
@@ -690,53 +759,32 @@ func (s *cloudKmsGRPC) AsymmetricSign(ctx context.Context, req *kmspb.Asymmetric
 	if err != nil {
 		return nil, err
 	}
-	if len(material.PrivatePEM) == 0 || !strings.Contains(version.Algorithm, "SIGN") {
-		return nil, status.Errorf(codes.FailedPrecondition, "CryptoKeyVersion %s is not an asymmetric-sign key", versionName)
-	}
-	priv, err := kmsPrivateFromPEM(material.PrivatePEM)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not parse private key: %v", err)
-	}
-
+	in := kmsSignInput{Digest: map[string][]byte{}, Data: req.GetData()}
 	var digest []byte
-	verifiedDigest := false
-	verifiedData := false
-	if d := req.GetDigest(); d != nil {
-		digest, err = kmsDigestBytes(d, version.Algorithm)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid digest: %v", err)
-		}
-		verifiedDigest, err = kmsVerifyCRC32C(digest, req.GetDigestCrc32C(), "digest")
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		data := req.GetData()
-		verifiedData, err = kmsVerifyCRC32C(data, req.GetDataCrc32C(), "data")
-		if err != nil {
-			return nil, err
-		}
-		digest = kmsHashForMessage(version.Algorithm, data)
+	switch d := req.GetDigest().GetDigest().(type) {
+	case *kmspb.Digest_Sha256:
+		in.Digest["sha256"], digest = d.Sha256, d.Sha256
+	case *kmspb.Digest_Sha384:
+		in.Digest["sha384"], digest = d.Sha384, d.Sha384
+	case *kmspb.Digest_Sha512:
+		in.Digest["sha512"], digest = d.Sha512, d.Sha512
+	case *kmspb.Digest_ExternalMu:
+		in.Digest["externalMu"], digest = d.ExternalMu, d.ExternalMu
 	}
-
-	var sig []byte
-	ch := cryptoHashForAlg(version.Algorithm)
-	switch key := priv.(type) {
-	case *rsa.PrivateKey:
-		if strings.Contains(version.Algorithm, "PSS") {
-			sig, err = rsa.SignPSS(rand.Reader, key, ch, digest, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: ch})
-		} else {
-			sig, err = rsa.SignPKCS1v15(rand.Reader, key, ch, digest)
-		}
-	case *ecdsa.PrivateKey:
-		sig, err = ecdsa.SignASN1(rand.Reader, key, digest)
-	default:
-		return nil, status.Error(codes.FailedPrecondition, "unsupported asymmetric-sign key type")
-	}
+	verifiedDigest, err := kmsVerifyCRC32C(digest, req.GetDigestCrc32C(), "digest")
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "signing failed: %v", err)
+		return nil, err
+	}
+	verifiedData, err := kmsVerifyCRC32C(req.GetData(), req.GetDataCrc32C(), "data")
+	if err != nil {
+		return nil, err
+	}
+	sig, err := kmsAsymmetricSign(version, material, in)
+	if err != nil {
+		return nil, err
 	}
 	return &kmspb.AsymmetricSignResponse{
+		Name:                 versionName,
 		Signature:            sig,
 		SignatureCrc32C:      kmsInt64Value(kmsCRC(sig)),
 		VerifiedDigestCrc32C: verifiedDigest,
@@ -958,36 +1006,24 @@ func (s *cloudKmsGRPC) CreateImportJob(ctx context.Context, req *kmspb.CreateImp
 	}
 	requested := req.GetImportJob()
 	method := requested.GetImportMethod().String()
-	bits, ok := kmsWrappingKeyBits(method)
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "unsupported importMethod %q", method)
-	}
-	// The wrapping key is a real RSA key pair of the size the import method
-	// selects; the private half stays here for ImportCryptoKeyVersion.
-	priv, err := rsa.GenerateKey(rand.Reader, bits)
+	protection := kmsProtectionLevelString(requested.GetProtectionLevel())
+	// The private half of the wrapping key stays here for ImportCryptoKeyVersion.
+	material, pub, err := kmsNewImportJobKey(method, protection)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not generate wrapping key: %v", err)
-	}
-	pemStr, err := kmsPublicKeyPEM(&priv.PublicKey)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not encode wrapping public key: %v", err)
-	}
-	privatePEM, err := kmsPrivateKeyPEM(priv)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "could not encode wrapping private key: %v", err)
+		return nil, err
 	}
 	now := kmsNow()
 	job := kmsImportJob{
 		Name:            name,
 		ImportMethod:    method,
-		ProtectionLevel: kmsProtectionLevelString(requested.GetProtectionLevel()),
+		ProtectionLevel: protection,
 		State:           "ACTIVE",
-		PublicKey:       &kmsWrappingPubKey{Pem: pemStr},
+		PublicKey:       pub,
 		CreateTime:      now,
 		GenerateTime:    now,
 	}
 	kmsImportJobs.Put(name, job)
-	kmsImportJobMaterial.Put(name, kmsKeyMaterialRecord{PrivatePEM: privatePEM})
+	kmsImportJobMaterial.Put(name, material)
 	return kmsImportJobToProto(job), nil
 }
 
@@ -997,7 +1033,11 @@ func (s *cloudKmsGRPC) GetImportJob(ctx context.Context, req *kmspb.GetImportJob
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "ImportJob %s not found", name)
 	}
-	return kmsImportJobToProto(job), nil
+	view, err := kmsImportJobView(job, req.GetPublicKeyFormat().String())
+	if err != nil {
+		return nil, err
+	}
+	return kmsImportJobToProto(view), nil
 }
 
 func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImportJobsRequest) (*kmspb.ListImportJobsResponse, error) {
@@ -1032,16 +1072,8 @@ func (s *cloudKmsGRPC) ImportCryptoKeyVersion(ctx context.Context, req *kmspb.Im
 		return nil, status.Error(codes.FailedPrecondition, "ImportJob is not active in the target key ring")
 	}
 	jobMaterial, ok := kmsImportJobMaterial.Get(jobName)
-	if !ok || len(jobMaterial.PrivatePEM) == 0 {
+	if !ok {
 		return nil, status.Error(codes.Internal, "ImportJob wrapping key material is unavailable")
-	}
-	privateKey, err := kmsPrivateFromPEM(jobMaterial.PrivatePEM)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "ImportJob private key is invalid: %v", err)
-	}
-	rsaPrivate, isRSA := privateKey.(*rsa.PrivateKey)
-	if !isRSA {
-		return nil, status.Error(codes.Internal, "ImportJob wrapping key is not RSA")
 	}
 	// wrapped_key and the deprecated rsa_aes_wrapped_key carry the same blob;
 	// exactly one of them belongs in a request.
@@ -1053,9 +1085,9 @@ func (s *cloudKmsGRPC) ImportCryptoKeyVersion(ctx context.Context, req *kmspb.Im
 	if len(wrapped) == 0 {
 		wrapped = legacy
 	}
-	raw, err := kmsUnwrapImportJobMaterial(rsaPrivate, job.ImportMethod, wrapped)
+	raw, err := kmsUnwrapImported(job, jobMaterial, wrapped)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "could not unwrap key material: %v", err)
+		return nil, err
 	}
 	algorithm := key.Algorithm
 	if req.GetAlgorithm() != kmspb.CryptoKeyVersion_CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED {
@@ -1172,8 +1204,8 @@ func (s *cloudKmsGRPC) ExportTrustedKeyWrappedCryptoKeyVersion(ctx context.Conte
 }
 
 // DeleteCryptoKey removes the CryptoKey and its IAM policy once every version
-// has been deleted; the delete does not cascade, and the Operation returns
-// done.
+// has been deleted, and retires its name; the delete does not cascade, and the
+// Operation returns done.
 func (s *cloudKmsGRPC) DeleteCryptoKey(ctx context.Context, req *kmspb.DeleteCryptoKeyRequest) (*longrunningpb.Operation, error) {
 	name := kmsNormalizeName(req.GetName())
 	if _, ok := kmsCryptoKeys.Get(name); !ok {
@@ -1182,9 +1214,8 @@ func (s *cloudKmsGRPC) DeleteCryptoKey(ctx context.Context, req *kmspb.DeleteCry
 	if reason := kmsCryptoKeyUndeletable(name); reason != "" {
 		return nil, status.Error(codes.FailedPrecondition, reason)
 	}
-	kmsCryptoKeys.Delete(name)
-	kmsIamPolicies.Delete(name)
-	return kmsCompletedOperation(name, &kmspb.DeleteCryptoKeyMetadata{})
+	retired := kmsRetireCryptoKey(name)
+	return kmsCompletedOperation(name, &kmspb.DeleteCryptoKeyMetadata{RetiredResource: retired.Name})
 }
 
 // DeleteCryptoKeyVersion removes a single version and its key material, for the
@@ -1233,11 +1264,28 @@ func (s *cloudKmsGRPC) GetRetiredResource(ctx context.Context, req *kmspb.GetRet
 	return kmsRetiredResourceToProto(rr), nil
 }
 
-// Decapsulate refuses key encapsulation (ML-KEM / X-Wing) rather than invent a
-// shared secret, as the REST spelling does.
 func (s *cloudKmsGRPC) Decapsulate(ctx context.Context, req *kmspb.DecapsulateRequest) (*kmspb.DecapsulateResponse, error) {
 	name := kmsNormalizeName(req.GetName())
-	return nil, status.Errorf(codes.FailedPrecondition, "decapsulate is not supported for CryptoKeyVersion %s", name)
+	version, material, err := kmsLoadEnabledVersionGRPC(name)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := kmsVerifyCRC32C(req.GetCiphertext(), req.GetCiphertextCrc32C(), "ciphertext")
+	if err != nil {
+		return nil, err
+	}
+	secret, err := kmsDecapsulate(version, material, req.GetCiphertext())
+	if err != nil {
+		return nil, err
+	}
+	crc := kmsCRC(secret)
+	return &kmspb.DecapsulateResponse{
+		Name:                     name,
+		SharedSecret:             secret,
+		SharedSecretCrc32C:       &crc,
+		VerifiedCiphertextCrc32C: verified,
+		ProtectionLevel:          kmsProtectionLevelFromString(version.ProtectionLevel),
+	}, nil
 }
 
 // kmsResolveEncryptVersion resolves a CryptoKey to its primary version, or a
@@ -1285,28 +1333,6 @@ func kmsLoadEnabledVersionGRPC(versionName string) (kmsCryptoKeyVersion, kmsKeyM
 	return version, material, nil
 }
 
-// kmsDigestBytes extracts the digest payload from the oneof, asserting it
-// matches the algorithm's expected hash size.
-func kmsDigestBytes(d *kmspb.Digest, algorithm string) ([]byte, error) {
-	switch algorithm {
-	case "RSA_SIGN_PKCS1_4096_SHA512", "RSA_SIGN_PSS_4096_SHA512":
-		if d.GetSha512() == nil {
-			return nil, fmt.Errorf("algorithm %s requires digest.sha512", algorithm)
-		}
-		return d.GetSha512(), nil
-	case "EC_SIGN_P384_SHA384":
-		if d.GetSha384() == nil {
-			return nil, fmt.Errorf("algorithm %s requires digest.sha384", algorithm)
-		}
-		return d.GetSha384(), nil
-	default:
-		if d.GetSha256() == nil {
-			return nil, fmt.Errorf("algorithm %s requires digest.sha256", algorithm)
-		}
-		return d.GetSha256(), nil
-	}
-}
-
 // cryptoHashForAlg maps an asymmetric algorithm to the digest Cloud KMS hashes
 // the message with.
 func cryptoHashForAlg(algorithm string) crypto.Hash {
@@ -1320,14 +1346,6 @@ func cryptoHashForAlg(algorithm string) crypto.Hash {
 	default:
 		return crypto.SHA256
 	}
-}
-
-// kmsHashForMessage hashes a raw message with the algorithm's digest for the
-// "data supplied instead of digest" AsymmetricSign path.
-func kmsHashForMessage(algorithm string, msg []byte) []byte {
-	h := cryptoHashForAlg(algorithm).New()
-	h.Write(msg)
-	return h.Sum(nil)
 }
 
 func formatTimestamp(ts *timestamppb.Timestamp) string {
@@ -1345,7 +1363,7 @@ func kmsDurationString(d *durationpb.Duration) string {
 }
 
 // kmsImportJobToProto leaves attestation and cryptoKeyBackend unset: the
-// wrapping key is a software RSA key pair with no HSM or external backend.
+// wrapping key is a software key pair with no HSM or external backend.
 func kmsImportJobToProto(j kmsImportJob) *kmspb.ImportJob {
 	out := &kmspb.ImportJob{
 		Name:            j.Name,
@@ -1358,7 +1376,10 @@ func kmsImportJobToProto(j kmsImportJob) *kmspb.ImportJob {
 		ExpireEventTime: kmsParseRFC3339(j.ExpireEventTime),
 	}
 	if j.PublicKey != nil {
-		out.PublicKey = &kmspb.ImportJob_WrappingPublicKey{Pem: j.PublicKey.Pem}
+		out.PublicKey = &kmspb.ImportJob_WrappingPublicKey{Pem: j.PublicKey.Pem, Data: j.PublicKey.Data}
+	}
+	if j.PublicKeyFormat != "" {
+		out.PublicKeyFormat = kmspb.PublicKey_PublicKeyFormat(kmspb.PublicKey_PublicKeyFormat_value[j.PublicKeyFormat])
 	}
 	return out
 }
@@ -1379,8 +1400,8 @@ func kmsImportJobStateFromString(s string) kmspb.ImportJob_ImportJobState {
 	return kmspb.ImportJob_IMPORT_JOB_STATE_UNSPECIFIED
 }
 
-// kmsWrappingKeyBits returns an import method's RSA modulus size, and false for
-// the HPKE key-encapsulation methods, which the simulator does not implement.
+// kmsWrappingKeyBits returns an RSA import method's modulus size, and false for
+// any other method.
 func kmsWrappingKeyBits(importMethod string) (int, bool) {
 	switch importMethod {
 	case "RSA_OAEP_3072_SHA1_AES_256", "RSA_OAEP_3072_SHA256_AES_256", "RSA_OAEP_3072_SHA256":
@@ -1462,8 +1483,7 @@ func kmsLoadTrustedWrappingKeyGRPC(name string) (kmsCryptoKeyVersion, kmsKeyMate
 }
 
 // kmsCompletedOperation wraps a finished deletion in a done Operation with an
-// empty result, as the REST DELETE answers. DeleteCryptoKeyMetadata's
-// retired_resource stays unset: a delete records no RetiredResource.
+// empty result, as the REST DELETE answers.
 func kmsCompletedOperation(resourceName string, metadata proto.Message) (*longrunningpb.Operation, error) {
 	result, err := anypb.New(&emptypb.Empty{})
 	if err != nil {
