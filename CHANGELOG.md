@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.2](https://github.com/e6qu/sockerless-cloud/compare/v3.3.1...v3.3.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **gcp:** do the real work in Cloud KMS, Compute Engine, Secret Manager, Cloud Build, Cloud Logging and Firestore ([#371](https://github.com/e6qu/sockerless-cloud/issues/371)) ([d595560](https://github.com/e6qu/sockerless-cloud/commit/d595560b5a4f9657082786a5432974b2591e996d))
+
 ## [3.3.1](https://github.com/e6qu/sockerless-cloud/compare/v3.3.0...v3.3.1) (2026-11-01)
 
 
