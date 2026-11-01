@@ -230,8 +230,8 @@ func TestCloudSQL_BackupRunsReturnOperations(t *testing.T) {
 	require.Equal(t, "DELETE_BACKUP", deleteOp.OperationType)
 }
 
-// TestCloudSQL_InstanceUpdateAndActions: instances.update (PUT) and
-// instances.restart each return a DONE Operation.
+// TestCloudSQL_InstanceUpdateAndActions: instances.update (PUT) answers a DONE
+// Operation and instances.restart a RESTART one that settles.
 func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 	t.Parallel()
 	svc := sqlAdminService(t)
@@ -262,8 +262,8 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 
 	restartOp, err := svc.Instances.Restart(project, instanceName).Do()
 	require.NoError(t, err)
-	require.Equal(t, "DONE", restartOp.Status)
 	require.Equal(t, "RESTART", restartOp.OperationType)
+	waitSQLOperationDone(t, svc, project, restartOp.Name)
 }
 
 func TestCloudSQL_FlagsAndTiers(t *testing.T) {

@@ -28,6 +28,7 @@ type SQLInstance struct {
 	InstanceType                     string           `json:"instanceType,omitempty"`
 	ConnectionName                   string           `json:"connectionName,omitempty"`
 	GceZone                          string           `json:"gceZone,omitempty"`
+	SecondaryGceZone                 string           `json:"secondaryGceZone,omitempty"`
 	CreateTime                       string           `json:"createTime,omitempty"`
 	DatabaseCenterIntegrationEnabled *bool            `json:"databaseCenterIntegrationEnabled,omitempty"`
 	OnPremisesConfiguration          map[string]any   `json:"onPremisesConfiguration,omitempty"`
@@ -79,6 +80,8 @@ type SQLOperation struct {
 	EndTime       string                 `json:"endTime,omitempty"`
 	Error         *SQLOperationErrorList `json:"error,omitempty"`
 	SelfLink      string                 `json:"selfLink,omitempty"`
+
+	PreCheckMajorVersionUpgradeContext map[string]any `json:"preCheckMajorVersionUpgradeContext,omitempty"`
 }
 
 // SQLBackupRun is a per-instance backup run: ENQUEUED on insert, then
@@ -143,13 +146,10 @@ var (
 // Operation envelope. The handler checks the instance exists and answers a
 // DONE operation; it does not act on the engine.
 var sqlInstanceOperationActions = []string{
-	"restart", "failover", "demote", "demoteMaster", "export", "import",
-	"reencrypt", "startReplica", "stopReplica",
-	"promoteReplica", "switchover", "truncateLog", "resetSslConfig",
-	"resetReplicaSize", "rotateServerCa", "rotateServerCertificate",
+	"export", "import", "resetSslConfig",
+	"rotateServerCa", "rotateServerCertificate",
 	"rotateEntraIdCertificate", "addServerCa", "addServerCertificate",
-	"addEntraIdCertificate", "startExternalSync", "performDiskShrink",
-	"preCheckMajorVersionUpgrade", "rescheduleMaintenance",
+	"addEntraIdCertificate",
 }
 
 func registerCloudSQL(srv *sim.Server) {
@@ -163,11 +163,14 @@ func registerCloudSQL(srv *sim.Server) {
 	sqlBackups = sim.MakeStore[SQLBackup](srv.DB(), "sql_backups")
 
 	sqlBlueGreenDeployments = sim.MakeStore[SQLBlueGreenDeployment](srv.DB(), "sql_blue_green_deployments")
+	sqlRecoverOperations()
 
 	registerCloudSQLPrefix(srv, "/v1")
 	registerCloudSQLPrefix(srv, "/sql/v1beta4")
 	registerCloudSQLBlueGreenPrefix(srv, "/v1")
 	registerCloudSQLBlueGreenPrefix(srv, "/sql/v1beta4")
+	registerCloudSQLLifecyclePrefix(srv, "/v1")
+	registerCloudSQLLifecyclePrefix(srv, "/sql/v1beta4")
 
 	// instances.pointInTimeRestore's /sql/v1beta4 spelling. The /v1 pattern
 	// `POST /v1/projects/{...}` belongs to Cloud Resource Manager's project
@@ -230,7 +233,6 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("GET "+prefix+"/locations/{location}/dns/{dnsNameAction}", handleSQLConnectResolve)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}", handleSQLInstanceColonVerb)
 
-	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getDiskShrinkConfig", handleSQLGetDiskShrinkConfig)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getLatestRecoveryTime", handleSQLGetLatestRecoveryTime)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCas", handleSQLListServerCas)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCertificates", handleSQLListServerCertificates)
@@ -790,6 +792,7 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		Settings:                         req.Settings,
 		SelfLink:                         gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
 	}
+	sqlPlaceZones(&inst, nil)
 	sqlReportDataPlane(&inst)
 	sqlInstances.Put(sqlInstanceKey(project, req.Name), inst)
 	// The built-in admin user Cloud SQL creates with the instance — postgres
@@ -855,6 +858,8 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
+		before := sqlLocationPreference(i.Settings)
+		defer sqlPlaceZones(i, before)
 		if req.DatabaseVersion != "" {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
@@ -1200,6 +1205,8 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
+		before := sqlLocationPreference(i.Settings)
+		defer sqlPlaceZones(i, before)
 		if req.DatabaseVersion != "" {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
@@ -1262,31 +1269,16 @@ func handleSQLWriteDatabase(w http.ResponseWriter, r *http.Request, replace bool
 // Operation.operationType. Verbs without a distinct enum fall back to the
 // uppercased verb.
 var sqlInstanceActionOpType = map[string]string{
-	"restart":                     "RESTART",
-	"failover":                    "FAILOVER",
-	"demote":                      "DEMOTE",
-	"demoteMaster":                "DEMOTE_MASTER",
-	"export":                      "EXPORT",
-	"import":                      "IMPORT",
-	"reencrypt":                   "REENCRYPT",
-	"restoreBackup":               "RESTORE_VOLUME",
-	"startReplica":                "START_REPLICA",
-	"stopReplica":                 "STOP_REPLICA",
-	"promoteReplica":              "PROMOTE_REPLICA",
-	"switchover":                  "SWITCHOVER",
-	"truncateLog":                 "TRUNCATE_LOG",
-	"resetSslConfig":              "RESET_SSL_CONFIG",
-	"resetReplicaSize":            "RESET_REPLICA_SIZE",
-	"rotateServerCa":              "ROTATE_SERVER_CA",
-	"rotateServerCertificate":     "ROTATE_SERVER_CERTIFICATE",
-	"rotateEntraIdCertificate":    "ROTATE_ENTRA_ID_CERTIFICATE",
-	"addServerCa":                 "ADD_SERVER_CA",
-	"addServerCertificate":        "ADD_SERVER_CERTIFICATE",
-	"addEntraIdCertificate":       "ADD_ENTRA_ID_CERTIFICATE",
-	"startExternalSync":           "START_EXTERNAL_SYNC",
-	"performDiskShrink":           "SHRINK_DISK",
-	"preCheckMajorVersionUpgrade": "PRE_CHECK_MAJOR_VERSION_UPGRADE",
-	"rescheduleMaintenance":       "RESCHEDULE_MAINTENANCE",
+	"export":                   "EXPORT",
+	"import":                   "IMPORT",
+	"restoreBackup":            "RESTORE_VOLUME",
+	"resetSslConfig":           "RESET_SSL_CONFIG",
+	"rotateServerCa":           "ROTATE_SERVER_CA",
+	"rotateServerCertificate":  "ROTATE_SERVER_CERTIFICATE",
+	"rotateEntraIdCertificate": "ROTATE_ENTRA_ID_CERTIFICATE",
+	"addServerCa":              "ADD_SERVER_CA",
+	"addServerCertificate":     "ADD_SERVER_CERTIFICATE",
+	"addEntraIdCertificate":    "ADD_ENTRA_ID_CERTIFICATE",
 }
 
 // handleSQLRestoreBackup restores a backup onto the instance: the engine is
@@ -1457,19 +1449,6 @@ func handleSQLVerifyExternalSyncSettings(w http.ResponseWriter, r *http.Request)
 		"kind":     "sql#verifyExternalSyncSettings",
 		"errors":   []any{},
 		"warnings": []any{},
-	})
-}
-
-func handleSQLGetDiskShrinkConfig(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":                "sql#getDiskShrinkConfig",
-		"minimalTargetSizeGb": "10",
 	})
 }
 

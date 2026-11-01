@@ -173,5 +173,6 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-spanner`](gcp-spanner.md)
 - [`gcp-sqladmin`](gcp-sqladmin.md)
 - [`gcp-sqladmin_blue_green`](gcp-sqladmin_blue_green.md)
+- [`gcp-sqladmin_lifecycle`](gcp-sqladmin_lifecycle.md)
 - [`gcp-sts`](gcp-sts.md)
 - [`gcp-vpcaccess`](gcp-vpcaccess.md)

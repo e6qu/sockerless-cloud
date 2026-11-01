@@ -153,3 +153,13 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `kms-delete-kms-resources.md.gz` | `docs.cloud.google.com` | `kms/docs/delete-kms-resources` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:53Z |
 | `kms-autokey-overview.md.gz` | `docs.cloud.google.com` | `kms/docs/autokey-overview` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:53Z |
 | `kms-create-resource-with-autokey.md.gz` | `docs.cloud.google.com` | `kms/docs/create-resource-with-autokey` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:55Z |
+| `sql-start-stop-restart.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/start-stop-restart-instance` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:13:23Z |
+| `sql-configure-ha.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/configure-ha` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:13:24Z |
+| `sql-high-availability.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/high-availability` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:13:26Z |
+| `sql-maintenance.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/maintenance` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:13:28Z |
+| `sql-upgrade-major-version.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/upgrade-major-db-version-inplace` | CC-BY-4.0 | `modified2026-10-28` | 2026-11-01T14:13:31Z |
+| `sql-instance-settings.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/instance-settings` | CC-BY-4.0 | `modified2026-10-29` | 2026-11-01T14:13:32Z |
+| `sql-mysql-error-messages.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/error-messages` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:15Z |
+| `sql-about-storage-shrink.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/about-storage-shrink` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:18:58Z |
+| `sql-shrink-storage.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/shrink-instance-storage-capacity` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-01T14:19:20Z |
+| `sql-mysql-upgrade-major-version.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/upgrade-major-db-version-inplace` | CC-BY-4.0 | `modified2026-10-28` | 2026-11-01T14:20:31Z |
