@@ -396,20 +396,7 @@ func handleIMDSIdentityToken(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	expires := now.Add(24 * time.Hour)
-	token, err := mintAzureSimSignedJWT(map[string]any{
-		"aud":       resource,
-		"iss":       fmt.Sprintf("https://sts.windows.net/%s/", simTenantID),
-		"oid":       identity.principalID,
-		"sub":       identity.principalID,
-		"tid":       simTenantID,
-		"appid":     identity.clientID,
-		"idtyp":     "app",
-		"xms_mirid": identity.resourceID,
-		"iat":       now.Unix(),
-		"nbf":       now.Unix(),
-		"exp":       expires.Unix(),
-		"ver":       "1.0",
-	})
+	token, err := azureManagedIdentityToken(identity, resource, now, expires)
 	if err != nil {
 		imdsIdentityError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return
@@ -432,6 +419,25 @@ func handleIMDSIdentityToken(w http.ResponseWriter, r *http.Request) {
 		out["msi_res_id"] = identity.resourceID
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+// azureManagedIdentityToken is the access token Microsoft Entra ID issues a
+// managed identity for resource, valid from now until expires.
+func azureManagedIdentityToken(identity appServiceIdentity, resource string, now, expires time.Time) (string, error) {
+	return mintAzureSimSignedJWT(map[string]any{
+		"aud":       resource,
+		"iss":       fmt.Sprintf("https://sts.windows.net/%s/", simTenantID),
+		"oid":       identity.principalID,
+		"sub":       identity.principalID,
+		"tid":       simTenantID,
+		"appid":     identity.clientID,
+		"idtyp":     "app",
+		"xms_mirid": identity.resourceID,
+		"iat":       now.Unix(),
+		"nbf":       now.Unix(),
+		"exp":       expires.Unix(),
+		"ver":       "1.0",
+	})
 }
 
 // azureResourceIdentity is the managed identity of the resource resourceID —
