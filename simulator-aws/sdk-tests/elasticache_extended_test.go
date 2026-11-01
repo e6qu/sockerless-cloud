@@ -49,7 +49,7 @@ func TestElastiCache_UsersAndGroups(t *testing.T) {
 	grp, err := c.CreateUserGroup(ctx, &elasticache.CreateUserGroupInput{
 		UserGroupId: aws.String(groupID),
 		Engine:      aws.String("redis"),
-		UserIds:     []string{userID},
+		UserIds:     []string{"default", userID},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, groupID, aws.ToString(grp.UserGroupId))
@@ -73,12 +73,12 @@ func TestElastiCache_UsersAndGroups(t *testing.T) {
 	_, err = c.DeleteUserGroup(ctx, &elasticache.DeleteUserGroupInput{UserGroupId: aws.String(groupID)})
 	require.NoError(t, err)
 	_, err = c.DescribeUserGroups(ctx, &elasticache.DescribeUserGroupsInput{UserGroupId: aws.String(groupID)})
-	assertAWSAPIErrorCode(t, err, "UserGroupNotFoundFault")
+	assertAWSAPIErrorCode(t, err, "UserGroupNotFound")
 
 	_, err = c.DeleteUser(ctx, &elasticache.DeleteUserInput{UserId: aws.String(userID)})
 	require.NoError(t, err)
 	_, err = c.DescribeUsers(ctx, &elasticache.DescribeUsersInput{UserId: aws.String(userID)})
-	assertAWSAPIErrorCode(t, err, "UserNotFoundFault")
+	assertAWSAPIErrorCode(t, err, "UserNotFound")
 }
 
 func TestElastiCache_ParameterDetail(t *testing.T) {

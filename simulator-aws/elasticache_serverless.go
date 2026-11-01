@@ -328,6 +328,17 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 			major = "1.6"
 		}
 	}
+	userGroup := strings.ToLower(r.FormValue("UserGroupId"))
+	if userGroup != "" {
+		if engine == "memcached" {
+			ecErrorXML(w, "InvalidParameterCombination", "UserGroupId is available for Valkey and Redis OSS only.", http.StatusBadRequest, requestID)
+			return
+		}
+		if code, message, status, ok := ecCheckUserGroupsFor(engine, []string{userGroup}); !ok {
+			ecErrorXML(w, code, message, status, requestID)
+			return
+		}
+	}
 	storageType := "sse-elasticache"
 	if r.FormValue("KmsKeyId") != "" {
 		storageType = "sse-kms"
@@ -356,7 +367,7 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		EndpointPort:           port,
 		ReaderEndpointPort:     port + ecServerlessReaderOffset,
 		ARN:                    ecServerlessCacheARN(name),
-		UserGroupId:            r.FormValue("UserGroupId"),
+		UserGroupId:            userGroup,
 		SubnetIds:              ecParseStringList(r, "SubnetIds", "SubnetId"),
 		SnapshotRetentionLimit: atoiOrZero(r.FormValue("SnapshotRetentionLimit")),
 		DailySnapshotTime:      r.FormValue("DailySnapshotTime"),
@@ -428,18 +439,39 @@ func handleECDescribeServerlessCaches(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleECModifyServerlessCache(w http.ResponseWriter, r *http.Request) {
+	requestID := sim.RequestID(r.Context())
 	name := r.FormValue("ServerlessCacheName")
-	if _, ok := ecServerlessCaches.Get(name); !ok {
-		ecErrorXML(w, "ServerlessCacheNotFoundFault", "Serverless cache not found", http.StatusNotFound, sim.RequestID(r.Context()))
+	current, ok := ecServerlessCaches.Get(name)
+	if !ok {
+		ecErrorXML(w, "ServerlessCacheNotFoundFault", "Serverless cache not found", http.StatusNotFound, requestID)
 		return
 	}
+	if current.Status != "available" {
+		ecErrorXML(w, "InvalidServerlessCacheStateFault",
+			fmt.Sprintf("Serverless cache %s is %s, not available.", name, current.Status), http.StatusBadRequest, requestID)
+		return
+	}
+	userGroup := current.UserGroupId
+	if ecRequestedBool(r, "RemoveUserGroup") {
+		userGroup = ""
+	}
+	if v := strings.ToLower(r.FormValue("UserGroupId")); v != "" {
+		if current.Engine == "memcached" {
+			ecErrorXML(w, "InvalidParameterCombination", "UserGroupId is available for Valkey and Redis OSS only.", http.StatusBadRequest, requestID)
+			return
+		}
+		if code, message, status, ok := ecCheckUserGroupsFor(current.Engine, []string{v}); !ok {
+			ecErrorXML(w, code, message, status, requestID)
+			return
+		}
+		userGroup = v
+	}
+	users := userGroup != current.UserGroupId
 	ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
 		if v := r.FormValue("Description"); v != "" {
 			c.Description = v
 		}
-		if v := r.FormValue("UserGroupId"); v != "" {
-			c.UserGroupId = v
-		}
+		c.UserGroupId = userGroup
 		if v := r.FormValue("SnapshotRetentionLimit"); v != "" {
 			c.SnapshotRetentionLimit = atoiOrZero(v)
 		}
@@ -450,9 +482,24 @@ func handleECModifyServerlessCache(w http.ResponseWriter, r *http.Request) {
 			c.SecurityGroupIds = ids
 		}
 		ecParseUsageLimits(r, c)
+		if users {
+			c.Status = "modifying"
+		}
 	})
 	updated, _ := ecServerlessCaches.Get(name)
-	ecXMLResponse(w, "ModifyServerlessCache", renderECServerlessCache(updated), sim.RequestID(r.Context()))
+	if users {
+		engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
+		ecRunInBackground(engine, func(e *ecEngine) error {
+			return e.redis.ApplyUsers(e.redis.Nodes())
+		}, func(error) {
+			ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
+				if c.Incarnation == current.Incarnation && c.Status == "modifying" {
+					c.Status = "available"
+				}
+			})
+		})
+	}
+	ecXMLResponse(w, "ModifyServerlessCache", renderECServerlessCache(updated), requestID)
 }
 
 func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
@@ -462,9 +509,9 @@ func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheNotFoundFault", "Serverless cache not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if c.Status == "deleting" {
+	if !ecDeletable(c.Status) {
 		ecErrorXML(w, "InvalidServerlessCacheStateFault",
-			fmt.Sprintf("Serverless cache %s is already being deleted.", name), http.StatusBadRequest, sim.RequestID(r.Context()))
+			fmt.Sprintf("Serverless cache %s is %s, not available.", name, c.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	final := r.FormValue("FinalSnapshotName")
@@ -518,6 +565,15 @@ func ecRecoverServerlessTransitions() {
 		case "creating":
 			engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
 			ecRunInBackground(engine, (*ecEngine).start, func(err error) { ecSettleServerlessCache(name, incarnation, err) })
+		case "modifying":
+			engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
+			ecRunInBackground(engine, (*ecEngine).start, func(error) {
+				ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
+					if c.Incarnation == incarnation {
+						c.Status = "available"
+					}
+				})
+			})
 		}
 	}
 }

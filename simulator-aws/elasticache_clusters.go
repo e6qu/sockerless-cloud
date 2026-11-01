@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +44,10 @@ type ECCluster struct {
 	// Tells a background transition apart from one on a cluster recreated under
 	// the same identifier.
 	Incarnation string `json:",omitempty"`
+	// The AUTH tokens the default user accepts (elasticache_auth.go).
+	AuthTokens []byte `json:",omitempty"`
+	// The version of a Memcached cluster's Auto Discovery configuration.
+	ConfigVersion int `json:",omitempty"`
 }
 
 type ECCacheNode struct {
@@ -86,8 +91,10 @@ type ECReplicationGroup struct {
 	TransitEncryptionEnabled bool          `json:",omitempty"`
 	TransitEncryptionMode    string        `json:",omitempty"`
 	// The member cluster each engine node is.
-	MemberNodes map[int]string `json:",omitempty"`
-	Incarnation string         `json:",omitempty"`
+	MemberNodes  map[int]string `json:",omitempty"`
+	Incarnation  string         `json:",omitempty"`
+	AuthTokens   []byte         `json:",omitempty"`
+	UserGroupIds []string       `json:",omitempty"`
 }
 
 type ECNodeGroup struct {
@@ -293,8 +300,14 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
 		return
 	}
+	tokens, err := ecSealTokens(ecInitialTokens(token))
+	if err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+		return
+	}
 	created := ecNow()
 	c := ECCluster{
+		AuthTokens:                tokens,
 		CacheClusterId:            id,
 		CacheNodeType:             r.FormValue("CacheNodeType"),
 		Engine:                    engine,
@@ -334,6 +347,9 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Endpoint, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
 	c.CacheNodes = ecClusterNodes(c, endpoints, nodes, "creating", created)
+	if engine == "memcached" {
+		c.ConfigVersion = 1
+	}
 	ecClusters.Put(id, c)
 	restore.begin()
 	ecRunInBackground(running, restore.start(false), func(err error) {
@@ -433,6 +449,10 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "CacheClusterNotFound", "Cluster not found", http.StatusNotFound, requestID)
 		return
 	}
+	if c.CacheClusterStatus != "available" {
+		ecInvalidClusterState(w, r, c)
+		return
+	}
 	nodes := c.NumCacheNodes
 	if v := r.FormValue("NumCacheNodes"); v != "" {
 		nodes = atoiOrZero(v)
@@ -445,39 +465,55 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "InvalidParameterValue", "NumCacheNodes must be between 1 and 40 for Memcached.", http.StatusBadRequest, requestID)
 		return
 	}
-	version := ecEngineVersion{Version: c.EngineVersion}
-	if v := r.FormValue("EngineVersion"); v != "" {
-		resolved, known := ecResolveEngineVersion(c.Engine, v)
-		if !known {
-			ecErrorXML(w, "InvalidParameterCombination", fmt.Sprintf("Cannot find version %s for %s", v, c.Engine), http.StatusBadRequest, requestID)
-			return
-		}
-		if resolved.Version != c.EngineVersion {
-			version = resolved
-		}
+	version, message, ok := ecUpgradeVersion(c.Engine, c.EngineVersion, r.FormValue("EngineVersion"))
+	if !ok {
+		ecErrorXML(w, "InvalidParameterCombination", message, http.StatusBadRequest, requestID)
+		return
 	}
 	token, strategy := r.FormValue("AuthToken"), r.FormValue("AuthTokenUpdateStrategy")
 	if token != "" && !ecValidAuthToken(token) {
 		ecErrorXML(w, "InvalidParameterValue", "The AUTH token must be 16 to 128 printable ASCII characters.", http.StatusBadRequest, requestID)
 		return
 	}
-	if (token != "" || strategy == "DELETE") && c.Engine == "memcached" {
-		ecErrorXML(w, "InvalidParameterCombination", "AuthToken is only valid for Valkey or Redis OSS.", http.StatusBadRequest, requestID)
-		return
+	var tokens []string
+	if token != "" || strategy != "" {
+		if c.Engine == "memcached" {
+			ecErrorXML(w, "InvalidParameterCombination", "AuthToken is only valid for Valkey or Redis OSS.", http.StatusBadRequest, requestID)
+			return
+		}
+		if !c.TransitEncryptionEnabled {
+			ecErrorXML(w, "InvalidParameterCombination", "AuthToken can be modified only on clusters where TransitEncryptionEnabled is true.", http.StatusBadRequest, requestID)
+			return
+		}
+		current, err := ecResourceTokens(ecKindCluster, id)
+		if err != nil {
+			ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+			return
+		}
+		next, problem := ecNextTokens(current, token, strategy, false)
+		if problem != "" {
+			ecErrorXML(w, "InvalidParameterCombination", problem, http.StatusBadRequest, requestID)
+			return
+		}
+		tokens = next
 	}
-	engineChange := nodes != c.NumCacheNodes || version.Version != c.EngineVersion || token != "" || strategy == "DELETE"
-	if engineChange && c.CacheClusterStatus != "available" {
-		ecInvalidClusterState(w, r, c)
-		return
-	}
+	engineChange := nodes != c.NumCacheNodes || version.Image != "" || tokens != nil
 	if engineChange && c.ReplicationGroupId != "" {
 		ecErrorXML(w, "InvalidCacheClusterState",
 			fmt.Sprintf("Cache cluster %s is a member of replication group %s; modify the replication group.", id, c.ReplicationGroupId), http.StatusBadRequest, requestID)
 		return
 	}
+	sealed, err := ecSealTokens(tokens)
+	if err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+		return
+	}
 	ecClusters.Update(id, func(stored *ECCluster) {
 		if v := r.FormValue("CacheNodeType"); v != "" {
 			stored.CacheNodeType = v
+		}
+		if tokens != nil {
+			stored.AuthTokens = sealed
 		}
 		if engineChange {
 			stored.CacheClusterStatus = "modifying"
@@ -487,24 +523,25 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 	if engineChange {
 		engine, _ := ecLoadEngine(ecEngineKey(ecKindCluster, id))
 		ecRunInBackground(engine, func(e *ecEngine) error {
-			return ecModifyClusterEngine(e, c, nodes, version, token, strategy)
+			return ecModifyClusterEngine(e, c.NumCacheNodes, c.Port, nodes, version, tokens != nil)
 		}, func(err error) {
 			ecClusters.Update(id, func(stored *ECCluster) {
 				if stored.Incarnation != c.Incarnation {
 					return
 				}
 				if err == nil {
-					stored.NumCacheNodes, stored.EngineVersion = nodes, version.Version
-					switch {
-					case strategy == "DELETE":
-						stored.AuthTokenEnabled = false
-					case token != "":
-						stored.AuthTokenEnabled = true
+					if version.Image != "" {
+						stored.EngineVersion = version.Version
 					}
-					stored.CacheNodes = ecClusterNodes(*stored, ecEngineEndpoints(engine), nodes, "available", stored.CacheClusterCreateTime)
+					if tokens != nil {
+						stored.AuthTokenEnabled = ecTokensEnabled(tokens)
+					}
 					if stored.Engine == "memcached" {
+						stored.ConfigVersion += max(nodes-stored.NumCacheNodes, stored.NumCacheNodes-nodes)
 						stored.Endpoint, _ = ecEndpointOf(ecEngineEndpoints(engine), cacheengine.DiscoveryEndpoint, 0)
 					}
+					stored.NumCacheNodes = nodes
+					stored.CacheNodes = ecClusterNodes(*stored, ecEngineEndpoints(engine), nodes, "available", stored.CacheClusterCreateTime)
 				}
 			})
 			ecSetClusterAvailable(id, c.Incarnation)
@@ -521,33 +558,32 @@ func ecEngineEndpoints(engine *ecEngine) []cacheengine.Endpoint {
 	return engine.endpoints()
 }
 
-func ecModifyClusterEngine(e *ecEngine, c ECCluster, nodes int, version ecEngineVersion, token, strategy string) error {
+// ecModifyClusterEngine resizes a Memcached cluster, upgrades the engine by
+// restarting every node on the version's image, and applies the engine users
+// once the cache's AUTH tokens or user groups change. A Memcached node comes
+// back from an upgrade empty; a Valkey or Redis OSS node keeps its dataset.
+func ecModifyClusterEngine(e *ecEngine, fromNodes, port, nodes int, version ecEngineVersion, users bool) error {
 	if e.memcached != nil {
-		if nodes != c.NumCacheNodes {
-			if err := e.memcached.Resize(nodes, c.Port); err != nil {
+		if nodes != fromNodes {
+			if err := e.memcached.Resize(nodes, port); err != nil {
 				return err
 			}
 		}
 		if version.Image != "" {
-			return fmt.Errorf("the simulator upgrades no Memcached engine in place")
+			if err := e.memcached.Upgrade(version.Image); err != nil {
+				return err
+			}
+			ecEngineRecords.Update(e.key, func(record *ecEngineRecord) { record.Image = version.Image })
 		}
 		return nil
 	}
-	if strategy == "DELETE" {
-		token = ""
-	}
-	if token != "" || strategy == "DELETE" {
-		if err := e.redis.SetPassword(token); err != nil {
+	if users {
+		if err := e.redis.ApplyUsers(e.redis.Nodes()); err != nil {
 			return err
 		}
-		sealed, err := ecSealToken(token)
-		if err != nil {
-			return err
-		}
-		ecEngineRecords.Update(e.key, func(record *ecEngineRecord) { record.Token = sealed })
 	}
 	if version.Image != "" {
-		if err := e.redis.Restart(nil, version.Image); err != nil {
+		if err := e.redis.Upgrade(version.Image); err != nil {
 			return err
 		}
 		ecEngineRecords.Update(e.key, func(record *ecEngineRecord) { record.Image = version.Image })
@@ -569,7 +605,7 @@ func handleECDelete(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, requestID)
 		return
 	}
-	if c.CacheClusterStatus == "deleting" {
+	if !ecDeletable(c.CacheClusterStatus) {
 		ecInvalidClusterState(w, r, c)
 		return
 	}
@@ -706,6 +742,13 @@ func renderECReplGroup(g ECReplicationGroup) string {
 	if g.TransitEncryptionMode != "" {
 		fmt.Fprintf(&b, "<TransitEncryptionMode>%s</TransitEncryptionMode>", xmlEscape(g.TransitEncryptionMode))
 	}
+	if len(g.UserGroupIds) > 0 {
+		b.WriteString("<UserGroupIds>")
+		for _, id := range g.UserGroupIds {
+			fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(id))
+		}
+		b.WriteString("</UserGroupIds>")
+	}
 	b.WriteString("<MemberClusters>")
 	for _, m := range g.MemberClusters {
 		fmt.Fprintf(&b, "<ClusterId>%s</ClusterId>", xmlEscape(m))
@@ -832,7 +875,27 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	userGroups := ecLowerAll(ecParseUserIds(r, "UserGroupIds"))
+	if len(userGroups) > 0 {
+		switch {
+		case !transit:
+			invalid("InvalidParameterCombination", "UserGroupIds can be specified only on replication groups where TransitEncryptionEnabled is true.")
+			return
+		case token != "":
+			invalid("InvalidParameterCombination", "AuthToken and UserGroupIds cannot be combined.")
+			return
+		}
+		if code, message, status, ok := ecCheckUserGroupsFor(engine, userGroups); !ok {
+			ecErrorXML(w, code, message, status, requestID)
+			return
+		}
+	}
 	sealed, err := ecSealToken(token)
+	if err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+		return
+	}
+	tokens, err := ecSealTokens(ecInitialTokens(token))
 	if err != nil {
 		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
 		return
@@ -872,6 +935,8 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		TransitEncryptionMode:    mode,
 		MemberNodes:              map[int]string{},
 		Incarnation:              sim.NewUUID(),
+		AuthTokens:               tokens,
+		UserGroupIds:             userGroups,
 	}
 	record := ecEngineRecord{
 		Kind: ecKindReplicationGroup, ID: id, Engine: engine, Image: version.Image, Cluster: clusterEnabled,
@@ -1147,39 +1212,78 @@ func ecInvalidReplGroupState(w http.ResponseWriter, r *http.Request, g ECReplica
 
 func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
+	invalid := func(code, message string) { ecErrorXML(w, code, message, http.StatusBadRequest, requestID) }
 	id := strings.ToLower(r.FormValue("ReplicationGroupId"))
 	current, ok := ecReplGroups.Get(id)
 	if !ok {
 		ecErrorXML(w, "ReplicationGroupNotFoundFault", "Replication group not found", http.StatusNotFound, requestID)
 		return
 	}
-	token, strategy := r.FormValue("AuthToken"), r.FormValue("AuthTokenUpdateStrategy")
-	if token != "" && !ecValidAuthToken(token) {
-		ecErrorXML(w, "InvalidParameterValue", "The AUTH token must be 16 to 128 printable ASCII characters.", http.StatusBadRequest, requestID)
-		return
-	}
-	if (token != "" || strategy == "DELETE") && !current.TransitEncryptionEnabled {
-		ecErrorXML(w, "InvalidParameterCombination", "AuthToken can be specified only on replication groups where TransitEncryptionEnabled is true.", http.StatusBadRequest, requestID)
-		return
-	}
-	version := ecEngineVersion{Version: current.EngineVersion}
-	if v := r.FormValue("EngineVersion"); v != "" {
-		resolved, known := ecResolveEngineVersion(current.Engine, v)
-		if !known {
-			ecErrorXML(w, "InvalidParameterCombination", fmt.Sprintf("Cannot find version %s for %s", v, current.Engine), http.StatusBadRequest, requestID)
-			return
-		}
-		if resolved.Version != current.EngineVersion && current.ClusterEnabled {
-			ecErrorXML(w, "InvalidParameterCombination", "The simulator upgrades the engine of a replication group without cluster mode only.", http.StatusBadRequest, requestID)
-			return
-		}
-		version = resolved
-	}
-	engineChange := token != "" || strategy == "DELETE" || version.Version != current.EngineVersion
-	if engineChange && current.Status != "available" {
+	if current.Status != "available" {
 		ecInvalidReplGroupState(w, r, current)
 		return
 	}
+	version, message, ok := ecUpgradeVersion(current.Engine, current.EngineVersion, r.FormValue("EngineVersion"))
+	if !ok {
+		invalid("InvalidParameterCombination", message)
+		return
+	}
+	add := ecLowerAll(ecParseUserIds(r, "UserGroupIdsToAdd"))
+	remove := ecLowerAll(ecParseUserIds(r, "UserGroupIdsToRemove"))
+	groups := slices.DeleteFunc(slices.Clone(current.UserGroupIds), func(group string) bool {
+		return ecRequestedBool(r, "RemoveUserGroups") || slices.Contains(remove, group)
+	})
+	for _, group := range add {
+		if !slices.Contains(groups, group) {
+			groups = append(groups, group)
+		}
+	}
+	groupsChange := !slices.Equal(groups, current.UserGroupIds)
+	if len(add) > 0 {
+		if !current.TransitEncryptionEnabled {
+			invalid("InvalidParameterCombination", "UserGroupIdsToAdd can be specified only on replication groups where TransitEncryptionEnabled is true.")
+			return
+		}
+		if code, message, status, ok := ecCheckUserGroupsFor(current.Engine, add); !ok {
+			ecErrorXML(w, code, message, status, requestID)
+			return
+		}
+	}
+	token, strategy := r.FormValue("AuthToken"), r.FormValue("AuthTokenUpdateStrategy")
+	if token != "" && !ecValidAuthToken(token) {
+		invalid("InvalidParameterValue", "The AUTH token must be 16 to 128 printable ASCII characters.")
+		return
+	}
+	currentTokens, err := ecResourceTokens(ecKindReplicationGroup, id)
+	if err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+		return
+	}
+	var tokens []string
+	if token != "" || strategy != "" {
+		if !current.TransitEncryptionEnabled {
+			invalid("InvalidParameterCombination", "AuthToken can be specified only on replication groups where TransitEncryptionEnabled is true.")
+			return
+		}
+		next, problem := ecNextTokens(currentTokens, token, strategy, len(current.UserGroupIds) == 0 && len(groups) > 0)
+		if problem != "" {
+			invalid("InvalidParameterCombination", problem)
+			return
+		}
+		tokens = next
+		currentTokens = next
+	}
+	if len(groups) > 0 && ecTokensEnabled(currentTokens) {
+		invalid("InvalidParameterCombination", "A replication group with user groups takes no AUTH token; specify AuthTokenUpdateStrategy DELETE.")
+		return
+	}
+	sealed, err := ecSealTokens(tokens)
+	if err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
+		return
+	}
+	users := tokens != nil || groupsChange
+	engineChange := users || version.Image != ""
 	ecReplGroups.Update(id, func(g *ECReplicationGroup) {
 		if v := r.FormValue("ReplicationGroupDescription"); v != "" {
 			g.Description = v
@@ -1207,6 +1311,10 @@ func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 				g.MultiAZ = "disabled"
 			}
 		}
+		if tokens != nil {
+			g.AuthTokens = sealed
+		}
+		g.UserGroupIds = groups
 		if engineChange {
 			g.Status = "modifying"
 		}
@@ -1215,24 +1323,17 @@ func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 	if engineChange {
 		engine, _ := ecLoadEngine(ecEngineKey(ecKindReplicationGroup, id))
 		ecRunInBackground(engine, func(e *ecEngine) error {
-			cluster := ECCluster{Engine: current.Engine, EngineVersion: current.EngineVersion}
-			if version.Version == current.EngineVersion {
-				version.Image = ""
-			}
-			return ecModifyClusterEngine(e, cluster, 1, version, token, strategy)
+			return ecModifyClusterEngine(e, 1, current.Port, 1, version, users)
 		}, func(err error) {
 			ecReplGroups.Update(id, func(g *ECReplicationGroup) {
-				if g.Incarnation != current.Incarnation {
+				if g.Incarnation != current.Incarnation || err != nil {
 					return
 				}
-				if err == nil {
+				if version.Image != "" {
 					g.EngineVersion = version.Version
-					switch {
-					case strategy == "DELETE":
-						g.AuthTokenEnabled = false
-					case token != "":
-						g.AuthTokenEnabled = true
-					}
+				}
+				if tokens != nil {
+					g.AuthTokenEnabled = ecTokensEnabled(tokens)
 				}
 			})
 			ecRefreshReplGroup(id, current.Incarnation, engine)
@@ -1282,7 +1383,7 @@ func handleECDeleteReplGroup(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ReplicationGroupNotFoundFault", "Replication group not found", http.StatusNotFound, requestID)
 		return
 	}
-	if g.Status == "deleting" {
+	if !ecDeletable(g.Status) {
 		ecInvalidReplGroupState(w, r, g)
 		return
 	}

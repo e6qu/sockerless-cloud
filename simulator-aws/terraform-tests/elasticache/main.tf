@@ -46,6 +46,43 @@ resource "aws_elasticache_replication_group" "tf_group" {
   port                       = 6385
 }
 
+resource "aws_elasticache_user" "tf_default" {
+  user_id       = "tf-rbac-default"
+  user_name     = "default"
+  engine        = "redis"
+  access_string = "off ~* +@all"
+  passwords     = ["tf-rbac-default-password"]
+}
+
+resource "aws_elasticache_user" "tf_app" {
+  user_id       = "tf-rbac-app"
+  user_name     = "tf-app"
+  engine        = "redis"
+  access_string = "on ~app:* +@all"
+
+  authentication_mode {
+    type      = "password"
+    passwords = ["tf-rbac-app-password-001"]
+  }
+}
+
+resource "aws_elasticache_user_group" "tf_users" {
+  user_group_id = "tf-rbac-users"
+  engine        = "redis"
+  user_ids      = [aws_elasticache_user.tf_default.user_id, aws_elasticache_user.tf_app.user_id]
+}
+
+resource "aws_elasticache_replication_group" "tf_rbac" {
+  replication_group_id       = "tf-rbac"
+  description                = "user groups in the engine"
+  engine                     = "redis"
+  node_type                  = "cache.t3.micro"
+  num_cache_clusters         = 1
+  port                       = 6386
+  transit_encryption_enabled = true
+  user_group_ids             = [aws_elasticache_user_group.tf_users.user_group_id]
+}
+
 resource "aws_elasticache_serverless_cache" "tf_serverless" {
   name                 = "tf-serverless"
   engine               = "valkey"
@@ -87,4 +124,10 @@ output "serverless_endpoint_address" {
 }
 output "serverless_endpoint_port" {
   value = tostring(aws_elasticache_serverless_cache.tf_serverless.endpoint[0].port)
+}
+output "rbac_primary_address" {
+  value = aws_elasticache_replication_group.tf_rbac.primary_endpoint_address
+}
+output "rbac_user_group_ids" {
+  value = join(",", aws_elasticache_replication_group.tf_rbac.user_group_ids)
 }

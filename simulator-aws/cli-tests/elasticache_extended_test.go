@@ -124,7 +124,7 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	out = runCLI(t, awsCLI("elasticache", "create-user-group",
 		"--user-group-id", groupID,
 		"--engine", "redis",
-		"--user-ids", userID))
+		"--user-ids", "default", userID))
 	var grp struct {
 		UserGroupId string   `json:"UserGroupId"`
 		UserIds     []string `json:"UserIds"`

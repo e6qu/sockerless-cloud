@@ -225,7 +225,9 @@ func (p *Plane) migrateSlotKeys(source *Conn, slot int, targetIP string) error {
 			return nil
 		}
 		args := []string{"MIGRATE", targetIP, strconv.Itoa(Port), "", "0", strconv.Itoa(int(commandDeadline / time.Millisecond))}
-		if password := p.Password(); password != "" {
+		if password := p.Password(); password != "" && p.cfg.AdminUser != "" {
+			args = append(args, "AUTH2", p.cfg.AdminUser, password)
+		} else if password != "" {
 			args = append(args, "AUTH", password)
 		}
 		args = append(args, "KEYS")
@@ -243,7 +245,7 @@ func (p *Plane) dialNode(node int) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := Dial(address, p.Password(), 5*time.Second)
+	conn, err := p.dial(address, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to node %d: %w", node, err)
 	}

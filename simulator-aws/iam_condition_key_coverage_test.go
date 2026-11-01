@@ -954,7 +954,7 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 	ecCall("CreateUser", url.Values{"UserId": {"probe"}, "UserName": {"probe"}, "Engine": {"redis"},
 		"AccessString": {"on ~* +@all"}, "NoPasswordRequired": {"true"}})
 	ecCall("CreateUserGroup", url.Values{"UserGroupId": {"probe"}, "Engine": {"redis"},
-		"UserIds.member.1": {"probe"}})
+		"UserIds.member.1": {"probe"}, "UserIds.member.2": {"default"}})
 	ecCall("CreateCacheSecurityGroup", url.Values{"CacheSecurityGroupName": {"probe"}, "Description": {"probe"}})
 	ecCall("PurchaseReservedCacheNodesOffering", url.Values{"ReservedCacheNodeId": {"probe"},
 		"ReservedCacheNodesOfferingId": {ecReservedCacheNodesOfferings[0].Id}})
