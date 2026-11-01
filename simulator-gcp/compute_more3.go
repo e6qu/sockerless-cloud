@@ -18,6 +18,7 @@ func registerComputeMore3(srv *sim.Server) {
 	// the register functions below.
 	fpGlobal := mk("compute_firewall_policies")
 	fpRegion := mk("compute_region_firewall_policies")
+	gcpNetworkFirewallPolicies, gcpRegionNetworkFirewallPolicies = fpGlobal, fpRegion
 	negGlobal := mk("compute_global_network_endpoint_groups")
 	negRegion := mk("compute_region_network_endpoint_groups")
 	negZone := mk("compute_network_endpoint_groups")
@@ -86,10 +87,8 @@ func registerComputeMore3(srv *sim.Server) {
 	// aggregatedList and the route-policy, NAT-info and BGP-route verbs.
 	registerComputeRouterMore(srv)
 
-	// registerComputeIAMTriplet keeps policies in their own table keyed by
-	// resource self link. The Discovery document declares the full triple on some
-	// collections and testIamPermissions alone on others.
-	iamStore := mk("compute_more3_iam_policies")
+	// The Discovery document declares the full IAM triple on some collections
+	// and testIamPermissions alone on others.
 	fullTriplets := []struct {
 		scope      computeScopeKind
 		collection string
@@ -104,7 +103,7 @@ func registerComputeMore3(srv *sim.Server) {
 		{cScopeGlobal, "instanceTemplates"},
 	}
 	for _, f := range fullTriplets {
-		registerComputeIAMTriplet(srv, f.scope, f.collection, iamStore)
+		registerComputeIAMTriplet(srv, f.scope, f.collection)
 	}
 
 	// Collections whose Discovery document declares only testIamPermissions.
@@ -124,28 +123,8 @@ func registerComputeMore3(srv *sim.Server) {
 		{cScopeZone, "instanceGroups"},
 	}
 	for _, f := range testOnly {
-		registerComputeTestIamOnly(srv, f.scope, f.collection)
+		registerComputeTestIamPermissions(srv, f.scope, f.collection)
 	}
-}
-
-// registerComputeTestIamOnly wires the single testIamPermissions verb for
-// a collection whose Discovery document exposes only that one IAM method.
-func registerComputeTestIamOnly(srv *sim.Server, scope computeScopeKind, collection string) {
-	base := computeScopeMux(scope, collection)
-	srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Permissions []string `json:"permissions"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		granted := req.Permissions
-		if granted == nil {
-			granted = []string{}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"permissions": granted})
-	})
 }
 
 // registerComputeFirewallPolicies wires one scope (global or regional) of
@@ -178,7 +157,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			}
 			ok := store.Update(key, func(m *map[string]any) {
 				cur := *m
-				arr, _ := cur[listField].([]map[string]any)
+				arr := computeObjectList(cur[listField])
 				arr = append(arr, body)
 				cur[listField] = arr
 			})
@@ -208,7 +187,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			}
 			ok := store.Update(key, func(m *map[string]any) {
 				cur := *m
-				arr, _ := cur[listField].([]map[string]any)
+				arr := computeObjectList(cur[listField])
 				kept := arr[:0]
 				for _, e := range arr {
 					if byPriority {
@@ -248,7 +227,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			patched := false
 			ok := store.Update(key, func(m *map[string]any) {
 				cur := *m
-				arr, _ := cur["associations"].([]map[string]any)
+				arr := computeObjectList(cur["associations"])
 				for i, entry := range arr {
 					if got, _ := entry["name"].(string); got != wanted {
 						continue
@@ -298,7 +277,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 			}
 			ok := store.Update(key, func(m *map[string]any) {
 				cur := *m
-				arr, _ := cur[listField].([]map[string]any)
+				arr := computeObjectList(cur[listField])
 				for i, e := range arr {
 					if fmt.Sprint(e["priority"]) == priority {
 						arr[i] = body
@@ -330,7 +309,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 				return
 			}
 			q := r.URL.Query().Get(queryParam)
-			arr, _ := m[listField].([]map[string]any)
+			arr := computeObjectList(m[listField])
 			for _, e := range arr {
 				if byPriority {
 					if fmt.Sprint(e["priority"]) == q {
@@ -366,7 +345,7 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 		sim.WriteJSON(w, http.StatusOK, scopeOp(r, srcKey, "cloneRules"))
 	})
 
-	registerComputeIAMTriplet(srv, scope, "firewallPolicies", sim.MakeStore[map[string]any](srv.DB(), "compute_fp_iam_"+fmt.Sprint(scope)))
+	registerComputeIAMTriplet(srv, scope, "firewallPolicies")
 }
 
 // registerComputeMultiScopeAggregated wires the aggregatedList route of a
@@ -400,14 +379,25 @@ func registerComputeMultiScopeAggregated(srv *sim.Server, collection, kind strin
 	})
 }
 
-// registerComputeRegionEffectiveFirewalls serves the regional
-// firewallPolicies.getEffectiveFirewalls read with the documented shape and an
-// empty effective set, whatever policies the network has.
+// registerComputeRegionEffectiveFirewalls serves
+// regionNetworkFirewallPolicies.getEffectiveFirewalls: the network named in
+// the query, with the regional policies of the path's region besides the
+// global and hierarchical ones.
 func registerComputeRegionEffectiveFirewalls(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/firewallPolicies/getEffectiveFirewalls", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":            "compute#firewallPoliciesListEffectiveFirewallsResponse",
-			"firewallPolicys": []map[string]any{},
+		project := sim.PathParam(r, "project")
+		ref := r.URL.Query().Get("network")
+		if ref == "" {
+			GCPError(w, http.StatusBadRequest, "network is required", "INVALID_ARGUMENT")
+			return
+		}
+		network := computeNetworkRef(project, ref)
+		if _, ok := gcpComputeNetworks.Get(network); !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "network %q not found", ref)
+			return
+		}
+		writeComputeEffectiveFirewalls(w, computeEffectiveTarget{
+			project: project, network: network, region: sim.PathParam(r, "region"),
 		})
 	})
 }
@@ -436,7 +426,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 		}
 		ok := store.Update(key, func(m *map[string]any) {
 			cur := *m
-			arr, _ := cur["networkEndpoints"].([]map[string]any)
+			arr := computeObjectList(cur["networkEndpoints"])
 			cur["networkEndpoints"] = append(arr, req.NetworkEndpoints...)
 		})
 		if !ok {
@@ -457,7 +447,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 		}
 		ok := store.Update(key, func(m *map[string]any) {
 			cur := *m
-			arr, _ := cur["networkEndpoints"].([]map[string]any)
+			arr := computeObjectList(cur["networkEndpoints"])
 			kept := arr[:0]
 			for _, e := range arr {
 				drop := false
@@ -487,7 +477,7 @@ func registerComputeNetworkEndpointGroupMembers(srv *sim.Server, scope computeSc
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "networkEndpointGroup %q not found", sim.PathParam(r, "name"))
 			return
 		}
-		endpoints, _ := m["networkEndpoints"].([]map[string]any)
+		endpoints := computeObjectList(m["networkEndpoints"])
 		items := make([]map[string]any, 0, len(endpoints))
 		for _, e := range endpoints {
 			items = append(items, map[string]any{"networkEndpoint": e})

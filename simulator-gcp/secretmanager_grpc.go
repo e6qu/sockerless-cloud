@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +39,10 @@ type secretManagerGRPC struct {
 func registerSecretManagerGRPC(gs *grpc.Server) {
 	smpb.RegisterSecretManagerServiceServer(gs, &secretManagerGRPC{})
 }
+
+// smSecretParentPattern is the parent CreateSecret takes: a project, or a
+// location in one.
+var smSecretParentPattern = regexp.MustCompile(`^projects/[^/]+(/locations/[^/]+)?$`)
 
 // smNormalizeName strips a doubled leading "projects/" from a full path.
 func smNormalizeName(name string) string {
@@ -374,6 +379,9 @@ func (s *secretManagerGRPC) ListSecrets(ctx context.Context, req *smpb.ListSecre
 
 func (s *secretManagerGRPC) CreateSecret(ctx context.Context, req *smpb.CreateSecretRequest) (*smpb.Secret, error) {
 	parent := smNormalizeName(req.GetParent())
+	if !smSecretParentPattern.MatchString(parent) {
+		return nil, status.Errorf(codes.InvalidArgument, "parent %q must be projects/{project} or projects/{project}/locations/{location}", req.GetParent())
+	}
 	if req.GetSecretId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "secret_id is required")
 	}

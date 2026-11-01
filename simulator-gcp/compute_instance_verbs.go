@@ -411,21 +411,27 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 		if !ok {
 			return
 		}
-		networks := map[string]bool{}
-		for _, iface := range instance.NetworkInterfaces {
-			if iface.Network != "" {
-				networks[iface.Network] = true
-			}
+		nicName := r.URL.Query().Get("networkInterface")
+		if nicName == "" {
+			GCPError(w, http.StatusBadRequest, "networkInterface is required", "INVALID_ARGUMENT")
+			return
 		}
-		rules := []any{}
-		if gcpFirewalls != nil {
-			for _, firewall := range gcpFirewalls.List() {
-				if networks[firewall.Network] {
-					rules = append(rules, firewall)
-				}
+		project, zone := sim.PathParam(r, "project"), sim.PathParam(r, "zone")
+		for i, nic := range instance.NetworkInterfaces {
+			if gcpDefaultString(nic.Name, fmt.Sprintf("nic%d", i)) != nicName {
+				continue
 			}
+			writeComputeEffectiveFirewalls(w, computeEffectiveTarget{
+				project:  project,
+				network:  computeNetworkRef(project, nic.Network),
+				region:   auditZoneRegion(zone),
+				instance: &instance,
+				zone:     zone,
+			})
+			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"firewalls": rules})
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"instance %q has no network interface %q", instance.Name, nicName)
 	})
 
 	policyName := func(r *http.Request) string {

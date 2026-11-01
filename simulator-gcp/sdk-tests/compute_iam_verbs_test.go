@@ -6,7 +6,57 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/option"
 )
+
+// testIamPermissions answers the permissions the caller holds on the resource
+// under its own policy and the policies it inherits, never the set it was
+// asked about.
+func TestCompute_TestIamPermissionsAnswersFromThePolicy(t *testing.T) {
+	t.Parallel()
+	const project = "iam-verbs-held"
+	ensureProject(t, project)
+	owner := computeService(t)
+	_, err := owner.BackendBuckets.Insert(project, &compute.BackendBucket{Name: "held-bb", BucketName: "held-bb-bucket"}).Do()
+	require.NoError(t, err)
+	_, err = owner.GlobalAddresses.Insert(project, &compute.Address{Name: "held-addr"}).Do()
+	require.NoError(t, err)
+
+	_, _, heldKey := mintServiceAccountKeyFile(t, "compute-held-sa")
+	_, _, unboundKey := mintServiceAccountKeyFile(t, "compute-unbound-sa")
+	const heldMember = "serviceAccount:compute-held-sa@test-project.iam.gserviceaccount.com"
+	_, err = owner.BackendBuckets.SetIamPolicy(project, "held-bb", &compute.GlobalSetPolicyRequest{
+		Policy: &compute.Policy{Bindings: []*compute.Binding{{Role: "roles/compute.viewer", Members: []string{heldMember}}}},
+	}).Do()
+	require.NoError(t, err)
+
+	as := func(keyFile map[string]any) *compute.Service {
+		svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"),
+			option.WithTokenSource(tokenSourceFromKeyFile(t, keyFile).TokenSource))
+		require.NoError(t, err)
+		return svc
+	}
+	asked := &compute.TestPermissionsRequest{Permissions: []string{"compute.backendBuckets.get", "compute.backendBuckets.delete"}}
+
+	held, err := as(heldKey).BackendBuckets.TestIamPermissions(project, "held-bb", asked).Do()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"compute.backendBuckets.get"}, held.Permissions,
+		"Compute Viewer on the backend bucket grants the read and not the delete")
+
+	none, err := as(unboundKey).BackendBuckets.TestIamPermissions(project, "held-bb", asked).Do()
+	require.NoError(t, err)
+	assert.Empty(t, none.Permissions, "a caller no binding names holds nothing")
+
+	// A collection that declares only the permission check answers the same way.
+	addressAsk := &compute.TestPermissionsRequest{Permissions: []string{"compute.addresses.get"}}
+	unboundAddress, err := as(unboundKey).GlobalAddresses.TestIamPermissions(project, "held-addr", addressAsk).Do()
+	require.NoError(t, err)
+	assert.Empty(t, unboundAddress.Permissions)
+	ownerAddress, err := owner.GlobalAddresses.TestIamPermissions(project, "held-addr", addressAsk).Do()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"compute.addresses.get"}, ownerAddress.Permissions,
+		"the bootstrap account holds Owner through the organization")
+}
 
 // The IAM verbs Compute Engine mounts beneath a resource. Most collections
 // declare only the permission check; a few carry the whole triple, and those

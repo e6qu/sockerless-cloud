@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudbuild/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // TestCloudBuild_DockerBuild: CreateBuild answers at once with the build's
@@ -114,52 +116,57 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
 }
 
-// TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret pins a divergence:
-// real Cloud Build refuses at CreateBuild with INVALID_ARGUMENT ("secretEnv ...
-// is not defined in availableSecrets") a step naming a secretEnv that
-// availableSecrets never declares, while the simulator runs the step with the
-// variable absent. A simulator taught to refuse turns this red, and the refusal
-// is then what to assert.
+// TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret: a step's secretEnv
+// must name a variable the build's secrets define, and each defined variable
+// must be used by a step, so CreateBuild refuses either build with
+// INVALID_ARGUMENT before it queues.
 func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Fatalf("docker CLI required for Cloud Build test (no fallback): %v", err)
+	const project = "cb-undeclared-secret-project"
+	ensureProject(t, project)
+	svc := cloudbuildService(t)
+	declared := &cloudbuild.Secrets{SecretManager: []*cloudbuild.SecretManagerSecret{{
+		VersionName: "projects/" + project + "/secrets/declared/versions/latest",
+		Env:         "DECLARED",
+	}}}
+
+	for name, build := range map[string]*cloudbuild.Build{
+		"undeclared": {
+			Steps: []*cloudbuild.BuildStep{{
+				Name: "gcr.io/cloud-builders/docker", Args: []string{"version"},
+				SecretEnv: []string{"DECLARED", "SIM_UNDECLARED_SECRET"},
+			}},
+			AvailableSecrets: declared,
+		},
+		"unused": {
+			Steps:            []*cloudbuild.BuildStep{{Name: "gcr.io/cloud-builders/docker", Args: []string{"version"}}},
+			AvailableSecrets: declared,
+		},
+	} {
+		_, err := svc.Projects.Builds.Create(project, build).Do()
+		var apiErr *googleapi.Error
+		require.True(t, errors.As(err, &apiErr), "%s: want a googleapi error, got %v", name, err)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, name)
 	}
-	pullImageWithRetry(t, cbBaseImage)
 
-	project := "cb-undeclared-secret-project"
-	bucket := "cb-undeclared-secret-bucket"
-	createBucket(t, project, bucket)
+	// A variable a Cloud KMS-encrypted secret defines counts as declared; the
+	// simulator does not decrypt such secrets, and says so on the wire.
+	_, err := svc.Projects.Builds.Create(project, &cloudbuild.Build{
+		Steps: []*cloudbuild.BuildStep{{
+			Name: "gcr.io/cloud-builders/docker", Args: []string{"version"}, SecretEnv: []string{"LEGACY"},
+		}},
+		Secrets: []*cloudbuild.Secret{{
+			KmsKeyName: "projects/" + project + "/locations/global/keyRings/ring/cryptoKeys/key",
+			SecretEnv:  map[string]string{"LEGACY": base64.StdEncoding.EncodeToString([]byte("ciphertext"))},
+		}},
+	}).Do()
+	var apiErr *googleapi.Error
+	require.True(t, errors.As(err, &apiErr), "want a googleapi error, got %v", err)
+	assert.Equal(t, http.StatusNotImplemented, apiErr.Code)
 
-	secretID := "declared"
-	smCreateURL := fmt.Sprintf("%s/v1/projects/%s/secrets?secretId=%s", baseURL, project, secretID)
-	httpPOST(t, smCreateURL, `{}`)
-	addVerURL := fmt.Sprintf("%s/v1/projects/%s/secrets/%s:addVersion", baseURL, project, secretID)
-	httpPOST(t, addVerURL, fmt.Sprintf(`{"payload":{"data":%q}}`,
-		base64.StdEncoding.EncodeToString([]byte("declared-payload"))))
-
-	objectName := fmt.Sprintf("undeclared-cb-%d.tar.gz", time.Now().UnixNano())
-	uploadGCSObject(t, bucket, objectName, makeTarGz(t, map[string]string{
-		"Dockerfile": "FROM " + cbBaseImage +
-			"\nARG SIM_UNDECLARED_SECRET\nRUN test -z \"$SIM_UNDECLARED_SECRET\"\n",
-	}))
-
-	// availableSecrets declares DECLARED; the step asks for a name nothing
-	// declares.
-	buildURL := fmt.Sprintf("%s/v1/projects/%s/builds", baseURL, project)
-	body := cbBuildBody(t, bucket, objectName,
-		[]any{cbDockerStep([]string{
-			"build", "--build-arg", "SIM_UNDECLARED_SECRET",
-			"-t", fmt.Sprintf("sim-cb-undeclared:gcp-sdk-%d", time.Now().UnixNano()), ".",
-		}, "SIM_UNDECLARED_SECRET")},
-		map[string]any{"secretManager": []any{map[string]any{
-			"versionName": fmt.Sprintf("projects/%s/secrets/%s/versions/latest", project, secretID),
-			"env":         "DECLARED",
-		}}})
-	built, err := waitBuild(t, readStartedBuild(t, httpPOST(t, buildURL, body)))
-	require.NoError(t, err,
-		"the build is accepted today rather than refused for the undeclared secretEnv")
-	assert.Equal(t, cloudbuildpb.Build_SUCCESS, built.GetStatus())
+	builds, err := svc.Projects.Builds.List(project).Do()
+	require.NoError(t, err)
+	assert.Empty(t, builds.Builds, "a refused build is never queued")
 }
 
 // cbBaseImage comes from mirror.gcr.io, so Docker Hub's anonymous pull

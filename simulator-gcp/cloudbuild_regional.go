@@ -275,6 +275,10 @@ func registerCloudBuildRegional(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
 			return
 		}
+		if err := cbValidateSecretEnv(build); err != nil {
+			writeAPIError(w, err)
+			return
+		}
 		build.ID = sim.NewUUID()
 		build.ProjectID = project
 		build.Status = "QUEUED"

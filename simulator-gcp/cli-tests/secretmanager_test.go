@@ -135,3 +135,12 @@ func parseJSONObject(t *testing.T, out string, target any) {
 	require.NotEqual(t, -1, jsonStart, "gcloud output did not contain JSON object: %s", out)
 	require.NoError(t, json.Unmarshal([]byte(out[jsonStart:]), target), "gcloud output: %s", out)
 }
+
+// TestSecretManagerCreateInMissingProjectCLI: a project that does not exist
+// grants nobody anything, so `gcloud secrets create` in it is refused.
+func TestSecretManagerCreateInMissingProjectCLI(t *testing.T) {
+	t.Parallel()
+	out := gcloudCLIFails(t, gcloudCLI("secrets", "create", "cli-orphan-secret",
+		"--project=cli-secret-no-such-project", "--replication-policy=automatic"))
+	require.Contains(t, out, "PERMISSION_DENIED")
+}

@@ -261,6 +261,8 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 		short = sim.NewUUID()
 	}
 	sink.Name = parent + "/sinks/" + short
+	// writerIdentity is output only.
+	sink.WriterIdentity = ""
 	if !loggingSinkAdmissible(w, sink, true) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}

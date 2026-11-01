@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +44,7 @@ type Build struct {
 	FinishTime       string            `json:"finishTime,omitempty"`
 	LogsBucket       string            `json:"logsBucket,omitempty"`
 	AvailableSecrets *AvailableSecrets `json:"availableSecrets,omitempty"`
+	Secrets          []*BuildSecret    `json:"secrets,omitempty"`
 	Substitutions    map[string]string `json:"substitutions,omitempty"`
 	Options          map[string]any    `json:"options,omitempty"`
 	Approval         *BuildApproval    `json:"approval,omitempty"`
@@ -103,6 +106,94 @@ type BuildTiming struct {
 // variable names usable by steps via `secretEnv`.
 type AvailableSecrets struct {
 	SecretManager []*SecretManagerSecret `json:"secretManager,omitempty"`
+	Inline        []*InlineSecret        `json:"inline,omitempty"`
+}
+
+// InlineSecret pairs secret environment variables with values encrypted
+// under a Cloud KMS key.
+type InlineSecret struct {
+	KmsKeyName string            `json:"kmsKeyName,omitempty"`
+	EnvMap     map[string]string `json:"envMap,omitempty"`
+}
+
+// BuildSecret is the legacy Build.secrets entry: encrypted values and the
+// Cloud KMS key that decrypts them.
+type BuildSecret struct {
+	KmsKeyName string            `json:"kmsKeyName,omitempty"`
+	SecretEnv  map[string]string `json:"secretEnv,omitempty"`
+}
+
+// cbValidateSecretEnv holds a build to the Build schema's secret rules: a
+// step's secretEnv names a variable one of the build's secrets defines, each
+// secret variable is defined once across the build's secrets, and each is used
+// by at least one step.
+func cbValidateSecretEnv(b Build) error {
+	defined := map[string]bool{}
+	define := func(name string) error {
+		if defined[name] {
+			return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT",
+				"secret environment variable %q is defined more than once", name)
+		}
+		defined[name] = true
+		return nil
+	}
+	encrypted := false
+	if b.AvailableSecrets != nil {
+		for _, sm := range b.AvailableSecrets.SecretManager {
+			if sm == nil {
+				continue
+			}
+			if err := define(sm.Env); err != nil {
+				return err
+			}
+		}
+		for _, inline := range b.AvailableSecrets.Inline {
+			if inline == nil {
+				continue
+			}
+			for _, name := range slices.Sorted(maps.Keys(inline.EnvMap)) {
+				if err := define(name); err != nil {
+					return err
+				}
+				encrypted = true
+			}
+		}
+	}
+	for _, secret := range b.Secrets {
+		if secret == nil {
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(secret.SecretEnv)) {
+			if err := define(name); err != nil {
+				return err
+			}
+			encrypted = true
+		}
+	}
+	used := map[string]bool{}
+	for i, step := range b.Steps {
+		if step == nil {
+			continue
+		}
+		for _, name := range step.SecretEnv {
+			if !defined[name] {
+				return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT",
+					"step #%d uses secretEnv %q, which none of the build's secrets defines", i, name)
+			}
+			used[name] = true
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(defined)) {
+		if !used[name] {
+			return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT",
+				"secret environment variable %q is not used by any build step", name)
+		}
+	}
+	if encrypted {
+		return apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED",
+			"the simulator does not decrypt Cloud KMS-encrypted build secrets; use availableSecrets.secretManager")
+	}
+	return nil
 }
 
 type SecretManagerSecret struct {
@@ -223,6 +314,10 @@ func registerCloudBuild(srv *sim.Server) {
 		var build Build
 		if err := sim.ReadJSON(r, &build); err != nil {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid build body: %v", err)
+			return
+		}
+		if err := cbValidateSecretEnv(build); err != nil {
+			writeAPIError(w, err)
 			return
 		}
 		build.ID = sim.NewUUID()

@@ -31,7 +31,7 @@ func registerComputePacketMirroring(srv *sim.Server) {
 	}).register(srv)
 	// The Discovery document exposes testIamPermissions on packetMirrorings
 	// and neither of the other two IAM verbs.
-	registerComputeTestIamOnly(srv, cScopeRegion, "packetMirrorings")
+	registerComputeTestIamPermissions(srv, cScopeRegion, "packetMirrorings")
 }
 
 // gcpLookupComputeResource finds a map-store resource by any of the URL forms a
