@@ -108,8 +108,11 @@ func TestKMSCLIHPKEImport(t *testing.T) {
 		`{"importMethod":"HPKE_KEM_XWING_HKDF_SHA256_AES_256_GCM","protectionLevel":"SOFTWARE"}`)
 	out := runCLI(t, gcloudCLI("kms", "import-jobs", "describe", job, "--keyring="+ring, "--location=global",
 		"--format=value(publicKey.data)"))
-	pubBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(out))
-	require.NoError(t, err)
+	// gcloud prints a bytes field in base64, URL-safe in some releases and
+	// standard in others.
+	printed := strings.NewReplacer("-", "+", "_", "/").Replace(strings.TrimSpace(out))
+	pubBytes, err := base64.StdEncoding.DecodeString(printed)
+	require.NoError(t, err, "gcloud printed %q", out)
 	recipient, err := hpke.MLKEM768X25519().NewPublicKey(pubBytes)
 	require.NoError(t, err)
 
