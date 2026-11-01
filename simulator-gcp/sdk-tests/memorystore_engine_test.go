@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -514,13 +515,12 @@ func TestMemorystoreRedis_ClusterTLSAndIAMAuth(t *testing.T) {
 	})
 	t.Cleanup(func() {
 		editProjectPolicy(t, project, func(policy *cloudresourcemanager.Policy) {
-			var kept []*cloudresourcemanager.Binding
 			for _, binding := range policy.Bindings {
-				if binding.Role != "roles/redis.dbConnectionUser" {
-					kept = append(kept, binding)
+				if binding.Role == "roles/redis.dbConnectionUser" {
+					binding.Members = slices.DeleteFunc(binding.Members, func(m string) bool { return m == member })
 				}
 			}
-			policy.Bindings = kept
+			policy.Bindings = slices.DeleteFunc(policy.Bindings, func(b *cloudresourcemanager.Binding) bool { return len(b.Members) == 0 })
 		})
 	})
 	bound := clusterClient(t, cluster, goredis.ClusterOptions{TLSConfig: tlsConfig, Password: accountToken.AccessToken})
