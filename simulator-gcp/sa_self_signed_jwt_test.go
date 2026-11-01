@@ -16,6 +16,9 @@ import (
 	"time"
 
 	smpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -118,15 +121,16 @@ func TestRESTRefusesAnUnacceptableSelfSignedJWT(t *testing.T) {
 	base := selfSignedTestServer(t)
 	now := time.Now()
 	cases := map[string]string{
-		"no kid":                selfSignedJWT(t, "", bootstrapSelfSignedClaims(now, nil)),
-		"unregistered kid":      selfSignedJWT(t, "0000000000000000000000000000000000000000", bootstrapSelfSignedClaims(now, nil)),
-		"foreign audience":      selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": "https://example.com/"})),
-		"neither aud nor scope": selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": nil})),
-		"empty aud, no scope":   selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": ""})),
-		"expired":               selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iat": now.Add(-2 * time.Hour).Unix(), "exp": now.Add(-time.Hour).Unix()})),
-		"longer than an hour":   selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"exp": now.Add(2 * time.Hour).Unix()})),
-		"issued in the future":  selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iat": now.Add(time.Hour).Unix(), "exp": now.Add(90 * time.Minute).Unix()})),
-		"unknown account":       selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iss": "nobody@sockerless.iam.gserviceaccount.com", "sub": "nobody@sockerless.iam.gserviceaccount.com"})),
+		"no kid":                 selfSignedJWT(t, "", bootstrapSelfSignedClaims(now, nil)),
+		"unregistered kid":       selfSignedJWT(t, "0000000000000000000000000000000000000000", bootstrapSelfSignedClaims(now, nil)),
+		"foreign audience":       selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": "https://example.com/"})),
+		"neither aud nor scope":  selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": nil})),
+		"empty aud, no scope":    selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": ""})),
+		"expired":                selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iat": now.Add(-2 * time.Hour).Unix(), "exp": now.Add(-time.Hour).Unix()})),
+		"longer than an hour":    selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"exp": now.Add(2 * time.Hour).Unix()})),
+		"issued in the future":   selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iat": now.Add(time.Hour).Unix(), "exp": now.Add(90 * time.Minute).Unix()})),
+		"unknown account":        selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iss": "nobody@sockerless.iam.gserviceaccount.com", "sub": "nobody@sockerless.iam.gserviceaccount.com"})),
+		"another API's audience": selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": "https://run.googleapis.com/"})),
 	}
 	for name, token := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -162,5 +166,79 @@ func TestGRPCAcceptsASelfSignedServiceAccountJWT(t *testing.T) {
 	if _, err := smpb.NewSecretManagerServiceClient(conn).ListSecrets(withBearer(context.Background(), token),
 		&smpb.ListSecretsRequest{Parent: "projects/" + gcpTestProjectID}); err != nil {
 		t.Fatalf("ListSecrets with a self-signed JWT: %v", err)
+	}
+}
+
+// A refusal names its google.api.ErrorReason, and the service and RPC the call
+// reached, in an ErrorInfo.
+func TestRESTNamesWhyItRefusesACredential(t *testing.T) {
+	base := selfSignedTestServer(t)
+	now := time.Now()
+	for name, tc := range map[string]struct{ token, reason, message string }{
+		"none":                   {"", "CREDENTIALS_MISSING", gcpMissingCredentialMessage},
+		"expired":                {selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"iat": now.Add(-2 * time.Hour).Unix(), "exp": now.Add(-time.Hour).Unix()})), "ACCESS_TOKEN_EXPIRED", gcpInvalidCredentialMessage},
+		"another API's audience": {selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(now, map[string]any{"aud": "https://run.googleapis.com/"})), "ACCESS_TOKEN_TYPE_UNSUPPORTED", gcpInvalidCredentialMessage},
+		"not a token":            {"not-a-token", "ACCESS_TOKEN_TYPE_UNSUPPORTED", gcpInvalidCredentialMessage},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, base+"/v1/projects/"+gcpTestProjectID+"/secrets", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			var body struct {
+				Error struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+					Status  string `json:"status"`
+					Details []struct {
+						Type     string            `json:"@type"`
+						Reason   string            `json:"reason"`
+						Domain   string            `json:"domain"`
+						Metadata map[string]string `json:"metadata"`
+					} `json:"details"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			e := body.Error
+			if resp.StatusCode != http.StatusUnauthorized || e.Status != "UNAUTHENTICATED" || e.Message != tc.message || len(e.Details) != 1 {
+				t.Fatalf("→ %d %+v", resp.StatusCode, e)
+			}
+			info := e.Details[0]
+			if info.Type != "type.googleapis.com/google.rpc.ErrorInfo" || info.Reason != tc.reason || info.Domain != "googleapis.com" ||
+				info.Metadata["service"] != "secretmanager.googleapis.com" ||
+				info.Metadata["method"] != "google.cloud.secretmanager.v1.SecretManagerService.ListSecrets" {
+				t.Fatalf("ErrorInfo %+v", info)
+			}
+		})
+	}
+}
+
+func TestGRPCRefusesAnotherAPIsSelfSignedJWT(t *testing.T) {
+	_, _, conn := grpcAuthTestServer(t)
+	token := selfSignedJWT(t, gcpBootstrapKeyID, bootstrapSelfSignedClaims(time.Now(), map[string]any{"aud": "https://run.googleapis.com/"}))
+	_, err := smpb.NewSecretManagerServiceClient(conn).ListSecrets(withBearer(context.Background(), token),
+		&smpb.ListSecretsRequest{Parent: "projects/" + gcpTestProjectID})
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Unauthenticated {
+		t.Fatalf("ListSecrets with Cloud Run's self-signed JWT: %v", err)
+	}
+	var reason string
+	for _, d := range st.Details() {
+		if info, ok := d.(*errdetails.ErrorInfo); ok {
+			reason = info.Reason
+		}
+	}
+	if reason != "ACCESS_TOKEN_TYPE_UNSUPPORTED" {
+		t.Fatalf("the refusal names reason %q", reason)
 	}
 }

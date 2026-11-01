@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PRODUCTS } from "../src/console/catalog";
+import { PORT } from "./federation";
 
 // The workforce pool provider global-setup.ts creates for the operator sign-in.
 const FEDERATION = {
@@ -526,6 +527,32 @@ test.describe("Cloud Scheduler", () => {
     await page.getByRole("button", { name: "Delete" }).click();
     await page.getByTestId("scheduler-delete-confirm").click();
     await expect(table).not.toContainText(job);
+  });
+});
+
+test.describe("Spanner", () => {
+  test("creates an instance at Spanner's own host, lists it and deletes it", async ({ page }) => {
+    const instance = unique("e2e-span");
+    // Cloud SQL Admin publishes Spanner's instances paths, so the console
+    // reaches Spanner at spanner.<the console's API host>.
+    const spannerHost = `spanner.localhost:${PORT}`;
+    const reached: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.includes("/instances")) reached.push(new URL(request.url()).host);
+    });
+    await page.goto("/ui/spanner/instances");
+    await page.getByTestId("spanner-create-instance").click();
+    await page.getByTestId("spanner-create-id").fill(instance);
+    await page.getByTestId("spanner-create-name").fill(instance);
+    await page.getByTestId("spanner-create-submit").click();
+    const row = page.getByRole("row", { name: new RegExp(instance) });
+    await expect(row).toBeVisible();
+    expect(reached).toContain(spannerHost);
+
+    await page.getByRole("button", { name: `Actions for ${instance}` }).click();
+    await page.getByTestId(`spanner-delete-${instance}`).click();
+    await page.getByTestId("spanner-delete-confirm").click();
+    await expect(page.getByRole("row", { name: new RegExp(instance) })).toHaveCount(0);
   });
 });
 

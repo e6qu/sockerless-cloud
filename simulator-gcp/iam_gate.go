@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,7 +58,9 @@ type gateCheck struct {
 // gateDecision is what a call requires. A call whose path two APIs publish,
 // with nothing to tell them apart, is admitted on either API's requirement.
 type gateDecision struct {
-	api     string
+	api string
+	// hosts are the hosts of the APIs whose methods describe the call.
+	hosts   []string
 	host    string
 	methods []string
 	checks  [][]gateCheck
@@ -139,7 +142,7 @@ func gateResolve(call *gateCall) (gateDecision, bool) {
 		r.URL.Path = unescaped
 		r.URL.RawPath = call.path
 	}
-	candidates := gateMatchDiscovery(call.httpMethod, call.path)
+	candidates := gateMatchDiscovery(gcpServiceFromHost(r), call.httpMethod, call.path)
 	if len(candidates) == 0 {
 		if call.rpc == nil {
 			return gateDecision{}, false
@@ -151,6 +154,9 @@ func gateResolve(call *gateCall) (gateDecision, bool) {
 	}
 	decision := gateDecision{api: candidates[0].method.api.name, host: candidates[0].method.api.host}
 	for _, c := range candidates {
+		if !slices.Contains(decision.hosts, c.method.api.host) {
+			decision.hosts = append(decision.hosts, c.method.api.host)
+		}
 		decision.methods = append(decision.methods, c.method.id)
 		decision.checks = append(decision.checks, gateChecks(call, c))
 	}
@@ -170,7 +176,7 @@ func gateRPCDecision(call *gateCall) gateDecision {
 		check.unsourced = true
 	}
 	api := strings.TrimSuffix(rpc.serviceName, ".googleapis.com")
-	return gateDecision{api: api, host: rpc.serviceName, methods: []string{string(rpc.method.FullName())}, checks: [][]gateCheck{{check}}}
+	return gateDecision{api: api, host: rpc.serviceName, hosts: []string{rpc.serviceName}, methods: []string{string(rpc.method.FullName())}, checks: [][]gateCheck{{check}}}
 }
 
 // gateAuthorize evaluates a decision for the principal: it admits the call

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +194,10 @@ func TestVerifyRejects(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+
+	if err := Verify(cases["expired"].token, &out, opts, rs); !errors.Is(err, ErrExpired) {
+		t.Fatalf("an expired token's error %v is not ErrExpired", err)
 	}
 
 	parts := strings.Split(sign(rs, valid), ".")

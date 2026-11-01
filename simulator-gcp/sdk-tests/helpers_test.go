@@ -339,14 +339,20 @@ func simAuthHTTPClient() *http.Client {
 // `/v1/projects/{p}/locations/{l}/triggers`, and Google tells them apart by
 // host.
 func serviceHostOptions(host string) []option.ClientOption {
-	proxy, err := url.Parse(baseURL)
+	return serviceHostOptionsVia(baseURL, simTokenSource(), host)
+}
+
+// serviceHostOptionsVia reaches the service host through the simulator at
+// endpoint, with credentials from src.
+func serviceHostOptionsVia(endpoint string, src oauth2.TokenSource, host string) []option.ClientOption {
+	proxy, err := url.Parse(endpoint)
 	if err != nil {
 		log.Fatalf("parse simulator URL: %v", err)
 	}
 	return []option.ClientOption{
 		option.WithEndpoint("http://" + host),
 		option.WithHTTPClient(&http.Client{Transport: &oauth2.Transport{
-			Source: simTokenSource(),
+			Source: src,
 			Base:   &http.Transport{Proxy: http.ProxyURL(proxy)},
 		}}),
 	}
@@ -355,6 +361,8 @@ func serviceHostOptions(host string) []option.ClientOption {
 const (
 	eventarcHost   = "eventarc.googleapis.com"
 	cloudBuildHost = "cloudbuild.googleapis.com"
+	// Cloud SQL Admin publishes Spanner's /v1/projects/{p}/instances paths.
+	spannerHost = "spanner.googleapis.com"
 )
 
 // simTokenFetcher mints a fresh access token for the simulator's bootstrap

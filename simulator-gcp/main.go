@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"google.golang.org/grpc"
 )
 
@@ -66,6 +67,9 @@ func main() {
 			// IAM policy decides every authenticated call.
 			srv.WrapHandler(iamGateMiddleware(srv))
 			srv.WrapHandler(bearerAuthMiddleware(srv))
+			// A browser's preflight carries no credential: Google's front end
+			// answers it before the service authenticates the call.
+			srv.WrapHandler(gcpCORSMiddleware)
 			return srv, nil
 		},
 		Start: startGCPListeners,
@@ -115,6 +119,10 @@ func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) e
 // tests can build the full route table in-process and validate it
 // against the vendored Discovery documents (specs/cloud-api/gcp/).
 func buildSimulator(cfg sim.Config) (*sim.Server, error) {
+	// Work a previous simulator in this process left running, such as an
+	// operation's audit entry waiting on its completion, reads the
+	// package-level stores this one is about to replace.
+	bg.Await()
 	srv, err := sim.NewServer(cfg)
 	if err != nil {
 		return nil, err
@@ -129,12 +137,8 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 		return nil, err
 	}
 
-	// Initialise the regional CPU quota tracker before route registration —
-	// CreateService / UpdateService / CreateFunction handlers debit against
-	// the singleton. SIM_GCP_CPU_QUOTA_PER_REGION env wires the budget;
-	// unset/zero disables quota enforcement.
-	initRegionalCPUQuota()
 	initMediaUploadSessions(srv)
+	registerCloudQuotas(srv)
 
 	// Register GCP service routes (HTTP/REST)
 	registerCloudRunJobs(srv)

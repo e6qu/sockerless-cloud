@@ -405,7 +405,7 @@ import (
 //   POST /v2/entries:tail
 //   GET /v2/monitoredResourceDescriptors
 //
-// Cloud Resource Manager v3, Spanner, IAM Service Account Credentials, Cloud
+// Cloud Resource Manager v3, IAM Service Account Credentials, Cloud
 // Functions, API Gateway and Serverless VPC Access:
 //   DELETE /v1/operations/{operation}
 //   DELETE /v3/folders/{folder}
@@ -415,8 +415,6 @@ import (
 //   DELETE /v3/tagKeys/{key}
 //   DELETE /v3/tagValues/{val}
 //   DELETE /v3/tagValues/{val}/tagHolds/{hold}
-//   GET /spanner/v1/projects/{project}/instanceConfigOperations
-//   GET /spanner/v1/scans
 //   GET /v1/locations/{location}/workforcePools/{pool}/allowedLocations
 //   GET /v1/projects/{project}/locations/{location}/workloadIdentityPools/{pool}/allowedLocations
 //   GET /v1/projects/{project}/serviceAccounts/{email}/allowedLocations

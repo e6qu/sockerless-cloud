@@ -106,12 +106,17 @@ func TestSelfSignedJWT_ServesRESTAndGRPC(t *testing.T) {
 	key := gcpbootstrap.CredentialJSON(baseURL + "/token")
 	scoped, err := google.JWTAccessTokenSourceWithScope(key, "https://www.googleapis.com/auth/cloud-platform")
 	require.NoError(t, err)
-	audienced, err := google.JWTAccessTokenSourceFromJSON(key, "https://run.googleapis.com/")
+	runAudience, err := google.JWTAccessTokenSourceFromJSON(key, "https://run.googleapis.com/")
+	require.NoError(t, err)
+	secretManagerAudience, err := google.JWTAccessTokenSourceFromJSON(key, "https://secretmanager.googleapis.com/")
 	require.NoError(t, err)
 
-	for name, ts := range map[string]oauth2.TokenSource{"scope": scoped, "audience": audienced} {
+	for name, ts := range map[string][2]oauth2.TokenSource{
+		"scope":    {scoped, scoped},
+		"audience": {runAudience, secretManagerAudience},
+	} {
 		t.Run(name, func(t *testing.T) {
-			jobs, err := run.NewJobsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(ts))
+			jobs, err := run.NewJobsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(ts[0]))
 			require.NoError(t, err)
 			defer jobs.Close()
 			_, err = jobs.ListJobs(ctx, &runpb.ListJobsRequest{Parent: "projects/" + harnessProject + "/locations/us-central1"}).Next()
@@ -119,7 +124,7 @@ func TestSelfSignedJWT_ServesRESTAndGRPC(t *testing.T) {
 				require.NoError(t, err, "Cloud Run jobs.list with a self-signed JWT")
 			}
 
-			secrets, err := secretmanager.NewClient(ctx, simGRPCClientOptionsAt(grpcAddr, ts)...)
+			secrets, err := secretmanager.NewClient(ctx, simGRPCClientOptionsAt(grpcAddr, ts[1])...)
 			require.NoError(t, err)
 			defer secrets.Close()
 			_, err = secrets.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: "projects/" + harnessProject}).Next()
@@ -128,4 +133,34 @@ func TestSelfSignedJWT_ServesRESTAndGRPC(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSelfSignedJWT_HoldsOnlyForItsAudience presents a JWT addressed to Cloud
+// Run to Secret Manager, over REST and gRPC: Google accepts a self-signed JWT
+// only at the API whose service URL is its audience, and names the refusal
+// ACCESS_TOKEN_TYPE_UNSUPPORTED.
+func TestSelfSignedJWT_HoldsOnlyForItsAudience(t *testing.T) {
+	t.Parallel()
+	runAudience, err := google.JWTAccessTokenSourceFromJSON(gcpbootstrap.CredentialJSON(baseURL+"/token"), "https://run.googleapis.com/")
+	require.NoError(t, err)
+
+	rest, err := secretmanager.NewRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(runAudience))
+	require.NoError(t, err)
+	defer rest.Close()
+	_, err = rest.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: "projects/" + harnessProject}).Next()
+	var apiErr *apierror.APIError
+	require.True(t, errors.As(err, &apiErr), "REST ListSecrets with Cloud Run's JWT: %v", err)
+	require.Equal(t, 401, apiErr.HTTPCode())
+	require.Equal(t, "ACCESS_TOKEN_TYPE_UNSUPPORTED", apiErr.Reason())
+	require.Equal(t, "secretmanager.googleapis.com", apiErr.Metadata()["service"])
+	require.Equal(t, "google.cloud.secretmanager.v1.SecretManagerService.ListSecrets", apiErr.Metadata()["method"])
+
+	grpcClient, err := secretmanager.NewClient(ctx, simGRPCClientOptionsAt(grpcAddr, runAudience)...)
+	require.NoError(t, err)
+	defer grpcClient.Close()
+	_, err = grpcClient.ListSecrets(ctx, &smpb.ListSecretsRequest{Parent: "projects/" + harnessProject}).Next()
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "gRPC ListSecrets with Cloud Run's JWT: %v", err)
+	require.True(t, errors.As(err, &apiErr), "the client surfaces an APIError: %v", err)
+	require.Equal(t, grpcInvalidCredential, apiErr.GRPCStatus().Message())
+	require.Equal(t, "ACCESS_TOKEN_TYPE_UNSUPPORTED", apiErr.Reason())
 }

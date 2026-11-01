@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -65,6 +66,11 @@ func EnsureEngineBuild(ctx context.Context, cli *client.Client, b EngineBuild) (
 	platform := "linux/" + arch
 	unlock := engineBuildLocks.Lock(image)
 	defer unlock()
+	release, err := lockEngineBuild(image)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: %w", b.Name, err)
+	}
+	defer release()
 	if _, err := cli.ImageInspect(ctx, image); err == nil {
 		return image, platform, nil
 	}
@@ -216,4 +222,21 @@ func drainImageBuild(stream io.Reader) error {
 			return fmt.Errorf("%s (last output: %s)", msg, last)
 		}
 	}
+}
+
+// lockEngineBuild holds an exclusive lock on a file named for image across
+// processes, so two simulators, or two test binaries, sharing one engine do
+// not build the same tag at once: while the engine names a second build's
+// result, the tag is briefly absent for a container the first is creating.
+func lockEngineBuild(image string) (func(), error) {
+	path := filepath.Join(os.TempDir(), "sockerless-engine-build-"+strings.NewReplacer("/", "_", ":", "_").Replace(image)+".lock")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open the build lock %s: %w", path, err)
+	}
+	if err := lockFile(f); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	return func() { _ = f.Close() }, nil
 }

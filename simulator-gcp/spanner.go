@@ -113,7 +113,11 @@ func registerSpanner(srv *sim.Server) {
 	spannerBackupScheduleRuns = sim.MakeStore[cron.Record](srv.DB(), "spanner_backup_schedule_occurrences")
 	spannerAdoptLegacyScheduleRuns(srv.DB(), spannerBackupSchedules, spannerBackupScheduleRuns)
 
-	const base = "/spanner/v1/projects/{project}/instances"
+	// Cloud SQL Admin publishes the same /v1/projects/{project}/instances paths,
+	// so Spanner's REST routes take its host, which Google Cloud tells the two
+	// APIs apart by.
+	srv.WrapHandler(spannerHostRouting)
+	const base = spannerHost + "/v1/projects/{project}/instances"
 	srv.HandleFunc("POST "+base, handleSpannerCreateInstance)
 	srv.HandleFunc("GET "+base, handleSpannerListInstances)
 	srv.HandleFunc("GET "+base+"/{rest...}", handleSpannerInstanceChild)
@@ -123,7 +127,7 @@ func registerSpanner(srv *sim.Server) {
 
 	// Instance configurations, their operations and ssdCaches operations, in
 	// flatPath form to match the Discovery method URIs.
-	const cfgBase = "/spanner/v1/projects/{project}/instanceConfigs"
+	const cfgBase = spannerHost + "/v1/projects/{project}/instanceConfigs"
 	srv.HandleFunc("POST "+cfgBase, handleSpannerCreateInstanceConfig)
 	srv.HandleFunc("GET "+cfgBase, handleSpannerListInstanceConfigs)
 	srv.HandleFunc("GET "+cfgBase+"/{config}", handleSpannerGetInstanceConfig)
@@ -138,8 +142,31 @@ func registerSpanner(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations/{operation}", handleSpannerDeleteInstanceConfigOperation)
 	srv.HandleFunc("POST "+cfgBase+"/{config}/ssdCaches/{ssdCache}/operations/{operation}", handleSpannerInstanceConfigOperationAction)
 
-	srv.HandleFunc("GET /spanner/v1/projects/{project}/instanceConfigOperations", handleSpannerListInstanceConfigOperationsCollection)
-	srv.HandleFunc("GET /spanner/v1/scans", handleSpannerListScans)
+	srv.HandleFunc("GET "+spannerHost+"/v1/projects/{project}/instanceConfigOperations", handleSpannerListInstanceConfigOperationsCollection)
+	srv.HandleFunc("GET "+spannerHost+"/v1/scans", handleSpannerListScans)
+}
+
+const spannerHost = "spanner.googleapis.com"
+
+// spannerHostRouting hands the route table Spanner's canonical host for a
+// request any spelling of it addresses.
+func spannerHostRouting(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, gcpRoutedRequest(r))
+	})
+}
+
+// gcpRoutedRequest is the request as the route table matches it: one that
+// names Spanner by a port, the mutual-TLS or a regional endpoint, or the
+// simulator's own universe domain carries Spanner's canonical host, which its
+// routes are registered on.
+func gcpRoutedRequest(r *http.Request) *http.Request {
+	if r.Host == spannerHost || gcpServiceFromHost(r) != "spanner" {
+		return r
+	}
+	routed := r.Clone(r.Context())
+	routed.Host = spannerHost
+	return routed
 }
 
 func spannerInstanceName(project, instance string) string {

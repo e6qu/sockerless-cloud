@@ -138,7 +138,8 @@ func TestDiscoveryDocumentAtABareOrigin(t *testing.T) {
 	}
 }
 
-// The directory capture holds an entry for exactly the embedded documents.
+// The directory capture holds an entry for exactly the embedded documents the
+// directory lists, and names the others as unlisted.
 func TestDiscoveryDirectoryCoversTheEmbeddedDocuments(t *testing.T) {
 	docs, err := gcpDiscoveryIndex()
 	if err != nil {
@@ -162,8 +163,15 @@ func TestDiscoveryDirectoryCoversTheEmbeddedDocuments(t *testing.T) {
 		}
 		listed[e.ID] = true
 	}
+	unlisted := map[string]bool{}
+	for _, id := range dir.Unlisted {
+		if !embedded[id] || listed[id] {
+			t.Fatalf("unlisted names %s, which is not an embedded document the directory leaves out", id)
+		}
+		unlisted[id] = true
+	}
 	for id := range embedded {
-		if !listed[id] {
+		if !listed[id] && !unlisted[id] {
 			t.Fatalf("embedded document %s has no directory entry; recapture discovery_directory_vendored.json", id)
 		}
 	}

@@ -179,8 +179,7 @@ func TestGCPServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 		spannerDatabase = "projects/" + project + "/instances/" + spannerInstance + "/databases/" + spannerDBID
 	)
 	spannerAdmin, err := spanneradmin.NewService(ctx,
-		option.WithEndpoint(endpoint+"/spanner/"),
-		option.WithTokenSource(simTokenSourceFor(endpoint)))
+		serviceHostOptionsVia(endpoint, simTokenSourceFor(endpoint), spannerHost)...)
 	require.NoError(t, err)
 	_, err = spannerAdmin.Projects.Instances.Create("projects/"+project, &spanneradmin.CreateInstanceRequest{
 		InstanceId: spannerInstance,

@@ -279,9 +279,11 @@ func adoptCloudRunWorkerPoolInstance(poolName, revision string, vpc *VpcAccess, 
 		releaseMounts()
 		return nil, nil, err
 	}
+	cpu := cloudRunAdoptCPU(resourceProject(poolName), resourceLocation(poolName), containers)
 	release := func() {
 		releaseAddress()
 		releaseMounts()
+		cpu.release()
 	}
 	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, release, nil
 }
@@ -378,15 +380,21 @@ func adoptCloudRunInstanceContainers(name, specSig string, containers []Containe
 		return nil, err
 	}
 	_, stop := context.WithCancel(context.Background())
+	cpu := cloudRunAdoptCPU(resourceProject(name), resourceLocation(name), containers)
+	mounts := releaseMounts
 	inst := &cloudRunServiceInstance{
-		specSig:       specSig,
-		stop:          stop,
-		ready:         make(chan struct{}),
-		address:       address,
-		releaseMounts: releaseMounts,
-		ingress:       byIndex[0],
-		handles:       handles,
-		group:         &workload.Group{Main: byIndex[0], Sidecars: byIndex[1:]},
+		specSig: specSig,
+		stop:    stop,
+		ready:   make(chan struct{}),
+		address: address,
+		releaseMounts: func() {
+			mounts()
+			cpu.release()
+		},
+		cpu:     cpu,
+		ingress: byIndex[0],
+		handles: handles,
+		group:   &workload.Group{Main: byIndex[0], Sidecars: byIndex[1:]},
 	}
 	close(inst.ready)
 	return inst, nil
@@ -460,6 +468,7 @@ func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.E
 	}
 	run.mu.Lock()
 	run.instances[groupID] = inst
+	run.holds[groupID] = inst.cpu
 	run.mu.Unlock()
 	run.set.Adopt(groupID, inst.group, time.Now(), func() {
 		inst.stop()

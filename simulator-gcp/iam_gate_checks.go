@@ -100,6 +100,15 @@ var gateMethodPermissions = map[string]gateOverride{
 	// and a Project Creator, who holds no operations permission
 	// (iam-roles-resourcemanager.md.gz), polls the create it started.
 	"cloudresourcemanager.operations.get": gateCRMOperation,
+	// Cloud Quotas: the quota adjuster's settings take the permissions of
+	// cloudquotas-api-overview.md.gz's "Required permissions", which
+	// cloudquotas-audit-logging.md.gz names per method.
+	"cloudquotas.projects.locations.quotaAdjusterSettings.getQuotaAdjusterSettings":         gatePermissions("cloudquotas.quotas.get"),
+	"cloudquotas.projects.locations.quotaAdjusterSettings.updateQuotaAdjusterSettings":      gatePermissions("cloudquotas.quotas.update"),
+	"cloudquotas.folders.locations.quotaAdjusterSettings.getQuotaAdjusterSettings":          gatePermissions("cloudquotas.quotas.get"),
+	"cloudquotas.folders.locations.quotaAdjusterSettings.updateQuotaAdjusterSettings":       gatePermissions("cloudquotas.quotas.update"),
+	"cloudquotas.organizations.locations.quotaAdjusterSettings.getQuotaAdjusterSettings":    gatePermissions("cloudquotas.quotas.get"),
+	"cloudquotas.organizations.locations.quotaAdjusterSettings.updateQuotaAdjusterSettings": gatePermissions("cloudquotas.quotas.update"),
 }
 
 // gateCRMOperation authorizes a Resource Manager operation poll as a read of

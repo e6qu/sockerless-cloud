@@ -270,6 +270,27 @@ check_gcp_method_table() {
   fi
 }
 
+# check_gcp_capture re-takes a live capture of Google's front end with the
+# script that made it, scripts/fetch-gcp-<name>.sh for <name>.http.gz, and
+# reports drift when the answer differs from the vendored one.
+check_gcp_capture() {
+  local sources="$1" file="$2" pin="$3" capture_dir="$4" fresh
+  fresh="$(mktemp)"
+  if ! OUT="$fresh" bash "$ROOT/scripts/fetch-gcp-${file%.http.gz}.sh" >/dev/null 2>&1; then
+    echo "?     $file: scripts/fetch-gcp-${file%.http.gz}.sh could not re-take the capture"
+    fail=1
+  elif ! cmp -s <(gzip -dc "$ROOT/specs/cloud-api/gcp/$file") <(gzip -dc "$fresh"); then
+    report_drift "$sources" "$file" "$pin" "$file: $pin, and Google's front end now answers differently"
+    if [ -n "$capture_dir" ]; then
+      cp "$fresh" "$capture_dir/$file"
+      echo "      captured the current answer in $capture_dir/$file"
+    fi
+  else
+    echo "ok    $file ($pin, Google's front end answers the same)"
+  fi
+  rm -f "$fresh"
+}
+
 check_gcp() {
   local sources="$ROOT/specs/cloud-api/gcp/SOURCES.md"
   local probes="${SPEC_FRESHNESS_GCP_PROBES:-3}"
@@ -297,6 +318,9 @@ check_gcp() {
       continue ;;
     sampled*)
       check_gcp_method_table "$sources" "$file" "$pin"
+      continue ;;
+    captured*)
+      check_gcp_capture "$sources" "$file" "$pin" "$capture_dir"
       continue ;;
     esac
     revisions=()

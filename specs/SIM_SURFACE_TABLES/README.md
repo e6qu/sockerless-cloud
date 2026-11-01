@@ -118,6 +118,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`gcp-cloudbuild_regional`](gcp-cloudbuild_regional.md)
 - [`gcp-cloudfunctions`](gcp-cloudfunctions.md)
 - [`gcp-cloudkms`](gcp-cloudkms.md)
+- [`gcp-cloudquotas`](gcp-cloudquotas.md)
 - [`gcp-cloudresourcemanager`](gcp-cloudresourcemanager.md)
 - [`gcp-cloudresourcemanager_capability_configs`](gcp-cloudresourcemanager_capability_configs.md)
 - [`gcp-cloudresourcemanager_folders_v2`](gcp-cloudresourcemanager_folders_v2.md)

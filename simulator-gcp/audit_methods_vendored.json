@@ -35,9 +35,13 @@
   {
    "file": "dataflow-audit-logging.md.gz",
    "service": "dataflow.googleapis.com"
+  },
+  {
+   "file": "cloudquotas-audit-logging.md.gz",
+   "service": "cloudquotas.googleapis.com"
   }
  ],
- "retrieved": "2026-10-29",
+ "retrieved": "2026-10-31",
  "note": "Each service's audited methods, read from its audit-logging page vendored under specs/cloud-api/gcp/ by scripts/gen-gcp-audit-methods.go. logType is the audit log category the page states: ADMIN_WRITE for Admin Activity, and for Data Access the broadest data type among the permissions the method checks. Resource Manager lists its operations as versioned identifiers without permissions.",
  "methods": [
   {
@@ -1137,6 +1141,174 @@
     },
     {
      "permission": "bigquery.tables.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.CreateQuotaPreference",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.GetQuotaInfo",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.GetQuotaPreference",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.ListQuotaInfos",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.ListQuotaPreferences",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1.CloudQuotas.UpdateQuotaPreference",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.CreateQuotaPreference",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.GetQuotaInfo",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.GetQuotaPreference",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.ListQuotaInfos",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.ListQuotaPreferences",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.CloudQuotas.UpdateQuotaPreference",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.QuotaAdjusterSettingsManager.GetQuotaAdjusterSettings",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudquotas.googleapis.com",
+   "method": "google.api.cloudquotas.v1beta.QuotaAdjusterSettingsManager.UpdateQuotaAdjusterSettings",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudquotas.quotas.update",
      "type": "ADMIN_WRITE"
     }
    ],

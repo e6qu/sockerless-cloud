@@ -156,40 +156,46 @@ func TestIAMGate_EnforcesPolicyOnEveryMethod(t *testing.T) {
 // resource it addresses.
 func TestIAMGate_DerivesEachMethodsPermission(t *testing.T) {
 	cases := []struct {
-		method, path, query, permission, resource string
+		host, method, path, query, permission, resource string
 	}{
-		{"DELETE", "/storage/v1/b/bkt/o/a%2Fb.txt", "", "storage.objects.delete", "projects/_/buckets/bkt/objects/a/b.txt"},
-		{"GET", "/storage/v1/b/bkt/o/a.txt", "alt=media", "storage.objects.get", "projects/_/buckets/bkt/objects/a.txt"},
-		{"GET", "/download/storage/v1/b/bkt/o/a.txt", "alt=media", "storage.objects.get", "projects/_/buckets/bkt/objects/a.txt"},
-		{"POST", "/upload/storage/v1/b/bkt/o", "uploadType=media&name=x", "storage.objects.create", "projects/_/buckets/bkt"},
-		{"POST", "/storage/v1/b", "project=p1", "storage.buckets.create", "projects/p1"},
-		{"GET", "/storage/v1/b", "project=p1", "storage.buckets.list", "projects/p1"},
-		{"POST", "/v1/projects/p1/topics/t1:publish", "", "pubsub.topics.publish", "projects/p1/topics/t1"},
-		{"PUT", "/v1/projects/p1/topics/t1", "", "pubsub.topics.create", "projects/p1"},
-		{"GET", "/v1/projects/p1/secrets/s1/versions/latest:access", "", "secretmanager.versions.access", "projects/p1/secrets/s1/versions/latest"},
-		{"POST", "/v1/projects/p1/secrets/s1:addVersion", "", "secretmanager.versions.add", "projects/p1/secrets/s1"},
-		{"POST", "/v1/projects/p1/locations/global/keyRings/k/cryptoKeys/c:encrypt", "", "cloudkms.cryptoKeyVersions.useToEncrypt", "projects/p1/locations/global/keyRings/k/cryptoKeys/c"},
-		{"DELETE", "/v2/projects/p1/locations/us-central1/services/s1", "", "run.services.delete", "projects/p1/locations/us-central1/services/s1"},
-		{"GET", "/compute/v1/projects/p1/zones/us-central1-a/instances/i1", "", "compute.instances.get", "projects/p1/zones/us-central1-a/instances/i1"},
-		{"POST", "/compute/v1/projects/p1/zones/us-central1-a/instances", "", "compute.instances.create", "projects/p1/zones/us-central1-a/instances"},
-		{"GET", "/v1/projects/p1", "", "resourcemanager.projects.get", "projects/p1"},
-		{"GET", "/v3/projects/p1", "", "resourcemanager.projects.get", "projects/p1"},
-		{"POST", "/v1/projects/p1/serviceAccounts", "", "iam.serviceAccounts.create", "projects/p1/serviceAccounts"},
-		{"POST", "/v1/projects/-/serviceAccounts/sa@p1.iam.gserviceaccount.com:generateAccessToken", "", "iam.serviceAccounts.getAccessToken", "projects/-/serviceAccounts/sa@p1.iam.gserviceaccount.com"},
-		{"POST", "/v1/projects/p1/databases/(default)/documents/c1/d1", "", "", ""},
-		{"GET", "/v1/projects/p1/databases/(default)/documents/c1/d1", "", "datastore.entities.get", "projects/p1/databases/(default)/documents/c1/d1"},
-		{"POST", "/spanner/v1/projects/p1/instances/i1/databases/d1/sessions/s1:executeSql", "", "spanner.databases.select", "projects/p1/instances/i1/databases/d1"},
-		{"GET", "/bigquery/v2/projects/p1/datasets/d1/tables/t1/data", "", "bigquery.tables.getData", "projects/p1/datasets/d1/tables/t1/data"},
-		{"POST", "/bigquery/v2/projects/p1/queries", "", "bigquery.jobs.create", "projects/p1/queries"},
-		{"GET", "/sql/v1beta4/projects/p1/instances/i1", "", "cloudsql.instances.get", "projects/p1/instances/i1"},
-		{"GET", "/dns/v1/projects/p1/managedZones/z1", "", "dns.managedZones.get", "projects/p1/managedZones/z1"},
-		{"POST", "/v2/projects/p1/locations/us-central1/queues/q1/tasks", "", "cloudtasks.tasks.create", "projects/p1/locations/us-central1/queues/q1/tasks"},
-		{"GET", "/sql/v1beta4/projects/p1/operations/op1", "", "cloudsql.instances.get", "projects/p1/operations/op1"},
-		{"GET", "/spanner/v1/projects/p1/instances/i1/databases/d1/operations/op1", "", "spanner.databaseOperations.get", "projects/p1/instances/i1/databases/d1/operations/op1"},
+		{"", "DELETE", "/storage/v1/b/bkt/o/a%2Fb.txt", "", "storage.objects.delete", "projects/_/buckets/bkt/objects/a/b.txt"},
+		{"", "GET", "/storage/v1/b/bkt/o/a.txt", "alt=media", "storage.objects.get", "projects/_/buckets/bkt/objects/a.txt"},
+		{"", "GET", "/download/storage/v1/b/bkt/o/a.txt", "alt=media", "storage.objects.get", "projects/_/buckets/bkt/objects/a.txt"},
+		{"", "POST", "/upload/storage/v1/b/bkt/o", "uploadType=media&name=x", "storage.objects.create", "projects/_/buckets/bkt"},
+		{"", "POST", "/storage/v1/b", "project=p1", "storage.buckets.create", "projects/p1"},
+		{"", "GET", "/storage/v1/b", "project=p1", "storage.buckets.list", "projects/p1"},
+		{"", "POST", "/v1/projects/p1/topics/t1:publish", "", "pubsub.topics.publish", "projects/p1/topics/t1"},
+		{"", "PUT", "/v1/projects/p1/topics/t1", "", "pubsub.topics.create", "projects/p1"},
+		{"", "GET", "/v1/projects/p1/secrets/s1/versions/latest:access", "", "secretmanager.versions.access", "projects/p1/secrets/s1/versions/latest"},
+		{"", "POST", "/v1/projects/p1/secrets/s1:addVersion", "", "secretmanager.versions.add", "projects/p1/secrets/s1"},
+		{"", "POST", "/v1/projects/p1/locations/global/keyRings/k/cryptoKeys/c:encrypt", "", "cloudkms.cryptoKeyVersions.useToEncrypt", "projects/p1/locations/global/keyRings/k/cryptoKeys/c"},
+		{"", "DELETE", "/v2/projects/p1/locations/us-central1/services/s1", "", "run.services.delete", "projects/p1/locations/us-central1/services/s1"},
+		{"", "GET", "/compute/v1/projects/p1/zones/us-central1-a/instances/i1", "", "compute.instances.get", "projects/p1/zones/us-central1-a/instances/i1"},
+		{"", "POST", "/compute/v1/projects/p1/zones/us-central1-a/instances", "", "compute.instances.create", "projects/p1/zones/us-central1-a/instances"},
+		{"", "GET", "/v1/projects/p1", "", "resourcemanager.projects.get", "projects/p1"},
+		{"", "GET", "/v3/projects/p1", "", "resourcemanager.projects.get", "projects/p1"},
+		{"", "POST", "/v1/projects/p1/serviceAccounts", "", "iam.serviceAccounts.create", "projects/p1/serviceAccounts"},
+		{"", "POST", "/v1/projects/-/serviceAccounts/sa@p1.iam.gserviceaccount.com:generateAccessToken", "", "iam.serviceAccounts.getAccessToken", "projects/-/serviceAccounts/sa@p1.iam.gserviceaccount.com"},
+		{"", "POST", "/v1/projects/p1/databases/(default)/documents/c1/d1", "", "", ""},
+		{"", "GET", "/v1/projects/p1/databases/(default)/documents/c1/d1", "", "datastore.entities.get", "projects/p1/databases/(default)/documents/c1/d1"},
+		{"", "GET", "/bigquery/v2/projects/p1/datasets/d1/tables/t1/data", "", "bigquery.tables.getData", "projects/p1/datasets/d1/tables/t1/data"},
+		{"", "POST", "/bigquery/v2/projects/p1/queries", "", "bigquery.jobs.create", "projects/p1/queries"},
+		{"", "GET", "/sql/v1beta4/projects/p1/instances/i1", "", "cloudsql.instances.get", "projects/p1/instances/i1"},
+		{"", "GET", "/dns/v1/projects/p1/managedZones/z1", "", "dns.managedZones.get", "projects/p1/managedZones/z1"},
+		{"", "POST", "/v2/projects/p1/locations/us-central1/queues/q1/tasks", "", "cloudtasks.tasks.create", "projects/p1/locations/us-central1/queues/q1/tasks"},
+		{"", "GET", "/sql/v1beta4/projects/p1/operations/op1", "", "cloudsql.instances.get", "projects/p1/operations/op1"},
+		{"spanner.googleapis.com", "POST", "/v1/projects/p1/instances/i1/databases/d1/sessions/s1:executeSql", "", "spanner.databases.select", "projects/p1/instances/i1/databases/d1"},
+		{"spanner.localhost:4567", "GET", "/v1/projects/p1/instances/i1/databases/d1/operations/op1", "", "spanner.databaseOperations.get", "projects/p1/instances/i1/databases/d1/operations/op1"},
+		{"spanner.googleapis.com", "GET", "/v1/projects/p1/instances/i1", "", "spanner.instances.get", "projects/p1/instances/i1"},
+		{"", "GET", "/v1/projects/p1/instances/i1", "", "cloudsql.instances.get", "projects/p1/instances/i1"},
 	}
 	for _, tc := range cases {
 		query, _ := url.ParseQuery(tc.query)
-		call := &gateCall{httpMethod: tc.method, path: tc.path, host: "localhost", query: query, fields: func() map[string]any { return map[string]any{} }}
+		host := tc.host
+		if host == "" {
+			host = "localhost"
+		}
+		call := &gateCall{httpMethod: tc.method, path: tc.path, host: host, query: query, fields: func() map[string]any { return map[string]any{} }}
 		decision, ok := gateResolve(call)
 		if tc.permission == "" {
 			continue

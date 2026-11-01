@@ -96,43 +96,51 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261026` | 2026-10-29T07:31:02Z |
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20261022` | 2026-10-29T07:31:04Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261023` | 2026-10-29T07:31:05Z |
-| `iam-roles-apigateway.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/apigateway` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:06Z |
-| `iam-roles-artifactregistry.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/artifactregistry` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:10Z |
-| `iam-roles-bigquery.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigquery` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:15Z |
-| `iam-roles-bigtable.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigtable` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:17Z |
-| `iam-roles-billing.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/billing` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:18Z |
-| `iam-roles-cloudbuild.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudbuild` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:20Z |
-| `iam-roles-cloudfunctions.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudfunctions` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:22Z |
-| `iam-roles-cloudkms.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudkms` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:24Z |
-| `iam-roles-cloudsql.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudsql` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:28Z |
-| `iam-roles-cloudtasks.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudtasks` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:31:29Z |
-| `iam-roles-compute.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/compute` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:04Z |
-| `iam-roles-dataflow.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dataflow` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:07Z |
-| `iam-roles-dns.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dns` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:09Z |
-| `iam-roles-eventarc.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/eventarc` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:12Z |
-| `iam-roles-firestore.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/firestore` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:14Z |
-| `iam-roles-iam.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/iam` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:18Z |
-| `iam-roles-logging.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/logging` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:20Z |
-| `iam-roles-pubsub.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/pubsub` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:22Z |
-| `iam-roles-redis.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/redis` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:24Z |
-| `iam-roles-resourcemanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/resourcemanager` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:29Z |
-| `iam-roles-run.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/run` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:32Z |
-| `iam-roles-secretmanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/secretmanager` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:33Z |
-| `iam-roles-serviceusage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/serviceusage` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:38Z |
-| `iam-roles-spanner.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/spanner` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:41Z |
-| `iam-roles-storage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/storage` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:46Z |
-| `iam-roles-vpcaccess.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/vpcaccess` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:47Z |
-| `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-29T07:32:50Z |
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261026` | 2026-10-29T07:32:51Z |
 | `method-permissions.json.gz` | `docs.cloud.google.com` | `(each method's REST reference page)` | CC-BY-4.0 | `sampled2026-10-29` | 2026-10-29T17:42:15Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261025` | 2026-10-29T17:54:02Z |
-| `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:07Z |
 | `iam-roles-cloudscheduler.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudscheduler` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:08Z |
 | `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:09Z |
-| `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-29T17:54:10Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-29T18:08:02Z |
 | `compute-metadata-predefined-keys.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/predefined-metadata-keys` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:13:06Z |
 | `compute-metadata-querying.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/querying-metadata` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:13:08Z |
 | `compute-verifying-instance-identity.md.gz` | `docs.cloud.google.com` | `compute/docs/instances/verifying-instance-identity` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:07Z |
 | `compute-metadata-guest-attributes.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/manage-guest-attributes` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:16:08Z |
 | `compute-metadata-live-migration-notice.md.gz` | `docs.cloud.google.com` | `compute/docs/metadata/getting-live-migration-notice` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-30T11:17:09Z |
+| `cloudquotas-v1.discovery.json.gz` | `cloudquotas.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-31T16:20:44Z |
+| `cloudrun-quotas.md.gz` | `docs.cloud.google.com` | `run/quotas` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T16:20:49Z |
+| `cloudquotas-overview.md.gz` | `docs.cloud.google.com` | `docs/quotas/overview` | CC-BY-4.0 | `modified2026-10-28` | 2026-10-31T16:20:49Z |
+| `cloudquotas-api-overview.md.gz` | `docs.cloud.google.com` | `docs/quotas/api-overview` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-31T16:22:49Z |
+| `cloudquotas-common-use-cases.md.gz` | `docs.cloud.google.com` | `docs/quotas/implement-common-use-cases` | CC-BY-4.0 | `modified2026-10-26` | 2026-10-31T16:22:50Z |
+| `cloudquotas-v1beta.discovery.json.gz` | `cloudquotas.googleapis.com` | `$discovery/rest?version=v1beta` | Apache-2.0 | `revision 20261022` | 2026-10-31T16:26:49Z |
+| `cloudquotas-audit-logging.md.gz` | `docs.cloud.google.com` | `docs/quotas/audit-logging` | CC-BY-4.0 | `modified2026-10-27` | 2026-10-31T16:30:20Z |
+| `googleapis-cors.http.gz` | `spanner.googleapis.com` | `OPTIONS and GET v1/projects/p/instances with Origin` | — | `captured2026-10-31` | 2026-10-31T19:08:05Z |
+| `iam-roles-apigateway.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/apigateway` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T20:59:50Z |
+| `iam-roles-artifactregistry.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/artifactregistry` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T20:59:54Z |
+| `iam-roles-bigquery.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigquery` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T20:59:59Z |
+| `iam-roles-bigtable.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/bigtable` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:01Z |
+| `iam-roles-billing.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/billing` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:03Z |
+| `iam-roles-cloudbuild.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudbuild` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:05Z |
+| `iam-roles-cloudfunctions.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudfunctions` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:07Z |
+| `iam-roles-cloudkms.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudkms` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:09Z |
+| `iam-roles-cloudsql.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudsql` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:11Z |
+| `iam-roles-cloudtasks.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/cloudtasks` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:12Z |
+| `iam-roles-compute.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/compute` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:47Z |
+| `iam-roles-dataflow.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dataflow` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:50Z |
+| `iam-roles-dns.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/dns` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:52Z |
+| `iam-roles-eventarc.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/eventarc` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:54Z |
+| `iam-roles-firestore.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/firestore` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:56Z |
+| `iam-roles-iam.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/iam` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:00:59Z |
+| `iam-roles-logging.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/logging` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:02Z |
+| `iam-roles-pubsub.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/pubsub` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:05Z |
+| `iam-roles-redis.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/redis` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:06Z |
+| `iam-roles-resourcemanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/resourcemanager` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:12Z |
+| `iam-roles-run.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/run` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:15Z |
+| `iam-roles-secretmanager.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/secretmanager` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:16Z |
+| `iam-roles-serviceusage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/serviceusage` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:20Z |
+| `iam-roles-spanner.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/spanner` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:23Z |
+| `iam-roles-storage.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/storage` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:26Z |
+| `iam-roles-vpcaccess.md.gz` | `docs.cloud.google.com` | `iam/docs/roles-permissions/vpcaccess` | CC-BY-4.0 | `modified2026-10-29` | 2026-10-31T21:01:27Z |
+| `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:28Z |
+| `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:30Z |
+| `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:30Z |

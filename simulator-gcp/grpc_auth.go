@@ -11,11 +11,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Google's gRPC front end answers a call without a credential, and one whose
-// credential it cannot verify, with these UNAUTHENTICATED descriptions.
+// Google's front end answers a call without a credential, and one whose
+// credential it cannot verify, with these UNAUTHENTICATED descriptions, over
+// REST (specs/cloud-api/gcp/googleapis-cors.http.gz records the first) and
+// gRPC alike.
 const (
-	grpcMissingCredentialMessage = "Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project."
-	grpcInvalidCredentialMessage = "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project."
+	gcpMissingCredentialMessage = "Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project."
+	gcpInvalidCredentialMessage = "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project."
 )
 
 // grpcServiceHosts maps a gRPC method's proto package to the API host that
@@ -57,10 +59,14 @@ func verifyCallCredential(ctx context.Context, fullMethod string) error {
 	}
 	const prefix = "bearer "
 	if !strings.HasPrefix(strings.ToLower(authorization), prefix) {
-		return grpcUnauthenticated(grpcMissingCredentialMessage, "CREDENTIALS_MISSING", fullMethod)
+		return grpcUnauthenticated(gcpMissingCredentialMessage, "CREDENTIALS_MISSING", fullMethod)
 	}
-	if err := verifyAccessToken(strings.TrimSpace(authorization[len(prefix):])); err != nil {
-		return status.Error(codes.Unauthenticated, grpcInvalidCredentialMessage)
+	var services []string
+	if host := grpcServiceHost(fullMethod); host != "" {
+		services = []string{host}
+	}
+	if _, err := verifiedAccessTokenClaimsFor(strings.TrimSpace(authorization[len(prefix):]), services); err != nil {
+		return grpcUnauthenticated(gcpInvalidCredentialMessage, gcpCredentialReason(err), fullMethod)
 	}
 	return nil
 }
@@ -70,15 +76,23 @@ func verifyCallCredential(ctx context.Context, fullMethod string) error {
 func grpcUnauthenticated(message, reason, fullMethod string) error {
 	method := strings.ReplaceAll(strings.TrimPrefix(fullMethod, "/"), "/", ".")
 	info := &errdetails.ErrorInfo{Reason: reason, Domain: "googleapis.com", Metadata: map[string]string{"method": method}}
-	for _, s := range grpcServiceHosts {
-		if strings.HasPrefix(method, s.pkg) {
-			info.Metadata["service"] = s.host
-			break
-		}
+	if host := grpcServiceHost(fullMethod); host != "" {
+		info.Metadata["service"] = host
 	}
 	st, err := status.New(codes.Unauthenticated, message).WithDetails(info)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
 	return st.Err()
+}
+
+// grpcServiceHost is the API host serving a gRPC method ("/pkg.Service/Method").
+func grpcServiceHost(fullMethod string) string {
+	method := strings.TrimPrefix(fullMethod, "/")
+	for _, s := range grpcServiceHosts {
+		if strings.HasPrefix(method, s.pkg) {
+			return s.host
+		}
+	}
+	return ""
 }

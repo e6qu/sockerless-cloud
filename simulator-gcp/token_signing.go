@@ -2,6 +2,8 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -197,21 +199,19 @@ type accessTokenClaims struct {
 	Iat   int64  `json:"iat"`
 }
 
-// verifyAccessToken checks that a bearer token is one the simulator minted:
-// a well-formed RS256 JWT, signed by the simulator's key, carrying the
-// simulator's issuer and audience, and unexpired. It returns a descriptive
-// error the middleware surfaces in the UNAUTHENTICATED response.
-func verifyAccessToken(raw string) error {
-	_, err := verifiedAccessTokenClaims(raw)
-	return err
-}
-
 // verifiedAccessTokenClaims verifies a bearer token and returns its claims:
 // either an access token the simulator minted (a well-formed RS256 JWT, signed
 // by the simulator's key, carrying the simulator's issuer and audience, and
 // unexpired) or a JWT a service account signed itself, which Google accepts in
 // place of an access token.
 func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
+	return verifiedAccessTokenClaimsFor(raw, nil)
+}
+
+// verifiedAccessTokenClaimsFor verifies a bearer token presented to one of
+// services, the hosts of the APIs the call reaches (any API's for none): a
+// self-signed JWT holds only for the API whose service URL is its audience.
+func verifiedAccessTokenClaimsFor(raw string, services []string) (accessTokenClaims, error) {
 	var claims accessTokenClaims
 	if accessSigner == nil {
 		return claims, fmt.Errorf("access-token signer not initialised")
@@ -222,7 +222,7 @@ func verifiedAccessTokenClaims(raw string) (accessTokenClaims, error) {
 		RequireExpiry: true,
 	}, accessSigner)
 	if err != nil && isServiceAccountSelfSignedJWT(raw) {
-		claims, err = verifySelfSignedServiceAccountJWT(raw, time.Now())
+		claims, err = verifySelfSignedServiceAccountJWT(raw, time.Now(), services)
 	}
 	if err == nil && workforceSessionRevoked(claims.Sub, claims.Iat) {
 		err = fmt.Errorf("the session of %s was revoked", claims.Sub)
@@ -306,19 +306,81 @@ func bearerAuthMiddleware(srv *sim.Server) func(http.Handler) http.Handler {
 func verifyRequestBearer(w http.ResponseWriter, r *http.Request) bool {
 	auth := r.Header.Get("Authorization")
 	const prefix = "Bearer "
+	target := gcpRequestTarget(r)
 	if !strings.HasPrefix(auth, prefix) {
-		GCPError(w, http.StatusUnauthorized,
-			"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential.",
-			"UNAUTHENTICATED")
+		gcpUnauthenticated(w, gcpMissingCredentialMessage, "CREDENTIALS_MISSING", target)
 		return false
 	}
-	if err := verifyAccessToken(strings.TrimSpace(auth[len(prefix):])); err != nil {
-		GCPError(w, http.StatusUnauthorized,
-			"Invalid authentication credentials: "+err.Error(),
-			"UNAUTHENTICATED")
+	if _, err := verifiedAccessTokenClaimsFor(strings.TrimSpace(auth[len(prefix):]), target.services); err != nil {
+		gcpUnauthenticated(w, gcpInvalidCredentialMessage, gcpCredentialReason(err), target)
 		return false
 	}
 	return true
+}
+
+// gcpCredentialReason is the google.api.ErrorReason Google's front end refuses
+// an unacceptable token with: ACCESS_TOKEN_EXPIRED for one whose lifetime has
+// passed, ACCESS_TOKEN_TYPE_UNSUPPORTED for any the API does not accept.
+func gcpCredentialReason(err error) string {
+	if errors.Is(err, simjwt.ErrExpired) || errors.Is(err, errSelfSignedJWTExpired) {
+		return "ACCESS_TOKEN_EXPIRED"
+	}
+	return "ACCESS_TOKEN_TYPE_UNSUPPORTED"
+}
+
+// gcpCallTarget is the API a call reaches, by host, and the RPC its method is,
+// which an authentication failure names.
+type gcpCallTarget struct {
+	services []string
+	method   string
+}
+
+// gcpRequestTarget resolves a REST call to the APIs that publish it: the one
+// its host names, or each API whose method describes it at the bare
+// coordinate.
+func gcpRequestTarget(r *http.Request) gcpCallTarget {
+	var target gcpCallTarget
+	if decision, ok := gateResolve(gateRESTCall(r)); ok {
+		target.services = decision.hosts
+		if len(decision.hosts) == 1 {
+			if rpc, _, _ := gateMatchRPC(decision.hosts[0], r.Method, r.URL.EscapedPath()); rpc != nil {
+				target.method = string(rpc.method.FullName())
+			}
+		}
+	}
+	if len(target.services) == 0 {
+		if service := gcpServiceFromHost(r); service != "" {
+			target.services = []string{service + ".googleapis.com"}
+		}
+	}
+	return target
+}
+
+// gcpUnauthenticated writes the 401 UNAUTHENTICATED with the ErrorInfo detail
+// google.api.ErrorReason documents: the reason, and the service and method the
+// call reached.
+func gcpUnauthenticated(w http.ResponseWriter, message, reason string, target gcpCallTarget) {
+	metadata := map[string]string{}
+	if len(target.services) == 1 {
+		metadata["service"] = target.services[0]
+	}
+	if target.method != "" {
+		metadata["method"] = target.method
+	}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.Header().Set("WWW-Authenticate", `Bearer realm="https://accounts.google.com/"`)
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
+		"code":    http.StatusUnauthorized,
+		"message": message,
+		"status":  "UNAUTHENTICATED",
+		"details": []any{map[string]any{
+			"@type":    "type.googleapis.com/google.rpc.ErrorInfo",
+			"reason":   reason,
+			"domain":   "googleapis.com",
+			"metadata": metadata,
+		}},
+	}})
 }
 
 // gcpDataPlaneCatchAlls are the mount patterns of the simulator's
@@ -337,7 +399,7 @@ var gcpDataPlaneCatchAlls = map[string]bool{
 // Go's ServeMux answers an unmatched request with its own not-found handler and
 // an empty pattern; a matched one names the pattern that will serve it.
 func publishesAPIMethod(mux *http.ServeMux, r *http.Request) bool {
-	_, pattern := mux.Handler(r)
+	_, pattern := mux.Handler(gcpRoutedRequest(r))
 	return pattern != "" && !gcpDataPlaneCatchAlls[pattern]
 }
 

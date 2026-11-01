@@ -81,6 +81,7 @@ lives.
 | `gcp-bigquery` | [`gcp-bigquery`](SIM_SURFACE_TABLES/gcp-bigquery.md) | [`gcp-bigquery`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-bigtable` | [`gcp-bigtable`](SIM_SURFACE_TABLES/gcp-bigtable.md) | [`gcp-bigtable`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudbilling` | [`gcp-cloudbilling`](SIM_SURFACE_TABLES/gcp-cloudbilling.md) | [`gcp-cloudbilling`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudquotas` | [`gcp-cloudquotas`](SIM_SURFACE_TABLES/gcp-cloudquotas.md) | [`gcp-cloudquotas`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudbuild` | [`gcp-cloudbuild`](SIM_SURFACE_TABLES/gcp-cloudbuild.md) | [`gcp-cloudbuild`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudbuild_regional` | [`gcp-cloudbuild_regional`](SIM_SURFACE_TABLES/gcp-cloudbuild_regional.md) | [`gcp-cloudbuild_regional`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudfunctions` | [`gcp-cloudfunctions`](SIM_SURFACE_TABLES/gcp-cloudfunctions.md) | [`gcp-cloudfunctions`](SIM_TEST_COVERAGE_MATRIX.md) |

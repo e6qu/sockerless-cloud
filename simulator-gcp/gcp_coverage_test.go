@@ -36,6 +36,8 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudbuild-v1":           114,
 	"cloudfunctions-v2":       42,
 	"cloudkms-v1":             174,
+	"cloudquotas-v1":          56,
+	"cloudquotas-v1beta":      56,
 	"cloudresourcemanager-v1": 76,
 	"cloudresourcemanager-v2": 24,
 	"cloudresourcemanager-v3": 184,
@@ -109,6 +111,15 @@ var gcpMethodFloor = map[string]int{
 	"discovery-v1": 2,
 
 	"cloudkms-v1": 174,
+
+	// Cloud Quotas, on both the v1 and the v1beta spelling: a project's quota
+	// preferences and quota infos. The folder and organization containers hold
+	// only folder- and organization-level quotas, of which no quota the
+	// simulator enforces is one; the quota adjuster acts on usage history and
+	// the gdcQuotaInfos on Google Distributed Cloud zones, neither of which the
+	// simulator holds.
+	"cloudquotas-v1":     12,
+	"cloudquotas-v1beta": 12,
 
 	"eventarc-v1":       132,
 	"cloudfunctions-v2": 42,
@@ -591,28 +602,13 @@ func gcpRenderMethodURIs(m discoveryMethod) []string {
 	return out
 }
 
-// gcpDocMountPrefix returns the simulator mount prefix a Discovery document's
-// methods are served under. Real Google separates services by hostname; the
-// single-port simulator mounts the one service whose paths would otherwise
-// collide under a prefix, and that prefix is part of the URI a client
-// configured with the simulator's coordinate sends.
-func gcpDocMountPrefix(file string) string {
-	for prefix, mounted := range gcpMountPrefixes {
-		if mounted == file {
-			return prefix
-		}
-	}
-	return ""
-}
-
 // methodServed probes one documented method and reports whether the
 // simulator serves it. A method counts as served when any of its plausible
 // renderings is served.
 func (p *gcpCoverageProbe) methodServed(d *discoveryDoc, m discoveryMethod) gcpProbeResult {
-	prefix := gcpDocMountPrefix(d.File)
 	var last gcpProbeResult
 	for _, uri := range gcpRenderMethodURIs(m) {
-		res := p.probe(m.HTTPMethod, d.Host, prefix+uri)
+		res := p.probe(m.HTTPMethod, d.Host, uri)
 		if res.served {
 			return res
 		}

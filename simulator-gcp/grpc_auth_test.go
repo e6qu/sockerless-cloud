@@ -73,7 +73,7 @@ func TestGRPCRefusesACallWithoutACredential(t *testing.T) {
 	_, _, conn := grpcAuthTestServer(t)
 	_, err := smpb.NewSecretManagerServiceClient(conn).ListSecrets(context.Background(),
 		&smpb.ListSecretsRequest{Parent: "projects/" + gcpTestProjectID})
-	st := requireUnauthenticated(t, err, grpcMissingCredentialMessage)
+	st := requireUnauthenticated(t, err, gcpMissingCredentialMessage)
 	var info *errdetails.ErrorInfo
 	for _, d := range st.Details() {
 		if e, ok := d.(*errdetails.ErrorInfo); ok {
@@ -101,13 +101,13 @@ func TestGRPCRefusesAnUnverifiableCredential(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := client.ListSecrets(withBearer(context.Background(), token), req)
-			requireUnauthenticated(t, err, grpcInvalidCredentialMessage)
+			requireUnauthenticated(t, err, gcpInvalidCredentialMessage)
 		})
 	}
 	t.Run("not a bearer", func(t *testing.T) {
 		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Basic dXNlcjpwYXNz")
 		_, err := client.ListSecrets(ctx, req)
-		requireUnauthenticated(t, err, grpcMissingCredentialMessage)
+		requireUnauthenticated(t, err, gcpMissingCredentialMessage)
 	})
 }
 
@@ -124,7 +124,7 @@ func TestGRPCRefusesAStreamWithoutACredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = stream.Recv()
-	requireUnauthenticated(t, err, grpcMissingCredentialMessage)
+	requireUnauthenticated(t, err, gcpMissingCredentialMessage)
 }
 
 func TestGRPCServesACallWithAMintedToken(t *testing.T) {

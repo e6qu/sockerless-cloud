@@ -57,6 +57,10 @@ type cloudRunRevisionRun struct {
 	// finishes, which may free a place for a waiting request.
 	changed  chan struct{}
 	startups []time.Duration
+	// holds is the regional CPU each started instance holds, and retired
+	// says the run no longer serves and holds none.
+	holds   map[string]*cloudRunCPUHold
+	retired bool
 }
 
 var cloudRunRevisionRuns = struct {
@@ -108,6 +112,7 @@ func cloudRunRevisionRunFor(svc ServiceV2, rev RevisionV2) *cloudRunRevisionRun 
 	}
 	cloudRunRevisionRuns.Unlock()
 	if previous != nil {
+		previous.retire()
 		bg.Go(func() { _ = previous.set.Stop(context.Background()) })
 	}
 	run.rescale(scale)
@@ -273,6 +278,7 @@ func newCloudRunRevisionRun(rev RevisionV2, specSig string, concurrency int) *cl
 		specSig: specSig, concurrency: concurrency,
 		instances: map[string]*cloudRunServiceInstance{},
 		inflight:  map[string]int{},
+		holds:     map[string]*cloudRunCPUHold{},
 		changed:   make(chan struct{}),
 	}
 	run.set = replicas.New(replicas.Spec{
@@ -289,7 +295,18 @@ func newCloudRunRevisionRun(rev RevisionV2, specSig string, concurrency int) *cl
 			if err != nil {
 				return nil, nil, err
 			}
+			run.mu.Lock()
+			retired := run.retired
+			if !retired {
+				run.holds[id] = inst.cpu
+			}
+			run.mu.Unlock()
+			if retired {
+				stopCloudRunServiceInstance(inst)
+				return nil, nil, replicas.ErrClosed
+			}
 			if _, err := inst.awaitReady(ctx); err != nil {
+				run.forget(id)
 				stopCloudRunServiceInstance(inst)
 				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
 				return nil, nil, err
@@ -325,8 +342,24 @@ func (run *cloudRunRevisionRun) signal() {
 	run.mu.Unlock()
 }
 
+// retire gives back the CPU every instance of the run holds as the run stops
+// serving: a deleted or unrouted revision's instances stop counting against
+// the regional CPU quota when the change that stopped them completes, however
+// long the containers take to stop.
+func (run *cloudRunRevisionRun) retire() {
+	run.mu.Lock()
+	run.retired = true
+	holds := run.holds
+	run.holds = map[string]*cloudRunCPUHold{}
+	run.mu.Unlock()
+	for _, h := range holds {
+		h.release()
+	}
+}
+
 func (run *cloudRunRevisionRun) forget(id string) {
 	run.mu.Lock()
+	delete(run.holds, id)
 	delete(run.instances, id)
 	delete(run.inflight, id)
 	close(run.changed)
@@ -459,6 +492,7 @@ func stopCloudRunRevisionInstances(serviceName string, keep map[string]bool) {
 	}
 	cloudRunRevisionRuns.Unlock()
 	for _, run := range stopped {
+		run.retire()
 		bg.Go(func() { _ = run.set.Stop(context.Background()) })
 	}
 }

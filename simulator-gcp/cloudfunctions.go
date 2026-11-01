@@ -214,7 +214,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			},
 		}, project, location, functionID)
 		applyFunctionServiceConfig(&backingService, fn)
-		if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(backingService)) {
+		if !cloudRunDeployFits(project, location, backingService) {
 			regionalCPUQuotaErrorJSON(w, backingService.Name)
 			return
 		}
@@ -316,7 +316,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			applyFunctionServiceConfig(&svc, fn)
 			after, afterErr := revisions.Signature(svc.Template)
 			templateChanged := beforeErr != nil || afterErr != nil || before != after
-			if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
+			if templateChanged && !cloudRunDeployFits(project, location, svc) {
 				regionalCPUQuotaErrorJSON(w, svc.Name)
 				return
 			}

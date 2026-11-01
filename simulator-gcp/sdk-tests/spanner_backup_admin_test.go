@@ -8,13 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/option"
 	spanneradmin "google.golang.org/api/spanner/v1"
 )
 
 func spannerAdminService(t *testing.T, ctx context.Context) *spanneradmin.Service {
 	t.Helper()
-	svc, err := spanneradmin.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanneradmin.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 	return svc
 }

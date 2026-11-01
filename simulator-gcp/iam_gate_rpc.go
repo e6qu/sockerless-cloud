@@ -23,7 +23,7 @@ import (
 
 var gateRPCServices = append(append([]auditAPI{}, auditOnePlatformServices...),
 	auditAPI{service: "google.firestore.v1.Firestore"},
-	auditAPI{service: "google.spanner.v1.Spanner", restPrefix: "/spanner"},
+	auditAPI{service: "google.spanner.v1.Spanner"},
 	auditAPI{service: "google.bigtable.v2.Bigtable"},
 )
 
@@ -57,7 +57,7 @@ var gateRPCs = sync.OnceValues(func() (*gateRPCIndex, error) {
 			}
 			if rule, _ := proto.GetExtension(m.Options(), annotations.E_Http).(*annotations.HttpRule); rule != nil {
 				for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
-					binding, err := auditCompileBinding(rpc, r, api.restPrefix)
+					binding, err := auditCompileBinding(rpc, r)
 					if err != nil {
 						return nil, fmt.Errorf("iam gate: %s: %w", m.FullName(), err)
 					}

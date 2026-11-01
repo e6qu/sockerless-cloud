@@ -103,7 +103,6 @@ simulator shares (`SIM_LISTEN_ADDR`, `SIM_GCP_PORT`, `SIM_TLS_CERT`,
 | `SIM_DNS_PORT` | a kernel-chosen port | The UDP and TCP port where Cloud DNS answers public managed zones for the host. Workloads reach the resolver through their network's sidecar. |
 | `SIM_DNS_UPSTREAM` | the host's `resolv.conf` | Resolvers, `host[:port]` comma-separated, for names no zone holds |
 | `SIM_GCS_DATA_DIR` | `<SIM_DATA_DIR>/gcs` | Where Cloud Storage object contents live |
-| `SIM_GCP_CPU_QUOTA_PER_REGION`, `SIM_GCP_CPU_QUOTA_WINDOW` | `0` (no quota), `1m` | A Cloud Run CPU budget per project and region over a sliding window; a deploy that would exceed it fails with Cloud Run's quota error. Google Cloud sets this budget through Cloud Quotas, not a variable, so this is an open bug. |
 | `SOCKERLESS_CONSOLE_CLOUD_API_ENDPOINT`, `_FEDERATION_ENDPOINT`, `_FEDERATION_AUDIENCE` | the console's origin | The API endpoint the console reads and the Security Token Service it federates operators through |
 | `SOCKERLESS_SPEC_VALIDATE`, `SOCKERLESS_SPEC_DIR` | unset | Validate every response against the Discovery documents in `SOCKERLESS_SPEC_DIR`, writing violations to the file `SOCKERLESS_SPEC_VALIDATE` names |
 
@@ -161,19 +160,20 @@ gcloud iam service-accounts list
 ```
 
 Set one `api_endpoint_overrides/<api>` per API, with the trailing `/`; the
-`CLOUDSDK_API_ENDPOINT_OVERRIDES_<API>` variables do the same. A few take a
-path: `bigquery` is `http://localhost:4567/bigquery/v2/` and `spanner` is
-`http://localhost:4567/spanner/`. `bq` asks gcloud for its token through
-`auth/token_host`, so set that too.
+`CLOUDSDK_API_ENDPOINT_OVERRIDES_<API>` variables do the same. One takes a
+path: `bigquery` is `http://localhost:4567/bigquery/v2/`. `bq` asks gcloud for
+its token through `auth/token_host`, so set that too.
 
 Two kinds of request need the simulator as gcloud's HTTP proxy
 (`export HTTP_PROXY=http://localhost:4567`). gcloud puts the region in front
 of a regional API's host (`us-central1-localhost:4567` for Cloud Run), which
-the proxy resolves. And Eventarc, Cloud Build, Serverless VPC Access and Cloud
-Scheduler share paths with other APIs, so Google tells them apart by host:
-override them with their real hosts, such as
+the proxy resolves. And Eventarc, Cloud Build, Serverless VPC Access, Cloud
+Scheduler and Spanner share paths with other APIs, so Google tells them apart
+by host: override them with their real hosts, such as
 `http://eventarc.googleapis.com/`, and the proxy delivers each request with
-that `Host`.
+that `Host`. The simulator also answers a service at its own host name, as a
+universe domain: `http://spanner.localhost:4567/` is Spanner, for a client
+that resolves `*.localhost` to the loopback address, as browsers do.
 
 `gcloudCLI` in [`cli-tests/helpers_test.go`](cli-tests/helpers_test.go) runs
 every command of the CLI suite with this configuration, after
@@ -295,7 +295,7 @@ registers every REST slice, and `registerAllGRPCServices` every gRPC service.
 | Developer tools | Artifact Registry, with its Docker registry | `artifactregistry.googleapis.com`, `<location>-docker.pkg.dev` | REST | [artifactregistry](../specs/SIM_SURFACE_TABLES/gcp-artifactregistry.md) |
 | Storage | Cloud Storage | `storage.googleapis.com` | REST | [gcs](../specs/SIM_SURFACE_TABLES/gcp-gcs.md), [batch](../specs/SIM_SURFACE_TABLES/gcp-gcs_batch.md), [ACLs](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_acls.md), [IAM](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_iam.md), [contexts](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_contexts.md), [restore](../specs/SIM_SURFACE_TABLES/gcp-gcs_object_restore.md) |
 | Databases | Firestore | `firestore.googleapis.com` | REST, gRPC | [firestore](../specs/SIM_SURFACE_TABLES/gcp-firestore.md), [document verbs](../specs/SIM_SURFACE_TABLES/gcp-firestore_document_verbs.md), [change streams](../specs/SIM_SURFACE_TABLES/gcp-firestore_change_streams.md) |
-| Databases | Spanner | `spanner.googleapis.com` (REST under `/spanner/v1/`) | REST, gRPC | [spanner](../specs/SIM_SURFACE_TABLES/gcp-spanner.md) |
+| Databases | Spanner | `spanner.googleapis.com` | REST, gRPC | [spanner](../specs/SIM_SURFACE_TABLES/gcp-spanner.md) |
 | Databases | Bigtable: Bigtable Admin API and Bigtable Data API | `bigtableadmin.googleapis.com`, `bigtable.googleapis.com` | REST and gRPC; data gRPC only | [bigtable](../specs/SIM_SURFACE_TABLES/gcp-bigtable.md) |
 | Databases | Cloud SQL | `sqladmin.googleapis.com` | REST | [sqladmin](../specs/SIM_SURFACE_TABLES/gcp-sqladmin.md), [blue-green](../specs/SIM_SURFACE_TABLES/gcp-sqladmin_blue_green.md) |
 | Databases | Memorystore for Redis and Memorystore for Redis Cluster | `redis.googleapis.com` | REST | [memorystore_redis](../specs/SIM_SURFACE_TABLES/gcp-memorystore_redis.md) |
@@ -316,6 +316,7 @@ registers every REST slice, and `registerAllGRPCServices` every gRPC service.
 | Management | Cloud Resource Manager v1, v2 and v3 | `cloudresourcemanager.googleapis.com` | REST | [cloudresourcemanager](../specs/SIM_SURFACE_TABLES/gcp-cloudresourcemanager.md), [folders v2](../specs/SIM_SURFACE_TABLES/gcp-cloudresourcemanager_folders_v2.md), [capability configs](../specs/SIM_SURFACE_TABLES/gcp-cloudresourcemanager_capability_configs.md) |
 | Management | Cloud Billing | `cloudbilling.googleapis.com` | REST | [cloudbilling](../specs/SIM_SURFACE_TABLES/gcp-cloudbilling.md) |
 | Management | Service Usage | `serviceusage.googleapis.com` | REST | none |
+| Management | Cloud Quotas: a project's quota preferences and quota infos (v1 and v1beta) | `cloudquotas.googleapis.com` | REST | [cloudquotas](../specs/SIM_SURFACE_TABLES/gcp-cloudquotas.md) |
 | Management | Cloud Logging, with Cloud Audit Logs | `logging.googleapis.com` | REST, gRPC | [logging](../specs/SIM_SURFACE_TABLES/gcp-logging.md) |
 | Management | Long-running operations | each API's `operations` | REST | [operations_cancel](../specs/SIM_SURFACE_TABLES/gcp-operations_cancel.md) |
 | Management | API Discovery Service | `www.googleapis.com/discovery/v1` | REST | [discovery_service](../specs/SIM_SURFACE_TABLES/gcp-discovery_service.md) |
@@ -395,6 +396,21 @@ ID token for one of the service's URLs whose principal holds
 `K_SERVICE`, `K_REVISION` and `K_CONFIGURATION`, and what it writes reaches
 Cloud Logging under `resource.type="cloud_run_revision"`.
 
+Every running instance of a service, function, job task or worker pool holds
+its containers' CPU limits against the project's regional CPU quota,
+`CpuAllocPerProjectRegion` of `run.googleapis.com` in milli vCPU. Cloud Quotas
+holds its value: a quota preference for the region, else one for every region,
+else the default of 800,000. A deploy whose first instance does not fit fails
+with `Quota exceeded for total allowable CPU per project per region`, and an
+instance that does not fit does not start. Set the value as on Google Cloud,
+with `gcloud beta quotas preferences create --service=run.googleapis.com
+--quota-id=CpuAllocPerProjectRegion --dimensions=region=<region>` through
+`api_endpoint_overrides/cloudquotas`, `google_cloud_quotas_quota_preference`
+through `cloud_quotas_custom_endpoint`, or the Cloud Quotas client library. A
+decrease of more than 10 percent, or below what the region's instances hold,
+takes `--allow-high-percentage-quota-decrease` or
+`--allow-quota-decrease-below-usage`, and an increase takes `--email`.
+
 ### Cloud Run jobs
 
 `RunJob` creates an execution of `taskCount` tasks (1 by default), at most
@@ -449,7 +465,7 @@ HTTPS gateway, which needs `caddy` (or `CADDY=/path/to/caddy`).
 - The REST APIs accept only access tokens the token endpoint minted. A client
   that signs its own JWT for an API audience, as the Cloud Client Libraries
   for Python generated from protocol buffers do, gets 401.
-- 383 of 2,891 Discovery methods have no sourced permission; IAM admits only an Owner to them
+- 391 of 2,947 Discovery methods have no sourced permission; IAM admits only an Owner to them
   ([`docs/iam.md`](../docs/iam.md#google-cloud-enforcement)).
 - `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and
   `Spanner.FetchCacheUpdate` answer `UNIMPLEMENTED`.

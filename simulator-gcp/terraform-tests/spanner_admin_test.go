@@ -34,7 +34,7 @@ provider "google" {
   credentials           = var.credentials
   user_project_override = false
 
-  spanner_custom_endpoint = "${var.endpoint}/spanner/v1/"
+  spanner_custom_endpoint = "http://spanner.googleapis.com/v1/"
 }
 
 resource "google_spanner_instance" "main" {

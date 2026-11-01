@@ -840,7 +840,7 @@ func TestConformance_GCSObjectUpdateMetadata(t *testing.T) {
 func TestConformance_SpannerInstanceUpdateNodeCount(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "conf-spanner-project")
-	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanner.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	const project = "conf-spanner-project"

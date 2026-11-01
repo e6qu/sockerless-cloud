@@ -219,7 +219,7 @@ func TestAuditLogs_BindingsMatchTheirTemplates(t *testing.T) {
 		{"DELETE", "/v2/projects/p/locations/us-central1/functions/f", "google.cloud.functions.v2.FunctionService.DeleteFunction"},
 		{"POST", "/v1/projects/p/locations/us/repositories", "google.devtools.artifactregistry.v1.ArtifactRegistry.CreateRepository"},
 	} {
-		b, _, ok := auditMatchREST(tc.method, tc.path)
+		b, _, ok := auditMatchREST("", tc.method, tc.path)
 		if !ok {
 			t.Errorf("%s %s matched no RPC", tc.method, tc.path)
 			continue
@@ -233,12 +233,12 @@ func TestAuditLogs_BindingsMatchTheirTemplates(t *testing.T) {
 		{"POST", "/v1/projects/p/subscriptions/s:pull"},
 		{"GET", "/v2/projects/p/locations/us-central1/services/svc:getSomething"},
 	} {
-		if b, _, ok := auditMatchREST(tc.method, tc.path); ok {
+		if b, _, ok := auditMatchREST("", tc.method, tc.path); ok {
 			t.Errorf("%s %s matched %s", tc.method, tc.path, b.rpc.method.FullName())
 		}
 	}
 
-	b, vars, _ := auditMatchREST("POST", "/v2/projects/p/locations/us-central1/services")
+	b, vars, _ := auditMatchREST("", "POST", "/v2/projects/p/locations/us-central1/services")
 	request := map[string]any{"serviceId": "svc"}
 	for field, value := range vars {
 		auditSetPath(request, auditJSONPath(b.rpc.method.Input(), field), value)

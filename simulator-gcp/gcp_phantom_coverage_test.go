@@ -62,10 +62,10 @@ var gcpFanInPatterns = map[string]string{
 	// nest deeper than the mux can name without registering the whole
 	// document. The handler routes on the tail and answers a method-not-found
 	// for every tail it does not.
-	"GET /spanner/v1/projects/{project}/instances/{rest...}":    "Cloud Spanner instance subtree",
-	"POST /spanner/v1/projects/{project}/instances/{rest...}":   "Cloud Spanner instance subtree",
-	"PATCH /spanner/v1/projects/{project}/instances/{rest...}":  "Cloud Spanner instance subtree",
-	"DELETE /spanner/v1/projects/{project}/instances/{rest...}": "Cloud Spanner instance subtree",
+	"GET spanner.googleapis.com/v1/projects/{project}/instances/{rest...}":    "Cloud Spanner instance subtree",
+	"POST spanner.googleapis.com/v1/projects/{project}/instances/{rest...}":   "Cloud Spanner instance subtree",
+	"PATCH spanner.googleapis.com/v1/projects/{project}/instances/{rest...}":  "Cloud Spanner instance subtree",
+	"DELETE spanner.googleapis.com/v1/projects/{project}/instances/{rest...}": "Cloud Spanner instance subtree",
 
 	// The AIP-151 IAM verbs apply to any resource, so the route names the
 	// resource generically and the handler reads the verb after the colon.
@@ -109,7 +109,6 @@ func TestServiceConformance_GCPNoPhantomCoverage(t *testing.T) {
 
 	var phantoms []string
 	for _, d := range docs {
-		prefix := gcpDocMountPrefix(d.File)
 		for _, m := range d.Methods {
 			literals := gcpPathLiterals(m.Path)
 			if len(literals) == 0 {
@@ -120,10 +119,10 @@ func TestServiceConformance_GCPNoPhantomCoverage(t *testing.T) {
 			// — not the first rendering, which may name a coordinate the route
 			// does not accept and fall through to a catch-all.
 			for _, uri := range gcpRenderMethodURIs(m) {
-				if !p.probe(m.HTTPMethod, d.Host, prefix+uri).served {
+				if !p.probe(m.HTTPMethod, d.Host, uri).served {
 					continue
 				}
-				req := httptest.NewRequest(m.HTTPMethod, prefix+uri, nil)
+				req := httptest.NewRequest(m.HTTPMethod, uri, nil)
 				req.Host = d.Host
 				_, pattern := mux.Handler(req)
 				if pattern == "" || gcpFanInPatterns[pattern] != "" {

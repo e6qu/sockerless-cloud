@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 	spanneradmin "google.golang.org/api/spanner/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -365,7 +364,7 @@ func spannerReadAll[T any](t *testing.T, it *spanner.RowIterator) []T {
 func spannerProvision(t *testing.T, ctx context.Context, project, instance, dbID string, ddl []string) {
 	t.Helper()
 	ensureProject(t, project)
-	svc, err := spanneradmin.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
+	svc, err := spanneradmin.NewService(ctx, serviceHostOptions(spannerHost)...)
 	require.NoError(t, err)
 
 	op, err := svc.Projects.Instances.Create("projects/"+project, &spanneradmin.CreateInstanceRequest{
