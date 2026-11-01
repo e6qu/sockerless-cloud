@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.3](https://github.com/e6qu/sockerless-cloud/compare/v3.3.2...v3.3.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **gcp:** run Cloud SQL instance operations, certificates, export/import and executeSql for real ([#373](https://github.com/e6qu/sockerless-cloud/issues/373)) ([36aee89](https://github.com/e6qu/sockerless-cloud/commit/36aee89c15a39fd3c414830ca4b2d304983c3ade))
+
 ## [3.3.2](https://github.com/e6qu/sockerless-cloud/compare/v3.3.1...v3.3.2) (2026-11-01)
 
 
