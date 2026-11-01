@@ -396,8 +396,16 @@ func registerComputeRegionEffectiveFirewalls(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "network %q not found", ref)
 			return
 		}
-		writeComputeEffectiveFirewalls(w, computeEffectiveTarget{
-			project: project, network: network, region: sim.PathParam(r, "region"),
+		target := computeEffectiveTarget{project: project, network: network, region: sim.PathParam(r, "region")}
+		policies := computeEffectiveFirewallPolicies(target)
+		// The regional response's EffectiveFirewallPolicy declares no shortName,
+		// where the instance and network responses' do.
+		for _, policy := range policies {
+			delete(policy, "shortName")
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{
+			"firewalls":       computeEffectiveVPCFirewalls(target),
+			"firewallPolicys": policies,
 		})
 	})
 }
