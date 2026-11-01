@@ -29,8 +29,8 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261031192227-f0abbb2c73c6
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261026133804-dc3de6c87a5a
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261101155251-d17d783a0e01
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261101155251-d17d783a0e01
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/jackc/pgx/v5 v5.12.0
@@ -74,7 +74,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
