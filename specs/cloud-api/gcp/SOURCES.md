@@ -163,3 +163,15 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `sql-about-storage-shrink.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/about-storage-shrink` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:18:58Z |
 | `sql-shrink-storage.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/shrink-instance-storage-capacity` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-01T14:19:20Z |
 | `sql-mysql-upgrade-major-version.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/upgrade-major-db-version-inplace` | CC-BY-4.0 | `modified2026-10-28` | 2026-11-01T14:20:31Z |
+| `sql-postgres-import-export-sql.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/import-export/import-export-sql` | CC-BY-4.0 | `modified2026-10-28` | 2026-11-01T14:14:59Z |
+| `sql-postgres-import-export-csv.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/import-export/import-export-csv` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:00Z |
+| `sql-mysql-import-export-sql.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/import-export/import-export-sql` | CC-BY-4.0 | `modified2026-10-28` | 2026-11-01T14:15:01Z |
+| `sql-mysql-import-export-csv.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/import-export/import-export-csv` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:02Z |
+| `sql-cancel-import-export.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/import-export/cancel-import-export` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:02Z |
+| `sql-manage-ssl-instance.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/manage-ssl-instance` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:10Z |
+| `sql-configure-ssl-instance.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/configure-ssl-instance` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:11Z |
+| `sql-executesql-instance.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/executesql-instance` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:12Z |
+| `sql-postgres-import-export.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/import-export` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:13Z |
+| `sql-mysql-import-export.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/import-export` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:14Z |
+| `sql-authorize-ssl.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/authorize-ssl` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:19:28Z |
+| `sql-auth-proxy.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/sql-proxy` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:19:30Z |
