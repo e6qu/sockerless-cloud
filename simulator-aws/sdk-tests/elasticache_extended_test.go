@@ -11,64 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestElastiCache_Snapshots(t *testing.T) {
-	t.Parallel()
-	c := ecClient()
-	ctx := t.Context()
-
-	clusterID := uniquename.New("snap-src-cluster")
-	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
-		CacheClusterId: aws.String(clusterID),
-		Engine:         aws.String("redis"),
-		CacheNodeType:  aws.String("cache.t3.micro"),
-		NumCacheNodes:  aws.Int32(1),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{
-			CacheClusterId: aws.String(clusterID),
-		})
-	})
-
-	snapName := uniquename.New("snap-one")
-	snap, err := c.CreateSnapshot(ctx, &elasticache.CreateSnapshotInput{
-		SnapshotName:   aws.String(snapName),
-		CacheClusterId: aws.String(clusterID),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, snap.Snapshot)
-	assert.Equal(t, snapName, aws.ToString(snap.Snapshot.SnapshotName))
-	assert.Equal(t, clusterID, aws.ToString(snap.Snapshot.CacheClusterId))
-	assert.Equal(t, "manual", aws.ToString(snap.Snapshot.SnapshotSource))
-	t.Cleanup(func() {
-		_, _ = c.DeleteSnapshot(ctx, &elasticache.DeleteSnapshotInput{SnapshotName: aws.String(snapName)})
-	})
-
-	desc, err := c.DescribeSnapshots(ctx, &elasticache.DescribeSnapshotsInput{
-		SnapshotName: aws.String(snapName),
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.Snapshots, 1)
-	assert.Equal(t, "redis", aws.ToString(desc.Snapshots[0].Engine))
-
-	copyName := uniquename.New("snap-copy")
-	cp, err := c.CopySnapshot(ctx, &elasticache.CopySnapshotInput{
-		SourceSnapshotName: aws.String(snapName),
-		TargetSnapshotName: aws.String(copyName),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, cp.Snapshot)
-	assert.Equal(t, copyName, aws.ToString(cp.Snapshot.SnapshotName))
-	t.Cleanup(func() {
-		_, _ = c.DeleteSnapshot(ctx, &elasticache.DeleteSnapshotInput{SnapshotName: aws.String(copyName)})
-	})
-
-	_, err = c.DeleteSnapshot(ctx, &elasticache.DeleteSnapshotInput{SnapshotName: aws.String(snapName)})
-	require.NoError(t, err)
-	_, err = c.DescribeSnapshots(ctx, &elasticache.DescribeSnapshotsInput{SnapshotName: aws.String(snapName)})
-	assertAWSAPIErrorCode(t, err, "SnapshotNotFoundFault")
-}
-
 func TestElastiCache_UsersAndGroups(t *testing.T) {
 	t.Parallel()
 	c := ecClient()

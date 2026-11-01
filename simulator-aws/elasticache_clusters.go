@@ -228,11 +228,27 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 		ecAddReplicaCluster(w, r, id, group)
 		return
 	}
+	restore, ok := ecRequestedRestore(w, r)
+	if !ok {
+		return
+	}
 	engine := r.FormValue("Engine")
+	if engine == "" {
+		engine = restore.engine
+	}
 	if engine == "" {
 		engine = "redis"
 	}
-	version, known := ecResolveEngineVersion(engine, r.FormValue("EngineVersion"))
+	requestedVersion := r.FormValue("EngineVersion")
+	if requestedVersion == "" && engine == restore.engine {
+		requestedVersion = restore.version
+	}
+	if restore.any() && (engine == "memcached" || len(restore.sources) > 1) {
+		ecErrorXML(w, "InvalidParameterCombination",
+			"A cache cluster restores one Valkey or Redis OSS RDB file; restore a snapshot of several shards into a replication group.", http.StatusBadRequest, requestID)
+		return
+	}
+	version, known := ecResolveEngineVersion(engine, requestedVersion)
 	if !known {
 		ecErrorXML(w, "InvalidParameterCombination",
 			fmt.Sprintf("Cannot find version %s for %s", r.FormValue("EngineVersion"), engine), http.StatusBadRequest, requestID)
@@ -319,8 +335,18 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 	c.Endpoint, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
 	c.CacheNodes = ecClusterNodes(c, endpoints, nodes, "creating", created)
 	ecClusters.Put(id, c)
-	ecRunInBackground(running, (*ecEngine).start, func(err error) {
+	restore.begin()
+	ecRunInBackground(running, restore.start(false), func(err error) {
 		ecSettleCluster(id, c.Incarnation, err)
+		var failed *ecRestoreError
+		if errors.As(err, &failed) {
+			ecClusters.Update(id, func(stored *ECCluster) {
+				if stored.Incarnation == c.Incarnation {
+					stored.CacheClusterStatus = "restore-failed"
+				}
+			})
+		}
+		restore.finish()
 	})
 	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c, false), requestID)
 }
@@ -547,6 +573,13 @@ func handleECDelete(w http.ResponseWriter, r *http.Request) {
 		ecInvalidClusterState(w, r, c)
 		return
 	}
+	final, ok := ecFinalSnapshot(w, r, ECSnapshot{
+		CacheClusterId: id, CacheNodeType: c.CacheNodeType, Engine: c.Engine, EngineVersion: c.EngineVersion,
+		NumCacheNodes: c.NumCacheNodes, Port: c.Port, CacheClusterCreateTime: c.CacheClusterCreateTime,
+	}, ecEngineKey(ecKindCluster, id), func(int) string { return id })
+	if !ok {
+		return
+	}
 	ecClusters.Update(id, func(stored *ECCluster) {
 		stored.CacheClusterStatus = "deleting"
 		for i := range stored.CacheNodes {
@@ -554,7 +587,7 @@ func handleECDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	c, _ = ecClusters.Get(id)
-	ecDeleteClusterInBackground(id, c.Incarnation)
+	final(func() { ecDeleteClusterInBackground(id, c.Incarnation) })
 	ecXMLResponse(w, "DeleteCacheCluster", renderECCluster(c, false), requestID)
 }
 
@@ -730,7 +763,14 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		invalid("ReplicationGroupAlreadyExistsFault", "Replication group already exists")
 		return
 	}
+	restore, ok := ecRequestedRestore(w, r)
+	if !ok {
+		return
+	}
 	engine := r.FormValue("Engine")
+	if engine == "" {
+		engine = restore.engine
+	}
 	if engine == "" {
 		engine = "redis"
 	}
@@ -738,7 +778,11 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		invalid("InvalidParameterValue", "Engine must be valkey or redis.")
 		return
 	}
-	version, known := ecResolveEngineVersion(engine, r.FormValue("EngineVersion"))
+	requestedVersion := r.FormValue("EngineVersion")
+	if requestedVersion == "" && engine == restore.engine {
+		requestedVersion = restore.version
+	}
+	version, known := ecResolveEngineVersion(engine, requestedVersion)
 	if !known {
 		invalid("InvalidParameterCombination", fmt.Sprintf("Cannot find version %s for %s", r.FormValue("EngineVersion"), engine))
 		return
@@ -748,6 +792,10 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		shards = 1
 	}
 	clusterEnabled := strings.EqualFold(r.FormValue("ClusterMode"), "enabled") || shards > 1
+	if !clusterEnabled && len(restore.sources) > 1 {
+		invalid("InvalidParameterCombination", "A replication group without cluster mode restores one RDB file; enable cluster mode to restore a snapshot of several shards.")
+		return
+	}
 	replicas := 0
 	switch {
 	case r.FormValue("ReplicasPerNodeGroup") != "":
@@ -850,8 +898,10 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 	ecDescribeReplGroupTopology(&g, ecShapeTopology(shards, replicas, clusterEnabled), endpoints, "creating")
 	ecReplGroups.Put(id, g)
 	ecPutMemberClusters(g, "creating")
-	ecRunInBackground(running, (*ecEngine).start, func(err error) {
+	restore.begin()
+	ecRunInBackground(running, restore.start(clusterEnabled), func(err error) {
 		ecSettleReplGroup(id, g.Incarnation, running, err)
+		restore.finish()
 	})
 	ecXMLResponse(w, "CreateReplicationGroup", renderECReplGroup(g), requestID)
 }
@@ -1236,6 +1286,14 @@ func handleECDeleteReplGroup(w http.ResponseWriter, r *http.Request) {
 		ecInvalidReplGroupState(w, r, g)
 		return
 	}
+	final, ok := ecFinalSnapshot(w, r, ECSnapshot{
+		ReplicationGroupId: id, CacheNodeType: g.CacheNodeType, Engine: g.Engine, EngineVersion: g.EngineVersion,
+		NumCacheNodes: len(g.MemberClusters), Port: g.Port, SnapshotRetentionLimit: g.SnapshotRetentionLimit,
+		SnapshotWindow: g.SnapshotWindow, CacheClusterCreateTime: g.CreateTime,
+	}, ecEngineKey(ecKindReplicationGroup, id), ecReplGroupMemberOf(id))
+	if !ok {
+		return
+	}
 	ecReplGroups.Update(id, func(stored *ECReplicationGroup) {
 		stored.Status = "deleting"
 		for i := range stored.NodeGroups {
@@ -1248,12 +1306,14 @@ func handleECDeleteReplGroup(w http.ResponseWriter, r *http.Request) {
 			ecClusters.Update(c.CacheClusterId, func(stored *ECCluster) { stored.CacheClusterStatus = "deleting" })
 		}
 	}
-	ecDeleteReplGroupInBackground(id, g.Incarnation)
+	final(func() { ecDeleteReplGroupInBackground(id, g.Incarnation) })
 	ecXMLResponse(w, "DeleteReplicationGroup", renderECReplGroup(g), requestID)
 }
 
 func ecDeleteReplGroupInBackground(id, incarnation string) {
 	bg.Go(func() {
+		ecStopFollowingSource(id)
+		ecReplGroupMigrations.Delete(id)
 		ecRemoveEngine(ecEngineKey(ecKindReplicationGroup, id))
 		g, ok := ecReplGroups.Get(id)
 		if !ok || g.Incarnation != incarnation {

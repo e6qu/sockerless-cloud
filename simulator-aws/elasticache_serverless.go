@@ -301,9 +301,20 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheAlreadyExistsFault", "Serverless cache already exists", http.StatusBadRequest, requestID)
 		return
 	}
+	restore, ok := ecRequestedServerlessRestore(w, r)
+	if !ok {
+		return
+	}
 	engine := r.FormValue("Engine")
 	if engine == "" {
+		engine = restore.engine
+	}
+	if engine == "" {
 		engine = "redis"
+	}
+	if engine == "memcached" && restore.any() {
+		ecErrorXML(w, "InvalidParameterCombination", "A Serverless Memcached cache restores no Valkey or Redis OSS snapshot.", http.StatusBadRequest, requestID)
+		return
 	}
 	major := r.FormValue("MajorEngineVersion")
 	version, known := ecServerlessEngineVersion(engine, major)
@@ -375,7 +386,7 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		c.ReaderEndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
 	}
 	ecServerlessCaches.Put(name, c)
-	ecRunInBackground(running, (*ecEngine).start, func(err error) {
+	ecRunInBackground(running, restore.start(record.Cluster), func(err error) {
 		ecSettleServerlessCache(name, c.Incarnation, err)
 	})
 	ecXMLResponse(w, "CreateServerlessCache", renderECServerlessCache(c), requestID)
@@ -456,14 +467,41 @@ func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("Serverless cache %s is already being deleted.", name), http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	final := r.FormValue("FinalSnapshotName")
+	if final != "" {
+		if _, exists := ecServerlessSnapshots.Get(final); exists {
+			ecErrorXML(w, "ServerlessCacheSnapshotAlreadyExistsFault", "Serverless cache snapshot already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		if c.Engine == "memcached" {
+			ecErrorXML(w, "InvalidParameterCombination",
+				"The simulator's Serverless Memcached engine writes no snapshot file.", http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+	}
 	ecServerlessCaches.Update(name, func(stored *ECServerlessCache) { stored.Status = "deleting" })
 	c, _ = ecServerlessCaches.Get(name)
-	ecDeleteServerlessInBackground(name, c.Incarnation)
+	if final == "" {
+		ecDeleteServerlessInBackground(name, c.Incarnation)
+	} else {
+		ecTakeServerlessSnapshot(ECServerlessCacheSnapshot{
+			ServerlessCacheSnapshotName: final,
+			ARN:                         ecServerlessSnapshotARN(final),
+			KmsKeyId:                    c.KmsKeyId,
+			SnapshotType:                "manual",
+			CreateTime:                  ecNow(),
+			BytesUsedForCache:           "0",
+			CacheName:                   c.ServerlessCacheName,
+			CacheEngine:                 c.Engine,
+			CacheMajorEngineVersion:     c.MajorEngineVersion,
+		}, func() { ecDeleteServerlessInBackground(name, c.Incarnation) })
+	}
 	ecXMLResponse(w, "DeleteServerlessCache", renderECServerlessCache(c), sim.RequestID(r.Context()))
 }
 
 func ecDeleteServerlessInBackground(name, incarnation string) {
 	bg.Go(func() {
+		ecStopMigrationRun(ecEngineKey(ecKindServerless, name))
 		ecRemoveEngine(ecEngineKey(ecKindServerless, name))
 		if c, ok := ecServerlessCaches.Get(name); ok && c.Incarnation == incarnation {
 			ecServerlessCaches.Delete(name)
@@ -524,21 +562,29 @@ func handleECCreateServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheNotFoundFault", fmt.Sprintf("Serverless cache %q not found", cacheName), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if c.Status != "available" {
+		ecErrorXML(w, "InvalidServerlessCacheStateFault",
+			fmt.Sprintf("Serverless cache %s is %s, not available.", c.ServerlessCacheName, c.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if c.Engine == "memcached" {
+		ecErrorXML(w, "InvalidParameterCombination",
+			"The simulator's Serverless Memcached engine writes no snapshot file.", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	now := time.Now().UTC()
-	s := ECServerlessCacheSnapshot{
+	s := ecTakeServerlessSnapshot(ECServerlessCacheSnapshot{
 		ServerlessCacheSnapshotName: name,
 		ARN:                         ecServerlessSnapshotARN(name),
 		KmsKeyId:                    r.FormValue("KmsKeyId"),
 		SnapshotType:                "manual",
-		Status:                      "available",
 		CreateTime:                  now.Format(time.RFC3339),
 		BytesUsedForCache:           "0",
 		CacheName:                   c.ServerlessCacheName,
 		CacheEngine:                 c.Engine,
 		CacheMajorEngineVersion:     c.MajorEngineVersion,
 		Tags:                        parseAWSQueryTagMap(r, "Tags.Tag"),
-	}
-	ecServerlessSnapshots.Put(name, s)
+	}, func() {})
 	ecXMLResponse(w, "CreateServerlessCacheSnapshot", renderECServerlessSnapshot(s), sim.RequestID(r.Context()))
 }
 
@@ -573,8 +619,14 @@ func handleECDeleteServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheSnapshotNotFoundFault", "Serverless cache snapshot not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if s.Status != "available" {
+		ecErrorXML(w, "InvalidServerlessCacheSnapshotStateFault",
+			fmt.Sprintf("Serverless cache snapshot %s is %s, not available.", name, s.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	s.Status = "deleting"
 	ecServerlessSnapshots.Delete(name)
+	ecReleaseSnapshotContent(ecServerlessSnapshotKey(name))
 	ecXMLResponse(w, "DeleteServerlessCacheSnapshot", renderECServerlessSnapshot(s), sim.RequestID(r.Context()))
 }
 
@@ -592,6 +644,15 @@ func handleECCopyServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := ecServerlessSnapshots.Get(target); ok {
 		ecErrorXML(w, "ServerlessCacheSnapshotAlreadyExistsFault", "Serverless cache snapshot already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if s.Status != "available" {
+		ecErrorXML(w, "InvalidServerlessCacheSnapshotStateFault",
+			fmt.Sprintf("Serverless cache snapshot %s is %s, not available.", src, s.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := ecCopySnapshotContent(ecServerlessSnapshotKey(src), ecServerlessSnapshotKey(target)); err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
 	}
 	s.ServerlessCacheSnapshotName = target
@@ -613,8 +674,18 @@ func handleECExportServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ServerlessCacheSnapshotNotFoundFault", fmt.Sprintf("Serverless cache snapshot %q not found", name), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if r.FormValue("S3BucketName") == "" {
+	bucket := r.FormValue("S3BucketName")
+	if bucket == "" {
 		ecErrorXML(w, "MissingParameter", "S3BucketName is required", http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if s.Status != "available" {
+		ecErrorXML(w, "InvalidServerlessCacheSnapshotStateFault",
+			fmt.Sprintf("Serverless cache snapshot %s is %s, not available.", name, s.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if err := ecExportSnapshot(ecServerlessSnapshotKey(name), bucket, name); err != nil {
+		ecErrorXML(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	ecXMLResponse(w, "ExportServerlessCacheSnapshot", renderECServerlessSnapshot(s), sim.RequestID(r.Context()))
@@ -1007,19 +1078,6 @@ func handleECBatchStopUpdateAction(w http.ResponseWriter, r *http.Request) {
 	ecXMLResponse(w, "BatchStopUpdateAction", ecRenderUpdateActionResults(r, "stopping"), sim.RequestID(r.Context()))
 }
 
-func ecReplGroupAction(w http.ResponseWriter, r *http.Request, op string, fn func(*ECReplicationGroup)) {
-	id := r.FormValue("ReplicationGroupId")
-	if _, ok := ecReplGroups.Get(id); !ok {
-		ecErrorXML(w, "ReplicationGroupNotFoundFault", "Replication group not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	if fn != nil {
-		ecReplGroups.Update(id, fn)
-	}
-	updated, _ := ecReplGroups.Get(id)
-	ecXMLResponse(w, op, renderECReplGroup(updated), sim.RequestID(r.Context()))
-}
-
 func handleECListAllowedNodeTypeModifications(w http.ResponseWriter, r *http.Request) {
 	scaleUp := []string{"cache.r7g.large", "cache.r7g.xlarge", "cache.r7g.2xlarge"}
 	scaleDown := []string{"cache.t4g.micro", "cache.t4g.small", "cache.t4g.medium"}
@@ -1091,34 +1149,4 @@ func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.R
 	var b strings.Builder
 	ecReservedNodeXML(&b, node)
 	ecXMLResponse(w, "PurchaseReservedCacheNodesOffering", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleECStartMigration(w http.ResponseWriter, r *http.Request) {
-	if serverless, ok := ecServerlessMigrationTarget(w, r); !ok || serverless {
-		if ok {
-			ecStartServerlessMigration(w, r)
-		}
-		return
-	}
-	ecReplGroupAction(w, r, "StartMigration", func(g *ECReplicationGroup) {
-		g.Status = "modifying"
-	})
-}
-
-func handleECCompleteMigration(w http.ResponseWriter, r *http.Request) {
-	if serverless, ok := ecServerlessMigrationTarget(w, r); !ok || serverless {
-		if ok {
-			ecCompleteServerlessMigration(w, r)
-		}
-		return
-	}
-	ecReplGroupAction(w, r, "CompleteMigration", func(g *ECReplicationGroup) {
-		g.Status = "available"
-	})
-}
-
-func handleECTestMigration(w http.ResponseWriter, r *http.Request) {
-	ecReplGroupAction(w, r, "TestMigration", func(g *ECReplicationGroup) {
-		g.Status = "modifying"
-	})
 }

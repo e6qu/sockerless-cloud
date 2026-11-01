@@ -1,7 +1,10 @@
 package aws_cli_test
 
 import (
+	"fmt"
+	"net"
 	"testing"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -77,11 +80,13 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 		ServerlessCacheSnapshot struct {
 			ServerlessCacheSnapshotName string `json:"ServerlessCacheSnapshotName"`
 			SnapshotType                string `json:"SnapshotType"`
+			Status                      string `json:"Status"`
 		} `json:"ServerlessCacheSnapshot"`
 	}
 	parseJSON(t, out, &snap)
 	require.Equal(t, snapName, snap.ServerlessCacheSnapshot.ServerlessCacheSnapshotName)
 	assert.Equal(t, "manual", snap.ServerlessCacheSnapshot.SnapshotType)
+	assert.Equal(t, "creating", snap.ServerlessCacheSnapshot.Status)
 	t.Cleanup(func() {
 		_ = awsCLI("elasticache", "delete-serverless-cache-snapshot",
 			"--serverless-cache-snapshot-name", snapName).Run()
@@ -96,6 +101,7 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	}
 	parseJSON(t, out, &snaps)
 	require.Len(t, snaps.ServerlessCacheSnapshots, 1)
+	ecCLIAwaitServerlessSnapshot(t, snapName)
 
 	copyName := "cli-sl-snap-copy"
 	runCLI(t, awsCLI("elasticache", "copy-serverless-cache-snapshot",
@@ -106,9 +112,27 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 			"--serverless-cache-snapshot-name", copyName).Run()
 	})
 
+	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", "cli-export-bucket"))
 	runCLI(t, awsCLI("elasticache", "export-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName,
 		"--s3-bucket-name", "cli-export-bucket"))
+	runCLI(t, awsCLI("s3api", "head-object", "--bucket", "cli-export-bucket", "--key", snapName+"-0001.rdb"))
+
+	restoredName := "cli-sl-restored"
+	runCLI(t, awsCLI("elasticache", "create-serverless-cache",
+		"--serverless-cache-name", restoredName,
+		"--engine", "redis",
+		"--major-engine-version", "7",
+		"--snapshot-arns-to-restore", ecCLIServerlessSnapshotARN(t, copyName)))
+	t.Cleanup(func() {
+		_ = awsCLI("elasticache", "delete-serverless-cache", "--serverless-cache-name", restoredName).Run()
+	})
+	restored := ecCLIAwaitServerless(t, restoredName)
+	restoredClient := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{restored.Endpoint.address()}, TLSConfig: ecCLIClientTLS()})
+	t.Cleanup(func() { restoredClient.Close() })
+	restoredValue, err := restoredClient.Get(t.Context(), "cli-serverless").Result()
+	require.NoError(t, err)
+	assert.Equal(t, "answered", restoredValue, "the restored cache holds the snapshot's data")
 
 	runCLI(t, awsCLI("elasticache", "delete-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName))
@@ -327,21 +351,15 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	failedOver := ecCLIAwaitReplGroup(t, rgID)
 	assert.Equal(t, rgID+"-002", failedOver.NodeGroups[0].NodeGroupMembers[0].CacheClusterId, "the replica became the primary")
 
-	runCLI(t, awsCLI("elasticache", "start-migration",
+	unanswered := fmt.Sprintf("Address=127.0.0.1,Port=%d", ecCLIUnansweredPort(t))
+	assert.Contains(t, runCLIExpectError(t, awsCLI("elasticache", "start-migration",
 		"--replication-group-id", rgID,
-		"--customer-node-endpoint-list", "Address=10.0.0.1,Port=6379"))
-	runCLI(t, awsCLI("elasticache", "test-migration",
+		"--customer-node-endpoint-list", unanswered)), "InvalidParameterValue")
+	assert.Contains(t, runCLIExpectError(t, awsCLI("elasticache", "test-migration",
 		"--replication-group-id", rgID,
-		"--customer-node-endpoint-list", "Address=10.0.0.1,Port=6379"))
-	out = runCLI(t, awsCLI("elasticache", "complete-migration",
-		"--replication-group-id", rgID))
-	var cm struct {
-		ReplicationGroup struct {
-			Status string `json:"Status"`
-		} `json:"ReplicationGroup"`
-	}
-	parseJSON(t, out, &cm)
-	assert.Equal(t, "available", cm.ReplicationGroup.Status)
+		"--customer-node-endpoint-list", unanswered)), "InvalidParameterValue")
+	assert.Contains(t, runCLIExpectError(t, awsCLI("elasticache", "complete-migration",
+		"--replication-group-id", rgID)), "ReplicationGroupNotUnderMigrationFault")
 
 	out = runCLI(t, awsCLI("elasticache", "list-allowed-node-type-modifications"))
 	var allowed struct {
@@ -365,4 +383,45 @@ func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
 	parseJSON(t, out, &rcn)
 	assert.Equal(t, "cli-reservation", rcn.ReservedCacheNode.ReservedCacheNodeId)
 	assert.Equal(t, 1, rcn.ReservedCacheNode.CacheNodeCount)
+}
+
+func ecCLIAwaitServerlessSnapshot(t *testing.T, name string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		var described struct {
+			ServerlessCacheSnapshots []struct {
+				Status string `json:"Status"`
+			} `json:"ServerlessCacheSnapshots"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("elasticache", "describe-serverless-cache-snapshots", "--serverless-cache-snapshot-name", name)), &described)
+		require.Len(t, described.ServerlessCacheSnapshots, 1)
+		if described.ServerlessCacheSnapshots[0].Status == "available" {
+			return
+		}
+		require.Equal(t, "creating", described.ServerlessCacheSnapshots[0].Status, "serverless cache snapshot %s", name)
+		require.True(t, time.Now().Before(deadline), "serverless cache snapshot %s did not become available", name)
+		time.Sleep(time.Second)
+	}
+}
+
+func ecCLIServerlessSnapshotARN(t *testing.T, name string) string {
+	t.Helper()
+	var described struct {
+		ServerlessCacheSnapshots []struct {
+			ARN string `json:"ARN"`
+		} `json:"ServerlessCacheSnapshots"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("elasticache", "describe-serverless-cache-snapshots", "--serverless-cache-snapshot-name", name)), &described)
+	require.Len(t, described.ServerlessCacheSnapshots, 1)
+	return described.ServerlessCacheSnapshots[0].ARN
+}
+
+func ecCLIUnansweredPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return port
 }

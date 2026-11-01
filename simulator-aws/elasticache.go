@@ -50,6 +50,10 @@ type ECSnapshot struct {
 	ARN                    string
 	CacheClusterCreateTime string
 	Tags                   map[string]string
+	NodeSnapshots          []ECNodeSnapshot `json:",omitempty"`
+	// The creates loading the snapshot, which reports restoring until the
+	// last one has.
+	Restores int `json:",omitempty"`
 }
 
 // ElastiCache RBAC for Redis OSS and Valkey.
@@ -163,6 +167,8 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "ListTagsForResource", handleECListTags)
 	r.RegisterVersioned(ecAPIVersion, "RemoveTagsFromResource", handleECRemoveTags)
 	ecSnapshots = sim.MakeStore[ECSnapshot](srv.DB(), "elasticache_snapshots")
+	ecOpenSnapshotPayloads(srv)
+	ecOpenMigrationStores(srv)
 	ecReservedNodes = sim.MakeStore[ECReservedCacheNode](srv.DB(), "elasticache_reserved_nodes")
 	ecUsers = sim.MakeStore[ECUser](srv.DB(), "elasticache_users")
 	ecUserGroups = sim.MakeStore[ECUserGroup](srv.DB(), "elasticache_user_groups")
@@ -198,6 +204,8 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 		}
 	}
 	ecRecoverTransitions()
+	ecRecoverSnapshots()
+	ecRecoverMigrations()
 }
 
 func ecReservedNodeARN(id string) string {
@@ -614,34 +622,53 @@ func renderECSnapshot(s ECSnapshot) string {
 	}
 	fmt.Fprintf(&b, "<ARN>%s</ARN>", xmlEscape(s.ARN))
 	b.WriteString("<NodeSnapshots>")
-	fmt.Fprintf(&b, "<NodeSnapshot><CacheNodeId>0001</CacheNodeId><CacheSize></CacheSize><SnapshotCreateTime>%s</SnapshotCreateTime></NodeSnapshot>",
-		xmlEscape(time.Now().UTC().Format(time.RFC3339)))
+	for _, node := range s.NodeSnapshots {
+		b.WriteString("<NodeSnapshot>")
+		if node.CacheClusterId != "" {
+			fmt.Fprintf(&b, "<CacheClusterId>%s</CacheClusterId>", xmlEscape(node.CacheClusterId))
+		}
+		fmt.Fprintf(&b, "<NodeGroupId>%s</NodeGroupId>", xmlEscape(node.NodeGroupId))
+		fmt.Fprintf(&b, "<CacheNodeId>%s</CacheNodeId>", xmlEscape(node.CacheNodeId))
+		fmt.Fprintf(&b, "<SnapshotCreateTime>%s</SnapshotCreateTime>", xmlEscape(node.SnapshotCreateTime))
+		b.WriteString("</NodeSnapshot>")
+	}
 	b.WriteString("</NodeSnapshots>")
 	b.WriteString("</Snapshot>")
 	return b.String()
 }
 
+// The resource reports snapshotting while its engine writes the snapshot,
+// which reports creating until then.
 func handleECCreateSnapshot(w http.ResponseWriter, r *http.Request) {
+	requestID := sim.RequestID(r.Context())
 	name := r.FormValue("SnapshotName")
 	if name == "" {
-		ecErrorXML(w, "MissingParameter", "SnapshotName is required", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "MissingParameter", "SnapshotName is required", http.StatusBadRequest, requestID)
 		return
 	}
 	if _, ok := ecSnapshots.Get(name); ok {
-		ecErrorXML(w, "SnapshotAlreadyExistsFault", "Snapshot already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "SnapshotAlreadyExistsFault", "Snapshot already exists", http.StatusBadRequest, requestID)
 		return
 	}
 	s := ECSnapshot{
 		SnapshotName:   name,
-		SnapshotStatus: "available",
 		SnapshotSource: "manual",
 		Port:           6379,
 		Tags:           parseAWSQueryTagMap(r, "Tags.Tag"),
+		ARN:            ecSnapshotARN(name),
 	}
-	if cid := r.FormValue("CacheClusterId"); cid != "" {
+	if cid := strings.ToLower(r.FormValue("CacheClusterId")); cid != "" {
 		c, ok := ecClusters.Get(cid)
 		if !ok {
-			ecErrorXML(w, "CacheClusterNotFound", fmt.Sprintf("Cache cluster %q not found", cid), http.StatusNotFound, sim.RequestID(r.Context()))
+			ecErrorXML(w, "CacheClusterNotFound", fmt.Sprintf("Cache cluster %q not found", cid), http.StatusNotFound, requestID)
+			return
+		}
+		if c.Engine == "memcached" {
+			ecErrorXML(w, "SnapshotFeatureNotSupportedFault", "Snapshots are not supported for clusters running Memcached.", http.StatusBadRequest, requestID)
+			return
+		}
+		if c.CacheClusterStatus != "available" {
+			ecInvalidClusterState(w, r, c)
 			return
 		}
 		s.CacheClusterId = cid
@@ -651,30 +678,64 @@ func handleECCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		s.NumCacheNodes = c.NumCacheNodes
 		s.Port = c.Port
 		s.CacheClusterCreateTime = c.CacheClusterCreateTime
-	} else if rgid := r.FormValue("ReplicationGroupId"); rgid != "" {
+		engineKey, node := ecEngineKey(ecKindCluster, cid), -1
+		if c.ReplicationGroupId != "" {
+			g, _ := ecReplGroups.Get(c.ReplicationGroupId)
+			if g.Status != "available" {
+				ecInvalidReplGroupState(w, r, g)
+				return
+			}
+			engineKey = ecEngineKey(ecKindReplicationGroup, g.ReplicationGroupId)
+			node, _ = ecMemberNode(g, cid)
+		}
+		ecClusters.Update(cid, func(stored *ECCluster) { stored.CacheClusterStatus = "snapshotting" })
+		s = ecTakeSnapshot(s, engineKey, node, func(int) string { return cid }, func() {
+			ecClusters.Update(cid, func(stored *ECCluster) {
+				if stored.Incarnation == c.Incarnation && stored.CacheClusterStatus == "snapshotting" {
+					stored.CacheClusterStatus = "available"
+				}
+			})
+		})
+	} else if rgid := strings.ToLower(r.FormValue("ReplicationGroupId")); rgid != "" {
 		g, ok := ecReplGroups.Get(rgid)
 		if !ok {
-			ecErrorXML(w, "ReplicationGroupNotFoundFault", fmt.Sprintf("Replication group %q not found", rgid), http.StatusNotFound, sim.RequestID(r.Context()))
+			ecErrorXML(w, "ReplicationGroupNotFoundFault", fmt.Sprintf("Replication group %q not found", rgid), http.StatusNotFound, requestID)
+			return
+		}
+		if g.Status != "available" {
+			ecInvalidReplGroupState(w, r, g)
 			return
 		}
 		s.ReplicationGroupId = rgid
 		s.CacheNodeType = g.CacheNodeType
 		s.Engine = g.Engine
+		s.EngineVersion = g.EngineVersion
 		s.NumCacheNodes = len(g.MemberClusters)
-		s.Port = g.ConfigEndpointPort
+		s.Port = g.Port
 		s.SnapshotRetentionLimit = g.SnapshotRetentionLimit
 		s.SnapshotWindow = g.SnapshotWindow
 		s.CacheClusterCreateTime = g.CreateTime
+		ecReplGroups.Update(rgid, func(stored *ECReplicationGroup) { stored.Status = "snapshotting" })
+		s = ecTakeSnapshot(s, ecEngineKey(ecKindReplicationGroup, rgid), -1, ecReplGroupMemberOf(rgid), func() {
+			ecReplGroups.Update(rgid, func(stored *ECReplicationGroup) {
+				if stored.Incarnation == g.Incarnation && stored.Status == "snapshotting" {
+					stored.Status = "available"
+				}
+			})
+		})
 	} else {
-		ecErrorXML(w, "InvalidParameterCombination", "CacheClusterId or ReplicationGroupId is required", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "InvalidParameterCombination", "CacheClusterId or ReplicationGroupId is required", http.StatusBadRequest, requestID)
 		return
 	}
-	if s.EngineVersion == "" {
-		s.EngineVersion = ecDefaultEngineVersion(s.Engine)
+	ecXMLResponse(w, "CreateSnapshot", renderECSnapshot(s), requestID)
+}
+
+// The member cluster an engine node of the replication group is.
+func ecReplGroupMemberOf(id string) func(int) string {
+	return func(node int) string {
+		g, _ := ecReplGroups.Get(id)
+		return g.MemberNodes[node]
 	}
-	s.ARN = ecSnapshotARN(name)
-	ecSnapshots.Put(name, s)
-	ecXMLResponse(w, "CreateSnapshot", renderECSnapshot(s), sim.RequestID(r.Context()))
 }
 
 func handleECDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -712,25 +773,50 @@ func handleECDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "SnapshotNotFoundFault", "Snapshot not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	if s.SnapshotStatus != "available" {
+		ecErrorXML(w, "InvalidSnapshotState", fmt.Sprintf("Snapshot %s is %s, not available.", name, s.SnapshotStatus), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	s.SnapshotStatus = "deleting"
 	ecSnapshots.Delete(name)
+	ecReleaseSnapshotContent(ecNodeSnapshotKey(name))
 	ecXMLResponse(w, "DeleteSnapshot", renderECSnapshot(s), sim.RequestID(r.Context()))
 }
 
+// With TargetBucket, the copy is the snapshot's RDB files exported to that
+// Amazon S3 bucket.
 func handleECCopySnapshot(w http.ResponseWriter, r *http.Request) {
+	requestID := sim.RequestID(r.Context())
 	src := r.FormValue("SourceSnapshotName")
 	target := r.FormValue("TargetSnapshotName")
 	if target == "" {
-		ecErrorXML(w, "MissingParameter", "TargetSnapshotName is required", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "MissingParameter", "TargetSnapshotName is required", http.StatusBadRequest, requestID)
 		return
 	}
 	s, ok := ecSnapshots.Get(src)
 	if !ok {
-		ecErrorXML(w, "SnapshotNotFoundFault", fmt.Sprintf("Snapshot %q not found", src), http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "SnapshotNotFoundFault", fmt.Sprintf("Snapshot %q not found", src), http.StatusNotFound, requestID)
+		return
+	}
+	if s.SnapshotStatus != "available" {
+		ecErrorXML(w, "InvalidSnapshotState", fmt.Sprintf("Snapshot %s is %s, not available.", src, s.SnapshotStatus), http.StatusBadRequest, requestID)
+		return
+	}
+	if bucket := r.FormValue("TargetBucket"); bucket != "" {
+		if err := ecExportSnapshot(ecNodeSnapshotKey(src), bucket, target); err != nil {
+			ecErrorXML(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest, requestID)
+			return
+		}
+		s.SnapshotName = target
+		ecXMLResponse(w, "CopySnapshot", renderECSnapshot(s), requestID)
 		return
 	}
 	if _, ok := ecSnapshots.Get(target); ok {
-		ecErrorXML(w, "SnapshotAlreadyExistsFault", "Snapshot already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "SnapshotAlreadyExistsFault", "Snapshot already exists", http.StatusBadRequest, requestID)
+		return
+	}
+	if err := ecCopySnapshotContent(ecNodeSnapshotKey(src), ecNodeSnapshotKey(target)); err != nil {
+		ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
 		return
 	}
 	s.SnapshotName = target
@@ -738,7 +824,7 @@ func handleECCopySnapshot(w http.ResponseWriter, r *http.Request) {
 	s.SnapshotStatus = "available"
 	s.Tags = parseAWSQueryTagMap(r, "Tags.Tag")
 	ecSnapshots.Put(target, s)
-	ecXMLResponse(w, "CopySnapshot", renderECSnapshot(s), sim.RequestID(r.Context()))
+	ecXMLResponse(w, "CopySnapshot", renderECSnapshot(s), requestID)
 }
 
 // Create, Modify and Delete flatten the User shape into their Result;

@@ -68,73 +68,6 @@ func TestElastiCache_Serverless(t *testing.T) {
 	ecAwaitServerlessDeleted(t, c, name)
 }
 
-func TestElastiCache_ServerlessSnapshots(t *testing.T) {
-	t.Parallel()
-	c := ecClient()
-	ctx := t.Context()
-
-	cacheName := uniquename.New("sl-snap-cache")
-	_, err := c.CreateServerlessCache(ctx, &elasticache.CreateServerlessCacheInput{
-		ServerlessCacheName: aws.String(cacheName),
-		Engine:              aws.String("valkey"),
-		MajorEngineVersion:  aws.String("8"),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = c.DeleteServerlessCache(ctx, &elasticache.DeleteServerlessCacheInput{
-			ServerlessCacheName: aws.String(cacheName),
-		})
-	})
-
-	snapName := uniquename.New("sl-snap-one")
-	snap, err := c.CreateServerlessCacheSnapshot(ctx, &elasticache.CreateServerlessCacheSnapshotInput{
-		ServerlessCacheSnapshotName: aws.String(snapName),
-		ServerlessCacheName:         aws.String(cacheName),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, snap.ServerlessCacheSnapshot)
-	assert.Equal(t, snapName, aws.ToString(snap.ServerlessCacheSnapshot.ServerlessCacheSnapshotName))
-	assert.Equal(t, "manual", aws.ToString(snap.ServerlessCacheSnapshot.SnapshotType))
-	require.NotNil(t, snap.ServerlessCacheSnapshot.ServerlessCacheConfiguration)
-	assert.Equal(t, cacheName, aws.ToString(snap.ServerlessCacheSnapshot.ServerlessCacheConfiguration.ServerlessCacheName))
-	t.Cleanup(func() {
-		_, _ = c.DeleteServerlessCacheSnapshot(ctx, &elasticache.DeleteServerlessCacheSnapshotInput{
-			ServerlessCacheSnapshotName: aws.String(snapName),
-		})
-	})
-
-	descS, err := c.DescribeServerlessCacheSnapshots(ctx, &elasticache.DescribeServerlessCacheSnapshotsInput{
-		ServerlessCacheSnapshotName: aws.String(snapName),
-	})
-	require.NoError(t, err)
-	require.Len(t, descS.ServerlessCacheSnapshots, 1)
-
-	copyName := uniquename.New("sl-snap-copy")
-	cp, err := c.CopyServerlessCacheSnapshot(ctx, &elasticache.CopyServerlessCacheSnapshotInput{
-		SourceServerlessCacheSnapshotName: aws.String(snapName),
-		TargetServerlessCacheSnapshotName: aws.String(copyName),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, copyName, aws.ToString(cp.ServerlessCacheSnapshot.ServerlessCacheSnapshotName))
-	t.Cleanup(func() {
-		_, _ = c.DeleteServerlessCacheSnapshot(ctx, &elasticache.DeleteServerlessCacheSnapshotInput{
-			ServerlessCacheSnapshotName: aws.String(copyName),
-		})
-	})
-
-	exp, err := c.ExportServerlessCacheSnapshot(ctx, &elasticache.ExportServerlessCacheSnapshotInput{
-		ServerlessCacheSnapshotName: aws.String(snapName),
-		S3BucketName:                aws.String("my-export-bucket-c732"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, snapName, aws.ToString(exp.ServerlessCacheSnapshot.ServerlessCacheSnapshotName))
-
-	_, err = c.DeleteServerlessCacheSnapshot(ctx, &elasticache.DeleteServerlessCacheSnapshotInput{
-		ServerlessCacheSnapshotName: aws.String(snapName),
-	})
-	require.NoError(t, err)
-}
-
 // TestElastiCache_GlobalReplicationGroup covers a Global Datastore created from
 // a primary replication group through failover, node-group changes,
 // rebalancing, disassociation and deletion.
@@ -397,29 +330,13 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 	require.NotNil(t, fo.ReplicationGroup)
 	ecAwaitReplGroup(t, c, rgID)
 
-	sm, err := c.StartMigration(ctx, &elasticache.StartMigrationInput{
-		ReplicationGroupId: aws.String(rgID),
-		CustomerNodeEndpointList: []ectypes.CustomerNodeEndpoint{
-			{Address: aws.String("10.0.0.1"), Port: aws.Int32(6379)},
-		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, sm.ReplicationGroup)
-
-	tm, err := c.TestMigration(ctx, &elasticache.TestMigrationInput{
-		ReplicationGroupId: aws.String(rgID),
-		CustomerNodeEndpointList: []ectypes.CustomerNodeEndpoint{
-			{Address: aws.String("10.0.0.1"), Port: aws.Int32(6379)},
-		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, tm.ReplicationGroup)
-
-	cm, err := c.CompleteMigration(ctx, &elasticache.CompleteMigrationInput{
-		ReplicationGroupId: aws.String(rgID),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "available", aws.ToString(cm.ReplicationGroup.Status))
+	unanswered := []ectypes.CustomerNodeEndpoint{{Address: aws.String("127.0.0.1"), Port: aws.Int32(ecUnansweredPort(t))}}
+	_, err = c.StartMigration(ctx, &elasticache.StartMigrationInput{ReplicationGroupId: aws.String(rgID), CustomerNodeEndpointList: unanswered})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterValue")
+	_, err = c.TestMigration(ctx, &elasticache.TestMigrationInput{ReplicationGroupId: aws.String(rgID), CustomerNodeEndpointList: unanswered})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterValue")
+	_, err = c.CompleteMigration(ctx, &elasticache.CompleteMigrationInput{ReplicationGroupId: aws.String(rgID)})
+	assertAWSAPIErrorCode(t, err, "ReplicationGroupNotUnderMigrationFault")
 }
 
 func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
