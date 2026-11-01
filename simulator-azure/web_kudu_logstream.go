@@ -76,6 +76,10 @@ func kuduLogStream(w http.ResponseWriter, r *http.Request, site *Site, rel strin
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The stream carries what is appended once the client holds the welcome
+	// line; measure the files before writing it, so an append the client makes
+	// on reading it is never counted as existing content.
+	offsets := kuduLogFiles(root, dir)
 	filter := kuduQuery(r, "filter")
 	limit := kuduSettingSeconds(site, "SCM_LOGSTREAM_TIMEOUT")
 	rc := http.NewResponseController(w)
@@ -91,9 +95,6 @@ func kuduLogStream(w http.ResponseWriter, r *http.Request, site *Site, rel strin
 		kuduLogStreamTime(time.Now()))) {
 		return
 	}
-	// The stream carries what is appended from here on; existing content is not
-	// replayed.
-	offsets := kuduLogFiles(root, dir)
 	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
 	poll := time.NewTicker(kuduLogStreamInterval)

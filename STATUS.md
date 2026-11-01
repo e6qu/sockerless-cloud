@@ -175,7 +175,9 @@ Shared mechanisms, one package each:
 - Managed engines run real servers: Amazon RDS and Aurora, Cloud SQL and Azure
   Database for PostgreSQL on PostgreSQL, MySQL and MariaDB; Memorystore for
   Redis and Redis Cluster on Redis; with snapshots, backups, replicas and
-  failover on the engines' own mechanisms.
+  failover on the engines' own mechanisms (Cloud SQL has no read replicas).
+  Cloud SQL instance actions, certificates, export, import and `executeSql`
+  act on the engine.
 - With `SIM_PERSIST`, a stopping simulator leaves its containers, node agent
   and guests running and the next process adopts them by label; without it,
   the detached reaper and the startup sweep collect a run's containers,

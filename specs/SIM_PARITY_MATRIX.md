@@ -140,6 +140,7 @@ lives.
 | `gcp-spanner` | [`gcp-spanner`](SIM_SURFACE_TABLES/gcp-spanner.md) | [`gcp-spanner`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-sqladmin` | [`gcp-sqladmin`](SIM_SURFACE_TABLES/gcp-sqladmin.md) | [`gcp-sqladmin`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-sqladmin_blue_green` | [`gcp-sqladmin_blue_green`](SIM_SURFACE_TABLES/gcp-sqladmin_blue_green.md) | [`gcp-sqladmin_blue_green`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-sqladmin_lifecycle` | [`gcp-sqladmin_lifecycle`](SIM_SURFACE_TABLES/gcp-sqladmin_lifecycle.md) | [`gcp-sqladmin_lifecycle`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-sts` | [`gcp-sts`](SIM_SURFACE_TABLES/gcp-sts.md) | [`gcp-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-vpcaccess` | [`gcp-vpcaccess`](SIM_SURFACE_TABLES/gcp-vpcaccess.md) | [`gcp-vpcaccess`](SIM_TEST_COVERAGE_MATRIX.md) |
 

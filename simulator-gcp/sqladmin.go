@@ -28,11 +28,14 @@ type SQLInstance struct {
 	InstanceType                     string           `json:"instanceType,omitempty"`
 	ConnectionName                   string           `json:"connectionName,omitempty"`
 	GceZone                          string           `json:"gceZone,omitempty"`
+	SecondaryGceZone                 string           `json:"secondaryGceZone,omitempty"`
 	CreateTime                       string           `json:"createTime,omitempty"`
 	DatabaseCenterIntegrationEnabled *bool            `json:"databaseCenterIntegrationEnabled,omitempty"`
 	OnPremisesConfiguration          map[string]any   `json:"onPremisesConfiguration,omitempty"`
 	Settings                         map[string]any   `json:"settings,omitempty"`
 	IpAddresses                      []map[string]any `json:"ipAddresses,omitempty"`
+	ServerCaCert                     *SQLSslCert      `json:"serverCaCert,omitempty"`
+	ServiceAccountEmailAddress       string           `json:"serviceAccountEmailAddress,omitempty"`
 	SelfLink                         string           `json:"selfLink,omitempty"`
 }
 
@@ -76,9 +79,14 @@ type SQLOperation struct {
 	TargetProject string                 `json:"targetProject,omitempty"`
 	TargetID      string                 `json:"targetId,omitempty"`
 	InsertTime    string                 `json:"insertTime,omitempty"`
+	StartTime     string                 `json:"startTime,omitempty"`
 	EndTime       string                 `json:"endTime,omitempty"`
 	Error         *SQLOperationErrorList `json:"error,omitempty"`
+	ExportContext json.RawMessage        `json:"exportContext,omitempty"`
+	ImportContext json.RawMessage        `json:"importContext,omitempty"`
 	SelfLink      string                 `json:"selfLink,omitempty"`
+
+	PreCheckMajorVersionUpgradeContext map[string]any `json:"preCheckMajorVersionUpgradeContext,omitempty"`
 }
 
 // SQLBackupRun is a per-instance backup run: ENQUEUED on insert, then
@@ -139,19 +147,6 @@ var (
 	sqlBackups     sim.Store[SQLBackup]
 )
 
-// sqlInstanceOperationActions are the instances.* verbs that answer the
-// Operation envelope. The handler checks the instance exists and answers a
-// DONE operation; it does not act on the engine.
-var sqlInstanceOperationActions = []string{
-	"restart", "failover", "demote", "demoteMaster", "export", "import",
-	"reencrypt", "startReplica", "stopReplica",
-	"promoteReplica", "switchover", "truncateLog", "resetSslConfig",
-	"resetReplicaSize", "rotateServerCa", "rotateServerCertificate",
-	"rotateEntraIdCertificate", "addServerCa", "addServerCertificate",
-	"addEntraIdCertificate", "startExternalSync", "performDiskShrink",
-	"preCheckMajorVersionUpgrade", "rescheduleMaintenance",
-}
-
 func registerCloudSQL(srv *sim.Server) {
 	sqlInstances = sim.MakeStore[SQLInstance](srv.DB(), "sql_instances")
 	sqlDatabases = sim.MakeStore[SQLDatabase](srv.DB(), "sql_databases")
@@ -163,11 +158,16 @@ func registerCloudSQL(srv *sim.Server) {
 	sqlBackups = sim.MakeStore[SQLBackup](srv.DB(), "sql_backups")
 
 	sqlBlueGreenDeployments = sim.MakeStore[SQLBlueGreenDeployment](srv.DB(), "sql_blue_green_deployments")
+	sqlRecoverOperations()
 
+	registerCloudSQLCertificates(srv)
+	registerCloudSQLData(srv)
 	registerCloudSQLPrefix(srv, "/v1")
 	registerCloudSQLPrefix(srv, "/sql/v1beta4")
 	registerCloudSQLBlueGreenPrefix(srv, "/v1")
 	registerCloudSQLBlueGreenPrefix(srv, "/sql/v1beta4")
+	registerCloudSQLLifecyclePrefix(srv, "/v1")
+	registerCloudSQLLifecyclePrefix(srv, "/sql/v1beta4")
 
 	// instances.pointInTimeRestore's /sql/v1beta4 spelling. The /v1 pattern
 	// `POST /v1/projects/{...}` belongs to Cloud Resource Manager's project
@@ -230,15 +230,11 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("GET "+prefix+"/locations/{location}/dns/{dnsNameAction}", handleSQLConnectResolve)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}", handleSQLInstanceColonVerb)
 
-	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getDiskShrinkConfig", handleSQLGetDiskShrinkConfig)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/getLatestRecoveryTime", handleSQLGetLatestRecoveryTime)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCas", handleSQLListServerCas)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listServerCertificates", handleSQLListServerCertificates)
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/listEntraIdCertificates", handleSQLListEntraIdCertificates)
 
-	for _, action := range sqlInstanceOperationActions {
-		srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/"+action, handleSQLInstanceAction(action))
-	}
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/clone", handleSQLCloneInstance)
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/restoreBackup", handleSQLRestoreBackup)
 
@@ -440,6 +436,10 @@ func handleSQLCloneInstance(w http.ResponseWriter, r *http.Request) {
 	// The source's address is the source's; the clone's data plane binds its own.
 	cloned.IpAddresses = nil
 	sqlReportDataPlane(&cloned)
+	if err := sqlIssueInstanceCertificates(&cloned); err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "issue server certificates: %v", err)
+		return
+	}
 	sqlInstances.Put(sqlInstanceKey(project, dest), cloned)
 	op := newSQLOperationRunning(project, "CLONE", dest)
 	opName := op.Name
@@ -790,7 +790,12 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		Settings:                         req.Settings,
 		SelfLink:                         gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
 	}
+	sqlPlaceZones(&inst, nil)
 	sqlReportDataPlane(&inst)
+	if err := sqlIssueInstanceCertificates(&inst); err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "issue server certificates: %v", err)
+		return
+	}
 	sqlInstances.Put(sqlInstanceKey(project, req.Name), inst)
 	// The built-in admin user Cloud SQL creates with the instance — postgres
 	// for PostgreSQL, root for MySQL — listed by users.list like any other.
@@ -855,6 +860,8 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
+		before := sqlLocationPreference(i.Settings)
+		defer sqlPlaceZones(i, before)
 		if req.DatabaseVersion != "" {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
@@ -879,6 +886,10 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 			i.Settings["settingsVersion"] = sqlNextSettingsVersion(i.Settings)
 		}
 	})
+	if err := sqlRefreshServerCa(project, name); err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		return
+	}
 	op := newSQLOperation(project, "UPDATE", name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -910,6 +921,7 @@ func handleSQLDeleteInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlStopDataPlane(project, name, true)
+	sqlDropInstanceCertificates(project, name)
 	// Cascade-delete the instance's databases and users.
 	for _, d := range sqlDatabases.List() {
 		if d.Instance == name && d.Project == project {
@@ -1200,6 +1212,8 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
+		before := sqlLocationPreference(i.Settings)
+		defer sqlPlaceZones(i, before)
 		if req.DatabaseVersion != "" {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
@@ -1213,6 +1227,10 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		i.Settings["settingsVersion"] = next
 	})
+	if err := sqlRefreshServerCa(project, name); err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		return
+	}
 	op := newSQLOperation(project, "UPDATE", name)
 	sim.WriteJSON(w, http.StatusOK, op)
 }
@@ -1256,37 +1274,6 @@ func handleSQLWriteDatabase(w http.ResponseWriter, r *http.Request, replace bool
 	})
 	op := newSQLOperation(project, "UPDATE_DATABASE", name)
 	sim.WriteJSON(w, http.StatusOK, op)
-}
-
-// sqlInstanceActionOpType maps an instances.* action verb to its Cloud SQL
-// Operation.operationType. Verbs without a distinct enum fall back to the
-// uppercased verb.
-var sqlInstanceActionOpType = map[string]string{
-	"restart":                     "RESTART",
-	"failover":                    "FAILOVER",
-	"demote":                      "DEMOTE",
-	"demoteMaster":                "DEMOTE_MASTER",
-	"export":                      "EXPORT",
-	"import":                      "IMPORT",
-	"reencrypt":                   "REENCRYPT",
-	"restoreBackup":               "RESTORE_VOLUME",
-	"startReplica":                "START_REPLICA",
-	"stopReplica":                 "STOP_REPLICA",
-	"promoteReplica":              "PROMOTE_REPLICA",
-	"switchover":                  "SWITCHOVER",
-	"truncateLog":                 "TRUNCATE_LOG",
-	"resetSslConfig":              "RESET_SSL_CONFIG",
-	"resetReplicaSize":            "RESET_REPLICA_SIZE",
-	"rotateServerCa":              "ROTATE_SERVER_CA",
-	"rotateServerCertificate":     "ROTATE_SERVER_CERTIFICATE",
-	"rotateEntraIdCertificate":    "ROTATE_ENTRA_ID_CERTIFICATE",
-	"addServerCa":                 "ADD_SERVER_CA",
-	"addServerCertificate":        "ADD_SERVER_CERTIFICATE",
-	"addEntraIdCertificate":       "ADD_ENTRA_ID_CERTIFICATE",
-	"startExternalSync":           "START_EXTERNAL_SYNC",
-	"performDiskShrink":           "SHRINK_DISK",
-	"preCheckMajorVersionUpgrade": "PRE_CHECK_MAJOR_VERSION_UPGRADE",
-	"rescheduleMaintenance":       "RESCHEDULE_MAINTENANCE",
 }
 
 // handleSQLRestoreBackup restores a backup onto the instance: the engine is
@@ -1365,25 +1352,6 @@ func handleSQLRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, op)
 }
 
-// handleSQLInstanceAction serves one instances.* verb that answers the
-// Operation envelope.
-func handleSQLInstanceAction(action string) http.HandlerFunc {
-	opType := sqlInstanceActionOpType[action]
-	if opType == "" {
-		opType = strings.ToUpper(action)
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		instance := sim.PathParam(r, "instance")
-		if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-			return
-		}
-		op := newSQLOperation(project, opType, instance)
-		sim.WriteJSON(w, http.StatusOK, op)
-	}
-}
-
 // handleSQLInstanceColonVerb serves `instances/{instance}:<verb>` POSTs, where
 // {instance} captures the verb: `:generateEphemeralCert`.
 func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
@@ -1400,28 +1368,10 @@ func handleSQLInstanceColonVerb(w http.ResponseWriter, r *http.Request) {
 	}
 	switch verb {
 	case "generateEphemeralCert":
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"ephemeralCert": sqlNewSslCert(r, project, instance, "ephemeral"),
-		})
+		handleSQLGenerateEphemeralCert(w, r, project, instance)
 	default:
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown instance verb: %s", verb)
 	}
-}
-
-// handleSQLExecuteSql serves instances.executeSql with an empty result set and
-// an OK status, in the SqlInstancesExecuteSqlResponse shape; it runs nothing
-// on the engine.
-func handleSQLExecuteSql(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"results":  []any{},
-		"messages": []any{},
-	})
 }
 
 func handleSQLAcquireSsrsLease(w http.ResponseWriter, r *http.Request) {
@@ -1460,19 +1410,6 @@ func handleSQLVerifyExternalSyncSettings(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func handleSQLGetDiskShrinkConfig(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":                "sql#getDiskShrinkConfig",
-		"minimalTargetSizeGb": "10",
-	})
-}
-
 func handleSQLGetLatestRecoveryTime(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
@@ -1485,153 +1422,6 @@ func handleSQLGetLatestRecoveryTime(w http.ResponseWriter, r *http.Request) {
 		"kind":               "sql#getLatestRecoveryTime",
 		"latestRecoveryTime": now,
 	})
-}
-
-func handleSQLListServerCas(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	ca := sqlNewSslCert(r, project, instance, "server-ca")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":          "sql#instancesListServerCas",
-		"activeVersion": ca.Sha1Fingerprint,
-		"certs":         []SQLSslCert{ca},
-	})
-}
-
-func handleSQLListServerCertificates(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	ca := sqlNewSslCert(r, project, instance, "server-ca")
-	srvCert := sqlNewSslCert(r, project, instance, "server-cert")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":          "sql#instancesListServerCertificates",
-		"activeVersion": srvCert.Sha1Fingerprint,
-		"caCerts":       []SQLSslCert{ca},
-		"serverCerts":   []SQLSslCert{srvCert},
-	})
-}
-
-func handleSQLListEntraIdCertificates(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":  "sql#instancesListEntraIdCertificates",
-		"certs": []SQLSslCert{},
-	})
-}
-
-// sqlNewSslCert builds an SslCert for an instance whose sha1Fingerprint derives
-// from the instance and role; it generates no key material and leaves cert
-// empty.
-func sqlNewSslCert(r *http.Request, project, instance, role string) SQLSslCert {
-	fp := fmt.Sprintf("%x", []byte(project+"/"+instance+"/"+role))
-	if len(fp) > 40 {
-		fp = fp[:40]
-	}
-	now := nowTimestamp()
-	return SQLSslCert{
-		Kind:             "sql#sslCert",
-		CertSerialNumber: "1",
-		CommonName:       role + "." + instance,
-		CreateTime:       now,
-		ExpirationTime:   now,
-		Sha1Fingerprint:  fp,
-		Instance:         instance,
-		SelfLink:         gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+instance+"/sslCerts/"+fp),
-	}
-}
-
-func sqlSslCertKey(project, instance, fp string) string {
-	return project + "/" + instance + "/" + fp
-}
-
-func handleSQLInsertSslCert(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	var req struct {
-		CommonName string `json:"commonName"`
-	}
-	_ = sim.ReadJSON(r, &req)
-	role := defaultStr(req.CommonName, "client")
-	cert := sqlNewSslCert(r, project, instance, "client-"+role)
-	sqlSslCerts.Put(sqlSslCertKey(project, instance, cert.Sha1Fingerprint), cert)
-	op := newSQLOperation(project, "CREATE", instance)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":         "sql#sslCertsInsert",
-		"clientCert":   map[string]any{"certInfo": cert},
-		"serverCaCert": sqlNewSslCert(r, project, instance, "server-ca"),
-		"operation":    op,
-	})
-}
-
-func handleSQLListSslCerts(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	prefix := project + "/" + instance + "/"
-	out := sqlSslCerts.Filter(func(c SQLSslCert) bool {
-		return strings.HasPrefix(sqlSslCertKey(project, c.Instance, c.Sha1Fingerprint), prefix)
-	})
-	if out == nil {
-		out = []SQLSslCert{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"kind":  "sql#sslCertsList",
-		"items": out,
-	})
-}
-
-func handleSQLGetSslCert(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	fp := sim.PathParam(r, "sha1Fingerprint")
-	c, ok := sqlSslCerts.Get(sqlSslCertKey(project, instance, fp))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, c)
-}
-
-func handleSQLDeleteSslCert(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	fp := sim.PathParam(r, "sha1Fingerprint")
-	if !sqlSslCerts.Delete(sqlSslCertKey(project, instance, fp)) {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sslCert not found: %s", fp)
-		return
-	}
-	op := newSQLOperation(project, "DELETE", instance)
-	sim.WriteJSON(w, http.StatusOK, op)
-}
-
-func handleSQLCreateEphemeralCert(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", instance)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, sqlNewSslCert(r, project, instance, "ephemeral"))
 }
 
 // sqlInstanceDNSName is the instance's "<suffix>.<region>.sql.goog" name in
@@ -1654,7 +1444,9 @@ func sqlConnectSettingsJSON(r *http.Request, inst SQLInstance) map[string]any {
 		"databaseVersion": inst.DatabaseVersion,
 		"backendType":     inst.BackendType,
 		"region":          inst.Region,
-		"serverCaCert":    sqlNewSslCert(r, inst.Project, inst.Name, "server-ca"),
+	}
+	if inst.ServerCaCert != nil {
+		settings["serverCaCert"] = inst.ServerCaCert
 	}
 	if len(inst.IpAddresses) > 0 {
 		settings["ipAddresses"] = inst.IpAddresses
@@ -1729,10 +1521,15 @@ func handleSQLCancelOperation(w http.ResponseWriter, r *http.Request) {
 			name, op.OperationType)
 		return
 	}
+	sqlCancelTransfer(project, name)
 	sqlOperations.Update(sqlOperationKey(project, name), func(o *SQLOperation) {
 		o.Status = "DONE"
 		o.EndTime = nowTimestamp()
+		o.Error = &SQLOperationErrorList{Kind: "sql#operationErrors", Errors: []SQLOperationError{{
+			Kind: "sql#operationError", Code: "CANCEL_SUCCESSFUL", Message: "Operation successfully cancelled",
+		}}}
 	})
+	gcpOperationDone.Announce(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

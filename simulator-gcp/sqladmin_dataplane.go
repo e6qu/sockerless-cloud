@@ -93,8 +93,6 @@ func sqlInstanceVolume(project, instance string) string {
 	return "sockerless-cloudsql-" + project + "-" + instance
 }
 
-var sqlServerCertificate = dbengine.SelfSignedCertificate("Cloud SQL simulator")
-
 // sqlDataPlane is a Cloud SQL instance's endpoint and engine.
 type sqlDataPlane struct {
 	*dbengine.Instance
@@ -138,7 +136,7 @@ func sqlNewDataPlane(project, instance string, family dbengine.Family) *sqlDataP
 			}
 			return nil
 		},
-		Certificate: sqlServerCertificate,
+		Certificate: sqlServerTLSCertificate(project, instance),
 		Authenticate: func(user, password string, _ bool) bool {
 			return sqlCredentialMatches(project, instance, user, password)
 		},
