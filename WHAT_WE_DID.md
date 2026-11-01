@@ -817,6 +817,21 @@ the socket answers). Lessons:
 - **Events come from a store wrapper** (`rdsObserve`) that sees every write,
   so a status change records its event whichever code path makes it, with
   the vendored event table's messages.
+- **A Cloud SQL instance action acts on the engine or refuses.** `restart`,
+  `failover`, the storage shrink pair, `truncateLog` and the PostgreSQL
+  `preCheckMajorVersionUpgrade` run against the instance's engine and volume;
+  a replica action on an instance that cannot be a replica refuses as Cloud
+  SQL does. A restart of the simulator finishes, with an error, any operation
+  it left RUNNING, since a RUNNING operation refuses every later one on the
+  instance.
+- **Cloud SQL certificates are real X.509 material.** Each instance holds a
+  per-instance CA rotation set, or a server certificate signed by the region's
+  shared subordinate CA, and the data plane presents the active one;
+  `serverCaCert` follows the instance's `serverCaMode` through patch and
+  update. Export and import run the engine's own tools inside its container
+  and move the bytes through the Cloud Storage API as the instance's service
+  account, so the bucket's policy decides; `executeSql` reads its password
+  from Secret Manager with the caller's credential.
 
 Memorystore for Redis runs one Redis container per node. Settling waits on the
 engine, never a simulator timer: every node sends `CLUSTER MEET` to every
