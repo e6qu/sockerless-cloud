@@ -146,6 +146,41 @@ func TestCrossDoor_CloudKMS(t *testing.T) {
 	require.Equal(t, plaintext, grpcDecrypted.GetPlaintext())
 }
 
+func TestCrossDoor_CloudKMSAutokey(t *testing.T) {
+	t.Parallel()
+	const project = "cross-door-autokey"
+	kmsEnableAutokey(t, project)
+	rest := kmsService(t)
+	autokey := newKMSAutokeyGRPCClient(t)
+	parent := "projects/" + project + "/locations/us-east1"
+
+	// Created over REST, read over gRPC.
+	_, err := rest.Projects.Locations.KeyHandles.Create(parent, &cloudkms.KeyHandle{
+		ResourceTypeSelector: "pubsub.googleapis.com/Topic",
+	}).KeyHandleId("rest-made").Do()
+	require.NoError(t, err)
+	viaGRPC, err := autokey.GetKeyHandle(ctx, &kmspb.GetKeyHandleRequest{Name: parent + "/keyHandles/rest-made"})
+	require.NoError(t, err)
+	require.Equal(t, "pubsub.googleapis.com/Topic", viaGRPC.GetResourceTypeSelector())
+
+	// Created over gRPC; its key encrypts over REST.
+	op, err := autokey.CreateKeyHandle(ctx, &kmspb.CreateKeyHandleRequest{
+		Parent:      parent,
+		KeyHandleId: "grpc-made",
+		KeyHandle:   &kmspb.KeyHandle{ResourceTypeSelector: "secretmanager.googleapis.com/Secret"},
+	})
+	require.NoError(t, err)
+	handle, err := op.Wait(ctx)
+	require.NoError(t, err)
+	viaREST, err := rest.Projects.Locations.KeyHandles.Get(handle.GetName()).Do()
+	require.NoError(t, err)
+	require.Equal(t, handle.GetKmsKey(), viaREST.KmsKey)
+	_, err = rest.Projects.Locations.KeyRings.CryptoKeys.Encrypt(viaREST.KmsKey, &cloudkms.EncryptRequest{
+		Plaintext: crossDoorBase64([]byte("either door")),
+	}).Do()
+	require.NoError(t, err)
+}
+
 func TestCrossDoor_SecretManager(t *testing.T) {
 	t.Parallel()
 	ensureProject(t, "cross-door-secrets")

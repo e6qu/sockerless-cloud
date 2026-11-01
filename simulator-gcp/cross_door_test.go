@@ -24,6 +24,7 @@ var crossDoorTests = map[string]string{
 	"google.bigtable.admin.v2.BigtableInstanceAdmin":     "TestCrossDoor_BigtableAdminAndData",
 	"google.bigtable.admin.v2.BigtableTableAdmin":        "TestCrossDoor_BigtableAdminAndData",
 	"google.bigtable.v2.Bigtable":                        "TestCrossDoor_BigtableAdminAndData",
+	"google.cloud.kms.v1.Autokey":                        "TestCrossDoor_CloudKMSAutokey",
 	"google.cloud.kms.v1.KeyManagementService":           "TestCrossDoor_CloudKMS",
 	"google.cloud.secretmanager.v1.SecretManagerService": "TestCrossDoor_SecretManager",
 	"google.firestore.v1.Firestore":                      "TestCrossDoor_Firestore",

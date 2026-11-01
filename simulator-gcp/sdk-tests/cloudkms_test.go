@@ -9,8 +9,10 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"hash/crc32"
+	"strings"
 	"testing"
 	"time"
 
@@ -690,6 +692,22 @@ func TestCloudKMSKeyHandleSDK(t *testing.T) {
 	ensureProject(t, "sdk-kms-project")
 	location := "projects/sdk-kms-project/locations/us-east1"
 
+	// Autokey creates keys only for a project an AutokeyConfig enables.
+	_, err := svc.Projects.Locations.KeyHandles.Create(location, &cloudkms.KeyHandle{
+		ResourceTypeSelector: "storage.googleapis.com/Bucket",
+	}).KeyHandleId("kh-0").Do()
+	requireKMSErrorCode(t, err, 400)
+
+	_, err = svc.Projects.UpdateAutokeyConfig("projects/sdk-kms-project/autokeyConfig", &cloudkms.AutokeyConfig{
+		KeyProjectResolutionMode: "RESOURCE_PROJECT",
+	}).UpdateMask("keyProjectResolutionMode").Do()
+	require.NoError(t, err)
+
+	_, err = svc.Projects.Locations.KeyHandles.Create(location, &cloudkms.KeyHandle{
+		ResourceTypeSelector: "example.googleapis.com/Unsupported",
+	}).KeyHandleId("kh-bad").Do()
+	requireKMSErrorCode(t, err, 400)
+
 	op, err := svc.Projects.Locations.KeyHandles.Create(location, &cloudkms.KeyHandle{
 		ResourceTypeSelector: "storage.googleapis.com/Bucket",
 	}).KeyHandleId("kh-1").Do()
@@ -699,11 +717,35 @@ func TestCloudKMSKeyHandleSDK(t *testing.T) {
 	got, err := svc.Projects.Locations.KeyHandles.Get(location + "/keyHandles/kh-1").Do()
 	require.NoError(t, err)
 	require.Equal(t, location+"/keyHandles/kh-1", got.Name)
-	require.NotEmpty(t, got.KmsKey, "Autokey must provision a CMEK path for the handle")
+	require.Regexp(t, `^projects/sdk-kms-project/locations/us-east1/keyRings/autokey/cryptoKeys/[0-9]+-storage-Bucket-[0-9a-f]+$`, got.KmsKey)
+
+	// The handle names a real key: an HSM key with a one-year rotation and an
+	// enabled primary version that encrypts.
+	key, err := svc.Projects.Locations.KeyRings.CryptoKeys.Get(got.KmsKey).Do()
+	require.NoError(t, err)
+	require.Equal(t, "ENCRYPT_DECRYPT", key.Purpose)
+	require.Equal(t, "HSM", key.VersionTemplate.ProtectionLevel)
+	require.Equal(t, "GOOGLE_SYMMETRIC_ENCRYPTION", key.VersionTemplate.Algorithm)
+	require.Equal(t, "31536000s", key.RotationPeriod)
+	require.NotNil(t, key.Primary)
+	require.Equal(t, "ENABLED", key.Primary.State)
+	enc, err := svc.Projects.Locations.KeyRings.CryptoKeys.Encrypt(got.KmsKey, &cloudkms.EncryptRequest{
+		Plaintext: base64.StdEncoding.EncodeToString([]byte("cmek")),
+	}).Do()
+	require.NoError(t, err)
+	require.NotEmpty(t, enc.Ciphertext)
+
+	_, err = svc.Projects.Locations.KeyHandles.Create(location, &cloudkms.KeyHandle{
+		ResourceTypeSelector: "storage.googleapis.com/Bucket",
+	}).KeyHandleId("kh-1").Do()
+	requireKMSErrorCode(t, err, 409)
 
 	list, err := svc.Projects.Locations.KeyHandles.List(location).Do()
 	require.NoError(t, err)
 	require.Len(t, list.KeyHandles, 1)
+	filtered, err := svc.Projects.Locations.KeyHandles.List(location).Filter(`resource_type_selector="compute.googleapis.com/Disk"`).Do()
+	require.NoError(t, err)
+	require.Empty(t, filtered.KeyHandles)
 }
 
 func TestCloudKMSUpdatePrimaryVersionSDK(t *testing.T) {
@@ -768,10 +810,33 @@ func TestCloudKMSDeleteCryptoKeyAndVersionSDK(t *testing.T) {
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.Delete(first).Do()
 	require.NoError(t, err)
 
-	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Delete(keyName).Do()
+	op, err := svc.Projects.Locations.KeyRings.CryptoKeys.Delete(keyName).Do()
 	require.NoError(t, err)
+	require.True(t, op.Done)
+	var metadata struct {
+		RetiredResource string `json:"retiredResource"`
+	}
+	require.NoError(t, json.Unmarshal(op.Metadata, &metadata))
 	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Get(keyName).Do()
 	requireKMSErrorCode(t, err, 404)
+
+	// The delete retires the key's name: the record reads back, and the name
+	// cannot be reused.
+	retired, err := svc.Projects.Locations.RetiredResources.Get(metadata.RetiredResource).Do()
+	require.NoError(t, err)
+	require.Equal(t, keyName, retired.OriginalResource)
+	require.Equal(t, "cloudkms.googleapis.com/CryptoKey", retired.ResourceType)
+	require.NotEmpty(t, retired.DeleteTime)
+	location := strings.Split(keyName, "/keyRings/")[0]
+	listed, err := svc.Projects.Locations.RetiredResources.List(location).Do()
+	require.NoError(t, err)
+	var names []string
+	for _, rr := range listed.RetiredResources {
+		names = append(names, rr.Name)
+	}
+	require.Contains(t, names, metadata.RetiredResource)
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Create(ringName, &cloudkms.CryptoKey{Purpose: "ENCRYPT_DECRYPT"}).CryptoKeyId("del-key").Do()
+	requireKMSErrorCode(t, err, 409)
 }
 
 // kmsAwaitRESTVersionState polls the version's state: Cloud KMS offers no wait

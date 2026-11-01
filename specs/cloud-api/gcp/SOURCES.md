@@ -144,3 +144,12 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `storage-iam-roles.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/iam-roles` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:28Z |
 | `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:30Z |
 | `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-30` | 2026-10-31T21:01:30Z |
+| `kms-create-validate-signatures.md.gz` | `docs.cloud.google.com` | `kms/docs/create-validate-signatures` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:46Z |
+| `kms-algorithms.md.gz` | `docs.cloud.google.com` | `kms/docs/algorithms` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:47Z |
+| `kms-key-encapsulation-mechanisms.md.gz` | `docs.cloud.google.com` | `kms/docs/key-encapsulation-mechanisms` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:48Z |
+| `kms-encapsulate-decapsulate.md.gz` | `docs.cloud.google.com` | `kms/docs/encapsulate-decapsulate` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:49Z |
+| `kms-retrieve-public-key.md.gz` | `docs.cloud.google.com` | `kms/docs/retrieve-public-key` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:50Z |
+| `kms-quantum-safe-key-import.md.gz` | `docs.cloud.google.com` | `kms/docs/quantum-safe-key-import` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:52Z |
+| `kms-delete-kms-resources.md.gz` | `docs.cloud.google.com` | `kms/docs/delete-kms-resources` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:53Z |
+| `kms-autokey-overview.md.gz` | `docs.cloud.google.com` | `kms/docs/autokey-overview` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:53Z |
+| `kms-create-resource-with-autokey.md.gz` | `docs.cloud.google.com` | `kms/docs/create-resource-with-autokey` | CC-BY-4.0 | `modified2026-10-27` | 2026-11-01T08:19:55Z |
