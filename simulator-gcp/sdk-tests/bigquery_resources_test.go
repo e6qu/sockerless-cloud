@@ -250,6 +250,7 @@ func TestBigQueryDatasetUndelete(t *testing.T) {
 	t.Parallel()
 	svc := bqService(t)
 	const project, dataset = "sock-proj", "ds_undelete"
+	ensureProject(t, project)
 
 	// undelete must answer with the stored dataset, so these fields catch one
 	// fabricated from the request.
