@@ -115,6 +115,10 @@ const (
 	iamPrincipalDelegated
 	// iamPrincipalNamed: the statement names this caller.
 	iamPrincipalNamed
+	// iamPrincipalEntity: the statement names the role a session was assumed
+	// from, so the session's permissions boundary and session policies still
+	// cap what it grants.
+	iamPrincipalEntity
 )
 
 func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][]string) iamPrincipalMatch {
@@ -133,7 +137,7 @@ func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][
 			// that role (…:assumed-role/NAME/SESSION).
 			if strings.Contains(want, ":role/") {
 				if rn := iamRoleNameFromArn(want); rn != "" && strings.Contains(callerArn, ":assumed-role/"+rn+"/") {
-					return iamPrincipalNamed
+					return iamPrincipalEntity
 				}
 			}
 		}
@@ -569,6 +573,14 @@ func iamEvalDecision(docs []iamPolicyDoc, action, resource string, ctx map[strin
 // iamEvalDecisionForPrincipal is iamEvalDecision plus a calling-principal ARN,
 // used to evaluate the Principal element of resource-based / trust policies.
 func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerArn string, ctx map[string][]string) (decision string, missing []string) {
+	decision, missing, _ = iamEvalResourceDecision(docs, action, resource, callerArn, ctx)
+	return decision, missing
+}
+
+// iamEvalResourceDecision is iamEvalDecisionForPrincipal plus whether an
+// allowing statement names the caller itself, which no permissions boundary or
+// session policy caps, rather than the role its session was assumed from.
+func iamEvalResourceDecision(docs []iamPolicyDoc, action, resource, callerArn string, ctx map[string][]string) (decision string, missing []string, direct bool) {
 	allowed := false
 	for _, doc := range docs {
 		for _, stmt := range doc.Statement {
@@ -586,7 +598,7 @@ func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerAr
 			}
 			switch strings.ToLower(stmt.Effect) {
 			case "deny":
-				return "explicitDeny", missing
+				return "explicitDeny", missing, false
 			case "allow":
 				// A statement that matched only by account delegates to that
 				// account's IAM rather than granting: the caller is permitted
@@ -595,13 +607,14 @@ func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerAr
 					continue
 				}
 				allowed = true
+				direct = direct || match == iamPrincipalNamed
 			}
 		}
 	}
 	if allowed {
-		return "allowed", missing
+		return "allowed", missing, direct
 	}
-	return "implicitDeny", missing
+	return "implicitDeny", missing, false
 }
 
 func iamQueryList(r *http.Request, key string) []string {

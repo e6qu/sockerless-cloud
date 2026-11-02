@@ -111,7 +111,21 @@ func iamPermissionBoundaryDocs(userName string) []iamPolicyDoc {
 	if !ok {
 		return nil
 	}
-	mp, ok := iamPolicies.Get(b.PolicyArn)
+	return iamBoundaryPolicyDocs(b.PolicyArn)
+}
+
+// iamRolePermissionBoundaryDocs returns a role's permissions boundary
+// documents, which cap every session assumed from the role.
+func iamRolePermissionBoundaryDocs(roleName string) []iamPolicyDoc {
+	role, ok := iamRoles.Get(roleName)
+	if !ok || role.PermissionsBoundaryARN == "" {
+		return nil
+	}
+	return iamBoundaryPolicyDocs(role.PermissionsBoundaryARN)
+}
+
+func iamBoundaryPolicyDocs(policyArn string) []iamPolicyDoc {
+	mp, ok := iamPolicies.Get(policyArn)
 	if !ok {
 		return nil
 	}

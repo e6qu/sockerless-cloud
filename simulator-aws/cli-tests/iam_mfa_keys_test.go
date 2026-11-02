@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func iamMFACLIUser(t *testing.T, name string) {
@@ -36,9 +37,7 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 		t.Fatalf("create-virtual-mfa-device did not write a seed to outfile: err=%v len=%d", err, len(seed))
 	}
 
-	runCLI(t, awsCLI("iam", "enable-mfa-device",
-		"--user-name", user, "--serial-number", serial,
-		"--authentication-code1", "123456", "--authentication-code2", "234567"))
+	cliEnableMFADevice(t, user, serial, string(seed))
 
 	got := strings.TrimSpace(runCLI(t, awsCLI("iam", "get-mfa-device",
 		"--serial-number", serial, "--query", "SerialNumber", "--output", "text")))
@@ -67,9 +66,11 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 	}
 	runCLI(t, awsCLI("iam", "untag-mfa-device", "--serial-number", serial, "--tag-keys", "env"))
 
+	now := time.Now()
 	runCLI(t, awsCLI("iam", "resync-mfa-device",
 		"--user-name", user, "--serial-number", serial,
-		"--authentication-code1", "345678", "--authentication-code2", "456789"))
+		"--authentication-code1", cliTOTP(t, string(seed), now.Add(-30*time.Second)),
+		"--authentication-code2", cliTOTP(t, string(seed), now)))
 
 	runCLI(t, awsCLI("iam", "deactivate-mfa-device", "--user-name", user, "--serial-number", serial))
 	runCLI(t, awsCLI("iam", "delete-virtual-mfa-device", "--serial-number", serial))

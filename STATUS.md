@@ -130,7 +130,9 @@ Shared mechanisms, one package each:
   its declared condition keys or classifies them with a reason
   (`testdata/iam_condition_key_gaps.tsv`), and authorizes tag-on-create as the
   service's tagging action; Query, JSON, REST and Smithy RPC v2 CBOR routes
-  all pass it.
+  all pass it. AWS STS sessions are held to their role's or user's
+  permissions boundary, their session policies, the role's
+  `MaxSessionDuration` and a verified MFA code.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three
