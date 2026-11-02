@@ -59,7 +59,7 @@ func ecWriteReplicated(t *testing.T, source *goredis.ClusterClient, key, value s
 	conn := primary.Conn()
 	defer conn.Close()
 	require.NoError(t, conn.Set(ctx, key, value, 0).Err())
-	acknowledged, err := conn.Wait(ctx, 1, 0).Result()
+	acknowledged, err := conn.Wait(ctx, 1, 60_000).Result()
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, acknowledged, int64(1))
 }
@@ -264,7 +264,7 @@ func TestElastiCache_ReplicationGroupMigration(t *testing.T) {
 	conn := source.Conn()
 	t.Cleanup(func() { conn.Close() })
 	require.NoError(t, conn.Set(ctx, "written-while-migrating", "followed", 0).Err())
-	acknowledged, err := conn.Wait(ctx, 1, 0).Result()
+	acknowledged, err := conn.Wait(ctx, 1, 60_000).Result()
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, acknowledged, int64(1), "the group's primary replicates from the source")
 	ecRequireKeys(t, primary, "online", 20)

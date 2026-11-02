@@ -648,6 +648,10 @@ func ecFollowSource(id, incarnation string) {
 			if err != nil {
 				return err
 			}
+			if err := ecPrimaryMasterAuth(e, false); err != nil {
+				relay.Close()
+				return err
+			}
 			if _, err := e.redis.Command(e.redis.Primary(), "REPLICAOF", relay.host, fmt.Sprint(relay.port)); err != nil {
 				relay.Close()
 				return err
@@ -690,6 +694,18 @@ func ecFollowSource(id, incarnation string) {
 		ecReplGroupMigrations.Delete(id)
 		ecRefreshReplGroup(id, incarnation, engine)
 	})
+}
+
+// ecPrimaryMasterAuth sets the credentials the primary replicates with. The
+// migration guide requires a source without AUTH, so the primary follows it
+// with none, and takes the plane's admin user back once it leads again.
+func ecPrimaryMasterAuth(e *ecEngine, own bool) error {
+	user, password := "", ""
+	if own && e.redis.Password() != "" {
+		user, password = ecAdminUser, e.redis.Password()
+	}
+	_, err := e.redis.Command(e.redis.Primary(), "CONFIG", "SET", "masteruser", user, "masterauth", password)
+	return err
 }
 
 func ecStopFollowingSource(id string) {
@@ -737,7 +753,7 @@ func handleECCompleteMigration(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			ecStopFollowingSource(id)
-			return nil
+			return ecPrimaryMasterAuth(e, true)
 		}
 		run, running := ecLoadMigrationRun(key)
 		if !force && running {
