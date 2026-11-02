@@ -209,11 +209,11 @@ unifies; this pull request carries those it lands, and the rest stay planned.
 14. **Idempotency tokens** (low–medium). Client-token handling with request
     digest and window, written ad hoc across about forty AWS files and
     Google Cloud's `requestId`; `msgq.Dedup` is close.
-15. **Managed cache engine `sim/cacheengine`** (high, medium). Memorystore
-    for Redis runs a real Redis topology on the placement backend; Amazon
-    ElastiCache and Azure Cache for Redis run no engine. Lift Memorystore's
-    engine into `sim` beside `sim/dbengine` and put all three caches on it.
-    *Closes:* BUG-3732; narrows BUG-3553.
+15. **Managed cache engine `sim/cacheengine`** — *landed* (high, medium).
+    Memorystore for Redis, Amazon ElastiCache and Azure Cache for Redis run
+    on it: snapshots, restores, migrations, import and export move the
+    engine's data, and ElastiCache users, token rotation, upgrades and Auto
+    Discovery act on the engine. BUG-3833 to BUG-3852 track what remains.
 
 ### M4 — Cleanups
 

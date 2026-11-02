@@ -19,9 +19,8 @@
   `docs/so-you-want-to-build-a-cloud.md` into a presentation. Keep its gap list
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
-- **Core-service gaps.** A managed cache engine for Amazon ElastiCache and
-  Azure Cache for Redis (BUG-3732, PLAN M3 item 15), Azure Managed Disks,
-  Cloud Monitoring (BUG-3522) and Filestore.
+- **Core-service gaps.** Azure Managed Disks, Cloud Monitoring (BUG-3522)
+  and Filestore; the managed caches' remaining gaps (BUG-3833 to BUG-3852).
 - **M4: the remaining cleanups.** The AWS ARN builder and parser and the
   tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
   clone groups `dupl` finds at 120 tokens, then lowering
