@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.3.4](https://github.com/e6qu/sockerless-cloud/compare/v3.3.3...v3.3.4) (2026-11-02)
+
+
+### Bug Fixes
+
+* **aws:** hold AWS STS sessions to their boundary, session policies, duration and MFA ([#377](https://github.com/e6qu/sockerless-cloud/issues/377)) ([120a757](https://github.com/e6qu/sockerless-cloud/commit/120a757f74512b2064926dae0b0b3913d4425ad7))
+* move real data through ElastiCache and Azure Cache for Redis, and run ElastiCache engine controls in the engine ([#375](https://github.com/e6qu/sockerless-cloud/issues/375)) ([b7f8b9b](https://github.com/e6qu/sockerless-cloud/commit/b7f8b9bcdbc2cdaa4ed4761dafe72ab3ed346a78))
+
 ## [3.3.3](https://github.com/e6qu/sockerless-cloud/compare/v3.3.2...v3.3.3) (2026-11-01)
 
 
