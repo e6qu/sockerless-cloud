@@ -1,8 +1,13 @@
 package aws_sdk_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
 	"encoding/base32"
+	"encoding/binary"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -10,6 +15,50 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// totpCode is the RFC 6238 code a virtual MFA device with the base32 seed
+// shows at the given time: HMAC-SHA1 over the 30-second step count, truncated
+// to six digits as RFC 4226 describes.
+func totpCode(t *testing.T, base32Seed []byte, at time.Time) string {
+	t.Helper()
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(string(base32Seed))
+	require.NoError(t, err)
+	var counter [8]byte
+	binary.BigEndian.PutUint64(counter[:], uint64(at.Unix()/30))
+	mac := hmac.New(sha1.New, key)
+	mac.Write(counter[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	return fmt.Sprintf("%06d", (binary.BigEndian.Uint32(sum[offset:offset+4])&0x7fffffff)%1_000_000)
+}
+
+// totpWrongCode is a six-digit code the device shows at no step near now.
+func totpWrongCode(t *testing.T, base32Seed []byte) string {
+	t.Helper()
+	near := map[string]bool{}
+	for step := -3; step <= 3; step++ {
+		near[totpCode(t, base32Seed, time.Now().Add(time.Duration(step)*30*time.Second))] = true
+	}
+	for n := 0; ; n++ {
+		if code := fmt.Sprintf("%06d", n); !near[code] {
+			return code
+		}
+	}
+}
+
+// enableMFADevice enables a virtual MFA device for a user with the two
+// consecutive codes the device showed most recently.
+func enableMFADevice(t *testing.T, c *iam.Client, user, serial string, seed []byte) {
+	t.Helper()
+	now := time.Now()
+	_, err := c.EnableMFADevice(ctx, &iam.EnableMFADeviceInput{
+		UserName:            aws.String(user),
+		SerialNumber:        aws.String(serial),
+		AuthenticationCode1: aws.String(totpCode(t, seed, now.Add(-30*time.Second))),
+		AuthenticationCode2: aws.String(totpCode(t, seed, now)),
+	})
+	require.NoError(t, err)
+}
 
 func iamMFAUser(t *testing.T, c *iam.Client, name string) {
 	t.Helper()
@@ -48,13 +97,17 @@ func TestIAM_VirtualMFADevice(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, containsSerial(un.VirtualMFADevices, serial))
 
+	seed := created.VirtualMFADevice.Base32StringSeed
+	wrong := totpWrongCode(t, seed)
 	_, err = c.EnableMFADevice(ctx, &iam.EnableMFADeviceInput{
 		UserName:            aws.String(user),
 		SerialNumber:        aws.String(serial),
-		AuthenticationCode1: aws.String("123456"),
-		AuthenticationCode2: aws.String("234567"),
+		AuthenticationCode1: aws.String(wrong),
+		AuthenticationCode2: aws.String(totpCode(t, seed, time.Now())),
 	})
-	require.NoError(t, err)
+	var invalid *types.InvalidAuthenticationCodeException
+	require.ErrorAs(t, err, &invalid, "codes the device did not show do not enable it")
+	enableMFADevice(t, c, user, serial, seed)
 
 	got, err := c.GetMFADevice(ctx, &iam.GetMFADeviceInput{SerialNumber: aws.String(serial)})
 	require.NoError(t, err)
@@ -92,8 +145,16 @@ func TestIAM_VirtualMFADevice(t *testing.T) {
 	_, err = c.ResyncMFADevice(ctx, &iam.ResyncMFADeviceInput{
 		UserName:            aws.String(user),
 		SerialNumber:        aws.String(serial),
-		AuthenticationCode1: aws.String("345678"),
-		AuthenticationCode2: aws.String("456789"),
+		AuthenticationCode1: aws.String(wrong),
+		AuthenticationCode2: aws.String(totpCode(t, seed, time.Now())),
+	})
+	require.ErrorAs(t, err, &invalid, "codes the device did not show do not resynchronize it")
+	now := time.Now()
+	_, err = c.ResyncMFADevice(ctx, &iam.ResyncMFADeviceInput{
+		UserName:            aws.String(user),
+		SerialNumber:        aws.String(serial),
+		AuthenticationCode1: aws.String(totpCode(t, seed, now.Add(-30*time.Second))),
+		AuthenticationCode2: aws.String(totpCode(t, seed, now)),
 	})
 	require.NoError(t, err)
 

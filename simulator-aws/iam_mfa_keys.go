@@ -2,16 +2,20 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +34,101 @@ type IAMVirtualMFADevice struct {
 	UserName         string // empty until enabled
 	EnableDate       string // empty until enabled
 	Tags             []IAMTag
+	// DriftSteps is how many TOTP time steps the device's clock runs ahead of
+	// the simulator's, learned from the codes that enabled or resynchronized it.
+	DriftSteps int64 `json:",omitempty"`
+}
+
+// A virtual MFA device generates RFC 6238 time-based one-time passwords:
+// six-digit HMAC-SHA1 codes over 30-second steps of Unix time, keyed by the
+// base32 seed.
+const (
+	iamTOTPStep = 30 * time.Second
+	// iamTOTPSkewSteps is how many steps either side of the device's clock a
+	// code still verifies within.
+	iamTOTPSkewSteps = 1
+	// iamTOTPSyncSteps is how far back EnableMFADevice and ResyncMFADevice
+	// look for the two consecutive codes they are given. Codes older than the
+	// current step still synchronize the device, which AWS documents as
+	// leaving it out of sync.
+	iamTOTPSyncSteps = 20
+)
+
+func iamTOTPStepAt(t time.Time) int64 {
+	return t.Unix() / int64(iamTOTPStep/time.Second)
+}
+
+// iamTOTP is the code a device with seed shows during step, per RFC 4226's
+// dynamic truncation.
+func iamTOTP(seed []byte, step int64) string {
+	var counter [8]byte
+	binary.BigEndian.PutUint64(counter[:], uint64(step))
+	mac := hmac.New(sha1.New, seed)
+	mac.Write(counter[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	value := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
+	return fmt.Sprintf("%06d", value%1_000_000)
+}
+
+func (dev IAMVirtualMFADevice) seed() []byte {
+	seed, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(dev.Base32StringSeed)
+	if err != nil {
+		panic(fmt.Sprintf("stored MFA seed of %s is not base32: %v", dev.SerialNumber, err))
+	}
+	return seed
+}
+
+// verifiesCode reports whether code is one the device shows at now, within
+// the skew either side of its learned drift.
+func (dev IAMVirtualMFADevice) verifiesCode(code string, now time.Time) bool {
+	seed := dev.seed()
+	device := iamTOTPStepAt(now) + dev.DriftSteps
+	for step := device - iamTOTPSkewSteps; step <= device+iamTOTPSkewSteps; step++ {
+		if hmac.Equal([]byte(iamTOTP(seed, step)), []byte(code)) {
+			return true
+		}
+	}
+	return false
+}
+
+// syncDrift finds the latest pair of consecutive steps that show code1 and
+// code2, and returns the device's drift that the second step implies.
+func (dev IAMVirtualMFADevice) syncDrift(code1, code2 string, now time.Time) (int64, bool) {
+	seed := dev.seed()
+	current := iamTOTPStepAt(now)
+	for step := current; step >= current-iamTOTPSyncSteps; step-- {
+		if iamTOTP(seed, step) == code1 && iamTOTP(seed, step+1) == code2 {
+			return step + 1 - current, true
+		}
+	}
+	return 0, false
+}
+
+var iamAuthenticationCodePattern = regexp.MustCompile(`^\d{6}$`)
+
+// iamSyncMFADevice verifies the two consecutive codes EnableMFADevice and
+// ResyncMFADevice carry and records the device's drift, writing the error and
+// returning false when they do not verify.
+func iamSyncMFADevice(w http.ResponseWriter, r *http.Request, dev *IAMVirtualMFADevice) bool {
+	code1, code2 := r.FormValue("AuthenticationCode1"), r.FormValue("AuthenticationCode2")
+	if code1 == "" || code2 == "" {
+		iamErrorXML(w, "ValidationError", "AuthenticationCode1 and AuthenticationCode2 are required", http.StatusBadRequest)
+		return false
+	}
+	for member, code := range map[string]string{"authenticationCode1": code1, "authenticationCode2": code2} {
+		if !iamAuthenticationCodePattern.MatchString(code) {
+			iamErrorXML(w, "ValidationError", fmt.Sprintf("1 validation error detected: Value '%s' at '%s' failed to satisfy constraint: Member must satisfy regular expression pattern: [\\d]+", code, member), http.StatusBadRequest)
+			return false
+		}
+	}
+	drift, ok := dev.syncDrift(code1, code2, time.Now())
+	if !ok {
+		iamErrorXML(w, "InvalidAuthenticationCode", "Authentication code for device is not valid.", http.StatusForbidden)
+		return false
+	}
+	dev.DriftSteps = drift
+	return true
 }
 
 type IAMSSHPublicKey struct {
@@ -192,8 +291,7 @@ func handleIAMEnableMFADevice(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Device %s is already enabled.", serial), http.StatusConflict)
 		return
 	}
-	if r.FormValue("AuthenticationCode1") == "" || r.FormValue("AuthenticationCode2") == "" {
-		iamErrorXML(w, "ValidationError", "AuthenticationCode1 and AuthenticationCode2 are required", http.StatusBadRequest)
+	if !iamSyncMFADevice(w, r, &dev) {
 		return
 	}
 	dev.UserName = userName
@@ -224,10 +322,10 @@ func handleIAMResyncMFADevice(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Device %s is not associated with user %s.", serial, userName), http.StatusNotFound)
 		return
 	}
-	if r.FormValue("AuthenticationCode1") == "" || r.FormValue("AuthenticationCode2") == "" {
-		iamErrorXML(w, "ValidationError", "AuthenticationCode1 and AuthenticationCode2 are required", http.StatusBadRequest)
+	if !iamSyncMFADevice(w, r, &dev) {
 		return
 	}
+	iamVirtualMFADevices.Put(serial, dev)
 	iamEmptyResultXML(w, "ResyncMFADevice")
 }
 

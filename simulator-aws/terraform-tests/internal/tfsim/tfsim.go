@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -138,6 +139,16 @@ func (e *Env) armDeadlineReaper(t *testing.T) {
 		reapProcessGroup(e.cmd)
 	})
 	t.Cleanup(func() { timer.Stop() })
+}
+
+// In returns an Env that runs terraform in configDir against the same
+// simulator, keeping its own state beside the first configuration's, for a
+// fixture whose second configuration uses what the first one created.
+func (e *Env) In(configDir string) *Env {
+	other := *e
+	other.dir = configDir
+	other.State = strings.TrimSuffix(e.State, ".tfstate") + "-" + filepath.Base(configDir) + ".tfstate"
+	return &other
 }
 
 func (e *Env) Terraform(t *testing.T, args ...string) []byte {

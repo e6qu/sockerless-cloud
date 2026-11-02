@@ -950,6 +950,18 @@ Each condition key is resolved where the service documents its value or
 classified with a reason, and `TestIAMConditionKeyCoveragePerAction` renders
 every served operation from its model to prove it per action.
 
+An AWS STS session carries its limits with it. Each credential records its
+identity policies, the permissions boundary of the user or role behind it and
+the session policies its request passed, and the gate evaluates them in the
+order the IAM User Guide's policy evaluation logic sets: an explicit deny
+anywhere refuses, a resource policy naming the session itself grants past an
+implicit deny, and otherwise identity or resource allow must also pass the
+boundary and the session policies. `GetFederationToken` sessions intersect
+the federating user's policies with the passed policy, and `AssumeRoot`
+sessions carry the root-task policy. Durations follow the role's
+`MaxSessionDuration` and the one-hour chaining cap, and MFA codes verify as
+RFC 6238 codes from the virtual device's seed, so tests compute real codes.
+
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
 App Service's reference resolution reusing the same decision. Managed

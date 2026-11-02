@@ -17,6 +17,13 @@ func iamPopulateSTSRequestConditionKeys(r *http.Request, operation string, body 
 			ctx[key] = values
 		}
 	}
+	// An MFA code that verifies authenticates the call that presents it.
+	if operation == "AssumeRole" || operation == "GetSessionToken" {
+		if mfa, err := stsRequestMFA(r); mfa && err == nil {
+			ctx["aws:MultiFactorAuthPresent"] = []string{"true"}
+			ctx["aws:MultiFactorAuthAge"] = []string{"0"}
+		}
+	}
 	switch operation {
 	case "AssumeRole":
 		for key, values := range stsCallerFederatedClaims(r) {

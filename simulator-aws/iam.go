@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,10 +123,7 @@ func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 // <member> elements where IAM's XML puts them directly under the member.
 func iamRoleFieldsXML(role IAMRole) string {
 	doc := url.QueryEscape(role.AssumeRolePolicyDocument)
-	maxSession := role.MaxSessionDuration
-	if maxSession == 0 {
-		maxSession = 3600
-	}
+	maxSession := iamRoleMaxSessionDuration(role)
 	var extra string
 	if role.Description != "" {
 		extra += fmt.Sprintf("<Description>%s</Description>", xmlEscape(role.Description))
@@ -164,6 +162,10 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "MalformedPolicyDocument", "The trust policy could not be parsed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	maxSession, ok := iamRequestMaxSessionDuration(w, r, 0)
+	if !ok {
+		return
+	}
 
 	role := IAMRole{
 		RoleName:                 name,
@@ -172,7 +174,7 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 		Path:                     path,
 		AssumeRolePolicyDocument: assumeDoc,
 		CreateDate:               time.Now().UTC().Format(time.RFC3339),
-		MaxSessionDuration:       atoiDefault(r.FormValue("MaxSessionDuration"), 0),
+		MaxSessionDuration:       maxSession,
 		Description:              r.FormValue("Description"),
 		PermissionsBoundaryARN:   r.FormValue("PermissionsBoundary"),
 		Tags:                     iamParseTags(r),
@@ -190,18 +192,44 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 // assume-role policy goes through UpdateAssumeRolePolicy.
 func handleIAMUpdateRole(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("RoleName")
+	maxSession, ok := iamRequestMaxSessionDuration(w, r, -1)
+	if !ok {
+		return
+	}
 	if !iamRoles.Update(name, func(role *IAMRole) {
 		if d := r.FormValue("Description"); d != "" {
 			role.Description = d
 		}
-		if ms := r.FormValue("MaxSessionDuration"); ms != "" {
-			role.MaxSessionDuration = atoiDefault(ms, role.MaxSessionDuration)
+		if maxSession >= 0 {
+			role.MaxSessionDuration = maxSession
 		}
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s not found", name), http.StatusNotFound)
 		return
 	}
 	iamEmptyResultXML(w, "UpdateRole")
+}
+
+// iamRequestMaxSessionDuration reads MaxSessionDuration within the range
+// IAM's model declares, returning absent when the request omits it and writing
+// a ValidationError when it is out of range.
+func iamRequestMaxSessionDuration(w http.ResponseWriter, r *http.Request, absent int) (int, bool) {
+	raw := r.FormValue("MaxSessionDuration")
+	if raw == "" {
+		return absent, true
+	}
+	seconds, err := strconv.Atoi(raw)
+	switch {
+	case err != nil:
+		iamErrorXML(w, "ValidationError", fmt.Sprintf("1 validation error detected: Value '%s' at 'maxSessionDuration' failed to satisfy constraint: Member must be an integer", raw), http.StatusBadRequest)
+	case seconds < 3600:
+		iamErrorXML(w, "ValidationError", fmt.Sprintf("1 validation error detected: Value '%d' at 'maxSessionDuration' failed to satisfy constraint: Member must have value greater than or equal to 3600", seconds), http.StatusBadRequest)
+	case seconds > 43200:
+		iamErrorXML(w, "ValidationError", fmt.Sprintf("1 validation error detected: Value '%d' at 'maxSessionDuration' failed to satisfy constraint: Member must have value less than or equal to 43200", seconds), http.StatusBadRequest)
+	default:
+		return seconds, true
+	}
+	return 0, false
 }
 
 func handleIAMTagRole(w http.ResponseWriter, r *http.Request) {

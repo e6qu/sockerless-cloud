@@ -23,8 +23,9 @@ import (
 //
 // The decision combines the identity-based policies (own, group and, for an
 // assumed role, the role's) with any resource-based policy on the target, capped
-// by the permissions boundary. Derive the target ARN where the request makes it
-// unambiguous, and "*" otherwise.
+// by the permissions boundary of the user or role and by a session's session
+// policies, as the IAM User Guide's policy evaluation logic describes. Derive
+// the target ARN where the request makes it unambiguous, and "*" otherwise.
 
 // iamEnforce returns true if the request is authorized (the handler should run)
 // and false if it was denied (a response has already been written).
@@ -41,6 +42,10 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if iamPermissionlessAction(action) {
 		return true // calls AWS authorizes for every caller regardless of policy
+	}
+	if caller, ok := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); ok && caller.Federated && stsFederatedSessionRefuses(action) {
+		iamWriteDeny(w, r, caller.Arn, action)
+		return false
 	}
 	for _, target := range iamAuthorizationTargets(r, action) {
 		allowed, principalArn, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
@@ -310,22 +315,28 @@ func iamRequestConditionContext(
 // PassRole check.
 func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map[string][]string) (allowed bool, principalArn string, registered bool) {
 	akid := iamAccessKeyIDFromRequest(r)
-	principalArn, docs, userName, ok := iamPrincipalForAccessKey(akid)
+	caller, ok := iamCallerForAccessKey(akid)
 	if !ok {
 		return false, "", false
 	}
+	principalArn = caller.Arn
 
-	ctx := iamRequestConditionContext(r, akid, principalArn, userName, action)
+	ctx := iamRequestConditionContext(r, akid, principalArn, caller.UserName, action)
 	for key, values := range extra {
 		ctx[key] = values
 	}
 
-	decision, _ := iamEvalDecision(docs, action, resource, ctx)
+	decision, _ := iamEvalDecision(caller.Identity, action, resource, ctx)
 	if decision == "explicitDeny" {
 		return false, principalArn, true
 	}
-	allowed = decision == "allowed"
+	identityAllows := decision == "allowed" || caller.Unrestricted
 
+	// A resource-based policy that names the caller itself grants past an
+	// implicit deny anywhere else; one that names the role a session was
+	// assumed from grants only within the session's boundary and session
+	// policies.
+	resourceAllows, resourceDirect := false, false
 	if resource != "*" {
 		// An S3 bucket policy is attached at the bucket and governs its objects,
 		// so look the policy up under the bucket ARN while still evaluating it
@@ -344,22 +355,34 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
 		}
 		if len(rdocs) > 0 {
-			rdec, _ := iamEvalDecisionForPrincipal(rdocs, action, resource, principalArn, ctx)
+			rdec, _, direct := iamEvalResourceDecision(rdocs, action, resource, principalArn, ctx)
 			if rdec == "explicitDeny" {
 				return false, principalArn, true
 			}
-			if rdec == "allowed" {
-				allowed = true
-			}
+			resourceAllows, resourceDirect = rdec == "allowed", direct
 		}
 	}
 
-	if bdocs := iamPermissionBoundaryDocs(userName); len(bdocs) > 0 {
-		if bdec, _ := iamEvalDecision(bdocs, action, resource, ctx); bdec != "allowed" {
-			allowed = false
+	boundaryAllows := true
+	if len(caller.Boundary) > 0 {
+		bdec, _ := iamEvalDecision(caller.Boundary, action, resource, ctx)
+		if bdec == "explicitDeny" {
+			return false, principalArn, true
 		}
+		boundaryAllows = bdec == "allowed"
 	}
-	return allowed, principalArn, true
+	sessionAllows := true
+	if caller.SessionCaps {
+		sdec, _ := iamEvalDecision(caller.Session, action, resource, ctx)
+		if sdec == "explicitDeny" {
+			return false, principalArn, true
+		}
+		sessionAllows = sdec == "allowed"
+	}
+	if resourceDirect {
+		return true, principalArn, true
+	}
+	return (identityAllows || resourceAllows) && boundaryAllows && sessionAllows, principalArn, true
 }
 
 // iamEnforceREST authorizes a REST request's pre-derived action and resource

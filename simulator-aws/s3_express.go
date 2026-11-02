@@ -203,20 +203,18 @@ func handleS3CreateSession(w http.ResponseWriter, r *http.Request) {
 	// goes into the same store the Security Token Service mints into, carrying
 	// the caller's principal, so every later request signed with it resolves to
 	// that principal and is evaluated against that principal's policies.
-	principalArn, _, userName, known := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r))
-	if !known {
+	callerKey := iamAccessKeyIDFromRequest(r)
+	if _, _, _, known := iamPrincipalForAccessKey(callerKey); !known {
 		S3ErrorXML(w, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.",
 			bucket, sim.RequestID(r.Context()), http.StatusForbidden)
 		return
 	}
 	expires := time.Now().UTC().Add(s3ExpressSessionDuration)
 	akid, secret, token := stsMintTempCred(expires)
-	iamTempCreds.Put(akid, IAMTempCred{
-		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
-		UserName: userName, PrincipalArn: principalArn,
-		Expiration: expires.Format(time.RFC3339),
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-	})
+	session := stsOnBehalfOf(callerKey)
+	session.AccessKeyID, session.SecretAccessKey, session.SessionToken = akid, secret, token
+	session.Expiration, session.CreatedAt = expires.Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339)
+	iamTempCreds.Put(akid, session)
 	s3ExpressSessions.Put(akid, S3ExpressSession{
 		AccessKeyID: akid, Bucket: bucket, Mode: mode,
 		Expires: expires.Format(time.RFC3339),
