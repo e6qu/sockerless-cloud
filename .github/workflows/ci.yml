@@ -1238,6 +1238,17 @@ jobs:
             --output /tmp/session-manager-plugin.deb https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
           sudo dpkg -i /tmp/session-manager-plugin.deb
           session-manager-plugin --version
+      - name: Free AWS CLI runner disk on a small runner
+        # A 72 GB ubuntu-24.04 runner fills while the Amazon RDS shards pull
+        # their engine images and build AWSAuthenticationPlugin; the
+        # preinstalled SDKs nothing here uses hold the room they need.
+        run: |
+          df -h /
+          if [ "$(df -m --output=avail / | tail -1 | tr -d ' ')" -lt 20480 ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+            df -h /
+          fi
+        timeout-minutes: 5
       - name: Install Caddy
         # TestECRCLI_DockerLoginPushPull serves the Amazon ECR private-registry
         # data plane over TLS through the repository's HTTPS gateway, which is
