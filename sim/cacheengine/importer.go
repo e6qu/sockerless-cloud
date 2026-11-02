@@ -48,12 +48,12 @@ func (p *Plane) ImportRDB(source ImportSource) error {
 		return err
 	}
 	defer stop()
-	importArgs := []string{"redis-cli", "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(Port)),
-		"--cluster-from", net.JoinHostPort(from, strconv.Itoa(Port)), "--cluster-copy", "--cluster-replace"}
-	var env []string
+	options, env := p.cliAuth()
+	importArgs := append([]string{"redis-cli"}, options...)
+	importArgs = append(importArgs, "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(Port)),
+		"--cluster-from", net.JoinHostPort(from, strconv.Itoa(Port)), "--cluster-copy", "--cluster-replace")
 	if password != "" {
 		importArgs = append(importArgs, "--cluster-from-pass", password)
-		env = append(env, "REDISCLI_AUTH="+password)
 	}
 	if _, err := p.Exec(via, importArgs, env); err != nil {
 		return &ImportError{Source: source.Name, Err: err}
@@ -82,6 +82,9 @@ func (p *Plane) placeImportSource(source ImportSource) (string, func(), error) {
 	}
 	if password != "" {
 		command = append(command, "--requirepass", password)
+	}
+	if password != "" && p.cfg.AdminUser != "" {
+		command = append(command, "--user", p.cfg.AdminUser, "on", ">"+password, "~*", "&*", "+@all")
 	}
 	labels := map[string]string{p.cfg.NodeLabel + "-import": "true"}
 	for key, value := range p.cfg.Labels {

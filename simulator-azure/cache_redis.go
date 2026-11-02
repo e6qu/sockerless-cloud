@@ -21,6 +21,7 @@ type RedisCache struct {
 	Location   string            `json:"location,omitempty"`
 	Properties map[string]any    `json:"properties,omitempty"`
 	Tags       map[string]string `json:"tags,omitempty"`
+	Identity   *SiteIdentity     `json:"identity,omitempty"`
 }
 
 type RedisFirewallRule struct {
@@ -80,6 +81,7 @@ func registerCacheRedis(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/{name}/forceReboot", handleRedisForceReboot)
 	srv.HandleFunc("POST "+armBase+"/{name}/import", handleRedisImportData)
 	srv.HandleFunc("POST "+armBase+"/{name}/export", handleRedisExportData)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Cache/locations/{location}/operationResults/{opId}", handleCacheOperationResult)
 	srv.HandleFunc("POST "+armBase+"/{name}/flush", handleRedisFlushCache)
 	srv.HandleFunc("GET "+armBase+"/{name}/listUpgradeNotifications", handleRedisListUpgradeNotifications)
 
@@ -233,7 +235,12 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
 	if _, exists := redisCaches.Get(id); exists {
 		// Azure Resource Manager's PUT is create-or-update.
-		redisCacheUpdate(w, r, id, req)
+		redisCacheUpdate(w, r, id, req, false)
+		return
+	}
+	identity, identityClientID, err := applyManagedIdentity(req.Identity, nil, "")
+	if err != nil {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "%v", err)
 		return
 	}
 	requested, _ := req.Properties["redisVersion"].(string)
@@ -254,6 +261,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		Type:     "Microsoft.Cache/Redis",
 		Location: req.Location,
 		Tags:     req.Tags,
+		Identity: identity,
 		Properties: map[string]any{
 			"enableNonSslPort": false,
 			"sslPort":          redisSSLPort,
@@ -272,6 +280,7 @@ func handleRedisCacheCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redisCaches.Put(id, cache)
+	syncManagedIdentityPrincipal(nil, identity, identityClientID, name)
 	opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
 		state, failure := "Succeeded", (*AsyncOperationError)(nil)
 		if plane != nil {
@@ -305,16 +314,25 @@ func handleRedisCachePatch(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	redisCacheUpdate(w, r, id, req)
+	redisCacheUpdate(w, r, id, req, true)
 }
 
 // redisCacheUpdate applies live: the non-SSL port opens or closes, the replica
 // count follows the SKU, and redisConfiguration's directives apply.
-func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req RedisCache) {
+func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req RedisCache, patch bool) {
 	current, _ := redisCaches.Get(id)
 	if state, _ := current.Properties["provisioningState"].(string); state != "Succeeded" && state != "" {
 		AzureErrorf(w, "Conflict", http.StatusConflict,
 			"The cache %s is %s; it takes an update once it has Succeeded.", current.Name, state)
+		return
+	}
+	settle := applyManagedIdentity
+	if patch {
+		settle = applyManagedIdentityPatch
+	}
+	identity, identityClientID, err := settle(req.Identity, current.Identity, redisSystemIdentityClientID(current.Identity))
+	if err != nil {
+		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "%v", err)
 		return
 	}
 	if shards, _ := req.Properties["shardCount"].(float64); shards > 0 {
@@ -348,7 +366,6 @@ func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req Red
 	}
 	next["redisVersion"] = version
 	if plane, ok := redisLoadEngine(id); ok {
-		var err error
 		if upgrade != "" {
 			if err = plane.Restart(nil, upgrade); err == nil {
 				redisEngineRecords.Update(id, func(record *redisEngineRecord) { record.Image = upgrade })
@@ -378,7 +395,9 @@ func redisCacheUpdate(w http.ResponseWriter, r *http.Request, id string, req Red
 		}
 		cache.Properties = next
 		cache.Properties["provisioningState"] = "Succeeded"
+		cache.Identity = identity
 	})
+	syncManagedIdentityPrincipal(current.Identity, identity, identityClientID, current.Name)
 	cache, _ := redisCaches.Get(id)
 	sim.WriteJSON(w, http.StatusOK, cache)
 }
@@ -402,13 +421,15 @@ func handleRedisCacheDelete(w http.ResponseWriter, r *http.Request) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	name := sim.PathParam(r, "name")
 	id := armResourceID(sub, rg, "Microsoft.Cache", "Redis", name)
-	if _, ok := redisCaches.Get(id); !ok {
+	cache, ok := redisCaches.Get(id)
+	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Cache/Redis/%s' under resource group '%s' was not found.", name, rg)
 		return
 	}
 	redisRemoveEngine(id)
 	redisCaches.Delete(id)
+	syncManagedIdentityPrincipal(cache.Identity, nil, "", "")
 	azureDropKeyGens(id, "primary", "secondary")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -535,53 +556,6 @@ func handleRedisForceReboot(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"message": "Reboot operation has been initiated on the requested Redis node(s).",
 	})
-}
-
-// Answers 200 without importing anything.
-func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
-	sub := sim.PathParam(r, "subscriptionId")
-	rg := sim.PathParam(r, "resourceGroupName")
-	name := sim.PathParam(r, "name")
-	if !redisCacheExists(w, sub, rg, name) {
-		return
-	}
-	var req struct {
-		Files  []string `json:"files"`
-		Format string   `json:"format,omitempty"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	if len(req.Files) == 0 {
-		AzureError(w, "BadRequest", "at least one file is required to import", http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-// Answers 200 without exporting anything.
-func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
-	sub := sim.PathParam(r, "subscriptionId")
-	rg := sim.PathParam(r, "resourceGroupName")
-	name := sim.PathParam(r, "name")
-	if !redisCacheExists(w, sub, rg, name) {
-		return
-	}
-	var req struct {
-		Container string `json:"container"`
-		Prefix    string `json:"prefix"`
-		Format    string `json:"format,omitempty"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	if req.Container == "" || req.Prefix == "" {
-		AzureError(w, "BadRequest", "container and prefix are required to export", http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
 }
 
 // handleRedisFlushCache deletes every key within the request, so the operation

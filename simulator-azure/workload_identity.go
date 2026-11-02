@@ -177,20 +177,7 @@ func handleAppServiceIdentityToken(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	expires := now.Add(24 * time.Hour)
-	token, err := mintAzureSimSignedJWT(map[string]any{
-		"aud":       resource,
-		"iss":       fmt.Sprintf("https://sts.windows.net/%s/", simTenantID),
-		"tid":       simTenantID,
-		"oid":       identity.principalID,
-		"sub":       identity.principalID,
-		"appid":     identity.clientID,
-		"idtyp":     "app",
-		"xms_mirid": identity.resourceID,
-		"iat":       now.Unix(),
-		"nbf":       now.Unix(),
-		"exp":       expires.Unix(),
-		"ver":       "1.0",
-	})
+	token, err := azureManagedIdentityToken(identity, resource, now, expires)
 	if err != nil {
 		appServiceIdentityError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -2,7 +2,9 @@ package aws_cli_test
 
 import (
 	"testing"
+	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +24,9 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 			"--cache-cluster-id", clusterID).Run()
 	})
 
+	node := ecCLIAwaitCluster(t, clusterID).CacheNodes[0].Endpoint
+	require.NoError(t, ecCLIRedis(t, &goredis.Options{Addr: node.address()}).Set(t.Context(), "cli-snapshotted", "kept", 0).Err())
+
 	snapName := "cli-snap"
 	out := runCLI(t, awsCLI("elasticache", "create-snapshot",
 		"--snapshot-name", snapName,
@@ -31,10 +36,12 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 			SnapshotName   string `json:"SnapshotName"`
 			CacheClusterId string `json:"CacheClusterId"`
 			SnapshotSource string `json:"SnapshotSource"`
+			SnapshotStatus string `json:"SnapshotStatus"`
 			ARN            string `json:"ARN"`
 		} `json:"Snapshot"`
 	}
 	parseJSON(t, out, &created)
+	assert.Equal(t, "creating", created.Snapshot.SnapshotStatus)
 	require.Equal(t, snapName, created.Snapshot.SnapshotName)
 	assert.Equal(t, clusterID, created.Snapshot.CacheClusterId)
 	assert.Equal(t, "manual", created.Snapshot.SnapshotSource)
@@ -53,6 +60,7 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	parseJSON(t, out, &snaps)
 	require.Len(t, snaps.Snapshots, 1)
 	assert.Equal(t, "redis", snaps.Snapshots[0].Engine)
+	ecCLIAwaitSnapshot(t, snapName)
 
 	copyName := "cli-snap-copy"
 	runCLI(t, awsCLI("elasticache", "copy-snapshot",
@@ -63,6 +71,20 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	})
 
 	runCLI(t, awsCLI("elasticache", "delete-snapshot", "--snapshot-name", snapName))
+
+	restoredID := "cli-snap-restored"
+	runCLI(t, awsCLI("elasticache", "create-cache-cluster",
+		"--cache-cluster-id", restoredID,
+		"--cache-node-type", "cache.t3.micro",
+		"--num-cache-nodes", "1",
+		"--snapshot-name", copyName))
+	t.Cleanup(func() {
+		_ = awsCLI("elasticache", "delete-cache-cluster", "--cache-cluster-id", restoredID).Run()
+	})
+	restored := ecCLIRedis(t, &goredis.Options{Addr: ecCLIAwaitCluster(t, restoredID).CacheNodes[0].Endpoint.address()})
+	value, err := restored.Get(t.Context(), "cli-snapshotted").Result()
+	require.NoError(t, err)
+	assert.Equal(t, "kept", value, "the cluster restored from the copied snapshot holds its data")
 
 	userID := "cli-user-1"
 	out = runCLI(t, awsCLI("elasticache", "create-user",
@@ -102,7 +124,7 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 	out = runCLI(t, awsCLI("elasticache", "create-user-group",
 		"--user-group-id", groupID,
 		"--engine", "redis",
-		"--user-ids", userID))
+		"--user-ids", "default", userID))
 	var grp struct {
 		UserGroupId string   `json:"UserGroupId"`
 		UserIds     []string `json:"UserIds"`
@@ -252,4 +274,26 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	}
 	parseJSON(t, out, &sgs)
 	assert.Empty(t, sgs.CacheSecurityGroups)
+}
+
+// ecCLIAwaitSnapshot polls describe-snapshots: the CLI has no waiter for a
+// snapshot.
+func ecCLIAwaitSnapshot(t *testing.T, name string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		var described struct {
+			Snapshots []struct {
+				SnapshotStatus string `json:"SnapshotStatus"`
+			} `json:"Snapshots"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("elasticache", "describe-snapshots", "--snapshot-name", name)), &described)
+		require.Len(t, described.Snapshots, 1)
+		if described.Snapshots[0].SnapshotStatus == "available" {
+			return
+		}
+		require.Equal(t, "creating", described.Snapshots[0].SnapshotStatus, "snapshot %s", name)
+		require.True(t, time.Now().Before(deadline), "snapshot %s did not become available", name)
+		time.Sleep(time.Second)
+	}
 }

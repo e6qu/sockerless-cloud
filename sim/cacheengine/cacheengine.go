@@ -148,7 +148,11 @@ type Config struct {
 	Network func(ctx context.Context) (string, []string, error)
 	Sandbox sim.SandboxProfile
 	// Password is what every node requires of clients and replicates with.
-	Password    string
+	Password string
+	// AdminUser, when set, is the engine user carrying Password that the
+	// plane administers the nodes and replicates as, leaving the default user
+	// off until Users names it.
+	AdminUser   string
 	Configs     [][2]string
 	Persistence Persistence
 	// TLS terminates TLS at every endpoint but a Plaintext one; nil serves
@@ -319,10 +323,11 @@ func nodeDir(node int) string {
 // script is a node container's command. A replica of an instance starts
 // empty, since it resynchronises from its primary; a cluster node keeps its
 // nodes.conf, which is its identity in the cluster, and keeps only the data
-// files the configured persistence writes.
+// files the configured persistence writes, or the dataset it is seeded with.
 func (p *Plane) script(node int) string {
 	p.mu.RLock()
 	primary, persistence := p.primary, p.persistence
+	seeded := p.nodes[node] != nil && p.nodes[node].seed != nil
 	p.mu.RUnlock()
 	dir := nodeDir(node)
 	var b strings.Builder
@@ -334,7 +339,7 @@ func (p *Plane) script(node int) string {
 		if !persistence.AOF {
 			fmt.Fprintf(&b, "rm -rf %s %s\n", dbengine.ShellQuote(dir+"/appendonlydir"), dbengine.ShellQuote(dir+"/appendonly.aof"))
 		}
-		if persistence.disabled() {
+		if persistence.disabled() && !seeded {
 			fmt.Fprintf(&b, "rm -f %s\n", dbengine.ShellQuote(dir+"/dump.rdb"))
 		}
 	}
@@ -365,7 +370,14 @@ func (p *Plane) serverCommand(index int) string {
 		"--repl-diskless-sync-delay", "0",
 	}
 	args = append(args, persistence.engineArgs()...)
-	if password != "" {
+	switch {
+	case p.cfg.AdminUser != "" && password != "":
+		args = append(args,
+			"--user", p.cfg.AdminUser, "on", ">"+password, "~*", "&*", "+@all",
+			"--user", "default", "off", "resetpass", "-@all",
+			"--masteruser", p.cfg.AdminUser, "--masterauth", password,
+		)
+	case password != "":
 		args = append(args, "--requirepass", password, "--masterauth", password)
 	}
 	if p.cfg.Cluster {
@@ -515,7 +527,15 @@ func (p *Plane) startNodes(nodes []int) error {
 		}()
 	}
 	wg.Wait()
-	return errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	// A node an admin user administers starts with the default user off, so
+	// it takes the plane's users before it serves a client.
+	if p.cfg.AdminUser != "" {
+		return p.ApplyUsers(nodes)
+	}
+	return nil
 }
 
 func (p *Plane) startNode(index int) error {
@@ -530,6 +550,7 @@ func (p *Plane) startNode(index int) error {
 	if err != nil {
 		return fmt.Errorf("start node %d of the Redis engine: %w", index, err)
 	}
+	command := p.script(index)
 	p.mu.Lock()
 	var seed []sim.SeedFile
 	if n, ok := p.nodes[index]; ok && n.seed != nil {
@@ -542,7 +563,7 @@ func (p *Plane) startNode(index int) error {
 		CancelGracePeriod: stopGrace,
 		Image:             image,
 		Architecture:      p.cfg.Platform,
-		Command:           []string{"/bin/sh", "-c", p.script(index)},
+		Command:           []string{"/bin/sh", "-c", command},
 		PublishPorts:      []int{Port},
 		Binds:             []string{p.cfg.Volume + ":" + dataPath},
 		Labels:            labels,
@@ -606,7 +627,7 @@ func (p *Plane) awaitNode(index int) error {
 		}
 		return fmt.Errorf("node %d of the Redis engine did not become ready within %s", index, readyBudget)
 	}
-	if !answers(address, p.Password()) {
+	if !p.answers(address) {
 		return fmt.Errorf("node %d of the Redis engine logged that it accepts connections but does not answer PING at %s", index, address)
 	}
 	return nil
@@ -703,8 +724,31 @@ func (p *Plane) Password() string {
 	return p.password
 }
 
-func answers(address, password string) bool {
-	conn, err := Dial(address, password, 500*time.Millisecond)
+// dial connects to a node as the user the plane administers it as.
+func (p *Plane) dial(address string, timeout time.Duration) (*Conn, error) {
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return open(conn, p.cfg.AdminUser, p.Password(), timeout)
+}
+
+// cliAuth is the redis-cli options and environment that authenticate as the
+// user the plane administers the nodes as.
+func (p *Plane) cliAuth() ([]string, []string) {
+	password := p.Password()
+	if password == "" {
+		return nil, nil
+	}
+	var options []string
+	if p.cfg.AdminUser != "" {
+		options = []string{"--user", p.cfg.AdminUser}
+	}
+	return options, []string{"REDISCLI_AUTH=" + password}
+}
+
+func (p *Plane) answers(address string) bool {
+	conn, err := p.dial(address, 500*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -919,7 +963,7 @@ func (p *Plane) Command(index int, args ...string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := Dial(address, p.Password(), 5*time.Second)
+	conn, err := p.dial(address, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to node %d: %w", index, err)
 	}
@@ -994,6 +1038,34 @@ func (p *Plane) Restart(rdb []byte, image string) error {
 		}
 		p.mu.Unlock()
 	}
+	return p.Ensure()
+}
+
+// Upgrade replaces the running engine with one on image, every node keeping
+// its dataset: each saves it, and loads it back at its next start.
+func (p *Plane) Upgrade(image string) error {
+	if err := p.Ensure(); err != nil {
+		return err
+	}
+	datasets := map[int][]byte{}
+	for _, index := range p.Nodes() {
+		data, err := p.Snapshot(index)
+		if err != nil {
+			return err
+		}
+		datasets[index] = data
+	}
+	if err := p.Stop(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.image = image
+	for index, data := range datasets {
+		if n, ok := p.nodes[index]; ok {
+			n.seed = data
+		}
+	}
+	p.mu.Unlock()
 	return p.Ensure()
 }
 
@@ -1084,15 +1156,19 @@ func (p *Plane) Configure(directives [][2]string) error {
 	return nil
 }
 
-// SetPassword changes the AUTH string every node requires and replicates
-// with.
+// SetPassword changes the AUTH string every node requires, or the admin
+// user carries, and replicates with.
 func (p *Plane) SetPassword(password string) error {
 	if p.Running() {
+		set := []string{"CONFIG", "SET", "requirepass", password}
+		if p.cfg.AdminUser != "" {
+			set = []string{"ACL", "SETUSER", p.cfg.AdminUser, "resetpass", ">" + password}
+		}
 		for _, index := range p.Nodes() {
 			if _, err := p.Command(index, "CONFIG", "SET", "masterauth", password); err != nil {
 				return err
 			}
-			if _, err := p.Command(index, "CONFIG", "SET", "requirepass", password); err != nil {
+			if _, err := p.Command(index, set...); err != nil {
 				return err
 			}
 		}

@@ -47,6 +47,7 @@ var ecEngineVersions = []ecEngineVersion{
 	{"redis", "6.2", "redis6.x", "Redis", "mirror.gcr.io/library/redis:6.2-alpine"},
 	{"valkey", "8.0", "valkey8", "Valkey", "mirror.gcr.io/valkey/valkey:8.0-alpine"},
 	{"memcached", "1.6.22", "memcached1.6", "memcached", "mirror.gcr.io/library/memcached:1.6.22-alpine"},
+	{"memcached", "1.6.17", "memcached1.6", "memcached", "mirror.gcr.io/library/memcached:1.6.17-alpine"},
 }
 
 // The default when none is named, else the listed version it is or shares a
@@ -101,8 +102,11 @@ type ecEngineRecord struct {
 	TLS     bool   `json:"tls,omitempty"`
 	// Also accepts unencrypted clients.
 	TLSPreferred bool `json:"tlsPreferred,omitempty"`
-	// The AUTH token, sealed under the AWS owned ElastiCache key.
+	// The newest AUTH token, sealed under the AWS owned ElastiCache key.
 	Token []byte `json:"token,omitempty"`
+	// The secret the control plane administers the nodes with
+	// (elasticache_auth.go), sealed.
+	Admin []byte `json:"admin,omitempty"`
 }
 
 var ecEngineRecords sim.Store[ecEngineRecord]
@@ -200,6 +204,10 @@ func ecNewEngine(key string, record ecEngineRecord) (*ecEngine, error) {
 	engine := &ecEngine{key: key}
 	name := "Amazon ElastiCache " + strings.Replace(key, ":", " ", 1)
 	if record.Engine == "memcached" {
+		var answer func([]string) ([]byte, bool)
+		if record.Kind == ecKindCluster {
+			answer = ecAutoDiscovery(record.ID)
+		}
 		engine.memcached = cacheengine.NewMemcached(cacheengine.MemcachedConfig{
 			Name:      name,
 			Owner:     key,
@@ -211,10 +219,11 @@ func ecNewEngine(key string, record ecEngineRecord) (*ecEngine, error) {
 			Network:   ecEngineNetwork,
 			Sandbox:   SandboxFargate,
 			TLS:       tlsConfig,
+			Answer:    answer,
 		}, record.Record)
 		return engine, nil
 	}
-	token, err := ecOpenToken(record.Token)
+	secret, err := ecOpenToken(record.Admin)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +240,10 @@ func ecNewEngine(key string, record ecEngineRecord) (*ecEngine, error) {
 		Backend:                        ecEngineBackend,
 		Network:                        ecEngineNetwork,
 		Sandbox:                        SandboxFargate,
-		Password:                       token,
+		Password:                       secret,
+		AdminUser:                      ecAdminUser,
+		Users:                          func() ([]cacheengine.User, error) { return ecEngineUsers(record.Kind, record.ID) },
+		ExchangeCredential:             ecIAMAuthenticator(record.Kind, record.ID),
 		TLS:                            tlsConfig,
 		TLSPreferred:                   record.TLSPreferred,
 		ReadFromPrimaryWithoutReplicas: true,
@@ -245,6 +257,13 @@ func ecInstallEngine(record ecEngineRecord, wanted []cacheengine.Endpoint) (*ecE
 		return nil, nil, nil
 	}
 	key := ecEngineKey(record.Kind, record.ID)
+	if record.Engine != "memcached" && len(record.Admin) == 0 {
+		admin, err := ecNewAdminSecret()
+		if err != nil {
+			return nil, nil, err
+		}
+		record.Admin = admin
+	}
 	listeners, endpoints, err := cacheengine.Bind(key, wanted)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bind the endpoints: %w", err)

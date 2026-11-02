@@ -945,11 +945,16 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"CacheNodeType": {"cache.t3.micro"}, "NumCacheNodes": {"1"}})
 	ecCall("CreateReplicationGroup", url.Values{"ReplicationGroupId": {"probe"},
 		"ReplicationGroupDescription": {"probe"}, "Engine": {"redis"}, "CacheNodeType": {"cache.t3.micro"}})
-	ecCall("CreateSnapshot", url.Values{"SnapshotName": {"probe"}, "CacheClusterId": {"probe"}})
+	// ElastiCache snapshots only an available cluster, and the probe cluster's
+	// engine does not start on the conformance server.
+	ecSnapshots.Put("probe", ECSnapshot{
+		SnapshotName: "probe", CacheClusterId: "probe", SnapshotStatus: "available", SnapshotSource: "manual",
+		Engine: "redis", EngineVersion: "7.1", ARN: ecSnapshotARN("probe"), Tags: map[string]string{"owner": "platform"},
+	})
 	ecCall("CreateUser", url.Values{"UserId": {"probe"}, "UserName": {"probe"}, "Engine": {"redis"},
 		"AccessString": {"on ~* +@all"}, "NoPasswordRequired": {"true"}})
 	ecCall("CreateUserGroup", url.Values{"UserGroupId": {"probe"}, "Engine": {"redis"},
-		"UserIds.member.1": {"probe"}})
+		"UserIds.member.1": {"probe"}, "UserIds.member.2": {"default"}})
 	ecCall("CreateCacheSecurityGroup", url.Values{"CacheSecurityGroupName": {"probe"}, "Description": {"probe"}})
 	ecCall("PurchaseReservedCacheNodesOffering", url.Values{"ReservedCacheNodeId": {"probe"},
 		"ReservedCacheNodesOfferingId": {ecReservedCacheNodesOfferings[0].Id}})

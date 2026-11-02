@@ -1344,7 +1344,8 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon ElastiCache
             cloud: aws
-            tf_packages: "./elasticache"
+            tf_packages: "./elasticache ./elasticache-snapshot"
+            tf_parallelism: 2
             timeout_minutes: 12
           - suite: aws Amazon RDS instance
             cloud: aws

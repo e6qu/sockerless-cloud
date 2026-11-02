@@ -46,6 +46,9 @@ type MemcachedConfig struct {
 	MemoryMB int
 	// TLS terminates TLS at every endpoint; nil serves plaintext.
 	TLS *tls.Config
+	// Answer, when set, answers a text-protocol command a client sends to
+	// any endpoint in place of a node, in turn with the node's replies.
+	Answer func(command []string) (reply []byte, ok bool)
 }
 
 type memcachedNode struct {
@@ -60,6 +63,7 @@ type Memcached struct {
 	cfg MemcachedConfig
 
 	mu        sync.RWMutex
+	image     string
 	nodes     map[int]*memcachedNode
 	endpoints []Endpoint
 	listeners map[string]net.Listener
@@ -72,7 +76,7 @@ type Memcached struct {
 }
 
 func NewMemcached(cfg MemcachedConfig, record Record) *Memcached {
-	m := &Memcached{cfg: cfg, nodes: map[int]*memcachedNode{}, listeners: map[string]net.Listener{}}
+	m := &Memcached{cfg: cfg, image: cfg.Image, nodes: map[int]*memcachedNode{}, listeners: map[string]net.Listener{}}
 	for _, index := range record.Nodes {
 		m.nodes[index] = &memcachedNode{}
 	}
@@ -193,6 +197,10 @@ func (m *Memcached) relayConnection(client net.Conn, target func() (int, bool)) 
 		return
 	}
 	defer backend.Close()
+	if m.cfg.Answer != nil {
+		m.relayAnswering(client, backend)
+		return
+	}
 	Relay(client, backend)
 }
 
@@ -261,13 +269,16 @@ func (m *Memcached) startNode(index int, network string, dns []string) error {
 	for key, value := range m.cfg.Labels {
 		labels[key] = value
 	}
+	m.mu.RLock()
+	image := m.image
+	m.mu.RUnlock()
 	memory := m.cfg.MemoryMB
 	if memory <= 0 {
 		memory = 64
 	}
 	handle, err := backend.Place(context.Background(), placement.Workload{
 		CancelGracePeriod: stopGrace,
-		Image:             m.cfg.Image,
+		Image:             image,
 		Architecture:      m.cfg.Platform,
 		Command:           []string{"memcached", "-p", strconv.Itoa(MemcachedPort), "-U", "0", "-m", strconv.Itoa(memory)},
 		PublishPorts:      []int{MemcachedPort},
@@ -417,6 +428,21 @@ func (m *Memcached) Reboot(nodes []int) error {
 		return err
 	}
 	return m.startNodes(nodes)
+}
+
+// Upgrade restarts every node on image, each coming back empty.
+func (m *Memcached) Upgrade(image string) error {
+	if err := m.Ensure(); err != nil {
+		return err
+	}
+	order := m.Nodes()
+	if err := m.stopNodes(order); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.image = image
+	m.mu.Unlock()
+	return m.startNodes(order)
 }
 
 // Adopt picks up the node workloads an earlier control-plane process left

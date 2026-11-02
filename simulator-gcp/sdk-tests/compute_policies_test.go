@@ -129,7 +129,7 @@ func TestCompute_OrganizationFirewallPolicyAssociations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "organizations/12345", association.AttachmentTarget)
 
-	listed, err := svc.FirewallPolicies.ListAssociations().Do()
+	listed, err := svc.FirewallPolicies.ListAssociations().TargetResource("organizations/12345").Do()
 	require.NoError(t, err)
 	require.Len(t, listed.Associations, 1)
 

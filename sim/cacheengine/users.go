@@ -37,7 +37,7 @@ func (p *Plane) ApplyUsers(nodes []int) error {
 	if err != nil {
 		return err
 	}
-	desired := map[string]bool{"default": true}
+	desired := map[string]bool{"default": true, p.cfg.AdminUser: p.cfg.AdminUser != ""}
 	for _, user := range users {
 		desired[user.Name] = true
 	}

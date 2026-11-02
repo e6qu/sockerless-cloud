@@ -92,7 +92,7 @@ check_repo_pinned() {
     repo="$(echo "$repo" | tr -d ' \`')"
     srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
-    case "$pin" in revision* | modified* | sha256*) continue ;; esac
+    case "$pin" in revision* | modified* | sha256* | commit*) continue ;; esac
     # `path` is the API's parameter name, and it carries the whole comparison:
     # the query ignores an unknown key and answers with the branch tip, so every
     # row drifts against a commit that never touched it and no refresh converges.
@@ -189,6 +189,43 @@ check_aws_docs_pages() {
       echo "ok    $file"
     else
       report_drift "$sources" "$file" "$pin" "$file: pinned ${pin:0:18}, live page ${live:0:18} (https://$host/$srcpath)"
+      if [ -n "$capture_dir" ]; then
+        mkdir -p "$capture_dir"
+        gzip -9 -n -c "$page" >"$capture_dir/$file"
+        echo "      captured the live page in $capture_dir/$file"
+      fi
+    fi
+    rm -f "$page"
+  done < <(grep '^| `' "$sources")
+}
+
+# A Microsoft Learn page vendored from learn.microsoft.com
+# (scripts/fetch-azure-learn-page.sh) is pinned at the source commit its served
+# front matter names; drift means the live page names another.
+check_azure_learn_pages() {
+  local sources="$1" capture_dir="${SPEC_FRESHNESS_CAPTURE_DIR:-}" page live
+  [ -f "$sources" ] || return 0
+  while IFS='|' read -r _ file host srcpath _lic pin _; do
+    file="$(echo "$file" | tr -d ' \`')"
+    host="$(echo "$host" | tr -d ' \`')"
+    srcpath="$(echo "$srcpath" | tr -d ' \`')"
+    pin="$(echo "$pin" | tr -d ' \`')"
+    case "$pin" in commit*) ;; *) continue ;; esac
+    page="$(mktemp)"
+    if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -H 'Accept: text/markdown' -o "$page" "https://$host/$srcpath" 2>/dev/null; then
+      echo "?     $file: cannot fetch https://$host/$srcpath"
+      fail=1
+      rm -f "$page"
+      continue
+    fi
+    live="commit$(sed -n 's/^git_commit_id: *\([0-9a-f]\{40\}\) *$/\1/p' "$page" | head -1)"
+    if [ "$live" = "commit" ]; then
+      echo "?     $file: https://$host/$srcpath names no git_commit_id"
+      fail=1
+    elif [ "$live" = "$pin" ]; then
+      echo "ok    $file"
+    else
+      report_drift "$sources" "$file" "$pin" "$file: pinned ${pin:6:12}, live page ${live:6:12} (https://$host/$srcpath)"
       if [ -n "$capture_dir" ]; then
         mkdir -p "$capture_dir"
         gzip -9 -n -c "$page" >"$capture_dir/$file"
@@ -380,7 +417,10 @@ for cloud in $CLOUDS; do
       check_aws_docs_pages "$ROOT/specs/cloud-api/aws/SOURCES.md"
       check_aws_service_reference
       ;;
-    azure) check_repo_pinned "$ROOT/specs/cloud-api/azure/SOURCES.md" ;;
+    azure)
+      check_repo_pinned "$ROOT/specs/cloud-api/azure/SOURCES.md"
+      check_azure_learn_pages "$ROOT/specs/cloud-api/azure/SOURCES.md"
+      ;;
     gcp) check_gcp ;;
     *)
       echo "unknown cloud: $cloud" >&2

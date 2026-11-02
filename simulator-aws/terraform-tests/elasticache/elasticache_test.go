@@ -12,11 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestElastiCacheTerraform applies a cache cluster, a replication group and a
-// serverless cache, and connects to the endpoints Terraform read back: each
-// is an engine that keeps what a client writes, the replication group's
-// reader endpoint reads what its primary endpoint took, and the serverless
-// cache answers a cluster client over TLS.
+// TestElastiCacheTerraform applies a cache cluster, a replication group, a
+// serverless cache and a replication group with a user group, and connects to
+// the endpoints Terraform read back: each is an engine that keeps what a
+// client writes, the replication group's reader endpoint reads what its
+// primary endpoint took, the serverless cache answers a cluster client over
+// TLS, and the user group's users are the engine's users.
 func TestElastiCacheTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
 	env.Terraform(t, "init")
@@ -64,15 +65,28 @@ func TestElastiCacheTerraform(t *testing.T) {
 	require.Equal(t, "6379", outputs.must(t, "serverless_endpoint_port"))
 	// ElastiCache presents a certificate a public root signs; the client checks
 	// encryption, not the chain.
+	clientTLS := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // see above
 	serverless := goredis.NewClusterClient(&goredis.ClusterOptions{
 		Addrs:     []string{net.JoinHostPort(outputs.must(t, "serverless_endpoint_address"), outputs.must(t, "serverless_endpoint_port"))},
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}, //nolint:gosec // see above
+		TLSConfig: clientTLS,
 	})
 	t.Cleanup(func() { serverless.Close() })
 	require.NoError(t, serverless.Set(t.Context(), "terraform", "serverless", 0).Err())
 	value, err = serverless.Get(t.Context(), "terraform").Result()
 	require.NoError(t, err)
 	require.Equal(t, "serverless", value)
+
+	require.Equal(t, "tf-rbac-users", outputs.must(t, "rbac_user_group_ids"))
+	rbacAddress := net.JoinHostPort(outputs.must(t, "rbac_primary_address"), "6386")
+	anonymous := goredis.NewClient(&goredis.Options{Addr: rbacAddress, TLSConfig: clientTLS, MaxRetries: -1})
+	t.Cleanup(func() { anonymous.Close() })
+	require.Error(t, anonymous.Ping(t.Context()).Err(), "the user group's default user is off")
+	app := goredis.NewClient(&goredis.Options{Addr: rbacAddress, Username: "tf-app", Password: "tf-rbac-app-password-001", TLSConfig: clientTLS})
+	t.Cleanup(func() { app.Close() })
+	require.NoError(t, app.Set(t.Context(), "app:terraform", "user group", 0).Err())
+	err = app.Set(t.Context(), "elsewhere", "refused", 0).Err()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "NOPERM", "the access string rules what the user may run")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

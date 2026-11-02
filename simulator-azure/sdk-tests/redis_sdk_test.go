@@ -124,22 +124,6 @@ func TestRedis_DataActions(t *testing.T) {
 	ensureRedisResourceGroup(t, rg)
 	client := newRedisCacheForTest(t, rg, "redis-data")
 
-	impPoller, err := client.BeginImportData(ctx, rg, "redis-data", armredis.ImportRDBParameters{
-		Files:  []*string{ptrStr("https://example.blob.core.windows.net/backups/dump.rdb")},
-		Format: ptrStr("RDB"),
-	}, nil)
-	require.NoError(t, err)
-	_, err = impPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-
-	expPoller, err := client.BeginExportData(ctx, rg, "redis-data", armredis.ExportRDBParameters{
-		Container: ptrStr("https://example.blob.core.windows.net/backups?sas"),
-		Prefix:    ptrStr("export-"),
-	}, nil)
-	require.NoError(t, err)
-	_, err = expPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-
 	flushPoller, err := client.BeginFlushCache(ctx, rg, "redis-data", nil)
 	require.NoError(t, err)
 	_, err = flushPoller.PollUntilDone(ctx, nil)

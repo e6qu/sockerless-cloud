@@ -158,3 +158,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `imds-instance-metadata-service.md.gz` | `MicrosoftDocs/azure-compute-docs@main` | `articles/virtual-machines/instance-metadata-service.md` | CC-BY-4.0 | `f32d5cfdda6398752bef98ecbb27b81a83ec9049` | 2026-10-30T11:13:18Z |
 | `imds-scheduled-events.md.gz` | `MicrosoftDocs/azure-compute-docs@main` | `articles/virtual-machines/linux/scheduled-events.md` | CC-BY-4.0 | `533281db10ee91cfabc771d583b49541e3713ad6` | 2026-10-30T11:13:31Z |
 | `imds-load-balancer-metadata.md.gz` | `MicrosoftDocs/azure-docs@main` | `articles/load-balancer/howto-load-balancer-imds.md` | CC-BY-4.0 | `fb1f4be60c3577c1aad4438db70e9cd9c1992449` | 2026-10-30T11:18:41Z |
+| `redis-import-export-data.md.gz` | `learn.microsoft.com` | `en-us/azure/azure-cache-for-redis/cache-how-to-import-export-data` | CC-BY-4.0 | `commitc4a5f38e5b3cb2bba81f50b3b0ea12099b487cd7` | 2026-11-01T21:27:44Z |
+| `redis-managed-identity.md.gz` | `learn.microsoft.com` | `en-us/azure/azure-cache-for-redis/cache-managed-identity` | CC-BY-4.0 | `commit9bd51d6aa6c5f3cb3ee6da16a4fb04cf396cd53d` | 2026-11-01T21:27:45Z |

@@ -194,8 +194,8 @@ func (p *Plane) awaitClusterInfo(index int, satisfied func(map[string]string) bo
 }
 
 // clusterManager runs one redis-cli --cluster subcommand from via's container
-// against via at its network address, authenticating as the engine's default
-// user. The cluster manager takes the address it was given as via's own and
+// against via at its network address, authenticating as the user the plane
+// administers the nodes as. The cluster manager takes the address it was given as via's own and
 // has other nodes migrate keys to it, so a loopback address would send them
 // to themselves.
 func (p *Plane) clusterManager(via int, subcommand string, args ...string) error {
@@ -203,12 +203,10 @@ func (p *Plane) clusterManager(via int, subcommand string, args ...string) error
 	if err != nil {
 		return err
 	}
-	command := []string{"redis-cli", "--cluster", subcommand, net.JoinHostPort(ip, strconv.Itoa(Port))}
+	options, env := p.cliAuth()
+	command := append([]string{"redis-cli"}, options...)
+	command = append(command, "--cluster", subcommand, net.JoinHostPort(ip, strconv.Itoa(Port)))
 	command = append(append(command, args...), "--cluster-yes")
-	var env []string
-	if password := p.Password(); password != "" {
-		env = append(env, "REDISCLI_AUTH="+password)
-	}
 	if _, err := p.Exec(via, command, env); err != nil {
 		return fmt.Errorf("redis-cli --cluster %s: %w", subcommand, err)
 	}

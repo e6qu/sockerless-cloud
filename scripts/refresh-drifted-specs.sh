@@ -83,6 +83,19 @@ refresh_azure() {
     return
   fi
   upstream="$(field "$row" 3)"
+  case "$file" in
+  *.md.gz)
+    local origin
+    origin="$(field "$row" 2)"
+    if [ "$origin" = "learn.microsoft.com" ]; then
+      echo "refresh microsoft learn page $upstream ($file)"
+      bash "$ROOT/scripts/fetch-azure-learn-page.sh" "$upstream" "${file%.md.gz}"
+    else
+      echo "refresh azure documentation page $origin $upstream ($file)"
+      bash "$ROOT/scripts/fetch-azure-doc.sh" "${origin%@*}" "$upstream" "${file%.md.gz}" "${origin#*@}" "$(field "$row" 4)"
+    fi
+    return ;;
+  esac
   name="${file%.swagger.json.gz}"
   echo "refresh azure spec $name ($upstream)"
   bash "$ROOT/scripts/fetch-azure-spec.sh" "$upstream" "$name"

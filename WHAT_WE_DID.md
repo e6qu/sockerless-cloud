@@ -774,9 +774,20 @@ shards, with resharding, failover, reboot, restart and adoption, and TLS
 required, preferred or off per endpoint. Memorystore for Redis moved onto it
 unchanged. Amazon ElastiCache clusters, replication groups and serverless
 caches report `creating` until their engine answers, and report the
-endpoints it serves; a serverless migration copies the source's keys. Azure
-Cache for Redis serves its `hostName` on TLS 6380, and on plaintext 6379
-when enabled, to either access key.
+endpoints it serves. Azure Cache for Redis serves its `hostName` on TLS
+6380, and on plaintext 6379 when enabled, to either access key.
+
+Cache data moves through the engine's own formats. An ElastiCache snapshot
+is each shard primary's RDB file, restored by restarting the primary from
+it or importing it into a cluster; online migration follows the source with
+`REPLICAOF`, or a host-side PSYNC link where Redis Cluster refuses
+`REPLICAOF`, and cuts over by pausing writes until each link reaches the
+source's replication offset. Azure Cache for Redis export writes the RDB to
+a page blob through the Blob data plane as the cache itself, with the URL's
+SAS or the cache's managed identity, so storage authorizes it like any
+client. ElastiCache users become Redis ACL users, so the plane manages nodes
+as an admin user of its own: a user group may switch `default` off without
+locking the plane out.
 
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
