@@ -85,22 +85,27 @@ func TestSTS_AssumeRoleWithSAML_CLI(t *testing.T) {
 	assert.Equal(t, "bob@example.test", res.Subject)
 	assert.Equal(t, idp.EntityID, res.Issuer)
 }
+
+// TestSTS_AssumeRoot_CLI opens a root session on a member account of the
+// organization with `aws sts assume-root`.
 func TestSTS_AssumeRoot_CLI(t *testing.T) {
 	t.Parallel()
-	out := runCLI(t, awsCLI("sts", "assume-root",
-		"--target-principal", "123456789012",
+	akid, secret, member := cliRootAccessPrincipal(t, "cli-assume-root")
+	cmd := awsCLI("sts", "assume-root",
+		"--target-principal", member,
 		"--task-policy-arn", "arn=arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
 		"--output", "json",
-	))
+	)
+	cmd.Env = withCreds(cmd.Env, akid, secret)
 	var res struct {
 		Credentials struct {
 			AccessKeyId string `json:"AccessKeyId"`
 		} `json:"Credentials"`
-		SourceIdentity string `json:"SourceIdentity"`
+		SourceIdentity *string `json:"SourceIdentity"`
 	}
-	parseJSON(t, out, &res)
+	parseJSON(t, runCLI(t, cmd), &res)
 	assert.Contains(t, res.Credentials.AccessKeyId, "ASIA")
-	assert.Equal(t, "123456789012", res.SourceIdentity)
+	assert.Nil(t, res.SourceIdentity, "a caller that set no source identity passes none on")
 }
 
 func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {

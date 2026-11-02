@@ -116,12 +116,16 @@ const (
 	// iamPrincipalNamed: the statement names this caller.
 	iamPrincipalNamed
 	// iamPrincipalEntity: the statement names the role a session was assumed
-	// from, so the session's permissions boundary and session policies still
-	// cap what it grants.
+	// from, or the IAM user whose GetFederationToken call opened a federated
+	// user session, so the session's permissions boundary and session
+	// policies still cap what it grants.
 	iamPrincipalEntity
 )
 
-func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][]string) iamPrincipalMatch {
+// iamPrincipalMatchKind matches a statement's principal against the caller's
+// ARN and, for a federated user session, entityArn, the ARN of the IAM user
+// that federated.
+func iamPrincipalMatchKind(stmt iamStatement, callerArn, entityArn string, ctx map[string][]string) iamPrincipalMatch {
 	matchOne := func(p iamPrincipal) iamPrincipalMatch {
 		if p.Wildcard {
 			return iamPrincipalNamed
@@ -129,6 +133,9 @@ func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][
 		for _, want := range p.AWS {
 			if want == "*" || iamGlobMatch(want, callerArn) {
 				return iamPrincipalNamed
+			}
+			if entityArn != "" && iamGlobMatch(want, entityArn) {
+				return iamPrincipalEntity
 			}
 			if acct := iamAccountFromArn(want); acct != "" && strings.Contains(callerArn, ":"+acct+":") {
 				return iamPrincipalDelegated
@@ -573,18 +580,19 @@ func iamEvalDecision(docs []iamPolicyDoc, action, resource string, ctx map[strin
 // iamEvalDecisionForPrincipal is iamEvalDecision plus a calling-principal ARN,
 // used to evaluate the Principal element of resource-based / trust policies.
 func iamEvalDecisionForPrincipal(docs []iamPolicyDoc, action, resource, callerArn string, ctx map[string][]string) (decision string, missing []string) {
-	decision, missing, _ = iamEvalResourceDecision(docs, action, resource, callerArn, ctx)
+	decision, missing, _ = iamEvalResourceDecision(docs, action, resource, callerArn, "", ctx)
 	return decision, missing
 }
 
 // iamEvalResourceDecision is iamEvalDecisionForPrincipal plus whether an
 // allowing statement names the caller itself, which no permissions boundary or
-// session policy caps, rather than the role its session was assumed from.
-func iamEvalResourceDecision(docs []iamPolicyDoc, action, resource, callerArn string, ctx map[string][]string) (decision string, missing []string, direct bool) {
+// session policy caps, rather than the role its session was assumed from or
+// the IAM user, entityArn, that federated it.
+func iamEvalResourceDecision(docs []iamPolicyDoc, action, resource, callerArn, entityArn string, ctx map[string][]string) (decision string, missing []string, direct bool) {
 	allowed := false
 	for _, doc := range docs {
 		for _, stmt := range doc.Statement {
-			match := iamPrincipalMatchKind(stmt, callerArn, ctx)
+			match := iamPrincipalMatchKind(stmt, callerArn, entityArn, ctx)
 			if match == iamPrincipalNoMatch {
 				continue
 			}

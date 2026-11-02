@@ -480,6 +480,7 @@ func handleOrgDeleteOrganization(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	orgOrg.Delete(orgSingletonKey)
+	iamClearOrgFeatures()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

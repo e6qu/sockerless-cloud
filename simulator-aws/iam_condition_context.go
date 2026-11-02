@@ -28,8 +28,8 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 	if ua := r.Header.Get("User-Agent"); ua != "" {
 		ctx["aws:UserAgent"] = []string{ua}
 	}
-	if principalArn != "" {
-		ctx["aws:PrincipalArn"] = []string{principalArn}
+	if arn := iamPrincipalArnKey(akid, principalArn); arn != "" {
+		ctx["aws:PrincipalArn"] = []string{arn}
 	}
 	ctx["aws:ResourceAccount"] = []string{awsAccountID()}
 
@@ -43,6 +43,20 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 	if mfa {
 		ctx["aws:MultiFactorAuthAge"] = []string{strconv.FormatInt(age, 10)}
 	}
+}
+
+// iamPrincipalArnKey is the aws:PrincipalArn of a request: the caller's ARN,
+// except that an assumed-role session reports the ARN of its role, path
+// included, and none once the role is gone.
+func iamPrincipalArnKey(akid, principalArn string) string {
+	tc, ok := iamTempCreds.Get(akid)
+	if !ok || tc.RoleName == "" {
+		return principalArn
+	}
+	if role, rok := iamRoles.Get(tc.RoleName); rok {
+		return role.Arn
+	}
+	return ""
 }
 
 // iamPrincipalTags returns the calling principal's tags: a user's tags for an

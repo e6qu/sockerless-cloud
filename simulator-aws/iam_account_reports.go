@@ -668,14 +668,9 @@ func iamAllConfiguredServiceNamespaces() []string {
 	return out
 }
 
-func iamOrgId() string {
-	if f, ok := iamAccountFlags.Get("OrganizationId"); ok && f.Value != "" {
-		return f.Value
-	}
-	orgId := "o-" + strings.ToLower(sim.NewUUID()[:10])
-	iamAccountFlags.Put("OrganizationId", IAMAccountFeature{Key: "OrganizationId", Value: orgId})
-	return orgId
-}
+// iamCentralizedRootAccessService is the service principal IAM's centralized
+// root access is enabled and delegated for in AWS Organizations.
+const iamCentralizedRootAccessService = "iam.amazonaws.com"
 
 func iamSetOrgFeature(key string, enabled bool) {
 	if enabled {
@@ -685,47 +680,123 @@ func iamSetOrgFeature(key string, enabled bool) {
 	}
 }
 
+func iamOrgFeatureEnabled(key string) bool {
+	_, ok := iamAccountFlags.Get(key)
+	return ok
+}
+
+// iamClearOrgFeatures turns off the centralized root access features of an
+// organization that no longer exists.
+func iamClearOrgFeatures() {
+	iamSetOrgFeature("RootCredentialsManagement", false)
+	iamSetOrgFeature("RootSessions", false)
+}
+
 // AWS's EnabledFeatures values are RootCredentialsManagement and RootSessions.
 func iamEnabledFeaturesXML() string {
 	var b strings.Builder
 	b.WriteString("<EnabledFeatures>")
-	if _, ok := iamAccountFlags.Get("RootCredentialsManagement"); ok {
-		b.WriteString("<member>RootCredentialsManagement</member>")
-	}
-	if _, ok := iamAccountFlags.Get("RootSessions"); ok {
-		b.WriteString("<member>RootSessions</member>")
+	for _, feature := range []string{"RootCredentialsManagement", "RootSessions"} {
+		if iamOrgFeatureEnabled(feature) {
+			b.WriteString("<member>" + feature + "</member>")
+		}
 	}
 	b.WriteString("</EnabledFeatures>")
 	return b.String()
 }
 
-func iamOrgFeaturesResult(w http.ResponseWriter, op string) {
-	inner := fmt.Sprintf("<OrganizationId>%s</OrganizationId>%s", iamOrgId(), iamEnabledFeaturesXML())
+// iamCallerAccount is the account of the principal that signed r; a
+// credential no principal holds is the simulator account's root user.
+func iamCallerAccount(r *http.Request) string {
+	if caller, ok := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); ok {
+		return iamArnAccount(caller.Arn)
+	}
+	return awsAccountID()
+}
+
+// iamOrgDelegatedAdministrator reports whether account is registered as a
+// delegated administrator of the organization for service.
+func iamOrgDelegatedAdministrator(account, service string) bool {
+	_, ok := orgDelegatedAdmins.Get(orgDelegatedAdminKey(account, service))
+	return ok
+}
+
+// iamCentralizedRootAccessOrg checks the prerequisites the centralized root
+// access operations share: an organization with all features, a caller in
+// its management account (or, unless managementOnly, its delegated
+// administrator for IAM), and trusted access for IAM. It writes the error and
+// returns false when one is missing.
+func iamCentralizedRootAccessOrg(w http.ResponseWriter, r *http.Request, managementOnly bool) (OrgOrganization, bool) {
+	org, ok := orgOrg.Get(orgSingletonKey)
+	if !ok {
+		iamErrorXML(w, "OrganizationNotFoundException",
+			"The request was rejected because no organization is associated with your account.", http.StatusBadRequest)
+		return org, false
+	}
+	if org.FeatureSet != "ALL" {
+		iamErrorXML(w, "OrganizationNotInAllFeaturesModeException",
+			"The request was rejected because your organization does not have All features enabled.", http.StatusBadRequest)
+		return org, false
+	}
+	account := iamCallerAccount(r)
+	if account != org.MasterAccountId {
+		if !iamOrgDelegatedAdministrator(account, iamCentralizedRootAccessService) {
+			iamErrorXML(w, "AccountNotManagementOrDelegatedAdministratorException",
+				"The request was rejected because the account making the request is not the management account or delegated administrator account for centralized root access.",
+				http.StatusBadRequest)
+			return org, false
+		}
+		if managementOnly {
+			iamErrorXML(w, "CallerIsNotManagementAccountException",
+				"The request was rejected because the account making the request is not the management account for the organization.",
+				http.StatusBadRequest)
+			return org, false
+		}
+	}
+	if _, enabled := orgServiceAccess.Get(iamCentralizedRootAccessService); !enabled {
+		iamErrorXML(w, "ServiceAccessNotEnabledException",
+			"The request was rejected because trusted access is not enabled for IAM in Organizations.", http.StatusBadRequest)
+		return org, false
+	}
+	return org, true
+}
+
+// iamOrgFeaturesOperation runs one of the centralized root access operations:
+// it checks the prerequisites, applies change, and reports the features.
+func iamOrgFeaturesOperation(w http.ResponseWriter, r *http.Request, op string, managementOnly bool, change func()) {
+	org, ok := iamCentralizedRootAccessOrg(w, r, managementOnly)
+	if !ok {
+		return
+	}
+	if change != nil {
+		change()
+	}
+	inner := fmt.Sprintf("<OrganizationId>%s</OrganizationId>%s", xmlEscape(org.Id), iamEnabledFeaturesXML())
 	iamResultXML(w, op, inner)
 }
 
 func handleIAMEnableOrgRootCredentials(w http.ResponseWriter, r *http.Request) {
-	iamSetOrgFeature("RootCredentialsManagement", true)
-	iamOrgFeaturesResult(w, "EnableOrganizationsRootCredentialsManagement")
+	iamOrgFeaturesOperation(w, r, "EnableOrganizationsRootCredentialsManagement", true,
+		func() { iamSetOrgFeature("RootCredentialsManagement", true) })
 }
 
 func handleIAMDisableOrgRootCredentials(w http.ResponseWriter, r *http.Request) {
-	iamSetOrgFeature("RootCredentialsManagement", false)
-	iamOrgFeaturesResult(w, "DisableOrganizationsRootCredentialsManagement")
+	iamOrgFeaturesOperation(w, r, "DisableOrganizationsRootCredentialsManagement", false,
+		func() { iamSetOrgFeature("RootCredentialsManagement", false) })
 }
 
 func handleIAMEnableOrgRootSessions(w http.ResponseWriter, r *http.Request) {
-	iamSetOrgFeature("RootSessions", true)
-	iamOrgFeaturesResult(w, "EnableOrganizationsRootSessions")
+	iamOrgFeaturesOperation(w, r, "EnableOrganizationsRootSessions", true,
+		func() { iamSetOrgFeature("RootSessions", true) })
 }
 
 func handleIAMDisableOrgRootSessions(w http.ResponseWriter, r *http.Request) {
-	iamSetOrgFeature("RootSessions", false)
-	iamOrgFeaturesResult(w, "DisableOrganizationsRootSessions")
+	iamOrgFeaturesOperation(w, r, "DisableOrganizationsRootSessions", false,
+		func() { iamSetOrgFeature("RootSessions", false) })
 }
 
 func handleIAMListOrganizationsFeatures(w http.ResponseWriter, r *http.Request) {
-	iamOrgFeaturesResult(w, "ListOrganizationsFeatures")
+	iamOrgFeaturesOperation(w, r, "ListOrganizationsFeatures", false, nil)
 }
 
 func iamDelegationRequestXML(d IAMDelegationRequest) string {

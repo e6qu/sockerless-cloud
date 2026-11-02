@@ -214,17 +214,20 @@ func TestSTS_GetDelegatedAccessToken(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(out.AssumedPrincipal))
 }
 
+// TestSTS_AssumeRoot opens a root session on a member account of the
+// organization from an IAM user of its management account.
 func TestSTS_AssumeRoot(t *testing.T) {
 	t.Parallel()
-	client := stsClient()
+	enableRootSessions(t)
+	client, member := rootAccessPrincipal(t, "assume-root")
 	out, err := client.AssumeRoot(ctx, &sts.AssumeRootInput{
-		TargetPrincipal: aws.String("123456789012"),
+		TargetPrincipal: aws.String(member),
 		TaskPolicyArn:   &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials")},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.Credentials)
 	assert.Contains(t, aws.ToString(out.Credentials.AccessKeyId), "ASIA")
-	assert.Equal(t, "123456789012", aws.ToString(out.SourceIdentity))
+	assert.Nil(t, out.SourceIdentity, "a caller that set no source identity passes none on")
 }
 
 func TestSTS_DecodeAuthorizationMessage(t *testing.T) {

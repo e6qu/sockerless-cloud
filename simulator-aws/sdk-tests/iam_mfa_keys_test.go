@@ -47,15 +47,14 @@ func totpWrongCode(t *testing.T, base32Seed []byte) string {
 }
 
 // enableMFADevice enables a virtual MFA device for a user with the two
-// consecutive codes the device showed most recently.
-func enableMFADevice(t *testing.T, c *iam.Client, user, serial string, seed []byte) {
+// consecutive codes the device showed up to at.
+func enableMFADevice(t *testing.T, c *iam.Client, user, serial string, seed []byte, at time.Time) {
 	t.Helper()
-	now := time.Now()
 	_, err := c.EnableMFADevice(ctx, &iam.EnableMFADeviceInput{
 		UserName:            aws.String(user),
 		SerialNumber:        aws.String(serial),
-		AuthenticationCode1: aws.String(totpCode(t, seed, now.Add(-30*time.Second))),
-		AuthenticationCode2: aws.String(totpCode(t, seed, now)),
+		AuthenticationCode1: aws.String(totpCode(t, seed, at.Add(-30*time.Second))),
+		AuthenticationCode2: aws.String(totpCode(t, seed, at)),
 	})
 	require.NoError(t, err)
 }
@@ -107,7 +106,8 @@ func TestIAM_VirtualMFADevice(t *testing.T) {
 	})
 	var invalid *types.InvalidAuthenticationCodeException
 	require.ErrorAs(t, err, &invalid, "codes the device did not show do not enable it")
-	enableMFADevice(t, c, user, serial, seed)
+	enabledAt := time.Now().Add(-30 * time.Second)
+	enableMFADevice(t, c, user, serial, seed, enabledAt)
 
 	got, err := c.GetMFADevice(ctx, &iam.GetMFADeviceInput{SerialNumber: aws.String(serial)})
 	require.NoError(t, err)
@@ -149,12 +149,18 @@ func TestIAM_VirtualMFADevice(t *testing.T) {
 		AuthenticationCode2: aws.String(totpCode(t, seed, time.Now())),
 	})
 	require.ErrorAs(t, err, &invalid, "codes the device did not show do not resynchronize it")
-	now := time.Now()
 	_, err = c.ResyncMFADevice(ctx, &iam.ResyncMFADeviceInput{
 		UserName:            aws.String(user),
 		SerialNumber:        aws.String(serial),
-		AuthenticationCode1: aws.String(totpCode(t, seed, now.Add(-30*time.Second))),
-		AuthenticationCode2: aws.String(totpCode(t, seed, now)),
+		AuthenticationCode1: aws.String(totpCode(t, seed, enabledAt.Add(-30*time.Second))),
+		AuthenticationCode2: aws.String(totpCode(t, seed, enabledAt)),
+	})
+	require.ErrorAs(t, err, &invalid, "the codes that enabled the device do not resynchronize it")
+	_, err = c.ResyncMFADevice(ctx, &iam.ResyncMFADeviceInput{
+		UserName:            aws.String(user),
+		SerialNumber:        aws.String(serial),
+		AuthenticationCode1: aws.String(totpCode(t, seed, enabledAt.Add(30*time.Second))),
+		AuthenticationCode2: aws.String(totpCode(t, seed, enabledAt.Add(60*time.Second))),
 	})
 	require.NoError(t, err)
 

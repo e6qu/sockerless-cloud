@@ -1447,7 +1447,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws AWS STS session tags
             cloud: aws
-            tf_packages: "./sts-session-tags ./sts-session-limits"
+            tf_packages: "./sts-session-tags ./sts-session-limits ./iam-organizations-features"
             timeout_minutes: 12
           - suite: aws Amazon SNS delivery status
             cloud: aws

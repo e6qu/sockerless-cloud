@@ -37,7 +37,8 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 		t.Fatalf("create-virtual-mfa-device did not write a seed to outfile: err=%v len=%d", err, len(seed))
 	}
 
-	cliEnableMFADevice(t, user, serial, string(seed))
+	enabledAt := time.Now().Add(-30 * time.Second)
+	cliEnableMFADevice(t, user, serial, string(seed), enabledAt)
 
 	got := strings.TrimSpace(runCLI(t, awsCLI("iam", "get-mfa-device",
 		"--serial-number", serial, "--query", "SerialNumber", "--output", "text")))
@@ -66,11 +67,17 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 	}
 	runCLI(t, awsCLI("iam", "untag-mfa-device", "--serial-number", serial, "--tag-keys", "env"))
 
-	now := time.Now()
+	replayed := runCLIExpectError(t, awsCLI("iam", "resync-mfa-device",
+		"--user-name", user, "--serial-number", serial,
+		"--authentication-code1", cliTOTP(t, string(seed), enabledAt.Add(-30*time.Second)),
+		"--authentication-code2", cliTOTP(t, string(seed), enabledAt)))
+	if !strings.Contains(replayed, "InvalidAuthenticationCode") {
+		t.Fatalf("resync-mfa-device with the codes that enabled the device: %s", replayed)
+	}
 	runCLI(t, awsCLI("iam", "resync-mfa-device",
 		"--user-name", user, "--serial-number", serial,
-		"--authentication-code1", cliTOTP(t, string(seed), now.Add(-30*time.Second)),
-		"--authentication-code2", cliTOTP(t, string(seed), now)))
+		"--authentication-code1", cliTOTP(t, string(seed), enabledAt.Add(30*time.Second)),
+		"--authentication-code2", cliTOTP(t, string(seed), enabledAt.Add(60*time.Second))))
 
 	runCLI(t, awsCLI("iam", "deactivate-mfa-device", "--user-name", user, "--serial-number", serial))
 	runCLI(t, awsCLI("iam", "delete-virtual-mfa-device", "--serial-number", serial))

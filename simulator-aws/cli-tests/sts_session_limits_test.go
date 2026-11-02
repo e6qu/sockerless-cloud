@@ -61,13 +61,12 @@ func cliVirtualMFADevice(t *testing.T, name string) (serial, seed string) {
 }
 
 // cliEnableMFADevice enables a device with the two consecutive codes it showed
-// most recently.
-func cliEnableMFADevice(t *testing.T, user, serial, seed string) {
+// up to at.
+func cliEnableMFADevice(t *testing.T, user, serial, seed string, at time.Time) {
 	t.Helper()
-	now := time.Now()
 	runCLI(t, awsCLI("iam", "enable-mfa-device", "--user-name", user, "--serial-number", serial,
-		"--authentication-code1", cliTOTP(t, seed, now.Add(-30*time.Second)),
-		"--authentication-code2", cliTOTP(t, seed, now)))
+		"--authentication-code1", cliTOTP(t, seed, at.Add(-30*time.Second)),
+		"--authentication-code2", cliTOTP(t, seed, at)))
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("iam", "deactivate-mfa-device", "--user-name", user, "--serial-number", serial))
 	})
@@ -208,26 +207,104 @@ func TestSTS_GetFederationTokenPolicy_CLI(t *testing.T) {
 	runCLI(t, scoped.asSession(awsCLI("sts", "get-caller-identity")))
 }
 
-// TestSTS_AssumeRootTaskPolicy_CLI opens a root session with
-// `aws sts assume-root`; the S3UnlockBucketPolicy task policy scopes it to
-// bucket policies and listing buckets.
+// cliRootAccessPrincipal turns on trusted access for IAM and root sessions in
+// the organization, creates a member account and an IAM user of the
+// management account allowed sts:AssumeRoot, and returns the user's access
+// key and the member account's ID.
+func cliRootAccessPrincipal(t *testing.T, name string) (akid, secret, member string) {
+	t.Helper()
+	runCLI(t, awsCLI("organizations", "enable-aws-service-access", "--service-principal", "iam.amazonaws.com"))
+	runCLI(t, awsCLI("iam", "enable-organizations-root-sessions"))
+	member = strings.TrimSpace(runCLI(t, awsCLI("organizations", "create-account", "--account-name", name,
+		"--email", name+"@sim.invalid", "--query", "CreateAccountStatus.AccountId", "--output", "text")))
+	t.Cleanup(func() {
+		runCLIIgnore(awsCLI("organizations", "remove-account-from-organization", "--account-id", member))
+	})
+	runCLI(t, awsCLI("iam", "create-user", "--user-name", name))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", name)) })
+	runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", name, "--policy-name", "assume-root",
+		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRoot","Resource":"*"}]}`))
+	t.Cleanup(func() {
+		runCLIIgnore(awsCLI("iam", "delete-user-policy", "--user-name", name, "--policy-name", "assume-root"))
+	})
+	var key struct {
+		AccessKey struct {
+			AccessKeyId     string `json:"AccessKeyId"`
+			SecretAccessKey string `json:"SecretAccessKey"`
+		} `json:"AccessKey"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("iam", "create-access-key", "--user-name", name)), &key)
+	return key.AccessKey.AccessKeyId, key.AccessKey.SecretAccessKey, member
+}
+
+// TestSTS_AssumeRootTaskPolicy_CLI opens a root session on a member account
+// with `aws sts assume-root`; the S3UnlockBucketPolicy task policy scopes it
+// to bucket policies and listing buckets. A root user, and the management
+// account as target, open no session.
 func TestSTS_AssumeRootTaskPolicy_CLI(t *testing.T) {
 	t.Parallel()
-	refused := runCLIExpectError(t, awsCLI("sts", "assume-root", "--target-principal", "123456789012",
+	akid, secret, member := cliRootAccessPrincipal(t, "cli-root-unlock")
+	asCaller := func(args ...string) *exec.Cmd {
+		cmd := awsCLI(args...)
+		cmd.Env = withCreds(cmd.Env, akid, secret)
+		return cmd
+	}
+	unlock := "arn=arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy"
+	assert.Contains(t, runCLIExpectError(t, asCaller("sts", "assume-root", "--target-principal", "123456789012", "--task-policy-arn", unlock)),
+		"AccessDenied", "the management account is not a member account")
+	refused := runCLIExpectError(t, asCaller("sts", "assume-root", "--target-principal", member,
 		"--task-policy-arn", "arn=arn:aws:iam::aws:policy/ReadOnlyAccess"))
 	assert.Contains(t, refused, "ValidationError")
 
 	var root cliSessionCredentials
-	parseJSON(t, runCLI(t, awsCLI("sts", "assume-root", "--target-principal", "123456789012",
-		"--task-policy-arn", "arn=arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy", "--duration-seconds", "900")), &root)
+	parseJSON(t, runCLI(t, asCaller("sts", "assume-root", "--target-principal", member,
+		"--task-policy-arn", unlock, "--duration-seconds", "900")), &root)
+	identity := strings.TrimSpace(runCLI(t, root.asSession(awsCLI("sts", "get-caller-identity", "--query", "Arn", "--output", "text"))))
+	assert.Equal(t, "arn:aws:iam::"+member+":root", identity)
 	runCLI(t, root.asSession(awsCLI("s3api", "list-buckets")))
+	assert.Contains(t, runCLIExpectError(t, root.asSession(awsCLI("sts", "assume-root", "--target-principal", member,
+		"--task-policy-arn", unlock))), "AccessDenied", "a root user cannot call AssumeRoot")
 	assert.Contains(t, runCLIExpectError(t, root.asSession(awsCLI("sqs", "list-queues"))), "AccessDenied",
 		"the task policy denies every action outside it")
 }
 
+// TestSTS_GetSessionTokenRestrictions_CLI opens sessions with
+// `aws sts get-session-token`: an IAM user's session keeps the user's
+// permissions but calls no IAM operation without MFA and opens no further
+// session.
+func TestSTS_GetSessionTokenRestrictions_CLI(t *testing.T) {
+	t.Parallel()
+	user := "cli-session-token"
+	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", user)) })
+	runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", user, "--policy-name", "session",
+		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["iam:ListUsers","sqs:ListQueues"],"Resource":"*"}]}`))
+	t.Cleanup(func() {
+		runCLIIgnore(awsCLI("iam", "delete-user-policy", "--user-name", user, "--policy-name", "session"))
+	})
+	var key struct {
+		AccessKey struct {
+			AccessKeyId     string `json:"AccessKeyId"`
+			SecretAccessKey string `json:"SecretAccessKey"`
+		} `json:"AccessKey"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("iam", "create-access-key", "--user-name", user)), &key)
+	getSessionToken := awsCLI("sts", "get-session-token")
+	getSessionToken.Env = withCreds(getSessionToken.Env, key.AccessKey.AccessKeyId, key.AccessKey.SecretAccessKey)
+	var session cliSessionCredentials
+	parseJSON(t, runCLI(t, getSessionToken), &session)
+
+	runCLI(t, session.asSession(awsCLI("sqs", "list-queues")))
+	assert.Contains(t, runCLIExpectError(t, session.asSession(awsCLI("iam", "list-users"))), "AccessDenied",
+		"a session MFA did not authenticate calls no IAM operation")
+	assert.Contains(t, runCLIExpectError(t, session.asSession(awsCLI("sts", "get-session-token"))), "AccessDenied",
+		"session credentials cannot call GetSessionToken")
+}
+
 // TestSTS_AssumeRoleMFA_CLI enables a virtual MFA device with codes computed
 // from the seed `aws iam create-virtual-mfa-device` writes, then assumes a role
-// whose trust policy requires MFA with `--serial-number` and `--token-code`.
+// whose trust policy requires MFA with `--serial-number` and `--token-code`:
+// the device's next code authenticates once.
 func TestSTS_AssumeRoleMFA_CLI(t *testing.T) {
 	t.Parallel()
 	user := "cli-mfa-assumer"
@@ -244,7 +321,8 @@ func TestSTS_AssumeRoleMFA_CLI(t *testing.T) {
 	wrong := runCLIExpectError(t, awsCLI("iam", "enable-mfa-device", "--user-name", user, "--serial-number", serial,
 		"--authentication-code1", cliTOTPWrong(t, seed), "--authentication-code2", cliTOTP(t, seed, time.Now())))
 	assert.Contains(t, wrong, "InvalidAuthenticationCode")
-	cliEnableMFADevice(t, user, serial, seed)
+	enabledAt := time.Now()
+	cliEnableMFADevice(t, user, serial, seed, enabledAt)
 
 	roleArn := cliLimitsRole(t, "cli-mfa-role", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
 		`"Principal":{"AWS":"arn:aws:iam::123456789012:user/`+user+`"},"Action":"sts:AssumeRole",`+
@@ -264,5 +342,9 @@ func TestSTS_AssumeRoleMFA_CLI(t *testing.T) {
 	assert.Contains(t, runCLIExpectError(t, run(assume(""))), "AccessDenied", "the trust policy requires MFA")
 	assert.Contains(t, runCLIExpectError(t, run(assume(cliTOTPWrong(t, seed)))), "AccessDenied",
 		"a code the device did not show is refused")
-	runCLI(t, run(assume(cliTOTP(t, seed, time.Now()))))
+	assert.Contains(t, runCLIExpectError(t, run(assume(cliTOTP(t, seed, enabledAt)))), "AccessDenied",
+		"the code that enabled the device authenticates nothing again")
+	next := cliTOTP(t, seed, enabledAt.Add(30*time.Second))
+	runCLI(t, run(assume(next)))
+	assert.Contains(t, runCLIExpectError(t, run(assume(next))), "AccessDenied", "a code authenticates once")
 }
