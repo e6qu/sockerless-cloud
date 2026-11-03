@@ -1045,7 +1045,10 @@ through `crypto/mlkem`, and HPKE import jobs open their wrapped keys through
 `crypto/hpke`. An algorithm the Go standard library cannot back answers
 UNIMPLEMENTED: creating one had silently produced symmetric material. A
 deleted key leaves a retired resource that holds its name, and Autokey
-provisions the key ring and key a key handle names. Compute Engine and Secret
+provisions the key ring and key a key handle names. A scheduled destroy comes
+due its full `destroyScheduledDuration` after the request, recorded to the
+nanosecond: a destroy time truncated to the second had let a one-second schedule
+fall due within milliseconds. Compute Engine and Secret
 Manager `testIamPermissions` answer from the policy the IAM gate reads, where
 two shared Compute helpers had echoed the request, and `getEffectiveFirewalls`
 assembles the VPC rules and firewall policies that apply. Cloud Build refuses
