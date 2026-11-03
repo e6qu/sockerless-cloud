@@ -37,6 +37,9 @@ type IAMVirtualMFADevice struct {
 	// DriftSteps is how many TOTP time steps the device's clock runs ahead of
 	// the simulator's, learned from the codes that enabled or resynchronized it.
 	DriftSteps int64 `json:",omitempty"`
+	// LastStep is the latest time step whose code the device authenticated
+	// with; a code of that step or an earlier one does not verify again.
+	LastStep int64 `json:",omitempty"`
 }
 
 // A virtual MFA device generates RFC 6238 time-based one-time passwords:
@@ -79,30 +82,50 @@ func (dev IAMVirtualMFADevice) seed() []byte {
 	return seed
 }
 
-// verifiesCode reports whether code is one the device shows at now, within
-// the skew either side of its learned drift.
-func (dev IAMVirtualMFADevice) verifiesCode(code string, now time.Time) bool {
+// codeStep returns the step, within the skew either side of the device's
+// learned drift, whose code is code.
+func (dev IAMVirtualMFADevice) codeStep(code string, now time.Time) (int64, bool) {
 	seed := dev.seed()
 	device := iamTOTPStepAt(now) + dev.DriftSteps
 	for step := device - iamTOTPSkewSteps; step <= device+iamTOTPSkewSteps; step++ {
 		if hmac.Equal([]byte(iamTOTP(seed, step)), []byte(code)) {
-			return true
-		}
-	}
-	return false
-}
-
-// syncDrift finds the latest pair of consecutive steps that show code1 and
-// code2, and returns the device's drift that the second step implies.
-func (dev IAMVirtualMFADevice) syncDrift(code1, code2 string, now time.Time) (int64, bool) {
-	seed := dev.seed()
-	current := iamTOTPStepAt(now)
-	for step := current; step >= current-iamTOTPSyncSteps; step-- {
-		if iamTOTP(seed, step) == code1 && iamTOTP(seed, step+1) == code2 {
-			return step + 1 - current, true
+			return step, true
 		}
 	}
 	return 0, false
+}
+
+// unusedCodeStep is codeStep for a code of a step after the last one the
+// device authenticated with.
+func (dev IAMVirtualMFADevice) unusedCodeStep(code string, now time.Time) (int64, bool) {
+	step, ok := dev.codeStep(code, now)
+	return step, ok && step > dev.LastStep
+}
+
+// iamConsumeMFACode verifies code against the device serial names and, when
+// it verifies, records its step so the same code cannot authenticate again.
+func iamConsumeMFACode(serial, code string, now time.Time) bool {
+	accepted := false
+	iamVirtualMFADevices.Update(serial, func(dev *IAMVirtualMFADevice) {
+		if step, ok := dev.unusedCodeStep(code, now); ok {
+			dev.LastStep, accepted = step, true
+		}
+	})
+	return accepted
+}
+
+// syncDrift finds the latest pair of consecutive steps after the device's
+// last used step that show code1 and code2, and returns the drift the second
+// step implies and the second step.
+func (dev IAMVirtualMFADevice) syncDrift(code1, code2 string, now time.Time) (drift, second int64, ok bool) {
+	seed := dev.seed()
+	current := iamTOTPStepAt(now)
+	for step := current; step >= current-iamTOTPSyncSteps && step > dev.LastStep; step-- {
+		if iamTOTP(seed, step) == code1 && iamTOTP(seed, step+1) == code2 {
+			return step + 1 - current, step + 1, true
+		}
+	}
+	return 0, 0, false
 }
 
 var iamAuthenticationCodePattern = regexp.MustCompile(`^\d{6}$`)
@@ -122,12 +145,12 @@ func iamSyncMFADevice(w http.ResponseWriter, r *http.Request, dev *IAMVirtualMFA
 			return false
 		}
 	}
-	drift, ok := dev.syncDrift(code1, code2, time.Now())
+	drift, second, ok := dev.syncDrift(code1, code2, time.Now())
 	if !ok {
 		iamErrorXML(w, "InvalidAuthenticationCode", "Authentication code for device is not valid.", http.StatusForbidden)
 		return false
 	}
-	dev.DriftSteps = drift
+	dev.DriftSteps, dev.LastStep = drift, second
 	return true
 }
 
@@ -282,22 +305,23 @@ func handleIAMEnableMFADevice(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", userName), http.StatusNotFound)
 		return
 	}
-	dev, ok := iamVirtualMFADevices.Get(serial)
-	if !ok {
+	// Verify and record the codes under the device's row lock, so a code a
+	// concurrent request presents is not accepted twice.
+	found := iamVirtualMFADevices.Update(serial, func(dev *IAMVirtualMFADevice) {
+		if dev.UserName != "" {
+			iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Device %s is already enabled.", serial), http.StatusConflict)
+			return
+		}
+		if !iamSyncMFADevice(w, r, dev) {
+			return
+		}
+		dev.UserName = userName
+		dev.EnableDate = time.Now().UTC().Format(time.RFC3339)
+		iamEmptyResultXML(w, "EnableMFADevice")
+	})
+	if !found {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
-		return
 	}
-	if dev.UserName != "" {
-		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Device %s is already enabled.", serial), http.StatusConflict)
-		return
-	}
-	if !iamSyncMFADevice(w, r, &dev) {
-		return
-	}
-	dev.UserName = userName
-	dev.EnableDate = time.Now().UTC().Format(time.RFC3339)
-	iamVirtualMFADevices.Put(serial, dev)
-	iamEmptyResultXML(w, "EnableMFADevice")
 }
 
 func handleIAMDeactivateMFADevice(w http.ResponseWriter, r *http.Request) {
@@ -317,16 +341,21 @@ func handleIAMDeactivateMFADevice(w http.ResponseWriter, r *http.Request) {
 func handleIAMResyncMFADevice(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	serial := r.FormValue("SerialNumber")
-	dev, ok := iamVirtualMFADevices.Get(serial)
-	if !ok || dev.UserName != userName {
+	notAssociated := func() {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Device %s is not associated with user %s.", serial, userName), http.StatusNotFound)
-		return
 	}
-	if !iamSyncMFADevice(w, r, &dev) {
-		return
+	found := iamVirtualMFADevices.Update(serial, func(dev *IAMVirtualMFADevice) {
+		if dev.UserName != userName {
+			notAssociated()
+			return
+		}
+		if iamSyncMFADevice(w, r, dev) {
+			iamEmptyResultXML(w, "ResyncMFADevice")
+		}
+	})
+	if !found {
+		notAssociated()
 	}
-	iamVirtualMFADevices.Put(serial, dev)
-	iamEmptyResultXML(w, "ResyncMFADevice")
 }
 
 func handleIAMDeleteVirtualMFADevice(w http.ResponseWriter, r *http.Request) {

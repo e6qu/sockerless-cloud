@@ -7,6 +7,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -160,16 +163,28 @@ func TestIAM_ServiceLastAccessed(t *testing.T) {
 	assert.Equal(t, types.JobStatusTypeCompleted, orgRep.JobStatus)
 }
 
-// TestIAM_OrganizationsRoot covers the Organizations-root credential management
-// and sessions toggles, ListOrganizationsFeatures, the STS token-version
-// preference and the human-readable summary.
+// TestIAM_OrganizationsRoot covers the centralized root access features of
+// the organization, which need trusted access for IAM and gate AssumeRoot,
+// ListOrganizationsFeatures, the STS token-version preference and the
+// human-readable summary.
 func TestIAM_OrganizationsRoot(t *testing.T) {
 	c := iamClient()
+	org := orgClient()
+	described, err := org.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	require.NoError(t, err)
+
+	_, err = org.DisableAWSServiceAccess(ctx, &organizations.DisableAWSServiceAccessInput{ServicePrincipal: aws.String("iam.amazonaws.com")})
+	require.NoError(t, err)
+	_, err = c.EnableOrganizationsRootCredentialsManagement(ctx, &iam.EnableOrganizationsRootCredentialsManagementInput{})
+	var notEnabled *types.ServiceAccessNotEnabledException
+	require.ErrorAs(t, err, &notEnabled, "centralized root access needs trusted access for IAM")
+	_, err = org.EnableAWSServiceAccess(ctx, &organizations.EnableAWSServiceAccessInput{ServicePrincipal: aws.String("iam.amazonaws.com")})
+	require.NoError(t, err)
 
 	en, err := c.EnableOrganizationsRootCredentialsManagement(ctx, &iam.EnableOrganizationsRootCredentialsManagementInput{})
 	require.NoError(t, err)
 	assert.Contains(t, en.EnabledFeatures, types.FeatureTypeRootCredentialsManagement)
-	assert.NotEmpty(t, aws.ToString(en.OrganizationId))
+	assert.Equal(t, aws.ToString(described.Organization.Id), aws.ToString(en.OrganizationId))
 
 	es, err := c.EnableOrganizationsRootSessions(ctx, &iam.EnableOrganizationsRootSessionsInput{})
 	require.NoError(t, err)
@@ -180,8 +195,14 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 	assert.Contains(t, feats.EnabledFeatures, types.FeatureTypeRootCredentialsManagement)
 	assert.Contains(t, feats.EnabledFeatures, types.FeatureTypeRootSessions)
 
+	caller, member := rootAccessPrincipal(t, "org-root-sessions")
+	audit := &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials")}
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member), TaskPolicyArn: audit})
+	require.NoError(t, err)
 	_, err = c.DisableOrganizationsRootSessions(ctx, &iam.DisableOrganizationsRootSessionsInput{})
 	require.NoError(t, err)
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member), TaskPolicyArn: audit})
+	assert.Equal(t, "AccessDenied", errCodeOf(err), "an organization without root sessions opens none")
 	dc, err := c.DisableOrganizationsRootCredentialsManagement(ctx, &iam.DisableOrganizationsRootCredentialsManagementInput{})
 	require.NoError(t, err)
 	assert.NotContains(t, dc.EnabledFeatures, types.FeatureTypeRootCredentialsManagement)

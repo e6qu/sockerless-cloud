@@ -125,6 +125,19 @@ func TestIAMAccountReportsCLI_OrganizationsRootAndSTS(t *testing.T) {
 		runCLIIgnore(awsCLI("iam", "disable-organizations-root-credentials-management"))
 	})
 
+	runCLI(t, awsCLI("organizations", "disable-aws-service-access", "--service-principal", "iam.amazonaws.com"))
+	notEnabled := runCLIExpectError(t, awsCLI("iam", "enable-organizations-root-credentials-management"))
+	if !strings.Contains(notEnabled, "ServiceAccessNotEnabledException") {
+		t.Fatalf("enable-organizations-root-credentials-management without trusted access for IAM: %s", notEnabled)
+	}
+	runCLI(t, awsCLI("organizations", "enable-aws-service-access", "--service-principal", "iam.amazonaws.com"))
+	orgID := strings.TrimSpace(runCLI(t, awsCLI("organizations", "describe-organization",
+		"--query", "Organization.Id", "--output", "text")))
+	if got := strings.TrimSpace(runCLI(t, awsCLI("iam", "list-organizations-features",
+		"--query", "OrganizationId", "--output", "text"))); got != orgID {
+		t.Fatalf("list-organizations-features OrganizationId = %q, want the organization's %q", got, orgID)
+	}
+
 	feats := runCLI(t, awsCLI("iam", "enable-organizations-root-credentials-management",
 		"--query", "EnabledFeatures", "--output", "text"))
 	if !strings.Contains(feats, "RootCredentialsManagement") {

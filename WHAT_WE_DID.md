@@ -960,7 +960,14 @@ boundary and the session policies. `GetFederationToken` sessions intersect
 the federating user's policies with the passed policy, and `AssumeRoot`
 sessions carry the root-task policy. Durations follow the role's
 `MaxSessionDuration` and the one-hour chaining cap, and MFA codes verify as
-RFC 6238 codes from the virtual device's seed, so tests compute real codes.
+RFC 6238 codes from the virtual device's seed, so tests compute real codes. A device
+remembers its last accepted time step and refuses a replayed code.
+`GetSessionToken` sessions call IAM only with MFA and AWS STS only for
+`AssumeRole` and `GetCallerIdentity`, and `AssumeRoot` runs only from the
+management account or a delegated administrator, with root sessions enabled,
+against an active member account. `aws:PrincipalArn` names the role behind a
+role session, and a resource policy naming an IAM user matches that user's
+federated sessions within their limits.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with

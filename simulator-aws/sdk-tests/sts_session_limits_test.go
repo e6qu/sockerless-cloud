@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -278,49 +279,228 @@ func TestSTS_GetFederationTokenSessionPolicies(t *testing.T) {
 	assertDenied(t, err, "a role session cannot call GetFederationToken")
 }
 
-// TestSTS_AssumeRootTaskPolicy opens a root session scoped by the
-// S3UnlockBucketPolicy task policy: it manages a bucket policy and nothing
-// else.
+// enableRootSessions turns on trusted access for IAM in the organization and
+// lets its management account open root sessions on member accounts.
+func enableRootSessions(t *testing.T) {
+	t.Helper()
+	_, err := orgClient().EnableAWSServiceAccess(ctx, &organizations.EnableAWSServiceAccessInput{ServicePrincipal: aws.String("iam.amazonaws.com")})
+	require.NoError(t, err)
+	_, err = iamClient().EnableOrganizationsRootSessions(ctx, &iam.EnableOrganizationsRootSessionsInput{})
+	require.NoError(t, err)
+}
+
+// rootAccessPrincipal creates a member account of the organization and an
+// IAM user of the management account allowed sts:AssumeRoot, and returns an
+// AWS STS client signed by the user and the member account's ID.
+func rootAccessPrincipal(t *testing.T, prefix string) (*sts.Client, string) {
+	t.Helper()
+	org := orgClient()
+	name := uniquename.New(prefix)
+	created, err := org.CreateAccount(ctx, &organizations.CreateAccountInput{
+		AccountName: aws.String(name), Email: aws.String(name + "@sim.invalid")})
+	require.NoError(t, err)
+	member := aws.ToString(created.CreateAccountStatus.AccountId)
+	t.Cleanup(func() {
+		_, _ = org.RemoveAccountFromOrganization(ctx, &organizations.RemoveAccountFromOrganizationInput{AccountId: aws.String(member)})
+	})
+	akid, secret := restrictedCredential(t, prefix,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRoot","Resource":"*"}]}`)
+	return sts.NewFromConfig(keyConfig(akid, secret), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) }), member
+}
+
+// TestSTS_AssumeRootTaskPolicy opens a root session on a member account,
+// scoped by the S3UnlockBucketPolicy task policy: it lists buckets and does
+// nothing else, and reaches no bucket of the management account, whose policy
+// grants the member account nothing. A root user, a target outside the
+// organization's member accounts, a policy outside the root-task policies,
+// and a session past 900 seconds open no session.
 func TestSTS_AssumeRootTaskPolicy(t *testing.T) {
 	t.Parallel()
+	enableRootSessions(t)
+	caller, member := rootAccessPrincipal(t, "root-unlock")
 	bucket := uniquename.New("root-unlock")
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)}) })
+	_, err = admin.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String(bucket), Policy: aws.String(
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::` + bucket + `/*"}]}`)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = admin.DeleteBucketPolicy(ctx, &s3.DeleteBucketPolicyInput{Bucket: aws.String(bucket)}) })
 
-	_, err = stsClient().AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("123456789012"),
+	unlock := &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy")}
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("123456789012"), TaskPolicyArn: unlock})
+	assert.Equal(t, "AccessDenied", errCodeOf(err), "the management account is not a member account")
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("arn:aws:iam::000011112222:root"), TaskPolicyArn: unlock})
+	assert.Equal(t, "AccessDenied", errCodeOf(err), "an account outside the organization is not a member account")
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member),
 		TaskPolicyArn: &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/ReadOnlyAccess")}})
 	assert.Equal(t, "ValidationError", errCodeOf(err), "only a root-task policy scopes a root session")
-	_, err = stsClient().AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("123456789012"), DurationSeconds: aws.Int32(901),
-		TaskPolicyArn: &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy")}})
+	_, err = caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member), DurationSeconds: aws.Int32(901), TaskPolicyArn: unlock})
 	assert.Equal(t, "ValidationError", errCodeOf(err), "a root session lasts at most 900 seconds")
 
-	out, err := stsClient().AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("123456789012"),
-		TaskPolicyArn: &ststypes.PolicyDescriptorType{Arn: aws.String("arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy")}})
+	out, err := caller.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String("arn:aws:iam::" + member + ":root"), TaskPolicyArn: unlock})
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now().Add(15*time.Minute), aws.ToTime(out.Credentials.Expiration), time.Minute)
-	identity, err := sts.NewFromConfig(sessionConfig(out.Credentials), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) }).
-		GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	rootSTS := sts.NewFromConfig(sessionConfig(out.Credentials), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	identity, err := rootSTS.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:iam::123456789012:root", aws.ToString(identity.Arn))
-	assert.Equal(t, "123456789012", aws.ToString(identity.UserId))
+	assert.Equal(t, "arn:aws:iam::"+member+":root", aws.ToString(identity.Arn))
+	assert.Equal(t, member, aws.ToString(identity.UserId))
+	_, err = rootSTS.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member), TaskPolicyArn: unlock})
+	assertDenied(t, err, "a root user cannot call AssumeRoot")
 	root := s3.NewFromConfig(sessionConfig(out.Credentials), func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 		o.UsePathStyle = true
 	})
-	_, err = root.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String(bucket), Policy: aws.String(
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::` + bucket + `/*"}]}`)})
-	require.NoError(t, err, "the task policy allows s3:PutBucketPolicy")
+	_, err = root.ListBuckets(ctx, &s3.ListBucketsInput{})
+	require.NoError(t, err, "the task policy allows s3:ListAllMyBuckets")
 	_, err = root.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: aws.String(bucket)})
-	require.NoError(t, err)
+	assertDenied(t, err, "another account's bucket policy grants the member account's root user nothing")
 	_, err = root.DeleteBucketPolicy(ctx, &s3.DeleteBucketPolicyInput{Bucket: aws.String(bucket)})
-	require.NoError(t, err)
+	assertDenied(t, err)
 	_, err = root.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket)})
 	assertDenied(t, err, "the task policy denies every other action")
 	_, err = sqs.NewFromConfig(sessionConfig(out.Credentials), func(o *sqs.Options) { o.BaseEndpoint = aws.String(baseURL) }).
 		ListQueues(ctx, &sqs.ListQueuesInput{})
 	assertDenied(t, err)
+}
+
+// TestSTS_GetSessionTokenRestrictions opens GetSessionToken sessions. An IAM
+// user's session keeps the user's permissions, but calls IAM only when MFA
+// authenticated it, calls AWS STS only for AssumeRole and GetCallerIdentity,
+// and opens no further session; an MFA code authenticates once.
+func TestSTS_GetSessionTokenRestrictions(t *testing.T) {
+	t.Parallel()
+	admin := iamClient()
+	user := uniquename.New("session-token")
+	iamMFAUser(t, admin, user)
+	_, err := admin.PutUserPolicy(ctx, &iam.PutUserPolicyInput{UserName: aws.String(user), PolicyName: aws.String("session"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+		"Action":["iam:ListUsers","sqs:ListQueues","sts:AssumeRole","sts:GetFederationToken"],"Resource":"*"}]}`)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.DeleteUserPolicy(ctx, &iam.DeleteUserPolicyInput{UserName: aws.String(user), PolicyName: aws.String("session")})
+	})
+	key, err := admin.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String(user)})
+	require.NoError(t, err)
+	caller := sts.NewFromConfig(keyConfig(aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey)),
+		func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	userIdentity, err := caller.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	_, roleArn := limitsRole(t, "session-token-role", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+		"Principal":{"AWS":"`+aws.ToString(userIdentity.Arn)+`"},"Action":"sts:AssumeRole"}]}`)
+
+	_, err = caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{DurationSeconds: aws.Int32(899)})
+	assert.Equal(t, "ValidationError", errCodeOf(err))
+	plain, err := caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{})
+	require.NoError(t, err)
+	cfg := sessionConfig(plain.Credentials)
+	session := sts.NewFromConfig(cfg, func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	identity, err := session.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(userIdentity.Arn), aws.ToString(identity.Arn))
+	_, err = sqs.NewFromConfig(cfg, func(o *sqs.Options) { o.BaseEndpoint = aws.String(baseURL) }).ListQueues(ctx, &sqs.ListQueuesInput{})
+	assert.NoError(t, err, "the session keeps the user's permissions")
+	sessionIAM := iam.NewFromConfig(cfg, func(o *iam.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	_, err = sessionIAM.ListUsers(ctx, &iam.ListUsersInput{})
+	assertDenied(t, err, "a session MFA did not authenticate calls no IAM operation")
+	_, err = session.GetFederationToken(ctx, &sts.GetFederationTokenInput{Name: aws.String("from-session")})
+	assertDenied(t, err, "a session calls no AWS STS operation but AssumeRole and GetCallerIdentity")
+	_, err = session.GetSessionToken(ctx, &sts.GetSessionTokenInput{})
+	assertDenied(t, err, "session credentials cannot call GetSessionToken")
+	_, err = session.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: aws.String(roleArn), RoleSessionName: aws.String("from-session")})
+	assert.NoError(t, err)
+
+	device, err := admin.CreateVirtualMFADevice(ctx, &iam.CreateVirtualMFADeviceInput{VirtualMFADeviceName: aws.String(user)})
+	require.NoError(t, err)
+	serial := aws.ToString(device.VirtualMFADevice.SerialNumber)
+	seed := device.VirtualMFADevice.Base32StringSeed
+	t.Cleanup(func() {
+		_, _ = admin.DeactivateMFADevice(ctx, &iam.DeactivateMFADeviceInput{UserName: aws.String(user), SerialNumber: aws.String(serial)})
+		_, _ = admin.DeleteVirtualMFADevice(ctx, &iam.DeleteVirtualMFADeviceInput{SerialNumber: aws.String(serial)})
+	})
+	enabledAt := time.Now()
+	enableMFADevice(t, admin, user, serial, seed, enabledAt)
+	code := totpCode(t, seed, enabledAt.Add(30*time.Second))
+	authenticated, err := caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{SerialNumber: aws.String(serial), TokenCode: aws.String(code)})
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(12*time.Hour), aws.ToTime(authenticated.Credentials.Expiration), time.Minute,
+		"an IAM user's session token lasts twelve hours by default")
+	_, err = iam.NewFromConfig(sessionConfig(authenticated.Credentials), func(o *iam.Options) { o.BaseEndpoint = aws.String(baseURL) }).
+		ListUsers(ctx, &iam.ListUsersInput{})
+	assert.NoError(t, err, "a session MFA authenticated calls IAM")
+	_, err = caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{SerialNumber: aws.String(serial), TokenCode: aws.String(code)})
+	assertDenied(t, err, "an MFA code authenticates once")
+}
+
+// TestSTS_ResourcePolicyNamingTheFederatingUser grants a queue to the IAM
+// user that federates: the user's federated session gets the grant, but only
+// within the session policy, as a role's sessions do.
+func TestSTS_ResourcePolicyNamingTheFederatingUser(t *testing.T) {
+	t.Parallel()
+	akid, secret := restrictedCredential(t, "federating-owner",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:GetFederationToken","Resource":"*"}]}`)
+	federator := sts.NewFromConfig(keyConfig(akid, secret), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	userIdentity, err := federator.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+
+	admin := sqsClient()
+	created, err := admin.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("federating-grant"))})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = admin.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: created.QueueUrl}) })
+	attrs, err := admin.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{QueueUrl: created.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn}})
+	require.NoError(t, err)
+	queueArn := attrs.Attributes["QueueArn"]
+	_, err = admin.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{QueueUrl: created.QueueUrl, Attributes: map[string]string{
+		"Policy": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"` + aws.ToString(userIdentity.Arn) + `"},"Action":"sqs:SendMessage","Resource":"` + queueArn + `"}]}`,
+	}})
+	require.NoError(t, err)
+
+	send := func(policy string) error {
+		out, err := federator.GetFederationToken(ctx, &sts.GetFederationTokenInput{Name: aws.String("grantee"), Policy: aws.String(policy)})
+		require.NoError(t, err)
+		_, err = sqs.NewFromConfig(sessionConfig(out.Credentials), func(o *sqs.Options) { o.BaseEndpoint = aws.String(baseURL) }).
+			SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: created.QueueUrl, MessageBody: aws.String("hello")})
+		return err
+	}
+	assert.NoError(t, send(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"*"}]}`),
+		"the queue policy naming the federating user grants its session what the session policy allows")
+	assertDenied(t, send(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:ListQueues","Resource":"*"}]}`),
+		"the session policy still caps a grant to the federating user")
+}
+
+// TestIAM_PrincipalArnOfARoleSession reads aws:PrincipalArn for an assumed
+// role: a queue policy conditioned on the role's ARN admits its session, and
+// one conditioned on the session's ARN does not.
+func TestIAM_PrincipalArnOfARoleSession(t *testing.T) {
+	t.Parallel()
+	_, roleArn := limitsRole(t, "principal-arn-role", accountTrust)
+	out, err := stsClient().AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: aws.String(roleArn), RoleSessionName: aws.String("principal-arn")})
+	require.NoError(t, err)
+	sessionArn := aws.ToString(out.AssumedRoleUser.Arn)
+
+	admin := sqsClient()
+	grantOn := func(principalArn string) *string {
+		created, err := admin.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("principal-arn"))})
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = admin.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: created.QueueUrl}) })
+		attrs, err := admin.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{QueueUrl: created.QueueUrl,
+			AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn}})
+		require.NoError(t, err)
+		_, err = admin.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{QueueUrl: created.QueueUrl, Attributes: map[string]string{
+			"Policy": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sqs:SendMessage",` +
+				`"Resource":"` + attrs.Attributes["QueueArn"] + `","Condition":{"ArnEquals":{"aws:PrincipalArn":"` + principalArn + `"}}}]}`,
+		}})
+		require.NoError(t, err)
+		return created.QueueUrl
+	}
+	session := sqs.NewFromConfig(sessionConfig(out.Credentials), func(o *sqs.Options) { o.BaseEndpoint = aws.String(baseURL) })
+	_, err = session.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: grantOn(roleArn), MessageBody: aws.String("hello")})
+	assert.NoError(t, err, "aws:PrincipalArn of a role session is the role's ARN")
+	_, err = session.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: grantOn(sessionArn), MessageBody: aws.String("hello")})
+	assertDenied(t, err, "aws:PrincipalArn of a role session is not the session's ARN")
 }
 
 // TestSTS_AssumeRoleDurationSeconds asks for sessions of several durations: up
@@ -364,8 +544,8 @@ func TestSTS_AssumeRoleDurationSeconds(t *testing.T) {
 }
 
 // TestSTS_AssumeRoleMFA assumes a role whose trust policy requires MFA with
-// codes computed from the virtual MFA device's seed: the code the device shows
-// now succeeds, and a wrong one or none is refused.
+// codes computed from the virtual MFA device's seed: the device's next code
+// succeeds once, and a wrong one, a used one or none is refused.
 func TestSTS_AssumeRoleMFA(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
@@ -401,19 +581,14 @@ func TestSTS_AssumeRoleMFA(t *testing.T) {
 
 	assert.Equal(t, "AccessDenied", errCodeOf(assume(aws.String(totpCode(t, seed, time.Now())))),
 		"a device not yet enabled for the caller authenticates nothing")
-	enableMFADevice(t, admin, user, serial, seed)
+	enabledAt := time.Now()
+	enableMFADevice(t, admin, user, serial, seed, enabledAt)
 
 	assert.Equal(t, "AccessDenied", errCodeOf(assume(nil)), "the trust policy requires MFA")
 	assert.Equal(t, "AccessDenied", errCodeOf(assume(aws.String(totpWrongCode(t, seed)))), "a code the device did not show is refused")
-	require.NoError(t, assume(aws.String(totpCode(t, seed, time.Now()))), "the code the device shows now authenticates the call")
-
-	_, err = caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{SerialNumber: aws.String(serial), TokenCode: aws.String(totpWrongCode(t, seed))})
-	assertDenied(t, err)
-	session, err := caller.GetSessionToken(ctx, &sts.GetSessionTokenInput{SerialNumber: aws.String(serial), TokenCode: aws.String(totpCode(t, seed, time.Now()))})
-	require.NoError(t, err)
-	assert.WithinDuration(t, time.Now().Add(12*time.Hour), aws.ToTime(session.Credentials.Expiration), time.Minute,
-		"an IAM user's session token lasts twelve hours by default")
-	_, err = sts.NewFromConfig(sessionConfig(session.Credentials), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) }).
-		AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: aws.String(roleArn), RoleSessionName: aws.String("mfa-session")})
-	assert.NoError(t, err, "a session GetSessionToken opened with MFA satisfies the trust policy")
+	assert.Equal(t, "AccessDenied", errCodeOf(assume(aws.String(totpCode(t, seed, enabledAt)))),
+		"the code that enabled the device authenticates nothing again")
+	next := totpCode(t, seed, enabledAt.Add(30*time.Second))
+	require.NoError(t, assume(aws.String(next)), "the device's next code authenticates the call")
+	assert.Equal(t, "AccessDenied", errCodeOf(assume(aws.String(next))), "a code authenticates once")
 }

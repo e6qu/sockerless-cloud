@@ -176,6 +176,7 @@ func stsOnBehalfOf(akid string) IAMTempCred {
 			FederatedClaims: tc.FederatedClaims, SessionTags: tc.SessionTags, TransitiveTagKeys: tc.TransitiveTagKeys,
 			SessionPolicy: tc.SessionPolicy, SessionPolicyArns: tc.SessionPolicyArns, SessionPolicyCaps: tc.SessionPolicyCaps,
 			FederatingUser: tc.FederatingUser, UnrestrictedIdentity: tc.UnrestrictedIdentity, TaskPolicyArn: tc.TaskPolicyArn,
+			FromGetSessionToken: tc.FromGetSessionToken,
 		}
 	}
 	if key, ok := iamAccessKeys.Get(akid); ok {
@@ -193,6 +194,27 @@ func stsFederatedSessionRefuses(action string) bool {
 	service, _, _ := strings.Cut(action, ":")
 	return service == "iam" || service == "sts"
 }
+
+// stsSessionTokenRefuses reports whether a GetSessionToken session may not
+// call an action: an IAM operation without MFA, or an AWS STS operation other
+// than AssumeRole and GetCallerIdentity, which iamPermissionlessAction admits
+// first.
+func stsSessionTokenRefuses(action string, mfa bool) bool {
+	service, _, _ := strings.Cut(action, ":")
+	switch service {
+	case "iam":
+		return !mfa
+	case "sts":
+		return action != "sts:AssumeRole"
+	}
+	return false
+}
+
+const (
+	stsSessionTokenDurationMin     = 900
+	stsSessionTokenDurationMax     = 129600
+	stsSessionTokenDurationDefault = 43200
+)
 
 // stsRequestDuration reads DurationSeconds within the range the operation's
 // model declares, defaulting to def.
@@ -260,8 +282,9 @@ var stsTokenCodePattern = regexp.MustCompile(`^\d{6}$`)
 
 // stsRequestMFA verifies the SerialNumber and TokenCode a request presents
 // against the virtual MFA device the serial number names, which must be
-// enabled for the calling user. present is false for a request that presents
-// neither.
+// enabled for the calling user, without spending the code: the condition
+// context of the call reads it as often as it evaluates a policy. present is
+// false for a request that presents neither.
 func stsRequestMFA(r *http.Request) (present bool, err *stsRequestError) {
 	serial, code := r.FormValue("SerialNumber"), r.FormValue("TokenCode")
 	if serial == "" && code == "" {
@@ -277,13 +300,25 @@ func stsRequestMFA(r *http.Request) (present bool, err *stsRequestError) {
 	if !ok || dev.UserName == "" {
 		return false, stsAccessDenied("MultiFactorAuthentication failed, unable to validate MFA code.")
 	}
-	if caller, registered := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); registered && caller.UserName != dev.UserName {
+	// The device must be the calling user's; a role session has no IAM
+	// user's device to present.
+	if caller, _ := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); caller.UserName != dev.UserName {
 		return false, stsAccessDenied("MultiFactorAuthentication failed, unable to validate MFA code.")
 	}
-	if !dev.verifiesCode(code, time.Now()) {
+	if _, ok := dev.unusedCodeStep(code, time.Now()); !ok {
 		return false, stsAccessDenied("MultiFactorAuthentication failed with invalid MFA one time pass code.")
 	}
 	return true, nil
+}
+
+// stsSpendRequestMFA spends the MFA code a request that stsRequestMFA
+// verified presents, so the code authenticates no later request. A
+// concurrent request that spent it first refuses this one.
+func stsSpendRequestMFA(r *http.Request, mfa bool) *stsRequestError {
+	if mfa && !iamConsumeMFACode(r.FormValue("SerialNumber"), r.FormValue("TokenCode"), time.Now()) {
+		return stsAccessDenied("MultiFactorAuthentication failed with invalid MFA one time pass code.")
+	}
+	return nil
 }
 
 // stsRootTaskPolicies are the AWS managed root-task policies that scope an

@@ -43,7 +43,7 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 	if iamPermissionlessAction(action) {
 		return true // calls AWS authorizes for every caller regardless of policy
 	}
-	if caller, ok := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); ok && caller.Federated && stsFederatedSessionRefuses(action) {
+	if caller, ok := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); ok && caller.refuses(action) {
 		iamWriteDeny(w, r, caller.Arn, action)
 		return false
 	}
@@ -348,6 +348,12 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 			}
 		}
 		rdocs := iamResourcePolicyDocsForARN(policyARN)
+		// The owning account's root user manages a resource's policy even when
+		// the policy denies it, so a policy that denies everyone cannot lock
+		// the account out.
+		if iamRootManagesOwnPolicy(r, action, resource, principalArn) {
+			rdocs = nil
+		}
 		// A role's trust policy is the resource policy of assuming it, and of
 		// tagging the session the assumption opens: naming the caller there
 		// grants either without an identity policy.
@@ -355,7 +361,7 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
 		}
 		if len(rdocs) > 0 {
-			rdec, _, direct := iamEvalResourceDecision(rdocs, action, resource, principalArn, ctx)
+			rdec, _, direct := iamEvalResourceDecision(rdocs, action, resource, principalArn, caller.EntityArn, ctx)
 			if rdec == "explicitDeny" {
 				return false, principalArn, true
 			}
@@ -379,10 +385,87 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 		}
 		sessionAllows = sdec == "allowed"
 	}
+	// A principal of another account needs both its own account's policies
+	// and the resource's policy to allow the request.
+	if iamCrossAccount(principalArn, resource) {
+		return identityAllows && resourceAllows && boundaryAllows && sessionAllows, principalArn, true
+	}
 	if resourceDirect {
 		return true, principalArn, true
 	}
 	return (identityAllows || resourceAllows) && boundaryAllows && sessionAllows, principalArn, true
+}
+
+// iamArnAccount is the account an ARN names, empty for an ARN that names
+// none.
+func iamArnAccount(arn string) string {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) < 6 {
+		return ""
+	}
+	return parts[4]
+}
+
+// iamResourceOwnerAccount is the account that owns the resource an ARN
+// names: the account the ARN carries, or for an Amazon S3 bucket and its
+// objects, whose ARNs carry none, the bucket's owner. It is empty when no
+// account owns the resource, or no bucket of that name exists.
+func iamResourceOwnerAccount(arn string) string {
+	if acct := iamArnAccount(arn); acct != "" {
+		return acct
+	}
+	bucket, ok := strings.CutPrefix(arn, "arn:aws:s3:::")
+	if !ok {
+		return ""
+	}
+	bucket, _, _ = strings.Cut(bucket, "/")
+	b, exists := s3Buckets_.Get(bucket)
+	switch {
+	case !exists:
+		return ""
+	case b.Owner != "":
+		return b.Owner
+	}
+	return awsAccountID()
+}
+
+// iamCrossAccount reports whether a principal from an account other than the
+// simulator's acts on a resource its own account does not own.
+func iamCrossAccount(principalArn, resource string) bool {
+	caller := iamArnAccount(principalArn)
+	if caller == "" || caller == awsAccountID() {
+		return false
+	}
+	owner := iamResourceOwnerAccount(resource)
+	return owner != "" && owner != caller
+}
+
+// iamRootManagesOwnPolicy reports whether the request is the root user of
+// the account that owns a resource reading or removing that resource's
+// policy: Amazon S3's GetBucketPolicy, PutBucketPolicy and DeleteBucketPolicy,
+// and Amazon SQS reading a queue's attributes or deleting its Policy, the
+// tasks the S3UnlockBucketPolicy and SQSUnlockQueuePolicy root-task policies
+// serve.
+func iamRootManagesOwnPolicy(r *http.Request, action, resource, principalArn string) bool {
+	owner := iamResourceOwnerAccount(resource)
+	if owner == "" || principalArn != "arn:aws:iam::"+owner+":root" {
+		return false
+	}
+	switch action {
+	case "s3:GetBucketPolicy", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy",
+		"sqs:GetQueueUrl", "sqs:GetQueueAttributes":
+		return true
+	case "sqs:SetQueueAttributes":
+		var req struct {
+			Attributes map[string]string `json:"Attributes"`
+		}
+		if json.Unmarshal(iamRequestBody(r), &req) != nil {
+			return false
+		}
+		policy, deletes := req.Attributes["Policy"]
+		return len(req.Attributes) == 1 && deletes && policy == ""
+	}
+	return false
 }
 
 // iamEnforceREST authorizes a REST request's pre-derived action and resource

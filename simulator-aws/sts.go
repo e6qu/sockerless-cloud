@@ -60,6 +60,9 @@ type IAMTempCred struct {
 	UnrestrictedIdentity bool `json:",omitempty"`
 	// TaskPolicyArn is the root-task policy that scopes an AssumeRoot session.
 	TaskPolicyArn string `json:",omitempty"`
+	// FromGetSessionToken marks a GetSessionToken session, which calls IAM
+	// only with MFA and AWS STS only for AssumeRole and GetCallerIdentity.
+	FromGetSessionToken bool `json:",omitempty"`
 }
 
 var (
@@ -115,6 +118,26 @@ type iamCaller struct {
 	// Federated marks a GetFederationToken session, which calls no IAM or AWS
 	// STS operation other than GetCallerIdentity.
 	Federated bool
+	// EntityArn is the IAM user whose GetFederationToken call opened the
+	// session: a resource-based policy naming it grants the session within
+	// its boundary and session policies.
+	EntityArn string
+	// SessionToken marks a GetSessionToken session, and MFA one that MFA
+	// authenticated.
+	SessionToken bool
+	MFA          bool
+}
+
+// refuses reports whether the kind of session the caller holds may not call
+// action at all, whatever its policies allow.
+func (c iamCaller) refuses(action string) bool {
+	switch {
+	case c.Federated:
+		return stsFederatedSessionRefuses(action)
+	case c.SessionToken:
+		return stsSessionTokenRefuses(action, c.MFA)
+	}
+	return false
 }
 
 // iamCallerForAccessKey resolves an access key ID to the policies that govern
@@ -129,6 +152,8 @@ func iamCallerForAccessKey(akid string) (iamCaller, bool) {
 			Unrestricted: tc.UnrestrictedIdentity,
 			SessionCaps:  tc.SessionPolicyCaps || tc.SessionPolicy != "" || len(tc.SessionPolicyArns) > 0,
 			Federated:    strings.Contains(tc.PrincipalArn, ":federated-user/"),
+			SessionToken: tc.FromGetSessionToken,
+			MFA:          tc.MFA,
 		}
 		if caller.SessionCaps {
 			caller.Session = stsSessionPolicyDocs(tc)
@@ -144,7 +169,8 @@ func iamCallerForAccessKey(akid string) (iamCaller, bool) {
 				caller.Boundary = iamPermissionBoundaryDocs(u.UserName)
 			}
 		case tc.FederatingUser != "":
-			if _, uok := iamUsers.Get(tc.FederatingUser); uok {
+			if u, uok := iamUsers.Get(tc.FederatingUser); uok {
+				caller.EntityArn = u.Arn
 				caller.Identity = iamEffectivePolicyDocsForUser(tc.FederatingUser)
 				caller.Boundary = iamPermissionBoundaryDocs(tc.FederatingUser)
 			}
@@ -191,7 +217,7 @@ func stsCallerIdentity(r *http.Request) (arn, userID string, ok bool) {
 			return tc.PrincipalArn, u.UserId, true
 		case strings.Contains(tc.PrincipalArn, ":federated-user/"):
 			return tc.PrincipalArn, awsAccountID() + ":" + name, true
-		case tc.TaskPolicyArn != "":
+		case strings.HasSuffix(tc.PrincipalArn, ":root"):
 			// A root user's unique ID is its account ID.
 			return tc.PrincipalArn, strings.Split(tc.PrincipalArn, ":")[4], true
 		}
@@ -256,7 +282,7 @@ func stsTrustAllows(role IAMRole, action, caller string, ctx map[string][]string
 // its account alone.
 func stsTrustDelegates(trust iamPolicyDoc, action, caller string, ctx map[string][]string) bool {
 	for _, stmt := range trust.Statement {
-		if !strings.EqualFold(stmt.Effect, "allow") || iamPrincipalMatchKind(stmt, caller, ctx) != iamPrincipalDelegated {
+		if !strings.EqualFold(stmt.Effect, "allow") || iamPrincipalMatchKind(stmt, caller, "", ctx) != iamPrincipalDelegated {
 			continue
 		}
 		if !iamActionMatches(stmt, action) {
@@ -444,6 +470,10 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 		reqErr.write(w)
 		return
 	}
+	if reqErr := stsSpendRequestMFA(r, mfa); reqErr != nil {
+		reqErr.write(w)
+		return
+	}
 	exp := time.Now().UTC().Add(duration)
 	akid, secret, token := stsMintTempCred(exp)
 	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
@@ -551,9 +581,14 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
-	duration, reqErr := stsRequestDuration(r, 900, 129600, 43200)
+	duration, reqErr := stsRequestDuration(r, stsSessionTokenDurationMin, stsSessionTokenDurationMax, stsSessionTokenDurationDefault)
 	if reqErr != nil {
 		reqErr.write(w)
+		return
+	}
+	callerKey := iamAccessKeyIDFromRequest(r)
+	if _, temporary := iamTempCreds.Get(callerKey); temporary {
+		stsErrorXML(w, "AccessDenied", "Cannot call GetSessionToken with session credentials", http.StatusForbidden)
 		return
 	}
 	mfa, reqErr := stsRequestMFA(r)
@@ -561,18 +596,17 @@ func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
 		reqErr.write(w)
 		return
 	}
+	if reqErr := stsSpendRequestMFA(r, mfa); reqErr != nil {
+		reqErr.write(w)
+		return
+	}
+	caller, _ := iamCallerForAccessKey(callerKey)
+	tc := IAMTempCred{UserName: caller.UserName, PrincipalArn: caller.Arn,
+		MFA: mfa, CreatedAt: time.Now().UTC().Format(time.RFC3339), FromGetSessionToken: true}
 	exp := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
-	// Bind the session to the caller's user, if registered, so it inherits the user's policies.
-	tc := IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
-		Expiration: exp.Format(time.RFC3339),
-		MFA:        mfa, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-	if _, _, userName, ok := iamPrincipalForAccessKey(iamAccessKeyIDFromRequest(r)); ok && userName != "" {
-		if u, uok := iamUsers.Get(userName); uok {
-			tc.UserName = userName
-			tc.PrincipalArn = u.Arn
-		}
-	}
+	tc.AccessKeyID, tc.SecretAccessKey, tc.SessionToken = akid, secret, token
+	tc.Expiration = exp.Format(time.RFC3339)
 	iamTempCreds.Put(akid, tc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetSessionTokenResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -775,9 +809,10 @@ func handleSTSGetDelegatedAccessToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSTSAssumeRoot mints temporary credentials for a member account's root
-// user, scoped by the root-task policy TaskPolicyArn names. The simulator does
-// not check that TargetPrincipal is a member account, and reports the target
-// account as SourceIdentity.
+// user, scoped by the root-task policy TaskPolicyArn names. An IAM user or
+// role of the organization's management account, or of its delegated
+// administrator for IAM, opens the session once the organization enables
+// root sessions.
 func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 	target := r.FormValue("TargetPrincipal")
 	if target == "" {
@@ -800,9 +835,13 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 		reqErr.write(w)
 		return
 	}
+	target = strings.TrimSuffix(strings.TrimPrefix(target, "arn:aws:iam::"), ":root")
+	if reqErr := stsAssumeRootAllowed(r, target); reqErr != nil {
+		reqErr.write(w)
+		return
+	}
 	exp := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
-	target = strings.TrimSuffix(strings.TrimPrefix(target, "arn:aws:iam::"), ":root")
 	rootArn := fmt.Sprintf("arn:aws:iam::%s:root", target)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: rootArn,
@@ -813,11 +852,37 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<AssumeRootResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <AssumeRootResult>
     <Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>%s</SecretAccessKey><SessionToken>%s</SessionToken><Expiration>%s</Expiration></Credentials>
-    <SourceIdentity>%s</SourceIdentity>
   </AssumeRootResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</AssumeRootResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(target), sim.NewUUID())
+</AssumeRootResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339), sim.NewUUID())
+}
+
+// stsAssumeRootAllowed checks what AssumeRoot requires beyond the caller's
+// sts:AssumeRoot permission: a caller that is not a root user, from the
+// management account or the delegated administrator for IAM of an
+// organization that enables root sessions, and a target that is one of the
+// organization's active member accounts.
+func stsAssumeRootAllowed(r *http.Request, target string) *stsRequestError {
+	caller, registered := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r))
+	if !registered || strings.HasSuffix(caller.Arn, ":root") {
+		return stsAccessDenied("A root user cannot call AssumeRoot.")
+	}
+	org, ok := orgOrg.Get(orgSingletonKey)
+	if !ok {
+		return stsAccessDenied("User: %s is not authorized to perform: sts:AssumeRoot because the account is not a member of an organization.", caller.Arn)
+	}
+	account := iamArnAccount(caller.Arn)
+	if account != org.MasterAccountId && !iamOrgDelegatedAdministrator(account, iamCentralizedRootAccessService) {
+		return stsAccessDenied("User: %s is not authorized to perform: sts:AssumeRoot because account %s is neither the management account nor a delegated administrator for IAM.", caller.Arn, account)
+	}
+	if !iamOrgFeatureEnabled("RootSessions") {
+		return stsAccessDenied("User: %s is not authorized to perform: sts:AssumeRoot because the organization does not enable root sessions.", caller.Arn)
+	}
+	member, ok := orgAccounts.Get(target)
+	if !ok || target == org.MasterAccountId || member.Status != "ACTIVE" {
+		return stsAccessDenied("User: %s is not authorized to perform: sts:AssumeRoot on resource: arn:aws:iam::%s:root because it is not a member account of the organization.", caller.Arn, target)
+	}
+	return nil
 }
 
 // handleSTSDecodeAuthorizationMessage returns the JSON a base64 EncodedMessage
