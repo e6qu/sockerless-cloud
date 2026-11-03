@@ -1736,8 +1736,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/install-go
+      - name: Restore the Go module and build caches of this cloud's simulator jobs
+        # The documents build the simulator and its SDK and CLI suites, which
+        # the per-cloud simulator cache holds; the shared install-go entry
+        # holds whatever the first job to save it built.
+        uses: actions/cache/restore@v6.1.0
         with:
-          cache: 'true'
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |

@@ -1247,6 +1247,10 @@ fails once the row closes or the operation is served.
   contributing tutorial ran a microVM-only test. Every shell block in the
   repository carries an annotation, so a document gains no command nothing
   runs.
+  A document job restores its cloud's simulator Go cache, which holds the
+  simulator and its SDK and CLI suites; the shared toolchain entry held
+  whatever the first job to save it built, and the contributing tutorial
+  downloaded and compiled the AWS SDK suites cold inside its 13 minutes.
 - **Console tests run against the real simulators.** The console unit tests
   start the simulators and sign in through Microsoft Entra ID as the consoles
   do; the mocks they replaced had hidden a SigV4 signer that encoded paths

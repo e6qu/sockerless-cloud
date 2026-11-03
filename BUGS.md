@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 315.
+Open: 316.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3871 | P3 | CI Go toolchain installs can eat a simulator job's budget | `.github/actions/install-go` lists and downloads the toolchain from `proxy.golang.org` on every job; one `sim (aws cli appdata4)` run spent 3m44s there instead of the usual 3s, leaving its CLI tests 90 seconds of the 15-minute job ceiling, and the job was cancelled. The log does not show whether the listing or the archive was slow. | Time the listing and the download separately, and restore the toolchain from a cache keyed on its version so a slow proxy costs only the listing. |
 | 3867 | P3 | AWS IAM service control policy refusals name the wrong policy kind | A refusal by a service control policy reads "no identity-based policy allows", because the gate's deny writers take no reason. | Carry the deciding policy kind into the deny message, worded as AWS words it. |
 | 3868 | P3 | AWS Organizations `RemoveAccountFromOrganization` deletes the account | The removed account's IAM entities become unreachable after a restart; on AWS the account carries on as a standalone account. | Keep removed accounts as hosted standalone accounts. |
 | 3869 | P2 | AWS Organizations management operations admit member-account callers | Member-account principals can call management-only operations such as `CreateAccount`, `AttachPolicy` and `EnablePolicyType`. | Refuse callers that are neither the management account nor a delegated administrator, with AWS's error. |
