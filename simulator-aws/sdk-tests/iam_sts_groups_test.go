@@ -31,7 +31,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	admin := iamClient()
 	role := uniquename.New("sts-enf-role")
 
-	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
+	created, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(role),
 		// The account principal defers to the caller's own policies, which for the
 		// suite's administrator allow sts:AssumeRole.
@@ -49,7 +49,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 
 	stsc := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	out, err := stsc.AssumeRole(ctx, &sts.AssumeRoleInput{
-		RoleArn:         aws.String("arn:aws:iam::000000000000:role/" + role),
+		RoleArn:         created.Role.Arn,
 		RoleSessionName: aws.String("sess1"),
 	})
 	require.NoError(t, err)

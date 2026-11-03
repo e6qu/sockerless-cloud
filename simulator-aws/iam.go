@@ -71,6 +71,7 @@ var (
 )
 
 func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
+	iamOpenAccountStores(srv)
 	registerIAMAccountProperties(r, srv)
 	iamRoles = sim.Announcing(sim.MakeStore[IAMRole](srv.DB(), "iam_roles"), iamChanges)
 	iamRolePolicies = sim.Announcing(sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies"), iamChanges)
@@ -141,8 +142,9 @@ func iamRoleXML(role IAMRole) string {
 }
 
 func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
-	if _, ok := iamRoles.Get(name); ok {
+	if _, ok := iamRolesIn(acct).Get(name); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Role with name %s already exists.", name), http.StatusConflict)
 		return
 	}
@@ -170,7 +172,7 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 	role := IAMRole{
 		RoleName:                 name,
 		RoleId:                   "AROA" + strings.ToUpper(sim.NewUUID()[:16]),
-		Arn:                      fmt.Sprintf("arn:aws:iam::"+awsAccountID()+":role/%s", name),
+		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", acct, path, name),
 		Path:                     path,
 		AssumeRolePolicyDocument: assumeDoc,
 		CreateDate:               time.Now().UTC().Format(time.RFC3339),
@@ -179,7 +181,7 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 		PermissionsBoundaryARN:   r.FormValue("PermissionsBoundary"),
 		Tags:                     iamParseTags(r),
 	}
-	iamRoles.Put(name, role)
+	iamRolesIn(acct).Put(name, role)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -191,12 +193,13 @@ func handleIAMCreateRole(w http.ResponseWriter, r *http.Request) {
 // handleIAMUpdateRole updates Description and MaxSessionDuration; the
 // assume-role policy goes through UpdateAssumeRolePolicy.
 func handleIAMUpdateRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	maxSession, ok := iamRequestMaxSessionDuration(w, r, -1)
 	if !ok {
 		return
 	}
-	if !iamRoles.Update(name, func(role *IAMRole) {
+	if !iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		if d := r.FormValue("Description"); d != "" {
 			role.Description = d
 		}
@@ -233,9 +236,10 @@ func iamRequestMaxSessionDuration(w http.ResponseWriter, r *http.Request, absent
 }
 
 func handleIAMTagRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	newTags := iamParseTags(r)
-	if !iamRoles.Update(name, func(role *IAMRole) {
+	if !iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		role.Tags = iamMergeTags(role.Tags, newTags)
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s not found", name), http.StatusNotFound)
@@ -245,6 +249,7 @@ func handleIAMTagRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUntagRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	remove := map[string]bool{}
 	for i := 1; ; i++ {
@@ -254,7 +259,7 @@ func handleIAMUntagRole(w http.ResponseWriter, r *http.Request) {
 		}
 		remove[k] = true
 	}
-	if !iamRoles.Update(name, func(role *IAMRole) {
+	if !iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		kept := role.Tags[:0]
 		for _, t := range role.Tags {
 			if !remove[t.Key] {
@@ -300,8 +305,9 @@ func iamErrorXML(w http.ResponseWriter, code string, message string, statusCode 
 }
 
 func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
-	role, ok := iamRoles.Get(name)
+	role, ok := iamRolesIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -315,31 +321,32 @@ func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
-	if _, ok := iamRoles.Get(name); !ok {
+	if _, ok := iamRolesIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
 	// IAM refuses to delete a role that still has policies attached or belongs to an instance profile.
-	for _, p := range iamRolePolicies.List() {
+	for _, p := range iamRolePoliciesIn(acct).List() {
 		if p.RoleName == name {
 			iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must delete policies first.", http.StatusConflict)
 			return
 		}
 	}
-	for _, ap := range iamAttachedPolicies.List() {
+	for _, ap := range iamAttachedPoliciesIn(acct).List() {
 		if ap.RoleName == name {
 			iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must detach all policies first.", http.StatusConflict)
 			return
 		}
 	}
-	for _, ip := range iamInstanceProfiles.List() {
+	for _, ip := range iamInstanceProfilesIn(acct).List() {
 		if ip.RoleName == name {
 			iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must remove roles from instance profile first.", http.StatusConflict)
 			return
 		}
 	}
-	iamRoles.Delete(name)
+	iamRolesIn(acct).Delete(name)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -348,6 +355,7 @@ func handleIAMDeleteRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	policyDoc := r.FormValue("PolicyDocument")
 	if decoded, err := url.QueryUnescape(policyDoc); err == nil {
@@ -358,7 +366,7 @@ func handleIAMUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok := iamRoles.Update(name, func(role *IAMRole) {
+	if ok := iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		role.AssumeRolePolicyDocument = policyDoc
 	}); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role with name %s cannot be found.", name), http.StatusNotFound)
@@ -372,6 +380,7 @@ func handleIAMUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMPutRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
 	policyName := r.FormValue("PolicyName")
 	policyDoc := r.FormValue("PolicyDocument")
@@ -384,7 +393,7 @@ func handleIAMPutRolePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := roleName + "/" + policyName
-	iamRolePolicies.Put(key, IAMRolePolicy{
+	iamRolePoliciesIn(acct).Put(key, IAMRolePolicy{
 		RoleName:       roleName,
 		PolicyName:     policyName,
 		PolicyDocument: policyDoc,
@@ -397,11 +406,12 @@ func handleIAMPutRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMGetRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
 	policyName := r.FormValue("PolicyName")
 	key := roleName + "/" + policyName
 
-	policy, ok := iamRolePolicies.Get(key)
+	policy, ok := iamRolePoliciesIn(acct).Get(key)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role policy with name %s cannot be found.", policyName), http.StatusNotFound)
 		return
@@ -420,9 +430,10 @@ func handleIAMGetRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
 	policyName := r.FormValue("PolicyName")
-	iamRolePolicies.Delete(roleName + "/" + policyName)
+	iamRolePoliciesIn(acct).Delete(roleName + "/" + policyName)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -431,6 +442,7 @@ func handleIAMDeleteRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMAttachRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
 	policyArn := r.FormValue("PolicyArn")
 	policyName := policyArn
@@ -439,7 +451,7 @@ func handleIAMAttachRolePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := roleName + "/" + policyArn
-	iamAttachedPolicies.Put(key, IAMAttachedPolicy{
+	iamAttachedPoliciesIn(acct).Put(key, IAMAttachedPolicy{
 		RoleName:   roleName,
 		PolicyArn:  policyArn,
 		PolicyName: policyName,
@@ -452,9 +464,10 @@ func handleIAMAttachRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDetachRolePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
 	policyArn := r.FormValue("PolicyArn")
-	iamAttachedPolicies.Delete(roleName + "/" + policyArn)
+	iamAttachedPoliciesIn(acct).Delete(roleName + "/" + policyArn)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DetachRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -463,8 +476,9 @@ func handleIAMDetachRolePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
-	policies := iamAttachedPolicies.Filter(func(p IAMAttachedPolicy) bool {
+	policies := iamAttachedPoliciesIn(acct).Filter(func(p IAMAttachedPolicy) bool {
 		return p.RoleName == roleName
 	})
 
@@ -489,8 +503,9 @@ func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
-	profiles := iamInstanceProfiles.Filter(func(ip IAMInstanceProfile) bool {
+	profiles := iamInstanceProfilesIn(acct).Filter(func(ip IAMInstanceProfile) bool {
 		return ip.RoleName == roleName
 	})
 	page, next, pageOK := awsKeyPage(w, iamBadToken, profiles, func(it IAMInstanceProfile) string { return it.InstanceProfileName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
@@ -499,7 +514,7 @@ func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request
 	}
 	var members strings.Builder
 	for _, ip := range page {
-		fmt.Fprint(&members, "<member>", iamInstanceProfileXML(ip), "</member>")
+		fmt.Fprint(&members, "<member>", iamInstanceProfileXML(acct, ip), "</member>")
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListInstanceProfilesForRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -512,8 +527,9 @@ func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request
 }
 
 func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	roleName := r.FormValue("RoleName")
-	policies := iamRolePolicies.Filter(func(p IAMRolePolicy) bool {
+	policies := iamRolePoliciesIn(acct).Filter(func(p IAMRolePolicy) bool {
 		return p.RoleName == roleName
 	})
 	page, next, pageOK := awsKeyPage(w, iamBadToken, policies, func(it IAMRolePolicy) string { return it.PolicyName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
@@ -536,15 +552,20 @@ func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
 </ListRolePoliciesResponse>`, members.String(), next != "", iamMarkerXML(next), sim.NewUUID())
 }
 
+// iamAccountPolicies is the customer managed policies account holds.
+func iamAccountPolicies(account string) []IAMPolicy {
+	return iamPolicies.Filter(func(p IAMPolicy) bool { return iamArnAccount(p.Arn) == account })
+}
+
 func iamPolicyXML(p IAMPolicy) string {
 	return fmt.Sprintf(`<PolicyName>%s</PolicyName><PolicyId>%s</PolicyId><Arn>%s</Arn><Path>%s</Path><DefaultVersionId>%s</DefaultVersionId><CreateDate>%s</CreateDate><AttachmentCount>0</AttachmentCount><PermissionsBoundaryUsageCount>0</PermissionsBoundaryUsageCount><IsAttachable>true</IsAttachable><Description>%s</Description>%s`,
 		p.PolicyName, p.PolicyId, p.Arn, p.Path, p.DefaultVersionId, p.CreateDate, p.Description, iamTagsXML(p.Tags))
 }
 
-func iamInstanceProfileXML(ip IAMInstanceProfile) string {
+func iamInstanceProfileXML(acct string, ip IAMInstanceProfile) string {
 	roleBlock := ""
 	if ip.RoleName != "" {
-		if role, ok := iamRoles.Get(ip.RoleName); ok {
+		if role, ok := iamRolesIn(acct).Get(ip.RoleName); ok {
 			// AWS XML: <Roles><member>{inner role fields, no <Role> wrapper}</member></Roles>
 			roleBlock = "<Roles><member>" + iamRoleFieldsXML(role) + "</member></Roles>"
 		}
@@ -557,6 +578,7 @@ func iamInstanceProfileXML(ip IAMInstanceProfile) string {
 }
 
 func handleIAMCreatePolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("PolicyName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "PolicyName is required", http.StatusBadRequest)
@@ -578,7 +600,7 @@ func handleIAMCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "MalformedPolicyDocument", "The policy document could not be parsed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	arn := fmt.Sprintf("arn:aws:iam::%s:policy%s%s", awsAccountID(), path, name)
+	arn := fmt.Sprintf("arn:aws:iam::%s:policy%s%s", acct, path, name)
 	if _, ok := iamPolicies.Get(arn); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("A policy called %s already exists. Duplicate names are not allowed.", name), http.StatusConflict)
 		return
@@ -629,7 +651,7 @@ func handleIAMDeletePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListPolicies(w http.ResponseWriter, r *http.Request) {
-	policies := iamPolicies.List()
+	policies := iamAccountPolicies(iamRequestAccount(r))
 
 	page, next, pageOK := awsKeyPage(w, iamBadToken, policies, func(it IAMPolicy) string { return it.Arn }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
@@ -666,12 +688,13 @@ func handleIAMGetPolicyVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "InstanceProfileName is required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamInstanceProfiles.Get(name); ok {
+	if _, ok := iamInstanceProfilesIn(acct).Get(name); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Instance Profile %s already exists.", name), http.StatusConflict)
 		return
 	}
@@ -682,21 +705,22 @@ func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	ip := IAMInstanceProfile{
 		InstanceProfileName: name,
 		InstanceProfileId:   "AIPA" + strings.ToUpper(sim.NewUUID()[:16]),
-		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", awsAccountID(), path, name),
+		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", acct, path, name),
 		Path:                path,
 		CreateDate:          time.Now().UTC().Format(time.RFC3339),
 	}
-	iamInstanceProfiles.Put(name, ip)
+	iamInstanceProfilesIn(acct).Put(name, ip)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreateInstanceProfileResult><InstanceProfile>%s</InstanceProfile></CreateInstanceProfileResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</CreateInstanceProfileResponse>`, iamInstanceProfileXML(ip), sim.NewUUID())
+</CreateInstanceProfileResponse>`, iamInstanceProfileXML(acct, ip), sim.NewUUID())
 }
 
 func handleIAMGetInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
-	ip, ok := iamInstanceProfiles.Get(name)
+	ip, ok := iamInstanceProfilesIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
@@ -705,12 +729,13 @@ func handleIAMGetInstanceProfile(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetInstanceProfileResult><InstanceProfile>%s</InstanceProfile></GetInstanceProfileResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetInstanceProfileResponse>`, iamInstanceProfileXML(ip), sim.NewUUID())
+</GetInstanceProfileResponse>`, iamInstanceProfileXML(acct, ip), sim.NewUUID())
 }
 
 func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
-	ip, ok := iamInstanceProfiles.Get(name)
+	ip, ok := iamInstanceProfilesIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
@@ -720,7 +745,7 @@ func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "DeleteConflict", "Cannot delete entity, must remove roles from instance profile first.", http.StatusConflict)
 		return
 	}
-	iamInstanceProfiles.Delete(name)
+	iamInstanceProfilesIn(acct).Delete(name)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
@@ -728,7 +753,8 @@ func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
-	profiles := iamInstanceProfiles.List()
+	acct := iamRequestAccount(r)
+	profiles := iamInstanceProfilesIn(acct).List()
 
 	page, next, pageOK := awsKeyPage(w, iamBadToken, profiles, func(it IAMInstanceProfile) string { return it.InstanceProfileName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
@@ -737,7 +763,7 @@ func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
 
 	var members strings.Builder
 	for _, ip := range page {
-		fmt.Fprint(&members, "<member>", iamInstanceProfileXML(ip), "</member>")
+		fmt.Fprint(&members, "<member>", iamInstanceProfileXML(acct, ip), "</member>")
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListInstanceProfilesResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
@@ -747,14 +773,15 @@ func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMAddRoleToInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	ipName := r.FormValue("InstanceProfileName")
 	roleName := r.FormValue("RoleName")
-	ip, ok := iamInstanceProfiles.Get(ipName)
+	ip, ok := iamInstanceProfilesIn(acct).Get(ipName)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", ipName), http.StatusNotFound)
 		return
 	}
-	if _, ok := iamRoles.Get(roleName); !ok {
+	if _, ok := iamRolesIn(acct).Get(roleName); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s was not found.", roleName), http.StatusNotFound)
 		return
 	}
@@ -765,7 +792,7 @@ func handleIAMAddRoleToInstanceProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip.RoleName = roleName
-	iamInstanceProfiles.Put(ipName, ip)
+	iamInstanceProfilesIn(acct).Put(ipName, ip)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AddRoleToInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
@@ -773,14 +800,15 @@ func handleIAMAddRoleToInstanceProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMRemoveRoleFromInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	ipName := r.FormValue("InstanceProfileName")
-	ip, ok := iamInstanceProfiles.Get(ipName)
+	ip, ok := iamInstanceProfilesIn(acct).Get(ipName)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", ipName), http.StatusNotFound)
 		return
 	}
 	ip.RoleName = ""
-	iamInstanceProfiles.Put(ipName, ip)
+	iamInstanceProfilesIn(acct).Put(ipName, ip)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RemoveRoleFromInstanceProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>

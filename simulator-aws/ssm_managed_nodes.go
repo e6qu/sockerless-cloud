@@ -16,7 +16,7 @@ func ssmNodeRegistrationRole(inst EC2Instance) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	decision, _ := iamEvalDecision(iamPolicyDocsForRole(roleName), "ssm:UpdateInstanceInformation", "*", nil)
+	decision, _ := iamEvalDecision(iamPolicyDocsForRole(awsAccountID(), roleName), "ssm:UpdateInstanceInformation", "*", nil)
 	return roleName, decision == "allowed"
 }
 

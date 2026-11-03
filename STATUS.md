@@ -132,7 +132,10 @@ Shared mechanisms, one package each:
   service's tagging action; Query, JSON, REST and Smithy RPC v2 CBOR routes
   all pass it. AWS STS sessions are held to their role's or user's
   permissions boundary, their session policies, the role's
-  `MaxSessionDuration` and a verified MFA code.
+  `MaxSessionDuration` and a verified MFA code. IAM hosts every account of the
+  organization: member accounts carry their own principals and root users,
+  reached through `OrganizationAccountAccessRole`, and service control
+  policies govern their principals.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

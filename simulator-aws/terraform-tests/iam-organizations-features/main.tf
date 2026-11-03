@@ -41,6 +41,8 @@ import {
 resource "aws_organizations_organization" "this" {
   feature_set                   = "ALL"
   aws_service_access_principals = ["iam.amazonaws.com"]
+  # The adopted organization's root enables service control policies.
+  enabled_policy_types = ["SERVICE_CONTROL_POLICY"]
 }
 
 resource "aws_iam_organizations_features" "this" {

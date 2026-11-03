@@ -109,12 +109,26 @@ func iamResultXML(w http.ResponseWriter, op, inner string) {
 
 // handleIAMGetAccountSummary counts the entities in the IAM stores and reports the fixed account quotas.
 func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
-	users := len(iamUsers.List())
-	groups := len(iamGroups.List())
-	roles := len(iamRoles.List())
-	policies := len(iamPolicies.List())
-	instanceProfiles := len(iamInstanceProfiles.List())
-	mfaInUse := 0 // MFA devices aren't modeled with an enabled flag; report 0.
+	acct := iamRequestAccount(r)
+	users := len(iamUsersIn(acct).List())
+	groups := len(iamGroupsIn(acct).List())
+	roles := len(iamRolesIn(acct).List())
+	policies := len(iamAccountPolicies(acct))
+	instanceProfiles := len(iamInstanceProfilesIn(acct).List())
+	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return iamArnAccount(d.SerialNumber) == acct })
+	mfaInUse := 0
+	for _, d := range devices {
+		if d.assigned() {
+			mfaInUse++
+		}
+	}
+	root := iamCredentialOwner{Account: acct}
+	present := func(ok bool) int {
+		if ok {
+			return 1
+		}
+		return 0
+	}
 
 	// Each managed policy has one default version.
 	policyVersions := policies
@@ -137,9 +151,11 @@ func handleIAMGetAccountSummary(w http.ResponseWriter, r *http.Request) {
 		{"InstanceProfilesQuota", 1000},
 		{"ServerCertificates", 0},
 		{"ServerCertificatesQuota", 20},
-		{"MFADevices", mfaInUse},
+		{"MFADevices", len(devices)},
 		{"MFADevicesInUse", mfaInUse},
-		{"AccountMFAEnabled", 0},
+		{"AccountMFAEnabled", present(iamOwnerMFAActive(root))},
+		{"AccountAccessKeysPresent", present(len(iamAccessKeysForUser(acct, "")) > 0)},
+		{"AccountSigningCertificatesPresent", present(len(iamOwnerSigningCerts(root)) > 0)},
 		{"AccessKeysPerUserQuota", 2},
 		{"AttachedPoliciesPerUserQuota", 10},
 		{"AttachedPoliciesPerGroupQuota", 10},
@@ -172,46 +188,47 @@ func iamGlobalEndpointTokenVersionNum() int {
 }
 
 func handleIAMGetAccountAuthorizationDetails(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	var userXML, groupXML, roleXML, policyXML strings.Builder
 
-	users := iamUsers.List()
+	users := iamUsersIn(acct).List()
 	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
 	for _, u := range users {
 		userXML.WriteString("<member>")
 		userXML.WriteString(iamUserInnerXML(u))
-		userXML.WriteString(iamInlinePolicyListXML("UserPolicyList", iamInlineUserPolicies(u.UserName)))
-		userXML.WriteString(iamGroupListXML(u.UserName))
-		userXML.WriteString(iamAttachedListXML(iamAttachedForUser(u.UserName)))
+		userXML.WriteString(iamInlinePolicyListXML("UserPolicyList", iamInlineUserPolicies(acct, u.UserName)))
+		userXML.WriteString(iamGroupListXML(acct, u.UserName))
+		userXML.WriteString(iamAttachedListXML(iamAttachedForUser(acct, u.UserName)))
 		if len(u.Tags) > 0 {
 			userXML.WriteString(iamTagsXML(u.Tags))
 		}
 		userXML.WriteString("</member>")
 	}
 
-	groups := iamGroups.List()
+	groups := iamGroupsIn(acct).List()
 	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
 	for _, g := range groups {
 		groupXML.WriteString("<member>")
 		groupXML.WriteString(iamGroupInnerXML(g))
-		groupXML.WriteString(iamInlinePolicyListXML("GroupPolicyList", iamInlineGroupPolicies(g.GroupName)))
-		groupXML.WriteString(iamAttachedListXML(iamAttachedForGroup(g.GroupName)))
+		groupXML.WriteString(iamInlinePolicyListXML("GroupPolicyList", iamInlineGroupPolicies(acct, g.GroupName)))
+		groupXML.WriteString(iamAttachedListXML(iamAttachedForGroup(acct, g.GroupName)))
 		groupXML.WriteString("</member>")
 	}
 
-	roles := iamRoles.List()
+	roles := iamRolesIn(acct).List()
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
 	for _, role := range roles {
 		roleXML.WriteString("<member>")
 		roleXML.WriteString(iamRoleDetailInnerXML(role))
-		roleXML.WriteString(iamInlinePolicyListXML("RolePolicyList", iamInlineRolePolicies(role.RoleName)))
-		roleXML.WriteString(iamAttachedListXML(iamAttachedForRole(role.RoleName)))
+		roleXML.WriteString(iamInlinePolicyListXML("RolePolicyList", iamInlineRolePolicies(acct, role.RoleName)))
+		roleXML.WriteString(iamAttachedListXML(iamAttachedForRole(acct, role.RoleName)))
 		if len(role.Tags) > 0 {
 			roleXML.WriteString(iamTagsXML(role.Tags))
 		}
 		roleXML.WriteString("</member>")
 	}
 
-	policies := iamPolicies.List()
+	policies := iamAccountPolicies(acct)
 	sort.Slice(policies, func(i, j int) bool { return policies[i].Arn < policies[j].Arn })
 	for _, p := range policies {
 		policyXML.WriteString("<member>")
@@ -237,9 +254,9 @@ type iamInlinePolicy struct {
 	Doc  string
 }
 
-func iamInlineUserPolicies(user string) []iamInlinePolicy {
+func iamInlineUserPolicies(acct string, user string) []iamInlinePolicy {
 	var out []iamInlinePolicy
-	for _, p := range iamUserPolicies.List() {
+	for _, p := range iamUserPoliciesIn(acct).List() {
 		if p.UserName == user {
 			out = append(out, iamInlinePolicy{Name: p.PolicyName, Doc: p.PolicyDocument})
 		}
@@ -248,9 +265,9 @@ func iamInlineUserPolicies(user string) []iamInlinePolicy {
 	return out
 }
 
-func iamInlineGroupPolicies(group string) []iamInlinePolicy {
+func iamInlineGroupPolicies(acct string, group string) []iamInlinePolicy {
 	var out []iamInlinePolicy
-	for _, p := range iamGroupPolicies.List() {
+	for _, p := range iamGroupPoliciesIn(acct).List() {
 		if p.GroupName == group {
 			out = append(out, iamInlinePolicy{Name: p.PolicyName, Doc: p.PolicyDocument})
 		}
@@ -259,9 +276,9 @@ func iamInlineGroupPolicies(group string) []iamInlinePolicy {
 	return out
 }
 
-func iamInlineRolePolicies(role string) []iamInlinePolicy {
+func iamInlineRolePolicies(acct string, role string) []iamInlinePolicy {
 	var out []iamInlinePolicy
-	for _, p := range iamRolePolicies.List() {
+	for _, p := range iamRolePoliciesIn(acct).List() {
 		if p.RoleName == role {
 			out = append(out, iamInlinePolicy{Name: p.PolicyName, Doc: p.PolicyDocument})
 		}
@@ -286,9 +303,9 @@ type iamAttachedRef struct {
 	Arn  string
 }
 
-func iamAttachedForUser(user string) []iamAttachedRef {
+func iamAttachedForUser(acct string, user string) []iamAttachedRef {
 	var out []iamAttachedRef
-	for _, ap := range iamUserAttached.List() {
+	for _, ap := range iamUserAttachedIn(acct).List() {
 		if ap.UserName == user {
 			out = append(out, iamAttachedRef{Name: ap.PolicyName, Arn: ap.PolicyArn})
 		}
@@ -297,9 +314,9 @@ func iamAttachedForUser(user string) []iamAttachedRef {
 	return out
 }
 
-func iamAttachedForGroup(group string) []iamAttachedRef {
+func iamAttachedForGroup(acct string, group string) []iamAttachedRef {
 	var out []iamAttachedRef
-	for _, ap := range iamGroupAttached.List() {
+	for _, ap := range iamGroupAttachedIn(acct).List() {
 		if ap.GroupName == group {
 			out = append(out, iamAttachedRef{Name: ap.PolicyName, Arn: ap.PolicyArn})
 		}
@@ -308,9 +325,9 @@ func iamAttachedForGroup(group string) []iamAttachedRef {
 	return out
 }
 
-func iamAttachedForRole(role string) []iamAttachedRef {
+func iamAttachedForRole(acct string, role string) []iamAttachedRef {
 	var out []iamAttachedRef
-	for _, ap := range iamAttachedPolicies.List() {
+	for _, ap := range iamAttachedPoliciesIn(acct).List() {
 		if ap.RoleName == role {
 			out = append(out, iamAttachedRef{Name: ap.PolicyName, Arn: ap.PolicyArn})
 		}
@@ -330,9 +347,9 @@ func iamAttachedListXML(refs []iamAttachedRef) string {
 	return b.String()
 }
 
-func iamGroupListXML(user string) string {
+func iamGroupListXML(acct string, user string) string {
 	var groups []string
-	for _, m := range iamGroupMembers.List() {
+	for _, m := range iamGroupMembersIn(acct).List() {
 		if m.UserName == user {
 			groups = append(groups, m.GroupName)
 		}
@@ -356,27 +373,29 @@ func iamManagedPolicyDetailXML(p IAMPolicy) string {
 // handleIAMGenerateCredentialReport reports STARTED on the first call and
 // COMPLETE after, IAM's two-call generate-then-ready flow.
 func handleIAMGenerateCredentialReport(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	state := "STARTED"
 	desc := "No report exists. Starting a new report generation task"
-	if _, ok := iamCredReportGen.Get("state"); ok {
+	if _, ok := iamCredReportGenIn(acct).Get("state"); ok {
 		state = "COMPLETE"
 		desc = "report has been generated"
 	}
-	iamCredReportGen.Put("state", IAMAccountFeature{Key: "state", Value: "COMPLETE"})
+	iamCredReportGenIn(acct).Put("state", IAMAccountFeature{Key: "state", Value: "COMPLETE"})
 	iamResultXML(w, "GenerateCredentialReport",
 		fmt.Sprintf("<State>%s</State><Description>%s</Description>", state, xmlEscape(desc)))
 }
 
 // handleIAMGetCredentialReport returns the report as base64-encoded text/csv, as AWS does.
 func handleIAMGetCredentialReport(w http.ResponseWriter, r *http.Request) {
-	csv := iamBuildCredentialReportCSV()
+	acct := iamRequestAccount(r)
+	csv := iamBuildCredentialReportCSV(acct)
 	content := base64.StdEncoding.EncodeToString([]byte(csv))
 	inner := fmt.Sprintf("<Content>%s</Content><ReportFormat>text/csv</ReportFormat><GeneratedTime>%s</GeneratedTime>",
 		content, time.Now().UTC().Format(time.RFC3339))
 	iamResultXML(w, "GetCredentialReport", inner)
 }
 
-func iamBuildCredentialReportCSV() string {
+func iamBuildCredentialReportCSV(acct string) string {
 	header := "user,arn,user_creation_time,password_enabled,password_last_used,password_last_changed,password_next_rotation,mfa_active,access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date,access_key_1_last_used_region,access_key_1_last_used_service,access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date,access_key_2_last_used_region,access_key_2_last_used_service,cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
 
 	var b strings.Builder
@@ -384,13 +403,17 @@ func iamBuildCredentialReportCSV() string {
 	b.WriteString("\n")
 
 	// <root_account> row — AWS always emits it first.
-	fmt.Fprintf(&b, "<root_account>,arn:aws:iam::%s:root,%s,not_supported,not_supported,not_supported,not_supported,false,false,N/A,N/A,N/A,N/A,false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n",
-		awsAccountID(), time.Now().UTC().Format(time.RFC3339))
+	root := iamCredentialOwner{Account: acct}
+	rk1Active, rk1Rotated, rk2Active, rk2Rotated := iamCredentialReportKeys(iamAccessKeysForUser(acct, ""))
+	rc1Active, rc1Rotated, rc2Active, rc2Rotated := iamCredentialReportCerts(root)
+	fmt.Fprintf(&b, "<root_account>,arn:aws:iam::%s:root,%s,not_supported,not_supported,not_supported,not_supported,%s,%s,%s,N/A,N/A,N/A,%s,%s,N/A,N/A,N/A,%s,%s,%s,%s\n",
+		acct, iamAccountCreateDate(acct), boolToCSV(iamOwnerMFAActive(root)),
+		rk1Active, rk1Rotated, rk2Active, rk2Rotated, rc1Active, rc1Rotated, rc2Active, rc2Rotated)
 
-	users := iamUsers.List()
+	users := iamUsersIn(acct).List()
 	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
 	for _, u := range users {
-		keys := iamAccessKeysForUser(u.UserName)
+		keys := iamAccessKeysForUser(acct, u.UserName)
 		k1Active, k1Rotated := "false", "N/A"
 		k2Active, k2Rotated := "false", "N/A"
 		if len(keys) > 0 {
@@ -408,13 +431,45 @@ func iamBuildCredentialReportCSV() string {
 	return b.String()
 }
 
-func iamAccessKeysForUser(user string) []IAMAccessKey {
-	var out []IAMAccessKey
-	for _, k := range iamAccessKeys.List() {
-		if k.UserName == user {
-			out = append(out, k)
-		}
+// iamCredentialReportKeys is the active and last-rotated columns of a
+// credential report row's first two access keys.
+func iamCredentialReportKeys(keys []IAMAccessKey) (k1Active, k1Rotated, k2Active, k2Rotated string) {
+	k1Active, k1Rotated, k2Active, k2Rotated = "false", "N/A", "false", "N/A"
+	if len(keys) > 0 {
+		k1Active, k1Rotated = boolToCSV(keys[0].Status == "Active"), csvField(keys[0].CreateDate)
 	}
+	if len(keys) > 1 {
+		k2Active, k2Rotated = boolToCSV(keys[1].Status == "Active"), csvField(keys[1].CreateDate)
+	}
+	return
+}
+
+// iamCredentialReportCerts is the same columns for an owner's signing
+// certificates.
+func iamCredentialReportCerts(owner iamCredentialOwner) (c1Active, c1Rotated, c2Active, c2Rotated string) {
+	certs := iamOwnerSigningCerts(owner)
+	c1Active, c1Rotated, c2Active, c2Rotated = "false", "N/A", "false", "N/A"
+	if len(certs) > 0 {
+		c1Active, c1Rotated = boolToCSV(certs[0].Status == "Active"), csvField(certs[0].UploadDate)
+	}
+	if len(certs) > 1 {
+		c2Active, c2Rotated = boolToCSV(certs[1].Status == "Active"), csvField(certs[1].UploadDate)
+	}
+	return
+}
+
+func iamOwnerSigningCerts(owner iamCredentialOwner) []IAMSigningCertificate {
+	certs := iamSigningCerts.Filter(func(c IAMSigningCertificate) bool { return c.owner() == owner })
+	sort.Slice(certs, func(i, j int) bool { return certs[i].UploadDate < certs[j].UploadDate })
+	return certs
+}
+
+func iamOwnerMFAActive(owner iamCredentialOwner) bool {
+	return len(iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return d.assigned() && d.owner() == owner })) > 0
+}
+
+func iamAccessKeysForUser(acct string, user string) []IAMAccessKey {
+	out := iamAccessKeys.Filter(iamCredentialOwner{Account: acct, UserName: user}.ownsKey)
 	sort.Slice(out, func(i, j int) bool { return out[i].CreateDate < out[j].CreateDate })
 	return out
 }
@@ -525,6 +580,7 @@ func iamServiceNamespacesForPrincipal(arn string) []string {
 }
 
 func iamPolicyDocsForArn(arn string) []iamPolicyDoc {
+	acct := iamArnAccount(arn)
 	var docs []iamPolicyDoc
 	addManaged := func(policyArn string) {
 		if p, ok := iamPolicies.Get(policyArn); ok {
@@ -536,35 +592,35 @@ func iamPolicyDocsForArn(arn string) []iamPolicyDoc {
 	switch {
 	case strings.Contains(arn, ":role/"):
 		name := iamNameFromArn(arn)
-		for _, p := range iamRolePolicies.List() {
+		for _, p := range iamRolePoliciesIn(acct).List() {
 			if p.RoleName == name {
 				if doc, err := parseIAMPolicy(p.PolicyDocument); err == nil {
 					docs = append(docs, doc)
 				}
 			}
 		}
-		for _, ap := range iamAttachedPolicies.List() {
+		for _, ap := range iamAttachedPoliciesIn(acct).List() {
 			if ap.RoleName == name {
 				addManaged(ap.PolicyArn)
 			}
 		}
 	case strings.Contains(arn, ":group/"):
 		name := iamNameFromArn(arn)
-		for _, p := range iamGroupPolicies.List() {
+		for _, p := range iamGroupPoliciesIn(acct).List() {
 			if p.GroupName == name {
 				if doc, err := parseIAMPolicy(p.PolicyDocument); err == nil {
 					docs = append(docs, doc)
 				}
 			}
 		}
-		for _, ap := range iamGroupAttached.List() {
+		for _, ap := range iamGroupAttachedIn(acct).List() {
 			if ap.GroupName == name {
 				addManaged(ap.PolicyArn)
 			}
 		}
 	default: // user
 		name := iamNameFromArn(arn)
-		docs = append(docs, iamPolicyDocsForUser(name)...)
+		docs = append(docs, iamPolicyDocsForUser(acct, name)...)
 	}
 	return docs
 }
@@ -581,20 +637,21 @@ func iamNameFromArn(arn string) string {
 
 // Type is the policyOwnerEntityType (USER, ROLE or GROUP).
 func iamEntityForArn(arn string) (name, etype, id, path string) {
+	acct := iamArnAccount(arn)
 	name = iamNameFromArn(arn)
 	switch {
 	case strings.Contains(arn, ":role/"):
-		if role, ok := iamRoles.Get(name); ok {
+		if role, ok := iamRolesIn(acct).Get(name); ok {
 			return role.RoleName, "ROLE", role.RoleId, role.Path
 		}
 		return name, "ROLE", "", "/"
 	case strings.Contains(arn, ":group/"):
-		if g, ok := iamGroups.Get(name); ok {
+		if g, ok := iamGroupsIn(acct).Get(name); ok {
 			return g.GroupName, "GROUP", g.GroupId, g.Path
 		}
 		return name, "GROUP", "", "/"
 	default:
-		if u, ok := iamUsers.Get(name); ok {
+		if u, ok := iamUsersIn(acct).Get(name); ok {
 			return u.UserName, "USER", u.UserId, u.Path
 		}
 		return name, "USER", "", "/"

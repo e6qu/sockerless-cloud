@@ -90,9 +90,10 @@ func handleIAMListPolicyVersions(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	prefix := r.FormValue("PathPrefix")
 	var roles []IAMRole
-	for _, role := range iamRoles.List() {
+	for _, role := range iamRolesIn(acct).List() {
 		if prefix != "" && !strings.HasPrefix(role.Path, prefix) {
 			continue
 		}
@@ -131,7 +132,8 @@ func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListRoleTags(w http.ResponseWriter, r *http.Request) {
-	role, ok := iamRoles.Get(r.FormValue("RoleName"))
+	acct := iamRequestAccount(r)
+	role, ok := iamRolesIn(acct).Get(r.FormValue("RoleName"))
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The role with name %s cannot be found.", r.FormValue("RoleName")), http.StatusNotFound)
 		return

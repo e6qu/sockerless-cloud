@@ -35,6 +35,13 @@ func iamPopulateSTSRequestConditionKeys(r *http.Request, operation string, body 
 		list("sts:TransitiveTagKeys", "TransitiveTagKeys")
 	case "TagSession":
 		list("sts:TransitiveTagKeys", "TransitiveTagKeys")
+	case "SetSourceIdentity":
+		// The source identity the new session gets: the one passed, or the
+		// one the calling session carries into it.
+		set("sts:SourceIdentity", "SourceIdentity")
+		if inherited := stsCallerSourceIdentity(r); inherited != "" && len(ctx["sts:SourceIdentity"]) == 0 {
+			ctx["sts:SourceIdentity"] = []string{inherited}
+		}
 	case "AssumeRoleWithWebIdentity":
 		set("sts:RoleSessionName", "RoleSessionName")
 	case "GetWebIdentityToken":

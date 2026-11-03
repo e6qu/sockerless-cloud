@@ -143,7 +143,7 @@ func iamBudgetsResourceARNs(r *http.Request, types []string, account string) []s
 // path ("role/team/name"), which the create takes separately; the resource types
 // call it NameWithPath.
 func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
-	account := awsAccountID()
+	account := iamRequestAccount(r)
 	build := func(resourceType, path, name string) string {
 		path = strings.Trim(path, "/")
 		if path != "" {
@@ -200,9 +200,19 @@ func iamIAMResourceARNs(r *http.Request, op string, types []string) []string {
 			if id == "" || iamAccessKeys == nil {
 				continue
 			}
-			if key, ok := iamAccessKeys.Get(id); ok && key.UserName != "" {
+			if key, ok := iamAccessKeys.Get(id); ok {
+				if key.UserName == "" {
+					return []string{iamRootArn(key.account())}
+				}
 				return []string{build("user", "", key.UserName)}
 			}
+		}
+	}
+	// A credential operation that names no user acts on the caller, which is
+	// what IAM authorizes it against: the IAM user, or the root user.
+	if iamImplicitOwnerOperations[op] && iamHasType(types, "user") {
+		if owner, ok := iamCallerCredentialOwner(r); ok {
+			return []string{owner.arn()}
 		}
 	}
 	// A service-linked role deletion is tracked by a task whose id spells the

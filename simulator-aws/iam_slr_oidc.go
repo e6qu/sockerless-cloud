@@ -101,20 +101,20 @@ func iamSLRName(servicePrincipal, customSuffix string) string {
 // caller's behalf — Application Auto Scaling does, when a register carries no
 // RoleARN — goes through here, so the role it names is one this account's IAM
 // actually holds rather than an ARN assembled for the response.
-func iamPutServiceLinkedRole(name, servicePrincipal, description string) IAMServiceLinkedRole {
+func iamPutServiceLinkedRole(acct string, name, servicePrincipal, description string) IAMServiceLinkedRole {
 	role := IAMServiceLinkedRole{
 		RoleName:                 name,
 		RoleId:                   iamRandomID("AROA", 16),
-		Arn:                      iamSLRARN(name, servicePrincipal),
+		Arn:                      iamSLRARN(acct, name, servicePrincipal),
 		Path:                     iamSLRPath(servicePrincipal),
 		AssumeRolePolicyDocument: iamSLRAssumeDoc(servicePrincipal),
 		CreateDate:               time.Now().UTC().Format(time.RFC3339),
 		ServicePrincipal:         servicePrincipal,
 		Description:              description,
 	}
-	iamSLRs.Put(name, role)
+	iamSLRsIn(acct).Put(name, role)
 	// AWS exposes a service-linked role through GetRole too, so keep an IAMRole shadow in the role store.
-	iamRoles.Put(name, IAMRole{
+	iamRolesIn(acct).Put(name, IAMRole{
 		RoleName:                 role.RoleName,
 		RoleId:                   role.RoleId,
 		Arn:                      role.Arn,
@@ -129,12 +129,12 @@ func iamPutServiceLinkedRole(name, servicePrincipal, description string) IAMServ
 // iamEnsureServiceLinkedRole returns the ARN of the service-linked role for a
 // principal, creating it if this account does not hold it yet — which is what
 // the services that use one do on the caller's behalf.
-func iamEnsureServiceLinkedRole(servicePrincipal, description string) string {
+func iamEnsureServiceLinkedRole(acct string, servicePrincipal, description string) string {
 	name := iamSLRName(servicePrincipal, "")
-	if existing, ok := iamSLRs.Get(name); ok {
+	if existing, ok := iamSLRsIn(acct).Get(name); ok {
 		return existing.Arn
 	}
-	return iamPutServiceLinkedRole(name, servicePrincipal, description).Arn
+	return iamPutServiceLinkedRole(acct, name, servicePrincipal, description).Arn
 }
 
 func iamRandomID(prefix string, n int) string {
@@ -147,8 +147,8 @@ func iamSLRPath(servicePrincipal string) string {
 	return "/aws-service-role/" + servicePrincipal + "/"
 }
 
-func iamSLRARN(name, servicePrincipal string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:role%s%s", awsAccountID(), iamSLRPath(servicePrincipal), name)
+func iamSLRARN(acct string, name, servicePrincipal string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:role%s%s", acct, iamSLRPath(servicePrincipal), name)
 }
 
 func iamSLRAssumeDoc(servicePrincipal string) string {
@@ -156,6 +156,7 @@ func iamSLRAssumeDoc(servicePrincipal string) string {
 }
 
 func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	sp := r.FormValue("AWSServiceName")
 	if sp == "" {
 		iamErrorXML(w, "InvalidInput", "AWSServiceName is required", http.StatusBadRequest)
@@ -164,11 +165,11 @@ func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
 	customSuffix := r.FormValue("CustomSuffix")
 	description := r.FormValue("Description")
 	name := iamSLRName(sp, customSuffix)
-	if _, exists := iamSLRs.Get(name); exists {
+	if _, exists := iamSLRsIn(acct).Get(name); exists {
 		iamErrorXML(w, "InvalidInput", "Service role name "+name+" has been taken in this account, please try a different suffix.", http.StatusBadRequest)
 		return
 	}
-	role := iamPutServiceLinkedRole(name, sp, description)
+	role := iamPutServiceLinkedRole(acct, name, sp, description)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateServiceLinkedRoleResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <CreateServiceLinkedRoleResult>
@@ -189,13 +190,14 @@ func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
-	if _, ok := iamSLRs.Get(name); !ok {
+	if _, ok := iamSLRsIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", "Service-linked role "+name+" not found.", http.StatusNotFound)
 		return
 	}
-	iamSLRs.Delete(name)
-	iamRoles.Delete(name) // remove the shadow record
+	iamSLRsIn(acct).Delete(name)
+	iamRolesIn(acct).Delete(name) // remove the shadow record
 	taskID := iamRandomID("task_", 16)
 	iamSLRDeletions.Put(taskID, "SUCCEEDED")
 	w.Header().Set("Content-Type", "text/xml")
@@ -219,10 +221,10 @@ func handleIAMGetSLRDeletionStatus(w http.ResponseWriter, r *http.Request) {
 </GetServiceLinkedRoleDeletionStatusResponse>`, status, sim.NewUUID())
 }
 
-func iamOIDCArn(providerURL string) string {
+func iamOIDCArn(acct string, providerURL string) string {
 	// Real format: arn:aws:iam::<account>:oidc-provider/<url-without-scheme>
 	u := strings.TrimPrefix(strings.TrimPrefix(providerURL, "https://"), "http://")
-	return fmt.Sprintf("arn:aws:iam::%s:oidc-provider/%s", awsAccountID(), u)
+	return fmt.Sprintf("arn:aws:iam::%s:oidc-provider/%s", acct, u)
 }
 
 func iamReadList(r *http.Request, key string) []string {
@@ -239,6 +241,7 @@ func iamReadList(r *http.Request, key string) []string {
 }
 
 func handleIAMCreateOIDCProvider(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	providerURL := r.FormValue("Url")
 	if providerURL == "" {
 		iamErrorXML(w, "InvalidInput", "Url is required", http.StatusBadRequest)
@@ -250,7 +253,7 @@ func handleIAMCreateOIDCProvider(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "InvalidInput", "ThumbprintList is required", http.StatusBadRequest)
 		return
 	}
-	arn := iamOIDCArn(providerURL)
+	arn := iamOIDCArn(acct, providerURL)
 	if _, exists := iamOIDCProviders.Get(arn); exists {
 		iamErrorXML(w, "EntityAlreadyExists", "Provider for "+providerURL+" already exists", http.StatusConflict)
 		return
@@ -445,7 +448,11 @@ func handleIAMDeleteOIDCProvider(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListOIDCProviders(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
+	acct := iamRequestAccount(r)
 	for _, p := range iamOIDCProviders.List() {
+		if iamArnAccount(p.Arn) != acct {
+			continue
+		}
 		b.WriteString("<member><Arn>")
 		b.WriteString(html.EscapeString(p.Arn))
 		b.WriteString("</Arn></member>")

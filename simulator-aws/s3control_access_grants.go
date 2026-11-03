@@ -427,7 +427,7 @@ func handleS3CreateAccessGrantsLocation(w http.ResponseWriter, r *http.Request) 
 	}
 	// The role is what reaches the location's data; the service will not
 	// register a location behind a role that does not exist.
-	if _, ok := iamRoles.Get(iamRoleNameFromArn(roleArn)); !ok {
+	if _, ok := iamRoleByArn(roleArn); !ok {
 		s3ControlError(w, "InvalidRequest",
 			"The role "+roleArn+" does not exist", http.StatusBadRequest)
 		return
@@ -491,7 +491,7 @@ func handleS3UpdateAccessGrantsLocation(w http.ResponseWriter, r *http.Request) 
 		s3ControlError(w, "InvalidRequest", "IAMRoleArn is required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamRoles.Get(iamRoleNameFromArn(roleArn)); !ok {
+	if _, ok := iamRoleByArn(roleArn); !ok {
 		s3ControlError(w, "InvalidRequest",
 			"The role "+roleArn+" does not exist", http.StatusBadRequest)
 		return
@@ -802,7 +802,7 @@ func handleS3GetDataAccess(w http.ResponseWriter, r *http.Request) {
 	// The credentials are the location's role, assumed — the same session
 	// credentials STS mints for any AssumeRole, so they authenticate on the S3
 	// surface exactly as a real grantee's do.
-	role, ok := iamRoles.Get(iamRoleNameFromArn(location.IAMRoleArn))
+	role, ok := iamRoleByArn(location.IAMRoleArn)
 	if !ok {
 		s3ControlError(w, "InvalidRequest",
 			"The location's role "+location.IAMRoleArn+" does not exist", http.StatusBadRequest)

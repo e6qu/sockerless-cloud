@@ -969,6 +969,23 @@ against an active member account. `aws:PrincipalArn` names the role behind a
 role session, and a resource policy naming an IAM user matches that user's
 federated sessions within their limits.
 
+AWS IAM hosts every account of the organization. A request acts in the
+account of the credential that signed it: names key roles, users, groups and
+their policies per account, the management account keeps the original
+tables, and each member account opens its own on first use. `CreateAccount`
+creates `OrganizationAccountAccessRole` trusting the management account, and
+a cross-account call passes only when both the caller's policies and the
+target's trust or resource policy allow it. An access key with no user
+belongs to the account's root user, which only explicit denies and service
+control policies limit, and the root-credential `AssumeRoot` tasks act on the
+member root's real login profile, keys, certificates and MFA devices. Service
+control policies govern every member-account principal from the root through
+each OU down to the account, sparing the management account and
+service-linked roles, and AWS Organizations attaches `FullAWSAccess` wherever
+AWS does. AWS STS keeps a session's `SourceIdentity` from the request, SAML
+attribute or web-identity claim, checks `sts:SetSourceIdentity`, and carries
+it unchanged through role chaining and into `AssumeRoot`.
+
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
 App Service's reference resolution reusing the same decision. Managed

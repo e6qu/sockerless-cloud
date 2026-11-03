@@ -151,7 +151,7 @@ func handleS3CreateJob(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamRoles.Get(iamRoleNameFromArn(roleArn)); !ok {
+	if _, ok := iamRoleByArn(roleArn); !ok {
 		s3ControlError(w, "InvalidRequest", "The role "+roleArn+" does not exist", http.StatusBadRequest)
 		return
 	}

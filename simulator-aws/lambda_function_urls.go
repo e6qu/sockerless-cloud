@@ -142,14 +142,17 @@ type lambdaURLCaller struct {
 
 func lambdaURLCallerFor(akid string) lambdaURLCaller {
 	info := lambdaURLCaller{AccessKey: akid, AccountID: awsAccountID()}
+	if acct := iamAccessKeyAccount(akid); acct != "" {
+		info.AccountID = acct
+	}
 	if tc, ok := iamTempCreds.Get(akid); ok {
 		info.UserArn = tc.PrincipalArn
-		if role, found := iamRoles.Get(tc.RoleName); found {
+		if role, found := iamRolesIn(info.AccountID).Get(tc.RoleName); found {
 			session := tc.PrincipalArn[strings.LastIndex(tc.PrincipalArn, "/")+1:]
 			info.UserID = role.RoleId + ":" + session
 		}
 	} else if key, ok := iamAccessKeys.Get(akid); ok {
-		if user, found := iamUsers.Get(key.UserName); found {
+		if user, found := iamUsersIn(info.AccountID).Get(key.UserName); found {
 			info.UserArn, info.UserID = user.Arn, user.UserId
 		}
 	}

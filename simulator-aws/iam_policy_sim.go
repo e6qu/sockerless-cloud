@@ -672,16 +672,17 @@ func handleIAMSimulateCustomPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMSimulatePrincipalPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamArnAccount(r.FormValue("PolicySourceArn"))
 	roleName := iamRoleNameFromArn(r.FormValue("PolicySourceArn"))
 	docs := make([]iamPolicyDoc, 0)
-	for _, rp := range iamRolePolicies.List() {
+	for _, rp := range iamRolePoliciesIn(acct).List() {
 		if rp.RoleName == roleName {
 			if doc, err := parseIAMPolicy(rp.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, ap := range iamAttachedPolicies.List() {
+	for _, ap := range iamAttachedPoliciesIn(acct).List() {
 		if ap.RoleName != roleName {
 			continue
 		}

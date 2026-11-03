@@ -170,17 +170,21 @@ func stsSessionPolicyDocs(tc IAMTempCred) []iamPolicyDoc {
 // of the holder of akid: the holder's own session, with every limit it
 // carries, or the IAM user its long-term key belongs to.
 func stsOnBehalfOf(akid string) IAMTempCred {
+	acct := iamAccessKeyAccount(akid)
 	if tc, ok := iamTempCreds.Get(akid); ok {
 		return IAMTempCred{
 			PrincipalArn: tc.PrincipalArn, UserName: tc.UserName, RoleName: tc.RoleName,
 			FederatedClaims: tc.FederatedClaims, SessionTags: tc.SessionTags, TransitiveTagKeys: tc.TransitiveTagKeys,
 			SessionPolicy: tc.SessionPolicy, SessionPolicyArns: tc.SessionPolicyArns, SessionPolicyCaps: tc.SessionPolicyCaps,
 			FederatingUser: tc.FederatingUser, UnrestrictedIdentity: tc.UnrestrictedIdentity, TaskPolicyArn: tc.TaskPolicyArn,
-			FromGetSessionToken: tc.FromGetSessionToken,
+			FromGetSessionToken: tc.FromGetSessionToken, SourceIdentity: tc.SourceIdentity,
 		}
 	}
 	if key, ok := iamAccessKeys.Get(akid); ok {
-		if u, uok := iamUsers.Get(key.UserName); uok {
+		if key.UserName == "" {
+			return IAMTempCred{PrincipalArn: iamRootArn(acct), UnrestrictedIdentity: true}
+		}
+		if u, uok := iamUsersIn(acct).Get(key.UserName); uok {
 			return IAMTempCred{PrincipalArn: u.Arn, UserName: u.UserName}
 		}
 	}
@@ -214,6 +218,7 @@ const (
 	stsSessionTokenDurationMin     = 900
 	stsSessionTokenDurationMax     = 129600
 	stsSessionTokenDurationDefault = 43200
+	stsRootSessionTokenDurationMax = 3600
 )
 
 // stsRequestDuration reads DurationSeconds within the range the operation's
@@ -278,6 +283,13 @@ func stsCallerIsRoleSession(r *http.Request) bool {
 	return ok && tc.RoleName != ""
 }
 
+// stsCallerIsRootSession reports whether r is signed by an AssumeRoot
+// session.
+func stsCallerIsRootSession(r *http.Request) bool {
+	tc, ok := iamTempCreds.Get(iamAccessKeyIDFromRequest(r))
+	return ok && tc.TaskPolicyArn != ""
+}
+
 var stsTokenCodePattern = regexp.MustCompile(`^\d{6}$`)
 
 // stsRequestMFA verifies the SerialNumber and TokenCode a request presents
@@ -302,7 +314,7 @@ func stsRequestMFA(r *http.Request) (present bool, err *stsRequestError) {
 	}
 	// The device must be the calling user's; a role session has no IAM
 	// user's device to present.
-	if caller, _ := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); caller.UserName != dev.UserName {
+	if caller, _ := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); caller.UserName != dev.UserName || caller.Account != iamArnAccount(serial) {
 		return false, stsAccessDenied("MultiFactorAuthentication failed, unable to validate MFA code.")
 	}
 	if _, ok := dev.unusedCodeStep(code, time.Now()); !ok {

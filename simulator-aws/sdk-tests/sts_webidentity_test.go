@@ -101,13 +101,13 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 
 	// Tests federate concurrently, each through its own role.
 	role := uniquename.New("console-federation-role")
-	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
+	created, err := c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"` + providerArn + `"},"Action":"sts:AssumeRoleWithWebIdentity"}]}`),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(role)}) })
-	return "arn:aws:iam::000000000000:role/" + role
+	return aws.ToString(created.Role.Arn)
 }
 
 // TestSTS_AssumeRoleWithWebIdentity expects AWS STS to verify a signed OpenID
@@ -154,7 +154,7 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
 	const audience = "sockerless-console"
 	// A role that trusts nothing in particular; the issuer has no provider.
 	c := iamClient()
-	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
+	created, err := c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String("unregistered-role"),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"x"},"Action":"sts:AssumeRoleWithWebIdentity"}]}`),
 	})
@@ -163,7 +163,7 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
 	token := issuer.mint(t, "operator@example.test", audience, time.Now().Add(10*time.Minute))
 
 	_, err = stsClient().AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:          aws.String("arn:aws:iam::000000000000:role/unregistered-role"),
+		RoleArn:          created.Role.Arn,
 		RoleSessionName:  aws.String("console"),
 		WebIdentityToken: aws.String(token),
 	})

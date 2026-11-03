@@ -72,11 +72,12 @@ func registerIAMProvidersCerts(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-func iamSAMLArn(name string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:saml-provider/%s", awsAccountID(), name)
+func iamSAMLArn(acct string, name string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:saml-provider/%s", acct, name)
 }
 
 func handleIAMCreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("Name")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "Name is required", http.StatusBadRequest)
@@ -87,7 +88,7 @@ func handleIAMCreateSAMLProvider(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "ValidationError", "SAMLMetadataDocument is required", http.StatusBadRequest)
 		return
 	}
-	arn := iamSAMLArn(name)
+	arn := iamSAMLArn(acct, name)
 	if _, ok := iamSAMLProviders.Get(arn); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("SAML provider with name %s already exists.", name), http.StatusConflict)
 		return
@@ -168,7 +169,8 @@ func handleIAMDeleteSAMLProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListSAMLProviders(w http.ResponseWriter, r *http.Request) {
-	providers := iamSAMLProviders.List()
+	acct := iamRequestAccount(r)
+	providers := iamSAMLProviders.Filter(func(p IAMSAMLProvider) bool { return iamArnAccount(p.Arn) == acct })
 	sort.Slice(providers, func(i, j int) bool { return providers[i].Arn < providers[j].Arn })
 	var members strings.Builder
 	for _, p := range providers {
@@ -228,8 +230,8 @@ func handleIAMListOIDCProviderTags(w http.ResponseWriter, r *http.Request) {
 	iamTagListResultXML(w, "ListOpenIDConnectProviderTags", iamMapToTags(provider.Tags))
 }
 
-func iamServerCertArn(path, name string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:server-certificate%s%s", awsAccountID(), path, name)
+func iamServerCertArn(acct string, path, name string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:server-certificate%s%s", acct, path, name)
 }
 
 func iamServerCertMetadataXML(c IAMServerCertificate) string {
@@ -238,6 +240,7 @@ func iamServerCertMetadataXML(c IAMServerCertificate) string {
 }
 
 func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "ServerCertificateName is required", http.StatusBadRequest)
@@ -253,7 +256,7 @@ func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "ValidationError", "PrivateKey is required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamServerCerts.Get(name); ok {
+	if _, ok := iamServerCertsIn(acct).Get(name); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("The Server Certificate with name %s already exists.", name), http.StatusConflict)
 		return
 	}
@@ -265,7 +268,7 @@ func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
 	cert := IAMServerCertificate{
 		Name:             name,
 		Id:               iamRandomID("ASCA", 16),
-		Arn:              iamServerCertArn(path, name),
+		Arn:              iamServerCertArn(acct, path, name),
 		Path:             path,
 		CertificateBody:  body,
 		CertificateChain: r.FormValue("CertificateChain"),
@@ -274,7 +277,7 @@ func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
 		Expiration:       now.AddDate(1, 0, 0).Format(time.RFC3339),
 		Tags:             iamParseTags(r),
 	}
-	iamServerCerts.Put(name, cert)
+	iamServerCertsIn(acct).Put(name, cert)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UploadServerCertificateResponse %s>
   <UploadServerCertificateResult>
@@ -286,8 +289,9 @@ func handleIAMUploadServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMGetServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
-	cert, ok := iamServerCerts.Get(name)
+	cert, ok := iamServerCertsIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -312,29 +316,30 @@ func handleIAMGetServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUpdateServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
 	newName := r.FormValue("NewServerCertificateName")
 	newPath := r.FormValue("NewPath")
-	cert, ok := iamServerCerts.Get(name)
+	cert, ok := iamServerCertsIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
 	if newName != "" && newName != name {
-		if _, exists := iamServerCerts.Get(newName); exists {
+		if _, exists := iamServerCertsIn(acct).Get(newName); exists {
 			iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("The Server Certificate with name %s already exists.", newName), http.StatusConflict)
 			return
 		}
 	}
-	iamServerCerts.Delete(name)
+	iamServerCertsIn(acct).Delete(name)
 	if newPath != "" {
 		cert.Path = newPath
 	}
 	if newName != "" {
 		cert.Name = newName
 	}
-	cert.Arn = iamServerCertArn(cert.Path, cert.Name)
-	iamServerCerts.Put(cert.Name, cert)
+	cert.Arn = iamServerCertArn(acct, cert.Path, cert.Name)
+	iamServerCertsIn(acct).Put(cert.Name, cert)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateServerCertificateResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
@@ -342,8 +347,9 @@ func handleIAMUpdateServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
-	if !iamServerCerts.Delete(name) {
+	if !iamServerCertsIn(acct).Delete(name) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
@@ -354,7 +360,8 @@ func handleIAMDeleteServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListServerCertificates(w http.ResponseWriter, r *http.Request) {
-	certs := iamServerCerts.List()
+	acct := iamRequestAccount(r)
+	certs := iamServerCertsIn(acct).List()
 	page, next, pageOK := awsKeyPage(w, iamBadToken, certs, func(it IAMServerCertificate) string { return it.Name }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
@@ -374,8 +381,9 @@ func handleIAMListServerCertificates(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListServerCertificateTags(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
-	cert, ok := iamServerCerts.Get(name)
+	cert, ok := iamServerCertsIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -384,9 +392,10 @@ func handleIAMListServerCertificateTags(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleIAMTagServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
 	newTags := iamParseTags(r)
-	if !iamServerCerts.Update(name, func(c *IAMServerCertificate) {
+	if !iamServerCertsIn(acct).Update(name, func(c *IAMServerCertificate) {
 		c.Tags = iamMergeTags(c.Tags, newTags)
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
@@ -396,9 +405,10 @@ func handleIAMTagServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUntagServerCertificate(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("ServerCertificateName")
 	remove := iamParseTagKeys(r)
-	if !iamServerCerts.Update(name, func(c *IAMServerCertificate) {
+	if !iamServerCertsIn(acct).Update(name, func(c *IAMServerCertificate) {
 		c.Tags = iamRemoveTags(c.Tags, remove)
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Server Certificate with name %s cannot be found.", name), http.StatusNotFound)
@@ -408,6 +418,7 @@ func handleIAMUntagServerCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMCreateAccountAlias(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	alias := r.FormValue("AccountAlias")
 	if alias == "" {
 		iamErrorXML(w, "ValidationError", "AccountAlias is required", http.StatusBadRequest)
@@ -415,13 +426,13 @@ func handleIAMCreateAccountAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	// Real IAM allows at most one alias per account: a second CreateAccountAlias
 	// with a different alias fails with EntityAlreadyExists.
-	for _, existing := range iamAccountAliases.List() {
+	for _, existing := range iamAccountAliasesIn(acct).List() {
 		if existing != alias {
 			iamErrorXML(w, "EntityAlreadyExists", "The account alias "+existing+" already exists.", http.StatusConflict)
 			return
 		}
 	}
-	iamAccountAliases.Put(alias, alias)
+	iamAccountAliasesIn(acct).Put(alias, alias)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateAccountAliasResponse %s>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
@@ -429,8 +440,9 @@ func handleIAMCreateAccountAlias(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteAccountAlias(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	alias := r.FormValue("AccountAlias")
-	if !iamAccountAliases.Delete(alias) {
+	if !iamAccountAliasesIn(acct).Delete(alias) {
 		iamErrorXML(w, "NoSuchEntity", "The account alias "+alias+" cannot be found.", http.StatusNotFound)
 		return
 	}
@@ -441,7 +453,8 @@ func handleIAMDeleteAccountAlias(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListAccountAliases(w http.ResponseWriter, r *http.Request) {
-	aliases := iamAccountAliases.List()
+	acct := iamRequestAccount(r)
+	aliases := iamAccountAliasesIn(acct).List()
 	sort.Strings(aliases)
 	var members strings.Builder
 	for _, a := range aliases {

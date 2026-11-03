@@ -322,7 +322,7 @@ func handleSSMDeleteCloudConnector(w http.ResponseWriter, r *http.Request) {
 func ssmCloudConnectorFindings(c SSMCloudConnector) []map[string]any {
 	findings := make([]map[string]any, 0)
 
-	_, roleFound := iamRoles.Get(iamRoleNameFromArn(c.RoleArn))
+	_, roleFound := iamRoleByArn(c.RoleArn)
 	_, untrusted := iamServiceTrustedRole(c.RoleArn, "ssm.amazonaws.com", "")
 	switch {
 	case !roleFound:

@@ -65,8 +65,9 @@ func registerIAMUsersCreds(r *AWSQueryRouter, srv *sim.Server) {
 }
 
 func handleIAMUpdateUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	user, ok := iamUsers.Get(name)
+	user, ok := iamUsersIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -74,7 +75,7 @@ func handleIAMUpdateUser(w http.ResponseWriter, r *http.Request) {
 	newName := r.FormValue("NewUserName")
 	newPath := r.FormValue("NewPath")
 	if newName != "" && newName != name {
-		if _, exists := iamUsers.Get(newName); exists {
+		if _, exists := iamUsersIn(acct).Get(newName); exists {
 			iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("User with name %s already exists.", newName), http.StatusConflict)
 			return
 		}
@@ -85,40 +86,42 @@ func handleIAMUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if newName != "" {
 		user.UserName = newName
 	}
-	user.Arn = iamUserArn(user.UserName, user.Path)
+	user.Arn = iamUserArn(acct, user.UserName, user.Path)
 	if newName != "" && newName != name {
-		iamUsers.Delete(name)
-		iamRekeyUser(name, newName)
+		iamUsersIn(acct).Delete(name)
+		iamRekeyUser(acct, name, newName)
 	}
-	iamUsers.Put(user.UserName, user)
+	iamUsersIn(acct).Put(user.UserName, user)
 	iamEmptyResultXML(w, "UpdateUser")
 }
 
 // iamRekeyUser moves a user's login profile, access keys, tags-bearing records,
 // and group memberships from the old name to the new name on a rename.
-func iamRekeyUser(oldName, newName string) {
-	if lp, ok := iamLoginProfiles.Get(oldName); ok {
+func iamRekeyUser(acct string, oldName, newName string) {
+	if lp, ok := iamLoginProfilesIn(acct).Get(oldName); ok {
 		lp.UserName = newName
-		iamLoginProfiles.Delete(oldName)
-		iamLoginProfiles.Put(newName, lp)
+		iamLoginProfilesIn(acct).Delete(oldName)
+		iamLoginProfilesIn(acct).Put(newName, lp)
 	}
+	old := iamCredentialOwner{Account: acct, UserName: oldName}
 	for _, k := range iamAccessKeys.List() {
-		if k.UserName == oldName {
+		if old.ownsKey(k) {
 			k.UserName = newName
 			iamAccessKeys.Put(k.AccessKeyId, k)
 		}
 	}
-	for _, m := range iamGroupMembers.List() {
+	for _, m := range iamGroupMembersIn(acct).List() {
 		if m.UserName == oldName {
-			iamGroupMembers.Delete(m.GroupName + "/" + oldName)
-			iamGroupMembers.Put(m.GroupName+"/"+newName, IAMGroupMember{GroupName: m.GroupName, UserName: newName})
+			iamGroupMembersIn(acct).Delete(m.GroupName + "/" + oldName)
+			iamGroupMembersIn(acct).Put(m.GroupName+"/"+newName, IAMGroupMember{GroupName: m.GroupName, UserName: newName})
 		}
 	}
 }
 
 func handleIAMUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("GroupName")
-	g, ok := iamGroups.Get(name)
+	g, ok := iamGroupsIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", name), http.StatusNotFound)
 		return
@@ -126,7 +129,7 @@ func handleIAMUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	newName := r.FormValue("NewGroupName")
 	newPath := r.FormValue("NewPath")
 	if newName != "" && newName != name {
-		if _, exists := iamGroups.Get(newName); exists {
+		if _, exists := iamGroupsIn(acct).Get(newName); exists {
 			iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Group with name %s already exists.", newName), http.StatusConflict)
 			return
 		}
@@ -137,64 +140,98 @@ func handleIAMUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	if newName != "" {
 		g.GroupName = newName
 	}
-	g.Arn = iamGroupArn(g.GroupName, g.Path)
+	g.Arn = iamGroupArn(acct, g.GroupName, g.Path)
 	if newName != "" && newName != name {
-		iamGroups.Delete(name)
-		for _, m := range iamGroupMembers.List() {
+		iamGroupsIn(acct).Delete(name)
+		for _, m := range iamGroupMembersIn(acct).List() {
 			if m.GroupName == name {
-				iamGroupMembers.Delete(name + "/" + m.UserName)
-				iamGroupMembers.Put(newName+"/"+m.UserName, IAMGroupMember{GroupName: newName, UserName: m.UserName})
+				iamGroupMembersIn(acct).Delete(name + "/" + m.UserName)
+				iamGroupMembersIn(acct).Put(newName+"/"+m.UserName, IAMGroupMember{GroupName: newName, UserName: m.UserName})
 			}
 		}
 	}
-	iamGroups.Put(g.GroupName, g)
+	iamGroupsIn(acct).Put(g.GroupName, g)
 	iamEmptyResultXML(w, "UpdateGroup")
 }
 
-func iamLoginProfileXML(lp IAMLoginProfile) string {
-	return fmt.Sprintf("<LoginProfile><UserName>%s</UserName><CreateDate>%s</CreateDate><PasswordResetRequired>%t</PasswordResetRequired></LoginProfile>",
-		xmlEscape(lp.UserName), lp.CreateDate, lp.PasswordResetRequired)
+func iamLoginProfileXML(owner iamCredentialOwner, lp IAMLoginProfile) string {
+	return fmt.Sprintf("<LoginProfile>%s<CreateDate>%s</CreateDate><PasswordResetRequired>%t</PasswordResetRequired></LoginProfile>",
+		owner.userNameXML(), lp.CreateDate, lp.PasswordResetRequired)
+}
+
+// iamLoginProfileOwner resolves whose password a request manages. A root
+// user's is managed only from an AssumeRoot session, as the IAM API
+// Reference states for the login-profile operations.
+func iamLoginProfileOwner(w http.ResponseWriter, r *http.Request) (iamCredentialOwner, bool) {
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return owner, false
+	}
+	if owner.root() && !stsCallerIsRootSession(r) {
+		iamErrorXML(w, "ValidationError", "Must specify userName when calling with non-User credentials", http.StatusBadRequest)
+		return owner, false
+	}
+	return owner, true
+}
+
+func iamNoLoginProfile(w http.ResponseWriter, owner iamCredentialOwner) {
+	name := owner.UserName
+	if owner.root() {
+		name = owner.Account
+	}
+	iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Login Profile for user %s cannot be found.", name), http.StatusNotFound)
 }
 
 func handleIAMCreateLoginProfile(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(name); !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
+	owner, ok := iamLoginProfileOwner(w, r)
+	if !ok {
 		return
 	}
-	if _, ok := iamLoginProfiles.Get(name); ok {
+	profiles := iamLoginProfilesIn(owner.Account)
+	if _, ok := profiles.Get(owner.key()); ok {
+		name := owner.UserName
+		if owner.root() {
+			name = owner.Account
+		}
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Login Profile for user %s already exists.", name), http.StatusConflict)
 		return
 	}
 	lp := IAMLoginProfile{
-		UserName:              name,
+		UserName:              owner.UserName,
 		Password:              r.FormValue("Password"),
 		CreateDate:            time.Now().UTC().Format(time.RFC3339),
 		PasswordResetRequired: r.FormValue("PasswordResetRequired") == "true",
 	}
-	iamLoginProfiles.Put(name, lp)
+	profiles.Put(owner.key(), lp)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateLoginProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateLoginProfileResult>%s</CreateLoginProfileResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateLoginProfileResponse>`,
-		iamLoginProfileXML(lp), sim.NewUUID())
+		iamLoginProfileXML(owner, lp), sim.NewUUID())
 }
 
 func handleIAMGetLoginProfile(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	lp, ok := iamLoginProfiles.Get(name)
+	owner, ok := iamLoginProfileOwner(w, r)
 	if !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Login Profile for user %s cannot be found.", name), http.StatusNotFound)
+		return
+	}
+	lp, ok := iamLoginProfilesIn(owner.Account).Get(owner.key())
+	if !ok {
+		iamNoLoginProfile(w, owner)
 		return
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetLoginProfileResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetLoginProfileResult>%s</GetLoginProfileResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetLoginProfileResponse>`,
-		iamLoginProfileXML(lp), sim.NewUUID())
+		iamLoginProfileXML(owner, lp), sim.NewUUID())
 }
 
 func handleIAMUpdateLoginProfile(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	lp, ok := iamLoginProfiles.Get(name)
+	owner, ok := iamRequestCredentialOwner(w, r)
 	if !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Login Profile for user %s cannot be found.", name), http.StatusNotFound)
+		return
+	}
+	profiles := iamLoginProfilesIn(owner.Account)
+	lp, ok := profiles.Get(owner.key())
+	if !ok {
+		iamNoLoginProfile(w, owner)
 		return
 	}
 	if pw := r.FormValue("Password"); pw != "" {
@@ -203,17 +240,19 @@ func handleIAMUpdateLoginProfile(w http.ResponseWriter, r *http.Request) {
 	if v := r.FormValue("PasswordResetRequired"); v != "" {
 		lp.PasswordResetRequired = v == "true"
 	}
-	iamLoginProfiles.Put(name, lp)
+	profiles.Put(owner.key(), lp)
 	iamEmptyResultXML(w, "UpdateLoginProfile")
 }
 
 func handleIAMDeleteLoginProfile(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	if _, ok := iamLoginProfiles.Get(name); !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Login Profile for user %s cannot be found.", name), http.StatusNotFound)
+	owner, ok := iamLoginProfileOwner(w, r)
+	if !ok {
 		return
 	}
-	iamLoginProfiles.Delete(name)
+	if !iamLoginProfilesIn(owner.Account).Delete(owner.key()) {
+		iamNoLoginProfile(w, owner)
+		return
+	}
 	iamEmptyResultXML(w, "DeleteLoginProfile")
 }
 
@@ -221,6 +260,7 @@ func handleIAMDeleteLoginProfile(w http.ResponseWriter, r *http.Request) {
 // resolves the caller from the SigV4 access-key id and validates the new
 // password against the account password policy.
 func handleIAMChangePassword(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	oldPw := r.FormValue("OldPassword")
 	newPw := r.FormValue("NewPassword")
 	if oldPw == "" || newPw == "" {
@@ -232,7 +272,7 @@ func handleIAMChangePassword(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "NoSuchEntity", "The calling user does not have a login profile.", http.StatusNotFound)
 		return
 	}
-	lp, ok := iamLoginProfiles.Get(caller)
+	lp, ok := iamLoginProfilesIn(acct).Get(caller)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Login Profile for user %s cannot be found.", caller), http.StatusNotFound)
 		return
@@ -241,13 +281,13 @@ func handleIAMChangePassword(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "InvalidUserType", "The OldPassword is incorrect.", http.StatusBadRequest)
 		return
 	}
-	if msg := iamValidatePasswordAgainstPolicy(newPw); msg != "" {
+	if msg := iamValidatePasswordAgainstPolicy(acct, newPw); msg != "" {
 		iamErrorXML(w, "PasswordPolicyViolation", msg, http.StatusBadRequest)
 		return
 	}
 	lp.Password = newPw
 	lp.PasswordResetRequired = false
-	iamLoginProfiles.Put(caller, lp)
+	iamLoginProfilesIn(acct).Put(caller, lp)
 	iamEmptyResultXML(w, "ChangePassword")
 }
 
@@ -275,8 +315,8 @@ func iamCallerUserName(r *http.Request) string {
 // iamValidatePasswordAgainstPolicy returns an empty string when the password
 // satisfies the account password policy (or no policy is set), otherwise a
 // human-readable reason.
-func iamValidatePasswordAgainstPolicy(pw string) string {
-	pol, ok := iamPasswordPolicies.Get(awsAccountID())
+func iamValidatePasswordAgainstPolicy(acct string, pw string) string {
+	pol, ok := iamPasswordPoliciesIn(acct).Get(acct)
 	if !ok {
 		return ""
 	}
@@ -299,10 +339,8 @@ func iamValidatePasswordAgainstPolicy(pw string) string {
 }
 
 func handleIAMUpdateAccessKey(w http.ResponseWriter, r *http.Request) {
-	akid := r.FormValue("AccessKeyId")
-	key, ok := iamAccessKeys.Get(akid)
+	key, _, ok := iamOwnedAccessKey(w, r)
 	if !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Access Key with id %s cannot be found.", akid), http.StatusNotFound)
 		return
 	}
 	status := r.FormValue("Status")
@@ -311,7 +349,7 @@ func handleIAMUpdateAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key.Status = status
-	iamAccessKeys.Put(akid, key)
+	iamAccessKeys.Put(key.AccessKeyId, key)
 	iamEmptyResultXML(w, "UpdateAccessKey")
 }
 
@@ -323,15 +361,18 @@ func handleIAMGetAccessKeyLastUsed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The simulator records no per-key usage, so the key reads as never used: IAM
-	// then omits LastUsedDate and reports ServiceName and Region as "N/A".
+	// then omits LastUsedDate and reports ServiceName and Region as "N/A". A
+	// root user's key names no user.
+	owner := iamCredentialOwner{Account: key.account(), UserName: key.UserName}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<GetAccessKeyLastUsedResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccessKeyLastUsedResult><UserName>%s</UserName><AccessKeyLastUsed><ServiceName>N/A</ServiceName><Region>N/A</Region></AccessKeyLastUsed></GetAccessKeyLastUsedResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccessKeyLastUsedResponse>`,
-		xmlEscape(key.UserName), sim.NewUUID())
+	fmt.Fprintf(w, `<GetAccessKeyLastUsedResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetAccessKeyLastUsedResult>%s<AccessKeyLastUsed><ServiceName>N/A</ServiceName><Region>N/A</Region></AccessKeyLastUsed></GetAccessKeyLastUsedResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetAccessKeyLastUsedResponse>`,
+		owner.userNameXML(), sim.NewUUID())
 }
 
 func handleIAMTagUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	user, ok := iamUsers.Get(name)
+	user, ok := iamUsersIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -349,13 +390,14 @@ func handleIAMTagUser(w http.ResponseWriter, r *http.Request) {
 			user.Tags = append(user.Tags, t)
 		}
 	}
-	iamUsers.Put(name, user)
+	iamUsersIn(acct).Put(name, user)
 	iamEmptyResultXML(w, "TagUser")
 }
 
 func handleIAMUntagUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	user, ok := iamUsers.Get(name)
+	user, ok := iamUsersIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -375,13 +417,14 @@ func handleIAMUntagUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	user.Tags = kept
-	iamUsers.Put(name, user)
+	iamUsersIn(acct).Put(name, user)
 	iamEmptyResultXML(w, "UntagUser")
 }
 
 func handleIAMListUserTags(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	user, ok := iamUsers.Get(name)
+	user, ok := iamUsersIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
@@ -399,9 +442,10 @@ func iamPasswordPolicyXML(p IAMPasswordPolicy) string {
 }
 
 func handleIAMGetAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {
-	p, ok := iamPasswordPolicies.Get(awsAccountID())
+	acct := iamRequestAccount(r)
+	p, ok := iamPasswordPoliciesIn(acct).Get(acct)
 	if !ok {
-		iamErrorXML(w, "NoSuchEntity", "The Password Policy with domain name "+awsAccountID()+" cannot be found.", http.StatusNotFound)
+		iamErrorXML(w, "NoSuchEntity", "The Password Policy with domain name "+acct+" cannot be found.", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/xml")
@@ -410,6 +454,7 @@ func handleIAMGetAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUpdateAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	// AWS applies documented defaults for unspecified parameters.
 	p := IAMPasswordPolicy{MinimumPasswordLength: 6}
 	if v := r.FormValue("MinimumPasswordLength"); v != "" {
@@ -435,15 +480,16 @@ func handleIAMUpdateAccountPasswordPolicy(w http.ResponseWriter, r *http.Request
 	}
 	// ExpirePasswords is derived: true iff MaxPasswordAge > 0.
 	p.ExpirePasswords = p.MaxPasswordAge > 0
-	iamPasswordPolicies.Put(awsAccountID(), p)
+	iamPasswordPoliciesIn(acct).Put(acct, p)
 	iamEmptyResultXML(w, "UpdateAccountPasswordPolicy")
 }
 
 func handleIAMDeleteAccountPasswordPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := iamPasswordPolicies.Get(awsAccountID()); !ok {
+	acct := iamRequestAccount(r)
+	if _, ok := iamPasswordPoliciesIn(acct).Get(acct); !ok {
 		iamErrorXML(w, "NoSuchEntity", "The Password Policy cannot be found.", http.StatusNotFound)
 		return
 	}
-	iamPasswordPolicies.Delete(awsAccountID())
+	iamPasswordPoliciesIn(acct).Delete(acct)
 	iamEmptyResultXML(w, "DeleteAccountPasswordPolicy")
 }

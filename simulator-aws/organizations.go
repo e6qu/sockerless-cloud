@@ -58,9 +58,13 @@ type OrgRoot struct {
 	Id   string `json:"Id"`
 	Arn  string `json:"Arn"`
 	Name string `json:"Name"`
-	// EnabledPolicyTypes are the policy types ENABLED on the root (beyond the
-	// always-available SERVICE_CONTROL_POLICY).
+	// EnabledPolicyTypes are the policy types other than service control
+	// policies the root enables.
 	EnabledPolicyTypes []string `json:"EnabledPolicyTypes"`
+	// ServiceControlPoliciesDisabled is set once DisablePolicyType disables
+	// service control policies, which the organization's root enables from
+	// the start.
+	ServiceControlPoliciesDisabled bool `json:",omitempty"`
 }
 
 type OrgOU struct {
@@ -163,6 +167,7 @@ func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	orgTags = sim.MakeStore[OrgTags](srv.DB(), "org_tags")
 
 	orgEnsureDefault()
+	orgAttachFullAWSAccessToUncovered()
 
 	r.Register("AWSOrganizationsV20161128.CreateOrganization", handleOrgCreateOrganization)
 	r.Register("AWSOrganizationsV20161128.DeleteOrganization", handleOrgDeleteOrganization)
@@ -275,15 +280,15 @@ func orgRandHex(n int) string {
 }
 
 func orgNewAccountID() string {
-	// Account ids are 12 digits.
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	digits := make([]byte, 12)
-	for i := 0; i < 12; i++ {
-		digits[i] = '0' + (b[i%6] % 10)
-	}
-	if digits[0] == '0' {
-		digits[0] = '1'
+	digits := make([]byte, 0, 12)
+	b := make([]byte, 1)
+	for len(digits) < 12 {
+		_, _ = rand.Read(b)
+		// Reject 250–255 so each digit is uniform; never lead with zero.
+		if b[0] >= 250 || (len(digits) == 0 && b[0]%10 == 0) {
+			continue
+		}
+		digits = append(digits, '0'+b[0]%10)
 	}
 	return string(digits)
 }
@@ -336,24 +341,37 @@ func orgEnsureDefault() {
 		AwsManaged:  true,
 		Content:     `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 	})
-	orgPolicyAttachments.Put(orgFullAWSAccessPolicyID+"|"+orgRootID(), OrgPolicyAttachment{
-		PolicyId: orgFullAWSAccessPolicyID,
-		TargetId: orgRootID(),
-	})
+	orgAttachFullAWSAccess(orgRootID())
+	orgAttachFullAWSAccess(acct)
+}
+
+// orgPolicyContentValid reports whether content is a document of the policy
+// type: a service or resource control policy is an IAM policy document.
+func orgPolicyContentValid(policyType, content string) bool {
+	switch policyType {
+	case orgSCPType, "RESOURCE_CONTROL_POLICY":
+		_, err := parseIAMPolicy(content)
+		return err == nil
+	}
+	return true
 }
 
 func orgOrgToMap(o OrgOrganization) map[string]any {
 	return map[string]any{
-		"Id":                 o.Id,
-		"Arn":                o.Arn,
-		"FeatureSet":         o.FeatureSet,
-		"MasterAccountId":    o.MasterAccountId,
-		"MasterAccountArn":   o.MasterAccountArn,
-		"MasterAccountEmail": o.MasterAccountEmail,
-		"AvailablePolicyTypes": []map[string]any{
-			{"Type": "SERVICE_CONTROL_POLICY", "Status": "ENABLED"},
-		},
+		"Id":                   o.Id,
+		"Arn":                  o.Arn,
+		"FeatureSet":           o.FeatureSet,
+		"MasterAccountId":      o.MasterAccountId,
+		"MasterAccountArn":     o.MasterAccountArn,
+		"MasterAccountEmail":   o.MasterAccountEmail,
+		"AvailablePolicyTypes": orgRootPolicyTypes(),
 	}
+}
+
+// orgRootPolicyTypes is the PolicyTypes list of the organization's root.
+func orgRootPolicyTypes() []map[string]any {
+	root, _ := orgRoots.Get(orgRootID())
+	return orgPolicyTypeSummaries(root)
 }
 
 func orgAccountToMap(a OrgAccount) map[string]any {
@@ -369,16 +387,23 @@ func orgAccountToMap(a OrgAccount) map[string]any {
 }
 
 func orgRootToMap(r OrgRoot) map[string]any {
-	policyTypes := []map[string]any{}
-	for _, t := range r.EnabledPolicyTypes {
-		policyTypes = append(policyTypes, map[string]any{"Type": t, "Status": "ENABLED"})
-	}
 	return map[string]any{
 		"Id":          r.Id,
 		"Arn":         r.Arn,
 		"Name":        r.Name,
-		"PolicyTypes": policyTypes,
+		"PolicyTypes": orgPolicyTypeSummaries(r),
 	}
+}
+
+func orgPolicyTypeSummaries(r OrgRoot) []map[string]any {
+	policyTypes := []map[string]any{}
+	if !r.ServiceControlPoliciesDisabled {
+		policyTypes = append(policyTypes, map[string]any{"Type": orgSCPType, "Status": "ENABLED"})
+	}
+	for _, t := range r.EnabledPolicyTypes {
+		policyTypes = append(policyTypes, map[string]any{"Type": t, "Status": "ENABLED"})
+	}
+	return policyTypes
 }
 
 func orgOUToMap(o OrgOU) map[string]any {
@@ -531,6 +556,14 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
 		return
 	}
+	if req.RoleName == "" {
+		req.RoleName = orgAccountAccessRoleName
+	}
+	if !orgRoleNamePattern.MatchString(req.RoleName) || len(req.RoleName) > 64 {
+		AWSErrorf(w, "InvalidInputException", http.StatusBadRequest,
+			"1 validation error detected: Value '%s' at 'roleName' failed to satisfy constraint: Member must satisfy regular expression pattern: [\\w+=,.@-]{1,64}", req.RoleName)
+		return
+	}
 	now := orgEpoch()
 	acctID := orgNewAccountID()
 	// The account is created and the request settles SUCCEEDED at once; AWS provisions asynchronously.
@@ -544,6 +577,8 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 		JoinedTimestamp: now,
 		ParentId:        orgRootID(),
 	})
+	orgAttachFullAWSAccess(acctID)
+	orgCreateAccountAccessRole(acctID, req.RoleName)
 	status := OrgCreateAccountStatus{
 		Id:                 "car-" + orgRandHex(16),
 		AccountName:        req.AccountName,
@@ -670,6 +705,7 @@ func handleOrgRemoveAccountFromOrganization(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	orgAccounts.Delete(req.AccountId)
+	orgDetachAll(req.AccountId)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -733,6 +769,7 @@ func handleOrgCreateOU(w http.ResponseWriter, r *http.Request) {
 	}
 	ou.Arn = orgOUArn(ou.Id)
 	orgOUs.Put(ou.Id, ou)
+	orgAttachFullAWSAccess(ou.Id)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"OrganizationalUnit": orgOUToMap(ou)})
 }
 
@@ -754,6 +791,7 @@ func handleOrgDeleteOU(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgOUs.Delete(req.OrganizationalUnitId)
+	orgDetachAll(req.OrganizationalUnitId)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -910,6 +948,10 @@ func handleOrgCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidInputException", "Name, Type and Content are required", http.StatusBadRequest)
 		return
 	}
+	if !orgPolicyContentValid(req.Type, req.Content) {
+		AWSError(w, "MalformedPolicyDocumentException", "The provided policy document doesn't meet the requirements of the specified policy type.", http.StatusBadRequest)
+		return
+	}
 	p := OrgPolicy{
 		Id:          "p-" + orgRandHex(8),
 		Name:        req.Name,
@@ -996,6 +1038,10 @@ func handleOrgUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		p.Description = *req.Description
 	}
 	if req.Content != nil {
+		if !orgPolicyContentValid(p.Type, *req.Content) {
+			AWSError(w, "MalformedPolicyDocumentException", "The provided policy document doesn't meet the requirements of the specified policy type.", http.StatusBadRequest)
+			return
+		}
 		p.Content = *req.Content
 	}
 	orgPolicies.Put(p.Id, p)
@@ -1005,11 +1051,15 @@ func handleOrgUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 func orgAttachmentKey(policyID, targetID string) string { return policyID + "|" + targetID }
 
 // orgPolicyTypeEnabled reports whether a policy of this type may govern a
-// target: SERVICE_CONTROL_POLICY is enabled in every root, and every other
-// type has to be enabled with EnablePolicyType first.
+// target: service control policies are enabled until DisablePolicyType
+// disables them, and every other type has to be enabled with
+// EnablePolicyType first.
 func orgPolicyTypeEnabled(policyType string) bool {
-	if policyType == "" || policyType == "SERVICE_CONTROL_POLICY" {
+	if policyType == "" {
 		return true
+	}
+	if policyType == orgSCPType {
+		return orgSCPEnabled()
 	}
 	for _, root := range orgRoots.List() {
 		for _, enabled := range root.EnabledPolicyTypes {
@@ -1075,6 +1125,10 @@ func handleOrgDetachPolicy(w http.ResponseWriter, r *http.Request) {
 	key := orgAttachmentKey(req.PolicyId, req.TargetId)
 	if _, ok := orgPolicyAttachments.Get(key); !ok {
 		AWSError(w, "PolicyNotAttachedException", "The policy isn't attached to the specified target.", http.StatusBadRequest)
+		return
+	}
+	if orgDetachLeavesNoSCP(req.PolicyId, req.TargetId) {
+		AWSError(w, "ConstraintViolationException", "You attempted to detach a policy from an entity that would cause the entity to have fewer than the minimum number of policies of a certain type required.", http.StatusBadRequest)
 		return
 	}
 	orgPolicyAttachments.Delete(key)
@@ -1210,6 +1264,15 @@ func handleOrgEnablePolicyType(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
 		return
 	}
+	if req.PolicyType == orgSCPType {
+		if !root.ServiceControlPoliciesDisabled {
+			AWSError(w, "PolicyTypeAlreadyEnabledException", "The specified policy type is already enabled.", http.StatusBadRequest)
+			return
+		}
+		orgEnableSCPs(&root)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"Root": orgRootToMap(root)})
+		return
+	}
 	for _, t := range root.EnabledPolicyTypes {
 		if t == req.PolicyType {
 			AWSError(w, "PolicyTypeAlreadyEnabledException", "The specified policy type is already enabled.", http.StatusBadRequest)
@@ -1233,6 +1296,15 @@ func handleOrgDisablePolicyType(w http.ResponseWriter, r *http.Request) {
 	root, ok := orgRoots.Get(req.RootId)
 	if !ok {
 		AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
+		return
+	}
+	if req.PolicyType == orgSCPType {
+		if root.ServiceControlPoliciesDisabled {
+			AWSError(w, "PolicyTypeNotEnabledException", "The specified policy type isn't currently enabled in this root.", http.StatusBadRequest)
+			return
+		}
+		orgDisableSCPs(&root)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"Root": orgRootToMap(root)})
 		return
 	}
 	found := false
