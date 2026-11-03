@@ -74,8 +74,8 @@ func TestSessionCarriesStateAndRunsBackgroundBlocks(t *testing.T) {
 	doc, err := Parse(writeDoc(t, strings.Join([]string{
 		"<!-- doctest: run -->", "```sh", "mkdir work && cd work", "export GREETING=hello", "```",
 		"<!-- doctest: background id=srv ready=\"^up$\" -->", "```sh",
-		"mkfifo pipe; echo up; read -r line < pipe; echo \"got $line\" > got", "```",
-		"<!-- doctest: run expect=\"^hello from .*/work\\n$\" -->", "```sh", "echo \"$GREETING from $PWD\"; echo ping > pipe", "```",
+		"mkfifo pipe ack; echo up; read -r line < pipe; echo \"got $line\" > got; echo done > ack; read -r line < pipe", "```",
+		"<!-- doctest: run expect=\"^hello from .*/work\\ndone\\n$\" -->", "```sh", "echo \"$GREETING from $PWD\"; echo ping > pipe; cat ack", "```",
 		"<!-- doctest: stop id=srv -->",
 		"<!-- doctest: run expect=\"got\" expect=\"ping\" -->", "```sh", "cat got", "```",
 	}, "\n")))
