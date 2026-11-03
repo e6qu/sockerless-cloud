@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.5](https://github.com/e6qu/sockerless-cloud/compare/v3.3.4...v3.3.5) (2026-11-03)
+
+
+### Bug Fixes
+
+* **aws:** hold AWS STS root, session-token and MFA sessions to AWS's rules ([#378](https://github.com/e6qu/sockerless-cloud/issues/378)) ([7ef4e52](https://github.com/e6qu/sockerless-cloud/commit/7ef4e5206d2920fd55e328ae157fb0415a6d15c6))
+
 ## [3.3.4](https://github.com/e6qu/sockerless-cloud/compare/v3.3.3...v3.3.4) (2026-11-02)
 
 
