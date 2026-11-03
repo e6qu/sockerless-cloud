@@ -49,7 +49,7 @@ The AWS simulator (`simulator-aws/`) serves AWS Identity and Access Management (
 
 #### The seeded credential
 
-On start, `seedRootAdminCredential` (`iam_users.go`) provisions one IAM user and one access key. It skips this when the key already exists in a persistent store.
+On start, `seedRootAdminCredential` (`iam_users.go`) provisions an administrator IAM user and its access key, and `seedRootUserCredential` an access key for the management account's root user. Each skips its key when a persistent store already holds it.
 
 | Item | Value |
 |---|---|
@@ -58,8 +58,9 @@ On start, `seedRootAdminCredential` (`iam_users.go`) provisions one IAM user and
 | Access key ID / secret | `test` / `test` |
 | Principal | IAM user `sockerless-sim-admin`, `arn:aws:iam::123456789012:user/sockerless-sim-admin`, user ID `AIDAROOTSIMADMIN00000` |
 | Permissions | inline policy `AdministratorAccess`: `{"Effect":"Allow","Action":"*","Resource":"*"}` |
+| Root user key | `root` / `root`, principal `arn:aws:iam::123456789012:root`, user ID `123456789012` |
 
-The `test` key belongs to an ordinary IAM user, not the account root user. Its access comes from its policy alone, so a trust policy, a resource policy or an explicit `Deny` still constrains it. No principal bypasses evaluation. The simulator has no root user who signs requests. `AssumeRoot` mints a session whose principal is `arn:aws:iam::<account>:root`, but that session carries no policies, so the gate denies it every action (see the limits).
+The `test` key belongs to an ordinary IAM user, not the account root user. Its access comes from its policy alone, so a trust policy, a resource policy or an explicit `Deny` still constrains it. The `root` key belongs to the management account's root user, as an access key with no `UserName` does in any account. AWS issues a root user's first key from the console after sign-in, which no API reaches, so the simulator seeds it. The root user needs no policy, and only an explicit `Deny` refuses it; service control policies do not apply to the management account. Its `GetSessionToken` sessions last 900 to 3,600 seconds, and it cannot call `AssumeRoot`. A member account's root user starts with no credentials, and the management account reaches it through `AssumeRoot` task sessions.
 
 #### IAM principals
 
@@ -88,7 +89,7 @@ The `test` key belongs to an ordinary IAM user, not the account root user. Its a
 | `GetSessionToken` | none | the calling user | `SerialNumber` plus `TokenCode` mark the session as MFA. |
 | `GetFederationToken` | none | `federated-user/<name>` | Accepts tags. |
 | `GetWebIdentityToken` | outbound federation enabled (`sts_outbound_federation.go`) | n/a | Issues a JWT from `https://<id>.tokens.sts.global.api.aws`, which serves discovery and JSON Web Key Set documents. |
-| `AssumeRoot`, `GetDelegatedAccessToken` | none | `…:root` / the caller | See the limits. |
+| `AssumeRoot`, `GetDelegatedAccessToken` | `AssumeRoot`: a management account or delegated administrator caller that is not a root user, with root sessions enabled, against an active member account | `…:root` / the caller | An `AssumeRoot` session carries its root-task policy. |
 | `DecodeAuthorizationMessage`, `GetAccessKeyInfo` | none | n/a | See the limits. |
 
 Web-identity and SAML sessions keep the provider's claims (`stsChainedFederationKeys`, `sts_role_chaining.go`). A role that such a session assumes next can still condition on them.
@@ -367,10 +368,7 @@ Each limit has a `BUGS.md` row. Those marked "observed" were reproduced against 
 | Limit | Detail | Bug |
 |---|---|---|
 | Amazon S3 public access details | `x-amz-acl` and `x-amz-grant-*` on `PutObject`, `CreateBucket` and `CopyObject` are not persisted; `BlockPublicAcls` and `BlockPublicPolicy` do not refuse public ACL and policy writes, there is no account-level Block Public Access, and new buckets do not default to `BucketOwnerEnforced` with Block Public Access on; `BucketOwnerEnforced` does not refuse ACL writes with `AccessControlListNotSupported`; a caller with `s3:GetObject` but not `s3:ListBucket` gets `NoSuchKey` for a missing key where S3 answers 403. | [3765](../BUGS.md) |
-| Role permissions boundaries | `PutRolePermissionsBoundary` stores the boundary, but `iamPermissionBoundaryDocs` reads users only. A role's boundary does not cap its sessions (observed). | [3737](../BUGS.md) |
-| Session policies | `AssumeRole`, `GetFederationToken` and the federation calls ignore `Policy` and `PolicyArns`. `PackedPolicySize` is always 0. A deny-all session policy does not restrict the session (observed). | [3737](../BUGS.md) |
-| Federated-user and root sessions | `GetFederationToken` and `AssumeRoot` sessions resolve to no policy documents, so the gate denies them every action (observed for federation). | [3737](../BUGS.md) |
-| Service control and resource control policies | AWS Organizations stores them, but `iamAuthorizeWithContext` never evaluates them. | [3738](../BUGS.md) |
+| Resource control policies | AWS Organizations stores them, but `iamAuthorizeWithContext` never evaluates them: member accounts own no resources. Service control policies govern every member-account principal. | [3738](../BUGS.md) |
 | AWS managed policies | None are served. Attaching `arn:aws:iam::aws:policy/…` grants nothing. | 3662 |
 | Role `MaxSessionDuration` | `stsDurationSeconds` clamps to 43200 and ignores the role's maximum. A 12-hour session of a role with a 1-hour maximum succeeds (observed). | [3737](../BUGS.md) |
 | MFA | `stsRequestMFA` checks only that `SerialNumber` and `TokenCode` are present. It does not verify the TOTP code. | [3737](../BUGS.md) |

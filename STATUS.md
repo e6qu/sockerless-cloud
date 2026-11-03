@@ -134,7 +134,8 @@ Shared mechanisms, one package each:
   permissions boundary, their session policies, the role's
   `MaxSessionDuration` and a verified MFA code. IAM hosts every account of the
   organization: member accounts carry their own principals and root users,
-  reached through `OrganizationAccountAccessRole`, and service control
+  reached through `OrganizationAccountAccessRole`, the management account's
+  root user signs with `root`/`root`, and service control
   policies govern their principals.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that

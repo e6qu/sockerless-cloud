@@ -84,6 +84,7 @@ func registerIAMUsers(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ListAttachedUserPolicies", handleIAMListAttachedUserPolicies)
 
 	seedRootAdminCredential()
+	seedRootUserCredential()
 }
 
 // Bootstrap administrator credential. An AWS account starts with a root
@@ -121,6 +122,26 @@ func seedRootAdminCredential() {
 		UserName:        seedAdminUserName,
 		Status:          "Active",
 		CreateDate:      now,
+	})
+}
+
+// The management account's root user signs with "root"/"root". AWS issues a
+// root user's first access key from the console after sign-in, which no API
+// reaches; a key with no UserName belongs to its account's root user.
+const (
+	seedRootUserAccessKey = "root"
+	seedRootUserSecretKey = "root"
+)
+
+func seedRootUserCredential() {
+	if _, ok := iamAccessKeys.Get(seedRootUserAccessKey); ok {
+		return
+	}
+	iamAccessKeys.Put(seedRootUserAccessKey, IAMAccessKey{
+		AccessKeyId:     seedRootUserAccessKey,
+		SecretAccessKey: seedRootUserSecretKey,
+		Status:          "Active",
+		CreateDate:      time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

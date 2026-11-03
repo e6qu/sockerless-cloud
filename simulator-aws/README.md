@@ -112,8 +112,8 @@ type, such as `ecs:FARGATE`), `lambda`, `batch` and `elasticache`.
 
 Every client takes three coordinates: the endpoint `http://localhost:4566`,
 the access key `test` with secret `test`, and a Region. `test`/`test` is the
-administrator the simulator starts with, as a new AWS account starts with its
-root credential. Two settings follow from serving every service on one host:
+administrator the simulator starts with. The management account's root user
+signs with `root`/`root`. Two settings follow from serving every service on one host:
 
 - The simulator serves Amazon Simple Storage Service (Amazon S3)
   general-purpose buckets path-style only; virtual-hosted addressing reaches

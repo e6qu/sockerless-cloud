@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 316.
+Open: 315.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -15,7 +15,6 @@ live in `WHAT_WE_DID.md`.
 | 3868 | P3 | AWS Organizations `RemoveAccountFromOrganization` deletes the account | The removed account's IAM entities become unreachable after a restart; on AWS the account carries on as a standalone account. | Keep removed accounts as hosted standalone accounts. |
 | 3869 | P2 | AWS Organizations management operations admit member-account callers | Member-account principals can call management-only operations such as `CreateAccount`, `AttachPolicy` and `EnablePolicyType`. | Refuse callers that are neither the management account nor a delegated administrator, with AWS's error. |
 | 3870 | P3 | Terraform `aws_organizations_organization` cannot disable service control policies | The provider's wait after `DisablePolicyType` fails with "couldn't find resource" once the root stops listing the policy type; whether AWS reports a transitional `PENDING_DISABLE` is unsourced. | Capture or source what AWS returns while a policy type disables and match it. |
-| 3862 | P3 | AWS simulator issues the management account root user no first access key | AWS issues a root user's first access key from the AWS Management Console; the simulator seeds only the IAM user `sockerless-sim-admin` (`test`/`test`), so no client can sign as the management account's root user until a root key exists. Root keys, root semantics in the IAM gate, root `GetSessionToken` durations and `AssumeRoot`'s refusal of root callers work once one does, and unit tests exercise them. | Decide a documented seed for the management account root user's first access key and test the root paths through the SDK, CLI and Terraform. |
 | 3863 | P3 | AWS member accounts own no resources | Every resource belongs to the management account, so `AssumeRoot` unlock sessions reach nothing they own and a member root's `ListBuckets` lists the management account's buckets. | Own resources per account and reach them through `OrganizationAccountAccessRole` cross-account `AssumeRole`; ties to BUG-3738. |
 | 3866 | P3 | AWS STS and IAM root-access refusals use unsourced codes | `AssumeRoot` refusals answer `AccessDenied` with the simulator's own messages, a non-MFA `GetSessionToken` session calling IAM gets `AccessDenied` (public reports show `InvalidClientTokenId`), `SQSUnlockQueuePolicy` allows `SetQueueAttributes` only to clear `Policy`, and disabling IAM trusted access leaves enabled root features on; no vendored source states these. | Vendor sources that state them, or correct each against a capture from AWS. |
 | 3853 | P3 | AWS IAM AWS managed policies resolve to nothing | `arn:aws:iam::aws:policy/*` ARNs such as `ReadOnlyAccess` name no stored document, so as session policies, attachments or boundaries they allow nothing; the simulator stores only the five root-task policies `AssumeRoot` uses. | Vendor the AWS managed policy documents and resolve them in `iamPolicies` lookups. |

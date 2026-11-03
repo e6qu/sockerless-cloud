@@ -1462,7 +1462,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon SNS delivery status
             cloud: aws
-            tf_packages: "./sns-delivery-status"
+            tf_packages: "./sns-delivery-status ./iam-root-user"
             timeout_minutes: 12
           - suite: aws AWS Lambda concurrency
             cloud: aws

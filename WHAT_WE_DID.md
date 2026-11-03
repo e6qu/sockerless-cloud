@@ -977,7 +977,8 @@ creates `OrganizationAccountAccessRole` trusting the management account, and
 a cross-account call passes only when both the caller's policies and the
 target's trust or resource policy allow it. An access key with no user
 belongs to the account's root user, which only explicit denies and service
-control policies limit, and the root-credential `AssumeRoot` tasks act on the
+control policies limit; the simulator seeds the management account's root
+user the key `root`/`root`, as AWS issues the first one from the console, and the root-credential `AssumeRoot` tasks act on the
 member root's real login profile, keys, certificates and MFA devices. Service
 control policies govern every member-account principal from the root through
 each OU down to the account, sparing the management account and
