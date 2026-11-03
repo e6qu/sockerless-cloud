@@ -115,9 +115,10 @@ func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	t.Parallel()
 	admin := s3ExpressClient()
+	bucket := "sim-express-session--use1-az4--x-s3"
 	other := "sim-express-other--use1-az4--x-s3"
 
-	for _, name := range []string{s3ExpressBucket, other} {
+	for _, name := range []string{bucket, other} {
 		_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: aws.String(name),
 			CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
@@ -133,7 +134,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 		}
 	}
 	_, err := admin.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s3ExpressBucket), Key: aws.String("k"), Body: strings.NewReader("v")})
+		Bucket: aws.String(bucket), Key: aws.String("k"), Body: strings.NewReader("v")})
 	require.NoError(t, err)
 
 	// Only a directory bucket has a zonal endpoint to open a session on.
@@ -146,7 +147,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	require.Error(t, err, "a general purpose bucket has no session")
 
 	// ReadWrite is the default.
-	session, err := admin.CreateSession(ctx, &s3.CreateSessionInput{Bucket: aws.String(s3ExpressBucket)})
+	session, err := admin.CreateSession(ctx, &s3.CreateSessionInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	require.NotNil(t, session.Credentials)
 	require.NotEmpty(t, aws.ToString(session.Credentials.AccessKeyId))
@@ -170,7 +171,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 	}
 
 	rw := sessionClient(session.Credentials)
-	_, err = rw.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s3ExpressBucket), Key: aws.String("k")})
+	_, err = rw.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	assert.NoError(t, err, "the session opens the bucket it was created for")
 
 	// The same session does not open a different directory bucket.
@@ -180,13 +181,13 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 
 	// A ReadOnly session reads and does not write.
 	readOnly, err := admin.CreateSession(ctx, &s3.CreateSessionInput{
-		Bucket: aws.String(s3ExpressBucket), SessionMode: s3types.SessionModeReadOnly})
+		Bucket: aws.String(bucket), SessionMode: s3types.SessionModeReadOnly})
 	require.NoError(t, err)
 	ro := sessionClient(readOnly.Credentials)
-	_, err = ro.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s3ExpressBucket), Key: aws.String("k")})
+	_, err = ro.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	assert.NoError(t, err, "a ReadOnly session reads")
 	_, err = ro.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s3ExpressBucket), Key: aws.String("k2"), Body: strings.NewReader("v")})
+		Bucket: aws.String(bucket), Key: aws.String("k2"), Body: strings.NewReader("v")})
 	require.Error(t, err, "a ReadOnly session does not write")
 	assert.Equal(t, "AccessDenied", errCodeOf(err))
 }
