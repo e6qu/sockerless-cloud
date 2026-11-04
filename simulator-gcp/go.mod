@@ -16,7 +16,7 @@ require (
 	cloud.google.com/go/iam v1.15.1
 	cloud.google.com/go/kms v1.36.1
 	cloud.google.com/go/logging v1.21.1
-	cloud.google.com/go/longrunning v1.4.1
+	cloud.google.com/go/longrunning v1.5.0
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
@@ -110,7 +110,7 @@ require (
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	modernc.org/libc v1.80.0 // indirect
+	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
