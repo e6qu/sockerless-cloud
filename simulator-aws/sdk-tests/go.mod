@@ -49,9 +49,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.81.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.6
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.84.1
-	github.com/aws/smithy-go v1.28.7
+	github.com/aws/smithy-go v1.28.8
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
-	github.com/go-jose/go-jose/v4 v4.1.7
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/go-containerregistry v0.22.1

@@ -6,7 +6,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
-	github.com/go-jose/go-jose/v4 v4.1.7
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/miekg/dns v1.1.73
@@ -68,7 +68,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.79.1 // indirect
+	modernc.org/libc v1.80.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
