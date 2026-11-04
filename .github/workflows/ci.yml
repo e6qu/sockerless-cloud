@@ -351,7 +351,8 @@ jobs:
           - {cloud: azure, module: simulator-azure}
           # The race and node agent jobs run the support module's containers.
           - {cloud: sim, module: sim}
-          # The tf stack that names its own small set (Amazon RDS blue/green).
+          # The tf stacks that name their own small set (Amazon RDS blue/green
+          # and read replica).
           - cloud: aws
             label: one stack
             base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
@@ -1384,12 +1385,15 @@ jobs:
             timeout_minutes: 15
             base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
           # The provider's create, replica and destroy waits take about six
-          # minutes of the stack's test.
+          # minutes of the stack's test, and loading the whole AWS base-image
+          # archive took five more. The stack runs the same MySQL engine and
+          # helpers as the blue/green stack, so it warms the same set.
           - suite: aws Amazon RDS read replica
             cloud: aws
             tf_packages: "./rds-read-replica"
             tf_timeout: 720s
             timeout_minutes: 15
+            base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
           # The provider waits on the create of the primary and its standby and
           # on the destroy; the test waits on the failover in between.
           - suite: aws Amazon RDS Multi-AZ
