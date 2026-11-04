@@ -99,8 +99,7 @@ func TestIAMEnforcementReferencePagePermissionsCLI(t *testing.T) {
 	runCLI(t, gcloudCLI("compute", "instance-templates", "create", template, "--machine-type=n1-standard-1", "--quiet"))
 	runCLI(t, gcloudCLI("compute", "instance-groups", "managed", "create", group,
 		"--template="+template, "--size=0", "--zone="+zone))
-	runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", project,
-		"--member=serviceAccount:"+email, "--role=roles/compute.viewer"))
+	addProjectPolicyBinding(t, project, "--member=serviceAccount:"+email, "--role=roles/compute.viewer")
 
 	saConfig := filepath.Join(tmpDir, "gcloud-"+accountID)
 	runCLI(t, gcloudSAActivatedCLI(saConfig, "config", "set", "auth/token_host", baseURL+"/token"))
