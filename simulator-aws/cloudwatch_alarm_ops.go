@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -401,11 +400,9 @@ func cloudWatchCBORAuthorized(op string, h http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			for _, target := range cloudWatchCBORTargets(r, op) {
-				allowed, principalARN, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
+				denial, allowed, registered := iamAuthorizeDenial(r, target.action, target.resource, target.context)
 				if registered && !allowed {
-					cwWriteCBORError(w, "AccessDenied",
-						fmt.Sprintf("User: %s is not authorized to perform: %s", principalARN, target.action),
-						http.StatusForbidden)
+					cwWriteCBORError(w, "AccessDenied", denial.message(), http.StatusForbidden)
 					return
 				}
 			}

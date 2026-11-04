@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 // The organization id is stable per process (SOCKERLESS_AWS_ORG_ID overrides
 // it), and the simulator's account is the management account. Materialize a
 // default organization with a Root and the management account at startup, so
-// aws:PrincipalOrgID always resolves.
+// aws:PrincipalOrgID resolves for the principals of its accounts.
 
 func awsOrgID() string {
 	if id := os.Getenv("SOCKERLESS_AWS_ORG_ID"); id != "" {
@@ -65,6 +66,11 @@ type OrgRoot struct {
 	// service control policies, which the organization's root enables from
 	// the start.
 	ServiceControlPoliciesDisabled bool `json:",omitempty"`
+	// AvailablePolicyTypes are the policy types other than service control
+	// policies the organization has enabled. DisablePolicyType disables a
+	// type in the root only: in an organization with all features it still
+	// appears enabled for the organization.
+	AvailablePolicyTypes []string `json:",omitempty"`
 }
 
 type OrgOU struct {
@@ -136,18 +142,22 @@ type OrgTags struct {
 }
 
 var (
-	orgOrg               sim.Store[OrgOrganization]
-	orgAccounts          sim.Store[OrgAccount]
-	orgRoots             sim.Store[OrgRoot]
-	orgOUs               sim.Store[OrgOU]
-	orgPolicies          sim.Store[OrgPolicy]
-	orgPolicyAttachments sim.Store[OrgPolicyAttachment]
-	orgHandshakes        sim.Store[OrgHandshake]
-	orgCreateStatuses    sim.Store[OrgCreateAccountStatus]
-	orgDelegatedAdmins   sim.Store[OrgDelegatedAdmin]
-	orgServiceAccess     sim.Store[OrgServiceAccess]
-	orgResourcePolicies  sim.Store[OrgResourcePolicy]
-	orgTags              sim.Store[OrgTags]
+	orgOrg      sim.Store[OrgOrganization]
+	orgAccounts sim.Store[OrgAccount]
+	// orgStandaloneAccounts are the accounts that left the organization. AWS
+	// keeps each running as a standalone account, so the simulator keeps
+	// hosting its identities.
+	orgStandaloneAccounts sim.Store[OrgAccount]
+	orgRoots              sim.Store[OrgRoot]
+	orgOUs                sim.Store[OrgOU]
+	orgPolicies           sim.Store[OrgPolicy]
+	orgPolicyAttachments  sim.Store[OrgPolicyAttachment]
+	orgHandshakes         sim.Store[OrgHandshake]
+	orgCreateStatuses     sim.Store[OrgCreateAccountStatus]
+	orgDelegatedAdmins    sim.Store[OrgDelegatedAdmin]
+	orgServiceAccess      sim.Store[OrgServiceAccess]
+	orgResourcePolicies   sim.Store[OrgResourcePolicy]
+	orgTags               sim.Store[OrgTags]
 )
 
 const orgSingletonKey = "default"
@@ -155,6 +165,7 @@ const orgSingletonKey = "default"
 func registerOrganizations(r *AWSRouter, srv *sim.Server) {
 	orgOrg = sim.MakeStore[OrgOrganization](srv.DB(), "org_organization")
 	orgAccounts = sim.MakeStore[OrgAccount](srv.DB(), "org_accounts")
+	orgStandaloneAccounts = sim.MakeStore[OrgAccount](srv.DB(), "org_standalone_accounts")
 	orgRoots = sim.MakeStore[OrgRoot](srv.DB(), "org_roots")
 	orgOUs = sim.MakeStore[OrgOU](srv.DB(), "org_ous")
 	orgPolicies = sim.MakeStore[OrgPolicy](srv.DB(), "org_policies")
@@ -364,14 +375,22 @@ func orgOrgToMap(o OrgOrganization) map[string]any {
 		"MasterAccountId":      o.MasterAccountId,
 		"MasterAccountArn":     o.MasterAccountArn,
 		"MasterAccountEmail":   o.MasterAccountEmail,
-		"AvailablePolicyTypes": orgRootPolicyTypes(),
+		"AvailablePolicyTypes": orgAvailablePolicyTypes(o),
 	}
 }
 
-// orgRootPolicyTypes is the PolicyTypes list of the organization's root.
-func orgRootPolicyTypes() []map[string]any {
+// orgAvailablePolicyTypes is the organization's AvailablePolicyTypes, which
+// DisablePolicyType leaves enabled when the organization has all features.
+func orgAvailablePolicyTypes(o OrgOrganization) []map[string]any {
 	root, _ := orgRoots.Get(orgRootID())
-	return orgPolicyTypeSummaries(root)
+	if o.FeatureSet != "ALL" {
+		return orgPolicyTypeSummaries(root)
+	}
+	available := []map[string]any{{"Type": orgSCPType, "Status": "ENABLED"}}
+	for _, t := range root.AvailablePolicyTypes {
+		available = append(available, map[string]any{"Type": t, "Status": "ENABLED"})
+	}
+	return available
 }
 
 func orgAccountToMap(a OrgAccount) map[string]any {
@@ -383,6 +402,7 @@ func orgAccountToMap(a OrgAccount) map[string]any {
 		"Status":          a.Status,
 		"JoinedMethod":    a.JoinedMethod,
 		"JoinedTimestamp": a.JoinedTimestamp,
+		"State":           a.Status,
 	}
 }
 
@@ -501,7 +521,12 @@ func handleOrgCreateOrganization(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOrgDeleteOrganization(w http.ResponseWriter, _ *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
+	o, ok := orgRequireOrg(w)
+	if !ok {
+		return
+	}
+	if len(orgAccounts.Filter(func(a OrgAccount) bool { return a.Id != o.MasterAccountId })) > 0 {
+		AWSError(w, "OrganizationNotEmptyException", "The organization isn't empty. To delete an organization, you must first remove all accounts except the management account.", http.StatusBadRequest)
 		return
 	}
 	orgOrg.Delete(orgSingletonKey)
@@ -700,13 +725,43 @@ func handleOrgRemoveAccountFromOrganization(w http.ResponseWriter, r *http.Reque
 		AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
 		return
 	}
-	if _, ok := orgAccounts.Get(req.AccountId); !ok {
+	a, ok := orgAccounts.Get(req.AccountId)
+	if !ok {
 		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
-	orgAccounts.Delete(req.AccountId)
-	orgDetachAll(req.AccountId)
+	if !orgDepartAccount(w, a) {
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// orgDepartAccount takes a member account out of the organization, which
+// leaves it running as a standalone account: its identities and resources
+// stay, while the organization's policies no longer govern it. A delegated
+// administrator must first be deregistered.
+func orgDepartAccount(w http.ResponseWriter, a OrgAccount) bool {
+	if orgDelegatedAdministratorAccount(a.Id) {
+		writeOrgConstraintViolation(w, "CANNOT_REMOVE_DELEGATED_ADMINISTRATOR_FROM_ORG",
+			"You attempted to remove an account that is registered as a delegated administrator for a service integrated with your organization. To complete this operation, you must first deregister this account as a delegated administrator.")
+		return false
+	}
+	orgDetachAll(a.Id)
+	orgTags.Delete(a.Id)
+	a.ParentId = ""
+	orgStandaloneAccounts.Put(a.Id, a)
+	orgAccounts.Delete(a.Id)
+	return true
+}
+
+// writeOrgConstraintViolation answers ConstraintViolationException with the
+// Reason member the model declares.
+func writeOrgConstraintViolation(w http.ResponseWriter, reason, message string) {
+	awsWriteJSONErrorBody(w, awsJSON11, http.StatusBadRequest, "ConstraintViolationException", map[string]string{
+		"__type":  "ConstraintViolationException",
+		"Message": message,
+		"Reason":  reason,
+	})
 }
 
 func handleOrgCloseAccount(w http.ResponseWriter, r *http.Request) {
@@ -723,7 +778,11 @@ func handleOrgCloseAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.AccountId == awsAccountID() {
-		AWSError(w, "ConstraintViolationException", "You can't close the management account.", http.StatusBadRequest)
+		writeOrgConstraintViolation(w, "CANNOT_CLOSE_MANAGEMENT_ACCOUNT", "You can't close the management account.")
+		return
+	}
+	if a.Status != "ACTIVE" {
+		AWSError(w, "AccountAlreadyClosedException", "You attempted to close an account that is already closed.", http.StatusBadRequest)
 		return
 	}
 	a.Status = "SUSPENDED"
@@ -1280,6 +1339,9 @@ func handleOrgEnablePolicyType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	root.EnabledPolicyTypes = append(root.EnabledPolicyTypes, req.PolicyType)
+	if !slices.Contains(root.AvailablePolicyTypes, req.PolicyType) {
+		root.AvailablePolicyTypes = append(root.AvailablePolicyTypes, req.PolicyType)
+	}
 	orgRoots.Put(root.Id, root)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Root": orgRootToMap(root)})
 }
@@ -1718,6 +1780,10 @@ func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Content == "" {
 		AWSError(w, "InvalidInputException", "Content is required", http.StatusBadRequest)
+		return
+	}
+	if _, err := parseIAMPolicy(req.Content); err != nil {
+		AWSError(w, "InvalidInputException", "The provided policy document doesn't meet the requirements of the specified policy type.", http.StatusBadRequest)
 		return
 	}
 	rp, ok := orgResourcePolicies.Get(orgSingletonKey)

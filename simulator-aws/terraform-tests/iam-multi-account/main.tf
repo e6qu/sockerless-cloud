@@ -48,6 +48,12 @@ resource "aws_organizations_policy_attachment" "member" {
   target_id = aws_organizations_account.member.id
 }
 
+data "aws_organizations_organization" "current" {}
+
+output "organization_root_id" {
+  value = data.aws_organizations_organization.current.roots[0].id
+}
+
 output "member_account_id" {
   value = aws_organizations_account.member.id
 }

@@ -21,6 +21,9 @@ func TestOrganizationsCLI_GovCloudAccount(t *testing.T) {
 	}
 	parseJSON(t, out, &resp)
 	st := resp.CreateAccountStatus
+	t.Cleanup(func() {
+		runCLIIgnore(awsCLI("organizations", "remove-account-from-organization", "--account-id", st.AccountId))
+	})
 	if st.State != "SUCCEEDED" {
 		t.Fatalf("create-gov-cloud-account State = %q, want SUCCEEDED: %s", st.State, out)
 	}

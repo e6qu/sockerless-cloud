@@ -406,6 +406,16 @@ func TestOrganizations_DisableServiceControlPolicies(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = org.EnablePolicyType(ctx, &organizations.EnablePolicyTypeInput{RootId: aws.String(root), PolicyType: orgtypes.PolicyTypeServiceControlPolicy})
 	})
+	roots, err := org.ListRoots(ctx, &organizations.ListRootsInput{})
+	require.NoError(t, err)
+	for _, pt := range roots.Roots[0].PolicyTypes {
+		assert.NotEqual(t, orgtypes.PolicyTypeServiceControlPolicy, pt.Type, "ListRoots lists the policy types the root enables")
+	}
+	described, err := org.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	require.NoError(t, err)
+	assert.Contains(t, described.Organization.AvailablePolicyTypes,
+		orgtypes.PolicyTypeSummary{Type: orgtypes.PolicyTypeServiceControlPolicy, Status: orgtypes.PolicyTypeStatusEnabled},
+		"a policy type the root disables still appears enabled for an organization with all features")
 	_, err = iamWith(cfg).ListRoles(ctx, &iam.ListRolesInput{})
 	require.NoError(t, err, "no service control policy governs while the root disables them")
 	_, err = org.AttachPolicy(ctx, &organizations.AttachPolicyInput{PolicyId: aws.String(denyID), TargetId: aws.String(member)})

@@ -474,7 +474,26 @@ func TestOrganizations_EnableAllFeatures(t *testing.T) {
 func TestOrganizations_zzCreateDeleteOrganization(t *testing.T) {
 	c := orgClient()
 
-	_, err := c.DeleteOrganization(ctx, &organizations.DeleteOrganizationInput{})
+	member, err := c.CreateAccount(ctx, &organizations.CreateAccountInput{AccountName: aws.String("Blocker"), Email: aws.String("blocker@sim.invalid")})
+	require.NoError(t, err)
+	_, err = c.DeleteOrganization(ctx, &organizations.DeleteOrganizationInput{})
+	assert.Equal(t, "OrganizationNotEmptyException", errCodeOf(err), "an organization with member accounts stays")
+
+	described, err := c.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	require.NoError(t, err)
+	accounts, err := c.ListAccounts(ctx, &organizations.ListAccountsInput{})
+	require.NoError(t, err)
+	for _, a := range accounts.Accounts {
+		if aws.ToString(a.Id) == aws.ToString(described.Organization.MasterAccountId) {
+			continue
+		}
+		_, err = c.RemoveAccountFromOrganization(ctx, &organizations.RemoveAccountFromOrganizationInput{AccountId: a.Id})
+		require.NoError(t, err)
+	}
+	_, err = c.DescribeAccount(ctx, &organizations.DescribeAccountInput{AccountId: member.CreateAccountStatus.AccountId})
+	assert.Equal(t, "AccountNotFoundException", errCodeOf(err))
+
+	_, err = c.DeleteOrganization(ctx, &organizations.DeleteOrganizationInput{})
 	require.NoError(t, err)
 
 	// The account belongs to no organization now.

@@ -185,6 +185,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerSQSMessageMove(awsRouter, srv)
 	registerOrganizations(awsRouter, srv)
 	registerOrganizationsExtra(awsRouter, srv)
+	orgGateCallers(awsRouter)
 
 	// Route POST / by X-Amz-Target (JSON protocols), else by the Action parameter (Query protocol).
 	srv.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {

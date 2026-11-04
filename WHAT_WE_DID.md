@@ -987,6 +987,19 @@ AWS does. AWS STS keeps a session's `SourceIdentity` from the request, SAML
 attribute or web-identity claim, checks `sts:SetSourceIdentity`, and carries
 it unchanged through role chaining and into `AssumeRoot`.
 
+AWS Organizations holds every operation to the callers its model names: the
+management account, a delegated administrator for the read-only operations
+the User Guide lists, a member account the organization's resource-based
+delegation policy allows for the delegable ones, any account in the
+organization, or (for the operations that declare no
+`AWSOrganizationsNotInUseException`) an account in no organization. A table
+keyed on every operation carries the rule, and the simulator refuses to start
+when an operation lacks one. A refused member gets `AccessDeniedException`.
+`RemoveAccountFromOrganization` and a member's `LeaveOrganization` keep the
+account as a standalone account whose principals still act and which no
+service control policy governs. Access-denied messages name the policy kind
+that decided, worded as the IAM troubleshooting page words it.
+
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
 App Service's reference resolution reusing the same decision. Managed

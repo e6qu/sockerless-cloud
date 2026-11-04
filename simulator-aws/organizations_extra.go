@@ -48,14 +48,25 @@ func registerOrganizationsExtra(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// LeaveOrganization acts on the caller's account. The simulator's caller is
-// always the management account, which cannot leave, so it raises
-// MasterCannotLeaveOrganizationException.
-func handleOrgLeaveOrganization(w http.ResponseWriter, _ *http.Request) {
+// LeaveOrganization takes the caller's own account out of the organization.
+func handleOrgLeaveOrganization(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
+	account := iamRequestAccount(r)
+	if iamIsManagementAccount(account) {
+		AWSError(w, "MasterCannotLeaveOrganizationException", "You can't remove the management account from the organization.", http.StatusBadRequest)
+		return
+	}
+	a, ok := orgAccounts.Get(account)
+	if !ok {
+		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
+		return
+	}
+	if !orgDepartAccount(w, a) {
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 // handleOrgCreateGovCloudAccount also provisions the linked AWS GovCloud (US)

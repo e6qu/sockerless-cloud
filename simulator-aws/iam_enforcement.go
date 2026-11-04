@@ -44,16 +44,16 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 		return true // calls AWS authorizes for every caller regardless of policy
 	}
 	if caller, ok := iamCallerForAccessKey(iamAccessKeyIDFromRequest(r)); ok && caller.refuses(action) {
-		iamWriteDeny(w, r, caller.Arn, action)
+		iamWriteDeny(w, r, iamDenial{Principal: caller.Arn, Action: action, Policy: iamIdentityBasedPolicy})
 		return false
 	}
 	for _, target := range iamAuthorizationTargets(r, action) {
-		allowed, principalArn, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
+		denial, allowed, registered := iamAuthorizeDenial(r, target.action, target.resource, target.context)
 		if !registered {
 			return true // unknown/test credential — permissive
 		}
 		if !allowed {
-			iamWriteDeny(w, r, principalArn, target.action)
+			iamWriteDeny(w, r, denial)
 			return false
 		}
 	}
@@ -70,7 +70,7 @@ func iamEnforceServicePrincipal(w http.ResponseWriter, r *http.Request, src iamS
 		return true
 	}
 	if denied, ok := iamServicePrincipalAllowed(src, iamAuthorizationTargets(r, action)); !ok {
-		iamWriteDeny(w, r, src.Service, denied)
+		iamWriteDeny(w, r, iamServicePrincipalDenial(src, denied))
 		return false
 	}
 	return true
@@ -167,7 +167,7 @@ func iamEnforcePassRole(w http.ResponseWriter, r *http.Request, action string) b
 const iamUnreadableRoleARN = "arn:aws:iam::unreadable-request-body:role/unreadable"
 
 func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action string,
-	deny func(http.ResponseWriter, *http.Request, string, string)) bool {
+	deny func(http.ResponseWriter, *http.Request, iamDenial)) bool {
 	principals, ok := iamPassRoleOperations[action]
 	if !ok {
 		return true
@@ -181,12 +181,12 @@ func iamEnforcePassRoleWith(w http.ResponseWriter, r *http.Request, action strin
 		extra["iam:PassedToService"] = principals
 	}
 	for _, role := range roles {
-		allowed, principalArn, registered := iamAuthorizeWithContext(r, "iam:PassRole", role, extra)
+		denial, allowed, registered := iamAuthorizeDenial(r, "iam:PassRole", role, extra)
 		if !registered {
 			return true
 		}
 		if !allowed {
-			deny(w, r, principalArn, "iam:PassRole")
+			deny(w, r, denial)
 			return false
 		}
 	}
@@ -302,7 +302,9 @@ func iamRequestConditionContext(
 	if region := iamRequestedRegion(r); region != "" {
 		ctx["aws:RequestedRegion"] = []string{region}
 	}
-	ctx["aws:PrincipalOrgID"] = []string{awsOrgID()}
+	if iamOrganizationMember(acct) {
+		ctx["aws:PrincipalOrgID"] = []string{awsOrgID()}
+	}
 	if tc, ok := iamTempCreds.Get(akid); ok && tc.SourceIdentity != "" {
 		ctx["aws:SourceIdentity"] = []string{tc.SourceIdentity}
 	}
@@ -318,12 +320,23 @@ func iamRequestConditionContext(
 // request does rather than its envelope, such as iam:PassedToService on the
 // PassRole check.
 func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map[string][]string) (allowed bool, principalArn string, registered bool) {
+	denial, allowed, registered := iamAuthorizeDenial(r, action, resource, extra)
+	return allowed, denial.Principal, registered
+}
+
+// iamAuthorizeDenial is iamAuthorizeWithContext reporting, for a refusal, the
+// policy that decided it.
+func iamAuthorizeDenial(r *http.Request, action, resource string, extra map[string][]string) (denial iamDenial, allowed, registered bool) {
 	akid := iamAccessKeyIDFromRequest(r)
 	caller, ok := iamCallerForAccessKey(akid)
 	if !ok {
-		return false, "", false
+		return iamDenial{Action: action}, false, false
 	}
-	principalArn = caller.Arn
+	principalArn := caller.Arn
+	refuse := func(policy iamPolicyKind, explicit bool) (iamDenial, bool, bool) {
+		return iamDenial{Principal: principalArn, Action: action, Policy: policy, Explicit: explicit}, false, true
+	}
+	permit := iamDenial{Principal: principalArn, Action: action}
 
 	ctx := iamRequestConditionContext(r, akid, principalArn, caller.UserName, action)
 	for key, values := range extra {
@@ -333,13 +346,13 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	// The service control policies of a member account's organization cap
 	// every principal of the account, its root user included, before any of
 	// the account's own policies is read.
-	if orgSCPDecision(caller, action, resource, ctx) != "allowed" {
-		return false, principalArn, true
+	if scp := orgSCPDecision(caller, action, resource, ctx); scp != "allowed" {
+		return refuse(iamServiceControlPolicy, scp == "explicitDeny")
 	}
 
 	decision, _ := iamEvalDecision(caller.Identity, action, resource, ctx)
 	if decision == "explicitDeny" {
-		return false, principalArn, true
+		return refuse(iamIdentityBasedPolicy, true)
 	}
 	identityAllows := decision == "allowed" || caller.Unrestricted
 
@@ -368,13 +381,13 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 		// A role's trust policy is the resource policy of assuming it, and of
 		// tagging the session the assumption opens: naming the caller there
 		// grants either without an identity policy.
-		if action == "sts:AssumeRole" || action == "sts:TagSession" || action == "sts:SetSourceIdentity" {
+		if iamTrustGatedAction(action) {
 			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
 		}
 		if len(rdocs) > 0 {
 			rdec, _, direct := iamEvalResourceDecision(rdocs, action, resource, principalArn, caller.EntityArn, ctx)
 			if rdec == "explicitDeny" {
-				return false, principalArn, true
+				return refuse(iamResourcePolicyKindFor(action), true)
 			}
 			resourceAllows, resourceDirect = rdec == "allowed", direct
 			// Across accounts, a statement that names the caller's account
@@ -389,7 +402,7 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	if len(caller.Boundary) > 0 {
 		bdec, _ := iamEvalDecision(caller.Boundary, action, resource, ctx)
 		if bdec == "explicitDeny" {
-			return false, principalArn, true
+			return refuse(iamPermissionsBoundary, true)
 		}
 		boundaryAllows = bdec == "allowed"
 	}
@@ -397,7 +410,7 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	if caller.SessionCaps {
 		sdec, _ := iamEvalDecision(caller.Session, action, resource, ctx)
 		if sdec == "explicitDeny" {
-			return false, principalArn, true
+			return refuse(iamSessionPolicy, true)
 		}
 		sessionAllows = sdec == "allowed"
 	}
@@ -405,13 +418,22 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	// and the resource's policy to allow the request. AssumeRoot names a
 	// member account's root user, which the organization rather than a
 	// resource policy lets the management account reach.
-	if action != "sts:AssumeRoot" && iamCrossAccount(principalArn, resource) {
-		return identityAllows && resourceAllows && boundaryAllows && sessionAllows, principalArn, true
+	crossAccount := action != "sts:AssumeRoot" && iamCrossAccount(principalArn, resource)
+	switch {
+	case crossAccount && !identityAllows:
+		return refuse(iamIdentityBasedPolicy, false)
+	case crossAccount && !resourceAllows:
+		return refuse(iamResourcePolicyKindFor(action), false)
+	case !crossAccount && resourceDirect:
+		return permit, true, true
+	case !identityAllows && !resourceAllows:
+		return refuse(iamIdentityBasedPolicy, false)
+	case !boundaryAllows:
+		return refuse(iamPermissionsBoundary, false)
+	case !sessionAllows:
+		return refuse(iamSessionPolicy, false)
 	}
-	if resourceDirect {
-		return true, principalArn, true
-	}
-	return (identityAllows || resourceAllows) && boundaryAllows && sessionAllows, principalArn, true
+	return permit, true, true
 }
 
 // iamArnAccount is the account an ARN names, empty for an ARN that names
@@ -453,6 +475,12 @@ func iamResourceOwnerAccount(arn string) string {
 func iamCrossAccount(principalArn, resource string) bool {
 	caller := iamArnAccount(principalArn)
 	if caller == "" {
+		return false
+	}
+	// AWS Organizations admits a member account to its organization's
+	// resources by its own rules (orgAdmitCaller), not as a cross-account
+	// request.
+	if strings.HasPrefix(resource, "arn:aws:organizations::") && iamOrganizationMember(caller) {
 		return false
 	}
 	owner := iamResourceOwnerAccount(resource)
@@ -515,15 +543,15 @@ func iamRootManagesOwnPolicy(r *http.Request, action, resource, principalArn str
 // iamEnforceREST authorizes a REST request's pre-derived action and resource
 // ARN, writing the service's own error via deny. It returns true when the
 // handler should run.
-func iamEnforceREST(w http.ResponseWriter, r *http.Request, target iamAuthorizationTarget, deny func(http.ResponseWriter, *http.Request, string, string)) bool {
+func iamEnforceREST(w http.ResponseWriter, r *http.Request, target iamAuthorizationTarget, deny func(http.ResponseWriter, *http.Request, iamDenial)) bool {
 	if target.action == "" {
 		return true
 	}
-	allowed, principalArn, registered := iamAuthorizeWithContext(r, target.action, target.resource, target.context)
+	denial, allowed, registered := iamAuthorizeDenial(r, target.action, target.resource, target.context)
 	if !registered || allowed {
 		return true
 	}
-	deny(w, r, principalArn, target.action)
+	deny(w, r, denial)
 	return false
 }
 
@@ -762,9 +790,8 @@ func iamJSONBodyField(r *http.Request, field string) string {
 // query protocol returns UnauthorizedOperation (XML 403); other query services
 // return AccessDenied (XML 403); awsJson services return AccessDeniedException
 // (JSON 403).
-func iamWriteDeny(w http.ResponseWriter, r *http.Request, principalArn, action string) {
-	msg := "User: " + principalArn + " is not authorized to perform: " + action +
-		" because no identity-based policy allows the " + action + " action"
+func iamWriteDeny(w http.ResponseWriter, r *http.Request, d iamDenial) {
+	msg, action := d.message(), d.Action
 	if r.Header.Get("X-Amz-Target") != "" {
 		service, _, _ := strings.Cut(action, ":")
 		iamWriteJSONDeny(w, service, "AccessDeniedException", msg)

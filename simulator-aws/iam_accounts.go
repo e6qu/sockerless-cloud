@@ -166,13 +166,37 @@ func iamIsManagementAccount(account string) bool {
 }
 
 // iamHostedAccount reports whether the simulator hosts account: the
-// management account and the organization's member accounts.
+// management account, the organization's member accounts, and the accounts
+// that left it to run standalone.
 func iamHostedAccount(account string) bool {
+	_, ok := iamHostedAccountRecord(account)
+	return ok || iamIsManagementAccount(account)
+}
+
+// iamHostedAccountRecord is the Organizations record of a hosted account
+// other than the management account.
+func iamHostedAccountRecord(account string) (OrgAccount, bool) {
+	if iamIsManagementAccount(account) || orgAccounts == nil {
+		return OrgAccount{}, false
+	}
+	if a, ok := orgAccounts.Get(account); ok {
+		return a, true
+	}
+	return orgStandaloneAccounts.Get(account)
+}
+
+// iamOrganizationMember reports whether account belongs to the
+// organization: its management account while the organization exists, or
+// one of its member accounts.
+func iamOrganizationMember(account string) bool {
+	if orgOrg == nil {
+		return false
+	}
+	if _, ok := orgOrg.Get(orgSingletonKey); !ok {
+		return false
+	}
 	if iamIsManagementAccount(account) {
 		return true
-	}
-	if orgAccounts == nil {
-		return false
 	}
 	_, ok := orgAccounts.Get(account)
 	return ok
