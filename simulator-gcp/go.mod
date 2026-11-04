@@ -16,7 +16,7 @@ require (
 	cloud.google.com/go/iam v1.15.1
 	cloud.google.com/go/kms v1.36.1
 	cloud.google.com/go/logging v1.21.1
-	cloud.google.com/go/longrunning v1.4.1
+	cloud.google.com/go/longrunning v1.5.0
 	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
@@ -29,7 +29,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261104060152-ce69f05affea
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261104134813-d842b17f7c81
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261104060152-ce69f05affea
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/hamba/avro/v2 v2.31.0
@@ -110,7 +110,7 @@ require (
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	modernc.org/libc v1.80.0 // indirect
+	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
