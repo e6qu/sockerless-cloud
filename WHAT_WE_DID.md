@@ -1302,7 +1302,9 @@ fails once the row closes or the operation is served.
 - **Ports a suite hands out are picked together** (`testutil/freeports`),
   below the ephemeral range when a restarted simulator must bind them again;
   a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
-  interface.
+  interface, and a harness that needs both kinds takes them from one
+  `freeports.PickWithTCPUDP` call, so the DNS port cannot reuse one just
+  released.
 - **A tutorial is a test.** Each cloud's tutorial configuration is the
   fixture its Terraform test applies, and the test checks the outputs the
   tutorial tells the reader to look for, so a step that stops working fails

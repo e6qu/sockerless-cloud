@@ -49,3 +49,24 @@ func TestTCPUDPIsBindableOnBothProtocols(t *testing.T) {
 	}
 	_ = udpListener.Close()
 }
+
+func TestPickWithTCPUDPKeepsTheDNSPortApart(t *testing.T) {
+	for range 50 {
+		ports, dnsPort, err := PickWithTCPUDP(3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[int]bool{dnsPort: true}
+		for _, port := range ports {
+			if seen[port] {
+				t.Fatalf("PickWithTCPUDP returned port %d twice: %v and %d", port, ports, dnsPort)
+			}
+			seen[port] = true
+		}
+		udpListener, err := net.ListenPacket("udp", ":"+strconv.Itoa(dnsPort))
+		if err != nil {
+			t.Fatalf("port %d is not free on UDP: %v", dnsPort, err)
+		}
+		_ = udpListener.Close()
+	}
+}
