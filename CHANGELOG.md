@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.6](https://github.com/e6qu/sockerless-cloud/compare/v3.3.5...v3.3.6) (2026-11-04)
+
+
+### Bug Fixes
+
+* **aws:** host IAM per account, with root users, SCPs and source identity ([#380](https://github.com/e6qu/sockerless-cloud/issues/380)) ([1159ef2](https://github.com/e6qu/sockerless-cloud/commit/1159ef2dc86179a4d6be52d40c45b5a4f83dee3f))
+
 ## [3.3.5](https://github.com/e6qu/sockerless-cloud/compare/v3.3.4...v3.3.5) (2026-11-03)
 
 
