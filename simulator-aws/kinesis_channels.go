@@ -103,7 +103,7 @@ func handleKinesisCreateChannel(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamRoles.Get(iamRoleNameFromArn(req.ServiceExecutionRoleARN)); !ok {
+	if _, ok := iamRoleByArn(req.ServiceExecutionRoleARN); !ok {
 		AWSError(w, "ValidationException",
 			"The service execution role "+req.ServiceExecutionRoleARN+" does not exist",
 			http.StatusBadRequest)

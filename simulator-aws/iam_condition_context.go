@@ -31,7 +31,7 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 	if arn := iamPrincipalArnKey(akid, principalArn); arn != "" {
 		ctx["aws:PrincipalArn"] = []string{arn}
 	}
-	ctx["aws:ResourceAccount"] = []string{awsAccountID()}
+	ctx["aws:ResourceAccount"] = []string{iamRequestAccount(r)}
 
 	for _, t := range iamPrincipalTags(akid, userName) {
 		ctx["aws:PrincipalTag/"+t.Key] = []string{t.Value}
@@ -49,11 +49,12 @@ func iamPopulateGlobalConditionKeys(r *http.Request, akid, principalArn, userNam
 // except that an assumed-role session reports the ARN of its role, path
 // included, and none once the role is gone.
 func iamPrincipalArnKey(akid, principalArn string) string {
+	acct := iamAccessKeyAccount(akid)
 	tc, ok := iamTempCreds.Get(akid)
 	if !ok || tc.RoleName == "" {
 		return principalArn
 	}
-	if role, rok := iamRoles.Get(tc.RoleName); rok {
+	if role, rok := iamRolesIn(acct).Get(tc.RoleName); rok {
 		return role.Arn
 	}
 	return ""
@@ -63,8 +64,9 @@ func iamPrincipalArnKey(akid, principalArn string) string {
 // AKIA key, and for an ASIA session its role's tags overlaid with the
 // session's own tags.
 func iamPrincipalTags(akid, userName string) []IAMTag {
+	acct := iamAccessKeyAccount(akid)
 	if userName != "" {
-		if u, ok := iamUsers.Get(userName); ok {
+		if u, ok := iamUsersIn(acct).Get(userName); ok {
 			return u.Tags
 		}
 	}
@@ -74,7 +76,7 @@ func iamPrincipalTags(akid, userName string) []IAMTag {
 	}
 	var roleTags []IAMTag
 	if tc.RoleName != "" {
-		if role, rok := iamRoles.Get(tc.RoleName); rok {
+		if role, rok := iamRolesIn(acct).Get(tc.RoleName); rok {
 			roleTags = role.Tags
 		}
 	}
@@ -306,9 +308,8 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 	}
 
-	// kms:CallerAccount is the simulator's one account.
 	if service == "kms" {
-		ctx["kms:CallerAccount"] = []string{awsAccountID()}
+		ctx["kms:CallerAccount"] = []string{iamRequestAccount(r)}
 		// The encryption context the request supplied, which is how a policy
 		// grants a decrypt only for data encrypted under one context.
 		iamPopulateKMSEncryptionContext(body, ctx)
@@ -358,6 +359,7 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 // about the resource it names: the policy, function, rule, document or
 // transfer it is about.
 func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []byte, ctx map[string][]string) {
+	acct := iamRequestAccount(r)
 	// iam:PolicyARN is the managed policy a request attaches or detaches, which
 	// is how an administrator delegates policy attachment for one policy only.
 	if service == "iam" {
@@ -521,9 +523,9 @@ func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []
 	if service == "iam" {
 		boundary := iamRequestParameter(r, body, "PermissionsBoundary")
 		if boundary == "" {
-			if role, ok := iamRoles.Get(r.FormValue("RoleName")); ok {
+			if role, ok := iamRolesIn(acct).Get(r.FormValue("RoleName")); ok {
 				boundary = role.PermissionsBoundaryARN
-			} else if user, ok := iamUserBoundaries.Get(r.FormValue("UserName")); ok {
+			} else if user, ok := iamUserBoundariesIn(acct).Get(r.FormValue("UserName")); ok {
 				boundary = user.PolicyArn
 			}
 		}

@@ -298,7 +298,9 @@ func TestStartRetriesAnEphemeralPortTakenOnTCP(t *testing.T) {
 		return saved(host, port)
 	}
 	s := newServer(t, staticCatalog(View{}))
-	if calls != 2 || strconv.Itoa(s.Port()) == takenPort {
+	// Another process on the host can take a later kernel choice too, so
+	// Start may retry more than once.
+	if calls < 2 || strconv.Itoa(s.Port()) == takenPort {
 		t.Fatalf("calls %d, port %d", calls, s.Port())
 	}
 	if _, err := Start(Config{Host: "127.0.0.1", Port: takenPort, Catalog: staticCatalog(View{})}); err == nil {

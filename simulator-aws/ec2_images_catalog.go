@@ -10,7 +10,7 @@ import (
 // Each public AMI names an OCI image on mirror.gcr.io pinned by digest;
 // scripts/check-latest-deps.sh keeps the pins current.
 const (
-	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
+	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:bb1c85fe00170acd8a653de5f68cf77c7ec67234a130b18fad7ca1de1f61e3d3"
 	ec2Ubuntu2404OCI      = "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
 	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880"
 )

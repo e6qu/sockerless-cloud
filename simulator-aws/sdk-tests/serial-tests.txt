@@ -25,6 +25,7 @@ TestKinesisSDK_AccountSettings	changes an account-wide setting other tests read
 TestLogs_AccountPolicyRoundTrip	changes an account-wide setting other tests read
 TestOrganizations_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_DisableServiceControlPolicies	disables and re-enables service control policies in the root, which detaches every one other tests attach
 TestOrganizations_EffectivePolicyValidation	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read

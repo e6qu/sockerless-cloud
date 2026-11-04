@@ -969,6 +969,24 @@ against an active member account. `aws:PrincipalArn` names the role behind a
 role session, and a resource policy naming an IAM user matches that user's
 federated sessions within their limits.
 
+AWS IAM hosts every account of the organization. A request acts in the
+account of the credential that signed it: names key roles, users, groups and
+their policies per account, the management account keeps the original
+tables, and each member account opens its own on first use. `CreateAccount`
+creates `OrganizationAccountAccessRole` trusting the management account, and
+a cross-account call passes only when both the caller's policies and the
+target's trust or resource policy allow it. An access key with no user
+belongs to the account's root user, which only explicit denies and service
+control policies limit; the simulator seeds the management account's root
+user the key `root`/`root`, as AWS issues the first one from the console, and the root-credential `AssumeRoot` tasks act on the
+member root's real login profile, keys, certificates and MFA devices. Service
+control policies govern every member-account principal from the root through
+each OU down to the account, sparing the management account and
+service-linked roles, and AWS Organizations attaches `FullAWSAccess` wherever
+AWS does. AWS STS keeps a session's `SourceIdentity` from the request, SAML
+attribute or web-identity claim, checks `sts:SetSourceIdentity`, and carries
+it unchanged through role chaining and into `AssumeRoot`.
+
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
 App Service's reference resolution reusing the same decision. Managed
@@ -1028,7 +1046,10 @@ through `crypto/mlkem`, and HPKE import jobs open their wrapped keys through
 `crypto/hpke`. An algorithm the Go standard library cannot back answers
 UNIMPLEMENTED: creating one had silently produced symmetric material. A
 deleted key leaves a retired resource that holds its name, and Autokey
-provisions the key ring and key a key handle names. Compute Engine and Secret
+provisions the key ring and key a key handle names. A scheduled destroy comes
+due its full `destroyScheduledDuration` after the request, recorded to the
+nanosecond: a destroy time truncated to the second had let a one-second schedule
+fall due within milliseconds. Compute Engine and Secret
 Manager `testIamPermissions` answer from the policy the IAM gate reads, where
 two shared Compute helpers had echoed the request, and `getEffectiveFirewalls`
 assembles the VPC rules and firewall policies that apply. Cloud Build refuses
@@ -1227,6 +1248,10 @@ fails once the row closes or the operation is served.
   contributing tutorial ran a microVM-only test. Every shell block in the
   repository carries an annotation, so a document gains no command nothing
   runs.
+  A document job restores its cloud's simulator Go cache, which holds the
+  simulator and its SDK and CLI suites; the shared toolchain entry held
+  whatever the first job to save it built, and the contributing tutorial
+  downloaded and compiled the AWS SDK suites cold inside its 13 minutes.
 - **Console tests run against the real simulators.** The console unit tests
   start the simulators and sign in through Microsoft Entra ID as the consoles
   do; the mocks they replaced had hidden a SigV4 signer that encoded paths

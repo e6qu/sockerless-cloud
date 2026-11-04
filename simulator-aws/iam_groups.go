@@ -77,16 +77,16 @@ func registerIAMGroups(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ListUsers", handleIAMListUsers)
 }
 
-func iamPolicyDocsForRole(roleName string) []iamPolicyDoc {
+func iamPolicyDocsForRole(acct string, roleName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, row := range iamRolePolicies.ListPrefix(iamOwnedKeyPrefix(roleName)) {
+	for _, row := range iamRolePoliciesIn(acct).ListPrefix(iamOwnedKeyPrefix(roleName)) {
 		if rp := row.Item; rp.RoleName == roleName {
 			if doc, err := parseIAMPolicy(rp.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, row := range iamAttachedPolicies.ListPrefix(iamOwnedKeyPrefix(roleName)) {
+	for _, row := range iamAttachedPoliciesIn(acct).ListPrefix(iamOwnedKeyPrefix(roleName)) {
 		ap := row.Item
 		if ap.RoleName != roleName {
 			continue
@@ -103,11 +103,11 @@ func iamPolicyDocsForRole(roleName string) []iamPolicyDoc {
 // iamPermissionBoundaryDocs returns a user's permissions boundary documents,
 // empty when none is set. The boundary caps effective permissions at its
 // intersection with the identity policies.
-func iamPermissionBoundaryDocs(userName string) []iamPolicyDoc {
+func iamPermissionBoundaryDocs(acct string, userName string) []iamPolicyDoc {
 	if userName == "" {
 		return nil
 	}
-	b, ok := iamUserBoundaries.Get(userName)
+	b, ok := iamUserBoundariesIn(acct).Get(userName)
 	if !ok {
 		return nil
 	}
@@ -116,8 +116,8 @@ func iamPermissionBoundaryDocs(userName string) []iamPolicyDoc {
 
 // iamRolePermissionBoundaryDocs returns a role's permissions boundary
 // documents, which cap every session assumed from the role.
-func iamRolePermissionBoundaryDocs(roleName string) []iamPolicyDoc {
-	role, ok := iamRoles.Get(roleName)
+func iamRolePermissionBoundaryDocs(acct string, roleName string) []iamPolicyDoc {
+	role, ok := iamRolesIn(acct).Get(roleName)
 	if !ok || role.PermissionsBoundaryARN == "" {
 		return nil
 	}
@@ -136,33 +136,43 @@ func iamBoundaryPolicyDocs(policyArn string) []iamPolicyDoc {
 }
 
 func handleIAMPutUserBoundary(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	user := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(user); !ok {
+	if _, ok := iamUsersIn(acct).Get(user); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("User %s not found", user), http.StatusNotFound)
 		return
 	}
-	iamUserBoundaries.Put(user, IAMUserBoundary{UserName: user, PolicyArn: r.FormValue("PermissionsBoundary")})
+	iamUserBoundariesIn(acct).Put(user, IAMUserBoundary{UserName: user, PolicyArn: r.FormValue("PermissionsBoundary")})
 	iamEmptyResultXML(w, "PutUserPermissionsBoundary")
 }
 
 func handleIAMDeleteUserBoundary(w http.ResponseWriter, r *http.Request) {
-	iamUserBoundaries.Delete(r.FormValue("UserName"))
+	acct := iamRequestAccount(r)
+	iamUserBoundariesIn(acct).Delete(r.FormValue("UserName"))
 	iamEmptyResultXML(w, "DeleteUserPermissionsBoundary")
 }
 
-func iamEffectivePolicyDocsForUser(userName string) []iamPolicyDoc {
-	docs := iamPolicyDocsForUser(userName)
-	for _, m := range iamGroupMembersByUser.LookupAll(iamGroupMembers, userName, func(m IAMGroupMember) []string {
-		return []string{m.UserName}
-	}) {
-		docs = append(docs, iamPolicyDocsForGroup(m.GroupName)...)
+func iamEffectivePolicyDocsForUser(acct string, userName string) []iamPolicyDoc {
+	docs := iamPolicyDocsForUser(acct, userName)
+	for _, m := range iamGroupMembershipsOf(acct, userName) {
+		docs = append(docs, iamPolicyDocsForGroup(acct, m.GroupName)...)
 	}
 	return docs
 }
 
-// iamGroupMembersByUser answers which groups a user belongs to; the store is
-// keyed by group first.
+// iamGroupMembersByUser answers which groups a management account user
+// belongs to; the store is keyed by group first. A member account's
+// memberships are few enough to scan.
 var iamGroupMembersByUser sim.GenerationIndex[IAMGroupMember]
+
+func iamGroupMembershipsOf(acct, userName string) []IAMGroupMember {
+	if !iamIsManagementAccount(acct) {
+		return iamGroupMembersIn(acct).Filter(func(m IAMGroupMember) bool { return m.UserName == userName })
+	}
+	return iamGroupMembersByUser.LookupAll(iamGroupMembers, userName, func(m IAMGroupMember) []string {
+		return []string{m.UserName}
+	})
+}
 
 // iamOwnedKeyPrefix is the key prefix of the rows a user, group or role owns
 // in the stores keyed "<owner>/<policy>". IAM names cannot contain "/", so the
@@ -171,16 +181,16 @@ func iamOwnedKeyPrefix(owner string) string {
 	return owner + "/"
 }
 
-func iamPolicyDocsForGroup(groupName string) []iamPolicyDoc {
+func iamPolicyDocsForGroup(acct string, groupName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, row := range iamGroupPolicies.ListPrefix(iamOwnedKeyPrefix(groupName)) {
+	for _, row := range iamGroupPoliciesIn(acct).ListPrefix(iamOwnedKeyPrefix(groupName)) {
 		if gp := row.Item; gp.GroupName == groupName {
 			if doc, err := parseIAMPolicy(gp.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, row := range iamGroupAttached.ListPrefix(iamOwnedKeyPrefix(groupName)) {
+	for _, row := range iamGroupAttachedIn(acct).ListPrefix(iamOwnedKeyPrefix(groupName)) {
 		ga := row.Item
 		if ga.GroupName != groupName {
 			continue
@@ -194,20 +204,21 @@ func iamPolicyDocsForGroup(groupName string) []iamPolicyDoc {
 	return docs
 }
 
-func iamGroupArn(name, path string) string {
+func iamGroupArn(acct string, name, path string) string {
 	if path == "" {
 		path = "/"
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:group%s%s", awsAccountID(), path, name)
+	return fmt.Sprintf("arn:aws:iam::%s:group%s%s", acct, path, name)
 }
 
 func handleIAMCreateGroup(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("GroupName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "GroupName is required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamGroups.Get(name); ok {
+	if _, ok := iamGroupsIn(acct).Get(name); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Group with name %s already exists.", name), http.StatusConflict)
 		return
 	}
@@ -215,26 +226,27 @@ func handleIAMCreateGroup(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	g := IAMGroup{GroupName: name, GroupId: "AGPA" + strings.ToUpper(sim.NewUUID()[:16]), Arn: iamGroupArn(name, path), Path: path, CreateDate: time.Now().UTC().Format(time.RFC3339)}
-	iamGroups.Put(name, g)
+	g := IAMGroup{GroupName: name, GroupId: "AGPA" + strings.ToUpper(sim.NewUUID()[:16]), Arn: iamGroupArn(acct, name, path), Path: path, CreateDate: time.Now().UTC().Format(time.RFC3339)}
+	iamGroupsIn(acct).Put(name, g)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateGroupResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateGroupResult>%s</CreateGroupResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateGroupResponse>`,
 		iamGroupXML(g), sim.NewUUID())
 }
 
 func handleIAMGetGroup(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("GroupName")
-	g, ok := iamGroups.Get(name)
+	g, ok := iamGroupsIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", name), http.StatusNotFound)
 		return
 	}
 	var members strings.Builder
-	for _, m := range iamGroupMembers.List() {
+	for _, m := range iamGroupMembersIn(acct).List() {
 		if m.GroupName != name {
 			continue
 		}
-		if u, uok := iamUsers.Get(m.UserName); uok {
+		if u, uok := iamUsersIn(acct).Get(m.UserName); uok {
 			fmt.Fprintf(&members, `<member>%s</member>`, iamUserInnerXML(u))
 		}
 	}
@@ -244,18 +256,20 @@ func handleIAMGetGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("GroupName")
-	if _, ok := iamGroups.Get(name); !ok {
+	if _, ok := iamGroupsIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", name), http.StatusNotFound)
 		return
 	}
-	iamGroups.Delete(name)
+	iamGroupsIn(acct).Delete(name)
 	iamEmptyResultXML(w, "DeleteGroup")
 }
 
 func handleIAMListGroups(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	var members strings.Builder
-	for _, g := range iamGroups.List() {
+	for _, g := range iamGroupsIn(acct).List() {
 		fmt.Fprintf(&members, `<member>%s</member>`, iamGroupInnerXML(g))
 	}
 	w.Header().Set("Content-Type", "text/xml")
@@ -264,32 +278,35 @@ func handleIAMListGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMAddUserToGroup(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group, user := r.FormValue("GroupName"), r.FormValue("UserName")
-	if _, ok := iamGroups.Get(group); !ok {
+	if _, ok := iamGroupsIn(acct).Get(group); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", group), http.StatusNotFound)
 		return
 	}
-	if _, ok := iamUsers.Get(user); !ok {
+	if _, ok := iamUsersIn(acct).Get(user); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("User %s not found", user), http.StatusNotFound)
 		return
 	}
-	iamGroupMembers.Put(group+"/"+user, IAMGroupMember{GroupName: group, UserName: user})
+	iamGroupMembersIn(acct).Put(group+"/"+user, IAMGroupMember{GroupName: group, UserName: user})
 	iamEmptyResultXML(w, "AddUserToGroup")
 }
 
 func handleIAMRemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
-	iamGroupMembers.Delete(r.FormValue("GroupName") + "/" + r.FormValue("UserName"))
+	acct := iamRequestAccount(r)
+	iamGroupMembersIn(acct).Delete(r.FormValue("GroupName") + "/" + r.FormValue("UserName"))
 	iamEmptyResultXML(w, "RemoveUserFromGroup")
 }
 
 func handleIAMListGroupsForUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	user := r.FormValue("UserName")
 	var members strings.Builder
-	for _, m := range iamGroupMembers.List() {
+	for _, m := range iamGroupMembersIn(acct).List() {
 		if m.UserName != user {
 			continue
 		}
-		if g, ok := iamGroups.Get(m.GroupName); ok {
+		if g, ok := iamGroupsIn(acct).Get(m.GroupName); ok {
 			fmt.Fprintf(&members, `<member>%s</member>`, iamGroupInnerXML(g))
 		}
 	}
@@ -299,8 +316,9 @@ func handleIAMListGroupsForUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMPutGroupPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group := r.FormValue("GroupName")
-	if _, ok := iamGroups.Get(group); !ok {
+	if _, ok := iamGroupsIn(acct).Get(group); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", group), http.StatusNotFound)
 		return
 	}
@@ -312,13 +330,14 @@ func handleIAMPutGroupPolicy(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "MalformedPolicyDocument", "The policy could not be parsed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	iamGroupPolicies.Put(group+"/"+r.FormValue("PolicyName"), IAMGroupPolicy{GroupName: group, PolicyName: r.FormValue("PolicyName"), PolicyDocument: doc})
+	iamGroupPoliciesIn(acct).Put(group+"/"+r.FormValue("PolicyName"), IAMGroupPolicy{GroupName: group, PolicyName: r.FormValue("PolicyName"), PolicyDocument: doc})
 	iamEmptyResultXML(w, "PutGroupPolicy")
 }
 
 func handleIAMGetGroupPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group, pn := r.FormValue("GroupName"), r.FormValue("PolicyName")
-	p, ok := iamGroupPolicies.Get(group + "/" + pn)
+	p, ok := iamGroupPoliciesIn(acct).Get(group + "/" + pn)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", "Policy not found", http.StatusNotFound)
 		return
@@ -329,14 +348,16 @@ func handleIAMGetGroupPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteGroupPolicy(w http.ResponseWriter, r *http.Request) {
-	iamGroupPolicies.Delete(r.FormValue("GroupName") + "/" + r.FormValue("PolicyName"))
+	acct := iamRequestAccount(r)
+	iamGroupPoliciesIn(acct).Delete(r.FormValue("GroupName") + "/" + r.FormValue("PolicyName"))
 	iamEmptyResultXML(w, "DeleteGroupPolicy")
 }
 
 func handleIAMListGroupPolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group := r.FormValue("GroupName")
 	var members strings.Builder
-	for _, p := range iamGroupPolicies.List() {
+	for _, p := range iamGroupPoliciesIn(acct).List() {
 		if p.GroupName == group {
 			members.WriteString("<member>" + xmlEscape(p.PolicyName) + "</member>")
 		}
@@ -347,8 +368,9 @@ func handleIAMListGroupPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMAttachGroupPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group, arn := r.FormValue("GroupName"), r.FormValue("PolicyArn")
-	if _, ok := iamGroups.Get(group); !ok {
+	if _, ok := iamGroupsIn(acct).Get(group); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Group %s not found", group), http.StatusNotFound)
 		return
 	}
@@ -356,19 +378,21 @@ func handleIAMAttachGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	if i := strings.LastIndex(arn, "/"); i >= 0 {
 		pn = arn[i+1:]
 	}
-	iamGroupAttached.Put(group+"/"+arn, IAMGroupAttachedPolicy{GroupName: group, PolicyArn: arn, PolicyName: pn})
+	iamGroupAttachedIn(acct).Put(group+"/"+arn, IAMGroupAttachedPolicy{GroupName: group, PolicyArn: arn, PolicyName: pn})
 	iamEmptyResultXML(w, "AttachGroupPolicy")
 }
 
 func handleIAMDetachGroupPolicy(w http.ResponseWriter, r *http.Request) {
-	iamGroupAttached.Delete(r.FormValue("GroupName") + "/" + r.FormValue("PolicyArn"))
+	acct := iamRequestAccount(r)
+	iamGroupAttachedIn(acct).Delete(r.FormValue("GroupName") + "/" + r.FormValue("PolicyArn"))
 	iamEmptyResultXML(w, "DetachGroupPolicy")
 }
 
 func handleIAMListAttachedGroupPolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	group := r.FormValue("GroupName")
 	var members strings.Builder
-	for _, ga := range iamGroupAttached.List() {
+	for _, ga := range iamGroupAttachedIn(acct).List() {
 		if ga.GroupName == group {
 			fmt.Fprintf(&members, `<member><PolicyName>%s</PolicyName><PolicyArn>%s</PolicyArn></member>`, xmlEscape(ga.PolicyName), xmlEscape(ga.PolicyArn))
 		}
@@ -379,9 +403,10 @@ func handleIAMListAttachedGroupPolicies(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleIAMListUsers(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	prefix := r.FormValue("PathPrefix")
 	var members strings.Builder
-	for _, u := range iamUsers.List() {
+	for _, u := range iamUsersIn(acct).List() {
 		if prefix != "" && !strings.HasPrefix(u.Path, prefix) {
 			continue
 		}

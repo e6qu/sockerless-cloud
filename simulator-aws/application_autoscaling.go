@@ -140,6 +140,7 @@ func appScalingPolicyARN(ns, resourceID, name string) string {
 }
 
 func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	var req struct {
 		ServiceNamespace  string            `json:"ServiceNamespace"`
 		ResourceId        string            `json:"ResourceId"`
@@ -185,7 +186,7 @@ func handleAppASRegisterScalableTarget(w http.ResponseWriter, r *http.Request) {
 	case req.RoleARN != "":
 		target.RoleARN = req.RoleARN
 	case target.RoleARN == "":
-		target.RoleARN = iamEnsureServiceLinkedRole(
+		target.RoleARN = iamEnsureServiceLinkedRole(acct,
 			target.ServiceNamespace+".application-autoscaling.amazonaws.com",
 			"Service-linked role for Application Auto Scaling")
 	}

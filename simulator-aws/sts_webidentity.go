@@ -19,12 +19,12 @@ var stsOIDCVerifiers = oidcfed.New()
 // issuer's discovery document and JSON Web Key Set, and checks the audience
 // against the provider's client IDs. The console federates its operators through
 // this same path.
-func verifyWebIdentityToken(ctx context.Context, rawToken string) (webIdentity, error) {
+func verifyWebIdentityToken(ctx context.Context, account, rawToken string) (webIdentity, error) {
 	issuer, err := oidcfed.UnverifiedIssuer(rawToken)
 	if err != nil {
 		return webIdentity{}, fmt.Errorf("web identity token %w", err)
 	}
-	provider, ok := oidcProviderForIssuer(issuer)
+	provider, ok := oidcProviderForIssuer(account, issuer)
 	if !ok {
 		return webIdentity{}, fmt.Errorf("no OpenID Connect provider is registered for issuer %q", issuer)
 	}
@@ -132,12 +132,13 @@ func webIdentityClaimValues(claim any) []string {
 	return nil
 }
 
-// oidcProviderForIssuer finds the IAM OpenID Connect provider registered for an
-// issuer, compared without its scheme, as IAM stores a provider's URL.
-func oidcProviderForIssuer(issuer string) (IAMOIDCProvider, bool) {
+// oidcProviderForIssuer finds the IAM OpenID Connect provider account
+// registered for an issuer, compared without its scheme, as IAM stores a
+// provider's URL.
+func oidcProviderForIssuer(account, issuer string) (IAMOIDCProvider, bool) {
 	want := oidcfed.NormalizeIssuer(issuer)
 	for _, provider := range iamOIDCProviders.List() {
-		if oidcfed.NormalizeIssuer(provider.URL) == want {
+		if iamArnAccount(provider.Arn) == account && oidcfed.NormalizeIssuer(provider.URL) == want {
 			return provider, true
 		}
 	}

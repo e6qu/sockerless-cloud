@@ -92,7 +92,7 @@ var roleHolderLive = map[string]func(id string) bool{
 	// <service principal>|<role ARN>, holds it while the role exists.
 	"service": func(key string) bool {
 		_, roleArn, _ := strings.Cut(key, "|")
-		role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+		role, ok := iamRoleByArn(roleArn)
 		return ok && role.Arn == roleArn
 	},
 	"batch": func(jobID string) bool {
@@ -122,7 +122,7 @@ func registerRoleCredentials(srv *sim.Server) {
 			containerCredentialsError(w, http.StatusNotFound, "NotFound", "Credentials not found")
 			return
 		}
-		role, ok := iamRoles.Get(iamRoleNameFromArn(grant.RoleArn))
+		role, ok := iamRoleByArn(grant.RoleArn)
 		if !ok {
 			containerCredentialsError(w, http.StatusBadRequest, "InvalidRole",
 				fmt.Sprintf("Unable to assume role %s", grant.RoleArn))
@@ -207,7 +207,7 @@ func grantContainerCredentialsAt(origin, holder, roleArn, sessionName string) ma
 // execution role, and the moment that session lapses. A role IAM does not
 // hold yields none, and a zero time.
 func roleEnvironmentCredentialsExpiring(holder, roleArn, sessionName string) (map[string]string, time.Time) {
-	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+	role, ok := iamRoleByArn(roleArn)
 	if roleArn == "" || !ok {
 		return map[string]string{}, time.Time{}
 	}

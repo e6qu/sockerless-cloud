@@ -670,7 +670,7 @@ func registerCloudKMS(srv *sim.Server) {
 				return
 			}
 			v.State = "DESTROY_SCHEDULED"
-			v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyName(r))).Format(time.RFC3339)
+			v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyName(r))).Format(time.RFC3339Nano)
 		case "restore":
 			if v.State != "DESTROY_SCHEDULED" {
 				GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "CryptoKeyVersion %s is not DESTROY_SCHEDULED (state %s)", name, v.State)

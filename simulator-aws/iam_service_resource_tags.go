@@ -659,7 +659,7 @@ func iamRDSTargetedResource(r *http.Request) (iamRDSResourceKind, map[string]str
 type iamIAMResourceKind struct {
 	member    string
 	iamPrefix bool
-	tags      func(name string) ([]IAMTag, bool)
+	tags      func(acct, name string) ([]IAMTag, bool)
 }
 
 // iamIAMResourceKinds is ordered so the resource an operation is authorized
@@ -667,19 +667,19 @@ type iamIAMResourceKind struct {
 // the instance profile, AttachRolePolicy and AttachUserPolicy are calls on the
 // role and the user rather than on the policy they attach.
 var iamIAMResourceKinds = []iamIAMResourceKind{
-	{"InstanceProfileName", false, func(name string) ([]IAMTag, bool) {
-		set, ok := iamInstanceProfileTag.Get(name)
+	{"InstanceProfileName", false, func(acct, name string) ([]IAMTag, bool) {
+		set, ok := iamInstanceProfileTagIn(acct).Get(name)
 		return set.Tags, ok
 	}},
-	{"UserName", true, func(name string) ([]IAMTag, bool) {
-		u, ok := iamUsers.Get(name)
+	{"UserName", true, func(acct, name string) ([]IAMTag, bool) {
+		u, ok := iamUsersIn(acct).Get(name)
 		return u.Tags, ok
 	}},
-	{"RoleName", true, func(name string) ([]IAMTag, bool) {
-		role, ok := iamRoles.Get(name)
+	{"RoleName", true, func(acct, name string) ([]IAMTag, bool) {
+		role, ok := iamRolesIn(acct).Get(name)
 		return role.Tags, ok
 	}},
-	{"PolicyArn", false, func(arn string) ([]IAMTag, bool) {
+	{"PolicyArn", false, func(_, arn string) ([]IAMTag, bool) {
 		p, ok := iamPolicies.Get(arn)
 		return p.Tags, ok
 	}},
@@ -695,7 +695,7 @@ func iamPopulateIAMResourceTags(r *http.Request, ctx map[string][]string) {
 		if name == "" {
 			continue
 		}
-		tags, ok := kind.tags(name)
+		tags, ok := kind.tags(iamRequestAccount(r), name)
 		if !ok {
 			return
 		}
@@ -739,12 +739,13 @@ func iamS3ControlResourceTags(r *http.Request) (map[string]string, bool) {
 // as aws:ResourceTag/<k>: the role is an IAM resource.
 func iamPopulateSTSRoleTags(r *http.Request, ctx map[string][]string) {
 	arn := r.FormValue("RoleArn")
+	acct := iamArnAccount(arn)
 	i := strings.Index(arn, ":role/")
 	if i < 0 {
 		return
 	}
 	path := arn[i+len(":role/"):]
-	role, ok := iamRoles.Get(path[strings.LastIndex(path, "/")+1:])
+	role, ok := iamRolesIn(acct).Get(path[strings.LastIndex(path, "/")+1:])
 	if !ok {
 		return
 	}

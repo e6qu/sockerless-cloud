@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +31,17 @@ type IAMAccessKey struct {
 	UserName        string
 	Status          string
 	CreateDate      string
+	// Account is the account of a member account's key, empty for the
+	// management account's. A key with no UserName is the account's root
+	// user's.
+	Account string `json:",omitempty"`
+}
+
+func (k IAMAccessKey) account() string {
+	if k.Account != "" {
+		return k.Account
+	}
+	return awsAccountID()
 }
 
 type IAMUserPolicy struct {
@@ -72,6 +84,7 @@ func registerIAMUsers(r *AWSQueryRouter, srv *sim.Server) {
 	r.Register("ListAttachedUserPolicies", handleIAMListAttachedUserPolicies)
 
 	seedRootAdminCredential()
+	seedRootUserCredential()
 }
 
 // Bootstrap administrator credential. An AWS account starts with a root
@@ -86,18 +99,19 @@ const (
 )
 
 func seedRootAdminCredential() {
+	acct := awsAccountID()
 	if _, ok := iamAccessKeys.Get(seedAdminAccessKey); ok {
 		return // already provisioned (persistent store across restarts)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	iamUsers.Put(seedAdminUserName, IAMUser{
+	iamUsersIn(acct).Put(seedAdminUserName, IAMUser{
 		UserName:   seedAdminUserName,
 		UserId:     "AIDAROOTSIMADMIN00000",
-		Arn:        iamUserArn(seedAdminUserName, "/"),
+		Arn:        iamUserArn(acct, seedAdminUserName, "/"),
 		Path:       "/",
 		CreateDate: now,
 	})
-	iamUserPolicies.Put(seedAdminUserName+"/AdministratorAccess", IAMUserPolicy{
+	iamUserPoliciesIn(acct).Put(seedAdminUserName+"/AdministratorAccess", IAMUserPolicy{
 		UserName:       seedAdminUserName,
 		PolicyName:     "AdministratorAccess",
 		PolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
@@ -111,20 +125,41 @@ func seedRootAdminCredential() {
 	})
 }
 
-func iamUserArn(name, path string) string {
+// The management account's root user signs with "root"/"root". AWS issues a
+// root user's first access key from the console after sign-in, which no API
+// reaches; a key with no UserName belongs to its account's root user.
+const (
+	seedRootUserAccessKey = "root"
+	seedRootUserSecretKey = "root"
+)
+
+func seedRootUserCredential() {
+	if _, ok := iamAccessKeys.Get(seedRootUserAccessKey); ok {
+		return
+	}
+	iamAccessKeys.Put(seedRootUserAccessKey, IAMAccessKey{
+		AccessKeyId:     seedRootUserAccessKey,
+		SecretAccessKey: seedRootUserSecretKey,
+		Status:          "Active",
+		CreateDate:      time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func iamUserArn(acct string, name, path string) string {
 	if path == "" {
 		path = "/"
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:user%s%s", awsAccountID(), path, name)
+	return fmt.Sprintf("arn:aws:iam::%s:user%s%s", acct, path, name)
 }
 
 func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "UserName is required", http.StatusBadRequest)
 		return
 	}
-	if _, ok := iamUsers.Get(name); ok {
+	if _, ok := iamUsersIn(acct).Get(name); ok {
 		iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("User with name %s already exists.", name), http.StatusConflict)
 		return
 	}
@@ -135,14 +170,14 @@ func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
 	user := IAMUser{
 		UserName:   name,
 		UserId:     "AIDA" + strings.ToUpper(sim.NewUUID()[:16]),
-		Arn:        iamUserArn(name, path),
+		Arn:        iamUserArn(acct, name, path),
 		Path:       path,
 		CreateDate: time.Now().UTC().Format(time.RFC3339),
 		Tags:       iamParseTags(r),
 	}
-	iamUsers.Put(name, user)
+	iamUsersIn(acct).Put(name, user)
 	if boundary := r.FormValue("PermissionsBoundary"); boundary != "" {
-		iamUserBoundaries.Put(name, IAMUserBoundary{UserName: name, PolicyArn: boundary})
+		iamUserBoundariesIn(acct).Put(name, IAMUserBoundary{UserName: name, PolicyArn: boundary})
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateUserResult>%s</CreateUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateUserResponse>`,
@@ -150,65 +185,69 @@ func handleIAMCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMGetUser(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	user, ok := iamUsers.Get(name)
+	owner, ok := iamRequestCredentialOwner(w, r)
 	if !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
+	}
+	userXML := iamRootUserXML(owner.Account)
+	if !owner.root() {
+		user, _ := iamUsersIn(owner.Account).Get(owner.UserName)
+		userXML = iamUserXML(user)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetUserResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetUserResult>%s</GetUserResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetUserResponse>`,
-		iamUserXML(user), sim.NewUUID())
+		userXML, sim.NewUUID())
 }
 
 func handleIAMDeleteUser(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(name); !ok {
+	if _, ok := iamUsersIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
 	// IAM refuses to delete a user that still has dependents attached.
-	if msg := iamUserDeleteConflict(name); msg != "" {
+	if msg := iamUserDeleteConflict(acct, name); msg != "" {
 		iamErrorXML(w, "DeleteConflict", msg, http.StatusConflict)
 		return
 	}
-	iamUsers.Delete(name)
+	iamUsersIn(acct).Delete(name)
 	iamEmptyResultXML(w, "DeleteUser")
 }
 
 // iamUserDeleteConflict returns a non-empty DeleteConflict message if the user
 // still has an attachment real IAM requires removed before deletion.
-func iamUserDeleteConflict(name string) string {
+func iamUserDeleteConflict(acct string, name string) string {
+	owner := iamCredentialOwner{Account: acct, UserName: name}
 	for _, k := range iamAccessKeys.List() {
-		if k.UserName == name {
+		if owner.ownsKey(k) {
 			return "Cannot delete entity, must delete access keys first."
 		}
 	}
-	for _, p := range iamUserPolicies.List() {
+	for _, p := range iamUserPoliciesIn(acct).List() {
 		if p.UserName == name {
 			return "Cannot delete entity, must delete policies first."
 		}
 	}
-	for _, ap := range iamUserAttached.List() {
+	for _, ap := range iamUserAttachedIn(acct).List() {
 		if ap.UserName == name {
 			return "Cannot delete entity, must detach all policies first."
 		}
 	}
-	for _, m := range iamGroupMembers.List() {
+	for _, m := range iamGroupMembersIn(acct).List() {
 		if m.UserName == name {
 			return "Cannot delete entity, must remove users from all groups first."
 		}
 	}
-	if _, ok := iamLoginProfiles.Get(name); ok {
+	if _, ok := iamLoginProfilesIn(acct).Get(name); ok {
 		return "Cannot delete entity, must delete login profile first."
 	}
 	return ""
 }
 
 func handleIAMCreateAccessKey(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(name); !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
 		return
 	}
 	akid := "AKIA" + strings.ToUpper(iamRandomB32(16))
@@ -216,35 +255,57 @@ func handleIAMCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 	key := IAMAccessKey{
 		AccessKeyId:     akid,
 		SecretAccessKey: secret,
-		UserName:        name,
+		UserName:        owner.UserName,
 		Status:          "Active",
 		CreateDate:      time.Now().UTC().Format(time.RFC3339),
 	}
+	if !iamIsManagementAccount(owner.Account) {
+		key.Account = owner.Account
+	}
 	iamAccessKeys.Put(akid, key)
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<CreateAccessKeyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateAccessKeyResult><AccessKey><UserName>%s</UserName><AccessKeyId>%s</AccessKeyId><Status>Active</Status><SecretAccessKey>%s</SecretAccessKey><CreateDate>%s</CreateDate></AccessKey></CreateAccessKeyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateAccessKeyResponse>`,
-		xmlEscape(name), akid, xmlEscape(secret), key.CreateDate, sim.NewUUID())
+	fmt.Fprintf(w, `<CreateAccessKeyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><CreateAccessKeyResult><AccessKey>%s<AccessKeyId>%s</AccessKeyId><Status>Active</Status><SecretAccessKey>%s</SecretAccessKey><CreateDate>%s</CreateDate></AccessKey></CreateAccessKeyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></CreateAccessKeyResponse>`,
+		owner.userNameXML(), akid, xmlEscape(secret), key.CreateDate, sim.NewUUID())
+}
+
+// iamOwnedAccessKey reads the access key a request names, writing
+// NoSuchEntity when the owner the request names does not hold it.
+func iamOwnedAccessKey(w http.ResponseWriter, r *http.Request) (IAMAccessKey, iamCredentialOwner, bool) {
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return IAMAccessKey{}, owner, false
+	}
+	akid := r.FormValue("AccessKeyId")
+	key, found := iamAccessKeys.Get(akid)
+	if !found || !owner.ownsKey(key) {
+		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Access Key with id %s cannot be found.", akid), http.StatusNotFound)
+		return IAMAccessKey{}, owner, false
+	}
+	return key, owner, true
 }
 
 func handleIAMDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
-	akid := r.FormValue("AccessKeyId")
-	if _, ok := iamAccessKeys.Get(akid); !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Access Key with id %s cannot be found.", akid), http.StatusNotFound)
+	key, _, ok := iamOwnedAccessKey(w, r)
+	if !ok {
 		return
 	}
-	iamAccessKeys.Delete(akid)
+	iamAccessKeys.Delete(key.AccessKeyId)
 	iamEmptyResultXML(w, "DeleteAccessKey")
 }
 
 func handleIAMListAccessKeys(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("UserName")
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return
+	}
+	keys := iamAccessKeys.Filter(owner.ownsKey)
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].CreateDate+keys[i].AccessKeyId < keys[j].CreateDate+keys[j].AccessKeyId
+	})
 	var members strings.Builder
-	for _, k := range iamAccessKeys.List() {
-		if k.UserName != name {
-			continue
-		}
-		fmt.Fprintf(&members, `<member><UserName>%s</UserName><AccessKeyId>%s</AccessKeyId><Status>%s</Status><CreateDate>%s</CreateDate></member>`,
-			xmlEscape(k.UserName), k.AccessKeyId, k.Status, k.CreateDate)
+	for _, k := range keys {
+		fmt.Fprintf(&members, `<member>%s<AccessKeyId>%s</AccessKeyId><Status>%s</Status><CreateDate>%s</CreateDate></member>`,
+			owner.userNameXML(), k.AccessKeyId, k.Status, k.CreateDate)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListAccessKeysResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><ListAccessKeysResult><AccessKeyMetadata>%s</AccessKeyMetadata><IsTruncated>false</IsTruncated></ListAccessKeysResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListAccessKeysResponse>`,
@@ -252,8 +313,9 @@ func handleIAMListAccessKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMPutUserPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(name); !ok {
+	if _, ok := iamUsersIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
@@ -266,13 +328,14 @@ func handleIAMPutUserPolicy(w http.ResponseWriter, r *http.Request) {
 		iamErrorXML(w, "MalformedPolicyDocument", "The policy could not be parsed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	iamUserPolicies.Put(name+"/"+policyName, IAMUserPolicy{UserName: name, PolicyName: policyName, PolicyDocument: doc})
+	iamUserPoliciesIn(acct).Put(name+"/"+policyName, IAMUserPolicy{UserName: name, PolicyName: policyName, PolicyDocument: doc})
 	iamEmptyResultXML(w, "PutUserPolicy")
 }
 
 func handleIAMGetUserPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name, policyName := r.FormValue("UserName"), r.FormValue("PolicyName")
-	p, ok := iamUserPolicies.Get(name + "/" + policyName)
+	p, ok := iamUserPoliciesIn(acct).Get(name + "/" + policyName)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", "Policy not found", http.StatusNotFound)
 		return
@@ -283,15 +346,17 @@ func handleIAMGetUserPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteUserPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name, policyName := r.FormValue("UserName"), r.FormValue("PolicyName")
-	iamUserPolicies.Delete(name + "/" + policyName)
+	iamUserPoliciesIn(acct).Delete(name + "/" + policyName)
 	iamEmptyResultXML(w, "DeleteUserPolicy")
 }
 
 func handleIAMListUserPolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
 	var members strings.Builder
-	for _, p := range iamUserPolicies.List() {
+	for _, p := range iamUserPoliciesIn(acct).List() {
 		if p.UserName == name {
 			members.WriteString("<member>" + xmlEscape(p.PolicyName) + "</member>")
 		}
@@ -302,8 +367,9 @@ func handleIAMListUserPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMAttachUserPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(name); !ok {
+	if _, ok := iamUsersIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", name), http.StatusNotFound)
 		return
 	}
@@ -312,20 +378,22 @@ func handleIAMAttachUserPolicy(w http.ResponseWriter, r *http.Request) {
 	if i := strings.LastIndex(arn, "/"); i >= 0 {
 		pn = arn[i+1:]
 	}
-	iamUserAttached.Put(name+"/"+arn, IAMUserAttachedPolicy{UserName: name, PolicyArn: arn, PolicyName: pn})
+	iamUserAttachedIn(acct).Put(name+"/"+arn, IAMUserAttachedPolicy{UserName: name, PolicyArn: arn, PolicyName: pn})
 	iamEmptyResultXML(w, "AttachUserPolicy")
 }
 
 func handleIAMDetachUserPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name, arn := r.FormValue("UserName"), r.FormValue("PolicyArn")
-	iamUserAttached.Delete(name + "/" + arn)
+	iamUserAttachedIn(acct).Delete(name + "/" + arn)
 	iamEmptyResultXML(w, "DetachUserPolicy")
 }
 
 func handleIAMListAttachedUserPolicies(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("UserName")
 	var members strings.Builder
-	for _, ap := range iamUserAttached.List() {
+	for _, ap := range iamUserAttachedIn(acct).List() {
 		if ap.UserName == name {
 			fmt.Fprintf(&members, `<member><PolicyName>%s</PolicyName><PolicyArn>%s</PolicyArn></member>`,
 				xmlEscape(ap.PolicyName), xmlEscape(ap.PolicyArn))
@@ -353,16 +421,16 @@ func iamUserXML(u IAMUser) string {
 
 // iamPolicyDocsForUser collects a user's effective policy documents: inline
 // (PutUserPolicy) plus attached managed (AttachUserPolicy → managed policy doc).
-func iamPolicyDocsForUser(userName string) []iamPolicyDoc {
+func iamPolicyDocsForUser(acct string, userName string) []iamPolicyDoc {
 	var docs []iamPolicyDoc
-	for _, row := range iamUserPolicies.ListPrefix(iamOwnedKeyPrefix(userName)) {
+	for _, row := range iamUserPoliciesIn(acct).ListPrefix(iamOwnedKeyPrefix(userName)) {
 		if p := row.Item; p.UserName == userName {
 			if doc, err := parseIAMPolicy(p.PolicyDocument); err == nil {
 				docs = append(docs, doc)
 			}
 		}
 	}
-	for _, row := range iamUserAttached.ListPrefix(iamOwnedKeyPrefix(userName)) {
+	for _, row := range iamUserAttachedIn(acct).ListPrefix(iamOwnedKeyPrefix(userName)) {
 		ap := row.Item
 		if ap.UserName != userName {
 			continue

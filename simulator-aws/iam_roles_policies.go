@@ -59,13 +59,14 @@ func registerIAMRolesPolicies(r *AWSQueryRouter, srv *sim.Server) {
 }
 
 func handleIAMPutRolePermissionsBoundary(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	boundary := r.FormValue("PermissionsBoundary")
 	if boundary == "" {
 		iamErrorXML(w, "ValidationError", "PermissionsBoundary is required", http.StatusBadRequest)
 		return
 	}
-	if !iamRoles.Update(name, func(role *IAMRole) {
+	if !iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		role.PermissionsBoundaryARN = boundary
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s not found", name), http.StatusNotFound)
@@ -75,8 +76,9 @@ func handleIAMPutRolePermissionsBoundary(w http.ResponseWriter, r *http.Request)
 }
 
 func handleIAMDeleteRolePermissionsBoundary(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
-	if !iamRoles.Update(name, func(role *IAMRole) {
+	if !iamRolesIn(acct).Update(name, func(role *IAMRole) {
 		role.PermissionsBoundaryARN = ""
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s not found", name), http.StatusNotFound)
@@ -86,15 +88,16 @@ func handleIAMDeleteRolePermissionsBoundary(w http.ResponseWriter, r *http.Reque
 }
 
 func handleIAMUpdateRoleDescription(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("RoleName")
 	desc := r.FormValue("Description")
-	role, ok := iamRoles.Get(name)
+	role, ok := iamRolesIn(acct).Get(name)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Role %s not found", name), http.StatusNotFound)
 		return
 	}
 	role.Description = desc
-	iamRoles.Put(name, role)
+	iamRolesIn(acct).Put(name, role)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<UpdateRoleDescriptionResponse %s>
   <UpdateRoleDescriptionResult>%s</UpdateRoleDescriptionResult>
@@ -103,22 +106,24 @@ func handleIAMUpdateRoleDescription(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMTagInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
-	if _, ok := iamInstanceProfiles.Get(name); !ok {
+	if _, ok := iamInstanceProfilesIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
 	}
 	newTags := iamParseTags(r)
-	set, _ := iamInstanceProfileTag.Get(name)
+	set, _ := iamInstanceProfileTagIn(acct).Get(name)
 	set.InstanceProfileName = name
 	set.Tags = iamMergeTags(set.Tags, newTags)
-	iamInstanceProfileTag.Put(name, set)
+	iamInstanceProfileTagIn(acct).Put(name, set)
 	iamEmptyResultXML(w, "TagInstanceProfile")
 }
 
 func handleIAMUntagInstanceProfile(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
-	if _, ok := iamInstanceProfiles.Get(name); !ok {
+	if _, ok := iamInstanceProfilesIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
 	}
@@ -130,7 +135,7 @@ func handleIAMUntagInstanceProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		remove[k] = true
 	}
-	set, ok := iamInstanceProfileTag.Get(name)
+	set, ok := iamInstanceProfileTagIn(acct).Get(name)
 	if ok {
 		kept := set.Tags[:0]
 		for _, t := range set.Tags {
@@ -139,18 +144,19 @@ func handleIAMUntagInstanceProfile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		set.Tags = kept
-		iamInstanceProfileTag.Put(name, set)
+		iamInstanceProfileTagIn(acct).Put(name, set)
 	}
 	iamEmptyResultXML(w, "UntagInstanceProfile")
 }
 
 func handleIAMListInstanceProfileTags(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("InstanceProfileName")
-	if _, ok := iamInstanceProfiles.Get(name); !ok {
+	if _, ok := iamInstanceProfilesIn(acct).Get(name); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Instance Profile %s was not found.", name), http.StatusNotFound)
 		return
 	}
-	set, _ := iamInstanceProfileTag.Get(name)
+	set, _ := iamInstanceProfileTagIn(acct).Get(name)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ListInstanceProfileTagsResponse %s>
   <ListInstanceProfileTagsResult>%s<IsTruncated>false</IsTruncated></ListInstanceProfileTagsResult>
@@ -333,6 +339,7 @@ func handleIAMUntagPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	arn := r.FormValue("PolicyArn")
 	if _, ok := iamPolicies.Get(arn); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Policy %s was not found.", arn), http.StatusNotFound)
@@ -346,12 +353,12 @@ func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
 	var groups strings.Builder
 	if wantGroups {
 		seen := map[string]bool{}
-		for _, ga := range iamGroupAttached.List() {
+		for _, ga := range iamGroupAttachedIn(acct).List() {
 			if ga.PolicyArn != arn || seen[ga.GroupName] {
 				continue
 			}
 			seen[ga.GroupName] = true
-			if g, ok := iamGroups.Get(ga.GroupName); ok {
+			if g, ok := iamGroupsIn(acct).Get(ga.GroupName); ok {
 				fmt.Fprintf(&groups, "<member><GroupName>%s</GroupName><GroupId>%s</GroupId></member>",
 					xmlEscape(g.GroupName), g.GroupId)
 			}
@@ -360,12 +367,12 @@ func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
 	var users strings.Builder
 	if wantUsers {
 		seen := map[string]bool{}
-		for _, ua := range iamUserAttached.List() {
+		for _, ua := range iamUserAttachedIn(acct).List() {
 			if ua.PolicyArn != arn || seen[ua.UserName] {
 				continue
 			}
 			seen[ua.UserName] = true
-			if u, ok := iamUsers.Get(ua.UserName); ok {
+			if u, ok := iamUsersIn(acct).Get(ua.UserName); ok {
 				fmt.Fprintf(&users, "<member><UserName>%s</UserName><UserId>%s</UserId></member>",
 					xmlEscape(u.UserName), u.UserId)
 			}
@@ -374,12 +381,12 @@ func handleIAMListEntitiesForPolicy(w http.ResponseWriter, r *http.Request) {
 	var roles strings.Builder
 	if wantRoles {
 		seen := map[string]bool{}
-		for _, ra := range iamAttachedPolicies.List() {
+		for _, ra := range iamAttachedPoliciesIn(acct).List() {
 			if ra.PolicyArn != arn || seen[ra.RoleName] {
 				continue
 			}
 			seen[ra.RoleName] = true
-			if role, ok := iamRoles.Get(ra.RoleName); ok {
+			if role, ok := iamRolesIn(acct).Get(ra.RoleName); ok {
 				fmt.Fprintf(&roles, "<member><RoleName>%s</RoleName><RoleId>%s</RoleId></member>",
 					xmlEscape(role.RoleName), role.RoleId)
 			}
@@ -463,6 +470,7 @@ type iamGrantingPolicy struct {
 }
 
 func iamPoliciesForPrincipal(principalArn string) []iamGrantingPolicy {
+	acct := iamArnAccount(principalArn)
 	var out []iamGrantingPolicy
 	addManaged := func(policyArn string) {
 		if mp, ok := iamPolicies.Get(policyArn); ok {
@@ -474,7 +482,7 @@ func iamPoliciesForPrincipal(principalArn string) []iamGrantingPolicy {
 	switch {
 	case strings.Contains(principalArn, ":user/"):
 		user := principalArn[strings.LastIndex(principalArn, "/")+1:]
-		for _, p := range iamUserPolicies.List() {
+		for _, p := range iamUserPoliciesIn(acct).List() {
 			if p.UserName != user {
 				continue
 			}
@@ -482,14 +490,14 @@ func iamPoliciesForPrincipal(principalArn string) []iamGrantingPolicy {
 				out = append(out, iamGrantingPolicy{doc: doc, name: p.PolicyName, policyType: "INLINE", entityType: "USER", entityName: user})
 			}
 		}
-		for _, ua := range iamUserAttached.List() {
+		for _, ua := range iamUserAttachedIn(acct).List() {
 			if ua.UserName == user {
 				addManaged(ua.PolicyArn)
 			}
 		}
 	case strings.Contains(principalArn, ":role/"):
 		role := iamRoleNameFromArn(principalArn)
-		for _, p := range iamRolePolicies.List() {
+		for _, p := range iamRolePoliciesIn(acct).List() {
 			if p.RoleName != role {
 				continue
 			}
@@ -497,7 +505,7 @@ func iamPoliciesForPrincipal(principalArn string) []iamGrantingPolicy {
 				out = append(out, iamGrantingPolicy{doc: doc, name: p.PolicyName, policyType: "INLINE", entityType: "ROLE", entityName: role})
 			}
 		}
-		for _, ra := range iamAttachedPolicies.List() {
+		for _, ra := range iamAttachedPoliciesIn(acct).List() {
 			if ra.RoleName == role {
 				addManaged(ra.PolicyArn)
 			}
@@ -543,17 +551,18 @@ func handleIAMGetContextKeysForCustomPolicy(w http.ResponseWriter, r *http.Reque
 }
 
 func handleIAMGetContextKeysForPrincipalPolicy(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	src := r.FormValue("PolicySourceArn")
 	var docs []iamPolicyDoc
 	switch {
 	case strings.Contains(src, ":user/"):
 		user := src[strings.LastIndex(src, "/")+1:]
-		docs = append(docs, iamEffectivePolicyDocsForUser(user)...)
+		docs = append(docs, iamEffectivePolicyDocsForUser(acct, user)...)
 	case strings.Contains(src, ":role/"):
-		docs = append(docs, iamPolicyDocsForRole(iamRoleNameFromArn(src))...)
+		docs = append(docs, iamPolicyDocsForRole(acct, iamRoleNameFromArn(src))...)
 	case strings.Contains(src, ":group/"):
 		group := src[strings.LastIndex(src, "/")+1:]
-		docs = append(docs, iamPolicyDocsForGroup(group)...)
+		docs = append(docs, iamPolicyDocsForGroup(acct, group)...)
 	}
 	for _, p := range iamQueryList(r, "PolicyInputList") {
 		if doc, err := parseIAMPolicy(p); err == nil {

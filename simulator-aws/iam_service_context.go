@@ -86,8 +86,9 @@ func iamValidateServiceRole(roleARN, service string, actions map[string]string) 
 // ecs:cluster a RunTask names, are part of each action's context. A nil
 // request is a call that has no request of its own to read.
 func iamValidateServiceRoleCall(roleARN, service string, request *http.Request, actions map[string]string) error {
+	acct := iamArnAccount(roleARN)
 	roleName := iamRoleNameFromArn(roleARN)
-	role, ok := iamRoles.Get(roleName)
+	role, ok := iamRolesIn(acct).Get(roleName)
 	if !ok || role.Arn != roleARN {
 		return fmt.Errorf("IAM role %s does not exist", roleARN)
 	}
@@ -102,7 +103,7 @@ func iamValidateServiceRoleCall(roleARN, service string, request *http.Request, 
 	); decision != "allowed" {
 		return fmt.Errorf("IAM role %s does not trust %s", roleARN, service)
 	}
-	docs := iamPolicyDocsForRole(roleName)
+	docs := iamPolicyDocsForRole(acct, roleName)
 	for action, resource := range actions {
 		ctx := iamServiceCallConditionContext(src, request, action)
 		if decision, _ := iamEvalDecision(docs, action, resource, ctx); decision != "allowed" {
@@ -117,7 +118,8 @@ func iamValidateServiceRoleCall(roleARN, service string, request *http.Request, 
 // behalf of sourceArn. A role created moments before qualifies: IAM in the
 // simulator has no propagation delay.
 func iamServiceTrustedRole(ref, service, sourceArn string) (IAMRole, error) {
-	role, ok := iamRoles.Get(iamRoleNameFromArn(ref))
+	acct := iamArnAccount(ref)
+	role, ok := iamRolesIn(acct).Get(iamRoleNameFromArn(ref))
 	if !ok || (strings.Contains(ref, ":") && role.Arn != ref) {
 		return IAMRole{}, fmt.Errorf("IAM role %s does not exist", ref)
 	}

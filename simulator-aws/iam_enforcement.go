@@ -288,10 +288,11 @@ func iamAuthorize(r *http.Request, action, resource string) (allowed bool, princ
 func iamRequestConditionContext(
 	r *http.Request, akid, principalArn, userName, action string,
 ) map[string][]string {
+	acct := iamRequestAccount(r)
 	ctx := map[string][]string{}
 	if userName != "" {
 		ctx["aws:username"] = []string{userName}
-		if u, uok := iamUsers.Get(userName); uok {
+		if u, uok := iamUsersIn(acct).Get(userName); uok {
 			ctx["aws:userid"] = []string{u.UserId}
 		}
 	}
@@ -302,6 +303,9 @@ func iamRequestConditionContext(
 		ctx["aws:RequestedRegion"] = []string{region}
 	}
 	ctx["aws:PrincipalOrgID"] = []string{awsOrgID()}
+	if tc, ok := iamTempCreds.Get(akid); ok && tc.SourceIdentity != "" {
+		ctx["aws:SourceIdentity"] = []string{tc.SourceIdentity}
+	}
 	iamPopulateGlobalConditionKeys(r, akid, principalArn, userName, ctx)
 	// Service-initiation keys (aws:ViaAWSService=false for a direct client call).
 	iamPopulateServiceContext(r, ctx)
@@ -324,6 +328,13 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 	ctx := iamRequestConditionContext(r, akid, principalArn, caller.UserName, action)
 	for key, values := range extra {
 		ctx[key] = values
+	}
+
+	// The service control policies of a member account's organization cap
+	// every principal of the account, its root user included, before any of
+	// the account's own policies is read.
+	if orgSCPDecision(caller, action, resource, ctx) != "allowed" {
+		return false, principalArn, true
 	}
 
 	decision, _ := iamEvalDecision(caller.Identity, action, resource, ctx)
@@ -357,7 +368,7 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 		// A role's trust policy is the resource policy of assuming it, and of
 		// tagging the session the assumption opens: naming the caller there
 		// grants either without an identity policy.
-		if action == "sts:AssumeRole" || action == "sts:TagSession" {
+		if action == "sts:AssumeRole" || action == "sts:TagSession" || action == "sts:SetSourceIdentity" {
 			rdocs = append(rdocs, iamRoleTrustDocs(resource)...)
 		}
 		if len(rdocs) > 0 {
@@ -366,6 +377,11 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 				return false, principalArn, true
 			}
 			resourceAllows, resourceDirect = rdec == "allowed", direct
+			// Across accounts, a statement that names the caller's account
+			// admits it, and the caller's own policies decide.
+			if !resourceAllows && iamCrossAccount(principalArn, resource) {
+				resourceAllows = iamResourcePolicyAdmitsAccount(rdocs, action, resource, principalArn, ctx)
+			}
 		}
 	}
 
@@ -386,8 +402,10 @@ func iamAuthorizeWithContext(r *http.Request, action, resource string, extra map
 		sessionAllows = sdec == "allowed"
 	}
 	// A principal of another account needs both its own account's policies
-	// and the resource's policy to allow the request.
-	if iamCrossAccount(principalArn, resource) {
+	// and the resource's policy to allow the request. AssumeRoot names a
+	// member account's root user, which the organization rather than a
+	// resource policy lets the management account reach.
+	if action != "sts:AssumeRoot" && iamCrossAccount(principalArn, resource) {
 		return identityAllows && resourceAllows && boundaryAllows && sessionAllows, principalArn, true
 	}
 	if resourceDirect {
@@ -429,15 +447,41 @@ func iamResourceOwnerAccount(arn string) string {
 	return awsAccountID()
 }
 
-// iamCrossAccount reports whether a principal from an account other than the
-// simulator's acts on a resource its own account does not own.
+// iamCrossAccount reports whether a principal acts on a resource another
+// account owns. A management account principal naming an account the
+// simulator does not host acts on nothing another account holds.
 func iamCrossAccount(principalArn, resource string) bool {
 	caller := iamArnAccount(principalArn)
-	if caller == "" || caller == awsAccountID() {
+	if caller == "" {
 		return false
 	}
 	owner := iamResourceOwnerAccount(resource)
-	return owner != "" && owner != caller
+	if owner == "" || owner == caller || owner == "aws" {
+		return false
+	}
+	if iamIsManagementAccount(caller) {
+		return !iamIsManagementAccount(owner) && iamHostedAccount(owner)
+	}
+	return true
+}
+
+// iamResourcePolicyAdmitsAccount reports whether a resource policy has an
+// Allow statement that names the caller's account for action on resource.
+func iamResourcePolicyAdmitsAccount(docs []iamPolicyDoc, action, resource, callerArn string, ctx map[string][]string) bool {
+	for _, doc := range docs {
+		for _, stmt := range doc.Statement {
+			if !strings.EqualFold(stmt.Effect, "allow") || iamPrincipalMatchKind(stmt, callerArn, "", ctx) != iamPrincipalDelegated {
+				continue
+			}
+			if !iamActionMatches(stmt, action) || !iamResourceMatches(iamSubstituteVarsStmt(stmt, ctx), resource) {
+				continue
+			}
+			if ok, _ := iamConditionMatches(stmt, ctx); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // iamRootManagesOwnPolicy reports whether the request is the root user of
@@ -569,7 +613,7 @@ func iamResourceARNsForRequest(r *http.Request, action string) []string {
 	if region == "" {
 		region = awsRegion()
 	}
-	acct := awsAccountID()
+	acct := iamRequestAccount(r)
 	arn := func(svc, resource string) string {
 		return "arn:aws:" + svc + ":" + region + ":" + acct + ":" + resource
 	}

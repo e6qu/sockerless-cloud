@@ -154,6 +154,9 @@ func iamSyncMFADevice(w http.ResponseWriter, r *http.Request, dev *IAMVirtualMFA
 	return true
 }
 
+// The credentials below record a member account's ID in Account and leave it
+// empty for the management account's.
+
 type IAMSSHPublicKey struct {
 	UserName       string
 	SSHPublicKeyId string
@@ -161,14 +164,25 @@ type IAMSSHPublicKey struct {
 	Body           string
 	Status         string
 	UploadDate     string
+	Account        string `json:",omitempty"`
 }
 
+func (k IAMSSHPublicKey) owner() iamCredentialOwner {
+	return iamCredentialOwner{Account: iamStoredAccount(k.Account), UserName: k.UserName}
+}
+
+// A signing certificate with no UserName is the account root user's.
 type IAMSigningCertificate struct {
 	UserName        string
 	CertificateId   string
 	CertificateBody string
 	Status          string
 	UploadDate      string
+	Account         string `json:",omitempty"`
+}
+
+func (c IAMSigningCertificate) owner() iamCredentialOwner {
+	return iamCredentialOwner{Account: iamStoredAccount(c.Account), UserName: c.UserName}
 }
 
 type IAMServiceSpecificCredential struct {
@@ -179,6 +193,42 @@ type IAMServiceSpecificCredential struct {
 	ServicePassword             string
 	Status                      string
 	CreateDate                  string
+	Account                     string `json:",omitempty"`
+}
+
+func (c IAMServiceSpecificCredential) owner() iamCredentialOwner {
+	return iamCredentialOwner{Account: iamStoredAccount(c.Account), UserName: c.UserName}
+}
+
+// iamStoredAccount reads an Account field: empty is the management account.
+func iamStoredAccount(account string) string {
+	if account == "" {
+		return awsAccountID()
+	}
+	return account
+}
+
+// iamAccountField is the Account field that records account.
+func iamAccountField(account string) string {
+	if iamIsManagementAccount(account) {
+		return ""
+	}
+	return account
+}
+
+// A virtual MFA device belongs to the account its serial number names, and
+// once enabled to the user it names, or with none to the account's root user.
+func (dev IAMVirtualMFADevice) assigned() bool { return dev.EnableDate != "" }
+
+func (dev IAMVirtualMFADevice) owner() iamCredentialOwner {
+	return iamCredentialOwner{Account: iamArnAccount(dev.SerialNumber), UserName: dev.UserName}
+}
+
+// iamAccountMFADevice reads the device serial names when it belongs to
+// account.
+func iamAccountMFADevice(account, serial string) (IAMVirtualMFADevice, bool) {
+	dev, ok := iamVirtualMFADevices.Get(serial)
+	return dev, ok && iamArnAccount(serial) == account
 }
 
 var (
@@ -228,11 +278,11 @@ func registerIAMMFAKeys(r *AWSQueryRouter, srv *sim.Server) {
 	}
 }
 
-func iamMFAArn(name, path string) string {
+func iamMFAArn(acct string, name, path string) string {
 	if path == "" {
 		path = "/"
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:mfa%s%s", awsAccountID(), path, name)
+	return fmt.Sprintf("arn:aws:iam::%s:mfa%s%s", acct, path, name)
 }
 
 // iamMFASeed returns a real RFC 3548 base32 secret (20 random bytes → 32 chars
@@ -270,6 +320,7 @@ func iamMFAQRCodePNG(label, seed string) string {
 }
 
 func handleIAMCreateVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	name := r.FormValue("VirtualMFADeviceName")
 	if name == "" {
 		iamErrorXML(w, "ValidationError", "VirtualMFADeviceName is required", http.StatusBadRequest)
@@ -279,7 +330,7 @@ func handleIAMCreateVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	serial := iamMFAArn(name, path)
+	serial := iamMFAArn(acct, name, path)
 	if _, ok := iamVirtualMFADevices.Get(serial); ok {
 		iamErrorXML(w, "EntityAlreadyExists", "MFADevice entity at the same path and name already exists.", http.StatusConflict)
 		return
@@ -299,16 +350,21 @@ func handleIAMCreateVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMEnableMFADevice(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	userName := r.FormValue("UserName")
 	serial := r.FormValue("SerialNumber")
-	if _, ok := iamUsers.Get(userName); !ok {
+	if _, ok := iamUsersIn(acct).Get(userName); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", userName), http.StatusNotFound)
+		return
+	}
+	if _, ok := iamAccountMFADevice(acct, serial); !ok {
+		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
 		return
 	}
 	// Verify and record the codes under the device's row lock, so a code a
 	// concurrent request presents is not accepted twice.
 	found := iamVirtualMFADevices.Update(serial, func(dev *IAMVirtualMFADevice) {
-		if dev.UserName != "" {
+		if dev.assigned() {
 			iamErrorXML(w, "EntityAlreadyExists", fmt.Sprintf("Device %s is already enabled.", serial), http.StatusConflict)
 			return
 		}
@@ -325,11 +381,14 @@ func handleIAMEnableMFADevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeactivateMFADevice(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
+	owner, ok := iamLoginProfileOwner(w, r)
+	if !ok {
+		return
+	}
 	serial := r.FormValue("SerialNumber")
 	dev, ok := iamVirtualMFADevices.Get(serial)
-	if !ok || dev.UserName != userName {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Device %s is not associated with user %s.", serial, userName), http.StatusNotFound)
+	if !ok || !dev.assigned() || dev.owner() != owner {
+		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Device %s is not associated with user %s.", serial, owner.UserName), http.StatusNotFound)
 		return
 	}
 	dev.UserName = ""
@@ -344,8 +403,9 @@ func handleIAMResyncMFADevice(w http.ResponseWriter, r *http.Request) {
 	notAssociated := func() {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("Device %s is not associated with user %s.", serial, userName), http.StatusNotFound)
 	}
+	owner := iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}
 	found := iamVirtualMFADevices.Update(serial, func(dev *IAMVirtualMFADevice) {
-		if dev.UserName != userName {
+		if !dev.assigned() || dev.owner() != owner {
 			notAssociated()
 			return
 		}
@@ -360,7 +420,7 @@ func handleIAMResyncMFADevice(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMDeleteVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
 	serial := r.FormValue("SerialNumber")
-	if _, ok := iamVirtualMFADevices.Get(serial); !ok {
+	if _, ok := iamAccountMFADevice(iamRequestAccount(r), serial); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
 		return
 	}
@@ -370,7 +430,7 @@ func handleIAMDeleteVirtualMFADevice(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMGetMFADevice(w http.ResponseWriter, r *http.Request) {
 	serial := r.FormValue("SerialNumber")
-	dev, ok := iamVirtualMFADevices.Get(serial)
+	dev, ok := iamAccountMFADevice(iamRequestAccount(r), serial)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
 		return
@@ -388,13 +448,16 @@ func handleIAMGetMFADevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func iamMFADeviceMemberXML(dev IAMVirtualMFADevice) string {
-	return fmt.Sprintf("<member><UserName>%s</UserName><SerialNumber>%s</SerialNumber><EnableDate>%s</EnableDate></member>",
-		xmlEscape(dev.UserName), xmlEscape(dev.SerialNumber), dev.EnableDate)
+	return fmt.Sprintf("<member>%s<SerialNumber>%s</SerialNumber><EnableDate>%s</EnableDate></member>",
+		dev.owner().userNameXML(), xmlEscape(dev.SerialNumber), dev.EnableDate)
 }
 
 func handleIAMListMFADevices(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
-	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return d.UserName == userName && d.EnableDate != "" })
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return
+	}
+	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return d.assigned() && d.owner() == owner })
 	page, next, pageOK := awsKeyPage(w, iamBadToken, devices, func(it IAMVirtualMFADevice) string { return it.SerialNumber }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
@@ -409,13 +472,14 @@ func handleIAMListMFADevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	status := r.FormValue("AssignmentStatus")
-	devices := iamVirtualMFADevices.List()
+	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return iamArnAccount(d.SerialNumber) == acct })
 	sort.Slice(devices, func(i, j int) bool { return devices[i].SerialNumber < devices[j].SerialNumber })
 	var members strings.Builder
 	filtered := devices[:0]
 	for _, d := range devices {
-		assigned := d.UserName != ""
+		assigned := d.assigned()
 		switch status {
 		case "Assigned":
 			if !assigned {
@@ -434,8 +498,11 @@ func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, d := range page {
 		var userBlock, enableBlock string
-		if d.UserName != "" {
-			if u, ok := iamUsers.Get(d.UserName); ok {
+		switch {
+		case d.assigned() && d.UserName == "":
+			userBlock = iamRootUserXML(acct)
+		case d.UserName != "":
+			if u, ok := iamUsersIn(acct).Get(d.UserName); ok {
 				userBlock = "<User>" + iamUserInnerXML(u) + "</User>"
 			}
 		}
@@ -453,7 +520,7 @@ func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
 func handleIAMTagMFADevice(w http.ResponseWriter, r *http.Request) {
 	serial := r.FormValue("SerialNumber")
 	newTags := iamParseTags(r)
-	if !iamVirtualMFADevices.Update(serial, func(d *IAMVirtualMFADevice) {
+	if _, ok := iamAccountMFADevice(iamRequestAccount(r), serial); !ok || !iamVirtualMFADevices.Update(serial, func(d *IAMVirtualMFADevice) {
 		d.Tags = iamMergeTags(d.Tags, newTags)
 	}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
@@ -472,7 +539,7 @@ func handleIAMUntagMFADevice(w http.ResponseWriter, r *http.Request) {
 		}
 		remove[k] = true
 	}
-	if !iamVirtualMFADevices.Update(serial, func(d *IAMVirtualMFADevice) {
+	if _, ok := iamAccountMFADevice(iamRequestAccount(r), serial); !ok || !iamVirtualMFADevices.Update(serial, func(d *IAMVirtualMFADevice) {
 		kept := d.Tags[:0]
 		for _, t := range d.Tags {
 			if !remove[t.Key] {
@@ -489,7 +556,7 @@ func handleIAMUntagMFADevice(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListMFADeviceTags(w http.ResponseWriter, r *http.Request) {
 	serial := r.FormValue("SerialNumber")
-	dev, ok := iamVirtualMFADevices.Get(serial)
+	dev, ok := iamAccountMFADevice(iamRequestAccount(r), serial)
 	if !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("VirtualMFADevice with serial number %s does not exist.", serial), http.StatusNotFound)
 		return
@@ -515,8 +582,9 @@ func iamSSHPublicKeyXML(k IAMSSHPublicKey, body string) string {
 }
 
 func handleIAMUploadSSHPublicKey(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	userName := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(userName); !ok {
+	if _, ok := iamUsersIn(acct).Get(userName); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", userName), http.StatusNotFound)
 		return
 	}
@@ -527,6 +595,7 @@ func handleIAMUploadSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key := IAMSSHPublicKey{
 		UserName:       userName,
+		Account:        iamAccountField(acct),
 		SSHPublicKeyId: "APKA" + strings.ToUpper(iamRandomB32(16)),
 		Fingerprint:    iamSSHFingerprint(body),
 		Body:           body,
@@ -544,7 +613,7 @@ func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	keyID := r.FormValue("SSHPublicKeyId")
 	key, ok := iamSSHPublicKeys.Get(keyID)
-	if !ok || key.UserName != userName {
+	if !ok || key.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The SSH Public Key with id %s does not exist.", keyID), http.StatusNotFound)
 		return
 	}
@@ -573,7 +642,8 @@ func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListSSHPublicKeys(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
-	keys := iamSSHPublicKeys.Filter(func(k IAMSSHPublicKey) bool { return k.UserName == userName })
+	owner := iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}
+	keys := iamSSHPublicKeys.Filter(func(k IAMSSHPublicKey) bool { return k.owner() == owner })
 	page, next, pageOK := awsKeyPage(w, iamBadToken, keys, func(it IAMSSHPublicKey) string { return it.SSHPublicKeyId }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
@@ -593,7 +663,7 @@ func handleIAMUpdateSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	keyID := r.FormValue("SSHPublicKeyId")
 	status := r.FormValue("Status")
 	key, ok := iamSSHPublicKeys.Get(keyID)
-	if !ok || key.UserName != userName {
+	if !ok || key.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The SSH Public Key with id %s does not exist.", keyID), http.StatusNotFound)
 		return
 	}
@@ -606,7 +676,7 @@ func handleIAMDeleteSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	keyID := r.FormValue("SSHPublicKeyId")
 	key, ok := iamSSHPublicKeys.Get(keyID)
-	if !ok || key.UserName != userName {
+	if !ok || key.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The SSH Public Key with id %s does not exist.", keyID), http.StatusNotFound)
 		return
 	}
@@ -615,14 +685,13 @@ func handleIAMDeleteSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func iamSigningCertXML(c IAMSigningCertificate) string {
-	return fmt.Sprintf("<UserName>%s</UserName><CertificateId>%s</CertificateId><CertificateBody>%s</CertificateBody><Status>%s</Status><UploadDate>%s</UploadDate>",
-		xmlEscape(c.UserName), c.CertificateId, xmlEscape(c.CertificateBody), c.Status, c.UploadDate)
+	return fmt.Sprintf("%s<CertificateId>%s</CertificateId><CertificateBody>%s</CertificateBody><Status>%s</Status><UploadDate>%s</UploadDate>",
+		c.owner().userNameXML(), c.CertificateId, xmlEscape(c.CertificateBody), c.Status, c.UploadDate)
 }
 
 func handleIAMUploadSigningCertificate(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(userName); !ok {
-		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", userName), http.StatusNotFound)
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
 		return
 	}
 	body := r.FormValue("CertificateBody")
@@ -631,7 +700,8 @@ func handleIAMUploadSigningCertificate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cert := IAMSigningCertificate{
-		UserName:        userName,
+		UserName:        owner.UserName,
+		Account:         iamAccountField(owner.Account),
 		CertificateId:   strings.ToUpper(iamRandomB32(24)),
 		CertificateBody: body,
 		Status:          "Active",
@@ -644,8 +714,11 @@ func handleIAMUploadSigningCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMListSigningCertificates(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
-	certs := iamSigningCerts.Filter(func(c IAMSigningCertificate) bool { return c.UserName == userName })
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return
+	}
+	certs := iamSigningCerts.Filter(func(c IAMSigningCertificate) bool { return c.owner() == owner })
 	page, next, pageOK := awsKeyPage(w, iamBadToken, certs, func(it IAMSigningCertificate) string { return it.CertificateId }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
@@ -660,11 +733,14 @@ func handleIAMListSigningCertificates(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMUpdateSigningCertificate(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return
+	}
 	certID := r.FormValue("CertificateId")
 	status := r.FormValue("Status")
 	cert, ok := iamSigningCerts.Get(certID)
-	if !ok || cert.UserName != userName {
+	if !ok || cert.owner() != owner {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Signing Certificate with id %s does not exist.", certID), http.StatusNotFound)
 		return
 	}
@@ -674,10 +750,13 @@ func handleIAMUpdateSigningCertificate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIAMDeleteSigningCertificate(w http.ResponseWriter, r *http.Request) {
-	userName := r.FormValue("UserName")
+	owner, ok := iamRequestCredentialOwner(w, r)
+	if !ok {
+		return
+	}
 	certID := r.FormValue("CertificateId")
 	cert, ok := iamSigningCerts.Get(certID)
-	if !ok || cert.UserName != userName {
+	if !ok || cert.owner() != owner {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The Signing Certificate with id %s does not exist.", certID), http.StatusNotFound)
 		return
 	}
@@ -702,8 +781,9 @@ func iamServiceCredXML(c IAMServiceSpecificCredential, includePassword bool) str
 }
 
 func handleIAMCreateServiceSpecificCredential(w http.ResponseWriter, r *http.Request) {
+	acct := iamRequestAccount(r)
 	userName := r.FormValue("UserName")
-	if _, ok := iamUsers.Get(userName); !ok {
+	if _, ok := iamUsersIn(acct).Get(userName); !ok {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The user with name %s cannot be found.", userName), http.StatusNotFound)
 		return
 	}
@@ -715,8 +795,9 @@ func handleIAMCreateServiceSpecificCredential(w http.ResponseWriter, r *http.Req
 	cred := IAMServiceSpecificCredential{
 		ServiceSpecificCredentialId: "ACCA" + strings.ToUpper(iamRandomB32(16)),
 		UserName:                    userName,
+		Account:                     iamAccountField(acct),
 		ServiceName:                 serviceName,
-		ServiceUserName:             fmt.Sprintf("%s-at-%s", userName, awsAccountID()),
+		ServiceUserName:             fmt.Sprintf("%s-at-%s", userName, acct),
 		ServicePassword:             iamServicePassword(),
 		Status:                      "Active",
 		CreateDate:                  time.Now().UTC().Format(time.RFC3339),
@@ -730,8 +811,9 @@ func handleIAMCreateServiceSpecificCredential(w http.ResponseWriter, r *http.Req
 func handleIAMListServiceSpecificCredentials(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	serviceFilter := r.FormValue("ServiceName")
+	owner := iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}
 	creds := iamServiceCreds.Filter(func(c IAMServiceSpecificCredential) bool {
-		if c.UserName != userName {
+		if c.owner() != owner {
 			return false
 		}
 		return serviceFilter == "" || c.ServiceName == serviceFilter
@@ -755,7 +837,7 @@ func handleIAMUpdateServiceSpecificCredential(w http.ResponseWriter, r *http.Req
 	credID := r.FormValue("ServiceSpecificCredentialId")
 	status := r.FormValue("Status")
 	cred, ok := iamServiceCreds.Get(credID)
-	if !ok || cred.UserName != userName {
+	if !ok || cred.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The service-specific credential with id %s does not exist.", credID), http.StatusNotFound)
 		return
 	}
@@ -768,7 +850,7 @@ func handleIAMResetServiceSpecificCredential(w http.ResponseWriter, r *http.Requ
 	userName := r.FormValue("UserName")
 	credID := r.FormValue("ServiceSpecificCredentialId")
 	cred, ok := iamServiceCreds.Get(credID)
-	if !ok || cred.UserName != userName {
+	if !ok || cred.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The service-specific credential with id %s does not exist.", credID), http.StatusNotFound)
 		return
 	}
@@ -783,7 +865,7 @@ func handleIAMDeleteServiceSpecificCredential(w http.ResponseWriter, r *http.Req
 	userName := r.FormValue("UserName")
 	credID := r.FormValue("ServiceSpecificCredentialId")
 	cred, ok := iamServiceCreds.Get(credID)
-	if !ok || cred.UserName != userName {
+	if !ok || cred.owner() != (iamCredentialOwner{Account: iamRequestAccount(r), UserName: userName}) {
 		iamErrorXML(w, "NoSuchEntity", fmt.Sprintf("The service-specific credential with id %s does not exist.", credID), http.StatusNotFound)
 		return
 	}

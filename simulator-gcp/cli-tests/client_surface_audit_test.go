@@ -206,11 +206,11 @@ func TestCLI_ProjectIAMPolicy(t *testing.T) {
 	parseJSON(t, out, &policy)
 	assert.NotEmpty(t, policy.Etag)
 
-	bound := runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", "test-project",
+	bound := addProjectPolicyBinding(t, "test-project",
 		"--member=serviceAccount:robot@test-project.iam.gserviceaccount.com",
 		"--role=roles/viewer",
 		"--format=json",
-		"--quiet"))
+		"--quiet")
 	assert.Contains(t, bound, "roles/viewer")
 
 	// The add prints the response body; a fresh get-iam-policy proves the write.

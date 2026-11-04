@@ -375,9 +375,12 @@ func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
 	_, err = c.DeleteCryptoKeyVersion(ctx, &kmspb.DeleteCryptoKeyVersionRequest{Name: second.GetName()})
 	requireGRPCCode(t, err, codes.FailedPrecondition)
 
+	requested := time.Now()
 	scheduled, err := c.DestroyCryptoKeyVersion(ctx, &kmspb.DestroyCryptoKeyVersionRequest{Name: second.GetName()})
 	require.NoError(t, err)
 	require.Equal(t, kmspb.CryptoKeyVersion_DESTROY_SCHEDULED, scheduled.GetState())
+	require.False(t, scheduled.GetDestroyTime().AsTime().Before(requested.Add(time.Second)),
+		"the destroy comes due a full destroyScheduledDuration after the request, to the nanosecond")
 	// Still refused: the destroy has not come due yet.
 	_, err = c.DeleteCryptoKeyVersion(ctx, &kmspb.DeleteCryptoKeyVersionRequest{Name: second.GetName()})
 	requireGRPCCode(t, err, codes.FailedPrecondition)

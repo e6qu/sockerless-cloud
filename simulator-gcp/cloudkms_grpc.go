@@ -619,7 +619,7 @@ func (s *cloudKmsGRPC) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.D
 		return nil, status.Errorf(codes.FailedPrecondition, "CryptoKeyVersion %s is already %s", name, v.State)
 	}
 	v.State = "DESTROY_SCHEDULED"
-	v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyNameFromVersion(name))).Format(time.RFC3339)
+	v.DestroyTime = time.Now().UTC().Add(kmsDestroyDelayFor(kmsCryptoKeyNameFromVersion(name))).Format(time.RFC3339Nano)
 	kmsCryptoKeyVersions.Put(name, v)
 	return kmsCryptoKeyVersionToProto(v), nil
 }

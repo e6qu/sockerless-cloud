@@ -176,7 +176,7 @@ func TestGetWebIdentityTokenVerifiesAgainstTheIssuer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s token did not verify against the issuer: %v", alg, err)
 		}
-		if idToken.Subject != iamUserArn(seedAdminUserName, "/") {
+		if idToken.Subject != iamUserArn(awsAccountID(), seedAdminUserName, "/") {
 			t.Errorf("sub = %q", idToken.Subject)
 		}
 		if got := idToken.Expiry.Sub(idToken.IssuedAt); got != 300*time.Second {
@@ -221,7 +221,7 @@ func TestSTSCallerIdentityResolvesEachKindOfCaller(t *testing.T) {
 		return req
 	}
 	for akid, want := range map[string][2]string{
-		seedAdminAccessKey: {iamUserArn(seedAdminUserName, "/"), "AIDAROOTSIMADMIN00000"},
+		seedAdminAccessKey: {iamUserArn(awsAccountID(), seedAdminUserName, "/"), "AIDAROOTSIMADMIN00000"},
 		"ASIAROLE":         {"arn:aws:sts::123456789012:assumed-role/deployer/nightly", "AROADEPLOYER000000000:nightly"},
 		"ASIAFED":          {"arn:aws:sts::123456789012:federated-user/alice", awsAccountID() + ":alice"},
 	} {

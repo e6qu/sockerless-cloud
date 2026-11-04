@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/exec"
@@ -600,6 +601,36 @@ func parseDescribedResource(t *testing.T, data string, target any) {
 // grantProjectRole binds member to role on the suite's project.
 func grantProjectRole(t *testing.T, member, role string) {
 	t.Helper()
-	runCLI(t, gcloudCLI("projects", "add-iam-policy-binding", project,
-		"--member="+member, "--role="+role, "--condition=None", "--format=json"))
+	addProjectPolicyBinding(t, project, "--member="+member, "--role="+role, "--condition=None", "--format=json")
+}
+
+// addProjectPolicyBinding runs `gcloud projects add-iam-policy-binding`,
+// which read-modify-writes the project's whole policy and does not retry a
+// conflict itself. Parallel tests share the project's policy, so a write can
+// meet a stale etag; Cloud IAM's ABORTED answer asks the caller to retry the
+// whole read-modify-write with exponential backoff, and this does.
+func addProjectPolicyBinding(t *testing.T, projectID string, flags ...string) string {
+	t.Helper()
+	const attempts = 8
+	backoff := 100 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		cmd := gcloudCLI(append([]string{"projects", "add-iam-policy-binding", projectID}, flags...)...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("CLI command failed to start: %v\nCommand: %s", err, strings.Join(cmd.Args, " "))
+		}
+		timer := time.AfterFunc(30*time.Second, func() { _ = cmd.Process.Kill() })
+		err := cmd.Wait()
+		timer.Stop()
+		if err == nil {
+			return stdout.String()
+		}
+		if attempt == attempts || !strings.Contains(stderr.String(), "There were concurrent policy changes") {
+			t.Fatalf("CLI command failed: %v\nCommand: %s\nStdout: %s\nStderr: %s",
+				err, strings.Join(cmd.Args, " "), stdout.String(), stderr.String())
+		}
+		time.Sleep(backoff + time.Duration(rand.Int64N(int64(backoff))))
+		backoff *= 2
+	}
 }

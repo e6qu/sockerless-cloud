@@ -63,6 +63,9 @@ type IAMTempCred struct {
 	// FromGetSessionToken marks a GetSessionToken session, which calls IAM
 	// only with MFA and AWS STS only for AssumeRole and GetCallerIdentity.
 	FromGetSessionToken bool `json:",omitempty"`
+	// SourceIdentity is the identity the session's first assumption set,
+	// which every session chained from it keeps.
+	SourceIdentity string `json:",omitempty"`
 }
 
 var (
@@ -126,6 +129,16 @@ type iamCaller struct {
 	// authenticated.
 	SessionToken bool
 	MFA          bool
+	// Account is the account the caller acts in, and Root marks the
+	// account's root user, whether signing with its own access key or in an
+	// AssumeRoot session.
+	Account string
+	Root    bool
+	// ServiceLinked marks a session of a service-linked role, which no
+	// service control policy restricts.
+	ServiceLinked bool
+	// SourceIdentity is the source identity the session carries.
+	SourceIdentity string
 }
 
 // refuses reports whether the kind of session the caller holds may not call
@@ -143,36 +156,43 @@ func (c iamCaller) refuses(action string) bool {
 // iamCallerForAccessKey resolves an access key ID to the policies that govern
 // it. ok is false for a key no principal holds.
 func iamCallerForAccessKey(akid string) (iamCaller, bool) {
+	acct := iamAccessKeyAccount(akid)
 	if akid == "" {
 		return iamCaller{}, false
 	}
 	if tc, found := iamTempCreds.Get(akid); found {
 		caller := iamCaller{
-			Arn:          tc.PrincipalArn,
-			Unrestricted: tc.UnrestrictedIdentity,
-			SessionCaps:  tc.SessionPolicyCaps || tc.SessionPolicy != "" || len(tc.SessionPolicyArns) > 0,
-			Federated:    strings.Contains(tc.PrincipalArn, ":federated-user/"),
-			SessionToken: tc.FromGetSessionToken,
-			MFA:          tc.MFA,
+			Arn:            tc.PrincipalArn,
+			Unrestricted:   tc.UnrestrictedIdentity,
+			SessionCaps:    tc.SessionPolicyCaps || tc.SessionPolicy != "" || len(tc.SessionPolicyArns) > 0,
+			Federated:      strings.Contains(tc.PrincipalArn, ":federated-user/"),
+			SessionToken:   tc.FromGetSessionToken,
+			MFA:            tc.MFA,
+			Account:        acct,
+			Root:           iamIsRootArn(tc.PrincipalArn),
+			SourceIdentity: tc.SourceIdentity,
 		}
 		if caller.SessionCaps {
 			caller.Session = stsSessionPolicyDocs(tc)
 		}
 		switch {
 		case tc.RoleName != "":
-			caller.Identity = iamPolicyDocsForRole(tc.RoleName)
-			caller.Boundary = iamRolePermissionBoundaryDocs(tc.RoleName)
+			caller.Identity = iamPolicyDocsForRole(acct, tc.RoleName)
+			caller.Boundary = iamRolePermissionBoundaryDocs(acct, tc.RoleName)
+			if role, ok := iamRolesIn(acct).Get(tc.RoleName); ok {
+				caller.ServiceLinked = iamIsServiceLinkedRole(role)
+			}
 		case tc.UserName != "":
-			if u, uok := iamUsers.Get(tc.UserName); uok {
+			if u, uok := iamUsersIn(acct).Get(tc.UserName); uok {
 				caller.UserName = u.UserName
-				caller.Identity = iamEffectivePolicyDocsForUser(u.UserName)
-				caller.Boundary = iamPermissionBoundaryDocs(u.UserName)
+				caller.Identity = iamEffectivePolicyDocsForUser(acct, u.UserName)
+				caller.Boundary = iamPermissionBoundaryDocs(acct, u.UserName)
 			}
 		case tc.FederatingUser != "":
-			if u, uok := iamUsers.Get(tc.FederatingUser); uok {
+			if u, uok := iamUsersIn(acct).Get(tc.FederatingUser); uok {
 				caller.EntityArn = u.Arn
-				caller.Identity = iamEffectivePolicyDocsForUser(tc.FederatingUser)
-				caller.Boundary = iamPermissionBoundaryDocs(tc.FederatingUser)
+				caller.Identity = iamEffectivePolicyDocsForUser(acct, tc.FederatingUser)
+				caller.Boundary = iamPermissionBoundaryDocs(acct, tc.FederatingUser)
 			}
 		}
 		if tc.TaskPolicyArn != "" {
@@ -183,11 +203,15 @@ func iamCallerForAccessKey(akid string) (iamCaller, bool) {
 		return caller, true
 	}
 	if key, found := iamAccessKeys.Get(akid); found {
-		if u, uok := iamUsers.Get(key.UserName); uok {
+		if key.UserName == "" {
+			return iamCaller{Arn: iamRootArn(acct), Unrestricted: true, Account: acct, Root: true}, true
+		}
+		if u, uok := iamUsersIn(acct).Get(key.UserName); uok {
 			return iamCaller{
 				Arn: u.Arn, UserName: u.UserName,
-				Identity: iamEffectivePolicyDocsForUser(u.UserName),
-				Boundary: iamPermissionBoundaryDocs(u.UserName),
+				Identity: iamEffectivePolicyDocsForUser(acct, u.UserName),
+				Boundary: iamPermissionBoundaryDocs(acct, u.UserName),
+				Account:  acct,
 			}, true
 		}
 	}
@@ -199,32 +223,36 @@ func iamCallerForAccessKey(akid string) (iamCaller, bool) {
 // `<account>:<name>` for a federated user. ok is false for a credential that
 // resolves to no identity.
 func stsCallerIdentity(r *http.Request) (arn, userID string, ok bool) {
+	acct := iamRequestAccount(r)
 	akid := iamAccessKeyIDFromRequest(r)
 	if tc, found := iamTempCreds.Get(akid); found {
 		_, name, _ := strings.Cut(tc.PrincipalArn[strings.LastIndex(tc.PrincipalArn, ":")+1:], "/")
 		switch {
 		case tc.RoleName != "":
-			role, rok := iamRoles.Get(tc.RoleName)
+			role, rok := iamRolesIn(acct).Get(tc.RoleName)
 			if !rok {
 				return "", "", false
 			}
 			return tc.PrincipalArn, role.RoleId + ":" + name[strings.LastIndex(name, "/")+1:], true
 		case tc.UserName != "":
-			u, uok := iamUsers.Get(tc.UserName)
+			u, uok := iamUsersIn(acct).Get(tc.UserName)
 			if !uok {
 				return "", "", false
 			}
 			return tc.PrincipalArn, u.UserId, true
 		case strings.Contains(tc.PrincipalArn, ":federated-user/"):
-			return tc.PrincipalArn, awsAccountID() + ":" + name, true
-		case strings.HasSuffix(tc.PrincipalArn, ":root"):
+			return tc.PrincipalArn, acct + ":" + name, true
+		case iamIsRootArn(tc.PrincipalArn):
 			// A root user's unique ID is its account ID.
-			return tc.PrincipalArn, strings.Split(tc.PrincipalArn, ":")[4], true
+			return tc.PrincipalArn, acct, true
 		}
 		return "", "", false
 	}
 	if key, found := iamAccessKeys.Get(akid); found {
-		if u, uok := iamUsers.Get(key.UserName); uok {
+		if key.UserName == "" {
+			return iamRootArn(acct), acct, true
+		}
+		if u, uok := iamUsersIn(acct).Get(key.UserName); uok {
 			return u.Arn, u.UserId, true
 		}
 	}
@@ -232,12 +260,12 @@ func stsCallerIdentity(r *http.Request) (arn, userID string, ok bool) {
 }
 
 func handleGetCallerIdentity(w http.ResponseWriter, r *http.Request) {
-	acct := awsAccountID()
 	arn, userID, ok := stsCallerIdentity(r)
 	if !ok {
 		stsErrorXML(w, "InvalidClientTokenId", sigMsgInvalidTok, http.StatusForbidden)
 		return
 	}
+	acct := iamArnAccount(arn)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetCallerIdentityResult>
@@ -297,10 +325,11 @@ func stsTrustDelegates(trust iamPolicyDoc, action, caller string, ctx map[string
 
 // iamRoleTrustDocs returns the trust policy of the role roleArn names.
 func iamRoleTrustDocs(roleArn string) []iamPolicyDoc {
+	acct := iamArnAccount(roleArn)
 	if !iamIsRoleARN(roleArn) {
 		return nil
 	}
-	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+	role, ok := iamRolesIn(acct).Get(iamRoleNameFromArn(roleArn))
 	if !ok || role.Arn != roleArn {
 		return nil
 	}
@@ -419,8 +448,12 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 		reqErr.write(w)
 		return
 	}
-	roleName := iamRoleNameFromArn(roleArn)
-	role, ok := iamRoles.Get(roleName)
+	sourceIdentity, reqErr := stsSessionSourceIdentity(r, r.FormValue("SourceIdentity"))
+	if reqErr != nil {
+		reqErr.write(w)
+		return
+	}
+	role, ok := iamRoleByArn(roleArn)
 	if !ok {
 		stsErrorXML(w, "AccessDenied",
 			fmt.Sprintf("User is not authorized to perform: sts:AssumeRole on resource: %s (role not found)", roleArn),
@@ -459,6 +492,12 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 				http.StatusForbidden)
 			return
 		}
+		if sourceIdentity != "" && !stsTrustAllows(role, "sts:SetSourceIdentity", callerArn, stsWithSourceIdentity(ctx, sourceIdentity)) {
+			stsErrorXML(w, "AccessDenied",
+				fmt.Sprintf("User: %s is not authorized to perform: sts:SetSourceIdentity on resource: %s", callerArn, roleArn),
+				http.StatusForbidden)
+			return
+		}
 	}
 	duration, reqErr := stsRoleSessionDuration(r, role, stsCallerIsRoleSession(r))
 	if reqErr != nil {
@@ -476,7 +515,7 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().UTC().Add(duration)
 	akid, secret, token := stsMintTempCred(exp)
-	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
+	assumedArn := stsAssumedRoleArn(role, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
@@ -485,6 +524,7 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
 		FederatedClaims: stsCallerFederatedClaims(r),
 		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
 		SessionPolicy: policies.Inline, SessionPolicyArns: policies.Arns,
+		SourceIdentity: sourceIdentity,
 	})
 	assumedRoleID := role.RoleId + ":" + sessionName
 	w.Header().Set("Content-Type", "text/xml")
@@ -499,11 +539,16 @@ func handleSTSAssumeRole(w http.ResponseWriter, r *http.Request) {
     <AssumedRoleUser>
       <Arn>%s</Arn>
       <AssumedRoleId>%s</AssumedRoleId>
-    </AssumedRoleUser>%s
+    </AssumedRoleUser>%s%s
   </AssumeRoleResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), assumedRoleID, stsPackedPolicySizeXML(packed), sim.NewUUID())
+		xmlEscape(assumedArn), assumedRoleID, stsPackedPolicySizeXML(packed), stsSourceIdentityXML(sourceIdentity), sim.NewUUID())
+}
+
+// stsAssumedRoleArn is the ARN of a session of role, in the role's account.
+func stsAssumedRoleArn(role IAMRole, sessionName string) string {
+	return fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", iamArnAccount(role.Arn), role.RoleName, sessionName)
 }
 
 func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) {
@@ -518,14 +563,13 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 		reqErr.write(w)
 		return
 	}
-	roleName := iamRoleNameFromArn(roleArn)
-	role, ok := iamRoles.Get(roleName)
+	role, ok := iamRoleByArn(roleArn)
 	if !ok {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithWebIdentity on %s", roleArn), http.StatusForbidden)
 		return
 	}
 	// Verify the web identity token against the registered OpenID Connect provider, as AWS STS does.
-	identity, err := verifyWebIdentityToken(r.Context(), r.FormValue("WebIdentityToken"))
+	identity, err := verifyWebIdentityToken(r.Context(), iamArnAccount(role.Arn), r.FormValue("WebIdentityToken"))
 	if err != nil {
 		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
 		return
@@ -550,6 +594,15 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:TagSession on %s", roleArn), http.StatusForbidden)
 		return
 	}
+	sourceIdentity, err := stsFederatedSourceIdentity(identity.claimStrings(stsSourceIdentityTokenClaim))
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if sourceIdentity != "" && !stsTrustAllows(role, "sts:SetSourceIdentity", "federated:"+identity.Provider.Arn, stsWithSourceIdentity(federation, sourceIdentity)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:SetSourceIdentity on %s", roleArn), http.StatusForbidden)
+		return
+	}
 	duration, reqErr := stsRoleSessionDuration(r, role, false)
 	if reqErr != nil {
 		reqErr.write(w)
@@ -562,22 +615,24 @@ func handleSTSAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 	exp := time.Now().UTC().Add(duration)
 	akid, secret, token := stsMintTempCred(exp)
-	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
+	assumedArn := stsAssumedRoleArn(role, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn, Expiration: exp.Format(time.RFC3339),
 		FederatedClaims: stsChainedClaims(federation),
 		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
-		SessionPolicy: policies.Inline, SessionPolicyArns: policies.Arns})
+		SessionPolicy: policies.Inline, SessionPolicyArns: policies.Arns,
+		SourceIdentity: sourceIdentity})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <AssumeRoleWithWebIdentityResult>
     <Credentials><AccessKeyId>%s</AccessKeyId><SecretAccessKey>%s</SecretAccessKey><SessionToken>%s</SessionToken><Expiration>%s</Expiration></Credentials>
     <AssumedRoleUser><Arn>%s</Arn><AssumedRoleId>%s</AssumedRoleId></AssumedRoleUser>
-    <SubjectFromWebIdentityToken>%s</SubjectFromWebIdentityToken>%s
+    <SubjectFromWebIdentityToken>%s</SubjectFromWebIdentityToken>%s%s
   </AssumeRoleWithWebIdentityResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleWithWebIdentityResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
-		xmlEscape(assumedArn), role.RoleId+":"+sessionName, xmlEscape(tokenSubject), stsPackedPolicySizeXML(packed), sim.NewUUID())
+		xmlEscape(assumedArn), role.RoleId+":"+sessionName, xmlEscape(tokenSubject), stsPackedPolicySizeXML(packed),
+		stsSourceIdentityXML(sourceIdentity), sim.NewUUID())
 }
 
 func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
@@ -602,7 +657,13 @@ func handleSTSGetSessionToken(w http.ResponseWriter, r *http.Request) {
 	}
 	caller, _ := iamCallerForAccessKey(callerKey)
 	tc := IAMTempCred{UserName: caller.UserName, PrincipalArn: caller.Arn,
-		MFA: mfa, CreatedAt: time.Now().UTC().Format(time.RFC3339), FromGetSessionToken: true}
+		MFA: mfa, CreatedAt: time.Now().UTC().Format(time.RFC3339), FromGetSessionToken: true,
+		UnrestrictedIdentity: caller.Root}
+	// An account root user's session lasts an hour by default and at most;
+	// a longer request gets an hour.
+	if caller.Root && (r.FormValue("DurationSeconds") == "" || duration > stsRootSessionTokenDurationMax) {
+		duration = stsRootSessionTokenDurationMax
+	}
 	exp := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
 	tc.AccessKeyID, tc.SecretAccessKey, tc.SessionToken = akid, secret, token
@@ -655,8 +716,9 @@ func handleSTSGetFederationToken(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	akid, secret, token := stsMintTempCred(exp)
-	fedArn := fmt.Sprintf("arn:aws:sts::%s:federated-user/%s", awsAccountID(), name)
-	fedUserID := awsAccountID() + ":" + name
+	fedAccount := iamRequestAccount(r)
+	fedArn := fmt.Sprintf("arn:aws:sts::%s:federated-user/%s", fedAccount, name)
+	fedUserID := fedAccount + ":" + name
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: fedArn,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -690,11 +752,12 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		reqErr.write(w)
 		return
 	}
-	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+	role, ok := iamRoleByArn(roleArn)
 	if !ok {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
 		return
 	}
+	acct := iamArnAccount(role.Arn)
 	provider, ok := iamSAMLProviders.Get(providerArn)
 	if !ok {
 		stsErrorXML(w, "InvalidIdentityToken", fmt.Sprintf("Specified provider doesn't exist: %s", providerArn), http.StatusBadRequest)
@@ -716,7 +779,7 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The assertion must offer this role through this provider, and the role must trust the provider for this subject.
-	federation := assertion.conditionContext(awsAccountID())
+	federation := assertion.conditionContext(acct)
 	if !assertion.namesRole(role.Arn, provider.Arn) ||
 		!stsTrustAllows(role, "sts:AssumeRoleWithSAML", "federated:"+provider.Arn, federation) {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:AssumeRoleWithSAML on %s", roleArn), http.StatusForbidden)
@@ -736,6 +799,15 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:TagSession on %s", roleArn), http.StatusForbidden)
 		return
 	}
+	sourceIdentity, err := stsFederatedSourceIdentity(assertion.Attributes[stsSourceIdentitySAMLAttribute])
+	if err != nil {
+		stsErrorXML(w, "InvalidIdentityToken", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if sourceIdentity != "" && !stsTrustAllows(role, "sts:SetSourceIdentity", "federated:"+provider.Arn, stsWithSourceIdentity(federation, sourceIdentity)) {
+		stsErrorXML(w, "AccessDenied", fmt.Sprintf("Not authorized to perform sts:SetSourceIdentity on %s", roleArn), http.StatusForbidden)
+		return
+	}
 	sessionName := assertion.SessionName
 	duration, reqErr := stsRoleSessionDuration(r, role, false)
 	if reqErr != nil {
@@ -749,7 +821,7 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().UTC().Add(duration)
 	akid, secret, token := stsMintTempCred(exp)
-	assumedArn := fmt.Sprintf("arn:aws:sts::%s:assumed-role/%s/%s", awsAccountID(), role.RoleName, sessionName)
+	assumedArn := stsAssumedRoleArn(role, sessionName)
 	iamTempCreds.Put(akid, IAMTempCred{
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token,
 		RoleName: role.RoleName, PrincipalArn: assumedArn,
@@ -757,6 +829,7 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
 		FederatedClaims: stsChainedClaims(federation),
 		SessionTags:     sessionTags.Tags, TransitiveTagKeys: sessionTags.Transitive,
 		SessionPolicy: policies.Inline, SessionPolicyArns: policies.Arns,
+		SourceIdentity: sourceIdentity,
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRoleWithSAMLResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -767,13 +840,13 @@ func handleSTSAssumeRoleWithSAML(w http.ResponseWriter, r *http.Request) {
     <SubjectType>%s</SubjectType>
     <Issuer>%s</Issuer>
     <Audience>%s</Audience>
-    <NameQualifier>%s</NameQualifier>%s
+    <NameQualifier>%s</NameQualifier>%s%s
   </AssumeRoleWithSAMLResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </AssumeRoleWithSAMLResponse>`, akid, xmlEscape(secret), xmlEscape(token), exp.Format(time.RFC3339),
 		xmlEscape(assumedArn), role.RoleId+":"+xmlEscape(sessionName), xmlEscape(assertion.Subject),
 		xmlEscape(assertion.SubjectType), xmlEscape(assertion.Issuer), xmlEscape(assertion.Recipient),
-		xmlEscape(assertion.nameQualifier(awsAccountID())), stsPackedPolicySizeXML(packed), sim.NewUUID())
+		xmlEscape(assertion.nameQualifier(acct)), stsPackedPolicySizeXML(packed), stsSourceIdentityXML(sourceIdentity), sim.NewUUID())
 }
 
 // handleSTSGetDelegatedAccessToken trades a token in for temporary credentials
@@ -847,6 +920,7 @@ func handleSTSAssumeRoot(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID: akid, SecretAccessKey: secret, SessionToken: token, PrincipalArn: rootArn,
 		Expiration: exp.Format(time.RFC3339), CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		UnrestrictedIdentity: true, TaskPolicyArn: taskPolicy,
+		SourceIdentity: stsCallerSourceIdentity(r),
 	})
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssumeRootResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -907,8 +981,8 @@ func handleSTSDecodeAuthorizationMessage(w http.ResponseWriter, r *http.Request)
 </DecodeAuthorizationMessageResponse>`, xmlEscape(decoded), sim.NewUUID())
 }
 
-// handleSTSGetAccessKeyInfo returns the account that owns an access key ID; the
-// simulator answers its own account for every key.
+// handleSTSGetAccessKeyInfo returns the account that owns an access key ID. A
+// key the simulator does not hold answers the simulator's own account.
 func handleSTSGetAccessKeyInfo(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("AccessKeyId") == "" {
 		stsErrorXML(w, "ValidationError", "AccessKeyId is required", http.StatusBadRequest)
@@ -918,7 +992,14 @@ func handleSTSGetAccessKeyInfo(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetAccessKeyInfoResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetAccessKeyInfoResult><Account>%s</Account></GetAccessKeyInfoResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetAccessKeyInfoResponse>`, awsAccountID(), sim.NewUUID())
+</GetAccessKeyInfoResponse>`, stsAccessKeyInfoAccount(r.FormValue("AccessKeyId")), sim.NewUUID())
+}
+
+func stsAccessKeyInfoAccount(akid string) string {
+	if acct := iamAccessKeyAccount(akid); acct != "" {
+		return acct
+	}
+	return awsAccountID()
 }
 
 func stsErrorXML(w http.ResponseWriter, code, message string, status int) {

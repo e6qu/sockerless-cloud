@@ -351,7 +351,8 @@ jobs:
           - {cloud: azure, module: simulator-azure}
           # The race and node agent jobs run the support module's containers.
           - {cloud: sim, module: sim}
-          # The tf stack that names its own small set (Amazon RDS blue/green).
+          # The tf stacks that name their own small set (Amazon RDS blue/green
+          # and read replica).
           - cloud: aws
             label: one stack
             base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
@@ -1384,12 +1385,15 @@ jobs:
             timeout_minutes: 15
             base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
           # The provider's create, replica and destroy waits take about six
-          # minutes of the stack's test.
+          # minutes of the stack's test, and loading the whole AWS base-image
+          # archive took five more. The stack runs the same MySQL engine and
+          # helpers as the blue/green stack, so it warms the same set.
           - suite: aws Amazon RDS read replica
             cloud: aws
             tf_packages: "./rds-read-replica"
             tf_timeout: 720s
             timeout_minutes: 15
+            base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
           # The provider waits on the create of the primary and its standby and
           # on the destroy; the test waits on the failover in between.
           - suite: aws Amazon RDS Multi-AZ
@@ -1458,11 +1462,11 @@ jobs:
             timeout_minutes: 12
           - suite: aws AWS STS session tags
             cloud: aws
-            tf_packages: "./sts-session-tags ./sts-session-limits ./iam-organizations-features"
+            tf_packages: "./sts-session-tags ./sts-session-limits ./iam-organizations-features ./iam-multi-account"
             timeout_minutes: 12
           - suite: aws Amazon SNS delivery status
             cloud: aws
-            tf_packages: "./sns-delivery-status"
+            tf_packages: "./sns-delivery-status ./iam-root-user"
             timeout_minutes: 12
           - suite: aws AWS Lambda concurrency
             cloud: aws
@@ -1537,6 +1541,17 @@ jobs:
       - uses: ./.github/actions/install-go
         with:
           cache: 'true'
+      - name: Free Terraform runner disk on a small runner
+        # A 72 GB ubuntu-24.04 runner fills while it loads a cloud's whole
+        # base-image archive; the preinstalled SDKs nothing here uses hold the
+        # room it needs.
+        run: |
+          df -h /
+          if [ "$(df -m --output=avail / | tail -1 | tr -d ' ')" -lt 20480 ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+            df -h /
+          fi
+        timeout-minutes: 5
       # A Terraform stack runs the same real workloads the suites do, and the
       # registry caps anonymous requests by data volume — capturing an Amazon
       # RDS snapshot copies a volume through an alpine helper.
@@ -1736,8 +1751,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/install-go
+      - name: Restore the Go module and build caches of this cloud's simulator jobs
+        # The documents build the simulator and its SDK and CLI suites, which
+        # the per-cloud simulator cache holds; the shared install-go entry
+        # holds whatever the first job to save it built.
+        uses: actions/cache/restore@v6.1.0
         with:
-          cache: 'true'
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |

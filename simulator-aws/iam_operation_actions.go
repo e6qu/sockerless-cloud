@@ -46,6 +46,9 @@ func iamOperationTargets(r *http.Request, service, operation string, resources [
 		action = mapped
 	}
 	targets := append(on(action, resources...), iamTagOnCreateTargets(r, service, operation, resources)...)
+	if service+":"+operation == "sts:AssumeRole" && (r.FormValue("SourceIdentity") != "" || stsCallerSourceIdentity(r) != "") {
+		targets = append(targets, on("SetSourceIdentity", resources...)...)
+	}
 	if service == "cloudwatch" {
 		targets = append(targets, iamCloudWatchTagsPropagationTargets(r, operation, resources)...)
 	}

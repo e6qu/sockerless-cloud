@@ -1366,11 +1366,16 @@ func cloudTrailEventRecord(ev CloudTrailEvent) map[string]any {
 		identity["type"] = "AssumedRole"
 		identity["arn"] = cred.PrincipalArn
 		identity["accessKeyId"] = ev.AccessKeyId
-		identity["accountId"] = awsAccountID()
-		if role, ok := iamRoles.Get(cred.RoleName); ok {
-			identity["sessionContext"] = map[string]any{"sessionIssuer": map[string]any{
-				"type": "Role", "arn": role.Arn, "principalId": role.RoleId, "userName": role.RoleName, "accountId": awsAccountID(),
+		sessionAccount := iamArnAccount(cred.PrincipalArn)
+		identity["accountId"] = sessionAccount
+		if role, ok := iamRolesIn(sessionAccount).Get(cred.RoleName); ok {
+			sessionContext := map[string]any{"sessionIssuer": map[string]any{
+				"type": "Role", "arn": role.Arn, "principalId": role.RoleId, "userName": role.RoleName, "accountId": sessionAccount,
 			}}
+			if cred.SourceIdentity != "" {
+				sessionContext["sourceIdentity"] = cred.SourceIdentity
+			}
+			identity["sessionContext"] = sessionContext
 		}
 		if ev.InvokedBy != "" {
 			identity["invokedBy"] = ev.InvokedBy
