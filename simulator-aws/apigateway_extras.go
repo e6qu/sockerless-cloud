@@ -339,7 +339,7 @@ func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now()
-	id := sim.NewUUID()[:10]
+	id := apigwRandomLower(10)
 	c := APIGWClientCertificate{
 		ClientCertificateId:   id,
 		Description:           req.Description,
@@ -444,7 +444,7 @@ func handleAPIGWCreateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	p := APIGWDocumentationPart{
-		Id:         sim.NewUUID()[:10],
+		Id:         apigwRandomLower(10),
 		Location:   req.Location,
 		Properties: req.Properties,
 		RestApiId:  restApiId,
@@ -524,7 +524,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 	}
 	// Record the imported OpenAPI document as one API-level documentation part.
 	p := APIGWDocumentationPart{
-		Id:         sim.NewUUID()[:10],
+		Id:         apigwRandomLower(10),
 		Location:   APIGWDocumentationPartLocation{Type: "API"},
 		Properties: req.Body,
 		RestApiId:  restApiId,
@@ -1002,45 +1002,15 @@ func handleAPIGWGetUsage(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWGetTags(w http.ResponseWriter, r *http.Request) {
 	arn := sim.PathParam(r, "resourceArn")
-	tags := apigwTagsForARN(arn)
+	tags, ok := apigwTagsForARN(arn)
+	if !ok {
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid resource ARN specified")
+		return
+	}
 	if tags == nil {
 		tags = map[string]string{}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
-}
-
-// Supported ARN tails: /restapis/<id>, /apikeys/<id>, /usageplans/<id>,
-// /clientcertificates/<id>.
-func apigwTagsForARN(arn string) map[string]string {
-	idx := strings.LastIndex(arn, ":")
-	tail := arn
-	if idx >= 0 {
-		tail = arn[idx+1:]
-	}
-	parts := strings.Split(strings.TrimPrefix(tail, "/"), "/")
-	if len(parts) < 2 {
-		return nil
-	}
-	kind, id := parts[0], parts[1]
-	switch kind {
-	case "restapis":
-		if v, ok := apigwRestApis.Get(id); ok {
-			return v.Tags
-		}
-	case "apikeys":
-		if v, ok := apigwApiKeys.Get(id); ok {
-			return v.Tags
-		}
-	case "usageplans":
-		if v, ok := apigwUsagePlans.Get(id); ok {
-			return v.Tags
-		}
-	case "clientcertificates":
-		if v, ok := apigwClientCertificates.Get(id); ok {
-			return v.Tags
-		}
-	}
-	return nil
 }
 
 func apigwPatchString(w http.ResponseWriter, r *http.Request, path string, value *string) bool {

@@ -1432,6 +1432,10 @@ jobs:
             cloud: aws
             tf_packages: "./api-gateway-domain-name"
             timeout_minutes: 12
+          - suite: aws Amazon API Gateway stage
+            cloud: aws
+            tf_packages: "./api-gateway-stage"
+            timeout_minutes: 12
           - suite: aws Amazon ECS Express Mode
             cloud: aws
             tf_packages: "./ecs-express"

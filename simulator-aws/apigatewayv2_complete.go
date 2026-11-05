@@ -159,7 +159,7 @@ func handleAPIGWv2CreatePortal(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	portalID := sim.NewUUID()[:10]
+	portalID := apigwRandomLower(10)
 	now := time.Now().UTC().Format(time.RFC3339)
 	p := APIGWv2Portal{
 		PortalId:                  portalID,
@@ -284,7 +284,7 @@ func handleAPIGWv2CreatePortalProduct(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	productID := sim.NewUUID()[:10]
+	productID := apigwRandomLower(10)
 	p := APIGWv2PortalProduct{
 		PortalProductId:  productID,
 		PortalProductArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s", awsRegion(), awsAccountID(), productID),
@@ -417,7 +417,7 @@ func handleAPIGWv2CreateProductPage(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	pageID := sim.NewUUID()[:10]
+	pageID := apigwRandomLower(10)
 	pg := APIGWv2ProductPage{
 		ProductPageId:   pageID,
 		ProductPageArn:  fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s/productpages/%s", awsRegion(), awsAccountID(), productID, pageID),
@@ -528,7 +528,7 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	pageID := sim.NewUUID()[:10]
+	pageID := apigwRandomLower(10)
 	pg := APIGWv2ProductRestEndpointPage{
 		ProductRestEndpointPageId:  pageID,
 		ProductRestEndpointPageArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s/productrestendpointpages/%s", awsRegion(), awsAccountID(), productID, pageID),
@@ -677,7 +677,7 @@ func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
-	ruleID := sim.NewUUID()[:10]
+	ruleID := apigwRandomLower(10)
 	rr := APIGWv2RoutingRule{
 		RoutingRuleId:  ruleID,
 		RoutingRuleArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/domainnames/%s/routingrules/%s", awsRegion(), awsAccountID(), domainName, ruleID),

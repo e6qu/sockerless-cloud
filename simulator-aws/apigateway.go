@@ -86,13 +86,6 @@ type APIGWDeployment struct {
 	CreatedDate int64  `json:"createdDate"`
 }
 
-type APIGWStage struct {
-	StageName    string `json:"stageName"`
-	RestApiId    string `json:"restApiIdRef,omitempty"`
-	DeploymentId string `json:"deploymentId"`
-	CreatedDate  int64  `json:"createdDate"`
-}
-
 type APIGWApiKey struct {
 	Id              string            `json:"id"`
 	Value           string            `json:"value,omitempty"`
@@ -289,7 +282,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api := APIGWRestApi{
-		Id:          sim.NewUUID()[:10],
+		Id:          apigwRandomLower(10),
 		Name:        req.Name,
 		Description: req.Description,
 		CreatedDate: time.Now().Unix(),
@@ -298,7 +291,7 @@ func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {
 	}
 	// Amazon API Gateway creates the root "/" resource with the API.
 	root := APIGWResource{
-		Id:        sim.NewUUID()[:10],
+		Id:        apigwRandomLower(10),
 		RestApiId: api.Id,
 		Path:      "/",
 	}
@@ -380,7 +373,7 @@ func handleAPIGWCreateResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := APIGWResource{
-		Id:        sim.NewUUID()[:10],
+		Id:        apigwRandomLower(10),
 		RestApiId: apiId,
 		ParentId:  parentId,
 		PathPart:  req.PathPart,
@@ -550,19 +543,83 @@ func handleAPIGWDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWCreateDeployment(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "restApiId")
 	var req struct {
-		Description string `json:"description"`
+		Description         string            `json:"description"`
+		StageName           string            `json:"stageName"`
+		StageDescription    string            `json:"stageDescription"`
+		CacheClusterEnabled *bool             `json:"cacheClusterEnabled"`
+		CacheClusterSize    string            `json:"cacheClusterSize"`
+		Variables           map[string]string `json:"variables"`
+		TracingEnabled      *bool             `json:"tracingEnabled"`
+		CanarySettings      *struct {
+			PercentTraffic         float64           `json:"percentTraffic"`
+			StageVariableOverrides map[string]string `json:"stageVariableOverrides"`
+			UseStageCache          bool              `json:"useStageCache"`
+		} `json:"canarySettings"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
 		return
 	}
+	if _, ok := apigwRestApis.Get(apiId); !ok {
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Rest API identifier specified")
+		return
+	}
+	if req.CacheClusterSize != "" && !apigwCacheClusterSizes[req.CacheClusterSize] {
+		AWSError(w, "BadRequestException", "Invalid cache cluster size specified: "+req.CacheClusterSize, http.StatusBadRequest)
+		return
+	}
+	stageKey := apigwStageKey(apiId, req.StageName)
+	stage, stageExists := apigwStages.Get(stageKey)
+	if req.CanarySettings != nil && !stageExists {
+		AWSError(w, "BadRequestException", "Invalid stage identifier specified: a canary deployment requires an existing stage", http.StatusBadRequest)
+		return
+	}
+	now := time.Now().Unix()
 	d := APIGWDeployment{
-		Id:          sim.NewUUID()[:10],
+		Id:          apigwRandomLower(10),
 		RestApiId:   apiId,
 		Description: req.Description,
-		CreatedDate: time.Now().Unix(),
+		CreatedDate: now,
 	}
-	apigwDeployments.Put(apiId+"/"+d.Id, d)
+	apigwDeployments.Put(apigwDeploymentKey(apiId, d.Id), d)
+	if req.StageName != "" {
+		if !stageExists {
+			stage = APIGWStage{StageName: req.StageName, RestApiId: apiId, CreatedDate: now}
+		}
+		if req.CanarySettings != nil {
+			stage.CanarySettings = &APIGWCanarySettings{
+				PercentTraffic:         req.CanarySettings.PercentTraffic,
+				DeploymentId:           d.Id,
+				StageVariableOverrides: req.CanarySettings.StageVariableOverrides,
+				UseStageCache:          req.CanarySettings.UseStageCache,
+			}
+		} else {
+			stage.DeploymentId = d.Id
+		}
+		if req.StageDescription != "" {
+			stage.Description = req.StageDescription
+		}
+		for k, v := range req.Variables {
+			if stage.Variables == nil {
+				stage.Variables = map[string]string{}
+			}
+			stage.Variables[k] = v
+		}
+		if req.TracingEnabled != nil {
+			stage.TracingEnabled = *req.TracingEnabled
+		}
+		if req.CacheClusterSize != "" {
+			stage.CacheClusterSize = req.CacheClusterSize
+		}
+		cache := stage.CacheClusterEnabled
+		if req.CacheClusterEnabled != nil {
+			cache = *req.CacheClusterEnabled
+		}
+		settle := apigwSetCacheCluster(stageKey, &stage, cache)
+		stage.LastUpdatedDate = now
+		apigwStages.Put(stageKey, stage)
+		settle()
+	}
 	sim.WriteJSON(w, http.StatusCreated, d)
 }
 
@@ -598,69 +655,17 @@ func handleAPIGWGetDeployment(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWDeleteDeployment(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "restApiId")
 	deploymentId := sim.PathParam(r, "deploymentId")
-	if !apigwDeployments.Delete(apigwDeploymentKey(apiId, deploymentId)) {
+	if !apigwDeploymentExists(apiId, deploymentId) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Deployment identifier specified")
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func handleAPIGWCreateStage(w http.ResponseWriter, r *http.Request) {
-	apiId := sim.PathParam(r, "restApiId")
-	var req struct {
-		StageName    string `json:"stageName"`
-		DeploymentId string `json:"deploymentId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	s := APIGWStage{
-		StageName:    req.StageName,
-		RestApiId:    apiId,
-		DeploymentId: req.DeploymentId,
-		CreatedDate:  time.Now().Unix(),
-	}
-	apigwStages.Put(apiId+"/"+s.StageName, s)
-	sim.WriteJSON(w, http.StatusCreated, s)
-}
-
-func handleAPIGWListStages(w http.ResponseWriter, r *http.Request) {
-	apiId := sim.PathParam(r, "restApiId")
-	if _, ok := apigwRestApis.Get(apiId); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Rest API identifier specified")
-		return
-	}
-	var out []APIGWStage
-	for _, s := range apigwStages.List() {
-		if s.RestApiId == apiId {
-			out = append(out, s)
+	for _, st := range apigwStages.List() {
+		if st.RestApiId == apiId && (st.DeploymentId == deploymentId || st.CanarySettings != nil && st.CanarySettings.DeploymentId == deploymentId) {
+			AWSError(w, "BadRequestException", "Active stages pointing to this deployment must be moved or deleted", http.StatusBadRequest)
+			return
 		}
 	}
-	if out == nil {
-		out = []APIGWStage{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"item": out})
-}
-
-func handleAPIGWGetStage(w http.ResponseWriter, r *http.Request) {
-	apiId := sim.PathParam(r, "restApiId")
-	stageName := sim.PathParam(r, "stageName")
-	s, ok := apigwStages.Get(apigwStageKey(apiId, stageName))
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Stage identifier specified")
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, s)
-}
-
-func handleAPIGWDeleteStage(w http.ResponseWriter, r *http.Request) {
-	apiId := sim.PathParam(r, "restApiId")
-	stageName := sim.PathParam(r, "stageName")
-	if !apigwStages.Delete(apigwStageKey(apiId, stageName)) {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Stage identifier specified")
-		return
-	}
+	apigwDeployments.Delete(apigwDeploymentKey(apiId, deploymentId))
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -670,10 +675,6 @@ func apigwMethodKey(restApiId, resourceId, httpMethod string) string {
 
 func apigwDeploymentKey(restApiId, deploymentId string) string {
 	return restApiId + "/" + deploymentId
-}
-
-func apigwStageKey(restApiId, stageName string) string {
-	return restApiId + "/" + stageName
 }
 
 func apigwChildPath(parentPath, pathPart string) string {
@@ -794,7 +795,7 @@ func handleAPIGWCreateApiKey(w http.ResponseWriter, r *http.Request) {
 		stageKeys = append(stageKeys, sk.RestApiId+"/"+sk.StageName)
 	}
 	key := APIGWApiKey{
-		Id:              sim.NewUUID()[:10],
+		Id:              apigwRandomLower(10),
 		Value:           value,
 		Name:            req.Name,
 		Description:     req.Description,
@@ -882,7 +883,7 @@ func handleAPIGWCreateUsagePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	up := APIGWUsagePlan{
-		Id:          sim.NewUUID()[:10],
+		Id:          apigwRandomLower(10),
 		Name:        req.Name,
 		Description: req.Description,
 		ApiStages:   req.ApiStages,
@@ -1065,7 +1066,7 @@ func handleAPIGWCreateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := APIGWModel{
-		Id:          sim.NewUUID()[:10],
+		Id:          apigwRandomLower(10),
 		Name:        req.Name,
 		Description: req.Description,
 		Schema:      req.Schema,
@@ -1131,7 +1132,7 @@ func handleAPIGWCreateRequestValidator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rv := APIGWRequestValidator{
-		Id:                        sim.NewUUID()[:10],
+		Id:                        apigwRandomLower(10),
 		Name:                      req.Name,
 		ValidateRequestBody:       req.ValidateRequestBody,
 		ValidateRequestParameters: req.ValidateRequestParameters,
@@ -1191,7 +1192,7 @@ func handleAPIGWCreateAuthorizer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := APIGWAuthorizer{
-		Id:                           sim.NewUUID()[:10],
+		Id:                           apigwRandomLower(10),
 		Name:                         req.Name,
 		Type:                         req.Type,
 		ProviderARNs:                 req.ProviderARNs,

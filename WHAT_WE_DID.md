@@ -1385,6 +1385,16 @@ fails once the row closes or the operation is served.
   target is a Network Load Balancer, or `FAILED`. `UpdateDomainName`,
   `UpdateVpcLink` and `CreateBasePathMapping` answer `NotFoundException` for a
   name nothing created.
+  A REST API stage stores every field of the Smithy `Stage` shape, tags
+  included, and `UpdateStage` accepts exactly the path and op pairs the
+  vendored `api-gateway-patch-operations.md.gz` lists: it keeps a method
+  setting under the key the path carries, as that page says the service does.
+  Enabling a stage cache reports `CREATE_IN_PROGRESS` until the cluster
+  settles at `AVAILABLE`. `CreateDeployment` with a stage name creates or
+  repoints that stage, or with canary settings sets the stage's canary and
+  leaves its deployment alone, and `DeleteDeployment` refuses a deployment a
+  stage still uses. Every API Gateway identifier is ten lowercase letters and
+  digits, never a truncated UUID with its hyphen.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the

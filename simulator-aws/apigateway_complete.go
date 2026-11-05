@@ -364,31 +364,6 @@ func handleAPIGWUpdateRequestValidator(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, rv)
 }
 
-func handleAPIGWUpdateStage(w http.ResponseWriter, r *http.Request) {
-	apiId := sim.PathParam(r, "restApiId")
-	stageName := sim.PathParam(r, "stageName")
-	key := apigwStageKey(apiId, stageName)
-	s, ok := apigwStages.Get(key)
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Stage identifier specified")
-		return
-	}
-	ops, ok := apigwReadPatches(w, r)
-	if !ok {
-		return
-	}
-	for _, op := range ops {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-		if strings.TrimPrefix(op.Path, "/") == "deploymentId" {
-			s.DeploymentId = op.Value
-		}
-	}
-	apigwStages.Put(key, s)
-	sim.WriteJSON(w, http.StatusOK, s)
-}
-
 func handleAPIGWUpdateDeployment(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "restApiId")
 	deploymentId := sim.PathParam(r, "deploymentId")
@@ -560,74 +535,61 @@ func handleAPIGWUntagResource(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// apigwApplyTags resolves the ARN tails apigwTagsForARN does, plus domain
-// names and VPC links; false means the ARN names no known resource.
+// apigwApplyTags changes the tags of the resource an ARN names; false means
+// the ARN names no known resource.
 func apigwApplyTags(arn string, set map[string]string, remove []string) bool {
-	idx := strings.LastIndex(arn, ":")
+	return apigwTagged(arn, func(m *map[string]string) {
+		if *m == nil {
+			*m = map[string]string{}
+		}
+		for k, v := range set {
+			(*m)[k] = v
+		}
+		for _, k := range remove {
+			delete(*m, k)
+		}
+	})
+}
+
+func apigwTagsForARN(arn string) (map[string]string, bool) {
+	var out map[string]string
+	found := apigwTagged(arn, func(m *map[string]string) { out = *m })
+	return out, found
+}
+
+func apigwTagsIn[T any](st sim.Store[T], id string, tags func(*T) *map[string]string, fn func(*map[string]string)) bool {
+	return st.Update(id, func(v *T) { fn(tags(v)) })
+}
+
+// apigwTagged runs fn on the tag map of the resource an ARN names. A stage ARN
+// ends /restapis/<id>/stages/<name>; every other taggable resource ends
+// /<collection>/<id>.
+func apigwTagged(arn string, fn func(*map[string]string)) bool {
 	tail := arn
-	if idx >= 0 {
+	if idx := strings.LastIndex(arn, ":"); idx >= 0 {
 		tail = arn[idx+1:]
 	}
 	parts := strings.Split(strings.TrimPrefix(tail, "/"), "/")
-	if len(parts) < 2 {
+	if len(parts) == 4 && parts[0] == "restapis" && parts[2] == "stages" {
+		return apigwTagsIn(apigwStages, apigwStageKey(parts[1], parts[3]), func(v *APIGWStage) *map[string]string { return &v.Tags }, fn)
+	}
+	if len(parts) != 2 {
 		return false
 	}
-	kind, id := parts[0], parts[1]
-	mutate := func(m map[string]string) map[string]string {
-		if m == nil {
-			m = map[string]string{}
-		}
-		for k, v := range set {
-			m[k] = v
-		}
-		for _, k := range remove {
-			delete(m, k)
-		}
-		return m
-	}
-	// Resolve stage ARNs first so a stage tag does not land on the parent REST
-	// API. APIGWStage persists no tags, so the call only checks the stage exists.
-	if kind == "restapis" && len(parts) >= 4 && parts[2] == "stages" {
-		_, ok := apigwStages.Get(apigwStageKey(parts[1], parts[3]))
-		return ok
-	}
-	switch kind {
+	id := parts[1]
+	switch parts[0] {
 	case "restapis":
-		if v, ok := apigwRestApis.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwRestApis.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwRestApis, id, func(v *APIGWRestApi) *map[string]string { return &v.Tags }, fn)
 	case "apikeys":
-		if v, ok := apigwApiKeys.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwApiKeys.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwApiKeys, id, func(v *APIGWApiKey) *map[string]string { return &v.Tags }, fn)
 	case "usageplans":
-		if v, ok := apigwUsagePlans.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwUsagePlans.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwUsagePlans, id, func(v *APIGWUsagePlan) *map[string]string { return &v.Tags }, fn)
 	case "clientcertificates":
-		if v, ok := apigwClientCertificates.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwClientCertificates.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwClientCertificates, id, func(v *APIGWClientCertificate) *map[string]string { return &v.Tags }, fn)
 	case "domainnames":
-		if v, ok := apigwV1DomainNames.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwV1DomainNames.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwV1DomainNames, id, func(v *APIGWv1DomainName) *map[string]string { return &v.Tags }, fn)
 	case "vpclinks":
-		if v, ok := apigwV1VpcLinks.Get(id); ok {
-			v.Tags = mutate(v.Tags)
-			apigwV1VpcLinks.Put(id, v)
-			return true
-		}
+		return apigwTagsIn(apigwV1VpcLinks, id, func(v *APIGWv1VpcLink) *map[string]string { return &v.Tags }, fn)
 	}
 	return false
 }
@@ -652,7 +614,7 @@ func apigwBuildRestApiFromOpenAPI(api *APIGWRestApi, body []byte) {
 	root, _ := apigwResources.Get(api.Id + "/" + api.RootResourceId)
 	for rawPath, methods := range doc.Paths {
 		res := APIGWResource{
-			Id:        sim.NewUUID()[:10],
+			Id:        apigwRandomLower(10),
 			RestApiId: api.Id,
 			ParentId:  api.RootResourceId,
 			PathPart:  strings.Trim(rawPath, "/"),
@@ -674,12 +636,12 @@ func apigwBuildRestApiFromOpenAPI(api *APIGWRestApi, body []byte) {
 func handleAPIGWImportRestApi(w http.ResponseWriter, r *http.Request) {
 	body := apigwReadRawBody(r)
 	api := APIGWRestApi{
-		Id:          sim.NewUUID()[:10],
+		Id:          apigwRandomLower(10),
 		CreatedDate: time.Now().Unix(),
 		ApiStatus:   apigwStatusAvailable,
 	}
 	root := APIGWResource{
-		Id:        sim.NewUUID()[:10],
+		Id:        apigwRandomLower(10),
 		RestApiId: api.Id,
 		Path:      "/",
 	}
@@ -747,7 +709,7 @@ func handleAPIGWImportApiKeys(w http.ResponseWriter, r *http.Request) {
 			value = sim.NewUUID() + sim.NewUUID()[:8]
 		}
 		key := APIGWApiKey{
-			Id:              sim.NewUUID()[:10],
+			Id:              apigwRandomLower(10),
 			Value:           value,
 			Name:            row["name"],
 			Description:     row["description"],
@@ -884,7 +846,7 @@ func handleAPIGWCreateDomainNameAccessAssociation(w http.ResponseWriter, r *http
 		return
 	}
 	assoc := APIGWDomainNameAccessAssociation{
-		DomainNameAccessAssociationArn: apigwAccessAssocARN(sim.NewUUID()[:10]),
+		DomainNameAccessAssociationArn: apigwAccessAssocARN(apigwRandomLower(10)),
 		DomainNameArn:                  req.DomainNameArn,
 		AccessAssociationSource:        req.AccessAssociationSource,
 		AccessAssociationSourceType:    req.AccessAssociationSourceType,

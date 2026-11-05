@@ -111,3 +111,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `organizations-invites.md.gz` | `docs.aws.amazon.com` | `organizations/latest/userguide/orgs_manage_accounts_invites.md` | CC-BY-SA-4.0 | `sha2566ded3acf9a12cdea998fe98d59031a9fd670a8406fee6718b2537461193b986f` | 2026-11-05T06:13:22Z |
 | `ec2-auto-scaling-tagging.md.gz` | `docs.aws.amazon.com` | `autoscaling/ec2/userguide/ec2-auto-scaling-tagging.md` | CC-BY-SA-4.0 | `sha25648caa0685388b786b36301d19f984903a77b82e675a6df71ac8cdb1f5f0c2d87` | 2026-11-05T12:38:51Z |
 | `api-gateway-endpoints.md.gz` | `docs.aws.amazon.com` | `general/latest/gr/apigateway.md` | CC-BY-SA-4.0 | `sha256e793b64fb603c055d6d898bf8d7786d9fff04258ec8eba915db4c1c24dc169df` | 2026-11-05T16:42:38Z |
+| `api-gateway-patch-operations.md.gz` | `docs.aws.amazon.com` | `apigateway/latest/api/patch-operations.md` | CC-BY-SA-4.0 | `sha25635f2258f85f0265aa46130a93d87ff9edbbaea716e243bf0f421037f425cae9f` | 2026-11-05T18:43:22Z |
