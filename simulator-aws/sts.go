@@ -5,10 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -80,6 +78,7 @@ const stsTokenKeyID = "session-token-mac"
 func registerSTS(r *AWSQueryRouter, srv *sim.Server) {
 	iamTempCreds = sim.MakeStore[IAMTempCred](srv.DB(), "iam_temp_creds")
 	stsTokenKeys = sim.MakeStore[string](srv.DB(), "sts_token_keys")
+	stsAuthorizationMessages = sim.MakeStore[string](srv.DB(), "sts_authorization_messages")
 	registerSTSOutboundFederationState(srv)
 	startTempCredSweeper(srv)
 	r.Register("GetCallerIdentity", handleGetCallerIdentity)
@@ -957,28 +956,6 @@ func stsAssumeRootAllowed(r *http.Request, target string) *stsRequestError {
 		return stsAccessDenied("User: %s is not authorized to perform: sts:AssumeRoot on resource: arn:aws:iam::%s:root because it is not a member account of the organization.", caller.Arn, target)
 	}
 	return nil
-}
-
-// handleSTSDecodeAuthorizationMessage returns the JSON a base64 EncodedMessage
-// holds. Any other message decodes to a fixed placeholder document, where AWS
-// STS answers InvalidAuthorizationMessageException.
-func handleSTSDecodeAuthorizationMessage(w http.ResponseWriter, r *http.Request) {
-	encoded := r.FormValue("EncodedMessage")
-	if encoded == "" {
-		stsErrorXML(w, "ValidationError", "EncodedMessage is required", http.StatusBadRequest)
-		return
-	}
-	decoded := `{"allowed":false,"decodedMessage":"simulator-decoded"}`
-	if raw, err := base64.StdEncoding.DecodeString(encoded); err == nil {
-		if json.Valid(raw) {
-			decoded = string(raw)
-		}
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DecodeAuthorizationMessageResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
-  <DecodeAuthorizationMessageResult><DecodedMessage>%s</DecodedMessage></DecodeAuthorizationMessageResult>
-  <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</DecodeAuthorizationMessageResponse>`, xmlEscape(decoded), sim.NewUUID())
 }
 
 // handleSTSGetAccessKeyInfo returns the account that owns an access key ID. A

@@ -90,7 +90,8 @@ The `test` key belongs to an ordinary IAM user, not the account root user. Its a
 | `GetFederationToken` | none | `federated-user/<name>` | Accepts tags. |
 | `GetWebIdentityToken` | outbound federation enabled (`sts_outbound_federation.go`) | n/a | Issues a JWT from `https://<id>.tokens.sts.global.api.aws`, which serves discovery and JSON Web Key Set documents. |
 | `AssumeRoot`, `GetDelegatedAccessToken` | `AssumeRoot`: a management account or delegated administrator caller that is not a root user, with root sessions enabled, against an active member account | `…:root` / the caller | An `AssumeRoot` session carries its root-task policy. |
-| `DecodeAuthorizationMessage`, `GetAccessKeyInfo` | none | n/a | See the limits. |
+| `DecodeAuthorizationMessage` | `sts:DecodeAuthorizationMessage` | n/a | Opens the encoded message an Amazon EC2 `UnauthorizedOperation` carries (`sts_authorization_message.go`): the decision, the principal, the action, the resource and the request's condition values. Any other message answers `InvalidAuthorizationMessageException`. |
+| `GetAccessKeyInfo` | none | n/a | See the limits. |
 
 Web-identity and SAML sessions keep the provider's claims (`stsChainedFederationKeys`, `sts_role_chaining.go`). A role that such a session assumes next can still condition on them.
 
@@ -262,13 +263,13 @@ AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=$ALICE_SECRET aws sqs list-qu
 
 Her policy does not allow `sqs:CreateQueue`:
 
-<!-- doctest: run expect="\\(AccessDeniedException\\) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue because no identity-based policy allows the sqs:CreateQueue action" -->
+<!-- doctest: run expect="\\(AccessDeniedException\\) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue on resource: arn:aws:sqs:us-east-1:123456789012:q1 because no identity-based policy allows the sqs:CreateQueue action" -->
 ```sh
 ! AWS_ACCESS_KEY_ID=$ALICE_KEY AWS_SECRET_ACCESS_KEY=$ALICE_SECRET aws sqs create-queue --queue-name q1
 ```
 
 ```text
-aws: [ERROR]: An error occurred (AccessDeniedException) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue because no identity-based policy allows the sqs:CreateQueue action
+aws: [ERROR]: An error occurred (AccessDeniedException) when calling the CreateQueue operation: User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sqs:CreateQueue on resource: arn:aws:sqs:us-east-1:123456789012:q1 because no identity-based policy allows the sqs:CreateQueue action
 ```
 
 A wrong secret fails authentication before IAM evaluates anything:
@@ -331,14 +332,14 @@ AWS_ACCESS_KEY_ID=$S1_KEY AWS_SECRET_ACCESS_KEY=$S1_SECRET AWS_SESSION_TOKEN=$S1
   aws s3api list-buckets
 ```
 
-<!-- doctest: run expect="\\(AccessDenied\\) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket because no identity-based policy or resource-based policy allows the s3:CreateBucket action" -->
+<!-- doctest: run expect="\\(AccessDenied\\) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket on resource: arn:aws:s3:::b1 because no identity-based policy or resource-based policy allows the s3:CreateBucket action" -->
 ```sh
 ! AWS_ACCESS_KEY_ID=$S1_KEY AWS_SECRET_ACCESS_KEY=$S1_SECRET AWS_SESSION_TOKEN=$S1_TOKEN \
   aws s3api create-bucket --bucket b1
 ```
 
 ```text
-aws: [ERROR]: An error occurred (AccessDenied) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket because no identity-based policy or resource-based policy allows the s3:CreateBucket action
+aws: [ERROR]: An error occurred (AccessDenied) when calling the CreateBucket operation: User: arn:aws:sts::123456789012:assumed-role/reader/s1 is not authorized to perform: s3:CreateBucket on resource: arn:aws:s3:::b1 because no identity-based policy or resource-based policy allows the s3:CreateBucket action
 ```
 
 #### Simulate a principal's policy
@@ -376,7 +377,7 @@ Each limit has a `BUGS.md` row. Those marked "observed" were reproduced against 
 | AWS KMS key policies | A key policy combines with identity policies like any resource policy. An identity policy alone grants key use even when the key policy does not delegate to the account, where KMS requires the key policy. | [3739](../BUGS.md) |
 | Policy variables | Substituted in `Resource` / `NotResource` only, not in `Condition` values. | [3739](../BUGS.md) |
 | `SimulatePrincipalPolicy` | Reads role policies only. A user ARN evaluates no policies (observed: `implicitDeny` for an action `alice` holds). `MatchedStatements` is always empty. | [3739](../BUGS.md) |
-| `DecodeAuthorizationMessage`, `GetAccessKeyInfo` | The first base64-decodes its input and answers a fixed body otherwise. The simulator never encodes a denial for it to decode. The second answers the simulator's account for any key. | [3739](../BUGS.md) |
+| `GetAccessKeyInfo` | Answers the simulator's account for any key. | [3739](../BUGS.md) |
 | EC2 instance profile trust | The metadata service serves the profile role's session without checking that the trust policy admits `ec2.amazonaws.com`. `iam:PassRole` is checked at launch. | [3739](../BUGS.md) |
 | IAM entity IDs | `CreateUser` and `CreateRole` mint IDs such as `AIDA175AF85B-BCFA-40` from a UUID, not AWS's 21-character uppercase alphanumeric form (observed). | [3740](../BUGS.md) |
 | Service-linked roles | Any service principal is accepted, and deletion completes at once (`iam_slr_oidc.go`). | [3740](../BUGS.md) |

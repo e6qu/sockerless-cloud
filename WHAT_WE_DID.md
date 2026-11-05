@@ -997,8 +997,13 @@ keyed on every operation carries the rule, and the simulator refuses to start
 when an operation lacks one. A refused member gets `AccessDeniedException`.
 `RemoveAccountFromOrganization` and a member's `LeaveOrganization` keep the
 account as a standalone account whose principals still act and which no
-service control policy governs. Access-denied messages name the policy kind
-that decided, worded as the IAM troubleshooting page words it.
+service control policy governs. Access-denied messages name the resource the
+request named and the policy kind that decided, worded as the IAM
+troubleshooting page words it. An Amazon EC2 `UnauthorizedOperation` carries
+an encoded authorization message, an opaque handle on the refusal's decision,
+principal, action, resource and condition values that only AWS STS
+`DecodeAuthorizationMessage` opens, for a caller allowed
+`sts:DecodeAuthorizationMessage`.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
