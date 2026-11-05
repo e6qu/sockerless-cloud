@@ -1395,6 +1395,10 @@ fails once the row closes or the operation is served.
   leaves its deployment alone, and `DeleteDeployment` refuses a deployment a
   stage still uses. Every API Gateway identifier is ten lowercase letters and
   digits, never a truncated UUID with its hyphen.
+  `GenerateClientCertificate` issues a self-signed X.509 client-authentication
+  certificate whose common name is its identifier and whose validity ends at
+  the `expirationDate` it reports; the private key stays in its own store,
+  since no operation returns it.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the

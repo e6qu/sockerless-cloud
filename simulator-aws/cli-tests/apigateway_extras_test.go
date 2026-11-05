@@ -1,7 +1,9 @@
 package aws_cli_test
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,7 +93,12 @@ func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(genOut), &cert))
 	require.NotEmpty(t, cert.ID)
-	assert.Contains(t, cert.PEM, "BEGIN CERTIFICATE")
+	block, _ := pem.Decode([]byte(cert.PEM))
+	require.NotNil(t, block, "pemEncodedCertificate is PEM")
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err, "pemEncodedCertificate is an X.509 certificate")
+	assert.Equal(t, cert.ID, parsed.Subject.CommonName)
+	require.NoError(t, parsed.CheckSignature(parsed.SignatureAlgorithm, parsed.RawTBSCertificate, parsed.Signature), "the certificate is self-signed")
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("apigateway", "delete-client-certificate", "--client-certificate-id", cert.ID))
 	})

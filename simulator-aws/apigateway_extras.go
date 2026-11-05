@@ -1,9 +1,15 @@
 package main
 
 import (
-	"encoding/base64"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,12 +79,15 @@ type APIGWAccount struct {
 }
 
 var (
-	apigwBasePathMappings   sim.Store[APIGWBasePathMapping]
-	apigwClientCertificates sim.Store[APIGWClientCertificate]
-	apigwDocParts           sim.Store[APIGWDocumentationPart]
-	apigwDocVersions        sim.Store[APIGWDocumentationVersion]
-	apigwGatewayResponses   sim.Store[APIGWGatewayResponse]
-	apigwAccount            sim.Store[APIGWAccount]
+	apigwBasePathMappings sim.Store[APIGWBasePathMapping]
+	// apigwClientCertificateKeys holds each client certificate's private key,
+	// which no API Gateway operation returns.
+	apigwClientCertificateKeys sim.Store[string]
+	apigwClientCertificates    sim.Store[APIGWClientCertificate]
+	apigwDocParts              sim.Store[APIGWDocumentationPart]
+	apigwDocVersions           sim.Store[APIGWDocumentationVersion]
+	apigwGatewayResponses      sim.Store[APIGWGatewayResponse]
+	apigwAccount               sim.Store[APIGWAccount]
 )
 
 // GetGatewayResponses lists these with defaultResponse=true before any
@@ -156,6 +165,7 @@ func apigwSdkTypes() []map[string]any {
 
 func registerAPIGatewayExtras(srv *sim.Server) {
 	apigwBasePathMappings = sim.MakeStore[APIGWBasePathMapping](srv.DB(), "apigw_basepathmappings")
+	apigwClientCertificateKeys = sim.MakeStore[string](srv.DB(), "apigw_client_certificate_keys")
 	apigwClientCertificates = sim.MakeStore[APIGWClientCertificate](srv.DB(), "apigw_clientcertificates")
 	apigwDocParts = sim.MakeStore[APIGWDocumentationPart](srv.DB(), "apigw_documentation_parts")
 	apigwDocVersions = sim.MakeStore[APIGWDocumentationVersion](srv.DB(), "apigw_documentation_versions")
@@ -340,14 +350,20 @@ func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request
 	}
 	now := time.Now()
 	id := apigwRandomLower(10)
+	certPEM, keyPEM, err := apigwIssueClientCertificate(id, now)
+	if err != nil {
+		AWSError(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	c := APIGWClientCertificate{
 		ClientCertificateId:   id,
 		Description:           req.Description,
-		PemEncodedCertificate: apigwClientCertPEM(id),
+		PemEncodedCertificate: certPEM,
 		CreatedDate:           now.Unix(),
 		ExpirationDate:        now.AddDate(1, 0, 0).Unix(),
 		Tags:                  req.Tags,
 	}
+	apigwClientCertificateKeys.Put(id, keyPEM)
 	apigwClientCertificates.Put(id, c)
 	sim.WriteJSON(w, http.StatusCreated, c)
 }
@@ -396,30 +412,47 @@ func handleAPIGWUpdateClientCertificate(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleAPIGWDeleteClientCertificate(w http.ResponseWriter, r *http.Request) {
-	if !apigwClientCertificates.Delete(sim.PathParam(r, "clientCertificateId")) {
+	id := sim.PathParam(r, "clientCertificateId")
+	if !apigwClientCertificates.Delete(id) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
 		return
 	}
+	apigwClientCertificateKeys.Delete(id)
 	w.WriteHeader(http.StatusAccepted)
 }
 
 // The body is the certificate id padded into base64 lines, not a real
 // certificate.
-func apigwClientCertPEM(id string) string {
-	payload := base64.StdEncoding.EncodeToString([]byte("apigw-client-certificate:" + id + ":" + awsAccountID()))
-	var b strings.Builder
-	b.WriteString("-----BEGIN CERTIFICATE-----\n")
-	for len(payload) > 0 {
-		n := 64
-		if n > len(payload) {
-			n = len(payload)
-		}
-		b.WriteString(payload[:n])
-		b.WriteString("\n")
-		payload = payload[n:]
+// apigwIssueClientCertificate mints the self-signed certificate API Gateway
+// presents to an integration backend, valid for the year expirationDate
+// reports, and returns it and its private key as PEM.
+func apigwIssueClientCertificate(id string, notBefore time.Time) (certPEM, keyPEM string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
 	}
-	b.WriteString("-----END CERTIFICATE-----\n")
-	return b.String()
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: id},
+		NotBefore:    notBefore,
+		NotAfter:     notBefore.AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return "", "", err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
 }
 
 func apigwRequireRestAPI(w http.ResponseWriter, id string) bool {

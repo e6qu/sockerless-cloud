@@ -68,10 +68,15 @@ resource "aws_api_gateway_deployment" "tf_deployment" {
   depends_on  = [aws_api_gateway_integration.tf_get]
 }
 
+resource "aws_api_gateway_client_certificate" "tf_backend" {
+  description = "orders backend"
+}
+
 resource "aws_api_gateway_stage" "tf_prod" {
   rest_api_id           = aws_api_gateway_rest_api.tf_api.id
   deployment_id         = aws_api_gateway_deployment.tf_deployment.id
   stage_name            = "prod"
+  client_certificate_id = aws_api_gateway_client_certificate.tf_backend.id
   description           = "production"
   xray_tracing_enabled  = true
   cache_cluster_enabled = true
@@ -115,4 +120,12 @@ output "invoke_url" {
 
 output "api_id" {
   value = aws_api_gateway_rest_api.tf_api.id
+}
+
+output "client_certificate_id" {
+  value = aws_api_gateway_client_certificate.tf_backend.id
+}
+
+output "client_certificate_pem" {
+  value = aws_api_gateway_client_certificate.tf_backend.pem_encoded_certificate
 }

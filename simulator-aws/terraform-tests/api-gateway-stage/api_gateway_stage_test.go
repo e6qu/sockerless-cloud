@@ -1,7 +1,9 @@
 package apigatewaystage_test
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"regexp"
 	"testing"
 
@@ -11,7 +13,7 @@ import (
 
 // TestAPIGatewayStageTerraform applies a REST API stage with stage variables,
 // X-Ray tracing, a cache cluster, CloudWatch Logs access logging and tags,
-// plus method settings for every method, then checks a second plan is empty
+// a client certificate, plus method settings for every method, then checks a second plan is empty
 // and destroys the stack.
 func TestAPIGatewayStageTerraform(t *testing.T) {
 	env := tfsim.Start(t, ".")
@@ -26,6 +28,12 @@ func TestAPIGatewayStageTerraform(t *testing.T) {
 	require.Regexp(t, regexp.MustCompile(`^[a-z0-9]{10}$`), apiID)
 	require.Equal(t, "arn:aws:apigateway:us-east-1::/restapis/"+apiID+"/stages/prod", outputs["stage_arn"].Value)
 	require.Equal(t, "https://"+apiID+".execute-api.us-east-1.amazonaws.com/prod", outputs["invoke_url"].Value)
+
+	block, _ := pem.Decode([]byte(outputs["client_certificate_pem"].Value))
+	require.NotNil(t, block, "pem_encoded_certificate is PEM")
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	require.Equal(t, outputs["client_certificate_id"].Value, cert.Subject.CommonName)
 
 	env.Terraform(t, "plan", "-detailed-exitcode")
 	env.Terraform(t, "destroy", "-auto-approve")

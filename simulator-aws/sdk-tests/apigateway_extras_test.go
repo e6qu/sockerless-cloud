@@ -1,7 +1,10 @@
 package aws_sdk_test
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -113,7 +116,13 @@ func TestAPIGateway_ClientCertificates(t *testing.T) {
 	require.NoError(t, err)
 	certID := aws.ToString(gen.ClientCertificateId)
 	require.NotEmpty(t, certID)
-	assert.Contains(t, aws.ToString(gen.PemEncodedCertificate), "BEGIN CERTIFICATE")
+	block, _ := pem.Decode([]byte(aws.ToString(gen.PemEncodedCertificate)))
+	require.NotNil(t, block, "pemEncodedCertificate is PEM")
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err, "pemEncodedCertificate is an X.509 certificate")
+	assert.Equal(t, certID, parsed.Subject.CommonName)
+	require.NoError(t, parsed.CheckSignature(parsed.SignatureAlgorithm, parsed.RawTBSCertificate, parsed.Signature), "the certificate is self-signed")
+	assert.WithinDuration(t, aws.ToTime(gen.ExpirationDate), parsed.NotAfter, time.Second)
 	t.Cleanup(func() {
 		_, _ = c.DeleteClientCertificate(ctx, &apigateway.DeleteClientCertificateInput{ClientCertificateId: aws.String(certID)})
 	})
