@@ -20,7 +20,9 @@ runs:
           *) echo "::error::unsupported architecture $(uname -m) for Bun"; exit 1 ;;
         esac
         archive="$target.zip"
-        curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
+        # GitHub release downloads answer 504 for half a minute at a time; curl's
+        # own doubling backoff rides out four minutes of that.
+        curl -fsSL --retry 8 --retry-all-errors -o "$RUNNER_TEMP/$archive" \
           "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/$archive"
         unzip -q -o "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/bun"
         mkdir -p "$HOME/.local/bin"
