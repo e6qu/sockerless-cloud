@@ -30,8 +30,8 @@ cloud.google.com/go/logging v1.21.1 h1:fvlcl/l7d4b0f3T5Y7u37GeDEPeDEKXN/y/Xs+Klu
 cloud.google.com/go/logging v1.21.1/go.mod h1:SntfPM/4mHzQEd/LiOO9/IUclKaucFHLemeLBk/mcsA=
 cloud.google.com/go/longrunning v1.5.0 h1:aGonu6LHQl38DyozLs2jxGieI4Ixk+7GTnmHVcHt8zA=
 cloud.google.com/go/longrunning v1.5.0/go.mod h1:vjM1U85ZQuTv8lJoUBSA44HLWvM6BBFeaSJYGFF1Q00=
-cloud.google.com/go/pubsub v1.51.1 h1:R3G1wCOxBO7jRpL8x2pdZMv1GAJDF6ax/m2zPOtvTNE=
-cloud.google.com/go/pubsub v1.51.1/go.mod h1:y2T0IKtW1iWwVvazYaRpqOAFO4gy2+O7dTDt9TWY/5U=
+cloud.google.com/go/pubsub v1.52.0 h1:kOvHJ1y5N/BNKLd/WI36e4RZUmSxCP4eErOWgFi0vVY=
+cloud.google.com/go/pubsub v1.52.0/go.mod h1:0Y3m1aQHZDphz3V76Im+Fq8hRpicxtLM1uzvoLDjnR8=
 cloud.google.com/go/pubsub/v2 v2.8.0 h1:mDGFPDisDUcv0fEkiYQX+BRbenlzdnV6BdH2eb9YQ/M=
 cloud.google.com/go/pubsub/v2 v2.8.0/go.mod h1:OUQLW4ZkmJ0lVvXpP+2Kk0acWWO2pTg5nJ3xaq786ag=
 cloud.google.com/go/redis v1.29.0 h1:AoJGdFMQob09WpEzDl+k+RTsbe9Nnq3jkNBnXBBRV2I=

@@ -12,11 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1408",
+    "@cloudscape-design/components": "3.0.1409",
     "@cloudscape-design/design-tokens": "^3.0.117",
-    "@cloudscape-design/global-styles": "^1.0.71",
+    "@cloudscape-design/global-styles": "^1.0.72",
     "@sockerless/ui-core": "workspace:*",
-    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-query": "^5.106.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router": "^8.5.1"

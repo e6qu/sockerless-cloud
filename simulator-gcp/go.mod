@@ -17,7 +17,7 @@ require (
 	cloud.google.com/go/kms v1.36.1
 	cloud.google.com/go/logging v1.21.1
 	cloud.google.com/go/longrunning v1.5.0
-	cloud.google.com/go/pubsub v1.51.1
+	cloud.google.com/go/pubsub v1.52.0
 	cloud.google.com/go/redis v1.29.0
 	cloud.google.com/go/resourcemanager v1.18.1
 	cloud.google.com/go/run v1.24.1
