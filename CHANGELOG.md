@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.9](https://github.com/e6qu/sockerless-cloud/compare/v3.3.8...v3.3.9) (2026-11-05)
+
+
+### Bug Fixes
+
+* **aws:** honour Auto Scaling tag propagation and filters, Route 53 NoSuchChange ([cd72180](https://github.com/e6qu/sockerless-cloud/commit/cd721807a378f0a17d5fb3d90c0dd4579918dafb))
+
 ## [3.3.8](https://github.com/e6qu/sockerless-cloud/compare/v3.3.7...v3.3.8) (2026-11-05)
 
 
