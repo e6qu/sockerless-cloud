@@ -1004,6 +1004,14 @@ an encoded authorization message, an opaque handle on the refusal's decision,
 principal, action, resource and condition values that only AWS STS
 `DecodeAuthorizationMessage` opens, for a caller allowed
 `sts:DecodeAuthorizationMessage`.
+A handshake answers only its parties: the invited account accepts or declines
+an invitation, which reaches it by account ID or by its owner's email address,
+the management account cancels it, and an account that is no party finds no
+such handshake. Accepting an invitation joins the standalone account to the
+organization's root under `FullAWSAccess` with `JoinedMethod` `INVITED`. An
+unanswered handshake expires after 15 days, a closed one leaves the listings
+30 days later, and AWS Organizations, not the cross-account rule, admits a
+handshake's parties to it.
 The documentation jobs free the runner's unused preinstalled SDKs on a
 runner with less than 20 GB free before they unpack the base-image archive,
 as the simulator jobs do.

@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 318.
+Open: 319.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,7 +10,8 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
-| 3872 | P2 | AWS Organizations handshakes check no parties | Any account can accept, decline or cancel any handshake, accepting an `INVITE` joins no account to the organization, and `ListHandshakesForAccount` lists every handshake. | Hold each handshake action to its parties as the model documents, and join the invited account on acceptance. |
+| 3880 | P2 | AWS Organizations all-features migration and handshake listings | `EnableAllFeatures` sends one handshake to the organization rather than one to each invited member account, no `APPROVE_ALL_FEATURES` handshake reaches the management account once they approve, accepting changes no feature set, and `InviteAccountToOrganization` is not refused with `INVITE_DISABLED_DURING_ENABLE_ALL_FEATURES` meanwhile; `ListHandshakesForAccount` and `ListHandshakesForOrganization` ignore `MaxResults` and `NextToken`; accepting an invitation logs no `AccountJoinedOrganization` event to AWS CloudTrail. | Run the migration as the Organizations User Guide's "Enabling all features" page describes it (vendor that page first), page the handshake listings, and log the membership events. |
+| 3881 | P3 | AWS Organizations handshake facts no vendored source states | A caller that is no party to a handshake gets `HandshakeNotFoundException` and a party acting outside its role `AccessDeniedException`; `InviteAccountToOrganization` answers `InvalidInputException` "Target Type must be ACCOUNT or EMAIL, not …." for an `ORGANIZATION` target; an invitation lasts 15 days and carries no `ORGANIZATION_FEATURE_SET` resource. | Capture each from AWS and match it. |
 | 3873 | P3 | AWS Organizations `CreateOrganization` from a standalone account | A removed (standalone) account calling `CreateOrganization` gets `AlreadyInOrganizationException`, because the simulator hosts one organization. | Host one organization per management account. |
 | 3875 | P3 | AWS Organizations `CreateGovCloudAccount` provisions no access role | The commercial account it creates gets no `OrganizationAccountAccessRole` and no `FullAWSAccess` attachment, though the model says a role is created. | Provision the account as `CreateAccount` does. |
 | 3876 | P3 | AWS Organizations `CloseAccount` closes at once | The account goes straight to closed with no `PENDING_CLOSURE`, and a `SUSPENDED` account's principals still act. | Pass through `PENDING_CLOSURE` and refuse a suspended account's principals. |

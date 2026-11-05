@@ -477,9 +477,10 @@ func iamCrossAccount(principalArn, resource string) bool {
 		return false
 	}
 	// AWS Organizations admits a member account to its organization's
-	// resources by its own rules (orgAdmitCaller), not as a cross-account
-	// request.
-	if strings.HasPrefix(resource, "arn:aws:organizations::") && iamOrganizationMember(caller) {
+	// resources, and a handshake's parties to the handshake, by its own rules
+	// (orgAdmitCaller, orgHandshakeRespond), not as a cross-account request.
+	if organizations, ok := strings.CutPrefix(resource, "arn:aws:organizations::"); ok &&
+		(iamOrganizationMember(caller) || strings.Contains(organizations, ":handshake/")) {
 		return false
 	}
 	owner := iamResourceOwnerAccount(resource)
