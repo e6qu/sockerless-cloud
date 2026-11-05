@@ -26,25 +26,29 @@ func apigwReadRawBody(r *http.Request) []byte {
 // Amazon API Gateway REST API v1 list collections serialize under the
 // singular `item` jsonName.
 
-// No v1 CreateDomainName route exists: UpdateDomainName's first patch creates
-// the row. Keyed by domain name.
+// Keyed by domain name, plus "+domainNameId" for a private one.
 type APIGWv1DomainName struct {
-	DomainName              string            `json:"domainName"`
-	DomainNameId            string            `json:"domainNameId,omitempty"`
-	DomainNameArn           string            `json:"domainNameArn,omitempty"`
-	CertificateName         string            `json:"certificateName,omitempty"`
-	CertificateArn          string            `json:"certificateArn,omitempty"`
-	CertificateUploadDate   int64             `json:"certificateUploadDate,omitempty"`
-	RegionalCertificateName string            `json:"regionalCertificateName,omitempty"`
-	RegionalCertificateArn  string            `json:"regionalCertificateArn,omitempty"`
-	RegionalDomainName      string            `json:"regionalDomainName,omitempty"`
-	DistributionDomainName  string            `json:"distributionDomainName,omitempty"`
-	SecurityPolicy          string            `json:"securityPolicy,omitempty"`
-	DomainNameStatus        string            `json:"domainNameStatus,omitempty"`
-	Tags                    map[string]string `json:"tags,omitempty"`
+	DomainName               string                      `json:"domainName"`
+	DomainNameId             string                      `json:"domainNameId,omitempty"`
+	DomainNameArn            string                      `json:"domainNameArn,omitempty"`
+	CertificateName          string                      `json:"certificateName,omitempty"`
+	CertificateArn           string                      `json:"certificateArn,omitempty"`
+	CertificateUploadDate    int64                       `json:"certificateUploadDate,omitempty"`
+	RegionalCertificateName  string                      `json:"regionalCertificateName,omitempty"`
+	RegionalCertificateArn   string                      `json:"regionalCertificateArn,omitempty"`
+	RegionalDomainName       string                      `json:"regionalDomainName,omitempty"`
+	RegionalHostedZoneId     string                      `json:"regionalHostedZoneId,omitempty"`
+	DistributionDomainName   string                      `json:"distributionDomainName,omitempty"`
+	DistributionHostedZoneId string                      `json:"distributionHostedZoneId,omitempty"`
+	EndpointConfiguration    *APIGWEndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	SecurityPolicy           string                      `json:"securityPolicy,omitempty"`
+	EndpointAccessMode       string                      `json:"endpointAccessMode,omitempty"`
+	RoutingMode              string                      `json:"routingMode,omitempty"`
+	Policy                   string                      `json:"policy,omitempty"`
+	DomainNameStatus         string                      `json:"domainNameStatus,omitempty"`
+	Tags                     map[string]string           `json:"tags,omitempty"`
 }
 
-// UpdateVpcLink's first patch creates the row.
 type APIGWv1VpcLink struct {
 	Id            string            `json:"id"`
 	Name          string            `json:"name,omitempty"`
@@ -411,17 +415,11 @@ func handleAPIGWUpdateDeployment(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIGWUpdateDomainName(w http.ResponseWriter, r *http.Request) {
-	name := sim.PathParam(r, "domainName")
+	name := apigwDomainKey(r)
 	d, ok := apigwV1DomainNames.Get(name)
 	if !ok {
-		// No v1 create route exists, so the first patch creates the domain.
-		d = APIGWv1DomainName{
-			DomainName:       name,
-			DomainNameId:     sim.NewUUID()[:10],
-			DomainNameArn:    apigwDomainNameARN(name),
-			SecurityPolicy:   "TLS_1_2",
-			DomainNameStatus: "AVAILABLE",
-		}
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		return
 	}
 	ops, ok := apigwReadPatches(w, r)
 	if !ok {
@@ -435,11 +433,19 @@ func handleAPIGWUpdateDomainName(w http.ResponseWriter, r *http.Request) {
 		case "certificateName":
 			d.CertificateName = op.Value
 		case "certificateArn":
+			if msg := apigwCheckCertificate(op.Value, "us-east-1"); msg != "" {
+				AWSError(w, "BadRequestException", msg, http.StatusBadRequest)
+				return
+			}
 			d.CertificateArn = op.Value
 			d.CertificateUploadDate = time.Now().Unix()
 		case "regionalCertificateName":
 			d.RegionalCertificateName = op.Value
 		case "regionalCertificateArn":
+			if msg := apigwCheckCertificate(op.Value, awsRegion()); msg != "" {
+				AWSError(w, "BadRequestException", msg, http.StatusBadRequest)
+				return
+			}
 			d.RegionalCertificateArn = op.Value
 		case "securityPolicy":
 			d.SecurityPolicy = op.Value
@@ -453,11 +459,8 @@ func handleAPIGWUpdateVpcLink(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "vpcLinkId")
 	v, ok := apigwV1VpcLinks.Get(id)
 	if !ok {
-		// No v1 create route exists, so the first patch creates the link.
-		v = APIGWv1VpcLink{
-			Id:     id,
-			Status: "AVAILABLE",
-		}
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid VPC link identifier specified")
+		return
 	}
 	ops, ok := apigwReadPatches(w, r)
 	if !ok {

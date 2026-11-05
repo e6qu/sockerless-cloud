@@ -275,6 +275,7 @@ func registerAPIGateway(srv *sim.Server) {
 
 	registerAPIGatewayExtras(srv)
 	registerAPIGatewayComplete(srv)
+	registerAPIGatewayDomains(srv)
 }
 
 func handleAPIGWCreateRestApi(w http.ResponseWriter, r *http.Request) {

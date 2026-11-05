@@ -218,31 +218,14 @@ func TestAPIGatewayCompleteCLIImportAndTag(t *testing.T) {
 	assert.False(t, has, "untag should drop env")
 }
 
-// TestAPIGatewayCompleteCLIDomainVpcUsageAndAccess covers update-domain-name,
-// update-vpc-link, update-usage and the domain-name access-association
-// operations.
-func TestAPIGatewayCompleteCLIDomainVpcUsageAndAccess(t *testing.T) {
+// TestAPIGatewayCompleteCLIUsageAndAccess covers update-usage and the
+// domain-name access-association operations.
+func TestAPIGatewayCompleteCLIUsageAndAccess(t *testing.T) {
 	t.Parallel()
-	var domain struct {
-		CertificateName string `json:"certificateName"`
-	}
-	out := runCLI(t, awsCLI("apigateway", "update-domain-name", "--domain-name", "cli.example.com",
-		"--patch-operations", "op=replace,path=/certificateName,value=prod-cert"))
-	require.NoError(t, json.Unmarshal([]byte(out), &domain))
-	assert.Equal(t, "prod-cert", domain.CertificateName)
-
-	var link struct {
-		Name string `json:"name"`
-	}
-	out = runCLI(t, awsCLI("apigateway", "update-vpc-link", "--vpc-link-id", "cli-vpclink-1",
-		"--patch-operations", "op=replace,path=/name,value=private-backends"))
-	require.NoError(t, json.Unmarshal([]byte(out), &link))
-	assert.Equal(t, "private-backends", link.Name)
-
 	var up struct {
 		ID string `json:"id"`
 	}
-	out = runCLI(t, awsCLI("apigateway", "create-usage-plan", "--name", "cli-plan",
+	out := runCLI(t, awsCLI("apigateway", "create-usage-plan", "--name", "cli-plan",
 		"--quota", "limit=1000,period=MONTH"))
 	require.NoError(t, json.Unmarshal([]byte(out), &up))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("apigateway", "delete-usage-plan", "--usage-plan-id", up.ID)) })

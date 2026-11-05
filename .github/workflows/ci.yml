@@ -1428,6 +1428,10 @@ jobs:
             cloud: aws
             tf_packages: "./acm-validation"
             timeout_minutes: 12
+          - suite: aws Amazon API Gateway custom domain name
+            cloud: aws
+            tf_packages: "./api-gateway-domain-name"
+            timeout_minutes: 12
           - suite: aws Amazon ECS Express Mode
             cloud: aws
             tf_packages: "./ecs-express"

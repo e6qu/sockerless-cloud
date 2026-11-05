@@ -49,6 +49,21 @@ func TestAPIGateway_BasePathMappings(t *testing.T) {
 	apiID, stage := apigwNewRestAPIWithStage(t, c, "bpm-api")
 	domain := "bpm.example.com"
 
+	_, err := c.CreateBasePathMapping(ctx, &apigateway.CreateBasePathMappingInput{
+		DomainName: aws.String(domain), RestApiId: aws.String(apiID), BasePath: aws.String("v1"), Stage: aws.String(stage),
+	})
+	var notFound *apigwtypes.NotFoundException
+	require.ErrorAs(t, err, &notFound, "CreateBasePathMapping before CreateDomainName")
+	_, err = c.CreateDomainName(ctx, &apigateway.CreateDomainNameInput{
+		DomainName:             aws.String(domain),
+		RegionalCertificateArn: aws.String(importELBv2Certificate(t, domain)),
+		EndpointConfiguration:  &apigwtypes.EndpointConfiguration{Types: []apigwtypes.EndpointType{apigwtypes.EndpointTypeRegional}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDomainName(ctx, &apigateway.DeleteDomainNameInput{DomainName: aws.String(domain)})
+	})
+
 	create, err := c.CreateBasePathMapping(ctx, &apigateway.CreateBasePathMappingInput{
 		DomainName: aws.String(domain),
 		RestApiId:  aws.String(apiID),

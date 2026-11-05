@@ -223,7 +223,11 @@ func apigwBasePathKey(domain, basePath string) string {
 }
 
 func handleAPIGWCreateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
+	domain := apigwDomainKey(r)
+	if _, ok := apigwV1DomainNames.Get(domain); !ok {
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
+		return
+	}
 	var req struct {
 		BasePath  string `json:"basePath"`
 		RestApiId string `json:"restApiId"`
@@ -248,7 +252,7 @@ func handleAPIGWCreateBasePathMapping(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIGWListBasePathMappings(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
+	domain := apigwDomainKey(r)
 	out := []APIGWBasePathMapping{}
 	for _, m := range apigwBasePathMappings.List() {
 		if m.DomainName == domain {
@@ -259,7 +263,7 @@ func handleAPIGWListBasePathMappings(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIGWGetBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
+	domain := apigwDomainKey(r)
 	basePath := sim.PathParam(r, "basePath")
 	m, ok := apigwBasePathMappings.Get(apigwBasePathKey(domain, normalizeBasePath(basePath)))
 	if !ok {
@@ -270,7 +274,7 @@ func handleAPIGWGetBasePathMapping(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIGWUpdateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
+	domain := apigwDomainKey(r)
 	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
 	key := apigwBasePathKey(domain, basePath)
 	m, ok := apigwBasePathMappings.Get(key)
@@ -309,7 +313,7 @@ func handleAPIGWUpdateBasePathMapping(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIGWDeleteBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
+	domain := apigwDomainKey(r)
 	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
 	if !apigwBasePathMappings.Delete(apigwBasePathKey(domain, basePath)) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")

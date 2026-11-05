@@ -294,6 +294,8 @@ ignore:
   SNYK-CC-TF-74:
     - 'simulator-aws/terraform-tests/acm-validation/main.tf > *':
         reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
+    - 'simulator-aws/terraform-tests/api-gateway-domain-name/main.tf > *':
+        reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
     - 'simulator-aws/terraform-tests/ecs-express/main.tf > *':
         reason: Simulator/harness Terraform fixture, applied only against a local simulator and destroyed in-test.
     - 'simulator-aws/terraform-tests/elasticache/main.tf > *':

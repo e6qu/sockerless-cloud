@@ -47,6 +47,13 @@ func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
 	t.Parallel()
 	apiID, stage := apigwCLINewAPIWithStage(t, "cli-bpm-api")
 	domain := "cli-bpm.example.com"
+	bpmArgs := []string{"apigateway", "create-base-path-mapping", "--domain-name", domain,
+		"--rest-api-id", apiID, "--base-path", "v1", "--stage", stage}
+	assert.Contains(t, runCLIExpectError(t, awsCLI(bpmArgs...)), "NotFoundException")
+	runCLI(t, awsCLI("apigateway", "create-domain-name", "--domain-name", domain,
+		"--regional-certificate-arn", importELBv2CertificateCLI(t, domain),
+		"--endpoint-configuration", "types=REGIONAL"))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("apigateway", "delete-domain-name", "--domain-name", domain)) })
 
 	createOut := runCLI(t, awsCLI("apigateway", "create-base-path-mapping",
 		"--domain-name", domain,

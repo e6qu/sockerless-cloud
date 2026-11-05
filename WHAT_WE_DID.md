@@ -1375,6 +1375,16 @@ fails once the row closes or the operation is served.
   name, because an awsvpc task's search domain is not the namespace and a bare
   name does not resolve on AWS either. A test that deletes its subnet first
   stops its own cluster's tasks and waits with `aws ecs wait tasks-stopped`.
+- **Amazon API Gateway.** `CreateDomainName` mints an edge-optimized
+  domain's Amazon CloudFront name or a Regional domain's `execute-api` name,
+  with the Route 53 hosted zone the vendored `api-gateway-endpoints.md.gz`
+  lists for the Region. It refuses an AWS Certificate Manager certificate that
+  is missing, not `ISSUED`, or outside the Region its endpoint type reads
+  from, so a Terraform stack takes the ARN from `aws_acm_certificate_validation`.
+  `CreateVpcLink` answers `PENDING` and resolves to `AVAILABLE` once every
+  target is a Network Load Balancer, or `FAILED`. `UpdateDomainName`,
+  `UpdateVpcLink` and `CreateBasePathMapping` answer `NotFoundException` for a
+  name nothing created.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the
