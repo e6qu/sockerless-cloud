@@ -1066,6 +1066,11 @@ Its rows tell a verb apart from the convention's guess: Compute Engine's
 `update`. Re-fetching several hundred pages on every freshness run costs more
 than it buys, so the freshness check samples a rotating slice of them each day
 and reports a page dated after its row.
+Where a reference page states nothing, the gate takes the service's own
+method table: Cloud SQL's backups take the `cloudsql.backupRuns` permissions
+and its flag and tier catalogs none, per its IAM permissions page, and
+Firestore's streamed `write` and `executePipeline` take the entity permissions
+of the writes a request carries and of the stages a pipeline runs.
 
 AWS KMS serves ML-KEM (FIPS 203) key pairs: `ML_KEM_512`, `ML_KEM_768` and
 `ML_KEM_1024` keys with `ENCAPSULATE_DECAPSULATE` usage, kept as their 64-byte

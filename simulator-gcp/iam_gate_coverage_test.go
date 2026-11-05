@@ -11,7 +11,7 @@ import (
 // ceiling; a refreshed Discovery document moves the total.
 const (
 	gateMethodTotal   = 2947
-	gateUnsourcedCeil = 391
+	gateUnsourcedCeil = 380
 )
 
 // TestIAMGate_SourcedPermissionCoverage renders every Discovery method's first

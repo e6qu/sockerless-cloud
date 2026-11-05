@@ -864,7 +864,7 @@ Then stop `simulator-gcp` with Ctrl-C.
 
 | Gap | Tracked |
 |---|---|
-| 391 of 2,947 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
+| 380 of 2,947 Discovery methods have no sourced permission and admit only an Owner. | [3769](../BUGS.md) |
 | Basic roles follow the roles overview, not Google's console lists; a method's secondary permissions (`iam.serviceAccounts.actAs` on deploy, Cloud Storage's footnoted ones) are not checked; BigQuery dataset access entries grant nothing; list and search results are not filtered to what the caller may see; `iam.automaticIamGrantsForDefaultServiceAccounts` is not honoured; a refused call writes no audit entry. | [3770](../BUGS.md) |
 | The Artifact Registry Docker data plane does not evaluate repository policies. | [3742](../BUGS.md) |
 | Impersonation ignores `delegates` and serves disabled accounts. | [3742](../BUGS.md) |

@@ -175,3 +175,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `sql-mysql-import-export.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/import-export` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:15:14Z |
 | `sql-authorize-ssl.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/authorize-ssl` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:19:28Z |
 | `sql-auth-proxy.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/sql-proxy` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:19:30Z |
+| `sql-iam-permissions.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/iam-permissions` | CC-BY-4.0 | `modified2026-11-02` | 2026-11-05T11:04:18Z |

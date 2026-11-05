@@ -29,6 +29,10 @@ var gateExemptMethods = map[string]bool{
 	"cloudresourcemanager.projects.search":      true,
 	"cloudresourcemanager.organizations.search": true,
 	"cloudresourcemanager.folders.search":       true,
+	// Cloud SQL: "None" in sql-iam-permissions.md.gz's method table for
+	// flags.list and its gcloud table for gcloud sql tiers list.
+	"sql.flags.list": true,
+	"sql.tiers.list": true,
 }
 
 // gateOverride names the permissions of a method its identifier does not
@@ -65,6 +69,20 @@ var gateMethodPermissions = map[string]gateOverride{
 	"firestore.projects.databases.documents.rollback":            gatePermissions("datastore.databases.get"),
 	"firestore.projects.databases.documents.commit":              gateFirestoreWrites,
 	"firestore.projects.databases.documents.batchWrite":          gateFirestoreWrites,
+	"firestore.projects.databases.documents.write":               gateFirestoreWrites,
+	"firestore.projects.databases.documents.executePipeline":     gateFirestorePipeline,
+	// Cloud SQL: the method table of sql-iam-permissions.md.gz, whose
+	// backups rows the v1 Backups methods share.
+	"sql.backups.createBackup": gatePermissions("cloudsql.backupRuns.create"),
+	"sql.backups.deleteBackup": gatePermissions("cloudsql.backupRuns.delete"),
+	"sql.backups.getBackup":    gatePermissions("cloudsql.backupRuns.get"),
+	"sql.backups.listBackups":  gatePermissions("cloudsql.backupRuns.list"),
+	"sql.backups.updateBackup": gatePermissions("cloudsql.backupRuns.update"),
+	"sql.Backups.CreateBackup": gatePermissions("cloudsql.backupRuns.create"),
+	"sql.Backups.DeleteBackup": gatePermissions("cloudsql.backupRuns.delete"),
+	"sql.Backups.GetBackup":    gatePermissions("cloudsql.backupRuns.get"),
+	"sql.Backups.ListBackups":  gatePermissions("cloudsql.backupRuns.list"),
+	"sql.Backups.UpdateBackup": gatePermissions("cloudsql.backupRuns.update"),
 	// Spanner data plane: the database and session permissions of
 	// spanner-iam.md.gz, which name the call each allows.
 	"spanner.projects.instances.databases.sessions.create":              gatePermissions("spanner.sessions.create"),
@@ -163,6 +181,44 @@ func gateFirestoreWrites(call *gateCall, resource string) []gateCheck {
 	}
 	var checks []gateCheck
 	for _, p := range []string{"datastore.entities.create", "datastore.entities.update", "datastore.entities.delete"} {
+		if needed[p] {
+			checks = append(checks, gateCheck{permission: p, resource: resource})
+		}
+	}
+	return checks
+}
+
+// gateFirestorePipelineStages are the permissions each pipeline stage needs,
+// per firestore-security-iam.md.gz.
+var gateFirestorePipelineStages = map[string][]string{
+	"collection":       {"datastore.entities.get", "datastore.entities.list"},
+	"collection_group": {"datastore.entities.get", "datastore.entities.list"},
+	"database":         {"datastore.entities.get", "datastore.entities.list"},
+	"documents":        {"datastore.entities.get"},
+	"update":           {"datastore.entities.update"},
+	"delete":           {"datastore.entities.delete"},
+}
+
+// gateFirestorePipeline checks the permissions of the stages a pipeline runs.
+// A pipeline with none of the table's stages reads nothing the table names a
+// permission for, so only an Owner runs it.
+func gateFirestorePipeline(call *gateCall, resource string) []gateCheck {
+	structured, _ := call.fields()["structuredPipeline"].(map[string]any)
+	pipeline, _ := structured["pipeline"].(map[string]any)
+	stages, _ := pipeline["stages"].([]any)
+	needed := map[string]bool{}
+	for _, st := range stages {
+		stage, _ := st.(map[string]any)
+		name, _ := stage["name"].(string)
+		for _, p := range gateFirestorePipelineStages[name] {
+			needed[p] = true
+		}
+	}
+	if len(needed) == 0 {
+		return []gateCheck{{unsourced: true, resource: resource}}
+	}
+	var checks []gateCheck
+	for _, p := range []string{"datastore.entities.get", "datastore.entities.list", "datastore.entities.update", "datastore.entities.delete"} {
 		if needed[p] {
 			checks = append(checks, gateCheck{permission: p, resource: resource})
 		}

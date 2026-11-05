@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -188,6 +189,8 @@ func TestIAMGate_DerivesEachMethodsPermission(t *testing.T) {
 		{"spanner.localhost:4567", "GET", "/v1/projects/p1/instances/i1/databases/d1/operations/op1", "", "spanner.databaseOperations.get", "projects/p1/instances/i1/databases/d1/operations/op1"},
 		{"spanner.googleapis.com", "GET", "/v1/projects/p1/instances/i1", "", "spanner.instances.get", "projects/p1/instances/i1"},
 		{"", "GET", "/v1/projects/p1/instances/i1", "", "cloudsql.instances.get", "projects/p1/instances/i1"},
+		{"", "GET", "/sql/v1beta4/projects/p1/backups/b1", "", "cloudsql.backupRuns.get", "projects/p1/backups/b1"},
+		{"sqladmin.googleapis.com", "POST", "/v1/projects/p1/backups", "", "cloudsql.backupRuns.create", "projects/p1/backups"},
 	}
 	for _, tc := range cases {
 		query, _ := url.ParseQuery(tc.query)
@@ -251,5 +254,56 @@ func TestIAMGate_ConvenienceMembersCoverPoolPrincipals(t *testing.T) {
 	}
 	if gcpMemberMatches("projectEditor:"+gcpTestProjectID, subject, time.Now()) {
 		t.Fatal("projectEditor covers a subject that holds only Owner")
+	}
+}
+
+// Firestore's streamed writes and pipelines take the permissions of what the
+// request writes and the stages it runs, and Cloud SQL's flag and tier
+// catalogs need none.
+func TestIAMGate_RequestBodyNamesThePermission(t *testing.T) {
+	cases := []struct {
+		path   string
+		fields map[string]any
+		want   []string
+	}{
+		{"/v1/projects/p1/databases/(default)/documents:write",
+			map[string]any{"writes": []any{map[string]any{"delete": "projects/p1/databases/(default)/documents/c/d"}}},
+			[]string{"datastore.entities.delete"}},
+		{"/v1/projects/p1/databases/(default)/documents:write",
+			map[string]any{"writes": []any{map[string]any{"update": map[string]any{}, "currentDocument": map[string]any{"exists": false}}}},
+			[]string{"datastore.entities.create"}},
+		{"/v1/projects/p1/databases/(default)/documents:executePipeline",
+			map[string]any{"structuredPipeline": map[string]any{"pipeline": map[string]any{"stages": []any{
+				map[string]any{"name": "collection"}, map[string]any{"name": "delete"}}}}},
+			[]string{"datastore.entities.get", "datastore.entities.list", "datastore.entities.delete"}},
+		{"/v1/projects/p1/databases/(default)/documents:executePipeline",
+			map[string]any{"structuredPipeline": map[string]any{"pipeline": map[string]any{"stages": []any{
+				map[string]any{"name": "documents"}}}}},
+			[]string{"datastore.entities.get"}},
+	}
+	for _, tc := range cases {
+		call := &gateCall{httpMethod: "POST", path: tc.path, host: "firestore.googleapis.com", query: url.Values{},
+			fields: func() map[string]any { return tc.fields }}
+		decision, ok := gateResolve(call)
+		if !ok || len(decision.checks) != 1 {
+			t.Errorf("%s resolves to %+v", tc.path, decision)
+			continue
+		}
+		var got []string
+		for _, c := range decision.checks[0] {
+			if c.unsourced || c.resource != "projects/p1/databases/(default)/documents" {
+				t.Errorf("%s checks %+v", tc.path, c)
+			}
+			got = append(got, c.permission)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s checks %v, want %v", tc.path, got, tc.want)
+		}
+	}
+	for _, path := range []string{"/sql/v1beta4/flags", "/sql/v1beta4/projects/p1/tiers"} {
+		call := &gateCall{httpMethod: "GET", path: path, host: "localhost", query: url.Values{}, fields: func() map[string]any { return nil }}
+		if decision, ok := gateResolve(call); !ok || len(decision.checks) != 1 || len(decision.checks[0]) != 0 {
+			t.Errorf("%s resolves to %+v, want no permission", path, decision)
+		}
 	}
 }
