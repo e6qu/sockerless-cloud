@@ -1408,6 +1408,12 @@ fails once the row closes or the operation is served.
   every operation of its Smithy model, `TagResource`, `UntagResource`,
   `UpdateDomainName`, `UpdateDeployment`, `UpdateModel` and `UpdateVpcLink`
   included.
+- **AWS Budgets.** An `RUN_SSM_DOCUMENTS` action stops what it names
+  through the simulator's own services: `STOP_EC2_INSTANCES` halts the EC2
+  instances, and `STOP_RDS_INSTANCES` stops the Amazon RDS DB instances in the
+  action's Region with the same preconditions and `stopping` to `stopped`
+  lifecycle `StopDBInstance` applies, so a cluster member, a read replica or
+  an instance that is not available fails the execution.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the
