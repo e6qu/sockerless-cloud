@@ -407,21 +407,19 @@ func TestOrganizations_Tags(t *testing.T) {
 	assert.Equal(t, "env", aws.ToString(lt2.Tags[0].Key))
 }
 
-// TestOrganizations_EnableAllFeatures covers EnableAllFeatures;
-// TestOrganizations_zzCreateDeleteOrganization covers the organization's
-// deletion and creation without disturbing the default one other tests use.
+// TestOrganizations_EnableAllFeatures asks the default organization, which has
+// all features, to enable them; TestOrganizations_zzCreateDeleteOrganization
+// migrates an organization with consolidated billing alone.
 func TestOrganizations_EnableAllFeatures(t *testing.T) {
-	c := orgClient()
-	out, err := c.EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
-	require.NoError(t, err)
-	require.NotNil(t, out.Handshake)
-	assert.Equal(t, orgtypes.ActionTypeEnableAllFeatures, out.Handshake.Action)
-	assert.Contains(t, aws.ToString(out.Handshake.Arn), "/enable_all_features/")
+	t.Parallel()
+	_, err := orgClient().EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
+	assertHandshakeConstraint(t, err, orgtypes.HandshakeConstraintViolationExceptionReasonOrganizationAlreadyHasAllFeatures)
 }
 
 // TestOrganizations_zzCreateDeleteOrganization deletes the default
-// organization and recreates it, restoring it for other suites and reruns; the
-// name sorts it last.
+// organization, recreates it with consolidated billing alone and migrates it
+// to all features, restoring it for other suites and reruns; the name sorts
+// it last.
 func TestOrganizations_zzCreateDeleteOrganization(t *testing.T) {
 	c := orgClient()
 
@@ -452,8 +450,9 @@ func TestOrganizations_zzCreateDeleteOrganization(t *testing.T) {
 	require.Error(t, err)
 
 	// Recreate the default organization, which aws:PrincipalOrgID needs.
-	created, err := c.CreateOrganization(ctx, &organizations.CreateOrganizationInput{FeatureSet: orgtypes.OrganizationFeatureSetAll})
+	created, err := c.CreateOrganization(ctx, &organizations.CreateOrganizationInput{FeatureSet: orgtypes.OrganizationFeatureSetConsolidatedBilling})
 	require.NoError(t, err)
 	require.NotNil(t, created.Organization)
-	assert.Equal(t, orgtypes.OrganizationFeatureSetAll, created.Organization.FeatureSet)
+	assert.Equal(t, orgtypes.OrganizationFeatureSetConsolidatedBilling, created.Organization.FeatureSet)
+	migrateToAllFeatures(t)
 }

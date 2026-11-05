@@ -137,7 +137,9 @@ Shared mechanisms, one package each:
   reached through `OrganizationAccountAccessRole`, the management account's
   root user signs with `root`/`root`, and service control
   policies govern their principals. AWS Organizations holds each operation
-  to the callers its model names, and removed accounts run standalone.
+  to the callers its model names, removed accounts run standalone, and
+  invitations and the migration to all features run through handshakes
+  their parties answer.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

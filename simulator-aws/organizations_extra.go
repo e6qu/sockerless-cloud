@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -129,6 +128,7 @@ func handleOrgListAccountsWithInvalidEffectivePolicy(w http.ResponseWriter, r *h
 		return
 	}
 	var req struct {
+		orgPage
 		PolicyType string `json:"PolicyType"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -139,10 +139,7 @@ func handleOrgListAccountsWithInvalidEffectivePolicy(w http.ResponseWriter, r *h
 		AWSError(w, "InvalidInputException", "PolicyType is required", http.StatusBadRequest)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"Accounts":   []map[string]any{},
-		"PolicyType": req.PolicyType,
-	})
+	orgWriteList(w, req.orgPage, "Accounts", "Id", []map[string]any{}, map[string]any{"PolicyType": req.PolicyType})
 }
 
 // The simulator validates no merge, so the error list is empty, with the account
@@ -152,6 +149,7 @@ func handleOrgListEffectivePolicyValidationErrors(w http.ResponseWriter, r *http
 		return
 	}
 	var req struct {
+		orgPage
 		AccountId  string `json:"AccountId"`
 		PolicyType string `json:"PolicyType"`
 	}
@@ -167,12 +165,11 @@ func handleOrgListEffectivePolicyValidationErrors(w http.ResponseWriter, r *http
 		AWSError(w, "AccountNotFoundException", "You specified an account that doesn't exist.", http.StatusBadRequest)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"AccountId":                       req.AccountId,
-		"PolicyType":                      req.PolicyType,
-		"Path":                            orgHierarchyPath(req.AccountId),
-		"EvaluationTimestamp":             orgEpoch(),
-		"EffectivePolicyValidationErrors": []map[string]any{},
+	orgWriteList(w, req.orgPage, "EffectivePolicyValidationErrors", "ErrorCode", []map[string]any{}, map[string]any{
+		"AccountId":           req.AccountId,
+		"PolicyType":          req.PolicyType,
+		"Path":                orgHierarchyPath(req.AccountId),
+		"EvaluationTimestamp": orgEpoch(),
 	})
 }
 
@@ -387,6 +384,7 @@ func orgListResponsibilityTransfers(w http.ResponseWriter, r *http.Request, dire
 		return
 	}
 	var req struct {
+		orgPage
 		Type string `json:"Type"`
 		Id   string `json:"Id"`
 	}
@@ -406,12 +404,11 @@ func orgListResponsibilityTransfers(w http.ResponseWriter, r *http.Request, dire
 		}
 		return true
 	})
-	sort.Slice(transfers, func(i, j int) bool { return transfers[i].Id < transfers[j].Id })
 	out := []map[string]any{}
 	for _, t := range transfers {
 		out = append(out, orgResponsibilityTransferToMap(t))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"ResponsibilityTransfers": out})
+	orgWriteList(w, req.orgPage, "ResponsibilityTransfers", "Id", out, nil)
 }
 
 func handleOrgListInboundResponsibilityTransfers(w http.ResponseWriter, r *http.Request) {

@@ -296,9 +296,10 @@ func TestOrganizationsCLI_Tags(t *testing.T) {
 }
 
 func TestOrganizationsCLI_EnableAllFeatures(t *testing.T) {
-	out := runCLI(t, awsCLI("organizations", "enable-all-features", "--output", "json"))
-	if !strings.Contains(out, "ENABLE_ALL_FEATURES") {
-		t.Fatalf("enable-all-features missing the handshake action: %s", out)
+	t.Parallel()
+	out := runCLIExpectError(t, awsCLI("organizations", "enable-all-features"))
+	if !strings.Contains(out, "ORGANIZATION_ALREADY_HAS_ALL_FEATURES") {
+		t.Fatalf("enable-all-features on an organization with all features didn't refuse: %s", out)
 	}
 }
 
@@ -324,12 +325,14 @@ func TestOrganizationsCLI_zzCreateDeleteOrganization(t *testing.T) {
 		t.Fatalf("list-accounts without an organization didn't answer AWSOrganizationsNotInUseException: %s", notInUse)
 	}
 
-	out := runCLI(t, awsCLI("organizations", "create-organization", "--feature-set", "ALL", "--output", "json"))
-	if !strings.Contains(out, "\"FeatureSet\": \"ALL\"") && !strings.Contains(out, "\"FeatureSet\":\"ALL\"") {
-		t.Fatalf("create-organization didn't return ALL feature set: %s", out)
+	featureSet := runCLI(t, awsCLI("organizations", "create-organization", "--feature-set", "CONSOLIDATED_BILLING",
+		"--query", "Organization.FeatureSet", "--output", "text"))
+	if strings.TrimSpace(featureSet) != "CONSOLIDATED_BILLING" {
+		t.Fatalf("create-organization didn't return the CONSOLIDATED_BILLING feature set: %s", featureSet)
 	}
 	la := runCLI(t, awsCLI("organizations", "list-accounts", "--output", "json"))
 	if !strings.Contains(la, "\"Accounts\"") {
 		t.Fatalf("list-accounts after create-organization returned no account list: %s", la)
 	}
+	cliMigrateToAllFeatures(t)
 }

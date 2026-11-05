@@ -478,13 +478,22 @@ func handleOrgCreateOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	feature := req.FeatureSet
-	if feature == "" {
+	switch feature {
+	case "":
 		feature = "ALL"
+	case "ALL", "CONSOLIDATED_BILLING":
+	default:
+		writeOrgInvalidInput(w, "INVALID_ENUM", "You specified an invalid value.")
+		return
 	}
 	orgEnsureDefault()
 	o, _ := orgOrg.Get(orgSingletonKey)
 	o.FeatureSet = feature
 	orgOrg.Put(orgSingletonKey, o)
+	// The User Guide: SCPs aren't available with consolidated billing alone.
+	if root, ok := orgRoots.Get(orgRootID()); ok && feature != "ALL" {
+		orgDisableSCPs(&root)
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Organization": orgOrgToMap(o)})
 }
 
@@ -508,27 +517,6 @@ func handleOrgDescribeOrganization(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Organization": orgOrgToMap(o)})
-}
-
-func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
-		return
-	}
-	// The handshake asks every member account to approve; no answer changes
-	// the organization's feature set.
-	now := orgEpoch()
-	h := OrgHandshake{
-		Id:                  "h-" + orgRandHex(16),
-		State:               "REQUESTED",
-		RequestedTimestamp:  now,
-		ExpirationTimestamp: now + 15*24*3600,
-		Action:              "ENABLE_ALL_FEATURES",
-		Parties:             []OrgHandshakeParty{{Id: awsOrgID(), Type: "ORGANIZATION"}},
-		Resources:           []OrgHandshakeResource{{Type: "ORGANIZATION", Value: awsOrgID()}},
-	}
-	h.Arn = orgHandshakeArn(h.Id, h.Action)
-	orgHandshakes.Put(h.Id, h)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
 }
 
 func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -615,41 +603,50 @@ func handleOrgDescribeCreateAccountStatus(w http.ResponseWriter, r *http.Request
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": orgCreateStatusToMap(s)})
 }
 
-func handleOrgListCreateAccountStatus(w http.ResponseWriter, _ *http.Request) {
-	statuses := orgCreateStatuses.List()
-	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Id < statuses[j].Id })
-	out := []map[string]any{}
-	for _, s := range statuses {
-		out = append(out, orgCreateStatusToMap(s))
+func handleOrgListCreateAccountStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		orgPage
+		States []string `json:"States"`
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatuses": out})
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	out := []map[string]any{}
+	for _, s := range orgCreateStatuses.List() {
+		if len(req.States) == 0 || slices.Contains(req.States, s.State) {
+			out = append(out, orgCreateStatusToMap(s))
+		}
+	}
+	orgWriteList(w, req.orgPage, "CreateAccountStatuses", "Id", out, nil)
 }
 
-func handleOrgListAccounts(w http.ResponseWriter, _ *http.Request) {
+func handleOrgListAccounts(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	accts := orgAccounts.List()
-	sort.Slice(accts, func(i, j int) bool { return accts[i].Id < accts[j].Id })
+	var page orgPage
+	if err := sim.ReadJSON(r, &page); err != nil {
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	out := []map[string]any{}
-	for _, a := range accts {
+	for _, a := range orgAccounts.List() {
 		out = append(out, orgAccountToMap(a))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Accounts": out})
+	orgWriteList(w, page, "Accounts", "Id", out, nil)
 }
 
 func handleOrgListAccountsForParent(w http.ResponseWriter, r *http.Request) {
-	parentID, ok := orgReadParentID(w, r)
+	parentID, page, ok := orgReadParentID(w, r)
 	if !ok {
 		return
 	}
-	children := orgAccounts.Filter(func(it OrgAccount) bool { return it.ParentId == parentID })
-	sort.Slice(children, func(i, j int) bool { return children[i].Id < children[j].Id })
 	out := []map[string]any{}
-	for _, child := range children {
+	for _, child := range orgAccounts.Filter(func(it OrgAccount) bool { return it.ParentId == parentID }) {
 		out = append(out, orgAccountToMap(child))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Accounts": out})
+	orgWriteList(w, page, "Accounts", "Id", out, nil)
 }
 
 func handleOrgMoveAccount(w http.ResponseWriter, r *http.Request) {
@@ -729,6 +726,58 @@ func writeOrgConstraintViolation(w http.ResponseWriter, reason, message string) 
 		"Message": message,
 		"Reason":  reason,
 	})
+}
+
+func writeOrgInvalidInput(w http.ResponseWriter, reason, message string) {
+	awsWriteJSONErrorBody(w, awsJSON11, http.StatusBadRequest, "InvalidInputException", map[string]string{
+		"__type":  "InvalidInputException",
+		"Message": message,
+		"Reason":  reason,
+	})
+}
+
+// orgPage holds the paging members of the Organizations List requests;
+// ListTagsForResource takes no MaxResults.
+type orgPage struct {
+	MaxResults *int   `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+}
+
+// orgMaxResults is the model's upper bound on MaxResults.
+const orgMaxResults = 20
+
+// orgWriteList answers the page of items the request asks for under member,
+// ordered and keyed by each item's key field, with a NextToken while more
+// remain. A request without MaxResults reads every item.
+func orgWriteList(w http.ResponseWriter, page orgPage, member, key string, items []map[string]any, extra map[string]any) {
+	size := 0
+	if page.MaxResults != nil {
+		size = *page.MaxResults
+		switch {
+		case size < 1:
+			writeOrgInvalidInput(w, "MIN_VALUE_EXCEEDED", "You provided a numeric parameter that has a smaller value than allowed.")
+			return
+		case size > orgMaxResults:
+			writeOrgInvalidInput(w, "MAX_VALUE_EXCEEDED", "You provided a numeric parameter that has a larger value than allowed.")
+			return
+		}
+	}
+	got, next, ok := awsKeyPage(w, writeOrgBadToken, items, awsFieldKey(key), page.NextToken, size, 0)
+	if !ok {
+		return
+	}
+	out := map[string]any{member: got}
+	for k, v := range extra {
+		out[k] = v
+	}
+	if next != "" {
+		out["NextToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+func writeOrgBadToken(w http.ResponseWriter, _ string) {
+	writeOrgInvalidInput(w, "INVALID_NEXT_TOKEN", "Get the value for the NextToken parameter from the response to a previous call of the operation.")
 }
 
 func handleOrgCloseAccount(w http.ResponseWriter, r *http.Request) {
@@ -873,34 +922,36 @@ func handleOrgUpdateOU(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOrgListOUsForParent(w http.ResponseWriter, r *http.Request) {
-	parentID, ok := orgReadParentID(w, r)
+	parentID, page, ok := orgReadParentID(w, r)
 	if !ok {
 		return
 	}
-	children := orgOUs.Filter(func(it OrgOU) bool { return it.ParentId == parentID })
-	sort.Slice(children, func(i, j int) bool { return children[i].Id < children[j].Id })
 	out := []map[string]any{}
-	for _, child := range children {
+	for _, child := range orgOUs.Filter(func(it OrgOU) bool { return it.ParentId == parentID }) {
 		out = append(out, orgOUToMap(child))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"OrganizationalUnits": out})
+	orgWriteList(w, page, "OrganizationalUnits", "Id", out, nil)
 }
 
-func handleOrgListRoots(w http.ResponseWriter, _ *http.Request) {
+func handleOrgListRoots(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	roots := orgRoots.List()
-	sort.Slice(roots, func(i, j int) bool { return roots[i].Id < roots[j].Id })
-	out := []map[string]any{}
-	for _, r := range roots {
-		out = append(out, orgRootToMap(r))
+	var page orgPage
+	if err := sim.ReadJSON(r, &page); err != nil {
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Roots": out})
+	out := []map[string]any{}
+	for _, root := range orgRoots.List() {
+		out = append(out, orgRootToMap(root))
+	}
+	orgWriteList(w, page, "Roots", "Id", out, nil)
 }
 
 func handleOrgListChildren(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		ParentId  string `json:"ParentId"`
 		ChildType string `json:"ChildType"`
 	}
@@ -915,26 +966,23 @@ func handleOrgListChildren(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	switch req.ChildType {
 	case "ACCOUNT":
-		accts := orgAccounts.Filter(func(a OrgAccount) bool { return a.ParentId == req.ParentId })
-		sort.Slice(accts, func(i, j int) bool { return accts[i].Id < accts[j].Id })
-		for _, a := range accts {
+		for _, a := range orgAccounts.Filter(func(a OrgAccount) bool { return a.ParentId == req.ParentId }) {
 			out = append(out, map[string]any{"Id": a.Id, "Type": "ACCOUNT"})
 		}
 	case "ORGANIZATIONAL_UNIT":
-		ous := orgOUs.Filter(func(o OrgOU) bool { return o.ParentId == req.ParentId })
-		sort.Slice(ous, func(i, j int) bool { return ous[i].Id < ous[j].Id })
-		for _, o := range ous {
+		for _, o := range orgOUs.Filter(func(o OrgOU) bool { return o.ParentId == req.ParentId }) {
 			out = append(out, map[string]any{"Id": o.Id, "Type": "ORGANIZATIONAL_UNIT"})
 		}
 	default:
 		AWSError(w, "InvalidInputException", "ChildType must be ACCOUNT or ORGANIZATIONAL_UNIT", http.StatusBadRequest)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Children": out})
+	orgWriteList(w, req.orgPage, "Children", "Id", out, nil)
 }
 
 func handleOrgListParents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		ChildId string `json:"ChildId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -953,7 +1001,7 @@ func handleOrgListParents(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{
 		{"Id": parentID, "Type": orgParentTypeFor(parentID)},
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Parents": out})
+	orgWriteList(w, req.orgPage, "Parents", "Id", out, nil)
 }
 
 func handleOrgCreatePolicy(w http.ResponseWriter, r *http.Request) {
@@ -1166,6 +1214,7 @@ func handleOrgListPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		orgPage
 		Filter string `json:"Filter"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -1176,17 +1225,16 @@ func handleOrgListPolicies(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidInputException", "Filter is required", http.StatusBadRequest)
 		return
 	}
-	pols := orgPolicies.Filter(func(p OrgPolicy) bool { return p.Type == req.Filter })
-	sort.Slice(pols, func(i, j int) bool { return pols[i].Id < pols[j].Id })
 	out := []map[string]any{}
-	for _, p := range pols {
+	for _, p := range orgPolicies.Filter(func(p OrgPolicy) bool { return p.Type == req.Filter }) {
 		out = append(out, orgPolicySummaryMap(p))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Policies": out})
+	orgWriteList(w, req.orgPage, "Policies", "Id", out, nil)
 }
 
 func handleOrgListPoliciesForTarget(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		TargetId string `json:"TargetId"`
 		Filter   string `json:"Filter"`
 	}
@@ -1202,7 +1250,7 @@ func handleOrgListPoliciesForTarget(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "TargetNotFoundException", "We can't find a root, OU, or account with the TargetId that you specified.", http.StatusBadRequest)
 		return
 	}
-	matched := []OrgPolicy{}
+	out := []map[string]any{}
 	for _, at := range orgPolicyAttachments.List() {
 		if at.TargetId != req.TargetId {
 			continue
@@ -1211,18 +1259,14 @@ func handleOrgListPoliciesForTarget(w http.ResponseWriter, r *http.Request) {
 		if !ok || p.Type != req.Filter {
 			continue
 		}
-		matched = append(matched, p)
-	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].Id < matched[j].Id })
-	out := []map[string]any{}
-	for _, p := range matched {
 		out = append(out, orgPolicySummaryMap(p))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Policies": out})
+	orgWriteList(w, req.orgPage, "Policies", "Id", out, nil)
 }
 
 func handleOrgListTargetsForPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		PolicyId string `json:"PolicyId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -1233,19 +1277,13 @@ func handleOrgListTargetsForPolicy(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "PolicyNotFoundException", "We can't find a policy with the PolicyId that you specified.", http.StatusBadRequest)
 		return
 	}
-	targetIDs := []string{}
-	for _, at := range orgPolicyAttachments.List() {
-		if at.PolicyId != req.PolicyId {
-			continue
-		}
-		targetIDs = append(targetIDs, at.TargetId)
-	}
-	sort.Strings(targetIDs)
 	out := []map[string]any{}
-	for _, tid := range targetIDs {
-		out = append(out, orgPolicyTargetSummary(tid))
+	for _, at := range orgPolicyAttachments.List() {
+		if at.PolicyId == req.PolicyId {
+			out = append(out, orgPolicyTargetSummary(at.TargetId))
+		}
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Targets": out})
+	orgWriteList(w, req.orgPage, "Targets", "TargetId", out, nil)
 }
 
 func orgPolicyTargetSummary(targetID string) map[string]any {
@@ -1288,6 +1326,11 @@ func handleOrgEnablePolicyType(w http.ResponseWriter, r *http.Request) {
 	root, ok := orgRoots.Get(req.RootId)
 	if !ok {
 		AWSError(w, "RootNotFoundException", "We can't find a root with the RootId that you specified.", http.StatusBadRequest)
+		return
+	}
+	if o, ok := orgOrg.Get(orgSingletonKey); ok && o.FeatureSet != "ALL" {
+		AWSError(w, "PolicyTypeNotAvailableForOrganizationException",
+			"You can't use the specified policy type with the feature set currently enabled for this organization.", http.StatusConflict)
 		return
 	}
 	if req.PolicyType == orgSCPType {
@@ -1522,6 +1565,7 @@ func handleOrgDeregisterDelegatedAdmin(w http.ResponseWriter, r *http.Request) {
 
 func handleOrgListDelegatedAdmins(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		ServicePrincipal string `json:"ServicePrincipal"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -1555,11 +1599,12 @@ func handleOrgListDelegatedAdmins(w http.ResponseWriter, r *http.Request) {
 			"DelegationEnabledDate": da.DelegationEnabledDate,
 		})
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"DelegatedAdministrators": out})
+	orgWriteList(w, req.orgPage, "DelegatedAdministrators", "Id", out, nil)
 }
 
 func handleOrgListDelegatedServices(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		orgPage
 		AccountId string `json:"AccountId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -1571,15 +1616,13 @@ func handleOrgListDelegatedServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []map[string]any{}
-	admins := orgDelegatedAdmins.Filter(func(da OrgDelegatedAdmin) bool { return da.AccountId == req.AccountId })
-	sort.Slice(admins, func(i, j int) bool { return admins[i].ServicePrincipal < admins[j].ServicePrincipal })
-	for _, da := range admins {
+	for _, da := range orgDelegatedAdmins.Filter(func(da OrgDelegatedAdmin) bool { return da.AccountId == req.AccountId }) {
 		out = append(out, map[string]any{
 			"ServicePrincipal":      da.ServicePrincipal,
 			"DelegationEnabledDate": da.DelegationEnabledDate,
 		})
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"DelegatedServices": out})
+	orgWriteList(w, req.orgPage, "DelegatedServices", "ServicePrincipal", out, nil)
 }
 
 func handleOrgEnableServiceAccess(w http.ResponseWriter, r *http.Request) {
@@ -1615,20 +1658,23 @@ func handleOrgDisableServiceAccess(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func handleOrgListServiceAccess(w http.ResponseWriter, _ *http.Request) {
+func handleOrgListServiceAccess(w http.ResponseWriter, r *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	sps := orgServiceAccess.List()
-	sort.Slice(sps, func(i, j int) bool { return sps[i].ServicePrincipal < sps[j].ServicePrincipal })
+	var page orgPage
+	if err := sim.ReadJSON(r, &page); err != nil {
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	out := []map[string]any{}
-	for _, sp := range sps {
+	for _, sp := range orgServiceAccess.List() {
 		out = append(out, map[string]any{
 			"ServicePrincipal": sp.ServicePrincipal,
 			"DateEnabled":      sp.DateEnabled,
 		})
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"EnabledServicePrincipals": out})
+	orgWriteList(w, page, "EnabledServicePrincipals", "ServicePrincipal", out, nil)
 }
 
 func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
@@ -1748,6 +1794,7 @@ func handleOrgUntagResource(w http.ResponseWriter, r *http.Request) {
 func handleOrgListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceId string `json:"ResourceId"`
+		NextToken  string `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
@@ -1755,29 +1802,25 @@ func handleOrgListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	if t, ok := orgTags.Get(req.ResourceId); ok {
-		keys := make([]string, 0, len(t.Tags))
-		for k := range t.Tags {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			out = append(out, map[string]any{"Key": k, "Value": t.Tags[k]})
+		for k, v := range t.Tags {
+			out = append(out, map[string]any{"Key": k, "Value": v})
 		}
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": out})
+	orgWriteList(w, orgPage{NextToken: req.NextToken}, "Tags", "Key", out, nil)
 }
 
-func orgReadParentID(w http.ResponseWriter, r *http.Request) (string, bool) {
+func orgReadParentID(w http.ResponseWriter, r *http.Request) (string, orgPage, bool) {
 	var req struct {
+		orgPage
 		ParentId string `json:"ParentId"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return "", false
+		return "", orgPage{}, false
 	}
 	if req.ParentId == "" {
 		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
-		return "", false
+		return "", orgPage{}, false
 	}
-	return req.ParentId, true
+	return req.ParentId, req.orgPage, true
 }

@@ -20,7 +20,6 @@ TestKinesisCLI_AccountSettings	changes an account-wide setting other tests read
 TestLogsAccountAndQueryPolicyCLI	changes an account-wide setting other tests read
 TestOrganizationsCLI_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
-TestOrganizationsCLI_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_LeaveOrganization	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_OUTreeAndAccounts	creates, changes or deletes the account's one organization, which other tests read
