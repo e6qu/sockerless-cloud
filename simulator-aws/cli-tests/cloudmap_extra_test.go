@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -189,6 +190,31 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 	}
 	parseJSON(t, out, &opsOut)
 	require.NotEmpty(t, opsOut.Operations)
+
+	now := time.Now().Unix()
+	out = runCLI(t, awsCLI("servicediscovery", "list-operations",
+		"--filters", "Name=NAMESPACE_ID,Values="+nsID,
+		fmt.Sprintf("Name=UPDATE_DATE,Condition=BETWEEN,Values=%d,%d", now-7200, now-3600),
+		"--output", "json"))
+	var earlier struct {
+		Operations []struct {
+			Id string `json:"Id"`
+		} `json:"Operations"`
+	}
+	parseJSON(t, out, &earlier)
+	assert.Empty(t, earlier.Operations, "no operation changed status an hour earlier")
+
+	out = runCLI(t, awsCLI("servicediscovery", "list-operations",
+		"--filters", "Name=NAMESPACE_ID,Values="+nsID,
+		fmt.Sprintf("Name=UPDATE_DATE,Condition=BETWEEN,Values=%d,%d", now-3600, now+3600),
+		"--output", "json"))
+	var recent struct {
+		Operations []struct {
+			Id string `json:"Id"`
+		} `json:"Operations"`
+	}
+	parseJSON(t, out, &recent)
+	assert.Len(t, recent.Operations, len(opsOut.Operations))
 }
 
 func TestCloudMapInstanceHealthCLI(t *testing.T) {

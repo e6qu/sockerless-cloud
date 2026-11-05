@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
@@ -424,6 +426,32 @@ func TestCloudMap_OperationsLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, svcOps.Operations, 2, "register + deregister")
+
+	byDate := func(start, end int64) []sdtypes.OperationSummary {
+		out, err := client.ListOperations(ctx, &servicediscovery.ListOperationsInput{
+			Filters: []sdtypes.OperationFilter{
+				{Name: sdtypes.OperationFilterNameServiceId, Values: []string{aws.ToString(svc.Id)}},
+				{
+					Name:      sdtypes.OperationFilterNameUpdateDate,
+					Condition: sdtypes.FilterConditionBetween,
+					Values:    []string{strconv.FormatInt(start, 10), strconv.FormatInt(end, 10)},
+				},
+			},
+		})
+		require.NoError(t, err)
+		return out.Operations
+	}
+	now := time.Now().Unix()
+	assert.Len(t, byDate(now-3600, now+3600), 2, "both operations changed status in the last hour")
+	assert.Empty(t, byDate(now-7200, now-3600), "no operation changed status an hour earlier")
+
+	_, err = client.ListOperations(ctx, &servicediscovery.ListOperationsInput{
+		Filters: []sdtypes.OperationFilter{{
+			Name:   sdtypes.OperationFilterNameUpdateDate,
+			Values: []string{strconv.FormatInt(now, 10)},
+		}},
+	})
+	assert.Equal(t, "InvalidInput", cmAPIErrorCode(t, err), "UPDATE_DATE needs BETWEEN and two dates")
 
 	firstPage, err := client.ListOperations(ctx, &servicediscovery.ListOperationsInput{
 		MaxResults: aws.Int32(1),

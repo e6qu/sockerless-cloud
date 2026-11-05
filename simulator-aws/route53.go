@@ -874,11 +874,7 @@ func handleR53GetChange(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.PathValue("id"), "/change/")
 	stored, ok := r53Changes.Get(id)
 	if !ok {
-		// Route 53 reports INSYNC for a change ID it no longer tracks; changes are short-lived.
-		r53WriteXML(w, http.StatusOK, R53GetChangeResponse{
-			Xmlns:      r53Namespace,
-			ChangeInfo: R53ChangeInfo{Id: "/change/" + id, Status: "INSYNC", SubmittedAt: r53NowISO()},
-		})
+		r53WriteError(w, http.StatusNotFound, "NoSuchChange", "A change with the specified change ID does not exist.")
 		return
 	}
 	r53WriteXML(w, http.StatusOK, R53GetChangeResponse{Xmlns: r53Namespace, ChangeInfo: stored.Info})

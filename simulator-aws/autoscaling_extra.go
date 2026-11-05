@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -169,6 +170,7 @@ func handleASXAttachInstances(w http.ResponseWriter, r *http.Request) {
 	ids := autoscalingParamList(r, "InstanceIds.member")
 	for _, id := range ids {
 		if indexOfString(asg.InstanceIds, id) < 0 {
+			ec2Instances.Update(id, func(inst *EC2Instance) { inst.Tags = mergeEC2Tags(inst.Tags, asInstanceTags(asg)) })
 			asg.InstanceIds = append(asg.InstanceIds, id)
 			if asg.DesiredCapacity < len(asg.InstanceIds) {
 				asg.DesiredCapacity = len(asg.InstanceIds)
@@ -195,6 +197,9 @@ func handleASXDetachInstances(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		if idx := indexOfString(asg.InstanceIds, id); idx >= 0 {
 			asg.InstanceIds = append(asg.InstanceIds[:idx], asg.InstanceIds[idx+1:]...)
+			ec2Instances.Update(id, func(inst *EC2Instance) {
+				inst.Tags = slices.DeleteFunc(inst.Tags, func(t EC2Tag) bool { return t.Key == "aws:autoscaling:groupName" })
+			})
 			if decrement && asg.DesiredCapacity > 0 {
 				asg.DesiredCapacity--
 			}

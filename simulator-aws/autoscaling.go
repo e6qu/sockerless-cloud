@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,11 +41,17 @@ type AutoScalingGroup struct {
 	VPCZoneIdentifier       string
 	InstanceIds             []string
 	CreatedTime             string
-	Tags                    []EC2Tag
+	Tags                    []ASGTag
 	LaunchTemplate          ASLaunchTemplateSpec
 	// DefaultInstanceWarmup is nil until set; -1 on update clears it.
 	DefaultInstanceWarmup *int
 	InstanceSources       map[string]ASLaunchSource
+}
+
+type ASGTag struct {
+	Key               string
+	Value             string
+	PropagateAtLaunch bool
 }
 
 // ASLaunchTemplateSpec names a launch template and the version a group
@@ -281,6 +288,12 @@ func handleASDescribeAutoScalingGroups(w http.ResponseWriter, r *http.Request) {
 		groups = autoScalingGroups.List()
 	}
 	if filters := asDescribeFilters(r); len(filters) > 0 {
+		for _, f := range filters {
+			if f.Name != "tag-key" && f.Name != "tag-value" && !strings.HasPrefix(f.Name, "tag:") {
+				asUnknownFilter(w, f.Name)
+				return
+			}
+		}
 		kept := groups[:0]
 		for _, asg := range groups {
 			if asgMatchesFilters(asg, filters) {
@@ -372,9 +385,50 @@ func handleASSetDesiredCapacity(w http.ResponseWriter, r *http.Request) {
 
 func handleASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 	groupName := r.FormValue("AutoScalingGroupName")
+	ids := autoscalingParamList(r, "ActivityIds.member")
+	var lower, upper time.Time
+	var statuses []string
+	for _, f := range asDescribeFilters(r) {
+		switch f.Name {
+		case "StartTimeLowerBound", "StartTimeUpperBound":
+			if len(f.Values) != 1 {
+				asError(w, "ValidationError", fmt.Sprintf("Filter %s takes one value.", f.Name), http.StatusBadRequest)
+				return
+			}
+			bound, err := asParseISO8601(f.Values[0])
+			if err != nil {
+				asError(w, "ValidationError", fmt.Sprintf("Filter %s takes an ISO 8601 timestamp: %v", f.Name, err), http.StatusBadRequest)
+				return
+			}
+			if f.Name == "StartTimeLowerBound" {
+				lower = bound
+			} else {
+				upper = bound
+			}
+		case "Status":
+			if groupName == "" {
+				asError(w, "ValidationError", "The Status filter can only be used in combination with the AutoScalingGroupName parameter.", http.StatusBadRequest)
+				return
+			}
+			statuses = append(statuses, f.Values...)
+		default:
+			asUnknownFilter(w, f.Name)
+			return
+		}
+	}
 	activities := make([]ScalingActivity, 0)
 	for _, activity := range scalingActivities.List() {
 		if groupName != "" && activity.AutoScalingGroupName != groupName {
+			continue
+		}
+		if len(ids) > 0 && !slices.Contains(ids, activity.ActivityId) {
+			continue
+		}
+		if len(statuses) > 0 && !slices.Contains(statuses, activity.StatusCode) {
+			continue
+		}
+		started, _ := time.Parse(time.RFC3339, activity.StartTime)
+		if (!lower.IsZero() && started.Before(lower)) || (!upper.IsZero() && started.After(upper)) {
 			continue
 		}
 		activities = append(activities, activity)
@@ -455,17 +509,21 @@ func handleASCreateOrUpdateTags(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			continue
 		}
-		value := r.FormValue(fmt.Sprintf("Tags.member.%d.Value", i))
+		tag := ASGTag{
+			Key:               key,
+			Value:             r.FormValue(fmt.Sprintf("Tags.member.%d.Value", i)),
+			PropagateAtLaunch: r.FormValue(fmt.Sprintf("Tags.member.%d.PropagateAtLaunch", i)) == "true",
+		}
 		found := false
 		for j := range asg.Tags {
 			if asg.Tags[j].Key == key {
-				asg.Tags[j].Value = value
+				asg.Tags[j] = tag
 				found = true
 				break
 			}
 		}
 		if !found {
-			asg.Tags = append(asg.Tags, EC2Tag{Key: key, Value: value})
+			asg.Tags = append(asg.Tags, tag)
 		}
 		autoScalingGroups.Put(asg.Name, asg)
 	}
@@ -496,14 +554,64 @@ func handleASDeleteTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleASDescribeTags(w http.ResponseWriter, r *http.Request) {
-	var items strings.Builder
-	for _, asg := range autoScalingGroups.List() {
-		for _, tag := range asg.Tags {
-			fmt.Fprintf(&items, `<member><ResourceId>%s</ResourceId><ResourceType>auto-scaling-group</ResourceType><Key>%s</Key><Value>%s</Value><PropagateAtLaunch>true</PropagateAtLaunch></member>`,
-				xmlEscape(asg.Name), xmlEscape(tag.Key), xmlEscape(tag.Value))
+	filters := asDescribeFilters(r)
+	for _, f := range filters {
+		switch f.Name {
+		case "auto-scaling-group", "key", "value", "propagate-at-launch":
+		default:
+			asUnknownFilter(w, f.Name)
+			return
 		}
 	}
-	asResponse(w, "DescribeTags", fmt.Sprintf("<Tags>%s</Tags>", items.String()))
+	type described struct {
+		group string
+		tag   ASGTag
+	}
+	var all []described
+	for _, asg := range autoScalingGroups.List() {
+		for _, tag := range asg.Tags {
+			fields := map[string]string{
+				"auto-scaling-group":  asg.Name,
+				"key":                 tag.Key,
+				"value":               tag.Value,
+				"propagate-at-launch": strconv.FormatBool(tag.PropagateAtLaunch),
+			}
+			keep := true
+			for _, f := range filters {
+				if !slices.Contains(f.Values, fields[f.Name]) {
+					keep = false
+					break
+				}
+			}
+			if keep {
+				all = append(all, described{asg.Name, tag})
+			}
+		}
+	}
+	page, next, pageOK := awsKeyPage(w, asBadToken, all, func(d described) string {
+		return d.group + "\x00" + d.tag.Key
+	}, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	if !pageOK {
+		return
+	}
+	var items strings.Builder
+	for _, d := range page {
+		items.WriteString(asTagDescriptionXML(d.group, d.tag))
+	}
+	body := fmt.Sprintf("<Tags>%s</Tags>", items.String())
+	if next != "" {
+		body += "<NextToken>" + xmlEscape(next) + "</NextToken>"
+	}
+	asResponse(w, "DescribeTags", body)
+}
+
+func asTagDescriptionXML(group string, tag ASGTag) string {
+	return fmt.Sprintf(`<member><ResourceId>%s</ResourceId><ResourceType>auto-scaling-group</ResourceType><Key>%s</Key><Value>%s</Value><PropagateAtLaunch>%t</PropagateAtLaunch></member>`,
+		xmlEscape(group), xmlEscape(tag.Key), xmlEscape(tag.Value), tag.PropagateAtLaunch)
+}
+
+func asUnknownFilter(w http.ResponseWriter, name string) {
+	asError(w, "ValidationError", fmt.Sprintf("Filter name %q is not valid for this operation.", name), http.StatusBadRequest)
 }
 
 // The same child name can exist under different groups.
@@ -1098,7 +1206,7 @@ func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause str
 			Subnet:        subnet,
 			SubnetId:      subnetID,
 			PrivateIP:     ip,
-			Tags:          asg.Tags,
+			Tags:          asInstanceTags(*asg),
 			LaunchTime:    time.Now().UTC().Format(time.RFC3339),
 			KeyName:       spec.keyName,
 			State:         "pending",
@@ -1404,27 +1512,43 @@ func autoScalingGroupXML(asg AutoScalingGroup) string {
 		warmup = fmt.Sprintf("<DefaultInstanceWarmup>%d</DefaultInstanceWarmup>", *asg.DefaultInstanceWarmup)
 	}
 	return fmt.Sprintf(`<member><AutoScalingGroupName>%s</AutoScalingGroupName><AutoScalingGroupARN>%s</AutoScalingGroupARN>%s<MinSize>%d</MinSize><MaxSize>%d</MaxSize><DesiredCapacity>%d</DesiredCapacity><DefaultCooldown>300</DefaultCooldown><HealthCheckType>%s</HealthCheckType><HealthCheckGracePeriod>%d</HealthCheckGracePeriod><AvailabilityZones><member>%s</member></AvailabilityZones><VPCZoneIdentifier>%s</VPCZoneIdentifier><CreatedTime>%s</CreatedTime><Instances>%s</Instances><Tags>%s</Tags>%s</member>`,
-		xmlEscape(asg.Name), xmlEscape(arn), asLaunchSourceXML(asg.launchSource()), asg.MinSize, asg.MaxSize, asg.DesiredCapacity, xmlEscape(healthCheckType), asg.HealthCheckGracePeriod, awsAvailabilityZone(), xmlEscape(asg.VPCZoneIdentifier), asg.CreatedTime, instances.String(), autoscalingTagXML(asg.Tags), warmup)
+		xmlEscape(asg.Name), xmlEscape(arn), asLaunchSourceXML(asg.launchSource()), asg.MinSize, asg.MaxSize, asg.DesiredCapacity, xmlEscape(healthCheckType), asg.HealthCheckGracePeriod, awsAvailabilityZone(), xmlEscape(asg.VPCZoneIdentifier), asg.CreatedTime, instances.String(), autoscalingTagXML(asg.Name, asg.Tags), warmup)
 }
 
-func autoscalingTagXML(tags []EC2Tag) string {
+func autoscalingTagXML(group string, tags []ASGTag) string {
 	var out strings.Builder
 	for _, tag := range tags {
-		fmt.Fprintf(&out, `<member><Key>%s</Key><Value>%s</Value><PropagateAtLaunch>true</PropagateAtLaunch></member>`, xmlEscape(tag.Key), xmlEscape(tag.Value))
+		out.WriteString(asTagDescriptionXML(group, tag))
 	}
 	return out.String()
 }
 
-func autoscalingTags(r *http.Request) []EC2Tag {
-	var tags []EC2Tag
+func autoscalingTags(r *http.Request) []ASGTag {
+	var tags []ASGTag
 	for i := 1; ; i++ {
 		key := r.FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
 		if key == "" {
 			break
 		}
-		tags = append(tags, EC2Tag{Key: key, Value: r.FormValue(fmt.Sprintf("Tags.member.%d.Value", i))})
+		tags = append(tags, ASGTag{
+			Key:               key,
+			Value:             r.FormValue(fmt.Sprintf("Tags.member.%d.Value", i)),
+			PropagateAtLaunch: r.FormValue(fmt.Sprintf("Tags.member.%d.PropagateAtLaunch", i)) == "true",
+		})
 	}
 	return tags
+}
+
+// The group copies the tags marked PropagateAtLaunch to the instances it
+// launches and names itself in aws:autoscaling:groupName.
+func asInstanceTags(asg AutoScalingGroup) []EC2Tag {
+	out := []EC2Tag{{Key: "aws:autoscaling:groupName", Value: asg.Name}}
+	for _, tag := range asg.Tags {
+		if tag.PropagateAtLaunch {
+			out = append(out, EC2Tag{Key: tag.Key, Value: tag.Value})
+		}
+	}
+	return out
 }
 
 func autoscalingParamList(r *http.Request, prefix string) []string {
@@ -1506,10 +1630,18 @@ func asgMatchesOneFilter(asg AutoScalingGroup, f asFilter) bool {
 		}
 		return false
 	default:
-		// The real API rejects an unknown filter name; matching nothing at least
-		// never returns everything.
 		return false
 	}
+}
+
+// A timestamp without a zone offset is UTC.
+func asParseISO8601(v string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02T15:04", "2006-01-02"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("%q is not an ISO 8601 timestamp", v)
 }
 
 func asAtoiDefault(raw string, def int) int {

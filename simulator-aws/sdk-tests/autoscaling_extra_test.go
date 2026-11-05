@@ -501,12 +501,28 @@ func TestAutoScaling_InstancesStandbyProtection(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, detachOut.Activities)
+	groupTag := func() (string, bool) {
+		t.Helper()
+		out, err := ec2Client().DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+		require.NoError(t, err)
+		for _, tag := range out.Reservations[0].Instances[0].Tags {
+			if aws.ToString(tag.Key) == "aws:autoscaling:groupName" {
+				return aws.ToString(tag.Value), true
+			}
+		}
+		return "", false
+	}
+	_, tagged := groupTag()
+	assert.False(t, tagged, "DetachInstances removes the aws:autoscaling:groupName tag")
 
 	_, err = c.AttachInstances(ctx, &autoscaling.AttachInstancesInput{
 		AutoScalingGroupName: aws.String(group),
 		InstanceIds:          []string{instanceID},
 	})
 	require.NoError(t, err)
+	name, tagged := groupTag()
+	assert.True(t, tagged, "AttachInstances adds the aws:autoscaling:groupName tag")
+	assert.Equal(t, group, name)
 }
 
 func TestAutoScaling_LifecycleActionAndBatch(t *testing.T) {
@@ -525,10 +541,18 @@ func TestAutoScaling_LifecycleActionAndBatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	queueARN := queueAttrs.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	// A launch notification follows the instance's boot, which a loaded engine
+	// stretches past one long poll; keep polling until it arrives.
 	receive := func() map[string]string {
 		t.Helper()
-		out, err := sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: queue.QueueUrl, WaitTimeSeconds: 20})
-		require.NoError(t, err)
+		var out *sqs.ReceiveMessageOutput
+		for deadline := time.Now().Add(5 * time.Minute); time.Now().Before(deadline); {
+			out, err = sqsc.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: queue.QueueUrl, WaitTimeSeconds: 20})
+			require.NoError(t, err)
+			if len(out.Messages) > 0 {
+				break
+			}
+		}
 		require.Len(t, out.Messages, 1, "Amazon EC2 Auto Scaling must notify the hook's target")
 		_, err = sqsc.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: queue.QueueUrl, ReceiptHandle: out.Messages[0].ReceiptHandle})
 		require.NoError(t, err)

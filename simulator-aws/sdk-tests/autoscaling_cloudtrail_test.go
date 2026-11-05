@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,6 +75,10 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 			Key:               aws.String("env"),
 			Value:             aws.String("sdk"),
 			PropagateAtLaunch: aws.Bool(true),
+		}, {
+			Key:               aws.String("team"),
+			Value:             aws.String("group-only"),
+			PropagateAtLaunch: aws.Bool(false),
 		}},
 	})
 	require.NoError(t, err)
@@ -101,6 +106,49 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, instOut.Reservations, 1)
 	assert.Equal(t, ec2types.InstanceStateNameRunning, instOut.Reservations[0].Instances[0].State.Name)
+	instanceTags := map[string]string{}
+	for _, tag := range instOut.Reservations[0].Instances[0].Tags {
+		instanceTags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	assert.Equal(t, map[string]string{"aws:autoscaling:groupName": "sdk-asg", "env": "sdk"}, instanceTags,
+		"the group propagates only the tags marked PropagateAtLaunch, and names itself")
+
+	propagated := map[string]bool{}
+	for _, tag := range groupsOut.AutoScalingGroups[0].Tags {
+		propagated[aws.ToString(tag.Key)] = aws.ToBool(tag.PropagateAtLaunch)
+		assert.Equal(t, "sdk-asg", aws.ToString(tag.ResourceId))
+	}
+	assert.Equal(t, map[string]bool{"env": true, "team": false}, propagated)
+
+	tagsOut, err := asgClient.DescribeTags(ctx, &autoscaling.DescribeTagsInput{
+		Filters: []types.Filter{
+			{Name: aws.String("auto-scaling-group"), Values: []string{"sdk-asg"}},
+			{Name: aws.String("propagate-at-launch"), Values: []string{"false"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, tagsOut.Tags, 1)
+	assert.Equal(t, "team", aws.ToString(tagsOut.Tags[0].Key))
+	assert.False(t, aws.ToBool(tagsOut.Tags[0].PropagateAtLaunch))
+
+	for _, call := range []func() error{
+		func() error {
+			_, err := asgClient.DescribeTags(ctx, &autoscaling.DescribeTagsInput{
+				Filters: []types.Filter{{Name: aws.String("tag-key"), Values: []string{"env"}}},
+			})
+			return err
+		},
+		func() error {
+			_, err := asgClient.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
+				Filters: []types.Filter{{Name: aws.String("instance-type"), Values: []string{"t3.micro"}}},
+			})
+			return err
+		},
+	} {
+		var apiErr smithy.APIError
+		require.ErrorAs(t, call(), &apiErr)
+		assert.Equal(t, "ValidationError", apiErr.ErrorCode())
+	}
 
 	_, err = asgClient.SetDesiredCapacity(ctx, &autoscaling.SetDesiredCapacityInput{
 		AutoScalingGroupName: aws.String("sdk-asg"),
@@ -140,6 +188,34 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 	for _, id := range memberIDs {
 		assert.Equal(t, types.ScalingActivityStatusCodeSuccessful, launched[id], "launch activity of %s", id)
 	}
+
+	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	later, err := asgClient.DescribeScalingActivities(ctx, &autoscaling.DescribeScalingActivitiesInput{
+		AutoScalingGroupName: aws.String("sdk-asg"),
+		Filters:              []types.Filter{{Name: aws.String("StartTimeLowerBound"), Values: []string{future}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, later.Activities, "no activity starts after the lower bound")
+
+	failed, err := asgClient.DescribeScalingActivities(ctx, &autoscaling.DescribeScalingActivitiesInput{
+		AutoScalingGroupName: aws.String("sdk-asg"),
+		Filters:              []types.Filter{{Name: aws.String("Status"), Values: []string{"Failed"}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, failed.Activities, "every launch succeeded")
+
+	byID, err := asgClient.DescribeScalingActivities(ctx, &autoscaling.DescribeScalingActivitiesInput{
+		ActivityIds: []string{aws.ToString(activitiesOut.Activities[0].ActivityId)},
+	})
+	require.NoError(t, err)
+	require.Len(t, byID.Activities, 1)
+
+	_, err = asgClient.DescribeScalingActivities(ctx, &autoscaling.DescribeScalingActivitiesInput{
+		Filters: []types.Filter{{Name: aws.String("Status"), Values: []string{"Successful"}}},
+	})
+	var statusErr smithy.APIError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, "ValidationError", statusErr.ErrorCode(), "Status needs AutoScalingGroupName")
 
 	// A tag:env=sdk filter returns only sdk-asg, and tag:env=nope returns nothing.
 	matched, err := asgClient.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{

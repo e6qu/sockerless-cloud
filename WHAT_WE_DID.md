@@ -1029,8 +1029,9 @@ for a token it never issued, and `ListCreateAccountStatus` filters by
 The documentation jobs free the runner's unused preinstalled SDKs on a
 runner with less than 20 GB free before they unpack the base-image archive,
 as the simulator jobs do.
-The `install-bun` action retries its GitHub release download through curl's
-doubling backoff on every error, riding out minutes of 504 answers.
+The `install-bun` action and `scripts/install-caddy.sh` retry their GitHub
+release downloads through curl's doubling backoff on every error, riding out
+minutes of 504 answers.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
@@ -1380,6 +1381,21 @@ fails once the row closes or the operation is served.
   engine. The SDK suite's ECS fixture gives every VPC a /20 of its own out of
   400, since 25 /16s let two live VPCs share a range once more than 25 tests
   ran at once.
+- **Amazon EC2 Auto Scaling.** A group stores each tag's
+  `PropagateAtLaunch`. It copies only the tags marked for launch to its
+  instances and adds `aws:autoscaling:groupName`, which `AttachInstances`
+  adds and `DetachInstances` removes, as the vendored
+  `ec2-auto-scaling-tagging.md.gz` states. `DescribeTags` and
+  `DescribeScalingActivities` honour the filters the `Filter` shape
+  documents, and every Describe call refuses a filter name its operation does
+  not list with `ValidationError`. A lifecycle hook's launch notification
+  follows the instance's boot, so the SDK test long-polls the queue until the
+  message arrives rather than for one 20-second window.
+- **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
+  for an ID no call returned, as the Smithy model declares; every change the
+  simulator reports is stored. Cloud Map's `ListOperations` filters
+  `UPDATE_DATE` with `BETWEEN` over Unix times and refuses any other
+  condition with `InvalidInput`.
 - **Amazon RDS.** The AWS CLI's waiter polls every 30 seconds, so CLI tests
   whose instance needs no backups create it with `--backup-retention-period
   0`. Amazon RDS events and Elastic Load Balancing's hosted zones and DNS names

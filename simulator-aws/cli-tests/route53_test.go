@@ -304,6 +304,12 @@ func TestRoute53_VPCQueryLoggingGeoCLI(t *testing.T) {
 		"--vpc", "VPCRegion=us-east-1,VPCId="+vpcID,
 		"--output", "json"))
 	require.Contains(t, assocOut, "INSYNC")
+	var assocResult struct {
+		ChangeInfo struct {
+			Id string `json:"Id"`
+		} `json:"ChangeInfo"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(assocOut), &assocResult))
 
 	byVPCOut := runCLI(t, awsCLI("route53", "list-hosted-zones-by-vpc",
 		"--vpc-id", vpcID, "--vpc-region", "us-east-1", "--output", "json"))
@@ -341,8 +347,11 @@ func TestRoute53_VPCQueryLoggingGeoCLI(t *testing.T) {
 	countOut := runCLI(t, awsCLI("route53", "get-hosted-zone-count", "--output", "json"))
 	require.Contains(t, countOut, "HostedZoneCount")
 
-	changeOut := runCLI(t, awsCLI("route53", "get-change", "--id", "C1234567890", "--output", "json"))
+	changeOut := runCLI(t, awsCLI("route53", "get-change", "--id", assocResult.ChangeInfo.Id, "--output", "json"))
 	require.Contains(t, changeOut, "INSYNC")
+
+	noChange := runCLIExpectError(t, awsCLI("route53", "get-change", "--id", "C0000000000NOTREAL"))
+	require.Contains(t, noChange, "NoSuchChange")
 
 	geoOut := runCLI(t, awsCLI("route53", "get-geo-location", "--continent-code", "EU", "--output", "json"))
 	require.Contains(t, geoOut, "Europe")
