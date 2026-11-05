@@ -110,10 +110,8 @@ func iamRootUserXML(account string) string {
 // joining date, and for the management account the date its first identity,
 // the seeded administrator, was created.
 func iamAccountCreateDate(account string) string {
-	if !iamIsManagementAccount(account) && orgAccounts != nil {
-		if a, ok := orgAccounts.Get(account); ok && a.JoinedTimestamp > 0 {
-			return time.Unix(a.JoinedTimestamp, 0).UTC().Format(time.RFC3339)
-		}
+	if a, ok := iamHostedAccountRecord(account); ok && a.JoinedTimestamp > 0 {
+		return time.Unix(a.JoinedTimestamp, 0).UTC().Format(time.RFC3339)
 	}
 	if u, ok := iamUsersIn(awsAccountID()).Get(seedAdminUserName); ok {
 		return u.CreateDate

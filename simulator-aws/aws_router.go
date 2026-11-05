@@ -20,6 +20,11 @@ func (r *AWSRouter) Register(target string, handler http.HandlerFunc) {
 	r.handlers[target] = handler
 }
 
+// Wrap puts a registered target's handler behind wrap.
+func (r *AWSRouter) Wrap(target string, wrap func(http.HandlerFunc) http.HandlerFunc) {
+	r.handlers[target] = wrap(r.handlers[target])
+}
+
 // The spec-conformance tests check this table against the vendored Smithy
 // models.
 func (r *AWSRouter) Targets() []string {

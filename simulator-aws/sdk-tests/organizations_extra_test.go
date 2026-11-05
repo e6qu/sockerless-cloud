@@ -25,6 +25,9 @@ func TestOrganizations_GovCloudAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.CreateAccountStatus)
 	st := out.CreateAccountStatus
+	t.Cleanup(func() {
+		_, _ = c.RemoveAccountFromOrganization(ctx, &organizations.RemoveAccountFromOrganizationInput{AccountId: st.AccountId})
+	})
 	assert.Equal(t, orgtypes.CreateAccountStateSucceeded, st.State)
 	assert.NotEmpty(t, aws.ToString(st.AccountId))
 	assert.NotEmpty(t, aws.ToString(st.GovCloudAccountId))

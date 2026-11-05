@@ -3,6 +3,7 @@
 # moved registration from a new one. Each case builds a throwaway repository,
 # commits a starting tree, stages a change, and runs the check against it.
 set -euo pipefail
+shopt -s inherit_errexit
 
 check="$(cd "$(dirname "$0")" && pwd)/check-simulator-tests.sh"
 failures=0
@@ -18,6 +19,9 @@ export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 new_repo() {
     local dir
     dir="$(mktemp -d)"
+    # An empty dir would point every git -C below at the repository whose
+    # hook runs this script, which commits into it and re-runs the hook.
+    [[ -d "$dir" ]] || { echo "mktemp -d made no directory" >&2; exit 1; }
     git -C "$dir" init -q
     mkdir -p "$dir/simulator-gcp" "$dir/simulator-aws"
     echo "$dir"

@@ -59,7 +59,7 @@ func lambdaEnforcedDynamic(opFn func(*http.Request) string, resource func(*http.
 				return
 			}
 			if denied, ok := iamServicePrincipalAllowed(*src, targets); !ok {
-				lambdaWriteIAMDeny(w, r, src.Service, denied)
+				lambdaWriteIAMDeny(w, r, iamServicePrincipalDenial(*src, denied))
 				return
 			}
 		} else {
@@ -166,9 +166,6 @@ func lambdaWriteMissingAuth(w http.ResponseWriter) {
 		"Missing Authentication Token", http.StatusForbidden)
 }
 
-func lambdaWriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action string) {
-	lambdaWriteAuthError(w, "AccessDeniedException",
-		"User: "+principalArn+" is not authorized to perform: "+action+
-			" because no identity-based policy allows the "+action+" action",
-		http.StatusForbidden)
+func lambdaWriteIAMDeny(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+	lambdaWriteAuthError(w, "AccessDeniedException", d.message(), http.StatusForbidden)
 }

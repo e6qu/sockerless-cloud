@@ -135,18 +135,14 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create gateway state dir: %v", err)
 	}
 
-	ports, err := freeports.Pick(3)
+	// The DNS front serves UDP and TCP at one port, so that port must be free
+	// on both.
+	ports, dnsPort, err := freeports.PickWithTCPUDP(3)
 	if err != nil {
 		log.Fatalf("Failed to find free ports: %v", err)
 	}
 	simPort, gatewayPort = ports[0], ports[1]
 	gatewayAdminPort := ports[2]
-	// The DNS front serves UDP and TCP at one port, so the port must be free
-	// on both.
-	dnsPort, err := freeports.TCPUDP()
-	if err != nil {
-		log.Fatalf("Failed to find a free DNS port: %v", err)
-	}
 	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 

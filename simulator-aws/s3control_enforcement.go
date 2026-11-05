@@ -122,11 +122,8 @@ func s3ControlTaggingTargets(r *http.Request, operation string) []iamAuthorizati
 
 // s3ControlWriteIAMDeny refuses the call in the envelope the rest of the
 // control plane answers in.
-func s3ControlWriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
-	s3ControlError(w, "AccessDenied",
-		"User: "+principalArn+" is not authorized to perform: "+action+
-			" because no identity-based policy allows the "+action+" action",
-		http.StatusForbidden)
+func s3ControlWriteIAMDeny(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+	s3ControlError(w, "AccessDenied", d.message(), http.StatusForbidden)
 }
 
 // s3ControlGateBody reads the request's document for the gate, leaving the

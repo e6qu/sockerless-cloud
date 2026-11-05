@@ -357,6 +357,16 @@ func TestOrganizationsCLI_EnableAllFeatures(t *testing.T) {
 // the two, list-accounts answers AWSOrganizationsNotInUseException, the
 // sequence the console's AWS accounts page drives.
 func TestOrganizationsCLI_zzCreateDeleteOrganization(t *testing.T) {
+	cliMemberAccount(t, "cli-blocker")
+	if out := runCLIExpectError(t, awsCLI("organizations", "delete-organization")); !strings.Contains(out, "OrganizationNotEmptyException") {
+		t.Fatalf("delete-organization with member accounts must be refused as OrganizationNotEmptyException: %s", out)
+	}
+	management := strings.TrimSpace(runCLI(t, awsCLI("organizations", "describe-organization", "--query", "Organization.MasterAccountId", "--output", "text")))
+	for _, account := range strings.Fields(runCLI(t, awsCLI("organizations", "list-accounts", "--query", "Accounts[].Id", "--output", "text"))) {
+		if account != management {
+			runCLI(t, awsCLI("organizations", "remove-account-from-organization", "--account-id", account))
+		}
+	}
 	runCLI(t, awsCLI("organizations", "delete-organization"))
 	runCLIExpectError(t, awsCLI("organizations", "describe-organization", "--output", "json"))
 	notInUse := runCLIExpectError(t, awsCLI("organizations", "list-accounts", "--output", "json"))

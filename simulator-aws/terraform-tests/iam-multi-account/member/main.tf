@@ -20,6 +20,16 @@ variable "create_queue" {
   default = false
 }
 
+variable "in_organization" {
+  type    = bool
+  default = true
+}
+
+variable "organization_root_id" {
+  type    = string
+  default = ""
+}
+
 provider "aws" {
   region                      = "us-east-1"
   access_key                  = "test"
@@ -28,9 +38,10 @@ provider "aws" {
   skip_requesting_account_id  = true
 
   endpoints {
-    iam = var.endpoint
-    sqs = var.endpoint
-    sts = var.endpoint
+    iam           = var.endpoint
+    organizations = var.endpoint
+    sqs           = var.endpoint
+    sts           = var.endpoint
   }
 
   # The provider works in the member account as the management account's
@@ -56,6 +67,28 @@ resource "aws_iam_role" "member" {
 resource "aws_sqs_queue" "denied" {
   count = var.create_queue ? 1 : 0
   name  = "tf-multi-account-denied"
+}
+
+# Only the management account creates organizational units.
+resource "aws_organizations_organizational_unit" "denied" {
+  count     = var.organization_root_id != "" ? 1 : 0
+  name      = "tf-member-ou"
+  parent_id = var.organization_root_id
+}
+
+# Any account in the organization describes it; ListAccounts answers a member
+# account AccessDeniedException, which the data source reads as "not a
+# delegated administrator".
+data "aws_organizations_organization" "member_view" {
+  count = var.in_organization ? 1 : 0
+}
+
+output "management_account_id" {
+  value = one(data.aws_organizations_organization.member_view[*].master_account_id)
+}
+
+output "listed_accounts" {
+  value = try(length(one(data.aws_organizations_organization.member_view[*].accounts)), 0)
 }
 
 output "role_arn" {

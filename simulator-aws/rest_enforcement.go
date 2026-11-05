@@ -35,7 +35,7 @@ type awsRESTRoute struct {
 type awsRESTGate struct {
 	models  []string
 	service string
-	deny    func(http.ResponseWriter, *http.Request, string, string)
+	deny    func(http.ResponseWriter, *http.Request, iamDenial)
 	// refuse answers a request the front end cannot authenticate with the
 	// failure's code and message, in the service's protocol.
 	refuse  func(http.ResponseWriter, *http.Request, string, string)
@@ -154,7 +154,7 @@ func iamEnforceRESTRoute(w http.ResponseWriter, r *http.Request, source string) 
 			return false
 		}
 		if denied, allowed := iamServicePrincipalAllowed(*src, iamRESTAuthorizationTargets(routed, gate.service, operation, labels)); !allowed {
-			gate.deny(w, routed, src.Service, denied)
+			gate.deny(w, routed, iamServicePrincipalDenial(*src, denied))
 			return false
 		}
 		return true
@@ -462,17 +462,12 @@ func awsRESTQueryLiteralsMatch(literals string, query url.Values) bool {
 	return true
 }
 
-func iamRESTDenyMessage(principalArn, action string) string {
-	return "User: " + principalArn + " is not authorized to perform: " + action +
-		" because no identity-based policy allows the " + action + " action"
-}
-
 // restWriteJSONDeny refuses in the AccessDeniedException every REST-JSON
 // service answers an unauthorized caller with, under the message member the
 // model declares.
-func restWriteJSONDeny(model string) func(http.ResponseWriter, *http.Request, string, string) {
-	return func(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
-		restWriteJSONError(w, model, "AccessDeniedException", http.StatusForbidden, iamRESTDenyMessage(principalArn, action))
+func restWriteJSONDeny(model string) func(http.ResponseWriter, *http.Request, iamDenial) {
+	return func(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+		restWriteJSONError(w, model, "AccessDeniedException", http.StatusForbidden, d.message())
 	}
 }
 
@@ -482,15 +477,15 @@ func restWriteJSONError(w http.ResponseWriter, model, code string, status int, m
 
 // AWS Amplify declares UnauthorizedException, 401, for an operation that
 // fails for a lack of access.
-func amplifyWriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
-	amplifyWriteError(w, http.StatusUnauthorized, "UnauthorizedException", iamRESTDenyMessage(principalArn, action))
+func amplifyWriteIAMDeny(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+	amplifyWriteError(w, http.StatusUnauthorized, "UnauthorizedException", d.message())
 }
 
 // Amazon API Gateway's REST API declares UnauthorizedException, 401, for a
 // caller with insufficient permissions; its HTTP API declares
 // AccessDeniedException, 403.
-func apigatewayWriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action string) {
-	message := iamRESTDenyMessage(principalArn, action)
+func apigatewayWriteIAMDeny(w http.ResponseWriter, r *http.Request, d iamDenial) {
+	message := d.message()
 	if strings.HasPrefix(r.URL.Path, "/v2/") {
 		restWriteJSONError(w, "apigatewayv2", "AccessDeniedException", http.StatusForbidden, message)
 		return
@@ -498,12 +493,12 @@ func apigatewayWriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn
 	restWriteJSONError(w, "api-gateway", "UnauthorizedException", http.StatusUnauthorized, message)
 }
 
-func cloudfrontWriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
-	cfWriteError(w, http.StatusForbidden, "AccessDenied", iamRESTDenyMessage(principalArn, action))
+func cloudfrontWriteIAMDeny(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+	cfWriteError(w, http.StatusForbidden, "AccessDenied", d.message())
 }
 
-func route53WriteIAMDeny(w http.ResponseWriter, _ *http.Request, principalArn, action string) {
-	r53WriteError(w, http.StatusForbidden, "AccessDenied", iamRESTDenyMessage(principalArn, action))
+func route53WriteIAMDeny(w http.ResponseWriter, _ *http.Request, d iamDenial) {
+	r53WriteError(w, http.StatusForbidden, "AccessDenied", d.message())
 }
 
 func restRefuseJSON(model string) func(http.ResponseWriter, *http.Request, string, string) {

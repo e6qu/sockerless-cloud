@@ -1462,11 +1462,11 @@ jobs:
             timeout_minutes: 12
           - suite: aws AWS STS session tags
             cloud: aws
-            tf_packages: "./sts-session-tags ./sts-session-limits ./iam-organizations-features ./iam-multi-account"
+            tf_packages: "./sts-session-tags ./sts-session-limits ./iam-organizations-features"
             timeout_minutes: 12
           - suite: aws Amazon SNS delivery status
             cloud: aws
-            tf_packages: "./sns-delivery-status ./iam-root-user"
+            tf_packages: "./sns-delivery-status ./iam-root-user ./iam-multi-account"
             timeout_minutes: 12
           - suite: aws AWS Lambda concurrency
             cloud: aws

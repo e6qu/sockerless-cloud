@@ -11,9 +11,9 @@ import (
 // The management account's store never sees it, and an account the
 // simulator does not host holds nothing.
 func TestIAMMemberAccountEntitiesPersist(t *testing.T) {
-	db0, roles, accounts := iamStoreDB, iamRoles, orgAccounts
+	db0, roles, accounts, standalone := iamStoreDB, iamRoles, orgAccounts, orgStandaloneAccounts
 	t.Cleanup(func() {
-		iamStoreDB, iamRoles, orgAccounts = db0, roles, accounts
+		iamStoreDB, iamRoles, orgAccounts, orgStandaloneAccounts = db0, roles, accounts, standalone
 		for _, scope := range iamAccountScopes {
 			scope.reset()
 		}
@@ -21,6 +21,7 @@ func TestIAMMemberAccountEntitiesPersist(t *testing.T) {
 	const member = "210987654321"
 	iamRoles = sim.NewStateStore[IAMRole]()
 	orgAccounts = sim.NewStateStore[OrgAccount]()
+	orgStandaloneAccounts = sim.NewStateStore[OrgAccount]()
 	orgAccounts.Put(member, OrgAccount{Id: member, Status: "ACTIVE"})
 
 	stateDir := t.TempDir()

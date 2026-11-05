@@ -419,11 +419,13 @@ func s3RequestResourceARN(r *http.Request) string {
 	return "arn:aws:s3:::" + bucket
 }
 
-func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, principalArn, action string) {
-	S3ErrorXML(w, "AccessDenied",
-		"User: "+principalArn+" is not authorized to perform: "+action+
-			" because no identity-based policy or resource-based policy allows the "+action+" action",
-		strings.TrimPrefix(r.URL.Path, "/"), sim.NewUUID(), http.StatusForbidden)
+func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, d iamDenial) {
+	message := d.message()
+	if d.Policy == iamIdentityBasedPolicy && !d.Explicit {
+		message = "User: " + d.Principal + " is not authorized to perform: " + d.Action +
+			" because no identity-based policy or resource-based policy allows the " + d.Action + " action"
+	}
+	S3ErrorXML(w, "AccessDenied", message, strings.TrimPrefix(r.URL.Path, "/"), sim.NewUUID(), http.StatusForbidden)
 }
 
 func s3BucketOperationName(r *http.Request, _ []byte) string {
