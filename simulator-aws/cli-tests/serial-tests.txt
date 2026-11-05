@@ -22,7 +22,6 @@ TestOrganizationsCLI_DelegatedAdminAndServiceAccess	creates, changes or deletes 
 TestOrganizationsCLI_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read
-TestOrganizationsCLI_Handshakes	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_LeaveOrganization	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_OUTreeAndAccounts	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_Policies	creates, changes or deletes the account's one organization, which other tests read

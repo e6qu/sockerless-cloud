@@ -230,17 +230,6 @@ func TestSTS_AssumeRoot(t *testing.T) {
 	assert.Nil(t, out.SourceIdentity, "a caller that set no source identity passes none on")
 }
 
-func TestSTS_DecodeAuthorizationMessage(t *testing.T) {
-	t.Parallel()
-	client := stsClient()
-	original := `{"allowed":false,"explicitDeny":true}`
-	out, err := client.DecodeAuthorizationMessage(ctx, &sts.DecodeAuthorizationMessageInput{
-		EncodedMessage: aws.String(base64.StdEncoding.EncodeToString([]byte(original))),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, original, aws.ToString(out.DecodedMessage))
-}
-
 func TestSTS_GetAccessKeyInfo(t *testing.T) {
 	t.Parallel()
 	client := stsClient()

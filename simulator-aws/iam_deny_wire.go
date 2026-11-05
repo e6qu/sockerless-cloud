@@ -78,11 +78,25 @@ type iamDenial struct {
 	Action    string
 	Policy    iamPolicyKind
 	Explicit  bool
+	// Resource and Context are what the refused request was evaluated
+	// against, which an encoded authorization message carries.
+	Resource string
+	Context  map[string][]string
+}
+
+// head names the principal, the action and, when the request named one, the
+// resource, as every refusal opens.
+func (d iamDenial) head() string {
+	head := "User: " + d.Principal + " is not authorized to perform: " + d.Action
+	if d.Resource != "" && d.Resource != "*" {
+		head += " on resource: " + d.Resource
+	}
+	return head
 }
 
 func (d iamDenial) message() string {
 	phrases := iamPolicyKindPhrases[d.Policy]
-	head := "User: " + d.Principal + " is not authorized to perform: " + d.Action
+	head := d.head()
 	if d.Explicit {
 		return head + " with an explicit deny in " + phrases[1]
 	}

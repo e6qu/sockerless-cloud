@@ -90,21 +90,6 @@ type OrgPolicy struct {
 	Content     string `json:"Content"`
 }
 
-type OrgHandshake struct {
-	Id                  string              `json:"Id"`
-	Arn                 string              `json:"Arn"`
-	Parties             []OrgHandshakeParty `json:"Parties"`
-	State               string              `json:"State"`
-	RequestedTimestamp  int64               `json:"RequestedTimestamp"`
-	ExpirationTimestamp int64               `json:"ExpirationTimestamp"`
-	Action              string              `json:"Action"`
-}
-
-type OrgHandshakeParty struct {
-	Id   string `json:"Id"`
-	Type string `json:"Type"`
-}
-
 type OrgCreateAccountStatus struct {
 	Id                 string `json:"Id"`
 	AccountName        string `json:"AccountName"`
@@ -452,23 +437,6 @@ func orgPolicyToMap(p OrgPolicy) map[string]any {
 	}
 }
 
-func orgHandshakeToMap(h OrgHandshake) map[string]any {
-	parties := []map[string]any{}
-	for _, p := range h.Parties {
-		parties = append(parties, map[string]any{"Id": p.Id, "Type": p.Type})
-	}
-	return map[string]any{
-		"Id":                  h.Id,
-		"Arn":                 h.Arn,
-		"Parties":             parties,
-		"State":               h.State,
-		"RequestedTimestamp":  h.RequestedTimestamp,
-		"ExpirationTimestamp": h.ExpirationTimestamp,
-		"Action":              h.Action,
-		"Resources":           []map[string]any{},
-	}
-}
-
 func orgCreateStatusToMap(s OrgCreateAccountStatus) map[string]any {
 	m := map[string]any{
 		"Id":                 s.Id,
@@ -546,8 +514,8 @@ func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
 	if _, ok := orgRequireOrg(w); !ok {
 		return
 	}
-	// AWS starts a handshake the member accounts approve; the simulator has only
-	// the management account, so it creates and returns the handshake.
+	// The handshake asks every member account to approve; no answer changes
+	// the organization's feature set.
 	now := orgEpoch()
 	h := OrgHandshake{
 		Id:                  "h-" + orgRandHex(16),
@@ -555,9 +523,8 @@ func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now + 15*24*3600,
 		Action:              "ENABLE_ALL_FEATURES",
-		Parties: []OrgHandshakeParty{
-			{Id: awsOrgID(), Type: "ORGANIZATION"},
-		},
+		Parties:             []OrgHandshakeParty{{Id: awsOrgID(), Type: "ORGANIZATION"}},
+		Resources:           []OrgHandshakeResource{{Type: "ORGANIZATION", Value: awsOrgID()}},
 	}
 	h.Arn = orgHandshakeArn(h.Id, h.Action)
 	orgHandshakes.Put(h.Id, h)
@@ -1501,109 +1468,6 @@ func orgPathToRoot(targetID string) []string {
 		}
 	}
 	return path
-}
-
-func handleOrgInviteAccount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
-		return
-	}
-	var req struct {
-		Target struct {
-			Id   string `json:"Id"`
-			Type string `json:"Type"`
-		} `json:"Target"`
-		Notes string `json:"Notes"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Target.Id == "" || req.Target.Type == "" {
-		AWSError(w, "InvalidInputException", "Target Id and Type are required", http.StatusBadRequest)
-		return
-	}
-	now := orgEpoch()
-	h := OrgHandshake{
-		Id:                  "h-" + orgRandHex(16),
-		State:               "OPEN",
-		RequestedTimestamp:  now,
-		ExpirationTimestamp: now + 15*24*3600,
-		Action:              "INVITE",
-		Parties: []OrgHandshakeParty{
-			{Id: awsOrgID(), Type: "ORGANIZATION"},
-			{Id: req.Target.Id, Type: req.Target.Type},
-		},
-	}
-	h.Arn = orgHandshakeArn(h.Id, h.Action)
-	orgHandshakes.Put(h.Id, h)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
-}
-
-func orgHandshakeTransition(w http.ResponseWriter, r *http.Request, newState string) {
-	var req struct {
-		HandshakeId string `json:"HandshakeId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	h, ok := orgHandshakes.Get(req.HandshakeId)
-	if !ok {
-		AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
-		return
-	}
-	h.State = newState
-	orgHandshakes.Put(h.Id, h)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
-}
-
-func handleOrgAcceptHandshake(w http.ResponseWriter, r *http.Request) {
-	orgHandshakeTransition(w, r, "ACCEPTED")
-}
-func handleOrgDeclineHandshake(w http.ResponseWriter, r *http.Request) {
-	orgHandshakeTransition(w, r, "DECLINED")
-}
-func handleOrgCancelHandshake(w http.ResponseWriter, r *http.Request) {
-	orgHandshakeTransition(w, r, "CANCELED")
-}
-
-func handleOrgDescribeHandshake(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		HandshakeId string `json:"HandshakeId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	h, ok := orgHandshakes.Get(req.HandshakeId)
-	if !ok {
-		AWSError(w, "HandshakeNotFoundException", "We can't find a handshake with the HandshakeId that you specified.", http.StatusBadRequest)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
-}
-
-func handleOrgListHandshakesForAccount(w http.ResponseWriter, _ *http.Request) {
-	hs := orgHandshakes.List()
-	sort.Slice(hs, func(i, j int) bool { return hs[i].Id < hs[j].Id })
-	out := []map[string]any{}
-	for _, h := range hs {
-		out = append(out, orgHandshakeToMap(h))
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshakes": out})
-}
-
-func handleOrgListHandshakesForOrganization(w http.ResponseWriter, _ *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
-		return
-	}
-	hs := orgHandshakes.List()
-	sort.Slice(hs, func(i, j int) bool { return hs[i].Id < hs[j].Id })
-	out := []map[string]any{}
-	for _, h := range hs {
-		out = append(out, orgHandshakeToMap(h))
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshakes": out})
 }
 
 func orgDelegatedAdminKey(accountID, sp string) string { return accountID + "|" + sp }

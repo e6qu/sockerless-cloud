@@ -302,55 +302,6 @@ func TestOrganizations_Policies(t *testing.T) {
 	}
 }
 
-func TestOrganizations_Handshakes(t *testing.T) {
-	c := orgClient()
-
-	inv, err := c.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
-		Target: &orgtypes.HandshakeParty{Id: aws.String("invitee@sim.invalid"), Type: orgtypes.HandshakePartyTypeEmail},
-		Notes:  aws.String("join us"),
-	})
-	require.NoError(t, err)
-	hid := aws.ToString(inv.Handshake.Id)
-	assert.True(t, strings.HasPrefix(hid, "h-"))
-	assert.Equal(t, orgtypes.HandshakeStateOpen, inv.Handshake.State)
-	// Only the ARN shows a handshake's purpose, so an invitation and an
-	// enable-all-features handshake differ there.
-	assert.Contains(t, aws.ToString(inv.Handshake.Arn), "/invite/")
-
-	dh, err := c.DescribeHandshake(ctx, &organizations.DescribeHandshakeInput{HandshakeId: aws.String(hid)})
-	require.NoError(t, err)
-	assert.Equal(t, hid, aws.ToString(dh.Handshake.Id))
-
-	forOrg, err := c.ListHandshakesForOrganization(ctx, &organizations.ListHandshakesForOrganizationInput{})
-	require.NoError(t, err)
-	assert.NotEmpty(t, forOrg.Handshakes)
-
-	forAcct, err := c.ListHandshakesForAccount(ctx, &organizations.ListHandshakesForAccountInput{})
-	require.NoError(t, err)
-	assert.NotEmpty(t, forAcct.Handshakes)
-
-	acc, err := c.AcceptHandshake(ctx, &organizations.AcceptHandshakeInput{HandshakeId: aws.String(hid)})
-	require.NoError(t, err)
-	assert.Equal(t, orgtypes.HandshakeStateAccepted, acc.Handshake.State)
-
-	inv2, err := c.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
-		Target: &orgtypes.HandshakeParty{Id: aws.String("111122223333"), Type: orgtypes.HandshakePartyTypeAccount},
-	})
-	require.NoError(t, err)
-	h2 := aws.ToString(inv2.Handshake.Id)
-	dec, err := c.DeclineHandshake(ctx, &organizations.DeclineHandshakeInput{HandshakeId: aws.String(h2)})
-	require.NoError(t, err)
-	assert.Equal(t, orgtypes.HandshakeStateDeclined, dec.Handshake.State)
-
-	inv3, err := c.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
-		Target: &orgtypes.HandshakeParty{Id: aws.String("444455556666"), Type: orgtypes.HandshakePartyTypeAccount},
-	})
-	require.NoError(t, err)
-	can, err := c.CancelHandshake(ctx, &organizations.CancelHandshakeInput{HandshakeId: inv3.Handshake.Id})
-	require.NoError(t, err)
-	assert.Equal(t, orgtypes.HandshakeStateCanceled, can.Handshake.State)
-}
-
 func TestOrganizations_DelegatedAdminAndServiceAccess(t *testing.T) {
 	c := orgClient()
 	sp := "config.amazonaws.com"

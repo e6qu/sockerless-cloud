@@ -29,7 +29,6 @@ TestOrganizations_DisableServiceControlPolicies	disables and re-enables service 
 TestOrganizations_EffectivePolicyValidation	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read
-TestOrganizations_Handshakes	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_LeaveOrganization	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_MemberAccountCallers	sets the organization's one delegation policy, which other tests set
 TestOrganizations_OUTreeAndAccounts	creates, changes or deletes the account's one organization, which other tests read

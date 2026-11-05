@@ -374,7 +374,7 @@ func handleOrgTerminateResponsibilityTransfer(w http.ResponseWriter, r *http.Req
 	}
 	t.EndTimestamp = end
 	if h, hok := orgHandshakes.Get(t.ActiveHandshakeId); hok {
-		h.State = "CANCELED"
+		h.State, h.StateTimestamp = "CANCELED", orgEpoch()
 		orgHandshakes.Put(h.Id, h)
 	}
 	t.ActiveHandshakeId = ""

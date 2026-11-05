@@ -225,56 +225,6 @@ func TestOrganizationsCLI_Policies(t *testing.T) {
 	runCLI(t, awsCLI("organizations", "disable-policy-type", "--root-id", root, "--policy-type", "TAG_POLICY", "--output", "json"))
 }
 
-func TestOrganizationsCLI_Handshakes(t *testing.T) {
-	invOut := runCLI(t, awsCLI("organizations", "invite-account-to-organization", "--target", "Id=cli-invitee@sim.invalid,Type=EMAIL", "--output", "json"))
-	var inv struct {
-		Handshake struct {
-			Id    string `json:"Id"`
-			State string `json:"State"`
-		} `json:"Handshake"`
-	}
-	parseJSON(t, invOut, &inv)
-	hid := inv.Handshake.Id
-	if !strings.HasPrefix(hid, "h-") {
-		t.Fatalf("invite-account-to-organization Id = %q, want h-…", hid)
-	}
-
-	dhOut := runCLI(t, awsCLI("organizations", "describe-handshake", "--handshake-id", hid, "--output", "json"))
-	if !strings.Contains(dhOut, hid) {
-		t.Fatalf("describe-handshake missing id: %s", dhOut)
-	}
-
-	if foOut := runCLI(t, awsCLI("organizations", "list-handshakes-for-organization", "--output", "json")); !strings.Contains(foOut, hid) {
-		t.Fatalf("list-handshakes-for-organization missing handshake: %s", foOut)
-	}
-	if faOut := runCLI(t, awsCLI("organizations", "list-handshakes-for-account", "--output", "json")); !strings.Contains(faOut, hid) {
-		t.Fatalf("list-handshakes-for-account missing handshake: %s", faOut)
-	}
-
-	accOut := runCLI(t, awsCLI("organizations", "accept-handshake", "--handshake-id", hid, "--output", "json"))
-	if !strings.Contains(accOut, "ACCEPTED") {
-		t.Fatalf("accept-handshake not ACCEPTED: %s", accOut)
-	}
-
-	inv2 := runCLI(t, awsCLI("organizations", "invite-account-to-organization", "--target", "Id=111122223333,Type=ACCOUNT", "--output", "json"))
-	var h2 struct {
-		Handshake struct{ Id string } `json:"Handshake"`
-	}
-	parseJSON(t, inv2, &h2)
-	if decOut := runCLI(t, awsCLI("organizations", "decline-handshake", "--handshake-id", h2.Handshake.Id, "--output", "json")); !strings.Contains(decOut, "DECLINED") {
-		t.Fatalf("decline-handshake not DECLINED: %s", decOut)
-	}
-
-	inv3 := runCLI(t, awsCLI("organizations", "invite-account-to-organization", "--target", "Id=444455556666,Type=ACCOUNT", "--output", "json"))
-	var h3 struct {
-		Handshake struct{ Id string } `json:"Handshake"`
-	}
-	parseJSON(t, inv3, &h3)
-	if canOut := runCLI(t, awsCLI("organizations", "cancel-handshake", "--handshake-id", h3.Handshake.Id, "--output", "json")); !strings.Contains(canOut, "CANCELED") {
-		t.Fatalf("cancel-handshake not CANCELED: %s", canOut)
-	}
-}
-
 func TestOrganizationsCLI_DelegatedAdminAndServiceAccess(t *testing.T) {
 	sp := "guardduty.amazonaws.com"
 

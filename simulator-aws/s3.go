@@ -422,7 +422,7 @@ func s3RequestResourceARN(r *http.Request) string {
 func s3WriteIAMDeny(w http.ResponseWriter, r *http.Request, d iamDenial) {
 	message := d.message()
 	if d.Policy == iamIdentityBasedPolicy && !d.Explicit {
-		message = "User: " + d.Principal + " is not authorized to perform: " + d.Action +
+		message = d.head() +
 			" because no identity-based policy or resource-based policy allows the " + d.Action + " action"
 	}
 	S3ErrorXML(w, "AccessDenied", message, strings.TrimPrefix(r.URL.Path, "/"), sim.NewUUID(), http.StatusForbidden)

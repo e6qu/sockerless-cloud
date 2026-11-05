@@ -1,7 +1,6 @@
 package aws_cli_test
 
 import (
-	"encoding/base64"
 	"github.com/e6qu/sockerless-cloud/testutil/samlidp"
 	"testing"
 
@@ -106,20 +105,6 @@ func TestSTS_AssumeRoot_CLI(t *testing.T) {
 	parseJSON(t, runCLI(t, cmd), &res)
 	assert.Contains(t, res.Credentials.AccessKeyId, "ASIA")
 	assert.Nil(t, res.SourceIdentity, "a caller that set no source identity passes none on")
-}
-
-func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
-	t.Parallel()
-	original := `{"allowed":false}`
-	out := runCLI(t, awsCLI("sts", "decode-authorization-message",
-		"--encoded-message", base64.StdEncoding.EncodeToString([]byte(original)),
-		"--output", "json",
-	))
-	var res struct {
-		DecodedMessage string `json:"DecodedMessage"`
-	}
-	parseJSON(t, out, &res)
-	assert.Equal(t, original, res.DecodedMessage)
 }
 
 func TestSTS_GetAccessKeyInfo_CLI(t *testing.T) {

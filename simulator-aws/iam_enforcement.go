@@ -333,15 +333,14 @@ func iamAuthorizeDenial(r *http.Request, action, resource string, extra map[stri
 		return iamDenial{Action: action}, false, false
 	}
 	principalArn := caller.Arn
-	refuse := func(policy iamPolicyKind, explicit bool) (iamDenial, bool, bool) {
-		return iamDenial{Principal: principalArn, Action: action, Policy: policy, Explicit: explicit}, false, true
-	}
-	permit := iamDenial{Principal: principalArn, Action: action}
-
 	ctx := iamRequestConditionContext(r, akid, principalArn, caller.UserName, action)
 	for key, values := range extra {
 		ctx[key] = values
 	}
+	refuse := func(policy iamPolicyKind, explicit bool) (iamDenial, bool, bool) {
+		return iamDenial{Principal: principalArn, Action: action, Policy: policy, Explicit: explicit, Resource: resource, Context: ctx}, false, true
+	}
+	permit := iamDenial{Principal: principalArn, Action: action, Resource: resource, Context: ctx}
 
 	// The service control policies of a member account's organization cap
 	// every principal of the account, its root user included, before any of
@@ -478,9 +477,10 @@ func iamCrossAccount(principalArn, resource string) bool {
 		return false
 	}
 	// AWS Organizations admits a member account to its organization's
-	// resources by its own rules (orgAdmitCaller), not as a cross-account
-	// request.
-	if strings.HasPrefix(resource, "arn:aws:organizations::") && iamOrganizationMember(caller) {
+	// resources, and a handshake's parties to the handshake, by its own rules
+	// (orgAdmitCaller, orgHandshakeRespond), not as a cross-account request.
+	if organizations, ok := strings.CutPrefix(resource, "arn:aws:organizations::"); ok &&
+		(iamOrganizationMember(caller) || strings.Contains(organizations, ":handshake/")) {
 		return false
 	}
 	owner := iamResourceOwnerAccount(resource)
@@ -798,7 +798,7 @@ func iamWriteDeny(w http.ResponseWriter, r *http.Request, d iamDenial) {
 		return
 	}
 	if strings.HasPrefix(action, "ec2:") {
-		ec2ErrorXML(w, "UnauthorizedOperation", msg, http.StatusForbidden)
+		ec2ErrorXML(w, "UnauthorizedOperation", msg+" Encoded authorization failure message: "+stsEncodeAuthorizationMessage(r, d), http.StatusForbidden)
 		return
 	}
 	iamErrorXML(w, "AccessDenied", msg, http.StatusForbidden)
