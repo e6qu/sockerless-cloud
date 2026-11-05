@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
@@ -24,6 +25,13 @@ func standaloneAccount(t *testing.T, prefix string) (string, string, aws.Config)
 	_, err = orgWith(cfg).LeaveOrganization(ctx, &organizations.LeaveOrganizationInput{})
 	require.NoError(t, err)
 	return account, aws.ToString(described.Account.Email), cfg
+}
+
+func assertHandshakeConstraint(t *testing.T, err error, reason orgtypes.HandshakeConstraintViolationExceptionReason) {
+	t.Helper()
+	var violation *orgtypes.HandshakeConstraintViolationException
+	require.ErrorAs(t, err, &violation)
+	assert.Equal(t, reason, violation.Reason)
 }
 
 func handshakeIDs(hs []orgtypes.Handshake) []string {
@@ -176,4 +184,136 @@ func TestOrganizations_InvitationDeclinedAndCanceled(t *testing.T) {
 		Target: &orgtypes.HandshakeParty{Id: aws.String("o-exampleorgid"), Type: orgtypes.HandshakePartyTypeOrganization},
 	})
 	assert.Equal(t, "InvalidInputException", errCodeOf(err))
+}
+
+func parentHandshake(h orgtypes.Handshake) string {
+	for _, r := range h.Resources {
+		if r.Type == orgtypes.HandshakeResourceTypeParentHandshake {
+			return aws.ToString(r.Value)
+		}
+	}
+	return ""
+}
+
+// migrateToAllFeatures takes the account's organization, which has
+// consolidated billing alone, through the User Guide's standard migration: an
+// invited account approves, and the management account finalizes.
+func migrateToAllFeatures(t *testing.T) {
+	t.Helper()
+	mgmt := orgClient()
+	invite := func(account string) string {
+		out, err := mgmt.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
+			Target: &orgtypes.HandshakeParty{Id: aws.String(account), Type: orgtypes.HandshakePartyTypeAccount}})
+		require.NoError(t, err)
+		return aws.ToString(out.Handshake.Id)
+	}
+	invited, _, invitedCfg := standaloneAccount(t, "approver")
+	member := orgWith(invitedCfg)
+	_, err := member.AcceptHandshake(ctx, &organizations.AcceptHandshakeInput{HandshakeId: aws.String(invite(invited))})
+	require.NoError(t, err)
+	createMemberAccount(t, "created", "")
+	pending, _, _ := standaloneAccount(t, "pending")
+	unanswered := invite(pending)
+	roots, err := mgmt.ListRoots(ctx, &organizations.ListRootsInput{})
+	require.NoError(t, err)
+	require.Len(t, roots.Roots, 1)
+	root := roots.Roots[0].Id
+	assert.Empty(t, roots.Roots[0].PolicyTypes, "SCPs aren't available with consolidated billing alone")
+	enableSCPs := &organizations.EnablePolicyTypeInput{RootId: root, PolicyType: orgtypes.PolicyTypeServiceControlPolicy}
+	_, err = mgmt.EnablePolicyType(ctx, enableSCPs)
+	var unavailable *orgtypes.PolicyTypeNotAvailableForOrganizationException
+	require.ErrorAs(t, err, &unavailable)
+
+	started, err := mgmt.EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
+	require.NoError(t, err)
+	parent := started.Handshake
+	parentID := aws.ToString(parent.Id)
+	assert.Equal(t, orgtypes.ActionTypeEnableAllFeatures, parent.Action)
+	assert.Equal(t, orgtypes.HandshakeStateRequested, parent.State, "an invited account has yet to approve")
+	assert.Contains(t, aws.ToString(parent.Arn), "/enable_all_features/"+parentID)
+	assert.Equal(t, 90*24*time.Hour, aws.ToTime(parent.ExpirationTimestamp).Sub(aws.ToTime(parent.RequestedTimestamp)))
+
+	canceled, err := mgmt.DescribeHandshake(ctx, &organizations.DescribeHandshakeInput{HandshakeId: aws.String(unanswered)})
+	require.NoError(t, err)
+	assert.Equal(t, orgtypes.HandshakeStateCanceled, canceled.Handshake.State, "the migration cancels the open invitation")
+
+	_, err = mgmt.EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
+	assertHandshakeConstraint(t, err, orgtypes.HandshakeConstraintViolationExceptionReasonOrganizationIsAlreadyPendingAllFeaturesMigration)
+	_, err = mgmt.AcceptHandshake(ctx, &organizations.AcceptHandshakeInput{HandshakeId: aws.String(parentID)})
+	var transition *orgtypes.InvalidHandshakeTransitionException
+	require.ErrorAs(t, err, &transition, "the management account finalizes only once every invited account approved")
+
+	received, err := member.ListHandshakesForAccount(ctx, &organizations.ListHandshakesForAccountInput{
+		Filter: &orgtypes.HandshakeFilter{ActionType: orgtypes.ActionTypeApproveAllFeatures}})
+	require.NoError(t, err)
+	require.Len(t, received.Handshakes, 1, "the created account receives no approval request")
+	approval := received.Handshakes[0]
+	assert.Equal(t, orgtypes.HandshakeStateOpen, approval.State)
+	assert.Equal(t, parentID, parentHandshake(approval))
+	require.Len(t, approval.Parties, 2)
+	assert.Equal(t, invited, aws.ToString(approval.Parties[1].Id))
+
+	children, err := mgmt.ListHandshakesForOrganization(ctx, &organizations.ListHandshakesForOrganizationInput{
+		Filter: &orgtypes.HandshakeFilter{ParentHandshakeId: aws.String(parentID)}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{aws.ToString(approval.Id)}, handshakeIDs(children.Handshakes))
+
+	_, err = member.AcceptHandshake(ctx, &organizations.AcceptHandshakeInput{HandshakeId: approval.Id})
+	require.NoError(t, err)
+	described, err := mgmt.DescribeHandshake(ctx, &organizations.DescribeHandshakeInput{HandshakeId: aws.String(parentID)})
+	require.NoError(t, err)
+	assert.Equal(t, orgtypes.HandshakeStateOpen, described.Handshake.State, "the last approval opens the request to finalize")
+	org, err := mgmt.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	require.NoError(t, err)
+	assert.Equal(t, orgtypes.OrganizationFeatureSetConsolidatedBilling, org.Organization.FeatureSet, "approval alone changes no feature set")
+
+	finalized, err := mgmt.AcceptHandshake(ctx, &organizations.AcceptHandshakeInput{HandshakeId: aws.String(parentID)})
+	require.NoError(t, err)
+	assert.Equal(t, orgtypes.HandshakeStateAccepted, finalized.Handshake.State)
+	org, err = mgmt.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	require.NoError(t, err)
+	assert.Equal(t, orgtypes.OrganizationFeatureSetAll, org.Organization.FeatureSet)
+	_, err = mgmt.EnableAllFeatures(ctx, &organizations.EnableAllFeaturesInput{})
+	assertHandshakeConstraint(t, err, orgtypes.HandshakeConstraintViolationExceptionReasonOrganizationAlreadyHasAllFeatures)
+	// The default organization the other tests read enables SCPs.
+	_, err = mgmt.EnablePolicyType(ctx, enableSCPs)
+	require.NoError(t, err)
+}
+
+// TestOrganizations_HandshakeListingsPage pages the organization's handshakes
+// one at a time through the SDK's paginator and refuses a page larger than
+// the model allows.
+func TestOrganizations_HandshakeListingsPage(t *testing.T) {
+	t.Parallel()
+	mgmt := orgClient()
+	sent := []string{}
+	for range 3 {
+		account, _, _ := standaloneAccount(t, "paged")
+		out, err := mgmt.InviteAccountToOrganization(ctx, &organizations.InviteAccountToOrganizationInput{
+			Target: &orgtypes.HandshakeParty{Id: aws.String(account), Type: orgtypes.HandshakePartyTypeAccount}})
+		require.NoError(t, err)
+		sent = append(sent, aws.ToString(out.Handshake.Id))
+	}
+	listed := []string{}
+	pages := 0
+	paginator := organizations.NewListHandshakesForOrganizationPaginator(mgmt, &organizations.ListHandshakesForOrganizationInput{
+		MaxResults: aws.Int32(1), Filter: &orgtypes.HandshakeFilter{ActionType: orgtypes.ActionTypeInviteAccountToOrganization}})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(page.Handshakes), 1)
+		listed = append(listed, handshakeIDs(page.Handshakes)...)
+		pages++
+	}
+	assert.Subset(t, listed, sent)
+	assert.Equal(t, len(listed), pages, "every page holds one handshake")
+	assert.Len(t, slices.Compact(slices.Sorted(slices.Values(listed))), len(listed), "no handshake repeats across pages")
+
+	_, err := mgmt.ListHandshakesForOrganization(ctx, &organizations.ListHandshakesForOrganizationInput{MaxResults: aws.Int32(21)})
+	var invalid *orgtypes.InvalidInputException
+	require.ErrorAs(t, err, &invalid)
+	assert.Equal(t, orgtypes.InvalidInputExceptionReasonMaxValueExceeded, invalid.Reason)
+	_, err = mgmt.ListHandshakesForOrganization(ctx, &organizations.ListHandshakesForOrganizationInput{NextToken: aws.String("not-a-token")})
+	require.ErrorAs(t, err, &invalid)
+	assert.Equal(t, orgtypes.InvalidInputExceptionReasonInvalidPaginationToken, invalid.Reason)
 }

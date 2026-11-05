@@ -141,6 +141,9 @@ func TestOrganizationsARNsMatchTheModelPatterns(t *testing.T) {
 		t.Errorf("invitation handshake ARN %q does not name the invitation", invitation)
 	}
 
+	// Only an organization with consolidated billing alone enables all features.
+	call("DeleteOrganization", `{}`)
+	call("CreateOrganization", `{"FeatureSet":"CONSOLIDATED_BILLING"}`)
 	allFeatures := arnOf(call("EnableAllFeatures", `{}`), "Handshake")
 	matches("HandshakeArn", allFeatures)
 	if !strings.Contains(allFeatures, "/enable_all_features/") {

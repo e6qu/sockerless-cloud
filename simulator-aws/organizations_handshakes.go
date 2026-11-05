@@ -39,9 +39,12 @@ type OrgHandshakeResource struct {
 	Resources []OrgHandshakeResource `json:"Resources,omitempty"`
 }
 
+// The User Guide gives an invitation 15 days for an answer and the invited
+// accounts 90 days to approve the standard migration to all features.
 const (
-	orgHandshakeLifetime  = 15 * 24 * time.Hour
-	orgHandshakeRetention = 30 * 24 * time.Hour
+	orgHandshakeLifetime   = 15 * 24 * time.Hour
+	orgAllFeaturesLifetime = 90 * 24 * time.Hour
+	orgHandshakeRetention  = 30 * 24 * time.Hour
 )
 
 func orgHandshakeResourcesToMaps(rs []OrgHandshakeResource) []map[string]any {
@@ -95,8 +98,15 @@ func orgLiveHandshake(id string) (OrgHandshake, bool) {
 func orgHandshakeNow(h OrgHandshake) (OrgHandshake, bool) {
 	now := orgEpoch()
 	if !orgHandshakeClosed(h.State) && now >= h.ExpirationTimestamp {
-		h.State, h.StateTimestamp = "EXPIRED", h.ExpirationTimestamp
+		// The User Guide: when the migration expires, AWS Organizations
+		// cancels every request of that attempt.
+		state := "EXPIRED"
+		if h.Action == "APPROVE_ALL_FEATURES" {
+			state = "CANCELED"
+		}
+		h.State, h.StateTimestamp = state, h.ExpirationTimestamp
 		orgHandshakes.Put(h.Id, h)
+		orgHandshakeSettled(h)
 	}
 	if orgHandshakeClosed(h.State) && now-h.StateTimestamp > int64(orgHandshakeRetention/time.Second) {
 		orgHandshakes.Delete(h.Id)
@@ -120,14 +130,13 @@ func orgHandshakePartyTo(h OrgHandshake, account string) bool {
 	return orgHandshakeSentBy(h, account) || orgHandshakeReceivedBy(h, account)
 }
 
-// orgHandshakeReceivedBy reports whether account receives h. An
-// ENABLE_ALL_FEATURES request goes to every member account; any other
-// handshake to the account, the email address of its owner, or the
+// orgHandshakeReceivedBy reports whether account receives h: the
+// organization finalizes its own ENABLE_ALL_FEATURES request, and any other
+// handshake goes to the account, the email address of its owner, or the
 // organization it manages that its other party names.
 func orgHandshakeReceivedBy(h OrgHandshake, account string) bool {
 	if h.Action == "ENABLE_ALL_FEATURES" {
-		_, member := orgAccounts.Get(account)
-		return member && !iamIsManagementAccount(account)
+		return orgHandshakeSentBy(h, account)
 	}
 	for _, p := range h.Parties[1:] {
 		if orgPartyNamesAccount(p, account) {
@@ -292,15 +301,80 @@ func orgHandshakeRespond(w http.ResponseWriter, r *http.Request, state string, m
 	}
 	h.State, h.StateTimestamp = state, orgEpoch()
 	orgHandshakes.Put(h.Id, h)
+	orgHandshakeSettled(h)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(h)})
+}
+
+// orgAccepting checks that h can be accepted now: the organization finalizes
+// the migration to all features only once every invited account approved,
+// and an invitation brings its account into the organization.
+func orgAccepting(w http.ResponseWriter, h OrgHandshake, account string) bool {
+	switch h.Action {
+	case "ENABLE_ALL_FEATURES":
+		if h.State != "OPEN" {
+			AWSError(w, "InvalidHandshakeTransitionException", "You can't perform the operation on the handshake in its current state.", http.StatusBadRequest)
+			return false
+		}
+		return true
+	case "INVITE":
+		return orgJoinInvitedAccount(w, account)
+	}
+	return true
+}
+
+// orgHandshakeSettled carries a handshake's new state through the migration
+// to all features: the last approval opens the request to finalize it, its
+// acceptance enables all features, and closing it any other way cancels the
+// approvals still open.
+func orgHandshakeSettled(h OrgHandshake) {
+	switch {
+	case h.Action == "APPROVE_ALL_FEATURES" && h.State == "ACCEPTED":
+		parent, ok := orgHandshakes.Get(orgParentHandshakeID(h))
+		if !ok || parent.State != "REQUESTED" {
+			return
+		}
+		for _, child := range orgMigrationApprovals(parent.Id) {
+			if child.State != "ACCEPTED" {
+				return
+			}
+		}
+		parent.State, parent.StateTimestamp = "OPEN", orgEpoch()
+		orgHandshakes.Put(parent.Id, parent)
+	case h.Action == "ENABLE_ALL_FEATURES" && h.State == "ACCEPTED":
+		if o, ok := orgOrg.Get(orgSingletonKey); ok {
+			o.FeatureSet = "ALL"
+			orgOrg.Put(orgSingletonKey, o)
+		}
+	case h.Action == "ENABLE_ALL_FEATURES" && orgHandshakeClosed(h.State):
+		for _, child := range orgMigrationApprovals(h.Id) {
+			if !orgHandshakeClosed(child.State) {
+				child.State, child.StateTimestamp = "CANCELED", h.StateTimestamp
+				orgHandshakes.Put(child.Id, child)
+			}
+		}
+	}
+}
+
+func orgParentHandshakeID(h OrgHandshake) string {
+	for _, res := range h.Resources {
+		if res.Type == "PARENT_HANDSHAKE" {
+			return res.Value
+		}
+	}
+	return ""
+}
+
+// orgMigrationApprovals reads the APPROVE_ALL_FEATURES handshakes of one
+// migration as stored, without expiring them.
+func orgMigrationApprovals(parentID string) []OrgHandshake {
+	return orgHandshakes.Filter(func(h OrgHandshake) bool {
+		return h.Action == "APPROVE_ALL_FEATURES" && orgParentHandshakeID(h) == parentID
+	})
 }
 
 // orgJoinInvitedAccount brings the account accepting an invitation into the
 // organization at its root, where the FullAWSAccess policy covers it.
-func orgJoinInvitedAccount(w http.ResponseWriter, h OrgHandshake, account string) bool {
-	if h.Action != "INVITE" {
-		return true
-	}
+func orgJoinInvitedAccount(w http.ResponseWriter, account string) bool {
 	if _, ok := orgRequireOrg(w); !ok {
 		return false
 	}
@@ -320,7 +394,7 @@ func orgJoinInvitedAccount(w http.ResponseWriter, h OrgHandshake, account string
 }
 
 func handleOrgAcceptHandshake(w http.ResponseWriter, r *http.Request) {
-	orgHandshakeRespond(w, r, "ACCEPTED", orgHandshakeReceivedBy, orgJoinInvitedAccount)
+	orgHandshakeRespond(w, r, "ACCEPTED", orgHandshakeReceivedBy, orgAccepting)
 }
 
 func handleOrgDeclineHandshake(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +426,7 @@ func handleOrgDescribeHandshake(w http.ResponseWriter, r *http.Request) {
 // the request's HandshakeFilter.
 func orgListHandshakes(w http.ResponseWriter, r *http.Request, include func(OrgHandshake) bool) {
 	var req struct {
+		orgPage
 		Filter struct {
 			ActionType        string `json:"ActionType"`
 			ParentHandshakeId string `json:"ParentHandshakeId"`
@@ -366,22 +441,16 @@ func orgListHandshakes(w http.ResponseWriter, r *http.Request, include func(OrgH
 		AWSError(w, "InvalidInputException", "If you specify ActionType, you cannot also specify ParentHandshakeId.", http.StatusBadRequest)
 		return
 	}
-	action := req.Filter.ActionType
+	action, parent := req.Filter.ActionType, req.Filter.ParentHandshakeId
 	out := []map[string]any{}
-	hs := orgHandshakes.List()
-	sort.Slice(hs, func(i, j int) bool { return hs[i].Id < hs[j].Id })
-	for _, h := range hs {
+	for _, h := range orgHandshakes.List() {
 		h, live := orgHandshakeNow(h)
-		if !live || !include(h) || (action != "" && h.Action != action) {
-			continue
-		}
-		// No handshake the simulator sends is the child of another.
-		if req.Filter.ParentHandshakeId != "" {
+		if !live || !include(h) || (action != "" && h.Action != action) || (parent != "" && orgParentHandshakeID(h) != parent) {
 			continue
 		}
 		out = append(out, orgHandshakeToMap(h))
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshakes": out})
+	orgWriteList(w, req.orgPage, "Handshakes", "Id", out, nil)
 }
 
 func handleOrgListHandshakesForAccount(w http.ResponseWriter, r *http.Request) {
@@ -396,4 +465,78 @@ func handleOrgListHandshakesForOrganization(w http.ResponseWriter, r *http.Reque
 	orgListHandshakes(w, r, func(h OrgHandshake) bool {
 		return len(h.Parties) > 0 && h.Parties[0].Type == "ORGANIZATION" && h.Parties[0].Id == awsOrgID()
 	})
+}
+
+// handleOrgEnableAllFeatures starts the User Guide's standard migration: it
+// cancels the invitations still open, asks every invited account to approve
+// in an APPROVE_ALL_FEATURES handshake, and answers the ENABLE_ALL_FEATURES
+// request the management account accepts to finalize it, open at once when
+// no account was invited.
+func handleOrgEnableAllFeatures(w http.ResponseWriter, _ *http.Request) {
+	o, ok := orgRequireOrg(w)
+	if !ok {
+		return
+	}
+	if o.FeatureSet == "ALL" {
+		writeOrgHandshakeConstraintViolation(w, "ORGANIZATION_ALREADY_HAS_ALL_FEATURES",
+			"The handshake request is invalid because the organization has already enabled all features.")
+		return
+	}
+	live := []OrgHandshake{}
+	for _, h := range orgHandshakes.List() {
+		if h, ok := orgHandshakeNow(h); ok && !orgHandshakeClosed(h.State) {
+			live = append(live, h)
+		}
+	}
+	for _, h := range live {
+		if h.Action == "ENABLE_ALL_FEATURES" {
+			writeOrgHandshakeConstraintViolation(w, "ORGANIZATION_IS_ALREADY_PENDING_ALL_FEATURES_MIGRATION",
+				"The handshake request is invalid because the organization has already started the process to enable all features.")
+			return
+		}
+	}
+	now := orgEpoch()
+	for _, h := range live {
+		if h.Action == "INVITE" {
+			h.State, h.StateTimestamp = "CANCELED", now
+			orgHandshakes.Put(h.Id, h)
+		}
+	}
+	organization := OrgHandshakeParty{Id: o.Id, Type: "ORGANIZATION"}
+	parent := OrgHandshake{
+		Id:                  "h-" + orgRandHex(16),
+		State:               "OPEN",
+		RequestedTimestamp:  now,
+		StateTimestamp:      now,
+		ExpirationTimestamp: now + int64(orgAllFeaturesLifetime/time.Second),
+		Action:              "ENABLE_ALL_FEATURES",
+		Parties:             []OrgHandshakeParty{organization},
+		Resources:           []OrgHandshakeResource{{Type: "ORGANIZATION", Value: o.Id}},
+	}
+	parent.Arn = orgHandshakeArn(parent.Id, parent.Action)
+	invited := orgAccounts.Filter(func(a OrgAccount) bool { return a.JoinedMethod == "INVITED" && a.Id != o.MasterAccountId })
+	sort.Slice(invited, func(i, j int) bool { return invited[i].Id < invited[j].Id })
+	if len(invited) > 0 {
+		parent.State = "REQUESTED"
+	}
+	orgHandshakes.Put(parent.Id, parent)
+	for _, a := range invited {
+		approval := OrgHandshake{
+			Id:                  "h-" + orgRandHex(16),
+			State:               "OPEN",
+			RequestedTimestamp:  now,
+			StateTimestamp:      now,
+			ExpirationTimestamp: parent.ExpirationTimestamp,
+			Action:              "APPROVE_ALL_FEATURES",
+			Parties:             []OrgHandshakeParty{organization, {Id: a.Id, Type: "ACCOUNT"}},
+			Resources: []OrgHandshakeResource{
+				{Type: "PARENT_HANDSHAKE", Value: parent.Id},
+				{Type: "ORGANIZATION", Value: o.Id},
+				{Type: "ACCOUNT", Value: a.Id},
+			},
+		}
+		approval.Arn = orgHandshakeArn(approval.Id, approval.Action)
+		orgHandshakes.Put(approval.Id, approval)
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"Handshake": orgHandshakeToMap(parent)})
 }

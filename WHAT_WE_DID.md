@@ -1012,9 +1012,25 @@ organization's root under `FullAWSAccess` with `JoinedMethod` `INVITED`. An
 unanswered handshake expires after 15 days, a closed one leaves the listings
 30 days later, and AWS Organizations, not the cross-account rule, admits a
 handshake's parties to it.
+`EnableAllFeatures` runs the User Guide's standard migration. It refuses an
+organization that has all features or a migration under way, cancels the
+invitations still open, and sends every invited account an
+`APPROVE_ALL_FEATURES` handshake under a `PARENT_HANDSHAKE` resource. The
+management account's `ENABLE_ALL_FEATURES` request opens once the last of
+them approves, or at once when no account was invited, and accepting it
+enables all features. The attempt lasts 90 days; when it expires or closes
+another way, the approvals still open are canceled. An organization created
+with consolidated billing alone has no service control policies, and
+`EnablePolicyType` refuses one with `PolicyTypeNotAvailableForOrganizationException`
+until all features are enabled. Every AWS Organizations list operation pages
+by `MaxResults`, at most 20, and `NextToken`, answering `INVALID_NEXT_TOKEN`
+for a token it never issued, and `ListCreateAccountStatus` filters by
+`States`.
 The documentation jobs free the runner's unused preinstalled SDKs on a
 runner with less than 20 GB free before they unpack the base-image archive,
 as the simulator jobs do.
+The `install-bun` action retries its GitHub release download through curl's
+doubling backoff on every error, riding out minutes of 504 answers.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
