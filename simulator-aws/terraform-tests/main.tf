@@ -388,6 +388,13 @@ resource "aws_autoscaling_group" "tf_asg" {
     value               = "terraform"
     propagate_at_launch = true
   }
+
+  # A second plan reads PropagateAtLaunch back through DescribeAutoScalingGroups.
+  tag {
+    key                 = "team"
+    value               = "group-only"
+    propagate_at_launch = false
+  }
 }
 
 resource "aws_ecs_cluster" "main" {

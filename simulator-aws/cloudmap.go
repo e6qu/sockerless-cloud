@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,8 +236,7 @@ func cmServiceInstances(serviceId string) []CMInstance {
 	return sortBy(out, func(inst CMInstance) string { return inst.Id })
 }
 
-// EQ (the default) and IN match any value; BEGINS_WITH a prefix. BETWEEN
-// applies only to UPDATE_DATE, which the operation-filter path handles.
+// EQ (the default) and IN match any value; BEGINS_WITH a prefix.
 func cmFilterMatch(condition string, values []string, actual string) bool {
 	switch condition {
 	case "BEGINS_WITH":
@@ -1769,7 +1769,31 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type dateRange struct{ start, end float64 }
+	var updated []dateRange
+	for _, f := range req.Filters {
+		if f.Name != "UPDATE_DATE" {
+			continue
+		}
+		if f.Condition != "BETWEEN" || len(f.Values) != 2 {
+			AWSError(w, "InvalidInput", "UPDATE_DATE takes the BETWEEN condition with a start date and an end date.", http.StatusBadRequest)
+			return
+		}
+		start, errStart := strconv.ParseFloat(f.Values[0], 64)
+		end, errEnd := strconv.ParseFloat(f.Values[1], 64)
+		if errStart != nil || errEnd != nil {
+			AWSErrorf(w, "InvalidInput", http.StatusBadRequest, "UPDATE_DATE values must be Unix times, got %q and %q.", f.Values[0], f.Values[1])
+			return
+		}
+		updated = append(updated, dateRange{start, end})
+	}
+
 	matches := func(op CMOperation) bool {
+		for _, d := range updated {
+			if float64(op.UpdateDate) < d.start || float64(op.UpdateDate) > d.end {
+				return false
+			}
+		}
 		for _, f := range req.Filters {
 			var actual string
 			switch f.Name {
@@ -1781,10 +1805,6 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 				actual = op.Status
 			case "TYPE":
 				actual = op.Type
-			case "UPDATE_DATE":
-				// The simulator does not model UPDATE_DATE filtering; it matches every
-				// operation.
-				continue
 			default:
 				continue
 			}

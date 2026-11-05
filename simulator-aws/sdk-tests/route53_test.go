@@ -600,9 +600,9 @@ func TestRoute53_CountsAndGeo(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, aws.ToInt64(countOut.HostedZoneCount), int64(1))
 
-	changeOut, err := c.GetChange(ctx, &route53.GetChangeInput{Id: aws.String("C1234567890")})
-	require.NoError(t, err)
-	assert.Equal(t, r53types.ChangeStatusInsync, changeOut.ChangeInfo.Status)
+	_, err = c.GetChange(ctx, &route53.GetChangeInput{Id: aws.String("C0000000000NOTREAL")})
+	var noChange *r53types.NoSuchChange
+	require.ErrorAs(t, err, &noChange)
 
 	geoOut, err := c.GetGeoLocation(ctx, &route53.GetGeoLocationInput{ContinentCode: aws.String("EU")})
 	require.NoError(t, err)

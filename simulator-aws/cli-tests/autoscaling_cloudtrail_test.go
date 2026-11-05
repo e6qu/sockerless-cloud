@@ -31,7 +31,9 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 		"--min-size", "1",
 		"--max-size", "2",
 		"--desired-capacity", "1",
-		"--vpc-zone-identifier", subnetID))
+		"--vpc-zone-identifier", subnetID,
+		"--tags", "Key=env,Value=cli,PropagateAtLaunch=true",
+		"Key=team,Value=group-only,PropagateAtLaunch=false"))
 
 	firstID := strings.TrimSpace(runCLI(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
 		"--auto-scaling-group-names", "cli-asg",
@@ -46,6 +48,26 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 		"--output", "text"))
 	if fields := strings.Fields(out); len(fields) != 2 || !strings.HasPrefix(fields[0], "i-") || fields[1] != "InService" {
 		t.Fatalf("expected an InService EC2 instance, got %q", out)
+	}
+
+	out = runCLI(t, awsCLI("ec2", "describe-tags",
+		"--filters", "Name=resource-id,Values="+firstID,
+		"--query", "sort_by(Tags, &Key)[].[Key,Value]",
+		"--output", "text"))
+	if got := strings.Fields(out); strings.Join(got, " ") != "aws:autoscaling:groupName cli-asg env cli" {
+		t.Fatalf("expected the instance to carry only the propagated tag and the group name, got %q", out)
+	}
+	out = runCLI(t, awsCLI("autoscaling", "describe-tags",
+		"--filters", "Name=auto-scaling-group,Values=cli-asg", "Name=propagate-at-launch,Values=false",
+		"--query", "Tags[].Key",
+		"--output", "text"))
+	if strings.TrimSpace(out) != "team" {
+		t.Fatalf("expected only the group-only tag, got %q", out)
+	}
+	errOut := runCLIExpectError(t, awsCLI("autoscaling", "describe-auto-scaling-groups",
+		"--filters", "Name=instance-type,Values=t3.micro"))
+	if !strings.Contains(errOut, "ValidationError") {
+		t.Fatalf("expected ValidationError for an unknown filter, got %q", errOut)
 	}
 
 	runCLI(t, awsCLI("autoscaling", "set-desired-capacity",
