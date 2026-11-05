@@ -1430,6 +1430,10 @@ fails once the row closes or the operation is served.
   not list with `ValidationError`. A lifecycle hook's launch notification
   follows the instance's boot, so the SDK test long-polls the queue until the
   message arrives rather than for one 20-second window.
+  An instance a group launches from a launch template carries the template's
+  instance tag specifications merged with the group's propagated tags, the
+  group's value winning on a shared key, as the vendored
+  `ec2-auto-scaling-tagging.md.gz` states.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters

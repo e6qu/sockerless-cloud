@@ -1206,10 +1206,11 @@ func asLaunchMembers(asg *AutoScalingGroup, src ASLaunchSource, n int, cause str
 			Subnet:        subnet,
 			SubnetId:      subnetID,
 			PrivateIP:     ip,
-			Tags:          asInstanceTags(*asg),
-			LaunchTime:    time.Now().UTC().Format(time.RFC3339),
-			KeyName:       spec.keyName,
-			State:         "pending",
+			// The group's tag wins over a launch template tag with the same key.
+			Tags:       mergeEC2Tags(spec.instanceTags, asInstanceTags(*asg)),
+			LaunchTime: time.Now().UTC().Format(time.RFC3339),
+			KeyName:    spec.keyName,
+			State:      "pending",
 		})
 		ec2HostCapacityMu.Unlock()
 		if err != nil {
@@ -1262,6 +1263,8 @@ type asLaunchSpec struct {
 	imageID      string
 	instanceType string
 	keyName      string
+	// instanceTags are the launch template's instance tag specifications.
+	instanceTags []EC2Tag
 	source       ASLaunchSource
 }
 
@@ -1299,6 +1302,7 @@ func asResolveLaunchSource(src ASLaunchSource) (asLaunchSpec, error) {
 			imageID:      v.Data.ImageId,
 			instanceType: v.Data.InstanceType,
 			keyName:      v.Data.KeyName,
+			instanceTags: ltInstanceTags(v.Data),
 			source: ASLaunchSource{LaunchTemplate: ASLaunchTemplateSpec{
 				LaunchTemplateId:   lt.LaunchTemplateId,
 				LaunchTemplateName: lt.LaunchTemplateName,
@@ -1541,6 +1545,16 @@ func autoscalingTags(r *http.Request) []ASGTag {
 
 // The group copies the tags marked PropagateAtLaunch to the instances it
 // launches and names itself in aws:autoscaling:groupName.
+func ltInstanceTags(d EC2LaunchTemplateData) []EC2Tag {
+	var out []EC2Tag
+	for _, ts := range d.TagSpecifications {
+		if ts.ResourceType == "instance" {
+			out = append(out, ts.Tags...)
+		}
+	}
+	return out
+}
+
 func asInstanceTags(asg AutoScalingGroup) []EC2Tag {
 	out := []EC2Tag{{Key: "aws:autoscaling:groupName", Value: asg.Name}}
 	for _, tag := range asg.Tags {
