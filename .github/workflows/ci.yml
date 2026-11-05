@@ -1769,6 +1769,17 @@ jobs:
           images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | grep -E '${{ matrix.base_images_match || '.' }}' | tr '\n' ' ')"
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Free runner disk before restoring the base images
+        # Some ubuntu-24.04 runners carry a 72 GB disk rather than 145 GB, and
+        # unpacking the base-image archive alone fills what is left of it. The
+        # runner's preinstalled SDKs nothing here uses hold the room it needs.
+        run: |
+          df -h /
+          if [ "$(df -m --output=avail / | tail -1 | tr -d ' ')" -lt 20480 ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          fi
+          df -h /
+        timeout-minutes: 5
       - name: Restore the base images
         uses: actions/cache@v6.1.0
         with:

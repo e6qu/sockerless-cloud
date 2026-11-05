@@ -1004,6 +1004,9 @@ an encoded authorization message, an opaque handle on the refusal's decision,
 principal, action, resource and condition values that only AWS STS
 `DecodeAuthorizationMessage` opens, for a caller allowed
 `sts:DecodeAuthorizationMessage`.
+The documentation jobs free the runner's unused preinstalled SDKs on a
+runner with less than 20 GB free before they unpack the base-image archive,
+as the simulator jobs do.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
