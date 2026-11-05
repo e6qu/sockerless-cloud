@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.3.8](https://github.com/e6qu/sockerless-cloud/compare/v3.3.7...v3.3.8) (2026-11-05)
+
+
+### Bug Fixes
+
+* **aws:** run the Organizations all-features migration and page its lists ([413107b](https://github.com/e6qu/sockerless-cloud/commit/413107b1aa5820c241ba76861f1c7556c2f4ced0))
+* **gcp:** source Cloud SQL backup and Firestore pipeline permissions ([ba3fca1](https://github.com/e6qu/sockerless-cloud/commit/ba3fca1135b54392d7a6d2c662c4c2507f0634ac))
+
 ## [3.3.7](https://github.com/e6qu/sockerless-cloud/compare/v3.3.6...v3.3.7) (2026-11-05)
 
 
