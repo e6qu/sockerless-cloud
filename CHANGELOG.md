@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.3.7](https://github.com/e6qu/sockerless-cloud/compare/v3.3.6...v3.3.7) (2026-11-05)
+
+
+### Bug Fixes
+
+* **aws:** encode EC2 refusals and hold Organizations handshakes to their parties ([ed16168](https://github.com/e6qu/sockerless-cloud/commit/ed16168b4db1d7c15fe606d6afa00b8a613aea1b))
+* **aws:** gate AWS Organizations callers and keep removed accounts standalone ([526a78d](https://github.com/e6qu/sockerless-cloud/commit/526a78dc38a95034ca84436b49bf5ec15438c1e9))
+
 ## [3.3.6](https://github.com/e6qu/sockerless-cloud/compare/v3.3.5...v3.3.6) (2026-11-04)
 
 
