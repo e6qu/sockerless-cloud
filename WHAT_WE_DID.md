@@ -1029,8 +1029,9 @@ for a token it never issued, and `ListCreateAccountStatus` filters by
 The documentation jobs free the runner's unused preinstalled SDKs on a
 runner with less than 20 GB free before they unpack the base-image archive,
 as the simulator jobs do.
-The `install-bun` action retries its GitHub release download through curl's
-doubling backoff on every error, riding out minutes of 504 answers.
+The `install-bun` action and `scripts/install-caddy.sh` retry their GitHub
+release downloads through curl's doubling backoff on every error, riding out
+minutes of 504 answers.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with

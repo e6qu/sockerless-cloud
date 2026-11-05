@@ -32,9 +32,11 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 archive="caddy_${version}_linux_${arch}.tar.gz"
 base="https://github.com/caddyserver/caddy/releases/download/v${version}"
+# GitHub release downloads answer 504 for half a minute at a time; curl's own
+# doubling backoff rides out four minutes of that.
 for file in "$archive" "caddy_${version}_checksums.txt"; do
 	curl --fail --location --show-error --silent \
-		--retry 5 --retry-all-errors --retry-delay 5 \
+		--retry 8 --retry-all-errors \
 		--connect-timeout 20 --max-time 300 \
 		--output "$tmpdir/$file" "$base/$file"
 done
