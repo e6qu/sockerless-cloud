@@ -461,38 +461,6 @@ func handleAPIGWv2ExportApi(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(doc)
 }
 
-func handleAPIGWv2GetTags(w http.ResponseWriter, r *http.Request) {
-	arn := sim.PathParam(r, "resourceArn")
-	tags := apigwv2TagsForARN(arn)
-	if tags == nil {
-		tags = map[string]string{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
-}
-
-// ARNs read arn:aws:apigateway:<region>::/apis/<id>, …/domainnames/<name> or
-// …/vpclinks/<id>.
-func apigwv2TagsForARN(arn string) map[string]string {
-	switch {
-	case strings.Contains(arn, "/apis/"):
-		id := arn[strings.LastIndex(arn, "/apis/")+len("/apis/"):]
-		if a, ok := apigwv2Apis.Get(id); ok {
-			return a.Tags
-		}
-	case strings.Contains(arn, "/domainnames/"):
-		name := arn[strings.LastIndex(arn, "/domainnames/")+len("/domainnames/"):]
-		if d, ok := apigwv2DomainNames.Get(name); ok {
-			return d.Tags
-		}
-	case strings.Contains(arn, "/vpclinks/"):
-		id := arn[strings.LastIndex(arn, "/vpclinks/")+len("/vpclinks/"):]
-		if v, ok := apigwv2VpcLinks.Get(id); ok {
-			return v.Tags
-		}
-	}
-	return nil
-}
-
 func handleAPIGWv2DeleteAccessLogSettings(w http.ResponseWriter, r *http.Request) {
 	apiId := sim.PathParam(r, "apiId")
 	stageName := sim.PathParam(r, "stageName")

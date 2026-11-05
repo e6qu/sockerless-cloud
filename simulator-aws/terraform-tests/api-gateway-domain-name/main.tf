@@ -19,11 +19,12 @@ provider "aws" {
   skip_requesting_account_id  = true
 
   endpoints {
-    acm        = var.endpoint
-    apigateway = var.endpoint
-    ec2        = var.endpoint
-    elbv2      = var.endpoint
-    route53    = var.endpoint
+    acm          = var.endpoint
+    apigateway   = var.endpoint
+    apigatewayv2 = var.endpoint
+    ec2          = var.endpoint
+    elbv2        = var.endpoint
+    route53      = var.endpoint
   }
 }
 
@@ -32,8 +33,9 @@ resource "aws_route53_zone" "tf_zone" {
 }
 
 resource "aws_acm_certificate" "tf_cert" {
-  domain_name       = "api.example.test"
-  validation_method = "DNS"
+  domain_name               = "api.example.test"
+  subject_alternative_names = ["http.example.test"]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -151,6 +153,45 @@ resource "aws_api_gateway_vpc_link" "tf_link" {
   tags = {
     team = "network"
   }
+}
+
+resource "aws_apigatewayv2_api" "tf_http" {
+  name          = "tf-domain-http-api"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_stage" "tf_http_default" {
+  api_id      = aws_apigatewayv2_api.tf_http.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_domain_name" "tf_http_domain" {
+  domain_name = "http.example.test"
+
+  domain_name_configuration {
+    certificate_arn = aws_acm_certificate_validation.tf_cert_val.certificate_arn
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+
+  tags = {
+    team = "http"
+  }
+}
+
+resource "aws_apigatewayv2_api_mapping" "tf_http_mapping" {
+  api_id      = aws_apigatewayv2_api.tf_http.id
+  domain_name = aws_apigatewayv2_domain_name.tf_http_domain.id
+  stage       = aws_apigatewayv2_stage.tf_http_default.id
+}
+
+output "http_target_domain_name" {
+  value = aws_apigatewayv2_domain_name.tf_http_domain.domain_name_configuration[0].target_domain_name
+}
+
+output "http_hosted_zone_id" {
+  value = aws_apigatewayv2_domain_name.tf_http_domain.domain_name_configuration[0].hosted_zone_id
 }
 
 output "regional_domain_name" {

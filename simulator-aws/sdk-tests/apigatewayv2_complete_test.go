@@ -255,7 +255,7 @@ func TestAPIGatewayV2_RoutingRulesSDK(t *testing.T) {
 	t.Parallel()
 	c := apigwv2Client()
 	dn := fmt.Sprintf("rr-%d.example.com", time.Now().UnixNano())
-	_, err := c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn)})
+	_, err := c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn), DomainNameConfigurations: apigwv2RegionalConfig(t, dn)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = c.DeleteDomainName(ctx, &apigatewayv2.DeleteDomainNameInput{DomainName: aws.String(dn)})
@@ -350,7 +350,7 @@ func TestAPIGatewayV2_ApiUpdatesSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	dn := fmt.Sprintf("map-%d.example.com", time.Now().UnixNano())
-	_, err = c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn)})
+	_, err = c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn), DomainNameConfigurations: apigwv2RegionalConfig(t, dn)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = c.DeleteDomainName(ctx, &apigatewayv2.DeleteDomainNameInput{DomainName: aws.String(dn)})

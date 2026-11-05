@@ -664,7 +664,7 @@ func handleAPIGWv2DeleteProductRestEndpointPage(w http.ResponseWriter, r *http.R
 
 func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
+	if _, ok := apigwPublicDomain(domainName); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
@@ -692,7 +692,7 @@ func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWv2ListRoutingRules(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
+	if _, ok := apigwPublicDomain(domainName); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
@@ -719,7 +719,7 @@ func handleAPIGWv2GetRoutingRule(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWv2PutRoutingRule(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
 	ruleID := sim.PathParam(r, "routingRuleId")
-	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
+	if _, ok := apigwPublicDomain(domainName); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}

@@ -466,10 +466,8 @@ func TestAPIGatewayV2_DomainNamesMappingsVpcLinks(t *testing.T) {
 	domain := fmt.Sprintf("sdk-%d.example.com", time.Now().UnixNano())
 
 	dn, err := c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{
-		DomainName: aws.String(domain),
-		DomainNameConfigurations: []apigwv2types.DomainNameConfiguration{
-			{EndpointType: apigwv2types.EndpointTypeRegional, CertificateArn: aws.String("arn:aws:acm:us-east-1:000000000000:certificate/abc")},
-		},
+		DomainName:               aws.String(domain),
+		DomainNameConfigurations: apigwv2RegionalConfig(t, domain),
 	})
 	require.NoError(t, err)
 	require.Equal(t, domain, aws.ToString(dn.DomainName))

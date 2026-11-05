@@ -214,9 +214,7 @@ func handleAPIGWCreateDomainName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if endpoint != "PRIVATE" {
-		_, v1 := apigwV1DomainNames.Get(key)
-		_, v2 := apigwv2DomainNames.Get(key)
-		if v1 || v2 {
+		if _, exists := apigwV1DomainNames.Get(key); exists {
 			AWSErrorf(w, "ConflictException", http.StatusConflict, "The domain name you provided already exists.")
 			return
 		}
@@ -244,13 +242,11 @@ func handleAPIGWGetDomainName(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWDeleteDomainName(w http.ResponseWriter, r *http.Request) {
 	key := apigwDomainKey(r)
-	if !apigwV1DomainNames.Delete(key) {
+	if _, ok := apigwV1DomainNames.Get(key); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
-	for _, m := range apigwBasePathMappings.ListPrefix(key + "/") {
-		apigwBasePathMappings.Delete(m.ID)
-	}
+	apigwDeleteDomain(key)
 	w.WriteHeader(http.StatusAccepted)
 }
 

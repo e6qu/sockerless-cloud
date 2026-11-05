@@ -101,17 +101,20 @@ type APIGWv2DomainName struct {
 	DomainNameArn                 string                    `json:"domainNameArn,omitempty"`
 	ApiMappingSelectionExpression string                    `json:"apiMappingSelectionExpression,omitempty"`
 	DomainNameConfigurations      []APIGWv2DomainNameConfig `json:"domainNameConfigurations,omitempty"`
+	RoutingMode                   string                    `json:"routingMode,omitempty"`
 	Tags                          map[string]string         `json:"tags,omitempty"`
 }
 
 type APIGWv2DomainNameConfig struct {
-	ApiGatewayDomainName string `json:"apiGatewayDomainName,omitempty"`
-	CertificateArn       string `json:"certificateArn,omitempty"`
-	CertificateName      string `json:"certificateName,omitempty"`
-	DomainNameStatus     string `json:"domainNameStatus,omitempty"`
-	EndpointType         string `json:"endpointType,omitempty"`
-	HostedZoneId         string `json:"hostedZoneId,omitempty"`
-	SecurityPolicy       string `json:"securityPolicy,omitempty"`
+	ApiGatewayDomainName  string `json:"apiGatewayDomainName,omitempty"`
+	CertificateArn        string `json:"certificateArn,omitempty"`
+	CertificateName       string `json:"certificateName,omitempty"`
+	CertificateUploadDate string `json:"certificateUploadDate,omitempty"`
+	DomainNameStatus      string `json:"domainNameStatus,omitempty"`
+	EndpointType          string `json:"endpointType,omitempty"`
+	HostedZoneId          string `json:"hostedZoneId,omitempty"`
+	SecurityPolicy        string `json:"securityPolicy,omitempty"`
+	IpAddressType         string `json:"ipAddressType,omitempty"`
 }
 
 // Keyed by `<domainName>/<apiMappingId>`.
@@ -142,7 +145,6 @@ var (
 	apigwv2Deployments  sim.Store[APIGWv2Deployment]
 	apigwv2Authorizers  sim.Store[APIGWv2Authorizer]
 	apigwv2Models       sim.Store[APIGWv2Model]
-	apigwv2DomainNames  sim.Store[APIGWv2DomainName]
 	apigwv2ApiMappings  sim.Store[APIGWv2ApiMapping]
 	apigwv2VpcLinks     sim.Store[APIGWv2VpcLink]
 )
@@ -155,7 +157,6 @@ func registerAPIGatewayV2(srv *sim.Server) {
 	apigwv2Deployments = sim.MakeStore[APIGWv2Deployment](srv.DB(), "apigwv2_deployments")
 	apigwv2Authorizers = sim.MakeStore[APIGWv2Authorizer](srv.DB(), "apigwv2_authorizers")
 	apigwv2Models = sim.MakeStore[APIGWv2Model](srv.DB(), "apigwv2_models")
-	apigwv2DomainNames = sim.MakeStore[APIGWv2DomainName](srv.DB(), "apigwv2_domainnames")
 	apigwv2ApiMappings = sim.MakeStore[APIGWv2ApiMapping](srv.DB(), "apigwv2_apimappings")
 	apigwv2VpcLinks = sim.MakeStore[APIGWv2VpcLink](srv.DB(), "apigwv2_vpclinks")
 
@@ -878,79 +879,9 @@ func handleAPIGWv2DeleteModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleAPIGWv2CreateDomainName(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		DomainName               string                    `json:"DomainName"`
-		DomainNameConfigurations []APIGWv2DomainNameConfig `json:"DomainNameConfigurations"`
-		Tags                     map[string]string         `json:"Tags"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	if req.DomainName == "" {
-		AWSError(w, "BadRequestException", "DomainName is required", http.StatusBadRequest)
-		return
-	}
-	if _, ok := apigwv2DomainNames.Get(req.DomainName); ok {
-		AWSErrorf(w, "ConflictException", http.StatusConflict,
-			"The domain name you provided already exists.")
-		return
-	}
-	cfgs := req.DomainNameConfigurations
-	for i := range cfgs {
-		if cfgs[i].DomainNameStatus == "" {
-			cfgs[i].DomainNameStatus = "AVAILABLE"
-		}
-		if cfgs[i].ApiGatewayDomainName == "" {
-			cfgs[i].ApiGatewayDomainName = fmt.Sprintf("d-%s.execute-api.%s.amazonaws.com", apigwRandomLower(10), awsRegion())
-		}
-	}
-	d := APIGWv2DomainName{
-		DomainName:                    req.DomainName,
-		DomainNameArn:                 fmt.Sprintf("arn:aws:apigateway:%s::/domainnames/%s", awsRegion(), req.DomainName),
-		ApiMappingSelectionExpression: "$request.basepath",
-		DomainNameConfigurations:      cfgs,
-		Tags:                          req.Tags,
-	}
-	apigwv2DomainNames.Put(d.DomainName, d)
-	sim.WriteJSON(w, http.StatusCreated, d)
-}
-
-func handleAPIGWv2ListDomainNames(w http.ResponseWriter, r *http.Request) {
-	all := apigwv2DomainNames.List()
-	if all == nil {
-		all = []APIGWv2DomainName{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"items": all})
-}
-
-func handleAPIGWv2GetDomainName(w http.ResponseWriter, r *http.Request) {
-	d, ok := apigwv2DomainNames.Get(sim.PathParam(r, "domainName"))
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, d)
-}
-
-func handleAPIGWv2DeleteDomainName(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	if !apigwv2DomainNames.Delete(domainName) {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
-		return
-	}
-	for _, m := range apigwv2ApiMappings.List() {
-		if m.DomainName == domainName {
-			apigwv2ApiMappings.Delete(domainName + "/" + m.ApiMappingId)
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
+	if _, ok := apigwPublicDomain(domainName); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}
@@ -980,7 +911,7 @@ func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWv2ListApiMappings(w http.ResponseWriter, r *http.Request) {
 	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwv2DomainNames.Get(domainName); !ok {
+	if _, ok := apigwPublicDomain(domainName); !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
 		return
 	}

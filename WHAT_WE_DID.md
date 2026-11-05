@@ -1399,6 +1399,15 @@ fails once the row closes or the operation is served.
   certificate whose common name is its identifier and whose validity ends at
   the `expirationDate` it reports; the private key stays in its own store,
   since no operation returns it.
+  Both API versions serve one set of custom domain names: the v2 handlers
+  read and write the v1 store and render a record as a v2
+  `DomainNameConfiguration`, translating `RoutingMode` between the two enums,
+  so a name either version creates conflicts with, reads through, tags
+  through and deletes through the other. The v2 `CreateDomainName` checks its
+  AWS Certificate Manager certificate as the v1 call does. The v2 API serves
+  every operation of its Smithy model, `TagResource`, `UntagResource`,
+  `UpdateDomainName`, `UpdateDeployment`, `UpdateModel` and `UpdateVpcLink`
+  included.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the
