@@ -1848,6 +1848,19 @@ jobs:
         if: matrix.cloud == 'aws'
         run: bash scripts/install-aws-cli.sh
         timeout-minutes: 5
+      - name: Warm the Go modules the document builds
+        # A document's `go test`, `go install` and `go run` fetch from the
+        # module proxy, which resets streams under load; fetch the modules
+        # through the retrying downloader first, so the document reads a warm
+        # cache.
+        run: |
+          for target in testutil/doctest simulator-${{ matrix.cloud }} simulator-${{ matrix.cloud }}/sdk-tests \
+            simulator-${{ matrix.cloud }}/cli-tests simulator-${{ matrix.cloud }}/terraform-tests \
+            github.com/e6qu/sockerless-cloud/simulator-${{ matrix.cloud }}@main \
+            github.com/e6qu/sockerless-cloud/testutil@main; do
+            bash scripts/ci-go-mod-download.sh "$target"
+          done
+        timeout-minutes: 8
       - name: Run the document
         env:
           # The specification fetchers read GitHub through gh.

@@ -1556,6 +1556,11 @@ images are read out of the source and fetched once per run by one job,
 because a cache miss in every job at once tripped per-minute throttles.
 `docker load` restores no repository digest, so a digest-pinned image is saved
 under the tag that spells its digest and found there.
+Every Go module fetch CI makes goes through bounded, retried attempts,
+because the module proxy resets streams under load: `scripts/ci-go-mod-download.sh`
+warms a module directory, or a `module@version` a document installs, and the
+engine builds of the sidecar and the node agent run `go mod download` in the
+same retried loop before `go build`.
 A simulator job loads its base images in the background
 (`scripts/ci-base-images.sh`) while it compiles, and the engine-image builds
 and the tests wait on that load's lock: in the foreground, restoring and

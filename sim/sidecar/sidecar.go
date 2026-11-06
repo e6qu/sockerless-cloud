@@ -34,6 +34,9 @@ RUN cat /tmp/` + sim.EngineBuildTrustFile + ` >> /etc/ssl/certs/ca-certificates.
 WORKDIR /src
 COPY . .
 ENV CGO_ENABLED=0
+# The module proxy resets streams under load; fetch the dependencies in
+# bounded attempts before the build reads them from the cache.
+RUN for attempt in 1 2 3 4 5 6 7 8; do timeout 50 go mod download && exit 0; sleep 5; done; exit 1
 RUN go build -trimpath -ldflags="-s -w" -o /out/sidecar ./sidecar/cmd/sidecar
 
 FROM scratch
