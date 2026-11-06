@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.10](https://github.com/e6qu/sockerless-cloud/compare/v3.3.9...v3.3.10) (2026-11-06)
+
+
+### Bug Fixes
+
+* **aws:** model API Gateway domains and stages, keep EFS encryption ([eadcbf0](https://github.com/e6qu/sockerless-cloud/commit/eadcbf060711f3e0638b4e11574e4b6706e0131e))
+
 ## [3.3.9](https://github.com/e6qu/sockerless-cloud/compare/v3.3.8...v3.3.9) (2026-11-05)
 
 
