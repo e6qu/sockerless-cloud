@@ -843,10 +843,22 @@ func handleELBv2ModifyTargetGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2ModifyTargetGroupAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TargetGroupArn")
+	current, ok := elbv2TargetGroups.Get(arn)
+	if !ok {
+		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	merged := maps.Clone(current.Attributes)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, parseELBv2Attributes(r, "Attributes"))
+	if msg := elbv2CheckTargetGroupAttributes(merged); msg != "" {
+		elbv2ErrorXML(w, "InvalidConfigurationRequest", msg, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if !elbv2TargetGroups.Update(arn, func(tg *ELBv2TargetGroup) {
-		for k, v := range parseELBv2Attributes(r, "Attributes") {
-			tg.Attributes[k] = v
-		}
+		tg.Attributes = merged
 	}) {
 		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -2114,4 +2126,35 @@ func elbv2SourceNatSetting(r *http.Request, lbType, ipType, current string, mapp
 		}
 	}
 	return setting, "", ""
+}
+
+// elbv2CheckTargetGroupAttributes holds a target group's routing and
+// stickiness attributes to the combinations alb-target-group-attributes
+// allows: weighted random "can not be used with sticky sessions", neither
+// least outstanding requests nor weighted random "can be used with slow start
+// mode", and AWSALB, AWSALBAPP and AWSALBTG are "reserved for use by the load
+// balancer" as an application cookie name.
+func elbv2CheckTargetGroupAttributes(attrs map[string]string) string {
+	algorithm := attrs["load_balancing.algorithm.type"]
+	switch algorithm {
+	case "", "round_robin", "least_outstanding_requests", "weighted_random":
+	default:
+		return "Invalid load_balancing.algorithm.type: " + algorithm
+	}
+	sticky := attrs["stickiness.enabled"] == "true"
+	if sticky && algorithm == "weighted_random" {
+		return "The weighted random routing algorithm cannot be used with sticky sessions"
+	}
+	if slow := attrs["slow_start.duration_seconds"]; slow != "" && slow != "0" && (algorithm == "least_outstanding_requests" || algorithm == "weighted_random") {
+		return "The " + algorithm + " routing algorithm cannot be used with slow start mode"
+	}
+	if sticky && attrs["stickiness.type"] == "app_cookie" {
+		switch name := attrs["stickiness.app_cookie.cookie_name"]; {
+		case name == "":
+			return "stickiness.app_cookie.cookie_name is required for app_cookie stickiness"
+		case name == "AWSALB" || name == "AWSALBTG" || strings.HasPrefix(name, "AWSALBAPP"):
+			return "The cookie name " + name + " is reserved for use by the load balancer"
+		}
+	}
+	return ""
 }

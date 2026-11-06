@@ -1454,7 +1454,15 @@ fails once the row closes or the operation is served.
   `EnablePrefixForIpv6SourceNat`, `off` until set; the setting is `on` only on
   a dualstack load balancer, and a subnet mapping's `SourceNatIpv6Prefix` needs
   it on, as the model states. A load balancer reports the IPAM pool
-  `CreateLoadBalancer` or `ModifyIpPools` gave it.
+  `CreateLoadBalancer` or `ModifyIpPools` gave it. A target group routes by its
+  `load_balancing.algorithm.type` (round robin, least outstanding requests by
+  each target's requests in progress, or weighted random) and holds a client
+  with `lb_cookie` or `app_cookie` stickiness, as the vendored
+  `alb-target-group-attributes.md.gz` describes: the load balancer generated
+  cookie (`AWSALB`, or `AWSALBAPP-0` once the target sets its configured
+  cookie) expires in 7 days and carries its issue time, against which the
+  stickiness duration is enforced. `ModifyTargetGroupAttributes` refuses the
+  combinations that page rules out.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
