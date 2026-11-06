@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
+	"hash/fnv"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"strconv"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 // A Network Load Balancer TCP / TCP_UDP listener forwards the raw byte stream,
@@ -90,12 +94,12 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	listenerArn := listener.Arn
 	// What each chosen target's security groups admit, per target address.
 	var admissions sync.Map
-	resolver := func(context.Context) (string, error) {
+	resolver := func(_ context.Context, flow lbplane.Flow) (string, error) {
 		current, ok := elbv2Listeners.Get(listenerArn)
 		if !ok {
 			return "", fmt.Errorf("listener %s no longer exists", listenerArn)
 		}
-		tg, target, ok := elbv2HealthyTargetForListener(current)
+		tg, target, ok := elbv2FlowTargetForListener(current, flow)
 		if !ok {
 			return "", fmt.Errorf("no healthy targets for listener %s", listenerArn)
 		}
@@ -215,4 +219,54 @@ func elbv2WorkloadExtraHosts() []string {
 		out = append(out, e.Name+":"+e.IP)
 	}
 	return out
+}
+
+// Picks the target group as a forward action does, then the target as a
+// Network Load Balancer does (nlb-introduction): by a flow hash over the
+// protocol, both ends' addresses and ports and the TCP sequence number. A
+// group with source_ip stickiness routes "all traffic from the same source IP
+// address" to one target (nlb-target-group-attributes), except behind a TLS
+// listener, which does not support sticky sessions. Hashing over the ready
+// targets moves a sticky client when they change, the reset that page allows.
+func elbv2FlowTargetForListener(listener ELBv2Listener, flow lbplane.Flow) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
+	for _, action := range listener.DefaultActions {
+		var groups []revisions.Weighted[ELBv2TargetGroup]
+		add := func(arn string, weight int) {
+			if tg, ok := elbv2TargetGroups.Get(arn); ok && len(elbv2ReadyTargets(tg)) > 0 {
+				groups = append(groups, revisions.Weighted[ELBv2TargetGroup]{Revision: tg, Weight: weight})
+			}
+		}
+		switch {
+		case action.Forward != nil && len(action.Forward.TargetGroups) > 0:
+			for _, tuple := range action.Forward.TargetGroups {
+				weight := 1
+				if tuple.Weight != nil {
+					weight = *tuple.Weight
+				}
+				add(tuple.TargetGroupArn, weight)
+			}
+		case action.TargetGroupArn != "":
+			add(action.TargetGroupArn, 1)
+		}
+		tg, ok := revisions.Pick(groups)
+		if !ok {
+			continue
+		}
+		ready := elbv2ReadyTargets(tg)
+		hash := fnv.New64a()
+		// source_ip is a Network Load Balancer's only stickiness type, so a
+		// group that enables stickiness without naming one has it.
+		if kind := tg.Attributes["stickiness.type"]; tg.Attributes["stickiness.enabled"] == "true" && (kind == "" || kind == "source_ip") &&
+			!strings.EqualFold(listener.Protocol, "TLS") {
+			_, _ = hash.Write(flow.Client.Addr().AsSlice())
+		} else {
+			_, _ = fmt.Fprint(hash, strings.ToUpper(listener.Protocol), flow.Client, flow.Local)
+			// The client's kernel draws its initial sequence number
+			// unpredictably (RFC 6528) and no socket call reads it, so a fresh
+			// random number enters the hash in its place.
+			_ = binary.Write(hash, binary.BigEndian, rand.Uint32())
+		}
+		return tg, ready[hash.Sum64()%uint64(len(ready))], true
+	}
+	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, false
 }

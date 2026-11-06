@@ -208,13 +208,6 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 	return 80
 }
 
-// "Each load balancer node routes requests only to the healthy targets" as
-// its checker maintains them, never probing on request.
-func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	tg, target, _, ok := elbv2HealthyTargetForActions(nil, listener.DefaultActions)
-	return tg, target, ok
-}
-
 // AWSALBTG carries a weighted forward's target group stickiness, AWSALB a
 // target group's lb_cookie stickiness.
 const (

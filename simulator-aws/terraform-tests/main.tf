@@ -2347,6 +2347,24 @@ resource "aws_lb" "tf_nlb" {
   }
 }
 
+# A Network Load Balancer target group keeps a client address on one target.
+resource "aws_lb_target_group" "tf_nlb_tg" {
+  name        = "tf-nlb-tg"
+  port        = 80
+  protocol    = "TCP"
+  vpc_id      = aws_vpc.tf_ec2_vpc.id
+  target_type = "ip"
+
+  stickiness {
+    enabled = true
+    type    = "source_ip"
+  }
+}
+
+output "elbv2_nlb_target_group_stickiness_type" {
+  value = one(aws_lb_target_group.tf_nlb_tg.stickiness).type
+}
+
 output "ec2_nlb_eip_allocation_id" {
   value = aws_eip.tf_nlb_eip.id
 }
