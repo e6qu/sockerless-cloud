@@ -818,7 +818,16 @@ func ecRecoverMigrations() {
 		case ecMigrationCuttingOver:
 			ecEndServerlessMigration(name)
 		case ecMigrationSyncing:
-			ecServerlessCaches.Update(name, func(stored *ECServerlessCache) { stored.Migration.Failed = true })
+			// The link the old process held is gone, and the offset it reached
+			// went with it, so the sync starts over: the target is cleared and
+			// takes a full synchronisation of the source as it now stands.
+			if !ecRunsEngines() {
+				ecServerlessCaches.Update(name, func(stored *ECServerlessCache) { stored.Migration.Failed = true })
+				continue
+			}
+			ecMoveMigration(name, []string{ecMigrationSyncing}, func(m *ECServerlessCacheMigration) { m.Status = ecMigrationInitiatingSync })
+			migration := *c.Migration
+			bg.Go(func() { ecRunServerlessSync(name, migration, true) })
 		case ecMigrationReadyToSync:
 		case ecMigrationStopping:
 			ecServerlessCaches.Update(name, func(stored *ECServerlessCache) {

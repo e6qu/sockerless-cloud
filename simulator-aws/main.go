@@ -243,6 +243,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerHostMetadata(srv)
 
 	registerBatch(srv)
+	if err := recoverElastiCache(); err != nil {
+		return nil, nil, nil, err
+	}
 	if options.startBackgroundEvaluators {
 		if err := recoverECSTasks(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore Amazon Elastic Container Service tasks: %w", err)

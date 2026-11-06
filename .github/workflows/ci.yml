@@ -1766,30 +1766,38 @@ jobs:
             run: TestDocs/docs/tutorial-contributing.md
             # Loading all 37 of the module's images took the job past its budget.
             base_images_match: "/golang:|/amazonlinux:"
+          # Installing a simulator and running its release image start no
+          # container, and loading every base image ran these past the budget.
           - part: aws readme install
             cloud: aws
             run: TestDocs/simulator-aws/README.md/install
+            base_images: none
           - part: aws readme image
             cloud: aws
             run: TestDocs/simulator-aws/README.md/image
+            base_images: none
           - part: aws readme checkout
             cloud: aws
             run: TestDocs/simulator-aws/README.md/checkout
           - part: gcp readme install
             cloud: gcp
             run: TestDocs/simulator-gcp/README.md/install
+            base_images: none
           - part: gcp readme image
             cloud: gcp
             run: TestDocs/simulator-gcp/README.md/image
+            base_images: none
           - part: gcp readme checkout
             cloud: gcp
             run: TestDocs/simulator-gcp/README.md/checkout
           - part: azure readme install
             cloud: azure
             run: TestDocs/simulator-azure/README.md/install
+            base_images: none
           - part: azure readme image
             cloud: azure
             run: TestDocs/simulator-azure/README.md/image
+            base_images: none
           - part: azure readme checkout
             cloud: azure
             run: TestDocs/simulator-azure/README.md/checkout
@@ -1852,12 +1860,14 @@ jobs:
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
       - name: Resolve the base images this job runs containers from
+        if: matrix.base_images != 'none'
         id: base-images-list
         run: |
           images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | grep -E '${{ matrix.base_images_match || '.' }}' | tr '\n' ' ')"
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Free runner disk before restoring the base images
+        if: matrix.base_images != 'none'
         # Some ubuntu-24.04 runners carry a 72 GB disk rather than 145 GB, and
         # unpacking the base-image archive alone fills what is left of it. The
         # runner's preinstalled SDKs nothing here uses hold the room it needs.
@@ -1869,12 +1879,14 @@ jobs:
           df -h /
         timeout-minutes: 5
       - name: Restore the base images
+        if: matrix.base_images != 'none'
         uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
           restore-keys: ${{ !matrix.base_images_match && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
       - name: Load or fetch the base images
+        if: matrix.base_images != 'none'
         # Priming a cache: an image the registry refuses fails where it is used.
         continue-on-error: true
         run: |

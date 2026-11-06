@@ -80,6 +80,8 @@ func TestRedisCLI_OperationsAndNameAvailability(t *testing.T) {
 	t.Parallel()
 	opsOut := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Cache/operations?api-version=2024-11-01", ""))
 	require.Contains(t, opsOut, "Microsoft.Cache/redis/read")
+	require.Contains(t, opsOut, "Microsoft.Cache/redis/import/action")
+	require.Contains(t, opsOut, "Microsoft.Cache/redis/export/action")
 
 	// Azure Cache for Redis answers 200 with no body for an available name.
 	checkURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Cache/checkNameAvailability?api-version=2024-11-01", baseURL, subscriptionID)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -82,6 +83,10 @@ type ECUserGroup struct {
 	UserIds              []string
 	ARN                  string
 	Tags                 map[string]string
+	// The members a change adds and removes, reported as PendingChanges
+	// while the group is modifying.
+	PendingUserIdsToAdd    []string `json:",omitempty"`
+	PendingUserIdsToRemove []string `json:",omitempty"`
 }
 
 var (
@@ -199,16 +204,24 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DescribeCacheSecurityGroups", handleECDescribeCacheSecurityGroups)
 	registerElastiCacheServerless(r, srv)
 	ecEngineRecords = sim.MakeStore[ecEngineRecord](srv.DB(), "elasticache_engines")
-	// A persistent restart rebinds endpoints, re-adopts engine workloads and
-	// resumes unfinished transitions. The API-only tier runs no engines.
+}
+
+// recoverElastiCache has a persistent restart rebind endpoints, re-adopt
+// engine workloads and resume unfinished transitions; the API-only tier runs
+// no engines. It runs once every slice is registered, since a resumed engine
+// start needs the Route 53 Resolver's network sidecars.
+func recoverElastiCache() error {
 	if ecRunsEngines() {
 		if err := ecRecoverEngines(); err != nil {
-			panic(fmt.Sprintf("recover Amazon ElastiCache data planes: %v", err))
+			return fmt.Errorf("recover Amazon ElastiCache data planes: %w", err)
 		}
 	}
-	ecRecoverTransitions()
+	// Snapshots settle first, so a resumed restore holds its snapshot at
+	// restoring again.
 	ecRecoverSnapshots()
+	ecRecoverTransitions()
 	ecRecoverMigrations()
+	return nil
 }
 
 func ecReservedNodeARN(id string) string {
@@ -292,7 +305,7 @@ func handleECCreateSubnetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := ecSubnetGrps.Get(name); ok {
-		ecErrorXML(w, "CacheSubnetGroupAlreadyExistsFault", "Cache subnet group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheSubnetGroupAlreadyExists", "Cache subnet group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	g := ECSubnetGroup{
@@ -373,7 +386,7 @@ func handleECCreateParamGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := ecParamGroups.Get(name); ok {
-		ecErrorXML(w, "CacheParameterGroupAlreadyExistsFault", "Cache parameter group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupAlreadyExists", "Cache parameter group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	g := ECParameterGroup{
@@ -400,7 +413,7 @@ func handleECDescribeParamGroups(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(renderECParamGroup(g))
 	}
 	if wanted != "" && !matched {
-		ecErrorXML(w, "CacheParameterGroupNotFoundFault", fmt.Sprintf("Cache parameter group %q not found", wanted), http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupNotFound", fmt.Sprintf("Cache parameter group %q not found", wanted), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	b.WriteString("</CacheParameterGroups>")
@@ -410,7 +423,7 @@ func handleECDescribeParamGroups(w http.ResponseWriter, r *http.Request) {
 func handleECDeleteParamGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("CacheParameterGroupName")
 	if _, ok := ecParamGroups.Get(name); !ok {
-		ecErrorXML(w, "CacheParameterGroupNotFoundFault", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupNotFound", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	ecParamGroups.Delete(name)
@@ -514,15 +527,6 @@ func ecFindTaggedResource(arn string) (ecTaggedResource, bool) {
 	return ecTaggedResource{}, false
 }
 
-// Persists the change and returns the resulting map.
-func ecMutateTags(arn string, fn func(map[string]string)) (map[string]string, bool) {
-	resource, ok := ecFindTaggedResource(arn)
-	if !ok {
-		return nil, false
-	}
-	return resource.mutate(fn), true
-}
-
 func ecRenderTagList(tags map[string]string) string {
 	var b strings.Builder
 	b.WriteString("<TagList>")
@@ -533,33 +537,108 @@ func ecRenderTagList(tags map[string]string) string {
 	return b.String()
 }
 
-func handleECAddTags(w http.ResponseWriter, r *http.Request) {
+// ecTagResourceFaults are the faults the tagging operations answer for a
+// resource of each ARN type that does not exist.
+var ecTagResourceFaults = map[string]struct {
+	code   string
+	status int
+}{
+	"cluster":                 {"CacheClusterNotFound", http.StatusNotFound},
+	"replicationgroup":        {"ReplicationGroupNotFoundFault", http.StatusNotFound},
+	"parametergroup":          {"CacheParameterGroupNotFound", http.StatusNotFound},
+	"subnetgroup":             {"CacheSubnetGroupNotFoundFault", http.StatusBadRequest},
+	"securitygroup":           {"CacheSecurityGroupNotFound", http.StatusNotFound},
+	"snapshot":                {"SnapshotNotFoundFault", http.StatusNotFound},
+	"user":                    {"UserNotFound", http.StatusNotFound},
+	"usergroup":               {"UserGroupNotFound", http.StatusNotFound},
+	"reserved-instance":       {"ReservedCacheNodeNotFound", http.StatusNotFound},
+	"globalreplicationgroup":  {"GlobalReplicationGroupNotFoundFault", http.StatusNotFound},
+	"serverlesscache":         {"ServerlessCacheNotFoundFault", http.StatusNotFound},
+	"serverlesscachesnapshot": {"ServerlessCacheSnapshotNotFoundFault", http.StatusNotFound},
+}
+
+// ecMaxTags is the model's TagQuotaPerResourceExceeded: "The maximum number
+// of tags permitted on a resource is 50."
+const ecMaxTags = 50
+
+// ecTaggableResource finds the resource a tagging request names, or writes
+// the fault the model lists for an ARN that names none, for a resource of
+// that type that does not exist, or, when changing its tags, for one whose
+// state the model refuses.
+func ecTaggableResource(w http.ResponseWriter, r *http.Request, changing bool) (ecTaggedResource, bool) {
 	arn := r.FormValue("ResourceName")
-	tags, ok := ecMutateTags(arn, func(m map[string]string) {
-		for n := 1; n <= 50; n++ {
-			k := r.FormValue(fmt.Sprintf("Tags.Tag.%d.Key", n))
-			v := r.FormValue(fmt.Sprintf("Tags.Tag.%d.Value", n))
-			if k == "" {
-				break
-			}
-			m[k] = v
-		}
-	})
+	parts := strings.SplitN(arn, ":", 7)
+	if len(parts) != 7 || parts[0] != "arn" || parts[2] != "elasticache" {
+		ecErrorXML(w, "InvalidARN", fmt.Sprintf("%s is not a valid ElastiCache ARN", arn), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return ecTaggedResource{}, false
+	}
+	fault, known := ecTagResourceFaults[parts[5]]
+	if !known {
+		ecErrorXML(w, "InvalidARN", fmt.Sprintf("%s does not name an ElastiCache resource type", arn), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return ecTaggedResource{}, false
+	}
+	resource, ok := ecFindTaggedResource(arn)
 	if !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, fault.code, fmt.Sprintf("%s not found", parts[6]), fault.status, sim.RequestID(r.Context()))
+		return ecTaggedResource{}, false
+	}
+	if !changing {
+		return resource, true
+	}
+	state, stateFault := "", ""
+	switch parts[5] {
+	case "replicationgroup":
+		if g, ok := ecReplGroups.Get(parts[6]); ok {
+			state, stateFault = g.Status, "InvalidReplicationGroupState"
+		}
+	case "serverlesscache":
+		if c, ok := ecServerlessCaches.Get(parts[6]); ok {
+			state, stateFault = c.Status, "InvalidServerlessCacheStateFault"
+		}
+	case "serverlesscachesnapshot":
+		if s, ok := ecServerlessSnapshots.Get(parts[6]); ok {
+			state, stateFault = s.Status, "InvalidServerlessCacheSnapshotStateFault"
+		}
+	}
+	if stateFault != "" && state != "available" {
+		ecErrorXML(w, stateFault, fmt.Sprintf("%s is %s, not available", parts[6], state), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return ecTaggedResource{}, false
+	}
+	return resource, true
+}
+
+func handleECAddTags(w http.ResponseWriter, r *http.Request) {
+	resource, ok := ecTaggableResource(w, r, true)
+	if !ok {
 		return
 	}
+	added := map[string]string{}
+	for n := 1; ; n++ {
+		k := r.FormValue(fmt.Sprintf("Tags.Tag.%d.Key", n))
+		if k == "" {
+			break
+		}
+		added[k] = r.FormValue(fmt.Sprintf("Tags.Tag.%d.Value", n))
+	}
+	merged := maps.Clone(resource.tags)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, added)
+	if len(merged) > ecMaxTags {
+		ecErrorXML(w, "TagQuotaPerResourceExceeded", fmt.Sprintf("The maximum number of tags permitted on a resource is %d", ecMaxTags), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	tags := resource.mutate(func(m map[string]string) { maps.Copy(m, added) })
 	ecXMLResponse(w, "AddTagsToResource", ecRenderTagList(tags), sim.RequestID(r.Context()))
 }
 
 func handleECListTags(w http.ResponseWriter, r *http.Request) {
-	arn := r.FormValue("ResourceName")
-	tags, ok := ecLookupTags(arn)
+	resource, ok := ecTaggableResource(w, r, false)
 	if !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	ecXMLResponse(w, "ListTagsForResource", ecRenderTagList(tags), sim.RequestID(r.Context()))
+	ecXMLResponse(w, "ListTagsForResource", ecRenderTagList(resource.tags), sim.RequestID(r.Context()))
 }
 
 func ecLookupTags(arn string) (map[string]string, bool) {
@@ -568,20 +647,27 @@ func ecLookupTags(arn string) (map[string]string, bool) {
 }
 
 func handleECRemoveTags(w http.ResponseWriter, r *http.Request) {
-	arn := r.FormValue("ResourceName")
-	tags, ok := ecMutateTags(arn, func(m map[string]string) {
-		for n := 1; n <= 50; n++ {
-			k := r.FormValue(fmt.Sprintf("TagKeys.member.%d", n))
-			if k == "" {
-				break
-			}
+	resource, ok := ecTaggableResource(w, r, true)
+	if !ok {
+		return
+	}
+	var keys []string
+	for n := 1; ; n++ {
+		k := r.FormValue(fmt.Sprintf("TagKeys.member.%d", n))
+		if k == "" {
+			break
+		}
+		if _, held := resource.tags[k]; !held {
+			ecErrorXML(w, "TagNotFound", fmt.Sprintf("The tag %s was not found on this resource", k), http.StatusNotFound, sim.RequestID(r.Context()))
+			return
+		}
+		keys = append(keys, k)
+	}
+	tags := resource.mutate(func(m map[string]string) {
+		for _, k := range keys {
 			delete(m, k)
 		}
 	})
-	if !ok {
-		ecErrorXML(w, "CacheClusterNotFound", "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
 	ecXMLResponse(w, "RemoveTagsFromResource", ecRenderTagList(tags), sim.RequestID(r.Context()))
 }
 
@@ -863,7 +949,7 @@ func handleECDescribeParameters(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("CacheParameterGroupName")
 	g, ok := ecParamGroups.Get(name)
 	if !ok {
-		ecErrorXML(w, "CacheParameterGroupNotFoundFault", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupNotFound", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	var b strings.Builder
@@ -906,7 +992,7 @@ func ecParseParameterNameValues(r *http.Request) map[string]string {
 func handleECModifyParameters(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("CacheParameterGroupName")
 	if _, ok := ecParamGroups.Get(name); !ok {
-		ecErrorXML(w, "CacheParameterGroupNotFoundFault", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupNotFound", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	updates := ecParseParameterNameValues(r)
@@ -926,7 +1012,7 @@ func handleECModifyParameters(w http.ResponseWriter, r *http.Request) {
 func handleECResetParameters(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("CacheParameterGroupName")
 	if _, ok := ecParamGroups.Get(name); !ok {
-		ecErrorXML(w, "CacheParameterGroupNotFoundFault", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		ecErrorXML(w, "CacheParameterGroupNotFound", "Cache parameter group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	resetAll := strings.EqualFold(r.FormValue("ResetAllParameters"), "true")

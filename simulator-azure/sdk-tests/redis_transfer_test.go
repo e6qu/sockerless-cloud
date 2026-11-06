@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
@@ -138,6 +139,11 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 	target := createPremiumRedisCache(t, client, rg, "redis-transfer-target", nil)
 	require.NotNil(t, source.Identity)
 	require.NotNil(t, source.Identity.PrincipalID, "a system-assigned identity carries a principal")
+	identities, err := armmsi.NewSystemAssignedIdentitiesClient(&fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	byScope, err := identities.GetByScope(ctx, strings.TrimPrefix(*source.ID, "/"), nil)
+	require.NoError(t, err, "SystemAssignedIdentities_GetByScope resolves a cache")
+	assert.Equal(t, *source.Identity.PrincipalID, *byScope.Properties.PrincipalID)
 
 	sourceKeys := redisTLSClient(t, client, rg, source)
 	require.NoError(t, sourceKeys.Set(ctx, "greeting", "hello from the source", 0).Err())
@@ -160,6 +166,11 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 
 	require.NoError(t, sourceKeys.FlushAll(ctx).Err())
 	require.NoError(t, sourceKeys.Set(ctx, "counter", "42", 0).Err())
+	inFive := *sourceKeys.Options()
+	inFive.DB = 5
+	sourceFive := goredis.NewClient(&inFive)
+	t.Cleanup(func() { sourceFive.Close() })
+	require.NoError(t, sourceFive.Set(ctx, "in-five", "kept in database 5", 0).Err())
 	require.NoError(t, exportRedis(client, rg, "redis-transfer-source", armredis.ExportRDBParameters{
 		Container: ptrStr(storage.sasURL), Prefix: ptrStr("second"),
 	}))
@@ -177,6 +188,12 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 	assert.Greater(t, remaining, time.Duration(0), "a key keeps its time to live")
 	assert.LessOrEqual(t, remaining, time.Hour)
 	assert.Zero(t, targetKeys.Exists(ctx, "preexisting").Val(), "importing deletes the cache's existing data")
+	targetFive := *targetKeys.Options()
+	targetFive.DB = 5
+	targetKeysFive := goredis.NewClient(&targetFive)
+	t.Cleanup(func() { targetKeysFive.Close() })
+	assert.Equal(t, "kept in database 5", targetKeysFive.Get(ctx, "in-five").Val(),
+		"a file after the first keeps its keys in their databases")
 
 	t.Run("managed identity needs a role on the storage account", func(t *testing.T) {
 		err := exportRedis(client, rg, "redis-transfer-source", armredis.ExportRDBParameters{
@@ -239,6 +256,15 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 		requireRedisTransferFailure(t, err, "BadRequest", "is not an RDB file", "a file that is not an RDB file")
 		assert.Equal(t, "42", redisTLSClient(t, client, rg, target).Get(ctx, "counter").Val(),
 			"a refused import leaves the cache's data in place")
+
+		_, err = storage.container.NewBlockBlobClient("corrupt.rdb").UploadBuffer(ctx, []byte("REDIS0009\xfa\x09truncated"), nil)
+		require.NoError(t, err)
+		err = importRedis(client, rg, "redis-transfer-target", armredis.ImportRDBParameters{
+			Files: []*string{ptrStr(storage.blobURL(t, "corrupt.rdb"))},
+		})
+		require.Error(t, err, "an RDB file that fails to load fails the import")
+		assert.Equal(t, "42", redisTLSClient(t, client, rg, target).Get(ctx, "counter").Val(),
+			"a file that fails to load leaves the cache serving its data")
 
 		_, err = client.BeginExportData(ctx, rg, "redis-transfer-source", armredis.ExportRDBParameters{
 			Container: ptrStr(storage.sasURL), Prefix: ptrStr("gz"), Format: ptrStr("GZIP"),

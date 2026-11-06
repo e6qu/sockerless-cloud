@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -312,5 +313,128 @@ func TestMemcachedNodesServeTheirEndpoints(t *testing.T) {
 	}
 	if got := plane.Nodes(); len(got) != 1 || got[0] != 0 {
 		t.Fatalf("nodes after shrinking to one: %v", got)
+	}
+}
+
+// A cluster whose endpoints serve a port other than Redis's own redirects a
+// client to the endpoint that serves the key's slot at that port, whether its
+// engine announces endpoints by hostname (Redis 7) or names its nodes'
+// network addresses, which the endpoints rewrite (Redis 6.2).
+func TestClusterRedirectsToItsEndpointsOnTheirPort(t *testing.T) {
+	for name, image := range map[string]string{"redis-6.2": "mirror.gcr.io/library/redis:6.2-alpine", "redis-7.2": redisImage} {
+		t.Run(name, func(t *testing.T) {
+			const port = 6390
+			cfg := engineTestConfig(t, t.Name())
+			cfg.Image = image
+			cfg.Cluster = true
+			listeners, endpoints, err := Bind(cfg.Owner, []Endpoint{
+				{Role: DiscoveryEndpoint, Port: port}, {Role: NodeEndpoint, Port: port, Node: 0}, {Role: NodeEndpoint, Port: port, Node: 1},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cluster := New(cfg, Record{Endpoints: endpoints, Nodes: []int{0, 1}, Shards: 2})
+			t.Cleanup(cluster.Remove)
+			cluster.ServeEndpoints(listeners)
+			if err := cluster.Ensure(); err != nil {
+				t.Fatal(err)
+			}
+			served := map[string]bool{}
+			for _, endpoint := range cluster.Endpoints() {
+				if endpoint.Role == NodeEndpoint {
+					served[net.JoinHostPort(endpoint.Address, strconv.Itoa(port))] = true
+				}
+			}
+			discovery, err := Dial(endpointAddress(t, cluster.Endpoints(), DiscoveryEndpoint), "", 10*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer discovery.Close()
+			shards, _ := mustDo(t, discovery, "CLUSTER", "SLOTS").([]any)
+			if len(shards) != 2 {
+				t.Fatalf("CLUSTER SLOTS = %v", shards)
+			}
+			for _, shard := range shards {
+				owner, _ := shard.([]any)[2].([]any)
+				if at := net.JoinHostPort(fmt.Sprint(owner[0]), fmt.Sprint(owner[1])); !served[at] {
+					t.Fatalf("CLUSTER SLOTS names %s, not a node endpoint among %v", at, served)
+				}
+			}
+			moved := 0
+			for i := 0; i < 20; i++ {
+				key := fmt.Sprintf("key-%d", i)
+				_, err := discovery.Do("SET", key, "v")
+				var refused Error
+				if err == nil || !errors.As(err, &refused) {
+					continue
+				}
+				fields := strings.Fields(string(refused))
+				if len(fields) != 3 || fields[0] != "MOVED" || !served[fields[2]] {
+					t.Fatalf("SET %s: %v", key, err)
+				}
+				owner, err := Dial(fields[2], "", 10*time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				mustDo(t, owner, "SET", key, "v")
+				_ = owner.Close()
+				moved++
+			}
+			if moved == 0 {
+				t.Fatal("no key's slot belonged to the other shard, so no redirection was followed")
+			}
+		})
+	}
+}
+
+// An instance copies each of the source's databases into the database of the
+// same number.
+func TestInstanceCopiesEveryDatabase(t *testing.T) {
+	plane := func(name string) *Plane {
+		cfg := engineTestConfig(t, name)
+		cfg.Image = redisImage
+		listeners, endpoints, err := Bind(cfg.Owner, []Endpoint{{Role: PrimaryEndpoint}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := New(cfg, Record{Endpoints: endpoints, Nodes: []int{0}})
+		t.Cleanup(p.Remove)
+		p.ServeEndpoints(listeners)
+		if err := p.Ensure(); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	source, target := plane(t.Name()+"-source"), plane(t.Name())
+	writer, err := Dial(endpointAddress(t, source.Endpoints(), PrimaryEndpoint), "", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	mustDo(t, writer, "SET", "in-zero", "0")
+	mustDo(t, writer, "SELECT", "3")
+	mustDo(t, writer, "SET", "in-three", "3")
+	reader, err := Dial(endpointAddress(t, source.Endpoints(), PrimaryEndpoint), "", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if copied, err := target.CopyFrom(reader); err != nil || copied != 2 {
+		t.Fatalf("copied %d keys: %v", copied, err)
+	}
+	check, err := Dial(endpointAddress(t, target.Endpoints(), PrimaryEndpoint), "", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer check.Close()
+	if value := mustDo(t, check, "GET", "in-zero"); value != "0" {
+		t.Fatalf("database 0 holds %v", value)
+	}
+	if value, _ := check.Do("GET", "in-three"); value != nil {
+		t.Fatalf("database 0 took database 3's key: %v", value)
+	}
+	mustDo(t, check, "SELECT", "3")
+	if value := mustDo(t, check, "GET", "in-three"); value != "3" {
+		t.Fatalf("database 3 holds %v", value)
 	}
 }

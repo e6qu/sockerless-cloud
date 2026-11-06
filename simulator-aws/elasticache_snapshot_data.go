@@ -129,8 +129,20 @@ func ecEngineIsCluster(key string) bool {
 // negative. The caller holds engine.opMu.
 func ecCaptureSnapshot(engine *ecEngine, node int) (ecSnapshotContent, error) {
 	var content ecSnapshotContent
+	if engine.memcached != nil {
+		data, err := engine.memcached.Dump()
+		if err != nil {
+			return content, err
+		}
+		ref, digests, err := ecSnapshotPayloads.Write(data)
+		if err != nil {
+			return content, err
+		}
+		content.Files = []ecSnapshotFile{{NodeGroupID: ecCacheNodeID(0), Ref: ref, Size: digests.Size}}
+		return content, nil
+	}
 	if engine.redis == nil {
-		return content, errors.New("a Memcached engine writes no snapshot")
+		return content, errors.New("the engine runs no node")
 	}
 	if err := engine.redis.Ensure(); err != nil {
 		return content, err
@@ -241,6 +253,49 @@ type ecRestore struct {
 	sources  []cacheengine.ImportSource
 	engine   string
 	version  string
+	from     *ecRestoreSource
+}
+
+// ecRestoreSource names what a restore loads: a node-based snapshot, RDB
+// files in Amazon S3, or snapshots by ARN for a serverless cache.
+type ecRestoreSource struct {
+	Snapshot       string   `json:",omitempty"`
+	S3ARNs         []string `json:",omitempty"`
+	ServerlessARNs []string `json:",omitempty"`
+}
+
+// ecResolveRestore reads a restore's files again from what it names.
+func ecResolveRestore(from *ecRestoreSource) (ecRestore, error) {
+	restore := ecRestore{from: from}
+	if from == nil {
+		return restore, nil
+	}
+	if from.Snapshot != "" {
+		sources, err := ecSnapshotSources(ecNodeSnapshotKey(from.Snapshot), from.Snapshot)
+		if err != nil {
+			return restore, err
+		}
+		restore.snapshot, restore.sources = from.Snapshot, sources
+	}
+	for _, arn := range from.S3ARNs {
+		source, message := ecS3RDB(arn)
+		if message != "" {
+			return restore, errors.New(message)
+		}
+		restore.sources = append(restore.sources, source)
+	}
+	for _, arn := range from.ServerlessARNs {
+		key, name, _, _, found := ecSnapshotByARN(arn)
+		if !found {
+			return restore, fmt.Errorf("snapshot %s not found", arn)
+		}
+		sources, err := ecSnapshotSources(key, name)
+		if err != nil {
+			return restore, err
+		}
+		restore.sources = append(restore.sources, sources...)
+	}
+	return restore, nil
 }
 
 func (rs ecRestore) any() bool { return rs.snapshot != "" || len(rs.sources) > 0 }
@@ -278,6 +333,14 @@ func (e *ecRestoreError) Error() string { return "restore the snapshot: " + e.er
 func (e *ecRestoreError) Unwrap() error { return e.err }
 
 func ecLoadRDBs(engine *ecEngine, cluster bool, sources []cacheengine.ImportSource) error {
+	if len(sources) > 0 && engine.memcached != nil {
+		for _, source := range sources {
+			if err := engine.memcached.Load(source.Data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if len(sources) == 0 || engine.redis == nil {
 		return nil
 	}
@@ -318,7 +381,7 @@ func ecRequestedRestore(w http.ResponseWriter, r *http.Request) (ecRestore, bool
 			ecErrorXML(w, "InternalFailure", err.Error(), http.StatusInternalServerError, requestID)
 			return restore, false
 		}
-		restore = ecRestore{snapshot: name, sources: sources, engine: s.Engine, version: s.EngineVersion}
+		restore = ecRestore{snapshot: name, sources: sources, engine: s.Engine, version: s.EngineVersion, from: &ecRestoreSource{Snapshot: name}}
 	case len(arns) > 0:
 		for _, arn := range arns {
 			source, message := ecS3RDB(arn)
@@ -328,6 +391,7 @@ func ecRequestedRestore(w http.ResponseWriter, r *http.Request) (ecRestore, bool
 			}
 			restore.sources = append(restore.sources, source)
 		}
+		restore.from = &ecRestoreSource{S3ARNs: arns}
 	}
 	if len(restore.sources) > 0 && !ecRunsEngines() {
 		ecErrorXML(w, "InvalidParameterCombination", "No engine can load the snapshot: this simulator runs no Amazon ElastiCache data plane.", http.StatusBadRequest, requestID)
@@ -422,7 +486,11 @@ func ecTakeServerlessSnapshot(s ECServerlessCacheSnapshot, done func()) ECServer
 func ecRequestedServerlessRestore(w http.ResponseWriter, r *http.Request) (ecRestore, bool) {
 	requestID := sim.RequestID(r.Context())
 	var restore ecRestore
-	for _, arn := range ecParseStringList(r, "SnapshotArnsToRestore", "SnapshotArn") {
+	arns := ecParseStringList(r, "SnapshotArnsToRestore", "SnapshotArn")
+	if len(arns) > 0 {
+		restore.from = &ecRestoreSource{ServerlessARNs: arns}
+	}
+	for _, arn := range arns {
 		key, name, engine, status, found := ecSnapshotByARN(arn)
 		if !found {
 			ecErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Snapshot %s not found.", arn), http.StatusBadRequest, requestID)

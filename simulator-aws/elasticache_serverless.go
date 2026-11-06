@@ -43,6 +43,9 @@ type ECServerlessCache struct {
 	Tags                   map[string]string
 	Migration              *ECServerlessCacheMigration `json:",omitempty"`
 	Incarnation            string                      `json:",omitempty"`
+	// RestoreFrom is what a creating cache loads, kept so a restarted
+	// simulator loads it again.
+	RestoreFrom *ecRestoreSource `json:",omitempty"`
 }
 
 type ECServerlessCacheSnapshot struct {
@@ -312,8 +315,8 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 	if engine == "" {
 		engine = "redis"
 	}
-	if engine == "memcached" && restore.any() {
-		ecErrorXML(w, "InvalidParameterCombination", "A Serverless Memcached cache restores no Valkey or Redis OSS snapshot.", http.StatusBadRequest, requestID)
+	if restore.any() && (engine == "memcached") != (restore.engine == "memcached") {
+		ecErrorXML(w, "InvalidParameterCombination", fmt.Sprintf("A %s cache cannot restore a %s snapshot.", engine, restore.engine), http.StatusBadRequest, requestID)
 		return
 	}
 	major := r.FormValue("MajorEngineVersion")
@@ -396,11 +399,23 @@ func handleECCreateServerlessCache(w http.ResponseWriter, r *http.Request) {
 		c.EndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.NodeEndpoint, 0)
 		c.ReaderEndpointAddress, _ = ecEndpointOf(endpoints, cacheengine.DiscoveryEndpoint, 0)
 	}
+	c.RestoreFrom = restore.from
 	ecServerlessCaches.Put(name, c)
-	ecRunInBackground(running, restore.start(record.Cluster), func(err error) {
-		ecSettleServerlessCache(name, c.Incarnation, err)
-	})
+	ecCreateServerlessCache(name, c.Incarnation, record.Cluster, running, restore)
 	ecXMLResponse(w, "CreateServerlessCache", renderECServerlessCache(c), requestID)
+}
+
+// ecCreateServerlessCache starts a creating cache's engine and loads its
+// restore.
+func ecCreateServerlessCache(name, incarnation string, cluster bool, running *ecEngine, restore ecRestore) {
+	ecRunInBackground(running, restore.start(cluster), func(err error) {
+		ecServerlessCaches.Update(name, func(stored *ECServerlessCache) {
+			if stored.Incarnation == incarnation {
+				stored.RestoreFrom = nil
+			}
+		})
+		ecSettleServerlessCache(name, incarnation, err)
+	})
 }
 
 // create-failed when the engine did not start.
@@ -520,11 +535,6 @@ func handleECDeleteServerlessCache(w http.ResponseWriter, r *http.Request) {
 			ecErrorXML(w, "ServerlessCacheSnapshotAlreadyExistsFault", "Serverless cache snapshot already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
-		if c.Engine == "memcached" {
-			ecErrorXML(w, "InvalidParameterCombination",
-				"The simulator's Serverless Memcached engine writes no snapshot file.", http.StatusBadRequest, sim.RequestID(r.Context()))
-			return
-		}
 	}
 	ecServerlessCaches.Update(name, func(stored *ECServerlessCache) { stored.Status = "deleting" })
 	c, _ = ecServerlessCaches.Get(name)
@@ -564,7 +574,14 @@ func ecRecoverServerlessTransitions() {
 			ecDeleteServerlessInBackground(name, incarnation)
 		case "creating":
 			engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
-			ecRunInBackground(engine, (*ecEngine).start, func(err error) { ecSettleServerlessCache(name, incarnation, err) })
+			restore, err := ecResolveRestore(c.RestoreFrom)
+			if err != nil {
+				ecRunInBackground(engine, func(*ecEngine) error { return &ecRestoreError{err: err} }, func(err error) {
+					ecSettleServerlessCache(name, incarnation, err)
+				})
+				continue
+			}
+			ecCreateServerlessCache(name, incarnation, c.Engine != "memcached", engine, restore)
 		case "modifying":
 			engine, _ := ecLoadEngine(ecEngineKey(ecKindServerless, name))
 			ecRunInBackground(engine, (*ecEngine).start, func(error) {
@@ -621,11 +638,6 @@ func handleECCreateServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 	if c.Status != "available" {
 		ecErrorXML(w, "InvalidServerlessCacheStateFault",
 			fmt.Sprintf("Serverless cache %s is %s, not available.", c.ServerlessCacheName, c.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	if c.Engine == "memcached" {
-		ecErrorXML(w, "InvalidParameterCombination",
-			"The simulator's Serverless Memcached engine writes no snapshot file.", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	now := time.Now().UTC()
@@ -738,6 +750,12 @@ func handleECExportServerlessSnapshot(w http.ResponseWriter, r *http.Request) {
 	if s.Status != "available" {
 		ecErrorXML(w, "InvalidServerlessCacheSnapshotStateFault",
 			fmt.Sprintf("Serverless cache snapshot %s is %s, not available.", name, s.Status), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	// ExportServerlessCacheSnapshot is "Available for Valkey and Redis OSS
+	// only".
+	if s.CacheEngine == "memcached" {
+		ecErrorXML(w, "InvalidParameterCombination", "Exporting a snapshot to Amazon S3 is available for Valkey and Redis OSS only.", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	if err := ecExportSnapshot(ecServerlessSnapshotKey(name), bucket, name); err != nil {

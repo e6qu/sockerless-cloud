@@ -793,6 +793,51 @@ a replica does both on one connection: `Plane.Command` dials afresh per call,
 and a `WAIT` sent through it returned at once while the replica still lacked
 the write.
 
+A cluster's nodes listen on the port its node endpoints serve, so the
+redirections and topology a node answers name that port. Redis takes
+`cluster-announce-hostname` only from 7.0 and refuses it as a startup
+directive before, so a node sets it with `CONFIG SET` once it runs; on an
+older engine, which names its nodes' network addresses, the endpoints parse
+each reply and rewrite the addresses in a `MOVED` or `ASK` redirection and in
+the `CLUSTER SLOTS`, `SHARDS`, `NODES` and `REPLICAS` answers, pairing replies
+with commands until a connection subscribes. A cluster forms with `CLUSTER
+ADDSLOTS`, which every version has. An upgrade rolls through the nodes:
+replicas restart on the new image, an upgraded replica takes over, and the old
+primary restarts as a replica without first following a primary whose
+snapshot format it cannot read; only a primary without a replica restarts in
+place. An identifier serving several ports takes the first loopback address
+on which all of them are free. The credential hook receives the AUTH
+username and the client's address, and a grant with a lifetime closes the
+connection unless a later credential extends it: an ElastiCache IAM
+connection lasts 12 hours, the token's user must be the AUTH username, and
+the client's address is `aws:SourceIp`. A Memcached plane dumps its items
+with `lru_crawler metadump` and `get`, which backs Serverless Memcached
+snapshots, and answers a binary-protocol `config get` (opcode `0x60`, as the
+vendored ElastiCache Cluster Client source frames it) in turn with the
+node's replies. `CopyFrom` copies each database of an instance source into
+the database of the same number.
+
+ElastiCache reports a change in flight as the resource's
+`PendingModifiedValues`, or a user group's `PendingChanges`, until it lands.
+Tagging answers the faults the model lists: `InvalidARN`, the not-found
+fault of the ARN's resource type, `TagQuotaPerResourceExceeded` past 50,
+`TagNotFound`, and the state faults while a replication group or serverless
+cache is not available. Errors go out under the model's `awsQueryError`
+code, which is how an SDK picks the typed error; several ElastiCache and
+Amazon RDS refusals had used the shape name. A create records what it
+restores from, so a simulator restarted mid-create loads it again, and
+recovery settles snapshots before resuming transitions; a syncing serverless
+migration starts its full synchronisation over on a cleared target. That
+recovery runs once every slice is registered: an engine start needs the
+Route 53 Resolver's network sidecars, and `awsNetworkSidecars` had cached the
+"not running" answer a call made before the resolver started, failing every
+later start in the process. Azure
+Cache for Redis loads every import file in a scratch `redis-server` before it
+stops the cache's engine, so a file that fails to load leaves the cache
+serving; its identity resolves through `SystemAssignedIdentities_GetByScope`;
+and its operations catalog takes the descriptions of the vendored
+`rbac-permissions-databases` page.
+
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
 the socket answers). Lessons:
@@ -1313,6 +1358,14 @@ fails once the row closes or the operation is served.
   simulator and its SDK and CLI suites; the shared toolchain entry held
   whatever the first job to save it built, and the contributing tutorial
   downloaded and compiled the AWS SDK suites cold inside its 13 minutes.
+  A background block that exits before its ready line fails at once: its
+  exit closes a channel rather than filling one, because the failed test's
+  cleanup waits on the same exit, and a drained channel had held the README
+  image job until the job's limit cancelled it.
+  The README install and image parts load no base image: they install a
+  simulator or run its release image and start no container, and loading
+  every image on a slow runner had taken the Azure install part past 15
+  minutes.
 - **Console tests run against the real simulators.** The console unit tests
   start the simulators and sign in through Microsoft Entra ID as the consoles
   do; the mocks they replaced had hidden a SigV4 signer that encoded paths
@@ -1624,7 +1677,10 @@ Dockerfiles, which no pull request job did, so `check-installable-build.sh`
 builds the platforms it is given and checks each Dockerfile's workspace;
 `build-gates` builds the runner's platform and one `release platform build`
 job each of the other three, since a cold cross-compile of the three
-simulators outruns the build gates' budget.
+simulators outruns the build gates' budget. Every login to ghcr.io goes through
+`.github/actions/ghcr-login`, which retries a login the registry does not
+answer: docker/login-action tries once, and one timeout on the Azure arm64
+runner skipped every manifest of v3.3.10, so its README image did not exist.
 Publishes are keyed per commit and never cancelled; retention
 spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the

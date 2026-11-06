@@ -102,9 +102,8 @@ jobs:
           driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4.7.0
+        uses: ./.github/actions/ghcr-login
         with:
-          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -136,13 +135,12 @@ jobs:
           - sockerless-simulator-azure
     name: ${{ matrix.image }} manifest
     steps:
-      - uses: docker/login-action@v4.7.0
+      - uses: actions/checkout@v7.0.1
+      - name: Log in to GHCR
+        uses: ./.github/actions/ghcr-login
         with:
-          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/checkout@v7.0.1
       - name: Compose multi-arch manifest list
         shell: bash
         run: bash scripts/compose-multiarch-manifest.sh "${{ env.REGISTRY }}/e6qu/${{ matrix.image }}:${{ needs.prepare.outputs.short_sha }}"

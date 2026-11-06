@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +40,8 @@ import (
 )
 
 const (
-	// Port is the port every Redis node listens on inside its workload.
+	// Port is Redis's own port, where a node listens unless its cluster's
+	// node endpoints serve another.
 	Port            = 6379
 	dataPath        = "/data"
 	readyBudget     = 10 * time.Minute
@@ -163,9 +165,11 @@ type Config struct {
 	// that runs no replica reach its primary.
 	ReadFromPrimaryWithoutReplicas bool
 	// ExchangeCredential, when set, has the endpoints read every command and
-	// rewrite an AUTH, or a HELLO that authenticates, whose password it
-	// accepts into one for the engine user it names carrying Password.
-	ExchangeCredential func(password string) (user string, ok bool)
+	// rewrite an AUTH, or a HELLO that authenticates, whose credential it
+	// accepts into one for the engine user it names carrying Password. A
+	// grant with a Lifetime closes the connection that long after the last
+	// credential it accepted on it.
+	ExchangeCredential func(Credential) (Grant, bool)
 	// Users are the engine users every node runs, the default user among
 	// them when one is named so; UsersApplied runs once every node holds
 	// them. Nil leaves the engine's users as the engine starts them.
@@ -173,6 +177,23 @@ type Config struct {
 	UsersApplied func([]User)
 	// Started runs each time the engine comes up and settles.
 	Started func()
+}
+
+// Credential is what a client authenticates with: the username its AUTH or
+// HELLO names ("default" when it names none), the password, and the address
+// it connects from.
+type Credential struct {
+	Username string
+	Password string
+	Client   netip.Addr
+}
+
+// Grant is the engine user an accepted credential signs in as, and how long
+// the connection may last before it must authenticate again; zero is for
+// good.
+type Grant struct {
+	User     string
+	Lifetime time.Duration
 }
 
 type node struct {
@@ -223,6 +244,15 @@ type Plane struct {
 	endpoints   []Endpoint
 	listeners   map[string]net.Listener
 	tlsConfig   *tls.Config
+	// port is what every node listens on: a cluster's node endpoint port,
+	// so the redirections and topology a node answers name the port its
+	// endpoint serves, or Redis's own.
+	port int
+	// announcesHostnames is whether the cluster's engine announces its
+	// nodes' endpoints by hostname, which Redis does from 7.0; an older
+	// engine names its nodes' network addresses, which the endpoints
+	// rewrite to their own.
+	announcesHostnames atomic.Bool
 
 	startMu   sync.Mutex
 	attempted bool
@@ -249,11 +279,15 @@ func New(cfg Config, record Record) *Plane {
 		nodes:       map[int]*node{},
 		listeners:   map[string]net.Listener{},
 		tlsConfig:   cfg.TLS,
+		port:        Port,
 	}
 	announce := map[int]string{}
 	for _, endpoint := range record.Endpoints {
 		if endpoint.Role == NodeEndpoint {
 			announce[endpoint.Node] = endpoint.Address
+			if cfg.Cluster {
+				p.port = endpoint.PortOrDefault()
+			}
 		}
 	}
 	for _, index := range record.Nodes {
@@ -353,13 +387,9 @@ func (p *Plane) script(node int) string {
 func (p *Plane) serverCommand(index int) string {
 	p.mu.RLock()
 	primary, password, configs, persistence := p.primary, p.password, p.configs, p.persistence
-	announce := ""
-	if n, ok := p.nodes[index]; ok {
-		announce = n.announce
-	}
 	p.mu.RUnlock()
 	args := []string{"redis-server",
-		"--port", strconv.Itoa(Port),
+		"--port", strconv.Itoa(p.port),
 		"--bind", "0.0.0.0",
 		"--protected-mode", "no",
 		"--dir", nodeDir(index),
@@ -384,12 +414,10 @@ func (p *Plane) serverCommand(index int) string {
 		args = append(args,
 			"--cluster-enabled", "yes",
 			"--cluster-config-file", nodeDir(index)+"/nodes.conf",
-			"--cluster-announce-hostname", announce,
-			"--cluster-preferred-endpoint-type", "hostname",
 		)
 	} else if index != primary {
 		// slaveof is the spelling every supported version accepts.
-		args = append(args, "--slaveof", p.alias(primary), strconv.Itoa(Port))
+		args = append(args, "--slaveof", p.alias(primary), strconv.Itoa(p.port))
 	}
 	for _, directive := range configs {
 		args = append(args, "--"+directive[0], directive[1])
@@ -524,6 +552,9 @@ func (p *Plane) startNodes(nodes []int) error {
 			if errs[i] = p.startNode(index); errs[i] == nil {
 				errs[i] = p.awaitNode(index)
 			}
+			if errs[i] == nil && p.cfg.Cluster {
+				errs[i] = p.announceEndpoint(index)
+			}
 		}()
 	}
 	wg.Wait()
@@ -564,7 +595,7 @@ func (p *Plane) startNode(index int) error {
 		Image:             image,
 		Architecture:      p.cfg.Platform,
 		Command:           []string{"/bin/sh", "-c", command},
-		PublishPorts:      []int{Port},
+		PublishPorts:      []int{p.port},
 		Binds:             []string{p.cfg.Volume + ":" + dataPath},
 		Labels:            labels,
 		Network:           network,
@@ -587,7 +618,7 @@ func (p *Plane) startNode(index int) error {
 func (p *Plane) attachNode(index int, handle placement.Handle, output *nodeOutput) error {
 	ctx, cancel := context.WithTimeout(context.Background(), commandDeadline)
 	defer cancel()
-	hostPort, err := handle.PublishedPort(ctx, Port)
+	hostPort, err := handle.PublishedPort(ctx, p.port)
 	if err != nil {
 		return err
 	}
@@ -634,6 +665,52 @@ func (p *Plane) awaitNode(index int) error {
 }
 
 var errNodeExited = errors.New("the node's workload exited")
+
+// announceEndpoint has a cluster node name its endpoint by hostname in the
+// redirections and topology it answers. Redis takes the setting from 7.0 and
+// refuses it as an unknown directive before, so the node sets it once it
+// runs, and an older engine's endpoints rewrite the addresses it names.
+func (p *Plane) announceEndpoint(index int) error {
+	reply, err := p.Command(index, "INFO", "server")
+	if err != nil {
+		return err
+	}
+	version := ParseInfo(fmt.Sprint(reply))["redis_version"]
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	if err != nil {
+		return fmt.Errorf("node %d reports redis_version %q: %w", index, version, err)
+	}
+	if major < 7 {
+		p.announcesHostnames.Store(false)
+		return nil
+	}
+	p.mu.RLock()
+	announce := ""
+	if n, ok := p.nodes[index]; ok {
+		announce = n.announce
+	}
+	p.mu.RUnlock()
+	p.announcesHostnames.Store(true)
+	if announce == "" {
+		return nil
+	}
+	_, err = p.Command(index, "CONFIG", "SET", "cluster-announce-hostname", announce, "cluster-preferred-endpoint-type", "hostname")
+	return err
+}
+
+// endpointAddresses maps each running node's network address to the address
+// of the endpoint that serves it.
+func (p *Plane) endpointAddresses() map[string]string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	addresses := map[string]string{}
+	for _, n := range p.nodes {
+		if n.ip != "" && n.announce != "" {
+			addresses[n.ip] = n.announce
+		}
+	}
+	return addresses
+}
 
 // waitContext ends after budget, or once the node's workload exits, with
 // errNodeExited as its cause.
@@ -858,7 +935,12 @@ func (p *Plane) formCluster() error {
 	primaries := order[:shards]
 	for shard, index := range primaries {
 		first, last := SlotRange(shard, shards)
-		if _, err := p.Command(index, "CLUSTER", "ADDSLOTSRANGE", strconv.Itoa(first), strconv.Itoa(last)); err != nil {
+		// ADDSLOTS rather than ADDSLOTSRANGE, which Redis has only from 7.0.
+		args := []string{"CLUSTER", "ADDSLOTS"}
+		for slot := first; slot <= last; slot++ {
+			args = append(args, strconv.Itoa(slot))
+		}
+		if _, err := p.Command(index, args...); err != nil {
 			return err
 		}
 	}
@@ -882,7 +964,7 @@ func (p *Plane) meet(via int, nodes []int) error {
 		if err != nil {
 			return err
 		}
-		if _, err := p.Command(via, "CLUSTER", "MEET", ip, strconv.Itoa(Port)); err != nil {
+		if _, err := p.Command(via, "CLUSTER", "MEET", ip, strconv.Itoa(p.port)); err != nil {
 			return err
 		}
 	}
@@ -936,7 +1018,7 @@ func (p *Plane) awaitClusterState(shards, replicas int) error {
 			}
 			primaries, replicaCount = view.countRoles()
 			if info["cluster_state"] == "ok" && info["cluster_known_nodes"] == want &&
-				primaries == shards && replicaCount == shards*replicas && view.hostnamesKnown() {
+				primaries == shards && replicaCount == shards*replicas && (!p.announcesHostnames.Load() || view.hostnamesKnown()) {
 				if self, ok := view.self(); ok && !self.Primary() {
 					followers = append(followers, index)
 				}
@@ -1041,32 +1123,117 @@ func (p *Plane) Restart(rdb []byte, image string) error {
 	return p.Ensure()
 }
 
-// Upgrade replaces the running engine with one on image, every node keeping
-// its dataset: each saves it, and loads it back at its next start.
+// Upgrade moves the running engine onto image one node at a time, the way
+// the managed services replace nodes: each replica restarts on image and
+// synchronises again, an upgraded replica takes over its primary, and the old
+// primary restarts on image as a replica. A primary without a replica saves
+// its dataset and loads it back on image, the one restart a client sees.
 func (p *Plane) Upgrade(image string) error {
 	if err := p.Ensure(); err != nil {
 		return err
 	}
+	p.mu.Lock()
+	p.image = image
+	p.mu.Unlock()
+	if p.cfg.Cluster {
+		return p.upgradeCluster()
+	}
+	primary, replicas := p.Primary(), p.Replicas()
+	if len(replicas) == 0 {
+		return p.restartKeepingDataset([]int{primary})
+	}
+	for _, replica := range replicas {
+		if err := p.Reboot([]int{replica}); err != nil {
+			return err
+		}
+	}
+	// The old primary cannot follow an engine whose snapshot format is newer
+	// than its own, so the promotion waits for no synchronisation until the
+	// old primary runs on image too.
+	successor := replicas[0]
+	if _, err := p.Command(successor, "SLAVEOF", "NO", "ONE"); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.primary = successor
+	p.mu.Unlock()
+	for _, other := range replicas[1:] {
+		if _, err := p.Command(other, "SLAVEOF", p.alias(successor), strconv.Itoa(p.port)); err != nil {
+			return err
+		}
+	}
+	return p.Reboot([]int{primary})
+}
+
+func (p *Plane) upgradeCluster() error {
+	primaries, followers, err := p.ShardMap()
+	if err != nil {
+		return err
+	}
+	var alone []int
+	for _, primary := range primaries {
+		replicas := followers[primary]
+		if len(replicas) == 0 {
+			alone = append(alone, primary)
+			continue
+		}
+		for _, replica := range replicas {
+			if err := p.Reboot([]int{replica}); err != nil {
+				return err
+			}
+		}
+		if _, err := p.Command(replicas[0], "CLUSTER", "FAILOVER"); err != nil {
+			return err
+		}
+		if err := p.awaitEngine(replicas[0], true, func() (bool, error) {
+			view, err := p.clusterView(replicas[0])
+			if err != nil {
+				return false, err
+			}
+			self, ok := view.self()
+			return ok && self.Primary(), nil
+		}); err != nil {
+			return fmt.Errorf("node %d did not take over its shard: %w", replicas[0], err)
+		}
+		if err := p.Reboot([]int{primary}); err != nil {
+			return err
+		}
+	}
+	return p.restartKeepingDataset(alone)
+}
+
+// restartKeepingDataset restarts nodes on the plane's image, each loading
+// the dataset it saved.
+func (p *Plane) restartKeepingDataset(nodes []int) error {
+	if len(nodes) == 0 {
+		return nil
+	}
 	datasets := map[int][]byte{}
-	for _, index := range p.Nodes() {
+	for _, index := range nodes {
 		data, err := p.Snapshot(index)
 		if err != nil {
 			return err
 		}
 		datasets[index] = data
 	}
-	if err := p.Stop(); err != nil {
+	var errs []error
+	for _, index := range nodes {
+		errs = append(errs, p.stopNode(index))
+	}
+	if err := errors.Join(errs...); err != nil {
 		return err
 	}
 	p.mu.Lock()
-	p.image = image
 	for index, data := range datasets {
 		if n, ok := p.nodes[index]; ok {
 			n.seed = data
 		}
 	}
 	p.mu.Unlock()
-	return p.Ensure()
+	if err := p.startNodes(nodes); err != nil {
+		return err
+	}
+	return p.settle()
 }
 
 // Reboot restarts nodes in their workloads' place, each keeping only what the
@@ -1102,7 +1269,7 @@ func (p *Plane) Failover(index int) error {
 		if other == index {
 			continue
 		}
-		if _, err := p.Command(other, "SLAVEOF", p.alias(index), strconv.Itoa(Port)); err != nil {
+		if _, err := p.Command(other, "SLAVEOF", p.alias(index), strconv.Itoa(p.port)); err != nil {
 			return err
 		}
 	}

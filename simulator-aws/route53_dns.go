@@ -48,26 +48,28 @@ func startRoute53DNSServer() {
 // DNS to r53DNS and metadata to the simulator. It exists once the first
 // workload network needs it, so a simulator built without a listener of its
 // own serves the control plane alone.
+// A call before the Route 53 Resolver starts is answered without being
+// remembered, so a later one finds it running.
 var (
-	networkSidecars     *sidecar.Manager
-	networkSidecarsErr  error
-	networkSidecarsOnce sync.Once
+	networkSidecars   *sidecar.Manager
+	networkSidecarsMu sync.Mutex
 )
 
 func awsNetworkSidecars() (*sidecar.Manager, error) {
-	networkSidecarsOnce.Do(func() {
-		if r53DNS == nil {
-			networkSidecarsErr = errNoNetworkSidecars
-			return
-		}
-		origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
-		if err != nil {
-			networkSidecarsErr = fmt.Errorf("network sidecars: workload callback: %w", err)
-			return
-		}
-		networkSidecars = sidecar.NewManager(r53DNS, "http://"+origin, sim.NoopSink{})
-	})
-	return networkSidecars, networkSidecarsErr
+	networkSidecarsMu.Lock()
+	defer networkSidecarsMu.Unlock()
+	if networkSidecars != nil {
+		return networkSidecars, nil
+	}
+	if r53DNS == nil {
+		return nil, errNoNetworkSidecars
+	}
+	origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("network sidecars: workload callback: %w", err)
+	}
+	networkSidecars = sidecar.NewManager(r53DNS, "http://"+origin, sim.NoopSink{})
+	return networkSidecars, nil
 }
 
 func route53DNSConfig(host, port string) dnsserver.Config {

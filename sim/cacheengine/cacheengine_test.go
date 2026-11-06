@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -56,33 +57,67 @@ func TestReadCommand(t *testing.T) {
 }
 
 func TestExchangeCredential(t *testing.T) {
-	valid := func(token string) (string, bool) {
-		switch token {
-		case "access-token":
-			return "default", true
-		case "policy-token":
-			return "app@example.iam.gserviceaccount.com", true
+	client := netip.MustParseAddr("10.0.0.7")
+	var seen []Credential
+	valid := func(credential Credential) (Grant, bool) {
+		seen = append(seen, credential)
+		if credential.Client != client {
+			return Grant{}, false
 		}
-		return "", false
+		switch credential.Password {
+		case "access-token":
+			return Grant{User: "default"}, true
+		case "policy-token":
+			return Grant{User: "app@example.iam.gserviceaccount.com", Lifetime: time.Hour}, true
+		}
+		return Grant{}, false
 	}
 	for _, tc := range []struct {
-		args []string
-		want []string
+		args     []string
+		want     []string
+		username string
 	}{
-		{[]string{"AUTH", "access-token"}, []string{"AUTH", "default", "engine"}},
-		{[]string{"auth", "someone", "access-token"}, []string{"auth", "default", "engine"}},
-		{[]string{"AUTH", "policy-token"}, []string{"AUTH", "app@example.iam.gserviceaccount.com", "engine"}},
-		{[]string{"HELLO", "3", "AUTH", "default", "policy-token"}, []string{"HELLO", "3", "AUTH", "app@example.iam.gserviceaccount.com", "engine"}},
-		{[]string{"HELLO", "3", "AUTH", "default", "access-token", "SETNAME", "app"}, []string{"HELLO", "3", "AUTH", "default", "engine", "SETNAME", "app"}},
-		{[]string{"AUTH", "forged"}, nil},
-		{[]string{"HELLO", "3", "AUTH", "default", "forged"}, nil},
-		{[]string{"HELLO", "3"}, nil},
-		{[]string{"GET", "access-token"}, nil},
+		{[]string{"AUTH", "access-token"}, []string{"AUTH", "default", "engine"}, "default"},
+		{[]string{"auth", "someone", "access-token"}, []string{"auth", "default", "engine"}, "someone"},
+		{[]string{"AUTH", "policy-token"}, []string{"AUTH", "app@example.iam.gserviceaccount.com", "engine"}, "default"},
+		{[]string{"HELLO", "3", "AUTH", "default", "policy-token"}, []string{"HELLO", "3", "AUTH", "app@example.iam.gserviceaccount.com", "engine"}, "default"},
+		{[]string{"HELLO", "3", "AUTH", "app", "access-token", "SETNAME", "app"}, []string{"HELLO", "3", "AUTH", "default", "engine", "SETNAME", "app"}, "app"},
+		{[]string{"AUTH", "forged"}, nil, "default"},
+		{[]string{"HELLO", "3", "AUTH", "default", "forged"}, nil, "default"},
+		{[]string{"HELLO", "3"}, nil, ""},
+		{[]string{"GET", "access-token"}, nil, ""},
 	} {
-		got, ok := ExchangeCredential(tc.args, "engine", valid)
+		seen = nil
+		got, _, ok := ExchangeCredential(tc.args, "engine", client, valid)
 		if ok != (tc.want != nil) || strings.Join(got, " ") != strings.Join(tc.want, " ") {
 			t.Errorf("%v became %v (%v), want %v", tc.args, got, ok, tc.want)
 		}
+		if tc.username != "" && (len(seen) != 1 || seen[0].Username != tc.username) {
+			t.Errorf("%v reached the hook as %+v, want username %q", tc.args, seen, tc.username)
+		}
+	}
+}
+
+// A connection a credential admitted for a lifetime closes once it runs out,
+// unless a later credential extends it; one admitted for good stays.
+func TestExpiringConnClosesAtTheEndOfItsLifetime(t *testing.T) {
+	near, far := net.Pipe()
+	defer far.Close()
+	conn := &expiringConn{Conn: near}
+	conn.extend(time.Hour)
+	conn.extend(50 * time.Millisecond)
+	if _, err := far.Read(make([]byte, 1)); err == nil {
+		t.Fatal("a connection past its lifetime stayed open")
+	}
+	kept, other := net.Pipe()
+	defer kept.Close()
+	defer other.Close()
+	open := &expiringConn{Conn: kept}
+	open.extend(50 * time.Millisecond)
+	open.extend(0)
+	go func() { _, _ = kept.Write([]byte("x")) }()
+	if _, err := other.Read(make([]byte, 1)); err != nil {
+		t.Fatalf("a connection granted for good closed: %v", err)
 	}
 }
 
@@ -238,11 +273,15 @@ func TestClusterNodeScripts(t *testing.T) {
 		for _, fragment := range append(tc.want,
 			"'--cluster-enabled' 'yes'",
 			"'--cluster-config-file' '/data/node-0/nodes.conf'",
-			"'--cluster-announce-hostname' '127.0.0.9' '--cluster-preferred-endpoint-type' 'hostname'",
 		) {
 			if !strings.Contains(script, fragment) {
 				t.Fatalf("%s cluster node script lacks %s:\n%s", name, fragment, script)
 			}
+		}
+		// Redis before 7.0 refuses the hostname directives at startup, so a
+		// node takes them once it runs.
+		if strings.Contains(script, "cluster-announce-hostname") {
+			t.Fatalf("a cluster node starts with a directive Redis 6 refuses:\n%s", script)
 		}
 		if strings.Contains(script, "rm -rf '/data/node-0'\n") {
 			t.Fatalf("a cluster node forgets its identity:\n%s", script)

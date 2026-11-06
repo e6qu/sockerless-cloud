@@ -1,10 +1,14 @@
 package doctest
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeDoc(t *testing.T, body string) string {
@@ -83,4 +87,35 @@ func TestSessionCarriesStateAndRunsBackgroundBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	RunDoc(t, doc, os.Environ())
+}
+
+// A background block that exits before its ready line fails the test, and the
+// session's cleanup returns at once instead of waiting on an exit it already
+// read. The test runs the document in a child process because it must fail.
+func TestBackgroundBlockThatExitsEarlyFailsWithoutHanging(t *testing.T) {
+	if os.Getenv("DOCTEST_EARLY_EXIT_CHILD") == "1" {
+		doc, err := Parse(writeDoc(t, strings.Join([]string{
+			"<!-- doctest: background id=srv ready=\"^up$\" -->", "```sh", "echo starting; exit 3", "```",
+		}, "\n")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		RunDoc(t, doc, os.Environ())
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackgroundBlockThatExitsEarlyFailsWithoutHanging$", "-test.v")
+	cmd.Env = append(os.Environ(), "DOCTEST_EARLY_EXIT_CHILD=1")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the failing session did not return within 30s:\n%s", out)
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("the child test passed or did not run (%v):\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "srv exited before it was ready (exit status 3)") || !strings.Contains(string(out), "starting") {
+		t.Fatalf("the child test failed for another reason:\n%s", out)
+	}
 }

@@ -25,10 +25,13 @@ type Session struct {
 }
 
 type background struct {
-	cmd  *exec.Cmd
-	out  *lineWriter
-	done chan error
-	mu   sync.Mutex
+	cmd *exec.Cmd
+	out *lineWriter
+	// exited closes once the process has exited, after exit holds its result,
+	// so every waiter sees the exit.
+	exited chan struct{}
+	exit   error
+	mu     sync.Mutex
 }
 
 // ReadyTimeout bounds how long a background block may take to print its ready
@@ -108,7 +111,7 @@ func (s *Session) start(ctx context.Context, step Step, where string) {
 		count, _ = strconv.Atoi(v)
 	}
 	s.t.Logf("%s: start %s\n%s", where, id, step.Script)
-	b := &background{done: make(chan error, 1)}
+	b := &background{exited: make(chan struct{})}
 	seen := 0
 	readyCh := make(chan struct{})
 	b.out = &lineWriter{onLine: func(line string) {
@@ -128,13 +131,16 @@ func (s *Session) start(ctx context.Context, step Step, where string) {
 	if err := b.cmd.Start(); err != nil {
 		s.t.Fatalf("%s: start %s: %v", where, id, err)
 	}
-	go func() { b.done <- b.cmd.Wait() }()
+	go func() {
+		b.exit = b.cmd.Wait()
+		close(b.exited)
+	}()
 	s.bg[id] = b
 	select {
 	case <-readyCh:
 		s.t.Logf("%s: %s is ready", where, id)
-	case err := <-b.done:
-		s.t.Fatalf("%s: %s exited before it was ready (%v)\n%s", where, id, err, b.output())
+	case <-b.exited:
+		s.t.Fatalf("%s: %s exited before it was ready (%v)\n%s", where, id, b.exit, b.output())
 	case <-time.After(ReadyTimeout):
 		s.t.Fatalf("%s: %s printed no %q within %s\n%s", where, id, ready, ReadyTimeout, b.output())
 	case <-ctx.Done():
@@ -166,14 +172,13 @@ func (s *Session) stop(id string) {
 	}
 	delete(s.bg, id)
 	_ = syscall.Kill(-b.cmd.Process.Pid, syscall.SIGINT)
-	var exit error
 	select {
-	case exit = <-b.done:
+	case <-b.exited:
 	case <-time.After(time.Minute):
 		_ = syscall.Kill(-b.cmd.Process.Pid, syscall.SIGKILL)
-		exit = <-b.done
+		<-b.exited
 	}
-	s.t.Logf("stopped %s (%v); its output:\n%s", id, exit, b.output())
+	s.t.Logf("stopped %s (%v); its output:\n%s", id, b.exit, b.output())
 }
 
 func (s *Session) stopAll() {
