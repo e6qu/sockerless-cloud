@@ -1491,6 +1491,16 @@ fails once the row closes or the operation is served.
   qualifier its `FunctionName` names and invokes that version, as AWS does.
   Amazon EFS returns a file system's `Tags` as a list
   even when it has none, since the model requires the member.
+- **Amazon EFS and AWS KMS.** `CreateFileSystem` keeps `Encrypted` and
+  `KmsKeyId` and reports the key as its ARN. An encrypted file system created
+  without a key uses the AWS managed key `aws/elasticfilesystem`, which
+  `kmsAWSManagedKey` creates in the account the first time it is needed, with
+  `KeyManager` `AWS`. A replication's new destination file system is encrypted
+  the same way. `KmsKeyId` without `Encrypted` is refused, as is a key that is
+  not symmetric. A creation token already in use answers
+  `FileSystemAlreadyExists` with the existing file system's ID. `CreateAlias`
+  refuses the `alias/aws/` prefix, which the model reserves for AWS managed
+  keys, and a key reference may also be an alias ARN.
 - **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
   stores after the Amazon ECS, Elastic Load Balancing and Application Auto
   Scaling slices, so their metric publishers and the target-tracking

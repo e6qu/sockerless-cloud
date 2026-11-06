@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -145,6 +146,8 @@ type EFSFileSystem struct {
 	// Present only in provisioned mode; a pointer keeps 0 apart from unset.
 	ProvisionedThroughputInMibps *float64 `json:"ProvisionedThroughputInMibps,omitempty"`
 	NumberOfMountTargets         int      `json:"NumberOfMountTargets"`
+	Encrypted                    bool     `json:"Encrypted"`
+	KmsKeyId                     string   `json:"KmsKeyId,omitempty"`
 	SizeInBytes                  struct {
 		Value int64 `json:"Value"`
 	} `json:"SizeInBytes"`
@@ -483,7 +486,18 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 
 	now := time.Now().Unix()
 	var dests []EFSReplicationDest
-	for _, d := range req.Destinations {
+	destKeys := map[int]string{}
+	for i, d := range req.Destinations {
+		if d.FileSystemId != "" {
+			continue
+		}
+		arn, ok := efsKeyOr400(w, d.KmsKeyId)
+		if !ok {
+			return
+		}
+		destKeys[i] = arn
+	}
+	for i, d := range req.Destinations {
 		region := d.Region
 		if region == "" {
 			region = awsRegion()
@@ -493,6 +507,8 @@ func handleEFSCreateReplicationConfiguration(w http.ResponseWriter, r *http.Requ
 			// Without a destination, Amazon EFS creates a new destination file system.
 			destFsId = "fs-" + sim.NewUUID()[:8]
 			destFs := EFSFileSystem{
+				Encrypted:       true,
+				KmsKeyId:        destKeys[i],
 				FileSystemId:    destFsId,
 				FileSystemArn:   efsArn("file-system", destFsId),
 				CreationToken:   sim.NewUUID(),
@@ -749,11 +765,49 @@ func handleEFSDeleteTags(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// efsCreateMu makes the creation-token check and the insert one step.
+var efsCreateMu sync.Mutex
+
+// efsEncryptionKey resolves the key an encrypted file system uses to its ARN:
+// the named key, or the AWS managed key aws/elasticfilesystem. Amazon EFS
+// accepts symmetric encryption keys only. A non-empty refusal refuses the key.
+func efsEncryptionKey(ref string) (arn, refusal string, err error) {
+	if ref == "" {
+		key, err := kmsAWSManagedKey("elasticfilesystem")
+		return key.Arn, "", err
+	}
+	keyId, ok := resolveKMSKey(ref)
+	if !ok {
+		return "", fmt.Sprintf("KMS key '%s' does not exist", ref), nil
+	}
+	key, _ := kmsKeys.Get(keyId)
+	if key.Spec != "SYMMETRIC_DEFAULT" || key.KeyUsage != "ENCRYPT_DECRYPT" {
+		return "", fmt.Sprintf("KMS key '%s' is not a symmetric encryption key", ref), nil
+	}
+	return key.Arn, "", nil
+}
+
+// efsKeyOr400 writes the refusal or failure efsEncryptionKey reports.
+func efsKeyOr400(w http.ResponseWriter, ref string) (string, bool) {
+	arn, refusal, err := efsEncryptionKey(ref)
+	if err != nil {
+		efsError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
+		return "", false
+	}
+	if refusal != "" {
+		efsError(w, "BadRequest", refusal, http.StatusBadRequest)
+		return "", false
+	}
+	return arn, true
+}
+
 func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CreationToken   string   `json:"CreationToken"`
 		PerformanceMode string   `json:"PerformanceMode"`
 		ThroughputMode  string   `json:"ThroughputMode"`
+		Encrypted       bool     `json:"Encrypted"`
+		KmsKeyId        string   `json:"KmsKeyId"`
 		Tags            []EFSTag `json:"Tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -762,6 +816,29 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.CreationToken == "" {
 		req.CreationToken = sim.NewUUID()
+	}
+	if req.KmsKeyId != "" && !req.Encrypted {
+		efsError(w, "BadRequest", "KmsKeyId requires Encrypted to be true", http.StatusBadRequest)
+		return
+	}
+	var kmsKeyArn string
+	if req.Encrypted {
+		arn, ok := efsKeyOr400(w, req.KmsKeyId)
+		if !ok {
+			return
+		}
+		kmsKeyArn = arn
+	}
+	efsCreateMu.Lock()
+	defer efsCreateMu.Unlock()
+	for _, existing := range efsFileSystems.List() {
+		if existing.CreationToken == req.CreationToken {
+			body := awsJSONErrorBody(w, "efs", "FileSystemAlreadyExists",
+				fmt.Sprintf("File system '%s' already exists with creation token '%s'", existing.FileSystemId, req.CreationToken))
+			body["FileSystemId"] = existing.FileSystemId
+			awsWriteJSONErrorBody(w, awsRestJSON1, http.StatusConflict, "FileSystemAlreadyExists", body)
+			return
+		}
 	}
 	if req.PerformanceMode == "" {
 		req.PerformanceMode = "generalPurpose"
@@ -789,6 +866,8 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 		OwnerId:         awsAccountID(),
 		PerformanceMode: req.PerformanceMode,
 		ThroughputMode:  req.ThroughputMode,
+		Encrypted:       req.Encrypted,
+		KmsKeyId:        kmsKeyArn,
 		Tags:            append([]EFSTag{}, req.Tags...),
 	}
 	efsFileSystems.Put(fsId, fs)

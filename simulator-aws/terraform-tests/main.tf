@@ -152,6 +152,12 @@ resource "aws_efs_file_system" "tf_efs" {
   creation_token   = "tf-efs-file-system"
   performance_mode = "generalPurpose"
   throughput_mode  = "bursting"
+  encrypted        = true
+}
+
+data "aws_kms_alias" "tf_efs_default_key" {
+  name       = "alias/aws/elasticfilesystem"
+  depends_on = [aws_efs_file_system.tf_efs]
 }
 
 resource "aws_efs_mount_target" "tf_efs_mount" {
@@ -1849,6 +1855,14 @@ output "acmpca_certificate" {
 }
 output "efs_file_system_arn" {
   value = aws_efs_file_system.tf_efs.arn
+}
+
+output "efs_file_system_kms_key_id" {
+  value = aws_efs_file_system.tf_efs.kms_key_id
+}
+
+output "efs_default_key_arn" {
+  value = data.aws_kms_alias.tf_efs_default_key.target_key_arn
 }
 output "efs_mount_target_id" {
   value = aws_efs_mount_target.tf_efs_mount.id
