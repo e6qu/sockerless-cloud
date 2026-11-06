@@ -787,7 +787,11 @@ a page blob through the Blob data plane as the cache itself, with the URL's
 SAS or the cache's managed identity, so storage authorizes it like any
 client. ElastiCache users become Redis ACL users, so the plane manages nodes
 as an admin user of its own: a user group may switch `default` off without
-locking the plane out.
+locking the plane out. Redis `WAIT` counts acknowledgements of the
+writes made on its own connection, so a test that writes and then waits for
+a replica does both on one connection: `Plane.Command` dials afresh per call,
+and a `WAIT` sent through it returned at once while the replica still lacked
+the write.
 
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever

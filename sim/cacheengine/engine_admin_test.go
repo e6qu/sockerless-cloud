@@ -30,11 +30,19 @@ func TestAdminUserLeavesTheDefaultUserToUsers(t *testing.T) {
 	if err := plane.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plane.Command(plane.Primary(), "SET", "written", "by-the-plane"); err != nil {
+	primaryAddress, err := plane.nodeAddress(plane.Primary())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plane.Command(plane.Primary(), "WAIT", "1", "0"); err != nil {
+	admin, err := plane.dial(primaryAddress, 10*time.Second)
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer admin.Close()
+	mustDo(t, admin, "SET", "written", "by-the-plane")
+	// WAIT counts acknowledgements of the writes made on its own connection.
+	if acknowledged := mustDo(t, admin, "WAIT", "1", "0"); acknowledged != int64(1) {
+		t.Fatalf("WAIT = %v", acknowledged)
 	}
 	address := endpointAddress(t, plane.Endpoints(), ReadEndpoint)
 	anonymous, err := Dial(address, "", 10*time.Second)
