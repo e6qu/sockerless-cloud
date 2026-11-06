@@ -81,6 +81,25 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 		})
 	})
 
+	// "You can't specify a resource label unless the metric type is
+	// ALBRequestCountPerTarget."
+	_, err = asC.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
+		PolicyName:        aws.String("cpu-labelled"),
+		ServiceNamespace:  ns,
+		ResourceId:        aws.String(resourceID),
+		ScalableDimension: dim,
+		PolicyType:        aastypes.PolicyTypeTargetTrackingScaling,
+		TargetTrackingScalingPolicyConfiguration: &aastypes.TargetTrackingScalingPolicyConfiguration{
+			TargetValue: aws.Float64(50.0),
+			PredefinedMetricSpecification: &aastypes.PredefinedMetricSpecification{
+				PredefinedMetricType: aastypes.MetricTypeECSServiceAverageCPUUtilization,
+				ResourceLabel:        aws.String("app/lb/0123456789abcdef/targetgroup/tg/0123456789abcdef"),
+			},
+		},
+	})
+	var invalid *aastypes.ValidationException
+	require.ErrorAs(t, err, &invalid, "a resource label with a metric type other than ALBRequestCountPerTarget")
+
 	policy, err := asC.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
 		PolicyName:        aws.String("cpu-50"),
 		ServiceNamespace:  ns,
