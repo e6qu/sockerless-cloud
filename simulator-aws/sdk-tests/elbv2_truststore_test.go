@@ -383,4 +383,8 @@ func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pools.IpamPools)
 	assert.Equal(t, "ipam-pool-0abc123", aws.ToString(pools.IpamPools.Ipv4IpamPoolId))
+	described, err := c.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{arn}})
+	require.NoError(t, err)
+	require.NotNil(t, described.LoadBalancers[0].IpamPools, "DescribeLoadBalancers reports the IPAM pool")
+	assert.Equal(t, "ipam-pool-0abc123", aws.ToString(described.LoadBalancers[0].IpamPools.Ipv4IpamPoolId))
 }

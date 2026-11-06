@@ -585,21 +585,34 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if !rdsRequireStandaloneInstance(w, r, instance, "stopped") {
+	if code, msg := rdsStopRefusal(instance); code != "" {
+		rdsErrorXML(w, code, msg, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if !rdsRequireInstanceState(w, r, instance, "available", "stopped") {
-		return
+	updated := rdsBeginStop(id, strings.EqualFold(r.FormValue("DetachFromDBCapacityReservation"), "true"))
+	rdsXMLResponse(w, "StopDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
+}
+
+// rdsStopRefusal returns the error code and message Amazon RDS answers
+// StopDBInstance with for an instance it will not stop, or "".
+func rdsStopRefusal(instance RDSInstance) (code, msg string) {
+	id := instance.DBInstanceIdentifier
+	switch {
+	case instance.DBClusterIdentifier != "":
+		return "InvalidDBClusterStateFault", fmt.Sprintf("DB instance %s is a member of DB cluster %s and cannot be stopped on its own; use the DB cluster action instead.",
+			id, instance.DBClusterIdentifier)
+	case instance.DBInstanceStatus != "available":
+		return "InvalidDBInstanceState", fmt.Sprintf("Instance %s is not in available state and cannot be stopped.", id)
+	case rdsIsReadReplica(instance) || len(rdsReadReplicasOf(instance)) > 0:
+		return "InvalidDBInstanceState", fmt.Sprintf("Instance %s cannot be stopped: a DB instance that has a read replica, or that is a read replica, can't be stopped.", id)
 	}
-	if rdsIsReadReplica(instance) || len(rdsReadReplicasOf(instance)) > 0 {
-		rdsErrorXML(w, "InvalidDBInstanceState",
-			fmt.Sprintf("Instance %s cannot be stopped: a DB instance that has a read replica, or that is a read replica, can't be stopped.", id),
-			http.StatusBadRequest, sim.RequestID(r.Context()))
-		return
-	}
-	// Amazon RDS answers stopping and lands stopped once the engine has shut
-	// down, which is when the engine container here has stopped.
-	detach := strings.EqualFold(r.FormValue("DetachFromDBCapacityReservation"), "true")
+	return "", ""
+}
+
+// rdsBeginStop moves an instance rdsStopRefusal accepts to stopping. Amazon
+// RDS lands it stopped once the engine has shut down, which is when the
+// engine container here has stopped.
+func rdsBeginStop(id string, detach bool) RDSInstance {
 	rdsInstances.Update(id, func(i *RDSInstance) {
 		i.DBInstanceStatus = "stopping"
 		if detach {
@@ -608,5 +621,5 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	})
 	updated, _ := rdsInstances.Get(id)
 	bg.Go(func() { rdsFinishStop(id) })
-	rdsXMLResponse(w, "StopDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))
+	return updated
 }

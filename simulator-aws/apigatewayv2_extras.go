@@ -72,8 +72,8 @@ func apigwv2SplitRouteKey(routeKey string) (method, path string) {
 // Keyed by `<apiId>/<integrationId>/<responseId>`.
 type APIGWv2IntegrationResponse struct {
 	IntegrationResponseId       string            `json:"integrationResponseId"`
-	ApiId                       string            `json:"apiIdRef,omitempty"`
-	IntegrationId               string            `json:"integrationIdRef,omitempty"`
+	ApiId                       string            `json:"-"`
+	IntegrationId               string            `json:"-"`
 	IntegrationResponseKey      string            `json:"integrationResponseKey"`
 	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
 	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
@@ -84,8 +84,8 @@ type APIGWv2IntegrationResponse struct {
 // Keyed by `<apiId>/<routeId>/<responseId>`.
 type APIGWv2RouteResponse struct {
 	RouteResponseId          string                            `json:"routeResponseId"`
-	ApiId                    string                            `json:"apiIdRef,omitempty"`
-	RouteId                  string                            `json:"routeIdRef,omitempty"`
+	ApiId                    string                            `json:"-"`
+	RouteId                  string                            `json:"-"`
 	RouteResponseKey         string                            `json:"routeResponseKey"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 	ResponseModels           map[string]string                 `json:"responseModels,omitempty"`
@@ -166,7 +166,7 @@ func handleAPIGWv2CreateIntegrationResponse(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ir := APIGWv2IntegrationResponse{
-		IntegrationResponseId:       sim.NewUUID()[:10],
+		IntegrationResponseId:       apigwRandomLower(10),
 		ApiId:                       apiId,
 		IntegrationId:               integrationId,
 		IntegrationResponseKey:      req.IntegrationResponseKey,
@@ -286,7 +286,7 @@ func handleAPIGWv2CreateRouteResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rr := APIGWv2RouteResponse{
-		RouteResponseId:          sim.NewUUID()[:10],
+		RouteResponseId:          apigwRandomLower(10),
 		ApiId:                    apiId,
 		RouteId:                  routeId,
 		RouteResponseKey:         req.RouteResponseKey,
@@ -436,7 +436,7 @@ func apigwv2APIFromOpenAPI(r *http.Request, apiId string) (APIGWv2Api, error) {
 	}
 	name := apigwv2OpenAPITitle(req.Body)
 	if apiId == "" {
-		apiId = sim.NewUUID()[:10]
+		apiId = apigwRandomLower(10)
 	}
 	return APIGWv2Api{
 		ApiId:        apiId,
@@ -459,38 +459,6 @@ func handleAPIGWv2ExportApi(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(doc)
-}
-
-func handleAPIGWv2GetTags(w http.ResponseWriter, r *http.Request) {
-	arn := sim.PathParam(r, "resourceArn")
-	tags := apigwv2TagsForARN(arn)
-	if tags == nil {
-		tags = map[string]string{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
-}
-
-// ARNs read arn:aws:apigateway:<region>::/apis/<id>, …/domainnames/<name> or
-// …/vpclinks/<id>.
-func apigwv2TagsForARN(arn string) map[string]string {
-	switch {
-	case strings.Contains(arn, "/apis/"):
-		id := arn[strings.LastIndex(arn, "/apis/")+len("/apis/"):]
-		if a, ok := apigwv2Apis.Get(id); ok {
-			return a.Tags
-		}
-	case strings.Contains(arn, "/domainnames/"):
-		name := arn[strings.LastIndex(arn, "/domainnames/")+len("/domainnames/"):]
-		if d, ok := apigwv2DomainNames.Get(name); ok {
-			return d.Tags
-		}
-	case strings.Contains(arn, "/vpclinks/"):
-		id := arn[strings.LastIndex(arn, "/vpclinks/")+len("/vpclinks/"):]
-		if v, ok := apigwv2VpcLinks.Get(id); ok {
-			return v.Tags
-		}
-	}
-	return nil
 }
 
 func handleAPIGWv2DeleteAccessLogSettings(w http.ResponseWriter, r *http.Request) {

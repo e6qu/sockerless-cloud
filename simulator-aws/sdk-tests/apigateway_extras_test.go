@@ -1,7 +1,10 @@
 package aws_sdk_test
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -48,6 +51,21 @@ func TestAPIGateway_BasePathMappings(t *testing.T) {
 	c := apigwClient()
 	apiID, stage := apigwNewRestAPIWithStage(t, c, "bpm-api")
 	domain := "bpm.example.com"
+
+	_, err := c.CreateBasePathMapping(ctx, &apigateway.CreateBasePathMappingInput{
+		DomainName: aws.String(domain), RestApiId: aws.String(apiID), BasePath: aws.String("v1"), Stage: aws.String(stage),
+	})
+	var notFound *apigwtypes.NotFoundException
+	require.ErrorAs(t, err, &notFound, "CreateBasePathMapping before CreateDomainName")
+	_, err = c.CreateDomainName(ctx, &apigateway.CreateDomainNameInput{
+		DomainName:             aws.String(domain),
+		RegionalCertificateArn: aws.String(importELBv2Certificate(t, domain)),
+		EndpointConfiguration:  &apigwtypes.EndpointConfiguration{Types: []apigwtypes.EndpointType{apigwtypes.EndpointTypeRegional}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDomainName(ctx, &apigateway.DeleteDomainNameInput{DomainName: aws.String(domain)})
+	})
 
 	create, err := c.CreateBasePathMapping(ctx, &apigateway.CreateBasePathMappingInput{
 		DomainName: aws.String(domain),
@@ -98,7 +116,13 @@ func TestAPIGateway_ClientCertificates(t *testing.T) {
 	require.NoError(t, err)
 	certID := aws.ToString(gen.ClientCertificateId)
 	require.NotEmpty(t, certID)
-	assert.Contains(t, aws.ToString(gen.PemEncodedCertificate), "BEGIN CERTIFICATE")
+	block, _ := pem.Decode([]byte(aws.ToString(gen.PemEncodedCertificate)))
+	require.NotNil(t, block, "pemEncodedCertificate is PEM")
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err, "pemEncodedCertificate is an X.509 certificate")
+	assert.Equal(t, certID, parsed.Subject.CommonName)
+	require.NoError(t, parsed.CheckSignature(parsed.SignatureAlgorithm, parsed.RawTBSCertificate, parsed.Signature), "the certificate is self-signed")
+	assert.WithinDuration(t, aws.ToTime(gen.ExpirationDate), parsed.NotAfter, time.Second)
 	t.Cleanup(func() {
 		_, _ = c.DeleteClientCertificate(ctx, &apigateway.DeleteClientCertificateInput{ClientCertificateId: aws.String(certID)})
 	})

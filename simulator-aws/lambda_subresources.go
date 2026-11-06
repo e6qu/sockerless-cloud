@@ -249,7 +249,7 @@ func handleLambdaPublishVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := publishLambdaVersion(name, req.Description, fn)
-	sim.WriteJSON(w, http.StatusCreated, v)
+	sim.WriteJSON(w, http.StatusCreated, lambdaConfigurationFromVersion(v))
 }
 
 func handleLambdaListVersions(w http.ResponseWriter, r *http.Request) {
@@ -260,11 +260,13 @@ func handleLambdaListVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	published, _ := lambdaVersions.Get(name)
-	versions := make([]LambdaVersion, 0, len(published)+1)
+	versions := make([]lambdaFunctionConfiguration, 0, len(published)+1)
 	if fn, ok := lambdaFunctions.Get(name); ok {
-		versions = append(versions, latestLambdaVersion(fn))
+		versions = append(versions, lambdaConfigurationFromVersion(latestLambdaVersion(fn)))
 	}
-	versions = append(versions, published...)
+	for _, v := range published {
+		versions = append(versions, lambdaConfigurationFromVersion(v))
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Versions": versions})
 }
 
@@ -611,6 +613,10 @@ func handleLambdaCreateFunctionUrlConfig(w http.ResponseWriter, r *http.Request)
 	if req.AuthType == "" {
 		req.AuthType = "NONE"
 	}
+	if req.InvokeMode == "" {
+		// The model documents BUFFERED as the default.
+		req.InvokeMode = "BUFFERED"
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	urlID := strings.ToLower(sim.NewUUID()[:24])
 	urlConfig := LambdaFunctionUrlConfig{
@@ -628,7 +634,16 @@ func handleLambdaCreateFunctionUrlConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	lambdaURLConfigs.Put(name, urlConfig)
-	sim.WriteJSON(w, http.StatusCreated, urlConfig)
+	// CreateFunctionUrlConfig's output, unlike Get's and Update's, carries no
+	// LastModifiedTime.
+	sim.WriteJSON(w, http.StatusCreated, map[string]any{
+		"FunctionArn":  urlConfig.FunctionArn,
+		"FunctionUrl":  urlConfig.FunctionUrl,
+		"AuthType":     urlConfig.AuthType,
+		"CreationTime": urlConfig.CreationTime,
+		"InvokeMode":   urlConfig.InvokeMode,
+		"Cors":         urlConfig.Cors,
+	})
 }
 
 func handleLambdaGetFunctionUrlConfig(w http.ResponseWriter, r *http.Request) {

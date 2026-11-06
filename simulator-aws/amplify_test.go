@@ -283,8 +283,8 @@ func TestAmplifyUpdateAppPresenceSemantics(t *testing.T) {
 		`{"description":"","enableAutoBranchCreation":false,"autoBranchCreationPatterns":[],"customRules":[]}`,
 		map[string]string{"appId": appID})
 	app = updated["app"].(map[string]any)
-	if _, present := app["description"]; present {
-		t.Fatalf("explicit empty description must clear: %v", app)
+	if app["description"] != "" {
+		t.Fatalf("explicit empty description must clear to the required empty string: %v", app)
 	}
 	if app["enableAutoBranchCreation"] != false {
 		t.Fatalf("enableAutoBranchCreation must clear: %v", app)
@@ -316,11 +316,11 @@ func TestAmplifyUpdateBranchPresenceSemantics(t *testing.T) {
 		`{"description":"","displayName":"","enableSkewProtection":false}`,
 		map[string]string{"appId": "brapp", "name": "main"})
 	br = updated["branch"].(map[string]any)
-	if _, present := br["description"]; present {
-		t.Fatalf("explicit empty description must clear: %v", br)
+	if br["description"] != "" {
+		t.Fatalf("explicit empty description must clear to the required empty string: %v", br)
 	}
-	if _, present := br["displayName"]; present {
-		t.Fatalf("explicit empty displayName must clear: %v", br)
+	if br["displayName"] != "" {
+		t.Fatalf("explicit empty displayName must clear to the required empty string: %v", br)
 	}
 	if br["enableSkewProtection"] != false {
 		t.Fatalf("enableSkewProtection must clear: %v", br)

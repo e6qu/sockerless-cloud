@@ -413,7 +413,7 @@ func TestAPIGatewayV2_DomainNamesMappingsVpcLinksCLI(t *testing.T) {
 	domain := fmt.Sprintf("cli-%d.example.com", time.Now().UnixNano())
 	dnOut := runCLI(t, awsCLI("apigatewayv2", "create-domain-name",
 		"--domain-name", domain,
-		"--domain-name-configurations", "EndpointType=REGIONAL,CertificateArn=arn:aws:acm:us-east-1:000000000000:certificate/abc",
+		"--domain-name-configurations", "EndpointType=REGIONAL,CertificateArn="+importELBv2CertificateCLI(t, domain),
 	))
 	var dn struct {
 		DomainName string `json:"DomainName"`

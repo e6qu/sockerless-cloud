@@ -5,9 +5,21 @@
 # here. Every entry carries a BUG ID and the list only shrinks — a new
 # divergence is a failure, never an addition.
 #
-# The list is empty, and an entry is close to always the wrong answer for a
+# An entry is close to always the wrong answer for a
 # shape whose declared pattern is stricter than the service it describes:
 # allowlisting the field stops the value being checked at all. Such a shape
 # takes a correction in specs/cloud-api/aws/<model>.supplement.json, which
 # records the evidence, pins the upstream text it replaces, and keeps the member
 # validated against what AWS really returns.
+
+# BUG-3885: a branch created without a stage reads back NONE, which the
+# vendored Stage enum and amplify-api-branch page omit.
+Amplify.CreateBranch	enum-mismatch	$.branch.stage	# BUG-3885
+Amplify.DeleteBranch	enum-mismatch	$.branch.stage	# BUG-3885
+Amplify.GetBranch	enum-mismatch	$.branch.stage	# BUG-3885
+Amplify.ListBranches	enum-mismatch	$.branches[].stage	# BUG-3885
+Amplify.UpdateBranch	enum-mismatch	$.branch.stage	# BUG-3885
+
+# BUG-3886: a job that has not reached RUNNING has no start time to report,
+# although the model and batch-api-job-detail mark startedAt required.
+AWSBatchV20160810.DescribeJobs	missing-required	$.jobs[].startedAt	# BUG-3886

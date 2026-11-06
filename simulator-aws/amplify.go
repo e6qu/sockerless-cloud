@@ -92,15 +92,15 @@ type AmplifyApp struct {
 	AppArn                     string                   `json:"appArn"`
 	AppId                      string                   `json:"appId"`
 	Name                       string                   `json:"name"`
-	Description                string                   `json:"description,omitempty"`
-	Repository                 string                   `json:"repository,omitempty"`
+	Description                string                   `json:"description"`
+	Repository                 string                   `json:"repository"`
 	RepositoryCloneMethod      string                   `json:"repositoryCloneMethod,omitempty"`
 	Platform                   string                   `json:"platform"`
 	CreateTime                 float64                  `json:"createTime"`
 	UpdateTime                 float64                  `json:"updateTime"`
 	ComputeRoleArn             string                   `json:"computeRoleArn,omitempty"`
 	IamServiceRoleArn          string                   `json:"iamServiceRoleArn,omitempty"`
-	EnvironmentVariables       map[string]string        `json:"environmentVariables,omitempty"`
+	EnvironmentVariables       map[string]string        `json:"environmentVariables"`
 	DefaultDomain              string                   `json:"defaultDomain"`
 	EnableBranchAutoBuild      bool                     `json:"enableBranchAutoBuild"`
 	EnableBranchAutoDeletion   bool                     `json:"enableBranchAutoDeletion"`
@@ -123,19 +123,19 @@ type AmplifyApp struct {
 type AmplifyBranch struct {
 	BranchArn                  string             `json:"branchArn"`
 	BranchName                 string             `json:"branchName"`
-	Description                string             `json:"description,omitempty"`
+	Description                string             `json:"description"`
 	Tags                       map[string]string  `json:"tags,omitempty"`
 	Stage                      AmplifyBranchStage `json:"stage"`
-	DisplayName                string             `json:"displayName,omitempty"`
+	DisplayName                string             `json:"displayName"`
 	EnableNotification         bool               `json:"enableNotification"`
 	CreateTime                 float64            `json:"createTime"`
 	UpdateTime                 float64            `json:"updateTime"`
-	EnvironmentVariables       map[string]string  `json:"environmentVariables,omitempty"`
+	EnvironmentVariables       map[string]string  `json:"environmentVariables"`
 	EnableAutoBuild            bool               `json:"enableAutoBuild"`
 	EnableSkewProtection       bool               `json:"enableSkewProtection"`
-	CustomDomains              []string           `json:"customDomains,omitempty"`
-	Framework                  string             `json:"framework,omitempty"`
-	ActiveJobId                string             `json:"activeJobId,omitempty"`
+	CustomDomains              []string           `json:"customDomains"`
+	Framework                  string             `json:"framework"`
+	ActiveJobId                string             `json:"activeJobId"`
 	TotalNumberOfJobs          string             `json:"totalNumberOfJobs"`
 	EnableBasicAuth            bool               `json:"enableBasicAuth"`
 	EnablePerformanceMode      bool               `json:"enablePerformanceMode"`
@@ -161,7 +161,7 @@ type AmplifyWebhook struct {
 	WebhookUrl  string  `json:"webhookUrl"`
 	AppId       string  `json:"appId"`
 	BranchName  string  `json:"branchName"`
-	Description string  `json:"description,omitempty"`
+	Description string  `json:"description"`
 	CreateTime  float64 `json:"createTime"`
 	UpdateTime  float64 `json:"updateTime"`
 }
@@ -169,10 +169,10 @@ type AmplifyWebhook struct {
 type AmplifyJobSummary struct {
 	JobArn        string               `json:"jobArn"`
 	JobId         string               `json:"jobId"`
-	CommitId      string               `json:"commitId,omitempty"`
-	CommitMessage string               `json:"commitMessage,omitempty"`
-	CommitTime    float64              `json:"commitTime,omitempty"`
-	StartTime     float64              `json:"startTime,omitempty"`
+	CommitId      string               `json:"commitId"`
+	CommitMessage string               `json:"commitMessage"`
+	CommitTime    float64              `json:"commitTime"`
+	StartTime     float64              `json:"startTime"`
 	Status        AmplifyJobStatus     `json:"status"`
 	EndTime       float64              `json:"endTime,omitempty"`
 	JobType       string               `json:"jobType"`
@@ -182,13 +182,13 @@ type AmplifyJobSummary struct {
 
 type AmplifyJob struct {
 	Summary AmplifyJobSummary `json:"summary"`
-	Steps   []AmplifyJobStep  `json:"steps,omitempty"`
+	Steps   []AmplifyJobStep  `json:"steps"`
 }
 
 type AmplifyJobStep struct {
 	StepName         string            `json:"stepName"`
 	StartTime        float64           `json:"startTime"`
-	EndTime          float64           `json:"endTime,omitempty"`
+	EndTime          float64           `json:"endTime"`
 	Status           AmplifyJobStatus  `json:"status"`
 	LogUrl           string            `json:"logUrl,omitempty"`
 	ArtifactsUrl     string            `json:"artifactsUrl,omitempty"`
@@ -536,7 +536,7 @@ func handleAmplifyCreateApp(w http.ResponseWriter, r *http.Request) {
 		UpdateTime:            now,
 		ComputeRoleArn:        req.ComputeRoleArn,
 		IamServiceRoleArn:     req.IamServiceRoleArn,
-		EnvironmentVariables:  req.EnvironmentVariables,
+		EnvironmentVariables:  amplifyEnv(req.EnvironmentVariables),
 		DefaultDomain:         id + ".amplifyapp.com",
 		// terraform-provider-aws sends the member only when true and relies on the
 		// read-back for idempotency.
@@ -876,7 +876,7 @@ func handleAmplifyCreateBranch(w http.ResponseWriter, r *http.Request) {
 		EnableNotification:         boolOr(req.EnableNotification, false),
 		EnableAutoBuild:            boolOr(req.EnableAutoBuild, true),
 		EnableSkewProtection:       boolOr(req.EnableSkewProtection, false),
-		EnvironmentVariables:       req.EnvironmentVariables,
+		EnvironmentVariables:       amplifyEnv(req.EnvironmentVariables),
 		BasicAuthCredentials:       req.BasicAuthCredentials,
 		EnableBasicAuth:            boolOr(req.EnableBasicAuth, false),
 		EnablePerformanceMode:      boolOr(req.EnablePerformanceMode, false),
@@ -1262,6 +1262,9 @@ func handleAmplifyStartJob(w http.ResponseWriter, r *http.Request) {
 		StartTime:     now,
 		Status:        AmplifyJobStatusPending,
 		JobType:       req.JobType,
+	}
+	if summary.CommitTime == 0 {
+		summary.CommitTime = now
 	}
 	job := AmplifyJob{Summary: summary, Steps: amplifyJobSteps(now, AmplifyJobStatusPending)}
 	urlBase := amplifyURLBase(r)
@@ -1894,10 +1897,13 @@ func handleAmplifyStartDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := amplifyEpoch()
+	// A manual deployment has no commit, and the model requires commitTime;
+	// the job reports its own start.
 	summary := AmplifyJobSummary{
-		StartTime: now,
-		Status:    AmplifyJobStatusPending,
-		JobType:   "MANUAL",
+		CommitTime: now,
+		StartTime:  now,
+		Status:     AmplifyJobStatusPending,
+		JobType:    "MANUAL",
 	}
 	var uploads []amplifyUploadedArtifact
 	if req.JobId != "" {
@@ -2168,4 +2174,13 @@ func amplifyRemoveTagsForARN(arn string, keys []string) bool {
 		}
 	}
 	return false
+}
+
+// amplifyEnv returns a non-nil map: the model requires environmentVariables on
+// an app and a branch, so one with none reads back {}.
+func amplifyEnv(vars map[string]string) map[string]string {
+	if vars == nil {
+		return map[string]string{}
+	}
+	return vars
 }

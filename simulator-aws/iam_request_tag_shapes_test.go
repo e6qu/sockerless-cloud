@@ -276,6 +276,74 @@ func TestIAMRequestTagsPerServiceWireShape(t *testing.T) {
 		{"an Amazon EFS file system untagged through the legacy DeleteTags", "elasticfilesystem",
 			restTagRequest(http.MethodPost, "/2015-02-01/delete-tags/fs-1", `{"TagKeys":["owner"]}`),
 			map[string][]string{"aws:TagKeys": {"owner"}}},
+		// Amazon API Gateway, AWS Amplify and AWS Batch (restJson1) carry a
+		// `tags` map and name untag keys in the tagKeys query parameter.
+		{"an Amazon API Gateway REST API created with tags", "apigateway",
+			restTagRequest(http.MethodPost, "/restapis", `{"name":"orders","tags":{"owner":"api"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"api"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an Amazon API Gateway HTTP API untagged", "apigateway",
+			restTagRequest(http.MethodDelete, "/v2/tags/arn?tagKeys=owner", ``),
+			map[string][]string{"aws:TagKeys": {"owner"}}},
+		{"an AWS Amplify app created with tags", "amplify",
+			restTagRequest(http.MethodPost, "/apps", `{"name":"web","tags":{"owner":"frontend"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"frontend"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an AWS Batch job queue created with tags", "batch",
+			restTagRequest(http.MethodPost, "/v1/createjobqueue", `{"jobQueueName":"q","tags":{"owner":"compute"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"compute"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		// EventBridge Scheduler carries a Key/Value list and names untag keys in
+		// the TagKeys query parameter.
+		{"an EventBridge Scheduler schedule group created with tags", "scheduler",
+			restTagRequest(http.MethodPost, "/schedule-groups/g", `{"Tags":[{"Key":"owner","Value":"ops"}]}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"ops"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an EventBridge Scheduler schedule group untagged", "scheduler",
+			restTagRequest(http.MethodDelete, "/tags/arn?TagKeys=owner", ``),
+			map[string][]string{"aws:TagKeys": {"owner"}}},
+		// Amazon CloudFront (restXml) carries an Items list of Tag, as the
+		// TagResource payload or inside DistributionConfigWithTags, and names
+		// untag keys in a TagKeys payload's Items list of Key.
+		{"an Amazon CloudFront distribution created with tags", "cloudfront",
+			restTagRequest(http.MethodPost, "/2020-05-31/distribution?WithTags",
+				`<DistributionConfigWithTags><DistributionConfig/><Tags><Items><Tag><Key>owner</Key><Value>edge</Value></Tag></Items></Tags></DistributionConfigWithTags>`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"edge"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an Amazon CloudFront resource tagged", "cloudfront",
+			restTagRequest(http.MethodPost, "/2020-05-31/tagging?Operation=Tag&Resource=arn",
+				`<Tags><Items><Tag><Key>team</Key><Value>cdn</Value></Tag></Items></Tags>`),
+			map[string][]string{
+				"aws:RequestTag/team": {"cdn"},
+				"aws:TagKeys":         {"team"},
+			}},
+		{"an Amazon CloudFront resource untagged", "cloudfront",
+			restTagRequest(http.MethodPost, "/2020-05-31/tagging?Operation=Untag&Resource=arn",
+				`<TagKeys><Items><Key>team</Key></Items></TagKeys>`),
+			map[string][]string{"aws:TagKeys": {"team"}}},
+		// Amazon Route 53 (restXml) carries AddTags and RemoveTagKeys in one
+		// ChangeTagsForResourceRequest.
+		{"an Amazon Route 53 hosted zone tagged", "route53",
+			restTagRequest(http.MethodPost, "/2013-04-01/tags/hostedzone/Z1",
+				`<ChangeTagsForResourceRequest><AddTags><Tag><Key>env</Key><Value>prod</Value></Tag></AddTags></ChangeTagsForResourceRequest>`),
+			map[string][]string{
+				"aws:RequestTag/env": {"prod"},
+				"aws:TagKeys":        {"env"},
+			}},
+		{"an Amazon Route 53 hosted zone untagged", "route53",
+			restTagRequest(http.MethodPost, "/2013-04-01/tags/hostedzone/Z1",
+				`<ChangeTagsForResourceRequest><RemoveTagKeys><Key>old</Key></RemoveTagKeys></ChangeTagsForResourceRequest>`),
+			map[string][]string{"aws:TagKeys": {"old"}}},
 		// AWS Secrets Manager uses Key/Value.
 		{"an AWS Secrets Manager secret created with tags", "secretsmanager",
 			jsonTagRequest("secretsmanager.CreateSecret",

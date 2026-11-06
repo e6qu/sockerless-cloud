@@ -198,7 +198,7 @@ func TestELBv2_StickinessKeepsAClientOnOneTargetGroupAndTarget(t *testing.T) {
 	first, cookies = send(sticky, "/c")
 	targetCookie := cookieNamed(cookies, "AWSALB")
 	require.NotNil(t, targetCookie, "the first answer sets the target stickiness cookie: %v", cookies)
-	assert.Equal(t, 120, targetCookie.MaxAge)
+	assert.Equal(t, 7*24*3600, targetCookie.MaxAge, "the load balancer generated cookie expires in 7 days whatever the stickiness duration")
 	for range 20 {
 		body, _ := send(sticky, "/c")
 		assert.Equal(t, first, body)

@@ -233,26 +233,11 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 	assert.Equal(t, "platform", tags2.Tags["team"])
 }
 
-// TestAPIGateway_DomainVpcUsageAndAccess covers UpdateDomainName,
-// UpdateVpcLink, UpdateUsage and the domain-name access-association
-// operations.
-func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
+// TestAPIGateway_UsageAndAccess covers UpdateUsage and the domain-name
+// access-association operations.
+func TestAPIGateway_UsageAndAccess(t *testing.T) {
 	t.Parallel()
 	c := apigwClient()
-
-	upDomain, err := c.UpdateDomainName(ctx, &apigateway.UpdateDomainNameInput{
-		DomainName:      aws.String("api.example.com"),
-		PatchOperations: []apigwtypes.PatchOperation{apigwPatch("/certificateName", "prod-cert")},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "prod-cert", aws.ToString(upDomain.CertificateName))
-
-	upLink, err := c.UpdateVpcLink(ctx, &apigateway.UpdateVpcLinkInput{
-		VpcLinkId:       aws.String("vpclink-1"),
-		PatchOperations: []apigwtypes.PatchOperation{apigwPatch("/name", "private-backends")},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "private-backends", aws.ToString(upLink.Name))
 
 	up, err := c.CreateUsagePlan(ctx, &apigateway.CreateUsagePlanInput{
 		Name:  aws.String("plan"),

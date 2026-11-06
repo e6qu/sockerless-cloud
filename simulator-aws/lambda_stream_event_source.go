@@ -99,7 +99,7 @@ func startLambdaStreamEventSourcePollers(srv *sim.Server) {
 			uuid, _, _ := strings.Cut(key, "\x00")
 			wake := []<-chan struct{}{lambdaESMChanges.Changed(uuid), iamChanges.Any(), lambdaEnvironmentChanges.Any()}
 			if mapping, ok := lambdaESMs.Get(uuid); ok {
-				wake = append(wake, lambdaFunctionChanges.Changed(snsTopicNameFromARN(mapping.FunctionArn)))
+				wake = append(wake, lambdaFunctionChanges.Changed(lambdaFunctionNameOfArn(mapping.FunctionArn)))
 			}
 			return wake
 		},
@@ -128,12 +128,11 @@ func lambdaPollKinesisShard(ctx context.Context, key string) funcrt.Outcome {
 	if state.Done {
 		return funcrt.Inactive
 	}
-	function, ok := lambdaFunctions.Get(snsTopicNameFromARN(mapping.FunctionArn))
+	function, _, ok := lambdaResolveInvocationTarget(mapping.FunctionArn, "")
 	if !ok {
 		lambdaSetESMProcessingResult(uuid, "PROBLEM: AWS Lambda function not found")
 		return funcrt.Blocked
 	}
-	function.Version = "$LATEST"
 	filters, err := lambdaESMFilters(mapping.FilterCriteria)
 	if err != nil {
 		lambdaSetESMProcessingResult(uuid, "PROBLEM: "+err.Error())

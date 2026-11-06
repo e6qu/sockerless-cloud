@@ -328,6 +328,9 @@ func TestStackProductionShape(t *testing.T) {
 	require.Contains(t, efsFSArn, ":file-system/fs-",
 		"EFS file system ARN must use the file-system resource path; got %s", efsFSArn)
 
+	require.Equal(t, outputs.must(t, "efs_default_key_arn"), outputs.must(t, "efs_file_system_kms_key_id"),
+		"an encrypted file system without kms_key_id uses the AWS managed key aws/elasticfilesystem")
+
 	efsMountTargetID := outputs.must(t, "efs_mount_target_id")
 	require.True(t, strings.HasPrefix(efsMountTargetID, "fsmt-"),
 		"EFS mount target id must use fsmt-* shape; got %s", efsMountTargetID)

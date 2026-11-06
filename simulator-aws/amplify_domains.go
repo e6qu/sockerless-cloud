@@ -36,7 +36,7 @@ type AmplifyDomainAssociation struct {
 	AutoSubDomainIamRole             string                    `json:"autoSubDomainIAMRole,omitempty"`
 	DomainStatus                     AmplifyDomainStatus       `json:"domainStatus"`
 	UpdateStatus                     AmplifyDomainUpdateStatus `json:"updateStatus"`
-	StatusReason                     string                    `json:"statusReason,omitempty"`
+	StatusReason                     string                    `json:"statusReason"`
 	Certificate                      *AmplifyCertificate       `json:"certificate,omitempty"`
 	CertificateVerificationDNSRecord string                    `json:"certificateVerificationDNSRecord,omitempty"`
 	SubDomains                       []AmplifySubDomain        `json:"subDomains"`

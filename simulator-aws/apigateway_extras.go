@@ -1,9 +1,15 @@
 package main
 
 import (
-	"encoding/base64"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,15 +17,6 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
-
-// Keyed by `<domainName>/<basePath>`; the SDK sends "(none)" for an empty
-// base path.
-type APIGWBasePathMapping struct {
-	BasePath   string `json:"basePath"`
-	RestApiId  string `json:"restApiId,omitempty"`
-	Stage      string `json:"stage,omitempty"`
-	DomainName string `json:"domainNameRef,omitempty"`
-}
 
 type APIGWClientCertificate struct {
 	ClientCertificateId   string            `json:"clientCertificateId"`
@@ -43,7 +40,7 @@ type APIGWDocumentationPart struct {
 	Id         string                         `json:"id"`
 	Location   APIGWDocumentationPartLocation `json:"location"`
 	Properties string                         `json:"properties,omitempty"`
-	RestApiId  string                         `json:"restApiIdRef,omitempty"`
+	RestApiId  string                         `json:"-"`
 }
 
 // Keyed by `<restApiId>/<version>`.
@@ -51,7 +48,7 @@ type APIGWDocumentationVersion struct {
 	Version     string `json:"version"`
 	CreatedDate int64  `json:"createdDate,omitempty"`
 	Description string `json:"description,omitempty"`
-	RestApiId   string `json:"restApiIdRef,omitempty"`
+	RestApiId   string `json:"-"`
 }
 
 // Keyed by `<restApiId>/<responseType>`.
@@ -61,7 +58,7 @@ type APIGWGatewayResponse struct {
 	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
 	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
 	DefaultResponse    bool              `json:"defaultResponse"`
-	RestApiId          string            `json:"restApiIdRef,omitempty"`
+	RestApiId          string            `json:"-"`
 }
 
 // A single row keyed "account".
@@ -73,12 +70,14 @@ type APIGWAccount struct {
 }
 
 var (
-	apigwBasePathMappings   sim.Store[APIGWBasePathMapping]
-	apigwClientCertificates sim.Store[APIGWClientCertificate]
-	apigwDocParts           sim.Store[APIGWDocumentationPart]
-	apigwDocVersions        sim.Store[APIGWDocumentationVersion]
-	apigwGatewayResponses   sim.Store[APIGWGatewayResponse]
-	apigwAccount            sim.Store[APIGWAccount]
+	// apigwClientCertificateKeys holds each client certificate's private key,
+	// which no API Gateway operation returns.
+	apigwClientCertificateKeys sim.Store[string]
+	apigwClientCertificates    sim.Store[APIGWClientCertificate]
+	apigwDocParts              sim.Store[APIGWDocumentationPart]
+	apigwDocVersions           sim.Store[APIGWDocumentationVersion]
+	apigwGatewayResponses      sim.Store[APIGWGatewayResponse]
+	apigwAccount               sim.Store[APIGWAccount]
 )
 
 // GetGatewayResponses lists these with defaultResponse=true before any
@@ -155,7 +154,7 @@ func apigwSdkTypes() []map[string]any {
 }
 
 func registerAPIGatewayExtras(srv *sim.Server) {
-	apigwBasePathMappings = sim.MakeStore[APIGWBasePathMapping](srv.DB(), "apigw_basepathmappings")
+	apigwClientCertificateKeys = sim.MakeStore[string](srv.DB(), "apigw_client_certificate_keys")
 	apigwClientCertificates = sim.MakeStore[APIGWClientCertificate](srv.DB(), "apigw_clientcertificates")
 	apigwDocParts = sim.MakeStore[APIGWDocumentationPart](srv.DB(), "apigw_documentation_parts")
 	apigwDocVersions = sim.MakeStore[APIGWDocumentationVersion](srv.DB(), "apigw_documentation_versions")
@@ -215,116 +214,6 @@ func registerAPIGatewayExtras(srv *sim.Server) {
 	mux.HandleFunc("GET /tags/{resourceArn}", cloudTrailRecordedREST("GetTags", src, nil, handleAPIGWGetTags))
 }
 
-func apigwBasePathKey(domain, basePath string) string {
-	if basePath == "" {
-		basePath = "(none)"
-	}
-	return domain + "/" + basePath
-}
-
-func handleAPIGWCreateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
-	var req struct {
-		BasePath  string `json:"basePath"`
-		RestApiId string `json:"restApiId"`
-		Stage     string `json:"stage"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	if _, ok := apigwRestApis.Get(req.RestApiId); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
-		return
-	}
-	m := APIGWBasePathMapping{
-		BasePath:   req.BasePath,
-		RestApiId:  req.RestApiId,
-		Stage:      req.Stage,
-		DomainName: domain,
-	}
-	apigwBasePathMappings.Put(apigwBasePathKey(domain, req.BasePath), m)
-	sim.WriteJSON(w, http.StatusCreated, m)
-}
-
-func handleAPIGWListBasePathMappings(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
-	out := []APIGWBasePathMapping{}
-	for _, m := range apigwBasePathMappings.List() {
-		if m.DomainName == domain {
-			out = append(out, m)
-		}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"item": out})
-}
-
-func handleAPIGWGetBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
-	basePath := sim.PathParam(r, "basePath")
-	m, ok := apigwBasePathMappings.Get(apigwBasePathKey(domain, normalizeBasePath(basePath)))
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, m)
-}
-
-func handleAPIGWUpdateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
-	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
-	key := apigwBasePathKey(domain, basePath)
-	m, ok := apigwBasePathMappings.Get(key)
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	var req struct {
-		PatchOperations []apigwPatchOp `json:"patchOperations"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	rekey := false
-	for _, op := range req.PatchOperations {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-		switch strings.TrimPrefix(op.Path, "/") {
-		case "stage":
-			m.Stage = op.Value
-		case "restapiId", "restApiId":
-			m.RestApiId = op.Value
-		case "basePath":
-			m.BasePath = op.Value
-			rekey = true
-		}
-	}
-	if rekey {
-		apigwBasePathMappings.Delete(key)
-		key = apigwBasePathKey(domain, m.BasePath)
-	}
-	apigwBasePathMappings.Put(key, m)
-	sim.WriteJSON(w, http.StatusOK, m)
-}
-
-func handleAPIGWDeleteBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := sim.PathParam(r, "domainName")
-	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
-	if !apigwBasePathMappings.Delete(apigwBasePathKey(domain, basePath)) {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func normalizeBasePath(basePath string) string {
-	if basePath == "(none)" {
-		return ""
-	}
-	return basePath
-}
-
 func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string            `json:"description"`
@@ -335,15 +224,21 @@ func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now()
-	id := sim.NewUUID()[:10]
+	id := apigwRandomLower(10)
+	certPEM, keyPEM, err := apigwIssueClientCertificate(id, now)
+	if err != nil {
+		AWSError(w, "InternalFailure", err.Error(), http.StatusInternalServerError)
+		return
+	}
 	c := APIGWClientCertificate{
 		ClientCertificateId:   id,
 		Description:           req.Description,
-		PemEncodedCertificate: apigwClientCertPEM(id),
+		PemEncodedCertificate: certPEM,
 		CreatedDate:           now.Unix(),
 		ExpirationDate:        now.AddDate(1, 0, 0).Unix(),
 		Tags:                  req.Tags,
 	}
+	apigwClientCertificateKeys.Put(id, keyPEM)
 	apigwClientCertificates.Put(id, c)
 	sim.WriteJSON(w, http.StatusCreated, c)
 }
@@ -392,30 +287,47 @@ func handleAPIGWUpdateClientCertificate(w http.ResponseWriter, r *http.Request) 
 }
 
 func handleAPIGWDeleteClientCertificate(w http.ResponseWriter, r *http.Request) {
-	if !apigwClientCertificates.Delete(sim.PathParam(r, "clientCertificateId")) {
+	id := sim.PathParam(r, "clientCertificateId")
+	if !apigwClientCertificates.Delete(id) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid client certificate identifier specified")
 		return
 	}
+	apigwClientCertificateKeys.Delete(id)
 	w.WriteHeader(http.StatusAccepted)
 }
 
 // The body is the certificate id padded into base64 lines, not a real
 // certificate.
-func apigwClientCertPEM(id string) string {
-	payload := base64.StdEncoding.EncodeToString([]byte("apigw-client-certificate:" + id + ":" + awsAccountID()))
-	var b strings.Builder
-	b.WriteString("-----BEGIN CERTIFICATE-----\n")
-	for len(payload) > 0 {
-		n := 64
-		if n > len(payload) {
-			n = len(payload)
-		}
-		b.WriteString(payload[:n])
-		b.WriteString("\n")
-		payload = payload[n:]
+// apigwIssueClientCertificate mints the self-signed certificate API Gateway
+// presents to an integration backend, valid for the year expirationDate
+// reports, and returns it and its private key as PEM.
+func apigwIssueClientCertificate(id string, notBefore time.Time) (certPEM, keyPEM string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
 	}
-	b.WriteString("-----END CERTIFICATE-----\n")
-	return b.String()
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: id},
+		NotBefore:    notBefore,
+		NotAfter:     notBefore.AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return "", "", err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
 }
 
 func apigwRequireRestAPI(w http.ResponseWriter, id string) bool {
@@ -440,7 +352,7 @@ func handleAPIGWCreateDocumentationPart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	p := APIGWDocumentationPart{
-		Id:         sim.NewUUID()[:10],
+		Id:         apigwRandomLower(10),
 		Location:   req.Location,
 		Properties: req.Properties,
 		RestApiId:  restApiId,
@@ -520,7 +432,7 @@ func handleAPIGWImportDocumentationParts(w http.ResponseWriter, r *http.Request)
 	}
 	// Record the imported OpenAPI document as one API-level documentation part.
 	p := APIGWDocumentationPart{
-		Id:         sim.NewUUID()[:10],
+		Id:         apigwRandomLower(10),
 		Location:   APIGWDocumentationPartLocation{Type: "API"},
 		Properties: req.Body,
 		RestApiId:  restApiId,
@@ -998,45 +910,15 @@ func handleAPIGWGetUsage(w http.ResponseWriter, r *http.Request) {
 
 func handleAPIGWGetTags(w http.ResponseWriter, r *http.Request) {
 	arn := sim.PathParam(r, "resourceArn")
-	tags := apigwTagsForARN(arn)
+	tags, ok := apigwTagsForARN(arn)
+	if !ok {
+		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid resource ARN specified")
+		return
+	}
 	if tags == nil {
 		tags = map[string]string{}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
-}
-
-// Supported ARN tails: /restapis/<id>, /apikeys/<id>, /usageplans/<id>,
-// /clientcertificates/<id>.
-func apigwTagsForARN(arn string) map[string]string {
-	idx := strings.LastIndex(arn, ":")
-	tail := arn
-	if idx >= 0 {
-		tail = arn[idx+1:]
-	}
-	parts := strings.Split(strings.TrimPrefix(tail, "/"), "/")
-	if len(parts) < 2 {
-		return nil
-	}
-	kind, id := parts[0], parts[1]
-	switch kind {
-	case "restapis":
-		if v, ok := apigwRestApis.Get(id); ok {
-			return v.Tags
-		}
-	case "apikeys":
-		if v, ok := apigwApiKeys.Get(id); ok {
-			return v.Tags
-		}
-	case "usageplans":
-		if v, ok := apigwUsagePlans.Get(id); ok {
-			return v.Tags
-		}
-	case "clientcertificates":
-		if v, ok := apigwClientCertificates.Get(id); ok {
-			return v.Tags
-		}
-	}
-	return nil
 }
 
 func apigwPatchString(w http.ResponseWriter, r *http.Request, path string, value *string) bool {

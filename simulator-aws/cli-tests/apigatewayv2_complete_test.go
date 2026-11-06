@@ -44,7 +44,8 @@ func TestAPIGatewayV2CompleteCLI(t *testing.T) {
 	))
 
 	dn := fmt.Sprintf("cli-map-%d.example.com", time.Now().UnixNano())
-	runCLI(t, awsCLI("apigatewayv2", "create-domain-name", "--domain-name", dn))
+	runCLI(t, awsCLI("apigatewayv2", "create-domain-name", "--domain-name", dn,
+		"--domain-name-configurations", "EndpointType=REGIONAL,CertificateArn="+importELBv2CertificateCLI(t, dn)))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("apigatewayv2", "delete-domain-name", "--domain-name", dn))
 	})

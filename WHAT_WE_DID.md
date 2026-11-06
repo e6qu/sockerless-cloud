@@ -787,7 +787,11 @@ a page blob through the Blob data plane as the cache itself, with the URL's
 SAS or the cache's managed identity, so storage authorizes it like any
 client. ElastiCache users become Redis ACL users, so the plane manages nodes
 as an admin user of its own: a user group may switch `default` off without
-locking the plane out.
+locking the plane out. Redis `WAIT` counts acknowledgements of the
+writes made on its own connection, so a test that writes and then waits for
+a replica does both on one connection: `Plane.Command` dials afresh per call,
+and a `WAIT` sent through it returned at once while the replica still lacked
+the write.
 
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
@@ -1284,6 +1288,12 @@ timers and drops work requested while it runs, because reconciliation
 requests more whenever it moves a task; arming a timer holds a read lock a
 drain's write lock excludes.
 
+The runtime spec validator judges every protocol the vendored models speak:
+awsJson, awsQuery and ec2Query, restXml, and restJson1, whose operation it
+finds within the model the request's SigV4 credential scope names, since the
+REST JSON services share path shapes. Before it judged restJson1, an internal
+`restApiIdRef` member rode every Amazon API Gateway response unseen.
+
 A re-vendored model can name operations newer than the pinned SDK; such an
 operation takes a scoped drift exemption citing its `BUGS.md` row, and a test
 fails once the row closes or the operation is served.
@@ -1375,6 +1385,52 @@ fails once the row closes or the operation is served.
   name, because an awsvpc task's search domain is not the namespace and a bare
   name does not resolve on AWS either. A test that deletes its subnet first
   stops its own cluster's tasks and waits with `aws ecs wait tasks-stopped`.
+- **Amazon API Gateway.** `CreateDomainName` mints an edge-optimized
+  domain's Amazon CloudFront name or a Regional domain's `execute-api` name,
+  with the Route 53 hosted zone the vendored `api-gateway-endpoints.md.gz`
+  lists for the Region. It refuses an AWS Certificate Manager certificate that
+  is missing, not `ISSUED`, or outside the Region its endpoint type reads
+  from, so a Terraform stack takes the ARN from `aws_acm_certificate_validation`.
+  `CreateVpcLink` answers `PENDING` and resolves to `AVAILABLE` once every
+  target is a Network Load Balancer, or `FAILED`. `UpdateDomainName`,
+  `UpdateVpcLink` and `CreateBasePathMapping` answer `NotFoundException` for a
+  name nothing created.
+  A REST API stage stores every field of the Smithy `Stage` shape, tags
+  included, and `UpdateStage` accepts exactly the path and op pairs the
+  vendored `api-gateway-patch-operations.md.gz` lists: it keeps a method
+  setting under the key the path carries, as that page says the service does.
+  Enabling a stage cache reports `CREATE_IN_PROGRESS` until the cluster
+  settles at `AVAILABLE`. `CreateDeployment` with a stage name creates or
+  repoints that stage, or with canary settings sets the stage's canary and
+  leaves its deployment alone, and `DeleteDeployment` refuses a deployment a
+  stage still uses. Every API Gateway identifier is ten lowercase letters and
+  digits, never a truncated UUID with its hyphen.
+  `GenerateClientCertificate` issues a self-signed X.509 client-authentication
+  certificate whose common name is its identifier and whose validity ends at
+  the `expirationDate` it reports; the private key stays in its own store,
+  since no operation returns it.
+  Both API versions serve one set of custom domain names: the v2 handlers
+  read and write the v1 store and render a record as a v2
+  `DomainNameConfiguration`, translating `RoutingMode` between the two enums,
+  so a name either version creates conflicts with, reads through, tags
+  through and deletes through the other. The v2 `CreateDomainName` checks its
+  AWS Certificate Manager certificate as the v1 call does. The v2 API serves
+  every operation of its Smithy model, `TagResource`, `UntagResource`,
+  `UpdateDomainName`, `UpdateDeployment`, `UpdateModel` and `UpdateVpcLink`
+  included.
+  A base path mapping and an API mapping are one resource, as the vendored
+  `api-gateway-rest-api-mappings.md.gz` describes: each version lists what the
+  other created, a multi-level path comes only through the v2 API and only on
+  a Regional domain with the `TLS_1_2` policy, a path is unique on its domain,
+  and a domain in `ROUTING_RULE_ONLY` mode takes no mapping. Internal parent
+  references (`restApiIdRef`, `methodRef`, `domainNameRef`, `apiIdRef`) are
+  `json:"-"` fields the store persists and no response carries.
+- **AWS Budgets.** An `RUN_SSM_DOCUMENTS` action stops what it names
+  through the simulator's own services: `STOP_EC2_INSTANCES` halts the EC2
+  instances, and `STOP_RDS_INSTANCES` stops the Amazon RDS DB instances in the
+  action's Region with the same preconditions and `stopping` to `stopped`
+  lifecycle `StopDBInstance` applies, so a cluster member, a read replica or
+  an instance that is not available fails the execution.
 - **Amazon EC2.** A test acts on an instance only in the state the action
   requires: EC2 refuses to reboot a pending instance, and an instant committed
   sidecar image had hidden that race until the sidecar was built on the
@@ -1391,6 +1447,26 @@ fails once the row closes or the operation is served.
   not list with `ValidationError`. A lifecycle hook's launch notification
   follows the instance's boot, so the SDK test long-polls the queue until the
   message arrives rather than for one 20-second window.
+  An instance a group launches from a launch template carries the template's
+  instance tag specifications merged with the group's propagated tags, the
+  group's value winning on a shared key, as the vendored
+  `ec2-auto-scaling-tagging.md.gz` states.
+  A group stores its `InstanceMaintenancePolicy` within the ranges the model
+  documents, clears it with `-1`, and lends it to an instance refresh whose
+  preferences omit `MinHealthyPercentage` or `MaxHealthyPercentage`.
+- **Elastic Load Balancing.** A Network Load Balancer holds
+  `EnablePrefixForIpv6SourceNat`, `off` until set; the setting is `on` only on
+  a dualstack load balancer, and a subnet mapping's `SourceNatIpv6Prefix` needs
+  it on, as the model states. A load balancer reports the IPAM pool
+  `CreateLoadBalancer` or `ModifyIpPools` gave it. A target group routes by its
+  `load_balancing.algorithm.type` (round robin, least outstanding requests by
+  each target's requests in progress, or weighted random) and holds a client
+  with `lb_cookie` or `app_cookie` stickiness, as the vendored
+  `alb-target-group-attributes.md.gz` describes: the load balancer generated
+  cookie (`AWSALB`, or `AWSALBAPP-0` once the target sets its configured
+  cookie) expires in 7 days and carries its issue time, against which the
+  stickiness duration is enforced. `ModifyTargetGroupAttributes` refuses the
+  combinations that page rules out.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
@@ -1401,13 +1477,34 @@ fails once the row closes or the operation is served.
   0`. Amazon RDS events and Elastic Load Balancing's hosted zones and DNS names
   come from vendored guide pages (`scripts/fetch-aws-doc.sh` pins the branch
   an archived guide lives on, because its default branch deletes its pages).
+- **AWS Amplify.** An app, branch, webhook, job and domain association carry
+  every member the model marks required: an unset description, repository,
+  display name, framework or active job reads back `""`, environment variables
+  `{}`, custom domains `[]`, and a job with no commit reports its start as
+  `commitTime`. Clearing a description through an update therefore reads back
+  the empty string rather than dropping the member.
 - **AWS Lambda.** The CLI tests create functions with the architecture of the
   images `TestMain` builds, which match the host's. A reserved runtime
   variable in a function configuration is refused with Lambda's own message. A background
   worker starts the moment it is registered, so the event source pollers
   start after every slice is registered and the role-session stores open
   first of all: a mapping restored from an earlier process once polled
-  through a role-credential store that did not exist yet and panicked.
+  through a role-credential store that did not exist yet and panicked. `PublishVersion` and
+  `ListVersionsByFunction` answer the function configuration shape, never the
+  stored code location. An event source mapping keeps the version or alias
+  qualifier its `FunctionName` names and invokes that version, as AWS does.
+  Amazon EFS returns a file system's `Tags` as a list
+  even when it has none, since the model requires the member.
+- **Amazon EFS and AWS KMS.** `CreateFileSystem` keeps `Encrypted` and
+  `KmsKeyId` and reports the key as its ARN. An encrypted file system created
+  without a key uses the AWS managed key `aws/elasticfilesystem`, which
+  `kmsAWSManagedKey` creates in the account the first time it is needed, with
+  `KeyManager` `AWS`. A replication's new destination file system is encrypted
+  the same way. `KmsKeyId` without `Encrypted` is refused, as is a key that is
+  not symmetric. A creation token already in use answers
+  `FileSystemAlreadyExists` with the existing file system's ID. `CreateAlias`
+  refuses the `alias/aws/` prefix, which the model reserves for AWS managed
+  keys, and a key reference may also be an alias ARN.
 - **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
   stores after the Amazon ECS, Elastic Load Balancing and Application Auto
   Scaling slices, so their metric publishers and the target-tracking
@@ -1488,6 +1585,19 @@ images are read out of the source and fetched once per run by one job,
 because a cache miss in every job at once tripped per-minute throttles.
 `docker load` restores no repository digest, so a digest-pinned image is saved
 under the tag that spells its digest and found there.
+Every Go module fetch CI makes goes through bounded, retried attempts,
+because the module proxy resets streams under load: `scripts/ci-go-mod-download.sh`
+warms a module directory, or a `module@version` a document installs, and the
+engine builds of the sidecar and the node agent run `go mod download` in the
+same retried loop before `go build`.
+A microVM job restores the node agent image built from the same sources, keyed
+by them, and loads it; the agent's build finds it by its tag and skips the
+apt, Firecracker and kernel downloads that once took a whole step's budget.
+A simulator job loads its base images in the background
+(`scripts/ci-base-images.sh`) while it compiles, and the engine-image builds
+and the tests wait on that load's lock: in the foreground, restoring and
+loading the set took thirteen of a shard's fifteen minutes on a slow runner and
+cancelled the job before a test ran.
 
 Release pull requests run no CI and the owner merges them. release-please tags
 the release pull request's merge commit; the Actions token cannot create a

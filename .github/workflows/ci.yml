@@ -566,20 +566,33 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
         # does other work, and the wait step below blocks on it.
         run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
+      - name: Restore the node agent image
+        # A cold build of the agent image fetches packages, the Firecracker
+        # release and the guest kernel. A runner that restores the image built
+        # from the same sources loads it, and the build finds it by its tag.
+        if: matrix.placement
+        id: node-agent-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: node-agent-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('sim/nodeagent/**', 'sim/go.mod', 'sim/go.sum', 'sim/enginebuild.go') }}
+      - name: Load the restored node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit == 'true'
+        run: docker load --input ~/.cache/sockerless/node-agent.tar
         timeout-minutes: 3
       - name: Start the node agent image build
         # The simulator starts the agent before it listens, and the harness
@@ -679,6 +692,13 @@ jobs:
           cd simulator-${{ matrix.cloud }}
           CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
         timeout-minutes: 8
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -713,6 +733,19 @@ jobs:
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image wait
         timeout-minutes: 8
+      - name: Save the node agent image for later runs
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/sockerless
+          # shellcheck disable=SC2046
+          docker save --output ~/.cache/sockerless/node-agent.tar $(docker images --format '{{.Repository}}:{{.Tag}}' sockerless-node-agent)
+        timeout-minutes: 3
+      - name: Cache the node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: ${{ steps.node-agent-cache.outputs.cache-primary-key }}
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
         run: |
@@ -953,20 +986,33 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-aws-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
         # does other work, and the wait step below blocks on it.
         run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
+      - name: Restore the node agent image
+        # A cold build of the agent image fetches packages, the Firecracker
+        # release and the guest kernel. A runner that restores the image built
+        # from the same sources loads it, and the build finds it by its tag.
+        if: matrix.placement
+        id: node-agent-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: node-agent-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('sim/nodeagent/**', 'sim/go.mod', 'sim/go.sum', 'sim/enginebuild.go') }}
+      - name: Load the restored node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit == 'true'
+        run: docker load --input ~/.cache/sockerless/node-agent.tar
         timeout-minutes: 3
       - name: Start the node agent image build
         # The simulator starts the agent before it listens, and the harness
@@ -987,10 +1033,30 @@ jobs:
         run: |
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the node agent image
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image wait
         timeout-minutes: 8
+      - name: Save the node agent image for later runs
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/sockerless
+          # shellcheck disable=SC2046
+          docker save --output ~/.cache/sockerless/node-agent.tar $(docker images --format '{{.Repository}}:{{.Tag}}' sockerless-node-agent)
+        timeout-minutes: 3
+      - name: Cache the node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: ${{ steps.node-agent-cache.outputs.cache-primary-key }}
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -1281,15 +1347,14 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-aws-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -1314,6 +1379,13 @@ jobs:
         run: |
           sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -1427,6 +1499,14 @@ jobs:
           - suite: aws AWS Certificate Manager validation
             cloud: aws
             tf_packages: "./acm-validation"
+            timeout_minutes: 12
+          - suite: aws Amazon API Gateway custom domain name
+            cloud: aws
+            tf_packages: "./api-gateway-domain-name"
+            timeout_minutes: 12
+          - suite: aws Amazon API Gateway stage
+            cloud: aws
+            tf_packages: "./api-gateway-stage"
             timeout_minutes: 12
           - suite: aws Amazon ECS Express Mode
             cloud: aws
@@ -1581,15 +1661,14 @@ jobs:
           # the cloud's whole archive, and loading it is the cost the small
           # set exists to avoid.
           restore-keys: ${{ !matrix.base_images && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -1618,6 +1697,13 @@ jobs:
       - name: Install Caddy
         run: |
           bash scripts/install-caddy.sh
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -1816,6 +1902,19 @@ jobs:
         if: matrix.cloud == 'aws'
         run: bash scripts/install-aws-cli.sh
         timeout-minutes: 5
+      - name: Warm the Go modules the document builds
+        # A document's `go test`, `go install` and `go run` fetch from the
+        # module proxy, which resets streams under load; fetch the modules
+        # through the retrying downloader first, so the document reads a warm
+        # cache.
+        run: |
+          for target in testutil/doctest simulator-${{ matrix.cloud }} simulator-${{ matrix.cloud }}/sdk-tests \
+            simulator-${{ matrix.cloud }}/cli-tests simulator-${{ matrix.cloud }}/terraform-tests \
+            github.com/e6qu/sockerless-cloud/simulator-${{ matrix.cloud }}@main \
+            github.com/e6qu/sockerless-cloud/testutil@main; do
+            bash scripts/ci-go-mod-download.sh "$target"
+          done
+        timeout-minutes: 8
       - name: Run the document
         env:
           # The specification fetchers read GitHub through gh.

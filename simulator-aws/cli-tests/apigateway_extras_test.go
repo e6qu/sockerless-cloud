@@ -1,7 +1,9 @@
 package aws_cli_test
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,6 +49,13 @@ func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
 	t.Parallel()
 	apiID, stage := apigwCLINewAPIWithStage(t, "cli-bpm-api")
 	domain := "cli-bpm.example.com"
+	bpmArgs := []string{"apigateway", "create-base-path-mapping", "--domain-name", domain,
+		"--rest-api-id", apiID, "--base-path", "v1", "--stage", stage}
+	assert.Contains(t, runCLIExpectError(t, awsCLI(bpmArgs...)), "NotFoundException")
+	runCLI(t, awsCLI("apigateway", "create-domain-name", "--domain-name", domain,
+		"--regional-certificate-arn", importELBv2CertificateCLI(t, domain),
+		"--endpoint-configuration", "types=REGIONAL"))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("apigateway", "delete-domain-name", "--domain-name", domain)) })
 
 	createOut := runCLI(t, awsCLI("apigateway", "create-base-path-mapping",
 		"--domain-name", domain,
@@ -84,7 +93,12 @@ func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(genOut), &cert))
 	require.NotEmpty(t, cert.ID)
-	assert.Contains(t, cert.PEM, "BEGIN CERTIFICATE")
+	block, _ := pem.Decode([]byte(cert.PEM))
+	require.NotNil(t, block, "pemEncodedCertificate is PEM")
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err, "pemEncodedCertificate is an X.509 certificate")
+	assert.Equal(t, cert.ID, parsed.Subject.CommonName)
+	require.NoError(t, parsed.CheckSignature(parsed.SignatureAlgorithm, parsed.RawTBSCertificate, parsed.Signature), "the certificate is self-signed")
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("apigateway", "delete-client-certificate", "--client-certificate-id", cert.ID))
 	})

@@ -21,10 +21,9 @@ import (
 // `aws.protocols#ec2QueryName`.
 //
 // An untagging request names only keys, which AWS reports as aws:TagKeys; each
-// row records where its service carries them. AWS Lambda and Amazon EFS
-// (restJson1) and the Amazon S3 control plane (restXml) reach the gate through
-// iamEnforceREST, so their rows read the REST body and the tagKeys query
-// parameter.
+// row records where its service carries them. The restJson1 services and the
+// Amazon S3 control plane (restXml) reach the gate through iamEnforceREST, so
+// their rows read the REST body and the untag key query parameter.
 
 // iamJSONTagList is a JSON body member holding a list of tag structures,
 // together with the key and value member names that service's tag structure
@@ -52,6 +51,9 @@ type iamRequestTagShape struct {
 	// keyURL is the URL query parameter a REST untagging operation repeats
 	// once per key.
 	keyURL string
+	// queryKeys reads the tag keys of a body only that service's own shape
+	// carries, such as a restXml untagging document.
+	queryKeys func(*http.Request) []string
 	// cborList and keyCBOR are jsonList and keyJSON for a request the service
 	// receives over Smithy RPC v2 CBOR.
 	cborList []iamJSONTagList
@@ -263,6 +265,27 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// its body.
 	"elasticfilesystem": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}, keyURL: "tagKeys"},
 
+	// Amazon API Gateway (restJson1). api-gateway.smithy.json.gz carries a
+	// `tags` map on CreateRestApi, CreateApiKey, CreateStage, CreateDomainName,
+	// CreateVpcLink, GenerateClientCertificate and TagResource, and
+	// apigatewayv2.smithy.json.gz the same map under jsonName `tags`; both
+	// UntagResource operations bind their key list to `tagKeys`.
+	"apigateway": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// AWS Amplify (restJson1). amplify.smithy.json.gz carries a `tags` map on
+	// CreateApp, CreateBranch and TagResource; UntagResource binds `tagKeys`.
+	"amplify": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// AWS Batch (restJson1). batch.smithy.json.gz carries a `tags` map on the
+	// creates, RegisterJobDefinition, SubmitJob and TagResource; UntagResource
+	// binds `tagKeys`.
+	"batch": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// EventBridge Scheduler (restJson1). scheduler.smithy.json.gz carries a
+	// `Tags` list of `Key`/`Value` on CreateScheduleGroup and TagResource;
+	// UntagResource binds `TagKeys`.
+	"scheduler": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyURL: "TagKeys"},
+
 	// Amazon S3 (restXml). s3.smithy.json.gz carries CreateBucket's tags as
 	// CreateBucketConfiguration$Tags, a list of `Tag`. s3-control.smithy.json.gz
 	// carries a `Tags` list on CreateAccessPoint, CreateJob, the Access Grants
@@ -270,6 +293,17 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// configuration writes and TagResource; UntagResource binds its key list
 	// to `tagKeys`.
 	"s3": {queryTags: s3RequestTags, keyURL: "tagKeys"},
+
+	// Amazon CloudFront (restXml). cloudfront.smithy.json.gz binds TagResource's
+	// Tags and UntagResource's TagKeys as the payload, each an Items list whose
+	// members are named Tag and Key, and CreateDistributionWithTags carries the
+	// same Tags inside DistributionConfigWithTags.
+	"cloudfront": {queryTags: cloudfrontRequestTags, queryKeys: cloudfrontRequestTagKeys},
+
+	// Amazon Route 53 (restXml). route-53.smithy.json.gz's
+	// ChangeTagsForResourceRequest carries AddTags, a list of Tag, and
+	// RemoveTagKeys, a list of Key.
+	"route53": {queryTags: route53RequestTags, queryKeys: route53RequestTagKeys},
 }
 
 // iamRequestTags returns the tags a request carries, read in the shape the
@@ -347,6 +381,9 @@ func iamRequestTagKeys(r *http.Request, service string) []string {
 	}
 	if shape.keyURL != "" {
 		keys = append(keys, r.URL.Query()[shape.keyURL]...)
+	}
+	if shape.queryKeys != nil {
+		keys = append(keys, shape.queryKeys(r)...)
 	}
 	if len(shape.keyCBOR) > 0 {
 		if document := iamCBORRequestDocument(r); document != nil {
@@ -453,4 +490,79 @@ func iamJSONRequestTags(body []byte, shape iamRequestTagShape) []EC2Tag {
 		}
 	}
 	return tags
+}
+
+// xmlChildren returns the children of node named name, or none.
+func xmlChildren(node s3ControlXMLNode, name string) []s3ControlXMLNode {
+	var out []s3ControlXMLNode
+	for _, child := range node.Children {
+		if child.Name == name {
+			out = append(out, child)
+		}
+	}
+	return out
+}
+
+func xmlTagList(list s3ControlXMLNode) []EC2Tag {
+	var tags []EC2Tag
+	for _, tag := range xmlChildren(list, "Tag") {
+		if key := tag.ChildText("Key"); key != "" {
+			tags = append(tags, EC2Tag{Key: key, Value: tag.ChildText("Value")})
+		}
+	}
+	return tags
+}
+
+func xmlKeyList(list s3ControlXMLNode) []string {
+	var keys []string
+	for _, key := range xmlChildren(list, "Key") {
+		if key.Text != "" {
+			keys = append(keys, key.Text)
+		}
+	}
+	return keys
+}
+
+func cloudfrontRequestTags(r *http.Request) []EC2Tag {
+	root := s3ControlGateBody(r)
+	tags := root
+	if root.Name != "Tags" {
+		var ok bool
+		if tags, ok = root.Child("Tags"); !ok {
+			return nil
+		}
+	}
+	items, ok := tags.Child("Items")
+	if !ok {
+		return nil
+	}
+	return xmlTagList(items)
+}
+
+func cloudfrontRequestTagKeys(r *http.Request) []string {
+	root := s3ControlGateBody(r)
+	if root.Name != "TagKeys" {
+		return nil
+	}
+	items, ok := root.Child("Items")
+	if !ok {
+		return nil
+	}
+	return xmlKeyList(items)
+}
+
+func route53RequestTags(r *http.Request) []EC2Tag {
+	add, ok := s3ControlGateBody(r).Child("AddTags")
+	if !ok {
+		return nil
+	}
+	return xmlTagList(add)
+}
+
+func route53RequestTagKeys(r *http.Request) []string {
+	remove, ok := s3ControlGateBody(r).Child("RemoveTagKeys")
+	if !ok {
+		return nil
+	}
+	return xmlKeyList(remove)
 }

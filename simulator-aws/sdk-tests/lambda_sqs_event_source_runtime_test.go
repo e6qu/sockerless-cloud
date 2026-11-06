@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +99,87 @@ func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "0", remaining.Attributes["ApproximateNumberOfMessages"], "successfully processed Amazon SQS message must be deleted")
 	assert.Equal(t, "0", remaining.Attributes["ApproximateNumberOfMessagesNotVisible"], "successfully processed Amazon SQS message must be deleted")
+	_, _ = logsClient.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
+}
+
+// TestLambda_SQSEventSourceMappingInvokesItsAlias expects a mapping created
+// for name:alias to keep the qualifier in its FunctionArn and invoke the
+// alias's version, whose log stream names it, never $LATEST.
+func TestLambda_SQSEventSourceMappingInvokesItsAlias(t *testing.T) {
+	t.Parallel()
+	lambdaClient := lambdaClient()
+	sqsClient := sqsClient()
+	logsClient := cwLogsClient()
+	functionName := "sqs-event-source-alias"
+
+	_, err := lambdaClient.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName: aws.String(functionName),
+		Role: aws.String(createServiceRole(t, "lambda-sqs-alias", "lambda.amazonaws.com",
+			"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes")),
+		Runtime: lambdatypes.RuntimeNodejs20x,
+		Handler: aws.String("index.handler"),
+		Code:    &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = lambdaClient.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(functionName)})
+	})
+	require.NoError(t, lambda.NewFunctionActiveV2Waiter(lambdaClient).Wait(ctx,
+		&lambda.GetFunctionInput{FunctionName: aws.String(functionName)}, 2*time.Minute))
+	version, err := lambdaClient.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(functionName)})
+	require.NoError(t, err)
+	_, err = lambdaClient.CreateAlias(ctx, &lambda.CreateAliasInput{
+		FunctionName: aws.String(functionName), Name: aws.String("live"), FunctionVersion: version.Version,
+	})
+	require.NoError(t, err)
+
+	queue, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName:  aws.String("lambda-sqs-event-source-alias"),
+		Attributes: map[string]string{string(sqstypes.QueueAttributeNameVisibilityTimeout): "1"},
+	})
+	require.NoError(t, err)
+	queueURL := aws.ToString(queue.QueueUrl)
+	t.Cleanup(func() { _, _ = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(queueURL)}) })
+	attributes, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl: aws.String(queueURL), AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+
+	_, err = lambdaClient.CreateEventSourceMapping(ctx, &lambda.CreateEventSourceMappingInput{
+		EventSourceArn: aws.String(attributes.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]),
+		FunctionName:   aws.String(functionName + ":absent"),
+	})
+	var notFound *lambdatypes.ResourceNotFoundException
+	require.ErrorAs(t, err, &notFound, "a mapping for an alias that does not exist")
+
+	mapping, err := lambdaClient.CreateEventSourceMapping(ctx, &lambda.CreateEventSourceMappingInput{
+		EventSourceArn: aws.String(attributes.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]),
+		FunctionName:   aws.String(functionName + ":live"),
+		Enabled:        aws.Bool(true),
+	})
+	require.NoError(t, err)
+	mappingID := aws.ToString(mapping.UUID)
+	t.Cleanup(func() {
+		_, _ = lambdaClient.DeleteEventSourceMapping(ctx, &lambda.DeleteEventSourceMappingInput{UUID: aws.String(mappingID)})
+	})
+	assert.True(t, strings.HasSuffix(aws.ToString(mapping.FunctionArn), ":function:"+functionName+":live"),
+		"the mapping keeps the alias: %s", aws.ToString(mapping.FunctionArn))
+
+	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: aws.String(queueURL), MessageBody: aws.String("esm-alias-message")})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		current, getErr := lambdaClient.GetEventSourceMapping(ctx, &lambda.GetEventSourceMappingInput{UUID: aws.String(mappingID)})
+		return getErr == nil && aws.ToString(current.LastProcessingResult) == "OK"
+	}, 30*time.Second, 250*time.Millisecond, "the mapping did not process the message")
+
+	logGroup := "/aws/lambda/" + functionName
+	awaitLogLine(t, logsClient, logGroup, "esm-alias-message", 10*time.Second)
+	streams, err := logsClient.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{LogGroupName: aws.String(logGroup)})
+	require.NoError(t, err)
+	require.NotEmpty(t, streams.LogStreams)
+	for _, stream := range streams.LogStreams {
+		assert.Contains(t, aws.ToString(stream.LogStreamName), "["+aws.ToString(version.Version)+"]",
+			"the alias's version, not $LATEST, ran the batch")
+	}
 	_, _ = logsClient.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
 }

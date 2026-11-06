@@ -17,31 +17,31 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action CreateLaunchConfiguration` | ✓ `simulator-aws/autoscaling.go:146::handleASCreateLaunchConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeLaunchConfigurations` | ✓ `simulator-aws/autoscaling.go:147::handleASDescribeLaunchConfigurations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteLaunchConfiguration` | ✓ `simulator-aws/autoscaling.go:148::handleASDeleteLaunchConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CreateAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:149::handleASCreateAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAutoScalingGroups` | ✓ `simulator-aws/autoscaling.go:150::handleASDescribeAutoScalingGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action UpdateAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:151::handleASUpdateAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SetDesiredCapacity` | ✓ `simulator-aws/autoscaling.go:152::handleASSetDesiredCapacity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeScalingActivities` | ✓ `simulator-aws/autoscaling.go:153::handleASDescribeScalingActivities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action CreateOrUpdateTags` | ✓ `simulator-aws/autoscaling.go:154::handleASCreateOrUpdateTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteTags` | ✓ `simulator-aws/autoscaling.go:155::handleASDeleteTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeTags` | ✓ `simulator-aws/autoscaling.go:156::handleASDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:157::handleASDeleteAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutScalingPolicy` | ✓ `simulator-aws/autoscaling.go:158::handleASPutScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribePolicies` | ✓ `simulator-aws/autoscaling.go:159::handleASDescribePolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeletePolicy` | ✓ `simulator-aws/autoscaling.go:160::handleASDeletePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ExecutePolicy` | ✓ `simulator-aws/autoscaling.go:161::handleASExecutePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutScheduledUpdateGroupAction` | ✓ `simulator-aws/autoscaling.go:162::handleASPutScheduledUpdateGroupAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeScheduledActions` | ✓ `simulator-aws/autoscaling.go:163::handleASDescribeScheduledActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteScheduledAction` | ✓ `simulator-aws/autoscaling.go:164::handleASDeleteScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PutLifecycleHook` | ✓ `simulator-aws/autoscaling.go:165::handleASPutLifecycleHook` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeLifecycleHooks` | ✓ `simulator-aws/autoscaling.go:166::handleASDescribeLifecycleHooks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteLifecycleHook` | ✓ `simulator-aws/autoscaling.go:167::handleASDeleteLifecycleHook` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DescribeAutoScalingInstances` | ✓ `simulator-aws/autoscaling.go:168::handleASDescribeAutoScalingInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SetInstanceHealth` | ✓ `simulator-aws/autoscaling.go:169::handleASSetInstanceHealth` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action TerminateInstanceInAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:170::handleASTerminateInstanceInAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateLaunchConfiguration` | ✓ `simulator-aws/autoscaling.go:150::handleASCreateLaunchConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeLaunchConfigurations` | ✓ `simulator-aws/autoscaling.go:151::handleASDescribeLaunchConfigurations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteLaunchConfiguration` | ✓ `simulator-aws/autoscaling.go:152::handleASDeleteLaunchConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:153::handleASCreateAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAutoScalingGroups` | ✓ `simulator-aws/autoscaling.go:154::handleASDescribeAutoScalingGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action UpdateAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:155::handleASUpdateAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SetDesiredCapacity` | ✓ `simulator-aws/autoscaling.go:156::handleASSetDesiredCapacity` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeScalingActivities` | ✓ `simulator-aws/autoscaling.go:157::handleASDescribeScalingActivities` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateOrUpdateTags` | ✓ `simulator-aws/autoscaling.go:158::handleASCreateOrUpdateTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteTags` | ✓ `simulator-aws/autoscaling.go:159::handleASDeleteTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeTags` | ✓ `simulator-aws/autoscaling.go:160::handleASDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:161::handleASDeleteAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutScalingPolicy` | ✓ `simulator-aws/autoscaling.go:162::handleASPutScalingPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribePolicies` | ✓ `simulator-aws/autoscaling.go:163::handleASDescribePolicies` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeletePolicy` | ✓ `simulator-aws/autoscaling.go:164::handleASDeletePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ExecutePolicy` | ✓ `simulator-aws/autoscaling.go:165::handleASExecutePolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutScheduledUpdateGroupAction` | ✓ `simulator-aws/autoscaling.go:166::handleASPutScheduledUpdateGroupAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeScheduledActions` | ✓ `simulator-aws/autoscaling.go:167::handleASDescribeScheduledActions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteScheduledAction` | ✓ `simulator-aws/autoscaling.go:168::handleASDeleteScheduledAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PutLifecycleHook` | ✓ `simulator-aws/autoscaling.go:169::handleASPutLifecycleHook` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeLifecycleHooks` | ✓ `simulator-aws/autoscaling.go:170::handleASDescribeLifecycleHooks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteLifecycleHook` | ✓ `simulator-aws/autoscaling.go:171::handleASDeleteLifecycleHook` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DescribeAutoScalingInstances` | ✓ `simulator-aws/autoscaling.go:172::handleASDescribeAutoScalingInstances` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SetInstanceHealth` | ✓ `simulator-aws/autoscaling.go:173::handleASSetInstanceHealth` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action TerminateInstanceInAutoScalingGroup` | ✓ `simulator-aws/autoscaling.go:174::handleASTerminateInstanceInAutoScalingGroup` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

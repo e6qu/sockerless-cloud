@@ -405,14 +405,26 @@ func budgetsApplyActionDefinition(r *http.Request, definition budgetsActionDef) 
 		return ""
 	case definition.SsmActionDefinition != nil:
 		def := definition.SsmActionDefinition
-		if !strings.EqualFold(def.ActionSubType, "STOP_EC2_INSTANCES") {
-			// The simulator's Amazon RDS slice has no instance lifecycle to stop.
-			return "this simulator applies STOP_EC2_INSTANCES; " + def.ActionSubType + " is not implemented"
-		}
-		for _, instanceID := range def.InstanceIds {
-			if err := ec2HaltInstance(r.Context(), instanceID, "stopped"); err != nil {
-				return "stopping EC2 instance " + instanceID + ": " + err.Error()
+		switch strings.ToUpper(def.ActionSubType) {
+		case "STOP_EC2_INSTANCES":
+			for _, instanceID := range def.InstanceIds {
+				if err := ec2HaltInstance(r.Context(), instanceID, "stopped"); err != nil {
+					return "stopping EC2 instance " + instanceID + ": " + err.Error()
+				}
 			}
+		case "STOP_RDS_INSTANCES":
+			for _, instanceID := range def.InstanceIds {
+				instance, ok := rdsInstances.Get(instanceID)
+				if !ok || (def.Region != "" && instance.region() != def.Region) {
+					return "stopping Amazon RDS DB instance " + instanceID + ": DB instance not found"
+				}
+				if _, msg := rdsStopRefusal(instance); msg != "" {
+					return "stopping Amazon RDS DB instance " + instanceID + ": " + msg
+				}
+				rdsBeginStop(instanceID, false)
+			}
+		default:
+			return "unknown SSM action subtype " + def.ActionSubType
 		}
 		return ""
 	}

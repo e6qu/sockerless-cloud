@@ -327,6 +327,10 @@ func handleAppASPutScalingPolicy(w http.ResponseWriter, r *http.Request) {
 	if req.PolicyType == "" {
 		req.PolicyType = "StepScaling"
 	}
+	if msg := appScalingCheckResourceLabel(req.TargetTracking); msg != "" {
+		AWSError(w, "ValidationException", msg, http.StatusBadRequest)
+		return
+	}
 	key := appScalingPolicyKey(req.ServiceNamespace, req.ResourceId, req.ScalableDimension, req.PolicyName)
 	policy, exists := appScalingPolicies.Get(key)
 	if !exists {
@@ -786,4 +790,22 @@ func appASReadDescribeRequest(w http.ResponseWriter, r *http.Request) (appASDesc
 		return req, false
 	}
 	return req, true
+}
+
+// appScalingCheckResourceLabel holds a target tracking policy's ResourceLabel
+// to the model's rule: "You can't specify a resource label unless the metric
+// type is ALBRequestCountPerTarget", in the form
+// app/<lb-name>/<lb-id>/targetgroup/<tg-name>/<tg-id>.
+func appScalingCheckResourceLabel(raw json.RawMessage) string {
+	cfg, ok := parseTargetTrackingConfig(raw)
+	if !ok || cfg.PredefinedMetric == nil || cfg.PredefinedMetric.ResourceLabel == "" {
+		return ""
+	}
+	if cfg.PredefinedMetric.Type != "ALBRequestCountPerTarget" {
+		return "You can't specify a resource label unless the metric type is ALBRequestCountPerTarget."
+	}
+	if _, ok := appScalingResourceLabelTargetGroup(cfg.PredefinedMetric.ResourceLabel); !ok {
+		return "The resource label must take the form app/<load-balancer-name>/<load-balancer-id>/targetgroup/<target-group-name>/<target-group-id>."
+	}
+	return ""
 }

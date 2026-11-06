@@ -513,6 +513,9 @@ func resolveKMSKey(idOrArn string) (string, bool) {
 	if _, ok := kmsKeys.Get(idOrArn); ok {
 		return idOrArn, true
 	}
+	if i := strings.Index(idOrArn, ":alias/"); strings.HasPrefix(idOrArn, "arn:") && i >= 0 {
+		idOrArn = idOrArn[i+1:]
+	}
 	if strings.HasPrefix(idOrArn, "alias/") {
 		if keyId, ok := kmsAliases.Get(idOrArn); ok {
 			return keyId, true
@@ -738,6 +741,11 @@ func handleKMSCreateAlias(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(req.AliasName, "alias/") {
 		AWSError(w, "ValidationException",
 			"AliasName must start with 'alias/'", http.StatusBadRequest)
+		return
+	}
+	if strings.HasPrefix(req.AliasName, "alias/aws/") {
+		AWSError(w, "InvalidAliasNameException",
+			"Alias must not begin with 'alias/aws/', which AWS reserves for AWS managed keys", http.StatusBadRequest)
 		return
 	}
 	keyId, ok := resolveKMSKey(req.TargetKeyId)

@@ -39,8 +39,10 @@ type ELBv2LoadBalancer struct {
 	Attributes                map[string]string
 	// Set by ModifyCapacityReservation; empty means none reserved.
 	MinimumCapacityUnits string
-	// Set by ModifyIpPools.
+	// Set by CreateLoadBalancer's IpamPools or by ModifyIpPools.
 	Ipv4IpamPoolId string
+	// "on" or "off" for a Network Load Balancer; empty for other types.
+	EnablePrefixForIpv6SourceNat string
 }
 
 type ELBv2SubnetMapping struct {
@@ -270,6 +272,15 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	sourceNat := ""
+	if lbType == "network" {
+		sourceNat = "off"
+	}
+	sourceNat, code, message = elbv2SourceNatSetting(r, lbType, ipType, sourceNat, mappings)
+	if code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(ELBv2LoadBalancer{Type: lbType}), name, id)
 	lb := ELBv2LoadBalancer{
@@ -287,11 +298,13 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		IpAddressType:  ipType,
 		// Network Load Balancers default this to "on"; Application Load Balancers do
 		// not carry it.
-		EnforceSGInboundOnPrivate: elbv2DefaultEnforceSG(lbType, r.FormValue("EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic")),
-		CustomerOwnedIpv4Pool:     r.FormValue("CustomerOwnedIpv4Pool"),
-		CreatedTime:               time.Now().UTC().Format(time.RFC3339),
-		Tags:                      parseELBv2Tags(r, "Tags"),
-		Attributes:                defaultELBv2LoadBalancerAttributes(lbType, scheme),
+		EnforceSGInboundOnPrivate:    elbv2DefaultEnforceSG(lbType, r.FormValue("EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic")),
+		CustomerOwnedIpv4Pool:        r.FormValue("CustomerOwnedIpv4Pool"),
+		CreatedTime:                  time.Now().UTC().Format(time.RFC3339),
+		Tags:                         parseELBv2Tags(r, "Tags"),
+		Attributes:                   defaultELBv2LoadBalancerAttributes(lbType, scheme),
+		Ipv4IpamPoolId:               r.FormValue("IpamPools.Ipv4IpamPoolId"),
+		EnablePrefixForIpv6SourceNat: sourceNat,
 	}
 	// An Application Load Balancer created without a group joins the VPC's
 	// default group.
@@ -504,18 +517,28 @@ func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	sourceNat, code, message := elbv2SourceNatSetting(r, current.Type, ipType, current.EnablePrefixForIpv6SourceNat, mappings)
+	if code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	mappings = elbv2AssignSourceNatPrefixes(mappings)
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		lb.Subnets = subnets
 		lb.SubnetMappings = mappings
 		lb.VpcID = elbv2VPCFromSubnets(subnets)
 		lb.IpAddressType = ipType
+		lb.EnablePrefixForIpv6SourceNat = sourceNat
 	}) {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	lb, _ := elbv2LoadBalancers.Get(arn)
-	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(lb)+"</AvailabilityZones><IpAddressType>"+xmlEscape(ipType)+"</IpAddressType>", sim.RequestID(r.Context()))
+	body := "<AvailabilityZones>" + elbv2AvailabilityZonesXML(lb) + "</AvailabilityZones><IpAddressType>" + xmlEscape(ipType) + "</IpAddressType>"
+	if lb.EnablePrefixForIpv6SourceNat != "" {
+		body += "<EnablePrefixForIpv6SourceNat>" + lb.EnablePrefixForIpv6SourceNat + "</EnablePrefixForIpv6SourceNat>"
+	}
+	elbv2XMLResponse(w, "SetSubnets", body, sim.RequestID(r.Context()))
 }
 
 // The SourceNatIpv6Prefix that leaves the prefix to the load balancer.
@@ -820,10 +843,22 @@ func handleELBv2ModifyTargetGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2ModifyTargetGroupAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("TargetGroupArn")
+	current, ok := elbv2TargetGroups.Get(arn)
+	if !ok {
+		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	merged := maps.Clone(current.Attributes)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, parseELBv2Attributes(r, "Attributes"))
+	if msg := elbv2CheckTargetGroupAttributes(merged); msg != "" {
+		elbv2ErrorXML(w, "InvalidConfigurationRequest", msg, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if !elbv2TargetGroups.Update(arn, func(tg *ELBv2TargetGroup) {
-		for k, v := range parseELBv2Attributes(r, "Attributes") {
-			tg.Attributes[k] = v
-		}
+		tg.Attributes = merged
 	}) {
 		elbv2ErrorXML(w, "TargetGroupNotFound", "Target group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -1219,6 +1254,12 @@ func elbv2LoadBalancerXML(lb ELBv2LoadBalancer) string {
 	}
 	if lb.CustomerOwnedIpv4Pool != "" {
 		extra += fmt.Sprintf("<CustomerOwnedIpv4Pool>%s</CustomerOwnedIpv4Pool>", xmlEscape(lb.CustomerOwnedIpv4Pool))
+	}
+	if lb.Ipv4IpamPoolId != "" {
+		extra += fmt.Sprintf("<IpamPools><Ipv4IpamPoolId>%s</Ipv4IpamPoolId></IpamPools>", xmlEscape(lb.Ipv4IpamPoolId))
+	}
+	if lb.EnablePrefixForIpv6SourceNat != "" {
+		extra += fmt.Sprintf("<EnablePrefixForIpv6SourceNat>%s</EnablePrefixForIpv6SourceNat>", lb.EnablePrefixForIpv6SourceNat)
 	}
 	zone := ""
 	if lb.CanonicalZone != "" {
@@ -2058,4 +2099,62 @@ func elbv2FindByARNOrName[T any](r *http.Request, arnParam string, store sim.Sto
 		return out, nil
 	}
 	return store.List(), nil
+}
+
+// elbv2SourceNatSetting reads EnablePrefixForIpv6SourceNat over the current
+// value. The model allows "on" only on a dualstack Network Load Balancer, and a
+// subnet mapping's SourceNatIpv6Prefix only with the setting on.
+func elbv2SourceNatSetting(r *http.Request, lbType, ipType, current string, mappings []ELBv2SubnetMapping) (string, string, string) {
+	setting := current
+	if v := r.FormValue("EnablePrefixForIpv6SourceNat"); v != "" {
+		if v != "on" && v != "off" {
+			return "", "ValidationError", "EnablePrefixForIpv6SourceNat must be on or off"
+		}
+		if lbType != "network" {
+			return "", "InvalidConfigurationRequest", "EnablePrefixForIpv6SourceNat is supported only for a Network Load Balancer"
+		}
+		setting = v
+	}
+	if setting == "on" && ipType != "dualstack" {
+		return "", "InvalidConfigurationRequest", "EnablePrefixForIpv6SourceNat requires the dualstack IP address type"
+	}
+	if setting != "on" {
+		for _, m := range mappings {
+			if m.SourceNatIpv6Prefix != "" {
+				return "", "InvalidConfigurationRequest", "SourceNatIpv6Prefix requires EnablePrefixForIpv6SourceNat to be on"
+			}
+		}
+	}
+	return setting, "", ""
+}
+
+// elbv2CheckTargetGroupAttributes holds a target group's routing and
+// stickiness attributes to the combinations alb-target-group-attributes
+// allows: weighted random "can not be used with sticky sessions", neither
+// least outstanding requests nor weighted random "can be used with slow start
+// mode", and AWSALB, AWSALBAPP and AWSALBTG are "reserved for use by the load
+// balancer" as an application cookie name.
+func elbv2CheckTargetGroupAttributes(attrs map[string]string) string {
+	algorithm := attrs["load_balancing.algorithm.type"]
+	switch algorithm {
+	case "", "round_robin", "least_outstanding_requests", "weighted_random":
+	default:
+		return "Invalid load_balancing.algorithm.type: " + algorithm
+	}
+	sticky := attrs["stickiness.enabled"] == "true"
+	if sticky && algorithm == "weighted_random" {
+		return "The weighted random routing algorithm cannot be used with sticky sessions"
+	}
+	if slow := attrs["slow_start.duration_seconds"]; slow != "" && slow != "0" && (algorithm == "least_outstanding_requests" || algorithm == "weighted_random") {
+		return "The " + algorithm + " routing algorithm cannot be used with slow start mode"
+	}
+	if sticky && attrs["stickiness.type"] == "app_cookie" {
+		switch name := attrs["stickiness.app_cookie.cookie_name"]; {
+		case name == "":
+			return "stickiness.app_cookie.cookie_name is required for app_cookie stickiness"
+		case name == "AWSALB" || name == "AWSALBTG" || strings.HasPrefix(name, "AWSALBAPP"):
+			return "The cookie name " + name + " is reserved for use by the load balancer"
+		}
+	}
+	return ""
 }

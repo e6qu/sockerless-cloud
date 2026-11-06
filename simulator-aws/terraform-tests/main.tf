@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.71.0"
+      version = "6.72.0"
     }
   }
 }
@@ -152,6 +152,12 @@ resource "aws_efs_file_system" "tf_efs" {
   creation_token   = "tf-efs-file-system"
   performance_mode = "generalPurpose"
   throughput_mode  = "bursting"
+  encrypted        = true
+}
+
+data "aws_kms_alias" "tf_efs_default_key" {
+  name       = "alias/aws/elasticfilesystem"
+  depends_on = [aws_efs_file_system.tf_efs]
 }
 
 resource "aws_efs_mount_target" "tf_efs_mount" {
@@ -382,6 +388,12 @@ resource "aws_autoscaling_group" "tf_asg" {
   max_size             = 2
   desired_capacity     = 1
   vpc_zone_identifier  = [aws_subnet.tf_ec2_subnet.id]
+
+  # A second plan reads the policy back through DescribeAutoScalingGroups.
+  instance_maintenance_policy {
+    min_healthy_percentage = 90
+    max_healthy_percentage = 120
+  }
 
   tag {
     key                 = "env"
@@ -1843,6 +1855,14 @@ output "acmpca_certificate" {
 }
 output "efs_file_system_arn" {
   value = aws_efs_file_system.tf_efs.arn
+}
+
+output "efs_file_system_kms_key_id" {
+  value = aws_efs_file_system.tf_efs.kms_key_id
+}
+
+output "efs_default_key_arn" {
+  value = data.aws_kms_alias.tf_efs_default_key.target_key_arn
 }
 output "efs_mount_target_id" {
   value = aws_efs_mount_target.tf_efs_mount.id

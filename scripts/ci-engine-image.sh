@@ -39,6 +39,11 @@ start)
 	# module's dependencies, which a cold cache cannot do inside the start step's
 	# budget.
 	(
+		# The build reads base images scripts/ci-base-images.sh may still be
+		# loading; wait for that load so the engine does not pull them again.
+		if [ -e "$dir/base-images.lock" ]; then
+			flock "$dir/base-images.lock" true
+		fi
 		if bash "$root/scripts/ci-go-mod-download.sh" "$root/sim" && make -C "$root" "$target"; then
 			echo 0 >"$exit_file"
 		else
