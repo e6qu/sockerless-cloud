@@ -1450,6 +1450,11 @@ fails once the row closes or the operation is served.
   A group stores its `InstanceMaintenancePolicy` within the ranges the model
   documents, clears it with `-1`, and lends it to an instance refresh whose
   preferences omit `MinHealthyPercentage` or `MaxHealthyPercentage`.
+- **Elastic Load Balancing.** A Network Load Balancer holds
+  `EnablePrefixForIpv6SourceNat`, `off` until set; the setting is `on` only on
+  a dualstack load balancer, and a subnet mapping's `SourceNatIpv6Prefix` needs
+  it on, as the model states. A load balancer reports the IPAM pool
+  `CreateLoadBalancer` or `ModifyIpPools` gave it.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters

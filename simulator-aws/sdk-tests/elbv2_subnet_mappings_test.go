@@ -101,15 +101,24 @@ func TestELBv2_SubnetMappings(t *testing.T) {
 	var duplicate *elbtypes.DuplicateLoadBalancerNameException
 	require.ErrorAs(t, err, &duplicate)
 
+	mappingWithPrefix := []elbtypes.SubnetMapping{{
+		SubnetId: aws.String(subnets[0]), AllocationId: aws.String(allocationID),
+		IPv6Address:         aws.String(elbv2Ipv6Address(ipv6, 1, 0x10)),
+		SourceNatIpv6Prefix: aws.String("auto_assigned"),
+	}}
+	_, err = elb.SetSubnets(ctx, &elbv2.SetSubnetsInput{
+		LoadBalancerArn: aws.String(lbArn), IpAddressType: elbtypes.IpAddressTypeDualstack,
+		SubnetMappings: mappingWithPrefix,
+	})
+	var invalidConfig *elbtypes.InvalidConfigurationRequestException
+	require.ErrorAs(t, err, &invalidConfig, "a source NAT prefix needs EnablePrefixForIpv6SourceNat on")
 	set, err := elb.SetSubnets(ctx, &elbv2.SetSubnetsInput{
 		LoadBalancerArn: aws.String(lbArn), IpAddressType: elbtypes.IpAddressTypeDualstack,
-		SubnetMappings: []elbtypes.SubnetMapping{{
-			SubnetId: aws.String(subnets[0]), AllocationId: aws.String(allocationID),
-			IPv6Address:         aws.String(elbv2Ipv6Address(ipv6, 1, 0x10)),
-			SourceNatIpv6Prefix: aws.String("auto_assigned"),
-		}},
+		EnablePrefixForIpv6SourceNat: elbtypes.EnablePrefixForIpv6SourceNatEnumOn,
+		SubnetMappings:               mappingWithPrefix,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, elbtypes.EnablePrefixForIpv6SourceNatEnumOn, set.EnablePrefixForIpv6SourceNat)
 	require.Len(t, set.AvailabilityZones, 1)
 	assert.Equal(t, elbv2Ipv6Address(ipv6, 1, 0x10), aws.ToString(set.AvailabilityZones[0].LoadBalancerAddresses[0].IPv6Address))
 	require.Len(t, set.AvailabilityZones[0].SourceNatIpv6Prefixes, 1)
@@ -118,6 +127,7 @@ func TestELBv2_SubnetMappings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, set.AvailabilityZones, described.LoadBalancers[0].AvailabilityZones)
 	assert.Equal(t, elbtypes.IpAddressTypeDualstack, described.LoadBalancers[0].IpAddressType)
+	assert.Equal(t, elbtypes.EnablePrefixForIpv6SourceNatEnumOn, described.LoadBalancers[0].EnablePrefixForIpv6SourceNat)
 }
 
 // elbv2Ipv6Address is the host'th address of the index'th /64 of a VPC's IPv6
