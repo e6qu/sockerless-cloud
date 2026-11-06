@@ -619,7 +619,7 @@ test.describe("Table preferences", () => {
     await expect(page.getByRole("columnheader", { name: "Fingerprint" })).toBeVisible();
     await page.getByRole("button", { name: "Preferences" }).click();
     const dialog = page.getByRole("dialog", { name: "Preferences" });
-    await dialog.getByRole("checkbox", { name: "Fingerprint" }).click();
+    await dialog.getByRole("switch", { name: "Fingerprint" }).click();
     await dialog.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("columnheader", { name: "Fingerprint" })).toHaveCount(0);
     await page.reload();
