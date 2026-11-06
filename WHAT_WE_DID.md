@@ -531,6 +531,20 @@ because `IP_RECVORIGDSTADDR` reports the rewritten one; a single-entry
 conntrack query hung under mdlayher/socket v0.6, found by bisecting the
 dependency bump, so the sidecar dumps its namespace's table instead.
 
+A container takes the route its subnet names as a guest does. A workload with
+a gateway joins a holder sidecar that owns its namespace, and a one-shot
+`sidecar route` holding `NET_ADMIN` alone sets or deletes the default route
+there before the workload starts, so the first packet takes the subnet's
+route; a later route table change reruns it in the same namespace. A kept
+workload (an instance that stops on its disk) joins a kept holder that
+outlives its stops and goes with its removal, because a route set after the
+start raced the startup script past the NAT. A subnet whose table names no
+0.0.0.0/0 route, or a target with no data plane, leaves the workload with no
+route out, as does a Compute Engine instance with neither an external address
+nor a Cloud NAT; the Amazon ECS test helper's VPCs carry an internet gateway
+route, as a public subnet's tasks need to reach the simulator. The NAT
+data-plane tests of all three clouds moved off the guest-only shards.
+
 ### VM instances and cloud-init
 
 `sim/machine` holds the lifecycle the three clouds each wrote: boot and wait

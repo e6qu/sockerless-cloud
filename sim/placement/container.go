@@ -24,7 +24,10 @@ type ContainerBackend struct{}
 
 func (ContainerBackend) Kind() Kind { return Container }
 
-func (ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
+func (b ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
+	if w.Gateway != "" && w.NetworkMode == "" {
+		return b.placeInNamespace(ctx, w, nil, sink)
+	}
 	h, err := sim.StartContainerSyncContext(ctx, w, sink)
 	if err != nil {
 		return nil, err
@@ -42,7 +45,7 @@ func (ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink)
 			return nil, fmt.Errorf("join %s: %w", extra.Network, err)
 		}
 	}
-	return containerHandle{h, w.CancelGracePeriod}, nil
+	return containerHandle{h, w.CancelGracePeriod, w.Network, false}, nil
 }
 
 // PlaceMember starts w as a container in the owner container's network
@@ -64,7 +67,7 @@ func (ContainerBackend) PlaceMember(ctx context.Context, owner string, w Workloa
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h, w.CancelGracePeriod}, nil
+	return containerHandle{h, w.CancelGracePeriod, "", true}, nil
 }
 
 // PlaceForwarded places a forwarder that owns the workload's network
@@ -78,7 +81,21 @@ func (b ContainerBackend) PlaceForwarded(ctx context.Context, w Workload, forwar
 	if w.KeepOnExit || w.NetworkMode != "" {
 		return nil, fmt.Errorf("place %s with forwards: a workload that keeps its filesystem or names its own network mode has no namespace a forwarder can own", w.Name)
 	}
+	return b.placeInNamespace(ctx, w, forwards, sink)
+}
+
+// placeInNamespace places a sidecar that owns the workload's network
+// namespace, with every network setting w names: a forwarder relaying the
+// forwards, or a holder when there are none. It routes the namespace through
+// w.Gateway, then starts w joined to it, so the workload's first packet
+// already takes the route its subnet names.
+//
+// The holder of a workload that keeps its filesystem is kept too: it stays,
+// and keeps the route, while the workload stops, and goes when the workload
+// is removed.
+func (ContainerBackend) placeInNamespace(ctx context.Context, w Workload, forwards []Forward, sink sim.LogSink) (Handle, error) {
 	namespace := sim.ContainerConfig{
+		KeepOnExit:     w.KeepOnExit,
 		Network:        w.Network,
 		NetworkAliases: w.NetworkAliases,
 		IPv4Address:    w.IPv4Address,
@@ -100,6 +117,9 @@ func (b ContainerBackend) PlaceForwarded(ctx context.Context, w Workload, forwar
 	release := func() {
 		forwarder.Cancel()
 		<-forwarder.Exited()
+		if w.KeepOnExit {
+			_ = sim.RemoveContainer(forwarder.ContainerID)
+		}
 	}
 	for _, extra := range w.ExtraNetworks {
 		var at netip.Addr
@@ -114,6 +134,12 @@ func (b ContainerBackend) PlaceForwarded(ctx context.Context, w Workload, forwar
 			return nil, fmt.Errorf("join %s: %w", extra.Network, err)
 		}
 	}
+	if w.Gateway != "" {
+		if err := sidecar.SetRoute(ctx, forwarder.ContainerID, w.Gateway); err != nil {
+			release()
+			return nil, err
+		}
+	}
 	member := w
 	member.Labels = make(map[string]string, len(w.Labels)+1)
 	for k, v := range w.Labels {
@@ -123,13 +149,24 @@ func (b ContainerBackend) PlaceForwarded(ctx context.Context, w Workload, forwar
 	member.Network, member.NetworkAliases, member.IPv4Address, member.MACAddress = "", nil, "", ""
 	member.Hostname, member.ExtraHosts, member.DNS, member.PublishPorts, member.ExtraNetworks = "", nil, nil, nil, nil
 	member.NetworkMode = "container:" + forwarder.ContainerID
+	if w.KeepOnExit {
+		member.Labels[keptNamespaceLabel] = "true"
+	}
 	h, err := sim.StartContainerSyncContext(ctx, member, sink)
 	if err != nil {
 		release()
 		return nil, err
 	}
-	return newForwardedHandle(containerHandle{h, w.CancelGracePeriod}, forwarder), nil
+	handle := containerHandle{h, w.CancelGracePeriod, w.Network, false}
+	if w.KeepOnExit {
+		return handle, nil
+	}
+	return newForwardedHandle(handle, forwarder), nil
 }
+
+// keptNamespaceLabel marks a workload that keeps its filesystem and joined a
+// kept holder: its exit leaves the holder in place.
+const keptNamespaceLabel = "sockerless-sim-kept-namespace"
 
 // forwardedLabel marks a workload placed with forwards; its value is the
 // forwarder's container ID. A member placed beside the workload joins the
@@ -147,8 +184,8 @@ func (ContainerBackend) Adopt(ctx context.Context, id string, w Workload, sink s
 	if err != nil {
 		return nil, err
 	}
-	member := containerHandle{h, w.CancelGracePeriod}
-	if forwarderID == "" {
+	member := containerHandle{h, w.CancelGracePeriod, w.Network, w.NetworkMode != ""}
+	if forwarderID == "" || containerLabel(ctx, id, keptNamespaceLabel) == "true" {
 		return member, nil
 	}
 	forwarder, err := sim.AdoptContainer(forwarderID, sim.ContainerConfig{}, sim.NoopSink{})
@@ -175,6 +212,18 @@ func adoptedForwarder(ctx context.Context, containerID string) (string, error) {
 		return "", fmt.Errorf("inspect the forwarder of %s: %w", containerID, err)
 	}
 	return forwarderID, nil
+}
+
+// containerLabel is one label of a container, or empty when the engine holds
+// no such container or label.
+func containerLabel(ctx context.Context, containerID, label string) string {
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	inspected, err := sim.DockerClient().ContainerInspect(inspectCtx, containerID, client.ContainerInspectOptions{})
+	if err != nil || inspected.Container.Config == nil {
+		return ""
+	}
+	return inspected.Container.Config.Labels[label]
 }
 
 // forwarderOf is the forwarder a container was placed with, or empty.
@@ -227,7 +276,23 @@ func (h *forwardedHandle) Wait() sim.ProcessResult {
 	return h.containerHandle.Wait()
 }
 
-func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
+func (ContainerBackend) Restart(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
+	holder, err := forwarderOf(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// A holder the engine stopped comes back with a fresh namespace and the
+	// network's own default route.
+	if holder != "" && !containerIsRunning(ctx, holder) {
+		if err := sim.StartExistingContainer(holder); err != nil {
+			return nil, fmt.Errorf("restart the namespace holder of %s: %w", id, err)
+		}
+		if w.Gateway != "" {
+			if err := sidecar.SetRoute(ctx, holder, w.Gateway); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err := sim.StartExistingContainer(id); err != nil {
 		return nil, fmt.Errorf("restart container %s: %w", id, err)
 	}
@@ -235,11 +300,29 @@ func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink s
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h, w.CancelGracePeriod}, nil
+	return containerHandle{h, w.CancelGracePeriod, w.Network, w.NetworkMode != ""}, nil
 }
 
-func (ContainerBackend) Remove(_ context.Context, id string) error {
-	return sim.RemoveContainer(id)
+// containerIsRunning reports whether the engine runs the container.
+func containerIsRunning(ctx context.Context, id string) bool {
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	inspected, err := sim.DockerClient().ContainerInspect(inspectCtx, id, client.ContainerInspectOptions{})
+	return err == nil && inspected.Container.State != nil && inspected.Container.State.Running
+}
+
+func (ContainerBackend) Remove(ctx context.Context, id string) error {
+	holder, err := forwarderOf(ctx, id)
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	if err := sim.RemoveContainer(id); err != nil {
+		return err
+	}
+	if holder != "" {
+		return sim.RemoveContainer(holder)
+	}
+	return nil
 }
 
 func (ContainerBackend) Find(_ context.Context, labels map[string]string) ([]Existing, error) {
@@ -287,6 +370,12 @@ func ContainerConsole(ctx context.Context, containerID string) (string, error) {
 type containerHandle struct {
 	*sim.ContainerHandle
 	grace time.Duration
+	// network is the engine network whose gateway is the workload's default
+	// route when its subnet names none of its own.
+	network string
+	// member marks a workload that joined another's namespace, whose routes
+	// are the owner's.
+	member bool
 }
 
 func (c containerHandle) ID() string              { return c.ContainerID }
@@ -297,8 +386,50 @@ func (c containerHandle) Cancel()                 { c.ContainerHandle.Cancel() }
 func (c containerHandle) SetIngress(context.Context, [][]netrules.PacketRule) error {
 	return ErrNoIngressFilter
 }
-func (c containerHandle) SetGateway(context.Context, string) error { return ErrNoRouteControl }
-func (c containerHandle) Stop()                                    { sim.StopContainer(c.ContainerID, c.grace) }
+
+// SetGateway reroutes the namespace the workload runs in: its forwarder's or
+// holder's when it was placed with one, its own otherwise. The empty gateway
+// is the network's own.
+func (c containerHandle) SetGateway(ctx context.Context, gateway string) error {
+	if c.member {
+		return ErrNoRouteControl
+	}
+	owner, err := forwarderOf(ctx, c.ContainerID)
+	if err != nil {
+		return err
+	}
+	if owner == "" {
+		owner = c.ContainerID
+	}
+	if gateway == "" {
+		if gateway, err = networkGateway(ctx, owner, c.network); err != nil {
+			return err
+		}
+	}
+	return sidecar.SetRoute(ctx, owner, gateway)
+}
+
+// networkGateway is the address the engine gives a container's network as
+// its gateway: the default route the engine itself sets.
+func networkGateway(ctx context.Context, containerID, network string) (string, error) {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("reading a network's gateway"); err != nil {
+		return "", err
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	inspected, err := cli.ContainerInspect(inspectCtx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("inspect container %s: %w", containerID, err)
+	}
+	if settings := inspected.Container.NetworkSettings; settings != nil {
+		if ep := settings.Networks[network]; ep != nil && ep.Gateway.IsValid() {
+			return ep.Gateway.String(), nil
+		}
+	}
+	return "", fmt.Errorf("container %s has no gateway on network %q", containerID, network)
+}
+func (c containerHandle) Stop() { sim.StopContainer(c.ContainerID, c.grace) }
 
 func (c containerHandle) PublishedPort(ctx context.Context, port int) (int, error) {
 	return c.ContainerHandle.PublishedPort(ctx, port)

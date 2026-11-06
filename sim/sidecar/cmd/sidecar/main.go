@@ -7,7 +7,9 @@
 // `sidecar egress` it is a NAT gateway: it carries the connections the guests
 // routed through it open toward the outside, from its own address, and as
 // `sidecar forward` it owns a workload's network namespace and relays the
-// loopback ports it names to endpoints on the workload's network.
+// loopback ports it names to endpoints on the workload's network. As
+// `sidecar hold` it owns a workload's namespace and does nothing else, and as
+// `sidecar route` it sets the default route of the namespace it joined.
 package main
 
 import (
@@ -86,6 +88,19 @@ func main() {
 		if err := serve(ctx, os.Stdout); err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "route" {
+		if err := serveRoute(os.Stdout, os.Args[2:]); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "hold" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		fmt.Fprintln(os.Stdout, "sidecar: hold")
+		<-ctx.Done()
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "forward" {

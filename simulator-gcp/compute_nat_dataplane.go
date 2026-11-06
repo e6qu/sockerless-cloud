@@ -251,10 +251,9 @@ func gcpReapplyNAT() {
 }
 
 // gcpInstanceGateway is where an instance sends what leaves its network, in
-// the terms of sim.ContainerConfig.Gateway: the sidecar of the Cloud NAT
-// covering its subnetwork when the instance has no external address, and the
-// network's own gateway otherwise, or while no NAT covers it, the gap
-// BUGS.md records.
+// the terms of sim.ContainerConfig.Gateway: the network's own gateway for an
+// instance with an external address, the sidecar of the Cloud NAT covering
+// its subnetwork for one without, and no route out while no NAT covers it.
 func gcpInstanceGateway(inst ComputeInstance) string {
 	if len(inst.NetworkInterfaces) == 0 {
 		return ""
@@ -270,7 +269,7 @@ func gcpInstanceGateway(inst ComputeInstance) string {
 	if e, ok := gcpNATEgresses[nic.Subnetwork]; ok {
 		return e.address.String()
 	}
-	return ""
+	return sim.NoGateway
 }
 
 // gcpReapplyRoutes points every running instance's machine where its
