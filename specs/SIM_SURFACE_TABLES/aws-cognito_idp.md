@@ -17,31 +17,36 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AWSCognitoIdentityProviderService.CreateUserPool` | ✓ `simulator-aws/cognito_idp.go:133::handleCognitoCreateUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DescribeUserPool` | ✓ `simulator-aws/cognito_idp.go:134::handleCognitoDescribeUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.UpdateUserPool` | ✓ `simulator-aws/cognito_idp.go:135::handleCognitoUpdateUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DeleteUserPool` | ✓ `simulator-aws/cognito_idp.go:136::handleCognitoDeleteUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.ListUserPools` | ✓ `simulator-aws/cognito_idp.go:137::handleCognitoListUserPools` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.GetUserPoolMfaConfig` | ✓ `simulator-aws/cognito_idp.go:138::handleCognitoGetUserPoolMfaConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.SetUserPoolMfaConfig` | ✓ `simulator-aws/cognito_idp.go:139::handleCognitoSetUserPoolMfaConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.CreateUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:140::handleCognitoCreateUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DescribeUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:141::handleCognitoDescribeUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.UpdateUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:142::handleCognitoUpdateUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DeleteUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:143::handleCognitoDeleteUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.ListUserPoolClients` | ✓ `simulator-aws/cognito_idp.go:144::handleCognitoListUserPoolClients` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.CreateUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:145::handleCognitoCreateUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DescribeUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:146::handleCognitoDescribeUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.DeleteUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:147::handleCognitoDeleteUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminCreateUser` | ✓ `simulator-aws/cognito_idp.go:148::handleCognitoAdminCreateUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminGetUser` | ✓ `simulator-aws/cognito_idp.go:149::handleCognitoAdminGetUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminDeleteUser` | ✓ `simulator-aws/cognito_idp.go:150::handleCognitoAdminDeleteUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminSetUserPassword` | ✓ `simulator-aws/cognito_idp.go:151::handleCognitoAdminSetUserPassword` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminEnableUser` | ✓ `simulator-aws/cognito_idp.go:152::handleCognitoAdminEnableUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.AdminDisableUser` | ✓ `simulator-aws/cognito_idp.go:153::handleCognitoAdminDisableUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.ListUsers` | ✓ `simulator-aws/cognito_idp.go:154::handleCognitoListUsers` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.TagResource` | ✓ `simulator-aws/cognito_idp.go:155::handleCognitoTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.UntagResource` | ✓ `simulator-aws/cognito_idp.go:156::handleCognitoUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSCognitoIdentityProviderService.ListTagsForResource` | ✓ `simulator-aws/cognito_idp.go:157::handleCognitoListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.CreateUserPool` | ✓ `simulator-aws/cognito_idp.go:134::handleCognitoCreateUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DescribeUserPool` | ✓ `simulator-aws/cognito_idp.go:135::handleCognitoDescribeUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.UpdateUserPool` | ✓ `simulator-aws/cognito_idp.go:136::handleCognitoUpdateUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DeleteUserPool` | ✓ `simulator-aws/cognito_idp.go:137::handleCognitoDeleteUserPool` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.ListUserPools` | ✓ `simulator-aws/cognito_idp.go:138::handleCognitoListUserPools` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.GetUserPoolMfaConfig` | ✓ `simulator-aws/cognito_idp.go:139::handleCognitoGetUserPoolMfaConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.SetUserPoolMfaConfig` | ✓ `simulator-aws/cognito_idp.go:140::handleCognitoSetUserPoolMfaConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.CreateUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:141::handleCognitoCreateUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DescribeUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:142::handleCognitoDescribeUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.UpdateUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:143::handleCognitoUpdateUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DeleteUserPoolClient` | ✓ `simulator-aws/cognito_idp.go:144::handleCognitoDeleteUserPoolClient` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.ListUserPoolClients` | ✓ `simulator-aws/cognito_idp.go:145::handleCognitoListUserPoolClients` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.CreateUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:146::handleCognitoCreateUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DescribeUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:147::handleCognitoDescribeUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.DeleteUserPoolDomain` | ✓ `simulator-aws/cognito_idp.go:148::handleCognitoDeleteUserPoolDomain` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminCreateUser` | ✓ `simulator-aws/cognito_idp.go:149::handleCognitoAdminCreateUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminGetUser` | ✓ `simulator-aws/cognito_idp.go:150::handleCognitoAdminGetUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminDeleteUser` | ✓ `simulator-aws/cognito_idp.go:151::handleCognitoAdminDeleteUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminSetUserPassword` | ✓ `simulator-aws/cognito_idp.go:152::handleCognitoAdminSetUserPassword` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminEnableUser` | ✓ `simulator-aws/cognito_idp.go:153::handleCognitoAdminEnableUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminDisableUser` | ✓ `simulator-aws/cognito_idp.go:154::handleCognitoAdminDisableUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.ListUsers` | ✓ `simulator-aws/cognito_idp.go:155::handleCognitoListUsers` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.TagResource` | ✓ `simulator-aws/cognito_idp.go:156::handleCognitoTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.UntagResource` | ✓ `simulator-aws/cognito_idp.go:157::handleCognitoUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.ListTagsForResource` | ✓ `simulator-aws/cognito_idp.go:158::handleCognitoListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.InitiateAuth` | ✓ `simulator-aws/cognito_idp_auth.go:36::handleCognitoInitiateAuth` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminInitiateAuth` | ✓ `simulator-aws/cognito_idp_auth.go:37::handleCognitoAdminInitiateAuth` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.RespondToAuthChallenge` | ✓ `simulator-aws/cognito_idp_auth.go:38::handleCognitoRespondToAuthChallenge` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.AdminRespondToAuthChallenge` | ✓ `simulator-aws/cognito_idp_auth.go:39::handleCognitoAdminRespondToAuthChallenge` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSCognitoIdentityProviderService.GetUser` | ✓ `simulator-aws/cognito_idp_auth.go:40::handleCognitoGetUser` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

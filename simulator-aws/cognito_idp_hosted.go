@@ -46,6 +46,9 @@ type cognitoSession struct {
 }
 
 type cognitoRefreshToken struct {
+	// WithID marks a token an API sign-in issued, whose refresh returns an ID
+	// token whatever its scopes.
+	WithID    bool
 	ClientId  string
 	Username  string
 	Scopes    []string
@@ -360,7 +363,7 @@ func cognitoGrant(w http.ResponseWriter, r *http.Request, pool CognitoUserPool, 
 		cognitoRedirectError(w, req, "access_denied")
 		return
 	}
-	tokens, err := cognitoIssueTokens(pool, req.client, user, req.scopes, req.nonce, session.AuthTime, uuid.NewString())
+	tokens, err := cognitoIssueTokens(pool, req.client, user, req.scopes, slices.Contains(req.scopes, "openid"), req.nonce, session.AuthTime, uuid.NewString())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -438,7 +441,9 @@ type cognitoTokens struct {
 	expiresIn           int
 }
 
-func cognitoIssueTokens(pool CognitoUserPool, client CognitoUserPoolClient, user CognitoUser, scopes []string, nonce string, authTime time.Time, originJTI string) (cognitoTokens, error) {
+// withID issues an ID token beside the access token: an OAuth request gets
+// one only when it asks for the openid scope, an API sign-in always.
+func cognitoIssueTokens(pool CognitoUserPool, client CognitoUserPoolClient, user CognitoUser, scopes []string, withID bool, nonce string, authTime time.Time, originJTI string) (cognitoTokens, error) {
 	key, err := cognitoSigningKey(pool)
 	if err != nil {
 		return cognitoTokens{}, err
@@ -456,7 +461,7 @@ func cognitoIssueTokens(pool CognitoUserPool, client CognitoUserPoolClient, user
 	if tokens.access, err = cognitoSign(key, pool.KeyID, access); err != nil {
 		return tokens, err
 	}
-	if !slices.Contains(scopes, "openid") {
+	if !withID {
 		return tokens, nil
 	}
 	id := map[string]any{}
@@ -665,7 +670,7 @@ func cognitoRedeemCode(w http.ResponseWriter, form url.Values, pool CognitoUserP
 		return
 	}
 	originJTI := uuid.NewString()
-	tokens, err := cognitoIssueTokens(pool, client, user, code.Scopes, code.Nonce, code.AuthTime, originJTI)
+	tokens, err := cognitoIssueTokens(pool, client, user, code.Scopes, slices.Contains(code.Scopes, "openid"), code.Nonce, code.AuthTime, originJTI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -707,7 +712,7 @@ func cognitoRedeemRefresh(w http.ResponseWriter, form url.Values, pool CognitoUs
 		cognitoTokenError(w, "invalid_grant", "")
 		return
 	}
-	tokens, err := cognitoIssueTokens(pool, client, user, refresh.Scopes, "", refresh.AuthTime, refresh.OriginJTI)
+	tokens, err := cognitoIssueTokens(pool, client, user, refresh.Scopes, refresh.WithID || slices.Contains(refresh.Scopes, "openid"), "", refresh.AuthTime, refresh.OriginJTI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

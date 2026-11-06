@@ -230,7 +230,7 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	switch {
 	case isLocalhostName(host):
 		addr = net.JoinHostPort("127.0.0.1", port)
-	case isS3ExpressName(host), isS3AccessPointName(host), isLambdaFunctionURLName(host), isCognitoName(host):
+	case isS3ExpressName(host), isS3AccessPointName(host), isLambdaFunctionURLName(host), isCognitoName(host), isELBPublicKeysName(host):
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
 	case host == "127.0.0.1" || host == "::1":
 	default:
@@ -269,6 +269,14 @@ func isCognitoName(host string) bool {
 	return strings.HasSuffix(h, ".amazoncognito.com") || (strings.HasPrefix(h, "cognito-idp.") && strings.HasSuffix(h, ".amazonaws.com"))
 }
 
+// isELBPublicKeysName reports whether a hostname is the Region's
+// public-keys.auth.elb.<region>.amazonaws.com, where a target reads the key
+// that verifies an Application Load Balancer's x-amzn-oidc-data.
+func isELBPublicKeysName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.HasPrefix(h, "public-keys.auth.elb.") && strings.HasSuffix(h, ".amazonaws.com")
+}
+
 // isS3ExpressName reports whether a hostname belongs to S3 Express One Zone: the
 // regional control endpoint `s3express-control.<region>.amazonaws.com` or a
 // directory bucket's zonal endpoint
@@ -287,7 +295,7 @@ func isS3ExpressName(host string) bool {
 // proxy Go would otherwise apply to a name other than `localhost`.
 func simProxy(req *http.Request) (*url.URL, error) {
 	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) ||
-		isLambdaFunctionURLName(host) || isCognitoName(host) {
+		isLambdaFunctionURLName(host) || isCognitoName(host) || isELBPublicKeysName(host) {
 		return nil, nil
 	}
 	return http.ProxyFromEnvironment(req)

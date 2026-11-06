@@ -623,7 +623,8 @@ func iamActionForRequest(r *http.Request) (string, bool) {
 func iamPermissionlessAction(action string) bool {
 	switch action {
 	case "sts:GetCallerIdentity", "sts:GetSessionToken",
-		"sts:AssumeRoleWithWebIdentity", "sts:AssumeRoleWithSAML":
+		"sts:AssumeRoleWithWebIdentity", "sts:AssumeRoleWithSAML",
+		"cognito-idp:InitiateAuth", "cognito-idp:RespondToAuthChallenge", "cognito-idp:GetUser":
 		return true
 	}
 	return false

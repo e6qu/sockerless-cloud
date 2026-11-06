@@ -129,6 +129,7 @@ func registerCognitoIdentityProvider(r *AWSRouter, srv *sim.Server) {
 	cognitoUsers = sim.MakeStore[CognitoUser](srv.DB(), "cognito_users")
 	cognitoDomains = sim.MakeStore[CognitoDomain](srv.DB(), "cognito_user_pool_domains")
 	registerCognitoHostedPlane(srv)
+	registerCognitoAuthentication(r, srv)
 
 	r.Register("AWSCognitoIdentityProviderService.CreateUserPool", handleCognitoCreateUserPool)
 	r.Register("AWSCognitoIdentityProviderService.DescribeUserPool", handleCognitoDescribeUserPool)

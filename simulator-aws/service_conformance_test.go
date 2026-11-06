@@ -405,7 +405,7 @@ var serviceCoverageFloor = map[string]int{
 	"ApiGatewayV2":                      103, // Amazon API Gateway v2
 	"Cloudfront2020_05_31":              167, // Amazon CloudFront (restXml)
 	"DynamoDB_20120810":                 58,  // Amazon DynamoDB (awsJson1.0, vector search included)
-	"AWSCognitoIdentityProviderService": 25,  // Amazon Cognito user pools
+	"AWSCognitoIdentityProviderService": 30,  // Amazon Cognito user pools
 }
 
 // TestServiceConformance_CoverageFloor locks the implemented-op count for the

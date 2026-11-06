@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"crypto"
+	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
@@ -425,4 +426,120 @@ func TestCognito_HostedDomainAuthorizationCodeFlow(t *testing.T) {
 	require.NoError(t, err)
 	_, err = c.DeleteUserPool(ctx, &cip.DeleteUserPoolInput{UserPoolId: aws.String(poolID)})
 	require.NoError(t, err)
+}
+
+func cognitoSecretHash(secret, username, clientID string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(username + clientID))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// TestCognito_APISignInSetsANewPassword signs users in through the API: a
+// user created with a temporary password answers NEW_PASSWORD_REQUIRED with a
+// password the policy accepts, through InitiateAuth and RespondToAuthChallenge
+// with the client's secret hash and through the admin operations; the access
+// token reads the user and the refresh token renews it.
+func TestCognito_APISignInSetsANewPassword(t *testing.T) {
+	t.Parallel()
+	c := cognitoClient()
+	created, err := c.CreateUserPool(ctx, &cip.CreateUserPoolInput{
+		PoolName: aws.String(uniquename.New("api-signin")),
+		Policies: &ciptypes.UserPoolPolicyType{PasswordPolicy: &ciptypes.PasswordPolicyType{MinimumLength: aws.Int32(12), RequireNumbers: true}},
+	})
+	require.NoError(t, err)
+	poolID := aws.ToString(created.UserPool.Id)
+	client, err := c.CreateUserPoolClient(ctx, &cip.CreateUserPoolClientInput{
+		UserPoolId: aws.String(poolID), ClientName: aws.String("api"), GenerateSecret: true,
+		ExplicitAuthFlows: []ciptypes.ExplicitAuthFlowsType{
+			ciptypes.ExplicitAuthFlowsTypeAllowUserPasswordAuth, ciptypes.ExplicitAuthFlowsTypeAllowAdminUserPasswordAuth,
+			ciptypes.ExplicitAuthFlowsTypeAllowRefreshTokenAuth,
+		},
+	})
+	require.NoError(t, err)
+	clientID, secret := aws.ToString(client.UserPoolClient.ClientId), aws.ToString(client.UserPoolClient.ClientSecret)
+	srpOnly, err := c.CreateUserPoolClient(ctx, &cip.CreateUserPoolClientInput{UserPoolId: aws.String(poolID), ClientName: aws.String("srp")})
+	require.NoError(t, err)
+	for _, name := range []string{"gina", "hal"} {
+		_, err = c.AdminCreateUser(ctx, &cip.AdminCreateUserInput{
+			UserPoolId: aws.String(poolID), Username: aws.String(name), TemporaryPassword: aws.String("Temporary-0001"),
+			MessageAction:  ciptypes.MessageActionTypeSuppress,
+			UserAttributes: []ciptypes.AttributeType{{Name: aws.String("email"), Value: aws.String(name + "@example.com")}},
+		})
+		require.NoError(t, err)
+	}
+
+	_, err = c.InitiateAuth(ctx, &cip.InitiateAuthInput{
+		ClientId: srpOnly.UserPoolClient.ClientId, AuthFlow: ciptypes.AuthFlowTypeUserPasswordAuth,
+		AuthParameters: map[string]string{"USERNAME": "gina", "PASSWORD": "Temporary-0001"},
+	})
+	var invalid *ciptypes.InvalidParameterException
+	require.ErrorAs(t, err, &invalid, "a client whose ExplicitAuthFlows omit the flow refuses it")
+	_, err = c.InitiateAuth(ctx, &cip.InitiateAuthInput{
+		ClientId: aws.String(clientID), AuthFlow: ciptypes.AuthFlowTypeUserPasswordAuth,
+		AuthParameters: map[string]string{"USERNAME": "gina", "PASSWORD": "Temporary-0001", "SECRET_HASH": "wrong"},
+	})
+	var notAuthorized *ciptypes.NotAuthorizedException
+	require.ErrorAs(t, err, &notAuthorized, "a client with a secret requires its secret hash")
+
+	challenge, err := c.InitiateAuth(ctx, &cip.InitiateAuthInput{
+		ClientId: aws.String(clientID), AuthFlow: ciptypes.AuthFlowTypeUserPasswordAuth,
+		AuthParameters: map[string]string{"USERNAME": "gina", "PASSWORD": "Temporary-0001", "SECRET_HASH": cognitoSecretHash(secret, "gina", clientID)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ciptypes.ChallengeNameTypeNewPasswordRequired, challenge.ChallengeName)
+	require.NotEmpty(t, aws.ToString(challenge.Session))
+	assert.Nil(t, challenge.AuthenticationResult)
+
+	_, err = c.RespondToAuthChallenge(ctx, &cip.RespondToAuthChallengeInput{
+		ClientId: aws.String(clientID), ChallengeName: ciptypes.ChallengeNameTypeNewPasswordRequired, Session: challenge.Session,
+		ChallengeResponses: map[string]string{"USERNAME": "gina", "NEW_PASSWORD": "short1", "SECRET_HASH": cognitoSecretHash(secret, "gina", clientID)},
+	})
+	var weak *ciptypes.InvalidPasswordException
+	require.ErrorAs(t, err, &weak)
+	answered, err := c.RespondToAuthChallenge(ctx, &cip.RespondToAuthChallengeInput{
+		ClientId: aws.String(clientID), ChallengeName: ciptypes.ChallengeNameTypeNewPasswordRequired, Session: challenge.Session,
+		ChallengeResponses: map[string]string{"USERNAME": "gina", "NEW_PASSWORD": "Gina-New-Pass-7", "SECRET_HASH": cognitoSecretHash(secret, "gina", clientID)},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, answered.AuthenticationResult)
+	assert.NotEmpty(t, aws.ToString(answered.AuthenticationResult.IdToken))
+	assert.Equal(t, "Bearer", aws.ToString(answered.AuthenticationResult.TokenType))
+	confirmed, err := c.AdminGetUser(ctx, &cip.AdminGetUserInput{UserPoolId: aws.String(poolID), Username: aws.String("gina")})
+	require.NoError(t, err)
+	assert.Equal(t, ciptypes.UserStatusTypeConfirmed, confirmed.UserStatus)
+
+	me, err := c.GetUser(ctx, &cip.GetUserInput{AccessToken: answered.AuthenticationResult.AccessToken})
+	require.NoError(t, err)
+	assert.Equal(t, "gina", aws.ToString(me.Username))
+	refreshed, err := c.InitiateAuth(ctx, &cip.InitiateAuthInput{
+		ClientId: aws.String(clientID), AuthFlow: ciptypes.AuthFlowTypeRefreshTokenAuth,
+		AuthParameters: map[string]string{"REFRESH_TOKEN": aws.ToString(answered.AuthenticationResult.RefreshToken),
+			"SECRET_HASH": cognitoSecretHash(secret, "gina", clientID)},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(refreshed.AuthenticationResult.AccessToken))
+	assert.Empty(t, aws.ToString(refreshed.AuthenticationResult.RefreshToken))
+
+	adminChallenge, err := c.AdminInitiateAuth(ctx, &cip.AdminInitiateAuthInput{
+		UserPoolId: aws.String(poolID), ClientId: aws.String(clientID), AuthFlow: ciptypes.AuthFlowTypeAdminUserPasswordAuth,
+		AuthParameters: map[string]string{"USERNAME": "hal", "PASSWORD": "Temporary-0001", "SECRET_HASH": cognitoSecretHash(secret, "hal", clientID)},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ciptypes.ChallengeNameTypeNewPasswordRequired, adminChallenge.ChallengeName)
+	adminAnswered, err := c.AdminRespondToAuthChallenge(ctx, &cip.AdminRespondToAuthChallengeInput{
+		UserPoolId: aws.String(poolID), ClientId: aws.String(clientID), ChallengeName: ciptypes.ChallengeNameTypeNewPasswordRequired,
+		Session:            adminChallenge.Session,
+		ChallengeResponses: map[string]string{"USERNAME": "hal", "NEW_PASSWORD": "Hal-New-Pass-99", "SECRET_HASH": cognitoSecretHash(secret, "hal", clientID)},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, adminAnswered.AuthenticationResult)
+	signedIn, err := c.AdminInitiateAuth(ctx, &cip.AdminInitiateAuthInput{
+		UserPoolId: aws.String(poolID), ClientId: aws.String(clientID), AuthFlow: ciptypes.AuthFlowTypeAdminUserPasswordAuth,
+		AuthParameters: map[string]string{"USERNAME": "hal", "PASSWORD": "Hal-New-Pass-99", "SECRET_HASH": cognitoSecretHash(secret, "hal", clientID)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, signedIn.ChallengeName, "a confirmed user signs straight in")
+	require.NotNil(t, signedIn.AuthenticationResult)
+	_, err = c.GetUser(ctx, &cip.GetUserInput{AccessToken: aws.String("not-a-token")})
+	require.ErrorAs(t, err, &notAuthorized)
 }

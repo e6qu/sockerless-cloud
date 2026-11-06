@@ -2,11 +2,9 @@
 
 ## Next
 
-- **Application Load Balancer authentication** (BUG-3554): run the
-  `authenticate-oidc` and `authenticate-cognito` listener actions against
-  their identity providers, Amazon Cognito user pools included, with the
-  session cookie and the signed `x-amzn-oidc-data` header; then honour the
-  Gateway Load Balancer's stickiness types.
+- **Gateway Load Balancer stickiness and Elastic Load Balancing's recalled
+  messages** (BUG-3554): honour `source_ip_dest_ip` and
+  `source_ip_dest_ip_proto`, and source the refusals' messages.
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.

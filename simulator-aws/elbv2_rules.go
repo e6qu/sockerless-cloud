@@ -68,6 +68,10 @@ func handleELBv2CreateRule(w http.ResponseWriter, r *http.Request) {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	if code, message := elbv2AuthActionsRefusal(r, listener.Protocol, rule.Actions, nil); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2Rules.Put(rule.Arn, rule)
 	elbv2ReconcileTargetGroupLoadBalancers(listener.LoadBalancerArn)
 	elbv2XMLResponse(w, "CreateRule", "<Rules>"+elbv2RuleXML(rule)+"</Rules>", sim.RequestID(r.Context()))
@@ -172,6 +176,11 @@ func handleELBv2ModifyRule(w http.ResponseWriter, r *http.Request) {
 			elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
 		}
+		listener, _ := elbv2Listeners.Get(rule.ListenerArn)
+		if code, message := elbv2AuthActionsRefusal(r, listener.Protocol, actions, rule.Actions); code != "" {
+			elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 		rule.Actions = actions
 	}
 	elbv2Rules.Put(ruleArn, rule)
@@ -215,6 +224,10 @@ func handleELBv2ModifyListener(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		listener.DefaultActions = actions
+	}
+	if code, message := elbv2AuthActionsRefusal(r, listener.Protocol, listener.DefaultActions, previous.DefaultActions); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
 	if certs := parseELBv2Certificates(r); len(certs) > 0 {
 		listener.Certificates = certs

@@ -22,7 +22,15 @@ var elbv2RulesByListener sim.GenerationIndex[ELBv2Rule]
 // value. The default rule is evaluated last." The first matching rule's
 // actions run in order.
 func elbv2ServeListener(w http.ResponseWriter, r *http.Request, listener ELBv2Listener) {
+	// Only the load balancer sets the claims headers a target trusts.
+	for _, name := range []string{"X-Amzn-Oidc-Accesstoken", "X-Amzn-Oidc-Identity", "X-Amzn-Oidc-Data"} {
+		r.Header.Del(name)
+	}
+	if elbv2ServeAuthCallback(w, r, listener) {
+		return
+	}
 	actions := listener.DefaultActions
+	ruleArn := ""
 	rules := elbv2RulesByListener.LookupAll(elbv2Rules, listener.Arn, func(rule ELBv2Rule) []string {
 		if rule.IsDefault {
 			return nil
@@ -34,7 +42,7 @@ func elbv2ServeListener(w http.ResponseWriter, r *http.Request, listener ELBv2Li
 	})
 	for _, rule := range rules {
 		if elbv2RuleMatches(r, rule.Conditions) {
-			actions = rule.Actions
+			actions, ruleArn = rule.Actions, rule.Arn
 			break
 		}
 	}
@@ -42,6 +50,11 @@ func elbv2ServeListener(w http.ResponseWriter, r *http.Request, listener ELBv2Li
 	slices.SortStableFunc(ordered, func(a, b ELBv2Action) int { return cmp.Compare(a.Order, b.Order) })
 	for _, action := range ordered {
 		switch action.Type {
+		case "authenticate-oidc", "authenticate-cognito":
+			ref := elbv2AuthActionRef{Listener: listener.Arn, Rule: ruleArn, Order: action.Order}
+			if elbv2Authenticate(w, r, listener, ref, action) == elbv2AuthAnswered {
+				return
+			}
 		case "forward":
 			elbv2ForwardToHealthyTarget(w, r, listener, []ELBv2Action{action})
 			return

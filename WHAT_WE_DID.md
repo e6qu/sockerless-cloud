@@ -995,6 +995,33 @@ so a relying party verifies a token the way it does against AWS. The Smithy
 model's enum values are the wire spelling: token validity units travel in
 lower case although their member names are upper case.
 
+The API signs users in as well: `InitiateAuth` and `AdminInitiateAuth` run
+the password flows a client's `ExplicitAuthFlows` allow, check the client's
+secret hash, and answer a user with a temporary password with the
+`NEW_PASSWORD_REQUIRED` challenge, which `RespondToAuthChallenge` completes
+under the pool's password policy. The operations the model gives no auth
+scheme pass the SigV4 and IAM gates unsigned.
+
+An Application Load Balancer's `authenticate-oidc` and `authenticate-cognito`
+actions run on HTTPS listeners as the authentication guide describes. A
+request without a session goes to the IdP's authorization endpoint with
+`redirect_uri` `https://<host>/oauth2/idpresponse` and a state the load
+balancer seals with its own key; the callback must arrive within 15 minutes
+and present the `AWSALBAuthNonce` cookie, then the load balancer redeems the
+code, reads the user info endpoint and sets the encrypted session cookie,
+sharded `-0`, `-1`... at 4K, with a 7-day expiry and the action's
+`SessionTimeout` sealed inside. Targets receive `x-amzn-oidc-accesstoken`,
+`x-amzn-oidc-identity` and `x-amzn-oidc-data`, an ES256 JWT with padding
+whose key `public-keys.auth.elb.<region>.amazonaws.com/<kid>` serves; the
+load balancer replaces whatever claims headers a client sent. `deny` answers
+401 to a request without a session, `allow` forwards it without claims, and
+an expired access token is refreshed with the refresh token. An
+authenticate-cognito action reads its app client's secret when it is
+configured, through `DescribeUserPoolClient` signed as the caller, which is
+the permission the guide says the caller needs; the load balancer reaches a
+user pool's endpoints through the simulator's own handler chain and any
+other IdP over the network.
+
 Each simulator's first credential is seeded, the way a new account's is: the
 AWS simulator's IAM user with the `test` key, the Azure simulator's bootstrap
 application with its client secret, and the Google Cloud simulator's bootstrap

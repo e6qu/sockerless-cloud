@@ -128,13 +128,16 @@ type ELBv2TargetGroupStickiness struct {
 	DurationSeconds *int
 }
 
-// ClientSecret is write-only: never stored or returned by Describe*.
+// ClientSecret is write-only: kept to redeem codes, never returned by
+// Describe*.
 type ELBv2AuthOidcConfig struct {
 	Issuer                           string
 	AuthorizationEndpoint            string
 	TokenEndpoint                    string
 	UserInfoEndpoint                 string
 	ClientId                         string
+	ClientSecret                     string
+	UseExistingClientSecret          bool `json:"-"`
 	Scope                            string
 	SessionCookieName                string
 	SessionTimeout                   *int64
@@ -142,10 +145,14 @@ type ELBv2AuthOidcConfig struct {
 	AuthenticationRequestExtraParams map[string]string
 }
 
+// ClientSecret is the app client's, which the load balancer reads through
+// DescribeUserPoolClient when the action is configured; Describe* never
+// returns it.
 type ELBv2AuthCognitoConfig struct {
 	UserPoolArn                      string
 	UserPoolClientId                 string
 	UserPoolDomain                   string
+	ClientSecret                     string
 	Scope                            string
 	SessionCookieName                string
 	SessionTimeout                   *int64
@@ -1005,6 +1012,10 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	if code, message := elbv2AuthActionsRefusal(r, listener.Protocol, listener.DefaultActions, nil); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2Listeners.Put(arn, listener)
 	if err := elbv2StartListenerDataPlane(listener); err != nil {
 		elbv2Listeners.Delete(arn)
@@ -1708,6 +1719,8 @@ func parseELBv2AuthOidc(r *http.Request, base string) *ELBv2AuthOidcConfig {
 		TokenEndpoint:                    r.FormValue(base + ".TokenEndpoint"),
 		UserInfoEndpoint:                 r.FormValue(base + ".UserInfoEndpoint"),
 		ClientId:                         clientID,
+		ClientSecret:                     r.FormValue(base + ".ClientSecret"),
+		UseExistingClientSecret:          r.FormValue(base+".UseExistingClientSecret") == "true",
 		Scope:                            r.FormValue(base + ".Scope"),
 		SessionCookieName:                r.FormValue(base + ".SessionCookieName"),
 		OnUnauthenticatedRequest:         r.FormValue(base + ".OnUnauthenticatedRequest"),
