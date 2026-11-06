@@ -827,7 +827,11 @@ code, which is how an SDK picks the typed error; several ElastiCache and
 Amazon RDS refusals had used the shape name. A create records what it
 restores from, so a simulator restarted mid-create loads it again, and
 recovery settles snapshots before resuming transitions; a syncing serverless
-migration starts its full synchronisation over on a cleared target. Azure
+migration starts its full synchronisation over on a cleared target. That
+recovery runs once every slice is registered: an engine start needs the
+Route 53 Resolver's network sidecars, and `awsNetworkSidecars` had cached the
+"not running" answer a call made before the resolver started, failing every
+later start in the process. Azure
 Cache for Redis loads every import file in a scratch `redis-server` before it
 stops the cache's engine, so a file that fails to load leaves the cache
 serving; its identity resolves through `SystemAssignedIdentities_GetByScope`;

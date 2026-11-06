@@ -204,11 +204,16 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "DescribeCacheSecurityGroups", handleECDescribeCacheSecurityGroups)
 	registerElastiCacheServerless(r, srv)
 	ecEngineRecords = sim.MakeStore[ecEngineRecord](srv.DB(), "elasticache_engines")
-	// A persistent restart rebinds endpoints, re-adopts engine workloads and
-	// resumes unfinished transitions. The API-only tier runs no engines.
+}
+
+// recoverElastiCache has a persistent restart rebind endpoints, re-adopt
+// engine workloads and resume unfinished transitions; the API-only tier runs
+// no engines. It runs once every slice is registered, since a resumed engine
+// start needs the Route 53 Resolver's network sidecars.
+func recoverElastiCache() error {
 	if ecRunsEngines() {
 		if err := ecRecoverEngines(); err != nil {
-			panic(fmt.Sprintf("recover Amazon ElastiCache data planes: %v", err))
+			return fmt.Errorf("recover Amazon ElastiCache data planes: %w", err)
 		}
 	}
 	// Snapshots settle first, so a resumed restore holds its snapshot at
@@ -216,6 +221,7 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	ecRecoverSnapshots()
 	ecRecoverTransitions()
 	ecRecoverMigrations()
+	return nil
 }
 
 func ecReservedNodeARN(id string) string {
