@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.12](https://github.com/e6qu/sockerless-cloud/compare/v3.3.11...v3.3.12) (2026-11-06)
+
+
+### Bug Fixes
+
+* **cache:** roll cache upgrades, announce cluster ports and keep pending state ([d8f64bc](https://github.com/e6qu/sockerless-cloud/commit/d8f64bcb728f301821749749e89942e529b04b3b))
+
 ## [3.3.11](https://github.com/e6qu/sockerless-cloud/compare/v3.3.10...v3.3.11) (2026-11-06)
 
 
