@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -1321,7 +1322,7 @@ func handleLambdaCheckpointDurableExecution(w http.ResponseWriter, r *http.Reque
 						"Callback timeout values must be non-negative integers", http.StatusBadRequest)
 					return
 				}
-				callbackID := sim.NewUUID()
+				callbackID := lambdaNewCallbackID()
 				op.CallbackDetails = map[string]any{"CallbackId": callbackID}
 				op.callbackStartedAt = time.Now()
 				op.callbackHeartbeatAt = op.callbackStartedAt
@@ -1862,4 +1863,10 @@ func handleLambdaSendDurableCallbackHeartbeat(w http.ResponseWriter, r *http.Req
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// lambdaNewCallbackID mints a callback ID in the base64 alphabet the model's
+// CallbackId pattern admits.
+func lambdaNewCallbackID() string {
+	return cryptorand.Text()
 }

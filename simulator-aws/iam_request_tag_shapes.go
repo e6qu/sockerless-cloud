@@ -21,10 +21,9 @@ import (
 // `aws.protocols#ec2QueryName`.
 //
 // An untagging request names only keys, which AWS reports as aws:TagKeys; each
-// row records where its service carries them. AWS Lambda and Amazon EFS
-// (restJson1) and the Amazon S3 control plane (restXml) reach the gate through
-// iamEnforceREST, so their rows read the REST body and the tagKeys query
-// parameter.
+// row records where its service carries them. The restJson1 services and the
+// Amazon S3 control plane (restXml) reach the gate through iamEnforceREST, so
+// their rows read the REST body and the untag key query parameter.
 
 // iamJSONTagList is a JSON body member holding a list of tag structures,
 // together with the key and value member names that service's tag structure
@@ -262,6 +261,27 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// its key list to `tagKeys` and the legacy DeleteTags sends `TagKeys` in
 	// its body.
 	"elasticfilesystem": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}, keyURL: "tagKeys"},
+
+	// Amazon API Gateway (restJson1). api-gateway.smithy.json.gz carries a
+	// `tags` map on CreateRestApi, CreateApiKey, CreateStage, CreateDomainName,
+	// CreateVpcLink, GenerateClientCertificate and TagResource, and
+	// apigatewayv2.smithy.json.gz the same map under jsonName `tags`; both
+	// UntagResource operations bind their key list to `tagKeys`.
+	"apigateway": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// AWS Amplify (restJson1). amplify.smithy.json.gz carries a `tags` map on
+	// CreateApp, CreateBranch and TagResource; UntagResource binds `tagKeys`.
+	"amplify": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// AWS Batch (restJson1). batch.smithy.json.gz carries a `tags` map on the
+	// creates, RegisterJobDefinition, SubmitJob and TagResource; UntagResource
+	// binds `tagKeys`.
+	"batch": {jsonMap: []string{"tags"}, keyURL: "tagKeys"},
+
+	// EventBridge Scheduler (restJson1). scheduler.smithy.json.gz carries a
+	// `Tags` list of `Key`/`Value` on CreateScheduleGroup and TagResource;
+	// UntagResource binds `TagKeys`.
+	"scheduler": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyURL: "TagKeys"},
 
 	// Amazon S3 (restXml). s3.smithy.json.gz carries CreateBucket's tags as
 	// CreateBucketConfiguration$Tags, a list of `Tag`. s3-control.smithy.json.gz

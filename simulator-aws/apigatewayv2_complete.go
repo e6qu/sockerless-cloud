@@ -21,7 +21,7 @@ type APIGWv2Portal struct {
 	PublishStatus             string                       `json:"publishStatus"`
 	Authorization             json.RawMessage              `json:"authorization,omitempty"`
 	PortalContent             json.RawMessage              `json:"portalContent,omitempty"`
-	IncludedPortalProductArns []string                     `json:"includedPortalProductArns,omitempty"`
+	IncludedPortalProductArns []string                     `json:"includedPortalProductArns"`
 	RumAppMonitorName         string                       `json:"rumAppMonitorName,omitempty"`
 	EndpointConfiguration     *APIGWv2PortalEndpointConfig `json:"endpointConfiguration,omitempty"`
 	LastModified              string                       `json:"lastModified,omitempty"`
@@ -52,7 +52,7 @@ type APIGWv2PortalProduct struct {
 type APIGWv2ProductPage struct {
 	ProductPageId   string          `json:"productPageId"`
 	ProductPageArn  string          `json:"productPageArn"`
-	PortalProductId string          `json:"portalProductIdRef,omitempty"`
+	PortalProductId string          `json:"-"`
 	DisplayContent  json.RawMessage `json:"displayContent,omitempty"`
 	LastModified    string          `json:"lastModified,omitempty"`
 }
@@ -61,7 +61,7 @@ type APIGWv2ProductPage struct {
 type APIGWv2ProductRestEndpointPage struct {
 	ProductRestEndpointPageId  string          `json:"productRestEndpointPageId"`
 	ProductRestEndpointPageArn string          `json:"productRestEndpointPageArn"`
-	PortalProductId            string          `json:"portalProductIdRef,omitempty"`
+	PortalProductId            string          `json:"-"`
 	RestEndpointIdentifier     json.RawMessage `json:"restEndpointIdentifier,omitempty"`
 	DisplayContent             json.RawMessage `json:"displayContent,omitempty"`
 	TryItState                 string          `json:"tryItState,omitempty"`
@@ -73,7 +73,7 @@ type APIGWv2ProductRestEndpointPage struct {
 type APIGWv2RoutingRule struct {
 	RoutingRuleId  string          `json:"routingRuleId"`
 	RoutingRuleArn string          `json:"routingRuleArn"`
-	DomainName     string          `json:"domainNameRef,omitempty"`
+	DomainName     string          `json:"-"`
 	Priority       int             `json:"priority"`
 	Actions        json.RawMessage `json:"actions,omitempty"`
 	Conditions     json.RawMessage `json:"conditions,omitempty"`
@@ -167,7 +167,7 @@ func handleAPIGWv2CreatePortal(w http.ResponseWriter, r *http.Request) {
 		PublishStatus:             "DISABLED",
 		Authorization:             req.Authorization,
 		PortalContent:             req.PortalContent,
-		IncludedPortalProductArns: req.IncludedPortalProductArns,
+		IncludedPortalProductArns: append([]string{}, req.IncludedPortalProductArns...),
 		RumAppMonitorName:         req.RumAppMonitorName,
 		EndpointConfiguration: &APIGWv2PortalEndpointConfig{
 			PortalDefaultDomainName:  fmt.Sprintf("%s.portal.%s.amazonaws.com", portalID, awsRegion()),
@@ -534,7 +534,7 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 		ProductRestEndpointPageArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s/productrestendpointpages/%s", awsRegion(), awsAccountID(), productID, pageID),
 		PortalProductId:            productID,
 		RestEndpointIdentifier:     req.RestEndpointIdentifier,
-		DisplayContent:             apigwv2RestEndpointDisplayResponse(req.DisplayContent),
+		DisplayContent:             apigwv2RestEndpointDisplayResponse(req.DisplayContent, req.RestEndpointIdentifier),
 		TryItState:                 req.TryItState,
 		Status:                     "AVAILABLE",
 		LastModified:               time.Now().UTC().Format(time.RFC3339),
@@ -543,12 +543,10 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	sim.WriteJSON(w, http.StatusCreated, pg)
 }
 
-// The request union carries no body, so build the response display content
-// from the overrides when present.
-func apigwv2RestEndpointDisplayResponse(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return nil
-	}
+// apigwv2RestEndpointDisplayResponse builds the response display content: the
+// overrides the request names, and otherwise the invoke URL of the stage the
+// page's REST endpoint identifier names.
+func apigwv2RestEndpointDisplayResponse(raw, identifier json.RawMessage) json.RawMessage {
 	var in struct {
 		Overrides *struct {
 			Body          string `json:"body"`
@@ -556,27 +554,47 @@ func apigwv2RestEndpointDisplayResponse(raw json.RawMessage) json.RawMessage {
 			OperationName string `json:"operationName"`
 		} `json:"overrides"`
 	}
-	if err := json.Unmarshal(raw, &in); err != nil || in.Overrides == nil {
-		return nil
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil
+		}
 	}
-	out := map[string]string{}
-	if in.Overrides.Body != "" {
-		out["body"] = in.Overrides.Body
-	}
-	if in.Overrides.Endpoint != "" {
-		out["endpoint"] = in.Overrides.Endpoint
-	}
-	if in.Overrides.OperationName != "" {
-		out["operationName"] = in.Overrides.OperationName
-	}
-	if len(out) == 0 {
-		return nil
+	out := map[string]string{"endpoint": apigwv2RestEndpointURL(identifier)}
+	if o := in.Overrides; o != nil {
+		if o.Body != "" {
+			out["body"] = o.Body
+		}
+		if o.Endpoint != "" {
+			out["endpoint"] = o.Endpoint
+		}
+		if o.OperationName != "" {
+			out["operationName"] = o.OperationName
+		}
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil
 	}
 	return b
+}
+
+func apigwv2RestEndpointURL(identifier json.RawMessage) string {
+	var id struct {
+		IdentifierParts struct {
+			RestApiId string `json:"restApiId"`
+			Stage     string `json:"stage"`
+		} `json:"identifierParts"`
+	}
+	_ = json.Unmarshal(identifier, &id)
+	return fmt.Sprintf("https://%s.execute-api.%s.amazonaws.com/%s", id.IdentifierParts.RestApiId, awsRegion(), id.IdentifierParts.Stage)
+}
+
+func apigwv2DisplayEndpoint(display json.RawMessage) string {
+	var dc struct {
+		Endpoint string `json:"endpoint"`
+	}
+	_ = json.Unmarshal(display, &dc)
+	return dc.Endpoint
 }
 
 func handleAPIGWv2ListProductRestEndpointPages(w http.ResponseWriter, r *http.Request) {
@@ -601,6 +619,7 @@ func handleAPIGWv2ListProductRestEndpointPages(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		out = append(out, summary{
+			Endpoint:                   apigwv2DisplayEndpoint(pg.DisplayContent),
 			LastModified:               pg.LastModified,
 			ProductRestEndpointPageArn: pg.ProductRestEndpointPageArn,
 			ProductRestEndpointPageId:  pg.ProductRestEndpointPageId,
@@ -640,7 +659,7 @@ func handleAPIGWv2UpdateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 		return
 	}
 	if req.DisplayContent != nil {
-		if dc := apigwv2RestEndpointDisplayResponse(req.DisplayContent); dc != nil {
+		if dc := apigwv2RestEndpointDisplayResponse(req.DisplayContent, pg.RestEndpointIdentifier); dc != nil {
 			pg.DisplayContent = dc
 		}
 	}
@@ -782,37 +801,6 @@ func handleAPIGWv2UpdateApi(w http.ResponseWriter, r *http.Request) {
 	}
 	apigwv2Apis.Put(apiID, api)
 	sim.WriteJSON(w, http.StatusOK, api)
-}
-
-func handleAPIGWv2UpdateApiMapping(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	apiMappingID := sim.PathParam(r, "apiMappingId")
-	m, ok := apigwv2ApiMappings.Get(domainName + "/" + apiMappingID)
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
-			"Invalid API mapping identifier specified %s", apiMappingID)
-		return
-	}
-	var req struct {
-		ApiId         *string `json:"apiId"`
-		ApiMappingKey *string `json:"apiMappingKey"`
-		Stage         *string `json:"stage"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	if req.ApiId != nil {
-		m.ApiId = *req.ApiId
-	}
-	if req.ApiMappingKey != nil {
-		m.ApiMappingKey = *req.ApiMappingKey
-	}
-	if req.Stage != nil {
-		m.Stage = *req.Stage
-	}
-	apigwv2ApiMappings.Put(domainName+"/"+apiMappingID, m)
-	sim.WriteJSON(w, http.StatusOK, m)
 }
 
 func handleAPIGWv2ResetAuthorizersCache(w http.ResponseWriter, r *http.Request) {

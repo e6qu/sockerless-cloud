@@ -72,8 +72,8 @@ func apigwv2SplitRouteKey(routeKey string) (method, path string) {
 // Keyed by `<apiId>/<integrationId>/<responseId>`.
 type APIGWv2IntegrationResponse struct {
 	IntegrationResponseId       string            `json:"integrationResponseId"`
-	ApiId                       string            `json:"apiIdRef,omitempty"`
-	IntegrationId               string            `json:"integrationIdRef,omitempty"`
+	ApiId                       string            `json:"-"`
+	IntegrationId               string            `json:"-"`
 	IntegrationResponseKey      string            `json:"integrationResponseKey"`
 	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
 	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
@@ -84,8 +84,8 @@ type APIGWv2IntegrationResponse struct {
 // Keyed by `<apiId>/<routeId>/<responseId>`.
 type APIGWv2RouteResponse struct {
 	RouteResponseId          string                            `json:"routeResponseId"`
-	ApiId                    string                            `json:"apiIdRef,omitempty"`
-	RouteId                  string                            `json:"routeIdRef,omitempty"`
+	ApiId                    string                            `json:"-"`
+	RouteId                  string                            `json:"-"`
 	RouteResponseKey         string                            `json:"routeResponseKey"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 	ResponseModels           map[string]string                 `json:"responseModels,omitempty"`

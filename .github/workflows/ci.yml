@@ -566,15 +566,14 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -679,6 +678,13 @@ jobs:
           cd simulator-${{ matrix.cloud }}
           CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
         timeout-minutes: 8
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -953,15 +959,14 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-aws-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -987,6 +992,13 @@ jobs:
         run: |
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the node agent image
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image wait
@@ -1281,15 +1293,14 @@ jobs:
           key: base-images-${{ runner.os }}-${{ runner.arch }}-aws-${{ steps.base-images-list.outputs.digest }}
           restore-keys: |
             base-images-${{ runner.os }}-${{ runner.arch }}-aws-
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -1314,6 +1325,13 @@ jobs:
         run: |
           sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
@@ -1589,15 +1607,14 @@ jobs:
           # the cloud's whole archive, and loading it is the cost the small
           # set exists to avoid.
           restore-keys: ${{ !matrix.base_images && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
-      - name: Load or fetch the base images
-        # Priming a cache, not checking a dependency: if the registry refuses an
-        # image here, the job carries on and whatever actually needs it fails at
-        # the point of use, naming it.
-        continue-on-error: true
+      - name: Start loading the base images
+        # The load takes minutes of the job's budget, so it runs while the job
+        # compiles; the sidecar build and the wait step below block on it.
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/ci-base-images.sh start ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 1
       - name: Start the network sidecar image build
         # The suites' first workload waits on the sidecar image, and a cold
         # build takes longer than a test gives it; the build runs while the job
@@ -1626,6 +1643,13 @@ jobs:
       - name: Install Caddy
         run: |
           bash scripts/install-caddy.sh
+      - name: Wait for the base images
+        # Priming a cache, not checking a dependency: if the registry refuses an
+        # image here, the job carries on and whatever actually needs it fails at
+        # the point of use, naming it.
+        continue-on-error: true
+        run: bash scripts/ci-base-images.sh wait
+        timeout-minutes: 12
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8

@@ -93,3 +93,66 @@ func TestAPIGatewayV2CLIDomainNamesAndUpdates(t *testing.T) {
 	assert.Contains(t, runCLIExpectError(t, awsCLI("apigatewayv2", "update-vpc-link",
 		"--vpc-link-id", "absent0000", "--name", "x")), "NotFoundException")
 }
+
+// TestAPIGatewayCLIMappingsShareOneStore expects a base path mapping and an
+// API mapping on one custom domain name to be one resource: each API version
+// lists what the other created, a multi-level path comes only through
+// apigatewayv2, and a path already mapped is refused.
+func TestAPIGatewayCLIMappingsShareOneStore(t *testing.T) {
+	t.Parallel()
+	name := "maps.cli-v2-domains.example.com"
+	runCLI(t, awsCLI("apigatewayv2", "create-domain-name", "--domain-name", name,
+		"--domain-name-configurations", "EndpointType=REGIONAL,SecurityPolicy=TLS_1_2,CertificateArn="+importELBv2CertificateCLI(t, name)))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("apigatewayv2", "delete-domain-name", "--domain-name", name)) })
+
+	var rest struct {
+		ID             string `json:"id"`
+		RootResourceID string `json:"rootResourceId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("apigateway", "create-rest-api", "--name", "cli-maps"))), &rest))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("apigateway", "delete-rest-api", "--rest-api-id", rest.ID)) })
+	runCLI(t, awsCLI("apigateway", "put-method", "--rest-api-id", rest.ID, "--resource-id", rest.RootResourceID,
+		"--http-method", "GET", "--authorization-type", "NONE"))
+	runCLI(t, awsCLI("apigateway", "put-integration", "--rest-api-id", rest.ID, "--resource-id", rest.RootResourceID,
+		"--http-method", "GET", "--type", "MOCK"))
+	runCLI(t, awsCLI("apigateway", "create-deployment", "--rest-api-id", rest.ID, "--stage-name", "prod"))
+
+	runCLI(t, awsCLI("apigateway", "create-base-path-mapping", "--domain-name", name,
+		"--base-path", "orders", "--rest-api-id", rest.ID, "--stage", "prod"))
+	assert.Contains(t, runCLIExpectError(t, awsCLI("apigateway", "create-base-path-mapping", "--domain-name", name,
+		"--base-path", "orders/v1", "--rest-api-id", rest.ID, "--stage", "prod")), "BadRequestException")
+	runCLI(t, awsCLI("apigatewayv2", "create-api-mapping", "--domain-name", name,
+		"--api-mapping-key", "orders/v1/items", "--api-id", rest.ID, "--stage", "prod"))
+	assert.Contains(t, runCLIExpectError(t, awsCLI("apigatewayv2", "create-api-mapping", "--domain-name", name,
+		"--api-mapping-key", "orders", "--api-id", rest.ID, "--stage", "prod")), "ConflictException")
+
+	var v2 struct {
+		Items []struct {
+			ApiMappingKey string `json:"ApiMappingKey"`
+			ApiID         string `json:"ApiId"`
+		} `json:"Items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("apigatewayv2", "get-api-mappings", "--domain-name", name))), &v2))
+	keys := map[string]string{}
+	for _, m := range v2.Items {
+		keys[m.ApiMappingKey] = m.ApiID
+	}
+	assert.Equal(t, map[string]string{"orders": rest.ID, "orders/v1/items": rest.ID}, keys, "apigatewayv2 lists the base path mapping")
+
+	var v1 struct {
+		Items []struct {
+			BasePath string `json:"basePath"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("apigateway", "get-base-path-mappings", "--domain-name", name))), &v1))
+	paths := []string{}
+	for _, m := range v1.Items {
+		paths = append(paths, m.BasePath)
+	}
+	assert.ElementsMatch(t, []string{"orders", "orders/v1/items"}, paths, "apigateway lists the API mapping")
+
+	runCLI(t, awsCLI("apigateway", "delete-base-path-mapping", "--domain-name", name, "--base-path", "orders"))
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("apigatewayv2", "get-api-mappings", "--domain-name", name))), &v2))
+	require.Len(t, v2.Items, 1)
+	assert.Equal(t, "orders/v1/items", v2.Items[0].ApiMappingKey)
+}

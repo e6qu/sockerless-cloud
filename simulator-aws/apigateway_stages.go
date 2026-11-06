@@ -36,7 +36,7 @@ type APIGWCanarySettings struct {
 
 type APIGWStage struct {
 	StageName            string                        `json:"stageName"`
-	RestApiId            string                        `json:"restApiIdRef,omitempty"`
+	RestApiId            string                        `json:"-"`
 	DeploymentId         string                        `json:"deploymentId"`
 	ClientCertificateId  string                        `json:"clientCertificateId,omitempty"`
 	Description          string                        `json:"description,omitempty"`

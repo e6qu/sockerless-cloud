@@ -18,15 +18,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// Keyed by `<domainName>/<basePath>`; the SDK sends "(none)" for an empty
-// base path.
-type APIGWBasePathMapping struct {
-	BasePath   string `json:"basePath"`
-	RestApiId  string `json:"restApiId,omitempty"`
-	Stage      string `json:"stage,omitempty"`
-	DomainName string `json:"domainNameRef,omitempty"`
-}
-
 type APIGWClientCertificate struct {
 	ClientCertificateId   string            `json:"clientCertificateId"`
 	Description           string            `json:"description,omitempty"`
@@ -49,7 +40,7 @@ type APIGWDocumentationPart struct {
 	Id         string                         `json:"id"`
 	Location   APIGWDocumentationPartLocation `json:"location"`
 	Properties string                         `json:"properties,omitempty"`
-	RestApiId  string                         `json:"restApiIdRef,omitempty"`
+	RestApiId  string                         `json:"-"`
 }
 
 // Keyed by `<restApiId>/<version>`.
@@ -57,7 +48,7 @@ type APIGWDocumentationVersion struct {
 	Version     string `json:"version"`
 	CreatedDate int64  `json:"createdDate,omitempty"`
 	Description string `json:"description,omitempty"`
-	RestApiId   string `json:"restApiIdRef,omitempty"`
+	RestApiId   string `json:"-"`
 }
 
 // Keyed by `<restApiId>/<responseType>`.
@@ -67,7 +58,7 @@ type APIGWGatewayResponse struct {
 	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
 	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
 	DefaultResponse    bool              `json:"defaultResponse"`
-	RestApiId          string            `json:"restApiIdRef,omitempty"`
+	RestApiId          string            `json:"-"`
 }
 
 // A single row keyed "account".
@@ -79,7 +70,6 @@ type APIGWAccount struct {
 }
 
 var (
-	apigwBasePathMappings sim.Store[APIGWBasePathMapping]
 	// apigwClientCertificateKeys holds each client certificate's private key,
 	// which no API Gateway operation returns.
 	apigwClientCertificateKeys sim.Store[string]
@@ -164,7 +154,6 @@ func apigwSdkTypes() []map[string]any {
 }
 
 func registerAPIGatewayExtras(srv *sim.Server) {
-	apigwBasePathMappings = sim.MakeStore[APIGWBasePathMapping](srv.DB(), "apigw_basepathmappings")
 	apigwClientCertificateKeys = sim.MakeStore[string](srv.DB(), "apigw_client_certificate_keys")
 	apigwClientCertificates = sim.MakeStore[APIGWClientCertificate](srv.DB(), "apigw_clientcertificates")
 	apigwDocParts = sim.MakeStore[APIGWDocumentationPart](srv.DB(), "apigw_documentation_parts")
@@ -223,120 +212,6 @@ func registerAPIGatewayExtras(srv *sim.Server) {
 
 	mux.HandleFunc("GET /usageplans/{usagePlanId}/usage", cloudTrailRecordedREST("GetUsage", src, nil, handleAPIGWGetUsage))
 	mux.HandleFunc("GET /tags/{resourceArn}", cloudTrailRecordedREST("GetTags", src, nil, handleAPIGWGetTags))
-}
-
-func apigwBasePathKey(domain, basePath string) string {
-	if basePath == "" {
-		basePath = "(none)"
-	}
-	return domain + "/" + basePath
-}
-
-func handleAPIGWCreateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := apigwDomainKey(r)
-	if _, ok := apigwV1DomainNames.Get(domain); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
-		return
-	}
-	var req struct {
-		BasePath  string `json:"basePath"`
-		RestApiId string `json:"restApiId"`
-		Stage     string `json:"stage"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	if _, ok := apigwRestApis.Get(req.RestApiId); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid REST API identifier specified")
-		return
-	}
-	m := APIGWBasePathMapping{
-		BasePath:   req.BasePath,
-		RestApiId:  req.RestApiId,
-		Stage:      req.Stage,
-		DomainName: domain,
-	}
-	apigwBasePathMappings.Put(apigwBasePathKey(domain, req.BasePath), m)
-	sim.WriteJSON(w, http.StatusCreated, m)
-}
-
-func handleAPIGWListBasePathMappings(w http.ResponseWriter, r *http.Request) {
-	domain := apigwDomainKey(r)
-	out := []APIGWBasePathMapping{}
-	for _, m := range apigwBasePathMappings.List() {
-		if m.DomainName == domain {
-			out = append(out, m)
-		}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"item": out})
-}
-
-func handleAPIGWGetBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := apigwDomainKey(r)
-	basePath := sim.PathParam(r, "basePath")
-	m, ok := apigwBasePathMappings.Get(apigwBasePathKey(domain, normalizeBasePath(basePath)))
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, m)
-}
-
-func handleAPIGWUpdateBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := apigwDomainKey(r)
-	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
-	key := apigwBasePathKey(domain, basePath)
-	m, ok := apigwBasePathMappings.Get(key)
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	var req struct {
-		PatchOperations []apigwPatchOp `json:"patchOperations"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	rekey := false
-	for _, op := range req.PatchOperations {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-		switch strings.TrimPrefix(op.Path, "/") {
-		case "stage":
-			m.Stage = op.Value
-		case "restapiId", "restApiId":
-			m.RestApiId = op.Value
-		case "basePath":
-			m.BasePath = op.Value
-			rekey = true
-		}
-	}
-	if rekey {
-		apigwBasePathMappings.Delete(key)
-		key = apigwBasePathKey(domain, m.BasePath)
-	}
-	apigwBasePathMappings.Put(key, m)
-	sim.WriteJSON(w, http.StatusOK, m)
-}
-
-func handleAPIGWDeleteBasePathMapping(w http.ResponseWriter, r *http.Request) {
-	domain := apigwDomainKey(r)
-	basePath := normalizeBasePath(sim.PathParam(r, "basePath"))
-	if !apigwBasePathMappings.Delete(apigwBasePathKey(domain, basePath)) {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid base path mapping identifier specified")
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func normalizeBasePath(basePath string) string {
-	if basePath == "(none)" {
-		return ""
-	}
-	return basePath
 }
 
 func handleAPIGWGenerateClientCertificate(w http.ResponseWriter, r *http.Request) {

@@ -150,7 +150,7 @@ type EFSFileSystem struct {
 	} `json:"SizeInBytes"`
 	// Set by UpdateFileSystemProtection.
 	FileSystemProtection *EFSFileSystemProtection `json:"FileSystemProtection,omitempty"`
-	Tags                 []EFSTag                 `json:"Tags,omitempty"`
+	Tags                 []EFSTag                 `json:"Tags"`
 }
 
 type EFSFileSystemProtection struct {
@@ -316,7 +316,7 @@ func efsResourceTags(id string) (func() []EFSTag, func([]EFSTag), bool) {
 			return fs.Tags
 		}
 		set := func(tags []EFSTag) {
-			efsFileSystems.Update(id, func(fs *EFSFileSystem) { fs.Tags = tags })
+			efsFileSystems.Update(id, func(fs *EFSFileSystem) { fs.Tags = append([]EFSTag{}, tags...) })
 		}
 		return get, set, true
 	}
@@ -738,7 +738,7 @@ func handleEFSDeleteTags(w http.ResponseWriter, r *http.Request) {
 		remove[k] = true
 	}
 	efsFileSystems.Update(fsId, func(fs *EFSFileSystem) {
-		var kept []EFSTag
+		kept := []EFSTag{}
 		for _, t := range fs.Tags {
 			if !remove[t.Key] {
 				kept = append(kept, t)
@@ -789,7 +789,7 @@ func handleEFSCreateFileSystem(w http.ResponseWriter, r *http.Request) {
 		OwnerId:         awsAccountID(),
 		PerformanceMode: req.PerformanceMode,
 		ThroughputMode:  req.ThroughputMode,
-		Tags:            req.Tags,
+		Tags:            append([]EFSTag{}, req.Tags...),
 	}
 	efsFileSystems.Put(fsId, fs)
 

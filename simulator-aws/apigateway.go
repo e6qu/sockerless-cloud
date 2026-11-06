@@ -30,7 +30,7 @@ const apigwStatusAvailable = "AVAILABLE"
 // survive Store persistence; the SDK ignores the unknown fields.
 type APIGWResource struct {
 	Id        string `json:"id"`
-	RestApiId string `json:"restApiIdRef,omitempty"`
+	RestApiId string `json:"-"`
 	ParentId  string `json:"parentId,omitempty"`
 	PathPart  string `json:"pathPart,omitempty"`
 	Path      string `json:"path"`
@@ -38,8 +38,8 @@ type APIGWResource struct {
 
 type APIGWMethod struct {
 	HttpMethod        string            `json:"httpMethod"`
-	ResourceId        string            `json:"resourceIdRef,omitempty"`
-	RestApiId         string            `json:"restApiIdRef,omitempty"`
+	ResourceId        string            `json:"-"`
+	RestApiId         string            `json:"-"`
 	AuthorizationType string            `json:"authorizationType,omitempty"`
 	ApiKeyRequired    bool              `json:"apiKeyRequired,omitempty"`
 	RequestParameters map[string]bool   `json:"requestParameters,omitempty"`
@@ -49,9 +49,9 @@ type APIGWMethod struct {
 }
 
 type APIGWIntegration struct {
-	HttpMethod            string            `json:"methodRef,omitempty"`
-	ResourceId            string            `json:"resourceIdRef,omitempty"`
-	RestApiId             string            `json:"restApiIdRef,omitempty"`
+	HttpMethod            string            `json:"-"`
+	ResourceId            string            `json:"-"`
+	RestApiId             string            `json:"-"`
 	Type                  string            `json:"type"`
 	Uri                   string            `json:"uri,omitempty"`
 	IntegrationHttpMethod string            `json:"httpMethod,omitempty"`
@@ -81,7 +81,7 @@ type APIGWIntegrationResponse struct {
 
 type APIGWDeployment struct {
 	Id          string `json:"id"`
-	RestApiId   string `json:"restApiIdRef,omitempty"`
+	RestApiId   string `json:"-"`
 	Description string `json:"description,omitempty"`
 	CreatedDate int64  `json:"createdDate"`
 }
@@ -132,7 +132,7 @@ type APIGWUsagePlanKey struct {
 	Type        string `json:"type,omitempty"`
 	Value       string `json:"value,omitempty"`
 	Name        string `json:"name,omitempty"`
-	UsagePlanId string `json:"usagePlanIdRef,omitempty"`
+	UsagePlanId string `json:"-"`
 }
 
 // Keyed by `<restApiId>/<name>`.
@@ -142,7 +142,7 @@ type APIGWModel struct {
 	Description string `json:"description,omitempty"`
 	Schema      string `json:"schema,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
-	RestApiId   string `json:"restApiIdRef,omitempty"`
+	RestApiId   string `json:"-"`
 }
 
 // Keyed by `<restApiId>/<id>`.
@@ -151,7 +151,7 @@ type APIGWRequestValidator struct {
 	Name                      string `json:"name,omitempty"`
 	ValidateRequestBody       bool   `json:"validateRequestBody,omitempty"`
 	ValidateRequestParameters bool   `json:"validateRequestParameters,omitempty"`
-	RestApiId                 string `json:"restApiIdRef,omitempty"`
+	RestApiId                 string `json:"-"`
 }
 
 // Keyed by `<restApiId>/<id>`.
@@ -166,7 +166,7 @@ type APIGWAuthorizer struct {
 	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	AuthorizerResultTtlInSeconds *int     `json:"authorizerResultTtlInSeconds,omitempty"`
-	RestApiId                    string   `json:"restApiIdRef,omitempty"`
+	RestApiId                    string   `json:"-"`
 }
 
 var (
@@ -484,7 +484,7 @@ func handleAPIGWDeleteMethod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apigwIntegrations.Delete(apigwMethodKey(apiId, resourceId, httpMethod))
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleAPIGWPutIntegration(w http.ResponseWriter, r *http.Request) {
@@ -538,7 +538,7 @@ func handleAPIGWDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Integration identifier specified")
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleAPIGWCreateDeployment(w http.ResponseWriter, r *http.Request) {
@@ -722,7 +722,7 @@ func handleAPIGWDeleteMethodResponse(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusNotFound, map[string]string{"message": "method response not found"})
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleAPIGWPutIntegrationResponse(w http.ResponseWriter, r *http.Request) {
@@ -757,7 +757,7 @@ func handleAPIGWDeleteIntegrationResponse(w http.ResponseWriter, r *http.Request
 		sim.WriteJSON(w, http.StatusNotFound, map[string]string{"message": "integration response not found"})
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Honour only "replace" and "add" on a "/<field>" path, the shape the SDK and

@@ -255,9 +255,6 @@ func handleAPIGWv2DeleteDomainName(w http.ResponseWriter, r *http.Request) {
 // API mappings and routing rules that route through it.
 func apigwDeleteDomain(key string) {
 	apigwV1DomainNames.Delete(key)
-	for _, m := range apigwBasePathMappings.ListPrefix(key + "/") {
-		apigwBasePathMappings.Delete(m.ID)
-	}
 	for _, m := range apigwv2ApiMappings.ListPrefix(key + "/") {
 		apigwv2ApiMappings.Delete(m.ID)
 	}

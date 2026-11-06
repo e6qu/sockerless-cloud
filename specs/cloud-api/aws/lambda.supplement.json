@@ -1,0 +1,25 @@
+{
+  "_about": [
+    "Corrections to the vendored Smithy model, for shapes whose declared",
+    "pattern is stricter than the service it describes. Each correction pins",
+    "the exact upstream pattern it replaces, so a re-vendor that changes it",
+    "fails the loader rather than applying a correction to text it was never",
+    "written against."
+  ],
+  "shapes": {
+    "com.amazonaws.lambda#CodeSigningConfigArn": {
+      "_evidence": [
+        "GetFunctionCodeSigningConfig answers a function with no code signing",
+        "configuration attached with an empty CodeSigningConfigArn, and the",
+        "vendored lambda-api-get-function-code-signing-config page gives that",
+        "response member a minimum length of 0. The pattern cannot match the empty",
+        "string, so the correction admits it alongside the ARN and changes nothing",
+        "else."
+      ],
+      "pattern": {
+        "replaces": "^arn:(aws[a-zA-Z-]*)?:lambda:(eusc-)?[a-z]{2}((-gov)|(-iso([a-z]?)))?-[a-z]+-\\d{1}:\\d{12}:code-signing-config:csc-[a-z0-9]{17}$",
+        "with": "^$|^arn:(aws[a-zA-Z-]*)?:lambda:(eusc-)?[a-z]{2}((-gov)|(-iso([a-z]?)))?-[a-z]+-\\d{1}:\\d{12}:code-signing-config:csc-[a-z0-9]{17}$"
+      }
+    }
+  }
+}

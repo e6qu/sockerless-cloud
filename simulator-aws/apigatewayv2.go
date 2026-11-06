@@ -15,17 +15,17 @@ type APIGWv2Api struct {
 	ApiKeySelectionExpression string            `json:"apiKeySelectionExpression,omitempty"`
 	Name                      string            `json:"name"`
 	ProtocolType              string            `json:"protocolType"`
-	RouteKey                  string            `json:"routeSelectionExpression,omitempty"`
+	RouteKey                  string            `json:"routeSelectionExpression"`
 	ApiEndpoint               string            `json:"apiEndpoint,omitempty"` // external: the execute-api invoke host, which the simulator does not serve
 	CreatedDate               string            `json:"createdDate"`
 	Tags                      map[string]string `json:"tags,omitempty"`
 }
 
-// `apiIdRef` holds the parent for cascade delete and per-API filtering; it
-// survives Store persistence and the SDK ignores it.
+// ApiId holds the parent for cascade delete and per-API filtering; the store
+// persists it and no response carries it.
 type APIGWv2Route struct {
 	RouteId           string `json:"routeId"`
-	ApiId             string `json:"apiIdRef,omitempty"`
+	ApiId             string `json:"-"`
 	RouteKey          string `json:"routeKey"`
 	Target            string `json:"target,omitempty"`
 	AuthorizationType string `json:"authorizationType,omitempty"`
@@ -35,7 +35,7 @@ type APIGWv2Route struct {
 
 type APIGWv2Integration struct {
 	IntegrationId        string `json:"integrationId"`
-	ApiId                string `json:"apiIdRef,omitempty"`
+	ApiId                string `json:"-"`
 	ConnectionType       string `json:"connectionType,omitempty"`
 	IntegrationType      string `json:"integrationType"`
 	IntegrationUri       string `json:"integrationUri,omitempty"`
@@ -46,7 +46,7 @@ type APIGWv2Integration struct {
 
 type APIGWv2Stage struct {
 	StageName    string            `json:"stageName"`
-	ApiId        string            `json:"apiIdRef,omitempty"`
+	ApiId        string            `json:"-"`
 	Description  string            `json:"description,omitempty"`
 	DeploymentId string            `json:"deploymentId,omitempty"`
 	AutoDeploy   bool              `json:"autoDeploy"`
@@ -56,7 +56,7 @@ type APIGWv2Stage struct {
 
 type APIGWv2Deployment struct {
 	DeploymentId     string `json:"deploymentId"`
-	ApiId            string `json:"apiIdRef,omitempty"`
+	ApiId            string `json:"-"`
 	Description      string `json:"description,omitempty"`
 	DeploymentStatus string `json:"deploymentStatus"`
 	CreatedDate      string `json:"createdDate"`
@@ -72,7 +72,7 @@ type APIGWv2JWTConfig struct {
 // Keyed by `<apiId>/<authorizerId>`.
 type APIGWv2Authorizer struct {
 	AuthorizerId                   string            `json:"authorizerId"`
-	ApiId                          string            `json:"apiIdRef,omitempty"`
+	ApiId                          string            `json:"-"`
 	Name                           string            `json:"name,omitempty"`
 	AuthorizerType                 string            `json:"authorizerType,omitempty"`
 	AuthorizerUri                  string            `json:"authorizerUri,omitempty"`
@@ -88,7 +88,7 @@ type APIGWv2Authorizer struct {
 // Keyed by `<apiId>/<modelId>`.
 type APIGWv2Model struct {
 	ModelId     string `json:"modelId"`
-	ApiId       string `json:"apiIdRef,omitempty"`
+	ApiId       string `json:"-"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Schema      string `json:"schema,omitempty"`
@@ -123,13 +123,13 @@ type APIGWv2ApiMapping struct {
 	ApiId         string `json:"apiId,omitempty"`
 	ApiMappingKey string `json:"apiMappingKey,omitempty"`
 	Stage         string `json:"stage,omitempty"`
-	DomainName    string `json:"domainNameRef,omitempty"`
+	DomainName    string `json:"-"`
 }
 
 type APIGWv2VpcLink struct {
 	VpcLinkId        string            `json:"vpcLinkId"`
 	Name             string            `json:"name,omitempty"`
-	SecurityGroupIds []string          `json:"securityGroupIds,omitempty"`
+	SecurityGroupIds []string          `json:"securityGroupIds"`
 	SubnetIds        []string          `json:"subnetIds,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CreatedDate      string            `json:"createdDate,omitempty"`
@@ -233,6 +233,14 @@ func handleAPIGWv2CreateApi(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ApiKeySelectionExpression == "" {
 		req.ApiKeySelectionExpression = "$request.header.x-api-key"
+	}
+	if req.RouteSelectionExpression == "" {
+		if req.ProtocolType == "WEBSOCKET" {
+			AWSError(w, "BadRequestException", "RouteSelectionExpression is required for a WebSocket API", http.StatusBadRequest)
+			return
+		}
+		// The model documents this as the HTTP API default.
+		req.RouteSelectionExpression = "${request.method} ${request.path}"
 	}
 	apiID := apigwRandomLower(10)
 	api := APIGWv2Api{
@@ -879,77 +887,6 @@ func handleAPIGWv2DeleteModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleAPIGWv2CreateApiMapping(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwPublicDomain(domainName); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
-		return
-	}
-	var req struct {
-		ApiId         string `json:"ApiId"`
-		ApiMappingKey string `json:"ApiMappingKey"`
-		Stage         string `json:"Stage"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
-		return
-	}
-	if _, ok := apigwv2Apis.Get(req.ApiId); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid API identifier")
-		return
-	}
-	m := APIGWv2ApiMapping{
-		ApiMappingId:  apigwRandomLower(10),
-		ApiId:         req.ApiId,
-		ApiMappingKey: req.ApiMappingKey,
-		Stage:         req.Stage,
-		DomainName:    domainName,
-	}
-	apigwv2ApiMappings.Put(domainName+"/"+m.ApiMappingId, m)
-	sim.WriteJSON(w, http.StatusCreated, m)
-}
-
-func handleAPIGWv2ListApiMappings(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	if _, ok := apigwPublicDomain(domainName); !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid domain name identifier specified")
-		return
-	}
-	var out []APIGWv2ApiMapping
-	for _, m := range apigwv2ApiMappings.List() {
-		if m.DomainName == domainName {
-			out = append(out, m)
-		}
-	}
-	if out == nil {
-		out = []APIGWv2ApiMapping{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"items": out})
-}
-
-func handleAPIGWv2GetApiMapping(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	apiMappingId := sim.PathParam(r, "apiMappingId")
-	m, ok := apigwv2ApiMappings.Get(domainName + "/" + apiMappingId)
-	if !ok {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
-			"Invalid API mapping identifier specified %s", apiMappingId)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, m)
-}
-
-func handleAPIGWv2DeleteApiMapping(w http.ResponseWriter, r *http.Request) {
-	domainName := sim.PathParam(r, "domainName")
-	apiMappingId := sim.PathParam(r, "apiMappingId")
-	if !apigwv2ApiMappings.Delete(domainName + "/" + apiMappingId) {
-		AWSErrorf(w, "NotFoundException", http.StatusNotFound,
-			"Invalid API mapping identifier specified %s", apiMappingId)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func handleAPIGWv2CreateVpcLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string            `json:"Name"`
@@ -964,7 +901,7 @@ func handleAPIGWv2CreateVpcLink(w http.ResponseWriter, r *http.Request) {
 	v := APIGWv2VpcLink{
 		VpcLinkId:        apigwRandomLower(10),
 		Name:             req.Name,
-		SecurityGroupIds: req.SecurityGroupIds,
+		SecurityGroupIds: append([]string{}, req.SecurityGroupIds...),
 		SubnetIds:        req.SubnetIds,
 		Tags:             req.Tags,
 		CreatedDate:      time.Now().UTC().Format(time.RFC3339),

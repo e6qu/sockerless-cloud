@@ -276,6 +276,40 @@ func TestIAMRequestTagsPerServiceWireShape(t *testing.T) {
 		{"an Amazon EFS file system untagged through the legacy DeleteTags", "elasticfilesystem",
 			restTagRequest(http.MethodPost, "/2015-02-01/delete-tags/fs-1", `{"TagKeys":["owner"]}`),
 			map[string][]string{"aws:TagKeys": {"owner"}}},
+		// Amazon API Gateway, AWS Amplify and AWS Batch (restJson1) carry a
+		// `tags` map and name untag keys in the tagKeys query parameter.
+		{"an Amazon API Gateway REST API created with tags", "apigateway",
+			restTagRequest(http.MethodPost, "/restapis", `{"name":"orders","tags":{"owner":"api"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"api"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an Amazon API Gateway HTTP API untagged", "apigateway",
+			restTagRequest(http.MethodDelete, "/v2/tags/arn?tagKeys=owner", ``),
+			map[string][]string{"aws:TagKeys": {"owner"}}},
+		{"an AWS Amplify app created with tags", "amplify",
+			restTagRequest(http.MethodPost, "/apps", `{"name":"web","tags":{"owner":"frontend"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"frontend"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an AWS Batch job queue created with tags", "batch",
+			restTagRequest(http.MethodPost, "/v1/createjobqueue", `{"jobQueueName":"q","tags":{"owner":"compute"}}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"compute"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		// EventBridge Scheduler carries a Key/Value list and names untag keys in
+		// the TagKeys query parameter.
+		{"an EventBridge Scheduler schedule group created with tags", "scheduler",
+			restTagRequest(http.MethodPost, "/schedule-groups/g", `{"Tags":[{"Key":"owner","Value":"ops"}]}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"ops"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an EventBridge Scheduler schedule group untagged", "scheduler",
+			restTagRequest(http.MethodDelete, "/tags/arn?TagKeys=owner", ``),
+			map[string][]string{"aws:TagKeys": {"owner"}}},
 		// AWS Secrets Manager uses Key/Value.
 		{"an AWS Secrets Manager secret created with tags", "secretsmanager",
 			jsonTagRequest("secretsmanager.CreateSecret",

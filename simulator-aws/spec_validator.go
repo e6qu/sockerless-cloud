@@ -25,7 +25,10 @@ import (
 // identified by matching the served mux pattern and query literals against the
 // smithy.api#http traits, and the body is checked with header- and
 // status-bound members excluded and httpPayload members as the root. restJson1
-// operations are covered by the static surface gate and the SDK suites.
+// routes (API Gateway, Lambda, Amazon EFS, ...) are identified the same way
+// within the model the request's SigV4 credential scope names, and the JSON
+// body is checked member by member with the same exclusions (see
+// spec_validator_restjson.go).
 
 type smithyShapeDef struct {
 	Type    string                     `json:"type"`
@@ -78,6 +81,9 @@ type smithyModelIndex struct {
 	// protocols holds the service's aws.protocols#* / smithy.protocols#*
 	// trait short names (awsQuery, ec2Query, restXml, awsJson1_0, ...).
 	protocols map[string]bool
+	// signingName is the service's aws.auth#sigv4 name, the service segment
+	// of a request's credential scope.
+	signingName string
 }
 
 // smithySpecSet is every vendored model, indexed for the three wire
@@ -94,6 +100,10 @@ type smithySpecSet struct {
 	// (see normalizeAWSPath); several operations can share a key and are
 	// disambiguated by their URI query-string literals.
 	restXMLOps map[string][]restXMLOp
+	// restJSONOps indexes restJson1 operations by SigV4 signing name, then
+	// by "METHOD <normalized-uri>": REST JSON services share path shapes
+	// (/tags/{arn}), and the request's credential scope names the service.
+	restJSONOps map[string]map[string][]restXMLOp
 }
 
 // restXMLOp is one restXml operation candidate for a method+path key.
@@ -233,6 +243,7 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 		byShort:        map[string]*smithyModelIndex{},
 		queryByVersion: map[string][]*smithyModelIndex{},
 		restXMLOps:     map[string][]restXMLOp{},
+		restJSONOps:    map[string]map[string][]restXMLOp{},
 	}
 	for _, p := range paths {
 		f, err := os.Open(p)
@@ -277,6 +288,15 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 						idx.protocols[strings.SplitN(trait, "#", 2)[1]] = true
 					}
 				}
+				if raw, ok := shape.Traits["aws.auth#sigv4"]; ok {
+					var sigv4 struct {
+						Name string `json:"name"`
+					}
+					if err := json.Unmarshal(raw, &sigv4); err != nil {
+						return nil, fmt.Errorf("%s: bad aws.auth#sigv4 on %s: %w", p, id, err)
+					}
+					idx.signingName = sigv4.Name
+				}
 			case "operation":
 				def := smithyOpDef{}
 				if shape.Output != nil {
@@ -311,6 +331,29 @@ func loadSmithySpecSet(dir string) (*smithySpecSet, error) {
 		if idx.protocols["awsQuery"] || idx.protocols["ec2Query"] {
 			set.queryModels = append(set.queryModels, idx)
 			set.queryByVersion[idx.version] = append(set.queryByVersion[idx.version], idx)
+		}
+		if idx.protocols["restJson1"] && idx.signingName != "" {
+			byKey := set.restJSONOps[idx.signingName]
+			if byKey == nil {
+				byKey = map[string][]restXMLOp{}
+				set.restJSONOps[idx.signingName] = byKey
+			}
+			for name, def := range idx.ops {
+				if def.httpMethod == "" {
+					continue
+				}
+				opShape := opShapes[name]
+				addRestJSONBodyShape(doc.Shapes, def.output)
+				key := def.httpMethod + " " + normalizeAWSPath(def.httpURI)
+				byKey[key] = append(byKey[key], restXMLOp{
+					idx:            idx,
+					name:           name,
+					literals:       parseURIQueryLiterals(def.httpURI),
+					requiredQuery:  requiredQueryMembers(doc.Shapes, opShape),
+					requiredHeader: requiredHeaderMembers(doc.Shapes, opShape),
+					staticContext:  hasTrait(opShape.Traits, "smithy.rules#staticContextParams"),
+				})
+			}
 		}
 		if idx.protocols["restXml"] {
 			for name, def := range idx.ops {
@@ -439,6 +482,9 @@ func (st *specValidatorState) validate(req *http.Request, reqBody []byte, status
 	// are mostly the empty ones — a delete modelled 204. The restXml path
 	// checks the code first and only then the body, so it is reached here even
 	// with nothing to parse.
+	if service := sigv4Service(req); service != "" && st.spec.restJSONOps[service] != nil {
+		return st.validateRestJSON(req, service, status, respHeader, respBody)
+	}
 	return st.validateRestXML(req, status, respHeader, respBody)
 }
 

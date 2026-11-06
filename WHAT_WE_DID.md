@@ -1284,6 +1284,12 @@ timers and drops work requested while it runs, because reconciliation
 requests more whenever it moves a task; arming a timer holds a read lock a
 drain's write lock excludes.
 
+The runtime spec validator judges every protocol the vendored models speak:
+awsJson, awsQuery and ec2Query, restXml, and restJson1, whose operation it
+finds within the model the request's SigV4 credential scope names, since the
+REST JSON services share path shapes. Before it judged restJson1, an internal
+`restApiIdRef` member rode every Amazon API Gateway response unseen.
+
 A re-vendored model can name operations newer than the pinned SDK; such an
 operation takes a scoped drift exemption citing its `BUGS.md` row, and a test
 fails once the row closes or the operation is served.
@@ -1408,6 +1414,13 @@ fails once the row closes or the operation is served.
   every operation of its Smithy model, `TagResource`, `UntagResource`,
   `UpdateDomainName`, `UpdateDeployment`, `UpdateModel` and `UpdateVpcLink`
   included.
+  A base path mapping and an API mapping are one resource, as the vendored
+  `api-gateway-rest-api-mappings.md.gz` describes: each version lists what the
+  other created, a multi-level path comes only through the v2 API and only on
+  a Regional domain with the `TLS_1_2` policy, a path is unique on its domain,
+  and a domain in `ROUTING_RULE_ONLY` mode takes no mapping. Internal parent
+  references (`restApiIdRef`, `methodRef`, `domainNameRef`, `apiIdRef`) are
+  `json:"-"` fields the store persists and no response carries.
 - **AWS Budgets.** An `RUN_SSM_DOCUMENTS` action stops what it names
   through the simulator's own services: `STOP_EC2_INSTANCES` halts the EC2
   instances, and `STOP_RDS_INSTANCES` stops the Amazon RDS DB instances in the
@@ -1444,13 +1457,22 @@ fails once the row closes or the operation is served.
   0`. Amazon RDS events and Elastic Load Balancing's hosted zones and DNS names
   come from vendored guide pages (`scripts/fetch-aws-doc.sh` pins the branch
   an archived guide lives on, because its default branch deletes its pages).
+- **AWS Amplify.** An app, branch, webhook, job and domain association carry
+  every member the model marks required: an unset description, repository,
+  display name, framework or active job reads back `""`, environment variables
+  `{}`, custom domains `[]`, and a job with no commit reports its start as
+  `commitTime`. Clearing a description through an update therefore reads back
+  the empty string rather than dropping the member.
 - **AWS Lambda.** The CLI tests create functions with the architecture of the
   images `TestMain` builds, which match the host's. A reserved runtime
   variable in a function configuration is refused with Lambda's own message. A background
   worker starts the moment it is registered, so the event source pollers
   start after every slice is registered and the role-session stores open
   first of all: a mapping restored from an earlier process once polled
-  through a role-credential store that did not exist yet and panicked.
+  through a role-credential store that did not exist yet and panicked. `PublishVersion` and
+  `ListVersionsByFunction` answer the function configuration shape, never the
+  stored code location. Amazon EFS returns a file system's `Tags` as a list
+  even when it has none, since the model requires the member.
 - **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
   stores after the Amazon ECS, Elastic Load Balancing and Application Auto
   Scaling slices, so their metric publishers and the target-tracking
@@ -1531,6 +1553,11 @@ images are read out of the source and fetched once per run by one job,
 because a cache miss in every job at once tripped per-minute throttles.
 `docker load` restores no repository digest, so a digest-pinned image is saved
 under the tag that spells its digest and found there.
+A simulator job loads its base images in the background
+(`scripts/ci-base-images.sh`) while it compiles, and the engine-image builds
+and the tests wait on that load's lock: in the foreground, restoring and
+loading the set took thirteen of a shard's fifteen minutes on a slow runner and
+cancelled the job before a test ran.
 
 Release pull requests run no CI and the owner merges them. release-please tags
 the release pull request's merge commit; the Actions token cannot create a
