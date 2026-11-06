@@ -26,7 +26,7 @@ console embedded, and multi-architecture container images:
 <!-- doctest: background id=image ready="Listening on" -->
 ```sh
 docker run --rm -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/e6qu/sockerless-simulator-aws:v3.3.9
+  ghcr.io/e6qu/sockerless-simulator-aws:v3.3.10
 ```
 <!-- x-release-please-end -->
 <!-- doctest: stop id=image -->
