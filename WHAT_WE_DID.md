@@ -1577,7 +1577,10 @@ fails once the row closes or the operation is served.
 ## Continuous integration and dependencies
 
 Jobs are held to fifteen minutes; a timeout kill reports as "cancelled", which
-reads as infrastructure noise. Suites are sharded on measured cost with each
+reads as infrastructure noise. A job starts loading its base images and
+building its engine images before it compiles anything, so the loads overlap
+the compile steps; the AWS SDK job once started them after, and its shard
+that also runs the module unit tests ran out of budget in setup. Suites are sharded on measured cost with each
 test in exactly one shard; a matrix entry with a `placement:` is a deliberate
 second run. A push to `main` whose tree passed on its pull request skips the
 suites, because re-running every job per merge starved the account's runners.
