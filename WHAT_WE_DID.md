@@ -1487,7 +1487,9 @@ fails once the row closes or the operation is served.
   first of all: a mapping restored from an earlier process once polled
   through a role-credential store that did not exist yet and panicked. `PublishVersion` and
   `ListVersionsByFunction` answer the function configuration shape, never the
-  stored code location. Amazon EFS returns a file system's `Tags` as a list
+  stored code location. An event source mapping keeps the version or alias
+  qualifier its `FunctionName` names and invokes that version, as AWS does.
+  Amazon EFS returns a file system's `Tags` as a list
   even when it has none, since the model requires the member.
 - **Amazon CloudWatch.** `registerCloudWatchMetrics` makes CloudWatch's
   stores after the Amazon ECS, Elastic Load Balancing and Application Auto

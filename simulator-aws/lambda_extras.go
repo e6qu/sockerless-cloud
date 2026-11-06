@@ -110,23 +110,42 @@ func lambdaESMArn(uuid string) string {
 
 // lambdaResolveFunctionArn turns a FunctionName into the canonical function ARN;
 // AWS Lambda accepts a bare name, a partial ARN or a full ARN.
+// lambdaResolveFunctionArn resolves a mapping's FunctionName (a name, a
+// name:qualifier, or a full or partial ARN) to the function's ARN, keeping a
+// version or alias qualifier the way AWS does, so the mapping invokes it.
 func lambdaResolveFunctionArn(functionName string) (string, bool) {
 	name := functionName
-	if strings.Contains(functionName, ":function:") {
-		parts := strings.SplitN(functionName, ":function:", 2)
-		if len(parts) == 2 {
-			name = parts[1]
-		}
-		// Strip a trailing :qualifier (version/alias).
-		if i := strings.Index(name, ":"); i >= 0 {
-			name = name[:i]
-		}
+	if i := strings.Index(name, ":function:"); i >= 0 {
+		name = name[i+len(":function:"):]
+	}
+	qualifier := ""
+	if i := strings.IndexByte(name, ':'); i >= 0 {
+		name, qualifier = name[:i], name[i+1:]
 	}
 	fn, ok := lambdaFunctions.Get(name)
 	if !ok {
 		return "", false
 	}
-	return fn.FunctionArn, true
+	if qualifier == "" {
+		return fn.FunctionArn, true
+	}
+	if _, _, ok := lambdaResolveInvocationTarget(name, qualifier); !ok {
+		return "", false
+	}
+	return fn.FunctionArn + ":" + qualifier, true
+}
+
+// lambdaFunctionNameOfArn is the bare function name a function ARN names,
+// qualified or not.
+func lambdaFunctionNameOfArn(arn string) string {
+	name := arn
+	if i := strings.Index(name, ":function:"); i >= 0 {
+		name = name[i+len(":function:"):]
+	}
+	if i := strings.IndexByte(name, ':'); i >= 0 {
+		name = name[:i]
+	}
+	return name
 }
 
 func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request) {

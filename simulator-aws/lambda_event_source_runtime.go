@@ -48,7 +48,7 @@ func startLambdaEventSourcePollers(srv *sim.Server) {
 			wake := []<-chan struct{}{lambdaESMChanges.Changed(uuid), iamChanges.Any()}
 			if mapping, ok := lambdaESMs.Get(uuid); ok {
 				wake = append(wake,
-					lambdaFunctionChanges.Changed(snsTopicNameFromARN(mapping.FunctionArn)),
+					lambdaFunctionChanges.Changed(lambdaFunctionNameOfArn(mapping.FunctionArn)),
 					sqsQueueChanges.Changed(sqsNameFromARN(mapping.EventSourceArn)))
 			}
 			return wake
@@ -94,8 +94,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 	if ctx.Err() != nil {
 		return true
 	}
-	functionName := snsTopicNameFromARN(mapping.FunctionArn)
-	function, ok := lambdaFunctions.Get(functionName)
+	function, _, ok := lambdaResolveInvocationTarget(mapping.FunctionArn, "")
 	if !ok {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: AWS Lambda function not found")
 		return false
