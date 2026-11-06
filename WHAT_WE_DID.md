@@ -1466,7 +1466,14 @@ fails once the row closes or the operation is served.
   cookie (`AWSALB`, or `AWSALBAPP-0` once the target sets its configured
   cookie) expires in 7 days and carries its issue time, against which the
   stickiness duration is enforced. `ModifyTargetGroupAttributes` refuses the
-  combinations that page rules out.
+  combinations that page rules out, and a `stickiness.type` the model gives
+  another kind of load balancer. A Network Load Balancer picks each TCP
+  connection's target by the flow hash the vendored `nlb-introduction.md.gz`
+  describes, over the protocol, both ends' addresses and ports and the TCP
+  sequence number; no socket call reads the client's sequence number, so a
+  fresh random number takes its place, which RFC 6528 makes equivalent. With
+  `source_ip` stickiness it hashes the client's address alone, except behind
+  a TLS listener. `sim/lbplane` hands the resolver each connection's `Flow`.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
@@ -1570,7 +1577,10 @@ fails once the row closes or the operation is served.
 ## Continuous integration and dependencies
 
 Jobs are held to fifteen minutes; a timeout kill reports as "cancelled", which
-reads as infrastructure noise. Suites are sharded on measured cost with each
+reads as infrastructure noise. A job starts loading its base images and
+building its engine images before it compiles anything, so the loads overlap
+the compile steps; the AWS SDK job once started them after, and its shard
+that also runs the module unit tests ran out of budget in setup. Suites are sharded on measured cost with each
 test in exactly one shard; a matrix entry with a `placement:` is a deliberate
 second run. A push to `main` whose tree passed on its pull request skips the
 suites, because re-running every job per merge starved the account's runners.
@@ -1590,6 +1600,9 @@ because the module proxy resets streams under load: `scripts/ci-go-mod-download.
 warms a module directory, or a `module@version` a document installs, and the
 engine builds of the sidecar and the node agent run `go mod download` in the
 same retried loop before `go build`.
+The specification freshness check fetches each upstream page with curl's
+bounded retries, because a documentation host dropping one request failed
+the whole check.
 A microVM job restores the node agent image built from the same sources, keyed
 by them, and loads it; the agent's build finds it by its tag and skips the
 apt, Firecracker and kernel downloads that once took a whole step's budget.

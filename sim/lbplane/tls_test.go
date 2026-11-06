@@ -86,7 +86,7 @@ func TestTLSProxyForwardsTheDecryptedStream(t *testing.T) {
 		_, _ = io.Copy(conn, conn)
 	}()
 	proxy, err := StartTLSProxy("127.0.0.1:0", ListenerTLSConfig(selfSigned(t, "nlb.example"), nil),
-		func(context.Context) (string, error) { return upstream.Addr().String(), nil })
+		func(context.Context, Flow) (string, error) { return upstream.Addr().String(), nil })
 	require.NoError(t, err)
 	defer proxy.Close()
 

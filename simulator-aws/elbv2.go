@@ -853,7 +853,7 @@ func handleELBv2ModifyTargetGroupAttributes(w http.ResponseWriter, r *http.Reque
 		merged = map[string]string{}
 	}
 	maps.Copy(merged, parseELBv2Attributes(r, "Attributes"))
-	if msg := elbv2CheckTargetGroupAttributes(merged); msg != "" {
+	if msg := elbv2CheckTargetGroupAttributes(current.Protocol, merged); msg != "" {
 		elbv2ErrorXML(w, "InvalidConfigurationRequest", msg, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
@@ -1933,6 +1933,16 @@ func defaultELBv2LoadBalancerAttributes(lbType, scheme string) map[string]string
 	return attrs
 }
 
+func elbv2StickinessTypes(protocol string) []string {
+	switch strings.ToUpper(protocol) {
+	case "", "HTTP", "HTTPS":
+		return []string{"lb_cookie", "app_cookie"}
+	case "GENEVE":
+		return []string{"source_ip_dest_ip", "source_ip_dest_ip_proto"}
+	}
+	return []string{"source_ip"}
+}
+
 func defaultELBv2TargetGroupAttributes() map[string]string {
 	return map[string]string{
 		"deregistration_delay.timeout_seconds": "300",
@@ -2133,8 +2143,11 @@ func elbv2SourceNatSetting(r *http.Request, lbType, ipType, current string, mapp
 // allows: weighted random "can not be used with sticky sessions", neither
 // least outstanding requests nor weighted random "can be used with slow start
 // mode", and AWSALB, AWSALBAPP and AWSALBTG are "reserved for use by the load
-// balancer" as an application cookie name.
-func elbv2CheckTargetGroupAttributes(attrs map[string]string) string {
+// balancer" as an application cookie name. The model's stickiness.type values
+// belong to one kind of load balancer each: lb_cookie and app_cookie to an
+// Application Load Balancer, source_ip to a Network Load Balancer, and
+// source_ip_dest_ip and source_ip_dest_ip_proto to a Gateway Load Balancer.
+func elbv2CheckTargetGroupAttributes(protocol string, attrs map[string]string) string {
 	algorithm := attrs["load_balancing.algorithm.type"]
 	switch algorithm {
 	case "", "round_robin", "least_outstanding_requests", "weighted_random":
@@ -2142,6 +2155,9 @@ func elbv2CheckTargetGroupAttributes(attrs map[string]string) string {
 		return "Invalid load_balancing.algorithm.type: " + algorithm
 	}
 	sticky := attrs["stickiness.enabled"] == "true"
+	if kind := attrs["stickiness.type"]; sticky && kind != "" && !slices.Contains(elbv2StickinessTypes(protocol), kind) {
+		return "Stickiness type '" + kind + "' is not supported for target groups with the " + protocol + " protocol"
+	}
 	if sticky && algorithm == "weighted_random" {
 		return "The weighted random routing algorithm cannot be used with sticky sessions"
 	}

@@ -12,10 +12,17 @@ import (
 	"time"
 )
 
+// Flow names one accepted connection by its two ends: the client's address and
+// port, and the listener address and port the client reached.
+type Flow struct {
+	Client netip.AddrPort
+	Local  netip.AddrPort
+}
+
 // ProxyTarget resolves the address one accepted connection is forwarded to. A
 // load balancer picks the target per connection, so registration and health
 // changes apply to the next connection without restarting the proxy.
-type ProxyTarget func(context.Context) (string, error)
+type ProxyTarget func(context.Context, Flow) (string, error)
 
 // TCPProxy forwards every connection it accepts to the address its target
 // resolves, copying bytes both ways until either peer closes.
@@ -160,12 +167,13 @@ func (p *TCPProxy) handle(client net.Conn) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	address, err := p.target(ctx)
+	flow := Flow{Client: addrPort(client.RemoteAddr()), Local: addrPort(client.LocalAddr())}
+	address, err := p.target(ctx, flow)
 	if err != nil {
 		return
 	}
 	if admit := p.admit.Load(); admit != nil && *admit != nil {
-		if err := (*admit)(clientAddr(client.RemoteAddr().String()), address); err != nil {
+		if err := (*admit)(flow.Client.Addr(), address); err != nil {
 			return
 		}
 	}
@@ -186,4 +194,12 @@ func (p *TCPProxy) handle(client net.Conn) {
 		done <- struct{}{}
 	}()
 	<-done
+}
+
+func addrPort(addr net.Addr) netip.AddrPort {
+	ap, err := netip.ParseAddrPort(addr.String())
+	if err != nil {
+		return netip.AddrPort{}
+	}
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
 }

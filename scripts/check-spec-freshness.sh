@@ -28,6 +28,12 @@
 # forgiven: the scheduled run carries no baseline and fails on it there.
 set -euo pipefail
 
+# The documentation hosts drop a request now and then under load; a page that
+# stays unreachable after the retries still reports "cannot fetch".
+fetch() {
+  curl -fsSL --retry 4 --retry-all-errors --retry-max-time 120 "$@"
+}
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE=""
 if [ "${1:-}" = "--baseline" ]; then
@@ -124,7 +130,7 @@ check_aws_service_reference() {
   [ -f "$sources" ] || return 0
   [ -n "$capture_dir" ] && mkdir -p "$capture_dir"
   index="$(mktemp)"
-  if ! curl -fsSL -H 'Cache-Control: no-cache' -o "$index" "https://servicereference.us-east-1.amazonaws.com/" 2>/dev/null; then
+  if ! fetch -H 'Cache-Control: no-cache' -o "$index" "https://servicereference.us-east-1.amazonaws.com/" 2>/dev/null; then
     echo "?     service-reference: cannot fetch the published service index"
     rm -f "$index"
     fail=1
@@ -152,7 +158,7 @@ check_aws_service_reference() {
       # refresh vendors, and it is only reachable from the run that saw it.
       if [ -n "$capture_dir" ]; then
         url="$(jq -er --arg s "$service" '.[] | select(.service == $s) | .url' "$index")"
-        if curl -fsSL -o "$index.doc" "$url" 2>/dev/null; then
+        if fetch -o "$index.doc" "$url" 2>/dev/null; then
           gzip -9 -n -c "$index.doc" >"$capture_dir/$(basename "$file")"
           rm -f "$index.doc"
           echo "      captured modified $latest in $capture_dir/$(basename "$file")"
@@ -178,7 +184,7 @@ check_aws_docs_pages() {
     pin="$(echo "$pin" | tr -d ' \`')"
     case "$pin" in sha256*) ;; *) continue ;; esac
     page="$(mktemp)"
-    if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$page" "https://$host/$srcpath" 2>/dev/null; then
+    if ! fetch --max-time 30 -H 'Cache-Control: no-cache' -o "$page" "https://$host/$srcpath" 2>/dev/null; then
       echo "?     $file: cannot fetch https://$host/$srcpath"
       fail=1
       rm -f "$page"
@@ -212,7 +218,7 @@ check_azure_learn_pages() {
     pin="$(echo "$pin" | tr -d ' \`')"
     case "$pin" in commit*) ;; *) continue ;; esac
     page="$(mktemp)"
-    if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -H 'Accept: text/markdown' -o "$page" "https://$host/$srcpath" 2>/dev/null; then
+    if ! fetch --max-time 30 -H 'Cache-Control: no-cache' -H 'Accept: text/markdown' -o "$page" "https://$host/$srcpath" 2>/dev/null; then
       echo "?     $file: cannot fetch https://$host/$srcpath"
       fail=1
       rm -f "$page"
@@ -242,7 +248,7 @@ check_azure_learn_pages() {
 check_gcp_doc() {
   local sources="$1" file="$2" url="$3" pin="$4" capture_dir="$5" page live pinned
   page="$(mktemp)"
-  if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$page" "$url" 2>/dev/null; then
+  if ! fetch --max-time 30 -H 'Cache-Control: no-cache' -o "$page" "$url" 2>/dev/null; then
     echo "?     $file: cannot fetch $url"
     fail=1
     rm -f "$page"
@@ -289,7 +295,7 @@ check_gcp_method_table() {
   body="$(mktemp)"
   for ((i = 0; i < size && i < count; i++)); do
     read -r page updated <<<"${rows[$(( (start + i) % count ))]}"
-    if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$body" "https://docs.cloud.google.com$page" 2>/dev/null; then
+    if ! fetch --max-time 30 -H 'Cache-Control: no-cache' -o "$body" "https://docs.cloud.google.com$page" 2>/dev/null; then
       echo "?     $file: cannot fetch $page"
       fail=1
       continue
@@ -369,7 +375,7 @@ check_gcp() {
       # deliberately separate requests rather than one, spaced so one throttling
       # window cannot take them all: a failed probe waits, and waits longer each
       # time; a probe that succeeds costs nothing extra.
-      if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$candidate" "$url" 2>/dev/null; then
+      if ! fetch --max-time 30 -H 'Cache-Control: no-cache' -o "$candidate" "$url" 2>/dev/null; then
         if [ "$probe" -lt "$probes" ]; then
           sleep "$((probe * 3))"
         fi

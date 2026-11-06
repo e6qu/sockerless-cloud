@@ -893,55 +893,9 @@ jobs:
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
-      # Download modules and compile the unit-test binaries in their own
-      # budgeted step, so the timed test run below isn't eaten by a cold
-      # module cache after a dep change busts the shared **/go.sum Go cache —
-      # the same separation the SDK pre-build step below makes for the same
-      # reason.
-      - name: Pre-build AWS module unit tests (warm build cache)
-        if: matrix.suite == 'services-a-m'
-        run: |
-          bash scripts/ci-go-mod-download.sh simulator-aws
-          cd simulator-aws
-          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
-        timeout-minutes: 8
-      - name: Run AWS module unit tests
-        # The module unit tests are shard-independent; one shard carries them
-        # so they run exactly once per workflow, and it is the shard with the
-        # most room. The run step's budget holds the suite alone — compilation
-        # happened above. The inner deadline sits under the step budget so a
-        # hung test fails with a named Go stack rather than an opaque step kill.
-        if: matrix.suite == 'services-a-m'
-        run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=5m30s
-        timeout-minutes: 6
-      # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
-      # in a separate deterministic build step, so the timed test run below isn't
-      # eaten by a cold recompile after an unrelated dep change busts the shared
-      # **/go.sum Go cache. Build time gets its own budget; the test keeps a
-      # tight one.
-      - name: Pre-build AWS SDK tests (warm build cache)
-        run: |
-          bash scripts/ci-go-mod-download.sh simulator-aws
-          cd simulator-aws && make build-api
-          cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
-        # This step exists to absorb a cold build, so its budget has to fit
-        # one: measured at 3m16s against a warm cache and over six minutes
-        # against an empty one. Six minutes was under twice the warm cost,
-        # which is no margin for the case the step is for.
-        timeout-minutes: 10
-      # One shard saves the entry, once its pre-build has filled it: every
-      # shard saving on a miss would each spend a minute or more compressing
-      # the same caches inside its job budget. The data shard finishes with
-      # the most budget to spare.
-      - name: Save the Go module and build caches
-        if: matrix.suite == 'data' && steps.go-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6.1.0
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.cache-primary-key }}
-      # Free disk before the timed run — but never the Go caches. The cache
+      # Free disk, then start the image loads and builds, before anything
+      # compiles, so they run alongside the compile steps below rather than
+      # after them — but never free the Go caches. The cache
       # saves at post-job, and a branch's first run restores the default
       # branch's entry, which is not an exact hit in its own scope, so it
       # saves what it has: after deleting the caches that would be nothing,
@@ -1021,6 +975,54 @@ jobs:
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image start
         timeout-minutes: 3
+      # Download modules and compile the unit-test binaries in their own
+      # budgeted step, so the timed test run below isn't eaten by a cold
+      # module cache after a dep change busts the shared **/go.sum Go cache —
+      # the same separation the SDK pre-build step below makes for the same
+      # reason.
+      - name: Pre-build AWS module unit tests (warm build cache)
+        if: matrix.suite == 'services-a-m'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-aws
+          cd simulator-aws
+          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
+        timeout-minutes: 8
+      - name: Run AWS module unit tests
+        # The module unit tests are shard-independent; one shard carries them
+        # so they run exactly once per workflow, and it is the shard with the
+        # most room. The run step's budget holds the suite alone — compilation
+        # happened above. The inner deadline sits under the step budget so a
+        # hung test fails with a named Go stack rather than an opaque step kill.
+        if: matrix.suite == 'services-a-m'
+        run: cd simulator-aws && make unit-test UNIT_TEST_TIMEOUT=5m30s
+        timeout-minutes: 6
+      # Compile the sim binary + the (large, AWS-SDK-importing) SDK test binary
+      # in a separate deterministic build step, so the timed test run below isn't
+      # eaten by a cold recompile after an unrelated dep change busts the shared
+      # **/go.sum Go cache. Build time gets its own budget; the test keeps a
+      # tight one.
+      - name: Pre-build AWS SDK tests (warm build cache)
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-aws
+          cd simulator-aws && make build-api
+          cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
+        # This step exists to absorb a cold build, so its budget has to fit
+        # one: measured at 3m16s against a warm cache and over six minutes
+        # against an empty one. Six minutes was under twice the warm cost,
+        # which is no margin for the case the step is for.
+        timeout-minutes: 10
+      # One shard saves the entry, once its pre-build has filled it: every
+      # shard saving on a miss would each spend a minute or more compressing
+      # the same caches inside its job budget. The data shard finishes with
+      # the most budget to spare.
+      - name: Save the Go module and build caches
+        if: matrix.suite == 'data' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
       - name: Prepare the engine's trust directory and the low ports for the runner
         # The suite installs a registry's authority under /etc/docker/certs.d
         # for the engine to trust it and receives mail on port 25, and the

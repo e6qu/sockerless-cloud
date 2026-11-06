@@ -24,7 +24,7 @@ func TestTCPProxyCloseWaitsForItsHandlers(t *testing.T) {
 	var resolving atomic.Bool
 	var resolverReturned atomic.Bool
 
-	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context) (string, error) {
+	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context, Flow) (string, error) {
 		if resolving.CompareAndSwap(false, true) {
 			close(entered)
 		}
@@ -99,7 +99,7 @@ func TestTCPProxyCloseEndsAStreamInFlight(t *testing.T) {
 		}
 	}()
 
-	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context) (string, error) {
+	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context, Flow) (string, error) {
 		return upstream.Addr().String(), nil
 	})
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestTCPProxySetAdmitRefusesAClientWithoutAByte(t *testing.T) {
 			_ = conn.Close()
 		}
 	}()
-	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context) (string, error) { return upstream.Addr().String(), nil })
+	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context, Flow) (string, error) { return upstream.Addr().String(), nil })
 	require.NoError(t, err)
 	defer proxy.Close()
 
@@ -172,3 +172,38 @@ type admission struct {
 
 func (a *admission) set(err error) { a.mu.Lock(); a.err = err; a.mu.Unlock() }
 func (a *admission) get() error    { a.mu.Lock(); defer a.mu.Unlock(); return a.err }
+
+// A load balancer that chooses by flow hash or by source address reads both
+// ends of the connection from the flow the proxy hands its resolver.
+func TestTCPProxyHandsTheResolverTheConnectionsFlow(t *testing.T) {
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer upstream.Close()
+	go func() {
+		for {
+			conn, err := upstream.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	flows := make(chan Flow, 1)
+	proxy, err := StartTCPProxy("127.0.0.1:0", func(_ context.Context, flow Flow) (string, error) {
+		flows <- flow
+		return upstream.Addr().String(), nil
+	})
+	require.NoError(t, err)
+	defer proxy.Close()
+
+	client, err := net.Dial("tcp", proxy.Address)
+	require.NoError(t, err)
+	defer client.Close()
+	select {
+	case flow := <-flows:
+		require.Equal(t, netip.MustParseAddrPort(client.LocalAddr().String()), flow.Client)
+		require.Equal(t, netip.MustParseAddrPort(proxy.Address), flow.Local)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the proxy never called its resolver")
+	}
+}
