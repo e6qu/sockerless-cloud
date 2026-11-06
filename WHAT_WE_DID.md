@@ -836,7 +836,11 @@ Cache for Redis loads every import file in a scratch `redis-server` before it
 stops the cache's engine, so a file that fails to load leaves the cache
 serving; its identity resolves through `SystemAssignedIdentities_GetByScope`;
 and its operations catalog takes the descriptions of the vendored
-`rbac-permissions-databases` page.
+`rbac-permissions-databases` page. With SAS authentication an import or export
+refuses a storage account outside the cache's subscription, an import one
+outside the cache's region, and an export a token without the `racwdtm`
+permissions the import and export guide lists; managed identity reaches
+another subscription, as the guide allows.
 
 Amazon ElastiCache keeps the events it logs: `DescribeEvents` reads them by
 source type, identifier and time window (the last hour by default, 14 days

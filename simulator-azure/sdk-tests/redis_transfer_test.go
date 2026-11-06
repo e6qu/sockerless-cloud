@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
@@ -39,7 +41,22 @@ type redisTransferStorage struct {
 
 func newRedisTransferStorage(t *testing.T, rg, account, name string) redisTransferStorage {
 	t.Helper()
-	accounts := createStorageAccountForARM(t, rg, account)
+	return newRedisTransferStorageIn(t, rg, account, name, "eastus")
+}
+
+func newRedisTransferStorageIn(t *testing.T, rg, account, name, location string) redisTransferStorage {
+	t.Helper()
+	ensureStorageARMResourceGroup(t, rg)
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	creation, err := accounts.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
+		Kind:     to.Ptr(armstorage.KindStorageV2),
+		SKU:      &armstorage.SKU{Name: to.Ptr(armstorage.SKUNameStandardLRS)},
+		Location: to.Ptr(location),
+	}, nil)
+	require.NoError(t, err)
+	_, err = creation.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
 	keys, err := accounts.ListKeys(ctx, rg, account, nil)
 	require.NoError(t, err)
 	key1, _ := storageAccountKeyValues(t, keys.Keys)
@@ -270,6 +287,22 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 			Container: ptrStr(storage.sasURL), Prefix: ptrStr("gz"), Format: ptrStr("GZIP"),
 		}, nil)
 		requireRedisTransferFailure(t, err, "BadRequest", "GZIP", "a format other than RDB")
+
+		readWrite, err := storage.container.GetSASURL(sas.ContainerPermissions{Read: true, Write: true},
+			time.Now().UTC().Add(time.Hour), nil)
+		require.NoError(t, err)
+		err = exportRedis(client, rg, "redis-transfer-source", armredis.ExportRDBParameters{
+			Container: ptrStr(readWrite), Prefix: ptrStr("read-write"),
+		})
+		requireRedisTransferFailure(t, err, "BadRequest", "racwdtm", "an export SAS without the permissions the guide lists")
+
+		west := newRedisTransferStorageIn(t, rg, "redistransferwest", "snapshots", "westus")
+		_, err = west.container.NewPageBlobClient("west.rdb").Create(ctx, 512, nil)
+		require.NoError(t, err)
+		err = importRedis(client, rg, "redis-transfer-target", armredis.ImportRDBParameters{
+			Files: []*string{ptrStr(west.blobURL(t, "west.rdb"))},
+		})
+		requireRedisTransferFailure(t, err, "BadRequest", "not in the cache's region", "an import from another region through SAS")
 	})
 }
 

@@ -118,4 +118,11 @@ func TestRedisCLI_ExportAndImport(t *testing.T) {
 	failure := runStorageCLIExpectFailure(t, env.command("redis", "export", "-n", "cliredisexport", "-g", rg,
 		"--container", "https://example.blob.core.windows.net/backups?"+sasToken, "--prefix", "unreachable"))
 	assert.Contains(t, failure, "cannot be reached")
+
+	readWrite := strings.Trim(strings.TrimSpace(runCLI(t, env.command(azMoveStorageBlobCmd(env, account, accountKey,
+		"storage", "container", "generate-sas", "--name", container, "--permissions", "rw",
+		"--expiry", time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04Z"))...))), `"`)
+	failure = runStorageCLIExpectFailure(t, env.command("redis", "export", "-n", "cliredisexport", "-g", rg,
+		"--container", containerURL+"?"+readWrite, "--prefix", "read-write"))
+	assert.Contains(t, failure, "racwdtm", "an export SAS lacks the permissions the guide lists")
 }
