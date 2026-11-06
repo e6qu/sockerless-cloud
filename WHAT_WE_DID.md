@@ -1362,6 +1362,10 @@ fails once the row closes or the operation is served.
   exit closes a channel rather than filling one, because the failed test's
   cleanup waits on the same exit, and a drained channel had held the README
   image job until the job's limit cancelled it.
+  The README install and image parts load no base image: they install a
+  simulator or run its release image and start no container, and loading
+  every image on a slow runner had taken the Azure install part past 15
+  minutes.
 - **Console tests run against the real simulators.** The console unit tests
   start the simulators and sign in through Microsoft Entra ID as the consoles
   do; the mocks they replaced had hidden a SigV4 signer that encoded paths
