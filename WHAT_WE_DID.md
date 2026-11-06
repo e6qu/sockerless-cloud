@@ -1781,6 +1781,9 @@ ranges let the resolver pick what the quarantine refuses. The check fails when
 the proxy refuses a version listing: it once skipped such a module as current
 and, on a full disk, reported everything current. Its self-test serves every
 registry from fixtures, and reading `GOPROXY` runs with `GOTOOLCHAIN=local`.
+An npm release is as young as the youngest release it pins exactly, followed
+through those pins: the check had called `@playwright/test` 1.65.0 adoptable
+while bun refused it for the hour-old `playwright-core` 1.65.0 it pins.
 `scripts/check-repo-config-sane.sh` exists because a `git config` run without
 `-C` in a linked worktree wrote a test fixture's identity into the shared
 `.git/config`.

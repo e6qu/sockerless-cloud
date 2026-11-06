@@ -138,6 +138,7 @@ registry_env=(
 	"GOPROXY=$goproxy"
 	"DEPS_TERRAFORM_REGISTRY_URL=$registry_url/terraform"
 	"DEPS_GITHUB_API_URL=$registry_url/github"
+	"DEPS_NPM_REGISTRY_URL=$registry_url/npm"
 	"GITHUB_TOKEN=$fixture_token"
 	"GH_TOKEN=$fixture_token"
 )
@@ -692,6 +693,30 @@ stale_repo="$(image_repo image-stale "$gcr_library/stale:9@$stale_digest")"
 run_check "$stale_repo"
 expect_status 1 'image: a copy serving another digest fails'
 expect_says 'serves sha256:' 'image: a copy serving another digest fails'
+
+# npm. fixture-app 1.1.0 aged out long ago, but it pins fixture-core 1.1.0
+# exactly, and fixture-core 1.1.0 is an hour old: bun refuses the install
+# until the release it pins ages out too, so 1.1.0 is not adoptable yet.
+npm_fixture() {
+	local core_time="$1"
+	fixture_doc npm/fixture-app "{\"versions\":{\"1.0.0\":{\"dependencies\":{\"fixture-core\":\"1.0.0\"}},\"1.1.0\":{\"dependencies\":{\"fixture-core\":\"1.1.0\",\"left-alone\":\"^2.0.0\"}}},\"time\":{\"1.0.0\":\"$long_ago\",\"1.1.0\":\"$long_ago\"}}"
+	fixture_doc npm/fixture-core "{\"versions\":{\"1.0.0\":{},\"1.1.0\":{}},\"time\":{\"1.0.0\":\"$long_ago\",\"1.1.0\":\"$core_time\"}}"
+}
+npm_repo="$(new_repo npm)"
+mkdir -p "$npm_repo/ui/packages/app"
+printf '{"name":"app","dependencies":{"fixture-app":"^1.0.0"}}\n' >"$npm_repo/ui/packages/app/package.json"
+commit_repo "$npm_repo"
+
+npm_fixture "$(rfc3339_ago 3600)"
+run_check "$npm_repo"
+expect_status 0 'npm: a release pinning a fresh release exactly is held'
+expect_silent_about 'latest adoptable 1.1.0' 'npm: a release pinning a fresh release exactly is held'
+expect_silent_about 'FAIL' 'npm: a release pinning a fresh release exactly is held'
+
+npm_fixture "$long_ago"
+run_check "$npm_repo"
+expect_status 1 'npm: a release whose pins aged out is drift'
+expect_says 'fixture-app pinned 1.0.0 (latest adoptable 1.1.0)' 'npm: a release whose pins aged out is drift'
 
 if ((failures > 0)); then
 	echo "$failures adoption quarantine test(s) failed" >&2

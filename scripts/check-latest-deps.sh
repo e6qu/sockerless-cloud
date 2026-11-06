@@ -828,19 +828,41 @@ npm_packument() {
   cache="$work/npm-$(printf '%s' "$name" | tr '/@' '__').json"
   if [[ ! -f $cache ]]; then
     curl -fsSL --max-time 60 --retry 3 --retry-delay 3 -o "$cache" \
-      "https://registry.npmjs.org/$name" 2>/dev/null || return 1
+      "${DEPS_NPM_REGISTRY_URL:-https://registry.npmjs.org}/$name" 2>/dev/null || return 1
   fi
   printf '%s\n' "$cache"
 }
 
-# npm_version_publish_time answers from the packument's own `time` map, which
-# is npm's record of when each version was published.
+# npm_version_publish_time answers from the packuments' own `time` maps, npm's
+# record of when each version was published. A version is as young as the
+# youngest release it pins exactly, followed through those pins: bun's
+# minimum-release-age refuses the install until every one of them has aged
+# out, so @playwright/test 1.65.0 published a day ago is not adoptable while
+# the playwright-core 1.65.0 it pins is an hour old.
 npm_version_publish_time() {
-  local version=$1 doc ts
-  doc=$(npm_packument "$LOOKUP_SUBJECT") || return 1
+  npm_installable_time "$LOOKUP_SUBJECT" "$1" 0
+}
+
+npm_installable_time() {
+  local name=$1 version=$2 depth=$3 doc ts youngest dep pinned dep_ts
+  doc=$(npm_packument "$name") || return 1
   ts=$(jq -r --arg v "$version" '.time[$v] // empty' "$doc" 2>/dev/null || true)
   [[ -n $ts ]] || return 1
-  printf '%s\n' "$ts"
+  youngest=$ts
+  if ((depth < 8)); then
+    while IFS='|' read -r dep pinned; do
+      [[ -z $dep ]] && continue
+      dep_ts=$(npm_installable_time "$dep" "$pinned" $((depth + 1))) || return 1
+      if (($(rfc3339_epoch "$dep_ts") > $(rfc3339_epoch "$youngest"))); then
+        youngest=$dep_ts
+      fi
+    done < <(jq -r --arg v "$version" '
+        .versions[$v].dependencies // {}
+        | to_entries[]
+        | select(.value | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+        | "\(.key)|\(.value)"' "$doc" 2>/dev/null)
+  fi
+  printf '%s\n' "$youngest"
 }
 
 # npm_release_versions lists a package's released versions, newest first, with
