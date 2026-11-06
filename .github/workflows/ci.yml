@@ -580,6 +580,20 @@ jobs:
         # does other work, and the wait step below blocks on it.
         run: bash scripts/ci-engine-image.sh sidecar-image start
         timeout-minutes: 3
+      - name: Restore the node agent image
+        # A cold build of the agent image fetches packages, the Firecracker
+        # release and the guest kernel. A runner that restores the image built
+        # from the same sources loads it, and the build finds it by its tag.
+        if: matrix.placement
+        id: node-agent-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: node-agent-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('sim/nodeagent/**', 'sim/go.mod', 'sim/go.sum', 'sim/enginebuild.go') }}
+      - name: Load the restored node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit == 'true'
+        run: docker load --input ~/.cache/sockerless/node-agent.tar
+        timeout-minutes: 3
       - name: Start the node agent image build
         # The simulator starts the agent before it listens, and the harness
         # gives it two minutes to listen; a cold build of the agent image
@@ -719,6 +733,19 @@ jobs:
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image wait
         timeout-minutes: 8
+      - name: Save the node agent image for later runs
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/sockerless
+          # shellcheck disable=SC2046
+          docker save --output ~/.cache/sockerless/node-agent.tar $(docker images --format '{{.Repository}}:{{.Tag}}' sockerless-node-agent)
+        timeout-minutes: 3
+      - name: Cache the node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: ${{ steps.node-agent-cache.outputs.cache-primary-key }}
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
         run: |
@@ -973,6 +1000,20 @@ jobs:
         # does other work, and the wait step below blocks on it.
         run: bash scripts/ci-engine-image.sh sidecar-image start
         timeout-minutes: 3
+      - name: Restore the node agent image
+        # A cold build of the agent image fetches packages, the Firecracker
+        # release and the guest kernel. A runner that restores the image built
+        # from the same sources loads it, and the build finds it by its tag.
+        if: matrix.placement
+        id: node-agent-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: node-agent-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('sim/nodeagent/**', 'sim/go.mod', 'sim/go.sum', 'sim/enginebuild.go') }}
+      - name: Load the restored node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit == 'true'
+        run: docker load --input ~/.cache/sockerless/node-agent.tar
+        timeout-minutes: 3
       - name: Start the node agent image build
         # The simulator starts the agent before it listens, and the harness
         # gives it two minutes to listen; a cold build of the agent image
@@ -1003,6 +1044,19 @@ jobs:
         if: matrix.placement
         run: bash scripts/ci-engine-image.sh node-agent-image wait
         timeout-minutes: 8
+      - name: Save the node agent image for later runs
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/sockerless
+          # shellcheck disable=SC2046
+          docker save --output ~/.cache/sockerless/node-agent.tar $(docker images --format '{{.Repository}}:{{.Tag}}' sockerless-node-agent)
+        timeout-minutes: 3
+      - name: Cache the node agent image
+        if: matrix.placement && steps.node-agent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/.cache/sockerless/node-agent.tar
+          key: ${{ steps.node-agent-cache.outputs.cache-primary-key }}
       - name: Wait for the network sidecar image
         run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8

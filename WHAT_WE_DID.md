@@ -1576,6 +1576,9 @@ because the module proxy resets streams under load: `scripts/ci-go-mod-download.
 warms a module directory, or a `module@version` a document installs, and the
 engine builds of the sidecar and the node agent run `go mod download` in the
 same retried loop before `go build`.
+A microVM job restores the node agent image built from the same sources, keyed
+by them, and loads it; the agent's build finds it by its tag and skips the
+apt, Firecracker and kernel downloads that once took a whole step's budget.
 A simulator job loads its base images in the background
 (`scripts/ci-base-images.sh`) while it compiles, and the engine-image builds
 and the tests wait on that load's lock: in the foreground, restoring and
