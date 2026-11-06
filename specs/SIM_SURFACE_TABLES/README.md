@@ -24,6 +24,7 @@ Re-run `bash scripts/seed-surface-tables.sh` after adding new `HandleFunc` regis
 - [`aws-cloudtrail`](aws-cloudtrail.md)
 - [`aws-cloudwatch`](aws-cloudwatch.md)
 - [`aws-codebuild`](aws-codebuild.md)
+- [`aws-cognito_idp`](aws-cognito_idp.md)
 - [`aws-dynamodb`](aws-dynamodb.md)
 - [`aws-ec2`](aws-ec2.md)
 - [`aws-ecr`](aws-ecr.md)

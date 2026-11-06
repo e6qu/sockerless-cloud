@@ -249,6 +249,7 @@ every slice.
 | Identity and security | AWS Security Token Service (AWS STS) | AWS Query | [sts](../specs/SIM_SURFACE_TABLES/aws-sts.md) |
 | Identity and security | AWS Key Management Service (AWS KMS) | AWS JSON 1.1 | [kms](../specs/SIM_SURFACE_TABLES/aws-kms.md) |
 | Identity and security | AWS Secrets Manager | AWS JSON 1.1 | [secretsmanager](../specs/SIM_SURFACE_TABLES/aws-secretsmanager.md) |
+| Identity and security | Amazon Cognito user pools, with the prefix domain's OAuth 2.0 and OpenID Connect endpoints | AWS JSON 1.1 | [cognito_idp](../specs/SIM_SURFACE_TABLES/aws-cognito_idp.md) |
 | Identity and security | AWS Certificate Manager (ACM), with its ACME endpoints | AWS JSON 1.1 | [acm](../specs/SIM_SURFACE_TABLES/aws-acm.md), [ACME](../specs/SIM_SURFACE_TABLES/aws-acm_acme.md) |
 | Identity and security | AWS Private Certificate Authority | AWS JSON 1.1 | [acmpca](../specs/SIM_SURFACE_TABLES/aws-acmpca.md) |
 | Identity and security | AWS WAF | AWS JSON 1.1 | [wafv2](../specs/SIM_SURFACE_TABLES/aws-wafv2.md) |

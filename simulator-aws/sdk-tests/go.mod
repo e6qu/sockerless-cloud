@@ -21,6 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.91.1
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.9
+	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.75.8
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.73.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.67.3

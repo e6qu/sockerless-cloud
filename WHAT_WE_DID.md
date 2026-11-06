@@ -978,6 +978,23 @@ Every surface that the cloud authenticates, the simulator authenticates:
 Each shortcut these replaced let a test pass without the credential its
 client sends against the cloud.
 
+Amazon Cognito user pools are an identity provider in their own right, the
+one an Application Load Balancer's `authenticate-cognito` action names. The
+control plane keeps pools, app clients, prefix domains and users; a password
+is stored as a PBKDF2 hash and checked against the pool's policy. The prefix
+domain `<prefix>.auth.<region>.amazoncognito.com` serves managed login and
+the OAuth 2.0 endpoints the developer guide documents: `/oauth2/authorize`
+sends a user without a session to `/login`, which sets the one-hour session
+cookie and redirects with a single-use, five-minute code; `/oauth2/token`
+redeems it with `client_secret_basic` or `client_secret_post` and PKCE,
+refreshes, and grants client credentials; `/oauth2/userInfo` answers the
+attributes the access token's scopes release; `/logout` ends the session. Each
+pool signs RS256 tokens with its own key, which the issuer
+`https://cognito-idp.<region>.amazonaws.com/<pool id>` publishes as its JWKS,
+so a relying party verifies a token the way it does against AWS. The Smithy
+model's enum values are the wire spelling: token validity units travel in
+lower case although their member names are upper case.
+
 Each simulator's first credential is seeded, the way a new account's is: the
 AWS simulator's IAM user with the `test` key, the Azure simulator's bootstrap
 application with its client secret, and the Google Cloud simulator's bootstrap

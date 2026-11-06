@@ -46,6 +46,8 @@ github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.91.1 h1:qi8dO85WlVJxLiP0w
 github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.91.1/go.mod h1:OZjo4y252rdcEkgy8uCoyMUtaaco873oY7PKaJx1N+w=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.9 h1:bsD4RRLMpTsQ8ONWbk8QJ0jRSHdjYHd9X1BArTPlAvI=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.9/go.mod h1:PJlkOR5wSgCcUk47fgal3S2Gi2p2pmiBDmkYAI2Nv0s=
+github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.75.8 h1:1Wi7qaz3FR1eqWFvv0te4IchStL4cq9h+wBBlrRH28Y=
+github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.75.8/go.mod h1:pWEE/SzPiGgUSu2Tx5H6i7p2zkg/oS3gzwUYYOqrBiU=
 github.com/aws/aws-sdk-go-v2/service/dynamodb v1.73.0 h1:jLy1M6IlYPTq82nGKYsxdaO5+zL5ICD1RFrUXNLbusw=
 github.com/aws/aws-sdk-go-v2/service/dynamodb v1.73.0/go.mod h1:9WBAydu58XIehdET0iAAbxE6gwvBADZNUOTJ9QOmxAE=
 github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.0 h1:rQ+3Zx8QxtueSIcnVMFdUej6C3P8BCwxMd3gUyNrAIw=

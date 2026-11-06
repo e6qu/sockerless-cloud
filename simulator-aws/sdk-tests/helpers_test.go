@@ -230,7 +230,7 @@ func simDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	switch {
 	case isLocalhostName(host):
 		addr = net.JoinHostPort("127.0.0.1", port)
-	case isS3ExpressName(host), isS3AccessPointName(host), isLambdaFunctionURLName(host):
+	case isS3ExpressName(host), isS3AccessPointName(host), isLambdaFunctionURLName(host), isCognitoName(host):
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(simPort))
 	case host == "127.0.0.1" || host == "::1":
 	default:
@@ -260,6 +260,15 @@ func isLambdaFunctionURLName(host string) bool {
 	return strings.Contains(h, ".lambda-url.") && strings.HasSuffix(h, ".on.aws")
 }
 
+// isCognitoName reports whether a hostname belongs to an Amazon Cognito user
+// pool: a prefix domain, `<prefix>.auth.<region>.amazoncognito.com`, or the
+// issuer `cognito-idp.<region>.amazonaws.com` that publishes a pool's signing
+// keys, which a client reaches by the URLs the pool's tokens and domain name.
+func isCognitoName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return strings.HasSuffix(h, ".amazoncognito.com") || (strings.HasPrefix(h, "cognito-idp.") && strings.HasSuffix(h, ".amazonaws.com"))
+}
+
 // isS3ExpressName reports whether a hostname belongs to S3 Express One Zone: the
 // regional control endpoint `s3express-control.<region>.amazonaws.com` or a
 // directory bucket's zonal endpoint
@@ -278,7 +287,7 @@ func isS3ExpressName(host string) bool {
 // proxy Go would otherwise apply to a name other than `localhost`.
 func simProxy(req *http.Request) (*url.URL, error) {
 	if host := req.URL.Hostname(); isLocalhostName(host) || isS3ExpressName(host) || isS3AccessPointName(host) ||
-		isLambdaFunctionURLName(host) {
+		isLambdaFunctionURLName(host) || isCognitoName(host) {
 		return nil, nil
 	}
 	return http.ProxyFromEnvironment(req)

@@ -121,6 +121,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerCloudWatchDashboardsJSON(awsRouter)
 	registerCloudMap(awsRouter, srv)
 	registerSecretsManager(awsRouter, srv)
+	registerCognitoIdentityProvider(awsRouter, srv)
 	registerSSMParameterStore(awsRouter, srv)
 	registerSSMDocuments(awsRouter, srv)
 	registerSSMMaintenanceWindows(awsRouter, srv)

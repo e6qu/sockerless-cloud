@@ -22,6 +22,7 @@ Legend:
 | `aws-cloudmap` | direct | direct | direct | `simulator-aws/sdk-tests/cloudmap_test.go`; `simulator-aws/cli-tests/cloudmap_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-cloudtrail` | direct | direct | direct | `simulator-aws/sdk-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/cli-tests/autoscaling_cloudtrail_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-cloudwatch` | direct | direct | direct | `simulator-aws/sdk-tests/cloudwatch_test.go`; `simulator-aws/cli-tests/cloudwatch_test.go`; `simulator-aws/terraform-tests/main.tf` |
+| `aws-cognito_idp` | direct | direct | direct | `simulator-aws/sdk-tests/cognito_test.go`; `simulator-aws/cli-tests/cognito_test.go`; `simulator-aws/terraform-tests/cognito-user-pool/main.tf` |
 | `aws-dynamodb` | direct | direct | direct | `simulator-aws/sdk-tests/dynamodb_test.go`; `simulator-aws/cli-tests/dynamodb_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-ec2` | direct | direct | direct | `simulator-aws/sdk-tests/ec2_test.go`; `simulator-aws/cli-tests/ec2_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-ecr` | direct | direct | direct | `simulator-aws/sdk-tests/ecr_test.go`; `simulator-aws/cli-tests/ecr_test.go`; `simulator-aws/terraform-tests/main.tf` |

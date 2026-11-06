@@ -1147,6 +1147,7 @@ var awsEventSourceByTargetPrefix = []struct{ prefix, source string }{
 	{"Route53AutoNaming", "servicediscovery.amazonaws.com"},
 	{"TrentService", "kms.amazonaws.com"},
 	{"secretsmanager", "secretsmanager.amazonaws.com"},
+	{"AWSCognitoIdentityProviderService", "cognito-idp.amazonaws.com"},
 }
 
 // The SDK sends a Version unique per query-protocol service.

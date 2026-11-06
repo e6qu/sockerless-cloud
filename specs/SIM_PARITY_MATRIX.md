@@ -36,6 +36,7 @@ lives.
 | Amazon CloudFront | [`aws-cloudfront`](SIM_SURFACE_TABLES/aws-cloudfront.md) | [`aws-cloudfront`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon CloudFront (functions, keys, policies) | [`aws-cloudfront_extras`](SIM_SURFACE_TABLES/aws-cloudfront_extras.md) | [`aws-cloudfront_extras`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon CloudWatch | [`aws-cloudwatch`](SIM_SURFACE_TABLES/aws-cloudwatch.md) | [`aws-cloudwatch`](SIM_TEST_COVERAGE_MATRIX.md) |
+| Amazon Cognito user pools | [`aws-cognito_idp`](SIM_SURFACE_TABLES/aws-cognito_idp.md) | [`aws-cognito_idp`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS CodeBuild | [`aws-codebuild`](SIM_SURFACE_TABLES/aws-codebuild.md) | [`aws-codebuild`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon DynamoDB | [`aws-dynamodb`](SIM_SURFACE_TABLES/aws-dynamodb.md) | [`aws-dynamodb`](SIM_TEST_COVERAGE_MATRIX.md) |
 | Amazon Elastic Compute Cloud (EC2) | [`aws-ec2`](SIM_SURFACE_TABLES/aws-ec2.md) | [`aws-ec2`](SIM_TEST_COVERAGE_MATRIX.md) |
