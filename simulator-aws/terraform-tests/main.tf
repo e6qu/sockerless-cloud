@@ -383,6 +383,12 @@ resource "aws_autoscaling_group" "tf_asg" {
   desired_capacity     = 1
   vpc_zone_identifier  = [aws_subnet.tf_ec2_subnet.id]
 
+  # A second plan reads the policy back through DescribeAutoScalingGroups.
+  instance_maintenance_policy {
+    min_healthy_percentage = 90
+    max_healthy_percentage = 120
+  }
+
   tag {
     key                 = "env"
     value               = "terraform"

@@ -46,6 +46,10 @@ type AutoScalingGroup struct {
 	// DefaultInstanceWarmup is nil until set; -1 on update clears it.
 	DefaultInstanceWarmup *int
 	InstanceSources       map[string]ASLaunchSource
+	// MaintenanceMin and MaintenanceMax are the group's
+	// InstanceMaintenancePolicy; nil until set, and -1 on update clears one.
+	MaintenanceMin *int
+	MaintenanceMax *int
 }
 
 type ASGTag struct {
@@ -268,6 +272,10 @@ func handleASCreateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	asSetDefaultInstanceWarmup(&asg, r)
+	if msg := asSetInstanceMaintenancePolicy(&asg, r); msg != "" {
+		asError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
+	}
 	if err := reconcileAutoScalingGroup(&asg, "Created Auto Scaling group"); err != nil {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
@@ -350,6 +358,10 @@ func handleASUpdateAutoScalingGroup(w http.ResponseWriter, r *http.Request) {
 		asg.VPCZoneIdentifier = v
 	}
 	asSetDefaultInstanceWarmup(&asg, r)
+	if msg := asSetInstanceMaintenancePolicy(&asg, r); msg != "" {
+		asError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
+	}
 	if err := reconcileAutoScalingGroup(&asg, "Updated Auto Scaling group"); err != nil {
 		asError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
@@ -1362,6 +1374,36 @@ func asLaunchTemplateSpecXML(spec ASLaunchTemplateSpec) string {
 }
 
 // -1 removes a value set before.
+// asSetInstanceMaintenancePolicy applies a request's InstanceMaintenancePolicy:
+// both thresholds set, MinHealthyPercentage 0 to 100, MaxHealthyPercentage 100
+// to 200, at most 100 apart, and -1 clearing a value, as the model documents.
+func asSetInstanceMaintenancePolicy(asg *AutoScalingGroup, r *http.Request) string {
+	rawMin := r.FormValue("InstanceMaintenancePolicy.MinHealthyPercentage")
+	rawMax := r.FormValue("InstanceMaintenancePolicy.MaxHealthyPercentage")
+	if rawMin == "" && rawMax == "" {
+		return ""
+	}
+	minV, minErr := strconv.Atoi(rawMin)
+	maxV, maxErr := strconv.Atoi(rawMax)
+	if minErr != nil || maxErr != nil {
+		return "Both MinHealthyPercentage and MaxHealthyPercentage must be specified."
+	}
+	if minV == -1 && maxV == -1 {
+		asg.MaintenanceMin, asg.MaintenanceMax = nil, nil
+		return ""
+	}
+	switch {
+	case minV < 0 || minV > 100:
+		return "MinHealthyPercentage must be between 0 and 100."
+	case maxV < 100 || maxV > 200:
+		return "MaxHealthyPercentage must be between 100 and 200."
+	case maxV-minV > 100:
+		return "The difference between MaxHealthyPercentage and MinHealthyPercentage cannot be greater than 100."
+	}
+	asg.MaintenanceMin, asg.MaintenanceMax = &minV, &maxV
+	return ""
+}
+
 func asSetDefaultInstanceWarmup(asg *AutoScalingGroup, r *http.Request) {
 	raw := r.FormValue("DefaultInstanceWarmup")
 	if raw == "" {
@@ -1514,6 +1556,10 @@ func autoScalingGroupXML(asg AutoScalingGroup) string {
 	warmup := ""
 	if asg.DefaultInstanceWarmup != nil {
 		warmup = fmt.Sprintf("<DefaultInstanceWarmup>%d</DefaultInstanceWarmup>", *asg.DefaultInstanceWarmup)
+	}
+	if asg.MaintenanceMin != nil && asg.MaintenanceMax != nil {
+		warmup += fmt.Sprintf("<InstanceMaintenancePolicy><MinHealthyPercentage>%d</MinHealthyPercentage><MaxHealthyPercentage>%d</MaxHealthyPercentage></InstanceMaintenancePolicy>",
+			*asg.MaintenanceMin, *asg.MaintenanceMax)
 	}
 	return fmt.Sprintf(`<member><AutoScalingGroupName>%s</AutoScalingGroupName><AutoScalingGroupARN>%s</AutoScalingGroupARN>%s<MinSize>%d</MinSize><MaxSize>%d</MaxSize><DesiredCapacity>%d</DesiredCapacity><DefaultCooldown>300</DefaultCooldown><HealthCheckType>%s</HealthCheckType><HealthCheckGracePeriod>%d</HealthCheckGracePeriod><AvailabilityZones><member>%s</member></AvailabilityZones><VPCZoneIdentifier>%s</VPCZoneIdentifier><CreatedTime>%s</CreatedTime><Instances>%s</Instances><Tags>%s</Tags>%s</member>`,
 		xmlEscape(asg.Name), xmlEscape(arn), asLaunchSourceXML(asg.launchSource()), asg.MinSize, asg.MaxSize, asg.DesiredCapacity, xmlEscape(healthCheckType), asg.HealthCheckGracePeriod, awsAvailabilityZone(), xmlEscape(asg.VPCZoneIdentifier), asg.CreatedTime, instances.String(), autoscalingTagXML(asg.Name, asg.Tags), warmup)

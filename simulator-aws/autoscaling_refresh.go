@@ -119,7 +119,7 @@ func handleASXStartInstanceRefresh(w http.ResponseWriter, r *http.Request) {
 		asError(w, "InstanceRefreshInProgress", "The request failed because an active instance refresh already exists for the specified Auto Scaling group.", http.StatusBadRequest)
 		return
 	}
-	prefs, msg := asParseRefreshPreferences(r)
+	prefs, msg := asParseRefreshPreferences(r, asg)
 	if msg != "" {
 		asError(w, "ValidationError", msg, http.StatusBadRequest)
 		return
@@ -169,7 +169,10 @@ func handleASXStartInstanceRefresh(w http.ResponseWriter, r *http.Request) {
 	asResponse(w, "StartInstanceRefresh", fmt.Sprintf("<InstanceRefreshId>%s</InstanceRefreshId>", xmlEscape(id)))
 }
 
-func asParseRefreshPreferences(r *http.Request) (ASRefreshPreferences, string) {
+// asParseRefreshPreferences reads a refresh's preferences. An omitted
+// MinHealthyPercentage or MaxHealthyPercentage takes the group's instance
+// maintenance policy value, else the service default, as the model documents.
+func asParseRefreshPreferences(r *http.Request, asg AutoScalingGroup) (ASRefreshPreferences, string) {
 	optional := func(name string) *int {
 		raw := r.FormValue("Preferences." + name)
 		if raw == "" {
@@ -192,12 +195,18 @@ func asParseRefreshPreferences(r *http.Request) (ASRefreshPreferences, string) {
 	minHealthy := optional("MinHealthyPercentage")
 	if minHealthy != nil {
 		prefs.MinHealthyPercentage = *minHealthy
+	} else if asg.MaintenanceMin != nil {
+		prefs.MinHealthyPercentage = *asg.MaintenanceMin
 	}
 	for _, raw := range autoscalingParamList(r, "Preferences.CheckpointPercentages.member") {
 		prefs.CheckpointPercentages = append(prefs.CheckpointPercentages, asAtoiDefault(raw, 0))
 	}
 	if maxHealthy := prefs.MaxHealthyPercentage; maxHealthy != nil && (minHealthy == nil || *maxHealthy-*minHealthy > 100) {
 		return prefs, "If you specify MaxHealthyPercentage, you must also specify MinHealthyPercentage, and the difference between them cannot be greater than 100."
+	}
+	if prefs.MaxHealthyPercentage == nil && asg.MaintenanceMax != nil {
+		groupMax := *asg.MaintenanceMax
+		prefs.MaxHealthyPercentage = &groupMax
 	}
 	return prefs, ""
 }

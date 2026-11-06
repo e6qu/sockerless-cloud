@@ -1447,6 +1447,9 @@ fails once the row closes or the operation is served.
   instance tag specifications merged with the group's propagated tags, the
   group's value winning on a shared key, as the vendored
   `ec2-auto-scaling-tagging.md.gz` states.
+  A group stores its `InstanceMaintenancePolicy` within the ranges the model
+  documents, clears it with `-1`, and lends it to an instance refresh whose
+  preferences omit `MinHealthyPercentage` or `MaxHealthyPercentage`.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
