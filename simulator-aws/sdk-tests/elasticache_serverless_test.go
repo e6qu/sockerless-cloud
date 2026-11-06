@@ -290,6 +290,8 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 			ReplicationGroupId: aws.String(rgID),
 		})
 	})
+	// The group stays creating until its nodes' containers run, which
+	// outlasts the next request.
 	_, err = c.IncreaseReplicaCount(ctx, &elasticache.IncreaseReplicaCountInput{
 		ReplicationGroupId: aws.String(rgID),
 		NewReplicaCount:    aws.Int32(2),

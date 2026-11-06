@@ -330,11 +330,15 @@ func TestRedis_OperationsList(t *testing.T) {
 	opsClient, err := armredis.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := opsClient.NewListPager(nil)
-	count := 0
+	names := map[string]bool{}
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		require.NoError(t, err)
-		count += len(page.Value)
+		for _, op := range page.Value {
+			names[*op.Name] = true
+		}
 	}
-	assert.Greater(t, count, 0, "Microsoft.Cache operations list must be non-empty")
+	for _, name := range []string{"Microsoft.Cache/redis/read", "Microsoft.Cache/redis/import/action", "Microsoft.Cache/redis/export/action"} {
+		assert.True(t, names[name], "Microsoft.Cache operations list %s", name)
+	}
 }

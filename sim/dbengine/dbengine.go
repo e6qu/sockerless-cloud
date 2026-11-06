@@ -602,10 +602,22 @@ var loopbackReservations = struct {
 // control plane advertises, so no other port stands in for it: when no
 // loopback address offers it, the error says so.
 func ListenLoopback(identifier string, port int) (net.Listener, error) {
+	listeners, err := ListenLoopbackPorts(identifier, []int{port})
+	if err != nil {
+		return nil, err
+	}
+	return listeners[0], nil
+}
+
+// ListenLoopbackPorts binds every one of ports on one loopback address of
+// identifier's own, as ListenLoopback binds one. A new identifier takes the
+// first address on which each port is free, since another process may hold
+// one of them on an address that offers the rest.
+func ListenLoopbackPorts(identifier string, ports []int) ([]net.Listener, error) {
 	loopbackReservations.mu.Lock()
 	defer loopbackReservations.mu.Unlock()
 	if octet, reserved := loopbackReservations.byIdentifier[identifier]; reserved {
-		return net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", octet), strconv.Itoa(port)))
+		return listenAll(fmt.Sprintf("127.0.0.%d", octet), ports)
 	}
 	var seed byte = 2
 	for i := 0; i < len(identifier); i++ {
@@ -617,20 +629,36 @@ func ListenLoopback(identifier string, port int) (net.Listener, error) {
 		if _, taken := loopbackReservations.byOctet[octet]; taken {
 			continue
 		}
-		listener, err := net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", octet), strconv.Itoa(port)))
+		listeners, err := listenAll(fmt.Sprintf("127.0.0.%d", octet), ports)
 		if err == nil {
 			loopbackReservations.byIdentifier[identifier] = octet
 			loopbackReservations.byOctet[octet] = identifier
-			return listener, nil
+			return listeners, nil
 		}
 		lastErr = err
 	}
 	// Hosts without loopback aliases (macOS without root) have only 127.0.0.1.
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	listeners, err := listenAll("127.0.0.1", ports)
 	if err == nil {
-		return listener, nil
+		return listeners, nil
 	}
-	return nil, fmt.Errorf("no loopback address offers port %d (last error: %v)", port, lastErr)
+	return nil, fmt.Errorf("no loopback address offers ports %v (last error: %v)", ports, lastErr)
+}
+
+// listenAll binds every port on host, or none.
+func listenAll(host string, ports []int) ([]net.Listener, error) {
+	listeners := make([]net.Listener, 0, len(ports))
+	for _, port := range ports {
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			for _, bound := range listeners {
+				_ = bound.Close()
+			}
+			return nil, err
+		}
+		listeners = append(listeners, listener)
+	}
+	return listeners, nil
 }
 
 // ListenLoopbackAt binds port on the loopback address identifier advertised

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"sort"
@@ -324,63 +325,86 @@ func ecEngineUsers(kind, id string) ([]cacheengine.User, error) {
 // elasticache:Connect to the cache and as the user, which is an IAM-enabled
 // member of a user group the cache has. It answers the engine user the
 // connection authenticates as.
-func ecIAMAuthenticator(kind, id string) func(string) (string, bool) {
-	return func(token string) (string, bool) {
-		parsed, err := url.Parse("http://" + token)
-		if err != nil || parsed.Host != id || (parsed.Path != "/" && parsed.Path != "") {
-			return "", false
+func ecIAMAuthenticator(kind, id string) func(cacheengine.Credential) (cacheengine.Grant, bool) {
+	return func(credential cacheengine.Credential) (cacheengine.Grant, bool) {
+		user, ok := ecIAMConnectUser(kind, id, credential)
+		if !ok {
+			return cacheengine.Grant{}, false
 		}
-		query := parsed.Query()
-		if query.Get("Action") != "connect" {
-			return "", false
-		}
-		resourceARN := ecReplGroupARN(id)
-		if kind == ecKindServerless {
-			if query.Get("ResourceType") != "ServerlessCache" {
-				return "", false
-			}
-			resourceARN = ecServerlessCacheARN(id)
-		}
-		user, ok := ecUsers.Get(query.Get("User"))
-		if !ok || ecUserAuthType(user) != ecAuthIAM || user.Status == "deleting" {
-			return "", false
-		}
-		member := false
-		for _, groupID := range ecAttachedUserGroups(kind, id) {
-			if group, ok := ecUserGroups.Get(groupID); ok && slices.Contains(group.UserIds, user.UserId) {
-				member = true
-			}
-		}
-		if !member {
-			return "", false
-		}
-		credential, ok := parseCredScope(query.Get("X-Amz-Credential"))
-		if !ok || credential.service != "elasticache" || credential.region != awsRegion() {
-			return "", false
-		}
-		expires, err := strconv.Atoi(query.Get("X-Amz-Expires"))
-		if err != nil || expires <= 0 || expires > 900 {
-			return "", false
-		}
-		signedAt, err := time.Parse("20060102T150405Z", query.Get("X-Amz-Date"))
-		if err != nil || time.Now().Before(signedAt.Add(-5*time.Minute)) || time.Now().After(signedAt.Add(time.Duration(expires)*time.Second)) {
-			return "", false
-		}
-		request := &http.Request{Method: http.MethodGet, URL: parsed, Host: parsed.Host, Header: make(http.Header)}
-		if result, signatureErr := sigv4VerifyPresigned(request, query, nil, true); signatureErr != nil || result != sigv4Verified {
-			return "", false
-		}
-		request.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s, SignedHeaders=%s, Signature=%s",
-			query.Get("X-Amz-Credential"), query.Get("X-Amz-SignedHeaders"), query.Get("X-Amz-Signature")))
-		request.TLS = &tls.ConnectionState{}
-		request.RemoteAddr = "127.0.0.1:0"
-		for _, resource := range []string{resourceARN, user.ARN} {
-			if allowed, _, registered := iamAuthorize(request, "elasticache:Connect", resource); registered && !allowed {
-				return "", false
-			}
-		}
-		return user.UserName, true
+		return cacheengine.Grant{User: user, Lifetime: ecIAMConnectionLifetime}, true
 	}
+}
+
+// ecIAMConnectionLifetime is how long an IAM-authenticated connection lasts:
+// it "will automatically be disconnected after 12 hours" and "can be
+// prolonged for 12 hours by sending an AUTH or HELLO command with a new IAM
+// authentication token" (elasticache-auth-iam).
+const ecIAMConnectionLifetime = 12 * time.Hour
+
+// ecIAMConnectUser verifies an IAM authentication token for the cache and
+// answers the engine user it signs in as. "For IAM-enabled ElastiCache users
+// the username and user id properties must be identical", so the AUTH
+// username is the token's user; the policy evaluates the client's address as
+// aws:SourceIp.
+func ecIAMConnectUser(kind, id string, credential cacheengine.Credential) (string, bool) {
+	token := credential.Password
+	parsed, err := url.Parse("http://" + token)
+	if err != nil || parsed.Host != id || (parsed.Path != "/" && parsed.Path != "") {
+		return "", false
+	}
+	query := parsed.Query()
+	if query.Get("Action") != "connect" {
+		return "", false
+	}
+	resourceARN := ecReplGroupARN(id)
+	if kind == ecKindServerless {
+		if query.Get("ResourceType") != "ServerlessCache" {
+			return "", false
+		}
+		resourceARN = ecServerlessCacheARN(id)
+	}
+	if credential.Username != query.Get("User") {
+		return "", false
+	}
+	user, ok := ecUsers.Get(query.Get("User"))
+	if !ok || ecUserAuthType(user) != ecAuthIAM || user.Status == "deleting" {
+		return "", false
+	}
+	member := false
+	for _, groupID := range ecAttachedUserGroups(kind, id) {
+		if group, ok := ecUserGroups.Get(groupID); ok && slices.Contains(group.UserIds, user.UserId) {
+			member = true
+		}
+	}
+	if !member {
+		return "", false
+	}
+	scope, ok := parseCredScope(query.Get("X-Amz-Credential"))
+	if !ok || scope.service != "elasticache" || scope.region != awsRegion() {
+		return "", false
+	}
+	expires, err := strconv.Atoi(query.Get("X-Amz-Expires"))
+	if err != nil || expires <= 0 || expires > 900 {
+		return "", false
+	}
+	signedAt, err := time.Parse("20060102T150405Z", query.Get("X-Amz-Date"))
+	if err != nil || time.Now().Before(signedAt.Add(-5*time.Minute)) || time.Now().After(signedAt.Add(time.Duration(expires)*time.Second)) {
+		return "", false
+	}
+	request := &http.Request{Method: http.MethodGet, URL: parsed, Host: parsed.Host, Header: make(http.Header)}
+	if result, signatureErr := sigv4VerifyPresigned(request, query, nil, true); signatureErr != nil || result != sigv4Verified {
+		return "", false
+	}
+	request.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s, SignedHeaders=%s, Signature=%s",
+		query.Get("X-Amz-Credential"), query.Get("X-Amz-SignedHeaders"), query.Get("X-Amz-Signature")))
+	request.TLS = &tls.ConnectionState{}
+	request.RemoteAddr = netip.AddrPortFrom(credential.Client, 0).String()
+	for _, resource := range []string{resourceARN, user.ARN} {
+		if allowed, _, registered := iamAuthorize(request, "elasticache:Connect", resource); registered && !allowed {
+			return "", false
+		}
+	}
+	return user.UserName, true
 }
 
 // ecCheckUserGroupsFor checks the user groups a cache of engine is to have:

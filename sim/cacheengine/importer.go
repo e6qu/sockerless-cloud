@@ -50,7 +50,7 @@ func (p *Plane) ImportRDB(source ImportSource) error {
 	defer stop()
 	options, env := p.cliAuth()
 	importArgs := append([]string{"redis-cli"}, options...)
-	importArgs = append(importArgs, "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(Port)),
+	importArgs = append(importArgs, "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(p.port)),
 		"--cluster-from", net.JoinHostPort(from, strconv.Itoa(Port)), "--cluster-copy", "--cluster-replace")
 	if password != "" {
 		importArgs = append(importArgs, "--cluster-from-pass", password)
@@ -165,8 +165,9 @@ func (p *Plane) primaries() ([]int, error) {
 // CopyFrom copies every key of the Redis engine source reaches into the
 // plane, each with its remaining time to live, the way a migration's data
 // sync does: SCAN walks the source, DUMP reads each key and RESTORE REPLACE
-// writes it into the primary whose shard owns its slot. It returns how many
-// keys it copied.
+// writes it into the primary whose shard owns its slot. An instance takes
+// each of the source's databases into the database of the same number; a
+// cluster holds database 0 only. It returns how many keys it copied.
 func (p *Plane) CopyFrom(source *Conn) (int, error) {
 	if err := p.Ensure(); err != nil {
 		return 0, err
@@ -184,53 +185,84 @@ func (p *Plane) CopyFrom(source *Conn) (int, error) {
 	if err := source.SetDeadline(time.Now().Add(reshardDeadline)); err != nil {
 		return 0, err
 	}
-	copied := 0
-	cursor := "0"
-	for {
-		reply, err := source.Do("SCAN", cursor, "COUNT", strconv.Itoa(keysPerScan))
+	databases := 1
+	if !p.cfg.Cluster {
+		reply, err := source.Do("CONFIG", "GET", "databases")
 		if err != nil {
-			return copied, fmt.Errorf("scan the source: %w", err)
+			return 0, fmt.Errorf("read the source's database count: %w", err)
 		}
-		page, _ := reply.([]any)
-		if len(page) != 2 {
-			return copied, fmt.Errorf("the source answered SCAN with %v", reply)
-		}
-		cursor = fmt.Sprint(page[0])
-		keys, _ := page[1].([]any)
-		for _, item := range keys {
-			key := fmt.Sprint(item)
-			dumped, err := source.Do("DUMP", key)
-			if err != nil {
-				return copied, fmt.Errorf("dump %q from the source: %w", key, err)
+		if fields, _ := reply.([]any); len(fields) == 2 {
+			if databases, err = strconv.Atoi(fmt.Sprint(fields[1])); err != nil {
+				return 0, fmt.Errorf("the source reports %v databases: %w", fields[1], err)
 			}
-			if dumped == nil {
-				continue
-			}
-			ttl, err := source.Do("PTTL", key)
-			if err != nil {
-				return copied, fmt.Errorf("read the time to live of %q: %w", key, err)
-			}
-			remaining, _ := ttl.(int64)
-			if remaining < 0 {
-				remaining = 0
-			}
-			owner := owners[KeySlot(key)]
-			target, ok := targets[owner]
-			if !ok {
-				if target, err = p.dialNode(owner); err != nil {
-					return copied, err
-				}
-				targets[owner] = target
-			}
-			if _, err := target.Do("RESTORE", key, strconv.FormatInt(remaining, 10), fmt.Sprint(dumped), "REPLACE"); err != nil {
-				return copied, fmt.Errorf("restore %q: %w", key, err)
-			}
-			copied++
-		}
-		if cursor == "0" {
-			return copied, nil
 		}
 	}
+	copied := 0
+	for db := 0; db < databases; db++ {
+		database := strconv.Itoa(db)
+		if !p.cfg.Cluster {
+			if _, err := source.Do("SELECT", database); err != nil {
+				return copied, fmt.Errorf("select database %d of the source: %w", db, err)
+			}
+			for _, target := range targets {
+				if _, err := target.Do("SELECT", database); err != nil {
+					return copied, err
+				}
+			}
+		}
+		cursor := "0"
+		for {
+			reply, err := source.Do("SCAN", cursor, "COUNT", strconv.Itoa(keysPerScan))
+			if err != nil {
+				return copied, fmt.Errorf("scan the source: %w", err)
+			}
+			page, _ := reply.([]any)
+			if len(page) != 2 {
+				return copied, fmt.Errorf("the source answered SCAN with %v", reply)
+			}
+			cursor = fmt.Sprint(page[0])
+			keys, _ := page[1].([]any)
+			for _, item := range keys {
+				key := fmt.Sprint(item)
+				dumped, err := source.Do("DUMP", key)
+				if err != nil {
+					return copied, fmt.Errorf("dump %q from the source: %w", key, err)
+				}
+				if dumped == nil {
+					continue
+				}
+				ttl, err := source.Do("PTTL", key)
+				if err != nil {
+					return copied, fmt.Errorf("read the time to live of %q: %w", key, err)
+				}
+				remaining, _ := ttl.(int64)
+				if remaining < 0 {
+					remaining = 0
+				}
+				owner := owners[KeySlot(key)]
+				target, ok := targets[owner]
+				if !ok {
+					if target, err = p.dialNode(owner); err != nil {
+						return copied, err
+					}
+					targets[owner] = target
+					if !p.cfg.Cluster {
+						if _, err := target.Do("SELECT", database); err != nil {
+							return copied, err
+						}
+					}
+				}
+				if _, err := target.Do("RESTORE", key, strconv.FormatInt(remaining, 10), fmt.Sprint(dumped), "REPLACE"); err != nil {
+					return copied, fmt.Errorf("restore %q: %w", key, err)
+				}
+				copied++
+			}
+			if cursor == "0" {
+				break
+			}
+		}
+	}
+	return copied, nil
 }
 
 // slotOwners maps every hash slot to the primary that owns it; an instance's

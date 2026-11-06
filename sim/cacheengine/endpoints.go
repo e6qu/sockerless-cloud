@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
@@ -46,21 +48,46 @@ func Listen(identifier string, port int) (net.Listener, string, error) {
 
 // Bind binds each endpoint at Endpoint.Port (Redis's own when unset) on a
 // loopback address: the address an earlier endpoint of the same identifier
-// took, or one of its own. It fills in each endpoint's Address.
+// took, or one of its own on which every port its endpoints serve is free. It
+// fills in each endpoint's Address.
 func Bind(owner string, endpoints []Endpoint) (map[string]net.Listener, []Endpoint, error) {
-	listeners := map[string]net.Listener{}
-	bound := make([]Endpoint, 0, len(endpoints))
+	var identifiers []string
+	ports := map[string][]int{}
 	for _, endpoint := range endpoints {
-		listener, address, err := Listen(Identifier(owner, endpoint), endpoint.PortOrDefault())
+		identifier := Identifier(owner, endpoint)
+		if _, seen := ports[identifier]; !seen {
+			identifiers = append(identifiers, identifier)
+		}
+		ports[identifier] = append(ports[identifier], endpoint.PortOrDefault())
+	}
+	listeners := map[string]net.Listener{}
+	bound := map[string][]net.Listener{}
+	for _, identifier := range identifiers {
+		group, err := dbengine.ListenLoopbackPorts(identifier, ports[identifier])
 		if err != nil {
-			CloseListeners(listeners)
+			for _, listeners := range bound {
+				for _, listener := range listeners {
+					_ = listener.Close()
+				}
+			}
 			return nil, nil, err
 		}
-		listeners[endpoint.Key()] = listener
-		endpoint.Address = address
-		bound = append(bound, endpoint)
+		bound[identifier] = group
 	}
-	return listeners, bound, nil
+	result := make([]Endpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		identifier := Identifier(owner, endpoint)
+		listener := bound[identifier][0]
+		bound[identifier] = bound[identifier][1:]
+		address, ok := listener.Addr().(*net.TCPAddr)
+		if !ok {
+			return nil, nil, fmt.Errorf("listener returned address type %T", listener.Addr())
+		}
+		listeners[endpoint.Key()] = listener
+		endpoint.Address = address.IP.String()
+		result = append(result, endpoint)
+	}
+	return listeners, result, nil
 }
 
 // Rebind binds every recorded endpoint at the address it recorded, as a
@@ -262,8 +289,9 @@ func (p *Plane) relayConnection(client net.Conn, target func() (int, bool), plai
 		return
 	}
 	defer backend.Close()
-	if p.cfg.ExchangeCredential != nil {
-		p.relayAuthenticating(client, backend)
+	rewrite := p.cfg.Cluster && !p.announcesHostnames.Load()
+	if p.cfg.ExchangeCredential != nil || rewrite {
+		p.relayCommands(client, backend, rewrite)
 		return
 	}
 	Relay(client, backend)
@@ -335,15 +363,26 @@ func Relay(left, right net.Conn) {
 	<-done
 }
 
-// relayAuthenticating reads each command the client sends, and an AUTH, or a
-// HELLO that authenticates, whose password the plane's ExchangeCredential
-// accepts reaches the engine as the user it names carrying the engine's own
-// credential. Any other credential reaches the engine as the client sent it,
-// which the engine refuses, so replies keep the order of the commands.
-func (p *Plane) relayAuthenticating(client, backend net.Conn) {
+// relayCommands reads each command the client sends. An AUTH, or a HELLO
+// that authenticates, whose password the plane's ExchangeCredential accepts
+// reaches the engine as the user it names carrying the engine's own
+// credential; any other credential reaches the engine as the client sent it,
+// which the engine refuses, so replies keep the order of the commands. With
+// rewrite, the replies that name nodes (a MOVED or ASK redirection, and the
+// cluster topology commands' answers) name each node's endpoint instead of
+// its network address.
+func (p *Plane) relayCommands(client, backend net.Conn, rewrite bool) {
+	commands := &commandQueue{}
+	expiring := &expiringConn{Conn: client}
+	client = expiring
+	clientAddress := addrPort(client.RemoteAddr()).Addr()
 	done := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(client, backend)
+		if rewrite {
+			_ = relayReplies(client, backend, commands, p.endpointAddresses)
+		} else {
+			_, _ = io.Copy(client, backend)
+		}
 		if closer, ok := client.(halfCloser); ok {
 			_ = closer.CloseWrite()
 		}
@@ -362,8 +401,14 @@ func (p *Plane) relayAuthenticating(client, backend net.Conn) {
 			if err != nil {
 				return
 			}
-			if rewritten, ok := ExchangeCredential(args, p.Password(), p.cfg.ExchangeCredential); ok {
-				raw = EncodeCommand(rewritten)
+			if p.cfg.ExchangeCredential != nil {
+				if rewritten, grant, ok := ExchangeCredential(args, p.Password(), clientAddress, p.cfg.ExchangeCredential); ok {
+					raw = EncodeCommand(rewritten)
+					expiring.extend(grant.Lifetime)
+				}
+			}
+			if rewrite {
+				commands.push(args)
 			}
 			if _, err := backend.Write(raw); err != nil {
 				return
@@ -373,38 +418,76 @@ func (p *Plane) relayAuthenticating(client, backend net.Conn) {
 	<-done
 }
 
-// ExchangeCredential rewrites an AUTH, or a HELLO with AUTH, whose password
-// authorize accepts, to authenticate as the engine user authorize names. The
-// password decides the user, whatever username the client sent.
-func ExchangeCredential(args []string, secret string, authorize func(string) (string, bool)) ([]string, bool) {
+// ExchangeCredential rewrites an AUTH, or a HELLO with AUTH, whose credential
+// authorize accepts, to authenticate as the engine user authorize names.
+func ExchangeCredential(args []string, secret string, client netip.Addr, authorize func(Credential) (Grant, bool)) ([]string, Grant, bool) {
 	if len(args) == 0 {
-		return nil, false
+		return nil, Grant{}, false
 	}
 	switch strings.ToUpper(args[0]) {
 	case "AUTH":
 		if len(args) < 2 || len(args) > 3 {
-			return nil, false
+			return nil, Grant{}, false
 		}
-		user, ok := authorize(args[len(args)-1])
+		username := "default"
+		if len(args) == 3 {
+			username = args[1]
+		}
+		grant, ok := authorize(Credential{Username: username, Password: args[len(args)-1], Client: client})
 		if !ok {
-			return nil, false
+			return nil, Grant{}, false
 		}
-		return []string{args[0], user, secret}, true
+		return []string{args[0], grant.User, secret}, grant, true
 	case "HELLO":
 		for i := 1; i+2 < len(args); i++ {
 			if !strings.EqualFold(args[i], "AUTH") {
 				continue
 			}
-			user, ok := authorize(args[i+2])
+			grant, ok := authorize(Credential{Username: args[i+1], Password: args[i+2], Client: client})
 			if !ok {
-				return nil, false
+				return nil, Grant{}, false
 			}
 			rewritten := append([]string(nil), args...)
-			rewritten[i+1], rewritten[i+2] = user, secret
-			return rewritten, true
+			rewritten[i+1], rewritten[i+2] = grant.User, secret
+			return rewritten, grant, true
 		}
 	}
-	return nil, false
+	return nil, Grant{}, false
+}
+
+// expiringConn closes once the lifetime the last accepted credential granted
+// runs out; a credential granted for good stops the clock.
+type expiringConn struct {
+	net.Conn
+	mu    sync.Mutex
+	timer *time.Timer
+}
+
+func (c *expiringConn) extend(lifetime time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	if lifetime > 0 {
+		c.timer = time.AfterFunc(lifetime, func() { _ = c.Close() })
+	}
+}
+
+func (c *expiringConn) CloseWrite() error {
+	if closer, ok := c.Conn.(halfCloser); ok {
+		return closer.CloseWrite()
+	}
+	return nil
 }
 
 func nodeEndpointKey(index int) string { return "node-" + strconv.Itoa(index) }
+
+func addrPort(addr net.Addr) netip.AddrPort {
+	ap, err := netip.ParseAddrPort(addr.String())
+	if err != nil {
+		return netip.AddrPort{}
+	}
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+}

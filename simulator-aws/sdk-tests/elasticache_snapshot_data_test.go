@@ -94,6 +94,8 @@ func TestElastiCache_SnapshotRestore(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = c.DeleteCacheCluster(ctx, &elasticache.DeleteCacheClusterInput{CacheClusterId: aws.String(sourceID)})
 	})
+	// The cluster stays creating until its node's container runs, which
+	// outlasts the next request.
 	snapName := uniquename.New("snap-data")
 	_, err = c.CreateSnapshot(ctx, &elasticache.CreateSnapshotInput{SnapshotName: aws.String(snapName), CacheClusterId: aws.String(sourceID)})
 	assertAWSAPIErrorCode(t, err, "InvalidCacheClusterState")

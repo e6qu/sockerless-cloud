@@ -599,12 +599,20 @@ func handleRedisOperationsList(w http.ResponseWriter, _ *http.Request) {
 			},
 		}
 	}
+	// The descriptions are those of the Microsoft.Cache table of the vendored
+	// rbac-permissions-databases page.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"value": []map[string]any{
-			op("Microsoft.Cache/redis/read", "Redis Cache", "Get Redis Cache", "View the settings and configuration of a Redis cache."),
-			op("Microsoft.Cache/redis/write", "Redis Cache", "Set Redis Cache", "Modify a Redis cache's settings and configuration."),
-			op("Microsoft.Cache/redis/delete", "Redis Cache", "Delete Redis Cache", "Remove a Redis cache."),
-			op("Microsoft.Cache/redis/listKeys/action", "Redis Cache", "List Redis Cache Keys", "View the value of Redis cache access keys."),
+			op("Microsoft.Cache/operations/read", "Operations", "List Operations", "Lists the operations that 'Microsoft.Cache' provider supports."),
+			op("Microsoft.Cache/redis/write", "Redis Cache", "Set Redis Cache", "Modify the Redis Cache's settings and configuration in the management portal"),
+			op("Microsoft.Cache/redis/read", "Redis Cache", "Get Redis Cache", "View the Redis Cache's settings and configuration in the management portal"),
+			op("Microsoft.Cache/redis/delete", "Redis Cache", "Delete Redis Cache", "Delete the entire Redis Cache"),
+			op("Microsoft.Cache/redis/listKeys/action", "Redis Cache", "List Redis Cache Keys", "View the value of Redis Cache access keys in the management portal"),
+			op("Microsoft.Cache/redis/regenerateKey/action", "Redis Cache", "Regenerate Redis Cache Keys", "Change the value of Redis Cache access keys in the management portal"),
+			op("Microsoft.Cache/redis/import/action", "Redis Cache", "Import Data", "Import data of a specified format from multiple blobs into Redis"),
+			op("Microsoft.Cache/redis/export/action", "Redis Cache", "Export Data", "Export Redis data to prefixed storage blobs in specified format"),
+			op("Microsoft.Cache/redis/forceReboot/action", "Redis Cache", "Force Reboot Redis Cache", "Force reboot a cache instance, potentially with data loss."),
+			op("Microsoft.Cache/redis/flush/action", "Redis Cache", "Flush Redis Cache", "Deletes all of the keys in a cache."),
 		},
 	})
 }

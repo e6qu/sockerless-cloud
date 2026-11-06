@@ -132,8 +132,8 @@ func (p *Plane) ExposeNodes(port int) error {
 func (p *Plane) addClusterNodes(count int, primaries bool) ([]int, error) {
 	added := p.allocateNodes(count)
 	for _, index := range added {
-		endpoint := Endpoint{Role: NodeEndpoint, Port: Port, Node: index}
-		listener, ip, err := Listen(Identifier(p.cfg.Owner, endpoint), Port)
+		endpoint := Endpoint{Role: NodeEndpoint, Port: p.port, Node: index}
+		listener, ip, err := Listen(Identifier(p.cfg.Owner, endpoint), p.port)
 		if err != nil {
 			return nil, errors.Join(err, p.removeNodes(added))
 		}
@@ -205,7 +205,7 @@ func (p *Plane) clusterManager(via int, subcommand string, args ...string) error
 	}
 	options, env := p.cliAuth()
 	command := append([]string{"redis-cli"}, options...)
-	command = append(command, "--cluster", subcommand, net.JoinHostPort(ip, strconv.Itoa(Port)))
+	command = append(command, "--cluster", subcommand, net.JoinHostPort(ip, strconv.Itoa(p.port)))
 	command = append(append(command, args...), "--cluster-yes")
 	if _, err := p.Exec(via, command, env); err != nil {
 		return fmt.Errorf("redis-cli --cluster %s: %w", subcommand, err)

@@ -875,7 +875,7 @@ func handleRDSCreateTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	key := rdsTenantKey(instID, tenantName)
 	if _, ok := rdsTenantDatabases.Get(key); ok {
-		rdsErrorXML(w, "TenantDatabaseAlreadyExistsFault",
+		rdsErrorXML(w, "TenantDatabaseAlreadyExists",
 			fmt.Sprintf("Tenant database %q already exists", tenantName),
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
@@ -922,7 +922,7 @@ func handleRDSModifyTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	key := rdsTenantKey(instID, tenantName)
 	_, ok := rdsTenantDatabases.Get(key)
 	if !ok {
-		rdsErrorXML(w, "TenantDatabaseNotFoundFault",
+		rdsErrorXML(w, "TenantDatabaseNotFound",
 			fmt.Sprintf("Tenant database %q not found", tenantName),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -952,7 +952,7 @@ func handleRDSDeleteTenantDatabase(w http.ResponseWriter, r *http.Request) {
 	key := rdsTenantKey(instID, tenantName)
 	t, ok := rdsTenantDatabases.Get(key)
 	if !ok {
-		rdsErrorXML(w, "TenantDatabaseNotFoundFault",
+		rdsErrorXML(w, "TenantDatabaseNotFound",
 			fmt.Sprintf("Tenant database %q not found", tenantName),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -997,7 +997,7 @@ func handleRDSCreateShardGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := rdsShardGroups.Get(id); ok {
-		rdsErrorXML(w, "DBShardGroupAlreadyExistsFault",
+		rdsErrorXML(w, "DBShardGroupAlreadyExists",
 			fmt.Sprintf("DBShardGroup %q already exists", id),
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
@@ -1039,7 +1039,7 @@ func handleRDSModifyShardGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBShardGroupIdentifier")
 	_, ok := rdsShardGroups.Get(id)
 	if !ok {
-		rdsErrorXML(w, "DBShardGroupNotFoundFault",
+		rdsErrorXML(w, "DBShardGroupNotFound",
 			fmt.Sprintf("DBShardGroup %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -1063,7 +1063,7 @@ func handleRDSDeleteShardGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBShardGroupIdentifier")
 	g, ok := rdsShardGroups.Get(id)
 	if !ok {
-		rdsErrorXML(w, "DBShardGroupNotFoundFault",
+		rdsErrorXML(w, "DBShardGroupNotFound",
 			fmt.Sprintf("DBShardGroup %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -1077,7 +1077,7 @@ func handleRDSRebootShardGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBShardGroupIdentifier")
 	g, ok := rdsShardGroups.Get(id)
 	if !ok {
-		rdsErrorXML(w, "DBShardGroupNotFoundFault",
+		rdsErrorXML(w, "DBShardGroupNotFound",
 			fmt.Sprintf("DBShardGroup %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -1266,7 +1266,7 @@ func handleRDSStartExportTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := rdsExportTasks.Get(id); ok {
-		rdsErrorXML(w, "ExportTaskAlreadyExistsFault",
+		rdsErrorXML(w, "ExportTaskAlreadyExists",
 			fmt.Sprintf("ExportTask %q already exists", id),
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
@@ -1331,7 +1331,7 @@ func handleRDSCancelExportTask(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("ExportTaskIdentifier")
 	_, ok := rdsExportTasks.Get(id)
 	if !ok {
-		rdsErrorXML(w, "ExportTaskNotFoundFault",
+		rdsErrorXML(w, "ExportTaskNotFound",
 			fmt.Sprintf("ExportTask %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return

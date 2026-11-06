@@ -94,7 +94,7 @@ func handleRDSCreateEventSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := rdsEventSubscriptions.Get(name); ok {
-		rdsErrorXML(w, "SubscriptionAlreadyExistFault", "Event subscription already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+		rdsErrorXML(w, "SubscriptionAlreadyExist", "Event subscription already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	enabled := true
@@ -131,7 +131,7 @@ func handleRDSDescribeEventSubscriptions(w http.ResponseWriter, r *http.Request)
 		b.WriteString(renderRDSEventSubscription(s))
 	}
 	if wanted != "" && !matched {
-		rdsErrorXML(w, "SubscriptionNotFoundFault",
+		rdsErrorXML(w, "SubscriptionNotFound",
 			fmt.Sprintf("EventSubscription %q not found", wanted),
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -143,7 +143,7 @@ func handleRDSDescribeEventSubscriptions(w http.ResponseWriter, r *http.Request)
 func handleRDSModifyEventSubscription(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("SubscriptionName")
 	if _, ok := rdsEventSubscriptions.Get(name); !ok {
-		rdsErrorXML(w, "SubscriptionNotFoundFault", "Event subscription not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		rdsErrorXML(w, "SubscriptionNotFound", "Event subscription not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	rdsEventSubscriptions.Update(name, func(s *RDSEventSubscription) {
@@ -170,7 +170,7 @@ func handleRDSDeleteEventSubscription(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		s, ok = findRDSEventSubscriptionByARN(name)
 		if !ok {
-			rdsErrorXML(w, "SubscriptionNotFoundFault", "Event subscription not found", http.StatusNotFound, sim.RequestID(r.Context()))
+			rdsErrorXML(w, "SubscriptionNotFound", "Event subscription not found", http.StatusNotFound, sim.RequestID(r.Context()))
 			return
 		}
 	}

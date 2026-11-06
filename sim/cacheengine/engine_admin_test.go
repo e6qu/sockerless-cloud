@@ -2,6 +2,7 @@ package cacheengine
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
@@ -117,6 +118,7 @@ func TestMemcachedAnswersInTurnAndUpgrades(t *testing.T) {
 	if version, _ := reader.ReadString('\n'); !strings.HasPrefix(version, "VERSION 1.6.17") {
 		t.Fatalf("version = %q", version)
 	}
+	binaryConfigGetAnswersInTurn(t, endpointAddress(t, plane.Endpoints(), DiscoveryEndpoint))
 	node := endpointAddress(t, plane.Endpoints(), NodeEndpoint)
 	if reply := memcachedDo(t, node, "set kept 0 0 1\r\nx\r\n"); reply != "STORED" {
 		t.Fatalf("set = %q", reply)
@@ -183,5 +185,87 @@ func TestClusterUpgradeKeepsEveryShardsKeys(t *testing.T) {
 		if value, err := cluster.Command(owners[KeySlot(key)], "GET", key); err != nil || value != "kept" {
 			t.Fatalf("%s = %v, %v after the upgrade", key, value, err)
 		}
+	}
+}
+
+// An instance with a replica upgrades one node at a time: the replica
+// restarts on the new image and takes over, and the old primary follows it on
+// the new image too, so the dataset survives a snapshot format the old engine
+// cannot read.
+func TestInstanceUpgradeRollsThroughItsNodes(t *testing.T) {
+	cfg := engineTestConfig(t, t.Name())
+	cfg.Image = "mirror.gcr.io/library/redis:6.2-alpine"
+	listeners, endpoints, err := Bind(cfg.Owner, []Endpoint{{Role: PrimaryEndpoint}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plane := New(cfg, Record{Endpoints: endpoints, Nodes: []int{0, 1}, Replicas: 1})
+	t.Cleanup(plane.Remove)
+	plane.ServeEndpoints(listeners)
+	if err := plane.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	before := plane.Primary()
+	if _, err := plane.Command(before, "SET", "kept", "across"); err != nil {
+		t.Fatal(err)
+	}
+	if err := plane.Upgrade(redisImage); err != nil {
+		t.Fatal(err)
+	}
+	if plane.Primary() == before {
+		t.Fatal("the old primary still leads: the upgrade restarted it in place rather than failing over to an upgraded replica")
+	}
+	for _, index := range plane.Nodes() {
+		info, err := plane.Command(index, "INFO", "server")
+		if version := ParseInfo(fmt.Sprint(info))["redis_version"]; err != nil || !strings.HasPrefix(version, "7.2.") {
+			t.Fatalf("node %d runs %q (%v)", index, version, err)
+		}
+		if value, err := plane.Command(index, "GET", "kept"); err != nil || value != "across" {
+			t.Fatalf("node %d holds %v (%v)", index, value, err)
+		}
+	}
+}
+
+// A binary-protocol "config get cluster" (opcode 0x60, as the ElastiCache
+// Cluster Client sends it) answers with the configuration's flags as extras
+// and its data as value, in turn with the node's own replies.
+func binaryConfigGetAnswersInTurn(t *testing.T, address string) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	request := func(opcode byte, opaque uint32, key string) []byte {
+		packet := make([]byte, 24+len(key))
+		packet[0], packet[1] = 0x80, opcode
+		binary.BigEndian.PutUint16(packet[2:4], uint16(len(key)))
+		binary.BigEndian.PutUint32(packet[8:12], uint32(len(key)))
+		binary.BigEndian.PutUint32(packet[12:16], opaque)
+		copy(packet[24:], key)
+		return packet
+	}
+	pipelined := append(request(0x60, 7, "cluster"), request(0x0b, 8, "")...)
+	if _, err := conn.Write(pipelined); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	header, body, err := readMemcachedBinaryPacket(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header[0] != 0x81 || header[1] != 0x60 || binary.BigEndian.Uint32(header[12:16]) != 7 || header[4] != 4 {
+		t.Fatalf("config get answered with header % x", header)
+	}
+	if string(body[4:]) != "1\n\r" {
+		t.Fatalf("config get answered %q", body[4:])
+	}
+	header, body, err = readMemcachedBinaryPacket(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header[1] != 0x0b || binary.BigEndian.Uint32(header[12:16]) != 8 || !strings.HasPrefix(string(body), "1.6.") {
+		t.Fatalf("version answered with header % x and %q", header, body)
 	}
 }

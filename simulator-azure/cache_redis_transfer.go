@@ -441,11 +441,26 @@ func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
 			}
 			files = append(files, data)
 		}
+		// Each file loads in a redis-server of its own first, so a file that
+		// fails to load fails the import before the engine stops.
+		loaded := make([]*redisLoadedRDB, 0, len(files))
+		defer func() {
+			for _, l := range loaded {
+				l.close()
+			}
+		}()
+		for i, data := range files {
+			l, err := redisLoadRDB(cache.ID, data)
+			if err != nil {
+				return &AsyncOperationError{Code: "InternalServerError", Message: "Load " + sources[i].blob + ": " + err.Error()}
+			}
+			loaded = append(loaded, l)
+		}
 		if err := plane.Restart(files[0], ""); err != nil {
 			return &AsyncOperationError{Code: "InternalServerError", Message: "Load " + sources[0].blob + ": " + err.Error()}
 		}
-		for i, data := range files[1:] {
-			if err := redisMergeRDB(cache.ID, plane, data); err != nil {
+		for i, l := range loaded[1:] {
+			if _, err := plane.CopyFrom(l.conn); err != nil {
 				return &AsyncOperationError{Code: "InternalServerError", Message: "Load " + sources[i+1].blob + ": " + err.Error()}
 			}
 		}
@@ -474,23 +489,38 @@ func redisCheckRDB(name string, data []byte, redisVersion string) *AsyncOperatio
 	return nil
 }
 
-// redisMergeRDB inserts the keys of an RDB file into the cache: a standalone
-// redis-server beside the engine loads the file, and the engine copies its
-// keys, each with its remaining time to live.
-func redisMergeRDB(id string, plane *cacheengine.Plane, data []byte) error {
+// redisLoadedRDB is an RDB file a standalone redis-server beside the engine
+// has loaded, and a connection to it from which the engine copies its keys,
+// each with its remaining time to live.
+type redisLoadedRDB struct {
+	handle placement.Handle
+	conn   *cacheengine.Conn
+}
+
+func (l *redisLoadedRDB) close() {
+	if l.conn != nil {
+		_ = l.conn.Close()
+	}
+	l.handle.Cancel()
+	_ = l.handle.Wait()
+}
+
+// redisLoadRDB places a redis-server that loads data, and answers once it
+// accepts clients; a file that fails to load ends it first.
+func redisLoadRDB(id string, data []byte) (*redisLoadedRDB, error) {
 	record, ok := redisEngineRecords.Get(id)
 	if !ok {
-		return fmt.Errorf("the cache has no engine record")
+		return nil, fmt.Errorf("the cache has no engine record")
 	}
 	backend, err := azurePlacementBackend(placementRedisCache)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	network, resolvers, err := redisEngineNetwork(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	const directory = "/import"
 	ready := make(chan struct{})
@@ -513,30 +543,28 @@ func redisMergeRDB(id string, plane *cacheengine.Plane, data []byte) error {
 		}
 	}))
 	if err != nil {
-		return fmt.Errorf("place the file's loader: %w", err)
+		return nil, fmt.Errorf("place the file's loader: %w", err)
 	}
-	defer func() {
-		handle.Cancel()
-		_ = handle.Wait()
-	}()
+	loaded := &redisLoadedRDB{handle: handle}
 	select {
 	case <-ready:
 	case <-handle.Exited():
-		return fmt.Errorf("the RDB file did not load: redis-server exited with status %d", handle.Wait().ExitCode)
+		loaded.close()
+		return nil, fmt.Errorf("the RDB file did not load: redis-server exited with status %d", handle.Wait().ExitCode)
 	case <-ctx.Done():
-		return fmt.Errorf("the RDB file did not load: %w", ctx.Err())
+		loaded.close()
+		return nil, fmt.Errorf("the RDB file did not load: %w", ctx.Err())
 	}
 	port, err := handle.PublishedPort(ctx, cacheengine.Port)
 	if err != nil {
-		return err
+		loaded.close()
+		return nil, err
 	}
-	source, err := cacheengine.Dial(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "", 5*time.Second)
-	if err != nil {
-		return err
+	if loaded.conn, err = cacheengine.Dial(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "", 5*time.Second); err != nil {
+		loaded.close()
+		return nil, err
 	}
-	defer source.Close()
-	_, err = plane.CopyFrom(source)
-	return err
+	return loaded, nil
 }
 
 // handleCacheOperationResult serves the Location of a Microsoft.Cache

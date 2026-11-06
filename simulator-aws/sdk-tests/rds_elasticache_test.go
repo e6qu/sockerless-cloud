@@ -345,5 +345,5 @@ func TestElastiCache_SubnetAndParameterGroups(t *testing.T) {
 	_, err = c.DescribeCacheParameterGroups(ctx, &elasticache.DescribeCacheParameterGroupsInput{
 		CacheParameterGroupName: aws.String(pgName),
 	})
-	assertAWSAPIErrorCode(t, err, "CacheParameterGroupNotFoundFault")
+	assertAWSAPIErrorCode(t, err, "CacheParameterGroupNotFound")
 }

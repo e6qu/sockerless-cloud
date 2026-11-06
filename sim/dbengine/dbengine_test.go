@@ -293,3 +293,48 @@ func (s *collectingSink) WriteLog(line sim.LogLine) {
 	defer s.mu.Unlock()
 	s.lines = append(s.lines, line.Text)
 }
+
+// An identifier serving two ports takes an address on which both are free:
+// another process holding one of them on the address the identifier would
+// otherwise take moves it to the next.
+func TestListenLoopbackPortsSkipsAnAddressHoldingOneOfThem(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only Linux routes all of 127.0.0.0/8 to the loopback interface")
+	}
+	ports := make([]int, 2)
+	for i := range ports {
+		probe, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ports[i] = probe.Addr().(*net.TCPAddr).Port
+		_ = probe.Close()
+	}
+	const identifier = "cache-with-two-ports"
+	var seed byte = 2
+	for i := 0; i < len(identifier); i++ {
+		seed += identifier[i]
+	}
+	derived := "127.0.0." + strconv.Itoa(2+int(seed)%253)
+	squatter, err := net.Listen("tcp", net.JoinHostPort(derived, strconv.Itoa(ports[1])))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer squatter.Close()
+	t.Cleanup(func() { ReleaseLoopback(identifier) })
+	listeners, err := ListenLoopbackPorts(identifier, ports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listener := range listeners {
+		defer listener.Close()
+		if host, _, _ := net.SplitHostPort(listener.Addr().String()); host == derived {
+			t.Fatalf("bound %s on the address another process holds a port of", listener.Addr())
+		}
+	}
+	first, _, _ := net.SplitHostPort(listeners[0].Addr().String())
+	second, _, _ := net.SplitHostPort(listeners[1].Addr().String())
+	if first != second {
+		t.Fatalf("the ports took two addresses, %s and %s", first, second)
+	}
+}

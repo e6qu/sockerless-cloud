@@ -224,7 +224,7 @@ func (p *Plane) migrateSlotKeys(source *Conn, slot int, targetIP string) error {
 		if len(keys) == 0 {
 			return nil
 		}
-		args := []string{"MIGRATE", targetIP, strconv.Itoa(Port), "", "0", strconv.Itoa(int(commandDeadline / time.Millisecond))}
+		args := []string{"MIGRATE", targetIP, strconv.Itoa(p.port), "", "0", strconv.Itoa(int(commandDeadline / time.Millisecond))}
 		if password := p.Password(); password != "" && p.cfg.AdminUser != "" {
 			args = append(args, "AUTH2", p.cfg.AdminUser, password)
 		} else if password != "" {

@@ -457,6 +457,9 @@ func azureResourceIdentity(resourceID string) (identity *SiteIdentity, clientID,
 	if job, found := acaJobs.Get(resourceID); found {
 		return job.Identity, job.SystemIdentityClientID, job.Location, true
 	}
+	if cache, found := redisCaches.Get(resourceID); found {
+		return cache.Identity, redisSystemIdentityClientID(cache.Identity), cache.Location, true
+	}
 	return nil, "", "", false
 }
 

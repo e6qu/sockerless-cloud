@@ -387,6 +387,23 @@ func renderECUserGroupBody(g ECUserGroup) string {
 		fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(name))
 	}
 	b.WriteString("</ServerlessCaches>")
+	if len(g.PendingUserIdsToAdd)+len(g.PendingUserIdsToRemove) > 0 {
+		b.WriteString("<PendingChanges>")
+		for _, list := range []struct {
+			name string
+			ids  []string
+		}{{"UserIdsToRemove", g.PendingUserIdsToRemove}, {"UserIdsToAdd", g.PendingUserIdsToAdd}} {
+			if len(list.ids) == 0 {
+				continue
+			}
+			b.WriteString("<" + list.name + ">")
+			for _, id := range list.ids {
+				fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(id))
+			}
+			b.WriteString("</" + list.name + ">")
+		}
+		b.WriteString("</PendingChanges>")
+	}
 	fmt.Fprintf(&b, "<ARN>%s</ARN>", xmlEscape(g.ARN))
 	return b.String()
 }
@@ -555,15 +572,20 @@ func handleECModifyUserGroup(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, code, message, status, requestID)
 		return
 	}
-	g.UserIds = members
 	affected := len(ecCachesOfGroups([]string{g.UserGroupId})) > 0
 	if affected {
 		g.Status = "modifying"
+		g.PendingUserIdsToAdd = slices.DeleteFunc(slices.Clone(members), func(id string) bool { return slices.Contains(g.UserIds, id) })
+		g.PendingUserIdsToRemove = slices.DeleteFunc(slices.Clone(g.UserIds), func(id string) bool { return slices.Contains(members, id) })
 	}
+	g.UserIds = members
 	ecUserGroups.Put(g.UserGroupId, g)
 	if affected {
 		ecReapplyUsers([]string{g.UserGroupId}, func() {
-			ecUserGroups.Update(g.UserGroupId, func(stored *ECUserGroup) { stored.Status = "active" })
+			ecUserGroups.Update(g.UserGroupId, func(stored *ECUserGroup) {
+				stored.Status = "active"
+				stored.PendingUserIdsToAdd, stored.PendingUserIdsToRemove = nil, nil
+			})
 		})
 	}
 	ecXMLResponse(w, "ModifyUserGroup", renderECUserGroupBody(g), requestID)

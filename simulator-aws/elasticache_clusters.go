@@ -48,6 +48,82 @@ type ECCluster struct {
 	AuthTokens []byte `json:",omitempty"`
 	// The version of a Memcached cluster's Auto Discovery configuration.
 	ConfigVersion int `json:",omitempty"`
+	// Pending is the change applying while the cluster is modifying.
+	Pending *ECPendingModifiedValues `json:",omitempty"`
+	// RestoreFrom is what a creating cluster loads, kept so a restarted
+	// simulator loads it again.
+	RestoreFrom *ecRestoreSource `json:",omitempty"`
+}
+
+// ECPendingModifiedValues is a change a cluster or replication group applies,
+// reported as its PendingModifiedValues until it lands.
+type ECPendingModifiedValues struct {
+	NumCacheNodes        int      `json:",omitempty"`
+	CacheNodeIdsToRemove []string `json:",omitempty"`
+	EngineVersion        string   `json:",omitempty"`
+	AuthTokenStatus      string   `json:",omitempty"`
+	UserGroupIdsToAdd    []string `json:",omitempty"`
+	UserGroupIdsToRemove []string `json:",omitempty"`
+}
+
+// ecAuthTokenStatus is the AuthTokenUpdateStatus a token change reports:
+// ROTATE, "default, if no update strategy is provided", rotates, and SET
+// sets; DELETE reports neither.
+func ecAuthTokenStatus(token, strategy string) string {
+	switch strings.ToUpper(strategy) {
+	case "SET":
+		return "SETTING"
+	case "ROTATE":
+		return "ROTATING"
+	case "":
+		if token != "" {
+			return "ROTATING"
+		}
+	}
+	return ""
+}
+
+func renderECPendingModifiedValues(element string, p *ECPendingModifiedValues, userGroups bool) string {
+	if p == nil {
+		return "<" + element + "/>"
+	}
+	var b strings.Builder
+	b.WriteString("<" + element + ">")
+	if p.NumCacheNodes > 0 {
+		fmt.Fprintf(&b, "<NumCacheNodes>%d</NumCacheNodes>", p.NumCacheNodes)
+	}
+	if len(p.CacheNodeIdsToRemove) > 0 {
+		b.WriteString("<CacheNodeIdsToRemove>")
+		for _, id := range p.CacheNodeIdsToRemove {
+			fmt.Fprintf(&b, "<CacheNodeId>%s</CacheNodeId>", xmlEscape(id))
+		}
+		b.WriteString("</CacheNodeIdsToRemove>")
+	}
+	if p.EngineVersion != "" {
+		fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(p.EngineVersion))
+	}
+	if p.AuthTokenStatus != "" {
+		fmt.Fprintf(&b, "<AuthTokenStatus>%s</AuthTokenStatus>", xmlEscape(p.AuthTokenStatus))
+	}
+	if userGroups && (len(p.UserGroupIdsToAdd) > 0 || len(p.UserGroupIdsToRemove) > 0) {
+		b.WriteString("<UserGroups>")
+		for _, list := range []struct {
+			name string
+			ids  []string
+		}{{"UserGroupIdsToAdd", p.UserGroupIdsToAdd}, {"UserGroupIdsToRemove", p.UserGroupIdsToRemove}} {
+			if len(list.ids) == 0 {
+				continue
+			}
+			b.WriteString("<" + list.name + ">")
+			for _, id := range list.ids {
+				fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(id))
+			}
+			b.WriteString("</" + list.name + ">")
+		}
+		b.WriteString("</UserGroups>")
+	}
+	b.WriteString("</" + element + ">")
+	return b.String()
 }
 
 type ECCacheNode struct {
@@ -95,6 +171,11 @@ type ECReplicationGroup struct {
 	Incarnation  string         `json:",omitempty"`
 	AuthTokens   []byte         `json:",omitempty"`
 	UserGroupIds []string       `json:",omitempty"`
+	// Pending is the change applying while the group is modifying.
+	Pending *ECPendingModifiedValues `json:",omitempty"`
+	// RestoreFrom is what a creating group loads, kept so a restarted
+	// simulator loads it again.
+	RestoreFrom *ecRestoreSource `json:",omitempty"`
 }
 
 type ECNodeGroup struct {
@@ -136,6 +217,7 @@ func renderECCluster(c ECCluster, showNodes bool) string {
 	fmt.Fprintf(&b, "<CacheClusterCreateTime>%s</CacheClusterCreateTime>", xmlEscape(c.CacheClusterCreateTime))
 	fmt.Fprintf(&b, "<ARN>%s</ARN>", xmlEscape(c.ARN))
 	fmt.Fprintf(&b, "<PreferredAvailabilityZone>%s</PreferredAvailabilityZone>", xmlEscape(ecClusterZone(c)))
+	b.WriteString(renderECPendingModifiedValues("PendingModifiedValues", c.Pending, false))
 	if c.Engine == "memcached" && c.Endpoint != "" {
 		b.WriteString(ecEndpointXML("ConfigurationEndpoint", c.Endpoint, c.Port))
 	}
@@ -350,21 +432,29 @@ func handleECCreate(w http.ResponseWriter, r *http.Request) {
 	if engine == "memcached" {
 		c.ConfigVersion = 1
 	}
+	c.RestoreFrom = restore.from
 	ecClusters.Put(id, c)
+	ecCreateCluster(id, c.Incarnation, running, restore)
+	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c, false), requestID)
+}
+
+// ecCreateCluster starts a creating cluster's engine and loads its restore.
+func ecCreateCluster(id, incarnation string, running *ecEngine, restore ecRestore) {
 	restore.begin()
 	ecRunInBackground(running, restore.start(false), func(err error) {
-		ecSettleCluster(id, c.Incarnation, err)
+		ecSettleCluster(id, incarnation, err)
 		var failed *ecRestoreError
-		if errors.As(err, &failed) {
-			ecClusters.Update(id, func(stored *ECCluster) {
-				if stored.Incarnation == c.Incarnation {
-					stored.CacheClusterStatus = "restore-failed"
-				}
-			})
-		}
+		ecClusters.Update(id, func(stored *ECCluster) {
+			if stored.Incarnation != incarnation {
+				return
+			}
+			stored.RestoreFrom = nil
+			if errors.As(err, &failed) {
+				stored.CacheClusterStatus = "restore-failed"
+			}
+		})
 		restore.finish()
 	})
-	ecXMLResponse(w, "CreateCacheCluster", renderECCluster(c, false), requestID)
 }
 
 func ecClusterNodes(c ECCluster, endpoints []cacheengine.Endpoint, count int, status, created string) []ECCacheNode {
@@ -517,6 +607,17 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 		}
 		if engineChange {
 			stored.CacheClusterStatus = "modifying"
+			pending := &ECPendingModifiedValues{AuthTokenStatus: ecAuthTokenStatus(token, strategy)}
+			if nodes != c.NumCacheNodes {
+				pending.NumCacheNodes = nodes
+			}
+			for i := nodes; i < c.NumCacheNodes; i++ {
+				pending.CacheNodeIdsToRemove = append(pending.CacheNodeIdsToRemove, ecCacheNodeID(i))
+			}
+			if version.Image != "" {
+				pending.EngineVersion = version.Version
+			}
+			stored.Pending = pending
 		}
 	})
 	updated, _ := ecClusters.Get(id)
@@ -529,6 +630,7 @@ func handleECModify(w http.ResponseWriter, r *http.Request) {
 				if stored.Incarnation != c.Incarnation {
 					return
 				}
+				stored.Pending = nil
 				if err == nil {
 					if version.Image != "" {
 						stored.EngineVersion = version.Version
@@ -721,6 +823,7 @@ func renderECReplGroup(g ECReplicationGroup) string {
 	fmt.Fprintf(&b, "<ReplicationGroupId>%s</ReplicationGroupId>", xmlEscape(g.ReplicationGroupId))
 	fmt.Fprintf(&b, "<Description>%s</Description>", xmlEscape(g.Description))
 	fmt.Fprintf(&b, "<Status>%s</Status>", xmlEscape(g.Status))
+	b.WriteString(renderECPendingModifiedValues("PendingModifiedValues", g.Pending, true))
 	fmt.Fprintf(&b, "<CacheNodeType>%s</CacheNodeType>", xmlEscape(g.CacheNodeType))
 	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(g.Engine))
 	fmt.Fprintf(&b, "<AutomaticFailover>%s</AutomaticFailover>", xmlEscape(g.AutomaticFailover))
@@ -803,7 +906,7 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := ecReplGroups.Get(id); ok {
-		invalid("ReplicationGroupAlreadyExistsFault", "Replication group already exists")
+		invalid("ReplicationGroupAlreadyExists", "Replication group already exists")
 		return
 	}
 	restore, ok := ecRequestedRestore(w, r)
@@ -961,14 +1064,25 @@ func handleECCreateReplGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ecDescribeReplGroupTopology(&g, ecShapeTopology(shards, replicas, clusterEnabled), endpoints, "creating")
+	g.RestoreFrom = restore.from
 	ecReplGroups.Put(id, g)
 	ecPutMemberClusters(g, "creating")
+	ecCreateReplGroup(id, g.Incarnation, clusterEnabled, running, restore)
+	ecXMLResponse(w, "CreateReplicationGroup", renderECReplGroup(g), requestID)
+}
+
+// ecCreateReplGroup starts a creating group's engine and loads its restore.
+func ecCreateReplGroup(id, incarnation string, clusterEnabled bool, running *ecEngine, restore ecRestore) {
 	restore.begin()
 	ecRunInBackground(running, restore.start(clusterEnabled), func(err error) {
-		ecSettleReplGroup(id, g.Incarnation, running, err)
+		ecReplGroups.Update(id, func(stored *ECReplicationGroup) {
+			if stored.Incarnation == incarnation {
+				stored.RestoreFrom = nil
+			}
+		})
+		ecSettleReplGroup(id, incarnation, running, err)
 		restore.finish()
 	})
-	ecXMLResponse(w, "CreateReplicationGroup", renderECReplGroup(g), requestID)
 }
 
 // <group>-00N without cluster mode, <group>-<shard>-<member> with it, the
@@ -1317,6 +1431,18 @@ func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 		g.UserGroupIds = groups
 		if engineChange {
 			g.Status = "modifying"
+			pending := &ECPendingModifiedValues{AuthTokenStatus: ecAuthTokenStatus(token, strategy)}
+			for _, group := range groups {
+				if !slices.Contains(current.UserGroupIds, group) {
+					pending.UserGroupIdsToAdd = append(pending.UserGroupIdsToAdd, group)
+				}
+			}
+			for _, group := range current.UserGroupIds {
+				if !slices.Contains(groups, group) {
+					pending.UserGroupIdsToRemove = append(pending.UserGroupIdsToRemove, group)
+				}
+			}
+			g.Pending = pending
 		}
 	})
 	updated, _ := ecReplGroups.Get(id)
@@ -1326,7 +1452,11 @@ func handleECModifyReplGroup(w http.ResponseWriter, r *http.Request) {
 			return ecModifyClusterEngine(e, 1, current.Port, 1, version, users)
 		}, func(err error) {
 			ecReplGroups.Update(id, func(g *ECReplicationGroup) {
-				if g.Incarnation != current.Incarnation || err != nil {
+				if g.Incarnation != current.Incarnation {
+					return
+				}
+				g.Pending = nil
+				if err != nil {
 					return
 				}
 				if version.Image != "" {
@@ -1610,7 +1740,19 @@ func ecRecoverTransitions() {
 		case "deleting":
 			ecDeleteClusterInBackground(id, incarnation)
 		case "creating":
-			ecRunInBackground(engine, (*ecEngine).start, func(err error) { ecSettleCluster(id, incarnation, err) })
+			restore, err := ecResolveRestore(c.RestoreFrom)
+			if err != nil {
+				ecRunInBackground(engine, func(*ecEngine) error { return &ecRestoreError{err: err} }, func(err error) {
+					ecSettleCluster(id, incarnation, err)
+					ecClusters.Update(id, func(stored *ECCluster) {
+						if stored.Incarnation == incarnation {
+							stored.CacheClusterStatus, stored.RestoreFrom = "restore-failed", nil
+						}
+					})
+				})
+				continue
+			}
+			ecCreateCluster(id, incarnation, engine, restore)
 		case "modifying", "rebooting cluster nodes":
 			ecRunInBackground(engine, (*ecEngine).start, func(error) { ecSetClusterAvailable(id, incarnation) })
 		}
@@ -1622,7 +1764,14 @@ func ecRecoverTransitions() {
 		case "deleting":
 			ecDeleteReplGroupInBackground(id, incarnation)
 		case "creating":
-			ecRunInBackground(engine, (*ecEngine).start, func(err error) { ecSettleReplGroup(id, incarnation, engine, err) })
+			restore, err := ecResolveRestore(g.RestoreFrom)
+			if err != nil {
+				ecRunInBackground(engine, func(*ecEngine) error { return &ecRestoreError{err: err} }, func(err error) {
+					ecSettleReplGroup(id, incarnation, engine, err)
+				})
+				continue
+			}
+			ecCreateReplGroup(id, incarnation, g.ClusterEnabled, engine, restore)
 		case "modifying", "rebooting cluster nodes":
 			ecRunInBackground(engine, (*ecEngine).start, func(error) { ecRefreshReplGroup(id, incarnation, engine) })
 		}

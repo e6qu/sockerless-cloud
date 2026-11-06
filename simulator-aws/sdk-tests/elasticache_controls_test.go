@@ -27,6 +27,22 @@ import (
 
 // ecAwaitUserActive polls the user's Status, all ElastiCache offers to wait
 // on: the SDK has no waiter for a user.
+func ecAwaitUserGroupActive(t *testing.T, c *elasticache.Client, id string) {
+	t.Helper()
+	deadline := time.Now().Add(ecEngineWait)
+	for {
+		out, err := c.DescribeUserGroups(t.Context(), &elasticache.DescribeUserGroupsInput{UserGroupId: aws.String(id)})
+		require.NoError(t, err)
+		require.Len(t, out.UserGroups, 1)
+		if aws.ToString(out.UserGroups[0].Status) == "active" {
+			assert.Nil(t, out.UserGroups[0].PendingChanges, "an active user group has no change pending")
+			return
+		}
+		require.True(t, time.Now().Before(deadline), "user group %s did not become active", id)
+		time.Sleep(time.Second)
+	}
+}
+
 func ecAwaitUserActive(t *testing.T, c *elasticache.Client, id string) {
 	t.Helper()
 	deadline := time.Now().Add(ecEngineWait)
@@ -156,6 +172,8 @@ func TestElastiCache_UserGroupsAndAuthTokensRunInTheEngine(t *testing.T) {
 	assert.Error(t, iam.Set(t.Context(), "app:greeting", "changed", 0).Err(), "the IAM-enabled user reads only")
 	assert.Error(t, ecRedisUser(t, primary, "sdk-rbac-iam", ecIAMAuthToken(t, "another-cache", "sdk-rbac-iam")).Ping(t.Context()).Err(),
 		"a token signed for another cache does not sign in")
+	assert.Error(t, ecRedisUser(t, primary, "sdk-app", ecIAMAuthToken(t, id, "sdk-rbac-iam")).Ping(t.Context()).Err(),
+		"a token signs in only under the username its user id is")
 
 	_, err = c.ModifyUser(t.Context(), &elasticache.ModifyUserInput{
 		UserId: aws.String("sdk-rbac-app"), AppendAccessString: aws.String("~other:*"), Passwords: []string{appRotated},
@@ -166,12 +184,28 @@ func TestElastiCache_UserGroupsAndAuthTokensRunInTheEngine(t *testing.T) {
 	rotated := ecRedisUser(t, primary, "sdk-app", appRotated)
 	require.NoError(t, rotated.Set(t.Context(), "other:greeting", "hello", 0).Err(), "the appended rule reached the engine")
 
-	_, err = c.ModifyReplicationGroup(t.Context(), &elasticache.ModifyReplicationGroupInput{
+	shrunk, err := c.ModifyUserGroup(t.Context(), &elasticache.ModifyUserGroupInput{
+		UserGroupId: aws.String(groupID), UserIdsToRemove: []string{"sdk-rbac-iam"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, shrunk.PendingChanges, "a change to a group a cache uses is pending until the engine applies it")
+	assert.Equal(t, []string{"sdk-rbac-iam"}, shrunk.PendingChanges.UserIdsToRemove)
+	ecAwaitUserGroupActive(t, c, groupID)
+	assert.Error(t, ecRedisUser(t, primary, "sdk-rbac-iam", ecIAMAuthToken(t, id, "sdk-rbac-iam")).Ping(t.Context()).Err(),
+		"a user removed from the group no longer signs in")
+
+	removed, err := c.ModifyReplicationGroup(t.Context(), &elasticache.ModifyReplicationGroupInput{
 		ReplicationGroupId: aws.String(id), RemoveUserGroups: aws.Bool(true), AuthToken: aws.String(firstToken),
 		AuthTokenUpdateStrategy: ectypes.AuthTokenUpdateStrategyTypeRotate, ApplyImmediately: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	pending := removed.ReplicationGroup.PendingModifiedValues
+	require.NotNil(t, pending)
+	assert.Equal(t, ectypes.AuthTokenUpdateStatusRotating, pending.AuthTokenStatus)
+	require.NotNil(t, pending.UserGroups)
+	assert.Equal(t, []string{groupID}, pending.UserGroups.UserGroupIdsToRemove)
 	group = ecAwaitReplGroup(t, c, id)
+	assert.Nil(t, group.PendingModifiedValues.UserGroups, "the change landed")
 	assert.Empty(t, group.UserGroupIds)
 	assert.True(t, aws.ToBool(group.AuthTokenEnabled))
 	require.NoError(t, ecRedisUser(t, primary, "", "").Ping(t.Context()).Err(), "a token ROTATE adds to none is optional")
@@ -294,10 +328,14 @@ func TestElastiCache_MemcachedAutoDiscoveryAndUpgrade(t *testing.T) {
 	assert.Equal(t, 1, version, "every node answers with the same configuration")
 	assert.Equal(t, ecDiscoveryNodes(cluster), nodes)
 
-	_, err = c.ModifyCacheCluster(t.Context(), &elasticache.ModifyCacheClusterInput{
+	resized, err := c.ModifyCacheCluster(t.Context(), &elasticache.ModifyCacheClusterInput{
 		CacheClusterId: aws.String(id), NumCacheNodes: aws.Int32(3), ApplyImmediately: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	require.NotNil(t, resized.CacheCluster.PendingModifiedValues)
+	assert.Equal(t, int32(3), aws.ToInt32(resized.CacheCluster.PendingModifiedValues.NumCacheNodes))
+	// The cluster stays modifying until the added node's container runs,
+	// which outlasts the next request.
 	_, err = c.ModifyCacheCluster(t.Context(), &elasticache.ModifyCacheClusterInput{
 		CacheClusterId: aws.String(id), CacheNodeType: aws.String("cache.t3.small"),
 	})
@@ -305,6 +343,7 @@ func TestElastiCache_MemcachedAutoDiscoveryAndUpgrade(t *testing.T) {
 	_, err = c.DeleteCacheCluster(t.Context(), &elasticache.DeleteCacheClusterInput{CacheClusterId: aws.String(id)})
 	assertAWSAPIErrorCode(t, err, "InvalidCacheClusterState")
 	cluster = ecAwaitCluster(t, c, id)
+	assert.Nil(t, cluster.PendingModifiedValues.NumCacheNodes, "the resize landed")
 	version, nodes = ecConfigGetCluster(t, ecAddress(cluster.ConfigurationEndpoint))
 	assert.Equal(t, 2, version, "adding a node advances the configuration version")
 	assert.Len(t, nodes, 3)
@@ -355,6 +394,8 @@ func TestElastiCache_ClusterModeEngineUpgradeKeepsKeys(t *testing.T) {
 		ReplicationGroupId: aws.String(id), EngineVersion: aws.String("7.1"), ApplyImmediately: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	// The group stays modifying until every node's container restarts on the
+	// new image, which outlasts the next request.
 	_, err = c.ModifyReplicationGroup(t.Context(), &elasticache.ModifyReplicationGroupInput{
 		ReplicationGroupId: aws.String(id), ReplicationGroupDescription: aws.String("changed while upgrading"),
 	})
