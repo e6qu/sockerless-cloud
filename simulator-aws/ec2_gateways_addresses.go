@@ -507,19 +507,13 @@ func natgwItemXML(n EC2NatGateway) string {
 	return "<item>" + natgwBodyXML(n) + "</item>"
 }
 
+// The model's NatGatewayDeleted waiter takes NatGatewayNotFound for a
+// gateway that is gone.
 func handleDescribeNatGateways(w http.ResponseWriter, r *http.Request) {
-	var nats []EC2NatGateway
-	if id := r.FormValue("NatGatewayId.1"); id != "" {
-		if n, ok := ec2NatGateways.Get(id); ok {
-			nats = append(nats, n)
-		}
-	} else {
-		filters := ec2Filters(r)
-		for _, n := range ec2NatGateways.List() {
-			if ec2NatGatewayMatchesFilters(n, filters) {
-				nats = append(nats, n)
-			}
-		}
+	nats, ok := ec2NamedOrMatching(w, r, ec2NatGateways, "NatGatewayId", "NatGatewayNotFound",
+		"NAT gateway %s was not found", ec2NatGatewayMatchesFilters)
+	if !ok {
+		return
 	}
 
 	var items strings.Builder

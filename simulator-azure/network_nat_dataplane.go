@@ -31,16 +31,17 @@ const azureNATGatewayUDPIdle = 4 * time.Minute
 const azureNATGatewayStopGrace = 10 * time.Second
 
 type azureNATEgress struct {
-	handle  *sim.ContainerHandle
-	token   string
-	network string
-	address netip.Addr
-	sources string
-	idle    time.Duration
+	gatewayID string
+	handle    *sim.ContainerHandle
+	token     string
+	network   string
+	address   netip.Addr
+	sources   string
+	idle      time.Duration
 }
 
 var (
-	azureNATEgressMu sync.Mutex
+	azureNATEgressMu sync.RWMutex
 	// Keyed by lowercased gateway ID.
 	azureNATEgresses = map[string]*azureNATEgress{}
 	// The lowercased virtual network ID behind each prefix network this process
@@ -155,7 +156,7 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		return fmt.Errorf("NAT gateway %s: %w", gw.ID, err)
 	}
 	azureNATEgressMu.Lock()
-	azureNATEgresses[key] = &azureNATEgress{handle: handle, token: token, network: network, address: address, sources: wanted, idle: idle}
+	azureNATEgresses[key] = &azureNATEgress{gatewayID: gw.ID, handle: handle, token: token, network: network, address: address, sources: wanted, idle: idle}
 	azureNATEgressMu.Unlock()
 	return nil
 }
@@ -291,4 +292,33 @@ func azureTakeNATEgressReport(network string, report egress.Report) {
 			azureRecordMetric(gw.ID, "DatapathAvailability", "Count", 100, nil, ev.At)
 		}
 	}
+}
+
+// azureNATPublicAddress is the public address a NAT gateway sends from when
+// private is its sidecar's address: what a machine sends through the gateway
+// reaches the simulator from the sidecar, and Azure from the gateway's public
+// IP.
+func azureNATPublicAddress(private string) (string, bool) {
+	azureNATEgressMu.RLock()
+	var gatewayID string
+	for _, e := range azureNATEgresses {
+		if e.address.String() == private {
+			gatewayID = e.gatewayID
+			break
+		}
+	}
+	azureNATEgressMu.RUnlock()
+	if gatewayID == "" || azureNatGateways == nil || azurePublicIPs == nil {
+		return "", false
+	}
+	gw, ok := azureNatGateways.Get(gatewayID)
+	if !ok {
+		return "", false
+	}
+	for _, ref := range gw.Properties.PublicIPAddresses {
+		if pip, ok := azurePublicIPs.Get(ref.ID); ok && pip.Properties.PublicIPAddress != "" {
+			return pip.Properties.PublicIPAddress, true
+		}
+	}
+	return "", false
 }

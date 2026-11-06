@@ -544,6 +544,13 @@ route out, as does a Compute Engine instance with neither an external address
 nor a Cloud NAT; the Amazon ECS test helper's VPCs carry an internet gateway
 route, as a public subnet's tasks need to reach the simulator. The NAT
 data-plane tests of all three clouds moved off the guest-only shards.
+What a workload sends through a gateway reaches the simulator from the
+gateway's sidecar, at its private address; the simulator attributes it to the
+gateway's public address, as the cloud sees it: IAM's `aws:SourceIp`, Cloud
+Audit Logs' `callerIp` and the Activity Log's `clientIpAddress`. Writing the
+test found `DescribeNatGateways` reading only its first ID and answering an
+unknown one with an empty list, which left the SDK's `NatGatewayDeleted`
+waiter waiting out its whole budget; it answers `NatGatewayNotFound`.
 
 ### VM instances and cloud-init
 

@@ -593,6 +593,9 @@ func iamSourceIP(r *http.Request) string {
 	if err != nil {
 		return r.RemoteAddr
 	}
+	if public, ok := ec2NatPublicAddress(host); ok {
+		return public
+	}
 	return host
 }
 

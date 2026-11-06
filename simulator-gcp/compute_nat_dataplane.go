@@ -56,7 +56,7 @@ type gcpNATEgress struct {
 var gcpRoutersByNetwork sim.GenerationIndex[ComputeRouter]
 
 var (
-	gcpNATEgressMu sync.Mutex
+	gcpNATEgressMu sync.RWMutex
 	// gcpNATEgresses holds the running sidecar of each subnetwork's NAT, by
 	// the subnetwork's self link.
 	gcpNATEgresses = map[string]*gcpNATEgress{}
@@ -398,4 +398,19 @@ func gcpInstanceAtAddress(subnetLink, address string) (ComputeInstance, bool) {
 		}
 	}
 	return ComputeInstance{}, false
+}
+
+// gcpCloudNATPublicAddress is the external address a Cloud NAT translates to
+// when private is its sidecar's address: what an instance sends through the
+// NAT reaches the simulator from the sidecar, and Google Cloud from the NAT's
+// address. A NAT that allocates its addresses automatically names none here.
+func gcpCloudNATPublicAddress(private string) (string, bool) {
+	gcpNATEgressMu.RLock()
+	defer gcpNATEgressMu.RUnlock()
+	for _, e := range gcpNATEgresses {
+		if e.address.String() == private && e.natIP != "" {
+			return e.natIP, true
+		}
+	}
+	return "", false
 }
