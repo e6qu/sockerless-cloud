@@ -309,6 +309,29 @@ func TestS3_Bucket_LoggingAclRequestPaymentAccelerate_RoundTrip(t *testing.T) {
 	require.Len(t, acl.Grants, 1)
 	assert.Equal(t, types.PermissionFullControl, acl.Grants[0].Permission)
 
+	// Explicit grant headers set an ACL of exactly the grantees they name.
+	_, err = c.PutBucketAcl(ctx, &s3.PutBucketAclInput{
+		Bucket:       aws.String(bucket),
+		GrantRead:    aws.String(`id="111122223333", uri="http://acs.amazonaws.com/groups/s3/LogDelivery"`),
+		GrantReadACP: aws.String(`id="111122223333"`),
+	})
+	require.NoError(t, err)
+	acl, err = c.GetBucketAcl(ctx, &s3.GetBucketAclInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	granted := map[string][]types.Permission{}
+	for _, grant := range acl.Grants {
+		grantee := aws.ToString(grant.Grantee.ID) + aws.ToString(grant.Grantee.URI)
+		granted[grantee] = append(granted[grantee], grant.Permission)
+	}
+	assert.Equal(t, map[string][]types.Permission{
+		"111122223333": {types.PermissionRead, types.PermissionReadAcp},
+		"http://acs.amazonaws.com/groups/s3/LogDelivery": {types.PermissionRead},
+	}, granted)
+	_, err = c.PutBucketAcl(ctx, &s3.PutBucketAclInput{
+		Bucket: aws.String(bucket), ACL: types.BucketCannedACLPrivate, GrantRead: aws.String(`id="111122223333"`),
+	})
+	assertAWSAPIErrorCode(t, err, "InvalidRequest")
+
 	_, err = c.PutBucketRequestPayment(ctx, &s3.PutBucketRequestPaymentInput{
 		Bucket: aws.String(bucket),
 		RequestPaymentConfiguration: &types.RequestPaymentConfiguration{

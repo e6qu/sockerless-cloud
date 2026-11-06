@@ -838,6 +838,32 @@ serving; its identity resolves through `SystemAssignedIdentities_GetByScope`;
 and its operations catalog takes the descriptions of the vendored
 `rbac-permissions-databases` page.
 
+Amazon ElastiCache keeps the events it logs: `DescribeEvents` reads them by
+source type, identifier and time window (the last hour by default, 14 days
+kept), newest first with a `Marker`, where it had invented one "created"
+event per resource stamped with the time of the call. Creation, snapshots and
+every migration transition log one. `PrepareMigration` answers `preparing`
+and validates afterwards, as the online migration guide describes: a failure
+logs an event naming the reason and removes the migration. ElastiCache reads
+the migration secret first with the caller's credentials and then as
+`elasticache.amazonaws.com`, so the secret's resource policy and its key's
+policy must admit the service principal, at prepare and again at start.
+Until cutover the cache's endpoint serves from the source: `sim/cacheengine`
+diverts the endpoint's connections, sends each command to the source node
+that owns its key, follows the source's redirections and answers the
+topology from the cache, and the cutover ends the diversion while the
+source's writers are still paused. A cluster-mode replication group target
+takes the source's slot layout before it syncs, refuses writes through its
+endpoints with the read-only replica error until the migration completes
+(a refusal also closes the connections relayed without a guard, so each
+client reconnects into one), and replays each propagated `MULTI` block as
+one transaction on a connection it keeps open. Export to Amazon S3 and
+seeding from it check the bucket the way ElastiCache does: through a bucket
+policy for `<region>.elasticache-snapshot.amazonaws.com` or an ACL grant to
+ElastiCache's canonical user. That check found that `PutBucketAcl` and
+`PutObjectAcl` ignored the `x-amz-grant-*` headers; they set exactly the
+grantees the headers name.
+
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
 the socket answers). Lessons:

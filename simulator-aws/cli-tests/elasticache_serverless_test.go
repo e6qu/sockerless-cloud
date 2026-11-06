@@ -113,6 +113,17 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 	})
 
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", "cli-export-bucket"))
+	refusal := runCLIExpectError(t, awsCLI("elasticache", "export-serverless-cache-snapshot",
+		"--serverless-cache-snapshot-name", snapName,
+		"--s3-bucket-name", "cli-export-bucket"))
+	assert.Contains(t, refusal, "ElastiCache has not been granted READ permissions")
+	// The ACL route: the bucket grants ElastiCache's canonical user READ, WRITE
+	// and READ_ACP, as the Amazon S3 User Guide's example does.
+	const elastiCache = "id=540804c33a284a299d2547575ce1010f2312ef3da9b3a053c8bc45bf233e4353"
+	runCLI(t, awsCLI("s3api", "put-bucket-ownership-controls", "--bucket", "cli-export-bucket",
+		"--ownership-controls", "Rules=[{ObjectOwnership=ObjectWriter}]"))
+	runCLI(t, awsCLI("s3api", "put-bucket-acl", "--bucket", "cli-export-bucket",
+		"--grant-read", elastiCache, "--grant-write", elastiCache, "--grant-read-acp", elastiCache))
 	runCLI(t, awsCLI("elasticache", "export-serverless-cache-snapshot",
 		"--serverless-cache-snapshot-name", snapName,
 		"--s3-bucket-name", "cli-export-bucket"))

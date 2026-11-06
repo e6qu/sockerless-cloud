@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,6 +160,40 @@ func ecSourcePrimaries(conn *cacheengine.Conn, seed ecMigrationSource) ([]ecMigr
 		return nil, errors.New("the source's hash slots are unassigned")
 	}
 	return primaries, nil
+}
+
+// ecSourceSlotLayout is the hash slots each primary of a cluster-mode source
+// owns, ordered by each primary's lowest slot.
+func ecSourceSlotLayout(conn *cacheengine.Conn) ([][]int, error) {
+	reply, err := conn.Do("CLUSTER", "SLOTS")
+	if err != nil {
+		return nil, err
+	}
+	ranges, _ := reply.([]any)
+	byPrimary := map[string][]int{}
+	for _, item := range ranges {
+		entry, _ := item.([]any)
+		if len(entry) < 3 {
+			return nil, fmt.Errorf("the source answered CLUSTER SLOTS with %v", item)
+		}
+		first, _ := entry[0].(int64)
+		last, _ := entry[1].(int64)
+		node, _ := entry[2].([]any)
+		if len(node) < 2 {
+			return nil, fmt.Errorf("the source answered CLUSTER SLOTS with %v", item)
+		}
+		owner := fmt.Sprint(node[0], ":", node[1])
+		for slot := int(first); slot <= int(last); slot++ {
+			byPrimary[owner] = append(byPrimary[owner], slot)
+		}
+	}
+	layout := make([][]int, 0, len(byPrimary))
+	for _, slots := range byPrimary {
+		slices.Sort(slots)
+		layout = append(layout, slots)
+	}
+	slices.SortFunc(layout, func(a, b []int) int { return a[0] - b[0] })
+	return layout, nil
 }
 
 // One replication link to one source primary.
@@ -321,6 +356,9 @@ type ecMigrationTarget struct {
 	engine    *ecEngine
 	primaries []int
 	owners    [cacheengine.ClusterSlots]int
+
+	mu    sync.Mutex
+	conns map[int]*cacheengine.Conn
 }
 
 func ecNewMigrationTarget(engine *ecEngine) (*ecMigrationTarget, error) {
@@ -345,22 +383,128 @@ func ecNewMigrationTarget(engine *ecEngine) (*ecMigrationTarget, error) {
 	return target, nil
 }
 
-// A keyed command goes to the primary that owns its first key's slot, a
-// keyless one to every primary.
-func (t *ecMigrationTarget) apply(args []string) error {
-	nodes := t.primaries
-	if len(t.primaries) > 1 {
-		reply, err := t.engine.redis.Command(t.primaries[0], append([]string{"COMMAND", "GETKEYS"}, args...)...)
-		if keys, _ := reply.([]any); err == nil && len(keys) > 0 {
-			nodes = []int{t.owners[cacheengine.KeySlot(fmt.Sprint(keys[0]))]}
+// do runs commands on node over one connection the target keeps open, and
+// reopens it once when it has broken.
+func (t *ecMigrationTarget) do(node int, commands [][]string) ([]any, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for attempt := 0; ; attempt++ {
+		conn, ok := t.conns[node]
+		if !ok {
+			var err error
+			if conn, err = t.engine.redis.Dial(node); err != nil {
+				return nil, err
+			}
+			if t.conns == nil {
+				t.conns = map[int]*cacheengine.Conn{}
+			}
+			t.conns[node] = conn
 		}
+		replies, err := conn.Pipeline(commands)
+		var refused cacheengine.Error
+		if err == nil || errors.As(err, &refused) || attempt > 0 {
+			return replies, err
+		}
+		_ = conn.Close()
+		delete(t.conns, node)
+	}
+}
+
+func (t *ecMigrationTarget) close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for node, conn := range t.conns {
+		_ = conn.Close()
+		delete(t.conns, node)
+	}
+}
+
+// owner is the primary that owns the first key of a command, or false for a
+// keyless command.
+func (t *ecMigrationTarget) owner(args []string) (int, bool, error) {
+	if len(t.primaries) == 1 {
+		return t.primaries[0], true, nil
+	}
+	replies, err := t.do(t.primaries[0], [][]string{append([]string{"COMMAND", "GETKEYS"}, args...)})
+	var refused cacheengine.Error
+	if errors.As(err, &refused) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	keys, _ := replies[0].([]any)
+	if len(keys) == 0 {
+		return 0, false, nil
+	}
+	return t.owners[cacheengine.KeySlot(fmt.Sprint(keys[0]))], true, nil
+}
+
+// apply runs a keyed command on the primary that owns its first key's slot
+// and a keyless one on every primary.
+func (t *ecMigrationTarget) apply(args []string) error {
+	node, keyed, err := t.owner(args)
+	if err != nil {
+		return err
+	}
+	nodes := t.primaries
+	if keyed {
+		nodes = []int{node}
 	}
 	for _, node := range nodes {
-		if _, err := t.engine.redis.Command(node, args...); err != nil {
+		if _, err := t.do(node, [][]string{args}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// applier is the apply of one replication link: a MULTI ... EXEC block the
+// source propagates runs as one transaction on one connection.
+func (t *ecMigrationTarget) applier() func([]string) error {
+	var queued [][]string
+	inTx := false
+	return func(args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		switch strings.ToUpper(args[0]) {
+		case "MULTI":
+			inTx, queued = true, nil
+			return nil
+		case "EXEC":
+			if !inTx {
+				return nil
+			}
+			inTx = false
+			return t.transact(queued)
+		}
+		if inTx {
+			queued = append(queued, args)
+			return nil
+		}
+		return t.apply(args)
+	}
+}
+
+func (t *ecMigrationTarget) transact(commands [][]string) error {
+	if len(commands) == 0 {
+		return nil
+	}
+	node := t.primaries[0]
+	for _, args := range commands {
+		owner, keyed, err := t.owner(args)
+		if err != nil {
+			return err
+		}
+		if keyed {
+			node = owner
+			break
+		}
+	}
+	block := append(append([][]string{{"MULTI"}}, commands...), []string{"EXEC"})
+	_, err := t.do(node, block)
+	return err
 }
 
 func (t *ecMigrationTarget) empty() (bool, error) {
@@ -378,6 +522,7 @@ func (t *ecMigrationTarget) empty() (bool, error) {
 
 // One running data sync: a link to each source primary.
 type ecMigrationRun struct {
+	target   *ecMigrationTarget
 	links    []*ecReplicationLink
 	stopping atomic.Bool
 	mu       sync.RWMutex
@@ -411,7 +556,7 @@ func ecStartMigrationRun(key string, target *ecMigrationTarget, seed ecMigration
 	if err != nil {
 		return nil, err
 	}
-	run := &ecMigrationRun{progress: make(chan struct{}), failed: make(chan struct{})}
+	run := &ecMigrationRun{target: target, progress: make(chan struct{}), failed: make(chan struct{})}
 	// Each link follows its primary as soon as its file has loaded, so the
 	// source's replication timeout never runs out while the next shard loads.
 	for _, primary := range primaries {
@@ -425,8 +570,9 @@ func ecStartMigrationRun(key string, target *ecMigrationTarget, seed ecMigration
 			return nil, err
 		}
 		var streamErr error
+		apply := target.applier()
 		watch := bg.WatchThen(func() {
-			streamErr = link.stream(target.apply, run.advanced)
+			streamErr = link.stream(apply, run.advanced)
 		}, func() {
 			if run.stopping.Load() {
 				return
@@ -471,6 +617,7 @@ func (m *ecMigrationRun) Stop() {
 			<-watch.Done()
 		}
 	}
+	m.target.close()
 }
 
 func ecStopMigrationRun(key string) {
@@ -482,10 +629,11 @@ func ecStopMigrationRun(key string) {
 }
 
 // Pauses the source's writers, waits until every link has applied what its
-// primary had taken by then and stops the sync; the source's clients are
-// then disconnected and its writers released. The cutover fails when a link
-// does not catch up within pause.
-func (m *ecMigrationRun) cutover(pause time.Duration) error {
+// primary had taken by then and stops the sync; switchOver then moves the
+// clients to the target while the writers still wait, and the source's
+// clients are disconnected and its writers released. The cutover fails when
+// a link does not catch up within pause.
+func (m *ecMigrationRun) cutover(pause time.Duration, switchOver func()) error {
 	type paused struct {
 		conn      *cacheengine.Conn
 		writeOnly bool
@@ -559,6 +707,7 @@ func (m *ecMigrationRun) cutover(pause time.Duration) error {
 		}
 	}
 	m.Stop()
+	switchOver()
 	for _, source := range sources {
 		if source.writeOnly {
 			_, _ = source.conn.Do("CLIENT", "KILL", "TYPE", "normal")

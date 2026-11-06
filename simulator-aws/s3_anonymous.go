@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/xml"
+	"html"
 	"net/http"
 	"strings"
 
@@ -184,7 +185,18 @@ func s3BucketOwnerEnforced(bucket string) bool {
 // It answers InvalidArgument for a canned ACL S3 does not define.
 func s3RequestACL(w http.ResponseWriter, r *http.Request, body []byte) ([]byte, bool) {
 	canned := r.Header.Get("x-amz-acl")
-	if len(body) > 0 || canned == "" {
+	grants := s3HeaderGrants(r)
+	if len(body) > 0 {
+		return body, true
+	}
+	if len(grants) > 0 {
+		if canned != "" {
+			S3ErrorXML(w, "InvalidRequest", "", strings.TrimPrefix(r.URL.Path, "/"), sim.RequestID(r.Context()), http.StatusBadRequest)
+			return nil, false
+		}
+		return s3GrantsPolicy(grants), true
+	}
+	if canned == "" {
 		return body, true
 	}
 	policy, ok := s3CannedACLPolicy(canned)
@@ -197,6 +209,62 @@ func s3RequestACL(w http.ResponseWriter, r *http.Request, body []byte) ([]byte, 
 // s3CannedACLPolicy is the AccessControlPolicy a canned ACL stands for, as
 // the Amazon S3 User Guide's canned ACL table grants it; ok is false for a
 // name S3 does not define.
+// s3HeaderGrant is one grantee an x-amz-grant-* header names: kind is the
+// header value's key (id, uri or emailAddress).
+type s3HeaderGrant struct{ kind, value, permission string }
+
+// The headers PutBucketAcl and PutObjectAcl take to grant each permission
+// explicitly.
+var s3GrantHeaders = []struct{ header, permission string }{
+	{"x-amz-grant-full-control", "FULL_CONTROL"},
+	{"x-amz-grant-read", "READ"},
+	{"x-amz-grant-read-acp", "READ_ACP"},
+	{"x-amz-grant-write", "WRITE"},
+	{"x-amz-grant-write-acp", "WRITE_ACP"},
+}
+
+// s3HeaderGrants reads every grantee the x-amz-grant-* headers name, as
+// comma-separated key="value" pairs.
+func s3HeaderGrants(r *http.Request) []s3HeaderGrant {
+	var grants []s3HeaderGrant
+	for _, h := range s3GrantHeaders {
+		for _, value := range r.Header.Values(h.header) {
+			for _, item := range strings.Split(value, ",") {
+				kind, grantee, ok := strings.Cut(strings.TrimSpace(item), "=")
+				if !ok {
+					continue
+				}
+				grants = append(grants, s3HeaderGrant{kind: strings.TrimSpace(kind), value: strings.Trim(strings.TrimSpace(grantee), `"`), permission: h.permission})
+			}
+		}
+	}
+	return grants
+}
+
+// s3GrantsPolicy is the AccessControlPolicy explicit grants set: the owner
+// and the grantees the headers name, and nothing else.
+func s3GrantsPolicy(grants []s3HeaderGrant) []byte {
+	owner := awsAccountID()
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>` + owner + `</ID><DisplayName>simulator</DisplayName></Owner><AccessControlList>`)
+	for _, g := range grants {
+		var grantee string
+		switch g.kind {
+		case "id":
+			grantee = `xsi:type="CanonicalUser"><ID>` + html.EscapeString(g.value) + `</ID>`
+		case "uri":
+			grantee = `xsi:type="Group"><URI>` + html.EscapeString(g.value) + `</URI>`
+		case "emailAddress":
+			grantee = `xsi:type="AmazonCustomerByEmail"><EmailAddress>` + html.EscapeString(g.value) + `</EmailAddress>`
+		default:
+			continue
+		}
+		b.WriteString(`<Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` + grantee + `</Grantee><Permission>` + g.permission + `</Permission></Grant>`)
+	}
+	b.WriteString(`</AccessControlList></AccessControlPolicy>`)
+	return []byte(b.String())
+}
+
 func s3CannedACLPolicy(canned string) (policy []byte, ok bool) {
 	type grant struct{ group, permission string }
 	var grants []grant

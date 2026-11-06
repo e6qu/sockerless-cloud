@@ -6,7 +6,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -34,9 +36,13 @@ type ECServerlessCacheMigration struct {
 	Status               string
 	AutoCutover          bool `json:",omitempty"`
 	Failed               bool `json:",omitempty"`
+	// PrepareRefusal is why the caller's own read of the secret failed,
+	// which the prepare step reports.
+	PrepareRefusal string `json:",omitempty"`
 }
 
 const (
+	ecMigrationPreparing      = "preparing"
 	ecMigrationReadyToSync    = "ready-to-sync"
 	ecMigrationInitiatingSync = "initiating-sync"
 	ecMigrationSyncing        = "syncing"
@@ -134,13 +140,24 @@ func ecCheckSourceCertificate(value string) string {
 // The credentials the secret holds, read through Secrets Manager:
 // {"username":…,"password":…} or {"password":…}. The message says why the
 // secret does not serve.
-func ecSourceCredentials(arn string) (user, password, message string) {
+// ecSourceCredentials reads the secret as ElastiCache does, with its own
+// service credentials: the secret's resource policy and its key's policy must
+// admit elasticache.amazonaws.com acting for the cache.
+func ecSourceCredentials(arn, cacheARN string) (user, password, message string) {
 	secret, ok := resolveSMSecret(arn)
 	if !ok || secret.DeletedDate != 0 {
 		return "", "", fmt.Sprintf("Access to the secret %s was denied.", arn)
 	}
 	if secret.KmsKeyId == "" || secret.KmsKeyId == "alias/aws/secretsmanager" {
 		return "", "", fmt.Sprintf("The secret %s is encrypted with the AWS managed key for Secrets Manager, which cannot be granted to ElastiCache; encrypt it with a customer managed key.", arn)
+	}
+	service := iamServiceSource{Service: "elasticache.amazonaws.com", SourceArn: cacheARN, SourceAccount: awsAccountID()}
+	if !iamAuthorizeServiceDelivery(secret.ARN, "secretsmanager:GetSecretValue", service) {
+		return "", "", fmt.Sprintf("Access to the secret %s was denied.", arn)
+	}
+	keyID, ok := resolveKMSKey(secret.KmsKeyId)
+	if !ok || !iamAuthorizeServiceDelivery(kmsKeyArn(keyID), "kms:Decrypt", service) {
+		return "", "", fmt.Sprintf("Access to the secret %s was denied.", arn)
 	}
 	version, ok := secret.versionByIDOrStage("", "")
 	if !ok || version.SecretString == "" {
@@ -176,13 +193,13 @@ func ecSourceCredentials(arn string) (user, password, message string) {
 }
 
 // The source as a migration dials it, with the secret's credentials.
-func ecServerlessMigrationSource(m ECServerlessCacheMigration) (ecMigrationSource, string) {
+func ecServerlessMigrationSource(m ECServerlessCacheMigration, cacheARN string) (ecMigrationSource, string) {
 	source := ecMigrationSource{
 		Address: m.SourceAddress, Port: m.SourcePort,
 		TLSMode: m.SourceTlsMode, TLSCertificate: m.SourceTlsCertificate,
 	}
 	if m.SourceSecretArn != "" {
-		user, password, message := ecSourceCredentials(m.SourceSecretArn)
+		user, password, message := ecSourceCredentials(m.SourceSecretArn, cacheARN)
 		if message != "" {
 			return source, message
 		}
@@ -296,39 +313,128 @@ func handleECPrepareMigration(w http.ResponseWriter, r *http.Request) {
 		invalid(fmt.Sprintf("The target cache uses the %s network type; a migration target uses IPv4.", c.NetworkType))
 		return
 	}
-	source, message := ecServerlessMigrationSource(migration)
+	migration.Status = ecMigrationPreparing
+	migration.PrepareRefusal = ecCallerSecretRefusal(r, migration.SourceSecretArn)
+	ecServerlessCaches.Update(c.ServerlessCacheName, func(stored *ECServerlessCache) { stored.Migration = &migration })
+	updated, _ := ecServerlessCaches.Get(c.ServerlessCacheName)
+	name := c.ServerlessCacheName
+	bg.Go(func() { ecPrepareServerlessMigration(name) })
+	ecXMLResponse(w, "PrepareMigration", renderECServerlessCache(updated), requestID)
+}
+
+// ecCallerSecretRefusal is why the caller may not read the secret itself:
+// ElastiCache first reads it with the caller's credentials.
+func ecCallerSecretRefusal(r *http.Request, arn string) string {
+	if arn == "" {
+		return ""
+	}
+	secret, ok := resolveSMSecret(arn)
+	if !ok {
+		return ""
+	}
+	targets := [][2]string{{"secretsmanager:GetSecretValue", secret.ARN}}
+	if keyID, ok := resolveKMSKey(secret.KmsKeyId); ok {
+		targets = append(targets, [2]string{"kms:Decrypt", kmsKeyArn(keyID)})
+	}
+	for _, target := range targets {
+		if _, allowed, registered := iamAuthorizeDenial(r, target[0], target[1], nil); registered && !allowed {
+			return fmt.Sprintf("Access to the secret %s was denied.", arn)
+		}
+	}
+	return ""
+}
+
+// ecPrepareServerlessMigration validates the source and the credentials as
+// the prepare step does. A failure logs an event that names the reason and
+// rolls the migration back, removing it; success leaves it ready-to-sync with
+// the cache's endpoint serving from the source.
+func ecPrepareServerlessMigration(name string) {
+	c, ok := ecServerlessCaches.Get(name)
+	if !ok || c.Migration == nil || c.Migration.Status != ecMigrationPreparing {
+		return
+	}
+	migration := *c.Migration
+	fail := func(message string) {
+		removed := false
+		ecServerlessCaches.Update(name, func(stored *ECServerlessCache) {
+			if stored.Migration != nil && stored.Migration.Status == ecMigrationPreparing {
+				stored.Migration, removed = nil, true
+			}
+		})
+		if removed {
+			ecRecordEvent("serverless-cache", name, "Migration preparation failed: "+message)
+		}
+	}
+	if migration.PrepareRefusal != "" {
+		fail(migration.PrepareRefusal)
+		return
+	}
+	source, message := ecServerlessMigrationSource(migration, c.ARN)
 	if message != "" {
-		invalid(message)
+		fail(message)
 		return
 	}
 	conn, err := source.dial()
 	if err != nil {
-		invalid(fmt.Sprintf("Unable to connect to the source %s: %v", source.endpoint(), err))
+		fail(fmt.Sprintf("Unable to connect to the source %s: %v", source.endpoint(), err))
 		return
 	}
 	message = ecCheckMigrationSource(conn, c)
 	_ = conn.Close()
 	if message != "" {
-		invalid(message)
+		fail(message)
 		return
 	}
-	if engine, ok := ecLoadEngine(ecEngineKey(ecKindServerless, c.ServerlessCacheName)); ok && engine.redis != nil {
+	engine, running := ecLoadEngine(ecEngineKey(ecKindServerless, name))
+	if running && engine.redis != nil {
 		target, err := ecNewMigrationTarget(engine)
 		if err == nil {
 			var empty bool
 			if empty, err = target.empty(); err == nil && !empty {
-				invalid("The target cache contains data; flush it before you prepare the migration.")
+				fail("The target cache contains data; flush it before you prepare the migration.")
 				return
 			}
 		}
 		if err != nil {
-			invalid(fmt.Sprintf("The target cache does not answer: %v", err))
+			fail(fmt.Sprintf("The target cache does not answer: %v", err))
 			return
 		}
 	}
-	ecServerlessCaches.Update(c.ServerlessCacheName, func(stored *ECServerlessCache) { stored.Migration = &migration })
-	updated, _ := ecServerlessCaches.Get(c.ServerlessCacheName)
-	ecXMLResponse(w, "PrepareMigration", renderECServerlessCache(updated), requestID)
+	if !ecMoveMigration(name, []string{ecMigrationPreparing}, func(m *ECServerlessCacheMigration) {
+		m.Status, m.PrepareRefusal = ecMigrationReadyToSync, ""
+	}) {
+		return
+	}
+	ecDivertToSource(name, migration)
+	ecRecordEvent("serverless-cache", name, "Migration prepared")
+}
+
+// ecDivertToSource has the cache's endpoint serve from the source, as the
+// migration endpoint does until cutover; client credentials go to the source
+// as the client sends them.
+func ecDivertToSource(name string, m ECServerlessCacheMigration) {
+	engine, ok := ecLoadEngine(ecEngineKey(ecKindServerless, name))
+	if !ok || engine.redis == nil {
+		return
+	}
+	source := ecMigrationSource{Address: m.SourceAddress, Port: m.SourcePort, TLSMode: m.SourceTlsMode, TLSCertificate: m.SourceTlsCertificate}
+	engine.redis.Divert(&cacheengine.Diversion{
+		Seed: source.endpoint(),
+		Dial: func(address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			return source.at(host, atoiOrZero(port)).dialRaw()
+		},
+	})
+}
+
+// ecServeFromCache ends the diversion: the endpoint serves the cache.
+func ecServeFromCache(name string) {
+	if engine, ok := ecLoadEngine(ecEngineKey(ecKindServerless, name)); ok && engine.redis != nil {
+		engine.redis.Divert(nil)
+	}
 }
 
 // Moves the migration from one status to another, and reports whether it was
@@ -390,6 +496,7 @@ func ecRunServerlessSync(name string, migration ECServerlessCacheMigration, clea
 	key := ecEngineKey(ecKindServerless, name)
 	back := func(failed bool, err error) {
 		log.Printf("Amazon ElastiCache serverless cache %s: the data sync did not start: %v", name, err)
+		ecRecordEvent("serverless-cache", name, fmt.Sprintf("Migration data sync failed to start: %v", err))
 		ecMoveMigration(name, []string{ecMigrationInitiatingSync}, func(m *ECServerlessCacheMigration) {
 			m.Status, m.AutoCutover = ecMigrationReadyToSync, false
 			m.Failed = m.Failed || failed
@@ -400,7 +507,8 @@ func ecRunServerlessSync(name string, migration ECServerlessCacheMigration, clea
 		back(true, fmt.Errorf("no engine serves the cache"))
 		return
 	}
-	source, message := ecServerlessMigrationSource(migration)
+	c, _ := ecServerlessCaches.Get(name)
+	source, message := ecServerlessMigrationSource(migration, c.ARN)
 	if message != "" {
 		back(true, fmt.Errorf("%s", message))
 		return
@@ -421,6 +529,7 @@ func ecRunServerlessSync(name string, migration ECServerlessCacheMigration, clea
 	if err == nil {
 		run, err = ecStartMigrationRun(key, target, source, func(err error) {
 			log.Printf("Amazon ElastiCache serverless cache %s: the data sync failed: %v", name, err)
+			ecRecordEvent("serverless-cache", name, fmt.Sprintf("Migration data sync failed: %v", err))
 			ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
 				if c.Migration != nil {
 					c.Migration.Failed = true
@@ -444,6 +553,7 @@ func ecRunServerlessSync(name string, migration ECServerlessCacheMigration, clea
 		ecStopMigrationRun(key)
 		return
 	}
+	ecRecordEvent("serverless-cache", name, "Migration data sync started")
 	if auto {
 		ecCutoverServerless(name, run)
 	}
@@ -453,8 +563,10 @@ func ecRunServerlessSync(name string, migration ECServerlessCacheMigration, clea
 // out and leaves the migration to CompleteMigration.
 func ecCutoverServerless(name string, run *ecMigrationRun) {
 	key := ecEngineKey(ecKindServerless, name)
-	if err := run.cutover(ecCutoverPause); err != nil {
+	ecRecordEvent("serverless-cache", name, "Migration cutover started")
+	if err := run.cutover(ecCutoverPause, func() { ecServeFromCache(name) }); err != nil {
 		log.Printf("Amazon ElastiCache serverless cache %s: the cutover did not complete: %v", name, err)
+		ecRecordEvent("serverless-cache", name, fmt.Sprintf("Migration completion failed: %v", err))
 		ecMoveMigration(name, []string{ecMigrationCuttingOver}, func(m *ECServerlessCacheMigration) {
 			m.Status, m.AutoCutover = ecMigrationSyncing, false
 		})
@@ -462,6 +574,7 @@ func ecCutoverServerless(name string, run *ecMigrationRun) {
 	}
 	ecMigrationRuns.Delete(key)
 	ecEndServerlessMigration(name)
+	ecRecordEvent("serverless-cache", name, "Migration completed")
 }
 
 func handleECStopMigration(w http.ResponseWriter, r *http.Request) {
@@ -479,9 +592,11 @@ func handleECStopMigration(w http.ResponseWriter, r *http.Request) {
 	updated, _ := ecServerlessCaches.Get(name)
 	bg.Go(func() {
 		ecStopMigrationRun(ecEngineKey(ecKindServerless, name))
-		ecMoveMigration(name, []string{ecMigrationStopping}, func(m *ECServerlessCacheMigration) {
+		if ecMoveMigration(name, []string{ecMigrationStopping}, func(m *ECServerlessCacheMigration) {
 			m.Status, m.AutoCutover = ecMigrationReadyToSync, false
-		})
+		}) {
+			ecRecordEvent("serverless-cache", name, "Migration data sync stopped")
+		}
 	})
 	ecXMLResponse(w, "StopMigration", renderECServerlessCache(updated), requestID)
 }
@@ -508,6 +623,11 @@ func ecCompleteServerlessMigration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, m := c.ServerlessCacheName, *c.Migration
+	if m.Status == ecMigrationPreparing {
+		ecErrorXML(w, "InvalidServerlessCacheStateFault",
+			fmt.Sprintf("The migration of serverless cache %s is preparing.", name), http.StatusBadRequest, requestID)
+		return
+	}
 	if m.Status == ecMigrationCuttingOver {
 		ecErrorXML(w, "InvalidServerlessCacheStateFault",
 			fmt.Sprintf("The migration of serverless cache %s is already cutting over.", name), http.StatusBadRequest, requestID)
@@ -515,7 +635,9 @@ func ecCompleteServerlessMigration(w http.ResponseWriter, r *http.Request) {
 	}
 	if ecRequestedBool(r, "Force") {
 		ecStopMigrationRun(ecEngineKey(ecKindServerless, name))
+		ecServeFromCache(name)
 		ecEndServerlessMigration(name)
+		ecRecordEvent("serverless-cache", name, "Migration completed")
 		updated, _ := ecServerlessCaches.Get(name)
 		ecXMLResponse(w, "CompleteMigration", renderECServerlessCache(updated), requestID)
 		return
@@ -663,6 +785,9 @@ func ecFollowSource(id, incarnation string) {
 			}
 			return nil
 		}
+		// The group follows the source as replicas would: it takes no
+		// writes until the migration completes.
+		e.redis.RefuseWrites(true)
 		target, err := ecNewMigrationTarget(e)
 		if err != nil {
 			return err
@@ -671,29 +796,58 @@ func ecFollowSource(id, incarnation string) {
 		if err != nil {
 			return err
 		}
-		primaries, err := ecSourcePrimaries(control, source)
+		layout, err := ecSourceSlotLayout(control)
 		_ = control.Close()
 		if err != nil {
 			return err
 		}
-		if len(primaries) != len(target.primaries) {
-			return fmt.Errorf("the source runs %d shards and the target %d", len(primaries), len(target.primaries))
+		if len(layout) != len(target.primaries) {
+			return fmt.Errorf("the source runs %d shards and the target %d", len(layout), len(target.primaries))
 		}
 		if err := e.redis.Flush(); err != nil {
 			return err
 		}
+		if err := e.redis.AssignSlots(ecPairSlotLayout(target, layout)); err != nil {
+			return fmt.Errorf("reshard to the source's slot layout: %w", err)
+		}
+		if target, err = ecNewMigrationTarget(e); err != nil {
+			return err
+		}
 		_, err = ecStartMigrationRun(key, target, source, func(err error) {
 			log.Printf("Amazon ElastiCache replication group %s: the migration's replication failed: %v", id, err)
+			ecRecordEvent("replication-group", id, fmt.Sprintf("Migration replication failed: %v", err))
 		})
 		return err
 	}, func(err error) {
 		if err == nil {
+			ecRecordEvent("replication-group", id, "Migration started")
 			return
 		}
 		log.Printf("Amazon ElastiCache replication group %s: the migration did not start: %v", id, err)
+		ecRecordEvent("replication-group", id, fmt.Sprintf("Migration failed to start: %v", err))
+		if engine != nil && engine.redis != nil {
+			engine.redis.RefuseWrites(false)
+		}
 		ecReplGroupMigrations.Delete(id)
 		ecRefreshReplGroup(id, incarnation, engine)
 	})
+}
+
+// ecPairSlotLayout gives each target primary, in the order of its lowest
+// slot, the slots of the source primary in the same place of the source's
+// order.
+func ecPairSlotLayout(target *ecMigrationTarget, layout [][]int) map[int][]int {
+	lowest := map[int]int{}
+	for slot := cacheengine.ClusterSlots - 1; slot >= 0; slot-- {
+		lowest[target.owners[slot]] = slot
+	}
+	primaries := slices.Clone(target.primaries)
+	slices.SortFunc(primaries, func(a, b int) int { return lowest[a] - lowest[b] })
+	want := map[int][]int{}
+	for i, node := range primaries {
+		want[node] = layout[i]
+	}
+	return want
 }
 
 // ecPrimaryMasterAuth sets the credentials the primary replicates with. The
@@ -757,18 +911,21 @@ func handleECCompleteMigration(w http.ResponseWriter, r *http.Request) {
 		}
 		run, running := ecLoadMigrationRun(key)
 		if !force && running {
-			if err := run.cutover(ecCutoverPause); err != nil {
+			if err := run.cutover(ecCutoverPause, func() { e.redis.RefuseWrites(false) }); err != nil {
 				return err
 			}
 		}
 		ecStopFollowingSource(id)
+		e.redis.RefuseWrites(false)
 		return nil
 	}, func(err error) {
 		if err != nil {
 			log.Printf("Amazon ElastiCache replication group %s: the migration did not complete: %v", id, err)
+			ecRecordEvent("replication-group", id, fmt.Sprintf("Migration completion failed: %v", err))
 			return
 		}
 		ecReplGroupMigrations.Delete(id)
+		ecRecordEvent("replication-group", id, "Migration completed")
 		ecRefreshReplGroup(id, g.Incarnation, engine)
 	})
 	ecXMLResponse(w, "CompleteMigration", renderECReplGroup(g), requestID)
@@ -814,7 +971,12 @@ func ecRecoverMigrations() {
 			continue
 		}
 		name := c.ServerlessCacheName
+		if c.Migration.Status != ecMigrationPreparing && c.Migration.Status != ecMigrationCuttingOver {
+			ecDivertToSource(name, *c.Migration)
+		}
 		switch c.Migration.Status {
+		case ecMigrationPreparing:
+			bg.Go(func() { ecPrepareServerlessMigration(name) })
 		case ecMigrationCuttingOver:
 			ecEndServerlessMigration(name)
 		case ecMigrationSyncing:

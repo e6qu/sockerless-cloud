@@ -213,7 +213,7 @@ unifies; this pull request carries those it lands, and the rest stay planned.
     Memorystore for Redis, Amazon ElastiCache and Azure Cache for Redis run
     on it: snapshots, restores, migrations, import and export move the
     engine's data, and ElastiCache users, token rotation, upgrades and Auto
-    Discovery act on the engine. BUG-3835, BUG-3838 to BUG-3841, BUG-3844 and BUG-3845 track what remains.
+    Discovery act on the engine. BUG-3835, BUG-3840 and BUG-3845 track what remains.
 
 ### M4 — Cleanups
 

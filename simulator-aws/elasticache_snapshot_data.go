@@ -198,11 +198,17 @@ func ecTakeSnapshot(s ECSnapshot, engineKey string, node int, memberOf func(node
 		content, err = ecCaptureSnapshot(e, node)
 		return err
 	}, func(err error) {
+		sourceType, sourceID := "cache-cluster", s.CacheClusterId
+		if s.ReplicationGroupId != "" {
+			sourceType, sourceID = "replication-group", s.ReplicationGroupId
+		}
 		if err != nil {
 			ecSnapshots.Delete(s.SnapshotName)
+			ecRecordEvent(sourceType, sourceID, fmt.Sprintf("Snapshot failed for snapshot with ID '%s': %v", s.SnapshotName, err))
 			done()
 			return
 		}
+		defer ecRecordEvent(sourceType, sourceID, fmt.Sprintf("Snapshot succeeded for snapshot with ID '%s'", s.SnapshotName))
 		ecSnapshotContents.Put(ecNodeSnapshotKey(s.SnapshotName), content)
 		taken := ecNow()
 		var nodes []ECNodeSnapshot
@@ -422,6 +428,9 @@ func ecS3RDB(arn string) (cacheengine.ImportSource, string) {
 	if !ok {
 		return cacheengine.ImportSource{}, fmt.Sprintf("The Amazon S3 object %s does not exist.", arn)
 	}
+	if message := ecS3ObjectRefusal(bucket, key, obj.ACL); message != "" {
+		return cacheengine.ImportSource{}, message
+	}
 	data, err := s3ObjectData(obj)
 	if err != nil {
 		return cacheengine.ImportSource{}, fmt.Sprintf("Read the Amazon S3 object %s: %v", arn, err)
@@ -437,6 +446,9 @@ func ecS3RDB(arn string) (cacheengine.ImportSource, string) {
 func ecExportSnapshot(key, bucket, prefix string) error {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return fmt.Errorf("the Amazon S3 bucket %s does not exist", bucket)
+	}
+	if message := ecS3Refusal(bucket, ecS3ExportNeeds); message != "" {
+		return errors.New(message)
 	}
 	content, _ := ecSnapshotContents.Get(key)
 	for _, file := range content.Files {
@@ -467,8 +479,10 @@ func ecTakeServerlessSnapshot(s ECServerlessCacheSnapshot, done func()) ECServer
 		name := s.ServerlessCacheSnapshotName
 		if err != nil {
 			ecServerlessSnapshots.Delete(name)
+			ecRecordEvent("serverless-cache-snapshot", name, fmt.Sprintf("Snapshot failed for serverless cache %s: %v", s.CacheName, err))
 			return
 		}
+		defer ecRecordEvent("serverless-cache-snapshot", name, fmt.Sprintf("Snapshot succeeded for serverless cache %s", s.CacheName))
 		key := ecServerlessSnapshotKey(name)
 		ecSnapshotContents.Put(key, content)
 		if !ecServerlessSnapshots.Update(name, func(stored *ECServerlessCacheSnapshot) {

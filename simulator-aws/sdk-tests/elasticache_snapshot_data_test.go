@@ -211,6 +211,22 @@ func TestElastiCache_SnapshotRestore(t *testing.T) {
 	_, err = c.ExportServerlessCacheSnapshot(ctx, &elasticache.ExportServerlessCacheSnapshotInput{
 		ServerlessCacheSnapshotName: aws.String(slSnap), S3BucketName: aws.String(bucket),
 	})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterValue")
+	assert.ErrorContains(t, err, "ElastiCache has not been granted READ permissions", "a bucket that grants ElastiCache nothing refuses the export")
+	_, err = s3c.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String(bucket), Policy: aws.String(fmt.Sprintf(`{
+		"Version": "2012-10-17",
+		"Statement": [{
+			"Sid": "ElastiCacheSnapshotExport",
+			"Effect": "Allow",
+			"Principal": {"Service": "us-east-1.elasticache-snapshot.amazonaws.com"},
+			"Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket", "s3:GetBucketAcl", "s3:ListMultipartUploadParts", "s3:ListBucketMultipartUploads"],
+			"Resource": ["arn:aws:s3:::%[1]s", "arn:aws:s3:::%[1]s/*"]
+		}]
+	}`, bucket))})
+	require.NoError(t, err)
+	_, err = c.ExportServerlessCacheSnapshot(ctx, &elasticache.ExportServerlessCacheSnapshotInput{
+		ServerlessCacheSnapshotName: aws.String(slSnap), S3BucketName: aws.String(bucket),
+	})
 	require.NoError(t, err)
 	object := slSnap + "-0001.rdb"
 	_, err = s3c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(object)})
