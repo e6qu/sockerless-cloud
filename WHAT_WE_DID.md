@@ -1358,6 +1358,10 @@ fails once the row closes or the operation is served.
   simulator and its SDK and CLI suites; the shared toolchain entry held
   whatever the first job to save it built, and the contributing tutorial
   downloaded and compiled the AWS SDK suites cold inside its 13 minutes.
+  A background block that exits before its ready line fails at once: its
+  exit closes a channel rather than filling one, because the failed test's
+  cleanup waits on the same exit, and a drained channel had held the README
+  image job until the job's limit cancelled it.
 - **Console tests run against the real simulators.** The console unit tests
   start the simulators and sign in through Microsoft Entra ID as the consoles
   do; the mocks they replaced had hidden a SigV4 signer that encoded paths
@@ -1669,7 +1673,10 @@ Dockerfiles, which no pull request job did, so `check-installable-build.sh`
 builds the platforms it is given and checks each Dockerfile's workspace;
 `build-gates` builds the runner's platform and one `release platform build`
 job each of the other three, since a cold cross-compile of the three
-simulators outruns the build gates' budget.
+simulators outruns the build gates' budget. Every login to ghcr.io goes through
+`.github/actions/ghcr-login`, which retries a login the registry does not
+answer: docker/login-action tries once, and one timeout on the Azure arm64
+runner skipped every manifest of v3.3.10, so its README image did not exist.
 Publishes are keyed per commit and never cancelled; retention
 spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the

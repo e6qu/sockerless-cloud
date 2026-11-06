@@ -1,0 +1,32 @@
+name: Log in to GHCR
+description: >-
+  Logs Docker in to ghcr.io with the workflow's token, retrying a login the
+  registry did not answer. docker/login-action tries once, so one timeout on
+  one runner left a release without any of its images.
+inputs:
+  username:
+    description: The account the token belongs to.
+    required: true
+  password:
+    description: The token to log in with.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_USERNAME: ${{ inputs.username }}
+        GHCR_PASSWORD: ${{ inputs.password }}
+      run: |
+        set -euo pipefail
+        for attempt in 1 2 3 4 5; do
+          if printf '%s' "$GHCR_PASSWORD" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 5 ]; then
+            sleep $((attempt * 10))
+          fi
+        done
+        echo "::error::ghcr.io refused or did not answer five logins"
+        exit 1
