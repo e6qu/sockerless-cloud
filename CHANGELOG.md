@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.11](https://github.com/e6qu/sockerless-cloud/compare/v3.3.10...v3.3.11) (2026-11-06)
+
+
+### Bug Fixes
+
+* **aws:** route Network Load Balancer flows by hash and source_ip stickiness ([3fa06d0](https://github.com/e6qu/sockerless-cloud/commit/3fa06d05d991715a00bb7f91eec8d3c173e21310))
+
 ## [3.3.10](https://github.com/e6qu/sockerless-cloud/compare/v3.3.9...v3.3.10) (2026-11-06)
 
 
