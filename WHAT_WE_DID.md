@@ -1778,6 +1778,9 @@ all of them left its tests no room in the job's 15 minutes. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.
+A job that only restores the base-image cache loads it with `--load-only`:
+the race job had spent three of its fifteen minutes writing a tarball it
+never saves, after a changed image set left it the nearest earlier archive.
 
 Dependencies of every class are held to their newest release past a 24-hour
 quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret
