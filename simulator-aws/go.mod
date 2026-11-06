@@ -8,7 +8,7 @@ require (
 	github.com/beevik/etree v1.8.1
 	github.com/cloudflare/circl v1.6.5
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261106190947-d8f64bcb728f
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261106191534-285d691fe8a6
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261104060152-ce69f05affea
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-git/go-git/v5 v5.19.3
