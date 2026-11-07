@@ -31,6 +31,8 @@ import (
 	"syscall"
 	"time"
 
+	xipv4 "golang.org/x/net/ipv4"
+
 	"github.com/e6qu/sockerless-cloud/sim/procimage"
 )
 
@@ -207,16 +209,24 @@ var boundAddrs chan [2]string
 
 // serveUDP relays each datagram to the upstream over a socket of its own, so
 // answers cannot cross between queriers, and sends the answer back to the
-// querier that asked.
+// querier that asked, from the address it asked: the sidecar also answers at
+// the cloud's fixed addresses on its loopback (Azure's 168.63.129.16), and a
+// stub resolver drops an answer from any other source.
 func serveUDP(ctx context.Context, pc net.PacketConn, upstream string) {
+	conn := xipv4.NewPacketConn(pc)
+	pktinfo := conn.SetControlMessage(xipv4.FlagDst, true) == nil
 	buf := make([]byte, 65535)
 	for {
-		n, from, err := pc.ReadFrom(buf)
+		n, cm, from, err := conn.ReadFrom(buf)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return
 			}
 			continue
+		}
+		var reply *xipv4.ControlMessage
+		if pktinfo && cm != nil && cm.Dst != nil {
+			reply = &xipv4.ControlMessage{Src: cm.Dst}
 		}
 		query := append([]byte(nil), buf[:n]...)
 		go func() {
@@ -224,7 +234,7 @@ func serveUDP(ctx context.Context, pc net.PacketConn, upstream string) {
 			if err != nil {
 				return
 			}
-			_, _ = pc.WriteTo(answer, from)
+			_, _ = conn.WriteTo(answer, reply, from)
 		}()
 	}
 }

@@ -233,7 +233,7 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 		Network:   network.Network,
 		Address:   ipcfg.Properties.PrivateIPAddress,
 		MAC:       azureNICMAC(nic.ID),
-		DNS:       network.resolvers(),
+		DNS:       []string{azureWireServerAddress.String()},
 		UserData:  customData,
 		CloudInit: azureVMCloudInit(vm),
 		Routes:    azureIMDSRoutes(network.DNS),
@@ -472,12 +472,21 @@ func azureReleaseVMWorkloads(ctx context.Context) {
 // the managed identity endpoint with it, inside every virtual network.
 var azureIMDSAddress = netip.MustParseAddr("169.254.169.254")
 
-// azureIMDSRoutes send the service's address to the network's sidecar, which
-// answers at it.
+// azureWireServerAddress is the virtual public address through which a virtual
+// machine reaches Azure's platform resources, its DNS among them
+// (what-is-ip-address-168-63-129-16): a machine without a custom DNS server
+// resolves through it.
+var azureWireServerAddress = netip.MustParseAddr("168.63.129.16")
+
+// azureIMDSRoutes send the metadata service's and the wire server's addresses
+// to the network's sidecar, which answers at both.
 func azureIMDSRoutes(sidecar string) []sim.Route {
 	via, err := netip.ParseAddr(sidecar)
 	if err != nil {
 		return nil
 	}
-	return []sim.Route{{Destination: netip.PrefixFrom(azureIMDSAddress, 32), Via: via}}
+	return []sim.Route{
+		{Destination: netip.PrefixFrom(azureIMDSAddress, 32), Via: via},
+		{Destination: netip.PrefixFrom(azureWireServerAddress, 32), Via: via},
+	}
 }

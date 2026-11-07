@@ -631,6 +631,12 @@ machine's Region's subdomain of `metadata.azure.com` and `metadata.azure.com`,
 the names the page tells a verifier to check, and is issued from the
 simulator's persisted signing key with fixed fields, so a client trusts it
 once.
+A virtual machine resolves through Azure's wire server, `168.63.129.16`, as
+the vendored page says a machine without a custom DNS server does: the
+network sidecar holds that address beside `169.254.169.254`, and the machine
+routes both to it. The sidecar answers each UDP query from the address it was
+sent to; bound to every address, it had answered from its own, which a stub
+resolver's connected socket drops.
 
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
