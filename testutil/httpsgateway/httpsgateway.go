@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 )
 
 // startupBound caps the wait for a gateway that hangs before it caches a
@@ -126,4 +128,40 @@ func Start(cmd *exec.Cmd, out io.Writer) error {
 		return fmt.Errorf("the HTTPS gateway did not cache a certificate for every name it manages within %s; still pending: %s",
 			startupBound, strings.Join(names, ", "))
 	}
+}
+
+// Hold binds the gateway's HTTPS port, on TCP and on UDP for HTTP/3 on every
+// interface, and its admin endpoint's port on loopback, and holds them until
+// Release.
+func Hold() (port, adminPort int, err error) {
+	port, err = heldports.DualStackTCPUDP()
+	if err != nil {
+		return 0, 0, err
+	}
+	adminPort, err = heldports.TCP("127.0.0.1:0")
+	if err != nil {
+		heldports.Release(port)
+		return 0, 0, err
+	}
+	return port, adminPort, nil
+}
+
+// Hand gives cmd, before it starts, the held sockets as file descriptors 3
+// (HTTPS), 4 (HTTP/3) and 5 (admin) and names them to the Caddyfile, with the
+// HTTPS port its sites address.
+func Hand(cmd *exec.Cmd, port, adminPort int) error {
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env,
+		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", port),
+		"SOCKERLESS_HTTPS_GATEWAY_LISTEN=fds",
+		"SOCKERLESS_HTTPS_GATEWAY_ADMIN=fd/5",
+	)
+	return heldports.Hand(cmd, port, adminPort)
+}
+
+// Release closes the harness's sockets on the gateway's ports.
+func Release(port, adminPort int) {
+	heldports.Release(port, adminPort)
 }

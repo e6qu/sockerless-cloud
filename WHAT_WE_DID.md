@@ -1545,12 +1545,18 @@ fails once the row closes or the operation is served.
 - **A tool a suite needs is installed in `TestMain`**, never skipped: gcloud
   with its `alpha` and `beta` tracks (installing a track on first use ate each
   test's budget), `cbt`, the AWS CLI.
-- **Ports a suite hands out are picked together** (`testutil/freeports`),
-  below the ephemeral range when a restarted simulator must bind them again;
-  a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
-  interface, and a harness that needs both kinds takes them from one
-  `freeports.PickWithTCPUDP` call, so the DNS port cannot reuse one just
-  released.
+- **A harness holds the ports it hands out** (`testutil/heldports`): it binds
+  each one, keeps the socket for the test's life, and gives it to every
+  simulator and HTTPS gateway it starts on that port through systemd's
+  socket-activation protocol, `LISTEN_PID` and `LISTEN_FDS` with the sockets
+  from descriptor 3 on. `sim/listenfds` takes an inherited socket for a
+  configured port it binds, matched by type and port as `sd_is_socket_inet`
+  matches one: the API listener, the callback and diagnostics listeners, the
+  DNS servers, the Google Cloud gRPC port and the Azure Service Bus AMQP port.
+  Caddy takes them as `fd/3` and `fd/4`. Picking a free port, closing it and
+  passing the number on had let another process take it first, and a
+  simulator restarted on the same ports had raced every connection the suite
+  opened while it was down.
 - **A tutorial is a test.** Each cloud's tutorial configuration is the
   fixture its Terraform test applies, and the test checks the outputs the
   tutorial tells the reader to look for, so a step that stops working fails

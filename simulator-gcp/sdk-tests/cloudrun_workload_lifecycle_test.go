@@ -269,7 +269,7 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
-	httpPort, grpcPort := freePersistentSimPorts(t)
+	httpPort, grpcPort := holdPersistentSimPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	logsAt := fmt.Sprintf("127.0.0.1:%d", grpcPort)
 

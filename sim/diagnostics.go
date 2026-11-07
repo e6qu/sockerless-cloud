@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/listenfds"
 )
 
 // The diagnostics listener answers "what is the simulator doing right now"
@@ -341,7 +342,7 @@ func startDiagnosticsListener() {
 
 	mux.HandleFunc("/debug/stores", storeDiagnosticsHandler)
 
-	listener, err := net.Listen("tcp", addr)
+	listener, err := listenfds.Listen("tcp", addr)
 	if err != nil {
 		// Diagnostics must never stop the simulator from serving.
 		fmt.Fprintf(os.Stderr, "[sim-diagnostics] not listening on %s: %v\n", addr, err)

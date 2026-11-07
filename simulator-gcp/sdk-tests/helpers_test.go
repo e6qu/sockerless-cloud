@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,8 +20,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"golang.org/x/oauth2"
@@ -119,26 +118,13 @@ func TestMain(m *testing.M) {
 	// public catalog, by the manifest of the engine's architecture.
 	pullImageBeforeRun(debianCatalogImage)
 
-	// Allocate both ports while both listeners are open. Closing the first
-	// before allocating the second lets the OS re-assign the just-freed
-	// port to the second listener, causing the sim's HTTP and gRPC servers
-	// to collide on the same port.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, grpcPort, err := holdSimulatorPorts()
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to hold the simulator's ports: %v", err)
 	}
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	dnsPort, err := heldports.TCPUDP("")
 	if err != nil {
-		log.Fatalf("Failed to find free gRPC port: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	grpcPort := ln2.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	ln2.Close()
-
-	dnsPort, err := freeports.TCPUDP()
-	if err != nil {
-		log.Fatalf("Failed to find a free DNS port: %v", err)
+		log.Fatalf("Failed to hold a DNS port: %v", err)
 	}
 
 	tlsDir, err := os.MkdirTemp("", "gcp-sdk-grpc-tls-*")
@@ -159,6 +145,9 @@ func TestMain(m *testing.M) {
 		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
 	), simGRPCEnv()...)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, port, grpcPort, dnsPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator did not become healthy: %v", err)
@@ -428,3 +417,19 @@ func testRunSelects(name string) bool {
 // Debian 12 instance from, pinned as the catalog pins it; the engine picks the
 // platform's manifest out of the index.
 const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8"
+
+// holdSimulatorPorts binds a simulator's HTTP and gRPC ports and holds them for
+// the simulators handed them, so no other process can take either before a
+// simulator binds it or while it restarts.
+func holdSimulatorPorts() (httpPort, grpcPort int, err error) {
+	httpPort, err = heldports.TCP(":0")
+	if err != nil {
+		return 0, 0, err
+	}
+	grpcPort, err = heldports.TCP(":0")
+	if err != nil {
+		heldports.Release(httpPort)
+		return 0, 0, err
+	}
+	return httpPort, grpcPort, nil
+}

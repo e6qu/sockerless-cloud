@@ -36,7 +36,7 @@ flowchart LR
 | `simulator-aws`, `simulator-gcp`, `simulator-azure` | `simulator-<cloud>/` | One binary per cloud. Every service slice of that cloud registers on one `sim.Server` mux. No `replace` directives, so `go install` works. |
 | `sim` | `sim/` | The cloud-neutral framework: server, configuration, state, container engine, placement, networks and the shared service mechanisms. [`sim/README.md`](../sim/README.md) lists every file and package. |
 | `ui-auth` | `ui-auth/` | The consoles' OpenID Connect layer and `GET /monitoring/observation`. |
-| `testutil` | `testutil/` | Helpers the nine test suites share: `simready`, `freeports`, `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `loopbacktls`, `registrytrust`, `samlidp`, `githttp`, `gcpbootstrap`. |
+| `testutil` | `testutil/` | Helpers the nine test suites share: `simready`, `heldports`, `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `loopbacktls`, `registrytrust`, `samlidp`, `githttp`, `gcpbootstrap`. |
 | Test suites | `simulator-<cloud>/{sdk,cli,terraform}-tests/` | Each `TestMain` builds the simulator, starts it and waits for its `Listening on` line. The suites drive it with the cloud's own SDK for Go, CLI and Terraform provider. |
 | Consoles | `ui/packages/simulator-<cloud>` | Each console reads only the cloud's real APIs at a configured base URL. |
 

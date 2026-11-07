@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -36,12 +36,13 @@ import (
 // relaunch it on the same data directory, and assert the state an Azure tenant
 // retains is still there.
 
-func freeAzureSimPort(t *testing.T) int {
+// holdAzureSimPort holds a simulator's port for the test, so a restart binds it
+// again whatever the suite opens while the first process is down.
+func holdAzureSimPort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := heldports.TCP(":0")
 	require.NoError(t, err)
-	port := ln.Addr().(*net.TCPAddr).Port
-	require.NoError(t, ln.Close())
+	t.Cleanup(func() { heldports.Release(port) })
 	return port
 }
 
@@ -61,6 +62,7 @@ func startPersistentAzureSimulatorOn(t *testing.T, runtime, stateDir string, por
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, port))
 	require.NoError(t, simready.Start(cmd, os.Stderr))
 	return cmd
 }
@@ -216,7 +218,7 @@ func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	stateDir := t.TempDir()
-	port := freeAzureSimPort(t)
+	port := holdAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	cmd := startPersistentAzureSimulator(t, stateDir, port)

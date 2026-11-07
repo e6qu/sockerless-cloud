@@ -1,5 +1,5 @@
 {
-	admin localhost:{$SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT:28443}
+	admin {$SOCKERLESS_HTTPS_GATEWAY_ADMIN:localhost:28443}
 	auto_https disable_redirects
 	skip_install_trust
 	# Each gateway starts on an empty data directory, so there is nothing stale to
@@ -17,6 +17,22 @@
 	}
 }
 
+# SOCKERLESS_HTTPS_GATEWAY_LISTEN picks how the sites listen: ports binds the
+# site address's port on every interface; fds serves sockets a test harness
+# holds and hands down, TCP at descriptor 3 and UDP for HTTP/3 at descriptor 4,
+# with the admin endpoint at SOCKERLESS_HTTPS_GATEWAY_ADMIN=fd/5.
+(listen-ports) {
+}
+
+(listen-fds) {
+	bind fd/3 {
+		protocols h1 h2
+	}
+	bind fdgram/4 {
+		protocols h3
+	}
+}
+
 # The second name is the Amazon ECR private-registry login server,
 # <aws_account_id>.dkr.ecr.<region>.amazonaws.com, at this gateway's coordinate:
 # a container engine reaches a registry by the host in the image reference, so
@@ -26,6 +42,7 @@
 https://aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.dkr.ecr.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	import listen-{$SOCKERLESS_HTTPS_GATEWAY_LISTEN:ports}
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_AWS_SIM_PORT:4566} {
 		header_up X-Forwarded-Proto https
@@ -39,6 +56,7 @@ https://*.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 # for it.
 https://gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.pkg.gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	import listen-{$SOCKERLESS_HTTPS_GATEWAY_LISTEN:ports}
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_GCP_SIM_PORT:4567} {
 		header_up X-Forwarded-Proto https
@@ -49,6 +67,7 @@ https://*.pkg.gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 # <bucket>.localhost.
 https://localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	import listen-{$SOCKERLESS_HTTPS_GATEWAY_LISTEN:ports}
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT:4566} {
 		header_up X-Forwarded-Proto https
@@ -68,6 +87,7 @@ https://*.eventgrid.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8
 https://*.documents.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.azurecr.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
 https://*.scm.azure.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+	import listen-{$SOCKERLESS_HTTPS_GATEWAY_LISTEN:ports}
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_AZURE_SIM_PORT:4568} {
 		header_up X-Forwarded-Proto https

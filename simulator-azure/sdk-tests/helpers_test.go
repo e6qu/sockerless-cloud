@@ -33,7 +33,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	azruntime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/require"
 )
@@ -288,28 +288,22 @@ func TestMain(m *testing.M) {
 		pullImageBeforeRun(functionsHostNodeImage)
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to hold the simulator's port: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
 	installAzureSDKTestResolver(port)
 
-	amqpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	amqpPort, err := heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free Service Bus AMQP port: %v", err)
+		log.Fatalf("Failed to hold the Service Bus AMQP port: %v", err)
 	}
-	amqpPort := amqpLn.Addr().(*net.TCPAddr).Port
-	amqpLn.Close()
 	sbAMQPEndpoint = fmt.Sprintf("127.0.0.1:%d", amqpPort)
 
-	// The simulator serves the DNS front on UDP and TCP at one port, so the
-	// port must be free on both: a port the kernel picks for UDP alone is
-	// often a TCP port some connection already holds.
-	dnsPort, err := freeports.TCPUDP()
+	// The simulator serves the DNS front on UDP and TCP at one port.
+	dnsPort, err := heldports.TCPUDP("127.0.0.1")
 	if err != nil {
-		log.Fatalf("Failed to find free DNS port: %v", err)
+		log.Fatalf("Failed to hold the DNS port: %v", err)
 	}
 	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
@@ -338,6 +332,9 @@ func TestMain(m *testing.M) {
 		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, port, amqpPort, dnsPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator did not become healthy: %v", err)

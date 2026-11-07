@@ -17,11 +17,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -291,24 +293,24 @@ func writeAuthorityTLSCert(t *testing.T, dir, host string) (string, string) {
 // a SIM_RUNTIME of its own it runs the full workload runtime.
 func startTLSSimulator(t *testing.T, certPath, keyPath string, extraEnv ...string) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		t.Fatalf("reserve port for the TLS simulator: %v", err)
+		t.Fatalf("hold the TLS simulator's port: %v", err)
 	}
-	addr := listener.Addr().String()
-	port := addr[strings.LastIndex(addr, ":"):]
-	if err := listener.Close(); err != nil {
-		t.Fatalf("release reserved port: %v", err)
-	}
+	t.Cleanup(func() { heldports.Release(port) })
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
-		"SIM_LISTEN_ADDR="+port,
+		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		"SIM_TLS_CERT="+certPath,
 		"SIM_TLS_KEY="+keyPath,
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
+	if err := heldports.Hand(cmd, port); err != nil {
+		t.Fatalf("hand the TLS simulator its port: %v", err)
+	}
 	if err := simready.Start(cmd, os.Stderr); err != nil {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}

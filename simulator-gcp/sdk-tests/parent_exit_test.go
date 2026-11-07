@@ -2,7 +2,6 @@ package gcp_sdk_test
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 )
 
 // A simulator must not outlive the test process that started it. Every harness
@@ -27,12 +28,14 @@ func TestSimulatorExitsWithItsParent(t *testing.T) {
 	require.NoError(t, standIn.Start(), "start the stand-in parent")
 	defer func() { _ = standIn.Process.Kill() }()
 
+	httpPort, grpcPort := holdPersistentSimPorts(t)
 	sim := exec.Command(binaryPath)
 	sim.Env = append(os.Environ(),
-		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", freeLocalPort(t)),
-		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", freeLocalPort(t)),
+		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", httpPort),
+		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
 		"SOCKERLESS_PARENT_PID"+"="+strconv.Itoa(standIn.Process.Pid),
 	)
+	require.NoError(t, heldports.Hand(sim, httpPort, grpcPort))
 	require.NoError(t, sim.Start(), "start the simulator")
 	exited := make(chan error, 1)
 	go func() { exited <- sim.Wait() }()
@@ -54,15 +57,4 @@ func TestSimulatorExitsWithItsParent(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the simulator outlived the parent it was told to watch")
 	}
-}
-
-// freeLocalPort reserves a port the simulator can bind, so this test's
-// simulator never collides with the suite's own.
-func freeLocalPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
-	return port
 }

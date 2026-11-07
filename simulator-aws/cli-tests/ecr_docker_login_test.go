@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -192,8 +191,9 @@ func startECRRegistryGateway(t *testing.T, registryID string) *ecrRegistryGatewa
 	require.NoError(t, err)
 
 	gatewayDir := t.TempDir()
-	ports := reserveGatewayPorts(t, 2)
-	gatewayPort, adminPort := ports[0], ports[1]
+	gatewayPort, adminPort, err := httpsgateway.Hold()
+	require.NoError(t, err, "hold the HTTPS gateway's ports")
+	t.Cleanup(func() { httpsgateway.Release(gatewayPort, adminPort) })
 
 	gatewayProcess := exec.Command(resolved, "run",
 		"--config", filepath.Join(repoRoot, "make", "https-gateway", "Caddyfile"),
@@ -201,14 +201,13 @@ func startECRRegistryGateway(t *testing.T, registryID string) *ecrRegistryGatewa
 	gatewayProcess.Env = append(os.Environ(),
 		"XDG_DATA_HOME="+filepath.Join(gatewayDir, "data"),
 		"XDG_CONFIG_HOME="+filepath.Join(gatewayDir, "config"),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", gatewayPort),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT=%d", adminPort),
 		fmt.Sprintf("SOCKERLESS_AWS_SIM_PORT=%d", simulatorPort),
 		"SOCKERLESS_GCP_SIM_PORT=1",
 		"SOCKERLESS_AZURE_SIM_PORT=1",
 		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simulatorPort),
 	)
 	gatewayProcess.Stdout = os.Stdout
+	require.NoError(t, httpsgateway.Hand(gatewayProcess, gatewayPort, adminPort))
 	startErr := httpsgateway.Start(gatewayProcess, os.Stderr)
 	if gatewayProcess.Process != nil {
 		t.Cleanup(func() {
@@ -358,27 +357,4 @@ func requireEngineRefused(t *testing.T, registryStatus int, output string, err e
 	require.Equal(t, http.StatusUnauthorized, registryStatus,
 		"%s: the registry must have refused the request the engine makes here", what)
 	require.Error(t, err, "%s must be refused: %s", what, output)
-}
-
-// reserveGatewayPorts returns n distinct ports free for the gateway's wildcard
-// bind, holding every listener open until all n are chosen so no port is
-// handed out twice.
-func reserveGatewayPorts(t *testing.T, n int) []int {
-	t.Helper()
-	listeners := make([]net.Listener, 0, n)
-	ports := make([]int, 0, n)
-	defer func() {
-		for _, listener := range listeners {
-			require.NoError(t, listener.Close())
-		}
-	}()
-	for range n {
-		listener, err := net.Listen("tcp", ":0")
-		require.NoError(t, err, "reserve a port for the HTTPS gateway")
-		listeners = append(listeners, listener)
-		address, ok := listener.Addr().(*net.TCPAddr)
-		require.True(t, ok, "port reservation is not TCP: %T", listener.Addr())
-		ports = append(ports, address.Port)
-	}
-	return ports
 }

@@ -20,6 +20,7 @@ import (
 
 	amqp "github.com/Azure/go-amqp"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listenfds"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"github.com/gorilla/websocket"
 )
@@ -161,13 +162,14 @@ func startSBAMQPTLSListener(ctx context.Context, listenAddr, certFile, keyFile s
 	if err != nil {
 		return nil, fmt.Errorf("load Service Bus AMQP TLS certificate: %w", err)
 	}
-	ln, err := tls.Listen("tcp", listenAddr, &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{cert},
-	})
+	raw, err := listenfds.Listen("tcp", listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen for Service Bus raw AMQP on %s: %w", listenAddr, err)
 	}
+	ln := tls.NewListener(raw, &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+	})
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()

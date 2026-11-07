@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
@@ -91,11 +93,10 @@ func newClientCertificate(t *testing.T, commonName string) tls.Certificate {
 
 func startTLSWorkloadSimulator(t *testing.T, certPath, keyPath string) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	held, err := heldports.TCP("127.0.0.1:0")
 	require.NoError(t, err)
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	require.NoError(t, err)
-	require.NoError(t, listener.Close())
+	t.Cleanup(func() { heldports.Release(held) })
+	port := strconv.Itoa(held)
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		"SIM_LISTEN_ADDR=127.0.0.1:"+port,
@@ -103,6 +104,7 @@ func startTLSWorkloadSimulator(t *testing.T, certPath, keyPath string) string {
 		"SIM_TLS_KEY="+keyPath,
 	)
 	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, held))
 	require.NoError(t, simready.Start(cmd, os.Stderr), "start the TLS simulator")
 	t.Cleanup(func() {
 		if err := simready.Stop(cmd, simShutdownGrace); err != nil {

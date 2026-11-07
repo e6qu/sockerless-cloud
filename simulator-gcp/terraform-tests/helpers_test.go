@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,8 +22,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
@@ -121,24 +120,16 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 	}
 
-	// Allocate both ports while both listeners are open. Closing the first
-	// before allocating the second lets the OS re-assign the just-freed
-	// port to the second listener, causing the sim's HTTP and gRPC servers
-	// to collide on the same port.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var err error
+	simPort, err = heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to hold the HTTP port: %v", err)
 	}
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	grpcPort, err := heldports.TCP(":0")
 	if err != nil {
-		ln.Close()
-		log.Fatalf("Failed to find free gRPC port: %v", err)
+		log.Fatalf("Failed to hold the gRPC port: %v", err)
 	}
-	simPort = ln.Addr().(*net.TCPAddr).Port
-	grpcPort := ln2.Addr().(*net.TCPAddr).Port
 	bigtableEndpoint = fmt.Sprintf("https://127.0.0.1:%d", grpcPort)
-	ln.Close()
-	ln2.Close()
 
 	grpcTLSDir, err := os.MkdirTemp("", "gcp-tf-grpc-tls-*")
 	if err != nil {
@@ -164,6 +155,9 @@ func TestMain(m *testing.M) {
 		"SIM_GCP_GRPC_TLS_KEY="+grpcTLS.Key,
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, simPort, grpcPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator did not become healthy: %v", err)
@@ -209,26 +203,27 @@ func TestMain(m *testing.M) {
 		}
 		caddyBin = requireExecutable(caddyBin, "GCP Terraform HTTPS gateway tests")
 
-		ports, err := freeports.Pick(2)
+		var gatewayAdminPort int
+		gatewayPort, gatewayAdminPort, err = httpsgateway.Hold()
 		if err != nil {
 			simCmd.Process.Kill()
-			log.Fatalf("Failed to find free gateway ports: %v", err)
+			log.Fatalf("Failed to hold the HTTPS gateway's ports: %v", err)
 		}
-		gatewayPort = ports[0]
-		gatewayAdminPort := ports[1]
 		caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 		gatewayCmd = exec.Command(caddyBin, "run", "--config", filepath.Join(repoRoot, "make", "https-gateway", "Caddyfile"), "--adapter", "caddyfile")
 		gatewayCmd.Env = append(os.Environ(),
 			fmt.Sprintf("XDG_DATA_HOME=%s", filepath.Join(gatewayDir, "data")),
 			fmt.Sprintf("XDG_CONFIG_HOME=%s", filepath.Join(gatewayDir, "config")),
-			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", gatewayPort),
-			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT=%d", gatewayAdminPort),
 			"SOCKERLESS_AWS_SIM_PORT=1",
 			fmt.Sprintf("SOCKERLESS_GCP_SIM_PORT=%d", simPort),
 			"SOCKERLESS_AZURE_SIM_PORT=1",
 			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT=%d", simPort),
 		)
 		gatewayCmd.Stdout = os.Stdout
+		if err := httpsgateway.Hand(gatewayCmd, gatewayPort, gatewayAdminPort); err != nil {
+			simCmd.Process.Kill()
+			log.Fatalf("Failed to hand the HTTPS gateway its ports: %v", err)
+		}
 		if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
 			if gatewayCmd.Process != nil {
 				gatewayCmd.Process.Kill()

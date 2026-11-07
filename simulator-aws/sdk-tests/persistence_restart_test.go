@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,8 +52,9 @@ import (
 
 func persistentSimulatorPorts(t *testing.T) (int, int) {
 	t.Helper()
-	tcpPort, dnsPort, err := freeSimulatorPortPair()
+	tcpPort, dnsPort, err := holdSimulatorPorts()
 	require.NoError(t, err)
+	t.Cleanup(func() { heldports.Release(tcpPort, dnsPort) })
 	return tcpPort, dnsPort
 }
 
@@ -93,6 +95,7 @@ func startPersistentSimulatorWritingTo(t *testing.T, stateDir string, tcpPort, u
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, tcpPort, udpPort))
 	require.NoError(t, simready.Start(cmd, out))
 	return cmd
 }

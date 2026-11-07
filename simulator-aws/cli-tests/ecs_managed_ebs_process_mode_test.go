@@ -3,11 +3,11 @@ package aws_cli_test
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -15,12 +15,11 @@ import (
 // which never creates a Docker client, and returns its base URL.
 func startProcessModeSim(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		t.Fatalf("free port: %v", err)
+		t.Fatalf("hold a port: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
+	t.Cleanup(func() { heldports.Release(port) })
 
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(
@@ -31,6 +30,9 @@ func startProcessModeSim(t *testing.T) string {
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
+	if err := heldports.Hand(cmd, port); err != nil {
+		t.Fatalf("hand the simulator its port: %v", err)
+	}
 	startErr := simready.Start(cmd, os.Stderr)
 	t.Cleanup(func() {
 		if cmd.Process != nil {

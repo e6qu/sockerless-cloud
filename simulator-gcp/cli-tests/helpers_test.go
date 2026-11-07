@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/gcpbootstrap"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/loopbacktls"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
@@ -158,11 +158,14 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	ports, err := freeports.Pick(2)
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free HTTP and gRPC ports: %v", err)
+		log.Fatalf("Failed to hold the HTTP port: %v", err)
 	}
-	port, grpcPort := ports[0], ports[1]
+	grpcPort, err := heldports.TCP(":0")
+	if err != nil {
+		log.Fatalf("Failed to hold the gRPC port: %v", err)
+	}
 
 	// The gRPC port serves TLS, the only transport Google's client libraries
 	// send credentials over, with a certificate from an authority of the
@@ -185,6 +188,9 @@ func TestMain(m *testing.M) {
 		"SIM_GCP_GRPC_TLS_KEY="+grpcTLS.Key,
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, port, grpcPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator did not become healthy: %v", err)

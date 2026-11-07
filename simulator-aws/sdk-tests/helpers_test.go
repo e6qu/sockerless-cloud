@@ -33,7 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
@@ -128,27 +128,18 @@ func signRawSigV4JSON(t *testing.T, req *http.Request, service string, body []by
 	signRawSigV4(t, req, service, hex.EncodeToString(sum[:]))
 }
 
-// freeSimulatorPortPair reserves a simulator's HTTP port and its Route 53 DNS
-// port as two different ports. Two independent probes can get the same port,
-// since each releases its port before returning, and the simulator would then
-// fail to bind its DNS listener. Holding the HTTP reservation open across the
-// DNS probe, which binds TCP too, rules that out.
-func freeSimulatorPortPair() (httpPort int, dnsPort int, err error) {
-	holder, err := net.Listen("tcp", ":0")
+// holdSimulatorPorts binds a simulator's HTTP port and its Route 53 DNS port,
+// on TCP and UDP, and holds both for the simulators handed them, so no other
+// process can take either before a simulator binds it or while it restarts.
+func holdSimulatorPorts() (httpPort int, dnsPort int, err error) {
+	httpPort, err = heldports.TCP(":0")
 	if err != nil {
 		return 0, 0, err
 	}
-	httpPort = holder.Addr().(*net.TCPAddr).Port
-	dnsPort, dnsErr := freeports.TCPUDP()
-	closeErr := holder.Close()
-	if dnsErr != nil {
-		return 0, 0, dnsErr
-	}
-	if closeErr != nil {
-		return 0, 0, closeErr
-	}
-	if httpPort == dnsPort {
-		return 0, 0, fmt.Errorf("http and Route 53 coordinates collided on port %d", httpPort)
+	dnsPort, err = heldports.TCPUDP("")
+	if err != nil {
+		heldports.Release(httpPort)
+		return 0, 0, err
 	}
 	return httpPort, dnsPort, nil
 }
@@ -441,9 +432,9 @@ func TestMain(m *testing.M) {
 
 	// Route 53 serves the DNS coordinate over UDP and TCP, on a port other than
 	// the HTTP server's.
-	port, dnsPortValue, err := freeSimulatorPortPair()
+	port, dnsPortValue, err := holdSimulatorPorts()
 	if err != nil {
-		log.Fatalf("Failed to reserve simulator ports: %v", err)
+		log.Fatalf("Failed to hold simulator ports: %v", err)
 	}
 	simPort = port
 	dnsPort = dnsPortValue
@@ -455,6 +446,9 @@ func TestMain(m *testing.M) {
 		"SIM_LOG_LEVEL=warn",
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, port, dnsPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		shutdownSimulator(simCmd)
 		log.Fatalf("Simulator did not become healthy: %v", err)
