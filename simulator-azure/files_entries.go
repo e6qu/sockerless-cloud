@@ -1059,8 +1059,8 @@ func filesResolveCopySource(w http.ResponseWriter, sourceURL string) (string, bo
 // parseFilesResourceURL splits a Files data-plane URL into the account, share
 // and share-relative path it addresses. Both spellings a client can be
 // configured with are understood: the `<account>.file.<host>/<share>/<path>`
-// hostname Azure publishes, and the `/file/<account>/<share>/<path>` path-style
-// form an endpoint-configured SDK produces.
+// hostname Azure publishes, and the IP-style `/<account>/<share>/<path>` the
+// SDKs address an endpoint by address with.
 func parseFilesResourceURL(raw string) (account, share, entryPath string, ok bool) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
@@ -1076,11 +1076,7 @@ func parseFilesResourceURL(raw string) (account, share, entryPath string, ok boo
 			return "", "", "", false
 		}
 	} else {
-		rest, found := strings.CutPrefix(escaped, "file/")
-		if !found {
-			return "", "", "", false
-		}
-		accountEsc, remainder, found := strings.Cut(rest, "/")
+		accountEsc, remainder, found := strings.Cut(escaped, "/")
 		if !found {
 			return "", "", "", false
 		}

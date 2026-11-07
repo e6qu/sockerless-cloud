@@ -193,97 +193,9 @@ func registerStorageDataPlane(srv *sim.Server) {
 				writeStorageOperationNotImplemented(w, r, "Data Lake Storage Gen2")
 				return
 			}
-			// Path-style fallback for SDKs configured with a non-
-			// `*.core.windows.net` endpoint (Azurite-compatible).
-			// Sockerless runs on a single port, so the service is
-			// discriminated by a path prefix instead of a per-service
-			// port:
-			//   /file/{account}/...   → Files data plane
-			//   /queue/{account}/...  → Queues data plane
-			//   /table/{account}/...  → Tables data plane
-			// Connection-string contract: callers configure
-			// `FileEndpoint=http://localhost:14568/file/<account>`.
-			// Bare `/{account}/...` (blob default) is matched in
-			// blob.go's WrapHandler.
-			//
-			// Skip when the host carries a non-storage Azure
-			// subdomain (`.vault.`, `.servicebus.`) — those hosts
-			// belong to other data planes and must not be reinterpreted
-			// as storage path-style requests.
-			if hasNonStorageAzureSubdomain(host) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Same protocol-signal discriminator as the blob
-			// path-style fallback in blob.go — keeps non-storage
-			// callers that happen to use `/file/`, `/queue/`, or
-			// `/table/` as a path prefix routed to their own
-			// handlers.
-			if !hasAzureStorageSignal(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if account, rest, ok := splitServicePrefix(r.URL.Path, "file"); ok {
-				container, _ := storagePathResource(rest)
-				if !AuthorizeStorageDataPlane(w, r, "file", account, container, "") {
-					return
-				}
-				r = StorageMarkAuthorized(r)
-				r.URL.Path = "/" + rest
-				handleFilesDataPlane(w, r, account)
-				return
-			}
-			if account, rest, ok := splitServicePrefix(r.URL.Path, "queue"); ok {
-				container, _ := storagePathResource(rest)
-				if !AuthorizeStorageDataPlane(w, r, "queue", account, container, "") {
-					return
-				}
-				r = StorageMarkAuthorized(r)
-				r.URL.Path = "/" + rest
-				handleQueuesDataPlane(w, r, account)
-				return
-			}
-			if account, rest, ok := splitServicePrefix(r.URL.Path, "table"); ok {
-				container, _ := storagePathResource(rest)
-				if !AuthorizeStorageDataPlane(w, r, "table", account, container, "") {
-					return
-				}
-				r = StorageMarkAuthorized(r)
-				r.URL.Path = "/" + rest
-				handleTablesDataPlane(w, r, account)
-				return
-			}
 			next.ServeHTTP(w, r)
 		})
 	})
-}
-
-// splitServicePrefix matches `/<service>/<account>/<rest...>` where
-// `<service>` is the literal `service` argument (file / queue / table).
-// Returns (account, rest-of-path, true) on match. Account names are
-// accepted as-is — real Azurite is permissive — and the service-prefix
-// guarantees the route is intended for storage. Path-style sibling of
-// the bare `/{account}/...` blob form in blob.go.
-func splitServicePrefix(path, service string) (account, rest string, ok bool) {
-	p := strings.TrimPrefix(path, "/")
-	prefix := service + "/"
-	if !strings.HasPrefix(p, prefix) {
-		return "", "", false
-	}
-	p = p[len(prefix):]
-	slash := strings.IndexByte(p, '/')
-	var first string
-	if slash < 0 {
-		first = p
-		p = ""
-	} else {
-		first = p[:slash]
-		p = p[slash+1:]
-	}
-	if first == "" {
-		return "", "", false
-	}
-	return first, p, true
 }
 
 // ── Files dispatch ──────────────────────────────────────────────────

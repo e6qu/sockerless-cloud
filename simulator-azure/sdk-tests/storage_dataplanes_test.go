@@ -225,11 +225,9 @@ func TestTablesDataPlane(t *testing.T) {
 	assert.Contains(t, string(body), "TableNotFound", "expected TableNotFound; got %s", string(body))
 }
 
-// pathStyleStorageReq issues a request via the Azurite-compatible
-// path-style URL: `/{account}/...` (blob), `/queue/{account}/...`,
-// `/table/{account}/...`, `/file/{account}/...`. No `.<service>.`
-// subdomain. The Azure SDK + azurerm provider both default to this
-// shape when the configured endpoint isn't `*.core.windows.net`.
+// pathStyleStorageReq issues a request via the IP-style Blob URL
+// `/{account}/...`, with no `.blob.` subdomain, which the Azure SDKs use for
+// an endpoint addressed by IP address.
 //
 // `x-ms-version` is always set — real Azure-Storage clients send it
 // on every request, and the sim's path-style dispatcher uses it (and
@@ -258,19 +256,10 @@ func pathStyleStorageReq(t *testing.T, method, prefix, path string, body []byte,
 	}
 	// A path-style storage request authenticates with the account key over the
 	// path it carries; the ARM bearer above stays only on the requests that
-	// deliberately target an ARM path, which the reserved prefixes name. The
-	// bare form is `/{account}/…`; the per-service form is
-	// `/file|queue|table/{account}/…`, where the account is the second segment
-	// and the Table service signs its own, shorter string.
-	first, rest, _ := strings.Cut(strings.TrimPrefix(prefix, "/"), "/")
+	// deliberately target an ARM path, which the reserved prefixes name.
+	first, _, _ := strings.Cut(strings.TrimPrefix(prefix, "/"), "/")
 	switch first {
 	case "subscriptions", "providers", "metadata", "v1":
-	case "file", "queue", "table":
-		account := rest
-		if account == "" {
-			account, _, _ = strings.Cut(strings.TrimPrefix(path, "/"), "/")
-		}
-		storageSignSharedKeyPathStyleService(req, first, account)
 	default:
 		storageSignSharedKeyPathStyleService(req, "blob", first)
 	}
@@ -340,48 +329,6 @@ func TestStorageDataPlane_PathStyleAccountNamedInternal(t *testing.T) {
 		map[string]string{"x-ms-blob-type": "BlockBlob"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "PUT blob in account internal")
 	resp.Body.Close()
-}
-
-// TestStorageDataPlane_PathStyleFileQueueTable exercises the
-// per-service prefix scheme for the non-blob services. `/file/...`,
-// `/queue/...`, `/table/...` are sockerless-specific (Azurite uses
-// per-port; sim runs on one port, so a path prefix discriminates).
-// Like the blob path-style form, no prior ARM registration required.
-func TestStorageDataPlane_PathStyleFileQueueTable(t *testing.T) {
-	t.Parallel()
-	account := "azurite-style-acct"
-
-	// Files.
-	share := "path-style-file-share"
-	resp := pathStyleStorageReq(t, "PUT", "/file/"+account, "/"+share+"?restype=share", nil, nil)
-	require.Equal(t, http.StatusCreated, resp.StatusCode, "PUT share path-style")
-	resp.Body.Close()
-	t.Cleanup(func() {
-		r := pathStyleStorageReq(t, "DELETE", "/file/"+account, "/"+share+"?restype=share", nil, nil)
-		r.Body.Close()
-	})
-
-	// Queue.
-	queue := "path-style-queue"
-	resp = pathStyleStorageReq(t, "PUT", "/queue/"+account, "/"+queue, nil, nil)
-	require.Equal(t, http.StatusCreated, resp.StatusCode, "PUT queue path-style")
-	resp.Body.Close()
-	t.Cleanup(func() {
-		r := pathStyleStorageReq(t, "DELETE", "/queue/"+account, "/"+queue, nil, nil)
-		r.Body.Close()
-	})
-
-	// Table.
-	table := "PathStyleTable"
-	resp = pathStyleStorageReq(t, "POST", "/table/"+account, "/Tables",
-		[]byte(`{"TableName":"`+table+`"}`),
-		map[string]string{"Content-Type": "application/json"})
-	require.Equal(t, http.StatusCreated, resp.StatusCode, "POST table path-style")
-	resp.Body.Close()
-	t.Cleanup(func() {
-		r := pathStyleStorageReq(t, "DELETE", "/table/"+account, "/Tables('"+table+"')", nil, nil)
-		r.Body.Close()
-	})
 }
 
 // TestStorageDataPlane_PathStyleARMPrefixExclusion confirms reserved

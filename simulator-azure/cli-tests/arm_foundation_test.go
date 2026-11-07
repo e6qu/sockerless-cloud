@@ -18,7 +18,7 @@ func TestCLIAzureARMFoundationEndpoints(t *testing.T) {
 		} `json:"properties"`
 	}
 	parseJSON(t, out, &storage)
-	wantBlob := fmt.Sprintf("http://%s.blob.cli-shim.localhost:%s/", storageName, port)
+	wantBlob := fmt.Sprintf("http://%s.blob.core.cli-shim.localhost:%s/", storageName, port)
 	if storage.Properties.PrimaryEndpoints["blob"] != wantBlob {
 		t.Fatalf("blob endpoint = %q, want %q", storage.Properties.PrimaryEndpoints["blob"], wantBlob)
 	}

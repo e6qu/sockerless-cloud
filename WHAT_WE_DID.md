@@ -1891,6 +1891,13 @@ fails once the row closes or the operation is served.
   captured writes it, as a tar archive `sim.ArchiveVolume` reads through a
   container that never starts, to a block blob in each container through the
   Blob service with that SAS; a refused write fails the backup.
+- **Azure Storage endpoints.** The Files, Queue and Table data planes answer
+  only at an account's own `<account>.<service>.` host; the `/file/`,
+  `/queue/` and `/table/` path prefixes, which no Azure endpoint serves, are
+  gone, and the Blob service keeps the IP-style `/<account>/` form the SDKs
+  use for an endpoint addressed by IP. The CLI suite advertises
+  `<account>.<service>.core.cli-shim.localhost`, the shape the CLI's storage
+  SDK reads an account name from, and reaches it through `HTTP_PROXY`.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

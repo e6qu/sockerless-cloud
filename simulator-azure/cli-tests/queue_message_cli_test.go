@@ -109,7 +109,7 @@ func azStorageQueuePolicy(args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--account-name", queueCLIAccountName,
 		"--account-key", cliStorageAccountKey(queueCLIAccountName),
-		"--queue-endpoint", baseURL+"/queue/"+queueCLIAccountName+"/",
+		"--queue-endpoint", storageAccountEndpoint(queueCLIAccountName, "queue"),
 		"--only-show-errors",
 		"--output", "json",
 	)
@@ -118,5 +118,6 @@ func azStorageQueuePolicy(args ...string) *exec.Cmd {
 		"AZURE_CONFIG_DIR="+filepath.Join(tmpDir, "azure-config"),
 		"AZURE_CORE_NO_COLOR=1",
 	)
+	cmd.Env = append(cmd.Env, storageProxyEnv()...)
 	return cmd
 }
