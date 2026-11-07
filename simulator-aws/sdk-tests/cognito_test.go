@@ -71,6 +71,7 @@ func TestCognito_UserPoolLifecycle(t *testing.T) {
 	clientID := aws.ToString(client.UserPoolClient.ClientId)
 	assert.NotEmpty(t, aws.ToString(client.UserPoolClient.ClientSecret))
 	assert.Equal(t, int32(30), client.UserPoolClient.RefreshTokenValidity, "refresh tokens are valid for 30 days by default")
+	assert.Nil(t, client.UserPoolClient.TokenValidityUnits, "a client that names no units describes none")
 	assert.ElementsMatch(t, []ciptypes.ExplicitAuthFlowsType{"ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH", "ALLOW_CUSTOM_AUTH"},
 		client.UserPoolClient.ExplicitAuthFlows)
 
@@ -92,6 +93,7 @@ func TestCognito_UserPoolLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(30), aws.ToInt32(readBack.UserPoolClient.AccessTokenValidity))
 	assert.Equal(t, ciptypes.TimeUnitsTypeMinutes, readBack.UserPoolClient.TokenValidityUnits.AccessToken)
+	assert.Empty(t, readBack.UserPoolClient.TokenValidityUnits.RefreshToken, "a unit the update left out stays out")
 	assert.Equal(t, aws.ToString(client.UserPoolClient.ClientSecret), aws.ToString(readBack.UserPoolClient.ClientSecret), "an update keeps the secret")
 	listed, err := c.ListUserPoolClients(ctx, &cip.ListUserPoolClientsInput{UserPoolId: aws.String(poolID)})
 	require.NoError(t, err)

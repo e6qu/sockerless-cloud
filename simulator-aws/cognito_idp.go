@@ -638,7 +638,9 @@ func cognitoApplyClientRequest(client *CognitoUserPoolClient, req cognitoClientR
 	}
 	refresh := req.RefreshTokenValidity
 	if refresh == 0 {
-		refresh, units.RefreshToken = 30, cmpOr(units.RefreshToken, "days")
+		// The default is 30 days in whatever unit the client names, and units
+		// the request left out stay out of the client's description.
+		refresh = 30 * 86400 / cognitoSeconds(1, units.RefreshToken, "days")
 	}
 	if s := cognitoSeconds(refresh, units.RefreshToken, "days"); s < 60 || s > 315360000 {
 		return "Invalid range for token validity."
