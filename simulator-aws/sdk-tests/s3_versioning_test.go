@@ -306,10 +306,7 @@ func TestS3_DeleteObjectsRefusesEachEntryOnItsOwn(t *testing.T) {
 	akid, secret := restrictedCredential(t, "s3-delete-scratch",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:DeleteObject",
 		  "Resource":"arn:aws:s3:::`+bucket+`/scratch/*"}]}`)
-	restricted := s3.NewFromConfig(keyConfig(akid, secret), func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		o.UsePathStyle = true
-	})
+	restricted := s3.NewFromConfig(keyConfig(akid, secret), simS3)
 	out, err := restricted.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &types.Delete{
 		Objects: []types.ObjectIdentifier{{Key: aws.String("scratch/tmp")}, {Key: aws.String("records/keep")}}}})
 	require.NoError(t, err, "a refused entry does not refuse the request")

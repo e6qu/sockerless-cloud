@@ -54,7 +54,7 @@ func TestS3_PresignedURLExpires(t *testing.T) {
 			o.Presigner = signedAt{signer: v4.NewSigner(), at: signingTime}
 		}).PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 		require.NoError(t, err)
-		resp, err := http.Get(presigned.URL) //nolint:noctx // the presigned URL carries its own auth
+		resp, err := simGet(t, presigned.URL)
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 		body, err := io.ReadAll(resp.Body)

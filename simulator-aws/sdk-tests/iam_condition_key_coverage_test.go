@@ -149,10 +149,7 @@ func TestS3_ObjectTaggedOnPutScopesReads(t *testing.T) {
 	akid, secret := restrictedCredential(t, "s3-public-reader",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*",
 		  "Condition":{"StringEquals":{"s3:ExistingObjectTag/visibility":"public"}}}]}`)
-	restricted := s3.NewFromConfig(keyConfig(akid, secret), func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		o.UsePathStyle = true
-	})
+	restricted := s3.NewFromConfig(keyConfig(akid, secret), simS3)
 
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("closed")})
 	require.Error(t, err, "an object tagged private is outside the grant")

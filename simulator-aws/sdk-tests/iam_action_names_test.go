@@ -32,7 +32,7 @@ func TestS3_OperationsAreAuthorizedByTheirIAMActions(t *testing.T) {
 		  {"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::iam-action-names-dst/*"}]}`)
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("iam-action-names-dst")})
 	assert.NoError(t, err, "s3:ListBucket grants ListObjectsV2")

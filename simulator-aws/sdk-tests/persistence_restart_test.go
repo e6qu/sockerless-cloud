@@ -151,7 +151,6 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	westConfig.Region = "us-west-2"
 	s3API := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
 	})
 
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -549,7 +548,6 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	})
 	s3API = s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
 	})
 
 	certAfterResponse, err := http.Get(signingCertURL)

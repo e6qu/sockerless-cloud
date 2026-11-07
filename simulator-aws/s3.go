@@ -30,8 +30,8 @@ type S3Bucket struct {
 	DirectoryZone string `xml:"-"`
 	// DataRedundancy is how many zones a directory bucket's data is held in.
 	DataRedundancy string `xml:"-"`
-	// Owner is the account that owns a bucket outside the caller's account,
-	// empty for the caller's own. Only awsServiceAccountID owns such buckets.
+	// Owner is the account that owns the bucket, empty for the simulator's
+	// default account.
 	Owner string `xml:"-"`
 }
 
@@ -716,9 +716,10 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 	// A directory bucket is returned by ListDirectoryBuckets and not by this
 	// listing, which is what separates the two surfaces.
+	caller := iamRequestAccount(r)
 	buckets := []S3Bucket{}
 	for _, b := range s3Buckets_.List() {
-		if b.DirectoryZone == "" && b.Owner == "" {
+		if b.DirectoryZone == "" && s3BucketOwner(b) == caller {
 			buckets = append(buckets, b)
 		}
 	}
@@ -726,7 +727,7 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	result := s3ListAllMyBucketsResult{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 		Owner: s3Owner{
-			ID:          awsAccountID(),
+			ID:          caller,
 			DisplayName: "simulator",
 		},
 		Buckets: s3Buckets{
@@ -744,16 +745,19 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller := iamRequestAccount(r)
 	if existing, exists := s3Buckets_.Get(bucket); exists {
-		if existing.Owner != "" {
+		if s3BucketOwner(existing) != caller {
 			S3ErrorXML(w, "BucketAlreadyExists",
 				"The requested bucket name is not available. The bucket namespace is shared by all users of the system. Please select a different name and try again.",
 				bucket, sim.RequestID(r.Context()), http.StatusConflict)
 			return
 		}
-		// In us-east-1 a same-owner repeat CreateBucket is idempotent (200);
-		// every other region returns BucketAlreadyOwnedByYou (409).
-		if awsRegion() == "us-east-1" {
+		// "Amazon S3 returns this error in all Amazon Web Services Regions
+		// except in the North Virginia Region", the Region the request is sent
+		// to, where a repeat by the owner answers 200 and resets the ACLs.
+		if s3RequestRegion(r) == "us-east-1" {
+			s3ResetBucketACL(bucket)
 			w.Header().Set("Location", "/"+bucket)
 			w.WriteHeader(http.StatusOK)
 			return
@@ -767,6 +771,9 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	b := S3Bucket{
 		Name:         bucket,
 		CreationDate: time.Now().UTC().Format(time.RFC3339),
+	}
+	if caller != awsAccountID() {
+		b.Owner = caller
 	}
 	var createConfig struct {
 		Tags []struct {
@@ -794,6 +801,11 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
+	}
+	if createConfig.Bucket.Type != "Directory" && !s3ValidGeneralPurposeBucketName(bucket) {
+		S3ErrorXML(w, "InvalidBucketName", "The specified bucket is not valid.",
+			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
 	}
 	if createConfig.Bucket.Type == "Directory" {
 		if !s3ApplyDirectoryBucketConfiguration(w, r, &b, createConfig.Location.Type,

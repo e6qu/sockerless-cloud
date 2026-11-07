@@ -416,8 +416,10 @@ func iamAuthorizeDenial(r *http.Request, action, resource string, extra map[stri
 	// A principal of another account needs both its own account's policies
 	// and the resource's policy to allow the request. AssumeRoot names a
 	// member account's root user, which the organization rather than a
-	// resource policy lets the management account reach.
-	crossAccount := action != "sts:AssumeRoot" && iamCrossAccount(principalArn, resource)
+	// resource policy lets the management account reach. CreateBucket names a
+	// bucket the caller would own, and S3 answers a name another account holds
+	// with BucketAlreadyExists rather than by that account's policies.
+	crossAccount := action != "sts:AssumeRoot" && action != "s3:CreateBucket" && iamCrossAccount(principalArn, resource)
 	switch {
 	case crossAccount && !identityAllows:
 		return refuse(iamIdentityBasedPolicy, false)

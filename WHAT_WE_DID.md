@@ -1030,6 +1030,17 @@ Every surface that the cloud authenticates, the simulator authenticates:
 - Amazon S3 treats an unsigned request as the anonymous principal, which
   only a Principal `"*"` bucket policy or an AllUsers ACL grant admits, and
   Block Public Access withdraws;
+- Amazon S3 serves a general-purpose bucket virtual-hosted style, as the
+  SDKs address it: `<bucket>.s3.<host>` under any S3 endpoint host, and
+  `<bucket>.<endpoint host>` for a client given a bare endpoint URL, where a
+  name in front of `localhost` counts as a bucket only when the request is
+  signed for `s3`, since other services share that family; no suite sets
+  `UsePathStyle` or `s3_use_path_style` any more. The rewrite keeps a key's
+  trailing slash (`photos/` is a key of its own), which the zonal and access
+  point rewrites had trimmed. CreateBucket answers by the Region the request
+  was signed for and the caller's account, and applies the vendored general
+  purpose naming rules; a create is not a cross-account request, so another
+  account's taken name answers `BucketAlreadyExists`, not `AccessDenied`;
 - the Google Cloud gRPC listener verifies every call's bearer, over a TLS
   front end because Google's clients send credentials only over TLS;
 - Google Cloud accepts a service account's self-signed JWT, as google-auth

@@ -55,9 +55,9 @@ func s3RewriteAccessPointRequest(r *http.Request) bool {
 	ctx := context.WithValue(r.Context(), s3SignedPathContextKey{}, signed)
 	ctx = context.WithValue(ctx, s3AccessPointContextKey{}, ap)
 	*r = *r.WithContext(ctx)
-	r.URL.Path = "/" + ap.Bucket + strings.TrimSuffix(signed, "/")
+	r.URL.Path = s3HostedPath(ap.Bucket, signed)
 	if r.URL.RawPath != "" {
-		r.URL.RawPath = "/" + ap.Bucket + strings.TrimSuffix(r.URL.RawPath, "/")
+		r.URL.RawPath = s3HostedPath(ap.Bucket, r.URL.RawPath)
 	}
 	return true
 }

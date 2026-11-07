@@ -17,9 +17,6 @@ provider "aws" {
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
 
-  # Path-style addressing keeps the bucket name out of the host, which a
-  # localhost endpoint cannot resolve as a subdomain.
-  s3_use_path_style = true
 
   endpoints {
     ec2              = var.endpoint

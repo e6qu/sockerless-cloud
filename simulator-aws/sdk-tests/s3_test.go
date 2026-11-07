@@ -16,12 +16,15 @@ import (
 )
 
 func s3Client() *s3.Client {
-	return s3.NewFromConfig(sdkConfig(), func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		// Path-style addressing, as for any S3 endpoint addressed by IP or localhost
-		// without {bucket}.<host> DNS.
-		o.UsePathStyle = true
-	})
+	return s3.NewFromConfig(sdkConfig(), simS3)
+}
+
+// simS3 points an S3 client at the simulator by the `s3.localhost` service
+// hostname, so the SDK addresses buckets virtual-hosted style as it does
+// against AWS, and resolves that family through the suite's transport.
+func simS3(o *s3.Options) {
+	o.BaseEndpoint = aws.String(simEndpoint("s3"))
+	o.HTTPClient = sdkHTTPClient
 }
 
 func TestS3_CreateBucket(t *testing.T) {

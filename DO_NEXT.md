@@ -10,7 +10,10 @@
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
-- **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3784, 3786 to 3789 and 3791), service
+- **Amazon S3 upload integrity** (BUG-3778): validate and store the
+  additional checksums a header or trailer carries and return them with
+  `ChecksumMode`, once a source states the mismatch error.
+- **The fidelity gaps the comment pass surfaced** (BUG-3779 to 3784, 3786 to 3789 and 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**

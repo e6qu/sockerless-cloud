@@ -87,10 +87,7 @@ func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 	akid, secret := restrictedCredential(t, "s3-delete-one-version",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:DeleteObjectVersion",
 		  "Resource":"arn:aws:s3:::`+bucket+`/*","Condition":{"StringEquals":{"s3:versionid":"`+granted+`"}}}]}`)
-	restricted := s3.NewFromConfig(keyConfig(akid, secret), func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		o.UsePathStyle = true
-	})
+	restricted := s3.NewFromConfig(keyConfig(akid, secret), simS3)
 	refused := func(version string) bool {
 		out, err := restricted.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket),
 			Delete: &s3types.Delete{Objects: []s3types.ObjectIdentifier{{Key: aws.String("report"), VersionId: aws.String(version)}}}})
