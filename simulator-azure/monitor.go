@@ -113,18 +113,27 @@ func registerAzureMonitor(srv *sim.Server) {
 	}
 	kvstore.StartSweeper(srv, "azure monitor logs retention sweep", monitorRetentionSweepInterval, func(now time.Time) { monitorSweepRetention(now) })
 
-	// Azure keeps a deleted workspace recoverable for 14 days, and
-	// terraform-provider-azurerm looks for one before creating. The simulator
-	// hard-deletes workspaces, so this answers an empty list.
+	monitorDeletedWorkspaces = sim.MakeStore[monitorDeletedWorkspace](srv.DB(), "monitor_deleted_workspaces")
+	kvstore.StartSweeper(srv, "azure monitor soft-deleted workspace purge", monitorRetentionSweepInterval, func(now time.Time) { monitorPurgeDeletedWorkspaces(now) })
 	deletedWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
+		if rg := sim.PathParam(r, "resourceGroupName"); rg != "" {
+			prefix = armResourceID(sim.PathParam(r, "subscriptionId"), rg, "Microsoft.OperationalInsights", "workspaces") + "/"
+		}
+		items := []Workspace{}
+		for _, deleted := range monitorDeletedWorkspaces.List() {
+			if strings.HasPrefix(strings.ToLower(deleted.Workspace.ID), strings.ToLower(prefix)) {
+				items = append(items, deleted.Workspace)
+			}
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": items})
 	}
 	srv.HandleFunc(
 		"GET /subscriptions/{subscriptionId}/providers/Microsoft.OperationalInsights/deletedWorkspaces",
 		deletedWorkspacesHandler,
 	)
 	srv.HandleFunc(
-		"GET /subscriptions/{subscriptionId}/resourcegroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/deletedWorkspaces",
+		"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/deletedWorkspaces",
 		deletedWorkspacesHandler,
 	)
 
@@ -146,6 +155,17 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 		customerID := sim.NewUUID()
+		// Re-creating a soft-deleted workspace with its name, group and region
+		// recovers it with its data; the name is held from anything else.
+		if deleted, ok := monitorDeletedWorkspaces.Get(resourceID); ok {
+			if !strings.EqualFold(redisLocationKey(deleted.Workspace.Location), redisLocationKey(req.Location)) {
+				AzureErrorf(w, "Conflict", http.StatusConflict,
+					"The workspace '%s' is in a soft-deleted state; recover it in its region '%s' or delete it permanently with force=true.", name, deleted.Workspace.Location)
+				return
+			}
+			customerID = deleted.Workspace.Properties.CustomerID
+			monitorDeletedWorkspaces.Delete(resourceID)
+		}
 
 		boolTrue := true
 		boolFalse := false
@@ -273,14 +293,23 @@ func registerAzureMonitor(srv *sim.Server) {
 
 		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 
-		if ws, ok := workspaces.Get(resourceID); ok {
-			dropWorkspaceLogs(ws)
-		}
-		if workspaces.Delete(resourceID) {
-			w.WriteHeader(http.StatusOK)
-		} else {
+		force := strings.EqualFold(r.URL.Query().Get("force"), "true")
+		ws, ok := workspaces.Get(resourceID)
+		if !ok {
+			if deleted, held := monitorDeletedWorkspaces.Get(resourceID); held && force {
+				monitorPurgeDeletedWorkspace(deleted)
+			}
 			w.WriteHeader(http.StatusNoContent)
+			return
 		}
+		workspaces.Delete(resourceID)
+		deleted := monitorDeletedWorkspace{Workspace: ws, DeletedAt: time.Now().UTC()}
+		if force {
+			monitorPurgeDeletedWorkspace(deleted)
+		} else {
+			monitorDeletedWorkspaces.Put(resourceID, deleted)
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 
 	// terraform-provider-azurerm resolves a Container Apps environment's
@@ -478,4 +507,40 @@ func logAnalyticsResourceQueryPath(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return resourceID, true
+}
+
+// Azure keeps a deleted workspace, its data and its name for 14 days.
+const monitorWorkspaceSoftDeletePeriod = 14 * 24 * time.Hour
+
+type monitorDeletedWorkspace struct {
+	Workspace Workspace `json:"workspace"`
+	DeletedAt time.Time `json:"deletedAt"`
+}
+
+var monitorDeletedWorkspaces sim.Store[monitorDeletedWorkspace]
+
+func monitorPurgeDeletedWorkspace(deleted monitorDeletedWorkspace) {
+	dropWorkspaceLogs(deleted.Workspace)
+	monitorSharedKeys.Delete(deleted.Workspace.ID)
+	monitorDeletedWorkspaces.Delete(deleted.Workspace.ID)
+}
+
+func monitorPurgeDeletedWorkspaces(now time.Time) {
+	for _, deleted := range monitorDeletedWorkspaces.List() {
+		if now.Sub(deleted.DeletedAt) >= monitorWorkspaceSoftDeletePeriod {
+			monitorPurgeDeletedWorkspace(deleted)
+		}
+	}
+}
+
+func monitorDeletedWorkspaceByCustomerID(customerID string) (Workspace, bool) {
+	if monitorDeletedWorkspaces == nil {
+		return Workspace{}, false
+	}
+	for _, deleted := range monitorDeletedWorkspaces.List() {
+		if strings.EqualFold(deleted.Workspace.Properties.CustomerID, customerID) {
+			return deleted.Workspace, true
+		}
+	}
+	return Workspace{}, false
 }

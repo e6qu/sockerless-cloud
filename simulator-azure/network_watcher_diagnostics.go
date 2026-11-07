@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -447,51 +448,25 @@ func handleNetworkWatcherNextHop(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, azureNextHopForNIC(nic, req.DestinationIPAddress))
 }
 
-// A subnet route table's route wins over platform routing, longest prefix
-// first; otherwise an address inside the virtual network stays local and the
-// rest leaves through the default route.
+// The subnet's effective route with the longest prefix covering the
+// destination; a system route reports "System Route" for its table.
 func azureNextHopForNIC(nic NetworkInterface, destination string) map[string]any {
-	ip := net.ParseIP(destination)
-	subnet, hasSubnet := networkWatcherNICSubnet(nic)
-	if hasSubnet && subnet.Properties.RouteTable != nil && azureRouteTables != nil {
-		if table, ok := azureRouteTables.Get(subnet.Properties.RouteTable.ID); ok {
-			if route, ok := azureLongestPrefixRoute(table, ip); ok {
-				result := map[string]any{
-					"nextHopType":  route.Properties.NextHopType,
-					"routeTableId": table.ID,
-				}
-				if route.Properties.NextHopIPAddress != "" {
-					result["nextHopIpAddress"] = route.Properties.NextHopIPAddress
-				}
-				return result
-			}
-		}
+	ip, err := netip.ParseAddr(destination)
+	if err != nil {
+		return map[string]any{"nextHopType": "None", "routeTableId": "System Route"}
 	}
-	// System routes carry no route table ID, which tells them from user routes.
-	if azureAddressInAnyPrefix(ip, azureNICVNetCIDRs(nic)) {
-		return map[string]any{"nextHopType": "VnetLocal"}
+	route, ok := azureSelectEffectiveRoute(azureEffectiveRoutesForNIC(nic), ip.Unmap())
+	if !ok {
+		return map[string]any{"nextHopType": "None", "routeTableId": "System Route"}
 	}
-	return map[string]any{"nextHopType": "Internet"}
-}
-
-// The covering route with the longest mask, as a router picks.
-func azureLongestPrefixRoute(table RouteTable, ip net.IP) (RouteEntry, bool) {
-	if ip == nil {
-		return RouteEntry{}, false
+	result := map[string]any{"nextHopType": route.nextHopType, "routeTableId": "System Route"}
+	if route.routeTableID != "" {
+		result["routeTableId"] = route.routeTableID
 	}
-	best := -1
-	var chosen RouteEntry
-	for _, route := range table.Properties.Routes {
-		_, network, err := net.ParseCIDR(route.Properties.AddressPrefix)
-		if err != nil || !network.Contains(ip) {
-			continue
-		}
-		ones, _ := network.Mask.Size()
-		if ones > best {
-			best, chosen = ones, route
-		}
+	if route.nextHopIP != "" {
+		result["nextHopIpAddress"] = route.nextHopIP
 	}
-	return chosen, best >= 0
+	return result
 }
 
 func handleNetworkWatcherSecurityGroupView(w http.ResponseWriter, r *http.Request) {

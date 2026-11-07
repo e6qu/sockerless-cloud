@@ -1822,10 +1822,27 @@ fails once the row closes or the operation is served.
   platform-reserved address with the next free ones, from every subnet when
   the candidate lies outside them, which `az network vnet
   list-available-ips` relies on.
+  A network interface's effective route table is its subnet's, as
+  `virtual-networks-udr-overview` lays it out: a route per address range,
+  Azure's None routes for the reserved ranges the address space does not
+  cover, a route per peered range, the Internet default, and the route
+  table's user routes, which turn a default route with the same prefix
+  Invalid. Network Watcher's next hop picks from the same table by longest
+  prefix and names "System Route" for a system route's table, as the
+  specification says. Its effective security groups are the interface's and
+  the subnet's, each with its association and its rules in priority order.
 - **App Service and Blob reads.** A site's `authsettings` and
   `authsettingsV2` lists answer what PUT stored, as the slot lists did. A
   path-style Blob request may name an account `internal`; no surface claims
   the segment.
+- **Log Analytics soft delete.** Deleting a workspace keeps it, its data, keys
+  and tables for 14 days, as `log-analytics-delete-workspace` describes:
+  `deletedWorkspaces` lists it, the retention sweep leaves its rows alone,
+  and a PUT with its name, group and region recovers it with its customer ID.
+  `force=true`, or the end of the 14 days, deletes it for good and releases
+  the name. The group-scoped `deletedWorkspaces` route had been registered
+  under `resourcegroups`, which the path rewrite never leaves, so it had
+  answered 404.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

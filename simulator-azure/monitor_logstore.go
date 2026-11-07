@@ -77,7 +77,10 @@ func monitorScopeRetention(scope string) (interactive, total int, ok bool) {
 	}
 	ws, exists := logWorkspaceByCustomerID(customerID)
 	if !exists {
-		return 0, 0, false
+		// A soft-deleted workspace keeps its data for recovery.
+		if ws, exists = monitorDeletedWorkspaceByCustomerID(customerID); !exists {
+			return 0, 0, false
+		}
 	}
 	interactive, total = logTableRetention(ws, table)
 	return interactive, total, true

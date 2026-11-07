@@ -792,12 +792,31 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 		azureWriteList(w, azureNICTapConfigs.Filter(func(c InterfaceTapConfiguration) bool { return strings.HasPrefix(c.ID, prefix) }))
 	})
 
-	// Answer empty result sets: effective rules are not computed.
 	srv.HandleFunc("POST "+armBase+"/networkInterfaces/{networkInterfaceName}/effectiveRouteTable", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
+		nic, ok := azureNICs.Get(nicID(r))
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			return
+		}
+		disableBGP := false
+		if subnet, ok := networkWatcherNICSubnet(nic); ok && subnet.Properties.RouteTable != nil && azureRouteTables != nil {
+			if table, ok := azureRouteTables.Get(subnet.Properties.RouteTable.ID); ok {
+				disableBGP = table.Properties.DisableBgpRoutePropagation
+			}
+		}
+		routes := []map[string]any{}
+		for _, route := range azureEffectiveRoutesForNIC(nic) {
+			routes = append(routes, azureEffectiveRouteJSON(route, disableBGP))
+		}
+		azureWriteList(w, routes)
 	})
 	srv.HandleFunc("POST "+armBase+"/networkInterfaces/{networkInterfaceName}/effectiveNetworkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
+		nic, ok := azureNICs.Get(nicID(r))
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			return
+		}
+		azureWriteList(w, azureEffectiveSecurityGroupsForNIC(nic))
 	})
 }
 

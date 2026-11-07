@@ -163,3 +163,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `rbac-permissions-databases.md.gz` | `learn.microsoft.com` | `azure/role-based-access-control/permissions/databases` | CC-BY-4.0 | `commit1b4e136a1da731e1ed16444eb6ce5701bcd8c0f4` | 2026-11-06T09:53:47Z |
 | `virtual-network-tcpip-performance-tuning.md.gz` | `learn.microsoft.com` | `azure/virtual-network/virtual-network-tcpip-performance-tuning` | CC-BY-4.0 | `commita1bb49320fe52d3b96a24b8089ffaa07f1ca3556` | 2026-11-07T02:48:54Z |
 | `what-is-ip-address-168-63-129-16.md.gz` | `learn.microsoft.com` | `azure/virtual-network/what-is-ip-address-168-63-129-16` | CC-BY-4.0 | `commit4fd2222b00bd277111ce9f635255aefa0b7b396c` | 2026-11-07T04:31:12Z |
+| `virtual-networks-udr-overview.md.gz` | `MicrosoftDocs/azure-docs@main` | `articles/virtual-network/virtual-networks-udr-overview.md` | CC-BY-4.0 | `e60c7dd7c775becfd72486cfd4ff4440c7d875d4` | 2026-11-07T19:06:32Z |
+| `log-analytics-delete-workspace.md.gz` | `MicrosoftDocs/azure-monitor-docs@main` | `articles/azure-monitor/logs/delete-workspace.md` | CC-BY-4.0 | `5d7c80661cd09745ce943e57d1e2c1fe67fccae7` | 2026-11-07T19:11:11Z |
