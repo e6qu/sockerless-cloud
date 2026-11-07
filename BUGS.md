@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 305.
+Open: 306.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3900 | P2 | Gateway Load Balancer test loses a connection on CI | On GitHub's runners `TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances` fails its last client run, through the first endpoint after a second endpoint in the same VPC replaced the node: one of 16 connections times out at 20 seconds. Locally it passes in the whole compute shard on two pinned CPUs with `GOMAXPROCS=2`, with the node and appliances held to half a CPU, from cold images, and with either endpoint's ID sorting first. A stale neighbour entry for a reused client address does not cause it: a new client's broadcast ARP refreshes the host's entry. The node now logs its links, each state it applies and its forward, return and drop counts, and a failed run reports the client's per-connection results from Amazon CloudWatch Logs and each appliance's flow log and addresses. | Read the next failing run's node counts, client results and appliance logs, and fix the cause they name. |
 | 3897 | P3 | Tests pick a port for a cloud API to bind, and another process can take it first | Elastic Load Balancing listener tests (`elbv2CreateListenerOnFreePort`, the restart test's NLB listener), the Amazon RDS and Amazon ElastiCache port tests and `cloudmap_dns_test` probe a free loopback port, close it, and pass the number to `CreateListener` or `CreateDBInstance` on a simulator already running; `elbv2CreateListenerOnFreePort` retries on `address already in use`. The simulator binds the port itself, so `LISTEN_FDS` cannot reach it. | Bind such ports in the simulator from a range it owns, or have the harness hand a pool of held ports to the simulator at start through `LISTEN_FDS` for its data-plane binds to take, and drop the retry. |
 | 3898 | P3 | Differential tests pick ports for third-party emulators | `dynamodb_differential_test`, `cosmos_differential_test` and `firestore_differential_test` probe a free port, close it and start the reference emulator on it, which another process can take first. The emulators do not take inherited sockets. | Let each emulator bind port 0 and read the bound port back from its output or its container's port mapping. |
 | 3899 | P3 | The console Playwright harness picks simulator ports | `ui/packages/core/e2e/simulators.ts` and the consoles' `playwright.config.ts` probe free ports and pass them to the simulators they start, so another process can take one first; the Go harnesses hold theirs through `testutil/heldports`. | Hold the ports in Node and pass the sockets to the simulator as inherited descriptors with `LISTEN_PID` and `LISTEN_FDS`, as `heldports.Hand` does. |

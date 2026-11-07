@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,6 +209,7 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 	_, err = ecsc.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	const connections = 16
+	clientLogs := "/ecs/" + uniquename.New("gwlb-client")
 	definition, err := ecsc.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String(uniquename.New("gwlb-client")),
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
@@ -217,8 +220,19 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 			Name:       aws.String("client"),
 			Image:      aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			EntryPoint: []string{"sh", "-c"},
-			Command: []string{fmt.Sprintf(`for i in $(seq %d); do curl -sS -o /dev/null --max-time 20 http://host.docker.internal:%d/health || exit 1; done`,
-				connections, simPort)},
+			// Each connection reports its outcome; a failed one also reports
+			// the routes and neighbours the client sent it by.
+			Command: []string{fmt.Sprintf(`for i in $(seq %d); do
+  out=$(curl -sS -o /dev/null -w '%%{http_code} connect=%%{time_connect}s total=%%{time_total}s' --max-time 20 http://host.docker.internal:%d/health 2>&1); rc=$?
+  echo "connection $i: exit $rc $(date +%%T.%%N) $out"
+  if [ $rc -ne 0 ]; then cat /proc/net/route /proc/net/arp; exit 1; fi
+done`, connections, simPort)},
+			LogConfiguration: &ecstypes.LogConfiguration{
+				LogDriver: ecstypes.LogDriverAwslogs,
+				Options: map[string]string{
+					"awslogs-group": clientLogs, "awslogs-create-group": "true", "awslogs-stream-prefix": "gwlb",
+				},
+			},
 		}},
 	})
 	require.NoError(t, err)
@@ -240,7 +254,9 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 		task := waitTaskStopped(t, ecsc, cluster, taskArn)
 		require.NotEmpty(t, task.Containers)
 		require.NotNil(t, task.Containers[0].ExitCode, "%s", aws.ToString(task.StoppedReason))
-		require.Equal(t, int32(0), aws.ToInt32(task.Containers[0].ExitCode), "a connection through the appliances failed")
+		if code := aws.ToInt32(task.Containers[0].ExitCode); code != 0 {
+			t.Fatalf("a connection through the appliances failed (exit %d)\n%s", code, gwlbFailureReport(t, s, clientLogs, taskArn, applianceIDs))
+		}
 		for _, attachment := range task.Attachments {
 			for _, detail := range attachment.Details {
 				if aws.ToString(detail.Name) == "privateIPv4Address" {
@@ -385,4 +401,30 @@ func waitVpcEndpointAvailable(t *testing.T, c *ec2.Client, id string) {
 		require.True(t, time.Now().Before(deadline), "endpoint %s is still Pending", id)
 		time.Sleep(time.Second)
 	}
+}
+
+// gwlbFailureReport is what explains a failed connection through the
+// appliances: the client's own account of each connection, and each
+// appliance's flow log, program output and network configuration.
+func gwlbFailureReport(t *testing.T, s *ssm.Client, logGroup, taskArn string, applianceIDs []string) string {
+	t.Helper()
+	var b strings.Builder
+	taskID := taskArn[strings.LastIndex(taskArn, "/")+1:]
+	events, err := cwLogsClient().FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName: aws.String(logGroup), LogStreamNamePrefix: aws.String("gwlb/client/" + taskID),
+	})
+	if err != nil {
+		fmt.Fprintf(&b, "client log: %v\n", err)
+	} else {
+		b.WriteString("client log:\n")
+		for _, e := range events.Events {
+			fmt.Fprintf(&b, "  %s\n", aws.ToString(e.Message))
+		}
+	}
+	for _, id := range applianceIDs {
+		fmt.Fprintf(&b, "appliance %s:\n%s\n", id, ssmShell(t, s, id,
+			"tail -n 40 /var/tmp/flows 2>&1 || true", "cat /var/tmp/appliance.log 2>&1 || true",
+			"ip -br addr 2>&1 || true", "ip route 2>&1 || true"))
+	}
+	return b.String()
 }

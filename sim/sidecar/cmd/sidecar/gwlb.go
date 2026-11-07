@@ -53,6 +53,7 @@ const (
 	gwlbTunName       = "gwlb%d"
 	gwlbFlowSweep     = 30 * time.Second
 	gwlbStatePollWait = (gwlb.StateWaitSeconds + 10) * time.Second
+	gwlbReportEvery   = 5 * time.Second
 )
 
 // gwlbLink is one endpoint: the interface its traffic arrives on, its TUN
@@ -91,6 +92,37 @@ type gwlbNode struct {
 	node      string
 	stateOnce sync.Once
 	stateSeen chan struct{}
+	applied   string
+	counts    gwlbCounts
+}
+
+// gwlbCounts are what the node did with each packet, reported while it
+// changes so a dropped flow names its cause.
+type gwlbCounts struct {
+	mu                                                                              sync.Mutex
+	captured, sent, returned                                                        uint64
+	oversized, unkeyed, noTarget, sendFailed, foreign, malformed, noLink, tunFailed uint64
+	lastSendErr, lastTunErr                                                         string
+}
+
+func (c *gwlbCounts) add(field *uint64) {
+	c.mu.Lock()
+	*field++
+	c.mu.Unlock()
+}
+
+func (c *gwlbCounts) fail(field *uint64, last *string, err error) {
+	c.mu.Lock()
+	*field++
+	*last = err.Error()
+	c.mu.Unlock()
+}
+
+func (c *gwlbCounts) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return fmt.Sprintf("captured=%d sent=%d returned=%d dropped: oversized=%d unkeyed=%d no-target=%d send-failed=%d foreign=%d malformed=%d no-link=%d tun-failed=%d last-send-error=%q last-tun-error=%q",
+		c.captured, c.sent, c.returned, c.oversized, c.unkeyed, c.noTarget, c.sendFailed, c.foreign, c.malformed, c.noLink, c.tunFailed, c.lastSendErr, c.lastTunErr)
 }
 
 func serveGWLB(ctx context.Context, out io.Writer) error {
@@ -143,6 +175,10 @@ func serveGWLB(ctx context.Context, out io.Writer) error {
 	}
 	go n.readGeneve(ctx)
 	go n.sweepFlows(ctx)
+	go n.reportCounts(ctx, out)
+	for k, link := range n.links {
+		fmt.Fprintf(out, "sidecar: gwlb: endpoint %s at %s on %s through gwlb%d (catch-all %t)\n", link.endpoint, link.prefix, link.name, k, link.primary)
+	}
 	fmt.Fprintf(out, "%s%s\n", gwlb.ServingPrefix, listen)
 	<-ctx.Done()
 	return nil
@@ -369,6 +405,10 @@ func (n *gwlbNode) apply(state gwlb.State, out io.Writer) {
 	n.mu.Lock()
 	n.state = state
 	n.mu.Unlock()
+	if summary := gwlbStateSummary(state); summary != n.applied {
+		n.applied = summary
+		fmt.Fprintf(out, "sidecar: gwlb: state %s: %s\n", state.Version, summary)
+	}
 	for _, endpoint := range state.Endpoints {
 		link, ok := n.byID[endpoint.ID]
 		if !ok || link.endpoint != endpoint.ID {
@@ -394,19 +434,31 @@ func (n *gwlbNode) readLink(ctx context.Context, link *gwlbLink) {
 			return
 		}
 		packet := buf[:size]
+		n.counts.add(&n.counts.captured)
 		if size > gwlbMaxPacket {
+			n.counts.add(&n.counts.oversized)
 			continue
 		}
-		flow := n.flowFor(link, packet)
+		flow, keyed := n.flowFor(link, packet)
 		if flow == nil {
+			if keyed {
+				n.counts.add(&n.counts.noTarget)
+			} else {
+				n.counts.add(&n.counts.unkeyed)
+			}
 			continue
 		}
 		datagram := n.encapsulate(link, flow, packet)
 		target, err := netip.ParseAddr(flow.target)
 		if err != nil {
+			n.counts.add(&n.counts.noTarget)
 			continue
 		}
-		_, _ = n.conn.WriteToUDPAddrPort(datagram, netip.AddrPortFrom(target, gwlb.Port))
+		if _, err := n.conn.WriteToUDPAddrPort(datagram, netip.AddrPortFrom(target, gwlb.Port)); err != nil {
+			n.counts.fail(&n.counts.sendFailed, &n.counts.lastSendErr, err)
+			continue
+		}
+		n.counts.add(&n.counts.sent)
 	}
 }
 
@@ -415,23 +467,23 @@ func (n *gwlbNode) readLink(ctx context.Context, link *gwlbLink) {
 // protocol and ports, as the stickiness takes them) in both directions alike.
 // With no healthy target the flow goes to a target picked at random; with no
 // target at all the packet is dropped.
-func (n *gwlbNode) flowFor(link *gwlbLink, packet []byte) *gwlbFlow {
+func (n *gwlbNode) flowFor(link *gwlbLink, packet []byte) (*gwlbFlow, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	key, ok := gwlbFlowKey(n.state.Stickiness, packet)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	now := time.Now()
 	if flow, ok := n.flows[key]; ok {
 		if !n.state.Rebalance || n.targetHealthy(flow.target) {
 			flow.lastSeen = now
-			return flow
+			return flow, true
 		}
 	}
 	target := n.pickTarget(key)
 	if target == "" {
-		return nil
+		return nil, true
 	}
 	flow := &gwlbFlow{target: target, cookie: rand.Uint32(), link: link, lastSeen: now}
 	for n.byCookie[flow.cookie] != nil {
@@ -442,7 +494,7 @@ func (n *gwlbNode) flowFor(link *gwlbLink, packet []byte) *gwlbFlow {
 	}
 	n.flows[key] = flow
 	n.byCookie[flow.cookie] = flow
-	return flow
+	return flow, true
 }
 
 func (n *gwlbNode) targetHealthy(address string) bool {
@@ -555,17 +607,24 @@ func (n *gwlbNode) readGeneve(ctx context.Context) {
 			return
 		}
 		if !n.isTarget(from.Addr().Unmap().String()) {
+			n.counts.add(&n.counts.foreign)
 			continue
 		}
 		endpointID, cookie, inner, ok := gwlbDecapsulate(buf[:size])
 		if !ok {
+			n.counts.add(&n.counts.malformed)
 			continue
 		}
 		link := n.linkFor(endpointID, cookie)
 		if link == nil {
+			n.counts.add(&n.counts.noLink)
 			continue
 		}
-		_, _ = link.tun.Write(inner)
+		if _, err := link.tun.Write(inner); err != nil {
+			n.counts.fail(&n.counts.tunFailed, &n.counts.lastTunErr, err)
+			continue
+		}
+		n.counts.add(&n.counts.returned)
 	}
 }
 
@@ -624,6 +683,38 @@ func gwlbDecapsulate(d []byte) (endpoint uint64, cookie uint32, inner []byte, ok
 		off += 4 + length
 	}
 	return endpoint, cookie, d[end:], len(d) > end
+}
+
+// reportCounts logs the node's packet counts every few seconds while they
+// change.
+func (n *gwlbNode) reportCounts(ctx context.Context, out io.Writer) {
+	ticker := time.NewTicker(gwlbReportEvery)
+	defer ticker.Stop()
+	last := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if now := n.counts.String(); now != last {
+				last = now
+				fmt.Fprintf(out, "sidecar: gwlb: %s\n", now)
+			}
+		}
+	}
+}
+
+// gwlbStateSummary is the part of a state that decides where packets go.
+func gwlbStateSummary(state gwlb.State) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "stickiness=%q", state.Stickiness)
+	for _, t := range state.Targets {
+		fmt.Fprintf(&b, " target %s healthy=%t", t.Address, t.Healthy)
+	}
+	for _, e := range state.Endpoints {
+		fmt.Fprintf(&b, " endpoint %s sources=%v onward=%s", e.ID, e.Sources, e.Onward)
+	}
+	return b.String()
 }
 
 // sweepFlows forgets flows idle past the load balancer's idle timeout.

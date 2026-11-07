@@ -382,7 +382,9 @@ func elbv2StartGatewayNode(ctx context.Context, key elbv2GatewayNodeKey, design 
 		Token:        token,
 		ExtraHosts:   workloadhost.ExtraHosts(),
 		Labels:       labels,
-	}, sim.NoopSink{})
+	}, sim.FuncSink(func(line sim.LogLine) {
+		fmt.Fprintf(os.Stderr, "[sim-elbv2] Gateway Load Balancer node %s: %s\n", instance, line.Text)
+	}))
 	if err != nil {
 		elbv2GatewayNodesMu.Lock()
 		delete(elbv2GatewayNodes, key)
