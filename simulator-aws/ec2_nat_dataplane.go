@@ -252,9 +252,20 @@ func ec2SubnetGateway(subnetID string) string {
 	return sim.NoGateway
 }
 
-// ec2RouteTargetAddress is the private address of the network interface or
-// instance a route sends its traffic to, and no route for any other target.
+// ec2RouteTargetAddress is the private address of the network interface,
+// instance or available Gateway Load Balancer endpoint a route sends its
+// traffic to, and no route for any other target.
 func ec2RouteTargetAddress(route EC2Route) string {
+	if route.VpcEndpointId != "" {
+		ep, ok := ec2VpcEndpoints.Get(route.VpcEndpointId)
+		if !ok || !strings.EqualFold(ep.State, "Available") {
+			return sim.NoGateway
+		}
+		if eni, ok := ec2EndpointAddress(route.VpcEndpointId); ok {
+			return eni.PrivateIpAddress
+		}
+		return sim.NoGateway
+	}
 	if route.NetworkInterfaceId != "" {
 		if eni, ok := ec2NetworkInterfaces.Get(route.NetworkInterfaceId); ok && eni.PrivateIpAddress != "" {
 			return eni.PrivateIpAddress
@@ -274,6 +285,7 @@ func ec2ReapplyRoutes(vpcID string) {
 	if vpcID == "" {
 		return
 	}
+	elbv2NotifyGatewayState()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, running := range ec2RunningMachines() {

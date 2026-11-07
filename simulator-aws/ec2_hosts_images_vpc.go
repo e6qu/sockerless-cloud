@@ -1599,6 +1599,7 @@ func ec2SetVpcEndpointConnState(w http.ResponseWriter, r *http.Request, op, newS
 			})
 		}
 	}
+	elbv2RequestGatewayReconcile()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId>%s</%sResponse>`,
 		op, ec2Xmlns(), sim.NewUUID(), ec2UnsuccessfulItemsXML(unsuccessful), op)

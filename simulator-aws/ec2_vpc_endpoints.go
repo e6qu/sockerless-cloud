@@ -104,11 +104,29 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 		Tags: parseTags(r),
 	}
 
-	// Interface endpoints get one ENI per subnet and a DNS entry; gateway
-	// endpoints, programmed into route tables, get neither.
+	// Interface endpoints get a network interface with an address in each
+	// subnet and a DNS entry; gateway endpoints, programmed into route tables,
+	// get neither. A Gateway Load Balancer endpoint's address is the next hop
+	// a route naming the endpoint goes to.
 	if endpointType == "Interface" || endpointType == "GatewayLoadBalancer" {
-		for range subnetIds {
-			ep.NetworkInterfaceIds = append(ep.NetworkInterfaceIds, ec2ID("eni"))
+		interfaceType := "vpc_endpoint"
+		if endpointType == "GatewayLoadBalancer" {
+			interfaceType = elbv2EndpointInterfaceType
+		}
+		for _, subnetID := range subnetIds {
+			subnet, ok := ec2Subnets.Get(subnetID)
+			if !ok || subnet.VpcId != vpcId {
+				ec2RemoveEndpointInterfaces(ep)
+				ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", subnetID), http.StatusBadRequest)
+				return
+			}
+			eni, err := elbv2CreateManagedInterface(subnetID, "VPC Endpoint Interface "+id, interfaceType, sgIds)
+			if err != nil {
+				ec2RemoveEndpointInterfaces(ep)
+				ec2ErrorXML(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
+				return
+			}
+			ep.NetworkInterfaceIds = append(ep.NetworkInterfaceIds, eni.NetworkInterfaceId)
 		}
 		ep.DnsEntries = []EC2DnsEntry{{
 			DnsName:      fmt.Sprintf("%s-%s.%s.vpce.amazonaws.com", id, sim.NewUUID()[:8], serviceName),
@@ -117,6 +135,7 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ec2VpcEndpoints.Put(id, ep)
+	elbv2RequestGatewayReconcile()
 	if endpointService != nil {
 		connectionID := ec2ID("vpce-conn")
 		ec2VpcEndpointConns.Put(connectionID, EC2VpcEndpointConnection{
@@ -168,7 +187,11 @@ func handleDeleteVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&unsuccessful, `<item><resourceId>%s</resourceId><error><code>InvalidVpcEndpointId.NotFound</code><message>The Vpc Endpoint Id %s does not exist</message></error></item>`, id, id)
 			continue
 		}
+		if ep, ok := ec2VpcEndpoints.Get(id); ok {
+			ec2RemoveEndpointInterfaces(ep)
+		}
 		ec2VpcEndpoints.Delete(id)
+		elbv2RequestGatewayReconcile()
 		for _, connection := range ec2VpcEndpointConns.List() {
 			if connection.VpcEndpointId == id {
 				ec2VpcEndpointConns.Delete(connection.VpcEndpointConnectionId)
@@ -294,4 +317,10 @@ func vpceXMLEscape(s string) string {
 	var b strings.Builder
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
+}
+
+func ec2RemoveEndpointInterfaces(ep EC2VpcEndpoint) {
+	for _, id := range ep.NetworkInterfaceIds {
+		ec2NetworkInterfaces.Delete(id)
+	}
 }

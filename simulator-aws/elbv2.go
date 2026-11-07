@@ -231,6 +231,7 @@ func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 	registerELBv2Rules(r, srv)
 	registerELBv2TrustStores(r, srv)
 	startELBv2TargetHealthChecker(srv)
+	startELBv2GatewayNodes(srv)
 	if err := elbv2RecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Elastic Load Balancing data planes: %v", err))
 	}
@@ -334,8 +335,14 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lb.SubnetMappings = elbv2AssignSourceNatPrefixes(lb.SubnetMappings)
+	if err := elbv2SyncGatewayInterfaces(lb); err != nil {
+		elbv2RemoveGatewayInterfaces(lb)
+		elbv2ErrorXML(w, "InvalidSubnet", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2LoadBalancers.Put(arn, lb)
 	ec2ReapplyIngress(lb.VpcID)
+	elbv2RequestGatewayReconcile()
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
 }
 
@@ -396,6 +403,8 @@ func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	}
 	elbv2LoadBalancers.Delete(arn)
 	ec2ReapplyIngress(deleted.VpcID)
+	elbv2RemoveGatewayInterfaces(deleted)
+	elbv2RequestGatewayReconcile()
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == arn }) {
 		elbv2DeleteListener(listener.Arn)
 	}
@@ -541,6 +550,11 @@ func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lb, _ := elbv2LoadBalancers.Get(arn)
+	if err := elbv2SyncGatewayInterfaces(lb); err != nil {
+		elbv2ErrorXML(w, "InvalidSubnet", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	elbv2RequestGatewayReconcile()
 	body := "<AvailabilityZones>" + elbv2AvailabilityZonesXML(lb) + "</AvailabilityZones><IpAddressType>" + xmlEscape(ipType) + "</IpAddressType>"
 	if lb.EnablePrefixForIpv6SourceNat != "" {
 		body += "<EnablePrefixForIpv6SourceNat>" + lb.EnablePrefixForIpv6SourceNat + "</EnablePrefixForIpv6SourceNat>"

@@ -92,6 +92,14 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "gwlb" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		if err := serveGWLB(ctx, os.Stdout); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "route" {
 		if err := serveRoute(os.Stdout, os.Args[2:]); err != nil {
 			log.Fatalf("sidecar: %v", err)

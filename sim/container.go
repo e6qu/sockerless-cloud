@@ -93,6 +93,11 @@ type ContainerConfig struct {
 	// route out through it: a site integrated into more than one virtual
 	// network.
 	ExtraNetworks []NetworkAttachment
+	// JoinNetworks are further engine networks the container is on from its
+	// first instruction, each at a fixed address and never carrying its
+	// default route: a platform container the simulator runs on its own behalf
+	// that stands on several networks at once, as a load balancer node does.
+	JoinNetworks []NetworkAttachment
 	// Gateway is where the workload's default route goes: empty for the
 	// network's own gateway, an address on the network for a next hop the
 	// cloud's routing names (a NAT gateway), or NoGateway for no route out.
@@ -1236,6 +1241,19 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if err := seedContainer(ctx, cli, resp.ID, cfg.Seed); err != nil {
 		removeCreated(ctx, cli, resp.ID)
 		return "", time.Time{}, err
+	}
+	for _, join := range cfg.JoinNetworks {
+		var at netip.Addr
+		if join.IPv4Address != "" {
+			if at, err = netip.ParseAddr(join.IPv4Address); err != nil {
+				removeCreated(ctx, cli, resp.ID)
+				return "", time.Time{}, fmt.Errorf("join %s at %q: %w", join.Network, join.IPv4Address, err)
+			}
+		}
+		if err := connectContainerToNetwork(resp.ID, join.Network, nil, at, -1); err != nil {
+			removeCreated(ctx, cli, resp.ID)
+			return "", time.Time{}, fmt.Errorf("join %s: %w", join.Network, err)
+		}
 	}
 
 	startedAt := time.Now()

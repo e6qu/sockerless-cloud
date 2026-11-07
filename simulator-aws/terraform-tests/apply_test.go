@@ -240,6 +240,14 @@ func TestStackProductionShape(t *testing.T) {
 
 	require.Equal(t, "source_ip", outputs.must(t, "elbv2_nlb_target_group_stickiness_type"),
 		"aws_lb_target_group must read back the source_ip stickiness a TCP target group takes")
+	require.Equal(t, "source_ip_dest_ip_proto", outputs.must(t, "elbv2_gwlb_target_group_stickiness_type"),
+		"aws_lb_target_group must read back a Gateway Load Balancer group's 3-tuple stickiness")
+	require.Equal(t, "gateway_load_balancer_endpoint", outputs.must(t, "elbv2_gwlb_endpoint_interface_type"),
+		"a Gateway Load Balancer endpoint's network interface is of that type")
+	require.True(t, strings.HasPrefix(outputs.must(t, "elbv2_gwlb_endpoint_private_ip"), "10.251.11."),
+		"a Gateway Load Balancer endpoint holds an address in its subnet; got %s", outputs.must(t, "elbv2_gwlb_endpoint_private_ip"))
+	require.Equal(t, outputs.must(t, "elbv2_gwlb_endpoint_id"), outputs.must(t, "ec2_gwlb_route_endpoint"),
+		"aws_route must read back the endpoint it routes through")
 	require.Equal(t, outputs.must(t, "ec2_nlb_eip_allocation_id"), outputs.must(t, "elbv2_nlb_subnet_mapping_allocation_id"),
 		"aws_lb subnet_mapping must read back the Elastic IP allocation CreateLoadBalancer was given, from the subnet's LoadBalancerAddresses")
 	require.Equal(t, "172.31.32.0/20", outputs.must(t, "ec2_default_subnet_cidr"),

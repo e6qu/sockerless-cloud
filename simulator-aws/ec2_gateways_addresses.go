@@ -68,7 +68,7 @@ func handleDetachInternetGateway(w http.ResponseWriter, r *http.Request) {
 </DetachInternetGatewayResponse>`, ec2Xmlns(), sim.NewUUID())
 }
 
-func igwItemXML(igw EC2InternetGateway) string {
+func igwFieldsXML(igw EC2InternetGateway) string {
 	var attachments strings.Builder
 	if len(igw.Attachments) == 0 {
 		attachments.WriteString("<attachmentSet/>")
@@ -79,33 +79,47 @@ func igwItemXML(igw EC2InternetGateway) string {
 		}
 		attachments.WriteString("</attachmentSet>")
 	}
-	return fmt.Sprintf(`<item>
-    <internetGatewayId>%s</internetGatewayId>
-    %s<ownerId>%s</ownerId>
-    %s
-  </item>`, igw.InternetGatewayId, attachments.String(), igw.OwnerId, writeTagSetXML(igw.Tags))
+	return fmt.Sprintf(`<internetGatewayId>%s</internetGatewayId>%s<ownerId>%s</ownerId>%s`, igw.InternetGatewayId, attachments.String(), igw.OwnerId, writeTagSetXML(igw.Tags))
 }
 
+// Every named gateway must exist; the model's filters narrow the rest.
 func handleDescribeInternetGateways(w http.ResponseWriter, r *http.Request) {
-	var igws []EC2InternetGateway
-	if id := r.FormValue("InternetGatewayId.1"); id != "" {
-		if g, ok := ec2InternetGateways.Get(id); ok {
-			igws = append(igws, g)
+	ec2DescribeMatching(w, r, ec2InternetGateways, "InternetGatewayId", "InvalidInternetGatewayID.NotFound", "The internetGateway ID '%s' does not exist",
+		func(g EC2InternetGateway) string { return g.InternetGatewayId }, ec2InternetGatewayMatchesFilters, igwFieldsXML, "DescribeInternetGateways", "internetGatewaySet")
+}
+
+func ec2InternetGatewayMatchesFilters(igw EC2InternetGateway, filters map[string][]string) bool {
+	for name, vals := range filters {
+		switch name {
+		case "internet-gateway-id":
+			if !ec2StrInValues(igw.InternetGatewayId, vals) {
+				return false
+			}
+		case "owner-id":
+			if !ec2StrInValues(igw.OwnerId, vals) {
+				return false
+			}
+		case "attachment.vpc-id", "attachment.state":
+			matched := false
+			for _, a := range igw.Attachments {
+				field := a.VpcId
+				if name == "attachment.state" {
+					field = a.State
+				}
+				if ec2StrInValues(field, vals) {
+					matched = true
+				}
+			}
+			if !matched {
+				return false
+			}
+		default:
+			if handled, match := ec2TagFilterMatch(name, vals, igw.Tags); handled && !match {
+				return false
+			}
 		}
-	} else {
-		igws = ec2InternetGateways.List()
 	}
-
-	var items strings.Builder
-	for _, g := range igws {
-		items.WriteString(igwItemXML(g))
-	}
-
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeInternetGatewaysResponse %s>
-  <requestId>%s</requestId>
-  <internetGatewaySet>%s</internetGatewaySet>
-</DescribeInternetGatewaysResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
+	return true
 }
 
 func handleDeleteInternetGateway(w http.ResponseWriter, r *http.Request) {

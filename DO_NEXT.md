@@ -2,9 +2,10 @@
 
 ## Next
 
-- **Gateway Load Balancer stickiness and Elastic Load Balancing's recalled
-  messages** (BUG-3554): honour `source_ip_dest_ip` and
-  `source_ip_dest_ip_proto`, and source the refusals' messages.
+- **Elastic Load Balancing's recalled messages and the Gateway Load Balancer's
+  unsourced details** (BUG-3554): source the refusals' messages and the data
+  plane's details, give the VPC networks Amazon VPC's 9001-byte MTU so GENEVE
+  never fragments, and carry IPv6.
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.

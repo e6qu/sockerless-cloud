@@ -1636,6 +1636,26 @@ fails once the row closes or the operation is served.
   fresh random number takes its place, which RFC 6528 makes equivalent. With
   `source_ip` stickiness it hashes the client's address alone, except behind
   a TLS listener. `sim/lbplane` hands the resolver each connection's `Flow`.
+  A Gateway Load Balancer runs one node per load balancer and zone, a
+  `sidecar gwlb` container on the load balancer's network at its address in
+  the zone's subnet and on each Gateway Load Balancer endpoint's network at
+  the endpoint's address, both held by network interfaces of the types the
+  model names. A route naming the endpoint sends a subnet's traffic to that
+  address; a policy rule routes what arrives there into a TUN device, and the
+  node wraps each packet in GENEVE with the option class 0x0108 endpoint,
+  attachment and flow-cookie options the vendored tunnel handler parses, to a
+  healthy appliance picked by 5-tuple, `source_ip_dest_ip_proto` or
+  `source_ip_dest_ip`, keeping a flow on its appliance unless failover says
+  `rebalance`. What the appliance returns leaves through a second rule as the
+  endpoint's subnet routes it. The node long-polls the simulator for its
+  targets' health and the group's stickiness, and the health sweep wakes it.
+  Its health checks come from its own addresses, which the appliances'
+  security groups must admit. `sim.ContainerConfig.JoinNetworks` puts a
+  container on further networks before it starts, so the node finds every
+  endpoint's interface at its first instruction. Interface endpoints hold
+  real network interfaces too, a route to an endpoint reads back under
+  `GatewayId`, and `DescribeInternetGateways`, which had ignored its filters
+  and every ID after the first, applies both.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
