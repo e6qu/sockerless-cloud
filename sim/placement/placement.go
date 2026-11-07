@@ -98,7 +98,7 @@ type Handle interface {
 var ErrNoIngressFilter = errors.New("the backend does not filter what the workload receives")
 
 // A backend that cannot choose where a workload's default route goes returns
-// ErrNoRouteControl: a container's is the engine's.
+// ErrNoRouteControl: a member's route is its owner's.
 var ErrNoRouteControl = errors.New("the backend does not route the workload")
 
 // Existing is a workload a backend holds from an earlier simulator process:

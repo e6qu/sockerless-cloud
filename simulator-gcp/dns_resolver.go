@@ -91,6 +91,7 @@ func startCloudDNSServer() (*dnsserver.Server, error) {
 		return nil, fmt.Errorf("workload callback: %w", err)
 	}
 	networkSidecars = sidecar.NewManager(cloudDNS, "http://"+origin, sim.NoopSink{})
+	networkSidecars.ServeLinkLocal(gceMetadataAddress)
 	return srv, nil
 }
 
@@ -105,7 +106,7 @@ var networkSidecars *sidecar.Manager
 var cloudDNSResolverNetworks sync.Map
 
 // cloudDNSMetadataName is the name every network resolves to its metadata
-// server: the sidecar that forwards to the simulator.
+// server, at the address its sidecar answers on.
 const cloudDNSMetadataName = "metadata.google.internal."
 
 func cloudDNSCatalog(q dnsserver.Query) dnsserver.View {
@@ -119,12 +120,10 @@ func cloudDNSCatalog(q dnsserver.Query) dnsserver.View {
 		Names: cloudDNSResponsePolicyAnswer(network, q.Name),
 	}
 	if q.Name == cloudDNSMetadataName {
-		if sidecar, ok := gcpNetworkSidecar(q.Network); ok {
-			view.Names = append(view.Names, &dns.A{
-				Hdr: dns.RR_Header{Name: cloudDNSMetadataName, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
-				A:   net.IP(sidecar.AsSlice()),
-			})
-		}
+		view.Names = append(view.Names, &dns.A{
+			Hdr: dns.RR_Header{Name: cloudDNSMetadataName, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
+			A:   net.IP(gceMetadataAddress.AsSlice()),
+		})
 	}
 	// A network whose DNS policy names alternative name servers sends them
 	// every name its private zones do not hold, in place of Google's

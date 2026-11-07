@@ -173,11 +173,11 @@ func s3ObjectData(obj S3Object) ([]byte, error) {
 // s3StorePart stores the contents body references as part number of the
 // upload and releases the contents of the part it replaces. It reports false,
 // and releases body, when the upload is gone.
-func s3StorePart(uploadID string, number int, body string, digests blobstore.Digests, etag string) (bool, error) {
+func s3StorePart(uploadID string, number int, body string, digests blobstore.Digests, etag, checksum string) (bool, error) {
 	replaced := ""
 	stored := s3MultipartUploads.Update(uploadID, func(upload *S3MultipartUpload) {
 		replaced = upload.Parts[number].Body
-		upload.Parts[number] = s3MultipartPart{Body: body, Size: digests.Size, ETag: etag}
+		upload.Parts[number] = s3MultipartPart{Body: body, Size: digests.Size, ETag: etag, Checksum: checksum}
 	})
 	if !stored {
 		return false, s3Bodies.Remove(body)

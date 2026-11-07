@@ -35,19 +35,11 @@ func gcloudSDKRoot(t *testing.T) string {
 const gcloudPythonImage = "mirror.gcr.io/library/python:3.12-slim"
 
 // gcloudInWorkload runs the suite's gcloud as a process of container, a
-// workload's container, with the metadata coordinate the workload was given
-// and nothing else to authenticate with, and returns its standard output.
+// workload's container, in its network namespace with nothing to authenticate
+// with but the metadata server it reaches there, and returns its standard
+// output.
 func gcloudInWorkload(t *testing.T, container string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("docker", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container).Output()
-	require.NoError(t, err)
-	var metadataHost string
-	for _, entry := range strings.Split(string(out), "\n") {
-		if value, ok := strings.CutPrefix(entry, "GCE_METADATA_HOST="); ok {
-			metadataHost = value
-		}
-	}
-	require.NotEmpty(t, metadataHost, "the workload was given no metadata server")
 	cmd := exec.Command("docker", append([]string{"run", "--rm",
 		"--network", "container:" + container,
 		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
@@ -58,9 +50,6 @@ func gcloudInWorkload(t *testing.T, container string, args ...string) string {
 		"--env", "CLOUDSDK_PYTHON=python3",
 		"--env", "CLOUDSDK_CORE_DISABLE_PROMPTS=1",
 		"--env", "CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=1",
-		"--env", "GCE_METADATA_HOST=" + metadataHost,
-		"--env", "GCE_METADATA_IP=" + metadataHost,
-		"--env", "GCE_METADATA_ROOT=" + metadataHost,
 		gcloudPythonImage, "/google-cloud-sdk/bin/gcloud"}, args...)...)
 	return runCLI(t, cmd)
 }

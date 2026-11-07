@@ -33,7 +33,7 @@ func TestS3_RequestHeaderConditionKeysScopeTheGrant(t *testing.T) {
 		   "Condition":{"StringEquals":{"s3:x-amz-acl":"public-read"}}}]}`)
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("encrypted"), Body: strings.NewReader("v"),
@@ -70,7 +70,7 @@ func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 		  "Condition":{"StringEquals":{"s3:RequestObjectTag/classification":"public"}}}]}`)
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("labelled"), Body: strings.NewReader("v"),

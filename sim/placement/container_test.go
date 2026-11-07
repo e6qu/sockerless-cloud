@@ -2,6 +2,7 @@ package placement
 
 import (
 	"context"
+	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
@@ -248,11 +249,11 @@ func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the workload's published port: %v", err)
 	}
-	existing, err := backend.Find(t.Context(), map[string]string{forwardedLabel: forwarderID})
+	existing, err := backend.Find(t.Context(), map[string]string{ForwardedLabel: forwarderID})
 	if err != nil || len(existing) != 1 || existing[0].ID != long.ID() {
 		t.Fatalf("Find returned %v, %v; want the workload alone", existing, err)
 	}
-	found, err := sim.FindExistingContainers(map[string]string{forwardedLabel: forwarderID})
+	found, err := sim.FindExistingContainers(map[string]string{ForwardedLabel: forwarderID})
 	if err != nil || len(found) != 1 || hostPort == 0 || found[0].PublishedPorts[8080] != hostPort {
 		t.Fatalf("the workload lists published ports %v (%v), want 8080 on %d", found, err, hostPort)
 	}
@@ -293,4 +294,146 @@ func containerRunning(t *testing.T, id string) bool {
 		return false
 	}
 	return insp.Container.State.Running
+}
+
+// A workload placed with a gateway runs from its first instruction with its
+// default route through that gateway; SetGateway reroutes it to no route
+// out and back to the network's own gateway. A workload that keeps its
+// filesystem owns its namespace and takes the route after each start.
+func TestContainerBackendRoutesAWorkloadThroughItsGateway(t *testing.T) {
+	sim.InitDocker("aws", true, t.TempDir())
+	platform := "linux/" + runtime.GOARCH
+	if err := sim.PullImage(t.Context(), testImage, platform); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Format("150405.000000")
+	network := "sockerless-sim-placement-route-" + strings.ReplaceAll(stamp, ".", "-")
+	if _, err := sim.EnsureDockerNetwork(network); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sim.RemoveDockerNetwork(network) })
+	sandbox := sim.SandboxProfile{CapDrop: []string{"ALL"}, NoNewPrivileges: true}
+	backend := ContainerBackend{}
+
+	router, err := backend.Place(t.Context(), Workload{
+		Image: testImage, Architecture: platform, Command: []string{"sleep", "300"},
+		Name: "sockerless-sim-placement-router-" + stamp, Network: network, Sandbox: sandbox,
+		CancelGracePeriod: time.Second,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(router.Cancel)
+	via, err := router.Address(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var lines []string
+	routedFirst := make(chan struct{})
+	var once sync.Once
+	sink := sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		lines = append(lines, line.Text)
+		mu.Unlock()
+		// ip route lists the default route first and the host route after it.
+		if strings.HasPrefix(line.Text, "169.254.169.254 ") {
+			once.Do(func() { close(routedFirst) })
+		}
+	})
+	routed, err := backend.Place(t.Context(), Workload{
+		Image: testImage, Architecture: platform, Command: []string{"sh", "-c", "ip route; exec sleep 300"},
+		Name: "sockerless-sim-placement-routed-" + stamp, Network: network, Gateway: via, Sandbox: sandbox,
+		Routes:            []sim.Route{{Destination: netip.MustParsePrefix("169.254.169.254/32"), Via: netip.MustParseAddr(via)}},
+		CancelGracePeriod: time.Second,
+	}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(routed.Cancel)
+	select {
+	case <-routedFirst:
+	case <-routed.Exited():
+		t.Fatal("the routed workload exited before it listed its routes")
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	mu.Lock()
+	first := strings.Join(lines, "\n")
+	mu.Unlock()
+	if !strings.Contains(first, "default via "+via+" ") || !strings.Contains(first, "169.254.169.254 via "+via+" ") {
+		t.Fatalf("the workload's first routes are not through %s:\n%s", via, first)
+	}
+
+	defaultRoute := func(h Handle) string {
+		t.Helper()
+		out, err := h.Exec(t.Context(), []string{"ip", "route"})
+		if err != nil || out.ExitCode != 0 {
+			t.Fatalf("ip route: %v %+v", err, out)
+		}
+		for _, line := range strings.Split(out.Stdout, "\n") {
+			if strings.HasPrefix(line, "default ") {
+				return strings.TrimSpace(line)
+			}
+		}
+		return ""
+	}
+	if err := routed.SetGateway(t.Context(), sim.NoGateway); err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultRoute(routed); got != "" {
+		t.Fatalf("with no gateway the workload still routes %q", got)
+	}
+	if err := routed.SetGateway(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := forwarderOf(t.Context(), routed.ID())
+	if err != nil || holder == "" {
+		t.Fatalf("the routed workload names no namespace holder: %q, %v", holder, err)
+	}
+	gateway, err := networkGateway(t.Context(), holder, network)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultRoute(routed); !strings.HasPrefix(got, "default via "+gateway+" ") {
+		t.Fatalf("back on the network's gateway the workload routes %q, want via %s", got, gateway)
+	}
+
+	kept := Workload{
+		Image: testImage, Architecture: platform, Command: []string{"sleep", "300"},
+		Name: "sockerless-sim-placement-routed-kept-" + stamp, Network: network, Gateway: sim.NoGateway,
+		KeepOnExit: true, Sandbox: sandbox, CancelGracePeriod: time.Second,
+	}
+	keptHandle, err := backend.Place(t.Context(), kept, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptHolder, err := forwarderOf(t.Context(), keptHandle.ID())
+	if err != nil || keptHolder == "" {
+		t.Fatalf("the kept workload names no namespace holder: %q, %v", keptHolder, err)
+	}
+	if got := defaultRoute(keptHandle); got != "" {
+		t.Fatalf("a kept workload with no gateway routes %q", got)
+	}
+	keptHandle.Stop()
+	<-keptHandle.Exited()
+	if !containerRunning(t, keptHolder) {
+		t.Fatal("the kept workload's stop took its namespace holder")
+	}
+	restarted, err := backend.Restart(t.Context(), keptHandle.ID(), kept, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultRoute(restarted); got != "" {
+		t.Fatalf("a restarted workload with no gateway routes %q", got)
+	}
+	restarted.Stop()
+	<-restarted.Exited()
+	if err := backend.Remove(t.Context(), keptHandle.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sim.DockerClient().ContainerInspect(t.Context(), keptHolder, client.ContainerInspectOptions{}); err == nil {
+		t.Fatal("removing the kept workload left its namespace holder")
+	}
 }

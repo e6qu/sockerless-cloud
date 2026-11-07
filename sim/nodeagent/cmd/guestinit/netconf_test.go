@@ -75,3 +75,28 @@ func TestRouteMessagesNameTheGatewayAndTheDefaultRoute(t *testing.T) {
 		t.Fatalf("delete: %v %+v", err, del)
 	}
 }
+
+func TestHostRouteMessageNamesTheDestinationAndItsNextHop(t *testing.T) {
+	msg := newRouteMessage(netip.MustParsePrefix("169.254.169.254/32"), netip.MustParseAddr("10.62.1.2"))
+	parsed, err := syscall.ParseNetlinkMessage(msg)
+	if err != nil || len(parsed) != 1 || parsed[0].Header.Type != unix.RTM_NEWROUTE {
+		t.Fatalf("parse: %v %+v", err, parsed)
+	}
+	if parsed[0].Data[1] != 32 {
+		t.Fatalf("destination length %d, want 32", parsed[0].Data[1])
+	}
+	attrs, err := syscall.ParseNetlinkRouteAttr(&parsed[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[uint16]string{}
+	for _, a := range attrs {
+		seen[a.Attr.Type] = string(a.Value)
+	}
+	if seen[unix.RTA_DST] != string([]byte{169, 254, 169, 254}) || seen[unix.RTA_GATEWAY] != string([]byte{10, 62, 1, 2}) {
+		t.Fatalf("attributes %v", seen)
+	}
+	if err := addRoutes([]guestRoute{{Destination: "not-a-prefix", Via: "10.62.1.2"}}); err == nil {
+		t.Fatal("a route with no IPv4 prefix was accepted")
+	}
+}

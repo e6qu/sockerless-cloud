@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,10 +63,11 @@ func redisTransferCLIClient(t *testing.T, env azLoginEnv, dnsAddr, rg, name stri
 
 func TestRedisCLI_ExportAndImport(t *testing.T) {
 	t.Parallel()
-	dnsPort, err := freeports.TCPUDP()
+	dnsPort, err := heldports.TCPUDP("127.0.0.1")
 	require.NoError(t, err)
+	t.Cleanup(func() { heldports.Release(dnsPort) })
 	dnsAddr := fmt.Sprintf("127.0.0.1:%d", dnsPort)
-	env := startAzTLSSimulator(t, "SIM_AZURE_DNS_LISTEN_ADDR="+dnsAddr)
+	env := startAzTLSSimulatorHanding(t, []int{dnsPort}, "SIM_AZURE_DNS_LISTEN_ADDR="+dnsAddr)
 	tagCLILogin(t, env, "sockerless-redis-transfer")
 
 	const rg, account, container = "cli-redis-transfer-rg", "cliredistransfer", "snapshots"

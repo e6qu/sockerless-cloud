@@ -85,6 +85,9 @@ func auditCallerFromCredential(authorization, remoteAddr, userAgent string) audi
 	} else {
 		caller.ip = remoteAddr
 	}
+	if public, ok := gcpCloudNATPublicAddress(caller.ip); ok {
+		caller.ip = public
+	}
 	raw := strings.TrimSpace(authorization)
 	if !strings.HasPrefix(strings.ToLower(raw), "bearer ") {
 		return caller

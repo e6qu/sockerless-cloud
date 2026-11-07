@@ -163,3 +163,39 @@ func nlmsg(typ, flags uint16, payload []byte) []byte {
 	binary.NativeEndian.PutUint32(b[8:], 1)
 	return append(b, payload...)
 }
+
+// guestRoute sends what the guest addresses to Destination through Via.
+type guestRoute struct {
+	Destination string `json:"destination"`
+	Via         string `json:"via"`
+}
+
+// addRoutes adds each route over rtnetlink, as the cloud routes its fixed
+// link-local addresses to its metadata service.
+func addRoutes(routes []guestRoute) error {
+	for _, r := range routes {
+		destination, err := netip.ParsePrefix(r.Destination)
+		if err != nil || !destination.Addr().Is4() {
+			return fmt.Errorf("route %q: an IPv4 prefix is required", r.Destination)
+		}
+		via, err := netip.ParseAddr(r.Via)
+		if err != nil || !via.Is4() {
+			return fmt.Errorf("route %s via %q: an IPv4 next hop is required", r.Destination, r.Via)
+		}
+		if err := rtnetlink(newRouteMessage(destination.Masked(), via)); err != nil {
+			return fmt.Errorf("route %s via %s: %w", destination, via, err)
+		}
+	}
+	return nil
+}
+
+// newRouteMessage is RTM_NEWROUTE replacing the route to destination with one
+// through via.
+func newRouteMessage(destination netip.Prefix, via netip.Addr) []byte {
+	payload := defaultRouteHeader()
+	payload[1] = byte(destination.Bits())
+	d, g := destination.Addr().As4(), via.As4()
+	payload = append(payload, rtattr(unix.RTA_DST, d[:])...)
+	payload = append(payload, rtattr(unix.RTA_GATEWAY, g[:])...)
+	return nlmsg(unix.RTM_NEWROUTE, unix.NLM_F_REQUEST|unix.NLM_F_CREATE|unix.NLM_F_REPLACE|unix.NLM_F_ACK, payload)
+}

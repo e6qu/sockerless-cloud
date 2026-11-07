@@ -58,6 +58,12 @@ type NetworkAttachment struct {
 // subnet's routing names no way out.
 const NoGateway = "none"
 
+// Route sends what a workload addresses to Destination through Via.
+type Route struct {
+	Destination netip.Prefix
+	Via         netip.Addr
+}
+
 type ContainerConfig struct {
 	Image        string // container image (e.g., "alpine:latest")
 	Architecture string // OS/arch (e.g. "linux/arm64") from the workload's spec, never the host's
@@ -87,12 +93,21 @@ type ContainerConfig struct {
 	// route out through it: a site integrated into more than one virtual
 	// network.
 	ExtraNetworks []NetworkAttachment
+	// JoinNetworks are further engine networks the container is on from its
+	// first instruction, each at a fixed address and never carrying its
+	// default route: a platform container the simulator runs on its own behalf
+	// that stands on several networks at once, as a load balancer node does.
+	JoinNetworks []NetworkAttachment
 	// Gateway is where the workload's default route goes: empty for the
 	// network's own gateway, an address on the network for a next hop the
 	// cloud's routing names (a NAT gateway), or NoGateway for no route out.
 	// A backend that cannot route a workload leaves it on the network's
 	// gateway.
 	Gateway string
+	// Routes are routes the workload's namespace carries besides its default
+	// route: the cloud's fixed link-local addresses through its network's
+	// sidecar. A backend that cannot route a workload leaves them out.
+	Routes []Route
 	// Hostname is the name the container sees as its own; empty leaves the
 	// engine's default.
 	Hostname string
@@ -100,6 +115,9 @@ type ContainerConfig struct {
 	// "/dev/kvm" or "/dev/net/tun"; only a platform container the simulator
 	// runs on its own behalf (a node agent) names any.
 	Devices []string
+	// Sysctls are namespaced kernel parameters the engine sets in the
+	// container's namespaces, as "net.ipv4.conf.all.rp_filter".
+	Sysctls map[string]string
 	// KeepOnExit leaves the container in place once it exits, with its
 	// filesystem, for RestartContainer, CommitContainer or RemoveContainer: a
 	// virtual machine instance's root disk outlives a stop.
@@ -1155,6 +1173,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if cfg.PidMode != "" {
 		hostCfg.PidMode = container.PidMode(cfg.PidMode)
 	}
+	if len(cfg.Sysctls) > 0 {
+		hostCfg.Sysctls = cfg.Sysctls
+	}
 	for _, device := range cfg.Devices {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{PathOnHost: device, PathInContainer: device, CgroupPermissions: "rwm"})
 	}
@@ -1226,6 +1247,19 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if err := seedContainer(ctx, cli, resp.ID, cfg.Seed); err != nil {
 		removeCreated(ctx, cli, resp.ID)
 		return "", time.Time{}, err
+	}
+	for _, join := range cfg.JoinNetworks {
+		var at netip.Addr
+		if join.IPv4Address != "" {
+			if at, err = netip.ParseAddr(join.IPv4Address); err != nil {
+				removeCreated(ctx, cli, resp.ID)
+				return "", time.Time{}, fmt.Errorf("join %s at %q: %w", join.Network, join.IPv4Address, err)
+			}
+		}
+		if err := connectContainerToNetwork(resp.ID, join.Network, nil, at, -1); err != nil {
+			removeCreated(ctx, cli, resp.ID)
+			return "", time.Time{}, fmt.Errorf("join %s: %w", join.Network, err)
+		}
 	}
 
 	startedAt := time.Now()

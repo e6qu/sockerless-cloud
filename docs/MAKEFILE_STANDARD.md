@@ -23,7 +23,7 @@ new module adds a leaf Makefile and one list entry there.
 |---|---|
 | `sim` | the framework the three simulators are built on |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
-| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), a scratch image (`scratchimage`), unique resource names (`uniquename`), the Caddy HTTPS gateway (`httpsgateway`), loopback TLS certificates (`loopbacktls`), a Git smart-HTTP server (`githttp`), registry trust material (`registrytrust`), a SAML identity provider (`samlidp`) and the Google Cloud bootstrap service account's key (`gcpbootstrap`) |
+| `testutil` | test-only helpers: simulator readiness (`simready`), ports held and handed to the processes a harness starts (`heldports`), base-image acquisition (`baseimage`), a scratch image (`scratchimage`), unique resource names (`uniquename`), the Caddy HTTPS gateway (`httpsgateway`), loopback TLS certificates (`loopbacktls`), a Git smart-HTTP server (`githttp`), registry trust material (`registrytrust`), a SAML identity provider (`samlidp`) and the Google Cloud bootstrap service account's key (`gcpbootstrap`) |
 
 ### UI packages (4)
 

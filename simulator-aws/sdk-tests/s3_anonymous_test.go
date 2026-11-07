@@ -21,10 +21,7 @@ import (
 func s3AnonymousClient() *s3.Client {
 	cfg := sdkConfig()
 	cfg.Credentials = aws.AnonymousCredentials{}
-	return s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		o.UsePathStyle = true
-	})
+	return s3.NewFromConfig(cfg, simS3)
 }
 
 func requireS3AccessDenied(t *testing.T, err error, what string) {

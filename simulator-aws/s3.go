@@ -30,8 +30,8 @@ type S3Bucket struct {
 	DirectoryZone string `xml:"-"`
 	// DataRedundancy is how many zones a directory bucket's data is held in.
 	DataRedundancy string `xml:"-"`
-	// Owner is the account that owns a bucket outside the caller's account,
-	// empty for the caller's own. Only awsServiceAccountID owns such buckets.
+	// Owner is the account that owns the bucket, empty for the simulator's
+	// default account.
 	Owner string `xml:"-"`
 }
 
@@ -78,6 +78,8 @@ type S3Object struct {
 	VersionID string `json:",omitempty"`
 	// VersionSeq orders a key's versions, the newest highest.
 	VersionSeq int64 `json:",omitempty"`
+	// Checksum is the additional checksum S3 validated and keeps with the object.
+	Checksum s3ObjectChecksum `json:",omitzero"`
 }
 
 type s3ListAllMyBucketsResult struct {
@@ -136,7 +138,7 @@ func s3ObjectKey(bucket, key string) string {
 // behalf of another AWS service (Amazon Data Firehose, AWS Private CA audit
 // reports and CRLs), with PutObject's representation and notifications.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
-	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
+	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil, nil)
 }
 
 // s3EnsureServiceBucket creates, on first use, the bucket a service keeps the
@@ -243,6 +245,7 @@ func s3WriteCondition(h http.Header) func(existing S3Object, exists bool) bool {
 // errS3PreconditionFailed.
 func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metadata map[string]string,
 	storageClass string, lock s3ObjectLock, condition func(existing S3Object, exists bool) bool,
+	checksum *s3ObjectChecksum,
 ) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return S3Object{}, fmt.Errorf("bucket %q: %w", bucket, errS3NoSuchBucket)
@@ -273,6 +276,9 @@ func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metad
 		StorageClass: storageClass,
 	}
 	lock.apply(&stored)
+	if checksum != nil {
+		stored.Checksum = *checksum
+	}
 	obj, err := s3StoreObject(stored, ref, digests)
 	release()
 	if err != nil {
@@ -716,9 +722,10 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 	// A directory bucket is returned by ListDirectoryBuckets and not by this
 	// listing, which is what separates the two surfaces.
+	caller := iamRequestAccount(r)
 	buckets := []S3Bucket{}
 	for _, b := range s3Buckets_.List() {
-		if b.DirectoryZone == "" && b.Owner == "" {
+		if b.DirectoryZone == "" && s3BucketOwner(b) == caller {
 			buckets = append(buckets, b)
 		}
 	}
@@ -726,7 +733,7 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	result := s3ListAllMyBucketsResult{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 		Owner: s3Owner{
-			ID:          awsAccountID(),
+			ID:          caller,
 			DisplayName: "simulator",
 		},
 		Buckets: s3Buckets{
@@ -744,16 +751,19 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller := iamRequestAccount(r)
 	if existing, exists := s3Buckets_.Get(bucket); exists {
-		if existing.Owner != "" {
+		if s3BucketOwner(existing) != caller {
 			S3ErrorXML(w, "BucketAlreadyExists",
 				"The requested bucket name is not available. The bucket namespace is shared by all users of the system. Please select a different name and try again.",
 				bucket, sim.RequestID(r.Context()), http.StatusConflict)
 			return
 		}
-		// In us-east-1 a same-owner repeat CreateBucket is idempotent (200);
-		// every other region returns BucketAlreadyOwnedByYou (409).
-		if awsRegion() == "us-east-1" {
+		// "Amazon S3 returns this error in all Amazon Web Services Regions
+		// except in the North Virginia Region", the Region the request is sent
+		// to, where a repeat by the owner answers 200 and resets the ACLs.
+		if s3RequestRegion(r) == "us-east-1" {
+			s3ResetBucketACL(bucket)
 			w.Header().Set("Location", "/"+bucket)
 			w.WriteHeader(http.StatusOK)
 			return
@@ -767,6 +777,9 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	b := S3Bucket{
 		Name:         bucket,
 		CreationDate: time.Now().UTC().Format(time.RFC3339),
+	}
+	if caller != awsAccountID() {
+		b.Owner = caller
 	}
 	var createConfig struct {
 		Tags []struct {
@@ -794,6 +807,11 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 				bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
 			return
 		}
+	}
+	if createConfig.Bucket.Type != "Directory" && !s3ValidGeneralPurposeBucketName(bucket) {
+		S3ErrorXML(w, "InvalidBucketName", "The specified bucket is not valid.",
+			bucket, sim.RequestID(r.Context()), http.StatusBadRequest)
+		return
 	}
 	if createConfig.Bucket.Type == "Directory" {
 		if !s3ApplyDirectoryBucketConfiguration(w, r, &b, createConfig.Location.Type,
@@ -1131,9 +1149,9 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	// AWS SDKs send aws-chunked framing for a non-seekable body (Content-Encoding:
 	// aws-chunked, x-amz-content-sha256: STREAMING-*, or
 	// x-amz-decoded-content-length); S3 unwraps it, and so must the simulator.
-	var bodyReader io.Reader = r.Body
-	if isAWSChunkedRequest(r.Header) {
-		bodyReader = newAWSChunkedReader(r.Body)
+	bodyReader, err := s3UploadBody(r)
+	if s3UploadBodyRefused(w, r, key, err) {
+		return
 	}
 	contentType := r.Header.Get("Content-Type")
 
@@ -1146,7 +1164,10 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, lock, condition)
+	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, lock, condition, &bodyReader.Result)
+	if s3UploadBodyRefused(w, r, key, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
@@ -1245,6 +1266,9 @@ func s3ServeObject(w http.ResponseWriter, r *http.Request, obj S3Object, key str
 	}
 	h.Set("Content-Type", obj.ContentType)
 	h.Set("Accept-Ranges", "bytes")
+	if r.Header.Get("Range") == "" {
+		s3WriteChecksumHeaders(w, r, obj.Checksum)
+	}
 	for k, v := range obj.Metadata {
 		h.Set("x-amz-meta-"+k, v)
 	}

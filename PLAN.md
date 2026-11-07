@@ -236,7 +236,7 @@ step stay planned.
   `ecs.go` and `rds.go` in AWS, where no function now runs past 300 lines.
 - **Shared test helpers into `testutil`** — *landed*. `testutil/scratchimage`
   builds the suites' workload images, `testutil/uniquename` names their
-  resources, `freeports.TCPUDP` picks a DNS port, and `githttp.StartRepo`
+  resources, `heldports.TCPUDP` holds a DNS port, and `githttp.StartRepo`
   serves a repository the Azure suites push to; the per-suite copies went.
   `runCLI` and `terraformCmd` stay per suite, because each sets its own
   cloud's CLI environment. Closed BUG-3611.

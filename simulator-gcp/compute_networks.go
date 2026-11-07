@@ -18,6 +18,7 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 			// Peerings is the network's peerings, which addPeering and its siblings
 			// write and listPeeringRoutes reads the exchanged ranges from.
 			Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`
+			Mtu           int                     `json:"mtu"`
 			RoutingConfig struct {
 				RoutingMode string `json:"routingMode"`
 			} `json:"routingConfig"`
@@ -29,6 +30,13 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 		if computeRefuseResourceName(w, req.Name) {
 			return
 		}
+		if req.Mtu == 0 {
+			req.Mtu = gceNetworkMTU
+		}
+		if req.Mtu < gceMinNetworkMTU || req.Mtu > gceMaxNetworkMTU {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for field 'resource.mtu': '%d'. Must be between %d and %d.", req.Mtu, gceMinNetworkMTU, gceMaxNetworkMTU)
+			return
+		}
 
 		selfLink := computeNetworkSelfLink(project, req.Name)
 		net := ComputeNetwork{
@@ -37,6 +45,7 @@ func registerComputeNetworks(srv *sim.Server, networks sim.Store[ComputeNetwork]
 			Name:                  req.Name,
 			SelfLink:              selfLink,
 			AutoCreateSubnetworks: req.AutoCreateSubnetworks,
+			Mtu:                   req.Mtu,
 			CreationTimestamp:     time.Now().UTC().Format(time.RFC3339),
 		}
 		net.RoutingConfig.RoutingMode = req.RoutingConfig.RoutingMode

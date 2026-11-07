@@ -15,6 +15,7 @@ variables: [AWS](../simulator-aws/README.md),
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Serve HTTPS with this certificate and key |
 | `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, a plain-HTTP listener for the workloads the simulator places: their network sidecars forward metadata and identity requests here, without the operator's certificate authority. Without TLS the one listener serves everything. |
 | `SIM_DIAGNOSTICS_ADDR` | `127.0.0.1:6060` | pprof and `/debug/inflight` (requests in flight, with slow-request reports); `off` disables it. It never shares the API listener. |
+| `LISTEN_PID`, `LISTEN_FDS` | unset | systemd socket activation (`sd_listen_fds(3)`): listening sockets inherited from descriptor 3 on. A listener whose configured port matches an inherited socket's serves on that socket instead of binding, so a supervisor can hold the ports across restarts. |
 
 Google Cloud also serves gRPC on `SIM_GCP_GRPC_PORT`, by default the HTTP port plus two (4569). With `SIM_GCP_GRPC_TLS_CERT` and `SIM_GCP_GRPC_TLS_KEY` set, that port is a TLS front end serving gRPC and REST, as Google's hosts do; Google's client libraries send credentials only over TLS. Azure
 Service Bus's AMQP listener is `SIM_SERVICEBUS_AMQP_LISTEN_ADDR`.

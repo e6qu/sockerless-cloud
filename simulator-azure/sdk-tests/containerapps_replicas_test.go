@@ -152,7 +152,7 @@ func keys(m map[string]bool) []string {
 func TestSDK_ContainerAppsReplicas_ReplicasSurviveASimulatorRestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
-	port := freeAzureSimPort(t)
+	port := holdAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 	cmd := startPersistentAzureSimulatorOn(t, "docker", stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })

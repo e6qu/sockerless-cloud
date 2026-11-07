@@ -56,7 +56,11 @@ type gcpNATEgress struct {
 var gcpRoutersByNetwork sim.GenerationIndex[ComputeRouter]
 
 var (
-	gcpNATEgressMu sync.Mutex
+	// gcpNATReconcileMu serializes the reconciles: one that finds no sidecar
+	// in the map would otherwise remove, as stale, the container another is
+	// still starting.
+	gcpNATReconcileMu sync.Mutex
+	gcpNATEgressMu    sync.RWMutex
 	// gcpNATEgresses holds the running sidecar of each subnetwork's NAT, by
 	// the subnetwork's self link.
 	gcpNATEgresses = map[string]*gcpNATEgress{}
@@ -116,6 +120,8 @@ func gcpLastPathElement(ref string) string { return ref[strings.LastIndex(ref, "
 // subnetwork on its engine network, replaces it when another NAT covers the
 // subnetwork now, and stops it when none does.
 func gcpEnsureSubnetworkNAT(ctx context.Context, subnet ComputeSubnetwork, network string) error {
+	gcpNATReconcileMu.Lock()
+	defer gcpNATReconcileMu.Unlock()
 	covering, covered := gcpCloudNATOf(subnet)
 	gcpNATEgressMu.Lock()
 	running, ok := gcpNATEgresses[subnet.SelfLink]
@@ -128,7 +134,7 @@ func gcpEnsureSubnetworkNAT(ctx context.Context, subnet ComputeSubnetwork, netwo
 		return nil
 	}
 	if ok {
-		gcpRemoveSubnetworkNAT(subnet.SelfLink)
+		gcpStopSubnetworkNAT(subnet.SelfLink)
 	}
 	if !covered {
 		return nil
@@ -206,6 +212,12 @@ func gcpCloudNATAddress(covering gcpSubnetworkNAT) string {
 }
 
 func gcpRemoveSubnetworkNAT(subnetLink string) {
+	gcpNATReconcileMu.Lock()
+	defer gcpNATReconcileMu.Unlock()
+	gcpStopSubnetworkNAT(subnetLink)
+}
+
+func gcpStopSubnetworkNAT(subnetLink string) {
 	gcpNATEgressMu.Lock()
 	e := gcpNATEgresses[subnetLink]
 	delete(gcpNATEgresses, subnetLink)
@@ -251,10 +263,9 @@ func gcpReapplyNAT() {
 }
 
 // gcpInstanceGateway is where an instance sends what leaves its network, in
-// the terms of sim.ContainerConfig.Gateway: the sidecar of the Cloud NAT
-// covering its subnetwork when the instance has no external address, and the
-// network's own gateway otherwise, or while no NAT covers it, the gap
-// BUGS.md records.
+// the terms of sim.ContainerConfig.Gateway: the network's own gateway for an
+// instance with an external address, the sidecar of the Cloud NAT covering
+// its subnetwork for one without, and no route out while no NAT covers it.
 func gcpInstanceGateway(inst ComputeInstance) string {
 	if len(inst.NetworkInterfaces) == 0 {
 		return ""
@@ -270,7 +281,7 @@ func gcpInstanceGateway(inst ComputeInstance) string {
 	if e, ok := gcpNATEgresses[nic.Subnetwork]; ok {
 		return e.address.String()
 	}
-	return ""
+	return sim.NoGateway
 }
 
 // gcpReapplyRoutes points every running instance's machine where its
@@ -399,4 +410,19 @@ func gcpInstanceAtAddress(subnetLink, address string) (ComputeInstance, bool) {
 		}
 	}
 	return ComputeInstance{}, false
+}
+
+// gcpCloudNATPublicAddress is the external address a Cloud NAT translates to
+// when private is its sidecar's address: what an instance sends through the
+// NAT reaches the simulator from the sidecar, and Google Cloud from the NAT's
+// address. A NAT that allocates its addresses automatically names none here.
+func gcpCloudNATPublicAddress(private string) (string, bool) {
+	gcpNATEgressMu.RLock()
+	defer gcpNATEgressMu.RUnlock()
+	for _, e := range gcpNATEgresses {
+		if e.address.String() == private && e.natIP != "" {
+			return e.natIP, true
+		}
+	}
+	return "", false
 }

@@ -531,6 +531,41 @@ because `IP_RECVORIGDSTADDR` reports the rewritten one; a single-entry
 conntrack query hung under mdlayher/socket v0.6, found by bisecting the
 dependency bump, so the sidecar dumps its namespace's table instead.
 
+A container takes the route its subnet names as a guest does. A workload with
+a gateway joins a holder sidecar that owns its namespace, and a one-shot
+`sidecar route` holding `NET_ADMIN` alone sets or deletes the default route
+there before the workload starts, so the first packet takes the subnet's
+route; a later route table change reruns it in the same namespace. A kept
+workload (an instance that stops on its disk) joins a kept holder that
+outlives its stops and goes with its removal, because a route set after the
+start raced the startup script past the NAT. A subnet whose table names no
+0.0.0.0/0 route, or a target with no data plane, leaves the workload with no
+route out, as does a Compute Engine instance with neither an external address
+nor a Cloud NAT; the Amazon ECS test helper's VPCs carry an internet gateway
+route, as a public subnet's tasks need to reach the simulator. The NAT
+data-plane tests of all three clouds moved off the guest-only shards.
+What a workload sends through a gateway reaches the simulator from the
+gateway's sidecar, at its private address; the simulator attributes it to the
+gateway's public address, as the cloud sees it: IAM's `aws:SourceIp`, Cloud
+Audit Logs' `callerIp` and the Activity Log's `clientIpAddress`. Writing the
+test found `DescribeNatGateways` reading only its first ID and answering an
+unknown one with an empty list, which left the SDK's `NatGatewayDeleted`
+waiter waiting out its whole budget; it answers `NatGatewayNotFound`.
+
+A workload reaches its cloud's metadata at the address the cloud serves it
+on. Each network sidecar answers at `169.254.169.254`, and on AWS at
+`169.254.170.2` too: a one-shot `sidecar address` holding `NET_ADMIN` adds
+them to its loopback. Each workload routes those addresses to the sidecar, a
+container in the namespace it joins before it starts and a microVM guest from
+its init before its first process. The sim-only variables went with it:
+`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `GCE_METADATA_HOST` and its siblings, and
+`AZURE_INSTANCE_METADATA_ENDPOINT`; container credentials take the Amazon ECS
+agent's `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` in place of a loopback
+forwarder, and `metadata.google.internal` resolves to `169.254.169.254`.
+Google Cloud's metadata server knows a caller by the container at its address,
+which is now the holder a workload joined, so the lookup follows the holder's
+`placement.ForwardedLabel` back to the workload.
+
 ### VM instances and cloud-init
 
 `sim/machine` holds the lifecycle the three clouds each wrote: boot and wait
@@ -589,6 +624,19 @@ redeploy and a Spot eviction schedule a Reboot, Redeploy or Preempt event with
 the documented minimum notice and wait for the guest's `StartRequests`
 approval or `NotBefore`, so a machine that never asks keeps the immediate
 operation.
+The attested document's `signature` is a PKCS#7 SignedData laid out as the
+page's example decodes: the document attached, the signing certificate
+inside, one SignerInfo without signed attributes. The certificate names the
+machine's Region's subdomain of `metadata.azure.com` and `metadata.azure.com`,
+the names the page tells a verifier to check, and is issued from the
+simulator's persisted signing key with fixed fields, so a client trusts it
+once.
+A virtual machine resolves through Azure's wire server, `168.63.129.16`, as
+the vendored page says a machine without a custom DNS server does: the
+network sidecar holds that address beside `169.254.169.254`, and the machine
+routes both to it. The sidecar answers each UDP query from the address it was
+sent to; bound to every address, it had answered from its own, which a stub
+resolver's connected socket drops.
 
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
@@ -995,6 +1043,29 @@ Every surface that the cloud authenticates, the simulator authenticates:
 - Amazon S3 treats an unsigned request as the anonymous principal, which
   only a Principal `"*"` bucket policy or an AllUsers ACL grant admits, and
   Block Public Access withdraws;
+- Amazon S3 serves a general-purpose bucket virtual-hosted style, as the
+  SDKs address it: `<bucket>.s3.<host>` under any S3 endpoint host, and
+  `<bucket>.<endpoint host>` for a client given a bare endpoint URL, where a
+  name in front of `localhost` counts as a bucket only when the request is
+  signed for `s3`, since other services share that family; no suite sets
+  `UsePathStyle` or `s3_use_path_style` any more. The HTTPS gateway serves
+  `*.localhost` and `*.aws.sockerless.localhost` too: without them the TLS
+  handshake for a bucket's virtual-hosted name failed, and a Terraform
+  apply retried the bucket's creation until the job's limit. The rewrite keeps a key's
+  trailing slash (`photos/` is a key of its own), which the zonal and access
+  point rewrites had trimmed. CreateBucket answers by the Region the request
+  was signed for and the caller's account, and applies the vendored general
+  purpose naming rules; a create is not a cross-account request, so another
+  account's taken name answers `BucketAlreadyExists`, not `AccessDenied`;
+- Amazon S3 validates the additional checksum an upload states, in a header
+  or in the aws-chunked trailer, refuses a mismatch with `BadDigest` before
+  anything is stored, keeps CRC32, CRC32C, CRC64NVME, SHA-1 or SHA-256 with
+  the object (CRC64NVME when the upload names none) and returns it with
+  `ChecksumMode`; a multipart upload keeps each part's and completes with a
+  full object or composite checksum. A signed streaming upload's chunks and
+  trailer are verified as they are read, each signature chained from the
+  previous one as AWS's own signing library builds them, since AWS removed
+  the S3 SigV4 pages;
 - the Google Cloud gRPC listener verifies every call's bearer, over a TLS
   front end because Google's clients send credentials only over TLS;
 - Google Cloud accepts a service account's self-signed JWT, as google-auth
@@ -1474,12 +1545,18 @@ fails once the row closes or the operation is served.
 - **A tool a suite needs is installed in `TestMain`**, never skipped: gcloud
   with its `alpha` and `beta` tracks (installing a track on first use ate each
   test's budget), `cbt`, the AWS CLI.
-- **Ports a suite hands out are picked together** (`testutil/freeports`),
-  below the ephemeral range when a restarted simulator must bind them again;
-  a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
-  interface, and a harness that needs both kinds takes them from one
-  `freeports.PickWithTCPUDP` call, so the DNS port cannot reuse one just
-  released.
+- **A harness holds the ports it hands out** (`testutil/heldports`): it binds
+  each one, keeps the socket for the test's life, and gives it to every
+  simulator and HTTPS gateway it starts on that port through systemd's
+  socket-activation protocol, `LISTEN_PID` and `LISTEN_FDS` with the sockets
+  from descriptor 3 on. `sim/listenfds` takes an inherited socket for a
+  configured port it binds, matched by type and port as `sd_is_socket_inet`
+  matches one: the API listener, the callback and diagnostics listeners, the
+  DNS servers, the Google Cloud gRPC port and the Azure Service Bus AMQP port.
+  Caddy takes them as `fd/3` and `fd/4`. Picking a free port, closing it and
+  passing the number on had let another process take it first, and a
+  simulator restarted on the same ports had raced every connection the suite
+  opened while it was down.
 - **A tutorial is a test.** Each cloud's tutorial configuration is the
   fixture its Terraform test applies, and the test checks the outputs the
   tutorial tells the reader to look for, so a step that stops working fails
@@ -1601,6 +1678,58 @@ fails once the row closes or the operation is served.
   fresh random number takes its place, which RFC 6528 makes equivalent. With
   `source_ip` stickiness it hashes the client's address alone, except behind
   a TLS listener. `sim/lbplane` hands the resolver each connection's `Flow`.
+  A Gateway Load Balancer runs one node per load balancer and zone, a
+  `sidecar gwlb` container on the load balancer's network at its address in
+  the zone's subnet and on each Gateway Load Balancer endpoint's network at
+  the endpoint's address, both held by network interfaces of the types the
+  model names. A route naming the endpoint sends a subnet's traffic to that
+  address; a policy rule routes what arrives there into a TUN device, and the
+  node wraps each packet in GENEVE with the option class 0x0108 endpoint,
+  attachment and flow-cookie options the vendored tunnel handler parses, to a
+  healthy appliance picked by 5-tuple, `source_ip_dest_ip_proto` or
+  `source_ip_dest_ip`, keeping a flow on its appliance unless failover says
+  `rebalance`. What the appliance returns leaves through a second rule as the
+  endpoint's subnet routes it. The node long-polls the simulator for its
+  targets' health and the group's stickiness, and the health sweep wakes it.
+  Its health checks come from its own addresses, which the appliances'
+  security groups must admit. The node reconciler starts with the other
+  workload starters once every slice is registered: started inside
+  `registerELBv2`, it read the Amazon EC2 stores while a conformance test
+  re-registered them. A Gateway Load Balancer endpoint is `Pending`
+  until a node has applied state that names it, and its client waits for
+  `Available` before routing through it: CreateVpcEndpoint had answered
+  `Available` while the node serving it was still being replaced, and a
+  client whose flows crossed the replacement lost a connection. Each node
+  instance answers to its own name and loses its token before its container
+  stops: the replaced node, still asking while it wound down, had made the new
+  node's endpoints `Available` before the new node existed, which a slow CI
+  runner exposed. A Gateway Load Balancer listener carries no `Port` or
+  `Protocol`, before and after a restart: CreateListener had defaulted both to
+  `HTTP` on port 80, which `aws_lb_listener` read back as drift.
+  `sim.ContainerConfig.JoinNetworks` puts a
+  container on further networks before it starts, so the node finds every
+  endpoint's interface at its first instruction. Interface endpoints hold
+  real network interfaces too, a route to an endpoint reads back under
+  `GatewayId`, and `DescribeInternetGateways`, which had ignored its filters
+  and every ID after the first, applies both.
+  Each endpoint has its own TUN device: a rule per subnet whose route table
+  sends its default route through the endpoint picks it by source, so two
+  endpoints of one load balancer on one VPC network name the right one in the
+  GENEVE options. Engine networks carry each cloud's documented MTU through
+  `sim.CloudNetwork.MTU`: 9001 for an Amazon VPC, a Compute Engine network's
+  own `mtu` (1460 unless created with another value from 1300 to 8896, which
+  the network now stores and reads back) and 1500 for an Azure virtual
+  network. The node drops packets over 8,500 bytes and sends GENEVE with
+  fragmentation forbidden, so a full-sized packet crosses whole. The node
+  turns its reverse-path filter off through `sim.ContainerConfig.Sysctls`:
+  it inherited the host's, loose on Ubuntu, which dropped what an appliance
+  returned through a TUN device that holds no address, so on GitHub's runners
+  every connection through a node's second endpoint timed out.
+- **NAT data planes under parallel changes.** Azure NAT Gateway and Cloud NAT
+  reconcile one gateway at a time. A reconcile that a parallel virtual
+  network or router change started found no sidecar in the map and removed,
+  as stale, the container a machine's boot was still starting, which failed
+  the boot with `AllocationFailed`.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters

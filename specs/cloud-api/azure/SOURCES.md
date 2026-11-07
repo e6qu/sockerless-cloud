@@ -161,3 +161,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `redis-import-export-data.md.gz` | `learn.microsoft.com` | `en-us/azure/azure-cache-for-redis/cache-how-to-import-export-data` | CC-BY-4.0 | `commitc4a5f38e5b3cb2bba81f50b3b0ea12099b487cd7` | 2026-11-01T21:27:44Z |
 | `redis-managed-identity.md.gz` | `learn.microsoft.com` | `en-us/azure/azure-cache-for-redis/cache-managed-identity` | CC-BY-4.0 | `commit9bd51d6aa6c5f3cb3ee6da16a4fb04cf396cd53d` | 2026-11-01T21:27:45Z |
 | `rbac-permissions-databases.md.gz` | `learn.microsoft.com` | `azure/role-based-access-control/permissions/databases` | CC-BY-4.0 | `commit1b4e136a1da731e1ed16444eb6ce5701bcd8c0f4` | 2026-11-06T09:53:47Z |
+| `virtual-network-tcpip-performance-tuning.md.gz` | `learn.microsoft.com` | `azure/virtual-network/virtual-network-tcpip-performance-tuning` | CC-BY-4.0 | `commita1bb49320fe52d3b96a24b8089ffaa07f1ca3556` | 2026-11-07T02:48:54Z |
+| `what-is-ip-address-168-63-129-16.md.gz` | `learn.microsoft.com` | `azure/virtual-network/what-is-ip-address-168-63-129-16` | CC-BY-4.0 | `commit4fd2222b00bd277111ce9f635255aefa0b7b396c` | 2026-11-07T04:31:12Z |

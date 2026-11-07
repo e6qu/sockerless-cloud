@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
@@ -207,24 +206,16 @@ func rewriteHostDockerInternalEnvWithGateway(env map[string]string, gateway stri
 	return out
 }
 
-// ec2MetadataEnv routes an EC2 instance's instance metadata reads to origin,
-// the sidecar of its network, which forwards them to the simulator with the
-// instance's address.
-func ec2MetadataEnv(origin string) map[string]string {
-	return map[string]string{
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT":      origin + "/",
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE": "IPv4",
-	}
-}
-
 // ecsTaskMetadataEnv is what the Amazon ECS agent gives the containers of a
-// task backend places on network: the task metadata endpoint, and the
+// task placed on network: the task metadata endpoint, and the
 // container credentials endpoint serving the task role's sessions when the
 // task has a role.
-func ecsTaskMetadataEnv(backend placement.Backend, network awsWorkloadNetwork, taskID string) containerCredentials {
-	credentials := grantContainerCredentials(backend, network, roleHolder("ecs", taskID), ecsTaskRoleArn(taskID), taskID)
-	credentials.Env["ECS_CONTAINER_METADATA_URI_V4"] = network.MetadataOrigin() + "/v4/" + taskID
-	credentials.Env["ECS_CONTAINER_METADATA_URI"] = network.MetadataOrigin() + "/v4/" + taskID
+func ecsTaskMetadataEnv(network awsWorkloadNetwork, taskID string) containerCredentials {
+	credentials := grantContainerCredentials(network, roleHolder("ecs", taskID), ecsTaskRoleArn(taskID), taskID)
+	origin := "http://" + awsECSAgentAddress.String()
+	credentials.Routes = network.LinkLocalRoutes(awsECSAgentAddress, awsInstanceMetadataAddress)
+	credentials.Env["ECS_CONTAINER_METADATA_URI_V4"] = origin + "/v4/" + taskID
+	credentials.Env["ECS_CONTAINER_METADATA_URI"] = origin + "/v4/" + taskID
 	return credentials
 }
 

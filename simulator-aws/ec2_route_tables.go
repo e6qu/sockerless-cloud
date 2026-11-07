@@ -61,8 +61,14 @@ func routeSetXML(routes []EC2Route) string {
 		if route.DestinationPrefixListId != "" {
 			fmt.Fprintf(&b, "<destinationPrefixListId>%s</destinationPrefixListId>", route.DestinationPrefixListId)
 		}
+		// The model's Route has no member for a VPC endpoint: a route to one
+		// reads back under gatewayId, a gateway attached to the VPC.
+		gateway := route.GatewayId
+		if gateway == "" {
+			gateway = route.VpcEndpointId
+		}
 		for _, tv := range []struct{ tag, val string }{
-			{"gatewayId", route.GatewayId},
+			{"gatewayId", gateway},
 			{"natGatewayId", route.NatGatewayId},
 			{"networkInterfaceId", route.NetworkInterfaceId},
 			{"instanceId", route.InstanceId},
@@ -71,7 +77,6 @@ func routeSetXML(routes []EC2Route) string {
 			{"egressOnlyInternetGatewayId", route.EgressOnlyInternetGatewayId},
 			{"localGatewayId", route.LocalGatewayId},
 			{"carrierGatewayId", route.CarrierGatewayId},
-			{"vpcEndpointId", route.VpcEndpointId},
 			{"coreNetworkArn", route.CoreNetworkArn},
 		} {
 			if tv.val != "" {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -998,17 +999,56 @@ func handleModifyVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter VpcEndpointId", http.StatusBadRequest)
 		return
 	}
-	if _, ok := ec2VpcEndpoints.Get(id); !ok {
+	current, ok := ec2VpcEndpoints.Get(id)
+	if !ok {
 		ec2ErrorXML(w, "InvalidVpcEndpointId.NotFound", fmt.Sprintf("The VPC endpoint ID %q does not exist", id), http.StatusBadRequest)
 		return
 	}
+	// An endpoint backed by network interfaces gains one in each added subnet
+	// and loses the one in each removed subnet.
+	backed := current.VpcEndpointType == "Interface" || current.VpcEndpointType == "GatewayLoadBalancer"
+	var added []string
+	if backed {
+		interfaceType := "vpc_endpoint"
+		if current.VpcEndpointType == "GatewayLoadBalancer" {
+			interfaceType = elbv2EndpointInterfaceType
+		}
+		for _, subnetID := range ec2ParamList(r, "AddSubnetId") {
+			subnet, ok := ec2Subnets.Get(subnetID)
+			if !ok || subnet.VpcId != current.VpcId {
+				ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", subnetID), http.StatusBadRequest)
+				return
+			}
+			eni, err := elbv2CreateManagedInterface(subnetID, "VPC Endpoint Interface "+id, interfaceType, current.SecurityGroupIds)
+			if err != nil {
+				ec2ErrorXML(w, "InsufficientFreeAddressesInSubnet", err.Error(), http.StatusBadRequest)
+				return
+			}
+			added = append(added, eni.NetworkInterfaceId)
+		}
+	}
+	removed := ec2ParamList(r, "RemoveSubnetId")
 	ec2VpcEndpoints.Update(id, func(ep *EC2VpcEndpoint) {
 		ep.RouteTableIds = append(ep.RouteTableIds, ec2ParamList(r, "AddRouteTableId")...)
 		ep.SubnetIds = append(ep.SubnetIds, ec2ParamList(r, "AddSubnetId")...)
+		ep.NetworkInterfaceIds = append(ep.NetworkInterfaceIds, added...)
+		if len(removed) > 0 {
+			var keep []string
+			for _, eniID := range ep.NetworkInterfaceIds {
+				if eni, ok := ec2NetworkInterfaces.Get(eniID); ok && slices.Contains(removed, eni.SubnetId) {
+					ec2NetworkInterfaces.Delete(eniID)
+					continue
+				}
+				keep = append(keep, eniID)
+			}
+			ep.NetworkInterfaceIds = keep
+			ep.SubnetIds = slices.DeleteFunc(ep.SubnetIds, func(s string) bool { return slices.Contains(removed, s) })
+		}
 		if pd := r.FormValue("PolicyDocument"); pd != "" {
 			ep.PolicyDocument = pd
 		}
 	})
+	elbv2RequestGatewayReconcile()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcEndpointResponse %s><requestId>%s</requestId><return>true</return></ModifyVpcEndpointResponse>`,
 		ec2Xmlns(), sim.NewUUID())

@@ -286,11 +286,9 @@ type ForwarderSpec struct {
 // StartForwarder runs a forwarder and returns its handle once its forwards
 // listen, or an error when ctx ends first; the container goes with the
 // handle's Cancel. It holds no capability: the listeners are unprivileged
-// ports.
+// ports. A spec with no forwards starts a holder, which owns the namespace
+// and relays nothing.
 func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (*sim.ContainerHandle, error) {
-	if len(spec.Forwards) == 0 {
-		return nil, errors.New("sidecar: a forwarder needs forwards")
-	}
 	cli := sim.DockerClient()
 	if err := sim.RequireContainerRuntime("starting a forwarder"); err != nil {
 		return nil, err
@@ -299,7 +297,10 @@ func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"forward"}
+	args, ready := []string{"forward"}, "sidecar: forward "
+	if len(spec.Forwards) == 0 {
+		args, ready = []string{"hold"}, "sidecar: hold"
+	}
 	for _, f := range spec.Forwards {
 		if strings.ContainsRune(f.Listen, '=') || strings.ContainsRune(f.Upstream, '=') {
 			return nil, fmt.Errorf("sidecar: forward %s to %s names an address with '='", f.Listen, f.Upstream)
@@ -323,7 +324,7 @@ func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (
 	var once sync.Once
 	handle, err := sim.StartContainerSyncContext(ctx, cfg, sim.FuncSink(func(line sim.LogLine) {
 		sink.WriteLog(line)
-		if strings.HasPrefix(line.Text, "sidecar: forward ") {
+		if strings.HasPrefix(line.Text, ready) {
 			once.Do(func() { close(listening) })
 		}
 	}))
@@ -341,3 +342,75 @@ func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (
 		return nil, ctx.Err()
 	}
 }
+
+// SetRoute points the default route of a container's network namespace at
+// gateway, removes it for sim.NoGateway or leaves it for the empty gateway,
+// and adds each of routes, through a one-shot sidecar that joins the
+// namespace holding NET_ADMIN alone.
+func SetRoute(ctx context.Context, containerID, gateway string, routes []sim.Route) error {
+	args := []string{"route", gateway}
+	if gateway == "" {
+		args[1] = "-"
+	}
+	for _, r := range routes {
+		args = append(args, r.Destination.String()+"="+r.Via.String())
+	}
+	return runInNamespace(ctx, containerID, args)
+}
+
+// AddLoopbackAddresses adds each address to the loopback of a container's
+// network namespace, through a one-shot sidecar holding NET_ADMIN alone.
+func AddLoopbackAddresses(ctx context.Context, containerID string, addrs []netip.Addr) error {
+	args := []string{"address"}
+	for _, a := range addrs {
+		args = append(args, a.String())
+	}
+	return runInNamespace(ctx, containerID, args)
+}
+
+// runInNamespace runs the sidecar once with args in a container's network
+// namespace, holding NET_ADMIN alone, and waits for it.
+func runInNamespace(ctx context.Context, containerID string, args []string) error {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("changing a workload's network"); err != nil {
+		return err
+	}
+	image, platform, err := EnsureImage(ctx, cli)
+	if err != nil {
+		return err
+	}
+	var lines []string
+	var mu sync.Mutex
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+		Image:        image,
+		Architecture: platform,
+		Args:         args,
+		NetworkMode:  "container:" + containerID,
+		Labels:       map[string]string{routeLabel: containerID},
+		Sandbox: sim.SandboxProfile{
+			CapDrop:          []string{"ALL"},
+			CapAdd:           []string{"NET_ADMIN"},
+			NoNewPrivileges:  true,
+			DenyDockerSocket: true,
+			ReadonlyRootfs:   true,
+		},
+	}, sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, line.Text)
+	}))
+	if err != nil {
+		return fmt.Errorf("sidecar: %s in %s: %w", strings.Join(args, " "), containerID, err)
+	}
+	result := handle.Wait()
+	if result.Error != nil || result.ExitCode != 0 {
+		mu.Lock()
+		defer mu.Unlock()
+		return fmt.Errorf("sidecar: %s in %s exited %d (%v): %s", strings.Join(args, " "), containerID, result.ExitCode, result.Error, strings.Join(lines, "; "))
+	}
+	return nil
+}
+
+// routeLabel marks a one-shot network change with the container whose
+// namespace it joined.
+const routeLabel = "sockerless-sim-route-for"

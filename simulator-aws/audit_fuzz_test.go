@@ -5,14 +5,14 @@ package main
 
 import "testing"
 
-func FuzzParseChunkSize(f *testing.F) {
+func FuzzParseChunkHeader(f *testing.F) {
 	for _, s := range []string{"0", "a", "ff", "7fffffffffffffff", "10;chunk-signature=abc", "", "  ", ";", "-1", "g", "0x10", "ffffffffffffffffff"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, line string) {
-		n, err := parseChunkSize(line)
+		n, _, err := parseChunkHeader(line)
 		if err == nil && n < 0 {
-			t.Fatalf("parseChunkSize(%q) returned negative size %d with nil error", line, n)
+			t.Fatalf("parseChunkHeader(%q) returned negative size %d with nil error", line, n)
 		}
 	})
 }

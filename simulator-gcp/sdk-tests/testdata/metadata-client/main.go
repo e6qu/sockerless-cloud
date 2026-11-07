@@ -114,7 +114,7 @@ func main() {
 	})
 	raw := func(w http.ResponseWriter, r *http.Request, path string) {
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
-			"http://"+os.Getenv("GCE_METADATA_HOST")+path, nil)
+			"http://metadata.google.internal"+path, nil)
 		if err != nil {
 			answer(w, "", err)
 			return

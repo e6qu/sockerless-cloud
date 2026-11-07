@@ -246,6 +246,9 @@ func AzureActivityLogMiddleware(next http.Handler) http.Handler {
 			correlationID = sim.NewUUID()
 		}
 		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if public, ok := azureNATPublicAddress(clientIP); ok {
+			clientIP = public
+		}
 		operationID := sim.NewUUID()
 		event := func(name, status string, subStatus activityLogValue, level string, properties map[string]string) {
 			now := time.Now().UTC()

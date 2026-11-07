@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -345,10 +342,11 @@ func mustMetadataHeader(w http.ResponseWriter, r *http.Request) bool {
 //
 // Attested_GetDocument answers with a signed statement of the instance's own
 // identity — the document a workload hands a relying party to prove which
-// machine it is running on. The signature is real: it is made with the
-// simulator's own signing key, the same key it signs its tokens with, so a
-// client that trusts this deployment can verify it. That is the coordinate
-// difference between this and Azure, whose key chains to a Microsoft root.
+// machine it is running on. The signature is a PKCS#7 SignedData made with
+// the simulator's own signing key, the one it signs its tokens with, under a
+// certificate for the Region's subdomain of metadata.azure.com, so a client
+// that trusts that certificate verifies it as it verifies Azure's, whose
+// certificate chains to a Microsoft root.
 //
 // Identity_GetInfo answers with the tenant the instance's managed identity
 // belongs to, which is the directory this simulator issues that identity from.
@@ -428,13 +426,9 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256(document)
-	signed, err := signer.Key().Sign(rand.Reader, digest[:], crypto.SHA256)
+	signed, err := azurePKCS7Sign(signer.Key(), vmMeta.VM.Location, document)
 	if err != nil {
 		return "", err
 	}
-	// The document travels with its signature, because a verifier needs both:
-	// the statement being attested and the proof it was this deployment that
-	// made it.
-	return base64.StdEncoding.EncodeToString(append(append(document, '.'), signed...)), nil
+	return base64.StdEncoding.EncodeToString(signed), nil
 }

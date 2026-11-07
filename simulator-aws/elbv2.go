@@ -231,6 +231,7 @@ func registerELBv2(r *AWSQueryRouter, srv *sim.Server) {
 	registerELBv2Rules(r, srv)
 	registerELBv2TrustStores(r, srv)
 	startELBv2TargetHealthChecker(srv)
+	registerELBv2GatewayNodeState(srv)
 	if err := elbv2RecoverDataPlanes(); err != nil {
 		panic(fmt.Sprintf("restore Elastic Load Balancing data planes: %v", err))
 	}
@@ -334,8 +335,14 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lb.SubnetMappings = elbv2AssignSourceNatPrefixes(lb.SubnetMappings)
+	if err := elbv2SyncGatewayInterfaces(lb); err != nil {
+		elbv2RemoveGatewayInterfaces(lb)
+		elbv2ErrorXML(w, "InvalidSubnet", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2LoadBalancers.Put(arn, lb)
 	ec2ReapplyIngress(lb.VpcID)
+	elbv2RequestGatewayReconcile()
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
 }
 
@@ -396,6 +403,8 @@ func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	}
 	elbv2LoadBalancers.Delete(arn)
 	ec2ReapplyIngress(deleted.VpcID)
+	elbv2RemoveGatewayInterfaces(deleted)
+	elbv2RequestGatewayReconcile()
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == arn }) {
 		elbv2DeleteListener(listener.Arn)
 	}
@@ -541,6 +550,11 @@ func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lb, _ := elbv2LoadBalancers.Get(arn)
+	if err := elbv2SyncGatewayInterfaces(lb); err != nil {
+		elbv2ErrorXML(w, "InvalidSubnet", err.Error(), http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	elbv2RequestGatewayReconcile()
 	body := "<AvailabilityZones>" + elbv2AvailabilityZonesXML(lb) + "</AvailabilityZones><IpAddressType>" + xmlEscape(ipType) + "</IpAddressType>"
 	if lb.EnablePrefixForIpv6SourceNat != "" {
 		body += "<EnablePrefixForIpv6SourceNat>" + lb.EnablePrefixForIpv6SourceNat + "</EnablePrefixForIpv6SourceNat>"
@@ -993,6 +1007,11 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		protocol = "HTTP"
 	}
 	port := atoiDefault(r.FormValue("Port"), 80)
+	// A Gateway Load Balancer listens for all IP packets on all ports, so its
+	// listener has neither a port nor a protocol.
+	if lb.Type == "gateway" {
+		protocol, port = "", 0
+	}
 	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:listener/%s/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(lb), lb.Name, elbv2LoadBalancerID(lb.Arn), id)
 	listener := ELBv2Listener{
@@ -1450,8 +1469,15 @@ func elbv2ListenerXML(listener ELBv2Listener) string {
 	if len(listener.AlpnPolicy) > 0 {
 		alpn = elbv2StringMembersXML("AlpnPolicy", listener.AlpnPolicy)
 	}
-	return fmt.Sprintf(`<member><ListenerArn>%s</ListenerArn><LoadBalancerArn>%s</LoadBalancerArn><Port>%d</Port><Protocol>%s</Protocol>%s%s%s%s%s</member>`,
-		xmlEscape(listener.Arn), xmlEscape(listener.LoadBalancerArn), listener.Port, xmlEscape(listener.Protocol),
+	var portProtocol string
+	if listener.Port > 0 {
+		portProtocol = fmt.Sprintf("<Port>%d</Port>", listener.Port)
+	}
+	if listener.Protocol != "" {
+		portProtocol += fmt.Sprintf("<Protocol>%s</Protocol>", xmlEscape(listener.Protocol))
+	}
+	return fmt.Sprintf(`<member><ListenerArn>%s</ListenerArn><LoadBalancerArn>%s</LoadBalancerArn>%s%s%s%s%s%s</member>`,
+		xmlEscape(listener.Arn), xmlEscape(listener.LoadBalancerArn), portProtocol,
 		elbv2ActionsXML("DefaultActions", listener.DefaultActions), certs.String(), sslPolicy, alpn,
 		elbv2MutualAuthXML(listener.MutualAuth))
 }

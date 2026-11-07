@@ -206,6 +206,7 @@ func handleCreateVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.
 		cfg.PrivateDnsNameState = "pendingVerification"
 	}
 	ec2VpcEndpointServices.Put(id, cfg)
+	elbv2RequestGatewayReconcile()
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVpcEndpointServiceConfigurationResponse %s>
@@ -263,6 +264,7 @@ func handleModifyVpcEndpointServiceConfiguration(w http.ResponseWriter, r *http.
 		cfg.GatewayLoadBalancerArns = ec2ApplyAddRemove(cfg.GatewayLoadBalancerArns, ec2ParamList(r, "AddGatewayLoadBalancerArn"), ec2ParamList(r, "RemoveGatewayLoadBalancerArn"))
 		cfg.SupportedIpAddressTypes = ec2ApplyAddRemove(cfg.SupportedIpAddressTypes, ec2ParamList(r, "AddSupportedIpAddressType"), ec2ParamList(r, "RemoveSupportedIpAddressType"))
 	})
+	elbv2RequestGatewayReconcile()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpcEndpointServiceConfigurationResponse %s>
   <requestId>%s</requestId>
@@ -279,6 +281,7 @@ func handleDeleteVpcEndpointServiceConfigurations(w http.ResponseWriter, r *http
 			continue
 		}
 		ec2VpcEndpointServices.Delete(id)
+		elbv2RequestGatewayReconcile()
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteVpcEndpointServiceConfigurationsResponse %s>

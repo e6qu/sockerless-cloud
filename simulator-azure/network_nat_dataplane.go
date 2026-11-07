@@ -31,16 +31,21 @@ const azureNATGatewayUDPIdle = 4 * time.Minute
 const azureNATGatewayStopGrace = 10 * time.Second
 
 type azureNATEgress struct {
-	handle  *sim.ContainerHandle
-	token   string
-	network string
-	address netip.Addr
-	sources string
-	idle    time.Duration
+	gatewayID string
+	handle    *sim.ContainerHandle
+	token     string
+	network   string
+	address   netip.Addr
+	sources   string
+	idle      time.Duration
 }
 
 var (
-	azureNATEgressMu sync.Mutex
+	// azureNATReconcileMu serializes the reconciles: one that finds no sidecar
+	// in the map would otherwise remove, as stale, the container another is
+	// still starting.
+	azureNATReconcileMu sync.Mutex
+	azureNATEgressMu    sync.RWMutex
 	// Keyed by lowercased gateway ID.
 	azureNATEgresses = map[string]*azureNATEgress{}
 	// The lowercased virtual network ID behind each prefix network this process
@@ -82,10 +87,12 @@ func azureSubnetLastAddress(prefix netip.Prefix) netip.Addr {
 // Replace the sidecar when the subnets or timeout change, and stop it when no
 // subnet is attached.
 func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
+	azureNATReconcileMu.Lock()
+	defer azureNATReconcileMu.Unlock()
 	subnets, prefixes := azureNATGatewaySubnets(gw.ID)
 	key := strings.ToLower(gw.ID)
 	if len(subnets) == 0 {
-		azureRemoveNATGatewayEgress(gw.ID)
+		azureStopNATGatewayEgress(gw.ID)
 		return nil
 	}
 	vnetID := azureVNetIDOfSubnet(subnets[0].ID)
@@ -123,7 +130,7 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		return nil
 	}
 	if ok {
-		azureRemoveNATGatewayEgress(gw.ID)
+		azureStopNATGatewayEgress(gw.ID)
 	}
 	origin, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
@@ -155,12 +162,18 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		return fmt.Errorf("NAT gateway %s: %w", gw.ID, err)
 	}
 	azureNATEgressMu.Lock()
-	azureNATEgresses[key] = &azureNATEgress{handle: handle, token: token, network: network, address: address, sources: wanted, idle: idle}
+	azureNATEgresses[key] = &azureNATEgress{gatewayID: gw.ID, handle: handle, token: token, network: network, address: address, sources: wanted, idle: idle}
 	azureNATEgressMu.Unlock()
 	return nil
 }
 
 func azureRemoveNATGatewayEgress(gatewayID string) {
+	azureNATReconcileMu.Lock()
+	defer azureNATReconcileMu.Unlock()
+	azureStopNATGatewayEgress(gatewayID)
+}
+
+func azureStopNATGatewayEgress(gatewayID string) {
 	key := strings.ToLower(gatewayID)
 	azureNATEgressMu.Lock()
 	e := azureNATEgresses[key]
@@ -291,4 +304,33 @@ func azureTakeNATEgressReport(network string, report egress.Report) {
 			azureRecordMetric(gw.ID, "DatapathAvailability", "Count", 100, nil, ev.At)
 		}
 	}
+}
+
+// azureNATPublicAddress is the public address a NAT gateway sends from when
+// private is its sidecar's address: what a machine sends through the gateway
+// reaches the simulator from the sidecar, and Azure from the gateway's public
+// IP.
+func azureNATPublicAddress(private string) (string, bool) {
+	azureNATEgressMu.RLock()
+	var gatewayID string
+	for _, e := range azureNATEgresses {
+		if e.address.String() == private {
+			gatewayID = e.gatewayID
+			break
+		}
+	}
+	azureNATEgressMu.RUnlock()
+	if gatewayID == "" || azureNatGateways == nil || azurePublicIPs == nil {
+		return "", false
+	}
+	gw, ok := azureNatGateways.Get(gatewayID)
+	if !ok {
+		return "", false
+	}
+	for _, ref := range gw.Properties.PublicIPAddresses {
+		if pip, ok := azurePublicIPs.Get(ref.ID); ok && pip.Properties.PublicIPAddress != "" {
+			return pip.Properties.PublicIPAddress, true
+		}
+	}
+	return "", false
 }

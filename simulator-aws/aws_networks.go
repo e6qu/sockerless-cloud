@@ -22,6 +22,24 @@ func (n awsWorkloadNetwork) DNS() []string { return []string{n.Sidecar.String()}
 
 func (n awsWorkloadNetwork) MetadataOrigin() string { return "http://" + n.Sidecar.String() }
 
+// The fixed link-local addresses AWS serves metadata on inside a VPC: the
+// instance metadata service, and the Amazon ECS agent's task metadata and
+// container credentials endpoints.
+var (
+	awsInstanceMetadataAddress = netip.MustParseAddr("169.254.169.254")
+	awsECSAgentAddress         = netip.MustParseAddr("169.254.170.2")
+)
+
+// LinkLocalRoutes routes each address to the network's sidecar, which answers
+// at it.
+func (n awsWorkloadNetwork) LinkLocalRoutes(addrs ...netip.Addr) []sim.Route {
+	routes := make([]sim.Route, 0, len(addrs))
+	for _, a := range addrs {
+		routes = append(routes, sim.Route{Destination: netip.PrefixFrom(a, 32), Via: n.Sidecar})
+	}
+	return routes
+}
+
 var errNoNetworkSidecars = errors.New("the Route 53 Resolver is not running, so no network sidecar can start")
 
 // The platform network carries workloads on no VPC; the scope separates

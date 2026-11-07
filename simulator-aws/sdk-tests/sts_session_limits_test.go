@@ -349,10 +349,7 @@ func TestSTS_AssumeRootTaskPolicy(t *testing.T) {
 	assert.Equal(t, member, aws.ToString(identity.UserId))
 	_, err = rootSTS.AssumeRoot(ctx, &sts.AssumeRootInput{TargetPrincipal: aws.String(member), TaskPolicyArn: unlock})
 	assertDenied(t, err, "a root user cannot call AssumeRoot")
-	root := s3.NewFromConfig(sessionConfig(out.Credentials), func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(baseURL)
-		o.UsePathStyle = true
-	})
+	root := s3.NewFromConfig(sessionConfig(out.Credentials), simS3)
 	_, err = root.ListBuckets(ctx, &s3.ListBucketsInput{})
 	require.NoError(t, err, "the task policy allows s3:ListAllMyBuckets")
 	_, err = root.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: aws.String(bucket)})

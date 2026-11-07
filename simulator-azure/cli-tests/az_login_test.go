@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -181,18 +182,22 @@ func startAzLoginSimulator(t *testing.T) azLoginEnv {
 // it runs the Docker workload runtime the native-az App Service tests need.
 func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	t.Helper()
+	return startAzTLSSimulatorHanding(t, nil, extraEnv...)
+}
+
+// startAzTLSSimulatorHanding also hands the simulator the held ports that
+// extraEnv names.
+func startAzTLSSimulatorHanding(t *testing.T, handed []int, extraEnv ...string) azLoginEnv {
+	t.Helper()
 	dir := t.TempDir()
 	certPath, keyPath := writeAzLoginTLSCert(t, dir)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	held, err := heldports.TCP(":0")
 	if err != nil {
-		t.Fatalf("reserve port for the TLS simulator: %v", err)
+		t.Fatalf("hold the TLS simulator's port: %v", err)
 	}
-	addr := listener.Addr().String()
-	port := addr[strings.LastIndex(addr, ":"):]
-	if err := listener.Close(); err != nil {
-		t.Fatalf("release reserved port: %v", err)
-	}
+	t.Cleanup(func() { heldports.Release(held) })
+	port := fmt.Sprintf(":%d", held)
 
 	// Bind on every interface so placed workloads reach it through the engine's
 	// bridge.
@@ -204,6 +209,9 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
+	if err := heldports.Hand(cmd, append([]int{held}, handed...)...); err != nil {
+		t.Fatalf("hand the TLS simulator its ports: %v", err)
+	}
 	if err := simready.Start(cmd, os.Stderr); err != nil {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}

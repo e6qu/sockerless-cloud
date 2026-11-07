@@ -24,8 +24,28 @@ type Manager struct {
 	httpOrigin string
 	sink       sim.LogSink
 
+	// linkLocal are the cloud's fixed link-local addresses every sidecar
+	// answers at besides its own.
+	linkLocal []netip.Addr
+
 	mu      sync.Mutex
 	running map[string]*Running
+}
+
+// ServeLinkLocal has every sidecar the manager starts answer at addrs too: the
+// fixed link-local addresses the cloud serves its metadata on, which a
+// workload routes to its network's sidecar.
+func (m *Manager) ServeLinkLocal(addrs ...netip.Addr) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.linkLocal = append([]netip.Addr(nil), addrs...)
+}
+
+// LinkLocal is what ServeLinkLocal set.
+func (m *Manager) LinkLocal() []netip.Addr {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]netip.Addr(nil), m.linkLocal...)
 }
 
 // Running is a sidecar the manager started.
@@ -99,6 +119,14 @@ func (m *Manager) Ensure(ctx context.Context, network string, address netip.Addr
 		sim.UnregisterSidecarToken(token)
 		_ = m.resolver.CloseNetwork(network)
 		return nil, err
+	}
+	if len(m.linkLocal) > 0 {
+		if err := AddLoopbackAddresses(ctx, handle.ContainerID, m.linkLocal); err != nil {
+			handle.Cancel()
+			sim.UnregisterSidecarToken(token)
+			_ = m.resolver.CloseNetwork(network)
+			return nil, err
+		}
 	}
 	r := &Running{Network: network, Address: address, token: token, handle: handle}
 	m.running[network] = r

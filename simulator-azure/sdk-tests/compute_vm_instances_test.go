@@ -143,7 +143,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	// Reach the Instance Metadata Service over plain TCP from a shell with no
 	// HTTP client.
 	read := func(step, path string) string {
-		return runInGuest(t, rg, vmName, step, `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
+		return runInGuest(t, rg, vmName, step, `bash -c 'host=169.254.169.254; `+
 			`exec 3<>/dev/tcp/$host/80; printf "GET `+path+` HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3; cat <&3'`)
 	}
 	imds := read("imds", "/metadata/instance?api-version=2021-02-01")
@@ -181,6 +181,9 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	other := signed.FindStringSubmatch(read("attested-other", "/metadata/attested/document?api-version=2020-09-01&nonce=9876543210"))
 	require.Len(t, other, 2)
 	assert.NotEqual(t, first[1], other[1], "the caller's nonce must change the document that was signed")
+	// A machine without a custom DNS server resolves through the wire server.
+	resolved := runInGuest(t, rg, vmName, "resolve", "getent hosts management.azure.com")
+	assert.Contains(t, resolved, "management.azure.com", "the wire server's DNS answers the machine's queries")
 	identity := read("identity", "/metadata/identity/info?api-version=2021-02-01")
 	require.NotNil(t, vm.Identity)
 	assert.Contains(t, identity, `"tenantId":"`+derefString(vm.Identity.TenantID)+`"`, "the metadata service names the tenant of the machine's identity")

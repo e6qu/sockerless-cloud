@@ -65,6 +65,18 @@ var ec2NetworkInterfacesByPrivateIP sim.GenerationIndex[EC2NetworkInterface]
 // reach targets from nodes carrying their groups and subnet addresses; one
 // without groups preserves the client's address.
 func elbv2LoadBalancerSource(lb ELBv2LoadBalancer) elbv2FlowSource {
+	// A Gateway Load Balancer has no security groups; what it sends its
+	// targets, health checks included, comes from its addresses in its
+	// subnets.
+	if strings.EqualFold(lb.Type, "gateway") {
+		var source elbv2FlowSource
+		for _, eni := range elbv2GatewayInterfaces(lb) {
+			if addr, err := netip.ParseAddr(eni.PrivateIpAddress); err == nil {
+				source.prefixes = append(source.prefixes, netip.PrefixFrom(addr, 32))
+			}
+		}
+		return source
+	}
 	if !strings.EqualFold(lb.Type, "application") && len(lb.SecurityGroups) == 0 {
 		return elbv2FlowSource{}
 	}

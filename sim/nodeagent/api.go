@@ -115,6 +115,17 @@ type GuestNetwork struct {
 	MAC          string `json:"mac"`
 	// DNS are the resolvers the guest asks.
 	DNS []string `json:"dns,omitempty"`
+	// Routes are the guest's further routes, which it takes before its first
+	// process starts: the cloud's fixed link-local addresses through the
+	// network's sidecar.
+	Routes []GuestRoute `json:"routes,omitempty"`
+}
+
+// GuestRoute sends what the guest addresses to Destination (a CIDR) through
+// Via.
+type GuestRoute struct {
+	Destination string `json:"destination"`
+	Via         string `json:"via"`
 }
 
 // SeedFile is one file written into the guest's root filesystem.

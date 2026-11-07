@@ -428,7 +428,7 @@ jobs:
             run: '^TestC'
             # Firewall rules between neighbours are enforced on guests; the
             # microvm shard proves it.
-            skip: '^TestCompute_(FirewallRulesFilterWhatAnInstanceReceives|CloudNATCarriesAnInstancesConnections)'
+            skip: '^TestCompute_FirewallRulesFilterWhatAnInstanceReceives'
           - cloud: gcp
             suite: sdk
             shard: not-C
@@ -454,7 +454,7 @@ jobs:
             run: '^Test[B-Z]'
             # Network security groups between neighbours are enforced on
             # guests; the microvm shard proves it.
-            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator|^TestCompute_(NetworkSecurityGroupFiltersWhatAMachineReceives|NatGatewayCarriesAMachinesConnections)'
+            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator|^TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives'
           # Microsoft's Cosmos DB emulator needs most of a two-core runner for
           # minutes to initialise, so its two oracle tests run on their own.
           - cloud: azure
@@ -816,11 +816,10 @@ jobs:
           # Amazon RDS tests from A to I run in shards of their own: their
           # engines, cluster volumes, backups and restores do not fit beside the
           # N-Z tests in one job budget. A security group's enforcement between
-          # neighbours and a NAT gateway's routing are the microVM backend's; the
-          # guest shard proves them.
+          # neighbours is the microVM backend's; the guest shard proves it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S])'
-            skip: '^TestEC2_(SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections|RegionalNatGatewayCarriesEachZonesConnections)'
+            skip: '^TestEC2_SecurityGroupFiltersWhatAnInstanceReceives'
           # The Amazon Aurora tests run in a shard of their own: beside the EC2
           # real-execution tests they do not fit compute's job budget.
           - suite: rds-aurora

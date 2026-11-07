@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,8 +52,9 @@ import (
 
 func persistentSimulatorPorts(t *testing.T) (int, int) {
 	t.Helper()
-	tcpPort, dnsPort, err := freeSimulatorPortPair()
+	tcpPort, dnsPort, err := holdSimulatorPorts()
 	require.NoError(t, err)
+	t.Cleanup(func() { heldports.Release(tcpPort, dnsPort) })
 	return tcpPort, dnsPort
 }
 
@@ -93,6 +95,7 @@ func startPersistentSimulatorWritingTo(t *testing.T, stateDir string, tcpPort, u
 		"SIM_LOG_LEVEL=warn",
 	)
 	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, tcpPort, udpPort))
 	require.NoError(t, simready.Start(cmd, out))
 	return cmd
 }
@@ -151,7 +154,6 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	westConfig.Region = "us-west-2"
 	s3API := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
 	})
 
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -549,7 +551,6 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	})
 	s3API = s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
 	})
 
 	certAfterResponse, err := http.Get(signingCertURL)

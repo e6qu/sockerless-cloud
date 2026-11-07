@@ -2,13 +2,15 @@
 
 ## Next
 
-- **Gateway Load Balancer stickiness and Elastic Load Balancing's recalled
-  messages** (BUG-3554): honour `source_ip_dest_ip` and
-  `source_ip_dest_ip_proto`, and source the refusals' messages.
+- **Elastic Load Balancing's recalled messages, the Gateway Load Balancer's
+  unsourced details, and IPv6 in VPCs** (BUG-3554): source the refusals'
+  messages and the data plane's details; on an engine with IPv6, give
+  dualstack VPCs IPv6 networks, workloads IPv6 addresses and routes, and carry
+  inner IPv6 through the Gateway Load Balancer.
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
-- **The fidelity gaps the comment pass surfaced** (BUG-3778 to 3784, 3786 to 3789 and 3791), service
+- **The fidelity gaps the comment pass surfaced** (BUG-3779 to 3784, 3786 to 3789 and 3791), service
   by service, each with its SDK, CLI and Terraform tests.
 
 - **M1 of `PLAN.md`: a complete 3.x release, then the App token**

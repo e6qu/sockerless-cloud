@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listenfds"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -528,7 +529,7 @@ type listeners struct {
 
 // listen binds the listeners cfg names.
 func listen(cfg Config) (listeners, error) {
-	ln, err := net.Listen("tcp", cfg.ListenAddr)
+	ln, err := listenfds.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return listeners{}, err
 	}
@@ -539,7 +540,7 @@ func listen(cfg Config) (listeners, error) {
 	if callbackAddr == "" {
 		callbackAddr = ":0"
 	}
-	callbackLn, err := net.Listen("tcp", callbackAddr)
+	callbackLn, err := listenfds.Listen("tcp", callbackAddr)
 	if err != nil {
 		_ = ln.Close()
 		return listeners{}, fmt.Errorf("callback listener %s: %w", callbackAddr, err)
