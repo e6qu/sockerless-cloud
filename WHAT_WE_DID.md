@@ -1048,7 +1048,10 @@ Every surface that the cloud authenticates, the simulator authenticates:
   `<bucket>.<endpoint host>` for a client given a bare endpoint URL, where a
   name in front of `localhost` counts as a bucket only when the request is
   signed for `s3`, since other services share that family; no suite sets
-  `UsePathStyle` or `s3_use_path_style` any more. The rewrite keeps a key's
+  `UsePathStyle` or `s3_use_path_style` any more. The HTTPS gateway serves
+  `*.localhost` and `*.aws.sockerless.localhost` too: without them the TLS
+  handshake for a bucket's virtual-hosted name failed, and a Terraform
+  apply retried the bucket's creation until the job's limit. The rewrite keeps a key's
   trailing slash (`photos/` is a key of its own), which the zonal and access
   point rewrites had trimmed. CreateBucket answers by the Region the request
   was signed for and the caller's account, and applies the vendored general

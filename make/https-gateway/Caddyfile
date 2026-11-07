@@ -21,9 +21,11 @@
 # <aws_account_id>.dkr.ecr.<region>.amazonaws.com, at this gateway's coordinate:
 # a container engine reaches a registry by the host in the image reference, so
 # the Docker Registry HTTP API v2 data plane needs a name shaped like one and a
-# certificate issued for it.
+# certificate issued for it. The third is an Amazon S3 bucket's virtual-hosted
+# name, <bucket>.<endpoint host>, which an SDK given this endpoint addresses.
 https://aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
-https://*.dkr.ecr.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+https://*.dkr.ecr.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.aws.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_AWS_SIM_PORT:4566} {
 		header_up X-Forwarded-Proto https
@@ -43,7 +45,10 @@ https://*.pkg.gcp.sockerless.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	}
 }
 
-https://localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
+# A client given https://localhost addresses an Amazon S3 bucket as
+# <bucket>.localhost.
+https://localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443},
+https://*.localhost:{$SOCKERLESS_HTTPS_GATEWAY_PORT:8443} {
 	tls internal
 	reverse_proxy 127.0.0.1:{$SOCKERLESS_HTTPS_GATEWAY_DEFAULT_SIM_PORT:4566} {
 		header_up X-Forwarded-Proto https
