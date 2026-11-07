@@ -182,7 +182,11 @@ func (d elbv2GatewayNodeDesign) signature() string {
 	return strings.Join(parts, ",")
 }
 
+// A node instance answers to its own name: a node that replaces another for
+// the same load balancer and zone must not be served on the requests of the
+// one it replaces, which runs on until its container stops.
 type elbv2GatewayNode struct {
+	instance  string
 	design    elbv2GatewayNodeDesign
 	signature string
 	handle    *sim.ContainerHandle
@@ -363,12 +367,13 @@ func elbv2StartGatewayNode(ctx context.Context, key elbv2GatewayNodeKey, design 
 		}
 	}
 	token := sim.NewSidecarToken()
-	sim.RegisterSidecarToken(token, gwlb.TokenNetwork(key.String()))
+	instance := key.String() + "@" + token[:16]
+	sim.RegisterSidecarToken(token, gwlb.TokenNetwork(instance))
 	elbv2GatewayNodesMu.Lock()
-	elbv2GatewayNodes[key] = &elbv2GatewayNode{design: design, signature: design.signature(), token: token}
+	elbv2GatewayNodes[key] = &elbv2GatewayNode{instance: instance, design: design, signature: design.signature(), token: token}
 	elbv2GatewayNodesMu.Unlock()
 	handle, err := sidecar.StartGatewayLoadBalancerNode(ctx, sidecar.GatewayLoadBalancerNodeSpec{
-		Node:         key.String(),
+		Node:         instance,
 		Name:         "sockerless-sim-gwlb-" + elbv2LoadBalancerID(key.lbArn) + "-" + key.zone,
 		Network:      network.Name,
 		Address:      address,
@@ -401,11 +406,13 @@ func elbv2StopGatewayNode(key elbv2GatewayNodeKey) {
 	if node == nil {
 		return
 	}
+	// Cut the node off before it stops, so nothing it asks while it winds
+	// down reaches the node that replaces it.
+	sim.UnregisterSidecarToken(node.token)
 	if node.handle != nil {
 		sim.StopContainer(node.handle.ContainerID, elbv2GatewayNodeStopGrace)
 		node.handle.Cancel()
 	}
-	sim.UnregisterSidecarToken(node.token)
 }
 
 func elbv2StopGatewayNodes() {
@@ -468,7 +475,7 @@ func elbv2GatewayNodeStateFor(nodeName string) (gwlb.State, bool) {
 	var key elbv2GatewayNodeKey
 	var node *elbv2GatewayNode
 	for k, n := range elbv2GatewayNodes {
-		if k.String() == nodeName {
+		if n.instance == nodeName {
 			key, node = k, n
 		}
 	}
@@ -598,8 +605,8 @@ func ec2EndpointReadyState(endpointType string) string {
 func elbv2GatewayEndpointsServed(nodeName string) {
 	elbv2GatewayNodesMu.Lock()
 	var endpoints []string
-	for key, node := range elbv2GatewayNodes {
-		if key.String() == nodeName {
+	for _, node := range elbv2GatewayNodes {
+		if node.instance == nodeName {
 			for _, e := range node.design.endpoints {
 				endpoints = append(endpoints, e.id)
 			}

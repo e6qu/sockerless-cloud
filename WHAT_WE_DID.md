@@ -1693,7 +1693,11 @@ fails once the row closes or the operation is served.
   until a node has applied state that names it, and its client waits for
   `Available` before routing through it: CreateVpcEndpoint had answered
   `Available` while the node serving it was still being replaced, and a
-  client whose flows crossed the replacement lost a connection. `sim.ContainerConfig.JoinNetworks` puts a
+  client whose flows crossed the replacement lost a connection. Each node
+  instance answers to its own name and loses its token before its container
+  stops: the replaced node, still asking while it wound down, had made the new
+  node's endpoints `Available` before the new node existed, which a slow CI
+  runner exposed. `sim.ContainerConfig.JoinNetworks` puts a
   container on further networks before it starts, so the node finds every
   endpoint's interface at its first instruction. Interface endpoints hold
   real network interfaces too, a route to an endpoint reads back under
