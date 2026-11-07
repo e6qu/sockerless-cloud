@@ -51,6 +51,7 @@ type guestConfig struct {
 	StopGrace  time.Duration     `json:"stopGrace"`
 	Mounts     []shareMount      `json:"mounts"`
 	Interfaces []guestInterface  `json:"interfaces"`
+	Routes     []guestRoute      `json:"routes"`
 }
 
 // shareMount is a file share the guest mounts at Path over its network: an
@@ -93,6 +94,10 @@ func run() (int, error) {
 	writeResolvConf(cfg.DNS)
 	_ = os.WriteFile("/etc/hosts", []byte(hostsFile(cfg)), 0o644)
 	if err := configureInterfaces(cfg.Interfaces); err != nil {
+		reportExit("", 127, err.Error(), 0)
+		return 127, err
+	}
+	if err := addRoutes(cfg.Routes); err != nil {
 		reportExit("", 127, err.Error(), 0)
 		return 127, err
 	}

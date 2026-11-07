@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -214,22 +215,26 @@ func ec2SubnetRouteTable(subnetID string) (EC2RouteTable, bool) {
 	return main, hasMain
 }
 
-// Returns the NAT gateway's private address the 0.0.0.0/0 route names (a
-// regional gateway's address in the subnet's zone); no route when that gateway
-// is gone or does not cover the zone; and the network's own gateway for an
-// internet gateway. A table with no route out also leaves the workload on the
-// network's gateway.
+// Returns where the subnet's 0.0.0.0/0 route sends a workload: the network's
+// own gateway for an internet gateway; the NAT gateway's private address (a
+// regional gateway's address in the subnet's zone), or no route when that
+// gateway is gone or does not cover the zone; the private address of the
+// network interface or instance the route names; and no route out at all when
+// the table names none, or names a target with no data plane here.
 func ec2SubnetGateway(subnetID string) string {
 	rt, ok := ec2SubnetRouteTable(subnetID)
 	if !ok {
-		return ""
+		return sim.NoGateway
 	}
 	for _, route := range rt.Routes {
 		if route.DestinationCidrBlock != "0.0.0.0/0" {
 			continue
 		}
-		if route.NatGatewayId == "" {
+		if strings.HasPrefix(route.GatewayId, "igw-") {
 			return ""
+		}
+		if route.NatGatewayId == "" {
+			return ec2RouteTargetAddress(route)
 		}
 		natgw, ok := ec2NatGateways.Get(route.NatGatewayId)
 		if !ok || natgw.State != "available" || len(natgw.NatGatewayAddresses) == 0 {
@@ -244,7 +249,35 @@ func ec2SubnetGateway(subnetID string) string {
 		}
 		return natgw.NatGatewayAddresses[0].PrivateIp
 	}
-	return ""
+	return sim.NoGateway
+}
+
+// ec2RouteTargetAddress is the private address of the network interface,
+// instance or available Gateway Load Balancer endpoint a route sends its
+// traffic to, and no route for any other target.
+func ec2RouteTargetAddress(route EC2Route) string {
+	if route.VpcEndpointId != "" {
+		ep, ok := ec2VpcEndpoints.Get(route.VpcEndpointId)
+		if !ok || !strings.EqualFold(ep.State, "Available") {
+			return sim.NoGateway
+		}
+		if eni, ok := ec2EndpointAddress(route.VpcEndpointId); ok {
+			return eni.PrivateIpAddress
+		}
+		return sim.NoGateway
+	}
+	if route.NetworkInterfaceId != "" {
+		if eni, ok := ec2NetworkInterfaces.Get(route.NetworkInterfaceId); ok && eni.PrivateIpAddress != "" {
+			return eni.PrivateIpAddress
+		}
+		return sim.NoGateway
+	}
+	if route.InstanceId != "" {
+		if inst := ec2InstanceRecord(route.InstanceId); inst.PrivateIpAddress != "" {
+			return inst.PrivateIpAddress
+		}
+	}
+	return sim.NoGateway
 }
 
 // A backend that does not route is left alone.
@@ -252,6 +285,7 @@ func ec2ReapplyRoutes(vpcID string) {
 	if vpcID == "" {
 		return
 	}
+	elbv2NotifyGatewayState()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, running := range ec2RunningMachines() {

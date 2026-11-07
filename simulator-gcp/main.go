@@ -39,6 +39,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listenfds"
 	"google.golang.org/grpc"
 )
 
@@ -314,7 +315,7 @@ func startGRPCServer(srv *sim.Server, port string) error {
 		tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}}
 	}
 
-	lis, err := net.Listen("tcp", ":"+port)
+	lis, err := listenfds.Listen("tcp", ":"+port)
 	if err != nil {
 		return fmt.Errorf("gRPC: listen on :%s: %w", port, err)
 	}

@@ -145,6 +145,7 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 			return nil, fmt.Errorf("workload callback: %w", err)
 		}
 		networkSidecars = sidecar.NewManager(azureDNS, "http://"+origin, sim.NoopSink{})
+		networkSidecars.ServeLinkLocal(azureIMDSAddress, azureWireServerAddress)
 	}
 	servers := []*dnsserver.Server{vnetSrv}
 	if cfg.ListenAddr == "" {

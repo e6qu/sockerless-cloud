@@ -228,13 +228,13 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err != nil {
 			return fail(err)
 		}
-		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
+		metadata = ecsTaskMetadataEnv(taskNetwork, taskID)
 	default:
 		taskNetwork, err = awsPlatformNetwork(ctx)
 		if err != nil {
 			return fail(fmt.Errorf("provision the container instance's network: %w", err))
 		}
-		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
+		metadata = ecsTaskMetadataEnv(taskNetwork, taskID)
 	}
 
 	// Pull every image before any container starts, as the agent does, recording

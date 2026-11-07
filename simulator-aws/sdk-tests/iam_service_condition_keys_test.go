@@ -1,7 +1,6 @@
 package aws_sdk_test
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -85,7 +84,7 @@ func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	assert.NoError(t, err, "the SDK signs in the Authorization header, which is what the grant requires")
@@ -95,7 +94,7 @@ func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 	presigned, err := s3.NewPresignClient(restricted).PresignGetObject(ctx,
 		&s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	require.NoError(t, err)
-	resp, err := http.Get(presigned.URL) //nolint:noctx // the presigned URL carries its own auth
+	resp, err := simGet(t, presigned.URL)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, 403, resp.StatusCode, "a presigned read is not REST-HEADER, so the grant does not cover it")
@@ -121,7 +120,7 @@ func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
 			  "Condition":{"NumericLessThan":{"s3:signatureAge":"`+bound+`"}}}]}`)
 		client := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 			Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-			func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+			simS3)
 		_, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 		return err
 	}
@@ -163,7 +162,7 @@ func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 		  "Condition":{"StringEquals":{"s3:ExistingObjectTag/classification":"public"}}}]}`)
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("open")})
 	assert.NoError(t, err, "the object carries the tag the grant names")

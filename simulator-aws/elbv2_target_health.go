@@ -298,6 +298,7 @@ func elbv2CheckTargetHealth(ctx context.Context, now time.Time) {
 		}
 	}
 	changed := elbv2TargetHealthTracker.Sweep(ctx, now, targets)
+	elbv2NotifyGatewayState()
 
 	// Target health decides whether an Amazon ECS task is in service; nothing else
 	// wakes its scheduler.

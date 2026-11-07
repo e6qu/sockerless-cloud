@@ -20,7 +20,7 @@ import (
 func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
-	port := freeAzureSimPort(t)
+	port := holdAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	cmd := startPersistentAzureSimulator(t, stateDir, port)

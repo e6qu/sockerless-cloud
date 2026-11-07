@@ -168,7 +168,6 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		DNS:        network.DNS(),
 		UserData:   userData,
 		CloudInit:  ec2CloudInit(inst),
-		Env:        ec2MetadataEnv(network.MetadataOrigin()),
 		VCPUs:      facts.VCpus,
 		MemoryMiB:  facts.MemoryMiB,
 		Labels:     map[string]string{"sockerless-sim-aws-instance": inst.InstanceId},
@@ -176,6 +175,7 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		Ingress:    ec2IngressStages(inst.SecurityGroupIds),
 		Gateway:    ec2SubnetGateway(inst.SubnetId),
 	}
+	spec.Routes = network.LinkLocalRoutes(awsInstanceMetadataAddress)
 	return spec, network, nil
 }
 

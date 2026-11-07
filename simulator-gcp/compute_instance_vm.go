@@ -215,7 +215,7 @@ func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gc
 		},
 		// The guest environment runs startup-script at every boot.
 		Startup:    &vminstance.Startup{Path: gcpGuestAgentDir + "/startup-script-runner", Script: []byte(gcpStartupScriptRunner)},
-		Env:        netw.env(),
+		Routes:     netw.routes(),
 		Gateway:    gcpInstanceGateway(inst),
 		VCPUs:      shape.GuestCpus,
 		MemoryMiB:  shape.MemoryMb,

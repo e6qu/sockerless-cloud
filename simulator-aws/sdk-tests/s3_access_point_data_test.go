@@ -122,7 +122,7 @@ func TestS3_DataAccessPointConditionKeysScopeTheGrant(t *testing.T) {
 
 	atBucket := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 	_, err = atBucket.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("k")})
 	require.Error(t, err, "the same read at the bucket carries no access point, so the grant does not match")

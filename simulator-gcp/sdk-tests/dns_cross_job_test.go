@@ -169,6 +169,9 @@ func containerIP(t *testing.T, name string) string {
 	require.NoError(t, err)
 
 	var inspected []struct {
+		HostConfig struct {
+			NetworkMode string `json:"NetworkMode"`
+		} `json:"HostConfig"`
 		NetworkSettings struct {
 			Networks map[string]struct {
 				IPAddress string `json:"IPAddress"`
@@ -177,6 +180,11 @@ func containerIP(t *testing.T, name string) string {
 	}
 	require.NoError(t, json.Unmarshal(out, &inspected))
 	require.NotEmpty(t, inspected)
+	// A workload routed through its subnet's gateway shares the network
+	// namespace of the container that holds its route.
+	if owner, ok := strings.CutPrefix(inspected[0].HostConfig.NetworkMode, "container:"); ok {
+		return containerIP(t, owner)
+	}
 	for _, net := range inspected[0].NetworkSettings.Networks {
 		if net.IPAddress != "" {
 			return net.IPAddress

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -21,7 +20,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
@@ -136,24 +135,20 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	// Find free port
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to hold the simulator's port: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
 
 	// Start simulator
 	simCmd = exec.Command(binaryPath)
 	advertisedEndpoints := fmt.Sprintf(
 		`{"storage":{"blob":"http://{account}.blob.cli-shim.localhost:%d/","file":"http://{account}.file.cli-shim.localhost:%d/","queue":"http://{account}.queue.cli-shim.localhost:%d/","table":"http://{account}.table.cli-shim.localhost:%d/"},"keyVault":"https://{vault}.vault.cli-shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.cli-shim.localhost:%d/","acr":"http://{name}.azurecr.cli-shim.localhost:%d/"}`,
 		port, port, port, port, port, port, port)
-	// The DNS front serves UDP and TCP at one port, so the port must be free
-	// on both.
-	dnsPort, err := freeports.TCPUDP()
+	// The DNS front serves UDP and TCP at one port.
+	dnsPort, err := heldports.TCPUDP("127.0.0.1")
 	if err != nil {
-		log.Fatalf("Failed to find free DNS port: %v", err)
+		log.Fatalf("Failed to hold the DNS port: %v", err)
 	}
 	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	azureFilesDataDir, err = os.MkdirTemp("", "sockerless-sim-azure-files-cli-*")
@@ -167,6 +162,9 @@ func TestMain(m *testing.M) {
 		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, port, dnsPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		simCmd.Process.Kill()
 		log.Fatalf("Simulator did not become healthy: %v", err)

@@ -7,5 +7,5 @@ import "embed"
 // go.sum, which pin everything else it needs. The embed lives here because a
 // package embeds only files at or below its own directory.
 //
-//go:embed go.mod go.sum sidecar/cmd/sidecar/*.go sidecar/egress/*.go fileshare/*.go procimage/*.go
+//go:embed go.mod go.sum sidecar/cmd/sidecar/*.go sidecar/egress/*.go sidecar/gwlb/*.go fileshare/*.go procimage/*.go
 var SidecarSource embed.FS

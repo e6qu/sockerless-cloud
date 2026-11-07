@@ -7,7 +7,11 @@
 // `sidecar egress` it is a NAT gateway: it carries the connections the guests
 // routed through it open toward the outside, from its own address, and as
 // `sidecar forward` it owns a workload's network namespace and relays the
-// loopback ports it names to endpoints on the workload's network.
+// loopback ports it names to endpoints on the workload's network. As
+// `sidecar hold` it owns a workload's namespace and does nothing else, and as
+// `sidecar route` it sets the routes of the namespace it joined, and as
+// `sidecar address` it adds addresses to the loopback of the namespace it
+// joined.
 package main
 
 import (
@@ -26,6 +30,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	xipv4 "golang.org/x/net/ipv4"
 
 	"github.com/e6qu/sockerless-cloud/sim/procimage"
 )
@@ -86,6 +92,33 @@ func main() {
 		if err := serve(ctx, os.Stdout); err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "gwlb" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		if err := serveGWLB(ctx, os.Stdout); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "route" {
+		if err := serveRoute(os.Stdout, os.Args[2:]); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "address" {
+		if err := serveAddress(os.Stdout, os.Args[2:]); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "hold" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		fmt.Fprintln(os.Stdout, "sidecar: hold")
+		<-ctx.Done()
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "forward" {
@@ -176,16 +209,24 @@ var boundAddrs chan [2]string
 
 // serveUDP relays each datagram to the upstream over a socket of its own, so
 // answers cannot cross between queriers, and sends the answer back to the
-// querier that asked.
+// querier that asked, from the address it asked: the sidecar also answers at
+// the cloud's fixed addresses on its loopback (Azure's 168.63.129.16), and a
+// stub resolver drops an answer from any other source.
 func serveUDP(ctx context.Context, pc net.PacketConn, upstream string) {
+	conn := xipv4.NewPacketConn(pc)
+	pktinfo := conn.SetControlMessage(xipv4.FlagDst, true) == nil
 	buf := make([]byte, 65535)
 	for {
-		n, from, err := pc.ReadFrom(buf)
+		n, cm, from, err := conn.ReadFrom(buf)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return
 			}
 			continue
+		}
+		var reply *xipv4.ControlMessage
+		if pktinfo && cm != nil && cm.Dst != nil {
+			reply = &xipv4.ControlMessage{Src: cm.Dst}
 		}
 		query := append([]byte(nil), buf[:n]...)
 		go func() {
@@ -193,7 +234,7 @@ func serveUDP(ctx context.Context, pc net.PacketConn, upstream string) {
 			if err != nil {
 				return
 			}
-			_, _ = pc.WriteTo(answer, from)
+			_, _ = conn.WriteTo(answer, reply, from)
 		}()
 	}
 }

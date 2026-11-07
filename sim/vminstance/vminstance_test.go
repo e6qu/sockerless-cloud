@@ -53,6 +53,9 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = sim.DockerClient().NetworkRemove(ctx, netID, client.NetworkRemoveOptions{}) })
+	// The engine picks the network's range, so the gateway the routes name is
+	// an address on it.
+	gateway := cidr.Masked().Addr().Next().Next()
 	address := cidr.Masked().Addr()
 	for range 10 {
 		address = address.Next()
@@ -66,10 +69,10 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 		Image:     Image{OCI: cloudInitImage, Architecture: platform},
 		Network:   network,
 		Address:   address.String(),
-		DNS:       []string{netip.MustParseAddr("100.64.0.2").String()},
+		DNS:       []string{gateway.String()},
 		UserData:  []byte("#!/bin/sh\necho \"user data ran on $(hostname)\"\necho boot >> /var/boots\nsleep 2147483647 &\n"),
 		CloudInit: &CloudInit{Platform: "ec2", Datasource: "DataSourceEc2Local", InstanceID: "i-test"},
-		Env:       map[string]string{"AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://100.64.0.2/"},
+		Routes:    []sim.Route{{Destination: netip.MustParsePrefix("169.254.169.254/32"), Via: gateway}},
 		VCPUs:     1,
 		MemoryMiB: 64,
 		StopGrace: time.Second,

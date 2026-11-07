@@ -24,7 +24,7 @@ func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, bu
 	if err != nil {
 		return containerCredentials{}, err
 	}
-	credentials := grantContainerCredentials(cbEnvironmentBackend, network, holder, serviceRole, "AWSCodeBuild-"+buildID[strings.LastIndex(buildID, ":")+1:])
+	credentials := grantContainerCredentials(network, holder, serviceRole, "AWSCodeBuild-"+buildID[strings.LastIndex(buildID, ":")+1:])
 	credentials.Env["AWS_ENDPOINT_URL"] = "http://" + addr
 	return credentials, nil
 }

@@ -434,7 +434,7 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 			releaseMounts()
 		}
 	}()
-	metadataEnv := netw.env()
+	metadataEnv := map[string]string{}
 	// A service revision's containers learn which service, revision and
 	// configuration they serve.
 	if serviceName, revisionID, isRevision := strings.Cut(name, "/revisions/"); isRevision {

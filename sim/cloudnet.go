@@ -32,6 +32,9 @@ type CloudNetwork struct {
 	// takes the first host of CIDR, where Amazon VPC, Google Cloud VPC and
 	// Azure Virtual Network all put it.
 	Gateway netip.Addr
+	// MTU is the largest packet the cloud network carries, which its
+	// documentation states; zero leaves the engine's default.
+	MTU int
 	// Labels go on the engine network beside the simulator's own.
 	Labels map[string]string
 	// DynamicRange, when set, is the part of CIDR the engine allocates
@@ -77,12 +80,17 @@ func EnsureCloudNetwork(ctx context.Context, spec CloudNetwork) (string, error) 
 		if spec.DynamicRange.IsValid() {
 			config.IPRange = spec.DynamicRange.Masked()
 		}
+		var options map[string]string
+		if spec.MTU > 0 {
+			options = map[string]string{"com.docker.network.driver.mtu": strconv.Itoa(spec.MTU)}
+		}
 		resp, err := cli.NetworkCreate(ctx, spec.Name, client.NetworkCreateOptions{
 			Driver: "bridge",
 			IPAM: &network.IPAM{
 				Config: []network.IPAMConfig{config},
 			},
-			Labels: simulatorLabels(spec.Labels),
+			Options: options,
+			Labels:  simulatorLabels(spec.Labels),
 		})
 		if err != nil {
 			return "", err

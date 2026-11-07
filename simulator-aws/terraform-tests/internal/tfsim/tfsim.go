@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
@@ -83,7 +83,11 @@ func Start(t *testing.T, configDir string) *Env {
 		}
 	}
 
-	port := reservePorts(t, 1)[0]
+	port, err := heldports.TCP(":0")
+	if err != nil {
+		t.Fatalf("hold the simulator's port: %v", err)
+	}
+	t.Cleanup(func() { heldports.Release(port) })
 
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(
@@ -95,6 +99,9 @@ func Start(t *testing.T, configDir string) *Env {
 	// Own process group, so t.Cleanup, the deadline watchdog and the signal
 	// reaper each reap the simulator subtree with one kill(-pgid).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := heldports.Hand(cmd, port); err != nil {
+		t.Fatalf("hand the simulator its port: %v", err)
+	}
 	startErr := simready.Start(cmd, os.Stderr)
 	if cmd.Process == nil {
 		t.Fatalf("start simulator: %v", startErr)
@@ -317,15 +324,16 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 	if err := os.MkdirAll(gatewayDir, 0o755); err != nil {
 		t.Fatalf("create HTTPS gateway state dir: %v", err)
 	}
-	gatewayPorts := reservePorts(t, 2)
-	gatewayPort, gatewayAdminPort := gatewayPorts[0], gatewayPorts[1]
+	gatewayPort, gatewayAdminPort, err := httpsgateway.Hold()
+	if err != nil {
+		t.Fatalf("hold the HTTPS gateway's ports: %v", err)
+	}
+	t.Cleanup(func() { httpsgateway.Release(gatewayPort, gatewayAdminPort) })
 	env.CACertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 	env.gatewayCmd = exec.Command(caddyBin, "run", "--config", filepath.Join(repoRoot, "make", "https-gateway", "Caddyfile"), "--adapter", "caddyfile")
 	env.gatewayCmd.Env = append(os.Environ(),
 		"XDG_DATA_HOME="+filepath.Join(gatewayDir, "data"),
 		"XDG_CONFIG_HOME="+filepath.Join(gatewayDir, "config"),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", gatewayPort),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT=%d", gatewayAdminPort),
 		fmt.Sprintf("SOCKERLESS_AWS_SIM_PORT=%d", simPort),
 		"SOCKERLESS_GCP_SIM_PORT=1",
 		"SOCKERLESS_AZURE_SIM_PORT=1",
@@ -333,6 +341,9 @@ func startHTTPSGateway(t *testing.T, env *Env, stateDir, simDir string, simPort 
 	)
 	env.gatewayCmd.Stdout = os.Stdout
 	env.gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := httpsgateway.Hand(env.gatewayCmd, gatewayPort, gatewayAdminPort); err != nil {
+		t.Fatalf("hand the HTTPS gateway its ports: %v", err)
+	}
 	startErr := httpsgateway.Start(env.gatewayCmd, os.Stderr)
 	if env.gatewayCmd.Process != nil {
 		trackForReaping(env.gatewayCmd)
@@ -387,37 +398,6 @@ func trustedHTTPClient(caCert string) (*http.Client, error) {
 			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
 	}, nil
-}
-
-// reservePorts returns n distinct ports free for the children's wildcard
-// ":<port>" bind: it probes with the same wildcard bind (a port free on
-// loopback may not be), and holds every listener open until all n are chosen
-// so the kernel cannot hand one port out twice. It releases them together,
-// just before the children bind.
-func reservePorts(t *testing.T, n int) []int {
-	t.Helper()
-	listeners := make([]net.Listener, 0, n)
-	ports := make([]int, 0, n)
-	defer func() {
-		for _, ln := range listeners {
-			if err := ln.Close(); err != nil {
-				t.Fatalf("close port reservation: %v", err)
-			}
-		}
-	}()
-	for range n {
-		ln, err := net.Listen("tcp", ":0")
-		if err != nil {
-			t.Fatalf("reserve port: %v", err)
-		}
-		listeners = append(listeners, ln)
-		tcpAddr, ok := ln.Addr().(*net.TCPAddr)
-		if !ok {
-			t.Fatalf("port reservation address is not TCP: %T", ln.Addr())
-		}
-		ports = append(ports, tcpAddr.Port)
-	}
-	return ports
 }
 
 func requireExecutable(t *testing.T, name, purpose string) string {

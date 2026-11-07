@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -101,6 +102,14 @@ func containerMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 		return gceMetadataWorkload{}, false
 	}
 	network := sim.SidecarNetwork(r.Context())
+	// A workload placed behind a holder joined the holder's namespace, so the
+	// engine lists the holder at its address.
+	behind := map[string]int{}
+	for i, c := range list.Items {
+		if holder := c.Labels[placement.ForwardedLabel]; holder != "" {
+			behind[holder] = i
+		}
+	}
 	for _, c := range list.Items {
 		if c.NetworkSettings == nil {
 			continue
@@ -110,6 +119,9 @@ func containerMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 				continue
 			}
 			if ep != nil && ep.IPAddress == addr.Unmap() {
+				if member, ok := behind[c.ID]; ok {
+					c = list.Items[member]
+				}
 				if w, ok := cloudBuildWorkloadFromLabels(c.Labels); ok {
 					return w, true
 				}

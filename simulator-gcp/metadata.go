@@ -24,16 +24,31 @@ func gcpMetadataInstanceFor(r *http.Request) (ComputeInstance, bool) {
 	return gcpInstances.Get(indexed.SelfLink)
 }
 
-// gceNetworkMTU is the MTU of a VPC network created without one.
-const gceNetworkMTU = 1460
+// A VPC network created without an MTU carries 1460 bytes; one may name any
+// MTU from 1300 to 8896.
+const (
+	gceNetworkMTU    = 1460
+	gceMinNetworkMTU = 1300
+	gceMaxNetworkMTU = 8896
+)
+
+// gceNetworkMTUOf is the MTU of the network a self link names, and the
+// default for a network the simulator does not hold.
+func gceNetworkMTUOf(networkSelfLink string) int {
+	if gcpComputeNetworks != nil {
+		if net, ok := gcpComputeNetworks.Get(networkSelfLink); ok && net.Mtu > 0 {
+			return net.Mtu
+		}
+	}
+	return gceNetworkMTU
+}
 
 // registerComputeMetadata serves the metadata server every workload Google
 // Cloud runs reads: a Compute Engine instance, a Cloud Run container, a Cloud
 // Build step. Google serves it at metadata.google.internal (169.254.169.254)
 // on port 80 and requires `Metadata-Flavor: Google` on every read. A workload
-// reaches it through its network's sidecar, which GCE_METADATA_HOST and
-// GCE_METADATA_IP name, so the Google Cloud client libraries find it
-// unchanged.
+// reaches it there: its routes send 169.254.169.254 to its network's sidecar,
+// so the Google Cloud client libraries find it unchanged.
 //
 // The tree below is the single description the listings, the recursive reads
 // and the leaf reads all resolve against, so a listing never advertises a key

@@ -22,6 +22,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 	"github.com/stretchr/testify/require"
 )
@@ -79,6 +80,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 		"SIM_LOG_LEVEL=info",
 	)
 	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, tcpPort, udpPort))
 	output := &shutdownLog{closed: make(chan struct{})}
 	require.NoError(t, simready.Start(cmd, output))
 	exited := make(chan error, 1)

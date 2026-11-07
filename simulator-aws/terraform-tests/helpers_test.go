@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
@@ -87,12 +87,10 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	simPort, err = heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to hold the simulator's port: %v", err)
 	}
-	simPort = ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
 
 	if err := startTerraformSimulator(); err != nil {
 		log.Fatalf("Failed to start simulator: %v", err)
@@ -120,16 +118,17 @@ func TestMain(m *testing.M) {
 		}
 		caddyBin = requireExecutable(caddyBin, "AWS Terraform HTTPS gateway tests")
 
-		gatewayPorts := reserveTCPPorts(2)
-		gatewayPort = gatewayPorts[0]
-		gatewayAdminPort := gatewayPorts[1]
+		var gatewayAdminPort int
+		gatewayPort, gatewayAdminPort, err = httpsgateway.Hold()
+		if err != nil {
+			simCmd.Process.Kill()
+			log.Fatalf("Failed to hold the HTTPS gateway's ports: %v", err)
+		}
 		caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 		gatewayCmd = exec.Command(caddyBin, "run", "--config", filepath.Join(repoRoot, "make", "https-gateway", "Caddyfile"), "--adapter", "caddyfile")
 		gatewayCmd.Env = append(os.Environ(),
 			fmt.Sprintf("XDG_DATA_HOME=%s", filepath.Join(gatewayDir, "data")),
 			fmt.Sprintf("XDG_CONFIG_HOME=%s", filepath.Join(gatewayDir, "config")),
-			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", gatewayPort),
-			fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT=%d", gatewayAdminPort),
 			fmt.Sprintf("SOCKERLESS_AWS_SIM_PORT=%d", simPort),
 			"SOCKERLESS_GCP_SIM_PORT=1",
 			"SOCKERLESS_AZURE_SIM_PORT=1",
@@ -137,6 +136,10 @@ func TestMain(m *testing.M) {
 		)
 		gatewayCmd.Stdout = os.Stdout
 		gatewayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := httpsgateway.Hand(gatewayCmd, gatewayPort, gatewayAdminPort); err != nil {
+			simCmd.Process.Kill()
+			log.Fatalf("Failed to hand the HTTPS gateway its ports: %v", err)
+		}
 		if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
 			if gatewayCmd.Process != nil {
 				gatewayCmd.Process.Kill()
@@ -219,6 +222,9 @@ func startTerraformSimulator() error {
 	// also on Ctrl-C and the hard-timeout SIGQUIT that skip the post-m.Run()
 	// cleanup.
 	simCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := heldports.Hand(simCmd, simPort); err != nil {
+		return err
+	}
 	return simready.Start(simCmd, os.Stderr)
 }
 
@@ -333,28 +339,6 @@ func mergeNoProxy(existing string, entries ...string) string {
 		merged = append(merged, entry)
 	}
 	return strings.Join(merged, ",")
-}
-
-// reserveTCPPorts returns n distinct ports free for the gateway's wildcard
-// bind: it probes with the same wildcard bind, and holds every listener open
-// until all n are chosen so no port is handed out twice.
-func reserveTCPPorts(n int) []int {
-	listeners := make([]net.Listener, 0, n)
-	ports := make([]int, 0, n)
-	for range n {
-		ln, err := net.Listen("tcp", ":0")
-		if err != nil {
-			log.Fatalf("Failed to reserve port: %v", err)
-		}
-		listeners = append(listeners, ln)
-		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
-	}
-	for _, ln := range listeners {
-		if err := ln.Close(); err != nil {
-			log.Fatalf("Failed to close port reservation: %v", err)
-		}
-	}
-	return ports
 }
 
 func requireExecutable(name, purpose string) string {

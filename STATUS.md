@@ -14,7 +14,7 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
   a plain build serves the bundle `SIM_CONSOLE_DIR` names, or none.
 - **Support modules.** `sim/` is the cloud-neutral framework; `ui-auth/` is
   the consoles' OpenID Connect layer and the `GET /monitoring/observation`
-  endpoint; `testutil/` holds test-only helpers (`simready`, `freeports`,
+  endpoint; `testutil/` holds test-only helpers (`simready`, `heldports`,
   `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `registrytrust`,
   `samlidp`, `githttp`), which the nine suites share instead of copying. The
   simulators pin `sim` and `ui-auth` by pseudo-version and resolve them

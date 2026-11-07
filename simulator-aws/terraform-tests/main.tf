@@ -17,9 +17,6 @@ provider "aws" {
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
 
-  # Path-style addressing keeps the bucket name out of the host, which a
-  # localhost endpoint cannot resolve as a subdomain.
-  s3_use_path_style = true
 
   endpoints {
     ec2              = var.endpoint
@@ -2363,6 +2360,99 @@ resource "aws_lb_target_group" "tf_nlb_tg" {
 
 output "elbv2_nlb_target_group_stickiness_type" {
   value = one(aws_lb_target_group.tf_nlb_tg.stickiness).type
+}
+
+# A Gateway Load Balancer fronts its appliances through an endpoint service;
+# an endpoint in another subnet holds an address of its own, and a route
+# table takes the endpoint as the next hop for an application subnet.
+resource "aws_subnet" "tf_gwlb_subnet" {
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+  cidr_block        = "10.251.10.0/24"
+  availability_zone = "us-east-1a"
+}
+
+resource "aws_subnet" "tf_gwlbe_subnet" {
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+  cidr_block        = "10.251.11.0/24"
+  availability_zone = "us-east-1a"
+}
+
+resource "aws_lb" "tf_gwlb" {
+  name               = "tf-gwlb"
+  load_balancer_type = "gateway"
+  subnets            = [aws_subnet.tf_gwlb_subnet.id]
+}
+
+resource "aws_lb_target_group" "tf_gwlb_tg" {
+  name     = "tf-gwlb-tg"
+  port     = 6081
+  protocol = "GENEVE"
+  vpc_id   = aws_vpc.tf_ec2_vpc.id
+
+  health_check {
+    port     = 80
+    protocol = "TCP"
+  }
+
+  stickiness {
+    enabled = true
+    type    = "source_ip_dest_ip_proto"
+  }
+}
+
+resource "aws_lb_listener" "tf_gwlb" {
+  load_balancer_arn = aws_lb.tf_gwlb.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tf_gwlb_tg.arn
+  }
+}
+
+resource "aws_vpc_endpoint_service" "tf_gwlb" {
+  acceptance_required        = false
+  gateway_load_balancer_arns = [aws_lb.tf_gwlb.arn]
+}
+
+resource "aws_vpc_endpoint" "tf_gwlbe" {
+  service_name      = aws_vpc_endpoint_service.tf_gwlb.service_name
+  subnet_ids        = [aws_subnet.tf_gwlbe_subnet.id]
+  vpc_endpoint_type = "GatewayLoadBalancer"
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+}
+
+resource "aws_route_table" "tf_gwlb_applications" {
+  vpc_id = aws_vpc.tf_ec2_vpc.id
+}
+
+resource "aws_route" "tf_gwlb_applications_default" {
+  route_table_id         = aws_route_table.tf_gwlb_applications.id
+  destination_cidr_block = "0.0.0.0/0"
+  vpc_endpoint_id        = aws_vpc_endpoint.tf_gwlbe.id
+}
+
+data "aws_network_interface" "tf_gwlbe" {
+  id = one(aws_vpc_endpoint.tf_gwlbe.network_interface_ids)
+}
+
+output "elbv2_gwlb_endpoint_interface_type" {
+  value = data.aws_network_interface.tf_gwlbe.interface_type
+}
+
+output "elbv2_gwlb_endpoint_private_ip" {
+  value = data.aws_network_interface.tf_gwlbe.private_ip
+}
+
+output "elbv2_gwlb_target_group_stickiness_type" {
+  value = one(aws_lb_target_group.tf_gwlb_tg.stickiness).type
+}
+
+output "ec2_gwlb_route_endpoint" {
+  value = aws_route.tf_gwlb_applications_default.vpc_endpoint_id
+}
+
+output "elbv2_gwlb_endpoint_id" {
+  value = aws_vpc_endpoint.tf_gwlbe.id
 }
 
 output "ec2_nlb_eip_allocation_id" {

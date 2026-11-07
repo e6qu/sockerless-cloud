@@ -362,6 +362,7 @@ func s3RewriteZonalRequest(r *http.Request) {
 	}
 	bucket := s3ZonalHostBucket(r.Host)
 	if bucket == "" {
+		s3RewriteVirtualHostRequest(r)
 		return
 	}
 	signed := r.URL.Path
@@ -369,9 +370,9 @@ func s3RewriteZonalRequest(r *http.Request) {
 		signed = "/"
 	}
 	*r = *r.WithContext(context.WithValue(r.Context(), s3SignedPathContextKey{}, signed))
-	r.URL.Path = "/" + bucket + strings.TrimSuffix(signed, "/")
+	r.URL.Path = s3HostedPath(bucket, signed)
 	if r.URL.RawPath != "" {
-		r.URL.RawPath = "/" + bucket + strings.TrimSuffix(r.URL.RawPath, "/")
+		r.URL.RawPath = s3HostedPath(bucket, r.URL.RawPath)
 	}
 }
 

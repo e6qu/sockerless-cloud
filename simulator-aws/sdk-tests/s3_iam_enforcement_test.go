@@ -42,7 +42,7 @@ func TestS3_RESTEnforcement(t *testing.T) {
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(
 			aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey), "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	assert.NoError(t, err, "s3:GetObject is granted on this bucket")
@@ -90,7 +90,7 @@ func TestS3_BucketPolicyDenyEnforced(t *testing.T) {
 	restricted := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(
 			aws.ToString(key.AccessKey.AccessKeyId), aws.ToString(key.AccessKey.SecretAccessKey), "")},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 
 	_, err = restricted.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("k")})
 	require.Error(t, err, "the bucket policy explicitly denies GetObject")

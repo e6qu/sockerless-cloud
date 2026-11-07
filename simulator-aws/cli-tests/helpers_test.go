@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
@@ -136,6 +136,7 @@ var (
 	persistenceDir         string
 	simulatorPort          int
 	diagnosticsAddr        string
+	diagnosticsPort        int
 	awsCLIVersion          string
 	provisionedToolDirs    []string
 )
@@ -297,19 +298,25 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	ports, err := freeports.Pick(2)
+	port, err := heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free API and diagnostics ports: %v", err)
+		log.Fatalf("Failed to hold the API port: %v", err)
 	}
-	port := ports[0]
 	simulatorPort = port
-	diagnosticsAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(ports[1]))
+	diagnosticsPort, err = heldports.TCP("127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("Failed to hold the diagnostics port: %v", err)
+	}
+	diagnosticsAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(diagnosticsPort))
 	persistenceDir, err = os.MkdirTemp("", "sockerless-aws-cli-state-")
 	if err != nil {
 		log.Fatalf("Failed to create simulator persistence directory: %v", err)
 	}
 
-	simCmd = newCLISimulatorCommand()
+	simCmd, err = newCLISimulatorCommand()
+	if err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		shutdownSimulator(simCmd)
@@ -332,7 +339,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newCLISimulatorCommand() *exec.Cmd {
+// newCLISimulatorCommand hands every simulator it makes the ports TestMain
+// holds, so a restart serves at the same coordinates.
+func newCLISimulatorCommand() (*exec.Cmd, error) {
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", simulatorPort),
@@ -341,13 +350,17 @@ func newCLISimulatorCommand() *exec.Cmd {
 		"SIM_PERSIST=true",
 		"SIM_DATA_DIR="+persistenceDir,
 	)
-	return cmd
+	return cmd, heldports.Hand(cmd, simulatorPort, diagnosticsPort)
 }
 
 func restartCLISimulator(t *testing.T) {
 	t.Helper()
 	shutdownSimulator(simCmd)
-	simCmd = newCLISimulatorCommand()
+	var err error
+	simCmd, err = newCLISimulatorCommand()
+	if err != nil {
+		t.Fatalf("Failed to hand the restarted simulator its ports: %v", err)
+	}
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		shutdownSimulator(simCmd)

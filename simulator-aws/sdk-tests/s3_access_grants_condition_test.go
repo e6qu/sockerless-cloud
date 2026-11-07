@@ -104,7 +104,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 			aws.ToString(access.Credentials.AccessKeyId),
 			aws.ToString(access.Credentials.SecretAccessKey),
 			aws.ToString(access.Credentials.SessionToken))},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 	read, err := granted.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("data/report.csv")})
 	require.NoError(t, err, "the credentials came from the Access Grants instance the grant names")
@@ -121,7 +121,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 			aws.ToString(assumed.Credentials.AccessKeyId),
 			aws.ToString(assumed.Credentials.SecretAccessKey),
 			aws.ToString(assumed.Credentials.SessionToken))},
-		func(o *s3.Options) { o.BaseEndpoint = aws.String(baseURL); o.UsePathStyle = true })
+		simS3)
 	_, err = direct.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String("data/report.csv")})
 	require.Error(t, err, "the same role reaching the object without Access Grants is not covered")

@@ -63,6 +63,10 @@ type guestNetwork struct {
 	DefaultRoute string   `json:"defaultRoute"`
 	MAC          string   `json:"mac"`
 	DNS          []string `json:"dns"`
+	Routes       []struct {
+		Destination string `json:"destination"`
+		Via         string `json:"via"`
+	} `json:"routes"`
 }
 
 // noDefaultRoute is the DefaultRoute of a guest with no route out.
@@ -380,6 +384,7 @@ func (g *guest) guestConfig() []byte {
 		"stopGrace":  g.spec.StopGrace,
 		"mounts":     g.spec.Mounts,
 		"interfaces": g.interfaces(),
+		"routes":     g.spec.Network.Routes,
 	}
 	data, _ := json.Marshal(cfg)
 	return data

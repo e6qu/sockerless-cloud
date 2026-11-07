@@ -977,6 +977,27 @@ func createECSTestVPCSubnets(t *testing.T, name string, count int) (string, []st
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
 
+	// The subnets are public, as an Amazon ECS task that reaches the
+	// simulator from its own interface needs: the main route table sends
+	// 0.0.0.0/0 to an internet gateway.
+	igwOut, err := ec2c.CreateInternetGateway(ctx, &ec2.CreateInternetGatewayInput{})
+	require.NoError(t, err)
+	igwID := aws.ToString(igwOut.InternetGateway.InternetGatewayId)
+	_, err = ec2c.AttachInternetGateway(ctx, &ec2.AttachInternetGatewayInput{InternetGatewayId: aws.String(igwID), VpcId: aws.String(vpcID)})
+	require.NoError(t, err)
+	mainTables, err := ec2c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{
+		{Name: aws.String("vpc-id"), Values: []string{vpcID}},
+		{Name: aws.String("association.main"), Values: []string{"true"}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, mainTables.RouteTables, 1, "the VPC's main route table")
+	_, err = ec2c.CreateRoute(ctx, &ec2.CreateRouteInput{
+		RouteTableId:         mainTables.RouteTables[0].RouteTableId,
+		DestinationCidrBlock: aws.String("0.0.0.0/0"),
+		GatewayId:            aws.String(igwID),
+	})
+	require.NoError(t, err)
+
 	var subnets []string
 	t.Cleanup(func() {
 		for _, subnetID := range subnets {
@@ -984,7 +1005,11 @@ func createECSTestVPCSubnets(t *testing.T, name string, count int) (string, []st
 			_, err := ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
 			require.NoError(t, err, "delete ECS test subnet %s once its tasks stopped", subnetID)
 		}
-		_, err := ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
+		_, err := ec2c.DetachInternetGateway(ctx, &ec2.DetachInternetGatewayInput{InternetGatewayId: aws.String(igwID), VpcId: aws.String(vpcID)})
+		require.NoError(t, err, "detach the ECS test VPC's internet gateway")
+		_, err = ec2c.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{InternetGatewayId: aws.String(igwID)})
+		require.NoError(t, err, "delete the ECS test VPC's internet gateway")
+		_, err = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
 		require.NoError(t, err, "delete ECS test VPC %s", vpcID)
 	})
 	for i := range count {

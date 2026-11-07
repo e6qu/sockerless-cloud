@@ -144,6 +144,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			DefaultRoute: w.Gateway,
 			MAC:          primaryMAC(w, b.macPrefix, addr, id),
 			DNS:          w.DNS,
+			Routes:       guestRoutes(w.Routes),
 		},
 		StopGrace:     w.CancelGracePeriod,
 		Seed:          seedFiles(w),
@@ -708,6 +709,15 @@ func agentIngress(stages [][]netrules.PacketRule) [][]nodeagent.PacketRule {
 		for j, rule := range stage {
 			out[i][j] = nodeagent.PacketRule{Protocol: rule.Protocol, SourceCIDR: rule.SourceCIDR, FromPort: rule.FromPort, ToPort: rule.ToPort, Action: rule.Action}
 		}
+	}
+	return out
+}
+
+// guestRoutes spells a workload's further routes as the agent takes them.
+func guestRoutes(routes []sim.Route) []nodeagent.GuestRoute {
+	out := make([]nodeagent.GuestRoute, 0, len(routes))
+	for _, r := range routes {
+		out = append(out, nodeagent.GuestRoute{Destination: r.Destination.String(), Via: r.Via.String()})
 	}
 	return out
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net"
-	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
@@ -173,13 +172,8 @@ func TestCloudDNSServesPrivateZonesToTheirNetworks(t *testing.T) {
 	if got := answer(ask("db.shared.test.", netA)); got != "203.0.113.1" {
 		t.Fatalf("network b sees only the public zone, got %s", got)
 	}
-	gcpNetworkSidecars.Store("net-a", netip.MustParseAddr("10.0.0.253"))
-	t.Cleanup(func() { gcpNetworkSidecars.Delete("net-a") })
-	if got := answer(ask(cloudDNSMetadataName, netA)); got != "10.0.0.253" {
-		t.Fatalf("metadata.google.internal resolves to the network's sidecar, got %s", got)
-	}
-	if got := answer(ask(cloudDNSMetadataName)); got == "10.0.0.253" {
-		t.Fatal("metadata.google.internal resolved to a sidecar outside every network")
+	if got := answer(ask(cloudDNSMetadataName, netA)); got != "169.254.169.254" {
+		t.Fatalf("metadata.google.internal resolves to the metadata server's address, got %s", got)
 	}
 }
 

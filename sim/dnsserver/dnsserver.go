@@ -21,6 +21,8 @@ import (
 
 	"github.com/miekg/dns"
 	"golang.org/x/net/ipv4"
+
+	"github.com/e6qu/sockerless-cloud/sim/listenfds"
 )
 
 // Query names what a Catalog decides visibility from.
@@ -157,11 +159,11 @@ var bindPair = func(host, port string) (*net.UDPConn, *net.TCPListener, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	udp, err := net.ListenUDP("udp4", udpAddr)
+	udp, err := listenfds.ListenUDP("udp4", udpAddr)
 	if err != nil {
 		return nil, nil, err
 	}
-	tcp, err := net.ListenTCP("tcp4", net.TCPAddrFromAddrPort(addrPort(udp.LocalAddr())))
+	tcp, err := listenfds.ListenTCP("tcp4", net.TCPAddrFromAddrPort(addrPort(udp.LocalAddr())))
 	if err != nil {
 		_ = udp.Close()
 		return nil, nil, err

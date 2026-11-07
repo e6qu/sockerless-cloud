@@ -9,6 +9,10 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
+// Amazon VPC carries 9001-byte jumbo frames between instances, the vendored
+// network MTU page says.
+const ec2VPCMTU = 9001
+
 func ecsVPCNetworkName(vpcID string) string { return "sockerless-sim-vpc-" + vpcID }
 
 // The VPC base plus two, which the VPC reserves for the Resolver.
@@ -40,6 +44,7 @@ func ec2EnsureVPCNetwork(ctx context.Context, vpcID string) (awsWorkloadNetwork,
 	if _, err := sim.EnsureCloudNetwork(ctx, sim.CloudNetwork{
 		Name:   name,
 		CIDR:   cidr,
+		MTU:    ec2VPCMTU,
 		Labels: map[string]string{"sockerless-sim-vpc": vpcID},
 	}); err != nil {
 		return awsWorkloadNetwork{}, err

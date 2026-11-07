@@ -164,10 +164,11 @@ func main() {
 	case "metadata":
 		// Answers each request with the value the metadata server holds at the
 		// request's path under /computeMetadata/v1, read the way a Google client
-		// library reads it: from GCE_METADATA_HOST with Metadata-Flavor: Google.
+		// library reads it: from metadata.google.internal with Metadata-Flavor:
+		// Google.
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
-				"http://"+os.Getenv("GCE_METADATA_HOST")+"/computeMetadata/v1"+r.URL.Path, nil)
+				"http://metadata.google.internal/computeMetadata/v1"+r.URL.Path, nil)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

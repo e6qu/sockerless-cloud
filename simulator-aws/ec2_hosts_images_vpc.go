@@ -1583,10 +1583,15 @@ func ec2SetVpcEndpointConnState(w http.ResponseWriter, r *http.Request, op, newS
 		found := false
 		for _, c := range ec2VpcEndpointConns.List() {
 			if c.ServiceId == serviceID && c.VpcEndpointId == vpceID {
-				c.VpcEndpointState = newState
+				state := newState
+				endpoint, ok := ec2VpcEndpoints.Get(vpceID)
+				if ok && newState == "Available" {
+					state = ec2EndpointReadyState(endpoint.VpcEndpointType)
+				}
+				c.VpcEndpointState = state
 				ec2VpcEndpointConns.Put(c.VpcEndpointConnectionId, c)
-				if endpoint, ok := ec2VpcEndpoints.Get(vpceID); ok {
-					endpoint.State = newState
+				if ok {
+					endpoint.State = state
 					ec2VpcEndpoints.Put(vpceID, endpoint)
 				}
 				found = true
@@ -1599,6 +1604,7 @@ func ec2SetVpcEndpointConnState(w http.ResponseWriter, r *http.Request, op, newS
 			})
 		}
 	}
+	elbv2RequestGatewayReconcile()
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%sResponse %s><requestId>%s</requestId>%s</%sResponse>`,
 		op, ec2Xmlns(), sim.NewUUID(), ec2UnsuccessfulItemsXML(unsuccessful), op)

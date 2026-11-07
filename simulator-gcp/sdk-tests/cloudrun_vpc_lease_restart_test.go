@@ -21,7 +21,7 @@ import (
 func TestSDK_CloudRun_AdoptedVPCEgressKeepsItsAddressAcrossARestart(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
-	httpPort, grpcPort := freePersistentSimPorts(t)
+	httpPort, grpcPort := holdPersistentSimPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	cmd := startPersistentSimulatorOn(t, "docker", stateDir, httpPort, grpcPort)
 	t.Cleanup(func() { _ = shutdownPersistentSimulator(cmd) })

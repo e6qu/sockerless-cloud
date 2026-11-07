@@ -83,7 +83,7 @@ func TestELBTrustStoreTerraform(t *testing.T) {
 	locationURL, err := url.Parse(aws.ToString(located.Location))
 	require.NoError(t, err)
 	serviceBucket, _, _ := strings.Cut(strings.TrimPrefix(locationURL.Path, "/"), "/")
-	s3c := s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), HTTPClient: env.Client, UsePathStyle: true,
+	s3c := s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), HTTPClient: env.Client,
 		Credentials: credentials.NewStaticCredentialsProvider("test", "test", "")})
 	listed, err := s3c.ListBuckets(context.Background(), &s3.ListBucketsInput{})
 	require.NoError(t, err)

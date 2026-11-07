@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
-	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
@@ -135,14 +135,20 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create gateway state dir: %v", err)
 	}
 
-	// The DNS front serves UDP and TCP at one port, so that port must be free
-	// on both.
-	ports, dnsPort, err := freeports.PickWithTCPUDP(3)
+	simPort, err = heldports.TCP(":0")
 	if err != nil {
-		log.Fatalf("Failed to find free ports: %v", err)
+		log.Fatalf("Failed to hold the simulator's port: %v", err)
 	}
-	simPort, gatewayPort = ports[0], ports[1]
-	gatewayAdminPort := ports[2]
+	// The DNS front serves UDP and TCP at one port.
+	dnsPort, err := heldports.TCPUDP("127.0.0.1")
+	if err != nil {
+		log.Fatalf("Failed to hold the DNS port: %v", err)
+	}
+	var gatewayAdminPort int
+	gatewayPort, gatewayAdminPort, err = httpsgateway.Hold()
+	if err != nil {
+		log.Fatalf("Failed to hold the HTTPS gateway's ports: %v", err)
+	}
 	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 
@@ -156,6 +162,9 @@ func TestMain(m *testing.M) {
 		"SIM_AZURE_DNS_LISTEN_ADDR="+simAzureDNSAddr,
 	)
 	simCmd.Stdout = os.Stdout
+	if err := heldports.Hand(simCmd, simPort, dnsPort); err != nil {
+		log.Fatalf("Failed to hand the simulator its ports: %v", err)
+	}
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
 		log.Fatalf("Failed to start simulator: %v", err)
 	}
@@ -170,13 +179,15 @@ func TestMain(m *testing.M) {
 	gatewayCmd.Env = append(os.Environ(),
 		fmt.Sprintf("XDG_DATA_HOME=%s", filepath.Join(gatewayDir, "data")),
 		fmt.Sprintf("XDG_CONFIG_HOME=%s", filepath.Join(gatewayDir, "config")),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_PORT=%d", gatewayPort),
-		fmt.Sprintf("SOCKERLESS_HTTPS_GATEWAY_ADMIN_PORT=%d", gatewayAdminPort),
 		"SOCKERLESS_AWS_SIM_PORT=1",
 		"SOCKERLESS_GCP_SIM_PORT=1",
 		fmt.Sprintf("SOCKERLESS_AZURE_SIM_PORT=%d", simPort),
 	)
 	gatewayCmd.Stdout = os.Stdout
+	if err := httpsgateway.Hand(gatewayCmd, gatewayPort, gatewayAdminPort); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to hand the HTTPS gateway its ports: %v", err)
+	}
 	if err := httpsgateway.Start(gatewayCmd, os.Stderr); err != nil {
 		if gatewayCmd.Process != nil {
 			gatewayCmd.Process.Kill()

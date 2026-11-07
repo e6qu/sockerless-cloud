@@ -33,9 +33,19 @@ func registerNetworkModeTaskDef(q func(...string) string, family, mode string) {
 
 func containerNetworkNames(t *testing.T, taskArn string) []string {
 	t.Helper()
-	out := dockerOut(t, "inspect", "-f",
-		"{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}", taskContainerID(t, taskArn))
-	return strings.Fields(out)
+	return networksOfContainer(t, taskContainerID(t, taskArn))
+}
+
+// networksOfContainer names the networks a container is on, through the
+// container whose network namespace it shares when it shares one: a workload
+// routed through its subnet's gateway joins the namespace that holds its route.
+func networksOfContainer(t *testing.T, id string) []string {
+	t.Helper()
+	if owner, ok := strings.CutPrefix(strings.TrimSpace(dockerOut(t, "inspect", "-f", "{{.HostConfig.NetworkMode}}", id)), "container:"); ok {
+		return networksOfContainer(t, owner)
+	}
+	return strings.Fields(dockerOut(t, "inspect", "-f",
+		"{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}", id))
 }
 
 func containerNetworkMode(t *testing.T, taskArn string) string {

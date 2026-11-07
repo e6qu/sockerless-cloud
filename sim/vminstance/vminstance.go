@@ -67,6 +67,9 @@ type Spec struct {
 	// Gateway is where the instance's default route goes, in the terms of
 	// sim.ContainerConfig.Gateway: the cloud's routing for its subnet.
 	Gateway string
+	// Routes are the further routes of the instance's namespace: the cloud's
+	// fixed link-local addresses through its network's sidecar.
+	Routes []sim.Route
 }
 
 // Startup is a script the instance runs at every boot.
@@ -198,6 +201,7 @@ func Workload(spec Spec) (placement.Workload, error) {
 		PublishPorts:      spec.PublishPorts,
 		Ingress:           spec.Ingress,
 		Gateway:           spec.Gateway,
+		Routes:            spec.Routes,
 		Seed:              seed,
 		Labels:            labels,
 		Sandbox:           Sandbox,

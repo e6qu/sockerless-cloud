@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,23 +38,12 @@ func TestS3_AWSChunkedPutObject_RoundTrip(t *testing.T) {
 		})
 	})
 
-	// The body the SDK sends for a non-seekable, streaming-signed payload:
-	//   "<hex-size>;chunk-signature=<sig>\r\n<payload>\r\n"
-	//   "0;chunk-signature=<sig>\r\n\r\n"
-	sig := strings.Repeat("0", 64)
-	body := fmt.Sprintf("%x;chunk-signature=%s\r\n%s\r\n0;chunk-signature=%s\r\n\r\n",
-		len(payload), sig, payload, sig)
-
-	url := baseURL + "/" + bucket + "/" + key
-	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(body))
+	// The body a client sends for a streaming-signed payload, each chunk
+	// signed in turn: "<hex-size>;chunk-signature=<sig>\r\n<payload>\r\n",
+	// ending with the signed zero-length chunk.
+	req, err := http.NewRequest(http.MethodPut, baseURL+"/"+bucket+"/"+key, nil)
 	require.NoError(t, err)
-	req.Header.Set("Content-Encoding", "aws-chunked")
-	req.Header.Set("x-amz-content-sha256", "STREAMING-AWS4-HMAC-SHA256-PAYLOAD")
-	req.Header.Set("x-amz-decoded-content-length", fmt.Sprintf("%d", len(payload)))
-	// Sign the seed signature the S3 authentication gate verifies. The declared
-	// payload hash is the streaming sentinel, so the framed body is not hashed;
-	// the per-chunk signatures stay placeholders.
-	signRawSigV4(t, req, "s3", "STREAMING-AWS4-HMAC-SHA256-PAYLOAD")
+	signStreamingUpload(t, req, [][]byte{[]byte(payload)}, false)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

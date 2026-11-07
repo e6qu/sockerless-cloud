@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/heldports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,46 +25,27 @@ import (
 // URL.
 func startProcessModeSim(t *testing.T) string {
 	t.Helper()
-	// freeSimulatorPortPair probes TCP and UDP together, since the Route 53
-	// listener binds both. Another process can still take a port before the
-	// simulator binds it, and the simulator then exits; waiting on its health
-	// endpoint would only report refused connections, so watch the process and
-	// retry on fresh ports if it exits before it is healthy.
-	const attempts = 5
-	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		port, dnsPort, err := freeSimulatorPortPair()
-		require.NoError(t, err)
-
-		cmd := exec.Command(binaryPath)
-		cmd.Env = append(
-			os.Environ(),
-			fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
-			fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
-			"SIM_RUNTIME=process",
-			"SIM_LOG_LEVEL=warn",
-		)
-		cmd.Stdout = os.Stdout
-		if err := simready.Start(cmd, os.Stderr); err != nil {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-			}
-			lastErr = fmt.Errorf("process-mode simulator on :%d (Route 53 on :%d): %w", port, dnsPort, err)
-			continue
-		}
-		exited := make(chan error, 1)
-		go func() { exited <- cmd.Wait() }()
-		url := fmt.Sprintf("http://127.0.0.1:%d", port)
-
-		t.Cleanup(func() {
-			_ = cmd.Process.Kill()
-			<-exited
-		})
-		return url
-	}
-	t.Fatalf("process-mode simulator did not start after %d attempts: %v", attempts, lastErr)
-	return ""
+	port, dnsPort, err := holdSimulatorPorts()
+	require.NoError(t, err)
+	t.Cleanup(func() { heldports.Release(port, dnsPort) })
+	cmd := exec.Command(binaryPath)
+	cmd.Env = append(
+		os.Environ(),
+		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
+		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
+		"SIM_RUNTIME=process",
+		"SIM_LOG_LEVEL=warn",
+	)
+	cmd.Stdout = os.Stdout
+	require.NoError(t, heldports.Hand(cmd, port, dnsPort))
+	require.NoError(t, simready.Start(cmd, os.Stderr), "start the process-mode simulator")
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	})
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
 // TestECS_ManagedEBSRunTaskProcessMode runs a managed-EBS task under

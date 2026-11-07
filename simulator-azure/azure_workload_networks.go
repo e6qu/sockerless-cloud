@@ -144,7 +144,7 @@ func azureJoinedVNetPrefixNetwork(ctx context.Context, service placement.Service
 // network.
 func azureVNetPrefixNetwork(ctx context.Context, vnet VirtualNetwork, prefix netip.Prefix, first bool) (azureWorkloadNetwork, error) {
 	name := dockerNetForVNetPrefix(vnet.ID, prefix, first)
-	if _, err := sim.EnsureCloudNetwork(ctx, sim.CloudNetwork{Name: name, CIDR: prefix}); err != nil {
+	if _, err := sim.EnsureCloudNetwork(ctx, sim.CloudNetwork{Name: name, CIDR: prefix, MTU: azureVNetMTU}); err != nil {
 		return azureWorkloadNetwork{}, err
 	}
 	azureResolverNetworks.Store(name, strings.ToLower(vnet.ID))
@@ -338,3 +338,7 @@ func azureRemoveWorkloadNetworks() {
 	})
 	_ = sim.RemoveDockerNetwork(azurePlatformNetworkName())
 }
+
+// Azure virtual machines and most network devices default to a 1,500-byte
+// MTU, the vendored TCP/IP performance tuning page says.
+const azureVNetMTU = 1500

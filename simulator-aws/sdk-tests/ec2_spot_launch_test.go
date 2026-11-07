@@ -52,7 +52,7 @@ func TestEC2_RunInstancesLaunchesASpotInstance(t *testing.T) {
 	assert.Equal(t, "0.0104", aws.ToString(request.SpotPrice))
 
 	waitForEC2InstanceRunning(t, c, instanceID)
-	lifecycle := ssmShell(t, ssmClient(), instanceID, `token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
-curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPOINT%/}/latest/meta-data/instance-life-cycle"`)
+	lifecycle := ssmShell(t, ssmClient(), instanceID, `token=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/instance-life-cycle"`)
 	assert.Equal(t, "spot", lifecycle)
 }

@@ -430,7 +430,7 @@ func handleS3UploadPartCopy(w http.ResponseWriter, r *http.Request) {
 	etag := `"` + digests.MD5Hex() + `"`
 	now := time.Now().UTC()
 
-	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag)
+	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag, s3PartChecksum(uploadID, ref))
 	if !stored {
 		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
 			sim.PathParam(r, "bucket"), sim.RequestID(r.Context()), http.StatusNotFound)
