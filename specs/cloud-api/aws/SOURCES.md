@@ -144,3 +144,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `s3-bucket-naming-rules.md.gz` | `docs.aws.amazon.com` | `AmazonS3/latest/userguide/bucketnamingrules.md` | CC-BY-SA-4.0 | `sha256b0be9f27112989d04a518689db30d78694ce4673133c1f01791f743315f467ad` | 2026-11-07T03:32:07Z |
 | `s3-checking-object-integrity-upload.md.gz` | `docs.aws.amazon.com` | `AmazonS3/latest/userguide/checking-object-integrity-upload.md` | CC-BY-SA-4.0 | `sha25651aaf5ef273fe77829a362da29c3cbb64a3a5910ab996e20909c3449218a1e6c` | 2026-11-07T03:32:07Z |
 | `gwlb-tunnel-handler-geneve-packet.cpp.gz` | `aws-samples/aws-gateway-load-balancer-tunnel-handler@main` | `GenevePacket.cpp` | MIT-0 | `ec01ed6ecd9bfd4b0e2da5e2c1f5034fd711744d` | 2026-11-07T05:22:10Z |
+| `aws-c-auth-sigv4-signing.c.gz` | `awslabs/aws-c-auth@main` | `source/aws_signing.c` | Apache-2.0 | `84a26ea184d9ccd322c8164759510b3604ab13fd` | 2026-11-07T05:26:19Z |

@@ -78,6 +78,8 @@ type S3Object struct {
 	VersionID string `json:",omitempty"`
 	// VersionSeq orders a key's versions, the newest highest.
 	VersionSeq int64 `json:",omitempty"`
+	// Checksum is the additional checksum S3 validated and keeps with the object.
+	Checksum s3ObjectChecksum `json:",omitzero"`
 }
 
 type s3ListAllMyBucketsResult struct {
@@ -136,7 +138,7 @@ func s3ObjectKey(bucket, key string) string {
 // behalf of another AWS service (Amazon Data Firehose, AWS Private CA audit
 // reports and CRLs), with PutObject's representation and notifications.
 func s3PutServiceObject(bucket, key string, body []byte, contentType string, metadata map[string]string) (S3Object, error) {
-	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
+	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil, nil)
 }
 
 // s3EnsureServiceBucket creates, on first use, the bucket a service keeps the
@@ -243,6 +245,7 @@ func s3WriteCondition(h http.Header) func(existing S3Object, exists bool) bool {
 // errS3PreconditionFailed.
 func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metadata map[string]string,
 	storageClass string, lock s3ObjectLock, condition func(existing S3Object, exists bool) bool,
+	checksum *s3ObjectChecksum,
 ) (S3Object, error) {
 	if _, ok := s3Buckets_.Get(bucket); !ok {
 		return S3Object{}, fmt.Errorf("bucket %q: %w", bucket, errS3NoSuchBucket)
@@ -273,6 +276,9 @@ func s3PutObjectIf(bucket, key string, body io.Reader, contentType string, metad
 		StorageClass: storageClass,
 	}
 	lock.apply(&stored)
+	if checksum != nil {
+		stored.Checksum = *checksum
+	}
 	obj, err := s3StoreObject(stored, ref, digests)
 	release()
 	if err != nil {
@@ -1143,9 +1149,9 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 	// AWS SDKs send aws-chunked framing for a non-seekable body (Content-Encoding:
 	// aws-chunked, x-amz-content-sha256: STREAMING-*, or
 	// x-amz-decoded-content-length); S3 unwraps it, and so must the simulator.
-	var bodyReader io.Reader = r.Body
-	if isAWSChunkedRequest(r.Header) {
-		bodyReader = newAWSChunkedReader(r.Body)
+	bodyReader, err := s3UploadBody(r)
+	if s3UploadBodyRefused(w, r, key, err) {
+		return
 	}
 	contentType := r.Header.Get("Content-Type")
 
@@ -1158,7 +1164,10 @@ func handleS3PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, lock, condition)
+	obj, err := s3PutObjectIf(bucket, key, bodyReader, contentType, metadata, storageClass, lock, condition, &bodyReader.Result)
+	if s3UploadBodyRefused(w, r, key, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, errS3NoSuchBucket):
 		S3ErrorXML(w, "NoSuchBucket", "The specified bucket does not exist",
@@ -1257,6 +1266,9 @@ func s3ServeObject(w http.ResponseWriter, r *http.Request, obj S3Object, key str
 	}
 	h.Set("Content-Type", obj.ContentType)
 	h.Set("Accept-Ranges", "bytes")
+	if r.Header.Get("Range") == "" {
+		s3WriteChecksumHeaders(w, r, obj.Checksum)
+	}
 	for k, v := range obj.Metadata {
 		h.Set("x-amz-meta-"+k, v)
 	}

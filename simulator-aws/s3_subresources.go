@@ -33,6 +33,10 @@ type S3MultipartUpload struct {
 	// Lock is the Object Lock settings CreateMultipartUpload asked for, which
 	// the completed object takes.
 	Lock s3ObjectLock `json:",omitzero"`
+	// ChecksumAlgorithm and ChecksumType are what CreateMultipartUpload named
+	// for the parts and the completed object.
+	ChecksumAlgorithm string `json:",omitempty"`
+	ChecksumType      string `json:",omitempty"`
 }
 
 type s3MultipartPart struct {
@@ -42,6 +46,8 @@ type s3MultipartPart struct {
 	LegacyData []byte `json:"Data,omitempty"`
 	Size       int64  `json:"size,omitempty"`
 	ETag       string
+	// Checksum is the part's checksum under the upload's algorithm.
+	Checksum string `json:",omitempty"`
 }
 
 var (
@@ -245,6 +251,9 @@ func handleS3InitiateMultipart(w http.ResponseWriter, r *http.Request) {
 		Lock:         lock,
 		Initiated:    time.Now().UTC(),
 		Parts:        map[int]s3MultipartPart{},
+
+		ChecksumAlgorithm: strings.ToUpper(r.Header.Get("x-amz-checksum-algorithm")),
+		ChecksumType:      strings.ToUpper(r.Header.Get("x-amz-checksum-type")),
 	})
 	result := struct {
 		XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
@@ -287,11 +296,24 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	var bodyReader io.Reader = r.Body
-	if isAWSChunkedRequest(r.Header) {
-		bodyReader = newAWSChunkedReader(r.Body)
+	bodyReader, err := s3UploadBody(r)
+	if s3UploadBodyRefused(w, r, "", err) {
+		return
+	}
+	if mp.ChecksumAlgorithm != "" {
+		// "If the checksum algorithm ... doesn't match the checksum algorithm you
+		// set through x-amz-sdk-checksum-algorithm, Amazon S3 fails the request
+		// with a BadDigest error."
+		if named := bodyReader.namedAlgorithm; named != "" && named != mp.ChecksumAlgorithm {
+			s3UploadBodyRefused(w, r, "", errS3BadDigest)
+			return
+		}
+		bodyReader.use(mp.ChecksumAlgorithm)
 	}
 	ref, digests, err := s3Bodies.WriteFrom(bodyReader)
+	if s3UploadBodyRefused(w, r, "", err) {
+		return
+	}
 	if err != nil {
 		S3ErrorXML(w, "InternalError", "Failed to read part body: "+err.Error(),
 			mp.Bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
@@ -299,7 +321,7 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 	etag := `"` + digests.MD5Hex() + `"`
 
-	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag)
+	stored, err := s3StorePart(uploadID, partNum, ref, digests, etag, bodyReader.Result.Value)
 	if !stored {
 		S3ErrorXML(w, "NoSuchUpload", "The specified multipart upload does not exist",
 			mp.Bucket, sim.RequestID(r.Context()), http.StatusNotFound)
@@ -310,6 +332,9 @@ func handleS3UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", etag)
+	if mp.ChecksumAlgorithm != "" {
+		w.Header().Set("x-amz-checksum-"+strings.ToLower(mp.ChecksumAlgorithm), bodyReader.Result.Value)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -409,6 +434,12 @@ func handleS3CompleteMultipart(w http.ResponseWriter, r *http.Request) {
 		StorageClass: mp.StorageClass,
 	}
 	mp.Lock.apply(&assembledObject)
+	checksum, err := s3MultipartChecksum(mp, req.Parts, assembled)
+	if err != nil {
+		S3ErrorXML(w, "InternalError", err.Error(), bucket, sim.RequestID(r.Context()), http.StatusInternalServerError)
+		return
+	}
+	assembledObject.Checksum = checksum
 	release := s3ObjectWriters.Lock(storeKey)
 	completed, err := s3StoreObject(assembledObject, assembled, digests)
 	release()

@@ -1054,6 +1054,15 @@ Every surface that the cloud authenticates, the simulator authenticates:
   was signed for and the caller's account, and applies the vendored general
   purpose naming rules; a create is not a cross-account request, so another
   account's taken name answers `BucketAlreadyExists`, not `AccessDenied`;
+- Amazon S3 validates the additional checksum an upload states, in a header
+  or in the aws-chunked trailer, refuses a mismatch with `BadDigest` before
+  anything is stored, keeps CRC32, CRC32C, CRC64NVME, SHA-1 or SHA-256 with
+  the object (CRC64NVME when the upload names none) and returns it with
+  `ChecksumMode`; a multipart upload keeps each part's and completes with a
+  full object or composite checksum. A signed streaming upload's chunks and
+  trailer are verified as they are read, each signature chained from the
+  previous one as AWS's own signing library builds them, since AWS removed
+  the S3 SigV4 pages;
 - the Google Cloud gRPC listener verifies every call's bearer, over a TLS
   front end because Google's clients send credentials only over TLS;
 - Google Cloud accepts a service account's self-signed JWT, as google-auth
