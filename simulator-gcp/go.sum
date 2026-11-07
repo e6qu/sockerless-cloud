@@ -104,6 +104,8 @@ github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107114403-e878cb9c7601 h1:Azd36
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107114403-e878cb9c7601/go.mod h1:l1HdkcMurNqSem4+injQqlRVtdAaL7XrNr2YdoTbzVM=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107131927-34aa5217d5cb h1:66U3z/t8SYA6/vr45UguF1PYD7rgh3sJjrzuw0ZqhKU=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107131927-34aa5217d5cb/go.mod h1:l1HdkcMurNqSem4+injQqlRVtdAaL7XrNr2YdoTbzVM=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107182846-02114f981f23 h1:gGyGqBCAD3cgpjD1GbTZmEohZHhvZJR6sycRf+ZOwsA=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107182846-02114f981f23/go.mod h1:l1HdkcMurNqSem4+injQqlRVtdAaL7XrNr2YdoTbzVM=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261104060152-ce69f05affea h1:b3LMUWS1Iflfbuo0+jTfOOrq+02aa8RYtYr2crBaAws=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261104060152-ce69f05affea/go.mod h1:3wlE0cqwakzQbSs9N1aGqmTTWy/k3Q0muhfxN3gDczw=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261106195550-5fd95b738624 h1:aYC0+4h/sRpAKyh5/CfbdVZ+bc9czwNnuSJVCB25P7w=
@@ -112,6 +114,8 @@ github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261106202755-900f116e6aab h1:D
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261106202755-900f116e6aab/go.mod h1:XWNw5JBmr0SAcVpDBlrV6cnqU+6cemH3PqFsdlMranA=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107050956-c912ebfa3306 h1:HshOPrVENVhxRcSdtUd5iFIpuIUBtEz9Cjz0ZRHXbx0=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107050956-c912ebfa3306/go.mod h1:XWNw5JBmr0SAcVpDBlrV6cnqU+6cemH3PqFsdlMranA=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56 h1:igRrbhKtXL7RJBYKnaVzX4rkzF+zPAIx09w0+0Sr5UU=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56/go.mod h1:XWNw5JBmr0SAcVpDBlrV6cnqU+6cemH3PqFsdlMranA=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/go-jose/go-jose/v4 v4.1.9 h1:pKfeQkig1NmgK4hJrZYXLEYURXfoJB61Larw0uIW4gY=
