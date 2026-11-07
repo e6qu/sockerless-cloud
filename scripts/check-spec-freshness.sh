@@ -31,7 +31,7 @@ set -euo pipefail
 # The documentation hosts drop a request now and then under load; a page that
 # stays unreachable after the retries still reports "cannot fetch".
 fetch() {
-  curl -fsSL --retry 4 --retry-all-errors --retry-max-time 120 "$@"
+  curl -fsSL --speed-limit 1024 --speed-time 30 --retry 4 --retry-all-errors --retry-max-time 120 "$@"
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

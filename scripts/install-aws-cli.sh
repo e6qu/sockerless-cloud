@@ -27,7 +27,7 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 curl --fail --location --show-error --silent \
 	--retry 5 --retry-all-errors --retry-delay 5 \
-	--connect-timeout 20 --max-time 300 \
+	--connect-timeout 20 --max-time 300 --speed-limit 1024 --speed-time 30 \
 	"https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o "$tmpdir/awscliv2.zip"
 unzip -q -o "$tmpdir/awscliv2.zip" -d "$tmpdir"
 "${sudo[@]}" "$tmpdir/aws/install" --update

@@ -1226,6 +1226,9 @@ as the simulator jobs do.
 The `install-bun` action and `scripts/install-caddy.sh` retry their GitHub
 release downloads through curl's doubling backoff on every error, riding out
 minutes of 504 answers.
+Every CI download through curl aborts a transfer that moves under 1 KiB/s
+for 30 seconds and retries it, so a stalled mirror costs a retry, not the
+job's time limit.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
@@ -1730,6 +1733,10 @@ fails once the row closes or the operation is served.
   network or router change started found no sidecar in the map and removed,
   as stale, the container a machine's boot was still starting, which failed
   the boot with `AllocationFailed`.
+  A sidecar that ends before it serves — an egress sidecar, a Gateway Load
+  Balancer node, a share container — reports its last five lines in the
+  error, so a failed boot names the cause even where the simulator passes
+  the sidecar no log sink.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters

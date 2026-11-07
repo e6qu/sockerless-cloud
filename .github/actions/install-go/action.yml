@@ -30,13 +30,13 @@ runs:
         esac
         proxy=https://proxy.golang.org/golang.org/toolchain/@v
         series=${GO_SERIES//./\\.}
-        version=$(curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$proxy/list" \
+        version=$(curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors "$proxy/list" \
           | grep -E "^v0\.0\.1-go${series}\.[0-9]+\.linux-${arch}\$" | sort -V | tail -n 1)
         if [[ -z $version ]]; then
           echo "::error::the Go module proxy lists no go${GO_SERIES} toolchain for linux-${arch}"
           exit 1
         fi
-        curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/go.zip" "$proxy/$version.zip"
+        curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/go.zip" "$proxy/$version.zip"
         rm -rf "$RUNNER_TEMP/go-toolchain"
         unzip -q "$RUNNER_TEMP/go.zip" -d "$RUNNER_TEMP/go-toolchain"
         rm "$RUNNER_TEMP/go.zip"

@@ -37,7 +37,7 @@ base="https://github.com/caddyserver/caddy/releases/download/v${version}"
 for file in "$archive" "caddy_${version}_checksums.txt"; do
 	curl --fail --location --show-error --silent \
 		--retry 8 --retry-all-errors \
-		--connect-timeout 20 --max-time 300 \
+		--connect-timeout 20 --max-time 300 --speed-limit 1024 --speed-time 30 \
 		--output "$tmpdir/$file" "$base/$file"
 done
 (cd "$tmpdir" && grep " $archive\$" "caddy_${version}_checksums.txt" | sha512sum --check --strict -)
