@@ -147,18 +147,31 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	assert.Equal(t, "v1", *md.Properties["k1"])
 
 	_, err = client.UpdateAuthSettings(ctx, rg, name, armappservice.SiteAuthSettings{
-		Properties: &armappservice.SiteAuthSettingsProperties{Enabled: to.Ptr(false)},
+		Properties: &armappservice.SiteAuthSettingsProperties{
+			Enabled:         to.Ptr(true),
+			DefaultProvider: to.Ptr(armappservice.BuiltInAuthenticationProviderAzureActiveDirectory),
+			ClientID:        to.Ptr("00000000-0000-0000-0000-00000000c11e"),
+		},
 	}, nil)
 	require.NoError(t, err)
+	v1, err := client.GetAuthSettings(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, v1.Properties)
+	assert.True(t, *v1.Properties.Enabled, "the site's authsettings list answers what PUT stored")
+	assert.Equal(t, "00000000-0000-0000-0000-00000000c11e", *v1.Properties.ClientID)
 	v2, err := client.GetAuthSettingsV2WithoutSecrets(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, v2.Properties)
 	_, err = client.UpdateAuthSettingsV2(ctx, rg, name, armappservice.SiteAuthSettingsV2{
 		Properties: &armappservice.SiteAuthSettingsV2Properties{
-			Platform: &armappservice.AuthPlatform{Enabled: to.Ptr(false)},
+			Platform: &armappservice.AuthPlatform{Enabled: to.Ptr(true), RuntimeVersion: to.Ptr("~1")},
 		},
 	}, nil)
 	require.NoError(t, err)
+	listed, err := client.GetAuthSettingsV2(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, listed.Properties.Platform)
+	assert.True(t, *listed.Properties.Platform.Enabled, "the site's authsettingsV2 list answers what PUT stored")
 
 	bkPager := client.NewListBackupsPager(rg, name, nil)
 	for bkPager.More() {

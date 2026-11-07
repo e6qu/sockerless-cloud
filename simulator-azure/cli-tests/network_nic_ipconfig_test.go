@@ -64,5 +64,24 @@ func TestNetwork_NICSecondaryIPConfigurationsCLI(t *testing.T) {
 	assert.Equal(t, map[string]string{"ipconfig1": "10.93.1.4", "pinned": "10.93.1.30", "replacement": "10.93.1.5"}, addresses,
 		"deleting a configuration returns its address to the subnet")
 
+	var available []string
+	parseJSON(t, runCLI(t, env.command("network", "vnet", "list-available-ips", "-g", rg, "-n", vnet, "-o", "json")), &available)
+	assert.Equal(t, []string{"10.93.1.6", "10.93.1.7", "10.93.1.8", "10.93.1.9", "10.93.1.10"}, available,
+		"the free addresses after the three the interface holds")
+	var usagePage struct {
+		Value []struct {
+			ID           string  `json:"id"`
+			CurrentValue float64 `json:"currentValue"`
+			Limit        float64 `json:"limit"`
+		} `json:"value"`
+	}
+	parseJSON(t, runCLI(t, env.command("rest", "--method", "GET", "--url",
+		env.baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/virtualNetworks/"+vnet+"/usages?api-version=2024-05-01",
+		"-o", "json")), &usagePage)
+	usages := usagePage.Value
+	require.Len(t, usages, 1)
+	assert.Equal(t, float64(3), usages[0].CurrentValue, "the subnet's three held addresses")
+	assert.Equal(t, float64(251), usages[0].Limit, "a /24 leaves 251 addresses to tenants")
+
 	runCLI(t, env.command("network", "nic", "delete", "-g", rg, "-n", nic))
 }

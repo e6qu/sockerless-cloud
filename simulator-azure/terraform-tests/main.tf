@@ -254,6 +254,20 @@ resource "azurerm_lb_rule" "az_lb_rule" {
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.az_lb_backend.id]
   probe_id                       = azurerm_lb_probe.az_lb_probe.id
+  disable_outbound_snat          = true
+}
+
+# The provider writes an outbound rule through the load balancer's PUT and
+# reads it back from the parent, so a plan after apply shows any loss.
+resource "azurerm_lb_outbound_rule" "az_lb_egress" {
+  name                    = "egress"
+  loadbalancer_id         = azurerm_lb.az_lb.id
+  protocol                = "All"
+  backend_address_pool_id = azurerm_lb_backend_address_pool.az_lb_backend.id
+
+  frontend_ip_configuration {
+    name = "frontend"
+  }
 }
 
 # The interface sits in the subnet of the network's second address prefix, so
@@ -933,6 +947,16 @@ resource "azurerm_linux_web_app" "az_node_app" {
   site_config {
     application_stack {
       node_version = "20-lts"
+    }
+  }
+
+  # The provider reads the settings back through the site's authsettings
+  # list, so a plan after apply shows any drift from what PUT stored.
+  auth_settings {
+    enabled          = true
+    default_provider = "AzureActiveDirectory"
+    active_directory {
+      client_id = "00000000-0000-0000-0000-0000000a0de1"
     }
   }
 }

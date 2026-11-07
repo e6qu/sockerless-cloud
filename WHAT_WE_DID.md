@@ -1814,6 +1814,18 @@ fails once the row closes or the operation is served.
   so it starts once from `TestMain`, its two oracle tests run serially before
   the parallel phase in a shard of their own, and `TestMain` removes it
   explicitly because `os.Exit` skips deferred removal.
+- **Azure networking reads.** A load balancer keeps the outbound rules its PUT
+  carries, lists and reads them as children, and the instance metadata
+  service reports their frontends to each backend. A virtual network's
+  usages count each subnet's held addresses against the addresses Azure
+  leaves to tenants, and `CheckIPAddressAvailability` answers a taken or
+  platform-reserved address with the next free ones, from every subnet when
+  the candidate lies outside them, which `az network vnet
+  list-available-ips` relies on.
+- **App Service and Blob reads.** A site's `authsettings` and
+  `authsettingsV2` lists answer what PUT stored, as the slot lists did. A
+  path-style Blob request may name an account `internal`; no surface claims
+  the segment.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

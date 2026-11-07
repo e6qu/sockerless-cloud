@@ -50,6 +50,18 @@ func TestWebMore_CLI(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("POST", webMoreURL("sites/cli-wm-site/config/metadata/list"), "")), &md)
 	assert.Equal(t, "team-a", md.Properties["OWNER"])
 
+	runCLI(t, azRest("PUT", webMoreURL("sites/cli-wm-site/config/authsettings"),
+		`{"properties":{"enabled":true,"defaultProvider":"AzureActiveDirectory","clientId":"cli-wm-client"}}`))
+	var auth struct {
+		Properties struct {
+			Enabled  bool   `json:"enabled"`
+			ClientID string `json:"clientId"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("POST", webMoreURL("sites/cli-wm-site/config/authsettings/list"), "")), &auth)
+	assert.True(t, auth.Properties.Enabled, "authsettings/list answers what PUT stored")
+	assert.Equal(t, "cli-wm-client", auth.Properties.ClientID)
+
 	runCLI(t, azRest("PUT", webMoreURL("sites/cli-wm-site/deployments/d1"),
 		`{"properties":{"status":4,"author":"ci","message":"ok"}}`))
 	var dep struct {

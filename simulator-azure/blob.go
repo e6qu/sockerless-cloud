@@ -545,15 +545,8 @@ func isNonStorageFirstSegment(s string) bool {
 		"storage", "v1", "$metadata":
 		return true
 	}
-	// Docker SDK paths: /v1.44/, /v1.41/, etc.
-	if strings.HasPrefix(s, "v1.") {
-		return true
-	}
-	// internal/v1/ surface (sockerless control plane).
-	if s == "internal" {
-		return true
-	}
-	return false
+	// Microsoft Graph's /v1.0/; no storage account name holds a dot.
+	return strings.HasPrefix(s, "v1.")
 }
 
 // blobListLimit is the most entries one page of an Azure Storage listing holds,

@@ -424,15 +424,6 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 
 	// Easy Auth v2: GET and PUT at both, GET /list at slot level (functions.go
 	// serves the site's).
-	authV2Default := func() map[string]any {
-		return map[string]any{
-			"platform":          map[string]any{"enabled": false},
-			"globalValidation":  map[string]any{},
-			"identityProviders": map[string]any{},
-			"login":             map[string]any{},
-			"httpSettings":      map[string]any{},
-		}
-	}
 	authV2Get := func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -440,7 +431,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		extra, _ := webConfigExtras.Get(webResourceID(r))
 		props := extra.AuthSettingsV2
 		if props == nil {
-			props = authV2Default()
+			props = authSettingsV2Default()
 		}
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	}
@@ -462,7 +453,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		webConfigExtras.Put(webResourceID(r), extra)
 		props := req.Properties
 		if props == nil {
-			props = authV2Default()
+			props = authSettingsV2Default()
 		}
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	})
@@ -1018,4 +1009,14 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		row, _ = store.Get(id)
 	}
 	sim.WriteJSON(w, http.StatusOK, row)
+}
+
+func authSettingsV2Default() map[string]any {
+	return map[string]any{
+		"platform":          map[string]any{"enabled": false},
+		"globalValidation":  map[string]any{},
+		"identityProviders": map[string]any{},
+		"login":             map[string]any{},
+		"httpSettings":      map[string]any{},
+	}
 }

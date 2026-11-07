@@ -73,6 +73,7 @@ type LoadBalancerProperties struct {
 	BackendAddressPools      []LoadBalancerChild `json:"backendAddressPools"`
 	LoadBalancingRules       []LoadBalancerChild `json:"loadBalancingRules"`
 	Probes                   []LoadBalancerChild `json:"probes"`
+	OutboundRules            []LoadBalancerChild `json:"outboundRules"`
 	ProvisioningState        string              `json:"provisioningState,omitempty"`
 }
 
@@ -466,6 +467,7 @@ func registerLoadBalancers(srv *sim.Server) {
 				BackendAddressPools:      normalizeLoadBalancerChildren(id, "backendAddressPools", "Microsoft.Network/loadBalancers/backendAddressPools", req.Properties.BackendAddressPools),
 				LoadBalancingRules:       normalizeLoadBalancerChildren(id, "loadBalancingRules", "Microsoft.Network/loadBalancers/loadBalancingRules", req.Properties.LoadBalancingRules),
 				Probes:                   normalizeLoadBalancerChildren(id, "probes", "Microsoft.Network/loadBalancers/probes", req.Properties.Probes),
+				OutboundRules:            normalizeLoadBalancerChildren(id, "outboundRules", "Microsoft.Network/loadBalancers/outboundRules", req.Properties.OutboundRules),
 				ProvisioningState:        "Succeeded",
 			},
 		}
@@ -503,14 +505,16 @@ func registerLoadBalancers(srv *sim.Server) {
 	})
 
 	// backendAddressPools is the only load-balancer child collection with its own
-	// write operations; probes and loadBalancingRules change through the parent
-	// PUT.
+	// write operations; probes, loadBalancingRules and outboundRules change
+	// through the parent PUT.
 	registerLoadBalancerChild(srv, "backendAddressPools", "backendAddressPoolName", "Microsoft.Network/loadBalancers/backendAddressPools", true,
 		func(lb *LoadBalancer) *[]LoadBalancerChild { return &lb.Properties.BackendAddressPools })
 	registerLoadBalancerChild(srv, "probes", "probeName", "Microsoft.Network/loadBalancers/probes", false,
 		func(lb *LoadBalancer) *[]LoadBalancerChild { return &lb.Properties.Probes })
 	registerLoadBalancerChild(srv, "loadBalancingRules", "loadBalancingRuleName", "Microsoft.Network/loadBalancers/loadBalancingRules", false,
 		func(lb *LoadBalancer) *[]LoadBalancerChild { return &lb.Properties.LoadBalancingRules })
+	registerLoadBalancerChild(srv, "outboundRules", "outboundRuleName", "Microsoft.Network/loadBalancers/outboundRules", false,
+		func(lb *LoadBalancer) *[]LoadBalancerChild { return &lb.Properties.OutboundRules })
 }
 
 func registerLoadBalancerChild(srv *sim.Server, collection, paramName, resourceType string, writable bool, children func(*LoadBalancer) *[]LoadBalancerChild) {

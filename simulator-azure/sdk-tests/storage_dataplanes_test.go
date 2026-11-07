@@ -325,6 +325,23 @@ func TestStorageDataPlane_PathStyleBlob(t *testing.T) {
 	assert.Equal(t, payload, hostGot, "host-style retrieval should match path-style PUT")
 }
 
+// An account named "internal" is an account like any other: no surface
+// claims the segment.
+func TestStorageDataPlane_PathStyleAccountNamedInternal(t *testing.T) {
+	t.Parallel()
+	resp := pathStyleStorageReq(t, "PUT", "/internal", "/internal-container?restype=container", nil, nil)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "PUT container in account internal")
+	resp.Body.Close()
+	t.Cleanup(func() {
+		r := pathStyleStorageReq(t, "DELETE", "/internal", "/internal-container?restype=container", nil, nil)
+		r.Body.Close()
+	})
+	resp = pathStyleStorageReq(t, "PUT", "/internal", "/internal-container/b.txt", []byte("x"),
+		map[string]string{"x-ms-blob-type": "BlockBlob"})
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "PUT blob in account internal")
+	resp.Body.Close()
+}
+
 // TestStorageDataPlane_PathStyleFileQueueTable exercises the
 // per-service prefix scheme for the non-blob services. `/file/...`,
 // `/queue/...`, `/table/...` are sockerless-specific (Azurite uses

@@ -54,8 +54,8 @@ func handleAzureIMDSLoadBalancer(w http.ResponseWriter, r *http.Request) {
 
 // azureIMDSLoadBalancerOf lists, for each of the interface's IP
 // configurations in a Standard load balancer's backend pool, its instance
-// public address and the load-balancing rules that send traffic to it. The
-// simulator's load balancers keep no outbound rules, so none are listed.
+// public address, the load-balancing rules that send traffic to it and the
+// outbound rules' frontends its connections leave from.
 func azureIMDSLoadBalancerOf(nic NetworkInterface) azureIMDSLoadBalancerMetadata {
 	out := azureIMDSLoadBalancerMetadata{
 		PublicIPAddresses: []azureIMDSLoadBalancerAddress{},
@@ -90,6 +90,19 @@ func azureIMDSLoadBalancerOf(nic NetworkInterface) azureIMDSLoadBalancerMetadata
 					BackendPort:       backendPort,
 					PrivateIPAddress:  private,
 				})
+			}
+			for _, rule := range lb.Properties.OutboundRules {
+				if !azureLoadBalancingRuleTargetsPool(rule, pool.ID) {
+					continue
+				}
+				for _, frontendID := range propertySubResourceIDs(rule.Properties, "frontendIPConfigurations") {
+					if frontend, ok := azureLoadBalancerFrontendAddress(lb, frontendID); ok {
+						out.OutboundRules = append(out.OutboundRules, azureIMDSLoadBalancerAddress{
+							FrontendIPAddress: frontend,
+							PrivateIPAddress:  private,
+						})
+					}
+				}
 			}
 		}
 		if !behindStandard {

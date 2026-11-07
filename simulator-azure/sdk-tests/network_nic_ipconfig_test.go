@@ -112,6 +112,32 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, nicAddresses(nic), nicAddresses(read.Interface))
 
+	// The virtual network's usages count each subnet's held addresses against
+	// the 251 a /24 leaves to tenants.
+	usages := map[string][2]float64{}
+	usagePager := vnetClient.NewListUsagePager(rg, vnet, nil)
+	for usagePager.More() {
+		page, err := usagePager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, u := range page.Value {
+			usages[*u.ID] = [2]float64{*u.CurrentValue, *u.Limit}
+			assert.Equal(t, "Count", *u.Unit)
+		}
+	}
+	assert.Equal(t, map[string][2]float64{subnet: {3, 251}, otherSubnet: {0, 251}}, usages)
+
+	taken, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.4", nil)
+	require.NoError(t, err)
+	assert.False(t, *taken.Available)
+	assert.Equal(t, []string{"10.71.1.6", "10.71.1.7", "10.71.1.8", "10.71.1.9", "10.71.1.10"}, stringValues(taken.AvailableIPAddresses))
+	free, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.30", nil)
+	require.NoError(t, err)
+	assert.True(t, *free.Available)
+	gateway, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.1", nil)
+	require.NoError(t, err)
+	assert.False(t, *gateway.Available)
+	assert.True(t, *gateway.IsPlatformReserved, "the subnet's gateway address is the platform's")
+
 	// Dropping ipconfig2 frees its address before the new dynamic configuration
 	// takes the lowest free one.
 	nic, err = put(nicName, primary, nicIPConfig("ipconfig3", subnet, "10.71.1.20"), nicIPConfig("ipconfig4", subnet, ""))
