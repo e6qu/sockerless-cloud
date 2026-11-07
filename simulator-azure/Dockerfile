@@ -1,7 +1,7 @@
 # The build images come from mirror.gcr.io, Google's copy of Docker's official
 # images, pinned to the index digest Docker Hub serves for the same tag: Docker
 # Hub limits anonymous pulls per address, and shared CI runners exhaust it.
-FROM mirror.gcr.io/library/golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
+FROM mirror.gcr.io/library/golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS builder
 WORKDIR /src
 # The context carries the console bundle at simulator-azure/dist, which the
 # binary embeds with -tags console: build it first (the build-console action,
@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go work init . ../sim ../ui-auth && \
     CGO_ENABLED=0 go build -tags console -ldflags="-s -w" -o /simulator-azure .
 
-FROM mirror.gcr.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM mirror.gcr.io/library/alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
 RUN apk add --no-cache wget
 COPY --from=builder /simulator-azure /usr/local/bin/simulator-azure
 ENTRYPOINT ["simulator-azure"]

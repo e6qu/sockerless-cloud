@@ -12,7 +12,7 @@ terraform {
     }
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "5.12.0"
+      version = "5.13.0"
     }
   }
 }
