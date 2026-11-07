@@ -1886,6 +1886,11 @@ fails once the row closes or the operation is served.
   or on its repetition; the run stores them, and the Microsoft.Logic and App
   Service workflow routes read them back. `items('loop')` names a loop's
   current item, which nested loops need.
+- **PostgreSQL long-term backup.** `startLtrBackup` refuses a SAS URI that
+  names no single container or carries no signature, and once the volume is
+  captured writes it, as a tar archive `sim.ArchiveVolume` reads through a
+  container that never starts, to a block blob in each container through the
+  Blob service with that SAS; a refused write fails the backup.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.
