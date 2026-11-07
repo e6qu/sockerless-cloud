@@ -16,15 +16,8 @@ import (
 // query, a TCP query and an HTTP request each reach their upstream, the HTTP
 // one with the token and the querier's address.
 func TestRunForwardsDNSAndHTTPWithTheToken(t *testing.T) {
-	udpUpstream, err := net.ListenPacket("udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	udpUpstream, tcpUpstream := listenUDPAndTCPOnOnePort(t)
 	defer func() { _ = udpUpstream.Close() }()
-	tcpUpstream, err := net.Listen("tcp4", udpUpstream.LocalAddr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer func() { _ = tcpUpstream.Close() }()
 	go func() {
 		buf := make([]byte, 512)
@@ -126,4 +119,24 @@ func TestRunForwardsDNSAndHTTPWithTheToken(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("run: %v", err)
 	}
+}
+
+// listenUDPAndTCPOnOnePort binds one port number in both protocols, as a DNS
+// upstream serves. The kernel picks the UDP port; another process may hold the
+// TCP port of that number, so it takes the next UDP port until both bind.
+func listenUDPAndTCPOnOnePort(t *testing.T) (net.PacketConn, net.Listener) {
+	t.Helper()
+	for range 100 {
+		udp, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tcp, err := net.Listen("tcp4", udp.LocalAddr().String())
+		if err == nil {
+			return udp, tcp
+		}
+		_ = udp.Close()
+	}
+	t.Fatal("no port number was free for both UDP and TCP in 100 tries")
+	return nil, nil
 }
