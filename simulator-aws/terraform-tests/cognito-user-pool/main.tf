@@ -155,7 +155,7 @@ output "pool_arn" {
 }
 
 output "pool_domain" {
-  value = aws_cognito_user_pool.pool.domain
+  value = aws_cognito_user_pool_domain.login.domain
 }
 
 output "client_id" {
