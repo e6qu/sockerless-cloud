@@ -86,6 +86,12 @@ func StartGatewayLoadBalancerNode(ctx context.Context, spec GatewayLoadBalancerN
 		ExtraHosts:   spec.ExtraHosts,
 		Labels:       labels,
 		Devices:      []string{"/dev/net/tun"},
+		// The node inherits the host's reverse-path filter, which drops what
+		// an appliance returns: it leaves a TUN device that holds no address.
+		Sysctls: map[string]string{
+			"net.ipv4.conf.all.rp_filter":     "0",
+			"net.ipv4.conf.default.rp_filter": "0",
+		},
 		Env: map[string]string{
 			gwlb.EnvNode:            spec.Node,
 			gwlb.EnvListen:          spec.Address.String(),

@@ -115,6 +115,9 @@ type ContainerConfig struct {
 	// "/dev/kvm" or "/dev/net/tun"; only a platform container the simulator
 	// runs on its own behalf (a node agent) names any.
 	Devices []string
+	// Sysctls are namespaced kernel parameters the engine sets in the
+	// container's namespaces, as "net.ipv4.conf.all.rp_filter".
+	Sysctls map[string]string
 	// KeepOnExit leaves the container in place once it exits, with its
 	// filesystem, for RestartContainer, CommitContainer or RemoveContainer: a
 	// virtual machine instance's root disk outlives a stop.
@@ -1169,6 +1172,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 	if cfg.PidMode != "" {
 		hostCfg.PidMode = container.PidMode(cfg.PidMode)
+	}
+	if len(cfg.Sysctls) > 0 {
+		hostCfg.Sysctls = cfg.Sysctls
 	}
 	for _, device := range cfg.Devices {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{PathOnHost: device, PathInContainer: device, CgroupPermissions: "rwm"})

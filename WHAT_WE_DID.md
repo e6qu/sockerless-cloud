@@ -1720,7 +1720,11 @@ fails once the row closes or the operation is served.
   own `mtu` (1460 unless created with another value from 1300 to 8896, which
   the network now stores and reads back) and 1500 for an Azure virtual
   network. The node drops packets over 8,500 bytes and sends GENEVE with
-  fragmentation forbidden, so a full-sized packet crosses whole.
+  fragmentation forbidden, so a full-sized packet crosses whole. The node
+  turns its reverse-path filter off through `sim.ContainerConfig.Sysctls`:
+  it inherited the host's, loose on Ubuntu, which dropped what an appliance
+  returned through a TUN device that holds no address, so on GitHub's runners
+  every connection through a node's second endpoint timed out.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
