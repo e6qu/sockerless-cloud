@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/e6qu/sockerless-cloud/compare/v3.3.12...v3.4.0) (2026-11-07)
+
+
+### Features
+
+* **aws:** serve Amazon Cognito user pools and run ALB authenticate actions ([c912ebf](https://github.com/e6qu/sockerless-cloud/commit/c912ebfa3306602b99620aaf6c13086a565ce5e5))
+
 ## [3.3.12](https://github.com/e6qu/sockerless-cloud/compare/v3.3.11...v3.3.12) (2026-11-06)
 
 
