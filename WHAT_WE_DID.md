@@ -624,6 +624,13 @@ redeploy and a Spot eviction schedule a Reboot, Redeploy or Preempt event with
 the documented minimum notice and wait for the guest's `StartRequests`
 approval or `NotBefore`, so a machine that never asks keeps the immediate
 operation.
+The attested document's `signature` is a PKCS#7 SignedData laid out as the
+page's example decodes: the document attached, the signing certificate
+inside, one SignerInfo without signed attributes. The certificate names the
+machine's Region's subdomain of `metadata.azure.com` and `metadata.azure.com`,
+the names the page tells a verifier to check, and is issued from the
+simulator's persisted signing key with fixed fields, so a client trusts it
+once.
 
 A VM's `/run` is volatile: each boot starts with an empty one
 (`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
