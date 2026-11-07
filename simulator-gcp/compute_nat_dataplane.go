@@ -56,7 +56,11 @@ type gcpNATEgress struct {
 var gcpRoutersByNetwork sim.GenerationIndex[ComputeRouter]
 
 var (
-	gcpNATEgressMu sync.RWMutex
+	// gcpNATReconcileMu serializes the reconciles: one that finds no sidecar
+	// in the map would otherwise remove, as stale, the container another is
+	// still starting.
+	gcpNATReconcileMu sync.Mutex
+	gcpNATEgressMu    sync.RWMutex
 	// gcpNATEgresses holds the running sidecar of each subnetwork's NAT, by
 	// the subnetwork's self link.
 	gcpNATEgresses = map[string]*gcpNATEgress{}
@@ -116,6 +120,8 @@ func gcpLastPathElement(ref string) string { return ref[strings.LastIndex(ref, "
 // subnetwork on its engine network, replaces it when another NAT covers the
 // subnetwork now, and stops it when none does.
 func gcpEnsureSubnetworkNAT(ctx context.Context, subnet ComputeSubnetwork, network string) error {
+	gcpNATReconcileMu.Lock()
+	defer gcpNATReconcileMu.Unlock()
 	covering, covered := gcpCloudNATOf(subnet)
 	gcpNATEgressMu.Lock()
 	running, ok := gcpNATEgresses[subnet.SelfLink]
@@ -128,7 +134,7 @@ func gcpEnsureSubnetworkNAT(ctx context.Context, subnet ComputeSubnetwork, netwo
 		return nil
 	}
 	if ok {
-		gcpRemoveSubnetworkNAT(subnet.SelfLink)
+		gcpStopSubnetworkNAT(subnet.SelfLink)
 	}
 	if !covered {
 		return nil
@@ -206,6 +212,12 @@ func gcpCloudNATAddress(covering gcpSubnetworkNAT) string {
 }
 
 func gcpRemoveSubnetworkNAT(subnetLink string) {
+	gcpNATReconcileMu.Lock()
+	defer gcpNATReconcileMu.Unlock()
+	gcpStopSubnetworkNAT(subnetLink)
+}
+
+func gcpStopSubnetworkNAT(subnetLink string) {
 	gcpNATEgressMu.Lock()
 	e := gcpNATEgresses[subnetLink]
 	delete(gcpNATEgresses, subnetLink)

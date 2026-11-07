@@ -1725,6 +1725,11 @@ fails once the row closes or the operation is served.
   it inherited the host's, loose on Ubuntu, which dropped what an appliance
   returned through a TUN device that holds no address, so on GitHub's runners
   every connection through a node's second endpoint timed out.
+- **NAT data planes under parallel changes.** Azure NAT Gateway and Cloud NAT
+  reconcile one gateway at a time. A reconcile that a parallel virtual
+  network or router change started found no sidecar in the map and removed,
+  as stale, the container a machine's boot was still starting, which failed
+  the boot with `AllocationFailed`.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters

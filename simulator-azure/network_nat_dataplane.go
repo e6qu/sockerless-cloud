@@ -41,7 +41,11 @@ type azureNATEgress struct {
 }
 
 var (
-	azureNATEgressMu sync.RWMutex
+	// azureNATReconcileMu serializes the reconciles: one that finds no sidecar
+	// in the map would otherwise remove, as stale, the container another is
+	// still starting.
+	azureNATReconcileMu sync.Mutex
+	azureNATEgressMu    sync.RWMutex
 	// Keyed by lowercased gateway ID.
 	azureNATEgresses = map[string]*azureNATEgress{}
 	// The lowercased virtual network ID behind each prefix network this process
@@ -83,10 +87,12 @@ func azureSubnetLastAddress(prefix netip.Prefix) netip.Addr {
 // Replace the sidecar when the subnets or timeout change, and stop it when no
 // subnet is attached.
 func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
+	azureNATReconcileMu.Lock()
+	defer azureNATReconcileMu.Unlock()
 	subnets, prefixes := azureNATGatewaySubnets(gw.ID)
 	key := strings.ToLower(gw.ID)
 	if len(subnets) == 0 {
-		azureRemoveNATGatewayEgress(gw.ID)
+		azureStopNATGatewayEgress(gw.ID)
 		return nil
 	}
 	vnetID := azureVNetIDOfSubnet(subnets[0].ID)
@@ -124,7 +130,7 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		return nil
 	}
 	if ok {
-		azureRemoveNATGatewayEgress(gw.ID)
+		azureStopNATGatewayEgress(gw.ID)
 	}
 	origin, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
@@ -162,6 +168,12 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 }
 
 func azureRemoveNATGatewayEgress(gatewayID string) {
+	azureNATReconcileMu.Lock()
+	defer azureNATReconcileMu.Unlock()
+	azureStopNATGatewayEgress(gatewayID)
+}
+
+func azureStopNATGatewayEgress(gatewayID string) {
 	key := strings.ToLower(gatewayID)
 	azureNATEgressMu.Lock()
 	e := azureNATEgresses[key]
