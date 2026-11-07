@@ -420,6 +420,7 @@ func ecCreateServerlessCache(name, incarnation string, cluster bool, running *ec
 
 // create-failed when the engine did not start.
 func ecSettleServerlessCache(name, incarnation string, err error) {
+	settled := ""
 	ecServerlessCaches.Update(name, func(c *ECServerlessCache) {
 		if c.Incarnation != incarnation || c.Status != "creating" {
 			return
@@ -428,7 +429,14 @@ func ecSettleServerlessCache(name, incarnation string, err error) {
 		if err != nil {
 			c.Status = "create-failed"
 		}
+		settled = c.Status
 	})
+	switch settled {
+	case "available":
+		ecRecordEvent("serverless-cache", name, "Serverless cache created")
+	case "create-failed":
+		ecRecordEvent("serverless-cache", name, fmt.Sprintf("Failed to create the serverless cache: %v", err))
+	}
 }
 
 func handleECDescribeServerlessCaches(w http.ResponseWriter, r *http.Request) {

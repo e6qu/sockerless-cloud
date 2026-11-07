@@ -117,7 +117,7 @@ describe("S3 bucket versioning and tagging", () => {
 
     fireEvent.click(await enabledButton("s3-bucket-edit-versioning"));
     const dialog = await screen.findByRole("dialog", { name: "Edit Bucket Versioning" });
-    fireEvent.click(within(dialog).getByRole("checkbox"));
+    fireEvent.click(within(dialog).getByRole("switch", { name: /^Suspend/ }));
     fireEvent.click(within(dialog).getByTestId("s3-versioning-save"));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

@@ -452,7 +452,10 @@ func sigv4EnforceControlPlane(w http.ResponseWriter, r *http.Request, body []byt
 
 func sigv4ExemptControlPlaneAction(action string) bool {
 	switch action {
-	case "sts:AssumeRoleWithWebIdentity", "sts:AssumeRoleWithSAML":
+	// The Smithy model gives these Amazon Cognito operations no auth scheme: a
+	// client authenticates with its credentials or tokens in the body.
+	case "sts:AssumeRoleWithWebIdentity", "sts:AssumeRoleWithSAML",
+		"cognito-idp:InitiateAuth", "cognito-idp:RespondToAuthChallenge", "cognito-idp:GetUser":
 		return true
 	}
 	return false

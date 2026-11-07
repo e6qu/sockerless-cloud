@@ -14,8 +14,11 @@ for cloud in aws gcp azure; do
   # package here ("Compiled extension excluded by project" for .css), and any
   # output at all reads as failure below, so without this the gate can never
   # pass however clean the code is.
+  #
+  # npm's update notifier prints an "npm notice" block to stderr whenever a
+  # newer npm is out, which would read as a finding the same way.
   set +e
-  out=$(cd "$ROOT/ui/packages/simulator-$cloud" && npx knip --no-config-hints 2>&1)
+  out=$(cd "$ROOT/ui/packages/simulator-$cloud" && NPM_CONFIG_UPDATE_NOTIFIER=false npx knip --no-config-hints 2>&1)
   knip_status=$?
   set -e
   # Strip the Node deprecation noise before deciding.

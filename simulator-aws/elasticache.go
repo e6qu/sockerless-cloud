@@ -176,6 +176,7 @@ func registerElastiCache(r *AWSQueryRouter, srv *sim.Server) {
 	ecSnapshots = sim.MakeStore[ECSnapshot](srv.DB(), "elasticache_snapshots")
 	ecOpenSnapshotPayloads(srv)
 	ecOpenMigrationStores(srv)
+	ecOpenEventStore(srv)
 	ecReservedNodes = sim.MakeStore[ECReservedCacheNode](srv.DB(), "elasticache_reserved_nodes")
 	ecUsers = sim.MakeStore[ECUser](srv.DB(), "elasticache_users")
 	ecUserGroups = sim.MakeStore[ECUserGroup](srv.DB(), "elasticache_user_groups")
@@ -1050,43 +1051,6 @@ func handleECDescribeEngineDefaultParameters(w http.ResponseWriter, r *http.Requ
 	b.WriteString("<CacheNodeTypeSpecificParameters></CacheNodeTypeSpecificParameters>")
 	b.WriteString("</EngineDefaults>")
 	ecXMLResponse(w, "DescribeEngineDefaultParameters", b.String(), sim.RequestID(r.Context()))
-}
-
-func handleECDescribeEvents(w http.ResponseWriter, r *http.Request) {
-	sourceType := r.FormValue("SourceType")
-	if sourceType == "" {
-		sourceType = "cache-cluster"
-	}
-	srcID := r.FormValue("SourceIdentifier")
-	var b strings.Builder
-	b.WriteString("<Events>")
-	now := time.Now().UTC().Format(time.RFC3339)
-	emit := func(id, msg string) {
-		b.WriteString("<Event>")
-		fmt.Fprintf(&b, "<SourceIdentifier>%s</SourceIdentifier>", xmlEscape(id))
-		fmt.Fprintf(&b, "<SourceType>%s</SourceType>", xmlEscape(sourceType))
-		fmt.Fprintf(&b, "<Message>%s</Message>", xmlEscape(msg))
-		fmt.Fprintf(&b, "<Date>%s</Date>", xmlEscape(now))
-		b.WriteString("</Event>")
-	}
-	switch sourceType {
-	case "cache-cluster":
-		for _, c := range ecClusters.List() {
-			if srcID != "" && c.CacheClusterId != srcID {
-				continue
-			}
-			emit(c.CacheClusterId, "Cache cluster created")
-		}
-	case "replication-group":
-		for _, g := range ecReplGroups.List() {
-			if srcID != "" && g.ReplicationGroupId != srcID {
-				continue
-			}
-			emit(g.ReplicationGroupId, "Replication group created")
-		}
-	}
-	b.WriteString("</Events>")
-	ecXMLResponse(w, "DescribeEvents", b.String(), sim.RequestID(r.Context()))
 }
 
 func handleECDescribeCacheEngineVersions(w http.ResponseWriter, r *http.Request) {

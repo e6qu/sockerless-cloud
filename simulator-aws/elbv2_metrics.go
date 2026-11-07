@@ -101,3 +101,13 @@ func elbv2FlushRequestMetrics(current int64) {
 		})
 	}
 }
+
+// elbv2RecordAuthClaimsSizeExceeded counts a login whose claims and access
+// token exceed 11K, the ELBAuthUserClaimsSizeExceeded metric the guide names.
+func elbv2RecordAuthClaimsSizeExceeded(lbArn string) {
+	loadBalancer := lbArn[strings.Index(lbArn, ":loadbalancer/")+len(":loadbalancer/"):]
+	minute := time.Now().Unix() / 60
+	elbv2RequestMetrics.Lock()
+	elbv2RequestMetrics.pending[elbv2MetricKey{"ELBAuthUserClaimsSizeExceeded", loadBalancer, "", minute}]++
+	elbv2RequestMetrics.Unlock()
+}

@@ -80,6 +80,7 @@ table_for_file() {
     aws:apigateway*) echo "aws-apigateway" ;;
     aws:cloudwatch*) echo "aws-cloudwatch" ;;
     aws:codebuild*) echo "aws-codebuild" ;;
+    aws:cognito_idp*) echo "aws-cognito_idp" ;;
     aws:ec2*) echo "aws-ec2" ;;
     aws:ecr*) echo "aws-ecr" ;;
     aws:ecs*) echo "aws-ecs" ;;

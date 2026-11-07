@@ -26,9 +26,9 @@ var azureMarketplaceImages = []azureMarketplaceImage{
 	{Publisher: "Canonical", Offer: "ubuntu-24_04-lts", SKU: "server-arm64", Version: "24.04.202510170",
 		Image: vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852", Architecture: "linux/arm64"}},
 	{Publisher: "Debian", Offer: "debian-12", SKU: "12", Version: "0.20251017.2318",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880", Architecture: "linux/amd64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8", Architecture: "linux/amd64"}},
 	{Publisher: "Debian", Offer: "debian-12", SKU: "12-arm64", Version: "0.20251017.2318",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880", Architecture: "linux/arm64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8", Architecture: "linux/arm64"}},
 }
 
 // "latest" takes the newest version of the SKU.

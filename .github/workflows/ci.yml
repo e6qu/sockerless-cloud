@@ -1163,7 +1163,7 @@ jobs:
             timeout: 1200s
             timeout_minutes: 15
           - suite: edge-build
-            run: '^Test(CodeBuild|ELBv2|Firehose)'
+            run: '^Test(CodeBuild|Cognito|ELBv2|Firehose)'
             timeout: 1200s
             timeout_minutes: 15
           # AWS Glue and IAM each take a shard: together their tests do not fit
@@ -1536,7 +1536,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Elastic Load Balancing
             cloud: aws
-            tf_packages: "./elb-trust-store ./alb-forwarded-headers"
+            tf_packages: "./elb-trust-store ./alb-forwarded-headers ./cognito-user-pool"
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws
@@ -2087,7 +2087,7 @@ jobs:
         continue-on-error: true
         run: |
           # shellcheck disable=SC2086
-          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+          bash scripts/warm-base-images.sh --load-only ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
       # The detector needs cgo, so the test binary is built differently from
       # every other job here and gets its own compile budget.

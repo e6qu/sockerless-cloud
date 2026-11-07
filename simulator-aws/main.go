@@ -121,6 +121,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	registerCloudWatchDashboardsJSON(awsRouter)
 	registerCloudMap(awsRouter, srv)
 	registerSecretsManager(awsRouter, srv)
+	registerCognitoIdentityProvider(awsRouter, srv)
 	registerSSMParameterStore(awsRouter, srv)
 	registerSSMDocuments(awsRouter, srv)
 	registerSSMMaintenanceWindows(awsRouter, srv)
@@ -176,6 +177,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// wraps outside an earlier one, so data-plane traffic is intercepted
 	// before the validator (and the mux) ever see it.
 	registerELBv2DataPlane(srv)
+	registerELBv2Authentication(srv)
 	registerAmplifyDataPlane(srv)
 	registerLambdaFunctionURLDataPlane(srv)
 	registerSTSOutboundIssuer(srv)

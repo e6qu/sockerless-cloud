@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,8 +98,10 @@ func TestElastiCacheCLI_ServerlessMigration(t *testing.T) {
 	var prepared cliServerlessCacheMigration
 	parseJSON(t, out, &prepared)
 	require.NotNil(t, prepared.ServerlessCache.Migration)
-	assert.Equal(t, "ready-to-sync", prepared.ServerlessCache.Migration.Status)
+	assert.Equal(t, "preparing", prepared.ServerlessCache.Migration.Status)
 	assert.Equal(t, prepared.ServerlessCache.Endpoint.Address, prepared.ServerlessCache.Migration.MigrationEndpoint.Address)
+	ecCLIAwaitMigration(t, name, "ready-to-sync")
+	assert.True(t, ecCLIHasEvent(t, "serverless-cache", name, "Migration prepared"))
 	already := runCLIExpectError(t, awsCLI("elasticache", "prepare-migration",
 		"--serverless-cache-name", name,
 		"--customer-node-endpoint-list", sourceEndpoint))
@@ -135,6 +138,77 @@ func TestElastiCacheCLI_ServerlessMigration(t *testing.T) {
 
 	notUnder = runCLIExpectError(t, awsCLI("elasticache", "complete-migration", "--serverless-cache-name", name))
 	assert.Contains(t, notUnder, "ServerlessCacheNotUnderMigrationFault")
+	for _, message := range []string{"Migration data sync started", "Migration data sync stopped", "Migration cutover started", "Migration completed"} {
+		assert.True(t, ecCLIHasEvent(t, "serverless-cache", name, message), "the migration logs %q", message)
+	}
+}
+
+// ecCLIHasEvent reports whether describe-events lists an event about the
+// source whose message holds part.
+func ecCLIHasEvent(t *testing.T, sourceType, id, part string) bool {
+	t.Helper()
+	var events struct {
+		Events []struct {
+			Message string `json:"Message"`
+		} `json:"Events"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("elasticache", "describe-events", "--source-type", sourceType,
+		"--source-identifier", id, "--duration", "60")), &events)
+	for _, event := range events.Events {
+		if strings.Contains(event.Message, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestElastiCacheCLI_ClusterModeReplicationGroupMigration migrates a
+// cluster-mode replication group into another through start-migration and
+// complete-migration: the target refuses writes while it follows the source.
+func TestElastiCacheCLI_ClusterModeReplicationGroupMigration(t *testing.T) {
+	t.Parallel()
+	create := func(id string) {
+		runCLI(t, awsCLI("elasticache", "create-replication-group",
+			"--replication-group-id", id,
+			"--replication-group-description", "cluster-mode migration",
+			"--engine", "redis",
+			"--cache-node-type", "cache.t3.micro",
+			"--cluster-mode", "enabled",
+			"--num-node-groups", "2",
+			"--replicas-per-node-group", "0"))
+		t.Cleanup(func() {
+			_ = awsCLI("elasticache", "delete-replication-group", "--replication-group-id", id).Run()
+		})
+	}
+	sourceID, targetID := "cli-cm-migration-source", "cli-cm-migration-target"
+	create(sourceID)
+	create(targetID)
+	sourceGroup := ecCLIAwaitReplGroup(t, sourceID)
+	targetGroup := ecCLIAwaitReplGroup(t, targetID)
+	source := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{sourceGroup.ConfigurationEndpoint.address()}})
+	t.Cleanup(func() { source.Close() })
+	for i := 0; i < 10; i++ {
+		require.NoError(t, source.Set(t.Context(), fmt.Sprintf("cli-cm-%d", i), i, 0).Err())
+	}
+	endpoint := fmt.Sprintf("Address=%s,Port=%d", sourceGroup.ConfigurationEndpoint.Address, sourceGroup.ConfigurationEndpoint.Port)
+	runCLI(t, awsCLI("elasticache", "start-migration", "--replication-group-id", targetID, "--customer-node-endpoint-list", endpoint))
+	deadline := time.Now().Add(10 * time.Minute)
+	for !ecCLIHasEvent(t, "replication-group", targetID, "Migration started") {
+		require.False(t, ecCLIHasEvent(t, "replication-group", targetID, "Migration failed to start"), "the migration did not start")
+		require.True(t, time.Now().Before(deadline), "the migration logged no start")
+		time.Sleep(time.Second)
+	}
+	target := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{targetGroup.ConfigurationEndpoint.address()}})
+	t.Cleanup(func() { target.Close() })
+	for i := 0; i < 10; i++ {
+		assert.Equal(t, strconv.Itoa(i), target.Get(t.Context(), fmt.Sprintf("cli-cm-%d", i)).Val())
+	}
+	assert.ErrorContains(t, target.Set(t.Context(), "cli-cm-refused", "v", 0).Err(), "READONLY")
+
+	runCLI(t, awsCLI("elasticache", "complete-migration", "--replication-group-id", targetID))
+	ecCLIAwaitReplGroup(t, targetID)
+	assert.True(t, ecCLIHasEvent(t, "replication-group", targetID, "Migration completed"))
+	require.NoError(t, target.Set(t.Context(), "cli-cm-taken", "v", 0).Err())
 }
 
 // TestElastiCacheCLI_ReplicationGroupMigration migrates a Redis OSS cache

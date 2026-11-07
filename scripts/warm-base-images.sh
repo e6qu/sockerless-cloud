@@ -8,13 +8,22 @@
 # not recover it. A cached tarball is the only thing that removes the
 # request.
 #
-#   warm-base-images.sh <tarball> <image>...
+#   warm-base-images.sh [--load-only] <tarball> <image>...
+#
+# --load-only leaves the tarball as it found it: a job that only restores the
+# cache never saves what it would write, and writing the set for AWS takes
+# three minutes of that job's fifteen.
 #
 # With the tarball present the images are loaded from it and no registry is
 # contacted. Without it each image is pulled — with the same widening backoff a
 # throttled registry deserves — and the set is saved for the next run.
 set -euo pipefail
 
+save=1
+if [ "${1:-}" = "--load-only" ]; then
+    save=0
+    shift
+fi
 tarball="${1:?tarball path required}"
 shift
 images=("$@")
@@ -73,6 +82,7 @@ for image in "${images[@]}"; do
     fi
 done
 
+[ "$save" -eq 1 ] || exit 0
 mkdir -p "$(dirname "$tarball")"
 saved=()
 for image in "${images[@]}"; do

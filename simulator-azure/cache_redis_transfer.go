@@ -196,12 +196,18 @@ func redisRequestPort(r *http.Request) string {
 	return redisPort(azureRequestScheme(r), strings.TrimPrefix(suffix, ":"))
 }
 
+// redisExportSASPermissions are the permissions the import and export guide
+// lists for an export's SAS token: read, add, create, write, delete, tag, move.
+const redisExportSASPermissions = "racwdtm"
+
 // redisAuthorizeArchives settles how the cache authenticates to each archive:
 // the SAS token each URL carries, or a token for the cache's managed identity,
 // whose storage account must be in storageSubscription when one is named.
-func redisAuthorizeArchives(cache RedisCache, method, storageSubscription string, archives []redisArchive) *AsyncOperationError {
+// With SAS, the guide keeps the storage account in the cache's subscription,
+// and an import's files in the cache's region too.
+func redisAuthorizeArchives(cache RedisCache, method, storageSubscription string, archives []redisArchive, export bool) *AsyncOperationError {
 	if method != redisArchiveManagedIdentity {
-		return nil
+		return redisCheckSASArchives(cache, archives, export)
 	}
 	identity, ok := redisArchiveIdentity(cache)
 	if !ok {
@@ -222,6 +228,33 @@ func redisAuthorizeArchives(cache RedisCache, method, storageSubscription string
 		archives[i].bearer = token
 	}
 	return nil
+}
+
+func redisCheckSASArchives(cache RedisCache, archives []redisArchive, export bool) *AsyncOperationError {
+	subscription := azureSubscriptionFromID(cache.ID, "")
+	for _, archive := range archives {
+		account, _ := azureStorageAccountByName(archive.account)
+		if !strings.EqualFold(azureSubscriptionFromID(account.ID, ""), subscription) {
+			return redisArchiveFailure("The storage account %s is not in the cache's subscription %s; use managed identity to reach a storage account in another subscription.", archive.account, subscription)
+		}
+		if !export && redisLocationKey(account.Location) != redisLocationKey(cache.Location) {
+			return redisArchiveFailure("The storage account %s is in %s, not in the cache's region %s.", archive.account, account.Location, cache.Location)
+		}
+		if export {
+			granted := archive.query.Get("sp")
+			for _, p := range redisExportSASPermissions {
+				if !strings.ContainsRune(granted, p) {
+					return redisArchiveFailure("The SAS token for %s grants %q; an export needs the permissions %q.", archive.account, granted, redisExportSASPermissions)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// redisLocationKey folds a display name such as "East US" to "eastus".
+func redisLocationKey(location string) string {
+	return strings.ToLower(strings.ReplaceAll(location, " ", ""))
 }
 
 // call sends one Blob service request for blob in the archive's container.
@@ -358,7 +391,7 @@ func handleRedisExportData(w http.ResponseWriter, r *http.Request) {
 	}
 	if failure == nil {
 		archives := []redisArchive{target}
-		failure = redisAuthorizeArchives(cache, req.AuthMethod, req.StorageSubscription, archives)
+		failure = redisAuthorizeArchives(cache, req.AuthMethod, req.StorageSubscription, archives, true)
 		target = archives[0]
 	}
 	redisStartTransfer(w, r, cache, failure, func(plane *cacheengine.Plane) *AsyncOperationError {
@@ -423,7 +456,7 @@ func handleRedisImportData(w http.ResponseWriter, r *http.Request) {
 		sources = append(sources, source)
 	}
 	if failure == nil {
-		failure = redisAuthorizeArchives(cache, req.AuthMethod, req.StorageSubscription, sources)
+		failure = redisAuthorizeArchives(cache, req.AuthMethod, req.StorageSubscription, sources, false)
 	}
 	version, _ := cache.Properties["redisVersion"].(string)
 	redisStartTransfer(w, r, cache, failure, func(plane *cacheengine.Plane) *AsyncOperationError {

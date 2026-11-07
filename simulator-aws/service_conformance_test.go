@@ -397,14 +397,15 @@ var serviceCoverageFloor = map[string]int{
 	"AWSDnsV20130401":                      71,  // Route 53 (REST)
 	"MagnolioAPIService_v20150201":         31,  // EFS (REST)
 	// restJson1 services measured via the REST registry.
-	"AWSGirApiService":        85,  // AWS Lambda
-	"AWSBatchV20160810":       48,  // AWS Batch
-	"BackplaneControlService": 124, // Amazon API Gateway
-	"Amplify":                 37,
-	"AWSChronosService":       12,  // EventBridge Scheduler
-	"ApiGatewayV2":            103, // Amazon API Gateway v2
-	"Cloudfront2020_05_31":    167, // Amazon CloudFront (restXml)
-	"DynamoDB_20120810":       58,  // Amazon DynamoDB (awsJson1.0, vector search included)
+	"AWSGirApiService":                  85,  // AWS Lambda
+	"AWSBatchV20160810":                 48,  // AWS Batch
+	"BackplaneControlService":           124, // Amazon API Gateway
+	"Amplify":                           37,
+	"AWSChronosService":                 12,  // EventBridge Scheduler
+	"ApiGatewayV2":                      103, // Amazon API Gateway v2
+	"Cloudfront2020_05_31":              167, // Amazon CloudFront (restXml)
+	"DynamoDB_20120810":                 58,  // Amazon DynamoDB (awsJson1.0, vector search included)
+	"AWSCognitoIdentityProviderService": 30,  // Amazon Cognito user pools
 }
 
 // TestServiceConformance_CoverageFloor locks the implemented-op count for the

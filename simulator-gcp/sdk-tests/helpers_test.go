@@ -427,4 +427,4 @@ func testRunSelects(name string) bool {
 // debianCatalogImage is the OCI image the simulator's public catalog boots a
 // Debian 12 instance from, pinned as the catalog pins it; the engine picks the
 // platform's manifest out of the index.
-const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880"
+const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8"

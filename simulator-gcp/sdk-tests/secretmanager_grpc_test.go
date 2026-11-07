@@ -128,8 +128,8 @@ func TestSecretManager_GRPC_ManagedCloudSQLRotation(t *testing.T) {
 
 	first, err := c.EnableManagedRotation(ctx, &smpb.EnableManagedRotationRequest{
 		Parent: created.GetName(),
-		Credentials: &smpb.EnableManagedRotationRequest_CloudSqlSingleUserCredentials{
-			CloudSqlSingleUserCredentials: &smpb.EnableManagedRotationRequest_CloudSQLSingleUserCredentials{
+		Credential: &smpb.EnableManagedRotationRequest_CloudSqlSingleUserCredentials{
+			CloudSqlSingleUserCredentials: &smpb.CloudSqlSingleUserCredentials{
 				InstanceId: instanceName,
 				Username:   username,
 				Password:   "first-managed-password",
@@ -144,8 +144,8 @@ func TestSecretManager_GRPC_ManagedCloudSQLRotation(t *testing.T) {
 
 	_, err = c.EnableManagedRotation(ctx, &smpb.EnableManagedRotationRequest{
 		Parent: created.GetName(),
-		Credentials: &smpb.EnableManagedRotationRequest_CloudSqlSingleUserCredentials{
-			CloudSqlSingleUserCredentials: &smpb.EnableManagedRotationRequest_CloudSQLSingleUserCredentials{
+		Credential: &smpb.EnableManagedRotationRequest_CloudSqlSingleUserCredentials{
+			CloudSqlSingleUserCredentials: &smpb.CloudSqlSingleUserCredentials{
 				InstanceId: instanceName,
 				Username:   username,
 			},

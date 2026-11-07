@@ -836,7 +836,37 @@ Cache for Redis loads every import file in a scratch `redis-server` before it
 stops the cache's engine, so a file that fails to load leaves the cache
 serving; its identity resolves through `SystemAssignedIdentities_GetByScope`;
 and its operations catalog takes the descriptions of the vendored
-`rbac-permissions-databases` page.
+`rbac-permissions-databases` page. With SAS authentication an import or export
+refuses a storage account outside the cache's subscription, an import one
+outside the cache's region, and an export a token without the `racwdtm`
+permissions the import and export guide lists; managed identity reaches
+another subscription, as the guide allows.
+
+Amazon ElastiCache keeps the events it logs: `DescribeEvents` reads them by
+source type, identifier and time window (the last hour by default, 14 days
+kept), newest first with a `Marker`, where it had invented one "created"
+event per resource stamped with the time of the call. Creation, snapshots and
+every migration transition log one. `PrepareMigration` answers `preparing`
+and validates afterwards, as the online migration guide describes: a failure
+logs an event naming the reason and removes the migration. ElastiCache reads
+the migration secret first with the caller's credentials and then as
+`elasticache.amazonaws.com`, so the secret's resource policy and its key's
+policy must admit the service principal, at prepare and again at start.
+Until cutover the cache's endpoint serves from the source: `sim/cacheengine`
+diverts the endpoint's connections, sends each command to the source node
+that owns its key, follows the source's redirections and answers the
+topology from the cache, and the cutover ends the diversion while the
+source's writers are still paused. A cluster-mode replication group target
+takes the source's slot layout before it syncs, refuses writes through its
+endpoints with the read-only replica error until the migration completes
+(a refusal also closes the connections relayed without a guard, so each
+client reconnects into one), and replays each propagated `MULTI` block as
+one transaction on a connection it keeps open. Export to Amazon S3 and
+seeding from it check the bucket the way ElastiCache does: through a bucket
+policy for `<region>.elasticache-snapshot.amazonaws.com` or an ACL grant to
+ElastiCache's canonical user. That check found that `PutBucketAcl` and
+`PutObjectAcl` ignored the `x-amz-grant-*` headers; they set exactly the
+grantees the headers name.
 
 Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
 named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
@@ -977,6 +1007,50 @@ Every surface that the cloud authenticates, the simulator authenticates:
 
 Each shortcut these replaced let a test pass without the credential its
 client sends against the cloud.
+
+Amazon Cognito user pools are an identity provider in their own right, the
+one an Application Load Balancer's `authenticate-cognito` action names. The
+control plane keeps pools, app clients, prefix domains and users; a password
+is stored as a PBKDF2 hash and checked against the pool's policy. The prefix
+domain `<prefix>.auth.<region>.amazoncognito.com` serves managed login and
+the OAuth 2.0 endpoints the developer guide documents: `/oauth2/authorize`
+sends a user without a session to `/login`, which sets the one-hour session
+cookie and redirects with a single-use, five-minute code; `/oauth2/token`
+redeems it with `client_secret_basic` or `client_secret_post` and PKCE,
+refreshes, and grants client credentials; `/oauth2/userInfo` answers the
+attributes the access token's scopes release; `/logout` ends the session. Each
+pool signs RS256 tokens with its own key, which the issuer
+`https://cognito-idp.<region>.amazonaws.com/<pool id>` publishes as its JWKS,
+so a relying party verifies a token the way it does against AWS. The Smithy
+model's enum values are the wire spelling: token validity units travel in
+lower case although their member names are upper case.
+
+The API signs users in as well: `InitiateAuth` and `AdminInitiateAuth` run
+the password flows a client's `ExplicitAuthFlows` allow, check the client's
+secret hash, and answer a user with a temporary password with the
+`NEW_PASSWORD_REQUIRED` challenge, which `RespondToAuthChallenge` completes
+under the pool's password policy. The operations the model gives no auth
+scheme pass the SigV4 and IAM gates unsigned.
+
+An Application Load Balancer's `authenticate-oidc` and `authenticate-cognito`
+actions run on HTTPS listeners as the authentication guide describes. A
+request without a session goes to the IdP's authorization endpoint with
+`redirect_uri` `https://<host>/oauth2/idpresponse` and a state the load
+balancer seals with its own key; the callback must arrive within 15 minutes
+and present the `AWSALBAuthNonce` cookie, then the load balancer redeems the
+code, reads the user info endpoint and sets the encrypted session cookie,
+sharded `-0`, `-1`... at 4K, with a 7-day expiry and the action's
+`SessionTimeout` sealed inside. Targets receive `x-amzn-oidc-accesstoken`,
+`x-amzn-oidc-identity` and `x-amzn-oidc-data`, an ES256 JWT with padding
+whose key `public-keys.auth.elb.<region>.amazonaws.com/<kid>` serves; the
+load balancer replaces whatever claims headers a client sent. `deny` answers
+401 to a request without a session, `allow` forwards it without claims, and
+an expired access token is refreshed with the refresh token. An
+authenticate-cognito action reads its app client's secret when it is
+configured, through `DescribeUserPoolClient` signed as the caller, which is
+the permission the guide says the caller needs; the load balancer reaches a
+user pool's endpoints through the simulator's own handler chain and any
+other IdP over the network.
 
 Each simulator's first credential is seeded, the way a new account's is: the
 AWS simulator's IAM user with the `test` key, the Azure simulator's bootstrap
@@ -1704,6 +1778,9 @@ all of them left its tests no room in the job's 15 minutes. The browser jobs
 install `passt` from the Ubuntu archive pool, checked against the signed
 index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
 unprivileged user namespaces, which the runner image leaves in force.
+A job that only restores the base-image cache loads it with `--load-only`:
+the race job had spent three of its fifteen minutes writing a tarball it
+never saves, after a changed image set left it the nearest earlier archive.
 
 Dependencies of every class are held to their newest release past a 24-hour
 quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret
@@ -1711,6 +1788,9 @@ ranges let the resolver pick what the quarantine refuses. The check fails when
 the proxy refuses a version listing: it once skipped such a module as current
 and, on a full disk, reported everything current. Its self-test serves every
 registry from fixtures, and reading `GOPROXY` runs with `GOTOOLCHAIN=local`.
+An npm release is as young as the youngest release it pins exactly, followed
+through those pins: the check had called `@playwright/test` 1.65.0 adoptable
+while bun refused it for the hour-old `playwright-core` 1.65.0 it pins.
 `scripts/check-repo-config-sane.sh` exists because a `git config` run without
 `-C` in a linked worktree wrote a test fixture's identity into the shared
 `.git/config`.

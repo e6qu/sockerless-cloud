@@ -5,9 +5,9 @@ go 1.26.0
 require (
 	cloud.google.com/go/apigateway v1.17.1
 	cloud.google.com/go/artifactregistry v1.28.1
-	cloud.google.com/go/bigquery v1.86.1
+	cloud.google.com/go/bigquery v1.86.2
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.36.1
+	cloud.google.com/go/cloudbuild v1.37.0
 	cloud.google.com/go/cloudquotas v1.14.1
 	cloud.google.com/go/cloudtasks v1.21.1
 	cloud.google.com/go/eventarc v1.27.1
@@ -20,7 +20,7 @@ require (
 	cloud.google.com/go/resourcemanager v1.18.1
 	cloud.google.com/go/run v1.24.1
 	cloud.google.com/go/scheduler v1.18.1
-	cloud.google.com/go/secretmanager v1.23.1
+	cloud.google.com/go/secretmanager v1.24.0
 	cloud.google.com/go/storage v1.70.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
@@ -28,8 +28,8 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/api v0.311.0
-	google.golang.org/genproto v0.0.0-20261026165753-2ffab32bce7e
-	google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e
+	google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab
+	google.golang.org/genproto/googleapis/api v0.0.0-20261104224025-d1e00e9f33ab
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -53,34 +53,34 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
+	golang.org/x/exp v0.0.0-20261106191002-e95669b1b7c8 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261021172232-6cd571d43fbb // indirect
-	golang.org/x/tools v0.52.0 // indirect
+	golang.org/x/tools v0.52.1-0.20261106145633-d407941a339a // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 )
 
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.2 // indirect
+	cloud.google.com/go/auth v0.24.3 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/longrunning v1.5.0
 	cloud.google.com/go/monitoring v1.32.1 // indirect
 	cloud.google.com/go/pubsub v1.52.0
-	cloud.google.com/go/pubsub/v2 v2.8.0 // indirect
+	cloud.google.com/go/pubsub/v2 v2.8.1 // indirect
 	cloud.google.com/go/spanner v1.96.1
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.40.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.8
+	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.24 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.25 // indirect
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.9.0 // indirect
@@ -101,7 +101,7 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab // indirect
 )
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

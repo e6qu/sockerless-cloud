@@ -2,6 +2,9 @@
 
 ## Next
 
+- **Gateway Load Balancer stickiness and Elastic Load Balancing's recalled
+  messages** (BUG-3554): honour `source_ip_dest_ip` and
+  `source_ip_dest_ip_proto`, and source the refusals' messages.
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.
@@ -20,7 +23,7 @@
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
 - **Core-service gaps.** Azure Managed Disks, Cloud Monitoring (BUG-3522)
-  and Filestore; the managed caches' remaining gaps (BUG-3835, BUG-3838 to BUG-3841, BUG-3844 and BUG-3845).
+  and Filestore; the managed caches' remaining gaps (BUG-3835, BUG-3840 and BUG-3845).
 - **M4: the remaining cleanups.** The AWS ARN builder and parser and the
   tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
   clone groups `dupl` finds at 120 tokens, then lowering

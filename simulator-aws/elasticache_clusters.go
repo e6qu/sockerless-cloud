@@ -474,6 +474,7 @@ func ecClusterNodes(c ECCluster, endpoints []cacheengine.Endpoint, count int, st
 // The model lists no failure status for a cache cluster; create-failed is the
 // one it lists for replication groups and serverless caches.
 func ecSettleCluster(id, incarnation string, err error) {
+	var settled *ECCluster
 	ecClusters.Update(id, func(c *ECCluster) {
 		if c.Incarnation != incarnation || c.CacheClusterStatus != "creating" {
 			return
@@ -486,7 +487,19 @@ func ecSettleCluster(id, incarnation string, err error) {
 		for i := range c.CacheNodes {
 			c.CacheNodes[i].CacheNodeStatus = status
 		}
+		settled = c
 	})
+	if settled == nil {
+		return
+	}
+	if err != nil {
+		ecRecordEvent("cache-cluster", id, fmt.Sprintf("Failed to create the cache cluster: %v", err))
+		return
+	}
+	ecRecordEvent("cache-cluster", id, "Cache cluster created")
+	for _, node := range settled.CacheNodes {
+		ecRecordEvent("cache-cluster", id, fmt.Sprintf("Added cache node %s in availability zone %s", node.CacheNodeId, ecClusterZone(*settled)))
+	}
 }
 
 func ecSetClusterAvailable(id, incarnation string) {
@@ -1267,11 +1280,12 @@ func ecSettleReplGroup(id, incarnation string, engine *ecEngine, err error) {
 		}
 	}
 	var settled ECReplicationGroup
-	updated := false
+	updated, created := false, false
 	ecReplGroups.Update(id, func(g *ECReplicationGroup) {
 		if g.Incarnation != incarnation {
 			return
 		}
+		created = g.Status == "creating"
 		status := "available"
 		if err != nil {
 			if g.Status != "creating" {
@@ -1291,6 +1305,12 @@ func ecSettleReplGroup(id, incarnation string, engine *ecEngine, err error) {
 	})
 	if updated {
 		ecPutMemberClusters(settled, settled.Status)
+	}
+	switch {
+	case updated && created && err != nil:
+		ecRecordEvent("replication-group", id, fmt.Sprintf("Failed to create the replication group: %v", err))
+	case updated && created:
+		ecRecordEvent("replication-group", id, "Replication group created")
 	}
 }
 

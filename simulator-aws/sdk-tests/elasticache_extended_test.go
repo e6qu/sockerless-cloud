@@ -161,13 +161,21 @@ func TestElastiCache_DescribeReadOnly(t *testing.T) {
 		})
 	})
 
+	cluster := ecAwaitCluster(t, c, clusterID)
 	ev, err := c.DescribeEvents(ctx, &elasticache.DescribeEventsInput{
 		SourceType:       ectypes.SourceTypeCacheCluster,
 		SourceIdentifier: aws.String(clusterID),
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, ev.Events)
-	assert.Equal(t, clusterID, aws.ToString(ev.Events[0].SourceIdentifier))
+	var messages []string
+	for _, event := range ev.Events {
+		assert.Equal(t, clusterID, aws.ToString(event.SourceIdentifier))
+		messages = append(messages, aws.ToString(event.Message))
+	}
+	assert.Contains(t, messages, "Cache cluster created")
+	assert.Contains(t, messages, "Added cache node 0001 in availability zone "+aws.ToString(cluster.PreferredAvailabilityZone))
+	_, err = c.DescribeEvents(ctx, &elasticache.DescribeEventsInput{SourceType: "no-such-type"})
+	assertAWSAPIErrorCode(t, err, "InvalidParameterValue")
 
 	cev, err := c.DescribeCacheEngineVersions(ctx, &elasticache.DescribeCacheEngineVersionsInput{
 		Engine: aws.String("redis"),

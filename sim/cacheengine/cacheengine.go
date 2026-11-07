@@ -264,6 +264,8 @@ type Plane struct {
 	// redis-server logs every change of its replication link and of the
 	// cluster's state.
 	changes signals.Keyed[int]
+
+	guard guard
 }
 
 func New(cfg Config, record Record) *Plane {

@@ -274,6 +274,10 @@ func (p *Plane) relayConnection(client net.Conn, target func() (int, bool), plai
 		log.Printf("%s data plane: %v", p.cfg.Name, err)
 		return
 	}
+	if diversion := p.divertedTo(client); diversion != nil {
+		p.relaySequential(client, nil, diversion, false)
+		return
+	}
 	index, ok := target()
 	if !ok {
 		return
@@ -290,6 +294,11 @@ func (p *Plane) relayConnection(client net.Conn, target func() (int, bool), plai
 	}
 	defer backend.Close()
 	rewrite := p.cfg.Cluster && !p.announcesHostnames.Load()
+	if p.refusesWrites() {
+		p.relaySequential(client, backend, nil, rewrite)
+		return
+	}
+	defer p.relayedPlain(client)()
 	if p.cfg.ExchangeCredential != nil || rewrite {
 		p.relayCommands(client, backend, rewrite)
 		return
