@@ -220,8 +220,14 @@ func elbv2GatewayStateSignal() <-chan struct{} {
 	return elbv2GatewayStateChanged
 }
 
-func startELBv2GatewayNodes(srv *sim.Server) {
+func registerELBv2GatewayNodeState(srv *sim.Server) {
 	srv.HandleFunc("GET "+gwlb.StatePath, handleELBv2GatewayNodeState)
+}
+
+// startELBv2GatewayNodes reconciles the nodes at once, reading the Amazon EC2
+// and Elastic Load Balancing stores, so it starts once every slice is
+// registered and only where workloads run.
+func startELBv2GatewayNodes(srv *sim.Server) {
 	srv.StartBackground("Gateway Load Balancer nodes", func(ctx context.Context) {
 		defer elbv2StopGatewayNodes()
 		elbv2RequestGatewayReconcile()

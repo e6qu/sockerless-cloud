@@ -1683,7 +1683,10 @@ fails once the row closes or the operation is served.
   endpoint's subnet routes it. The node long-polls the simulator for its
   targets' health and the group's stickiness, and the health sweep wakes it.
   Its health checks come from its own addresses, which the appliances'
-  security groups must admit. `sim.ContainerConfig.JoinNetworks` puts a
+  security groups must admit. The node reconciler starts with the other
+  workload starters once every slice is registered: started inside
+  `registerELBv2`, it read the Amazon EC2 stores while a conformance test
+  re-registered them. `sim.ContainerConfig.JoinNetworks` puts a
   container on further networks before it starts, so the node finds every
   endpoint's interface at its first instruction. Interface endpoints hold
   real network interfaces too, a route to an endpoint reads back under

@@ -273,6 +273,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		// Provisioned environments start only once the containers an earlier
 		// process left are gone, or the sweep would take them too.
 		startLambdaEnvironmentReconciler(srv)
+		startELBv2GatewayNodes(srv)
 		// An event source mapping's poller calls Amazon SQS or Amazon Kinesis
 		// under the function's execution role, so it starts once every slice
 		// is registered: a mapping restored from an earlier process polls at
