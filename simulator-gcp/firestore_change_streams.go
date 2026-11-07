@@ -1,12 +1,19 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	fspb "cloud.google.com/go/firestore/apiv1/firestorepb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // Firestore change streams, and the listen and executePipeline document
@@ -97,33 +104,86 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/databases/{database}/documents:executePipeline", fsExecutePipeline)
 }
 
-// fsListen answers with the target the client added, as a watch with nothing
-// pending.
+// fsListen serves Listen over REST: the one ListenRequest the body carries
+// opens the watch, and the ListenResponses the gRPC watch produces stream back
+// as a JSON array until the client hangs up.
 func fsListen(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		AddTarget *struct {
-			TargetID int64 `json:"targetId"`
-		} `json:"addTarget"`
-		RemoveTarget int64 `json:"removeTarget"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	change := map[string]any{"readTime": time.Now().UTC().Format(time.RFC3339)}
-	switch {
-	case req.AddTarget != nil:
-		change["targetIds"] = []any{req.AddTarget.TargetID}
-		change["targetChangeType"] = "ADD"
-	case req.RemoveTarget != 0:
-		change["targetIds"] = []any{req.RemoveTarget}
-		change["targetChangeType"] = "REMOVE"
-	default:
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
-			"a listen adds or removes a target")
+	var req fspb.ListenRequest
+	if err := protojson.Unmarshal(body, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"targetChange": change})
+	if req.GetTargetChange() == nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "a listen adds or removes a target")
+		return
+	}
+	req.Database = "projects/" + sim.PathParam(r, "project") + "/databases/" + sim.PathParam(r, "database")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	stream := &fsRESTListenStream{ctx: r.Context(), request: &req, w: w}
+	_, _ = io.WriteString(w, "[")
+	err = (&firestoreGRPC{}).Listen(stream)
+	if err != nil && r.Context().Err() == nil {
+		stream.write(map[string]any{"error": map[string]any{"code": int(status.Code(err)), "message": status.Convert(err).Message(), "status": status.Code(err).String()}})
+	}
+	_, _ = io.WriteString(w, "]")
+}
+
+// fsRESTListenStream is the gRPC Listen stream over one HTTP exchange: Recv
+// hands the request over once and then waits for the client to hang up.
+type fsRESTListenStream struct {
+	grpc.ServerStream
+	ctx     context.Context
+	request *fspb.ListenRequest
+	w       http.ResponseWriter
+	sent    int
+}
+
+func (s *fsRESTListenStream) Context() context.Context { return s.ctx }
+
+func (s *fsRESTListenStream) Recv() (*fspb.ListenRequest, error) {
+	if req := s.request; req != nil {
+		s.request = nil
+		return req, nil
+	}
+	<-s.ctx.Done()
+	return nil, io.EOF
+}
+
+func (s *fsRESTListenStream) Send(resp *fspb.ListenResponse) error {
+	data, err := protojson.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	return s.writeRaw(data)
+}
+
+func (s *fsRESTListenStream) write(v any) {
+	data, err := json.Marshal(v)
+	if err == nil {
+		_ = s.writeRaw(data)
+	}
+}
+
+func (s *fsRESTListenStream) writeRaw(data []byte) error {
+	if s.sent > 0 {
+		if _, err := io.WriteString(s.w, ",\n"); err != nil {
+			return err
+		}
+	}
+	s.sent++
+	if _, err := s.w.Write(data); err != nil {
+		return err
+	}
+	if f, ok := s.w.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
 }
 
 // fsExecutePipeline answers the documents the pipeline selects, which may be

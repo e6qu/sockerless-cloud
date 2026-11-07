@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/databases/{database}/changeStreams` | ✓ `simulator-gcp/firestore_change_streams.go:24::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/databases/{database}/changeStreams` | ✓ `simulator-gcp/firestore_change_streams.go:70::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/databases/{database}/changeStreams/{changeStream}` | ✓ `simulator-gcp/firestore_change_streams.go:75::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/databases/{database}/changeStreams/{changeStream}` | ✓ `simulator-gcp/firestore_change_streams.go:85::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/databases/{database}/documents:listen` | ○ `simulator-gcp/firestore_change_streams.go:96::fsListen` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/databases/{database}/documents:executePipeline` | ○ `simulator-gcp/firestore_change_streams.go:97::fsExecutePipeline` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/databases/{database}/documents:listen` | ○ `simulator-gcp/firestore_change_streams.go:103::fsListen` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/databases/{database}/documents:executePipeline` | ○ `simulator-gcp/firestore_change_streams.go:104::fsExecutePipeline` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/databases/{database}/changeStreams` | ✓ `simulator-gcp/firestore_change_streams.go:31::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/databases/{database}/changeStreams` | ✓ `simulator-gcp/firestore_change_streams.go:77::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/databases/{database}/changeStreams/{changeStream}` | ✓ `simulator-gcp/firestore_change_streams.go:82::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/databases/{database}/changeStreams/{changeStream}` | ✓ `simulator-gcp/firestore_change_streams.go:92::func` | ✓ (direct; see coverage matrix) | n/a (not exposed by provider; see coverage matrix) | n/a | |
 
 ## Coverage status
 

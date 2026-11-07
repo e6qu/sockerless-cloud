@@ -1783,6 +1783,14 @@ fails once the row closes or the operation is served.
   simulator built just before the minute turned.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
+- **Cloud Run image export and Firestore REST listen.** `exportImage` copies
+  the image the revision, execution or service runs — from the simulator's
+  Artifact Registry or over the Registry v2 API — into the Artifact Registry
+  repository `destinationRepo` names, and `exportStatus` reports the exported
+  digest or the failure. Firestore's REST `documents:listen` runs the gRPC
+  watch for the one request its body carries and streams each ListenResponse
+  as an element of a JSON array, so a client reads the target's documents,
+  CURRENT, and each later change while the exchange stays open.
 - **Google Cloud hosts.** Eventarc and Cloud Build both publish
   `/v1/projects/{p}/locations/{l}/triggers`, and the Host tells them apart;
   harnesses reach each through its own host with an HTTP proxy that delivers
