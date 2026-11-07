@@ -25,7 +25,7 @@ type ContainerBackend struct{}
 func (ContainerBackend) Kind() Kind { return Container }
 
 func (b ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
-	if w.Gateway != "" && w.NetworkMode == "" {
+	if (w.Gateway != "" || len(w.Routes) > 0) && w.NetworkMode == "" {
 		return b.placeInNamespace(ctx, w, nil, sink)
 	}
 	h, err := sim.StartContainerSyncContext(ctx, w, sink)
@@ -134,8 +134,8 @@ func (ContainerBackend) placeInNamespace(ctx context.Context, w Workload, forwar
 			return nil, fmt.Errorf("join %s: %w", extra.Network, err)
 		}
 	}
-	if w.Gateway != "" {
-		if err := sidecar.SetRoute(ctx, forwarder.ContainerID, w.Gateway); err != nil {
+	if w.Gateway != "" || len(w.Routes) > 0 {
+		if err := sidecar.SetRoute(ctx, forwarder.ContainerID, w.Gateway, w.Routes); err != nil {
 			release()
 			return nil, err
 		}
@@ -145,7 +145,7 @@ func (ContainerBackend) placeInNamespace(ctx context.Context, w Workload, forwar
 	for k, v := range w.Labels {
 		member.Labels[k] = v
 	}
-	member.Labels[forwardedLabel] = forwarder.ContainerID
+	member.Labels[ForwardedLabel] = forwarder.ContainerID
 	member.Network, member.NetworkAliases, member.IPv4Address, member.MACAddress = "", nil, "", ""
 	member.Hostname, member.ExtraHosts, member.DNS, member.PublishPorts, member.ExtraNetworks = "", nil, nil, nil, nil
 	member.NetworkMode = "container:" + forwarder.ContainerID
@@ -168,11 +168,12 @@ func (ContainerBackend) placeInNamespace(ctx context.Context, w Workload, forwar
 // kept holder: its exit leaves the holder in place.
 const keptNamespaceLabel = "sockerless-sim-kept-namespace"
 
-// forwardedLabel marks a workload placed with forwards; its value is the
-// forwarder's container ID. A member placed beside the workload joins the
+// ForwardedLabel marks a workload placed behind a forwarder or holder that
+// owns its network namespace; its value is that container's ID, the container
+// the engine lists at the workload's address. A member placed beside the workload joins the
 // same forwarder and carries no such label: the forwarder goes with the
 // workload alone.
-const forwardedLabel = "sockerless-sim-forwarded-by"
+const ForwardedLabel = "sockerless-sim-forwarded-by"
 
 // Adopt takes over a container, and the forwarder it was placed with.
 func (ContainerBackend) Adopt(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
@@ -241,7 +242,7 @@ func forwarderOf(ctx context.Context, containerID string) (string, error) {
 	if inspected.Container.Config == nil {
 		return "", nil
 	}
-	return inspected.Container.Config.Labels[forwardedLabel], nil
+	return inspected.Container.Config.Labels[ForwardedLabel], nil
 }
 
 // forwardedHandle is a workload placed behind a forwarder: the workload's
@@ -287,8 +288,8 @@ func (ContainerBackend) Restart(ctx context.Context, id string, w Workload, sink
 		if err := sim.StartExistingContainer(holder); err != nil {
 			return nil, fmt.Errorf("restart the namespace holder of %s: %w", id, err)
 		}
-		if w.Gateway != "" {
-			if err := sidecar.SetRoute(ctx, holder, w.Gateway); err != nil {
+		if w.Gateway != "" || len(w.Routes) > 0 {
+			if err := sidecar.SetRoute(ctx, holder, w.Gateway, w.Routes); err != nil {
 				return nil, err
 			}
 		}
@@ -406,7 +407,7 @@ func (c containerHandle) SetGateway(ctx context.Context, gateway string) error {
 			return err
 		}
 	}
-	return sidecar.SetRoute(ctx, owner, gateway)
+	return sidecar.SetRoute(ctx, owner, gateway, nil)
 }
 
 // networkGateway is the address the engine gives a container's network as

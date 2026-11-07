@@ -124,8 +124,7 @@ type amplifyComputeInstance struct {
 	handle    placement.Handle
 }
 
-// amplifyComputeBackend forwards the container's loopback, where the
-// container credentials endpoint serves the compute role's sessions.
+// amplifyComputeBackend places an app's compute as a container.
 var amplifyComputeBackend placement.Backend = placement.ContainerBackend{}
 
 var (
@@ -267,7 +266,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		return 0, fmt.Errorf("compute network: %w", err)
 	}
 	holder := roleHolder("amplify", key)
-	credentials := grantContainerCredentials(amplifyComputeBackend, network, holder, computeRole, app.AppId)
+	credentials := grantContainerCredentials(network, holder, computeRole, app.AppId)
 
 	handle, err := credentials.place(context.Background(), amplifyComputeBackend, sim.ContainerConfig{
 		Image:        image,

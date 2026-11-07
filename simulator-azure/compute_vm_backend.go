@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 
@@ -235,7 +236,7 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 		DNS:       network.resolvers(),
 		UserData:  customData,
 		CloudInit: azureVMCloudInit(vm),
-		Env:       map[string]string{"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + network.DNS + "/metadata/instance"},
+		Routes:    azureIMDSRoutes(network.DNS),
 		VCPUs:     cores,
 		MemoryMiB: memoryMB,
 		Labels: map[string]string{
@@ -465,4 +466,18 @@ func azureReleaseVMWorkloads(ctx context.Context) {
 			_, _ = cli.ImageRemove(ctx, backing.OCI, client.ImageRemoveOptions{Force: true})
 		}
 	}
+}
+
+// azureIMDSAddress is where Azure serves the Instance Metadata Service, and
+// the managed identity endpoint with it, inside every virtual network.
+var azureIMDSAddress = netip.MustParseAddr("169.254.169.254")
+
+// azureIMDSRoutes send the service's address to the network's sidecar, which
+// answers at it.
+func azureIMDSRoutes(sidecar string) []sim.Route {
+	via, err := netip.ParseAddr(sidecar)
+	if err != nil {
+		return nil
+	}
+	return []sim.Route{{Destination: netip.PrefixFrom(azureIMDSAddress, 32), Via: via}}
 }

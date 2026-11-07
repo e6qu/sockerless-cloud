@@ -69,6 +69,7 @@ func awsNetworkSidecars() (*sidecar.Manager, error) {
 		return nil, fmt.Errorf("network sidecars: workload callback: %w", err)
 	}
 	networkSidecars = sidecar.NewManager(r53DNS, "http://"+origin, sim.NoopSink{})
+	networkSidecars.ServeLinkLocal(awsInstanceMetadataAddress, awsECSAgentAddress)
 	return networkSidecars, nil
 }
 

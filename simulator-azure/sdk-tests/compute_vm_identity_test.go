@@ -41,7 +41,7 @@ func imdsFromGuest(t *testing.T, rg, vmName, step, path string, bare bool) imdsR
 	}
 	// printf reads the request line as its format, so the path's percent
 	// escapes are doubled to reach the wire as they are.
-	out := runInGuest(t, rg, vmName, step, `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
+	out := runInGuest(t, rg, vmName, step, `bash -c 'host=169.254.169.254; `+
 		`exec 3<>/dev/tcp/$host/80; printf "GET `+strings.ReplaceAll(path, "%", "%%")+` HTTP/1.0\r\nHost: 169.254.169.254\r\n`+header+`\r\n" >&3; cat <&3'`)
 	status := regexp.MustCompile(`HTTP/1\.[01] (\d{3})`).FindStringSubmatch(out)
 	require.Len(t, status, 2, "the guest got no HTTP response for %s: %s", path, out)

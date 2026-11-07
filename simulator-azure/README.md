@@ -393,8 +393,8 @@ a marketplace image (`Canonical:ubuntu-24_04-lts:server` or `server-arm64`,
 The sidecar serves the Azure Instance Metadata Service (`/metadata/instance`,
 `/metadata/attested/document`) and its managed identity token endpoint
 (`/metadata/identity/oauth2/token`), all requiring `Metadata: true`; the
-simulator knows the machine by its source address. The machine receives
-`AZURE_INSTANCE_METADATA_ENDPOINT` naming its sidecar. An App Service, Azure
+simulator knows the machine by its source address. The machine reaches it at
+`169.254.169.254`, which its routes send to the sidecar. An App Service, Azure
 Functions or Azure Container Apps workload with a managed identity receives
 `IDENTITY_ENDPOINT` (`http://<sidecar>/msi/token`) and `IDENTITY_HEADER`; one
 without an identity gets neither, as in Azure. The simulator signs every token

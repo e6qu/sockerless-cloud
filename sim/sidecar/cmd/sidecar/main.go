@@ -9,7 +9,9 @@
 // `sidecar forward` it owns a workload's network namespace and relays the
 // loopback ports it names to endpoints on the workload's network. As
 // `sidecar hold` it owns a workload's namespace and does nothing else, and as
-// `sidecar route` it sets the default route of the namespace it joined.
+// `sidecar route` it sets the routes of the namespace it joined, and as
+// `sidecar address` it adds addresses to the loopback of the namespace it
+// joined.
 package main
 
 import (
@@ -92,6 +94,12 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "route" {
 		if err := serveRoute(os.Stdout, os.Args[2:]); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "address" {
+		if err := serveAddress(os.Stdout, os.Args[2:]); err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}
 		return

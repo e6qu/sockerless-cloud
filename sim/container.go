@@ -58,6 +58,12 @@ type NetworkAttachment struct {
 // subnet's routing names no way out.
 const NoGateway = "none"
 
+// Route sends what a workload addresses to Destination through Via.
+type Route struct {
+	Destination netip.Prefix
+	Via         netip.Addr
+}
+
 type ContainerConfig struct {
 	Image        string // container image (e.g., "alpine:latest")
 	Architecture string // OS/arch (e.g. "linux/arm64") from the workload's spec, never the host's
@@ -93,6 +99,10 @@ type ContainerConfig struct {
 	// A backend that cannot route a workload leaves it on the network's
 	// gateway.
 	Gateway string
+	// Routes are routes the workload's namespace carries besides its default
+	// route: the cloud's fixed link-local addresses through its network's
+	// sidecar. A backend that cannot route a workload leaves them out.
+	Routes []Route
 	// Hostname is the name the container sees as its own; empty leaves the
 	// engine's default.
 	Hostname string

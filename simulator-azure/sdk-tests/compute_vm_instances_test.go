@@ -143,7 +143,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	// Reach the Instance Metadata Service over plain TCP from a shell with no
 	// HTTP client.
 	read := func(step, path string) string {
-		return runInGuest(t, rg, vmName, step, `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
+		return runInGuest(t, rg, vmName, step, `bash -c 'host=169.254.169.254; `+
 			`exec 3<>/dev/tcp/$host/80; printf "GET `+path+` HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3; cat <&3'`)
 	}
 	imds := read("imds", "/metadata/instance?api-version=2021-02-01")

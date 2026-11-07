@@ -44,7 +44,7 @@ func imdsGuestRequest(method, path, body string) string {
 	} else {
 		request += `\r\n`
 	}
-	return `host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; ` +
+	return `host=169.254.169.254; ` +
 		`exec 3<>/dev/tcp/$host/80; printf "` + request + `" >&3; cat <&3; echo; echo __IMDS_END__`
 }
 

@@ -107,9 +107,9 @@ func TestEC2_InstanceRunsUserDataAndReadsItsMetadata(t *testing.T) {
 	c := ec2Client()
 	userData := `#!/bin/sh
 echo "user-data ran on $(uname -n) as $(id -un)"
-token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
-curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/instance-id" > /var/tmp/instance-id
-curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/local-ipv4" > /var/tmp/local-ipv4
+token=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/instance-id" > /var/tmp/instance-id
+curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/local-ipv4" > /var/tmp/local-ipv4
 `
 	instanceID := ec2UserDataInstance(t, c, "10.206.0.0/16", userData)
 	desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})

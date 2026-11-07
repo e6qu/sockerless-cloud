@@ -344,14 +344,35 @@ func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (
 }
 
 // SetRoute points the default route of a container's network namespace at
-// gateway, or removes it for sim.NoGateway, through a one-shot sidecar that
-// joins the namespace holding NET_ADMIN alone.
-func SetRoute(ctx context.Context, containerID, gateway string) error {
+// gateway, removes it for sim.NoGateway or leaves it for the empty gateway,
+// and adds each of routes, through a one-shot sidecar that joins the
+// namespace holding NET_ADMIN alone.
+func SetRoute(ctx context.Context, containerID, gateway string, routes []sim.Route) error {
+	args := []string{"route", gateway}
 	if gateway == "" {
-		return errors.New("sidecar: a route needs a gateway address or sim.NoGateway")
+		args[1] = "-"
 	}
+	for _, r := range routes {
+		args = append(args, r.Destination.String()+"="+r.Via.String())
+	}
+	return runInNamespace(ctx, containerID, args)
+}
+
+// AddLoopbackAddresses adds each address to the loopback of a container's
+// network namespace, through a one-shot sidecar holding NET_ADMIN alone.
+func AddLoopbackAddresses(ctx context.Context, containerID string, addrs []netip.Addr) error {
+	args := []string{"address"}
+	for _, a := range addrs {
+		args = append(args, a.String())
+	}
+	return runInNamespace(ctx, containerID, args)
+}
+
+// runInNamespace runs the sidecar once with args in a container's network
+// namespace, holding NET_ADMIN alone, and waits for it.
+func runInNamespace(ctx context.Context, containerID string, args []string) error {
 	cli := sim.DockerClient()
-	if err := sim.RequireContainerRuntime("routing a workload"); err != nil {
+	if err := sim.RequireContainerRuntime("changing a workload's network"); err != nil {
 		return err
 	}
 	image, platform, err := EnsureImage(ctx, cli)
@@ -363,7 +384,7 @@ func SetRoute(ctx context.Context, containerID, gateway string) error {
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
-		Args:         []string{"route", gateway},
+		Args:         args,
 		NetworkMode:  "container:" + containerID,
 		Labels:       map[string]string{routeLabel: containerID},
 		Sandbox: sim.SandboxProfile{
@@ -379,17 +400,17 @@ func SetRoute(ctx context.Context, containerID, gateway string) error {
 		lines = append(lines, line.Text)
 	}))
 	if err != nil {
-		return fmt.Errorf("sidecar: route %s through %s: %w", containerID, gateway, err)
+		return fmt.Errorf("sidecar: %s in %s: %w", strings.Join(args, " "), containerID, err)
 	}
 	result := handle.Wait()
 	if result.Error != nil || result.ExitCode != 0 {
 		mu.Lock()
 		defer mu.Unlock()
-		return fmt.Errorf("sidecar: route %s through %s exited %d (%v): %s", containerID, gateway, result.ExitCode, result.Error, strings.Join(lines, "; "))
+		return fmt.Errorf("sidecar: %s in %s exited %d (%v): %s", strings.Join(args, " "), containerID, result.ExitCode, result.Error, strings.Join(lines, "; "))
 	}
 	return nil
 }
 
-// routeLabel marks a one-shot route change with the container whose
+// routeLabel marks a one-shot network change with the container whose
 // namespace it joined.
 const routeLabel = "sockerless-sim-route-for"

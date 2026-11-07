@@ -292,9 +292,8 @@ through `SIM_DNS_UPSTREAM`.
 ### EC2 instance metadata (IMDSv2)
 
 The sidecar forwards metadata requests to the simulator with the caller's
-address, so each instance reads only its own record. An instance finds the
-service through `AWS_EC2_METADATA_SERVICE_ENDPOINT`, which names the sidecar;
-`169.254.169.254` isn't routed. [Instance metadata](../docs/instance-metadata.md)
+address, so each instance reads only its own record. An instance reaches it
+at `169.254.169.254`, which its routes send to the sidecar. [Instance metadata](../docs/instance-metadata.md)
 lists every path and its limits. `PUT /latest/api/token`
 issues an IMDSv2 session token for 1 to 21,600 seconds and refuses a request a
 proxy forwarded; `HttpTokens=required` refuses every read without a live

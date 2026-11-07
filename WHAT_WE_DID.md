@@ -552,6 +552,20 @@ test found `DescribeNatGateways` reading only its first ID and answering an
 unknown one with an empty list, which left the SDK's `NatGatewayDeleted`
 waiter waiting out its whole budget; it answers `NatGatewayNotFound`.
 
+A workload reaches its cloud's metadata at the address the cloud serves it
+on. Each network sidecar answers at `169.254.169.254`, and on AWS at
+`169.254.170.2` too: a one-shot `sidecar address` holding `NET_ADMIN` adds
+them to its loopback. Each workload routes those addresses to the sidecar, a
+container in the namespace it joins before it starts and a microVM guest from
+its init before its first process. The sim-only variables went with it:
+`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `GCE_METADATA_HOST` and its siblings, and
+`AZURE_INSTANCE_METADATA_ENDPOINT`; container credentials take the Amazon ECS
+agent's `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` in place of a loopback
+forwarder, and `metadata.google.internal` resolves to `169.254.169.254`.
+Google Cloud's metadata server knows a caller by the container at its address,
+which is now the holder a workload joined, so the lookup follows the holder's
+`placement.ForwardedLabel` back to the workload.
+
 ### VM instances and cloud-init
 
 `sim/machine` holds the lifecycle the three clouds each wrote: boot and wait

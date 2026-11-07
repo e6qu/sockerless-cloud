@@ -799,7 +799,7 @@ func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.Lo
 	if err != nil {
 		return nil, err
 	}
-	credentials := grantContainerCredentials(backend, network, roleHolder("batch", jobID), jobRole, sessionName)
+	credentials := grantContainerCredentials(network, roleHolder("batch", jobID), jobRole, sessionName)
 	cfg.Network = network.Name
 	cfg.DNS = network.DNS()
 	cfg.Env = workloadhost.MergeEnv(cfg.Env, credentials.Env)

@@ -356,10 +356,9 @@ network sees public zones only.
 
 The sidecar forwards metadata requests to the simulator with the caller's
 address, so each workload reads its own instance, project and service account.
-Every workload receives `GCE_METADATA_HOST`, `GCE_METADATA_IP` and
-`GCE_METADATA_ROOT` naming the sidecar, which the Google client libraries
-honour, and hosts entries that resolve `metadata.google.internal` and
-`metadata` to it. [`docs/instance-metadata.md`](../docs/instance-metadata.md)
+A workload reaches it at `metadata.google.internal`, which the VPC resolver
+and its hosts entries answer with `169.254.169.254`, the address its routes
+send to the sidecar. [`docs/instance-metadata.md`](../docs/instance-metadata.md)
 lists what the server answers.
 
 ### Cloud Run services and Cloud Run functions

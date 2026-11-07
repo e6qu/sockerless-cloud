@@ -258,7 +258,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 	defer revokeRoleCredentials(holder)
 	// Hand the job its script and arguments the way Glue hands them to a Python shell job.
 	backend := placement.ContainerBackend{}
-	credentials := grantContainerCredentials(backend, network, holder, job.Role, "GlueJobRunnerSession")
+	credentials := grantContainerCredentials(network, holder, job.Role, "GlueJobRunnerSession")
 	handle, err := credentials.place(context.Background(), backend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,

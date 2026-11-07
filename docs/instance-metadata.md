@@ -97,50 +97,45 @@ flowchart LR
 
 ### Which address a workload dials
 
-The fixed link-local addresses do not answer. A workload that dials
-`169.254.169.254`, `169.254.170.2` or `168.63.129.16` gets no route: a bridge
-network carries one subnet, and routing a link-local address inside the
-workload needs a capability ([Limits](#limits)). The simulators hand each
-workload the sidecar's address through an environment variable
-instead:
+A workload dials the address the cloud serves metadata on. Each network's
+sidecar answers at `169.254.169.254`, and on AWS at `169.254.170.2` too, which
+a one-shot `sidecar address` holding `NET_ADMIN` adds to the sidecar's
+loopback. Each workload carries a host route to those addresses through the
+sidecar: a container's is set in the namespace it joins before it starts, a
+microVM guest's by its init before its first process. The sidecar still sees
+the workload's own address, so attribution is unchanged.
 
-| Workload | Variables set | Set by |
+| Workload | What it dials | Set by |
 |---|---|---|
-| Amazon EC2 instance | `AWS_EC2_METADATA_SERVICE_ENDPOINT=http://<sidecar>/`, `AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE=IPv4` | `ec2MetadataEnv` (`simulator-aws/metadata.go`) |
-| Amazon ECS task, awsvpc or bridge | `ECS_CONTAINER_METADATA_URI_V4` and `ECS_CONTAINER_METADATA_URI`, both `http://<sidecar>/v4/<task-id>` | `ecsTaskMetadataEnv` |
+| Amazon EC2 instance | `http://169.254.169.254`, with no endpoint variable | `ec2InstanceSpec` (`simulator-aws/ec2_instance_launch.go`) |
+| Amazon ECS task, awsvpc or bridge | `ECS_CONTAINER_METADATA_URI_V4` and `ECS_CONTAINER_METADATA_URI`, both `http://169.254.170.2/v4/<task-id>` | `ecsTaskMetadataEnv` |
 | Amazon ECS task, host mode | The same two, at the simulator's callback address | `hostNetworkMetadataEnv` |
-| Any AWS workload holding a role through a container credentials grant (ECS task, AWS CodeBuild, AWS Batch, AWS Glue, AWS Amplify compute) | `AWS_CONTAINER_CREDENTIALS_FULL_URI` | `grantContainerCredentials` (`simulator-aws/role_credentials.go`) |
-| Compute Engine instance, Cloud Run, Cloud Run functions, Cloud Build | `GCE_METADATA_HOST`, `GCE_METADATA_IP`, `GCE_METADATA_ROOT`, all `<sidecar>` | `gcpWorkloadNetwork.env` (`simulator-gcp/gcp_networks.go`) |
-| Azure virtual machine | `AZURE_INSTANCE_METADATA_ENDPOINT=http://<sidecar>/metadata/instance` | `azureVMInstanceSpec` (`simulator-azure/compute_vm_backend.go`) |
+| Any AWS workload holding a role through a container credentials grant (ECS task, AWS CodeBuild, AWS Batch, AWS Glue, AWS Amplify compute) | `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, which the SDKs resolve against `169.254.170.2` | `grantContainerCredentials` (`simulator-aws/role_credentials.go`) |
+| Compute Engine instance, Cloud Run, Cloud Run functions, Cloud Build | `metadata.google.internal`, which the VPC resolver and the hosts file answer with `169.254.169.254`; no variable | `gcpWorkloadNetwork.routes` (`simulator-gcp/gcp_networks.go`) |
+| Azure virtual machine | `http://169.254.169.254`, with no endpoint variable | `azureIMDSRoutes` (`simulator-azure/compute_vm_backend.go`) |
 | App Service app or slot, Azure Functions app, container app, Container Apps job, with a managed identity | `IDENTITY_ENDPOINT=http://<sidecar>/msi/token`, `IDENTITY_HEADER` | `workloadMetadataEnv` (`simulator-azure/metadata.go`) |
 
 Google Cloud also resolves the metadata server's names. Every Google Cloud
-workload gets hosts entries `metadata.google.internal:<sidecar>` and
-`metadata:<sidecar>` (`gcpWorkloadNetwork.extraHosts`), and the Cloud DNS
-catalog answers `metadata.google.internal.` with the sidecar's address on the
-asking network (`cloudDNSCatalog`, `simulator-gcp/dns_resolver.go`). So
-`curl http://metadata.google.internal/…` works on Google Cloud, and a client
-that dials `169.254.169.254` does not.
+workload gets hosts entries `metadata.google.internal:169.254.169.254` and
+`metadata:169.254.169.254` (`gcpWorkloadNetwork.extraHosts`), and the Cloud DNS
+catalog answers `metadata.google.internal.` with the same address
+(`cloudDNSCatalog`, `simulator-gcp/dns_resolver.go`).
 
 ### Container backend and microVM guests
 
-On the container backend a workload is a container on the engine network. A
-grant of container credentials there is served on the workload's own
-loopback: `grantContainerCredentials` sets
-`AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:51679/v2/credentials/<id>`
-and places the workload behind a forwarder (`placement.ContainerBackend.PlaceForwarded`,
-`sidecar.StartForwarder`). The forwarder owns the workload's network namespace
-and relays `127.0.0.1:51679` to the sidecar's port 80. The AWS SDKs'
-container credential provider accepts a plain-HTTP full URI only on a loopback
-or the endpoint's link-local address, so this is the form it takes.
-
-On a node agent's microVM backend, a guest is a Firecracker machine bridged
-onto the same engine network through a tap. It reaches the same sidecar at the
-same address. That backend is no `placement.Forwarding`, so a grant there names the sidecar itself:
-`AWS_CONTAINER_CREDENTIALS_FULL_URI=http://<sidecar>/v2/credentials/<id>`.
-The AWS SDKs' provider refuses that URI, and so it does for a host-mode ECS
-task, whose URI names the simulator's callback address. Only a client that
-reads the endpoint itself holds the role there.
+On the container backend a workload with routes joins a holder sidecar that
+owns its network namespace, and a one-shot `sidecar route` sets the routes
+there before the workload starts (`placement.ContainerBackend`). A workload
+that keeps its disk joins a kept holder that outlives its stops. On a node
+agent's microVM backend, a guest is a Firecracker machine bridged onto the same
+engine network through a tap, and its init adds the routes before its first
+process (`guestinit`'s `addRoutes`). Either way the AWS SDKs' container
+credential provider takes `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` against the
+agent's link-local address, as it does in Amazon ECS. A host-mode ECS task
+shares the container instance's namespace, which the simulator does not route,
+so its `AWS_CONTAINER_CREDENTIALS_FULL_URI` names the simulator's callback
+address, which the provider refuses; only a client that reads the endpoint
+itself holds the role there.
 
 ## Amazon EC2 and Amazon ECS
 
@@ -294,19 +289,19 @@ runs these commands in the guest through AWS Systems Manager:
 
 <!-- doctest: skip reason="runs inside an Amazon EC2 instance; TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession runs it there" -->
 ```sh
-token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" \
+token=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
 curl -sS -H "X-aws-ec2-metadata-token: $token" \
-  "${AWS_EC2_METADATA_SERVICE_ENDPOINT%/}/latest/meta-data/instance-id"
+  "http://169.254.169.254/latest/meta-data/instance-id"
 curl -sS -H "X-aws-ec2-metadata-token: $token" \
-  "${AWS_EC2_METADATA_SERVICE_ENDPOINT%/}/latest/meta-data/iam/security-credentials/<role>"
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>"
 
 # The AMI requires IMDSv2: no token answers 401, a TTL over six hours 400.
 curl -sS -o /dev/null -w '%{http_code}' \
-  "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/instance-id"        # 401
+  "http://169.254.169.254/latest/meta-data/instance-id"        # 401
 curl -sS -o /dev/null -w '%{http_code}' -X PUT \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 21601" \
-  "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"                    # 400
+  "http://169.254.169.254/latest/api/token"                    # 400
 ```
 
 The test then calls STS `GetCallerIdentity` with the session and gets
@@ -698,7 +693,7 @@ HTTP client:
 
 <!-- doctest: skip reason="runs inside an Azure virtual machine; TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata runs it there" -->
 ```sh
-host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}
+host=169.254.169.254
 exec 3<>/dev/tcp/$host/80
 printf "GET /metadata/instance?api-version=2021-02-01 HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3
 cat <&3
@@ -742,7 +737,7 @@ curl -s -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
 
 | BUGS.md | Limit |
 |---|---|
-| 3485 | The fixed link-local addresses (`169.254.169.254`, `169.254.170.2`, `168.63.129.16`) do not answer; workloads use the variables above. On the microVM backend and for host-mode ECS tasks, the container credentials URI names a non-loopback address the AWS SDKs refuse. |
+| 3485 | A host-mode Amazon ECS task reaches the task metadata and container credentials endpoints at the simulator's callback address, not at `169.254.170.2`, and the AWS SDKs refuse its credentials URI. Azure's `168.63.129.16` does not answer. |
 | 3528 | IMDS does not serve `identity-credentials/ec2/*`, `events/maintenance/*`, `history`, `spot/`, the identity document's `signature`, `pkcs7` and `rsa2048`, or the IPv6 endpoint, and does not enforce `HttpPutResponseHopLimit`. |
 | 3537 | A Cloud Run or Cloud Build caller's `instance/name` and `instance/hostname`, a Cloud Build step's `instance/zone`, and its `instance/id`, are fixed values. |
 | 3391 | The App Service identity endpoint's 401 and 400 bodies are the simulator's own. |

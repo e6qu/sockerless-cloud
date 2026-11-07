@@ -178,12 +178,12 @@ A workload holds a session of its role. `roleSessionCredential` (`role_credentia
 
 | Workload | Channel | Environment the simulator sets | Session name |
 |---|---|---|---|
-| Amazon EC2 instance with a profile | IMDSv2: `PUT /latest/api/token` (TTL 1–21600 s, refused with `X-Forwarded-For`), then `GET /latest/meta-data/iam/security-credentials/<role>` with `X-aws-ec2-metadata-token` (`ec2_imds.go`). IMDSv1 works unless `HttpTokens=required`. | `AWS_EC2_METADATA_SERVICE_ENDPOINT`, `AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE=IPv4` (`ec2MetadataEnv`, `metadata.go`) | the instance ID |
-| Amazon ECS task role | container credentials endpoint `GET /v2/credentials/{id}` | `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `ECS_CONTAINER_METADATA_URI_V4` (`ecsTaskMetadataEnv`) | the task ID |
-| AWS Batch, AWS CodeBuild, AWS Glue, AWS Amplify compute | the same endpoint (`grantContainerCredentials`) | `AWS_CONTAINER_CREDENTIALS_FULL_URI` | per service, e.g. `GlueJobRunnerSession` |
+| Amazon EC2 instance with a profile | IMDSv2: `PUT /latest/api/token` (TTL 1–21600 s, refused with `X-Forwarded-For`), then `GET /latest/meta-data/iam/security-credentials/<role>` with `X-aws-ec2-metadata-token` (`ec2_imds.go`). IMDSv1 works unless `HttpTokens=required`. | none: the instance dials `169.254.169.254` (`ec2InstanceSpec`, `ec2_instance_launch.go`) | the instance ID |
+| Amazon ECS task role | container credentials endpoint `GET /v2/credentials/{id}` | `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`, `ECS_CONTAINER_METADATA_URI_V4` (`ecsTaskMetadataEnv`) | the task ID |
+| AWS Batch, AWS CodeBuild, AWS Glue, AWS Amplify compute | the same endpoint (`grantContainerCredentials`) | `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` | per service, e.g. `GlueJobRunnerSession` |
 | AWS Lambda execution role | environment (`roleEnvironmentCredentialsExpiring`, `lambda_environment.go`) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | the function name |
 
-The SDK's default credential chain finds each of these unchanged. The metadata endpoints name the workload network's sidecar. The SDK accepts a plain-HTTP container credentials URI only on loopback or the link-local address. On backends that forward a workload's loopback, the URI is therefore `http://127.0.0.1:51679`, which the sidecar relays to the simulator.
+The SDK's default credential chain finds each of these unchanged, at the addresses AWS serves them on: `169.254.169.254` for instance metadata and `169.254.170.2` for the container credentials and task metadata endpoints. Each workload routes those addresses to its network's sidecar, which answers at them and relays to the simulator with the workload's address.
 
 A service accepts a role only if the role's trust policy admits it. `iamServiceTrustedRole` (`iam_service_context.go`) evaluates `sts:AssumeRole` for `service:<principal>` with `aws:SourceArn` and `aws:SourceAccount`. Callers include Lambda (`lambda.amazonaws.com`, which refuses with `InvalidParameterValueException` "The role defined for the function cannot be assumed by Lambda."), Amazon ECS RunTask (`ecs-tasks.amazonaws.com`), ECS services (`ecs.amazonaws.com`), Batch, CodeBuild, Glue, Amplify, EventBridge Scheduler, AWS Step Functions and AWS Systems Manager. `iamValidateServiceRole` also checks that the role's policies allow each action the service will take.
 
@@ -639,7 +639,7 @@ An account the workload does not run as answers 404. `?wait_for_change=true` lon
 
 #### How a workload reaches it
 
-Every engine network a workload joins runs a network sidecar (`networkSidecars`, `dns_resolver.go`). `gcpWorkloadNetwork.apply` (`gcp_networks.go`) points the container's DNS at the sidecar, adds hosts entries for `metadata.google.internal` and `metadata`, and sets `GCE_METADATA_HOST`, `GCE_METADATA_IP` and `GCE_METADATA_ROOT` to the sidecar's address. The simulator's Cloud DNS resolver also answers `metadata.google.internal` with that address (`cloudDNSCatalog`). The sidecar forwards each metadata request with its own token and the workload's address. `sim.SidecarTrust` trusts that address only with a registered token, so a workload cannot claim another's address.
+Every engine network a workload joins runs a network sidecar (`networkSidecars`, `dns_resolver.go`). `gcpWorkloadNetwork.apply` (`gcp_networks.go`) points the container's DNS at the sidecar, adds hosts entries for `metadata.google.internal` and `metadata`, and routes `169.254.169.254` to the sidecar, which answers at it. The hosts entries and the simulator's Cloud DNS resolver (`cloudDNSCatalog`) answer `metadata.google.internal` with `169.254.169.254`. The sidecar forwards each metadata request with its own token and the workload's address. `sim.SidecarTrust` trusts that address only with a registered token, so a workload cannot claim another's address.
 
 #### Cloud Run invoker check
 
@@ -1113,7 +1113,7 @@ Both endpoints mint 24-hour tokens. With no selector the token belongs to the sy
 
 Every workload network carries a sidecar container (`sim/sidecar`, `azureEnsureSidecar` in `azure_workload_networks.go`). On a virtual network it sits at the address Azure reserves for its resolver (`azureVNetResolverAddress`); on any other network it sits at the second host of the range. It answers DNS and forwards metadata requests to the simulator. Each forwarded request carries `X-Sockerless-Sidecar-Token` and `X-Sockerless-Sidecar-Client`. `sim.SidecarTrust` (`sim/sidecar_trust.go`) accepts the client address only with a registered token, makes it the request's `RemoteAddr` and strips both headers. A workload that reaches the simulator directly therefore cannot claim another workload's address.
 
-- A virtual machine gets `AZURE_INSTANCE_METADATA_ENDPOINT=http://<sidecar>/metadata/instance` (`azureVMInstanceSpec`, `compute_vm_backend.go`).
+- A virtual machine dials `169.254.169.254`, which its routes send to the sidecar (`azureIMDSRoutes`, `compute_vm_backend.go`).
 - An App Service app or container app with an identity gets `IDENTITY_ENDPOINT=http://<sidecar>/msi/token` and its `IDENTITY_HEADER` (`workloadMetadataEnv`, `metadata.go`). A workload without an identity gets neither.
 
 #### Federated identity credentials and workload identity

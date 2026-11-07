@@ -109,17 +109,17 @@ func TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession(t *testing.T) {
 
 	s := ssmClient()
 	imds := func(path string) string {
-		return ssmShell(t, s, instanceID, `token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
-curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPOINT%/}`+path+`"`)
+		return ssmShell(t, s, instanceID, `token=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254`+path+`"`)
 	}
 	status := func(args string) string {
 		return ssmShell(t, s, instanceID, `curl -sS -o /dev/null -w '%{http_code}' `+args)
 	}
 
-	assert.Equal(t, "401", status(`"${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/instance-id"`), "a read without a token is refused")
-	assert.Equal(t, "401", status(`-H "X-aws-ec2-metadata-token: AQunknown" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/instance-id"`))
-	assert.Equal(t, "400", status(`-X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 21601" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"`), "a TTL over six hours is refused")
-	assert.Equal(t, "400", status(`-X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"`), "a token request without a TTL is refused")
+	assert.Equal(t, "401", status(`"http://169.254.169.254/latest/meta-data/instance-id"`), "a read without a token is refused")
+	assert.Equal(t, "401", status(`-H "X-aws-ec2-metadata-token: AQunknown" "http://169.254.169.254/latest/meta-data/instance-id"`))
+	assert.Equal(t, "400", status(`-X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 21601" "http://169.254.169.254/latest/api/token"`), "a TTL over six hours is refused")
+	assert.Equal(t, "400", status(`-X PUT "http://169.254.169.254/latest/api/token"`), "a token request without a TTL is refused")
 
 	assert.Equal(t, imdsUserData, imds("/latest/user-data"), "the instance reads its user data as launched")
 
@@ -166,7 +166,7 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 
 	// An associated Elastic IP address appears under the interface's public
 	// addresses, and ipv4-associations maps it to its private address.
-	assert.Equal(t, "404", status(`-H "X-aws-ec2-metadata-token: $(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/network/interfaces/macs/`+mac+`/public-ipv4s"`),
+	assert.Equal(t, "404", status(`-H "X-aws-ec2-metadata-token: $(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")" "http://169.254.169.254/latest/meta-data/network/interfaces/macs/`+mac+`/public-ipv4s"`),
 		"an interface without a public address has no public-ipv4s")
 	eip, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
 	require.NoError(t, err)
@@ -236,5 +236,5 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 		InstanceId: aws.String(instanceID), HttpEndpoint: types.InstanceMetadataEndpointStateDisabled,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "404", status(`-X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 60" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token"`))
+	assert.Equal(t, "404", status(`-X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 60" "http://169.254.169.254/latest/api/token"`))
 }

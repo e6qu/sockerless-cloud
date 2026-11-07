@@ -31,9 +31,8 @@ const gceNetworkMTU = 1460
 // Cloud runs reads: a Compute Engine instance, a Cloud Run container, a Cloud
 // Build step. Google serves it at metadata.google.internal (169.254.169.254)
 // on port 80 and requires `Metadata-Flavor: Google` on every read. A workload
-// reaches it through its network's sidecar, which GCE_METADATA_HOST and
-// GCE_METADATA_IP name, so the Google Cloud client libraries find it
-// unchanged.
+// reaches it there: its routes send 169.254.169.254 to its network's sidecar,
+// so the Google Cloud client libraries find it unchanged.
 //
 // The tree below is the single description the listings, the recursive reads
 // and the leaf reads all resolve against, so a listing never advertises a key

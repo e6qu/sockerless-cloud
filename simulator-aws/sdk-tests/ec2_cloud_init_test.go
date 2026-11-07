@@ -62,8 +62,8 @@ func TestEC2_InstanceRunsItsCloudConfig(t *testing.T) {
 	assert.Equal(t, deployKey+"\n", ssmShell(t, s, instanceID, "cat /home/deploy/.ssh/authorized_keys"))
 	assert.Equal(t, "ec2-user,deploy\n", ssmShell(t, s, instanceID, "grep '^wheel:' /etc/group | cut -d: -f4"))
 	imds := func(path string) string {
-		return ssmShell(t, s, instanceID, `token=$(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
-curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPOINT%/}`+path+`"`)
+		return ssmShell(t, s, instanceID, `token=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254`+path+`"`)
 	}
 	assert.Equal(t, "0="+keyName, imds("/latest/meta-data/public-keys/"), "the metadata service lists the key pair")
 	assert.Equal(t, "openssh-key", imds("/latest/meta-data/public-keys/0/"))

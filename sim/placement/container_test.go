@@ -2,6 +2,7 @@ package placement
 
 import (
 	"context"
+	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
@@ -248,11 +249,11 @@ func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the workload's published port: %v", err)
 	}
-	existing, err := backend.Find(t.Context(), map[string]string{forwardedLabel: forwarderID})
+	existing, err := backend.Find(t.Context(), map[string]string{ForwardedLabel: forwarderID})
 	if err != nil || len(existing) != 1 || existing[0].ID != long.ID() {
 		t.Fatalf("Find returned %v, %v; want the workload alone", existing, err)
 	}
-	found, err := sim.FindExistingContainers(map[string]string{forwardedLabel: forwarderID})
+	found, err := sim.FindExistingContainers(map[string]string{ForwardedLabel: forwarderID})
 	if err != nil || len(found) != 1 || hostPort == 0 || found[0].PublishedPorts[8080] != hostPort {
 		t.Fatalf("the workload lists published ports %v (%v), want 8080 on %d", found, err, hostPort)
 	}
@@ -336,13 +337,15 @@ func TestContainerBackendRoutesAWorkloadThroughItsGateway(t *testing.T) {
 		mu.Lock()
 		lines = append(lines, line.Text)
 		mu.Unlock()
-		if strings.HasPrefix(line.Text, "default ") {
+		// ip route lists the default route first and the host route after it.
+		if strings.HasPrefix(line.Text, "169.254.169.254 ") {
 			once.Do(func() { close(routedFirst) })
 		}
 	})
 	routed, err := backend.Place(t.Context(), Workload{
 		Image: testImage, Architecture: platform, Command: []string{"sh", "-c", "ip route; exec sleep 300"},
 		Name: "sockerless-sim-placement-routed-" + stamp, Network: network, Gateway: via, Sandbox: sandbox,
+		Routes:            []sim.Route{{Destination: netip.MustParsePrefix("169.254.169.254/32"), Via: netip.MustParseAddr(via)}},
 		CancelGracePeriod: time.Second,
 	}, sink)
 	if err != nil {
@@ -359,7 +362,7 @@ func TestContainerBackendRoutesAWorkloadThroughItsGateway(t *testing.T) {
 	mu.Lock()
 	first := strings.Join(lines, "\n")
 	mu.Unlock()
-	if !strings.Contains(first, "default via "+via+" ") {
+	if !strings.Contains(first, "default via "+via+" ") || !strings.Contains(first, "169.254.169.254 via "+via+" ") {
 		t.Fatalf("the workload's first routes are not through %s:\n%s", via, first)
 	}
 

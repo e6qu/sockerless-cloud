@@ -32,15 +32,14 @@ type gcpWorkloadNetwork struct {
 	release func()
 }
 
-// env names the sidecar as the metadata server, which every Google client
-// library honours ahead of metadata.google.internal.
-func (n gcpWorkloadNetwork) env() map[string]string {
-	host := n.Sidecar.String()
-	return map[string]string{
-		"GCE_METADATA_HOST": host,
-		"GCE_METADATA_IP":   host,
-		"GCE_METADATA_ROOT": host,
-	}
+// gceMetadataAddress is where Google serves the metadata server inside every
+// VPC network, the address metadata.google.internal resolves to.
+var gceMetadataAddress = netip.MustParseAddr("169.254.169.254")
+
+// routes send the metadata server's address to the network's sidecar, which
+// answers at it.
+func (n gcpWorkloadNetwork) routes() []sim.Route {
+	return []sim.Route{{Destination: netip.PrefixFrom(gceMetadataAddress, 32), Via: n.Sidecar}}
 }
 
 func (n gcpWorkloadNetwork) dns() []string {
@@ -51,17 +50,17 @@ func (n gcpWorkloadNetwork) dns() []string {
 // machine for the metadata server, plus what a workload needs to reach the
 // engine's host.
 func (n gcpWorkloadNetwork) extraHosts() []string {
-	host := n.Sidecar.String()
+	host := gceMetadataAddress.String()
 	return append(workloadhost.ExtraHosts(), "metadata.google.internal:"+host, "metadata:"+host)
 }
 
 // apply attaches a container to the network with the sidecar as its resolver
-// and metadata server.
+// and its route to the metadata server.
 func (n gcpWorkloadNetwork) apply(cfg *sim.ContainerConfig) {
 	cfg.Network = n.Network
 	cfg.IPv4Address = n.Address
 	cfg.DNS = n.dns()
-	cfg.Env = workloadhost.MergeEnv(cfg.Env, n.env())
+	cfg.Routes = append(cfg.Routes, n.routes()...)
 	cfg.ExtraHosts = append(cfg.ExtraHosts, n.extraHosts()...)
 }
 
@@ -72,21 +71,6 @@ func (n gcpWorkloadNetwork) done() {
 	}
 }
 
-// gcpNetworkSidecars maps every engine network with a running sidecar to the
-// sidecar's address; the Cloud DNS catalog answers metadata.google.internal
-// from it.
-var gcpNetworkSidecars sync.Map
-
-// gcpNetworkSidecar is the address of the sidecar serving an engine network.
-func gcpNetworkSidecar(network string) (netip.Addr, bool) {
-	v, ok := gcpNetworkSidecars.Load(network)
-	if !ok {
-		return netip.Addr{}, false
-	}
-	addr, ok := v.(netip.Addr)
-	return addr, ok
-}
-
 func gcpEnsureNetworkSidecar(ctx context.Context, network string, address netip.Addr) (netip.Addr, error) {
 	if networkSidecars == nil {
 		return netip.Addr{}, errors.New("the simulator runs no network sidecars: it serves the control planes only")
@@ -95,7 +79,6 @@ func gcpEnsureNetworkSidecar(ctx context.Context, network string, address netip.
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	gcpNetworkSidecars.Store(network, running.Address)
 	return running.Address, nil
 }
 
@@ -103,7 +86,6 @@ func gcpRemoveNetworkSidecar(network string) {
 	if networkSidecars != nil {
 		networkSidecars.Remove(network)
 	}
-	gcpNetworkSidecars.Delete(network)
 }
 
 // gcpPlatformNetworkName is the engine network that carries every workload on

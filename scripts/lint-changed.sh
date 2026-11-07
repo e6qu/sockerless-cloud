@@ -36,7 +36,12 @@ for mod in $sorted; do
   # module's package load on a busy machine.
   # The module's Makefile sets LINT_ENV where its lint needs one, as
   # simulator-aws's one compile at a time does.
-  lint_env=$(sed -n 's/^LINT_ENV *:= *//p' "$mod/Makefile" 2>/dev/null)
+  # A module with no Makefile has no LINT_ENV, and sed on a missing file would
+  # end the script under set -e before the module is linted.
+  lint_env=""
+  if [ -f "$mod/Makefile" ]; then
+    lint_env=$(sed -n 's/^LINT_ENV *:= *//p' "$mod/Makefile")
+  fi
   # shellcheck disable=SC2086
   if ! (cd "$mod" && env $lint_env golangci-lint run ./...); then
     failed=1

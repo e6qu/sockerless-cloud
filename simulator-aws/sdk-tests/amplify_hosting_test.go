@@ -197,7 +197,8 @@ func TestAmplifyHostingSSRComputeE2E(t *testing.T) {
 	entrypoint := `const http = require('http');
 http.createServer(async (req, res) => {
   if (req.url === '/creds') {
-    const uri = process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI || '';
+    const relative = process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || '';
+    const uri = relative ? 'http://169.254.170.2' + relative : '';
     const session = uri ? await (await fetch(uri)).json() : null;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({uri, staticKey: 'AWS_ACCESS_KEY_ID' in process.env, session}));
@@ -228,9 +229,9 @@ http.createServer(async (req, res) => {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "ssr-dynamic:/search?q=x", string(body))
 
-	// The compute holds its role through the container credentials endpoint on
-	// its own loopback, which its SDKs refresh from, not static keys in its
-	// environment.
+	// The compute holds its role through the container credentials endpoint at
+	// the agent's link-local address, which its SDKs refresh from, not static
+	// keys in its environment.
 	resp, body = amplifyHostGet(t, host, "/creds", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "compute credentials: %s", body)
 	var creds struct {
@@ -239,7 +240,7 @@ http.createServer(async (req, res) => {
 		Session   struct{ AccessKeyId, SecretAccessKey, Token, Expiration string }
 	}
 	require.NoError(t, json.Unmarshal(body, &creds), string(body))
-	assert.True(t, strings.HasPrefix(creds.URI, "http://127.0.0.1:"), "AWS_CONTAINER_CREDENTIALS_FULL_URI %q names the compute's loopback", creds.URI)
+	assert.True(t, strings.HasPrefix(creds.URI, "http://169.254.170.2/v2/credentials/"), "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI resolves to %q, not the agent's address", creds.URI)
 	assert.False(t, creds.StaticKey, "the compute gets no static AWS_ACCESS_KEY_ID")
 	require.NotEmpty(t, creds.Session.AccessKeyId)
 	require.NotEmpty(t, creds.Session.Expiration)

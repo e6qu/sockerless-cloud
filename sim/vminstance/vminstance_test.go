@@ -69,7 +69,7 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 		DNS:       []string{netip.MustParseAddr("100.64.0.2").String()},
 		UserData:  []byte("#!/bin/sh\necho \"user data ran on $(hostname)\"\necho boot >> /var/boots\nsleep 2147483647 &\n"),
 		CloudInit: &CloudInit{Platform: "ec2", Datasource: "DataSourceEc2Local", InstanceID: "i-test"},
-		Env:       map[string]string{"AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://100.64.0.2/"},
+		Routes:    []sim.Route{{Destination: netip.MustParsePrefix("169.254.169.254/32"), Via: netip.MustParseAddr("100.64.0.2")}},
 		VCPUs:     1,
 		MemoryMiB: 64,
 		StopGrace: time.Second,
