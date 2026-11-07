@@ -83,7 +83,7 @@ func gceInterfaceKeys(r *http.Request, inst ComputeInstance, index int) map[stri
 	keys := map[string]string{
 		"ip":  iface.NetworkIP,
 		"mac": gceInterfaceMAC(iface.NetworkIP),
-		"mtu": strconv.Itoa(gceNetworkMTU),
+		"mtu": strconv.Itoa(gceNetworkMTUOf(iface.Network)),
 	}
 	if number, ok := gceMetadataWorkloadFor(r).projectNumber(); ok {
 		keys["network"] = "projects/" + number + "/networks/" + lastSegment(iface.Network)

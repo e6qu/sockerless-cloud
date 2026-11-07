@@ -369,6 +369,7 @@ func gcpConnectorNetwork(ctx context.Context, project, region, ref, owner string
 	spec := sim.CloudNetwork{
 		Name:   gcpConnectorNetworkName(name),
 		CIDR:   cidr,
+		MTU:    gceNetworkMTUOf(normalizeComputeGlobalNetworkRef(resourceProject(name), conn.Network)),
 		Labels: map[string]string{gcpConnectorNetworkLabel: name},
 	}
 	if _, err := sim.EnsureCloudNetwork(ctx, spec); err != nil {

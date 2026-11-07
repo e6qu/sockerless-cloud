@@ -28,29 +28,36 @@ import (
 // As `sidecar gwlb` the program is one zone's node of a Gateway Load
 // Balancer. It sits on the load balancer's subnet at the load balancer's
 // address and on each endpoint's network at the endpoint's address. What the
-// route tables send to an endpoint arrives on that network's interface, which
-// a policy rule routes into a TUN device; the node wraps each packet in
+// route tables send to an endpoint arrives on that network's interface; a
+// policy rule per subnet that routes through the endpoint sends it into the
+// endpoint's TUN device, and the first endpoint on an interface takes what no
+// subnet rule claims. The node wraps each packet in
 // GENEVE with the endpoint, attachment and flow-cookie options of option
 // class 0x0108 and sends it to the appliance the flow sticks to. What an
 // appliance returns goes, unwrapped, back out through the TUN device, where a
 // second rule routes it on as the endpoint's subnet routes it. It holds
 // NET_ADMIN and the TUN device and nothing else.
 
-// The tables and rule priorities the node programs, one pair per endpoint
-// network.
+// The tables and rule priorities the node programs, one pair per endpoint.
+// Subnet rules precede an interface's catch-all.
 const (
-	gwlbCaptureTable  = 100
-	gwlbOnwardTable   = 200
-	gwlbRulePriority  = 1000
-	gwlbOnwardOffset  = 1000
+	gwlbCaptureTable = 100
+	gwlbOnwardTable  = 200
+	gwlbRulePriority = 1000
+	gwlbCatchAll     = 1500
+	gwlbOnwardOffset = 1000
+	// A Gateway Load Balancer interface takes packets up to 8,500 bytes and
+	// drops larger ones; the VPC around it carries 9001.
+	gwlbMaxPacket     = 8500
+	gwlbTunMTU        = 9001
 	gwlbTunName       = "gwlb%d"
 	gwlbFlowSweep     = 30 * time.Second
 	gwlbStatePollWait = (gwlb.StateWaitSeconds + 10) * time.Second
 )
 
-// gwlbLink is one endpoint network: the interface its traffic arrives on, the
-// TUN device the capture rule routes it into, and the endpoint the node
-// names in the GENEVE options of what arrives there.
+// gwlbLink is one endpoint: the interface its traffic arrives on, its TUN
+// device, the subnets whose rules send their traffic there, and whether it
+// takes the interface's unclaimed traffic.
 type gwlbLink struct {
 	index    int
 	name     string
@@ -59,6 +66,8 @@ type gwlbLink struct {
 	tun      *os.File
 	tunIndex int
 	onward   string
+	primary  bool
+	sources  []netip.Prefix
 }
 
 type gwlbFlow struct {
@@ -114,11 +123,11 @@ func serveGWLB(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("listen for GENEVE at %s: %w", listen, err)
 	}
 	defer func() { _ = conn.Close() }()
-	// The engine's networks carry 1500-byte frames, so a full-sized packet
-	// does not fit its 68 bytes of GENEVE unfragmented.
+	// A Gateway Load Balancer never fragments: its 8,500-byte packets and 68
+	// bytes of GENEVE fit the VPC's 9001-byte frames whole.
 	if raw, err := conn.SyscallConn(); err == nil {
 		_ = raw.Control(func(fd uintptr) {
-			_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, unix.IP_PMTUDISC_DONT)
+			_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, unix.IP_PMTUDISC_DO)
 		})
 	}
 	n.conn = conn
@@ -165,19 +174,17 @@ func (n *gwlbNode) setUpLinks(spec string) error {
 				return fmt.Errorf("endpoint %s: add %s to %s: %w", id, prefix, iface.Name, err)
 			}
 		}
-		var link *gwlbLink
+		primary := true
 		for _, existing := range n.links {
 			if existing.index == iface.Index {
-				link = existing
+				primary = false
 			}
 		}
-		if link == nil {
-			link = &gwlbLink{index: iface.Index, name: iface.Name, prefix: prefix.Masked(), endpoint: id}
-			if err := n.programLink(len(n.links), link); err != nil {
-				return fmt.Errorf("endpoint %s: %w", id, err)
-			}
-			n.links = append(n.links, link)
+		link := &gwlbLink{index: iface.Index, name: iface.Name, prefix: prefix.Masked(), endpoint: id, primary: primary}
+		if err := n.programLink(len(n.links), link); err != nil {
+			return fmt.Errorf("endpoint %s: %w", id, err)
 		}
+		n.links = append(n.links, link)
 		n.byID[id] = link
 	}
 	if len(n.links) == 0 {
@@ -224,7 +231,7 @@ func (n *gwlbNode) programLink(k int, link *gwlbLink) error {
 		return err
 	}
 	link.tun, link.tunIndex = tun, tunIface.Index
-	if err := routeRequest(linkUpMessage(link.tunIndex)); err != nil {
+	if err := routeRequest(linkUpMessage(link.tunIndex, gwlbTunMTU)); err != nil {
 		return fmt.Errorf("bring %s up: %w", name, err)
 	}
 	capture, onward := uint32(gwlbCaptureTable+k), uint32(gwlbOnwardTable+k)
@@ -234,8 +241,13 @@ func (n *gwlbNode) programLink(k int, link *gwlbLink) error {
 	}{
 		{"route captured traffic into " + name, tableRouteMessage(capture, netip.Prefix{}, netip.Addr{}, link.tunIndex, unix.RT_SCOPE_LINK)},
 		{"route " + link.prefix.String() + " on " + link.name, tableRouteMessage(onward, link.prefix, netip.Addr{}, link.index, unix.RT_SCOPE_LINK)},
-		{"capture what arrives on " + link.name, ruleMessage(link.name, capture, uint32(gwlbRulePriority+k))},
-		{"route on what leaves " + name, ruleMessage(name, onward, uint32(gwlbRulePriority+gwlbOnwardOffset+k))},
+		{"route on what leaves " + name, ruleMessage(unix.RTM_NEWRULE, name, netip.Prefix{}, onward, uint32(gwlbRulePriority+gwlbOnwardOffset+k))},
+	}
+	if link.primary {
+		steps = append(steps, struct {
+			what string
+			msg  []byte
+		}{"capture what arrives on " + link.name, ruleMessage(unix.RTM_NEWRULE, link.name, netip.Prefix{}, capture, uint32(gwlbCatchAll+k))})
 	}
 	for _, step := range steps {
 		if err := routeRequest(step.msg); err != nil && !errors.Is(err, unix.EEXIST) {
@@ -268,6 +280,39 @@ func (n *gwlbNode) setOnward(k int, link *gwlbLink, onward string) error {
 		return fmt.Errorf("route %s onward through %s: %w", link.name, via, err)
 	}
 	link.onward = onward
+	return nil
+}
+
+// setSources points a rule at the endpoint's capture table for each subnet
+// whose route table sends its traffic through the endpoint, and removes the
+// rules of subnets that no longer do.
+func (n *gwlbNode) setSources(k int, link *gwlbLink, sources []string) error {
+	var want []netip.Prefix
+	for _, text := range sources {
+		p, err := netip.ParsePrefix(text)
+		if err != nil || !p.Addr().Is4() {
+			continue
+		}
+		want = append(want, p.Masked())
+	}
+	capture, priority := uint32(gwlbCaptureTable+k), uint32(gwlbRulePriority+k)
+	for _, have := range link.sources {
+		if slices.Contains(want, have) {
+			continue
+		}
+		if err := routeRequest(ruleMessage(unix.RTM_DELRULE, link.name, have, capture, priority)); err != nil && !errors.Is(err, unix.ENOENT) {
+			return fmt.Errorf("stop capturing %s for %s: %w", have, link.endpoint, err)
+		}
+	}
+	for _, p := range want {
+		if slices.Contains(link.sources, p) {
+			continue
+		}
+		if err := routeRequest(ruleMessage(unix.RTM_NEWRULE, link.name, p, capture, priority)); err != nil && !errors.Is(err, unix.EEXIST) {
+			return fmt.Errorf("capture %s for %s: %w", p, link.endpoint, err)
+		}
+	}
+	link.sources = want
 	return nil
 }
 
@@ -333,6 +378,9 @@ func (n *gwlbNode) apply(state gwlb.State, out io.Writer) {
 		if err := n.setOnward(k, link, endpoint.Onward); err != nil {
 			fmt.Fprintf(out, "sidecar: gwlb: %v\n", err)
 		}
+		if err := n.setSources(k, link, endpoint.Sources); err != nil {
+			fmt.Fprintf(out, "sidecar: gwlb: %v\n", err)
+		}
 	}
 }
 
@@ -346,6 +394,9 @@ func (n *gwlbNode) readLink(ctx context.Context, link *gwlbLink) {
 			return
 		}
 		packet := buf[:size]
+		if size > gwlbMaxPacket {
+			continue
+		}
 		flow := n.flowFor(link, packet)
 		if flow == nil {
 			continue
@@ -630,13 +681,14 @@ func prefixAddressMessage(index int, prefix netip.Prefix) []byte {
 	return nlmsg(unix.RTM_NEWADDR, unix.NLM_F_REQUEST|unix.NLM_F_CREATE|unix.NLM_F_EXCL|unix.NLM_F_ACK, ifa)
 }
 
-// linkUpMessage is RTM_NEWLINK setting IFF_UP on the interface.
-func linkUpMessage(index int) []byte {
+// linkUpMessage is RTM_NEWLINK setting IFF_UP and the MTU on the interface.
+func linkUpMessage(index, mtu int) []byte {
 	ifi := make([]byte, unix.SizeofIfInfomsg)
 	ifi[0] = unix.AF_UNSPEC
 	binary.NativeEndian.PutUint32(ifi[4:], uint32(index))
 	binary.NativeEndian.PutUint32(ifi[8:], unix.IFF_UP)
 	binary.NativeEndian.PutUint32(ifi[12:], unix.IFF_UP)
+	ifi = append(ifi, rtattr(unix.IFLA_MTU, binary.NativeEndian.AppendUint32(nil, uint32(mtu)))...)
 	return nlmsg(unix.RTM_NEWLINK, unix.NLM_F_REQUEST|unix.NLM_F_ACK, ifi)
 }
 
@@ -673,15 +725,25 @@ func tableRouteDelete(table uint32) []byte {
 	return nlmsg(unix.RTM_DELROUTE, unix.NLM_F_REQUEST|unix.NLM_F_ACK, rt)
 }
 
-// ruleMessage is RTM_NEWRULE sending what arrives on the interface to table.
-func ruleMessage(iif string, table, priority uint32) []byte {
+// ruleMessage is RTM_NEWRULE or RTM_DELRULE for the rule sending what
+// arrives on the interface, from source when it is valid, to table.
+func ruleMessage(typ uint16, iif string, source netip.Prefix, table, priority uint32) []byte {
 	// struct fib_rule_hdr: family, dst_len, src_len, tos, table, res1, res2,
 	// action, flags.
 	hdr := make([]byte, 12)
 	hdr[0] = unix.AF_INET
 	hdr[7] = unix.FR_ACT_TO_TBL
+	if source.IsValid() {
+		hdr[2] = byte(source.Bits())
+		a := source.Addr().As4()
+		hdr = append(hdr, rtattr(unix.FRA_SRC, a[:])...)
+	}
 	hdr = append(hdr, rtattr(unix.FRA_IIFNAME, append([]byte(iif), 0))...)
 	hdr = append(hdr, rtattr(unix.FRA_TABLE, binary.NativeEndian.AppendUint32(nil, table))...)
 	hdr = append(hdr, rtattr(unix.FRA_PRIORITY, binary.NativeEndian.AppendUint32(nil, priority))...)
-	return nlmsg(unix.RTM_NEWRULE, unix.NLM_F_REQUEST|unix.NLM_F_CREATE|unix.NLM_F_EXCL|unix.NLM_F_ACK, hdr)
+	flags := uint16(unix.NLM_F_REQUEST | unix.NLM_F_ACK)
+	if typ == unix.RTM_NEWRULE {
+		flags |= unix.NLM_F_CREATE | unix.NLM_F_EXCL
+	}
+	return nlmsg(typ, flags, hdr)
 }

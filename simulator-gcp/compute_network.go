@@ -62,6 +62,7 @@ func gcpSubnetworkNetwork(subnet ComputeSubnetwork) (sim.CloudNetwork, error) {
 	spec := sim.CloudNetwork{
 		Name:   gcpSubnetworkNetworkName(subnet.SelfLink),
 		CIDR:   cidr,
+		MTU:    gceNetworkMTUOf(subnet.Network),
 		Labels: map[string]string{gcpSubnetworkNetworkLabel: subnet.SelfLink},
 	}
 	if subnet.GatewayAddress != "" {

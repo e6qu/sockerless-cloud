@@ -497,6 +497,7 @@ func elbv2GatewayNodeStateFor(nodeName string) (gwlb.State, bool) {
 			ID:         e.id,
 			Onward:     elbv2EndpointOnward(e),
 			Attachment: elbv2GatewayAttachment(key.lbArn, e.id),
+			Sources:    elbv2EndpointSources(e),
 		})
 	}
 	sum := sha256.New()
@@ -550,4 +551,23 @@ func elbv2TargetAddressAndZone(tg ELBv2TargetGroup, target ELBv2TargetDescriptio
 		}
 	}
 	return target.ID, ""
+}
+
+// elbv2EndpointSources are the IPv4 ranges of the subnets of the endpoint's
+// VPC whose route tables send their default route through the endpoint.
+func elbv2EndpointSources(e elbv2GatewayNodeEndpoint) []string {
+	var sources []string
+	for _, subnet := range ec2Subnets.Filter(func(s EC2Subnet) bool { return s.VpcId == e.vpcID }) {
+		rt, ok := ec2SubnetRouteTable(subnet.SubnetId)
+		if !ok {
+			continue
+		}
+		for _, route := range rt.Routes {
+			if route.DestinationCidrBlock == "0.0.0.0/0" && route.VpcEndpointId == e.id {
+				sources = append(sources, subnet.CidrBlock)
+			}
+		}
+	}
+	slices.Sort(sources)
+	return sources
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // Each membership verb writes a list the resource carries, so the read beside
@@ -195,4 +196,30 @@ func TestCompute_NodeGroupNodes(t *testing.T) {
 		&compute.NodeGroupsAddNodesRequest{AdditionalNodeCount: 0}).Do()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "greater than zero")
+}
+
+// A VPC network carries 1460 bytes unless created with another MTU from 1300
+// to 8896, and reads back the MTU it carries.
+func TestCompute_NetworkMTU(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+	const project = "network-mtu"
+
+	_, err := svc.Networks.Insert(project, &compute.Network{Name: "default-mtu", AutoCreateSubnetworks: false}).Do()
+	require.NoError(t, err)
+	got, err := svc.Networks.Get(project, "default-mtu").Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1460), got.Mtu, "a network created without an MTU carries 1460 bytes")
+
+	_, err = svc.Networks.Insert(project, &compute.Network{Name: "jumbo", AutoCreateSubnetworks: false, Mtu: 8896}).Do()
+	require.NoError(t, err)
+	got, err = svc.Networks.Get(project, "jumbo").Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(8896), got.Mtu)
+
+	_, err = svc.Networks.Insert(project, &compute.Network{Name: "too-small", AutoCreateSubnetworks: false, Mtu: 1200}).Do()
+	require.Error(t, err, "an MTU below 1300 is refused")
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.Code)
 }

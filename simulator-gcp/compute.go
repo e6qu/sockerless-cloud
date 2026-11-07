@@ -499,6 +499,9 @@ type ComputeNetwork struct {
 	Name                  string `json:"name"`
 	SelfLink              string `json:"selfLink"`
 	AutoCreateSubnetworks bool   `json:"autoCreateSubnetworks"`
+	// Mtu is the largest packet the network carries: 1460 unless the insert
+	// named another value between 1300 and 8896.
+	Mtu int `json:"mtu"`
 	// Peerings is the network's peerings, which addPeering and its siblings
 	// write and listPeeringRoutes reads the exchanged ranges from.
 	Peerings      []ComputeNetworkPeering `json:"peerings,omitempty"`

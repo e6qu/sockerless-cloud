@@ -24,8 +24,24 @@ func gcpMetadataInstanceFor(r *http.Request) (ComputeInstance, bool) {
 	return gcpInstances.Get(indexed.SelfLink)
 }
 
-// gceNetworkMTU is the MTU of a VPC network created without one.
-const gceNetworkMTU = 1460
+// A VPC network created without an MTU carries 1460 bytes; one may name any
+// MTU from 1300 to 8896.
+const (
+	gceNetworkMTU    = 1460
+	gceMinNetworkMTU = 1300
+	gceMaxNetworkMTU = 8896
+)
+
+// gceNetworkMTUOf is the MTU of the network a self link names, and the
+// default for a network the simulator does not hold.
+func gceNetworkMTUOf(networkSelfLink string) int {
+	if gcpComputeNetworks != nil {
+		if net, ok := gcpComputeNetworks.Get(networkSelfLink); ok && net.Mtu > 0 {
+			return net.Mtu
+		}
+	}
+	return gceNetworkMTU
+}
 
 // registerComputeMetadata serves the metadata server every workload Google
 // Cloud runs reads: a Compute Engine instance, a Cloud Run container, a Cloud

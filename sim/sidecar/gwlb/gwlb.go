@@ -73,6 +73,10 @@ type Endpoint struct {
 	// Attachment is the attachment identifier the node sends in GENEVE
 	// option type 2.
 	Attachment uint64 `json:"attachment"`
+	// Sources are the IPv4 ranges of the subnets whose route tables send
+	// their traffic through the endpoint, which tell the node which endpoint
+	// a packet came through when several share one network.
+	Sources []string `json:"sources,omitempty"`
 }
 
 // State is everything about a node that changes while it runs.

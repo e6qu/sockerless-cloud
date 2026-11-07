@@ -2,10 +2,11 @@
 
 ## Next
 
-- **Elastic Load Balancing's recalled messages and the Gateway Load Balancer's
-  unsourced details** (BUG-3554): source the refusals' messages and the data
-  plane's details, give the VPC networks Amazon VPC's 9001-byte MTU so GENEVE
-  never fragments, and carry IPv6.
+- **Elastic Load Balancing's recalled messages, the Gateway Load Balancer's
+  unsourced details, and IPv6 in VPCs** (BUG-3554): source the refusals'
+  messages and the data plane's details; on an engine with IPv6, give
+  dualstack VPCs IPv6 networks, workloads IPv6 addresses and routes, and carry
+  inner IPv6 through the Gateway Load Balancer.
 - **Google Cloud methods without a sourced permission** (BUG-3769): the 380
   Owner-only methods whose reference pages state no usable permission take
   theirs from the other tables those services publish.

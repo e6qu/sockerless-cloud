@@ -141,3 +141,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `gwlb-gateway-load-balancers.md.gz` | `docs.aws.amazon.com` | `elasticloadbalancing/latest/gateway/gateway-load-balancers.md` | CC-BY-SA-4.0 | `sha256c2ed86f2a44730cdd1c1b203e6d35e40630d0620fcd14c32b4bc0ea00407ee4b` | 2026-11-07T01:25:36Z |
 | `gwlb-getting-started.md.gz` | `docs.aws.amazon.com` | `elasticloadbalancing/latest/gateway/getting-started.md` | CC-BY-SA-4.0 | `sha256047b3bdbe81662af395b0f6e5bda41b4b6f6f851027087ea54cad87b0b843156` | 2026-11-07T01:25:36Z |
 | `gwlb-tunnel-handler-geneve-packet.cpp.gz` | `aws-samples/aws-gateway-load-balancer-tunnel-handler@main` | `GenevePacket.cpp` | MIT-0 | `fe06d56a4fef40899aa5351f71559a46d52bbb8a` | 2026-11-07T01:25:58Z |
+| `ec2-network-mtu.md.gz` | `docs.aws.amazon.com` | `AWSEC2/latest/UserGuide/network_mtu.md` | CC-BY-SA-4.0 | `sha256013367b7dac1c1a20d1e4efdd66e04cc4c733deb8b370d90222a86c172350ecd` | 2026-11-07T02:48:44Z |

@@ -21,8 +21,9 @@ import (
 
 // gwlbApplianceUserData is the customer's appliance: it answers the target
 // group's TCP health check on port 80, logs each flow it inspects with the
-// endpoint the GENEVE options name, and returns every packet to the Gateway
-// Load Balancer as AWS's tunnel handler does.
+// endpoint the GENEVE options name and the length of its first packet, and
+// returns every packet to the Gateway Load Balancer as AWS's tunnel handler
+// does.
 const gwlbApplianceUserData = `#!/bin/bash
 cat > /usr/local/bin/appliance.py <<'EOF'
 import http.server, socket, struct, threading
@@ -48,7 +49,7 @@ while True:
     flow = (socket.inet_ntoa(ip[12:16]), socket.inet_ntoa(ip[16:20]), proto, sport, dport)
     if flow not in seen:
         seen.add(flow)
-        log.write("%s %s %d %d %d vpce-%08x\n" % (flow + (int.from_bytes(options.get(1, bytes(8)), "big"),)))
+        log.write("%s %s %d %d %d vpce-%08x %d\n" % (flow + (int.from_bytes(options.get(1, bytes(8)), "big"), struct.unpack("!H", ip[2:4])[0])))
     s.sendto(d, peer)
 EOF
 nohup python3 /usr/local/bin/appliance.py >/var/tmp/appliance.log 2>&1 &
@@ -218,15 +219,15 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 		}},
 	})
 	require.NoError(t, err)
-	// runClient runs the client in the application subnet, requires every
-	// connection to have made it there and back, and returns its address.
-	runClient := func() string {
+	// runClient runs the client in a subnet, requires every connection to
+	// have made it there and back, and returns its address.
+	runClient := func(subnet *string) string {
 		t.Helper()
 		started, err := ecsc.RunTask(ctx, &ecs.RunTaskInput{
 			Cluster: aws.String(cluster), TaskDefinition: definition.TaskDefinition.TaskDefinitionArn,
 			LaunchType: ecstypes.LaunchTypeFargate,
 			NetworkConfiguration: &ecstypes.NetworkConfiguration{
-				AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{aws.ToString(applications)}},
+				AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{aws.ToString(subnet)}},
 			},
 		})
 		require.NoError(t, err)
@@ -247,25 +248,36 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 		t.Fatalf("task %s reports no address", taskArn)
 		return ""
 	}
-	// flowsFrom counts, per appliance, the client's flows to the simulator's
-	// port that appliance inspected, and checks each names the endpoint.
-	flowsFrom := func(client string) []int {
+	// flowLines are the appliances' log lines for a client's flows to a port,
+	// per appliance.
+	flowLines := func(client string, port int) [][][]string {
 		t.Helper()
-		counts := make([]int, len(applianceIDs))
+		lines := make([][][]string, len(applianceIDs))
 		for i, id := range applianceIDs {
 			for _, line := range strings.Split(strings.TrimSpace(ssmShell(t, s, id, "cat /var/tmp/flows 2>/dev/null; true")), "\n") {
 				fields := strings.Fields(line)
-				if len(fields) != 6 || fields[0] != client || fields[4] != fmt.Sprint(simPort) {
-					continue
+				if len(fields) == 7 && fields[0] == client && fields[4] == fmt.Sprint(port) {
+					lines[i] = append(lines[i], fields)
 				}
-				assert.Equal(t, endpointID, fields[5], "the GENEVE endpoint option names the endpoint the flow came through")
+			}
+		}
+		return lines
+	}
+	// flowsFrom counts, per appliance, the client's flows to the simulator's
+	// port that appliance inspected, and checks each names the endpoint.
+	flowsFrom := func(client, endpoint string) []int {
+		t.Helper()
+		counts := make([]int, len(applianceIDs))
+		for i, lines := range flowLines(client, simPort) {
+			for _, fields := range lines {
+				assert.Equal(t, endpoint, fields[5], "the GENEVE endpoint option names the endpoint the flow came through")
 				counts[i]++
 			}
 		}
 		return counts
 	}
 
-	spread := flowsFrom(runClient())
+	spread := flowsFrom(runClient(applications), endpointID)
 	assert.Equal(t, connections, spread[0]+spread[1], "every connection crossed an appliance: %v", spread)
 	assert.Positive(t, spread[0], "5-tuple flows spread over both appliances: %v", spread)
 	assert.Positive(t, spread[1], "5-tuple flows spread over both appliances: %v", spread)
@@ -278,7 +290,75 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 		},
 	})
 	require.NoError(t, err)
-	sticky := flowsFrom(runClient())
+	sticky := flowsFrom(runClient(applications), endpointID)
 	assert.Equal(t, connections, sticky[0]+sticky[1], "every connection crossed an appliance: %v", sticky)
 	assert.True(t, sticky[0] == 0 || sticky[1] == 0, "source_ip_dest_ip keeps one client's flows to one destination on one appliance: %v", sticky)
+
+	// A full-sized packet crosses whole: the VPC carries 9001-byte frames, so
+	// an 8,000-byte datagram and its 68 bytes of GENEVE reach the appliance
+	// unfragmented, which the node, sending with fragmentation forbidden,
+	// would otherwise refuse.
+	sender, err := ecsc.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family:                  aws.String(uniquename.New("gwlb-jumbo")),
+		NetworkMode:             ecstypes.NetworkModeAwsvpc,
+		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
+		Cpu:                     aws.String("256"),
+		Memory:                  aws.String("512"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			Name:       aws.String("sender"),
+			Image:      aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
+			EntryPoint: []string{"bash", "-c"},
+			Command:    []string{`dd if=/dev/zero bs=7972 count=1 status=none > /dev/udp/host.docker.internal/9999`},
+		}},
+	})
+	require.NoError(t, err)
+	started, err := ecsc.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster: aws.String(cluster), TaskDefinition: sender.TaskDefinition.TaskDefinitionArn,
+		LaunchType: ecstypes.LaunchTypeFargate,
+		NetworkConfiguration: &ecstypes.NetworkConfiguration{
+			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{aws.ToString(applications)}},
+		},
+	})
+	require.NoError(t, err)
+	senderArn := aws.ToString(started.Tasks[0].TaskArn)
+	cleanupECSTask(t, ecsc, cluster, senderArn)
+	senderTask := waitTaskStopped(t, ecsc, cluster, senderArn)
+	require.Equal(t, int32(0), aws.ToInt32(senderTask.Containers[0].ExitCode), "%s", aws.ToString(senderTask.StoppedReason))
+	var senderAddress string
+	for _, attachment := range senderTask.Attachments {
+		for _, detail := range attachment.Details {
+			if aws.ToString(detail.Name) == "privateIPv4Address" {
+				senderAddress = aws.ToString(detail.Value)
+			}
+		}
+	}
+	var jumbo []string
+	for _, lines := range flowLines(senderAddress, 9999) {
+		for _, fields := range lines {
+			jumbo = append(jumbo, fields[6])
+		}
+	}
+	assert.Equal(t, []string{"8000"}, jumbo, "the 8,000-byte datagram reached one appliance whole")
+
+	// A second endpoint of the load balancer in the same zone and VPC serves
+	// another application subnet, and the GENEVE options of that subnet's
+	// traffic name the second endpoint.
+	secondSubnet := createSubnetFor(t, c, consumer, "10.176.3.0/24")
+	routeTable(consumer, secondSubnet, ec2.CreateRouteInput{GatewayId: internetGatewayOf(consumer)})
+	second, err := c.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
+		VpcEndpointType: ec2types.VpcEndpointTypeGatewayLoadBalancer, VpcId: consumer,
+		ServiceName: service.ServiceConfiguration.ServiceName, SubnetIds: []string{aws.ToString(secondSubnet)},
+	})
+	require.NoError(t, err)
+	secondID := aws.ToString(second.VpcEndpoint.VpcEndpointId)
+	t.Cleanup(func() {
+		_, _ = c.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{VpcEndpointIds: []string{secondID}})
+	})
+	moreApplications := createSubnetFor(t, c, consumer, "10.176.4.0/24")
+	routeTable(consumer, moreApplications, ec2.CreateRouteInput{VpcEndpointId: aws.String(secondID)})
+	t.Cleanup(func() { stopECSTasksInSubnet(t, ecsc, aws.ToString(moreApplications)) })
+	viaSecond := flowsFrom(runClient(moreApplications), secondID)
+	assert.Equal(t, connections, viaSecond[0]+viaSecond[1], "every connection through the second endpoint crossed an appliance: %v", viaSecond)
+	viaFirst := flowsFrom(runClient(applications), endpointID)
+	assert.Equal(t, connections, viaFirst[0]+viaFirst[1], "the first endpoint's subnet still names the first endpoint: %v", viaFirst)
 }

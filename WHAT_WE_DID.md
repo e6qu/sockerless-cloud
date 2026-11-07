@@ -1656,6 +1656,15 @@ fails once the row closes or the operation is served.
   real network interfaces too, a route to an endpoint reads back under
   `GatewayId`, and `DescribeInternetGateways`, which had ignored its filters
   and every ID after the first, applies both.
+  Each endpoint has its own TUN device: a rule per subnet whose route table
+  sends its default route through the endpoint picks it by source, so two
+  endpoints of one load balancer on one VPC network name the right one in the
+  GENEVE options. Engine networks carry each cloud's documented MTU through
+  `sim.CloudNetwork.MTU`: 9001 for an Amazon VPC, a Compute Engine network's
+  own `mtu` (1460 unless created with another value from 1300 to 8896, which
+  the network now stores and reads back) and 1500 for an Azure virtual
+  network. The node drops packets over 8,500 bytes and sends GENEVE with
+  fragmentation forbidden, so a full-sized packet crosses whole.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
