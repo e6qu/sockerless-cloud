@@ -8,7 +8,8 @@ import (
 // TestELBv2CLI_GatewayLoadBalancerEndpointIsARouteTarget expects a Gateway
 // Load Balancer to hold an address in its subnet, a Gateway Load Balancer
 // endpoint to hold one in its own subnet through a network interface of that
-// type, and a route table to take the endpoint as a route's target.
+// type, a route table to take the endpoint as a route's target, and the load
+// balancer's listener to carry no port or protocol.
 func TestELBv2CLI_GatewayLoadBalancerEndpointIsARouteTarget(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -74,5 +75,17 @@ func TestELBv2CLI_GatewayLoadBalancerEndpointIsARouteTarget(t *testing.T) {
 	if left := q("ec2", "describe-network-interfaces", "--filters", "Name=subnet-id,Values="+endpointSubnet,
 		"--query", "length(NetworkInterfaces)", "--output", "text"); left != "0" {
 		t.Fatalf("deleting the endpoint left %s network interfaces in its subnet", left)
+	}
+
+	// A Gateway Load Balancer listener takes all IP packets on all ports, so it
+	// has neither a port nor a protocol.
+	targetGroup := q("elbv2", "create-target-group", "--name", "cli-gwlb-targets", "--protocol", "GENEVE", "--port", "6081",
+		"--vpc-id", provider, "--query", "TargetGroups[0].TargetGroupArn", "--output", "text")
+	t.Cleanup(func() { _ = awsCLI("elbv2", "delete-target-group", "--target-group-arn", targetGroup).Run() })
+	listener := q("elbv2", "create-listener", "--load-balancer-arn", lbArn,
+		"--default-actions", "Type=forward,TargetGroupArn="+targetGroup, "--query", "Listeners[0].ListenerArn", "--output", "text")
+	if got := q("elbv2", "describe-listeners", "--listener-arns", listener,
+		"--query", "Listeners[0].[Port,Protocol]", "--output", "text"); got != "None\tNone" {
+		t.Fatalf("the Gateway Load Balancer listener's port and protocol: got %q, want none", got)
 	}
 }

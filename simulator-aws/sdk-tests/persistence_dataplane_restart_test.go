@@ -115,6 +115,8 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	require.NoError(t, err)
 	waitForPersistentTargetInService(t, testCtx, elbAPI, targetGroupARN)
 	assertPersistentTCPEcho(t, listenerPort, "before-restart")
+	gatewayListenerARN := createPersistentGatewayListener(t, testCtx, elbAPI, aws.ToString(vpc.Vpc.VpcId), aws.ToString(subnet.Subnet.SubnetId))
+	assertGatewayListenerHasNoPortOrProtocol(t, testCtx, elbAPI, gatewayListenerARN)
 
 	shutdownSimulator(cmd)
 	cmd = startPersistentSimulator(t, stateDir, tcpPort, udpPort, "process")
@@ -130,6 +132,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	// targets again before forwarding to them.
 	waitForPersistentTargetInService(t, testCtx, elbAPI, targetGroupARN)
 	assertPersistentTCPEcho(t, listenerPort, "after-restart")
+	assertGatewayListenerHasNoPortOrProtocol(t, testCtx, elbAPI, gatewayListenerARN)
 	secondNetworkInterface, err := ec2API.CreateNetworkInterface(testCtx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId: subnet.Subnet.SubnetId,
 	})
@@ -178,6 +181,38 @@ func waitForPersistentTargetInService(
 	}, 30*time.Second)
 	require.NoError(t, err, "target registered in %s never entered service", targetGroupARN)
 	require.Len(t, health.TargetHealthDescriptions, 1)
+}
+
+func createPersistentGatewayListener(t *testing.T, ctx context.Context, elbAPI *elbv2.Client, vpcID, subnetID string) string {
+	t.Helper()
+	loadBalancer, err := elbAPI.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
+		Name: aws.String("persistent-gwlb"), Type: elbv2types.LoadBalancerTypeEnumGateway, Subnets: []string{subnetID},
+	})
+	require.NoError(t, err)
+	targetGroup, err := elbAPI.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
+		Name: aws.String("persistent-gwlb-targets"), Protocol: elbv2types.ProtocolEnumGeneve, Port: aws.Int32(6081),
+		VpcId: aws.String(vpcID), TargetType: elbv2types.TargetTypeEnumInstance,
+	})
+	require.NoError(t, err)
+	listener, err := elbAPI.CreateListener(ctx, &elbv2.CreateListenerInput{
+		LoadBalancerArn: loadBalancer.LoadBalancers[0].LoadBalancerArn,
+		DefaultActions: []elbv2types.Action{{
+			Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: targetGroup.TargetGroups[0].TargetGroupArn,
+		}},
+	})
+	require.NoError(t, err)
+	return aws.ToString(listener.Listeners[0].ListenerArn)
+}
+
+// A Gateway Load Balancer listener takes all IP packets on all ports, so
+// Elastic Load Balancing describes it without a port or a protocol.
+func assertGatewayListenerHasNoPortOrProtocol(t *testing.T, ctx context.Context, elbAPI *elbv2.Client, listenerARN string) {
+	t.Helper()
+	described, err := elbAPI.DescribeListeners(ctx, &elbv2.DescribeListenersInput{ListenerArns: []string{listenerARN}})
+	require.NoError(t, err)
+	require.Len(t, described.Listeners, 1)
+	assert.Nil(t, described.Listeners[0].Port, "a Gateway Load Balancer listener has no port")
+	assert.Empty(t, described.Listeners[0].Protocol, "a Gateway Load Balancer listener has no protocol")
 }
 
 func servePersistentTCPEcho(listener net.Listener) {

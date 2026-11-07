@@ -149,11 +149,13 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 	}
 	_, err = elb.RegisterTargets(ctx, &elasticloadbalancingv2.RegisterTargetsInput{TargetGroupArn: tgArn, Targets: targets})
 	require.NoError(t, err)
-	_, err = elb.CreateListener(ctx, &elasticloadbalancingv2.CreateListenerInput{
+	listener, err := elb.CreateListener(ctx, &elasticloadbalancingv2.CreateListenerInput{
 		LoadBalancerArn: lbArn,
 		DefaultActions:  []elbtypes.Action{{Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: tgArn}},
 	})
 	require.NoError(t, err)
+	assert.Nil(t, listener.Listeners[0].Port, "a Gateway Load Balancer listener has no port")
+	assert.Empty(t, listener.Listeners[0].Protocol, "a Gateway Load Balancer listener has no protocol")
 	require.NoError(t, elasticloadbalancingv2.NewTargetInServiceWaiter(elb).Wait(ctx,
 		&elasticloadbalancingv2.DescribeTargetHealthInput{TargetGroupArn: tgArn, Targets: targets}, 3*time.Minute))
 

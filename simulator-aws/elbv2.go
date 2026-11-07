@@ -1007,6 +1007,11 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		protocol = "HTTP"
 	}
 	port := atoiDefault(r.FormValue("Port"), 80)
+	// A Gateway Load Balancer listens for all IP packets on all ports, so its
+	// listener has neither a port nor a protocol.
+	if lb.Type == "gateway" {
+		protocol, port = "", 0
+	}
 	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:listener/%s/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(lb), lb.Name, elbv2LoadBalancerID(lb.Arn), id)
 	listener := ELBv2Listener{
@@ -1464,8 +1469,15 @@ func elbv2ListenerXML(listener ELBv2Listener) string {
 	if len(listener.AlpnPolicy) > 0 {
 		alpn = elbv2StringMembersXML("AlpnPolicy", listener.AlpnPolicy)
 	}
-	return fmt.Sprintf(`<member><ListenerArn>%s</ListenerArn><LoadBalancerArn>%s</LoadBalancerArn><Port>%d</Port><Protocol>%s</Protocol>%s%s%s%s%s</member>`,
-		xmlEscape(listener.Arn), xmlEscape(listener.LoadBalancerArn), listener.Port, xmlEscape(listener.Protocol),
+	var portProtocol string
+	if listener.Port > 0 {
+		portProtocol = fmt.Sprintf("<Port>%d</Port>", listener.Port)
+	}
+	if listener.Protocol != "" {
+		portProtocol += fmt.Sprintf("<Protocol>%s</Protocol>", xmlEscape(listener.Protocol))
+	}
+	return fmt.Sprintf(`<member><ListenerArn>%s</ListenerArn><LoadBalancerArn>%s</LoadBalancerArn>%s%s%s%s%s%s</member>`,
+		xmlEscape(listener.Arn), xmlEscape(listener.LoadBalancerArn), portProtocol,
 		elbv2ActionsXML("DefaultActions", listener.DefaultActions), certs.String(), sslPolicy, alpn,
 		elbv2MutualAuthXML(listener.MutualAuth))
 }

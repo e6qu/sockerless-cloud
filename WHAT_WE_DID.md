@@ -1697,7 +1697,10 @@ fails once the row closes or the operation is served.
   instance answers to its own name and loses its token before its container
   stops: the replaced node, still asking while it wound down, had made the new
   node's endpoints `Available` before the new node existed, which a slow CI
-  runner exposed. `sim.ContainerConfig.JoinNetworks` puts a
+  runner exposed. A Gateway Load Balancer listener carries no `Port` or
+  `Protocol`, before and after a restart: CreateListener had defaulted both to
+  `HTTP` on port 80, which `aws_lb_listener` read back as drift.
+  `sim.ContainerConfig.JoinNetworks` puts a
   container on further networks before it starts, so the node finds every
   endpoint's interface at its first instruction. Interface endpoints hold
   real network interfaces too, a route to an endpoint reads back under
