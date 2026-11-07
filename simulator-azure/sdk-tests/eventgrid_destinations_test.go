@@ -24,7 +24,7 @@ func TestEventGrid_DeliversToAStorageQueueAndAServiceBusQueueSDK(t *testing.T) {
 	t.Parallel()
 	rg := uniquename.New("sdk-eventgrid-dest-rg")
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	account := uniquename.Alnum("egdest")
 	require.NotEmpty(t, storageAccountPrimaryKey(account))

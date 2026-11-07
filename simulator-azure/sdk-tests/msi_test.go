@@ -14,7 +14,7 @@ import (
 
 func ensureMSIResourceGroup(t *testing.T, name string) {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, name, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
@@ -24,7 +24,7 @@ func TestMSI_UpdateAndList(t *testing.T) {
 	t.Parallel()
 	rg := "msi-list-rg"
 	ensureMSIResourceGroup(t, rg)
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, rg, "msi-listed", armmsi.Identity{Location: ptrStr("eastus")}, nil)
@@ -61,12 +61,12 @@ func TestMSI_FederatedIdentityCredentials(t *testing.T) {
 	t.Parallel()
 	rg := "msi-fic-rg"
 	ensureMSIResourceGroup(t, rg)
-	uaClient, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	uaClient, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = uaClient.CreateOrUpdate(ctx, rg, "msi-fic", armmsi.Identity{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	ficClient, err := armmsi.NewFederatedIdentityCredentialsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ficClient, err := armmsi.NewFederatedIdentityCredentialsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := ficClient.CreateOrUpdate(ctx, rg, "msi-fic", "gh-actions", armmsi.FederatedIdentityCredential{
@@ -101,7 +101,7 @@ func TestMSI_FederatedIdentityCredentials(t *testing.T) {
 
 func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
 	t.Parallel()
-	opsClient, err := armmsi.NewOperationsClient(&fakeCredential{}, clientOpts())
+	opsClient, err := armmsi.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := opsClient.NewListPager(nil)
 	count := 0
@@ -116,7 +116,7 @@ func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
 	// the resource the scope names; a subscription carries none.
 	rg, name := "msi-scope-rg", "msi-scope-app"
 	ensureMSIResourceGroup(t, rg)
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 	poller, err := sites.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
@@ -133,7 +133,7 @@ func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, site.Identity)
 
-	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(&fakeCredential{}, clientOpts())
+	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := saClient.GetByScope(ctx, strings.TrimPrefix(*site.ID, "/"), nil)
 	require.NoError(t, err)

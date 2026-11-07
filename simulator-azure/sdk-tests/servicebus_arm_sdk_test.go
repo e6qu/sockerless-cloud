@@ -18,7 +18,7 @@ func TestServiceBusARM_SDKNetworkRuleSetsAndAdjunctReads(t *testing.T) {
 	ensureRG(t, rg)
 	ns := uniquename.New("sdk-servicebus-ns")
 
-	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := clientFactory.NewNamespacesClient()
 	queues := clientFactory.NewQueuesClient()

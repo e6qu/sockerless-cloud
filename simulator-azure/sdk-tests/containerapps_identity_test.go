@@ -60,7 +60,7 @@ func acaIdentityVault(t *testing.T, rg, prefix string) (*armkeyvault.VaultsClien
 	_, err = secrets.SetSecret(ctx, "db-password", azsecrets.SetSecretParameters{Value: to.Ptr("hunter2")}, nil)
 	require.NoError(t, err)
 
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := uniquename.New(prefix + "-uai")
 	created, err := identities.CreateOrUpdate(ctx, rg, name, armmsi.Identity{Location: to.Ptr("eastus")}, nil)
@@ -94,7 +94,7 @@ func TestSDK_ContainerAppsApps_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 	rg := "sdk-aca-identity-rg"
 	ensureRG(t, rg)
 	vaults, secretURL, firstVersionURL, vault, uai := acaIdentityVault(t, rg, "acaappid")
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	envID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.App/managedEnvironments/sim-env"
 	name := uniquename.New("sdk-aca-id")
@@ -218,7 +218,7 @@ func TestSDK_ContainerAppsJobs_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 	rg := "sdk-aca-job-identity-rg"
 	ensureRG(t, rg)
 	vaults, secretURL, _, vault, uai := acaIdentityVault(t, rg, "acajobid")
-	jobs, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	jobs, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := uniquename.New("sdk-job-id")
 	job := armappcontainers.Job{
@@ -331,7 +331,7 @@ func TestSDK_ContainerAppsApps_IngressAbortsAResponseItsReplicaCutsShort(t *test
 	t.Parallel()
 	rg, name := "sdk-aca-ingress-abort-rg", uniquename.New("ingressabort")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	script := `nc -lk -p 8080 -e sh -c 'while read -r l && [ ${#l} -gt 1 ]; do :; done; printf "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7\r\npartial\r\n"'`
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.ContainerApp{

@@ -12,7 +12,7 @@ import (
 
 func createResourceGroup(t *testing.T, name string) {
 	t.Helper()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.CreateOrUpdate(ctx, name, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -22,7 +22,7 @@ func createResourceGroup(t *testing.T, name string) {
 // once it reports Ready.
 func pgCreateServer(t *testing.T, rg, name string) {
 	t.Helper()
-	client, err := armpostgresqlflexibleservers.NewServersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armpostgresqlflexibleservers.NewServersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rg, name, armpostgresqlflexibleservers.Server{
 		Location: to.Ptr("eastus"),
@@ -53,7 +53,7 @@ func TestAzurePGFlexibleServer_LifecycleActions(t *testing.T) {
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)
 
-	client, err := armpostgresqlflexibleservers.NewServersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armpostgresqlflexibleservers.NewServersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	t.Run("Stop", func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 	pgCreateServer(t, rg, server)
 
 	t.Run("Administrators", func(t *testing.T) {
-		client, err := armpostgresqlflexibleservers.NewAdministratorsClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armpostgresqlflexibleservers.NewAdministratorsClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		objectID := "11111111-1111-1111-1111-111111111111"
 		poller, err := client.BeginCreate(ctx, rg, server, objectID, armpostgresqlflexibleservers.ActiveDirectoryAdministratorAdd{
@@ -153,7 +153,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 	})
 
 	t.Run("Backups", func(t *testing.T) {
-		client, err := armpostgresqlflexibleservers.NewBackupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armpostgresqlflexibleservers.NewBackupsClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		backupName := "ondemand-backup-1"
 		poller, err := client.BeginCreate(ctx, rg, server, backupName, nil)
@@ -178,7 +178,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 	})
 
 	t.Run("Replicas", func(t *testing.T) {
-		client, err := armpostgresqlflexibleservers.NewReplicasClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armpostgresqlflexibleservers.NewReplicasClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		pager := client.NewListByServerPager(rg, server, nil)
 		page, err := pager.NextPage(ctx)
@@ -187,7 +187,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 	})
 
 	t.Run("VirtualEndpoints", func(t *testing.T) {
-		client, err := armpostgresqlflexibleservers.NewVirtualEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armpostgresqlflexibleservers.NewVirtualEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		veName := "pg-nested-ve"
 		poller, err := client.BeginCreate(ctx, rg, server, veName, armpostgresqlflexibleservers.VirtualEndpointResource{
@@ -228,7 +228,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 	})
 
 	t.Run("ConfigurationUpdate", func(t *testing.T) {
-		client, err := armpostgresqlflexibleservers.NewConfigurationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armpostgresqlflexibleservers.NewConfigurationsClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		poller, err := client.BeginUpdate(ctx, rg, server, "maintenance_work_mem", armpostgresqlflexibleservers.ConfigurationForUpdate{
 			Properties: &armpostgresqlflexibleservers.ConfigurationProperties{
@@ -250,7 +250,7 @@ func TestAzurePGFlexibleServer_CheckNameAvailability(t *testing.T) {
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)
 
-	subClient, err := armpostgresqlflexibleservers.NewCheckNameAvailabilityClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subClient, err := armpostgresqlflexibleservers.NewCheckNameAvailabilityClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	taken, err := subClient.Execute(ctx, armpostgresqlflexibleservers.CheckNameAvailabilityRequest{
 		Name: to.Ptr(server),
@@ -266,7 +266,7 @@ func TestAzurePGFlexibleServer_CheckNameAvailability(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, *free.NameAvailable)
 
-	locClient, err := armpostgresqlflexibleservers.NewCheckNameAvailabilityWithLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
+	locClient, err := armpostgresqlflexibleservers.NewCheckNameAvailabilityWithLocationClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	locResp, err := locClient.Execute(ctx, "eastus", armpostgresqlflexibleservers.CheckNameAvailabilityRequest{
 		Name: to.Ptr("pg-cna-loc-name"),

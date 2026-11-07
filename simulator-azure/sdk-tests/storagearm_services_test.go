@@ -19,14 +19,14 @@ func TestStorageARM_BlobServicesAndContainers(t *testing.T) {
 	account := "storagearmblob"
 	createStorageAccountForARM(t, rg, account)
 
-	bsClient, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	bsClient, err := armstorage.NewBlobServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	bsPager := bsClient.NewListPager(rg, account, nil)
 	bsPage, err := bsPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, bsPage.Value)
 
-	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	container := "worm-container"
 	_, err = bcClient.Create(ctx, rg, account, container, armstorage.BlobContainer{
@@ -110,7 +110,7 @@ func TestStorageARM_FileServicesAndShares(t *testing.T) {
 	account := "storagearmfile"
 	createStorageAccountForARM(t, rg, account)
 
-	fsClient, err := armstorage.NewFileServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	fsClient, err := armstorage.NewFileServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	list, err := fsClient.List(ctx, rg, account, nil)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestStorageARM_FileServicesAndShares(t *testing.T) {
 	_, err = fsClient.GetServiceUsage(ctx, rg, account, nil)
 	require.NoError(t, err)
 
-	shareClient, err := armstorage.NewFileSharesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	shareClient, err := armstorage.NewFileSharesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	share := "arm-share"
 	start := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
@@ -186,7 +186,7 @@ func TestStorageARM_QueueAndTableServices(t *testing.T) {
 	account := "storagearmqt"
 	createStorageAccountForARM(t, rg, account)
 
-	qsClient, err := armstorage.NewQueueServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	qsClient, err := armstorage.NewQueueServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	qsList, err := qsClient.List(ctx, rg, account, nil)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestStorageARM_QueueAndTableServices(t *testing.T) {
 	_, err = qsClient.GetServiceProperties(ctx, rg, account, nil)
 	require.NoError(t, err)
 
-	qClient, err := armstorage.NewQueueClient(subscriptionID, &fakeCredential{}, clientOpts())
+	qClient, err := armstorage.NewQueueClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	queue := "armqueue"
 	_, err = qClient.Create(ctx, rg, account, queue, armstorage.Queue{
@@ -219,7 +219,7 @@ func TestStorageARM_QueueAndTableServices(t *testing.T) {
 	_, err = qClient.Delete(ctx, rg, account, queue, nil)
 	require.NoError(t, err)
 
-	tsClient, err := armstorage.NewTableServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tsClient, err := armstorage.NewTableServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	tsList, err := tsClient.List(ctx, rg, account, nil)
 	require.NoError(t, err)

@@ -29,14 +29,14 @@ func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 		capture    = "pcap-session"
 	)
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
 	vmID := packetCaptureFixtureVM(t, rg, vnetName, subnetName, nicName, vmName)
 
-	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = watcherClient.CreateOrUpdate(ctx, rg, watcher, armnetwork.Watcher{
 		Location:   to.Ptr("eastus"),
@@ -48,7 +48,7 @@ func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s",
 		subscriptionID, rg, account)
 
-	captureClient, err := armnetwork.NewPacketCapturesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	captureClient, err := armnetwork.NewPacketCapturesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := captureClient.BeginCreate(ctx, rg, watcher, capture, armnetwork.PacketCapture{
@@ -93,12 +93,12 @@ func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) 
 	const rg = "pcap-missing-rg"
 	const watcher = "NetworkWatcher_eastus"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = watcherClient.CreateOrUpdate(ctx, rg, watcher, armnetwork.Watcher{
 		Location:   to.Ptr("eastus"),
@@ -106,7 +106,7 @@ func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) 
 	}, nil)
 	require.NoError(t, err)
 
-	captureClient, err := armnetwork.NewPacketCapturesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	captureClient, err := armnetwork.NewPacketCapturesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	missing := fmt.Sprintf(
 		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/no-such-vm",
@@ -135,7 +135,7 @@ func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) 
 func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmName string) string {
 	t.Helper()
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -147,7 +147,7 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.105.1.0/24")},
@@ -156,7 +156,7 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, nicName, armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -175,7 +175,7 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	nicResp, err := nicPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vmPoller, err := vmClient.BeginCreateOrUpdate(ctx, rg, vmName, armcompute.VirtualMachine{
 		Location: to.Ptr("eastus"),

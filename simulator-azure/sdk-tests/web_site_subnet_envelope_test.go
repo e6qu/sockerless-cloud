@@ -19,7 +19,7 @@ func TestSDK_WebSite_SubnetInEnvelopeReadsBack(t *testing.T) {
 	planID := stage5EnsurePlan(t, rg, "sse-plan", "S1", "Standard")
 	subnetID := stage5Subnet(t, rg, "sse", "10.62.0.0/16", "appsvc", "10.62.1.0/24")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "sse-app", armappservice.Site{

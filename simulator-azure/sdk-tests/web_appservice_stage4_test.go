@@ -98,7 +98,7 @@ func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-cert-plan")
 
-	client, err := armappservice.NewCertificatesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewCertificatesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	leaf, pfx := stage4SelfSignedCert(t, "stage4.example.com",
@@ -280,7 +280,7 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 	rg := "stage4-kvcert-rg"
 	ensureRG(t, rg)
 
-	client, err := armappservice.NewCertificatesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewCertificatesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	leaf, pfx := stage4SelfSignedCert(t, "kv.stage4.example.com", []string{"kv.stage4.example.com"}, "")
@@ -374,18 +374,18 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-host-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, client, rg, s4HostSiteName, planID)
 	webMoreCreateSite(t, client, rg, s4HostOtherName, planID)
 
 	// Prove ownership in the simulator's Azure DNS with a CNAME from the custom
 	// hostname to the site's default hostname.
-	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armdns.NewZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
-	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = recordsClient.CreateOrUpdate(ctx, rg, zone, "app", armdns.RecordTypeCNAME, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{
@@ -455,7 +455,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	require.NotNil(t, slotAnalysis.Properties)
 
 	// ListCustomHostNameSites assembles the bindings per hostname.
-	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
+	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	foundHost := false
 	chPager := mgmt.NewListCustomHostNameSitesPager(nil)
@@ -496,7 +496,7 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-snap-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, client, rg, "s4-snap-site", planID)
 
@@ -579,7 +579,7 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	// retained container log.
 	assert.Equal(t, "hello-from-stage4", string(azureInvokeFunction(t, name)))
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// The engine's log stream delivers the access-log line after the response,
@@ -630,7 +630,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-glob-plan")
 
-	provider, err := armappservice.NewProviderClient(subscriptionID, &fakeCredential{}, clientOpts())
+	provider, err := armappservice.NewProviderClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	var ops []*armappservice.CsmOperationDescription
 	opsPager := provider.NewListOperationsPager(nil)
@@ -648,7 +648,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	assert.Contains(t, names, "Microsoft.Web/sites/Read")
 	assert.Contains(t, names, "Microsoft.Web/certificates/Write")
 
-	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
+	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// The simulator hosts nothing these catalogs list, so they are empty.
@@ -670,7 +670,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, page.Value, "no marketplace premier add-on offers exist in the simulator")
 	}
-	usages, err := armappservice.NewGetUsagesInLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
+	usages, err := armappservice.NewGetUsagesInLocationClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	usagePager := usages.NewListPager("eastus", nil)
 	for usagePager.More() {
@@ -720,20 +720,20 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	assert.NotEmpty(t, vnetCheck.Properties.FailedTests)
 
 	// UpdateMachineKey resets the verified site's machine key.
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, client, rg, "s4-machinekey-site", planID)
 	_, err = client.UpdateMachineKey(ctx, rg, "s4-machinekey-site", nil)
 	require.NoError(t, err)
 
 	// The simulator hard-deletes sites, so every deletedSiteId is absent.
-	global, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())
+	global, err := armappservice.NewGlobalClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = global.GetDeletedWebApp(ctx, "12345", nil)
 	require.Error(t, err, "no deleted web app exists in the simulator")
 	_, err = global.GetDeletedWebAppSnapshots(ctx, "12345", nil)
 	require.Error(t, err)
-	deleted, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	deleted, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = deleted.GetDeletedWebAppByLocation(ctx, "eastus", "12345", nil)
 	require.Error(t, err)
@@ -747,12 +747,12 @@ func TestSDK_Web_MoveResources(t *testing.T) {
 	ensureRG(t, dstRG)
 	planID := webMoreEnsurePlan(t, srcRG, "s4-move-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, client, srcRG, s4MoveSiteName, planID)
 	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/sites/" + s4MoveSiteName
 
-	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &fakeCredential{}, clientOpts())
+	mgmt, err := armappservice.NewWebSiteManagementClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	envelope := armappservice.CsmMoveResourceEnvelope{
 		TargetResourceGroup: to.Ptr(dstRG),
@@ -792,7 +792,7 @@ func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
 
 	// An Event Hubs namespace create answers 202 with an Azure-AsyncOperation URL
 	// whose last segment is the operation ID.
-	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	var createRaw *http.Response
 	createCtx := policy.WithCaptureResponse(ctx, &createRaw)
@@ -816,7 +816,7 @@ func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
 
 	// Global_GetSubscriptionOperationWithAsyncResponse answers 204 for an
 	// operation the service issued and 404 for one it never did.
-	global, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())
+	global, err := armappservice.NewGlobalClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = global.GetSubscriptionOperationWithAsyncResponse(ctx, "eastus", opID, nil)
 	require.NoError(t, err, "an operation the service issued answers 204")

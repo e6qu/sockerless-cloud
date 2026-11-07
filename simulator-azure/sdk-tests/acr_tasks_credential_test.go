@@ -30,7 +30,7 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 	}
 	const ctr = "build-context"
 	acrEnsureRegistry(t, rg, regName)
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	registry, err := registriesClient.Get(ctx, rg, regName, nil)
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 	queued, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, queued.Properties.RunID)
-	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
 	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(result.Properties.Status),

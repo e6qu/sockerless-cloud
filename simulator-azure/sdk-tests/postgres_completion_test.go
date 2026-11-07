@@ -21,7 +21,7 @@ func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	loc := "eastus"
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	t.Run("Operations", func(t *testing.T) {
 		client, err := armpostgresqlflexibleservers.NewOperationsClient(cred, clientOpts())

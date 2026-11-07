@@ -22,7 +22,7 @@ func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	t.Parallel()
 	rg, name, vault := "sdk-sc-env-rg", "sdk-sc-env-app", "sdkscenvvault"
 	ensureRG(t, rg)
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vaultPoller, err := vaults.BeginCreateOrUpdate(ctx, rg, vault, armkeyvault.VaultCreateOrUpdateParameters{
 		Location: to.Ptr("eastus"),
@@ -40,7 +40,7 @@ func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	_, err = vaultPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = vaults.Delete(ctx, rg, vault, nil) })
-	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{}, &azsecrets.ClientOptions{
+	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{}, &azsecrets.ClientOptions{
 		ClientOptions:                        kvClientOptions(),
 		DisableChallengeResourceVerification: true,
 	})
@@ -49,7 +49,7 @@ func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	planID := webMoreEnsurePlan(t, rg, name+"-plan")
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
@@ -113,7 +113,7 @@ func createInheritanceSite(t *testing.T, rg, name string) *armappservice.WebApps
 	t.Helper()
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, name+"-plan")
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{

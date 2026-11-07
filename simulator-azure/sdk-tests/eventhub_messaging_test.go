@@ -20,7 +20,7 @@ func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	ensureRG(t, rg)
 	ns := uniquename.New("sdk-eh-msg-ns")
 
-	clientFactory, err := armeventhub.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	clientFactory, err := armeventhub.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := clientFactory.NewNamespacesClient()
 

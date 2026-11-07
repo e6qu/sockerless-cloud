@@ -95,7 +95,7 @@ func TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip(t *testing.T) 
 	appName := "sdk-cfg-app"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -136,7 +136,7 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 	appName := "sdk-cfg-patch-app"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -220,7 +220,7 @@ func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
 	appName := "sdk-dapr-exec-app"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

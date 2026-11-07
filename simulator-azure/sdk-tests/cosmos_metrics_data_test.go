@@ -39,7 +39,7 @@ func TestCosmos_MetricsCountTheDataPlane(t *testing.T) {
 	start := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
 	end := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
 	filter := fmt.Sprintf("(name.value eq 'Total Requests' or name.value eq 'Total Request Units' or name.value eq 'Document Count') and timeGrain eq duration'PT1H' and startTime eq %s and endTime eq %s", start, end)
-	accounts, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	page, err := accounts.NewListMetricsPager(cosmosDataResourceGroup, account, filter, nil).NextPage(ctx)
 	require.NoError(t, err)

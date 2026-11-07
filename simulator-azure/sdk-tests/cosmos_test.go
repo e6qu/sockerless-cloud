@@ -94,7 +94,7 @@ func TestAzureCosmosDB_TableARMOfficialSDKLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	client, err := armcosmos.NewTableResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewTableResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateUpdateTable(ctx, rg, account, table, armcosmos.TableCreateUpdateParameters{

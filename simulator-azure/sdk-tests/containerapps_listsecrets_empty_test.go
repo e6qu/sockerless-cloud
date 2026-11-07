@@ -17,7 +17,7 @@ func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-secrets-empty-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	appClient, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)

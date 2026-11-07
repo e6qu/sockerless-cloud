@@ -21,7 +21,7 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/privateDnsZones/"+zoneName+"?api-version=2018-09-01",
 		`{"location":"global"}`)
 
-	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	ttl := int64(300)
@@ -77,7 +77,7 @@ func TestPrivateDNS_RecordSetsUpdate(t *testing.T) {
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/privateDnsZones/"+zoneName+"?api-version=2018-09-01",
 		`{"location":"global"}`)
 
-	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	ttl := int64(60)
@@ -115,7 +115,7 @@ func TestPrivateDNS_ListZonesAndVirtualNetworkLinks(t *testing.T) {
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/privateDnsZones/"+zoneName+"/virtualNetworkLinks/"+linkName+"?api-version=2018-09-01",
 		`{"location":"global","properties":{"virtualNetwork":{"id":"/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/dns-private-rg/providers/Microsoft.Network/virtualNetworks/sdk-vnet"},"registrationEnabled":false}}`)
 
-	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePager := zones.NewListByResourceGroupPager(rg, nil)
 	require.True(t, zonePager.More())
@@ -134,7 +134,7 @@ func TestPrivateDNS_ListZonesAndVirtualNetworkLinks(t *testing.T) {
 	require.NotNil(t, foundZone.Properties.NumberOfRecordSets)
 	assert.Equal(t, int64(1), *foundZone.Properties.NumberOfRecordSets)
 
-	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPager := links.NewListPager(rg, zoneName, nil)
 	require.True(t, linkPager.More())

@@ -18,7 +18,7 @@ func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-eventgrid-more-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	const location = "eastus"
 
 	ops, err := armeventgrid.NewOperationsClient(cred, clientOpts())

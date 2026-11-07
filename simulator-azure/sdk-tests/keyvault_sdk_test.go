@@ -154,7 +154,7 @@ func TestKeyVault_SDK_Secrets_ChallengeRoundTrip(t *testing.T) {
 	vault := "kv-sdk-secrets"
 	createKVViaARM(t, rg, vault)
 
-	client, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	client, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -223,7 +223,7 @@ func TestKeyVault_SDK_Keys_ChallengeRoundTrip(t *testing.T) {
 	vault := "kv-sdk-keys"
 	createKVViaARM(t, rg, vault)
 
-	client, err := azkeys.NewClient(kvVaultURL(vault), &fakeCredential{},
+	client, err := azkeys.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azkeys.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -305,7 +305,7 @@ func TestKeyVault_SDK_Certificates_ChallengeRoundTrip(t *testing.T) {
 	vault := "kv-sdk-certs"
 	createKVViaARM(t, rg, vault)
 
-	client, err := azcertificates.NewClient(kvVaultURL(vault), &fakeCredential{},
+	client, err := azcertificates.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azcertificates.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -401,7 +401,7 @@ const (
 // assignment when the test ends.
 func grantRole(t *testing.T, scope, roleGUID, principalID string) {
 	t.Helper()
-	roles, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	roles, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := uuid.NewString()
 	_, err = roles.Create(ctx, scope, name, armauthorization.RoleAssignmentCreateParameters{
@@ -653,7 +653,7 @@ func TestKV_GetSecret_NotFound_ErrorClassification(t *testing.T) {
 	createKVViaARM(t, rg, vault)
 
 	vaultURL := kvVaultURL(vault)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := azsecrets.NewClient(vaultURL, cred, &azsecrets.ClientOptions{
 		ClientOptions:                        kvClientOptions(),
 		DisableChallengeResourceVerification: true,
@@ -684,7 +684,7 @@ func TestKeyVault_SDK_UpdateSecretPartialPreservesEnabled(t *testing.T) {
 	rg := "kv-patch-rg-5d0b"
 	vault := "kv-patch-vault"
 	createKVViaARM(t, rg, vault)
-	client, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	client, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{ClientOptions: kvClientOptions(), DisableChallengeResourceVerification: true})
 	require.NoError(t, err)
 

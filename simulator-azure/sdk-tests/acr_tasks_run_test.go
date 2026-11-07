@@ -34,14 +34,14 @@ func acrTasksRunLog(t *testing.T, runs *armcontainerregistry.RunsClient, rg, reg
 
 func acrTasksSchedule(t *testing.T, rg, registry string, request armcontainerregistry.RunRequestClassification) armcontainerregistry.Run {
 	t.Helper()
-	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := registries.BeginScheduleRun(ctx, rg, registry, request, nil)
 	require.NoError(t, err)
 	queued, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, queued.Properties.RunID)
-	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	return awaitACRRun(t, runs, rg, registry, *queued.Properties.RunID)
 }
@@ -63,7 +63,7 @@ func TestACRTasks_FileTaskRunFromUploadedSource(t *testing.T) {
 	acrEnsureRegistry(t, rg, regName)
 	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
-	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	registry, err := registries.Get(ctx, rg, regName, nil)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ steps:
 		Values:         []*armcontainerregistry.SetValue{{Name: to.Ptr("tag"), Value: to.Ptr(tag)}},
 		Platform:       &armcontainerregistry.PlatformProperties{OS: to.Ptr(armcontainerregistry.OSLinux)},
 	})
-	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	log := acrTasksRunLog(t, runs, rg, regName, *run.Properties.RunID)
 	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(run.Properties.Status),
@@ -126,7 +126,7 @@ func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 	acrEnsureRegistry(t, rg, regName)
 	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
-	tasks, err := armcontainerregistry.NewTasksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tasks, err := armcontainerregistry.NewTasksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	content := "steps:\n  - cmd: mirror.gcr.io/library/alpine:3.20 echo greeting={{.Values.who}} task={{.Run.TaskName}}\n"
 	poller, err := tasks.BeginCreate(ctx, rg, regName, taskName, armcontainerregistry.Task{
@@ -152,7 +152,7 @@ func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 			Values: []*armcontainerregistry.SetValue{{Name: to.Ptr("who"), Value: to.Ptr("override")}},
 		},
 	})
-	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	log := acrTasksRunLog(t, runs, rg, regName, *run.Properties.RunID)
 	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(run.Properties.Status),
@@ -173,7 +173,7 @@ func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
 	acrEnsureRegistry(t, rg, regName)
 	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
-	pools, err := armcontainerregistry.NewAgentPoolsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pools, err := armcontainerregistry.NewAgentPoolsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created, err := pools.BeginCreate(ctx, rg, regName, pool, armcontainerregistry.AgentPool{
 		Location:   to.Ptr("eastus"),
@@ -183,9 +183,9 @@ func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
 	_, err = created.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	content := base64.StdEncoding.EncodeToString([]byte(
 		"steps:\n  - cmd: mirror.gcr.io/library/alpine:3.20 sh -c \"echo agent-busy && sleep 600\"\n"))

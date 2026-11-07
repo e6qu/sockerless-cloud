@@ -26,7 +26,7 @@ var identifiableFunctionsKey = regexp.MustCompile(`^[A-Za-z0-9_-]{44}AzFu[A-Za-z
 func createStackFunctionApp(t *testing.T, rg, name, linuxFxVersion string, appSettings map[string]string) *armappservice.WebAppsClient {
 	t.Helper()
 	ensureRG(t, rg)
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	planPoller, err := plans.BeginCreateOrUpdate(ctx, rg, name+"-plan", armappservice.Plan{
 		Location:   to.Ptr("eastus"),
@@ -42,7 +42,7 @@ func createStackFunctionApp(t *testing.T, rg, name, linuxFxVersion string, appSe
 	for k, v := range appSettings {
 		settings = append(settings, &armappservice.NameValuePair{Name: to.Ptr(k), Value: to.Ptr(v)})
 	}
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),

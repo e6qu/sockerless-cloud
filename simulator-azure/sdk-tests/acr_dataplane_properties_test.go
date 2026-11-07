@@ -30,7 +30,7 @@ func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
 	fixture := newACRRegistryFixture(t, "acr-props-rg", "acrpropsregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
-	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &fakeCredential{}, acrClientOptions())
+	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &clientCredential{}, acrClientOptions())
 	require.NoError(t, err)
 
 	// A repository nothing was pushed to is absent: the negative control for every

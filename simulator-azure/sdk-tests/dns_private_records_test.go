@@ -20,7 +20,7 @@ func TestPrivateDNS_NonARecordTypes(t *testing.T) {
 		"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.Network/privateDnsZones/"+zoneName+"?api-version=2018-09-01",
 		`{"location":"global"}`)
 
-	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	ttl := int64(300)

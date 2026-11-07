@@ -20,7 +20,7 @@ func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
 
 	hook, deliveries := newEventGridWebhook(t)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())
@@ -130,7 +130,7 @@ func TestEventGrid_DomainAndSystemTopicSDK(t *testing.T) {
 
 	hook, _ := newEventGridWebhook(t)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	domains, err := armeventgrid.NewDomainsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	domainTopics, err := armeventgrid.NewDomainTopicsClient(subscriptionID, cred, clientOpts())

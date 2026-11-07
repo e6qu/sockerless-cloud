@@ -750,7 +750,7 @@ func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
 	// Enable share soft delete on the account's File service, as on Azure.
 	const rgName = "sdk-files-softdelete-rg"
 	createStorageAccountForARM(t, rgName, account)
-	fsClient, err := armstorage.NewFileServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	fsClient, err := armstorage.NewFileServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = fsClient.SetServiceProperties(ctx, rgName, account, armstorage.FileServiceProperties{
 		FileServiceProperties: &armstorage.FileServicePropertiesProperties{

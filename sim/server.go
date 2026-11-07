@@ -693,6 +693,9 @@ func (s *Server) Serve() error {
 		s.logger.Warn().Msg("shutdown: background work still running; the database stays open for the process exit")
 	}
 	s.removeEphemeralPayloads()
+	if drained {
+		removeProcessDataDirs()
+	}
 	return errors.Join(err, closeErr)
 }
 

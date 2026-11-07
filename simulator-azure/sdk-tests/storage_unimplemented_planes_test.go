@@ -46,7 +46,7 @@ func TestStorageSDK_UnimplementedDataPlanesDeclareGap(t *testing.T) {
 	)
 	ensureRG(t, rg)
 
-	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accountsClient.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
 		Location: to.Ptr("eastus"),

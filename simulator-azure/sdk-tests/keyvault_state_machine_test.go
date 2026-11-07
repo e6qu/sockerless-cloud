@@ -24,7 +24,7 @@ func TestKeyVault_State_FullVersionChain(t *testing.T) {
 	vault := uniquename.Alnum("kvversions")
 	createKVViaARM(t, rg, vault)
 
-	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	c, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -90,7 +90,7 @@ func TestKeyVault_State_VersionListOrder(t *testing.T) {
 	vault := uniquename.Alnum("kvorder")
 	createKVViaARM(t, rg, vault)
 
-	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	c, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -144,7 +144,7 @@ func TestKeyVault_State_SoftDeleteRoundTrip(t *testing.T) {
 	vault := uniquename.Alnum("kvsoftdel")
 	createKVViaARM(t, rg, vault)
 
-	c, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	c, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,

@@ -23,7 +23,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	rg := "sdk-rhm-rg"
 	ensureRG(t, rg)
 
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := plans.BeginCreateOrUpdate(ctx, rg, "sdk-rhm-plan", armappservice.Plan{
 		Location: to.Ptr("eastus"),
@@ -33,7 +33,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	plan, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sitePoller, err := sites.BeginCreateOrUpdate(ctx, rg, "sdk-rhm-site", armappservice.Site{
 		Location:   to.Ptr("eastus"),
@@ -51,7 +51,7 @@ func TestSDK_ResourceHealthMetadata(t *testing.T) {
 	_, err = slotPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	client, err := armappservice.NewResourceHealthMetadataClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewResourceHealthMetadataClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// Nothing runs behind this site, so Resource Health has no signal to read.

@@ -11,7 +11,7 @@ import (
 
 func TestACIOperationsList(t *testing.T) {
 	t.Parallel()
-	client, err := armcontainerinstance.NewOperationsClient(&fakeCredential{}, clientOpts())
+	client, err := armcontainerinstance.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := client.NewListPager(nil)
@@ -34,7 +34,7 @@ func TestACIOperationsList(t *testing.T) {
 // simulator holds.
 func TestACILocationUsages(t *testing.T) {
 	t.Parallel()
-	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := client.NewListUsagePager("eastus", nil)
@@ -55,7 +55,7 @@ func TestACILocationUsages(t *testing.T) {
 
 func TestACILocationCapabilities(t *testing.T) {
 	t.Parallel()
-	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := client.NewListCapabilitiesPager("eastus", nil)
@@ -77,7 +77,7 @@ func TestACILocationCapabilities(t *testing.T) {
 
 func TestACILocationCachedImages(t *testing.T) {
 	t.Parallel()
-	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := client.NewListCachedImagesPager("eastus", nil)
@@ -96,7 +96,7 @@ func TestACIOutboundNetworkDependenciesAndAttach(t *testing.T) {
 	groupName := "aci-ops-group"
 	ensureRG(t, rg)
 
-	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	cpu := 1.0
@@ -132,7 +132,7 @@ func TestACIOutboundNetworkDependenciesAndAttach(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, deps.StringArray, "outbound network dependency endpoints must be an empty list")
 
-	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	attach, err := containers.Attach(ctx, rg, groupName, "main", nil)
 	require.NoError(t, err)

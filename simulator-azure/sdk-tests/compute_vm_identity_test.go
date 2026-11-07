@@ -103,7 +103,7 @@ func TestCompute_VirtualMachineManagedIdentityTokens(t *testing.T) {
 	const vmName = "vm-identity"
 	nicID := vmOperationsFixture(t, rg, "vm-identity", "10.107.0.0/16")
 	vaults, _, _, vault, uai := acaIdentityVault(t, rg, "vmid")
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	foreign, err := identities.CreateOrUpdate(ctx, rg, "vm-identity-foreign", armmsi.Identity{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestCompute_VirtualMachineManagedIdentityTokens(t *testing.T) {
 
 	// SystemAssignedIdentities_GetByScope on the machine answers its
 	// system-assigned identity.
-	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(&fakeCredential{}, clientOpts())
+	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	byScope, err := saClient.GetByScope(ctx, strings.TrimPrefix(*vm.ID, "/"), nil)
 	require.NoError(t, err)

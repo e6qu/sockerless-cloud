@@ -22,7 +22,7 @@ func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
 	rg, name := "sdk-proc-verbs-rg", "sdk-proc-verbs-app"
 	host := createSiteForContainers(t, rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, name, "main", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{

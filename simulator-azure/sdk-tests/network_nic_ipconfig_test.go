@@ -41,12 +41,12 @@ func nicAddresses(nic armnetwork.Interface) map[string]string {
 func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	t.Parallel()
 	rg, vnet, nicName, otherName := uniquename.New("ipcfg-rg"), uniquename.New("ipcfg-vnet"), uniquename.New("ipcfg-nic"), uniquename.New("ipcfg-other")
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnet, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -63,7 +63,7 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 		}
 	})
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetID := func(name, prefix string) string {
 		poller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnet, name, armnetwork.Subnet{
@@ -76,7 +76,7 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	}
 	subnet, otherSubnet := subnetID("ipcfg-subnet", "10.71.1.0/24"), subnetID("ipcfg-subnet-2", "10.71.2.0/24")
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	put := func(name string, ipcfgs ...*armnetwork.InterfaceIPConfiguration) (armnetwork.Interface, error) {
 		poller, err := nicClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.Interface{

@@ -118,7 +118,7 @@ func azureSiteRequest(t *testing.T, siteName, method, path, body string) (int, [
 // siteContainerLog reads WebApps_GetWebSiteContainerLogs.
 func siteContainerLog(t *testing.T, rg, name string) string {
 	t.Helper()
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.GetWebSiteContainerLogs(ctx, rg, name, nil)
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func siteContainerLog(t *testing.T, rg, name string) string {
 func createAppInsightsComponent(t *testing.T, rg, name, workspaceID string) armapplicationinsights.Component {
 	t.Helper()
 	ensureRG(t, rg)
-	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	props := &armapplicationinsights.ComponentProperties{ApplicationType: to.Ptr(armapplicationinsights.ApplicationTypeWeb)}
 	if workspaceID != "" {
@@ -173,7 +173,7 @@ func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
 
 	assert.Equal(t, "from-image-cmd", string(azureInvokeFunction(t, name)))
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	updated, err := client.UpdateConfiguration(ctx, rg, name, armappservice.SiteConfigResource{
 		Properties: &armappservice.SiteConfig{AppCommandLine: to.Ptr("serve 80 from-startup-command")},
@@ -290,7 +290,7 @@ func TestSDK_Functions_CreateAndGet(t *testing.T) {
 	rg := "sdk-func-create-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -320,7 +320,7 @@ func TestSDK_Functions_ListByResourceGroup(t *testing.T) {
 	rg := "sdk-func-list-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -358,7 +358,7 @@ func TestSDK_Functions_Delete(t *testing.T) {
 	rg := "sdk-func-del-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -386,7 +386,7 @@ func TestSDK_Functions_GetNonExistentSite(t *testing.T) {
 	rg := "sdk-func-err-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

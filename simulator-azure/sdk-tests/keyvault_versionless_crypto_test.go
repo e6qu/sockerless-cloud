@@ -19,7 +19,7 @@ func TestKeyVault_VersionlessKeyCrypto(t *testing.T) {
 	vault := "kv-versionless"
 	createKVViaARM(t, rg, vault)
 
-	client, err := azkeys.NewClient(kvVaultURL(vault), &fakeCredential{},
+	client, err := azkeys.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azkeys.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,

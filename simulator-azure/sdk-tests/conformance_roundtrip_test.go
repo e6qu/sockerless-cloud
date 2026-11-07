@@ -44,7 +44,7 @@ func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 	ensureRG(t, rg)
 	ns := "conf-servicebus-ns"
 
-	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	factory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := factory.NewNamespacesClient()
 	queues := factory.NewQueuesClient()
@@ -118,7 +118,7 @@ func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 	registry := "confacrregistry"
 	ensureRG(t, rg)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreate(ctx, rg, registry, armcontainerregistry.Registry{
@@ -152,12 +152,12 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	nicName := "conf-vm-nic"
 	vmName := "conf-vm"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -169,7 +169,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.104.1.0/24")},
@@ -178,7 +178,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, nicName, armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -197,7 +197,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	nicResp, err := nicPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vmPoller, err := vmClient.BeginCreateOrUpdate(ctx, rg, vmName, armcompute.VirtualMachine{
 		Location: to.Ptr("eastus"),
@@ -250,7 +250,7 @@ func TestConformance_ACISecureValueStripped(t *testing.T) {
 	groupName := "conf-aci-group"
 	ensureRG(t, rg)
 
-	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	cpu := 1.0
@@ -309,7 +309,7 @@ func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
 	zoneName := "conf.internal"
 	ensureRG(t, rg)
 
-	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zones.BeginCreateOrUpdate(ctx, rg, zoneName, armprivatedns.PrivateZone{
 		Location: to.Ptr("global"),
@@ -318,7 +318,7 @@ func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	records, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	records, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	gotSOA, err := records.Get(ctx, rg, zoneName, armprivatedns.RecordTypeSOA, "@", nil)
@@ -389,7 +389,7 @@ func TestConformance_EventHubDefaultRetention(t *testing.T) {
 	hub := "conf-hub"
 	ensureRG(t, rg)
 
-	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nsPoller, err := nsClient.BeginCreateOrUpdate(ctx, rg, ns, armeventhub.EHNamespace{
 		Location: to.Ptr("eastus"),
@@ -399,7 +399,7 @@ func TestConformance_EventHubDefaultRetention(t *testing.T) {
 	_, err = nsPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = hubsClient.CreateOrUpdate(ctx, rg, ns, hub, armeventhub.Eventhub{
 		Properties: &armeventhub.Properties{PartitionCount: to.Ptr[int64](2)},
@@ -443,7 +443,7 @@ func TestConformance_ACRRegistryList(t *testing.T) {
 	registry := "confacrlistreg"
 	ensureRG(t, rg)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rg, registry, armcontainerregistry.Registry{
 		Location: to.Ptr("eastus"),
@@ -491,7 +491,7 @@ func TestConformance_ACRListCredentials(t *testing.T) {
 	registry := "confacrcredreg"
 	ensureRG(t, rg)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rg, registry, armcontainerregistry.Registry{
 		Location: to.Ptr("eastus"),
@@ -640,7 +640,7 @@ func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 	ensureRG(t, rg)
 	ns := "conf-sb-page-ns"
 
-	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	factory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := factory.NewNamespacesClient()
 	topics := factory.NewTopicsClient()

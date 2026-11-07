@@ -82,7 +82,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	nicID := vmOperationsFixture(t, rg, "vm-imds", "10.131.0.0/16")
 	networkBase := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network"
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	publicIP := func(name string) armnetwork.PublicIPAddress {
 		poller, err := pipClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.PublicIPAddress{
@@ -102,7 +102,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	frontendPIP := publicIP("vm-imds-lb-pip")
 
 	lbID := networkBase + "/loadBalancers/vm-imds-lb"
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "vm-imds-lb", armnetwork.LoadBalancer{
 		Location: to.Ptr("eastus"),
@@ -137,7 +137,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	require.NoError(t, err)
 	_, err = lbPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	outboundClient, err := armnetwork.NewLoadBalancerOutboundRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	outboundClient, err := armnetwork.NewLoadBalancerOutboundRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	outboundPager := outboundClient.NewListPager(rg, "vm-imds-lb", nil)
 	var outboundNames []string
@@ -155,7 +155,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 
 	// The interface's IP configuration takes the instance public address and
 	// joins the load balancer's backend pool.
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-imds-nic", nil)
 	require.NoError(t, err)

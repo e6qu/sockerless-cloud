@@ -272,11 +272,7 @@ func cosmosMigrateThroughput(w http.ResponseWriter, r *http.Request, toAutoscale
 		resource = map[string]any{}
 	}
 	if toAutoscale {
-		maxRU := cosmosToFloat(resource["throughput"])
-		if maxRU < 1000 {
-			maxRU = 4000
-		}
-		resource["autoscaleSettings"] = map[string]any{"maxThroughput": maxRU}
+		resource["autoscaleSettings"] = map[string]any{"maxThroughput": cosmosInitialAutoscaleMax(id, cosmosToFloat(resource["throughput"]))}
 		delete(resource, "throughput")
 	} else {
 		manual := float64(400)

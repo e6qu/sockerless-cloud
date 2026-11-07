@@ -71,7 +71,7 @@ func TestACR_WebhooksImportAndUsages(t *testing.T) {
 		}
 	}
 
-	webhooks, err := armcontainerregistry.NewWebhooksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webhooks, err := armcontainerregistry.NewWebhooksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	whPoller, err := webhooks.BeginCreate(ctx, target.resourceGroup, target.name, "onpush", armcontainerregistry.WebhookCreateParameters{
 		Location: to.Ptr("eastus"),
@@ -116,7 +116,7 @@ func TestACR_WebhooksImportAndUsages(t *testing.T) {
 	}
 	assert.Equal(t, []string{"ping", "push"}, actions, "the history lists the newest event first")
 
-	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sourceManifest := acrPushImage(t, source, "base", "v7", "imported layer")
 	sourceReg, err := registries.Get(ctx, source.resourceGroup, source.name, nil)

@@ -22,12 +22,12 @@ func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	first := space.Addr().As4()
 	first[2] = 1
 	subnetPrefix := netip.PrefixFrom(netip.AddrFrom4(first), 24)
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, prefix+"-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -39,7 +39,7 @@ func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, prefix+"-vnet", prefix+"-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr(subnetPrefix.String())},
@@ -48,7 +48,7 @@ func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, prefix+"-nic", armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -73,7 +73,7 @@ func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 
 func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*armcompute.VirtualMachine)) *armcompute.VirtualMachinesClient {
 	t.Helper()
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vm := armcompute.VirtualMachine{
 		Location: to.Ptr("eastus"),

@@ -17,7 +17,7 @@ func TestNetworkApplicationSecurityGroups_CRUD(t *testing.T) {
 	rg := "asg-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewApplicationSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "web-tier", armnetwork.ApplicationSecurityGroup{
@@ -90,7 +90,7 @@ func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 	rg := "asg-nsg-rg"
 	requireResourceGroup(t, rg)
 
-	asgClient, err := armnetwork.NewApplicationSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	asgClient, err := armnetwork.NewApplicationSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	mkASG := func(name string) *armnetwork.ApplicationSecurityGroup {
 		poller, err := asgClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.ApplicationSecurityGroup{
@@ -104,7 +104,7 @@ func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 	web := mkASG("asg-web")
 	db := mkASG("asg-db")
 
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nsgPoller, err := nsgClient.BeginCreateOrUpdate(ctx, rg, "asg-nsg", armnetwork.SecurityGroup{
 		Location: to.Ptr("eastus"),
@@ -113,7 +113,7 @@ func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 	_, err = nsgPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	ruleClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ruleClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rulePoller, err := ruleClient.BeginCreateOrUpdate(ctx, rg, "asg-nsg", "web-to-db", armnetwork.SecurityRule{
 		Properties: &armnetwork.SecurityRulePropertiesFormat{
@@ -148,7 +148,7 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 	rg := "tap-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewVirtualNetworkTapsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewVirtualNetworkTapsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// A tap with no destination is refused before anything is stored.
@@ -234,7 +234,7 @@ func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "tap-vnet", "10.40.0.0/16", "tap-subnet", "10.40.1.0/24")
 
-	tapClient, err := armnetwork.NewVirtualNetworkTapsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tapClient, err := armnetwork.NewVirtualNetworkTapsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	collector := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Network/networkInterfaces/collector-nic/ipConfigurations/ipconfig1"
@@ -248,7 +248,7 @@ func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 	tap, err := tapPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "mirrored-nic", armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -265,7 +265,7 @@ func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 	_, err = nicPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	tapCfgClient, err := armnetwork.NewInterfaceTapConfigurationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tapCfgClient, err := armnetwork.NewInterfaceTapConfigurationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	cfgPoller, err := tapCfgClient.BeginCreateOrUpdate(ctx, rg, "mirrored-nic", "mirror-cfg",
 		armnetwork.InterfaceTapConfiguration{
@@ -301,7 +301,7 @@ func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 	rg := "sep-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewServiceEndpointPoliciesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewServiceEndpointPoliciesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	accountID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
@@ -329,7 +329,7 @@ func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 	// No subnet enforces the policy yet.
 	assert.Empty(t, created.Properties.Subnets)
 
-	defClient, err := armnetwork.NewServiceEndpointPolicyDefinitionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	defClient, err := armnetwork.NewServiceEndpointPolicyDefinitionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	defPoller, err := defClient.BeginCreateOrUpdate(ctx, rg, "storage-policy", "allow-second-account",
 		armnetwork.ServiceEndpointPolicyDefinition{
@@ -419,7 +419,7 @@ func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	rg := "sep-subnet-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewServiceEndpointPoliciesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewServiceEndpointPoliciesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "subnet-policy", armnetwork.ServiceEndpointPolicy{
 		Location:   to.Ptr("eastus"),
@@ -429,7 +429,7 @@ func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	policy, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "sep-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -441,7 +441,7 @@ func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "sep-vnet", "sep-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -462,7 +462,7 @@ func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 
 func requireResourceGroup(t *testing.T, name string) {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, name, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -472,7 +472,7 @@ func requireResourceGroup(t *testing.T, name string) {
 // subnet's ID.
 func requireSubnet(t *testing.T, rg, vnetName, vnetPrefix, subnetName, subnetPrefix string) string {
 	t.Helper()
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -484,7 +484,7 @@ func requireSubnet(t *testing.T, rg, vnetName, vnetPrefix, subnetName, subnetPre
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr(subnetPrefix)},

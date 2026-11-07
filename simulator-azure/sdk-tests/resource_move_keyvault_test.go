@@ -48,7 +48,7 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 		kvAdministratorRole, simCallerObjectID)
 	grantRole(t, "/subscriptions/"+subscriptionID+"/resourceGroups/"+dstRG, kvAdministratorRole, simCallerObjectID)
 
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	before, err := vaults.Get(ctx, srcRG, vault, nil)
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 	uriBefore := *before.Properties.VaultURI
 
 	// An ARM-plane child of the vault, created before the move.
-	pecClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pecClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = pecClient.Put(ctx, srcRG, vault, "kv-move-pec", armkeyvault.PrivateEndpointConnection{
 		Properties: &armkeyvault.PrivateEndpointConnectionProperties{
@@ -72,7 +72,7 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 	// Real material written through the vault's own data plane, before the
 	// move: a secret, an RSA key (plus a ciphertext only that key can open),
 	// and a self-signed certificate.
-	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -83,7 +83,7 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 		azsecrets.SetSecretParameters{Value: stringPtr(secretValue)}, nil)
 	require.NoError(t, err)
 
-	keys, err := azkeys.NewClient(kvVaultURL(vault), &fakeCredential{},
+	keys, err := azkeys.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azkeys.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -104,7 +104,7 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, encrypted.Result)
 
-	certs, err := azcertificates.NewClient(kvVaultURL(vault), &fakeCredential{},
+	certs, err := azcertificates.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azcertificates.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -121,14 +121,14 @@ func TestAzureResources_MoveKeyVault(t *testing.T) {
 	// Manager moves a resource's tags with the resource.
 	vaultID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG +
 		"/providers/Microsoft.KeyVault/vaults/" + vault
-	tagsClient, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tagsClient, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = tagsClient.CreateOrUpdateAtScope(ctx, vaultID, armresources.TagsResource{
 		Properties: &armresources.Tags{Tags: map[string]*string{"team": to.Ptr("keyvault")}},
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(vaultID)},

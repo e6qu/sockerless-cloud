@@ -46,7 +46,7 @@ func TestEventGrid_AdvancedFiltersSelectDeliveredEventsSDK(t *testing.T) {
 	}))
 	t.Cleanup(hook.Close)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())

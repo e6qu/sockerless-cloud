@@ -150,7 +150,7 @@ A client that fetches its own token works over plain HTTP.
 
 ### Azure SDK for Go
 
-The SDK suite runs over plain HTTP. Its credential (`fakeCredential` in
+The SDK suite runs over plain HTTP. Its credential (`clientCredential` in
 `sdk-tests/helpers_test.go`) runs the client-credentials grant against the
 token endpoint, and `clientOpts` gives every client this configuration:
 

@@ -29,7 +29,7 @@ import (
 func createAuthTestVault(t *testing.T, rg, vault string, props armkeyvault.VaultProperties) *armkeyvault.VaultsClient {
 	t.Helper()
 	ensureRG(t, rg)
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	props.TenantID = to.Ptr(simTenantID)
 	props.SKU = &armkeyvault.SKU{Family: to.Ptr(armkeyvault.SKUFamilyA), Name: to.Ptr(armkeyvault.SKUNameStandard)}
@@ -49,7 +49,7 @@ func createAuthTestVault(t *testing.T, rg, vault string, props armkeyvault.Vault
 
 func kvSecretsClient(t *testing.T, vault string) *azsecrets.Client {
 	t.Helper()
-	client, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{}, &azsecrets.ClientOptions{
+	client, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{}, &azsecrets.ClientOptions{
 		ClientOptions:                        kvClientOptions(),
 		DisableChallengeResourceVerification: true,
 	})
@@ -218,7 +218,7 @@ func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
 	_, err = pager.NextPage(ctx)
 	requireKVForbidden(t, err, "AccessDenied", "does not have secrets list permission")
 
-	keys, err := azkeys.NewClient(kvVaultURL(vault), &fakeCredential{}, &azkeys.ClientOptions{
+	keys, err := azkeys.NewClient(kvVaultURL(vault), &clientCredential{}, &azkeys.ClientOptions{
 		ClientOptions:                        kvClientOptions(),
 		DisableChallengeResourceVerification: true,
 	})
@@ -282,7 +282,7 @@ func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
 	requireKVForbidden(t, err, "ForbiddenByRbac", "Action: 'Microsoft.KeyVault/vaults/secrets/setSecret/action'")
 
 	customRole := func(name string, dataActions, notDataActions []string) string {
-		defs, err := armauthorization.NewRoleDefinitionsClient(&fakeCredential{}, clientOpts())
+		defs, err := armauthorization.NewRoleDefinitionsClient(&clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		id := uuid.NewString()
 		scope := "/subscriptions/" + subscriptionID

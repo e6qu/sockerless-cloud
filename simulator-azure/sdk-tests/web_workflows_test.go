@@ -57,7 +57,7 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-env-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "webwf-env-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -153,13 +153,13 @@ func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-rt-plan")
 
-	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := uniquename.New("webwf-rt-site")
 	webMoreCreateSite(t, webApps, rg, name, planID)
 	webWorkflowsDeploy(t, webApps, rg, name)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	workflows, err := armappservice.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	triggers, err := armappservice.NewWorkflowTriggersClient(subscriptionID, cred, clientOpts())

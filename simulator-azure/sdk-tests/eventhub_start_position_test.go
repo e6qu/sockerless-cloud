@@ -22,9 +22,9 @@ import (
 func TestEventHubsSDK_StartPositions(t *testing.T) {
 	rg, ns, hub := "eh-start-rg", uniquename.New("sdk-eventhub-start"), "starthub"
 	ensureRG(t, rg)
-	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := nsClient.BeginCreateOrUpdate(ctx, rg, ns, armeventhub.EHNamespace{
 		Location: to.Ptr("eastus"),

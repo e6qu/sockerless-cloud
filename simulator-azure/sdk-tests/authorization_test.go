@@ -16,7 +16,7 @@ func TestRoleDefinitionCustomCRUD(t *testing.T) {
 	scope := "/subscriptions/" + subscriptionID
 	roleDefID := "11111111-2222-3333-4444-555555555555"
 
-	client, err := armauthorization.NewRoleDefinitionsClient(&fakeCredential{}, clientOpts())
+	client, err := armauthorization.NewRoleDefinitionsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := client.CreateOrUpdate(ctx, scope, roleDefID, armauthorization.RoleDefinition{
@@ -61,7 +61,7 @@ func TestRoleAssignmentSubscriptionScope(t *testing.T) {
 	// Reader built-in role.
 	roleDefID := scope + "/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7"
 
-	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := client.Create(ctx, scope, raName, armauthorization.RoleAssignmentCreateParameters{
@@ -111,7 +111,7 @@ func TestRoleAssignmentResourceGroupScope(t *testing.T) {
 	raName := "55555555-6666-7777-8888-999999999999"
 	principalID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
 
-	defs, err := armauthorization.NewRoleDefinitionsClient(&fakeCredential{}, clientOpts())
+	defs, err := armauthorization.NewRoleDefinitionsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = defs.CreateOrUpdate(ctx, "/subscriptions/"+subscriptionID, roleDefID, armauthorization.RoleDefinition{
 		Properties: &armauthorization.RoleDefinitionProperties{
@@ -124,7 +124,7 @@ func TestRoleAssignmentResourceGroupScope(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = defs.Delete(ctx, "/subscriptions/"+subscriptionID, roleDefID, nil) })
 
-	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.Create(ctx, scope, raName, armauthorization.RoleAssignmentCreateParameters{
 		Properties: &armauthorization.RoleAssignmentProperties{

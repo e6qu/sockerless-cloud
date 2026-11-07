@@ -17,9 +17,9 @@ func TestACIGroupContainersShareLocalhost(t *testing.T) {
 	rg := "aci-localhost-rg"
 	groupName := "aci-localhost-group"
 	ensureRG(t, rg)
-	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	cpu, mem := 1.0, 1.0

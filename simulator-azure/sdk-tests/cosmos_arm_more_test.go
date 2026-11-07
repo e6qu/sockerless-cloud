@@ -27,7 +27,7 @@ func TestAzureCosmosDB_MongoDBResourcesSDKLifecycle(t *testing.T) {
 	rg, account, db, coll := "sdk-cosmos-mongo-rg", "sdkcosmosmongo", "appdb", "users"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewMongoDBResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewMongoDBResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	dbPoller, err := client.BeginCreateUpdateMongoDBDatabase(ctx, rg, account, db, armcosmos.MongoDBDatabaseCreateUpdateParameters{
@@ -56,7 +56,8 @@ func TestAzureCosmosDB_MongoDBResourcesSDKLifecycle(t *testing.T) {
 	migrated, err := migPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, migrated.Properties.Resource.AutoscaleSettings)
-	assert.Equal(t, int32(4000), *migrated.Properties.Resource.AutoscaleSettings.MaxThroughput)
+	assert.Equal(t, int32(1000), *migrated.Properties.Resource.AutoscaleSettings.MaxThroughput,
+		"600 RU/s manual starts autoscale at the formula's 1,000 RU/s floor")
 
 	collPoller, err := client.BeginCreateUpdateMongoDBCollection(ctx, rg, account, db, coll, armcosmos.MongoDBCollectionCreateUpdateParameters{
 		Properties: &armcosmos.MongoDBCollectionCreateUpdateProperties{
@@ -89,7 +90,7 @@ func TestAzureCosmosDB_CassandraResourcesSDKLifecycle(t *testing.T) {
 	rg, account, keyspace, table := "sdk-cosmos-cassandra-rg", "sdkcosmoscassandra", "ks1", "tbl1"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewCassandraResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewCassandraResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	ksPoller, err := client.BeginCreateUpdateCassandraKeyspace(ctx, rg, account, keyspace, armcosmos.CassandraKeyspaceCreateUpdateParameters{
@@ -146,7 +147,7 @@ func TestAzureCosmosDB_GremlinResourcesSDKLifecycle(t *testing.T) {
 	rg, account, db, graph := "sdk-cosmos-gremlin-rg", "sdkcosmosgremlin", "graphdb", "g1"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewGremlinResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewGremlinResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	dbPoller, err := client.BeginCreateUpdateGremlinDatabase(ctx, rg, account, db, armcosmos.GremlinDatabaseCreateUpdateParameters{
@@ -204,7 +205,7 @@ func TestAzureCosmosDB_SQLScriptsSDKLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	spPoller, err := client.BeginCreateUpdateSQLStoredProcedure(ctx, rg, account, db, container, "sp1", armcosmos.SQLStoredProcedureCreateUpdateParameters{
@@ -273,7 +274,7 @@ func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
 	rg, account, db := "sdk-cosmos-sqlmigrate-rg", "sdkcosmossqlmigrate", "appdb"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	dbPoller, err := client.BeginCreateUpdateSQLDatabase(ctx, rg, account, db, armcosmos.SQLDatabaseCreateUpdateParameters{
@@ -291,14 +292,30 @@ func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
 	migrated, err := migPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, migrated.Properties.Resource.AutoscaleSettings)
-	assert.Equal(t, int32(4000), *migrated.Properties.Resource.AutoscaleSettings.MaxThroughput)
+	assert.Equal(t, int32(1000), *migrated.Properties.Resource.AutoscaleSettings.MaxThroughput,
+		"600 RU/s manual starts autoscale at the formula's 1,000 RU/s floor")
 
 	backPoller, err := client.BeginMigrateSQLDatabaseToManualThroughput(ctx, rg, account, db, nil)
 	require.NoError(t, err)
 	back, err := backPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, back.Properties.Resource.Throughput)
-	assert.Equal(t, int32(4000), *back.Properties.Resource.Throughput)
+	assert.Equal(t, int32(1000), *back.Properties.Resource.Throughput, "manual starts at the autoscale maximum")
+
+	// A manual rate above the floor carries over, rounded to the nearest 1,000.
+	updatePoller, err := client.BeginUpdateSQLDatabaseThroughput(ctx, rg, account, db, armcosmos.ThroughputSettingsUpdateParameters{
+		Properties: &armcosmos.ThroughputSettingsUpdateProperties{
+			Resource: &armcosmos.ThroughputSettingsResource{Throughput: to.Ptr[int32](12400)},
+		},
+	}, nil)
+	require.NoError(t, err)
+	_, err = updatePoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	migPoller, err = client.BeginMigrateSQLDatabaseToAutoscale(ctx, rg, account, db, nil)
+	require.NoError(t, err)
+	migrated, err = migPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int32(12000), *migrated.Properties.Resource.AutoscaleSettings.MaxThroughput)
 }
 
 // A SQL database without dedicated throughput has no offer to read or
@@ -308,7 +325,7 @@ func TestAzureCosmosDB_SQLThroughputWithoutAnOfferIsNotFoundSDK(t *testing.T) {
 	rg, account, db := "sdk-cosmos-nooffer-rg", "sdkcosmosnooffer", "shared"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewSQLResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	dbPoller, err := client.BeginCreateUpdateSQLDatabase(ctx, rg, account, db, armcosmos.SQLDatabaseCreateUpdateParameters{
 		Properties: &armcosmos.SQLDatabaseCreateUpdateProperties{
@@ -339,7 +356,7 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 	rg, account := "sdk-cosmos-acct-rg", "sdkcosmosacct"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	updPoller, err := client.BeginUpdate(ctx, rg, account, armcosmos.DatabaseAccountUpdateParameters{
@@ -390,14 +407,14 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 
 func TestAzureCosmosDB_OperationsAndLocationsSDK(t *testing.T) {
 	t.Parallel()
-	opsClient, err := armcosmos.NewOperationsClient(&fakeCredential{}, clientOpts())
+	opsClient, err := armcosmos.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	opsPager := opsClient.NewListPager(nil)
 	opsPage, err := opsPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, opsPage.Value)
 
-	locClient, err := armcosmos.NewLocationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	locClient, err := armcosmos.NewLocationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	locPager := locClient.NewListPager(nil)
 	locPage, err := locPager.NextPage(ctx)

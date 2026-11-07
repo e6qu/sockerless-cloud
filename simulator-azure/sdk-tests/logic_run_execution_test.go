@@ -24,7 +24,7 @@ func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-exec-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, cred, clientOpts())

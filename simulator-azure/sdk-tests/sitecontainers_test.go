@@ -17,7 +17,7 @@ import (
 func createSiteForContainers(t *testing.T, rg, name string) string {
 	t.Helper()
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	p, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
@@ -39,7 +39,7 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 	site := "sc-crud-app"
 	createSiteForContainers(t, rg, site)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -96,7 +96,7 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 	site := "sc-localhost-app"
 	host := createSiteForContainers(t, rg, site)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -142,7 +142,7 @@ func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
 	site := "sc-badsidecar-app"
 	host := createSiteForContainers(t, rg, site)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
 		Properties: &armappservice.SiteContainerProperties{

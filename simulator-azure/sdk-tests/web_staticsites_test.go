@@ -21,7 +21,7 @@ import (
 
 func staticSitesClient(t *testing.T) *armappservice.StaticSitesClient {
 	t.Helper()
-	client, err := armappservice.NewStaticSitesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewStaticSitesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	return client
 }
@@ -257,9 +257,9 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 	created := staticSitesCreate(t, client, rg, name)
 	defaultHostname := *created.Properties.DefaultHostname
 
-	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armdns.NewZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordsClient, err := armdns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zone := uniquename.New("sdk-swa-example") + ".com"
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: to.Ptr("global")}, nil)
@@ -567,7 +567,7 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 	rg := "swa-sdk-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "swa-backend-plan")
-	webClient, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webClient, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, webClient, rg, "swa-backend-fn", planID)
 	fnAppID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/sites/swa-backend-fn"

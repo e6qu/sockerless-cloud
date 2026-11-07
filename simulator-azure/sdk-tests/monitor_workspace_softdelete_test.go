@@ -23,9 +23,9 @@ func TestMonitor_WorkspaceSoftDeleteAndRecovery(t *testing.T) {
 	p.upload(t, []map[string]any{{"TimeGenerated": time.Now().UTC().Format(time.RFC3339), "Msg": "kept"}})
 	require.Len(t, queryWorkspace(t, p.ws.customerID, `Recover_CL | project Msg`).Tables[0].Rows, 1)
 
-	client, err := armoperationalinsights.NewWorkspacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armoperationalinsights.NewWorkspacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	deleted, err := armoperationalinsights.NewDeletedWorkspacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	deleted, err := armoperationalinsights.NewDeletedWorkspacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	deletedNames := func() []string {
 		var names []string

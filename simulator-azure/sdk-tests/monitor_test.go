@@ -47,7 +47,7 @@ type logWorkspace struct {
 func createLogWorkspace(t *testing.T, rg, name string) logWorkspace {
 	t.Helper()
 	ensureRG(t, rg)
-	client, err := armoperationalinsights.NewWorkspacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armoperationalinsights.NewWorkspacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armoperationalinsights.Workspace{
 		Location: to.Ptr("eastus"),
@@ -60,7 +60,7 @@ func createLogWorkspace(t *testing.T, rg, name string) logWorkspace {
 
 func createCustomLogTable(t *testing.T, ws logWorkspace, table string, columns map[string]armoperationalinsights.ColumnTypeEnum) {
 	t.Helper()
-	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	cols := []*armoperationalinsights.Column{{Name: to.Ptr("TimeGenerated"), Type: to.Ptr(armoperationalinsights.ColumnTypeEnumDateTime)}}
 	for name, typ := range columns {
@@ -81,7 +81,7 @@ func createCustomLogTable(t *testing.T, ws logWorkspace, table string, columns m
 func ingestionClient(t *testing.T, endpoint string) *azlogs.Client {
 	t.Helper()
 	endpoint = "https://" + strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
-	client, err := azlogs.NewClient(endpoint, &fakeCredential{}, &azlogs.ClientOptions{
+	client, err := azlogs.NewClient(endpoint, &clientCredential{}, &azlogs.ClientOptions{
 		ClientOptions: azcore.ClientOptions{
 			Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
 				azlogs.ServiceNameIngestion: {Audience: "https://monitor.azure.com"},
@@ -117,7 +117,7 @@ func newLogsPipeline(t *testing.T, rg, table string, columns ...string) logsPipe
 	}
 	createCustomLogTable(t, ws, table, tableCols)
 	stream := "Custom-" + table
-	rules, err := armmonitor.NewDataCollectionRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rules, err := armmonitor.NewDataCollectionRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created, err := rules.Create(ctx, rg, rg+"-dcr", armmonitor.DataCollectionRuleResource{
 		Location: to.Ptr("eastus"),
@@ -215,11 +215,11 @@ func acaLogsEnvironment(t *testing.T) (envID, customerID string) {
 		return acaLogs.envID, acaLogs.ws.customerID
 	}
 	ws := createLogWorkspace(t, "aca-logs-rg", "aca-logs-ws")
-	keys, err := armoperationalinsights.NewSharedKeysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	keys, err := armoperationalinsights.NewSharedKeysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	shared, err := keys.GetSharedKeys(ctx, ws.rg, ws.name, nil)
 	require.NoError(t, err)
-	envs, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	envs, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := envs.BeginCreateOrUpdate(ctx, ws.rg, "aca-logs-env", armappcontainers.ManagedEnvironment{
 		Location: to.Ptr("eastus"),
@@ -302,7 +302,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 		"Detail":  armoperationalinsights.ColumnTypeEnumDynamic,
 	})
 
-	endpoints, err := armmonitor.NewDataCollectionEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	endpoints, err := armmonitor.NewDataCollectionEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	dce, err := endpoints.Create(ctx, rg, "monitor-dce", armmonitor.DataCollectionEndpointResource{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, *dce.Properties.ImmutableID, *gotDCE.Properties.ImmutableID)
 
-	rules, err := armmonitor.NewDataCollectionRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rules, err := armmonitor.NewDataCollectionRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	stream := "Custom-SimEventsRaw"
 	rule := func(transform, outputStream string) armmonitor.DataCollectionRuleResource {
@@ -372,7 +372,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 	_, err = client.Upload(ctx, immutableID, stream, body, nil)
 	require.NoError(t, err)
 
-	logs, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	logs, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 	resp, err := logs.QueryWorkspace(ctx, target.customerID, azquery.Body{
 		Query: to.Ptr(`SimEvents_CL | where Job == "` + job + `" | order by Attempt asc | project Message, Kind = tostring(Detail.kind), Steps = array_length(Detail.steps)`),
@@ -398,7 +398,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 
 	// The simulator runs no Azure Monitor Agent, so it serves no rule associations
 	// and says so.
-	associations, err := armmonitor.NewDataCollectionRuleAssociationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	associations, err := armmonitor.NewDataCollectionRuleAssociationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = associations.NewListByRulePager(rg, "monitor-dcr", nil).NextPage(ctx)
 	requireAzureErrorCode(t, err, "NotImplemented", "a rule's associations")
@@ -459,7 +459,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 func TestMonitor_WorkspaceTables(t *testing.T) {
 	t.Parallel()
 	ws := createLogWorkspace(t, "monitor-tables-rg", "monitor-tables-ws")
-	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	traces, err := client.Get(ctx, ws.rg, ws.name, "AppTraces", nil)

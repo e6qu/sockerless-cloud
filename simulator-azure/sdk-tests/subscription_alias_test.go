@@ -28,7 +28,7 @@ import (
 // inside it, and the rename, cancel and enable actions.
 func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	t.Parallel()
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const aliasName = "sdk-test-sub-alias"
@@ -81,7 +81,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	assert.True(t, found, "alias list must include %q", aliasName)
 
 	// The created subscription is Enabled, listed, and a scope for resources.
-	subsClient, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
+	subsClient, err := armsubscriptions.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sub, err := subsClient.Get(ctx, newSubID, nil)
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	}
 	assert.True(t, listed, "created subscription %q must appear in the subscriptions list", newSubID)
 
-	rgClient, err := armresources.NewResourceGroupsClient(newSubID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(newSubID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rg, err := rgClient.CreateOrUpdate(ctx, "sdk-test-sub-alias-rg", armresources.ResourceGroup{
 		Location: to.Ptr("eastus"),
@@ -109,7 +109,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, *rg.ID, "/subscriptions/"+newSubID+"/resourceGroups/sdk-test-sub-alias-rg")
 
-	subActions, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
+	subActions, err := armsubscription.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	renamed, err := subActions.Rename(ctx, newSubID, armsubscription.Name{
 		SubscriptionName: to.Ptr("SDK Renamed Subscription"),
@@ -155,9 +155,9 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 // repeats to show the read is stable.
 func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
 	t.Parallel()
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	subsClient, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
+	subsClient, err := armsubscriptions.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const aliasName = "sdk-test-sub-alias-refresh"
@@ -221,7 +221,7 @@ func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
 // mode: properties.subscriptionId in place of a billing scope.
 func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
 	t.Parallel()
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const aliasName = "sdk-test-sub-alias-adopted"
@@ -246,7 +246,7 @@ func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
 // carries a billing scope or a subscription ID.
 func TestSubscriptionAlias_RequiresBillingScopeOrSubscriptionID(t *testing.T) {
 	t.Parallel()
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = aliasClient.BeginCreate(ctx, "sdk-test-sub-alias-invalid", armsubscription.PutAliasRequest{

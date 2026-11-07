@@ -24,7 +24,7 @@ import (
 // Resources_MoveResources for one resource.
 func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 	t.Helper()
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(resourceID)},
@@ -54,7 +54,7 @@ func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
 	const hub = "eh-move-hub"
 	const group = "$Default"
 
-	factory, err := armeventhub.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	factory, err := armeventhub.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := factory.NewNamespacesClient()
 	createPoller, err := namespaces.BeginCreateOrUpdate(ctx, srcRG, namespace, armeventhub.EHNamespace{
@@ -174,7 +174,7 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 	cache := uniquename.New("sdk-redis-move")
 	client := newRedisCacheForTest(t, srcRG, cache)
 
-	firewall, err := armredis.NewFirewallRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	firewall, err := armredis.NewFirewallRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = firewall.CreateOrUpdate(ctx, srcRG, cache, "office", armredis.FirewallRule{
 		Properties: &armredis.FirewallRuleProperties{
@@ -232,7 +232,7 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	registry := uniquename.Alnum("sdkacrmove")
-	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := registries.BeginCreate(ctx, srcRG, registry, armcontainerregistry.Registry{
 		Location: to.Ptr("eastus"),
@@ -247,7 +247,7 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 	require.NotNil(t, created.ID)
 	registryID := *created.ID
 
-	rules, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rules, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rulePoller, err := rules.BeginCreate(ctx, srcRG, registry, "alpine", armcontainerregistry.CacheRule{
 		Properties: &armcontainerregistry.CacheRuleProperties{
@@ -300,7 +300,7 @@ func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	topicName := uniquename.New("sdk-eg-move")
-	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	createPoller, err := topics.BeginCreateOrUpdate(ctx, srcRG, topicName, armeventgrid.Topic{
 		Location: to.Ptr("eastus"),
@@ -315,7 +315,7 @@ func TestAzureResources_MoveEventGridTopic(t *testing.T) {
 	topicID := *created.ID
 	advertised := *created.Properties.Endpoint
 
-	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	hook, _ := newEventGridWebhook(t)
 	subPoller, err := subs.BeginCreateOrUpdate(ctx, topicID, "eg-move-sub", armeventgrid.EventSubscription{

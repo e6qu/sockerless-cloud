@@ -11,7 +11,7 @@ import (
 
 func TestAzureSubscriptions_ListAndLocations(t *testing.T) {
 	t.Parallel()
-	client, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
+	client, err := armsubscriptions.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := client.NewListPager(nil)
@@ -32,7 +32,7 @@ func TestAzureSubscriptions_ListAndLocations(t *testing.T) {
 
 func TestAzureSubscriptions_Tenants(t *testing.T) {
 	t.Parallel()
-	client, err := armsubscriptions.NewTenantsClient(&fakeCredential{}, clientOpts())
+	client, err := armsubscriptions.NewTenantsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := client.NewListPager(nil)
 	page, err := pager.NextPage(ctx)
@@ -43,7 +43,7 @@ func TestAzureSubscriptions_Tenants(t *testing.T) {
 
 func TestAzureSubscriptions_Operations(t *testing.T) {
 	t.Parallel()
-	client, err := armsubscriptions.NewOperationsClient(&fakeCredential{}, clientOpts())
+	client, err := armsubscriptions.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := client.NewListPager(nil)
 	page, err := pager.NextPage(ctx)
@@ -53,7 +53,7 @@ func TestAzureSubscriptions_Operations(t *testing.T) {
 
 func TestAzureSubscriptions_CheckResourceName(t *testing.T) {
 	t.Parallel()
-	client, err := armsubscriptions.NewSubscriptionClient(&fakeCredential{}, clientOpts())
+	client, err := armsubscriptions.NewSubscriptionClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	allowed, err := client.CheckResourceName(ctx, &armsubscriptions.SubscriptionClientCheckResourceNameOptions{
@@ -77,7 +77,7 @@ func TestAzureSubscriptions_CheckResourceName(t *testing.T) {
 
 func TestAzureSubscriptions_CheckZonePeers(t *testing.T) {
 	t.Parallel()
-	client, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
+	client, err := armsubscriptions.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.CheckZonePeers(ctx, subscriptionID, armsubscriptions.CheckZonePeersRequest{
 		Location:        to.Ptr("eastus"),

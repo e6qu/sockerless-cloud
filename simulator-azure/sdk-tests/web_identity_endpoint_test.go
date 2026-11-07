@@ -55,7 +55,7 @@ func TestSDK_WebApps_IdentityEndpointMintsTheAppsOwnIdentity(t *testing.T) {
 	rg, name := "sdk-identity-endpoint-rg", "sdk-identity-endpoint-app"
 	client := createFilesWebApp(t, rg, name, nil)
 
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	createIdentity := func(n string) armmsi.Identity {
 		resp, err := identities.CreateOrUpdate(ctx, rg, n, armmsi.Identity{Location: to.Ptr("eastus")}, nil)

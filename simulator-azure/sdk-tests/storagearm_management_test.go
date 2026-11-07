@@ -21,7 +21,7 @@ import (
 // a real consumer uses.
 func ensureStorageARMResourceGroup(t *testing.T, rg string) {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -32,7 +32,7 @@ func ensureStorageARMResourceGroup(t *testing.T, rg string) {
 func createStorageAccountForARM(t *testing.T, rg, name string) *armstorage.AccountsClient {
 	t.Helper()
 	ensureStorageARMResourceGroup(t, rg)
-	client, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rg, name, armstorage.AccountCreateParameters{
 		Kind:     to.Ptr(armstorage.KindStorageV2),
@@ -127,14 +127,14 @@ func TestStorageARM_AccountActions(t *testing.T) {
 
 func TestStorageARM_Catalog(t *testing.T) {
 	t.Parallel()
-	opsClient, err := armstorage.NewOperationsClient(&fakeCredential{}, clientOpts())
+	opsClient, err := armstorage.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	opsPager := opsClient.NewListPager(nil)
 	opsPage, err := opsPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, opsPage.Value)
 
-	skuClient, err := armstorage.NewSKUsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	skuClient, err := armstorage.NewSKUsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	skuPager := skuClient.NewListPager(nil)
 	skuPage, err := skuPager.NextPage(ctx)
@@ -142,14 +142,14 @@ func TestStorageARM_Catalog(t *testing.T) {
 	require.NotEmpty(t, skuPage.Value)
 	require.NotNil(t, skuPage.Value[0].Name)
 
-	usageClient, err := armstorage.NewUsagesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	usageClient, err := armstorage.NewUsagesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	usagePager := usageClient.NewListByLocationPager("eastus", nil)
 	usagePage, err := usagePager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, usagePage.Value)
 
-	acctClient, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	acctClient, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	avail, err := acctClient.CheckNameAvailability(ctx, armstorage.AccountCheckNameAvailabilityParameters{
 		Name: to.Ptr("brandnewuniquename123"),
@@ -159,7 +159,7 @@ func TestStorageARM_Catalog(t *testing.T) {
 	require.NotNil(t, avail.NameAvailable)
 	assert.True(t, *avail.NameAvailable)
 
-	delClient, err := armstorage.NewDeletedAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	delClient, err := armstorage.NewDeletedAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	delPager := delClient.NewListPager(nil)
 	_, err = delPager.NextPage(ctx)
@@ -176,7 +176,7 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	createStorageAccountForARM(t, rg, account)
 
 	// managementPolicies (named "default").
-	mpClient, err := armstorage.NewManagementPoliciesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	mpClient, err := armstorage.NewManagementPoliciesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = mpClient.CreateOrUpdate(ctx, rg, account, armstorage.ManagementPolicyNameDefault, armstorage.ManagementPolicy{
 		Properties: &armstorage.ManagementPolicyProperties{
@@ -207,7 +207,7 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// inventoryPolicies.
-	ipClient, err := armstorage.NewBlobInventoryPoliciesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ipClient, err := armstorage.NewBlobInventoryPoliciesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = ipClient.CreateOrUpdate(ctx, rg, account, armstorage.BlobInventoryPolicyNameDefault, armstorage.BlobInventoryPolicy{
 		Properties: &armstorage.BlobInventoryPolicyProperties{
@@ -238,7 +238,7 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// privateEndpointConnections + privateLinkResources.
-	pecClient, err := armstorage.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pecClient, err := armstorage.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = pecClient.Put(ctx, rg, account, "pec1", armstorage.PrivateEndpointConnection{
 		Properties: &armstorage.PrivateEndpointConnectionProperties{
@@ -257,14 +257,14 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	_, err = pecClient.Delete(ctx, rg, account, "pec1", nil)
 	require.NoError(t, err)
 
-	plrClient, err := armstorage.NewPrivateLinkResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plrClient, err := armstorage.NewPrivateLinkResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	plr, err := plrClient.ListByStorageAccount(ctx, rg, account, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, plr.Value)
 
 	// objectReplicationPolicies.
-	orpClient, err := armstorage.NewObjectReplicationPoliciesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	orpClient, err := armstorage.NewObjectReplicationPoliciesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	orp, err := orpClient.CreateOrUpdate(ctx, rg, account, "default", armstorage.ObjectReplicationPolicy{
 		Properties: &armstorage.ObjectReplicationPolicyProperties{
@@ -288,7 +288,7 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// encryptionScopes (PUT + PATCH + GET + List).
-	esClient, err := armstorage.NewEncryptionScopesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	esClient, err := armstorage.NewEncryptionScopesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = esClient.Put(ctx, rg, account, "scope1", armstorage.EncryptionScope{
 		EncryptionScopeProperties: &armstorage.EncryptionScopeProperties{
@@ -311,7 +311,7 @@ func TestStorageARM_AccountChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// localUsers (CreateOrUpdate + Get + List + ListKeys + RegeneratePassword + Delete).
-	luClient, err := armstorage.NewLocalUsersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	luClient, err := armstorage.NewLocalUsersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = luClient.CreateOrUpdate(ctx, rg, account, "localuser1", armstorage.LocalUser{
 		Properties: &armstorage.LocalUserProperties{

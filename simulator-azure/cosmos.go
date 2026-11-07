@@ -101,6 +101,7 @@ func registerCosmosDB(srv *sim.Server) {
 	cosmosContainers = sim.MakeStore[CosmosSQLContainer](srv.DB(), "cosmos_sql_containers")
 	cosmosTables = sim.MakeStore[CosmosTable](srv.DB(), "cosmos_tables")
 	cosmosThroughputs = sim.MakeStore[CosmosThroughput](srv.DB(), "cosmos_throughputs")
+	cosmosThroughputPeaks = sim.MakeStore[float64](srv.DB(), "cosmos_throughput_peaks")
 	cosmosDocs = sim.MakeStore[CosmosDocument](srv.DB(), "cosmos_documents")
 	cosmosDataColls = sim.MakeStore[CosmosDataColl](srv.DB(), "cosmos_data_collections")
 	cosmosDataDBs = sim.MakeStore[CosmosDataDB](srv.DB(), "cosmos_data_databases")

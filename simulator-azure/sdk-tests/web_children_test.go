@@ -67,7 +67,7 @@ func TestSDK_WebChildren_PublicCertificates(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-cert-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "wc-cert-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -147,7 +147,7 @@ func TestSDK_WebChildren_DomainOwnershipIdentifiers(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-doi-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "wc-doi-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -219,7 +219,7 @@ func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-addon-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "wc-addon-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -287,7 +287,7 @@ func TestSDK_WebChildren_PushSettings(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-push-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := wcPushSiteName, "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -335,7 +335,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	createKVViaARM(t, rg, vault)
 
 	// A secret with one version, written through the Key Vault data plane.
-	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},
+	secrets, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{},
 		&azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
@@ -345,7 +345,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	require.NoError(t, err)
 	secretVersion := setResp.ID.Version()
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "wc-kvref-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)
@@ -359,7 +359,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 	slotSite, err := client.UpdateSlot(ctx, rg, name, slot, armappservice.SitePatchResource{Identity: systemAssigned}, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, *site.Identity.PrincipalID, *slotSite.Identity.PrincipalID, "a slot has its own identity")
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	for _, principal := range []*string{site.Identity.PrincipalID, slotSite.Identity.PrincipalID} {
 		_, err = vaults.UpdateAccessPolicy(ctx, rg, vault, armkeyvault.AccessPolicyUpdateKindAdd, armkeyvault.VaultAccessPolicyParameters{
@@ -465,7 +465,7 @@ func TestSDK_WebChildren_SiteContainersSlot(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-sc-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name, slot := "wc-sc-site", "staging"
 	webMoreCreateSite(t, client, rg, name, planID)

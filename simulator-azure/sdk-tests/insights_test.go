@@ -18,7 +18,7 @@ func TestAppInsights_ComponentCRUD(t *testing.T) {
 
 	ensureRG(t, rgName)
 
-	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createResp, err := client.CreateOrUpdate(ctx, rgName, componentName, armapplicationinsights.Component{
@@ -55,7 +55,7 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 	)
 	ensureRG(t, rgName)
 
-	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	first, err := client.CreateOrUpdate(ctx, rgName, name, armapplicationinsights.Component{
@@ -86,7 +86,7 @@ func TestAppInsights_BillingFeatures(t *testing.T) {
 	rgName, componentName := "insights-billing-rg", uniquename.New("billing-component")
 	ensureRG(t, rgName)
 
-	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = comps.CreateOrUpdate(ctx, rgName, componentName, armapplicationinsights.Component{
 		Location: ptrStr("eastus"),
@@ -97,7 +97,7 @@ func TestAppInsights_BillingFeatures(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	billing, err := armapplicationinsights.NewComponentCurrentBillingFeaturesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	billing, err := armapplicationinsights.NewComponentCurrentBillingFeaturesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	getResp, err := billing.Get(ctx, rgName, componentName, nil)
@@ -139,7 +139,7 @@ func TestAppInsights_OneComponentsPlanIsNotAnothersDefault(t *testing.T) {
 	const rgName = "insights-default-rg"
 	ensureRG(t, rgName)
 
-	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	newComponent := func(name string) {
 		t.Helper()
@@ -156,7 +156,7 @@ func TestAppInsights_OneComponentsPlanIsNotAnothersDefault(t *testing.T) {
 	newComponent("default-untouched")
 
 	billing, err := armapplicationinsights.NewComponentCurrentBillingFeaturesClient(
-		subscriptionID, &fakeCredential{}, clientOpts())
+		subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	enterpriseCap := float32(50)

@@ -131,7 +131,7 @@ func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 	namespace := uniquename.New("sdk-sb-rotateauth")
 	ensureRG(t, rg)
 
-	client, err := armservicebus.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armservicebus.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, namespace, armservicebus.SBNamespace{
 		Location: to.Ptr("eastus"),

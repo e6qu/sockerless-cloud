@@ -19,11 +19,11 @@ import (
 func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	ensureRG(t, "sdk-rg-73bd")
-	client, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armlogic.NewWorkflowsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	runs, err := armlogic.NewWorkflowRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runs, err := armlogic.NewWorkflowRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	definition := map[string]any{
@@ -101,9 +101,9 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 func TestContainerInstances_GroupLogsExecSDK(t *testing.T) {
 	t.Parallel()
 	ensureRG(t, "sdk-rg")
-	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createACIGroup := func(name string, command []*string) {

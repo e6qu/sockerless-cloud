@@ -20,7 +20,7 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	nicID := vmOperationsFixture(t, rg, "vm-ext", "10.96.0.0/16")
 	createOperationsVM(t, rg, vmName, nicID, nil)
 
-	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const marker = "sockerless-ran-in-the-guest"

@@ -30,7 +30,7 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 	resp.Body.Close()
 
-	client, err := armapimanagement.NewSubscriptionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armapimanagement.NewSubscriptionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createSubscription := func() {
@@ -95,7 +95,7 @@ func TestACR_RegenerateCredentialRotation(t *testing.T) {
 	registry := "acrrotationreg"
 	ensureRG(t, rg)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createRegistry := func() {
@@ -188,7 +188,7 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 	wfName := "logic-rotation-workflow"
 	ensureRG(t, rg)
 
-	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	definition := map[string]any{
@@ -245,7 +245,7 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 		"a second regenerate must change the callback URL signature again")
 
 	// The trigger callback is signed with the same key, so it rotates too.
-	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	triggerCb, err := triggers.ListCallbackURL(ctx, rg, wfName, "manual", nil)
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestLogicIntegrationAccount_RegenerateAccessKeyRotation(t *testing.T) {
 	acctName := "logic-ia-rotation"
 	ensureRG(t, rg)
 
-	accounts, err := armlogic.NewIntegrationAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armlogic.NewIntegrationAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createAccount := func() {

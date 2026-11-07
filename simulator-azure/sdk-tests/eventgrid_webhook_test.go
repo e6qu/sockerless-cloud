@@ -51,7 +51,7 @@ func TestEventGrid_WebhookValidationHandshakeSDK(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-eventgrid-handshake-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())

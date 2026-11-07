@@ -227,7 +227,7 @@ func slotSnapshotTimes(t *testing.T, client *armappservice.WebAppsClient, rg, na
 
 func listDeletedSites(t *testing.T) []*armappservice.DeletedSite {
 	t.Helper()
-	client, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	var out []*armappservice.DeletedSite
 	pager := client.NewListPager(nil)
@@ -270,7 +270,7 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	rg := "sdk-backup-prereq-rg"
 	ensureRG(t, rg)
 
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := plans.BeginCreateOrUpdate(ctx, rg, "sdk-backup-prereq-plan", armappservice.Plan{
 		Location: to.Ptr("eastus"),
@@ -289,7 +289,7 @@ func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 
 	account := "sdkbackupprereq"
 	createStorageAccountForARM(t, rg, account)
-	containers, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	containers, err := armstorage.NewBlobContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const containerName = "armmadecontainer"
 	_, err = containers.Create(ctx, rg, account, containerName, armstorage.BlobContainer{
@@ -318,7 +318,7 @@ func TestSDK_WebApps_BackupRestoreBlobRoundTrip(t *testing.T) {
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	store := newBackupStorage(t, rg, "sdkbackupacct", "websitebackups")
 
@@ -516,7 +516,7 @@ func TestSDK_WebApps_BackupRestoreIntoAnotherApp(t *testing.T) {
 	azureCreateSite(t, rg, dest)
 	defer azureDeleteSite(rg, dest)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	store := newBackupStorage(t, rg, "sdkbackupxferacct", "websitebackups")
 
@@ -556,7 +556,7 @@ func TestSDK_WebApps_BackupRefusals(t *testing.T) {
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	store := newBackupStorage(t, rg, "sdkbackuprefuse", "websitebackups")
 
@@ -596,7 +596,7 @@ func TestSDK_WebApps_BackupDeleteRemovesTheBlobs(t *testing.T) {
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	store := newBackupStorage(t, rg, "sdkbackupdelacct", "websitebackups")
 	deployPackage(t, client, rg, name, triggeredJob("job", "#!/bin/sh\nexit 0\n"))
@@ -631,7 +631,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 	rg, name := "sdk-snapshot-rg", "sdk-snapshot-app"
 	azureCreateSite(t, rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	deployPackage(t, client, rg, name, triggeredJob("first", "#!/bin/sh\necho first\n"))
@@ -670,7 +670,7 @@ func TestSDK_WebApps_SnapshotsAndDeletedAppRestore(t *testing.T) {
 
 	azureDeleteSite(rg, name)
 
-	deleted, err := armappservice.NewGlobalClient(subscriptionID, &fakeCredential{}, clientOpts())
+	deleted, err := armappservice.NewGlobalClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	deletedList := listDeletedSites(t)
 	require.NotEmpty(t, deletedList, "a deleted app must be retained")
@@ -723,7 +723,7 @@ func TestSDK_WebApps_BackupRestoreOnASlot(t *testing.T) {
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, slot, armappservice.Site{
 		Location: to.Ptr("eastus"),

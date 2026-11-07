@@ -22,7 +22,7 @@ func TestSDK_ContainerAppsScale_HTTPRuleScalesFromAndToZero(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-scale-rg"), uniquename.New("acascale")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	app := servingContainerApp(rg, "scaled", nil)
 	app.Properties.Template.Scale = &armappcontainers.Scale{
@@ -73,7 +73,7 @@ func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 	require.NoError(t, err)
 	queue := queues.NewQueueClient("work")
 
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	app := servingContainerApp(rg, "worker", &armappcontainers.Configuration{
 		Secrets: []*armappcontainers.Secret{{
@@ -133,12 +133,12 @@ func TestSDK_ContainerAppsScale_ServiceBusRuleFollowsActiveMessages(t *testing.T
 	ensureRG(t, rg)
 	namespace := uniquename.New("acasbscale")
 	key := serviceBusNamespaceKey(t, namespace)
-	queues, err := armservicebus.NewQueuesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	queues, err := armservicebus.NewQueuesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = queues.CreateOrUpdate(ctx, "messaging-dataplane-rg", namespace, "jobs", armservicebus.SBQueue{}, nil)
 	require.NoError(t, err)
 
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	app := servingContainerApp(rg, "consumer", &armappcontainers.Configuration{
 		Secrets: []*armappcontainers.Secret{{

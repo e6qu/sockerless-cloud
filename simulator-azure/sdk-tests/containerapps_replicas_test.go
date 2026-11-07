@@ -30,7 +30,7 @@ func createContainerApp(t *testing.T, client *armappcontainers.ContainerAppsClie
 
 func listContainerAppReplicas(t *testing.T, rg, app, revision string) []*armappcontainers.Replica {
 	t.Helper()
-	client, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	listed, err := client.ListReplicas(ctx, rg, app, revision, nil)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestSDK_ContainerAppsReplicas_AnUnchangedTemplateKeepsTheReplicas(t *testin
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-keep-rg"), uniquename.New("acakeep")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created := createContainerApp(t, client, rg, name, servingContainerApp(rg, "kept", nil))
 	revision := ptrVal(created.Properties.LatestRevisionName)
@@ -78,7 +78,7 @@ func TestSDK_ContainerAppsReplicas_AnExitedContainerRestartsInPlace(t *testing.T
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-restart-rg"), uniquename.New("acarestart")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created := createContainerApp(t, client, rg, name, armappcontainers.ContainerApp{
 		Location: to.Ptr("eastus"),
@@ -123,7 +123,7 @@ func TestSDK_ContainerAppsReplicas_IngressSpreadsAcrossReplicas(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-spread-rg"), uniquename.New("acaspread")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	app := servingContainerApp(rg, "", nil)
 	app.Properties.Template.Containers[0].Args = []*string{to.Ptr("hostname-http"), to.Ptr("80")}

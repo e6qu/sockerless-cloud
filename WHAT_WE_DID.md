@@ -1898,6 +1898,18 @@ fails once the row closes or the operation is served.
   use for an endpoint addressed by IP. The CLI suite advertises
   `<account>.<service>.core.cli-shim.localhost`, the shape the CLI's storage
   SDK reads an account name from, and reaches it through `HTTP_PROXY`.
+- **Azure Compute images.** ComputeRP's `virtualMachineImage.json` and
+  `image.json` are vendored, so the conformance probe checks the marketplace
+  catalog and `Microsoft.Compute/images` routes instead of an allowlist.
+- **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
+  autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
+  the manual throughput, a tenth of the highest throughput the resource ever
+  had and ten times its storage in GB, rounded to the nearest 1000. The
+  simulator records each resource's peak throughput for that rule.
+- **Scoped data directories.** With no data directory set,
+  `sim.ScopedDataDir` gives each process its own temporary directory and the
+  server removes it on shutdown, so two simulators, or two runs of one test,
+  never share App Service site homes.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

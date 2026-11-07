@@ -15,7 +15,7 @@ import (
 // pager follows to the end.
 func TestResourceGroups_ListPagesByTop(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const prefix = "rg-paging-"
 	for i := range 5 {

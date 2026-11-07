@@ -3,6 +3,8 @@ package sim
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 )
 
 // ScopedDataDir resolves the host directory a service slice keeps its bulk
@@ -11,7 +13,9 @@ import (
 //  1. the directory overrideEnv names, when overrideEnv is non-empty and set;
 //  2. <SIM_DATA_DIR>/<subdir>, so the data survives a restart beside the
 //     SQLite state the same directory holds;
-//  3. <os.TempDir()>/<tempName>, for a process-lifetime run.
+//  3. <os.TempDir()>/<tempName>-<pid>, for a process-lifetime run, so two
+//     simulators on one host never share it; the server's shutdown removes
+//     it.
 func ScopedDataDir(overrideEnv, subdir, tempName string) string {
 	if overrideEnv != "" {
 		if dir := os.Getenv(overrideEnv); dir != "" {
@@ -21,7 +25,25 @@ func ScopedDataDir(overrideEnv, subdir, tempName string) string {
 	if dataDir := os.Getenv("SIM_DATA_DIR"); dataDir != "" {
 		return filepath.Join(dataDir, subdir)
 	}
-	return filepath.Join(os.TempDir(), tempName)
+	dir := filepath.Join(os.TempDir(), tempName+"-"+strconv.Itoa(os.Getpid()))
+	processDataDirs.Lock()
+	processDataDirs.held[dir] = true
+	processDataDirs.Unlock()
+	return dir
+}
+
+var processDataDirs = struct {
+	sync.Mutex
+	held map[string]bool
+}{held: map[string]bool{}}
+
+func removeProcessDataDirs() {
+	processDataDirs.Lock()
+	defer processDataDirs.Unlock()
+	for dir := range processDataDirs.held {
+		_ = os.RemoveAll(dir)
+		delete(processDataDirs.held, dir)
+	}
 }
 
 // EnsureWritableDir creates dir and its parents and makes dir mode 0777, so a

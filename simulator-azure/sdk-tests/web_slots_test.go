@@ -42,7 +42,7 @@ func TestSDK_WebApps_SlotRunsItsOwnInstanceAndSwaps(t *testing.T) {
 	rg, name, slot := "sdk-slot-swap-rg", "sdk-slot-swap-app", "staging"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "sdk-slot-swap-plan")
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 

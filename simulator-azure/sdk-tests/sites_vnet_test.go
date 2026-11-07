@@ -19,7 +19,7 @@ func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	site := "sitevnet-app"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

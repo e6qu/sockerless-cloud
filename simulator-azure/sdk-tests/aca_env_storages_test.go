@@ -27,7 +27,7 @@ func TestSDK_ManagedEnvironmentsStorages_CRUD(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	client, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const storageName = "sdk-share"
@@ -100,7 +100,7 @@ func TestSDK_ManagedEnvironmentsStorages_ParentValidation(t *testing.T) {
 	rg := "aca-envstorage-rg-cd5c"
 	ensureRG(t, rg)
 
-	client, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, rg, "no-such-env", "orphan", armappcontainers.ManagedEnvironmentStorage{

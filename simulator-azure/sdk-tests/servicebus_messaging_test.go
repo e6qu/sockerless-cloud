@@ -21,7 +21,7 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	ensureRG(t, rg)
 	ns := uniquename.New("sdk-sb-msg-ns")
 
-	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := clientFactory.NewNamespacesClient()
 

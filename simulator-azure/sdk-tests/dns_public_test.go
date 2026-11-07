@@ -15,14 +15,14 @@ import (
 func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	t.Parallel()
 	zone := uniquename.New("sdk-public") + ".example.com"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "dns-public-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armdns.NewZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zoneResp, err := zonesClient.CreateOrUpdate(ctx, "dns-public-rg", zone, armdns.Zone{
 		Location: ptrStr("global"),
@@ -40,7 +40,7 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	require.NotNil(t, zoneResp.Properties.NumberOfRecordSets)
 	assert.Equal(t, int64(2), *zoneResp.Properties.NumberOfRecordSets)
 
-	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	recordResp, err := recordSetsClient.CreateOrUpdate(ctx, "dns-public-rg", zone, "api", armdns.RecordTypeA, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{

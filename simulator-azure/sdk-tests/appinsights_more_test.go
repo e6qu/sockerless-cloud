@@ -15,7 +15,7 @@ func TestAzureAppInsights_ListUpdateTagsAndPurge(t *testing.T) {
 	name := "appinsights-more-comp"
 	createResourceGroup(t, rg)
 
-	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armapplicationinsights.NewComponentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, rg, name, armapplicationinsights.Component{

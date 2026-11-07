@@ -21,7 +21,7 @@ import (
 
 func webMoreEnsurePlan(t *testing.T, rg, plan string) string {
 	t.Helper()
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewPlansClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	p, err := client.BeginCreateOrUpdate(ctx, rg, plan, armappservice.Plan{
@@ -44,7 +44,7 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewPlansClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -112,7 +112,7 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-site-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -192,7 +192,7 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-subres-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -298,7 +298,7 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-slot-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -388,7 +388,7 @@ func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
 	rg := "webmore-static-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	ssClient, err := armappservice.NewStaticSitesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

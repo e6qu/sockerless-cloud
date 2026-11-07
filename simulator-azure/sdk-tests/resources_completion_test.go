@@ -15,7 +15,7 @@ func TestAzureResources_CompletionSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "resources-completion-rg"
 	createResourceGroup(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	t.Run("TagsAtScope", func(t *testing.T) {
 		client, err := armresources.NewTagsClient(subscriptionID, cred, clientOpts())

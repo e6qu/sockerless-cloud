@@ -20,12 +20,12 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	const nicName = "compute-nic"
 	const vmName = "compute-vm"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -39,7 +39,7 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -51,7 +51,7 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, subnetResp.ID)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, nicName, armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -72,9 +72,9 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, nicResp.ID)
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	sizeClient, err := armcompute.NewVirtualMachineSizesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sizeClient, err := armcompute.NewVirtualMachineSizesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sizePager := sizeClient.NewListPager("eastus", nil)
 	require.True(t, sizePager.More())
@@ -82,7 +82,7 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, sizePage.Value)
 
-	skuClient, err := armcompute.NewResourceSKUsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	skuClient, err := armcompute.NewResourceSKUsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	skuPager := skuClient.NewListPager(nil)
 	require.True(t, skuPager.More())
@@ -258,7 +258,7 @@ func containsVMStatus(statuses []*armcompute.InstanceViewStatus, code string) bo
 // missing machine, which answers ARM's ResourceNotFound.
 func TestCompute_VirtualMachinesSubscriptionScope(t *testing.T) {
 	t.Parallel()
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := vmClient.NewListAllPager(nil)

@@ -54,7 +54,7 @@ func newACRRegistryFixture(t *testing.T, rgName, registryName string, properties
 	t.Helper()
 	ensureRG(t, rgName)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
 		Location:   to.Ptr("eastus"),
@@ -275,7 +275,7 @@ func TestACR_SDKChallengeFlow(t *testing.T) {
 	fixture := newACRRegistryFixture(t, "acr-auth-rg-511a", "acrsdkflowregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
-	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &fakeCredential{}, acrClientOptions())
+	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &clientCredential{}, acrClientOptions())
 	require.NoError(t, err)
 
 	const repo = "sdk/flow"
@@ -398,7 +398,7 @@ func TestACR_RegenerateCredentialRevokesDerivedTokens(t *testing.T) {
 	require.Equal(t, http.StatusOK, probe("Bearer "+token))
 	require.Equal(t, http.StatusOK, probe(fixture.basic(fixture.passwords[0])))
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rotated, err := client.RegenerateCredential(ctx, fixture.resourceGroup, fixture.name,
 		armcontainerregistry.RegenerateCredentialParameters{Name: to.Ptr(armcontainerregistry.PasswordNamePassword)}, nil)

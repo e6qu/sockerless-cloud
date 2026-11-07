@@ -64,7 +64,7 @@ func newBlobTestClient(t *testing.T, account string) *azblob.Client {
 // the one the caller's account serves.
 func blobTestSharedKey(t *testing.T, account string) *azblob.SharedKeyCredential {
 	t.Helper()
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	group := blobTestAccountResourceGroup(t, accounts, account)
@@ -570,7 +570,7 @@ func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
 
 	// Container soft delete is an ARM setting on the account's blobServices
 	// resource, so the test turns it on exactly where an operator turns it on.
-	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accountsClient.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
 		Location: to.Ptr("eastus"),
@@ -581,7 +581,7 @@ func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = blobServices.SetServiceProperties(ctx, rg, account, armstorage.BlobServiceProperties{
 		BlobServiceProperties: &armstorage.BlobServicePropertiesProperties{
@@ -1195,7 +1195,7 @@ func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
 	t.Parallel()
 	account := "sdkudkacct"
 	blobTestSharedKey(t, account)
-	serviceClient, err := service.NewClient(storageSDKURL(t, account, "blob"), &fakeCredential{},
+	serviceClient, err := service.NewClient(storageSDKURL(t, account, "blob"), &clientCredential{},
 		&service.ClientOptions{ClientOptions: azcore.ClientOptions{
 			Transport:                       storageSDKTransport{},
 			InsecureAllowCredentialWithHTTP: true,
@@ -1365,7 +1365,7 @@ func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
 	)
 	ensureRG(t, rg)
 
-	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accountsClient, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accountsClient.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
 		Location: to.Ptr("eastus"),
@@ -1376,7 +1376,7 @@ func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = blobServices.SetServiceProperties(ctx, rg, account, armstorage.BlobServiceProperties{
 		BlobServiceProperties: &armstorage.BlobServicePropertiesProperties{

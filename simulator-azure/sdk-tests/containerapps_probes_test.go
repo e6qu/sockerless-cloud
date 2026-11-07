@@ -69,7 +69,7 @@ func TestSDK_ContainerAppsProbes_ReadinessTakesAReplicaOutOfIngress(t *testing.T
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-ready-rg"), uniquename.New("acaready")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created := createContainerApp(t, client, rg, name, healthApp(rg, "ready", healthProbe(armappcontainers.TypeReadiness)))
 	fqdn, revision := ptrVal(created.Properties.Configuration.Ingress.Fqdn), ptrVal(created.Properties.LatestRevisionName)
@@ -88,7 +88,7 @@ func TestSDK_ContainerAppsProbes_LivenessRestartsTheContainer(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-live-rg"), uniquename.New("acalive")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created := createContainerApp(t, client, rg, name, healthApp(rg, "alive", healthProbe(armappcontainers.TypeLiveness)))
 	fqdn, revision := ptrVal(created.Properties.Configuration.Ingress.Fqdn), ptrVal(created.Properties.LatestRevisionName)
@@ -106,7 +106,7 @@ func TestSDK_ContainerAppsProbes_InitContainersRunFirst(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-init-rg"), uniquename.New("acainit")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	app := servingContainerApp(rg, "served", nil)
 	app.Properties.Template.InitContainers = []*armappcontainers.InitContainer{{
@@ -153,7 +153,7 @@ func TestSDK_ContainerAppsProbes_InvalidProbesAreRefused(t *testing.T) {
 	t.Parallel()
 	rg := uniquename.New("sdk-aca-badprobe-rg")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	for name, probes := range map[string][]*armappcontainers.ContainerAppProbe{
 		"twice": {healthProbe(armappcontainers.TypeReadiness), healthProbe(armappcontainers.TypeReadiness)},

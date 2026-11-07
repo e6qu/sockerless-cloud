@@ -18,7 +18,7 @@ import (
 
 func TestAzureResources_Providers(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewProvidersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewProvidersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	reg, err := client.Register(ctx, "Microsoft.DBforPostgreSQL", nil)
@@ -56,7 +56,7 @@ func TestAzureResources_Providers(t *testing.T) {
 
 func TestAzureResources_ProviderResourceTypes(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewProviderResourceTypesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewProviderResourceTypesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.List(ctx, "Microsoft.DBforPostgreSQL", nil)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestAzureResources_ProviderResourceTypes(t *testing.T) {
 
 func TestAzureResources_Operations(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewOperationsClient(&fakeCredential{}, clientOpts())
+	client, err := armresources.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := client.NewListPager(nil)
 	page, err := pager.NextPage(ctx)
@@ -75,7 +75,7 @@ func TestAzureResources_Operations(t *testing.T) {
 
 func TestAzureResources_PredefinedTagNames(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := client.CreateOrUpdate(ctx, "costCenter", nil)
@@ -107,7 +107,7 @@ func TestAzureResources_PredefinedTagNames(t *testing.T) {
 
 func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rg := "resources-rg-update"
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
@@ -131,7 +131,7 @@ func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
 func TestAzureResources_MoveResources(t *testing.T) {
 	t.Parallel()
 	srcRG, dstRG := uniquename.New("move-src-rg"), uniquename.New("move-dst-rg")
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, srcRG, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	// The moved resource must exist: an App Service plan under the source group.
 	planID := webMoreEnsurePlan(t, srcRG, "move-plan")
 
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(planID)},
@@ -158,7 +158,7 @@ func TestAzureResources_MoveResources(t *testing.T) {
 	_, err = movePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	moved, err := plans.Get(ctx, dstRG, "move-plan", nil)
 	require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 
 	// The container the ARM plane creates is the one the blob endpoint serves, so
 	// creating it again there answers ContainerAlreadyExists.
-	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	bcClient, err := armstorage.NewBlobContainersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const containerName = "move-mixed-container"
 	_, err = bcClient.Create(ctx, srcRG, account, containerName, armstorage.BlobContainer{}, nil)
@@ -211,7 +211,7 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 
 	// Azure Resource Manager moves a resource's tags with it.
 	acctID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Storage/storageAccounts/" + account
-	tagsClient, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tagsClient, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = tagsClient.CreateOrUpdateAtScope(ctx, acctID, armresources.TagsResource{
 		Properties: &armresources.Tags{Tags: map[string]*string{"team": to.Ptr("storage")}},
@@ -220,12 +220,12 @@ func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 
 	// A Microsoft.Web site and its plan alongside the account.
 	planID := webMoreEnsurePlan(t, srcRG, "move-mixed-plan")
-	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	webMoreCreateSite(t, webApps, srcRG, "move-mixed-site", planID)
 	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + srcRG + "/providers/Microsoft.Web/sites/move-mixed-site"
 
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(acctID), to.Ptr(siteID), to.Ptr(planID)},

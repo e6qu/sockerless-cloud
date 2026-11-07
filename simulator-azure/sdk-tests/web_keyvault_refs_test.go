@@ -32,7 +32,7 @@ func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
 	rg, name := "sdk-kvref-env-rg", "sdk-kvref-env-app"
 	rbacVault, policyVault := "sdkkvrefrbac", "sdkkvrefpolicy"
 	ensureRG(t, rg)
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	createVault := func(vault string, rbac bool) *armkeyvault.Vault {
 		poller, err := vaults.BeginCreateOrUpdate(ctx, rg, vault, armkeyvault.VaultCreateOrUpdateParameters{
@@ -51,7 +51,7 @@ func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
 		return &v.Vault
 	}
 	setSecret := func(vault, secret, value string) string {
-		client, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{}, &azsecrets.ClientOptions{
+		client, err := azsecrets.NewClient(kvVaultURL(vault), &clientCredential{}, &azsecrets.ClientOptions{
 			ClientOptions:                        kvClientOptions(),
 			DisableChallengeResourceVerification: true,
 		})
@@ -114,7 +114,7 @@ func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
 	assert.Equal(t, simTenantID, *updated.Identity.TenantID)
 	assert.Equal(t, armappservice.ResolveStatusAccessToKeyVaultDenied, *ref("DB").Status)
 
-	roles, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	roles, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = roles.Create(ctx, *rbac.ID, uuid.NewString(), armauthorization.RoleAssignmentCreateParameters{
 		Properties: &armauthorization.RoleAssignmentProperties{
@@ -148,7 +148,7 @@ func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
 	// A user-assigned identity named by keyVaultReferenceIdentity resolves
 	// with its own access: the access policy vault grants it, the RBAC vault
 	// does not.
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	uai, err := identities.CreateOrUpdate(ctx, rg, "sdk-kvref-identity", armmsi.Identity{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)

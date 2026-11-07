@@ -18,7 +18,7 @@ func TestLogicApps_RecurrenceTriggerRunsSDK(t *testing.T) {
 	rg := "logic-recurrence-rg"
 	ensureRG(t, rg)
 	wfName := "logic-recurrence-wf"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	runs, err := armlogic.NewWorkflowRunsClient(subscriptionID, cred, clientOpts())

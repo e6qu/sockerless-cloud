@@ -74,7 +74,7 @@ func seedResourceListScope(t *testing.T, rg string) {
 	ensureKVResourceGroup(t, rg)
 	createKVVault(t, rg, rg+"-vault")
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, rg+"-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -104,7 +104,7 @@ func resourceListIDs(rows []*armresources.GenericResourceExpanded) map[string]bo
 
 func TestResourcesList_ScopesAndFilters(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const rgA = "reslist-a-rg"
@@ -182,7 +182,7 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 
 func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const rg = "reslist-bygroup-rg"
@@ -247,7 +247,7 @@ func TestManagedHSMs_ListIsEmptyNotMissing(t *testing.T) {
 	const rg = "managedhsm-rg"
 	ensureKVResourceGroup(t, rg)
 
-	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	byGroup, err := client.NewListByResourceGroupPager(rg, nil).NextPage(ctx)
@@ -289,7 +289,7 @@ func TestManagedHSMs_ListIsEmptyNotMissing(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, after.Value, 1)
 
-	resourcesClient, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	resourcesClient, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	listed := listResources(t, resourcesClient, &armresources.ClientListOptions{
 		Filter: to.Ptr("resourceType eq 'Microsoft.KeyVault/managedHSMs'"),

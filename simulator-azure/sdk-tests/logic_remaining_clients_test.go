@@ -17,7 +17,7 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	rg := "logic-ia-artifacts-rg"
 	ensureRG(t, rg)
 	iaName := "logic-ia-artifacts"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	accounts, err := armlogic.NewIntegrationAccountsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 	rg := "logic-verstrig-rg"
 	ensureRG(t, rg)
 	wfName := "logic-verstrig-wf"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 	rg := "logic-ise-catalog-rg"
 	ensureRG(t, rg)
 	iseName := "logic-ise-catalog"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	envs, err := armlogic.NewIntegrationServiceEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -239,7 +239,7 @@ func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	rg := "logic-runsub-rg"
 	ensureRG(t, rg)
 	wfName := "logic-runsub-wf"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)

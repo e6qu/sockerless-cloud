@@ -36,7 +36,7 @@ func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
 	site := "webproc-app"
 	host := createSiteForContainers(t, rg, site)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// The main container is the long-lived HTTP bootstrap App Service keeps

@@ -12,14 +12,14 @@ import (
 
 func TestNetwork_CreateVirtualNetwork(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "net-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, "net-rg", "test-vnet", armnetwork.VirtualNetwork{
@@ -38,14 +38,14 @@ func TestNetwork_CreateVirtualNetwork(t *testing.T) {
 
 func TestNetwork_CreateSubnet(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "subnet-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, "subnet-rg", "subnet-vnet", armnetwork.VirtualNetwork{
 		Location: ptrStr("eastus"),
@@ -59,7 +59,7 @@ func TestNetwork_CreateSubnet(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, "subnet-rg", "subnet-vnet", "test-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -77,14 +77,14 @@ func TestNetwork_CreateSubnet(t *testing.T) {
 
 func TestNetwork_CreateNSG(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, "nsg-rg", "test-nsg", armnetwork.SecurityGroup{
@@ -100,14 +100,14 @@ func TestNetwork_CreateNSG(t *testing.T) {
 // client and checks the parent NSG reflects it.
 func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-rules-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := nsgClient.BeginCreateOrUpdate(ctx, "nsg-rules-rg", "rules-nsg", armnetwork.SecurityGroup{
 		Location: ptrStr("eastus"),
@@ -116,7 +116,7 @@ func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	rulePoller, err := rulesClient.BeginCreateOrUpdate(ctx, "nsg-rules-rg", "rules-nsg", "allow-http",
@@ -165,12 +165,12 @@ func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 // SecurityRuleParameterPriorityAlreadyTaken (400).
 func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-prio-rg", armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := nsgClient.BeginCreateOrUpdate(ctx, "nsg-prio-rg", "prio-nsg", armnetwork.SecurityGroup{
 		Location: ptrStr("eastus"),
@@ -179,7 +179,7 @@ func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	makeRule := func(priority int32, direction armnetwork.SecurityRuleDirection) armnetwork.SecurityRule {
@@ -220,12 +220,12 @@ func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 func TestNetwork_LoadBalancerLifecycle(t *testing.T) {
 	t.Parallel()
 	rg := "lb-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pipPoller, err := pipClient.BeginCreateOrUpdate(ctx, rg, "lb-pip", armnetwork.PublicIPAddress{
 		Location: to.Ptr("eastus"),
@@ -249,7 +249,7 @@ func TestNetwork_LoadBalancerLifecycle(t *testing.T) {
 	frontendID := lbID + "/frontendIPConfigurations/" + frontendName
 	probeID := lbID + "/probes/" + probeName
 
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "sdk-lb", armnetwork.LoadBalancer{
 		Location: to.Ptr("eastus"),
@@ -307,12 +307,12 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 	t.Parallel()
 	rg := "nat-rg"
 	location := "eastus"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr(location)}, nil)
 	require.NoError(t, err)
 
-	prefixClient, err := armnetwork.NewPublicIPPrefixesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	prefixClient, err := armnetwork.NewPublicIPPrefixesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	prefixPoller, err := prefixClient.BeginCreateOrUpdate(ctx, rg, "sdk-prefix", armnetwork.PublicIPPrefix{
 		Location: to.Ptr(location),
@@ -329,7 +329,7 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 	require.NotNil(t, prefixResp.Properties)
 	require.NotEmpty(t, *prefixResp.Properties.IPPrefix)
 
-	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	natPoller, err := natClient.BeginCreateOrUpdate(ctx, rg, "sdk-nat", armnetwork.NatGateway{
 		Location: to.Ptr(location),
@@ -344,7 +344,7 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, natResp.ID)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "sdk-nat-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr(location),
@@ -356,7 +356,7 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "sdk-nat-vnet", "sdk-nat-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -389,12 +389,12 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 	t.Parallel()
 	rg := "peering-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	mkVnet := func(name, prefix string) *string {
 		poller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.VirtualNetwork{
@@ -412,7 +412,7 @@ func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 	_ = mkVnet("peer-local", "10.20.0.0/16")
 	remoteID := mkVnet("peer-remote", "10.21.0.0/16")
 
-	peerClient, err := armnetwork.NewVirtualNetworkPeeringsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peerClient, err := armnetwork.NewVirtualNetworkPeeringsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	peerPoller, err := peerClient.BeginCreateOrUpdate(ctx, rg, "peer-local", "to-remote", armnetwork.VirtualNetworkPeering{
 		Properties: &armnetwork.VirtualNetworkPeeringPropertiesFormat{
@@ -450,12 +450,12 @@ func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 	t.Parallel()
 	rg := "rt-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	rtClient, err := armnetwork.NewRouteTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rtClient, err := armnetwork.NewRouteTablesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rtPoller, err := rtClient.BeginCreateOrUpdate(ctx, rg, "sdk-rt", armnetwork.RouteTable{
 		Location:   ptrStr("eastus"),
@@ -472,7 +472,7 @@ func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 	require.NotNil(t, tagsResp.Tags["env"])
 	assert.Equal(t, "test", *tagsResp.Tags["env"])
 
-	routesClient, err := armnetwork.NewRoutesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	routesClient, err := armnetwork.NewRoutesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	routePoller, err := routesClient.BeginCreateOrUpdate(ctx, rg, "sdk-rt", "to-appliance", armnetwork.Route{
 		Properties: &armnetwork.RoutePropertiesFormat{
@@ -521,12 +521,12 @@ func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
 	t.Parallel()
 	rg := "nat-tags-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	natPoller, err := natClient.BeginCreateOrUpdate(ctx, rg, "tag-nat", armnetwork.NatGateway{
 		Location: ptrStr("eastus"),
@@ -550,12 +550,12 @@ func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
 func TestNetwork_LoadBalancerBackendPoolClient(t *testing.T) {
 	t.Parallel()
 	rg := "lb-pool-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "pool-lb", armnetwork.LoadBalancer{
 		Location:   to.Ptr("eastus"),
@@ -566,7 +566,7 @@ func TestNetwork_LoadBalancerBackendPoolClient(t *testing.T) {
 	_, err = lbPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	poolClient, err := armnetwork.NewLoadBalancerBackendAddressPoolsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	poolClient, err := armnetwork.NewLoadBalancerBackendAddressPoolsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poolPoller, err := poolClient.BeginCreateOrUpdate(ctx, rg, "pool-lb", "pool-a", armnetwork.BackendAddressPool{
 		Name: to.Ptr("pool-a"),
