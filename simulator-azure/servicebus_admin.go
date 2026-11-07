@@ -360,7 +360,12 @@ func handleSBAdminPutEntity(w http.ResponseWriter, r *http.Request, namespace, n
 	if req.QueueDescription != nil {
 		id := sbAdminQueueID(namespace, name)
 		_, existed := sbQueues.Get(id)
-		sbQueues.Put(id, sbQueueFromAdminDescription(id, name, req.QueueDescription))
+		queue := sbQueueFromAdminDescription(id, name, req.QueueDescription)
+		if msg := sbForwardDestinationError(sbAdminNamespaceID(namespace), queue.Properties); msg != "" {
+			sbAdminError(w, http.StatusBadRequest, "BadRequest", msg)
+			return
+		}
+		sbQueues.Put(id, queue)
 		q, _ := sbQueues.Get(id)
 		status := http.StatusCreated
 		if existed {
@@ -469,7 +474,12 @@ func handleSBAdminPutSubscription(w http.ResponseWriter, r *http.Request, namesp
 	}
 	id := sbAdminSubscriptionID(namespace, topic, sub)
 	_, existed := sbSubscriptions.Get(id)
-	sbSubscriptions.Put(id, sbSubscriptionFromAdminDescription(id, sub, req.SubscriptionDescription))
+	subscription := sbSubscriptionFromAdminDescription(id, sub, req.SubscriptionDescription)
+	if msg := sbForwardDestinationError(sbAdminNamespaceID(namespace), subscription.Properties); msg != "" {
+		sbAdminError(w, http.StatusBadRequest, "BadRequest", msg)
+		return
+	}
+	sbSubscriptions.Put(id, subscription)
 	stored, _ := sbSubscriptions.Get(id)
 	defaultRuleID := sbAdminRuleID(namespace, topic, sub, "$Default")
 	if _, ok := sbRules.Get(defaultRuleID); !ok {
@@ -770,7 +780,8 @@ func sbAdminURL(r *http.Request, namespace, path string) string {
 }
 
 // The message counts reflect the data plane; the transfer counts are zero
-// because the simulator does not auto-forward.
+// because auto-forwarding moves a message as it arrives, leaving none in
+// transfer.
 func sbAdminQueueDescriptionFor(namespace, name string, q SBQueue) sbAdminQueueDescription {
 	scheduled, transferDead, transfer := sbScheduledCount(namespace, name), int32(0), int32(0)
 	size := sbQueueBytes(namespace, name)

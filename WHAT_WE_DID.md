@@ -1843,6 +1843,14 @@ fails once the row closes or the operation is served.
   the name. The group-scoped `deletedWorkspaces` route had been registered
   under `resourcegroups`, which the path rewrite never leaves, so it had
   answered 404.
+- **Service Bus auto-forwarding.** A queue or subscription with `forwardTo`
+  hands each message it receives to the queue or topic it names, and one with
+  `forwardDeadLetteredMessagesTo` hands on its dead letters, as
+  `service-bus-auto-forwarding` describes: the destination must exist when
+  the source is created, a session-enabled entity cannot forward, the source
+  accepts no receiver, and a message past four hops, bound for a missing or
+  disabled destination, or without the session ID a session-enabled
+  destination needs, is dead-lettered on the source.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

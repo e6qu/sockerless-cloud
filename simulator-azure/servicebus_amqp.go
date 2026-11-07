@@ -496,6 +496,10 @@ func (c *sbAMQPConn) handleAttach(frame amqpFrame) error {
 	requested, sessionful := sbAMQPSessionFilter(field(frame.fields, 5))
 	if clientRole {
 		if path, entity := sbAMQPReceiverPath(link.address); entity {
+			if dest := sbForwardsTo(namespace, path, "forwardTo"); dest != "" {
+				return c.refuseAttachWith(frame, name, clientRole, "amqp:not-allowed",
+					"Cannot create a message receiver on an entity with auto-forwarding to '"+dest+"' enabled.")
+			}
 			if requires := sbSettings(namespace, path).requiresSession; requires != sessionful {
 				description := errSBSessionfulEntity.Error()
 				if !requires {

@@ -34,6 +34,8 @@ type sbPayload struct {
 	DeadLetterErrorDescription string         `json:"deadLetterErrorDescription,omitempty"`
 	DeadLetterSource           string         `json:"deadLetterSource,omitempty"`
 	Properties                 map[string]any `json:"properties,omitempty"`
+	// HopCount is how many times auto-forwarding has moved the message.
+	HopCount int `json:"hopCount,omitempty"`
 }
 
 type sbQueueRecord struct {
@@ -230,6 +232,10 @@ func sbSend(namespace, address string, out sbOutgoing) []string {
 // A scheduled message becomes receivable at its scheduled time, when waiting
 // receivers are handed it.
 func sbEnqueue(namespace, path string, out sbOutgoing, now time.Time) (uint64, bool) {
+	if dest := sbForwardsTo(namespace, path, "forwardTo"); dest != "" {
+		sbForward(namespace, path, dest, out, now)
+		return 0, false
+	}
 	settings := sbSettings(namespace, path)
 	opts := msgq.EnqueueOpts{ID: out.messageID, Delay: out.delay, TTL: settings.ttl, Group: out.sessionID}
 	if out.ttl > 0 && (opts.TTL == 0 || out.ttl < opts.TTL) {
@@ -351,17 +357,13 @@ func sbDeadLetter(namespace, path string, msgs []msgq.Message[sbPayload], reason
 		return
 	}
 	now := time.Now()
-	sbQueueDurable.Upsert(sbQueueKey(namespace, sbDeadLetterPath(path)), func(rec *sbQueueRecord) {
-		for _, m := range msgs {
-			p := m.Payload
-			p.Deferred = false
-			if p.DeadLetterReason == "" && p.DeadLetterErrorDescription == "" {
-				p.DeadLetterReason, p.DeadLetterErrorDescription = reason, description
-			}
-			rec.Queue.Enqueue(p, msgq.EnqueueOpts{ID: m.ID}, msgq.Policy{}, now)
+	for _, m := range msgs {
+		p := m.Payload
+		if p.DeadLetterReason == "" && p.DeadLetterErrorDescription == "" {
+			p.DeadLetterReason, p.DeadLetterErrorDescription = reason, description
 		}
-	})
-	sbNotifyReceivers(namespace, sbDeadLetterPath(path))
+		sbDeadLetterPayload(namespace, path, m.ID, m.Group, p, now)
+	}
 }
 
 func sbNotifyReceivers(namespace, path string) {

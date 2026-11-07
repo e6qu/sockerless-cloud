@@ -165,3 +165,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `what-is-ip-address-168-63-129-16.md.gz` | `learn.microsoft.com` | `azure/virtual-network/what-is-ip-address-168-63-129-16` | CC-BY-4.0 | `commit4fd2222b00bd277111ce9f635255aefa0b7b396c` | 2026-11-07T04:31:12Z |
 | `virtual-networks-udr-overview.md.gz` | `MicrosoftDocs/azure-docs@main` | `articles/virtual-network/virtual-networks-udr-overview.md` | CC-BY-4.0 | `e60c7dd7c775becfd72486cfd4ff4440c7d875d4` | 2026-11-07T19:06:32Z |
 | `log-analytics-delete-workspace.md.gz` | `MicrosoftDocs/azure-monitor-docs@main` | `articles/azure-monitor/logs/delete-workspace.md` | CC-BY-4.0 | `5d7c80661cd09745ce943e57d1e2c1fe67fccae7` | 2026-11-07T19:11:11Z |
+| `service-bus-auto-forwarding.md.gz` | `MicrosoftDocs/azure-docs@main` | `articles/service-bus-messaging/service-bus-auto-forwarding.md` | CC-BY-4.0 | `d67299345f7b039b1e1c383eb8c8ab2bb6ab6d30` | 2026-11-07T19:41:02Z |

@@ -472,6 +472,15 @@ resource "azurerm_servicebus_queue" "az_sb_queue" {
   max_size_in_megabytes = 1024
 }
 
+# The simulator refuses a forwarding queue whose destination does not exist,
+# so the provider must create the destination first.
+resource "azurerm_servicebus_queue" "az_sb_forwarder" {
+  name         = "tfazrmsbforwarder"
+  namespace_id = azurerm_servicebus_namespace.az_sb_ns.id
+
+  forward_to = azurerm_servicebus_queue.az_sb_queue.name
+}
+
 resource "azurerm_eventgrid_topic" "az_eg_topic" {
   name                = "tf-azrm-eg-topic"
   resource_group_name = azurerm_resource_group.az_rg.name
