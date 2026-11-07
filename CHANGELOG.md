@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/e6qu/sockerless-cloud/compare/v3.4.0...v3.5.0) (2026-11-07)
+
+
+### Features
+
+* route workloads by their route tables and run Gateway Load Balancers ([c6a1de9](https://github.com/e6qu/sockerless-cloud/commit/c6a1de951b56ac7f07b6ad2ab9ea01282bc9c49c))
+
 ## [3.4.0](https://github.com/e6qu/sockerless-cloud/compare/v3.3.12...v3.4.0) (2026-11-07)
 
 
