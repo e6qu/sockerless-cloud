@@ -124,6 +124,19 @@ resource "azurerm_container_registry" "az_acr" {
   admin_enabled       = true
 }
 
+# A webhook the registry's pushes to app:* would reach; the provider reads its
+# service URI back through getCallbackConfig.
+resource "azurerm_container_registry_webhook" "az_acr_hook" {
+  name                = "tfazrmacrhook"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  registry_name       = azurerm_container_registry.az_acr.name
+  location            = azurerm_resource_group.az_rg.location
+  service_uri         = "https://hooks.example.com/acr"
+  actions             = ["push", "delete"]
+  scope               = "app:*"
+  custom_headers      = { "Content-Type" = "application/json" }
+}
+
 # An Azure Container Registry Tasks task with an inline task file step, and a
 # run of it: azurerm_container_registry_task_schedule_run_now schedules a
 # TaskRunRequest and completes only once Runs_Get reports it Succeeded.

@@ -1851,6 +1851,19 @@ fails once the row closes or the operation is served.
   accepts no receiver, and a message past four hops, bound for a missing or
   disabled destination, or without the session ID a session-enabled
   destination needs, is dead-lettered on the source.
+- **Azure Container Registry webhooks, import and usage.** A push or manifest
+  delete that a webhook's actions, scope and status select reaches its
+  service URI as `container-registry-webhook-reference` lays out the event,
+  with the request's host, method and user agent, which `sim.OCIRegistry`'s
+  manifest hooks now carry; ping sends a ping event, and `listEvents`
+  returns each exchange, newest first, with Authorization masked.
+  `importImage` copies the source image, every manifest an index lists (at
+  most 50) and its blobs byte for byte: from the simulator's own stores for
+  a registry it serves, otherwise over the Registry v2 API through
+  `sim.PullOCIImage`, which answers the bearer challenge with the given
+  credentials. `listUsages` counts the stored bytes and the webhooks against
+  the SKU's included storage and webhook count from `container-registry-skus`,
+  and a webhook past that count is refused.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.
