@@ -791,6 +791,17 @@ func logicCall(run *logicRun, name string, args []any) (any, error) {
 			return nil, logicErrorf("The template language function 'item' must be used inside a Foreach loop.")
 		}
 		return run.items[len(run.items)-1], nil
+	case "items":
+		if err := logicArgs(name, args, 1); err != nil {
+			return nil, err
+		}
+		loop := logicToString(args[0])
+		for i := len(run.loops) - 1; i >= 0; i-- {
+			if run.loops[i].ScopeName == loop {
+				return run.items[i], nil
+			}
+		}
+		return nil, logicErrorf("The template language function 'items' must have a 'Foreach' scope named '%s' enclosing it.", loop)
 	}
 	return nil, logicErrorf("The template function '%s' is not defined or not valid.", name)
 }

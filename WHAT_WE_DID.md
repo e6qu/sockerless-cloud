@@ -1864,6 +1864,20 @@ fails once the row closes or the operation is served.
   credentials. `listUsages` counts the stored bytes and the webhooks against
   the SKU's included storage and webhook count from `container-registry-skus`,
   and a webhook past that count is refused.
+- **Azure Cosmos DB metrics.** Every data-plane request leaves a sample with
+  its container, status and charge, and every write a snapshot of its
+  container's documents, kept 60 days. `Total Requests` and `Total Request
+  Units` sum the samples in each grain, `Document Count`, `Data Usage` and
+  `Index Usage` carry a container's last snapshot forward, `Service
+  Availability` is the share of requests not answered 5xx, and the usages
+  count what the containers hold now. A container's one partition keeps a
+  stable partition ID.
+- **Logic Apps run details.** The engine records a repetition of every action
+  inside a For each loop per iteration, a scope repetition of the loop per
+  iteration, and the request and response of each Http action, on the action
+  or on its repetition; the run stores them, and the Microsoft.Logic and App
+  Service workflow routes read them back. `items('loop')` names a loop's
+  current item, which nested loops need.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

@@ -57,15 +57,13 @@ func registerWebWorkflows(srv *sim.Server) {
 	wf("GET", "/runs/{runName}/actions/{actionName}", webWorkflowRunActionsGet)
 	wf("POST", "/runs/{runName}/actions/{actionName}/listExpressionTraces", handleLogicExpressionTraces)
 
-	// Recorded runs carry no repetition state, as in the standalone
-	// Microsoft.Logic slice.
-	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions", handleLogicEmptyList)
-	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicNestedNotFound("repetition"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions", handleLogicRunDetailList(logicRepetitionsStore, "repetitions"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicRunDetailGet(logicRepetitionsStore, "repetitions", "repetitionName", "repetition"))
 	wf("POST", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/listExpressionTraces", handleLogicExpressionTraces)
-	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicEmptyList)
-	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories/{requestHistoryName}", handleLogicNestedNotFound("request history"))
-	wf("GET", "/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicEmptyList)
-	wf("GET", "/runs/{runName}/actions/{actionName}/scopeRepetitions/{repetitionName}", handleLogicNestedNotFound("scope repetition"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicRunDetailList(logicRequestHistoriesStore, "requestHistories"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories/{requestHistoryName}", handleLogicRunDetailGet(logicRequestHistoriesStore, "requestHistories", "requestHistoryName", "request history"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicRunDetailList(logicScopeRepetitionsStore, "scopeRepetitions"))
+	wf("GET", "/runs/{runName}/actions/{actionName}/scopeRepetitions/{repetitionName}", handleLogicRunDetailGet(logicScopeRepetitionsStore, "scopeRepetitions", "repetitionName", "scope repetition"))
 
 	wf("GET", "/triggers", webWorkflowTriggersList)
 	wf("GET", "/triggers/{triggerName}", webWorkflowTriggersGet)

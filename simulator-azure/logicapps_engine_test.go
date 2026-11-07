@@ -126,3 +126,28 @@ func TestLogicExpressions(t *testing.T) {
 		}
 	}
 }
+
+// items('loop') reads the named loop's current item from inside a nested
+// loop, and every action inside the loops records a repetition per iteration.
+func TestLogicRunNestedForeachRepetitions(t *testing.T) {
+	def := map[string]any{"actions": map[string]any{
+		"outer": map[string]any{"type": "Foreach", "foreach": []any{"a", "b"},
+			"actions": map[string]any{"inner": map[string]any{"type": "Foreach", "foreach": []any{1, 2},
+				"actions": map[string]any{"pair": map[string]any{"type": "Compose", "inputs": "@{items('outer')}-@{item()}"}}}}},
+	}}
+	out := logicExecute(context.Background(), def, nil, nil)
+	if out.Status != "Succeeded" {
+		t.Fatalf("run %s: %+v", out.Status, out.Results["pair"])
+	}
+	reps := out.Repetitions["pair"]
+	if len(reps) != 4 {
+		t.Fatalf("pair has %d repetitions, want 4", len(reps))
+	}
+	last := reps[3]
+	if got := logicRepetitionName(last.Indexes); got != "000001-000001" || last.Result.Outputs != "b-2" {
+		t.Fatalf("the last repetition is %s with %v, want 000001-000001 with b-2", got, last.Result.Outputs)
+	}
+	if n := len(out.ScopeRepetitions["inner"]); n != 4 {
+		t.Fatalf("inner has %d scope repetitions, want 4", n)
+	}
+}

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
+	"github.com/google/uuid"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,9 +14,9 @@ import (
 
 // Microsoft.DocumentDB's own metric, usage and metric-definition reads (the
 // armcosmos metric clients, distinct from Microsoft.Insights metrics) and the
-// online/offline-region operations. Every series answers zero at each
-// timestamp of the requested grain; region, partition and partition-key-range
-// coordinates echo back.
+// online/offline-region operations. Each series aggregates the samples the
+// data plane recorded (cosmos_metric_samples.go) per grain; a container is
+// one partition key range, "0".
 
 // The legacy $filter spells a name as "name.value eq 'Total Requests'".
 var cosmosMetricFilterRE = regexp.MustCompile(`name\.value eq '([^']*)'`)
@@ -30,6 +33,11 @@ func registerCosmosMetrics(srv *sim.Server) {
 	db := acct + "/databases/{databaseRid}"
 	coll := db + "/collections/{collectionRid}"
 	regionColl := acct + "/region/{region}/databases/{databaseRid}/collections/{collectionRid}"
+
+	cosmosMetricLog = logstore.New(
+		sim.MakeStore[logstore.Entry[cosmosMetricSample]](srv.DB(), "cosmos_metric_samples"),
+		sim.MakeStore[logstore.Head](srv.DB(), "cosmos_metric_heads"))
+	kvstore.StartSweeper(srv, "azure cosmos metric retention sweep", time.Hour, cosmosSweepMetricSamples)
 
 	srv.HandleFunc("GET "+acct+"/metrics", handleCosmosListMetrics)
 	srv.HandleFunc("GET "+acct+"/metricDefinitions", handleCosmosListMetricDefinitions)
@@ -133,34 +141,34 @@ func cosmosMetricTimestamps(f cosmosMetricFilter) []time.Time {
 	return ts
 }
 
-func cosmosZeroMetricValue(ts time.Time) map[string]any {
-	return map[string]any{
-		"timestamp": ts.Format(time.RFC3339),
-		"_count":    0,
-		"average":   0.0,
-		"minimum":   0.0,
-		"maximum":   0.0,
-		"total":     0.0,
-	}
-}
-
 func cosmosMetricName(name string) map[string]any {
 	return map[string]any{"value": name, "localizedValue": name}
 }
 
-func cosmosBuildMetrics(f cosmosMetricFilter, unit string) []map[string]any {
+func cosmosMetricUnit(name string) string {
+	for _, d := range cosmosMetricDefs {
+		if d.name == name {
+			return d.unit
+		}
+	}
+	return "Count"
+}
+
+func cosmosBuildMetrics(r *http.Request, f cosmosMetricFilter) []map[string]any {
+	samples := cosmosMetricScopeOf(r).samples()
+	step := cosmosTimeGrainDuration(f.timeGrain)
 	ts := cosmosMetricTimestamps(f)
 	out := make([]map[string]any, 0, len(f.names))
 	for _, name := range f.names {
 		values := make([]map[string]any, 0, len(ts))
 		for _, t := range ts {
-			values = append(values, cosmosZeroMetricValue(t))
+			values = append(values, cosmosMetricValue(name, samples, t, t.Add(step)))
 		}
 		out = append(out, map[string]any{
 			"startTime":    f.start.UTC().Format(time.RFC3339),
 			"endTime":      f.end.UTC().Format(time.RFC3339),
 			"timeGrain":    f.timeGrain,
-			"unit":         unit,
+			"unit":         cosmosMetricUnit(name),
 			"name":         cosmosMetricName(name),
 			"metricValues": values,
 		})
@@ -170,26 +178,33 @@ func cosmosBuildMetrics(f cosmosMetricFilter, unit string) []map[string]any {
 
 func handleCosmosListMetrics(w http.ResponseWriter, r *http.Request) {
 	f := parseCosmosMetricFilter(r, "Total Requests")
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": cosmosBuildMetrics(f, "Count")})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": cosmosBuildMetrics(r, f)})
+}
+
+// cosmosPartitionID names a container's one physical partition, stable for the
+// container.
+func cosmosPartitionID(r *http.Request) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("cosmos-partition:"+sim.PathParam(r, "account")+"/"+sim.PathParam(r, "databaseRid")+"/"+sim.PathParam(r, "collectionRid"))).String()
 }
 
 func handleCosmosListPartitionMetrics(w http.ResponseWriter, r *http.Request) {
 	f := parseCosmosMetricFilter(r, "Max RUs Per Second")
-	metrics := cosmosBuildMetrics(f, "Count")
+	metrics := cosmosBuildMetrics(r, f)
 	pkRange := sim.PathParam(r, "partitionKeyRangeId")
 	if pkRange == "" {
 		pkRange = "0"
 	}
 	for _, m := range metrics {
-		m["partitionId"] = sim.NewUUID()
+		m["partitionId"] = cosmosPartitionID(r)
 		m["partitionKeyRangeId"] = pkRange
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": metrics})
 }
 
-// The MetricValue aggregates plus the P10–P99 distribution, all zero.
+// Replication latency percentiles: every region reads the one store a write
+// lands in, so each percentile, and the aggregates, are zero.
 func cosmosPercentileValue(ts time.Time) map[string]any {
-	v := cosmosZeroMetricValue(ts)
+	v := map[string]any{"timestamp": ts.Format(time.RFC3339), "_count": 0, "average": 0.0, "minimum": 0.0, "maximum": 0.0, "total": 0.0}
 	for _, p := range []string{"P10", "P25", "P50", "P75", "P90", "P95", "P99"} {
 		v[p] = 0.0
 	}
@@ -226,7 +241,34 @@ var cosmosUsageDefs = []struct {
 	{"Index Size", "Bytes"},
 }
 
-func cosmosBuildUsages() []map[string]any {
+// The documents, data bytes and index bytes the scope holds now.
+func cosmosBuildUsages(r *http.Request) []map[string]any {
+	scope := cosmosMetricScopeOf(r)
+	var current cosmosMetricSample
+	seen := map[string]bool{}
+	prefix := scope.account + "/"
+	if scope.db != "" {
+		prefix += scope.db + "/"
+		if scope.coll != "" {
+			prefix += scope.coll + "/"
+		}
+	}
+	for _, d := range cosmosDocs.ListPrefix(prefix) {
+		parts := strings.SplitN(d.ID, "/", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		key := parts[1] + "/" + parts[2]
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		snap := cosmosContainerSnapshot(scope.account, parts[1], parts[2])
+		current.Documents += snap.Documents
+		current.DataBytes += snap.DataBytes
+		current.IndexBytes += snap.IndexBytes
+	}
+	values := map[string]int64{"Document Count": current.Documents, "Data Stored": current.DataBytes, "Index Size": current.IndexBytes}
 	out := make([]map[string]any, 0, len(cosmosUsageDefs))
 	for _, u := range cosmosUsageDefs {
 		out = append(out, map[string]any{
@@ -234,20 +276,20 @@ func cosmosBuildUsages() []map[string]any {
 			"name":         cosmosMetricName(u.name),
 			"quotaPeriod":  "PT5M",
 			"limit":        0,
-			"currentValue": 0,
+			"currentValue": values[u.name],
 		})
 	}
 	return out
 }
 
-func handleCosmosListUsages(w http.ResponseWriter, _ *http.Request) {
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": cosmosBuildUsages()})
+func handleCosmosListUsages(w http.ResponseWriter, r *http.Request) {
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": cosmosBuildUsages(r)})
 }
 
-func handleCosmosListPartitionUsages(w http.ResponseWriter, _ *http.Request) {
-	usages := cosmosBuildUsages()
+func handleCosmosListPartitionUsages(w http.ResponseWriter, r *http.Request) {
+	usages := cosmosBuildUsages(r)
 	for _, u := range usages {
-		u["partitionId"] = sim.NewUUID()
+		u["partitionId"] = cosmosPartitionID(r)
 		u["partitionKeyRangeId"] = "0"
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": usages})
@@ -263,7 +305,6 @@ var cosmosMetricDefs = []struct {
 	{"Document Count", "Count", "Maximum"},
 	{"Data Usage", "Bytes", "Maximum"},
 	{"Index Usage", "Bytes", "Maximum"},
-	{"Available Storage", "Bytes", "Maximum"},
 	{"Service Availability", "Percent", "Average"},
 }
 
