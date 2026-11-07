@@ -1686,7 +1686,11 @@ fails once the row closes or the operation is served.
   security groups must admit. The node reconciler starts with the other
   workload starters once every slice is registered: started inside
   `registerELBv2`, it read the Amazon EC2 stores while a conformance test
-  re-registered them. `sim.ContainerConfig.JoinNetworks` puts a
+  re-registered them. A Gateway Load Balancer endpoint is `Pending`
+  until a node has applied state that names it, and its client waits for
+  `Available` before routing through it: CreateVpcEndpoint had answered
+  `Available` while the node serving it was still being replaced, and a
+  client whose flows crossed the replacement lost a connection. `sim.ContainerConfig.JoinNetworks` puts a
   container on further networks before it starts, so the node finds every
   endpoint's interface at its first instruction. Interface endpoints hold
   real network interfaces too, a route to an endpoint reads back under

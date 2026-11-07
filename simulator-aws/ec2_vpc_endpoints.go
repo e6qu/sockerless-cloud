@@ -77,7 +77,7 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	state := "Available"
+	state := ec2EndpointReadyState(endpointType)
 	if endpointService != nil && endpointService.AcceptanceRequired {
 		state = "PendingAcceptance"
 	}

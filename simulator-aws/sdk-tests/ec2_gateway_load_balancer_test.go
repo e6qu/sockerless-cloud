@@ -187,6 +187,7 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 	})
 	require.NoError(t, err)
 	endpointID := aws.ToString(endpoint.VpcEndpoint.VpcEndpointId)
+	waitVpcEndpointAvailable(t, c, endpointID)
 	t.Cleanup(func() {
 		_, _ = c.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{VpcEndpointIds: []string{endpointID}})
 	})
@@ -351,6 +352,7 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 	})
 	require.NoError(t, err)
 	secondID := aws.ToString(second.VpcEndpoint.VpcEndpointId)
+	waitVpcEndpointAvailable(t, c, secondID)
 	t.Cleanup(func() {
 		_, _ = c.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{VpcEndpointIds: []string{secondID}})
 	})
@@ -361,4 +363,24 @@ func TestEC2_GatewayLoadBalancerEndpointSendsFlowsThroughItsAppliances(t *testin
 	assert.Equal(t, connections, viaSecond[0]+viaSecond[1], "every connection through the second endpoint crossed an appliance: %v", viaSecond)
 	viaFirst := flowsFrom(runClient(applications), endpointID)
 	assert.Equal(t, connections, viaFirst[0]+viaFirst[1], "the first endpoint's subnet still names the first endpoint: %v", viaFirst)
+}
+
+// waitVpcEndpointAvailable waits for a Gateway Load Balancer endpoint to
+// leave Pending, which it does once the load balancer serves it. The SDK has
+// no waiter for endpoints, so it polls the endpoint's own State.
+func waitVpcEndpointAvailable(t *testing.T, c *ec2.Client, id string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		out, err := c.DescribeVpcEndpoints(t.Context(), &ec2.DescribeVpcEndpointsInput{VpcEndpointIds: []string{id}})
+		require.NoError(t, err)
+		require.Len(t, out.VpcEndpoints, 1)
+		state := out.VpcEndpoints[0].State
+		if state == ec2types.StateAvailable {
+			return
+		}
+		require.Equal(t, ec2types.StatePending, state, "endpoint %s left Pending for %s", id, state)
+		require.True(t, time.Now().Before(deadline), "endpoint %s is still Pending", id)
+		time.Sleep(time.Second)
+	}
 }

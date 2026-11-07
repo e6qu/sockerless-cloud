@@ -125,7 +125,7 @@ func elbv2CreateManagedInterface(subnetID, description, interfaceType string, se
 // elbv2GatewayLoadBalancerOfEndpoint is the Gateway Load Balancer an
 // available Gateway Load Balancer endpoint's service fronts.
 func elbv2GatewayLoadBalancerOfEndpoint(ep EC2VpcEndpoint) (ELBv2LoadBalancer, bool) {
-	if ep.VpcEndpointType != "GatewayLoadBalancer" || !strings.EqualFold(ep.State, "Available") {
+	if ep.VpcEndpointType != "GatewayLoadBalancer" || (ep.State != "Available" && ep.State != "Pending") {
 		return ELBv2LoadBalancer{}, false
 	}
 	for _, cfg := range ec2VpcEndpointServices.List() {
@@ -429,6 +429,9 @@ func handleELBv2GatewayNodeState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	held := r.URL.Query().Get("version")
+	if held != "" {
+		elbv2GatewayEndpointsServed(nodeName)
+	}
 	deadline := time.NewTimer(gwlb.StateWaitSeconds * time.Second)
 	defer deadline.Stop()
 	for {
@@ -576,4 +579,45 @@ func elbv2EndpointSources(e elbv2GatewayNodeEndpoint) []string {
 	}
 	slices.Sort(sources)
 	return sources
+}
+
+// ec2EndpointReadyState is the state an accepted endpoint of a type enters: a
+// Gateway Load Balancer endpoint is Pending until a node serves it, every
+// other type Available at once. An API-only simulator runs no node, so its
+// endpoints have no data plane to wait for.
+func ec2EndpointReadyState(endpointType string) string {
+	if endpointType == "GatewayLoadBalancer" && sim.DockerClient() != nil {
+		return "Pending"
+	}
+	return "Available"
+}
+
+// elbv2GatewayEndpointsServed makes the node's Pending endpoints Available: a
+// node asks again only after it has applied the state it held, so its links
+// and their rules are in place.
+func elbv2GatewayEndpointsServed(nodeName string) {
+	elbv2GatewayNodesMu.Lock()
+	var endpoints []string
+	for key, node := range elbv2GatewayNodes {
+		if key.String() == nodeName {
+			for _, e := range node.design.endpoints {
+				endpoints = append(endpoints, e.id)
+			}
+		}
+	}
+	elbv2GatewayNodesMu.Unlock()
+	for _, id := range endpoints {
+		ep, ok := ec2VpcEndpoints.Get(id)
+		if !ok || ep.State != "Pending" {
+			continue
+		}
+		ep.State = "Available"
+		ec2VpcEndpoints.Put(id, ep)
+		for _, c := range ec2VpcEndpointConns.List() {
+			if c.VpcEndpointId == id && c.VpcEndpointState == "Pending" {
+				c.VpcEndpointState = "Available"
+				ec2VpcEndpointConns.Put(c.VpcEndpointConnectionId, c)
+			}
+		}
+	}
 }
