@@ -66,8 +66,10 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	})
 	assertTagged(ssmtypes.ResourceTypeForTaggingAssociation, associationID)
 
+	runbook := uniquename.New("tag-on-create-runbook")
+	ssmCreateRunbook(t, c, runbook, "schemaVersion: '0.3'\nmainSteps:\n- name: s\n  action: aws:sleep\n  inputs:\n    Duration: PT0S\n")
 	automation, err := c.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{
-		DocumentName: aws.String(document), Tags: tags,
+		DocumentName: aws.String(runbook), Tags: tags,
 	})
 	require.NoError(t, err)
 	assertTagged(ssmtypes.ResourceTypeForTaggingAutomation, aws.ToString(automation.AutomationExecutionId))

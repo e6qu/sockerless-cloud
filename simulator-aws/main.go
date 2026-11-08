@@ -281,6 +281,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		startLambdaEventSourcePollers(srv)
 		startLambdaStreamEventSourcePollers(srv)
 		recoverStepFunctionsExecutions()
+		recoverSSMAutomationExecutions()
 		recoverLambdaDurableExecutions()
 		if err := recoverAmplifyComputeInstances(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore AWS Amplify Hosting compute: %w", err)

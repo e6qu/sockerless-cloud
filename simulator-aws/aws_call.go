@@ -18,14 +18,18 @@ import (
 // authorizes the call, records it in AWS CloudTrail and answers in its own
 // shapes.
 
-// A service acts either as its own principal (Role empty), which the target's
-// resource policy must admit, or as a session of a role it may assume, whose
-// identity policies the target evaluates.
+// A service acts as its own principal (Role and AccessKeyID empty), which the
+// target's resource policy must admit; as a session of a role it may assume;
+// or with the credential of the caller it acts for, as AWS Systems Manager
+// Automation does for a runbook that names no assume role. The target
+// evaluates the identity policies of the role or of the caller.
 type awsActor struct {
-	Service string
-	Source  string
-	Role    string
-	Session string
+	Service      string
+	Source       string
+	Role         string
+	Session      string
+	AccessKeyID  string
+	SessionToken string
 }
 
 // The signature covers the host like any other header.
@@ -57,7 +61,10 @@ func awsCallResponse(ctx context.Context, actor awsActor, signingService, method
 	if body == nil {
 		body = []byte{}
 	}
-	ctx = sim.WithCaller(sfnAWSServer.RequestContext(ctx), sim.Caller{Service: actor.Service, Source: actor.Source, Account: awsAccountID()})
+	ctx = sfnAWSServer.RequestContext(ctx)
+	if actor.Service != "" {
+		ctx = sim.WithCaller(ctx, sim.Caller{Service: actor.Service, Source: actor.Source, Account: awsAccountID()})
+	}
 	req, err := http.NewRequestWithContext(ctx, method, "http://"+awsCallHost+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -71,6 +78,16 @@ func awsCallResponse(ctx context.Context, actor awsActor, signingService, method
 			return nil, &awsCallError{Status: http.StatusForbidden, Code: "AccessDeniedException", Message: err.Error()}
 		}
 		sigv4Sign(req, body, cred, signingService, time.Now())
+	} else if actor.AccessKeyID != "" {
+		secret, serr := sigv4SecretFor(actor.AccessKeyID, actor.SessionToken)
+		if serr != nil {
+			code := "UnrecognizedClientException"
+			if serr.kind == sigErrExpiredToken {
+				code = "ExpiredTokenException"
+			}
+			return nil, &awsCallError{Status: http.StatusForbidden, Code: code, Message: serr.message}
+		}
+		sigv4Sign(req, body, IAMTempCred{AccessKeyID: actor.AccessKeyID, SecretAccessKey: secret, SessionToken: actor.SessionToken}, signingService, time.Now())
 	}
 	return sfnAWSServer.Call(req), nil
 }

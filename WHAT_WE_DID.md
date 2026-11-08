@@ -2185,6 +2185,43 @@ fails once the row closes or the operation is served.
   `DescribeMaintenanceWindowsForTarget` read the schedule and the registered
   targets, and `SendCommand` resolves `tag:` and `tag-key` targets. The tests
   schedule an at() window seconds ahead and wait for its run.
+- **AWS Systems Manager Automation.** `StartAutomationExecution` had
+  recorded one settled `aws:runShellScript` step with status Success, so an
+  execution and an `AUTOMATION` maintenance window task reported work nothing
+  did. The execution became a run of the runbook, an Automation document of
+  schema version 0.3 in YAML or JSON, taken from the version the request
+  named. The start types each declared parameter from the request or its
+  default (a `{{ssm:name}}` default read from Parameter Store as the caller)
+  and refuses an undeclared, missing or disallowed value with
+  `InvalidAutomationExecutionParametersException`; a document that is no
+  Automation runbook answers `AutomationDefinitionNotFoundException`. A
+  background runner lays every step out Pending and runs them in order, each
+  moving InProgress → Success, Failed, TimedOut or Cancelled as the work
+  settles, honouring `maxAttempts`, `timeoutSeconds`, `onFailure` (`Abort`,
+  `Continue`, `step:`), `onCancel`, `nextStep`, `isEnd` and `isCritical`, and
+  resolving `{{ }}` references to parameters, earlier steps' outputs and the
+  `global:` and `automation:` variables. Steps call services through their
+  APIs, as the runbook's `assumeRole` when it names one (Automation fails the
+  execution with "The defined assume role is unable to be assumed." when it
+  cannot) and otherwise with the starting caller's own credential:
+  `aws:executeAwsApi`, `aws:assertAwsResourceProperty` and
+  `aws:waitForAwsResourceProperty` reach any served operation by its Boto3
+  namespace, `aws:runCommand` goes through `SendCommand`,
+  `aws:invokeLambdaFunction` through `Invoke` and `aws:executeAutomation`
+  through a child execution; `aws:sleep`, `aws:branch` and `aws:pause`
+  (resumed by `SendAutomationSignal`) run in the runner. Any other action
+  fails its step. Outputs come from each output's JSONPath selector over the
+  response, converted to its declared type. `StopAutomationExecution` cancels
+  the running step through the store, Interactive mode waits for `StartStep`,
+  `Targets` with `ParameterValues` and `TargetMaps` run rate-controlled child
+  automations, and `StartChangeRequestExecution` runs an
+  `Automation.ChangeTemplate` and then its runbooks. Executions an earlier
+  process left running resume from their step. `CreateDocument` and
+  `UpdateDocument` read `schemaVersion` from JSON and YAML content, where
+  every document had reported 2.2, and a missing document's `InvalidDocument`
+  says "Document with name … does not exist.", the words terraform-provider-aws
+  matches to see a deleted `aws_ssm_document` gone. The source is the vendored Automation
+  actions reference and its per-action pages (`ssm-automation-*.md.gz`).
 - **Amazon RDS global databases.** A DB cluster lives in the Region its
   request is signed for, as a DB instance does, so its ARN, endpoints and
   lookups name that Region. `CreateDBCluster` with `GlobalClusterIdentifier`

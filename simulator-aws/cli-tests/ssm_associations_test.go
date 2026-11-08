@@ -1,8 +1,10 @@
 package aws_cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -171,13 +173,92 @@ func TestSSMCLI_AssociationBatch(t *testing.T) {
 	})
 }
 
+type ssmCLIAutomation struct {
+	AutomationExecution struct {
+		AutomationExecutionStatus string              `json:"AutomationExecutionStatus"`
+		FailureMessage            string              `json:"FailureMessage"`
+		Outputs                   map[string][]string `json:"Outputs"`
+		StepExecutions            []struct {
+			StepName   string              `json:"StepName"`
+			StepStatus string              `json:"StepStatus"`
+			Outputs    map[string][]string `json:"Outputs"`
+		} `json:"StepExecutions"`
+	} `json:"AutomationExecution"`
+}
+
+// ssmCLIAwaitAutomation polls get-automation-execution until done reports true.
+func ssmCLIAwaitAutomation(t *testing.T, id string, done func(ssmCLIAutomation) bool) ssmCLIAutomation {
+	t.Helper()
+	var got ssmCLIAutomation
+	require.Eventually(t, func() bool {
+		out, err := awsCLI("ssm", "get-automation-execution", "--automation-execution-id", id, "--output", "json").Output()
+		got = ssmCLIAutomation{}
+		return err == nil && json.Unmarshal(out, &got) == nil && done(got)
+	}, 2*time.Minute, 250*time.Millisecond, "automation %s never reached the awaited state", id)
+	return got
+}
+
+func ssmCLIStepStatus(a ssmCLIAutomation, name string) string {
+	for _, s := range a.AutomationExecution.StepExecutions {
+		if s.StepName == name {
+			return s.StepStatus
+		}
+	}
+	return ""
+}
+
+// TestSSMCLI_AutomationLifecycle runs an Automation runbook through the AWS
+// CLI: start-automation-execution runs its aws:executeAwsApi steps, which write
+// and read a parameter, get-automation-execution and
+// describe-automation-step-executions read the settled steps and outputs, and
+// stop-automation-execution cancels a second execution in its aws:sleep step.
 func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	t.Parallel()
 	docName := "cli-automation-doc-" + ssmStamp()
-	ssmCLIEnsureDoc(t, docName)
+	param := "/cli/automation/" + docName
+	runCLI(t, awsCLI("ssm", "create-document", "--name", docName,
+		"--document-type", "Automation", "--document-format", "YAML", "--output", "json",
+		"--content", `schemaVersion: '0.3'
+parameters:
+  ParamName:
+    type: String
+  Hold:
+    type: String
+    default: PT0S
+mainSteps:
+- name: put
+  action: aws:executeAwsApi
+  inputs:
+    Service: ssm
+    Api: PutParameter
+    Name: '{{ ParamName }}'
+    Value: from-cli
+    Type: String
+    Overwrite: true
+- name: hold
+  action: aws:sleep
+  inputs:
+    Duration: '{{ Hold }}'
+- name: read
+  action: aws:executeAwsApi
+  inputs:
+    Service: ssm
+    Api: GetParameter
+    Name: '{{ ParamName }}'
+  outputs:
+  - Name: Value
+    Selector: $.Parameter.Value
+    Type: String
+outputs:
+- read.Value
+`))
+	t.Cleanup(func() {
+		_ = awsCLI("ssm", "delete-document", "--name", docName).Run()
+		_ = awsCLI("ssm", "delete-parameter", "--name", param).Run()
+	})
 
 	startOut := runCLI(t, awsCLI("ssm", "start-automation-execution",
-		"--document-name", docName, "--output", "json"))
+		"--document-name", docName, "--parameters", "ParamName="+param, "--output", "json"))
 	var startResult struct {
 		AutomationExecutionId string `json:"AutomationExecutionId"`
 	}
@@ -185,28 +266,29 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	execID := startResult.AutomationExecutionId
 	require.NotEmpty(t, execID)
 
-	getOut := runCLI(t, awsCLI("ssm", "get-automation-execution",
-		"--automation-execution-id", execID, "--output", "json"))
-	var getResult struct {
-		AutomationExecution struct {
-			AutomationExecutionStatus string `json:"AutomationExecutionStatus"`
-			StepExecutions            []struct {
-				StepStatus string `json:"StepStatus"`
-			} `json:"StepExecutions"`
-		} `json:"AutomationExecution"`
+	done := ssmCLIAwaitAutomation(t, execID, func(a ssmCLIAutomation) bool {
+		return a.AutomationExecution.AutomationExecutionStatus == "Success" || a.AutomationExecution.AutomationExecutionStatus == "Failed"
+	})
+	require.Equal(t, "Success", done.AutomationExecution.AutomationExecutionStatus, done.AutomationExecution.FailureMessage)
+	require.Equal(t, []string{"from-cli"}, done.AutomationExecution.Outputs["read.Value"])
+	for _, step := range []string{"put", "hold", "read"} {
+		require.Equal(t, "Success", ssmCLIStepStatus(done, step), step)
 	}
-	parseJSON(t, getOut, &getResult)
-	require.Equal(t, "Success", getResult.AutomationExecution.AutomationExecutionStatus)
-	require.NotEmpty(t, getResult.AutomationExecution.StepExecutions)
+	value := strings.TrimSpace(runCLI(t, awsCLI("ssm", "get-parameter", "--name", param,
+		"--query", "Parameter.Value", "--output", "text")))
+	require.Equal(t, "from-cli", value)
 
-	descOut := runCLI(t, awsCLI("ssm", "describe-automation-executions", "--output", "json"))
+	descOut := runCLI(t, awsCLI("ssm", "describe-automation-executions",
+		"--filters", "Key=ExecutionId,Values="+execID, "--output", "json"))
 	var descResult struct {
 		AutomationExecutionMetadataList []struct {
-			AutomationExecutionId string `json:"AutomationExecutionId"`
+			AutomationExecutionId     string `json:"AutomationExecutionId"`
+			AutomationExecutionStatus string `json:"AutomationExecutionStatus"`
 		} `json:"AutomationExecutionMetadataList"`
 	}
 	parseJSON(t, descOut, &descResult)
-	require.NotEmpty(t, descResult.AutomationExecutionMetadataList)
+	require.Len(t, descResult.AutomationExecutionMetadataList, 1)
+	require.Equal(t, "Success", descResult.AutomationExecutionMetadataList[0].AutomationExecutionStatus)
 
 	stepOut := runCLI(t, awsCLI("ssm", "describe-automation-step-executions",
 		"--automation-execution-id", execID, "--output", "json"))
@@ -216,14 +298,21 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 		} `json:"StepExecutions"`
 	}
 	parseJSON(t, stepOut, &stepResult)
-	require.NotEmpty(t, stepResult.StepExecutions)
+	require.Len(t, stepResult.StepExecutions, 3)
 
-	runCLI(t, awsCLI("ssm", "send-automation-signal",
-		"--automation-execution-id", execID,
-		"--signal-type", "Resume", "--output", "json"))
-
-	runCLI(t, awsCLI("ssm", "stop-automation-execution",
-		"--automation-execution-id", execID, "--output", "json"))
+	held := runCLI(t, awsCLI("ssm", "start-automation-execution", "--document-name", docName,
+		"--parameters", "ParamName="+param+",Hold=PT1H", "--query", "AutomationExecutionId", "--output", "text"))
+	heldID := strings.TrimSpace(held)
+	ssmCLIAwaitAutomation(t, heldID, func(a ssmCLIAutomation) bool { return ssmCLIStepStatus(a, "hold") == "InProgress" })
+	require.Contains(t, runCLIExpectError(t, awsCLI("ssm", "send-automation-signal",
+		"--automation-execution-id", heldID, "--signal-type", "Resume", "--payload", "StepName=hold")),
+		"InvalidAutomationSignalException")
+	runCLI(t, awsCLI("ssm", "stop-automation-execution", "--automation-execution-id", heldID, "--output", "json"))
+	stopped := ssmCLIAwaitAutomation(t, heldID, func(a ssmCLIAutomation) bool {
+		return a.AutomationExecution.AutomationExecutionStatus == "Cancelled"
+	})
+	require.Equal(t, "Cancelled", ssmCLIStepStatus(stopped, "hold"))
+	require.Equal(t, "Pending", ssmCLIStepStatus(stopped, "read"))
 
 	previewOut := runCLI(t, awsCLI("ssm", "start-execution-preview",
 		"--document-name", docName, "--output", "json"))
