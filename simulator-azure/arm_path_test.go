@@ -37,3 +37,19 @@ func TestAzureNormalizeRequestPathFoldsSiteKeyListings(t *testing.T) {
 		}
 	}
 }
+
+func TestAzureNormalizeRequestPathFoldsRegistryWebhooks(t *testing.T) {
+	reg := "/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/acr"
+	cases := map[string]string{
+		reg + "/webHooks/hook":      reg + "/webhooks/hook",
+		reg + "/webHooks/hook/ping": reg + "/webhooks/hook/ping",
+		reg + "/webhooks/webHooks":  reg + "/webhooks/webHooks",
+	}
+	for in, want := range cases {
+		r := httptest.NewRequest("PUT", in, nil)
+		azureNormalizeRequestPath(r)
+		if r.URL.Path != want {
+			t.Errorf("%s normalized to %s, want %s", in, r.URL.Path, want)
+		}
+	}
+}

@@ -1871,7 +1871,9 @@ fails once the row closes or the operation is served.
   `sim.PullOCIImage`, which answers the bearer challenge with the given
   credentials. `listUsages` counts the stored bytes and the webhooks against
   the SKU's included storage and webhook count from `container-registry-skus`,
-  and a webhook past that count is refused.
+  and a webhook past that count is refused. terraform-provider-azurerm 5.13
+  addresses webhooks as `webHooks`; the path normalizer folds that segment
+  under a registry to the specification's `webhooks`.
 - **Azure Cosmos DB metrics.** Every data-plane request leaves a sample with
   its container, status and charge, and every write a snapshot of its
   container's documents, kept 60 days. `Total Requests` and `Total Request
