@@ -356,6 +356,14 @@ func TestOrganizations_ResourcePolicy(t *testing.T) {
 	c := orgClient()
 	content := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"organizations:DescribeOrganization","Resource":"*"}]}`
 
+	for _, negated := range []string{
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"NotAction":"organizations:LeaveOrganization","Resource":"*"}]}`,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"organizations:DescribeOrganization","NotResource":"arn:aws:organizations::*:account/*"}]}`,
+	} {
+		_, err := c.PutResourcePolicy(ctx, &organizations.PutResourcePolicyInput{Content: aws.String(negated)})
+		assert.Equal(t, "InvalidInputException", errCodeOf(err), "a delegation policy with NotAction or NotResource")
+	}
+
 	put, err := c.PutResourcePolicy(ctx, &organizations.PutResourcePolicyInput{Content: aws.String(content)})
 	require.NoError(t, err)
 	require.NotNil(t, put.ResourcePolicy)

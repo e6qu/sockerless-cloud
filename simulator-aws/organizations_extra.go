@@ -68,56 +68,18 @@ func handleOrgLeaveOrganization(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// handleOrgCreateGovCloudAccount also provisions the linked AWS GovCloud (US)
-// account, so the status carries AccountId and GovCloudAccountId. Both are
-// created at once and the request settles SUCCEEDED.
+// handleOrgCreateGovCloudAccount creates the commercial account as
+// CreateAccount does and links an AWS GovCloud (US) account to it, so the
+// status carries AccountId and GovCloudAccountId.
 func handleOrgCreateGovCloudAccount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
+	status, ok := orgCreateMemberAccount(w, r)
+	if !ok {
 		return
 	}
-	var req struct {
-		Email       string `json:"Email"`
-		AccountName string `json:"AccountName"`
-		RoleName    string `json:"RoleName"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.AccountName == "" || req.Email == "" {
-		AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
-		return
-	}
-	now := orgEpoch()
-
-	commercialID := orgNewAccountID()
-	orgAccounts.Put(commercialID, OrgAccount{
-		Id:              commercialID,
-		Arn:             orgAccountArn(commercialID),
-		Email:           req.Email,
-		Name:            req.AccountName,
-		Status:          "ACTIVE",
-		JoinedMethod:    "CREATED",
-		JoinedTimestamp: now,
-		ParentId:        orgRootID(),
-	})
-
-	// The GovCloud account is a separate member account in the GovCloud partition;
-	// it is not part of the commercial organization tree (no ParentId placement).
-	govCloudID := orgNewAccountID()
-
-	status := OrgCreateAccountStatus{
-		Id:                 "car-" + orgRandHex(16),
-		AccountName:        req.AccountName,
-		State:              "SUCCEEDED",
-		RequestedTimestamp: now,
-		CompletedTimestamp: now,
-		AccountId:          commercialID,
-	}
-	orgCreateStatuses.Put(status.Id, status)
-
+	// The GovCloud account is a separate account in the GovCloud partition,
+	// outside the commercial organization tree.
 	m := orgCreateStatusToMap(status)
-	m["GovCloudAccountId"] = govCloudID
+	m["GovCloudAccountId"] = orgNewAccountID()
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": m})
 }
 

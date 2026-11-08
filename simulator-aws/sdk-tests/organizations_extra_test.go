@@ -8,19 +8,22 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	orgtypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestOrganizations_GovCloudAccount expects CreateGovCloudAccount to settle
 // SUCCEEDED with both AccountId and GovCloudAccountId, readable through
-// DescribeCreateAccountStatus, and the commercial account to join the tree.
+// DescribeCreateAccountStatus, and the commercial account to join the tree
+// with FullAWSAccess attached and the access role the request names.
 func TestOrganizations_GovCloudAccount(t *testing.T) {
 	c := orgClient()
 
 	out, err := c.CreateGovCloudAccount(ctx, &organizations.CreateGovCloudAccountInput{
 		Email:       aws.String("govcloud-pair@sim.invalid"),
 		AccountName: aws.String("GovCloudPair"),
+		RoleName:    aws.String("GovCloudAdmin"),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.CreateAccountStatus)
@@ -44,6 +47,20 @@ func TestOrganizations_GovCloudAccount(t *testing.T) {
 	acct, err := c.DescribeAccount(ctx, &organizations.DescribeAccountInput{AccountId: st.AccountId})
 	require.NoError(t, err)
 	assert.Equal(t, "GovCloudPair", aws.ToString(acct.Account.Name))
+
+	policies, err := c.ListPoliciesForTarget(ctx, &organizations.ListPoliciesForTargetInput{
+		TargetId: st.AccountId, Filter: orgtypes.PolicyTypeServiceControlPolicy,
+	})
+	require.NoError(t, err)
+	var names []string
+	for _, p := range policies.Policies {
+		names = append(names, aws.ToString(p.Name))
+	}
+	assert.Contains(t, names, "FullAWSAccess")
+
+	identity, err := stsWith(sessionConfig(memberAdmin(t, aws.ToString(st.AccountId), "GovCloudAdmin"))).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(st.AccountId), aws.ToString(identity.Account))
 }
 
 // TestOrganizations_LeaveOrganization expects the caller, the management

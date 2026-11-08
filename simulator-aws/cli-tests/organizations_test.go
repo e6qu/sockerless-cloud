@@ -257,6 +257,11 @@ func TestOrganizationsCLI_DelegatedAdminAndServiceAccess(t *testing.T) {
 
 func TestOrganizationsCLI_ResourcePolicy(t *testing.T) {
 	content := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"organizations:DescribeOrganization","Resource":"*"}]}`
+	refused := runCLIExpectError(t, awsCLI("organizations", "put-resource-policy", "--content",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"NotAction":"organizations:LeaveOrganization","Resource":"*"}]}`))
+	if !strings.Contains(refused, "InvalidInputException") {
+		t.Fatalf("put-resource-policy with NotAction was not refused with InvalidInputException: %s", refused)
+	}
 	putOut := runCLI(t, awsCLI("organizations", "put-resource-policy", "--content", content, "--output", "json"))
 	if !strings.Contains(putOut, "rp-") {
 		t.Fatalf("put-resource-policy missing resource policy id: %s", putOut)

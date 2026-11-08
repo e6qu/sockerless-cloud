@@ -1898,6 +1898,11 @@ fails once the row closes or the operation is served.
   use for an endpoint addressed by IP. The CLI suite advertises
   `<account>.<service>.core.cli-shim.localhost`, the shape the CLI's storage
   SDK reads an account name from, and reaches it through `HTTP_PROXY`.
+- **AWS Organizations.** `CreateGovCloudAccount` creates its commercial
+  account through the same path as `CreateAccount`, with FullAWSAccess
+  attached and the access role the request names, and `PutResourcePolicy`
+  refuses a delegation policy with `NotAction` or `NotResource`, which AWS
+  stopped accepting on June 30, 2026.
 - **Amazon S3 ListBuckets.** A request that names `max-buckets`, `prefix`,
   `bucket-region` or `continuation-token` is paginated, as the model states:
   it pages at `max-buckets` (10,000 by default), sorted by name, with an
