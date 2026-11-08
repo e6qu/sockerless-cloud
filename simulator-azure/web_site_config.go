@@ -122,7 +122,7 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
-		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(extra.AuthSettings)))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/authsettingsv2/list", func(w http.ResponseWriter, r *http.Request) {

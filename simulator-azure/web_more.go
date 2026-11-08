@@ -412,14 +412,14 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		extra, _ := webConfigExtras.Get(webResourceID(r))
 		extra.AuthSettings = req.Properties
 		webConfigExtras.Put(webResourceID(r), extra)
-		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(req.Properties)))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 	slot("POST", "/config/authsettings/list", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
-		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(extra.AuthSettings)))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 
 	// Easy Auth v2: GET and PUT at both, GET /list at slot level (functions.go
@@ -481,11 +481,24 @@ func nonNilStrMap(m map[string]string) map[string]string {
 	return m
 }
 
-func authSettingsOrDefault(m map[string]any) map[string]any {
-	if m == nil {
-		return map[string]any{"enabled": false}
+// webAuthSettings answers the Easy Auth v1 settings with the configVersion
+// App Service fills in when a request leaves it out: v2 once the site holds
+// a v2 configuration, v1 otherwise.
+func webAuthSettings(extra webConfigExtra) map[string]any {
+	props := map[string]any{"enabled": false}
+	if extra.AuthSettings != nil {
+		props = make(map[string]any, len(extra.AuthSettings)+1)
+		for k, v := range extra.AuthSettings {
+			props[k] = v
+		}
 	}
-	return m
+	if v, _ := props["configVersion"].(string); v == "" {
+		props["configVersion"] = "v1"
+		if extra.AuthSettingsV2 != nil {
+			props["configVersion"] = "v2"
+		}
+	}
+	return props
 }
 
 func webConfigWebGet(w http.ResponseWriter, r *http.Request) {

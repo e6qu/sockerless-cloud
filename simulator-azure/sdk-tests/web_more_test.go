@@ -159,6 +159,8 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	require.NotNil(t, v1.Properties)
 	assert.True(t, *v1.Properties.Enabled, "the site's authsettings list answers what PUT stored")
 	assert.Equal(t, "00000000-0000-0000-0000-00000000c11e", *v1.Properties.ClientID)
+	require.NotNil(t, v1.Properties.ConfigVersion)
+	assert.Equal(t, "v1", *v1.Properties.ConfigVersion, "App Service fills in the v1 configVersion")
 	v2, err := client.GetAuthSettingsV2WithoutSecrets(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, v2.Properties)
@@ -172,6 +174,10 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, listed.Properties.Platform)
 	assert.True(t, *listed.Properties.Platform.Enabled, "the site's authsettingsV2 list answers what PUT stored")
+	v1, err = client.GetAuthSettings(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, v1.Properties.ConfigVersion)
+	assert.Equal(t, "v2", *v1.Properties.ConfigVersion, "a v2 configuration moves the site to configVersion v2")
 
 	bkPager := client.NewListBackupsPager(rg, name, nil)
 	for bkPager.More() {

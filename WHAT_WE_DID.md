@@ -1840,7 +1840,10 @@ fails once the row closes or the operation is served.
   specification says. Its effective security groups are the interface's and
   the subnet's, each with its association and its rules in priority order.
 - **App Service and Blob reads.** A site's `authsettings` and
-  `authsettingsV2` lists answer what PUT stored, as the slot lists did. A
+  `authsettingsV2` lists answer what PUT stored, as the slot lists did, and
+  the v1 settings carry the `configVersion` App Service fills in — `v2` once
+  the site holds a v2 configuration, `v1` otherwise — which
+  terraform-provider-azurerm requires before it reads `auth_settings` back. A
   path-style Blob request may name an account `internal`; no surface claims
   the segment.
 - **Log Analytics soft delete.** Deleting a workspace keeps it, its data, keys
