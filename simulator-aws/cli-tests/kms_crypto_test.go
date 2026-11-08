@@ -332,3 +332,45 @@ func TestKMSCLI_MLKEMEncapsulateDecapsulate(t *testing.T) {
 	parseJSON(t, decOut, &dec)
 	assert.Equal(t, enc.SharedSecret, dec.SharedSecret)
 }
+
+// TestKMSCLI_EdwardsAndMLDSASigning signs and verifies with
+// ECC_NIST_EDWARDS25519 and ML_DSA_65 keys, and generates Ed25519 and ML-KEM
+// data key pairs.
+func TestKMSCLI_EdwardsAndMLDSASigning(t *testing.T) {
+	t.Parallel()
+	for spec, alg := range map[string]string{"ECC_NIST_EDWARDS25519": "ED25519_SHA_512", "ML_DSA_65": "ML_DSA_SHAKE_256"} {
+		keyID := kmsCLICreateKey(t, "--key-spec", spec, "--key-usage", "SIGN_VERIFY")
+		var pub struct {
+			SigningAlgorithms []string `json:"SigningAlgorithms"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("kms", "get-public-key", "--key-id", keyID, "--output", "json")), &pub)
+		assert.Contains(t, pub.SigningAlgorithms, alg)
+		var signed struct {
+			Signature string `json:"Signature"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("kms", "sign", "--key-id", keyID, "--message", b64("cli "+spec),
+			"--message-type", "RAW", "--signing-algorithm", alg, "--output", "json")), &signed)
+		var verified struct {
+			SignatureValid bool `json:"SignatureValid"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("kms", "verify", "--key-id", keyID, "--message", b64("cli "+spec),
+			"--message-type", "RAW", "--signature", signed.Signature, "--signing-algorithm", alg, "--output", "json")), &verified)
+		assert.True(t, verified.SignatureValid, spec)
+		require.Error(t, awsCLI("kms", "verify", "--key-id", keyID, "--message", b64("tampered"),
+			"--message-type", "RAW", "--signature", signed.Signature, "--signing-algorithm", alg).Run(), spec)
+	}
+
+	wrapping := kmsCLICreateKey(t)
+	for _, spec := range []string{"ECC_NIST_EDWARDS25519", "ML_KEM_768"} {
+		var pair struct {
+			KeyPairSpec         string `json:"KeyPairSpec"`
+			PrivateKeyPlaintext string `json:"PrivateKeyPlaintext"`
+			PublicKey           string `json:"PublicKey"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("kms", "generate-data-key-pair", "--key-id", wrapping,
+			"--key-pair-spec", spec, "--output", "json")), &pair)
+		assert.Equal(t, spec, pair.KeyPairSpec)
+		assert.NotEmpty(t, pair.PrivateKeyPlaintext)
+		assert.NotEmpty(t, pair.PublicKey)
+	}
+}

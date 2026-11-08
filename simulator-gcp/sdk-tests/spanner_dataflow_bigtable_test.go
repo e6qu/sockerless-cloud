@@ -248,25 +248,18 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 	assert.Equal(t, "JOB_STATE_CANCELLED", updated.CurrentState)
 
 	// Messages, metrics and execution details each resolve the job id and answer
-	// NOT_FOUND for one no create minted.
+	// NOT_FOUND for one no create minted. No worker runs the job's steps, so
+	// none of them reports anything a worker would have produced.
 	msgs, err := svc.Projects.Locations.Jobs.Messages.List("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, msgs.JobMessages)
-	for _, m := range msgs.JobMessages {
-		assert.NotEmpty(t, m.MessageImportance, "every job message carries its importance")
-		assert.NotEmpty(t, m.Time, "every job message carries its time")
-	}
+	assert.Empty(t, msgs.JobMessages)
 	_, err = svc.Projects.Locations.Jobs.Messages.List("test-project", "us-central1", "no-such-job").Do()
 	require.Error(t, err, "messages.list resolves the job it is asked about")
 	assert.Contains(t, err.Error(), "404")
 
 	metrics, err := svc.Projects.Locations.Jobs.GetMetrics("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, metrics.Metrics)
-	for _, m := range metrics.Metrics {
-		require.NotNil(t, m.Name)
-		assert.NotEmpty(t, m.Name.Name, "every metric update names its metric")
-	}
+	assert.Empty(t, metrics.Metrics)
 	assert.NotEmpty(t, metrics.MetricTime)
 	_, err = svc.Projects.Locations.Jobs.GetMetrics("test-project", "us-central1", "no-such-job").Do()
 	require.Error(t, err, "getMetrics resolves the job it is asked about")
@@ -274,10 +267,14 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 
 	exec, err := svc.Projects.Locations.Jobs.GetExecutionDetails("test-project", "us-central1", job.Id).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, exec.Stages)
-	for _, s := range exec.Stages {
-		assert.NotEmpty(t, s.StageId, "every stage carries its id")
-	}
+	assert.Empty(t, exec.Stages)
+	_, err = svc.Projects.Locations.Jobs.Stages.GetExecutionDetails("test-project", "us-central1", job.Id, "s1").Do()
+	require.Error(t, err, "a job no worker ran has no stage to describe")
+	assert.Contains(t, err.Error(), "404")
+	_, err = svc.Projects.Locations.Jobs.Debug.GetConfig("test-project", "us-central1", job.Id,
+		&dataflow.GetDebugConfigRequest{WorkerId: "worker-0", ComponentId: "c"}).Do()
+	require.Error(t, err, "a job no worker runs has no worker to configure")
+	assert.Contains(t, err.Error(), "404")
 	_, err = svc.Projects.Locations.Jobs.GetExecutionDetails("test-project", "us-central1", "no-such-job").Do()
 	require.Error(t, err, "getExecutionDetails resolves the job it is asked about")
 	assert.Contains(t, err.Error(), "404")
@@ -307,7 +304,7 @@ func TestDataflow_GlobalJobSDK(t *testing.T) {
 
 	metrics, err := svc.Projects.Jobs.GetMetrics("global-df-project", job.Id).Do()
 	require.NoError(t, err)
-	require.NotEmpty(t, metrics.Metrics)
+	assert.Empty(t, metrics.Metrics)
 	_, err = svc.Projects.Jobs.GetMetrics("global-df-project", "no-such-job").Do()
 	require.Error(t, err, "the global getMetrics resolves the job it is asked about too")
 	assert.Contains(t, err.Error(), "404")
@@ -381,6 +378,11 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 	}).GcsPath("gs://dataflow-templates/word-count").Do()
 	require.NoError(t, err)
 	require.NotNil(t, glaunch.Job)
+
+	_, err = svc.Projects.Templates.Launch("tmpl-project", &dataflow.LaunchTemplateParameters{}).
+		GcsPath("gs://dataflow-templates/word-count").Do()
+	require.Error(t, err, "templates.launch requires the job name")
+	assert.Contains(t, err.Error(), "400")
 
 	// GetTemplate reads the staged template and its metadata from the sibling
 	// file Dataflow's tooling writes beside it; a path nothing was staged at is

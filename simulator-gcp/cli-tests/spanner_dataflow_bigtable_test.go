@@ -56,14 +56,25 @@ func TestSpannerCLI_RESTDataPlane(t *testing.T) {
 	}
 }
 
+// TestDataflowCLI_ListRegionalJobs launches a classic template with `gcloud
+// dataflow jobs run`, lists it, and reads its metrics: no worker runs the
+// job's steps, so it has none.
 func TestDataflowCLI_ListRegionalJobs(t *testing.T) {
 	t.Parallel()
-	httpDoJSON(t, "POST", baseURL+"/v1b3/projects/"+project+"/locations/"+location+"/jobs",
-		`{"name":"cli-dataflow-job","type":"JOB_TYPE_BATCH"}`)
+	id := strings.TrimSpace(runCLI(t, gcloudCLI("dataflow", "jobs", "run", "cli-dataflow-job",
+		"--gcs-location=gs://dataflow-templates/word-count", "--region="+location, "--format=value(id)")))
+	if id == "" {
+		t.Fatal("gcloud dataflow jobs run printed no job id")
+	}
 
 	out := runCLI(t, gcloudCLI("dataflow", "jobs", "list", "--region="+location, "--format=value(name)"))
 	if !strings.Contains(out, "cli-dataflow-job") {
-		t.Fatalf("dataflow jobs list missing seeded job: %s", out)
+		t.Fatalf("dataflow jobs list missing launched job: %s", out)
+	}
+
+	metrics := runCLI(t, gcloudCLI("beta", "dataflow", "metrics", "list", id, "--region="+location, "--format=json"))
+	if strings.TrimSpace(metrics) != "[]" {
+		t.Fatalf("a job no worker ran reports no metrics, got %s", metrics)
 	}
 }
 

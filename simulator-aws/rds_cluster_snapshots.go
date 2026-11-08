@@ -68,7 +68,7 @@ func handleRDSCreateClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	cl, ok := rdsClusters.Get(clusterID)
+	cl, ok := rdsClusterIn(r, clusterID)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", clusterID),

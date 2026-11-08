@@ -105,17 +105,29 @@ func TestCloudWatchCLI_AlarmActionsAndState(t *testing.T) {
 
 	runCLI(t, awsCLI("cloudwatch", "set-alarm-state", "--alarm-name", name,
 		"--state-value", "ALARM", "--state-reason", "manual cli override"))
-	state := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms", "--alarm-names", name,
-		"--query", "MetricAlarms[0].StateValue", "--output", "text")))
-	if state != "ALARM" {
-		t.Fatalf("after set-alarm-state, StateValue = %q, want ALARM", state)
-	}
 
-	histType := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarm-history",
+	summaries := runCLI(t, awsCLI("cloudwatch", "describe-alarm-history",
 		"--alarm-name", name, "--history-item-type", "StateUpdate",
-		"--query", "AlarmHistoryItems[0].HistoryItemType", "--output", "text")))
-	if histType != "StateUpdate" {
-		t.Fatalf("describe-alarm-history first item type = %q, want StateUpdate", histType)
+		"--query", "AlarmHistoryItems[].HistorySummary", "--output", "text"))
+	if !strings.Contains(summaries, "Alarm updated from OK to ALARM") {
+		t.Fatalf("describe-alarm-history summaries = %q, want the OK to ALARM update", summaries)
+	}
+}
+
+// A composite alarm keeps a set-alarm-state while its children keep theirs.
+func TestCloudWatchCLI_CompositeAlarmHoldsSetState(t *testing.T) {
+	t.Parallel()
+	name := "cli-composite-held"
+	runCLI(t, awsCLI("cloudwatch", "put-composite-alarm", "--alarm-name", name, "--alarm-rule", "TRUE"))
+	defer func() { _ = awsCLI("cloudwatch", "delete-alarms", "--alarm-names", name).Run() }()
+
+	runCLI(t, awsCLI("cloudwatch", "set-alarm-state", "--alarm-name", name,
+		"--state-value", "OK", "--state-reason", "held by the cli test"))
+	got := strings.Fields(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
+		"--alarm-names", name, "--alarm-types", "CompositeAlarm",
+		"--query", "CompositeAlarms[0].[StateValue,StateReason]", "--output", "text")))
+	if len(got) < 1 || got[0] != "OK" || !strings.Contains(strings.Join(got, " "), "held by the cli test") {
+		t.Fatalf("composite state after set-alarm-state = %q, want OK held by the cli test", got)
 	}
 }
 

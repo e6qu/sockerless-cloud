@@ -2229,10 +2229,13 @@ func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
 	window := SSMMaintenanceWindow{WindowId: "mw-0123456789abcdef0", Name: "nightly"}
 	ssmWindows.Put(window.WindowId, window)
 	t.Cleanup(func() { ssmWindows.Delete(window.WindowId) })
+	execution := SSMWindowExecution{WindowId: window.WindowId, WindowExecutionId: "11111111-2222-3333-4444-555555555555", Status: "SUCCESS"}
+	ssmWindowExecutions.Put(execution.WindowExecutionId, execution)
+	t.Cleanup(func() { ssmWindowExecutions.Delete(execution.WindowExecutionId) })
 
 	assertDerivedARNs(t,
 		iamJSONRequest("AmazonSSM.CancelMaintenanceWindowExecution",
-			`{"WindowExecutionId":"`+ssmWindowExecID(window.WindowId)+`"}`),
+			`{"WindowExecutionId":"`+execution.WindowExecutionId+`"}`),
 		"ssm:CancelMaintenanceWindowExecution",
 		"arn:aws:ssm:us-east-1:123456789012:maintenancewindow/"+window.WindowId)
 

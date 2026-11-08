@@ -1781,6 +1781,43 @@ fails once the row closes or the operation is served.
   evaluator start after every slice is registered: the ELB publisher's first
   flush, due at the next minute, once raced the store's creation in a
   simulator built just before the minute turned.
+- **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
+  actions when the state changes, as the API reference says. A metric alarm
+  keeps the set state only until its next evaluation, which returns it to its
+  actual state and runs that state's actions; tests read the change from the
+  history and the delivered notifications, and the Amazon ECS rollback test
+  breaches its alarm with `PutMetricData` instead. A composite alarm parses
+  its `AlarmRule` by the User Guide's grammar, `AT_LEAST` included, and the
+  evaluator moves it to ALARM while the rule holds and OK otherwise, after
+  the metric alarms it reads; a transition publishes the composite
+  notification with `AlarmRule` and `TriggeringChildren` and the reason
+  wording the alarm events show. A `SetAlarmState` on a composite alarm holds
+  until a child's state changes or the alarm is updated.
+  Every metric and composite alarm transition also reaches the default
+  event bus as a "CloudWatch Alarm State Change" event shaped like the User
+  Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries
+  its included or non-excluded tags, never an `aws:` key, in that event and
+  in its Amazon SNS notification.
+  An action naming an AWS Lambda function invokes it asynchronously with the
+  User Guide's alarm payload when the function grants
+  `lambda.alarms.cloudwatch.amazonaws.com` `lambda:InvokeFunction`. Log
+  alarms evaluate on their scheduled query's schedule, accept
+  `SetAlarmState`, and run their actions and events as metric alarms do.
+  Creating, updating and deleting any alarm sends a "CloudWatch Alarm
+  Configuration Change" event, an update with its previous configuration,
+  and an update leaves the alarm's state unchanged as the API reference
+  says, where the simulator had reset it to INSUFFICIENT_DATA. A composite
+  alarm returns its `StateReasonData` and its real state timestamp over all
+  three protocols, and its query-protocol describe its `StateReason`.
+- **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
+  confirms an HTTP or email subscription with an opaque random token that only
+  the confirmation message carries, where it had been the subscription ARN
+  without its colons; the confirmation tests read it from a real endpoint.
+  `PutParameter` records each version in the parameter's history as it writes
+  it, and a deleted parameter drops its history, where the history had been
+  reconciled on read and lost a version overwritten between two reads. The
+  RDS snapshot restore test dials the restored endpoint whatever its host
+  name, instead of branching on the simulator's.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Cloud Run image export and Firestore REST listen.** `exportImage` copies
@@ -1839,6 +1876,66 @@ fails once the row closes or the operation is served.
   prefix and names "System Route" for a system route's table, as the
   specification says. Its effective security groups are the interface's and
   the subnet's, each with its association and its rules in priority order.
+- **Network Watcher packet capture.** A capture runs where the Network
+  Watcher agent extension would: once the machine has
+  `NetworkWatcherAgentLinux`, a session places pcapagent in the machine's
+  network namespace, where an `AF_PACKET` socket reads every frame crossing
+  its interfaces into a libpcap file, through the 5-tuple filters (an entry, a
+  range or a `;` list, matched from the machine's side), the per-packet
+  truncation and the session's byte and time limits, with the defaults the
+  specification declares. The create answers only once the agent's socket
+  receives, so traffic the caller sends next is captured. When the session
+  stops — on request, at its size, or at its time limit with `TimeExceeded`,
+  as `network-watcher-packet-capture-manage` reports it — Network Watcher
+  moves the file to `network-watcher-logs/subscriptions/…/packetcapture_{time}.cap`
+  in the storage account with an account SAS the account's key signs, and to
+  the machine's `/var/captures` path; a failed move reports `StorageFailed` or
+  `LocalFileFailed`. Deleting the resource leaves the file. The capture had
+  refused every machine with `PacketCaptureTargetNotReady` before.
+- **Container Apps system log events.** A revision writes the messages
+  `app-containerapps-logging` lists, with its Source and its `Info` or
+  `Error` Type, as each step happens: `Creating a new revision`, `Successfully
+  mounted volume` for each template volume, `Successfully provisioned
+  revision` or `Error provisioning revision … ErrorCode` (`ContainerCrashing`
+  for a replica whose container exited, `Timeout` for one never ready, and
+  `ErrImagePull` for one whose container never ran), `Setting a traffic
+  weight` for the revisions that take traffic, and `Deactivating old
+  revisions since 'ActiveRevisionsMode=Single'`. A job execution had logged
+  "Container started" when the execution record was written, before any
+  container ran; each replica's container now reports its start once it
+  runs, and tests wait for that row instead of reading the table at once.
+- **Azure Cosmos DB containers own their documents.** A document read,
+  write, query or patch against a container that does not exist answers 404
+  `Owner resource does not exist`, as reading the container does; the data
+  plane had stored documents under any database and container a path named.
+  A `SELECT VALUE` query returns bare values (`[2]` for `SELECT VALUE
+  COUNT(1)`); it had wrapped each in `{"$1": …}`, which the raw-HTTP query
+  test asserted and `azcosmos` exposed once the test drove it.
+- **Azure Storage data actions offer choices.** Where
+  `storage-authorize-with-entra-id` names alternatives, a Microsoft Entra
+  caller holding either is authorized: Put Blob, Put Blob from URL and Copy
+  Blob create a blob with `blobs/add/action` but replace one only with
+  `blobs/write`; Snapshot Blob and Append Block take either; Put Message takes
+  `messages/add/action` or `messages/write`; Get Messages takes
+  `process/action` or `delete` and `read` together; Delete Message takes
+  `process/action` or `delete`; Insert Entity takes `entities/write` or
+  `add/action`, Update and Merge Entity `write` or `update/action`, and the
+  insert-or-replace forms `write` or `add/action` with `update/action`. Set
+  Queue Service Properties needs `queueServices/read`, as the page lists it.
+- **Azure suites wait on events.** The Cosmos DB TTL test reads the item
+  until the service answers 404, the queue test waits out the visibility
+  instant the dequeue reported, the cross-job DNS test drives
+  `armappcontainers` and reads the lookup from the environment's console
+  logs rather than execing into containers found by Docker labels, and the
+  Cosmos DB query, upsert and patch tests drive `azcosmos`.
+- **App Service catalogs and plan actions.** `geoRegions` lists the
+  subscription's regions by display name, which `az appservice
+  list-locations` matches against, and none for Xenon workers or custom-mode
+  plans, which no region here runs. `restartSites` restarts every app and
+  slot on the plan, which each site's restart detector then reports; a soft
+  restart restarts nothing, since every configuration change applies as it is
+  made. `MigrateMySql` and `MigrateStorage` had recorded migrations that moved
+  nothing; they answer a declared 501.
 - **App Service and Blob reads.** A site's `authsettings` and
   `authsettingsV2` lists answer what PUT stored, as the slot lists did, and
   the v1 settings carry the `configVersion` App Service fills in — `v2` once
@@ -1983,6 +2080,105 @@ fails once the row closes or the operation is served.
   the REST body keys (`vnetConfiguration`, `virtualNetworkSubnetId`) as well
   as the SDK fields; a raw-request test was invisible to it and took a range
   another test held.
+- **Cloud Storage errors.** Every JSON API route answered the JSON API's
+  own envelope, `{"error":{"code","message","errors":[{"domain","reason",
+  "message"}]}}` with no `status` and no `details`, and took each reason from
+  the vendored `storage-json-status-codes.md.gz`: `invalid`, `required`,
+  `notFound`, `conflict`, `forbidden`, `conditionNotMet` and the rest by HTTP
+  status. A request without a credential answered `required`/`Login Required`
+  located at the `Authorization` header and one with a bad credential
+  `authError`; the XML API answered `AuthenticationRequired` and
+  `InvalidAuthentication` from `storage-xml-status-codes.md.gz`.
+- **Cloud Storage object ACLs at creation.** An object took its ACL when it
+  was written, as `storage-access-control-lists.md.gz` describes: the
+  `predefinedAcl` or `destinationPredefinedAcl` the write named, else the
+  `acl` its resource carried, else the bucket's default object ACL, and in
+  every case its uploader, named in the object's `owner`, held `OWNER`. An
+  overwrite was a new object with a new ACL and a new owner; a retired
+  generation carried its ACL into the soft-deleted entry, which restore's
+  `copySourceAcl` brought back. `objects.patch` took `predefinedAcl` too,
+  which Terraform's `google_storage_object_acl` sends.
+- **Cloud Dataflow reports only what ran.** No worker runs a job's steps, so
+  `getMetrics` answered no metric updates, `messages.list` no messages,
+  `getExecutionDetails` no stages, a stage's details and the debug methods
+  `NOT_FOUND`; the fixed `ElementCount` of 0, the "Worker pool started."
+  message, stage `s1` and `worker-0` went. `templates.launch` and
+  `flexTemplates.launch` refused a launch without the job name Discovery marks
+  required instead of naming the job themselves, and the CLI suite launched its
+  job with `gcloud dataflow jobs run`.
+- **Firestore timestamps over REST.** A REST write stored each
+  `timestampValue`, nested ones included, in UTC rounded down to the
+  microsecond, as the Value schema states, and refused one that is no RFC 3339
+  time; equality and ordering compared timestamps as instants, so
+  `03:04:05.123456Z` and `04:04:05.1234560+01:00` matched, and change streams
+  stamped their times to the microsecond.
+- **Firestore pipeline operations.** `executePipeline` over REST and gRPC ran
+  the pipeline it was given against the stored documents. The stages
+  (`collection`, `collection_group`, `database`, `documents`, `literals`,
+  `where`, `select`, `add_fields`, `remove_fields`, `sort`, `limit`, `offset`,
+  `distinct`, `aggregate`, `replace_with`, `union`, `unnest`, `sample`, `let`,
+  `find_nearest`, and `subcollection` inside `array(...)`/`scalar(...)`) and
+  the comparison, logical, arithmetic, string, array, map, reference, vector,
+  timestamp, type and aggregate functions followed the vendored
+  `firestore-pipeline-*.md.gz` pages; values ordered as `firestore-data-types.md.gz`
+  states, and the wire form came from the Go client's `pipeline_stage.go`.
+  A row carried the document's `__name__`, `__create_time__` and
+  `__update_time__` as fields, so a `select(...)` that left them out answered
+  a result with no name, as the API describes. `FSValue` held strings and
+  bytes as pointers, which kept an empty string a string instead of letting
+  `omitempty` turn it into a missing value.
+- **Cloud Resource Manager purge.** A project shut down 30 days earlier was
+  deleted for good by a background purger that woke when a project was
+  deleted or restored and when the next recovery window closed, as
+  `resource-manager-delete-restore-projects.md.gz` states. Its ID was
+  tombstoned, so `projects.create` refused to reuse it as it refuses an ID in
+  use (`resource-manager-creating-managing-projects.md.gz`), and a purged
+  default project was not recreated at start.
+- **AWS Systems Manager maintenance windows.** A window runs on its
+  `Schedule`: the simulator's ticker reads the cron (with the optional seconds
+  field), rate or at() expression in `ScheduleTimezone`, moves cron runs
+  `ScheduleOffset` days later, keeps runs inside `StartDate` and `EndDate`,
+  counts rate intervals from `StartDate`, and skips disabled windows. Each run
+  records an execution that runs the tasks in priority order, one priority in
+  parallel, starts no task after the window's end minus `Cutoff`, and records
+  a run that meets the previous one in progress as `SKIPPED_OVERLAPPING`. A
+  task calls its service through that service's API as Systems Manager, with
+  the task's service role or `AWSServiceRoleForAmazonSSM`: `RUN_COMMAND` sends
+  one command per target node and waits on the command store's writes,
+  cancelling at the cutoff under `CANCEL_TASK`; `LAMBDA`, `STEP_FUNCTIONS`
+  and `AUTOMATION` invoke the function, start the execution or the
+  Automation. Execution, task and invocation reads report what ran, where they
+  had reported one SUCCESS execution derived from the window ID;
+  `NextExecutionTime`, `DescribeMaintenanceWindowSchedule` and
+  `DescribeMaintenanceWindowsForTarget` read the schedule and the registered
+  targets, and `SendCommand` resolves `tag:` and `tag-key` targets. The tests
+  schedule an at() window seconds ahead and wait for its run.
+- **Amazon RDS global databases.** A DB cluster lives in the Region its
+  request is signed for, as a DB instance does, so its ARN, endpoints and
+  lookups name that Region. `CreateDBCluster` with `GlobalClusterIdentifier`
+  joins the global database, as its primary when it has no member and
+  otherwise as a read-only secondary in a Region no member uses, up to ten.
+  `SwitchoverGlobalCluster` and `FailoverGlobalCluster` refuse a target that
+  is no cluster or no member, or already the primary, and promote the
+  secondary while the old primary becomes a secondary that the writer lists
+  among its `Readers`; `RemoveFromGlobalCluster` detaches a secondary. The
+  tests join a secondary from us-west-2 and switch over to it, where they had
+  switched over to the cluster that already wrote.
+- **AWS Step Functions events.** A standard workflow execution sends every
+  status change to the default event bus as a "Step Functions Execution Status
+  Change" event, as the Step Functions Developer Guide describes; express
+  workflows send none. The CLI tests route their state machine's events to an
+  Amazon SQS queue and long-poll it, where they had run the Python CLI's
+  `describe-execution` every 100 ms.
+- **AWS KMS signing key specs.** `ECC_NIST_EDWARDS25519` keys sign with
+  `ED25519_SHA_512` over a RAW message and `ED25519_PH_SHA_512` over a SHA-512
+  digest that KMS prehashes once more; `ML_DSA_44`, `ML_DSA_65` and
+  `ML_DSA_87` keys sign with `ML_DSA_SHAKE_256` through circl, and
+  `GetPublicKey` exports their SubjectPublicKeyInfo without a
+  `CustomerMasterKeySpec`. `GenerateDataKeyPair` returns Ed25519 pairs and
+  ML-KEM pairs whose PKCS#8 private key holds the seed. `Sign` and `Verify`
+  take a DIGEST message as the digest, refusing one of the wrong length,
+  where they had hashed it again.
 
 ## Continuous integration and dependencies
 
@@ -2064,6 +2260,12 @@ unprivileged user namespaces, which the runner image leaves in force.
 A job that only restores the base-image cache loads it with `--load-only`:
 the race job had spent three of its fifteen minutes writing a tarball it
 never saves, after a changed image set left it the nearest earlier archive.
+Caddy, Terraform and Bun come from their release archives through the
+`install-caddy`, `install-terraform` and `install-bun` composite actions, which keep the
+verified archive in the Actions cache keyed on the pin. GitHub release
+downloads had answered 504 through all eight of curl's retries and failed two
+Terraform jobs before a test ran; with the cache, only the first job after a
+pin moves downloads.
 
 Dependencies of every class are held to their newest release past a 24-hour
 quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret

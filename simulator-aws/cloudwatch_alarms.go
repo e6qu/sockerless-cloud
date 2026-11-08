@@ -39,7 +39,7 @@ type CWAlarm struct {
 	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty" cbor:"InsufficientDataActions,omitempty"`
 	Tags                    map[string]string      `json:"Tags,omitempty" cbor:"Tags,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty" cbor:"ActionConfiguration,omitempty"`
-	// A SetAlarmState override wins over evaluation until cleared.
+	// A SetAlarmState, until the evaluator's next pass clears it.
 	ManualState       string `json:"-" cbor:"-"`
 	ManualStateReason string `json:"-" cbor:"-"`
 	// The last state the evaluator dispatched actions for, kept so it detects
@@ -278,9 +278,7 @@ func handleCWJSONPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	if req.ActionsEnabled != nil {
 		actionsEnabled = *req.ActionsEnabled
 	}
-	// The new record carries no StateValue, so the evaluator's next transition
-	// starts from INSUFFICIENT_DATA.
-	cwAlarms.Put(req.AlarmName, CWAlarm{
+	cwStoreMetricAlarm(CWAlarm{
 		AlarmName:               req.AlarmName,
 		AlarmArn:                cwAlarmArn(req.AlarmName),
 		AlarmDescription:        req.AlarmDescription,
@@ -368,8 +366,18 @@ func cwJSONCompositeAlarm(ca CWCompositeAlarm, now time.Time) map[string]any {
 		"ActionConfiguration":     ca.ActionConfiguration,
 		"StateValue":              state,
 		"StateReason":             ca.StateReason,
-		"StateUpdatedTimestamp":   float64(now.Unix()),
+		"StateReasonData":         ca.StateReasonData,
+		"StateUpdatedTimestamp":   float64(cwCompositeStateUpdated(ca, now).Unix()),
 	}
+}
+
+// When the composite alarm's state last changed: at creation until its first
+// evaluation.
+func cwCompositeStateUpdated(ca CWCompositeAlarm, now time.Time) time.Time {
+	if ca.UpdatedTimestamp > 0 {
+		return time.Unix(ca.UpdatedTimestamp, 0).UTC()
+	}
+	return now
 }
 
 func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
@@ -476,9 +484,7 @@ func handleCWCBORPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 	if req.ActionsEnabled != nil {
 		actionsEnabled = *req.ActionsEnabled
 	}
-	// The new record carries no StateValue, so the evaluator's next transition
-	// starts from INSUFFICIENT_DATA.
-	cwAlarms.Put(req.AlarmName, CWAlarm{
+	cwStoreMetricAlarm(CWAlarm{
 		AlarmName:               req.AlarmName,
 		AlarmArn:                cwAlarmArn(req.AlarmName),
 		AlarmDescription:        req.AlarmDescription,
@@ -740,6 +746,7 @@ type cborCompositeAlarm struct {
 	ActionConfiguration     *cwActionConfiguration `cbor:"ActionConfiguration,omitempty"`
 	StateValue              string                 `cbor:"StateValue"`
 	StateReason             string                 `cbor:"StateReason,omitempty"`
+	StateReasonData         string                 `cbor:"StateReasonData,omitempty"`
 	StateUpdatedTimestamp   time.Time              `cbor:"StateUpdatedTimestamp"`
 }
 
@@ -760,7 +767,8 @@ func cborCompositeAlarmOf(ca CWCompositeAlarm, now time.Time) cborCompositeAlarm
 		ActionConfiguration:     ca.ActionConfiguration,
 		StateValue:              state,
 		StateReason:             ca.StateReason,
-		StateUpdatedTimestamp:   now,
+		StateReasonData:         ca.StateReasonData,
+		StateUpdatedTimestamp:   cwCompositeStateUpdated(ca, now),
 	}
 }
 
@@ -799,12 +807,57 @@ func cwAlarmExists(name string) bool {
 	return ok
 }
 
+// A deleted alarm's configuration change event carries its last configuration.
 func cwDeleteAlarms(names []string) {
+	now := time.Now().UTC()
 	for _, n := range names {
-		cwAlarms.Delete(n)
-		cwCompositeAlarms.Delete(n)
-		cwDeleteLogAlarm(n)
+		if a, ok := cwAlarms.Get(n); ok {
+			cwAlarms.Delete(n)
+			state, _ := cwAlarmEffectiveState(a)
+			cwPutAlarmConfigurationChangeEvent(n, a.AlarmArn, "delete",
+				cwAlarmEventState{Value: state, Timestamp: cwAlarmEventUnixTime(a.StateUpdatedTimestamp, now)},
+				cwMetricAlarmConfigurationDetail(a, now), nil)
+		}
+		if ca, ok := cwCompositeAlarms.Get(n); ok {
+			cwCompositeAlarms.Delete(n)
+			cwPutAlarmConfigurationChangeEvent(n, ca.AlarmArn, "delete",
+				cwAlarmEventState{Value: cwStateOrInsufficient(ca.StateValue), Timestamp: cwAlarmEventUnixTime(ca.UpdatedTimestamp, now)},
+				cwCompositeAlarmConfigurationDetail(ca, now), nil)
+		}
+		if la, ok := cwLogAlarms.Get(n); ok {
+			cwDeleteLogAlarm(n)
+			cwPutAlarmConfigurationChangeEvent(n, la.AlarmArn, "delete",
+				cwAlarmEventState{Value: cwStateOrInsufficient(la.StateValue), Timestamp: cwAlarmEventUnixTime(la.StateUpdatedTimestamp, now)},
+				cwLogAlarmConfigurationDetail(la, now), nil)
+		}
 	}
+}
+
+func cwStateOrInsufficient(state string) string {
+	if state == "" {
+		return "INSUFFICIENT_DATA"
+	}
+	return state
+}
+
+// cwStoreMetricAlarm writes a created or updated metric alarm. A new alarm
+// starts in INSUFFICIENT_DATA; an update leaves the state unchanged and
+// overwrites the configuration (PutMetricAlarm).
+func cwStoreMetricAlarm(a CWAlarm) {
+	now := time.Now().UTC()
+	existing, exists := cwAlarms.Get(a.AlarmName)
+	if exists {
+		a.StateValue, a.StateReason, a.StateUpdatedTimestamp = existing.StateValue, existing.StateReason, existing.StateUpdatedTimestamp
+		a.ManualState, a.ManualStateReason = existing.ManualState, existing.ManualStateReason
+	}
+	cwAlarms.Put(a.AlarmName, a)
+	operation, previous := "create", map[string]any(nil)
+	if exists {
+		operation, previous = "update", cwMetricAlarmConfigurationDetail(existing, now)
+	}
+	cwPutAlarmConfigurationChangeEvent(a.AlarmName, a.AlarmArn, operation,
+		cwAlarmEventState{Value: cwStateOrInsufficient(a.StateValue), Timestamp: cwAlarmEventUnixTime(a.StateUpdatedTimestamp, now)},
+		cwMetricAlarmConfigurationDetail(a, now), previous)
 }
 
 func registerCloudWatchAlarmsQuery(r *AWSQueryRouter) {
@@ -887,9 +940,7 @@ func handleCWQueryPutMetricAlarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tags := cwQueryTags(r)
-	// The new record carries no StateValue, so the evaluator's next transition
-	// starts from INSUFFICIENT_DATA.
-	cwAlarms.Put(name, CWAlarm{
+	cwStoreMetricAlarm(CWAlarm{
 		AlarmName:               name,
 		AlarmArn:                cwAlarmArn(name),
 		AlarmDescription:        r.FormValue("AlarmDescription"),
@@ -982,15 +1033,21 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 			composites.WriteString(cwQueryMemberList("OKActions", ca.OKActions))
 			composites.WriteString(cwQueryMemberList("InsufficientDataActions", ca.InsufficientDataActions))
 			composites.WriteString(cwActionConfigurationXML(ca.ActionConfiguration))
-			fmt.Fprintf(&composites, "<StateValue>%s</StateValue><StateUpdatedTimestamp>%s</StateUpdatedTimestamp>",
-				state, now.Format(time.RFC3339))
+			fmt.Fprintf(&composites, "<StateValue>%s</StateValue>", state)
+			if ca.StateReason != "" {
+				fmt.Fprintf(&composites, "<StateReason>%s</StateReason>", xmlEscape(ca.StateReason))
+			}
+			if ca.StateReasonData != "" {
+				fmt.Fprintf(&composites, "<StateReasonData>%s</StateReasonData>", xmlEscape(ca.StateReasonData))
+			}
+			fmt.Fprintf(&composites, "<StateUpdatedTimestamp>%s</StateUpdatedTimestamp>", cwCompositeStateUpdated(ca, now).Format(time.RFC3339))
 			composites.WriteString("</member>")
 		}
 	}
 	var logAlarms strings.Builder
 	if cwWantAlarmType(alarmTypes, "LogAlarm") {
 		for _, la := range cwListLogAlarms(names) {
-			state, reason, evalState := cwEvaluateLogAlarmState(la)
+			state, reason, evalState := cwLogAlarmEffectiveState(la)
 			if stateFilter != "" && stateFilter != state {
 				continue
 			}

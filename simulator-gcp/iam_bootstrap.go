@@ -72,6 +72,9 @@ var gcpBootstrapKeyValidBefore = time.Date(9999, time.December, 31, 23, 59, 59, 
 // disabled bit included.
 func iamSeedBootstrapServiceAccount() error {
 	if _, ok := crmProjects.Get(gcpBootstrapProjectID); !ok {
+		if _, purged := crmPurgedProjects.Get(gcpBootstrapProjectID); purged {
+			return fmt.Errorf("the default project %s was permanently deleted 30 days after it was shut down, and a deleted project's ID is never reused", gcpBootstrapProjectID)
+		}
 		return fmt.Errorf("the default project %s does not exist", gcpBootstrapProjectID)
 	}
 	iamSeedBootstrapOwner()

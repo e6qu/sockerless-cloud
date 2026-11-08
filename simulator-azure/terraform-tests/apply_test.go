@@ -110,6 +110,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmPGFirewallRule, "/flexibleServers/tf-azrm-pg/firewallRules/allow-ci",
 		"Azure Database for PostgreSQL firewall rule id must include canonical ARM path; got %s", azrmPGFirewallRule)
 
+	// Network Watcher names the file it will write under the account's
+	// network-watcher-logs container.
+	capturePath := outputs.must(t, "azrm_vm_capture_storage_path")
+	require.Contains(t, capturePath, "/network-watcher-logs/subscriptions/",
+		"a capture into a storage account reports the blob it writes; got %s", capturePath)
+	require.True(t, strings.HasSuffix(capturePath, ".cap"), "a capture file is a .cap file; got %s", capturePath)
+
 	azrmACR := outputs.must(t, "azrm_acr_id")
 	require.Contains(t, azrmACR, "/providers/Microsoft.ContainerRegistry/registries/tfazrmacr",
 		"azurerm ACR id must include canonical ARM path; got %s", azrmACR)

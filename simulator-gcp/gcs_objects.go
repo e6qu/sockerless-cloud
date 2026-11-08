@@ -19,12 +19,12 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		delimiter := r.URL.Query().Get("delimiter")
 
 		if _, ok := buckets.Get(bucketName); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		filter, err := gcsParseContextsFilter(r.URL.Query().Get("filter"))
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 
@@ -50,7 +50,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		if raw := r.URL.Query().Get("maxResults"); raw != "" {
 			n, err := strconv.Atoi(raw)
 			if err != nil || n < 0 {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid maxResults %q", raw)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid maxResults %q", raw)
 				return
 			}
 			if n > 0 && n < limit {
@@ -61,7 +61,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		if token := r.URL.Query().Get("pageToken"); token != "" {
 			var ok bool
 			if marker, ok = gcsPageMarker(token); !ok {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 				return
 			}
 		}
@@ -101,7 +101,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 
 		obj, ok := objects.Get(key)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
 		if !gcsJSONReadPreconditionsMet(w, r, obj) {
@@ -122,13 +122,13 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		key := bucketName + "/" + objectName
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 		obj, ok := objects.Get(key)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
 		if !pre.holds(obj, true) {
@@ -137,7 +137,12 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		}
 		var res gcsObjectResource
 		if err := sim.ReadJSON(r, &res); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			return
+		}
+		replaceACL, err := gcsWriteCreateACL(r, "predefinedAcl", res.Acl)
+		if err != nil {
+			writeGCSJSONError(w, http.StatusBadRequest, "invalidParameter", err.Error())
 			return
 		}
 		if r.Method == http.MethodPut {
@@ -166,8 +171,9 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			obj.Metageneration = strconv.FormatInt(mg+1, 10)
 		}
 		persistGCSObjectMetadata(objects, key, obj)
-		if res.Acl != nil {
-			gcsReplaceObjectACL(bucketName, objectName, obj.Generation, *res.Acl)
+		if replaceACL != nil {
+			gcsDropObjectACL(bucketName, objectName)
+			gcsSeedObjectACL(bucketName, objectName, obj.Generation, obj.Owner, replaceACL)
 		}
 		gcsNotify(gcsEventMetadataUpdate, obj, nil)
 		sim.WriteJSON(w, http.StatusOK, gcsObjectMetadata(r, obj))
@@ -183,14 +189,14 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		key := bucketName + "/" + objectName
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 
 		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
 		obj, found := objects.Get(key)
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
 		if !pre.holds(obj, true) {
@@ -199,7 +205,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		}
 		bucket, ok := buckets.Get(bucketName)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		objects.Delete(key)
@@ -224,7 +230,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		destObject = strings.TrimSuffix(destObject, "/compose")
 		bucketName := sim.PathParam(r, "bucket")
 		if _, ok := buckets.Get(bucketName); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		var req struct {
@@ -236,18 +242,18 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		}
 		// Clients send the compose body unencoded, so it needs no openStreamingBody.
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"failed to parse compose request: %v", err)
 			return
 		}
 		if len(req.SourceObjects) == 0 {
-			GCPError(w, http.StatusBadRequest,
+			gcsError(w, http.StatusBadRequest,
 				"compose requires at least one sourceObject", "INVALID_ARGUMENT")
 			return
 		}
 		// A composite is built from at most 32 sources in one request.
 		if len(req.SourceObjects) > 32 {
-			GCPError(w, http.StatusBadRequest,
+			gcsError(w, http.StatusBadRequest,
 				"The number of source components provided (more than 32) exceeds the maximum (32).", "INVALID_ARGUMENT")
 			return
 		}
@@ -257,7 +263,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			srcObj, ok := objects.Get(bucketName + "/" + src.Name)
 			// A source that names a generation names that generation only.
 			if !ok || (src.Generation != "" && src.Generation != srcObj.Generation) {
-				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+				gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 					"source object %q not found in bucket %q", src.Name, bucketName)
 				return
 			}
@@ -270,29 +276,37 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		}
 		// A composite object counts at most 1024 components.
 		if componentCount > 1024 {
-			GCPError(w, http.StatusBadRequest,
+			gcsError(w, http.StatusBadRequest,
 				"The number of components in the composite object would exceed the maximum (1024).", "INVALID_ARGUMENT")
 			return
 		}
-		objAttrs := GCSObject{}
+		objAttrs := GCSObject{Owner: gcsUploader(r)}
+		var destinationACL *[]GCSObjectACL
 		if req.Destination != nil {
 			objAttrs = req.Destination.applyTo(objAttrs)
+			destinationACL = req.Destination.Acl
+		}
+		createACL, err := gcsWriteCreateACL(r, "destinationPredefinedAcl", destinationACL)
+		objAttrs.CreateACL = createACL
+		if err != nil {
+			writeGCSJSONError(w, http.StatusBadRequest, "invalidParameter", err.Error())
+			return
 		}
 		objAttrs.ComponentCount = componentCount
 		contexts, err := gcsDestinationContexts(r, req.Destination, sources...)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 		objAttrs.CustomContexts = contexts
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 		composed, digests, err := gcsConcatContents(sources)
 		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+			gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 			return
 		}
 		composedObj, err := persistGCSObject(objects, bucketName, destObject, composed, digests, objAttrs, pre, gcsMirror)
@@ -333,7 +347,13 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			}
 			email, _, _ := strings.Cut(r.URL.Query().Get("X-Goog-Credential"), "/")
 			principal = "serviceAccount:" + email
-		} else if !verifyRequestBearer(w, r) {
+		} else if missing, err := requestBearerFailure(r, gcpRequestTarget(r)); missing {
+			writeGCSXMLError(w, http.StatusUnauthorized, "AuthenticationRequired",
+				"The requested access requires an authentication credential, but no credential was provided as part of the request.")
+			return
+		} else if err != nil {
+			writeGCSXMLError(w, http.StatusUnauthorized, "InvalidAuthentication",
+				"The authentication credential provided in the request has expired.")
 			return
 		} else {
 			principal = gcpRequestPrincipal(r)
@@ -367,7 +387,7 @@ func registerGCSObjects(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 
 		obj, ok := objects.Get(key)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", objectName, bucketName)
 			return
 		}
 		if !gcsJSONReadPreconditionsMet(w, r, obj) {

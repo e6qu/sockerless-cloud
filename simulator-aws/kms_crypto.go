@@ -3,6 +3,7 @@ package main
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"hash"
 	"net/http"
 	"strings"
@@ -51,13 +53,14 @@ func registerKMSKeyMaterial(srv *sim.Server) {
 }
 
 // AWS KMS never exposes private material, so keep it in a side store keyed by
-// KeyId: the PKCS#8 DER of the RSA or ECDSA key for an asymmetric key, the raw
-// MAC key for an HMAC key, the seed of an ML-KEM key.
+// KeyId: the PKCS#8 DER of the RSA, ECDSA or Ed25519 key for an asymmetric
+// key, the raw MAC key for an HMAC key, the seed of an ML-KEM or ML-DSA key.
 type KMSKeyMaterial struct {
 	KeyId         string `json:"KeyId"`
 	PrivateKeyDER []byte `json:"PrivateKeyDER,omitempty"`
 	HMACSecret    []byte `json:"HMACSecret,omitempty"`
 	MLKEMSeed     []byte `json:"MLKEMSeed,omitempty"`
+	MLDSASeed     []byte `json:"MLDSASeed,omitempty"`
 }
 
 var kmsAsymmetricKeyMaterial sim.Store[KMSKeyMaterial]
@@ -81,6 +84,10 @@ func kmsSigningAlgorithmsFor(spec string) []string {
 		return []string{"ECDSA_SHA_384"}
 	case "ECC_NIST_P521":
 		return []string{"ECDSA_SHA_512"}
+	case "ECC_NIST_EDWARDS25519":
+		return []string{"ED25519_SHA_512", "ED25519_PH_SHA_512"}
+	case "ML_DSA_44", "ML_DSA_65", "ML_DSA_87":
+		return []string{"ML_DSA_SHAKE_256"}
 	}
 	return nil
 }
@@ -130,18 +137,23 @@ func kmsMacAlgorithmsFor(spec string) []string {
 func kmsIsAsymmetricSpec(spec string) bool {
 	switch spec {
 	case "RSA_2048", "RSA_3072", "RSA_4096",
-		"ECC_NIST_P256", "ECC_NIST_P384", "ECC_NIST_P521", "ECC_SECG_P256K1":
+		"ECC_NIST_P256", "ECC_NIST_P384", "ECC_NIST_P521", "ECC_SECG_P256K1",
+		"ECC_NIST_EDWARDS25519", "ML_DSA_44", "ML_DSA_65", "ML_DSA_87":
 		return true
 	}
 	return false
 }
 
+// kmsIsCustomerMasterKeySpec reports whether the deprecated
+// CustomerMasterKeySpec enum names spec; it stops before the ML-DSA, Ed25519
+// and ML-KEM specs.
 func kmsIsCustomerMasterKeySpec(spec string) bool {
 	switch spec {
-	case "SYMMETRIC_DEFAULT", "SM2":
+	case "SYMMETRIC_DEFAULT", "SM2", "RSA_2048", "RSA_3072", "RSA_4096",
+		"ECC_NIST_P256", "ECC_NIST_P384", "ECC_NIST_P521", "ECC_SECG_P256K1":
 		return true
 	}
-	return kmsIsAsymmetricSpec(spec) || kmsIsHMACSpec(spec)
+	return kmsIsHMACSpec(spec)
 }
 
 func kmsIsHMACSpec(spec string) bool {
@@ -306,6 +318,22 @@ func kmsEnsureAsymmetricMaterial(keyId, spec string) (KMSKeyMaterial, error) {
 			return m, err
 		}
 		m.MLKEMSeed = seed
+	case kmsIsMLDSASpec(spec):
+		seed := make([]byte, kmsMLDSASchemeFor(spec).SeedSize())
+		if _, err := rand.Read(seed); err != nil {
+			return m, err
+		}
+		m.MLDSASeed = seed
+	case spec == "ECC_NIST_EDWARDS25519":
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return m, err
+		}
+		der, err := x509.MarshalPKCS8PrivateKey(priv)
+		if err != nil {
+			return m, err
+		}
+		m.PrivateKeyDER = der
 	case spec == "RSA_2048" || spec == "RSA_3072" || spec == "RSA_4096":
 		bits := 2048
 		switch spec {
@@ -400,24 +428,10 @@ func handleKMSSign(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
-	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
-	if err != nil {
-		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
-		return
-	}
-	digest, hkind := kmsHashForSigningAlg(req.SigningAlgorithm, req.Message)
-	var signature []byte
-	switch k := priv.(type) {
-	case *rsa.PrivateKey:
-		if isPSS(req.SigningAlgorithm) {
-			signature, err = rsa.SignPSS(rand.Reader, k, hkind, digest, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hkind})
-		} else {
-			signature, err = rsa.SignPKCS1v15(rand.Reader, k, hkind, digest)
-		}
-	case *ecdsa.PrivateKey:
-		signature, err = ecdsa.SignASN1(rand.Reader, k, digest)
-	default:
-		AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
+	signature, err := kmsSignWith(key.Spec, mat, req.SigningAlgorithm, req.MessageType, req.Message)
+	var messageErr kmsSigningMessageError
+	if errors.As(err, &messageErr) {
+		AWSError(w, "ValidationException", messageErr.Error(), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
@@ -459,27 +473,19 @@ func handleKMSVerify(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "KMSInternalException", "failed to materialize key", http.StatusInternalServerError)
 		return
 	}
-	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
+	valid, err := kmsVerifyWith(key.Spec, mat, req.SigningAlgorithm, req.MessageType, req.Message, req.Signature)
+	var messageErr kmsSigningMessageError
+	if errors.As(err, &messageErr) {
+		AWSError(w, "ValidationException", messageErr.Error(), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		AWSError(w, "KMSInternalException", "failed to load key material", http.StatusInternalServerError)
 		return
 	}
-	digest, hkind := kmsHashForSigningAlg(req.SigningAlgorithm, req.Message)
 	var verifyErr error
-	switch k := priv.(type) {
-	case *rsa.PrivateKey:
-		if isPSS(req.SigningAlgorithm) {
-			verifyErr = rsa.VerifyPSS(&k.PublicKey, hkind, digest, req.Signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hkind})
-		} else {
-			verifyErr = rsa.VerifyPKCS1v15(&k.PublicKey, hkind, digest, req.Signature)
-		}
-	case *ecdsa.PrivateKey:
-		if !ecdsa.VerifyASN1(&k.PublicKey, digest, req.Signature) {
-			verifyErr = kmsSimpleError("invalid ecdsa signature")
-		}
-	default:
-		AWSError(w, "InvalidKeyUsageException", "key material is not a signing key", http.StatusBadRequest)
-		return
+	if !valid {
+		verifyErr = kmsSimpleError("invalid signature")
 	}
 	if verifyErr != nil {
 		AWSErrorf(w, "KMSInvalidSignatureException", http.StatusBadRequest,
@@ -556,11 +562,16 @@ func kmsPublicKeyDER(keyId, spec string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if kmsIsMLDSASpec(spec) {
+		return kmsMLDSAPublicKeyDER(mat, spec)
+	}
 	priv, err := x509.ParsePKCS8PrivateKey(mat.PrivateKeyDER)
 	if err != nil {
 		return nil, err
 	}
 	switch k := priv.(type) {
+	case ed25519.PrivateKey:
+		return x509.MarshalPKIXPublicKey(k.Public())
 	case *rsa.PrivateKey:
 		return x509.MarshalPKIXPublicKey(&k.PublicKey)
 	case *ecdsa.PrivateKey:
@@ -677,11 +688,13 @@ func handleKMSVerifyMac(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// kmsGenerateDataKeyPairMaterial generates a real RSA/ECC data keypair for
+// kmsGenerateDataKeyPairMaterial generates a real RSA, ECC, Ed25519 or ML-KEM data keypair for
 // the requested DataKeyPairSpec, returning the DER-encoded SPKI public key and
 // the PKCS#8 DER private key bytes.
 func kmsGenerateDataKeyPairMaterial(spec string) (pubDER, privDER []byte, err error) {
 	switch spec {
+	case "ECC_NIST_EDWARDS25519", "ML_KEM_512", "ML_KEM_768", "ML_KEM_1024":
+		return kmsGeneratePQDataKeyPair(spec)
 	case "RSA_2048", "RSA_3072", "RSA_4096":
 		bits := 2048
 		switch spec {

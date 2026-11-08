@@ -328,6 +328,12 @@ resource "aws_cloudwatch_metric_alarm" "tf_alarm" {
   }
 }
 
+resource "aws_cloudwatch_composite_alarm" "tf_composite_alarm" {
+  alarm_name        = "tf-composite-alarm"
+  alarm_description = "terraform composite alarm coverage"
+  alarm_rule        = "ALARM(${aws_cloudwatch_metric_alarm.tf_alarm.alarm_name}) AND NOT ALARM(\"${aws_cloudwatch_metric_alarm.tf_alarm_p99.alarm_name}\")"
+}
+
 resource "aws_cloudwatch_metric_alarm" "tf_alarm_p99" {
   alarm_name          = "tf-alarm-p99"
   alarm_description   = "terraform percentile alarm coverage"
@@ -1627,6 +1633,28 @@ resource "aws_kms_key" "tf_kms" {
   }
 }
 
+resource "aws_kms_key" "tf_kms_ed25519" {
+  description              = "tf-test Ed25519 signing key"
+  deletion_window_in_days  = 7
+  customer_master_key_spec = "ECC_NIST_EDWARDS25519"
+  key_usage                = "SIGN_VERIFY"
+}
+
+data "aws_kms_public_key" "tf_kms_ed25519" {
+  key_id = aws_kms_key.tf_kms_ed25519.key_id
+}
+
+resource "aws_kms_key" "tf_kms_mldsa" {
+  description              = "tf-test ML-DSA signing key"
+  deletion_window_in_days  = 7
+  customer_master_key_spec = "ML_DSA_65"
+  key_usage                = "SIGN_VERIFY"
+}
+
+data "aws_kms_public_key" "tf_kms_mldsa" {
+  key_id = aws_kms_key.tf_kms_mldsa.key_id
+}
+
 resource "aws_kms_alias" "tf_kms_alias" {
   name          = "alias/tf-test-runner"
   target_key_id = aws_kms_key.tf_kms.key_id
@@ -1820,6 +1848,9 @@ output "cloudwatch_dashboard_arn" {
 output "cloudwatch_alarm_arn" {
   value = aws_cloudwatch_metric_alarm.tf_alarm.arn
 }
+output "cloudwatch_composite_alarm_arn" {
+  value = aws_cloudwatch_composite_alarm.tf_composite_alarm.arn
+}
 output "ec2_ebs_restored_volume_id" {
   value = aws_ebs_volume.tf_ebs_restored.id
 }
@@ -1888,6 +1919,15 @@ output "kms_key_arn" {
 output "kms_key_rotation_enabled" {
   # outputs.must reads strings.
   value = tostring(aws_kms_key.tf_kms.enable_key_rotation)
+}
+output "kms_ed25519_signing_algorithms" {
+  value = join(",", data.aws_kms_public_key.tf_kms_ed25519.signing_algorithms)
+}
+output "kms_ed25519_public_key_pem" {
+  value = data.aws_kms_public_key.tf_kms_ed25519.public_key_pem
+}
+output "kms_mldsa_signing_algorithms" {
+  value = join(",", data.aws_kms_public_key.tf_kms_mldsa.signing_algorithms)
 }
 output "kms_key_tag_env" {
   value = aws_kms_key.tf_kms.tags["env"]

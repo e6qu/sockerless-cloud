@@ -29,7 +29,7 @@ func registerGCSBatch(srv *sim.Server) {
 	srv.HandleFunc("POST /batch/storage/v1", func(w http.ResponseWriter, r *http.Request) {
 		mediaType, parameters, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mediaType != "multipart/mixed" || parameters["boundary"] == "" {
-			GCPError(w, http.StatusBadRequest, "A batch request must be multipart/mixed with a boundary.", "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, "A batch request must be multipart/mixed with a boundary.", "INVALID_ARGUMENT")
 			return
 		}
 		type call struct {
@@ -44,30 +44,30 @@ func registerGCSBatch(srv *sim.Server) {
 				break
 			}
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batch part: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batch part: %v", err)
 				return
 			}
 			if len(calls) == gcsBatchLimit {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"A batch request cannot contain more than %d calls.", gcsBatchLimit)
 				return
 			}
 			if kind, _, _ := mime.ParseMediaType(part.Header.Get("Content-Type")); kind != "application/http" {
-				GCPError(w, http.StatusBadRequest, "Every part of a batch request must be application/http.", "INVALID_ARGUMENT")
+				gcsError(w, http.StatusBadRequest, "Every part of a batch request must be application/http.", "INVALID_ARGUMENT")
 				return
 			}
 			inner, err := http.ReadRequest(bufio.NewReader(part))
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batched request: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batched request: %v", err)
 				return
 			}
 			body, err := io.ReadAll(inner.Body)
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batched request body: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "read batched request body: %v", err)
 				return
 			}
 			if strings.HasPrefix(inner.URL.Path, "/batch/") {
-				GCPError(w, http.StatusBadRequest, "A batch request cannot contain another batch request.", "INVALID_ARGUMENT")
+				gcsError(w, http.StatusBadRequest, "A batch request cannot contain another batch request.", "INVALID_ARGUMENT")
 				return
 			}
 			calls = append(calls, call{contentID: part.Header.Get("Content-ID"), request: gcsBatchedRequest(r, inner, body)})
@@ -84,7 +84,7 @@ func registerGCSBatch(srv *sim.Server) {
 			}
 			part, err := writer.CreatePart(header)
 			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "write batch answer: %v", err)
+				gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "write batch answer: %v", err)
 				return
 			}
 			result := recorder.Result()
@@ -94,7 +94,7 @@ func registerGCSBatch(srv *sim.Server) {
 			_, _ = part.Write(recorder.Body.Bytes())
 		}
 		if err := writer.Close(); err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "write batch answer: %v", err)
+			gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "write batch answer: %v", err)
 			return
 		}
 		w.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())

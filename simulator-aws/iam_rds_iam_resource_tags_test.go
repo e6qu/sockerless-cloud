@@ -46,7 +46,7 @@ func rdsResourceTagFixtures() {
 		Tags: map[string]string{"owner": "platform"},
 	})
 	rdsClusters.Put("probe-cluster", RDSCluster{
-		DBClusterIdentifier: "probe-cluster", ARN: rdsClusterARN("probe-cluster"),
+		DBClusterIdentifier: "probe-cluster", ARN: rdsClusterARNIn(awsRegion(), "probe-cluster"),
 		Tags: map[string]string{"owner": "ledger"},
 	})
 	rdsSnapshots.Put("probe-snap", RDSSnapshot{
@@ -105,7 +105,7 @@ func TestIAMRDSResourceTagsUseTheSpellingsRDSDeclares(t *testing.T) {
 			map[string]string{"Action": "ModifyDBCluster", "DBClusterIdentifier": "probe-cluster"},
 			map[string][]string{"aws:ResourceTag/owner": {"ledger"}, "rds:cluster-tag/owner": {"ledger"}}},
 		{"a DB cluster named by ARN",
-			map[string]string{"Action": "ListTagsForResource", "ResourceName": rdsClusterARN("probe-cluster")},
+			map[string]string{"Action": "ListTagsForResource", "ResourceName": rdsClusterARNIn(awsRegion(), "probe-cluster")},
 			map[string][]string{"aws:ResourceTag/owner": {"ledger"}, "rds:cluster-tag/owner": {"ledger"}}},
 		{"a DB snapshot",
 			map[string]string{"Action": "DeleteDBSnapshot", "DBSnapshotIdentifier": "probe-snap"},

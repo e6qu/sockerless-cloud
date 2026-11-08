@@ -112,9 +112,9 @@ export async function authorizedFetch(path: string, init: RequestInit = {}, serv
   return fetch(`${config.cloudApiEndpoint ?? ""}${path}`, { ...init, headers, credentials: "include" });
 }
 
-// A Google Cloud API failure with the service's own `status` (the enum GCP's
-// JSON error body carries, e.g. "ALREADY_EXISTS", "NOT_FOUND") and HTTP
-// `code`, so a page can act on the specific condition — the Cloud Storage
+// A Google Cloud API failure with the service's own reason (the `status` enum,
+// e.g. "ALREADY_EXISTS", or the Cloud Storage JSON API's `errors[].reason`,
+// e.g. "notFound") and HTTP `code`, so a page can act on the specific condition — the Cloud Storage
 // bucket-name-taken 409 and the Artifact Registry repository-already-exists
 // 409 both read the real `error.message` — instead of a bare HTTP status.
 export class GcpApiError extends Error {
@@ -128,18 +128,20 @@ export class GcpApiError extends Error {
   }
 }
 
-// Every Google Cloud JSON API answers a failure as
-// `{"error": {"code", "message", "status", "details"}}` (GCPError in the
-// simulator, the same shape the real API's googleapi.Error unmarshals).
-// Shared so every caller reports the real service message rather than a bare
-// status code.
+// Google Cloud APIs answer a failure as `{"error": {"code", "message", "status",
+// "details"}}`; the Cloud Storage JSON API answers `{"error": {"code",
+// "message", "errors": [{"domain", "reason", "message"}]}}` and names its
+// reason there. Shared so every caller reports the real service message rather
+// than a bare status code.
 async function gcpErrorFromResponse(path: string, response: Response): Promise<GcpApiError> {
   let message = "";
   let reason = "";
   try {
-    const parsed = (await response.json()) as { error?: { message?: string; status?: string } };
+    const parsed = (await response.json()) as {
+      error?: { message?: string; status?: string; errors?: { reason?: string }[] };
+    };
     message = parsed.error?.message ?? "";
-    reason = parsed.error?.status ?? "";
+    reason = parsed.error?.status ?? parsed.error?.errors?.[0]?.reason ?? "";
   } catch {
     // The body was not the API's JSON error shape (a proxy error page, an
     // empty body); the HTTP status below is all the information there is.

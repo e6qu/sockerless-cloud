@@ -1,155 +1,149 @@
 package azure_sdk_test
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// cosmosDoc drives the Azure Cosmos DB data plane over raw HTTP in the wire
-// shape azcosmos v1.4.2 emits: the `x-ms-documentdb-isquery` and
-// `x-ms-documentdb-is-upsert` headers, the `application/query+json` body
-// `{query, parameters}`, and the patch envelope `{operations:[{op,path,value}]}`.
-
-func cosmosDoc(t *testing.T, method, account, path, body string, headers map[string]string) *http.Response {
+// cosmosQueryContainer creates database qdb and a container partitioned on
+// /pk through azcosmos, and returns the container.
+func cosmosQueryContainer(t *testing.T, account, name string) *azcosmos.ContainerClient {
 	t.Helper()
-	var br io.Reader
-	if body != "" {
-		br = strings.NewReader(body)
-	}
-	req, err := http.NewRequest(method, baseURL+path, br)
+	client := cosmosSimClient(t, account)
+	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "qdb"}, nil)
 	require.NoError(t, err)
-	req.Host = cosmosDataPlaneHost(t, account)
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
-	resp, err := http.DefaultClient.Do(req)
+	db, err := client.NewDatabase("qdb")
 	require.NoError(t, err)
-	return resp
+	_, err = db.CreateContainer(ctx, azcosmos.ContainerProperties{
+		ID:                     name,
+		PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{Paths: []string{"/pk"}},
+	}, nil)
+	require.NoError(t, err)
+	container, err := client.NewContainer("qdb", name)
+	require.NoError(t, err)
+	return container
 }
 
-func cosmosQuery(t *testing.T, account, coll, query string, params []map[string]any) []map[string]any {
+var cosmosQueryPK = azcosmos.NewPartitionKeyString("p")
+
+func cosmosQueryItems(t *testing.T, container *azcosmos.ContainerClient, query string, params []azcosmos.QueryParameter) []map[string]any {
 	t.Helper()
-	body := map[string]any{"query": query}
-	if params != nil {
-		body["parameters"] = params
+	pager := container.NewQueryItemsPager(query, cosmosQueryPK, &azcosmos.QueryOptions{QueryParameters: params})
+	var out []map[string]any
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		require.NoError(t, err, "query %q", query)
+		for _, raw := range page.Items {
+			var item map[string]any
+			require.NoError(t, json.Unmarshal(raw, &item))
+			out = append(out, item)
+		}
 	}
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequest("POST", baseURL+"/dbs/qdb/colls/"+coll+"/docs", bytes.NewReader(raw))
-	require.NoError(t, err)
-	req.Host = cosmosDataPlaneHost(t, account)
-	req.Header.Set("Content-Type", "application/query+json")
-	req.Header.Set("x-ms-documentdb-isquery", "true")
-	cosmosSignDataPlane(t, req, cosmosAccountKey(t, account))
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "query %q", query)
-	var out struct {
-		Documents []map[string]any `json:"Documents"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	return out.Documents
+	return out
 }
 
 // TestCosmosQuery_RealGrammar drives the SQL engine: a parameterized WHERE with
 // AND and a numeric range, ORDER BY, CONTAINS, and COUNT.
 func TestCosmosQuery_RealGrammar(t *testing.T) {
 	t.Parallel()
-	account := uniquename.Alnum("sdkcosmosquery")
-	coll := "people"
-
-	seed := []string{
-		`{"id":"a","team":"platform","score":5,"name":"alice"}`,
-		`{"id":"b","team":"platform","score":10,"name":"bob"}`,
-		`{"id":"c","team":"infra","score":7,"name":"carol"}`,
-	}
-	for _, doc := range seed {
-		resp := cosmosDoc(t, "POST", account, "/dbs/qdb/colls/"+coll+"/docs", doc, nil)
-		require.Equal(t, http.StatusCreated, resp.StatusCode)
-		resp.Body.Close()
+	container := cosmosQueryContainer(t, uniquename.Alnum("sdkcosmosquery"), "people")
+	for _, doc := range []string{
+		`{"id":"a","pk":"p","team":"platform","score":5,"name":"alice"}`,
+		`{"id":"b","pk":"p","team":"platform","score":10,"name":"bob"}`,
+		`{"id":"c","pk":"p","team":"infra","score":7,"name":"carol"}`,
+	} {
+		_, err := container.CreateItem(ctx, cosmosQueryPK, []byte(doc), nil)
+		require.NoError(t, err)
 	}
 
-	got := cosmosQuery(t, account, coll,
-		"SELECT * FROM c WHERE c.team = @p AND c.score > @q",
-		[]map[string]any{{"name": "@p", "value": "platform"}, {"name": "@q", "value": 5}})
+	got := cosmosQueryItems(t, container, "SELECT * FROM c WHERE c.team = @p AND c.score > @q",
+		[]azcosmos.QueryParameter{{Name: "@p", Value: "platform"}, {Name: "@q", Value: 5}})
 	require.Len(t, got, 1, "want only bob (platform, score>5)")
 	assert.Equal(t, "b", got[0]["id"])
 
-	got = cosmosQuery(t, account, coll, "SELECT c.id FROM c ORDER BY c.score DESC", nil)
+	got = cosmosQueryItems(t, container, "SELECT c.id FROM c ORDER BY c.score DESC", nil)
 	require.Len(t, got, 3)
 	assert.Equal(t, "b", got[0]["id"], "highest score first")
 	assert.Equal(t, "a", got[2]["id"], "lowest score last")
 
-	got = cosmosQuery(t, account, coll, "SELECT * FROM c WHERE CONTAINS(c.name, 'ar')", nil)
+	got = cosmosQueryItems(t, container, "SELECT * FROM c WHERE CONTAINS(c.name, 'ar')", nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "c", got[0]["id"], "only carol contains 'ar'")
 
-	got = cosmosQuery(t, account, coll, "SELECT VALUE COUNT(1) FROM c WHERE c.team = 'platform'", nil)
-	require.Len(t, got, 1)
-	assert.EqualValues(t, 2, got[0]["$1"])
+	pager := container.NewQueryItemsPager("SELECT VALUE COUNT(1) FROM c WHERE c.team = 'platform'", cosmosQueryPK, nil)
+	page, err := pager.NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "2", string(page.Items[0]))
 }
 
 // TestCosmosUpsertAndConflict: re-creating an existing id is 409 Conflict; an
-// upsert (x-ms-documentdb-is-upsert) replaces it with 200.
+// upsert replaces it with 200.
 func TestCosmosUpsertAndConflict(t *testing.T) {
 	t.Parallel()
-	account := uniquename.Alnum("sdkcosmosupsert")
-	docs := "/dbs/qdb/colls/items/docs"
+	container := cosmosQueryContainer(t, uniquename.Alnum("sdkcosmosupsert"), "items")
 
-	resp := cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":1}`, nil)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	_, err := container.CreateItem(ctx, cosmosQueryPK, []byte(`{"id":"dup","pk":"p","v":1}`), nil)
+	require.NoError(t, err)
 
-	resp = cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":2}`, nil)
-	require.Equal(t, http.StatusConflict, resp.StatusCode, "duplicate-id create must 409")
-	resp.Body.Close()
+	_, err = container.CreateItem(ctx, cosmosQueryPK, []byte(`{"id":"dup","pk":"p","v":2}`), nil)
+	var respErr *azcore.ResponseError
+	require.True(t, errors.As(err, &respErr), "duplicate-id create must fail: %v", err)
+	assert.Equal(t, http.StatusConflict, respErr.StatusCode)
 
-	resp = cosmosDoc(t, "POST", account, docs, `{"id":"dup","v":3}`,
-		map[string]string{"x-ms-documentdb-is-upsert": "true"})
-	require.Equal(t, http.StatusOK, resp.StatusCode, "upsert of existing id returns 200")
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	assert.Contains(t, string(body), `"v":3`)
+	upserted, err := container.UpsertItem(ctx, cosmosQueryPK, []byte(`{"id":"dup","pk":"p","v":3}`), nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, upserted.RawResponse.StatusCode, "upsert of an existing id replaces it")
 
-	resp = cosmosDoc(t, "GET", account, docs+"/dup", "", nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	body, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
+	read, err := container.ReadItem(ctx, cosmosQueryPK, "dup", nil)
+	require.NoError(t, err)
 	var stored map[string]any
-	require.NoError(t, json.Unmarshal(body, &stored))
+	require.NoError(t, json.Unmarshal(read.Value, &stored))
 	assert.EqualValues(t, 3, stored["v"])
 }
 
-// TestCosmosPatchIncrement applies an increment op through the azcosmos
-// PatchOperations wire shape.
+// TestCosmosPatchIncrement applies an increment and a set through azcosmos's
+// patch operations.
 func TestCosmosPatchIncrement(t *testing.T) {
 	t.Parallel()
-	account := uniquename.Alnum("sdkcosmospatch")
-	docs := "/dbs/qdb/colls/counters/docs"
+	container := cosmosQueryContainer(t, uniquename.Alnum("sdkcosmospatch"), "counters")
+	_, err := container.CreateItem(ctx, cosmosQueryPK, []byte(`{"id":"ctr","pk":"p","count":10,"label":"keep"}`), nil)
+	require.NoError(t, err)
 
-	resp := cosmosDoc(t, "POST", account, docs, `{"id":"ctr","count":10,"label":"keep"}`, nil)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	patch := azcosmos.PatchOperations{}
+	patch.AppendIncrement("/count", 5)
+	patch.AppendSet("/status", "active")
+	_, err = container.PatchItem(ctx, cosmosQueryPK, "ctr", patch, &azcosmos.ItemOptions{EnableContentResponseOnWrite: true})
+	require.NoError(t, err)
 
-	patch := `{"operations":[{"op":"incr","path":"/count","value":5},{"op":"set","path":"/status","value":"active"}]}`
-	resp = cosmosDoc(t, "PATCH", account, docs+"/ctr", patch, nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "patch must succeed")
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
+	read, err := container.ReadItem(ctx, cosmosQueryPK, "ctr", nil)
+	require.NoError(t, err)
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(body, &got))
+	require.NoError(t, json.Unmarshal(read.Value, &got))
 	assert.EqualValues(t, 15, got["count"], "incr +5 from 10")
 	assert.Equal(t, "active", got["status"], "set op added the field")
 	assert.Equal(t, "keep", got["label"], "untouched property preserved")
+}
+
+// A document operation on a container that does not exist is 404, as reading
+// the container is.
+func TestCosmosDocumentsNeedTheirContainer(t *testing.T) {
+	t.Parallel()
+	client := cosmosSimClient(t, uniquename.Alnum("sdkcosmosowner"))
+	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "qdb"}, nil)
+	require.NoError(t, err)
+	missing, err := client.NewContainer("qdb", "never-created")
+	require.NoError(t, err)
+	_, err = missing.CreateItem(ctx, cosmosQueryPK, []byte(`{"id":"x","pk":"p"}`), nil)
+	var respErr *azcore.ResponseError
+	require.True(t, errors.As(err, &respErr), "a write into a missing container must fail: %v", err)
+	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
 }

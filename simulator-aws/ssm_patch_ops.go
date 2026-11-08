@@ -751,18 +751,10 @@ func handleSSMDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ssmSyncParameterVersions appends a history row for each parameter version not
-// yet recorded, so GetParameterHistory and the label operations see every
-// version PutParameter wrote, without the parameter store knowing about the
-// history store.
-func ssmSyncParameterVersions(p SSMParameter) []SSMParameterVersionRow {
+// ssmRecordParameterVersion records the version PutParameter just wrote.
+func ssmRecordParameterVersion(p SSMParameter) {
 	key := ensureLeadingSlash(p.Name)
 	rows, _ := ssmParamVersions.Get(key)
-	for _, row := range rows {
-		if row.Version == p.Version {
-			return rows
-		}
-	}
 	rows = append(rows, SSMParameterVersionRow{
 		Name:             p.Name,
 		Type:             p.Type,
@@ -776,6 +768,10 @@ func ssmSyncParameterVersions(p SSMParameter) []SSMParameterVersionRow {
 		DataType:         p.DataType,
 	})
 	ssmParamVersions.Put(key, rows)
+}
+
+func ssmParameterVersionRows(p SSMParameter) []SSMParameterVersionRow {
+	rows, _ := ssmParamVersions.Get(ensureLeadingSlash(p.Name))
 	return rows
 }
 
@@ -799,7 +795,7 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 			"Parameter %s not found.", req.Name)
 		return
 	}
-	rows := ssmSyncParameterVersions(cur)
+	rows := ssmParameterVersionRows(cur)
 	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, func(it SSMParameterVersionRow) string { return listq.IntKey(it.Version) }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
@@ -880,7 +876,7 @@ func handleSSMLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		version = *req.ParameterVersion
 	}
 	key := ensureLeadingSlash(req.Name)
-	rows := ssmSyncParameterVersions(cur)
+	rows := ssmParameterVersionRows(cur)
 	idx := -1
 	for i := range rows {
 		if rows[i].Version == version {
@@ -938,7 +934,7 @@ func handleSSMUnlabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := ensureLeadingSlash(req.Name)
-	rows := ssmSyncParameterVersions(cur)
+	rows := ssmParameterVersionRows(cur)
 	idx := -1
 	for i := range rows {
 		if rows[i].Version == *req.ParameterVersion {

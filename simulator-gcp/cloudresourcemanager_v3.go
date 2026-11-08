@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -198,7 +199,11 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	}
 	projects := sim.MakeStore[CRMProject](srv.DB(), "crm_projects")
 	crmProjects = projects
+	purged := sim.MakeStore[crmPurgedProject](srv.DB(), "crm_purged_projects")
+	crmPurgedProjects = purged
+	crmPurgeDue(time.Now(), projects, purged)
 	crmEnsureDefaultProject()
+	srv.StartBackground("Cloud Resource Manager project purge", crmProjectPurger(projects, purged))
 	crmOrganizations = sim.MakeStore[CRMOrganization](srv.DB(), "crm_organizations")
 	crmEnsureDefaultOrganization()
 	folders := sim.MakeStore[CRMFolder](srv.DB(), "crm_folders")
@@ -338,7 +343,7 @@ func registerCRMProjects(srv *sim.Server, projectPolicies sim.Store[IAMPolicy], 
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
-		if _, exists := projects.Get(req.ProjectId); exists {
+		if crmProjectIDTaken(req.ProjectId) {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
 			return
 		}
@@ -417,6 +422,7 @@ func registerCRMProjects(srv *sim.Server, projectPolicies sim.Store[IAMPolicy], 
 		p.DeleteTime = nowTimestamp()
 		p.UpdateTime = nowTimestamp()
 		projects.Put(p.ProjectId, p)
+		crmWakePurger()
 		sim.WriteJSON(w, http.StatusOK, crmLRO(p, typeProject, crmMetaDeleteProject))
 	})
 
@@ -462,6 +468,7 @@ func registerCRMProjects(srv *sim.Server, projectPolicies sim.Store[IAMPolicy], 
 			p.DeleteTime = ""
 			p.UpdateTime = nowTimestamp()
 			projects.Put(p.ProjectId, p)
+			crmWakePurger()
 			sim.WriteJSON(w, http.StatusOK, crmLRO(p, typeProject, crmMetaUndeleteProject))
 		default:
 			// crmIamVerb served the IAM triple, so move and undelete above are

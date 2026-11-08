@@ -61,7 +61,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 				"change stream %q already exists", name)
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
+		now := fsNow()
 		stream["name"] = name
 		stream["createTime"] = now
 		stream["updateTime"] = now
@@ -186,12 +186,14 @@ func (s *fsRESTListenStream) writeRaw(data []byte) error {
 	return nil
 }
 
-// fsExecutePipeline answers the documents the pipeline selects, which may be
-// none.
+// fsExecutePipeline runs the pipeline and answers its result documents.
 func fsExecutePipeline(w http.ResponseWriter, r *http.Request) {
-	// The pipeline is required; one with no stages is still sent.
 	var req struct {
-		StructuredPipeline *map[string]any `json:"structuredPipeline"`
+		StructuredPipeline *fsStructuredPipeline `json:"structuredPipeline"`
+		Transaction        string                `json:"transaction"`
+		NewTransaction     *struct {
+			ReadOnly *struct{} `json:"readOnly"`
+		} `json:"newTransaction"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
@@ -202,8 +204,21 @@ func fsExecutePipeline(w http.ResponseWriter, r *http.Request) {
 			"executePipeline needs the pipeline to run")
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"executionTime": time.Now().UTC().Format(time.RFC3339),
-		"results":       []any{},
-	})
+	if _, ok := fsReadTimeForTxn(req.Transaction); !ok {
+		GCPError(w, http.StatusBadRequest, "Invalid transaction.", "INVALID_ARGUMENT")
+		return
+	}
+	resp := map[string]any{}
+	if req.NewTransaction != nil {
+		resp["transaction"] = fsBeginTxnBytes(req.NewTransaction.ReadOnly != nil, "")
+	}
+	now := time.Now().UTC()
+	docs, err := fsRunPipeline(sim.PathParam(r, "project"), sim.PathParam(r, "database"), req.StructuredPipeline, now)
+	if err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return
+	}
+	resp["results"] = docs
+	resp["executionTime"] = now.Truncate(time.Microsecond).Format(fsTimestampLayout)
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

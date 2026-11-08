@@ -284,7 +284,8 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 	assert.Empty(t, gone.Policies)
 }
 
-// TestSSM_ParameterHistory expects one history entry per parameter version.
+// TestSSM_ParameterHistory expects one history entry per version PutParameter
+// wrote, and a deleted parameter created again to start a new history.
 func TestSSM_ParameterHistory(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
@@ -299,21 +300,31 @@ func TestSSM_ParameterHistory(t *testing.T) {
 			Overwrite: aws.Bool(i > 0),
 		})
 		require.NoError(t, err)
-		// Read the history between writes.
-		_, err = c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
-		require.NoError(t, err)
 	}
 
 	hist, err := c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(hist.Parameters), 3, "history must include all observed versions")
+	require.Len(t, hist.Parameters, 3, "history must include every version written")
 	versions := map[int64]string{}
 	for _, p := range hist.Parameters {
 		versions[p.Version] = aws.ToString(p.Value)
 		assert.NotNil(t, p.Labels, "Labels must be non-nil")
 	}
 	assert.Equal(t, "v1", versions[1])
+	assert.Equal(t, "v2", versions[2])
 	assert.Equal(t, "v3", versions[3])
+
+	_, err = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(name)})
+	require.NoError(t, err)
+	_, err = c.PutParameter(ctx, &ssm.PutParameterInput{
+		Name: aws.String(name), Type: ssmtypes.ParameterTypeString, Value: aws.String("fresh"),
+	})
+	require.NoError(t, err)
+	hist, err = c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
+	require.NoError(t, err)
+	require.Len(t, hist.Parameters, 1, "a parameter created again starts a new history")
+	assert.Equal(t, "fresh", aws.ToString(hist.Parameters[0].Value))
+	assert.Equal(t, int64(1), hist.Parameters[0].Version)
 }
 
 // TestSSM_ParameterLabel expects a label to move off its old version when
@@ -327,9 +338,6 @@ func TestSSM_ParameterLabel(t *testing.T) {
 	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name: aws.String(name), Type: ssmtypes.ParameterTypeString, Value: aws.String("a"),
 	})
-	require.NoError(t, err)
-	// Read the history after v1.
-	_, err = c.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{Name: aws.String(name)})
 	require.NoError(t, err)
 
 	lbl, err := c.LabelParameterVersion(ctx, &ssm.LabelParameterVersionInput{

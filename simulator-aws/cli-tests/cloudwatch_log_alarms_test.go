@@ -62,6 +62,14 @@ func TestCloudWatchCLI_LogAlarms(t *testing.T) {
 	if state != "ALARM" {
 		t.Fatalf("LogAlarms[0].StateValue = %q, want ALARM", state)
 	}
+	runCLI(t, awsCLI("cloudwatch", "set-alarm-state", "--alarm-name", name,
+		"--state-value", "OK", "--state-reason", "cli log alarm override"))
+	summaries := runCLI(t, awsCLI("cloudwatch", "describe-alarm-history",
+		"--alarm-name", name, "--history-item-type", "StateUpdate",
+		"--query", "AlarmHistoryItems[].HistorySummary", "--output", "text"))
+	if !strings.Contains(summaries, "Alarm updated from ALARM to OK") {
+		t.Fatalf("describe-alarm-history summaries = %q, want the ALARM to OK update", summaries)
+	}
 	agg := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
 		"--alarm-names", name, "--alarm-types", "LogAlarm",
 		"--query", "LogAlarms[0].ScheduledQueryConfiguration.AggregationExpression", "--output", "text")))

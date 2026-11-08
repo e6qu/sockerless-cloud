@@ -10,29 +10,78 @@ import (
 
 const packetCaptureAPIVersion = "2025-03-01"
 
-// A capture reads frames off a running machine's interface. A target the
-// simulator cannot record is refused with a reason, never answered with an
-// empty capture file a caller could not tell from a real one.
-func TestNetworkWatcher_PacketCaptureRefusesAnUnrunnableTarget(t *testing.T) {
+// A capture records the machine's frames into the local path it names, once
+// the Network Watcher agent runs on the machine, and stops on request.
+func TestNetworkWatcher_PacketCaptureRecordsToTheMachinesLocalPath(t *testing.T) {
 	t.Parallel()
+	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-pcap-vnet", "2024-05-01")
+	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.111.0.0/16"]}}}`))
+	subnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-pcap-vnet/subnets/cli-pcap-subnet", "2024-05-01")
+	runCLI(t, azRest("PUT", subnetURL, `{"properties":{"addressPrefix":"10.111.1.0/24"}}`))
+	resourceID := func(provider, path string) string {
+		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s",
+			subscriptionID, resourceGroup, provider, path)
+	}
+	nicURL := armURL("Microsoft.Network", "networkInterfaces/cli-pcap-nic", "2024-05-01")
+	runCLI(t, azRest("PUT", nicURL, fmt.Sprintf(
+		`{"location":"eastus","properties":{"ipConfigurations":[{"name":"ipconfig1","properties":{"subnet":{"id":%q},"privateIPAllocationMethod":"Dynamic","primary":true}}]}}`,
+		resourceID("Microsoft.Network", "virtualNetworks/cli-pcap-vnet/subnets/cli-pcap-subnet"))))
+	vmID := resourceID("Microsoft.Compute", "virtualMachines/cli-pcap-vm")
+	vmURL := baseURL + vmID
+	azRestLongRunning(t, "PUT", vmURL+"?api-version=2022-03-01", fmt.Sprintf(
+		`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},`+
+			`"storageProfile":{"imageReference":{"publisher":"Canonical","offer":"ubuntu-24_04-lts","sku":"server","version":"latest"},"osDisk":{"name":"cli-pcap-osdisk","createOption":"FromImage"}},`+
+			`"osProfile":{"computerName":"cli-pcap","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},`+
+			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`,
+		resourceID("Microsoft.Network", "networkInterfaces/cli-pcap-nic")))
+	defer runCLI(t, azRest("DELETE", vmURL+"?api-version=2022-03-01", ""))
+
 	watcherURL := armURL("Microsoft.Network", "networkWatchers/cli-pcap-watcher", packetCaptureAPIVersion)
 	runCLI(t, azRest("PUT", watcherURL, `{"location":"eastus","properties":{}}`))
 	defer runCLI(t, azRest("DELETE", watcherURL, ""))
 
 	captureURL := armURL("Microsoft.Network",
 		"networkWatchers/cli-pcap-watcher/packetCaptures/cli-pcap", packetCaptureAPIVersion)
-	resourceID := func(provider, path string) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s",
-			subscriptionID, resourceGroup, provider, path)
-	}
-	body := fmt.Sprintf(`{"properties":{"target":%q,"storageLocation":{"storageId":%q}}}`,
-		resourceID("Microsoft.Compute", "virtualMachines/cli-pcap-no-such-vm"),
-		resourceID("Microsoft.Storage", "storageAccounts/clipcapst"))
+	const localPath = "/var/captures/cli-pcap.cap"
+	body := fmt.Sprintf(`{"properties":{"target":%q,"storageLocation":{"filePath":%q},`+
+		`"filters":[{"protocol":"UDP","remotePort":"53"}]}}`, vmID, localPath)
+
 	out, err := azRest("PUT", captureURL, body).CombinedOutput()
-	require.Error(t, err,
-		"a capture against a machine that cannot be recorded must fail, not produce an empty capture: %s", out)
-	assert.Contains(t, string(out), "not found",
-		"the refusal names why the capture cannot run, got: %s", out)
+	require.Error(t, err, "a machine without the Network Watcher agent cannot be captured: %s", out)
+	assert.Contains(t, string(out), "NetworkWatcherAgentLinux")
+
+	runCLI(t, azRest("PUT", vmURL+"/extensions/AzureNetworkWatcherExtension?api-version=2022-03-01",
+		`{"location":"eastus","properties":{"publisher":"Microsoft.Azure.NetworkWatcher","type":"NetworkWatcherAgentLinux","typeHandlerVersion":"1.4"}}`))
+
+	created := runCLI(t, azRest("PUT", captureURL, body))
+	assert.Contains(t, created, `"provisioningState": "Succeeded"`)
+
+	runScript := func(name, command string) string {
+		return runCLI(t, azRest("PUT", vmURL+"/extensions/"+name+"?api-version=2022-03-01", fmt.Sprintf(
+			`{"location":"eastus","properties":{"publisher":"Microsoft.Azure.Extensions","type":"CustomScript","typeHandlerVersion":"2.1","settings":{"commandToExecute":%q}}}`,
+			command)))
+	}
+	runScript("traffic", `bash -c 'echo probe > /dev/udp/168.63.129.16/53'`)
+
+	action := func(name string) string {
+		return armURL("Microsoft.Network",
+			"networkWatchers/cli-pcap-watcher/packetCaptures/cli-pcap/"+name, packetCaptureAPIVersion)
+	}
+	runCLI(t, azRest("POST", action("stop"), ""))
+	statusOut := runCLI(t, azRest("POST", action("queryStatus"), ""))
+	var status struct {
+		PacketCaptureStatus string   `json:"packetCaptureStatus"`
+		PacketCaptureError  []string `json:"packetCaptureError"`
+	}
+	parseJSON(t, statusOut, &status)
+	assert.Equal(t, "Stopped", status.PacketCaptureStatus)
+	assert.Empty(t, status.PacketCaptureError)
+
+	// The file in the machine is a libpcap capture (magic a1b2c3d4, little
+	// endian) holding the datagram the machine sent.
+	header := runScript("inspect", `bash -c 'od -An -tx1 -N4 `+localPath+`; echo datagrams=$(grep -ac probe `+localPath+`)'`)
+	assert.Contains(t, header, "d4 c3 b2 a1")
+	assert.Contains(t, header, "datagrams=1")
 }
 
 // TestNetworkWatcher_PacketCaptureListIsEmptyBeforeAnyCapture: a watcher with

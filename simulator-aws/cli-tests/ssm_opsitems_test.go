@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,166 +124,135 @@ func TestSSMCLI_OpsItemLifecycle(t *testing.T) {
 	require.Empty(t, rel.Summaries)
 }
 
+// TestSSMCLI_MaintenanceWindowExecution schedules a window a few seconds
+// ahead with a Run Command task on a managed node, waits for the window to
+// run, and reads the execution, task and invocation, whose command wrote its
+// output on the node.
 func TestSSMCLI_MaintenanceWindowExecution(t *testing.T) {
 	t.Parallel()
-	cwOut := runCLI(t, awsCLI("ssm", "create-maintenance-window",
+	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
+	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.243.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
+	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.243.1.0/24",
+		"--query", "Subnet.SubnetId", "--output", "text")
+	instanceID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+		"--subnet-id", subnetID, "--iam-instance-profile", "Name="+ssmManagedInstanceProfileCLI(t),
+		"--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, instanceID)
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", instanceID))
+
+	role := cliRoleAllowing(t, "ssm.amazonaws.com", "ssm:SendCommand", "ssm:CancelCommand")
+	// Each aws CLI call starts a Python process, so the run lies far enough
+	// ahead for the reads of the schedule before it.
+	runAt := time.Now().UTC().Add(45 * time.Second).Truncate(time.Second)
+	windowID := q("ssm", "create-maintenance-window",
 		"--name", "cli-mwexec-"+ssmStamp(),
-		"--schedule", "cron(0 16 ? * TUE *)",
-		"--duration", "4", "--cutoff", "1",
-		"--allow-unassociated-targets", "--output", "json"))
-	var cw struct {
-		WindowId string `json:"WindowId"`
-	}
-	parseJSON(t, cwOut, &cw)
-	windowID := cw.WindowId
+		"--schedule", "at("+runAt.Format("2006-01-02T15:04:05")+")",
+		"--duration", "1", "--cutoff", "0",
+		"--allow-unassociated-targets", "--query", "WindowId", "--output", "text")
 	t.Cleanup(func() {
 		_ = awsCLI("ssm", "delete-maintenance-window", "--window-id", windowID).Run()
 	})
+	require.Equal(t, runAt.Format("2006-01-02T15:04:05Z"), q("ssm", "get-maintenance-window",
+		"--window-id", windowID, "--query", "NextExecutionTime", "--output", "text"))
 
-	rtOut := runCLI(t, awsCLI("ssm", "register-target-with-maintenance-window",
+	targetID := q("ssm", "register-target-with-maintenance-window",
 		"--window-id", windowID, "--resource-type", "INSTANCE",
-		"--targets", "Key=tag:Env,Values=prod", "--output", "json"))
-	var rt struct {
-		WindowTargetId string `json:"WindowTargetId"`
-	}
-	parseJSON(t, rtOut, &rt)
-	targetID := rt.WindowTargetId
-
-	rtaskOut := runCLI(t, awsCLI("ssm", "register-task-with-maintenance-window",
+		"--targets", "Key=InstanceIds,Values="+instanceID, "--owner-information", "cli-owner",
+		"--query", "WindowTargetId", "--output", "text")
+	windowTaskID := q("ssm", "register-task-with-maintenance-window",
 		"--window-id", windowID, "--task-arn", "AWS-RunShellScript",
 		"--task-type", "RUN_COMMAND", "--priority", "1",
-		"--max-concurrency", "1", "--max-errors", "1",
-		"--targets", "Key=WindowTargetIds,Values="+targetID, "--output", "json"))
-	var rtask struct {
-		WindowTaskId string `json:"WindowTaskId"`
-	}
-	parseJSON(t, rtaskOut, &rtask)
-	windowTaskID := rtask.WindowTaskId
+		"--max-concurrency", "1", "--max-errors", "1", "--service-role-arn", role,
+		"--targets", "Key=WindowTargetIds,Values="+targetID,
+		"--task-invocation-parameters", `{"RunCommand":{"Parameters":{"commands":["echo cli window ran"]}}}`,
+		"--query", "WindowTaskId", "--output", "text")
+	require.Equal(t, "AWS-RunShellScript", q("ssm", "get-maintenance-window-task",
+		"--window-id", windowID, "--window-task-id", windowTaskID, "--query", "TaskArn", "--output", "text"))
 
-	gtOut := runCLI(t, awsCLI("ssm", "get-maintenance-window-task",
-		"--window-id", windowID, "--window-task-id", windowTaskID, "--output", "json"))
-	var gt struct {
-		TaskArn string `json:"TaskArn"`
-	}
-	parseJSON(t, gtOut, &gt)
-	require.Equal(t, "AWS-RunShellScript", gt.TaskArn)
+	execID, status := ssmAwaitWindowExecutionCLI(t, windowID)
+	require.Equal(t, "SUCCESS", status)
 
-	deOut := runCLI(t, awsCLI("ssm", "describe-maintenance-window-executions",
-		"--window-id", windowID, "--output", "json"))
-	var de struct {
-		WindowExecutions []struct {
-			WindowExecutionId string `json:"WindowExecutionId"`
-			Status            string `json:"Status"`
-		} `json:"WindowExecutions"`
-	}
-	parseJSON(t, deOut, &de)
-	require.Len(t, de.WindowExecutions, 1)
-	execID := de.WindowExecutions[0].WindowExecutionId
-	require.Equal(t, "SUCCESS", de.WindowExecutions[0].Status)
-
-	geOut := runCLI(t, awsCLI("ssm", "get-maintenance-window-execution",
-		"--window-execution-id", execID, "--output", "json"))
 	var ge struct {
 		TaskIds []string `json:"TaskIds"`
 		Status  string   `json:"Status"`
 	}
-	parseJSON(t, geOut, &ge)
+	parseJSON(t, runCLI(t, awsCLI("ssm", "get-maintenance-window-execution",
+		"--window-execution-id", execID, "--output", "json")), &ge)
 	require.Len(t, ge.TaskIds, 1)
 	taskExecID := ge.TaskIds[0]
+	require.Equal(t, "SUCCESS", q("ssm", "get-maintenance-window-execution-task",
+		"--window-execution-id", execID, "--task-id", taskExecID, "--query", "Status", "--output", "text"))
+	require.Equal(t, "1", q("ssm", "describe-maintenance-window-execution-tasks",
+		"--window-execution-id", execID, "--query", "length(WindowExecutionTaskIdentities)", "--output", "text"))
 
-	detOut := runCLI(t, awsCLI("ssm", "describe-maintenance-window-execution-tasks",
-		"--window-execution-id", execID, "--output", "json"))
-	var det struct {
-		WindowExecutionTaskIdentities []struct {
-			TaskArn string `json:"TaskArn"`
-		} `json:"WindowExecutionTaskIdentities"`
-	}
-	parseJSON(t, detOut, &det)
-	require.Len(t, det.WindowExecutionTaskIdentities, 1)
-
-	getOut := runCLI(t, awsCLI("ssm", "get-maintenance-window-execution-task",
-		"--window-execution-id", execID, "--task-id", taskExecID, "--output", "json"))
-	var get struct {
-		TaskArn string `json:"TaskArn"`
-		Status  string `json:"Status"`
-	}
-	parseJSON(t, getOut, &get)
-	require.Equal(t, "AWS-RunShellScript", get.TaskArn)
-
-	deiOut := runCLI(t, awsCLI("ssm", "describe-maintenance-window-execution-task-invocations",
-		"--window-execution-id", execID, "--task-id", taskExecID, "--output", "json"))
 	var dei struct {
 		WindowExecutionTaskInvocationIdentities []struct {
-			InvocationId string `json:"InvocationId"`
+			InvocationId     string `json:"InvocationId"`
+			ExecutionId      string `json:"ExecutionId"`
+			WindowTargetId   string `json:"WindowTargetId"`
+			OwnerInformation string `json:"OwnerInformation"`
 		} `json:"WindowExecutionTaskInvocationIdentities"`
 	}
-	parseJSON(t, deiOut, &dei)
+	parseJSON(t, runCLI(t, awsCLI("ssm", "describe-maintenance-window-execution-task-invocations",
+		"--window-execution-id", execID, "--task-id", taskExecID, "--output", "json")), &dei)
 	require.Len(t, dei.WindowExecutionTaskInvocationIdentities, 1)
-	invID := dei.WindowExecutionTaskInvocationIdentities[0].InvocationId
+	invocation := dei.WindowExecutionTaskInvocationIdentities[0]
+	require.Equal(t, targetID, invocation.WindowTargetId)
+	require.Equal(t, "cli-owner", invocation.OwnerInformation)
+	require.Equal(t, "SUCCESS", q("ssm", "get-maintenance-window-execution-task-invocation",
+		"--window-execution-id", execID, "--task-id", taskExecID, "--invocation-id", invocation.InvocationId,
+		"--query", "Status", "--output", "text"))
+	require.Equal(t, "cli window ran", q("ssm", "get-command-invocation",
+		"--command-id", invocation.ExecutionId, "--instance-id", instanceID,
+		"--query", "StandardOutputContent", "--output", "text"))
 
-	geiOut := runCLI(t, awsCLI("ssm", "get-maintenance-window-execution-task-invocation",
-		"--window-execution-id", execID, "--task-id", taskExecID, "--invocation-id", invID, "--output", "json"))
-	var gei struct {
-		Status string `json:"Status"`
-	}
-	parseJSON(t, geiOut, &gei)
-	require.Equal(t, "SUCCESS", gei.Status)
+	require.Equal(t, "0", q("ssm", "describe-maintenance-window-schedule",
+		"--window-id", windowID, "--query", "length(ScheduledWindowExecutions)", "--output", "text"),
+		"an at() window runs once")
+	require.Equal(t, windowID, q("ssm", "describe-maintenance-windows-for-target",
+		"--resource-type", "INSTANCE", "--targets", "Key=InstanceIds,Values="+instanceID,
+		"--query", "WindowIdentities[0].WindowId", "--output", "text"))
 
-	dsOut := runCLI(t, awsCLI("ssm", "describe-maintenance-window-schedule",
-		"--window-id", windowID, "--output", "json"))
-	var ds struct {
-		ScheduledWindowExecutions []struct {
-			WindowId string `json:"WindowId"`
-		} `json:"ScheduledWindowExecutions"`
-	}
-	parseJSON(t, dsOut, &ds)
-	require.GreaterOrEqual(t, len(ds.ScheduledWindowExecutions), 1)
-
-	dftOut := runCLI(t, awsCLI("ssm", "describe-maintenance-windows-for-target",
-		"--resource-type", "INSTANCE",
-		"--targets", "Key=tag:Env,Values=prod", "--output", "json"))
-	var dft struct {
-		WindowIdentities []struct {
-			WindowId string `json:"WindowId"`
-		} `json:"WindowIdentities"`
-	}
-	parseJSON(t, dftOut, &dft)
-	foundWin := false
-	for _, wi := range dft.WindowIdentities {
-		if wi.WindowId == windowID {
-			foundWin = true
-		}
-	}
-	require.True(t, foundWin)
-
-	utOut := runCLI(t, awsCLI("ssm", "update-maintenance-window-target",
+	require.Equal(t, "renamed-target", q("ssm", "update-maintenance-window-target",
 		"--window-id", windowID, "--window-target-id", targetID,
 		"--name", "renamed-target",
-		"--targets", "Key=tag:Env,Values=staging", "--output", "json"))
-	var ut struct {
-		Name string `json:"Name"`
-	}
-	parseJSON(t, utOut, &ut)
-	require.Equal(t, "renamed-target", ut.Name)
-
-	utaskOut := runCLI(t, awsCLI("ssm", "update-maintenance-window-task",
-		"--window-id", windowID, "--window-task-id", windowTaskID,
-		"--priority", "5", "--max-concurrency", "2", "--output", "json"))
+		"--targets", "Key=tag:Env,Values=staging", "--query", "Name", "--output", "text"))
 	var utask struct {
 		Priority       int    `json:"Priority"`
 		MaxConcurrency string `json:"MaxConcurrency"`
 	}
-	parseJSON(t, utaskOut, &utask)
+	parseJSON(t, runCLI(t, awsCLI("ssm", "update-maintenance-window-task",
+		"--window-id", windowID, "--window-task-id", windowTaskID,
+		"--priority", "5", "--max-concurrency", "2", "--output", "json")), &utask)
 	require.Equal(t, 5, utask.Priority)
 	require.Equal(t, "2", utask.MaxConcurrency)
 
-	cancelOut := runCLI(t, awsCLI("ssm", "cancel-maintenance-window-execution",
-		"--window-execution-id", execID, "--output", "json"))
-	var cancel struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-	}
-	parseJSON(t, cancelOut, &cancel)
-	require.Equal(t, execID, cancel.WindowExecutionId)
+	require.Equal(t, execID, q("ssm", "cancel-maintenance-window-execution",
+		"--window-execution-id", execID, "--query", "WindowExecutionId", "--output", "text"))
+}
+
+// ssmAwaitWindowExecutionCLI polls describe-maintenance-window-executions,
+// the only view Systems Manager gives of a window's runs, until the first run
+// finished.
+func ssmAwaitWindowExecutionCLI(t *testing.T, windowID string) (string, string) {
+	t.Helper()
+	var execID, status string
+	require.Eventually(t, func() bool {
+		var de struct {
+			WindowExecutions []struct {
+				WindowExecutionId string `json:"WindowExecutionId"`
+				Status            string `json:"Status"`
+			} `json:"WindowExecutions"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("ssm", "describe-maintenance-window-executions",
+			"--window-id", windowID, "--output", "json")), &de)
+		if len(de.WindowExecutions) == 0 {
+			return false
+		}
+		execID, status = de.WindowExecutions[0].WindowExecutionId, de.WindowExecutions[0].Status
+		return status != "PENDING" && status != "IN_PROGRESS" && status != "CANCELLING"
+	}, 2*time.Minute, time.Second, "window %s never finished a run", windowID)
+	return execID, status
 }
 
 // TestSSMCLI_Session covers GetConnectionStatus, DescribeSessions and

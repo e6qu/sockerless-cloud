@@ -150,9 +150,9 @@ var (
 
 func registerSSMAssociations(r *AWSRouter, srv *sim.Server) {
 	ssmAssociations = sim.MakeStore[SSMAssociation](srv.DB(), "ssm_associations")
-	ssmAutomations = sim.MakeStore[SSMAutomationExecution](srv.DB(), "ssm_automations")
+	ssmAutomations = sim.Announcing(sim.MakeStore[SSMAutomationExecution](srv.DB(), "ssm_automations"), ssmAutomationChanges)
 	ssmPreviews = sim.MakeStore[SSMExecutionPreview](srv.DB(), "ssm_execution_previews")
-	ssmCommands = sim.MakeStore[SSMCommand](srv.DB(), "ssm_commands")
+	ssmCommands = sim.Announcing(sim.MakeStore[SSMCommand](srv.DB(), "ssm_commands"), ssmCommandChanges)
 
 	for target, h := range map[string]http.HandlerFunc{
 		"AmazonSSM.CreateAssociation":                     handleSSMCreateAssociation,
@@ -1295,12 +1295,7 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 			"The specified SSM document doesn't exist.")
 		return
 	}
-	targets := req.InstanceIds
-	for _, t := range req.Targets {
-		if t.Key == "InstanceIds" {
-			targets = append(targets, t.Values...)
-		}
-	}
+	targets := append(req.InstanceIds, ssmTargetInstances(req.Targets)...)
 	// A command runs only on managed nodes, instances whose SSM Agent reports and
 	// whose machine is up; Systems Manager refuses the whole request otherwise.
 	var invalid []string

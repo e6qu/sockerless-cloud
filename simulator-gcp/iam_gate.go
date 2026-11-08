@@ -251,6 +251,10 @@ func gatePolicies(check gateCheck) ([]IAMPolicy, gcpIAMResource) {
 // gateWriteDenied answers a refused REST call in the API's own shape.
 func gateWriteDenied(w http.ResponseWriter, principal string, d gateDecision, failed gateCheck) {
 	if failed.unsourced {
+		if d.api == "storage" {
+			writeGCSJSONError(w, http.StatusForbidden, "forbidden", "The caller does not have permission")
+			return
+		}
 		GCPError(w, http.StatusForbidden, "The caller does not have permission", "PERMISSION_DENIED")
 		return
 	}

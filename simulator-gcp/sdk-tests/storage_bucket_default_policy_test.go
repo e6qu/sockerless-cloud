@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
@@ -61,4 +62,51 @@ func TestGCS_BucketCarriesDefaultPolicyFromCreation(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr, "a policy with no bindings at all is refused")
 	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
 	assert.Contains(t, apiErr.Message, "at least one binding")
+}
+
+// In a bucket without uniform bucket-level access, an upload that names no
+// ACL takes the bucket's default object ACL, projectPrivate, with the uploader
+// as the object's OWNER; one that names a predefined ACL takes that instead,
+// and objects.patch's predefinedAcl replaces the ACL keeping the owner.
+func TestGCS_FineGrainedObjectACLAtCreation(t *testing.T) {
+	t.Parallel()
+	svc := storageService(t)
+	bucket := uniquename.New("fine-grained-bucket")
+	mustCreateBucket(t, svc, bucket)
+
+	mustUploadObject(t, svc, bucket, "default.txt", "projectPrivate")
+	defaulted, err := svc.Objects.Get(bucket, "default.txt").Projection("full").Do()
+	require.NoError(t, err)
+	require.NotNil(t, defaulted.Owner, "the full projection names the uploader")
+	require.True(t, strings.HasPrefix(defaulted.Owner.Entity, "user-"), defaulted.Owner.Entity)
+	grants := map[string]string{}
+	for _, entry := range defaulted.Acl {
+		grants[entry.Entity] = entry.Role
+	}
+	assert.Equal(t, "OWNER", grants[defaulted.Owner.Entity], "the uploader owns its object")
+	teams := map[string]string{}
+	for entity, role := range grants {
+		if strings.HasPrefix(entity, "project-") {
+			teams[entity[:strings.LastIndex(entity, "-")]] = role
+		}
+	}
+	assert.Equal(t, map[string]string{"project-owners": "OWNER", "project-editors": "OWNER", "project-viewers": "READER"}, teams)
+
+	_, err = svc.Objects.Insert(bucket, &storageapi.Object{Name: "public.txt"}).
+		PredefinedAcl("publicRead").Media(strings.NewReader("publicRead")).Do()
+	require.NoError(t, err)
+	public, err := svc.ObjectAccessControls.List(bucket, "public.txt").Do()
+	require.NoError(t, err)
+	grants = map[string]string{}
+	for _, entry := range public.Items {
+		grants[entry.Entity] = entry.Role
+	}
+	assert.Equal(t, map[string]string{defaulted.Owner.Entity: "OWNER", "allUsers": "READER"}, grants)
+
+	_, err = svc.Objects.Patch(bucket, "public.txt", &storageapi.Object{}).PredefinedAcl("private").Do()
+	require.NoError(t, err)
+	private, err := svc.ObjectAccessControls.List(bucket, "public.txt").Do()
+	require.NoError(t, err)
+	require.Len(t, private.Items, 1, "private leaves the owner alone")
+	assert.Equal(t, defaulted.Owner.Entity, private.Items[0].Entity)
 }

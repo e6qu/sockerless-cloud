@@ -61,7 +61,7 @@ func rdsSetClusterStatus(clusterID, status string) {
 
 func handleRDSStopCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cluster, ok := rdsClusters.Get(id)
+	cluster, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -79,7 +79,7 @@ func handleRDSStopCluster(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSStartCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cluster, ok := rdsClusters.Get(id)
+	cluster, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return

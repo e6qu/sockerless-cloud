@@ -18,7 +18,7 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 	resumableChunk := func(w http.ResponseWriter, r *http.Request) {
 		uploadID := r.URL.Query().Get("upload_id")
 		if uploadID == "" {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"%s on the upload path addresses a resumable upload session and needs its upload_id", r.Method)
 			return
 		}
@@ -46,18 +46,28 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 		uploadID := r.URL.Query().Get("upload_id")
 
 		if _, ok := buckets.Get(bucketName); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 
 		var body string
 		var digests blobstore.Digests
-		objAttrs := GCSObject{}
+		objAttrs := GCSObject{Owner: gcsUploader(r)}
+		var aclEntries *[]GCSObjectACL
+		createACL := func() bool {
+			create, err := gcsWriteCreateACL(r, "predefinedAcl", aclEntries)
+			if err != nil {
+				writeGCSJSONError(w, http.StatusBadRequest, "invalidParameter", err.Error())
+				return false
+			}
+			objAttrs.CreateACL = create
+			return true
+		}
 
 		ct := r.Header.Get("Content-Type")
 		mediaType, _, _ := mime.ParseMediaType(ct)
@@ -83,13 +93,13 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			// the streaming envelope.
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+				gcsErrorf(w, http.StatusInternalServerError, "INTERNAL",
 					"failed to read resumable metadata: %v", err)
 				return
 			}
 			if len(body) > 0 {
 				if err := json.Unmarshal(body, &meta); err != nil {
-					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"failed to parse resumable metadata: %v", err)
 					return
 				}
@@ -98,14 +108,17 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 				objectName = meta.Name
 			}
 			if objectName == "" {
-				GCPError(w, http.StatusBadRequest,
-					"name is required (in query or body)", "INVALID_ARGUMENT")
+				gcsRequired(w, "name is required (in query or body)")
 				return
 			}
 			objAttrs = meta.applyTo(objAttrs)
 			objAttrs.CustomContexts = meta.Contexts.replacement(nil, "")
 			if err := validateGCSObjectAttrs(objAttrs); err != nil {
 				writeGCSPersistError(w, "init resumable object", err)
+				return
+			}
+			aclEntries = meta.Acl
+			if !createACL() {
 				return
 			}
 			sessionID := sim.NewUUID()
@@ -128,20 +141,20 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			mr := multipart.NewReader(r.Body, boundary)
 			metaPart, err := mr.NextPart()
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read metadata part: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read metadata part: %v", err)
 				return
 			}
 			metaBytes, err := io.ReadAll(metaPart)
 			_ = metaPart.Close()
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 					"failed to read multipart metadata part: %v", err)
 				return
 			}
 			if len(metaBytes) > 0 {
 				var meta gcsObjectResource
 				if jsonErr := json.Unmarshal(metaBytes, &meta); jsonErr != nil {
-					GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+					gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 						"failed to parse multipart metadata: %v", jsonErr)
 					return
 				}
@@ -150,15 +163,15 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 				}
 				objAttrs = meta.applyTo(objAttrs)
 				objAttrs.CustomContexts = meta.Contexts.replacement(nil, "")
+				aclEntries = meta.Acl
 			}
 			if objectName == "" {
-				GCPError(w, http.StatusBadRequest,
-					"name is required (in query or multipart metadata)", "INVALID_ARGUMENT")
+				gcsRequired(w, "name is required (in query or multipart metadata)")
 				return
 			}
 			dataPart, err := mr.NextPart()
 			if err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read data part: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read data part: %v", err)
 				return
 			}
 			if objAttrs.ContentType == "" {
@@ -166,30 +179,33 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 			}
 			body, digests, err = gcsBodies.WriteFrom(dataPart)
 			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read data: %v", err)
+				gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read data: %v", err)
 				return
 			}
 		} else {
 			if objectName == "" {
-				GCPError(w, http.StatusBadRequest,
-					"name query parameter is required", "INVALID_ARGUMENT")
+				gcsRequired(w, "name query parameter is required")
 				return
 			}
 			// A simple upload may be gzip-encoded.
 			rc, err := openStreamingBody(r)
 			if err != nil {
-				GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
+				gcsErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT", "%s", err.Error())
 				return
 			}
 			body, digests, err = gcsBodies.WriteFrom(rc)
 			_ = rc.Close()
 			if err != nil {
-				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read body: %v", err)
+				gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "failed to read body: %v", err)
 				return
 			}
 			objAttrs.ContentType = ct
 		}
 
+		if !createACL() {
+			gcsReleaseBody(body)
+			return
+		}
 		obj, err := persistGCSObject(objects, bucketName, objectName, body, digests, objAttrs, pre, gcsMirror)
 		if err != nil {
 			writeGCSPersistError(w, "write object", err)
@@ -213,12 +229,12 @@ func registerGCSUploads(srv *sim.Server, buckets sim.Store[Bucket], objects sim.
 func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID string, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	sess, ok := gcsResumableSessions.Get(uploadID)
 	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"resumable upload session %q not found", uploadID)
 		return
 	}
 	if _, exists := buckets.Get(sess.Bucket); !exists {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"bucket %q not found", sess.Bucket)
 		return
 	}
@@ -227,7 +243,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	// Clients may gzip-encode a resumable chunk, which openStreamingBody decodes.
 	chunkReader, err := openStreamingBody(r)
 	if err != nil {
-		GCPErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT",
+		gcsErrorf(w, http.StatusUnsupportedMediaType, "INVALID_ARGUMENT",
 			"%s", err.Error())
 		return
 	}
@@ -237,7 +253,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	sess, ok = gcsResumableSessions.Get(uploadID)
 	if !ok {
 		release()
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"resumable upload session %q not found", uploadID)
 		return
 	}
@@ -249,7 +265,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	held, err := gcsStagedSize(sess.Body)
 	if err != nil {
 		release()
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read the staged upload: %v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "read the staged upload: %v", err)
 		return
 	}
 	// The chunk streams to the staging payload unread, so its length is known
@@ -258,7 +274,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	start, total, status, err := resumableChunkPlacement(contentRange, -1, held)
 	if err != nil {
 		release()
-		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return
 	}
 	if status {
@@ -269,7 +285,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	staged, received, err := gcsBodies.WriteAt(sess.Body, start, chunkReader)
 	if err != nil {
 		release()
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL",
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL",
 			"failed to stage resumable chunk: %v", err)
 		return
 	}
@@ -299,14 +315,14 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	if received > total {
 		if err := gcsBodies.Truncate(staged, total); err != nil {
 			fail()
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
+			gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
 			return
 		}
 	}
 	digests, err := gcsBodies.Digest(staged)
 	if err != nil {
 		fail()
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "finalize resumable upload: %v", err)
 		return
 	}
 	obj, err := persistGCSObject(objects, sess.Bucket, sess.Object, staged, digests, sess.Attrs, sess.Preconditions, gcsMirror)
@@ -317,7 +333,7 @@ func handleGCSResumableChunk(w http.ResponseWriter, r *http.Request, uploadID st
 	}
 	response, err := json.Marshal(gcsObjectMetadata(r, obj))
 	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode the object metadata: %v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "encode the object metadata: %v", err)
 		return
 	}
 	gcsResumableSessions.Put(uploadID, gcsResumableSession{Bucket: sess.Bucket, Object: sess.Object, Response: response})

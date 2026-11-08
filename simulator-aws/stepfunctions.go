@@ -97,7 +97,7 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	sfnAWSRouter = r
 	sfnAWSServer = srv
 	sfnStateMachines = sim.MakeStore[SFNStateMachine](srv.DB(), "sfn_state_machines")
-	sfnExecutions = sim.Announcing(sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions"), sfnExecutionChanges)
+	sfnExecutions = sim.Announcing(sfnStatusEvents(sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions")), sfnExecutionChanges)
 	sfnHistories = sim.MakeStore[[]sfnHistoryEvent](srv.DB(), "sfn_execution_histories")
 
 	r.Register("AWSStepFunctions.CreateStateMachine", handleSFNCreateStateMachine)

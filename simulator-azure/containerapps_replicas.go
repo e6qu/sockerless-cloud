@@ -223,16 +223,26 @@ type acaSystemEvent struct {
 }
 
 func acaRecordSystemEvent(resourceID, envID, appName, revision, replica, reason, message string) {
+	acaWriteSystemEvent(resourceID, envID, appName, revision, replica, "Normal", reason, "ContainerAppController", message)
+}
+
+// acaRevisionEvent records one of the system log messages
+// `app-containerapps-logging` lists, under its Source and Type.
+func acaRevisionEvent(app ContainerApp, revision, eventType, source, message string) {
+	acaWriteSystemEvent(app.ID, acaAppEnvironmentID(app), app.Name, revision, "", eventType, "", source, message)
+}
+
+func acaWriteSystemEvent(resourceID, envID, appName, revision, replica, eventType, reason, source, message string) {
 	now := time.Now().UTC()
 	line, err := json.Marshal(acaSystemEvent{
 		TimeStamp:        now.Format(time.RFC3339Nano),
-		Type:             "Normal",
+		Type:             eventType,
 		ContainerAppName: appName,
 		RevisionName:     revision,
 		ReplicaName:      replica,
 		Msg:              message,
 		Reason:           reason,
-		EventSource:      "ContainerAppController",
+		EventSource:      source,
 		Count:            1,
 	})
 	if err != nil {
@@ -246,8 +256,8 @@ func acaRecordSystemEvent(resourceID, envID, appName, revision, replica, reason,
 		"ReplicaName_s":      replica,
 		"Log_s":              message,
 		"Reason_s":           reason,
-		"Type_s":             "Normal",
-		"EventSource_s":      "ContainerAppController",
+		"Type_s":             eventType,
+		"EventSource_s":      source,
 	})
 }
 

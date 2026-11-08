@@ -30,16 +30,19 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 
 	execName := acaStartExecution(t, rg, jobName)
 
+	// The replica's start lands in the environment workspace's
+	// ContainerAppSystemLogs_CL once its container runs; Log Analytics offers no
+	// wait for ingestion, so read the table until the row arrives.
+	kql := `ContainerAppSystemLogs_CL | where JobName_s == "` + jobName + `" and ExecutionName_s == "` + execName +
+		`" and Log_s startswith "Started container"`
+	require.Eventually(t, func() bool {
+		result := queryWorkspace(t, acaLogsCustomerID(t), kql)
+		return len(result.Tables) == 1 && len(result.Tables[0].Rows) >= 1
+	}, 60*time.Second, 200*time.Millisecond, "the execution's container never reported its start")
+
 	exec := acaGetExecution(t, rg, jobName, execName)
 	execProps := exec["properties"].(map[string]any)
-	assert.Equal(t, "Running", execProps["status"])
-
-	// The platform's start event lands in the environment workspace's
-	// ContainerAppSystemLogs_CL.
-	kql := `ContainerAppSystemLogs_CL | where JobName_s == "` + jobName + `" and Log_s == "Container started"`
-	result := queryWorkspace(t, acaLogsCustomerID(t), kql)
-	require.Len(t, result.Tables, 1)
-	require.GreaterOrEqual(t, len(result.Tables[0].Rows), 1, "should have start log entry")
+	assert.Equal(t, "Running", execProps["status"], "an execution whose container started is running")
 
 	stopReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/"+jobName+"/executions/"+execName+"/stop?api-version=2024-03-01",

@@ -272,8 +272,6 @@ func TestSSMCLI_ParameterHistory(t *testing.T) {
 			args = append(args, "--overwrite")
 		}
 		_ = runCLI(t, awsCLI(args...))
-		// Reconcile each version into history.
-		_ = runCLI(t, awsCLI("ssm", "get-parameter-history", "--name", name, "--output", "json"))
 	}
 
 	histOut := runCLI(t, awsCLI("ssm", "get-parameter-history", "--name", name, "--output", "json"))
@@ -285,12 +283,13 @@ func TestSSMCLI_ParameterHistory(t *testing.T) {
 		} `json:"Parameters"`
 	}
 	parseJSON(t, histOut, &hist)
-	require.GreaterOrEqual(t, len(hist.Parameters), 3)
+	require.Len(t, hist.Parameters, 3)
 	values := map[int64]string{}
 	for _, p := range hist.Parameters {
 		values[p.Version] = p.Value
 	}
 	assert.Equal(t, "v1", values[1])
+	assert.Equal(t, "v2", values[2])
 	assert.Equal(t, "v3", values[3])
 }
 
@@ -300,7 +299,6 @@ func TestSSMCLI_ParameterLabel(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ssm", "delete-parameter", "--name", name).Run() })
 
 	_ = runCLI(t, awsCLI("ssm", "put-parameter", "--name", name, "--type", "String", "--value", "a", "--output", "json"))
-	_ = runCLI(t, awsCLI("ssm", "get-parameter-history", "--name", name, "--output", "json"))
 
 	lblOut := runCLI(t, awsCLI("ssm", "label-parameter-version",
 		"--name", name, "--labels", "prod", "--output", "json"))

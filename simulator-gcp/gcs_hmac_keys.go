@@ -43,7 +43,7 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		project, accessID := sim.PathParam(r, "projectId"), sim.PathParam(r, "accessId")
 		k, ok := gcsHmacKeys.Get(project + "\x00" + accessID)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, gcsStructToMap(k))
@@ -53,7 +53,7 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		project := sim.PathParam(r, "projectId")
 		sa := r.URL.Query().Get("serviceAccountEmail")
 		if sa == "" {
-			GCPError(w, http.StatusBadRequest, "serviceAccountEmail is required", "INVALID_ARGUMENT")
+			gcsRequired(w, "serviceAccountEmail is required")
 			return
 		}
 		accessID := "GOOG" + strings.ToUpper(gcsRandHex(12))
@@ -84,12 +84,12 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		project, accessID := sim.PathParam(r, "projectId"), sim.PathParam(r, "accessId")
 		k, ok := gcsHmacKeys.Get(project + "\x00" + accessID)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
 			return
 		}
 		var in GCSHmacKey
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.State != "" {
@@ -104,7 +104,7 @@ func registerGCSHmacKeys(srv *sim.Server) {
 		project, accessID := sim.PathParam(r, "projectId"), sim.PathParam(r, "accessId")
 		k, ok := gcsHmacKeys.Get(project + "\x00" + accessID)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "HMAC key %q not found", accessID)
 			return
 		}
 		// Cloud Storage deletes only an INACTIVE key, which then reads DELETED rather

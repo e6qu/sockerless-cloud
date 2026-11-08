@@ -71,3 +71,9 @@ func gcpCallAs(ctx context.Context, principal, method, path string, input, outpu
 	}
 	return nil
 }
+
+// gcpInvalidValue is an error whose text is the response message as Google
+// words it, capital letter included.
+type gcpInvalidValue string
+
+func (e gcpInvalidValue) Error() string { return string(e) }

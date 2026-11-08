@@ -208,6 +208,7 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"GCS bucket url must be a gs:// URL; got %s", bucketURL)
 	require.Equal(t, "STANDARD", outputs.must(t, "storage_object_storage_class"),
 		"an object written without a storage class takes its bucket's default")
+	assertPrivateObjectACL(t, outputs.must(t, "storage_acl_bucket_name"), outputs.must(t, "storage_private_object_name"))
 
 	logSinkID := outputs.must(t, "logging_project_sink_id")
 	require.Contains(t, logSinkID, "projects/test-project/sinks/tf-log-sink",
@@ -576,7 +577,23 @@ func readOutputs(t *testing.T) tfOutputs {
 	return outputs
 }
 
-// bqGetJSON reads a BigQuery resource terraform state does not carry.
+// assertPrivateObjectACL checks that google_storage_object_acl's
+// predefined_acl = "private" cut the object's ACL to its uploader's OWNER.
+func assertPrivateObjectACL(t *testing.T, bucket, object string) {
+	t.Helper()
+	var acl struct {
+		Items []struct {
+			Entity string `json:"entity"`
+			Role   string `json:"role"`
+		} `json:"items"`
+	}
+	bqGetJSON(t, "/storage/v1/b/"+bucket+"/o/"+object+"/acl", &acl)
+	require.Len(t, acl.Items, 1, "a private object's ACL holds its owner alone: %+v", acl.Items)
+	require.True(t, strings.HasPrefix(acl.Items[0].Entity, "user-"), "the uploader owns the object: %+v", acl.Items)
+	require.Equal(t, "OWNER", acl.Items[0].Role)
+}
+
+// bqGetJSON reads a resource terraform state does not carry.
 func bqGetJSON(t *testing.T, path string, out any) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)

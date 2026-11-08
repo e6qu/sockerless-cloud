@@ -8,6 +8,11 @@ description: >-
 runs:
   using: composite
   steps:
+    - name: Restore the Bun release archive
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/.cache/sockerless/bun
+        key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/install-bun/action.yml') }}
     - name: Install Bun
       shell: bash
       env:
@@ -20,11 +25,22 @@ runs:
           *) echo "::error::unsupported architecture $(uname -m) for Bun"; exit 1 ;;
         esac
         archive="$target.zip"
-        # GitHub release downloads answer 504 for half a minute at a time; curl's
-        # own doubling backoff rides out four minutes of that.
-        curl -fsSL --speed-limit 1024 --speed-time 30 --retry 8 --retry-all-errors -o "$RUNNER_TEMP/$archive" \
-          "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/$archive"
-        unzip -q -o "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/bun"
+        dir="$HOME/.cache/sockerless/bun"
+        mkdir -p "$dir"
+        base="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}"
+        # GitHub release downloads answer 504 for minutes at a time, past what
+        # curl's backoff rides out, so the archive and its checksum file come
+        # back from the Actions cache and download only on a cache miss.
+        for file in "$archive" SHASUMS256.txt; do
+          if [ -s "$dir/$file" ]; then
+            continue
+          fi
+          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 8 --retry-all-errors \
+            -o "$RUNNER_TEMP/$file.part" "$base/$file"
+          mv "$RUNNER_TEMP/$file.part" "$dir/$file"
+        done
+        (cd "$dir" && grep " $archive\$" SHASUMS256.txt | sha256sum --check --strict -)
+        unzip -q -o "$dir/$archive" -d "$RUNNER_TEMP/bun"
         mkdir -p "$HOME/.local/bin"
         install -m 0755 "$RUNNER_TEMP/bun/$target/bun" "$HOME/.local/bin/bun"
         # bunx is how the release ships `bun x`, and the workflows call it by

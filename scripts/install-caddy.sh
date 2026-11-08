@@ -30,19 +30,26 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
+archive_dir="${CADDY_ARCHIVE_DIR:-$tmpdir}"
+mkdir -p "$archive_dir"
 archive="caddy_${version}_linux_${arch}.tar.gz"
 base="https://github.com/caddyserver/caddy/releases/download/v${version}"
-# GitHub release downloads answer 504 for half a minute at a time; curl's own
-# doubling backoff rides out four minutes of that.
+# GitHub release downloads answer 504 for minutes at a time, longer than curl's
+# doubling backoff rides out, so CI keeps the archive in CADDY_ARCHIVE_DIR and
+# downloads only what that directory lacks. The checksum check runs either way.
 for file in "$archive" "caddy_${version}_checksums.txt"; do
+	if [ -s "$archive_dir/$file" ]; then
+		continue
+	fi
 	curl --fail --location --show-error --silent \
 		--retry 8 --retry-all-errors \
 		--connect-timeout 20 --max-time 300 --speed-limit 1024 --speed-time 30 \
-		--output "$tmpdir/$file" "$base/$file"
+		--output "$tmpdir/$file.part" "$base/$file"
+	mv "$tmpdir/$file.part" "$archive_dir/$file"
 done
-(cd "$tmpdir" && grep " $archive\$" "caddy_${version}_checksums.txt" | sha512sum --check --strict -)
+(cd "$archive_dir" && grep " $archive\$" "caddy_${version}_checksums.txt" | sha512sum --check --strict -)
 
-tar -xzf "$tmpdir/$archive" -C "$tmpdir" caddy
+tar -xzf "$archive_dir/$archive" -C "$tmpdir" caddy
 "${sudo[@]}" install -m 0755 "$tmpdir/caddy" /usr/local/bin/caddy
 
 caddy version

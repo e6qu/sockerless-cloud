@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -170,18 +169,12 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 	require.NotNil(t, described.DBInstances[0].Endpoint)
 	address := aws.ToString(described.DBInstances[0].Endpoint.Address)
 	port := aws.ToInt32(described.DBInstances[0].Endpoint.Port)
-	if strings.HasSuffix(address, ".rds.amazonaws.com") {
-		// A nominal endpoint carries the engine's default port.
-		assert.Equal(t, int32(3306), port,
-			"MySQL snapshot must restore to port 3306, not a hardcoded 5432")
-	} else {
-		// A served endpoint's port is wherever the restored MySQL listens, so assert
-		// it accepts a connection rather than a number.
-		require.NotZero(t, port)
-		conn, dialErr := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(int(port))), 5*time.Second)
-		require.NoError(t, dialErr, "an available restored MySQL endpoint %s:%d must accept a connection", address, port)
-		_ = conn.Close()
-	}
+	// The port is wherever the restored MySQL listens, so assert it accepts a
+	// connection rather than a number.
+	require.NotZero(t, port)
+	conn, dialErr := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(int(port))), 5*time.Second)
+	require.NoError(t, dialErr, "an available restored MySQL endpoint %s:%d must accept a connection", address, port)
+	_ = conn.Close()
 }
 
 // TestRDS_DeleteDBInstance_FinalSnapshotContract expects DeleteDBInstance to

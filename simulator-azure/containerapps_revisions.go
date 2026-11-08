@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/replicas"
 	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
@@ -210,8 +212,24 @@ func acaReconcileRevisions(app *ContainerApp, appFqdn string) (*acaRevision, err
 		ProvisioningState: acaRevisionProvisioning,
 	}
 	acaRevisions.Put(rev.ID, rev)
+	acaRevisionEvent(*app, name, "Info", "Revision Provisioning", "Creating a new revision: "+name)
 	acaEnforceRevisionMode(*app)
 	return &rev, nil
+}
+
+// acaProvisioningErrorCode names a failed provisioning with one of the three
+// codes the system log carries: a replica whose container exited is
+// ContainerCrashing, one that never became ready in time is Timeout, and one
+// whose container never ran failed on its image.
+func acaProvisioningErrorCode(err error) string {
+	switch {
+	case errors.Is(err, replicas.ErrExited):
+		return "ContainerCrashing"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Timeout"
+	default:
+		return "ErrImagePull"
+	}
 }
 
 // acaProvisionRevision settles the revision, and the app while the revision is
@@ -252,8 +270,34 @@ func acaProvisionRevision(appID string, rev acaRevision) *AsyncOperationError {
 		}
 		settled = *a
 	})
+	if err != nil {
+		acaRevisionEvent(app, rev.Name, "Error", "Revision Provisioning",
+			fmt.Sprintf("Error provisioning revision %s. ErrorCode: %s", rev.Name, acaProvisioningErrorCode(err)))
+	} else {
+		if rev.Template != nil && app.Properties.RunningStatus != acaStopped {
+			for _, v := range rev.Template.Volumes {
+				acaRevisionEvent(app, rev.Name, "Info", "Volume Mounts",
+					fmt.Sprintf("Successfully mounted volume %s for revision %s", v.Name, rev.Name))
+			}
+		}
+		acaRevisionEvent(app, rev.Name, "Info", "Revision Provisioning", "Successfully provisioned revision "+rev.Name)
+	}
 	if settled.ID != "" {
 		acaEnforceRevisionMode(settled)
+		if err == nil && settled.Properties.LatestReadyRevisionName == rev.Name {
+			weights := acaTrafficWeights(settled)
+			names := make([]string, 0, len(weights))
+			for name := range weights {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if name != "" {
+					acaRevisionEvent(settled, name, "Info", "Traffic weight",
+						fmt.Sprintf("Setting a traffic weight of %d%% for revision %s", weights[name], name))
+				}
+			}
+		}
 	}
 	if err != nil {
 		return &AsyncOperationError{
@@ -278,8 +322,14 @@ func acaEnforceRevisionMode(app ContainerApp) {
 		if latest, ok := acaAppRevision(app.ID, app.Properties.LatestRevisionName); !ok || !latest.provisioned() {
 			keep[app.Properties.LatestReadyRevisionName] = true
 		}
+		announced := false
 		for _, rev := range acaAppRevisions(app.ID) {
 			if rev.Active && !keep[rev.Name] {
+				if !announced {
+					acaRevisionEvent(app, app.Properties.LatestRevisionName, "Info", "Revision Provisioning",
+						"Deactivating old revisions since 'ActiveRevisionsMode=Single'")
+					announced = true
+				}
 				acaDeactivateRevision(rev)
 			}
 		}

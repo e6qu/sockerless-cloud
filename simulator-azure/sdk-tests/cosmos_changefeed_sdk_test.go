@@ -71,6 +71,11 @@ func itoa(n int) string {
 
 func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 	t.Helper()
+	for _, create := range [][2]string{{"/dbs", `{"id":"cfdb"}`}, {"/dbs/cfdb/colls", `{"id":"` + coll + `"}`}} {
+		resp := cosmosScript(t, "POST", account, create[0], create[1], nil)
+		require.Contains(t, []int{http.StatusCreated, http.StatusConflict}, resp.StatusCode)
+		resp.Body.Close()
+	}
 	resp := cosmosScript(t, "POST", account, "/dbs/cfdb/colls/"+coll+"/docs", doc, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()

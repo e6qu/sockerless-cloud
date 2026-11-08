@@ -2,11 +2,13 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,18 +117,21 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSSM_MaintenanceWindowExecution covers the execution reads for a window
-// and task: one SUCCESS execution with one task execution and invocation,
-// GetMaintenanceWindowTask, and the target and task updates.
+// TestSSM_MaintenanceWindowExecution schedules a window a few seconds ahead
+// with a Run Command task on a managed node, waits for the window to run, and
+// reads the execution, its task and the invocation, whose command wrote its
+// output on the node.
 func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
+	instanceID := launchSSMManagedInstanceFor(t, ec2Client(), "10.241.0.0/16")
 
+	runAt := time.Now().UTC().Add(5 * time.Second).Truncate(time.Second)
 	cw, err := c.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
 		Name:                     aws.String("sockerless-mwexec-sdk"),
-		Schedule:                 aws.String("cron(0 16 ? * TUE *)"),
-		Duration:                 aws.Int32(4),
-		Cutoff:                   1,
+		Schedule:                 aws.String("at(" + runAt.Format("2006-01-02T15:04:05") + ")"),
+		Duration:                 aws.Int32(1),
+		Cutoff:                   0,
 		AllowUnassociatedTargets: true,
 	})
 	require.NoError(t, err)
@@ -134,23 +139,43 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = c.DeleteMaintenanceWindow(ctx, &ssm.DeleteMaintenanceWindowInput{WindowId: aws.String(windowID)})
 	})
+	gw, err := c.GetMaintenanceWindow(ctx, &ssm.GetMaintenanceWindowInput{WindowId: aws.String(windowID)})
+	require.NoError(t, err)
+	assert.Equal(t, runAt.Format("2006-01-02T15:04:05Z"), aws.ToString(gw.NextExecutionTime))
+
+	ds, err := c.DescribeMaintenanceWindowSchedule(ctx, &ssm.DescribeMaintenanceWindowScheduleInput{
+		WindowId: aws.String(windowID),
+	})
+	require.NoError(t, err)
+	require.Len(t, ds.ScheduledWindowExecutions, 1)
+	assert.Equal(t, runAt.Format("2006-01-02T15:04:05Z"), aws.ToString(ds.ScheduledWindowExecutions[0].ExecutionTime))
 
 	rt, err := c.RegisterTargetWithMaintenanceWindow(ctx, &ssm.RegisterTargetWithMaintenanceWindowInput{
-		WindowId:     aws.String(windowID),
-		ResourceType: ssmtypes.MaintenanceWindowResourceTypeInstance,
-		Targets:      []ssmtypes.Target{{Key: aws.String("tag:Env"), Values: []string{"prod"}}},
+		WindowId:         aws.String(windowID),
+		ResourceType:     ssmtypes.MaintenanceWindowResourceTypeInstance,
+		Targets:          []ssmtypes.Target{{Key: aws.String("InstanceIds"), Values: []string{instanceID}}},
+		OwnerInformation: aws.String("sdk-owner"),
 	})
 	require.NoError(t, err)
 	targetID := *rt.WindowTargetId
 
+	// Systems Manager User Guide: a maintenance window task runs as a role of
+	// the caller's own that trusts ssm.amazonaws.com.
+	role := createServiceRole(t, uniquename.New("mw-task"), "ssm.amazonaws.com", "ssm:SendCommand", "ssm:CancelCommand")
 	rtask, err := c.RegisterTaskWithMaintenanceWindow(ctx, &ssm.RegisterTaskWithMaintenanceWindowInput{
 		WindowId:       aws.String(windowID),
 		TaskArn:        aws.String("AWS-RunShellScript"),
 		TaskType:       ssmtypes.MaintenanceWindowTaskTypeRunCommand,
+		ServiceRoleArn: aws.String(role),
 		Priority:       aws.Int32(1),
 		MaxConcurrency: aws.String("1"),
 		MaxErrors:      aws.String("1"),
 		Targets:        []ssmtypes.Target{{Key: aws.String("WindowTargetIds"), Values: []string{targetID}}},
+		TaskInvocationParameters: &ssmtypes.MaintenanceWindowTaskInvocationParameters{
+			RunCommand: &ssmtypes.MaintenanceWindowRunCommandParameters{
+				Parameters: map[string][]string{"commands": {"echo maintenance window ran"}},
+			},
+		},
 	})
 	require.NoError(t, err)
 	windowTaskID := *rtask.WindowTaskId
@@ -162,14 +187,13 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "AWS-RunShellScript", *gt.TaskArn)
 	assert.Equal(t, ssmtypes.MaintenanceWindowTaskTypeRunCommand, gt.TaskType)
+	require.NotNil(t, gt.TaskInvocationParameters)
+	assert.Equal(t, []string{"echo maintenance window ran"}, gt.TaskInvocationParameters.RunCommand.Parameters["commands"])
 
-	de, err := c.DescribeMaintenanceWindowExecutions(ctx, &ssm.DescribeMaintenanceWindowExecutionsInput{
-		WindowId: aws.String(windowID),
-	})
-	require.NoError(t, err)
-	require.Len(t, de.WindowExecutions, 1)
-	execID := *de.WindowExecutions[0].WindowExecutionId
-	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, de.WindowExecutions[0].Status)
+	execution := awsMaintenanceWindowExecution(t, c, windowID)
+	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, execution.Status)
+	assert.False(t, aws.ToTime(execution.StartTime).Before(runAt), "the window runs at its at() time, not before")
+	execID := *execution.WindowExecutionId
 
 	ge, err := c.GetMaintenanceWindowExecution(ctx, &ssm.GetMaintenanceWindowExecutionInput{
 		WindowExecutionId: aws.String(execID),
@@ -193,6 +217,7 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "AWS-RunShellScript", *get.TaskArn)
 	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, get.Status)
+	assert.Equal(t, int32(1), get.Priority)
 
 	dei, err := c.DescribeMaintenanceWindowExecutionTaskInvocations(ctx, &ssm.DescribeMaintenanceWindowExecutionTaskInvocationsInput{
 		WindowExecutionId: aws.String(execID),
@@ -200,35 +225,40 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, dei.WindowExecutionTaskInvocationIdentities, 1)
-	invID := *dei.WindowExecutionTaskInvocationIdentities[0].InvocationId
+	identity := dei.WindowExecutionTaskInvocationIdentities[0]
+	assert.Equal(t, targetID, aws.ToString(identity.WindowTargetId))
+	assert.Equal(t, "sdk-owner", aws.ToString(identity.OwnerInformation))
+	require.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, identity.Status, aws.ToString(identity.StatusDetails))
+	commandID := aws.ToString(identity.ExecutionId)
 
 	gei, err := c.GetMaintenanceWindowExecutionTaskInvocation(ctx, &ssm.GetMaintenanceWindowExecutionTaskInvocationInput{
 		WindowExecutionId: aws.String(execID),
 		TaskId:            aws.String(taskExecID),
-		InvocationId:      aws.String(invID),
+		InvocationId:      identity.InvocationId,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, gei.Status)
+	assert.Equal(t, ssmtypes.MaintenanceWindowExecutionStatusSuccess, gei.Status, aws.ToString(gei.StatusDetails))
+	assert.Equal(t, commandID, aws.ToString(gei.ExecutionId), "a Run Command invocation names its command")
 
-	// The schedule reads see the enabled window.
-	ds, err := c.DescribeMaintenanceWindowSchedule(ctx, &ssm.DescribeMaintenanceWindowScheduleInput{
+	ran, err := c.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
+		CommandId: aws.String(commandID), InstanceId: aws.String(instanceID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "maintenance window ran\n", aws.ToString(ran.StandardOutputContent))
+
+	after, err := c.DescribeMaintenanceWindowSchedule(ctx, &ssm.DescribeMaintenanceWindowScheduleInput{
 		WindowId: aws.String(windowID),
 	})
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(ds.ScheduledWindowExecutions), 1)
+	assert.Empty(t, after.ScheduledWindowExecutions, "an at() window runs once")
 
 	dft, err := c.DescribeMaintenanceWindowsForTarget(ctx, &ssm.DescribeMaintenanceWindowsForTargetInput{
 		ResourceType: ssmtypes.MaintenanceWindowResourceTypeInstance,
-		Targets:      []ssmtypes.Target{{Key: aws.String("tag:Env"), Values: []string{"prod"}}},
+		Targets:      []ssmtypes.Target{{Key: aws.String("InstanceIds"), Values: []string{instanceID}}},
 	})
 	require.NoError(t, err)
-	foundWin := false
-	for _, wi := range dft.WindowIdentities {
-		if wi.WindowId != nil && *wi.WindowId == windowID {
-			foundWin = true
-		}
-	}
-	assert.True(t, foundWin)
+	require.Len(t, dft.WindowIdentities, 1)
+	assert.Equal(t, windowID, aws.ToString(dft.WindowIdentities[0].WindowId))
 
 	ut, err := c.UpdateMaintenanceWindowTarget(ctx, &ssm.UpdateMaintenanceWindowTargetInput{
 		WindowId:       aws.String(windowID),
@@ -256,6 +286,37 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, execID, *cancel.WindowExecutionId)
+	_, err = c.CancelMaintenanceWindowExecution(ctx, &ssm.CancelMaintenanceWindowExecutionInput{
+		WindowExecutionId: aws.String("00000000-0000-0000-0000-000000000000"),
+	})
+	requireAWSErrorCode(t, err, "DoesNotExistException")
+}
+
+// awsMaintenanceWindowExecution polls DescribeMaintenanceWindowExecutions,
+// the only view Systems Manager gives of a window's runs, until the window's
+// first execution finished.
+func awsMaintenanceWindowExecution(t *testing.T, c *ssm.Client, windowID string) ssmtypes.MaintenanceWindowExecution {
+	t.Helper()
+	var execution ssmtypes.MaintenanceWindowExecution
+	seen := "no execution"
+	require.Eventually(t, func() bool {
+		out, err := c.DescribeMaintenanceWindowExecutions(ctx, &ssm.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+		})
+		require.NoError(t, err)
+		if len(out.WindowExecutions) == 0 {
+			return false
+		}
+		execution = out.WindowExecutions[0]
+		seen = string(execution.Status)
+		switch execution.Status {
+		case ssmtypes.MaintenanceWindowExecutionStatusPending, ssmtypes.MaintenanceWindowExecutionStatusInProgress,
+			ssmtypes.MaintenanceWindowExecutionStatusCancelling:
+			return false
+		}
+		return true
+	}, 2*time.Minute, waiterMinDelay, "window %s never finished a run; last seen %s", windowID, &seen)
+	return execution
 }
 
 // TestSSM_SessionLifecycle expects a session to report connected, list as

@@ -11,14 +11,26 @@ import (
 )
 
 // storageOperation is the Azure RBAC permission a storage data-plane request
-// needs from a Microsoft Entra caller, as "Authorize with Microsoft Entra ID"
+// needs from a Microsoft Entra caller, as `storage-authorize-with-entra-id`
 // lists it for each operation: an action for the service, container, queue,
 // share and table operations, a data action for the blob, message, file and
-// entity ones.
+// entity ones. Where the page offers a choice, each of alternatives is a set of
+// actions that grants the operation in action's place.
 type storageOperation struct {
-	action string
-	data   bool
-	scope  string
+	action       string
+	data         bool
+	scope        string
+	alternatives [][]string
+}
+
+// or adds an alternative: holding every one of actions grants the operation.
+func (op storageOperation) or(actions ...string) storageOperation {
+	full := make([]string, 0, len(actions))
+	for _, a := range actions {
+		full = append(full, "Microsoft.Storage/storageAccounts/"+a)
+	}
+	op.alternatives = append(op.alternatives, full)
+	return op
 }
 
 // storageAccountRelativePath is the request's path within the account: a
@@ -116,13 +128,27 @@ func storageOperationOf(r *http.Request, service, account string) storageOperati
 			return data("blobServices/containers/blobs/read", container)
 		case r.Method == http.MethodDelete && strings.EqualFold(q.Get("deletetype"), "permanent"):
 			return data("blobServices/containers/blobs/permanentDelete/action", container)
+		case r.Method == http.MethodPut && (comp == "snapshot" || comp == "appendblock"):
+			return data("blobServices/containers/blobs/write", container).or("blobServices/containers/blobs/add/action")
+		case r.Method == http.MethodPut && comp == "":
+			// Put Blob, Put Blob from URL and Copy Blob: add/action creates a
+			// blob but does not replace one.
+			op := data("blobServices/containers/blobs/write", container)
+			if _, exists := lookupBlob(r, account, first, rest); !exists {
+				op = op.or("blobServices/containers/blobs/add/action")
+			}
+			return op
 		}
 		return data("blobServices/containers/blobs/"+verb(), container)
 	case "queue":
 		svc := base + "/queueServices/default"
 		if first == "" {
-			if comp == "list" {
+			switch comp {
+			case "list":
 				return action("queueServices/queues/read", svc)
+			case "properties", "stats":
+				// The page names read for Set Queue Service Properties too.
+				return action("queueServices/read", svc)
 			}
 			return action("queueServices/"+verb(), svc)
 		}
@@ -139,13 +165,13 @@ func storageOperationOf(r *http.Request, service, account string) storageOperati
 		messages := "queueServices/queues/messages/"
 		switch {
 		case r.Method == http.MethodPost:
-			return data(messages+"add/action", queue)
+			return data(messages+"add/action", queue).or(messages + "write")
 		case read && strings.EqualFold(q.Get("peekonly"), "true"):
 			return data(messages+"read", queue)
 		case read:
-			return data(messages+"process/action", queue)
+			return data(messages+"process/action", queue).or(messages+"delete", messages+"read")
 		case r.Method == http.MethodDelete && strings.Contains(rest, "/"):
-			return data(messages+"process/action", queue)
+			return data(messages+"process/action", queue).or(messages + "delete")
 		case r.Method == http.MethodDelete:
 			return data(messages+"delete", queue)
 		}
@@ -176,11 +202,16 @@ func storageOperationOf(r *http.Request, service, account string) storageOperati
 		case http.MethodGet, http.MethodHead:
 			return data(entities+"read", table)
 		case http.MethodPost:
-			return data(entities+"add/action", table)
+			return data(entities+"write", table).or(entities + "add/action")
 		case http.MethodDelete:
 			return data(entities+"delete", table)
 		}
-		return data(entities+"update/action", table)
+		// Update and Merge Entity name the entity's ETag in If-Match; without
+		// one the request inserts or replaces.
+		if r.Header.Get("If-Match") != "" {
+			return data(entities+"write", table).or(entities + "update/action")
+		}
+		return data(entities+"write", table).or(entities+"add/action", entities+"update/action")
 	case "file":
 		svc := base + "/fileServices/default"
 		if first == "" {
@@ -205,7 +236,19 @@ func storageOperationOf(r *http.Request, service, account string) storageOperati
 // request's operation.
 func storageBearerAuthorizes(r *http.Request, service, account string, caller rbacCaller) bool {
 	op := storageOperationOf(r, service, account)
-	return rbacAllows(caller, op.scope, op.action, op.data)
+	if rbacAllows(caller, op.scope, op.action, op.data) {
+		return true
+	}
+	for _, alternative := range op.alternatives {
+		granted := true
+		for _, a := range alternative {
+			granted = granted && rbacAllows(caller, op.scope, a, op.data)
+		}
+		if granted {
+			return true
+		}
+	}
+	return false
 }
 
 // storageSharedKeyAllowed reports whether the account accepts its keys:

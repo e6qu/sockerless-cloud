@@ -741,6 +741,18 @@ resource "google_storage_object_access_control" "tf_object_reader" {
   entity = "allUsers"
 }
 
+resource "google_storage_bucket_object" "tf_acl_private_object" {
+  name    = "acl-private.txt"
+  bucket  = google_storage_bucket.tf_acl_bucket.name
+  content = "owner only"
+}
+
+resource "google_storage_object_acl" "tf_object_private" {
+  bucket         = google_storage_bucket.tf_acl_bucket.name
+  object         = google_storage_bucket_object.tf_acl_private_object.output_name
+  predefined_acl = "private"
+}
+
 # Cloud Storage publishes a bucket's object changes as its project's service
 # agent, so the topic grants that agent publish before the configuration names
 # the topic.
@@ -1220,6 +1232,14 @@ output "storage_bucket_url" {
 
 output "storage_object_storage_class" {
   value = google_storage_bucket_object.tf_artifact.storage_class
+}
+
+output "storage_acl_bucket_name" {
+  value = google_storage_bucket.tf_acl_bucket.name
+}
+
+output "storage_private_object_name" {
+  value = google_storage_object_acl.tf_object_private.object
 }
 
 output "logging_project_sink_id" {

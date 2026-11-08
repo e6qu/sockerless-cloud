@@ -39,7 +39,7 @@ describe("deleteGCSBucket", () => {
     await expect(failure).rejects.toMatchObject({
       message: expect.stringContaining(missing),
       status: 404,
-      reason: "NOT_FOUND",
+      reason: "notFound",
     });
   });
 });

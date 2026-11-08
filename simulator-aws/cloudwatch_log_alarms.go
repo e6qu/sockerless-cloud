@@ -46,6 +46,15 @@ type CWLogAlarm struct {
 
 	ConfigurationUpdated int64             `json:"-"`
 	Tags                 map[string]string `json:"-"`
+
+	// The state the evaluator last recorded, a SetAlarmState that holds until
+	// the next scheduled evaluation, and when that evaluation last ran.
+	StateValue            string `json:"-"`
+	StateReason           string `json:"-"`
+	StateUpdatedTimestamp int64  `json:"-"`
+	ManualState           string `json:"-"`
+	ManualStateReason     string `json:"-"`
+	LastEvaluated         int64  `json:"-"`
 }
 
 var cwLogAlarms sim.Store[CWLogAlarm]
@@ -209,10 +218,24 @@ func cwApplyPutLogAlarm(req *cwPutLogAlarmInput) CWLogAlarm {
 		for _, t := range tags {
 			alarm.Tags[t.Key] = t.Value
 		}
-	} else if existing, ok := cwLogAlarms.Get(req.AlarmName); ok {
-		alarm.Tags = existing.Tags
+	}
+	existing, exists := cwLogAlarms.Get(req.AlarmName)
+	if exists {
+		if alarm.Tags == nil {
+			alarm.Tags = existing.Tags
+		}
+		alarm.StateValue, alarm.StateReason, alarm.StateUpdatedTimestamp = existing.StateValue, existing.StateReason, existing.StateUpdatedTimestamp
+		alarm.ManualState, alarm.ManualStateReason = existing.ManualState, existing.ManualStateReason
 	}
 	cwLogAlarms.Put(req.AlarmName, alarm)
+	now := time.Now().UTC()
+	operation, previous := "create", map[string]any(nil)
+	if exists {
+		operation, previous = "update", cwLogAlarmConfigurationDetail(existing, time.Unix(existing.ConfigurationUpdated, 0))
+	}
+	cwPutAlarmConfigurationChangeEvent(alarm.AlarmName, alarm.AlarmArn, operation,
+		cwAlarmEventState{Value: cwStateOrInsufficient(alarm.StateValue), Timestamp: cwAlarmEventUnixTime(alarm.StateUpdatedTimestamp, now)},
+		cwLogAlarmConfigurationDetail(alarm, now), previous)
 	return alarm
 }
 
@@ -386,7 +409,7 @@ func cwLogAlarmScheduledQueryConfig(a CWLogAlarm) map[string]any {
 
 // awsJson1.0 timestamps are epoch-second numbers.
 func cwJSONLogAlarm(a CWLogAlarm, now time.Time) map[string]any {
-	state, reason, evalState := cwEvaluateLogAlarmState(a)
+	state, reason, evalState := cwLogAlarmEffectiveState(a)
 	out := map[string]any{
 		"AlarmName":                          a.AlarmName,
 		"AlarmArn":                           a.AlarmArn,
@@ -451,7 +474,7 @@ type cborLogAlarm struct {
 }
 
 func cborLogAlarmOf(a CWLogAlarm, now time.Time) cborLogAlarm {
-	state, reason, evalState := cwEvaluateLogAlarmState(a)
+	state, reason, evalState := cwLogAlarmEffectiveState(a)
 	return cborLogAlarm{
 		AlarmName:                          a.AlarmName,
 		AlarmArn:                           a.AlarmArn,

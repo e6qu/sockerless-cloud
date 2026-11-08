@@ -59,7 +59,7 @@ func handleRDSCreateClusterEndpoint(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, ok := rdsClusters.Get(clusterID); !ok {
+	if _, ok := rdsClusterIn(r, clusterID); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", clusterID),
 			http.StatusNotFound, sim.RequestID(r.Context()))

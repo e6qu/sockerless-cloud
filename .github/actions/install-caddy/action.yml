@@ -1,0 +1,16 @@
+name: Install Caddy
+description: >-
+  Installs the Caddy release scripts/install-caddy.sh pins, restoring the
+  verified release archive from the Actions cache so a job does not depend on
+  GitHub release downloads, which answer 504 for minutes at a time.
+runs:
+  using: composite
+  steps:
+    - name: Restore the Caddy release archive
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/.cache/sockerless/caddy
+        key: caddy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-caddy.sh') }}
+    - name: Install Caddy
+      shell: bash
+      run: CADDY_ARCHIVE_DIR="$HOME/.cache/sockerless/caddy" bash scripts/install-caddy.sh

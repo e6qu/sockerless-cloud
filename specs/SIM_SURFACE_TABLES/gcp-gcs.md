@@ -17,10 +17,10 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `GET /storage/v1/b/{bucket}/notificationConfigs` | ○ `simulator-gcp/gcs.go:901::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:909::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/notificationConfigs` | ✓ `simulator-gcp/gcs.go:919::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:959::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/notificationConfigs` | ○ `simulator-gcp/gcs.go:918::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:926::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/notificationConfigs` | ✓ `simulator-gcp/gcs.go:936::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}` | ✓ `simulator-gcp/gcs.go:976::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs_buckets.go:115::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /storage/v1/b/{bucket}` | ✓ `simulator-gcp/gcs_buckets.go:117::patchBucket` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/storageLayout` | ✓ `simulator-gcp/gcs_buckets.go:119::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -82,15 +82,15 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /storage/v1/projects/{projectId}/hmacKeys` | ✓ `simulator-gcp/gcs_hmac_keys.go:52::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /storage/v1/projects/{projectId}/hmacKeys/{accessId}` | ✓ `simulator-gcp/gcs_hmac_keys.go:83::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_objects.go:16::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:176::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:178::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:180::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /storage/v1/b/{bucket}/o/{destObject...}` | ✓ `simulator-gcp/gcs_objects.go:214::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action /{bucket}/{object...}` | ✓ `simulator-gcp/gcs_objects.go:312::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /download/storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:363::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:182::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:184::patchObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:186::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /storage/v1/b/{bucket}/o/{destObject...}` | ✓ `simulator-gcp/gcs_objects.go:220::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action /{bucket}/{object...}` | ✓ `simulator-gcp/gcs_objects.go:326::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /download/storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:383::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /storage/v1/b/{bucket}/o/{object...}` | ✓ `simulator-gcp/gcs_objects.go:97::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:204::uploadObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /resumable/upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:206::uploadObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:220::uploadObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /resumable/upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:222::uploadObject` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:32::resumableChunk` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `DELETE /upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:34::resumableChunk` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PUT /resumable/upload/storage/v1/b/{bucket}/o` | ✓ `simulator-gcp/gcs_uploads.go:36::resumableChunk` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

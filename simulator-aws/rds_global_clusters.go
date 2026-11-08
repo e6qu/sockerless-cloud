@@ -36,7 +36,13 @@ func renderRDSGlobalCluster(g RDSGlobalCluster, elem string) string {
 		b.WriteString("<GlobalClusterMember>")
 		fmt.Fprintf(&b, "<DBClusterArn>%s</DBClusterArn>", xmlEscape(arn))
 		fmt.Fprintf(&b, "<IsWriter>%t</IsWriter>", i == 0)
-		b.WriteString("<Readers></Readers>")
+		b.WriteString("<Readers>")
+		if i == 0 {
+			for _, reader := range g.Members[1:] {
+				fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(reader))
+			}
+		}
+		b.WriteString("</Readers>")
 		b.WriteString("</GlobalClusterMember>")
 	}
 	b.WriteString("</GlobalClusterMembers>")
@@ -149,4 +155,101 @@ func handleRDSDeleteGlobalCluster(w http.ResponseWriter, r *http.Request) {
 	rdsGlobalClusters.Delete(id)
 	g.Status = "deleting"
 	rdsXMLResponse(w, "DeleteGlobalCluster", renderRDSGlobalCluster(g, "GlobalCluster"), sim.RequestID(r.Context()))
+}
+
+// rdsGlobalSecondaryLimit is how many secondary DB clusters a global database
+// takes (aurora-global-database-attaching.md.gz).
+const rdsGlobalSecondaryLimit = 10
+
+func rdsARNRegion(arn string) string {
+	if parts := strings.SplitN(arn, ":", 5); len(parts) == 5 {
+		return parts[3]
+	}
+	return ""
+}
+
+// rdsGlobalClusterForCreate resolves the global database a CreateDBCluster
+// joins. The first cluster to join becomes its primary; a later one joins as
+// a read-only secondary in a Region no member uses, up to ten secondaries,
+// and with the primary's readers no more than fifteen.
+func rdsGlobalClusterForCreate(w http.ResponseWriter, r *http.Request, globalID string) (RDSGlobalCluster, bool, bool) {
+	requestID := sim.RequestID(r.Context())
+	g, ok := rdsGlobalClusters.Get(globalID)
+	if !ok {
+		rdsErrorXML(w, "GlobalClusterNotFoundFault", fmt.Sprintf("GlobalCluster %q not found", globalID), http.StatusNotFound, requestID)
+		return RDSGlobalCluster{}, false, false
+	}
+	if len(g.Members) == 0 {
+		return g, false, true
+	}
+	region := rdsRequestRegion(r)
+	for _, member := range g.Members {
+		if rdsARNRegion(member) == region {
+			rdsErrorXML(w, "InvalidGlobalClusterStateFault",
+				fmt.Sprintf("Global cluster %s already has a member DB cluster in %s.", globalID, region), http.StatusBadRequest, requestID)
+			return RDSGlobalCluster{}, false, false
+		}
+	}
+	readers := 0
+	if primary, ok := findRDSClusterByARN(g.Members[0]); ok {
+		readers = max(len(rdsClusterMembers(primary.DBClusterIdentifier))-1, 0)
+	}
+	secondaries := len(g.Members) - 1
+	if secondaries >= rdsGlobalSecondaryLimit || readers+secondaries >= 15 {
+		rdsErrorXML(w, "InvalidGlobalClusterStateFault",
+			fmt.Sprintf("Global cluster %s cannot take another secondary DB cluster.", globalID), http.StatusBadRequest, requestID)
+		return RDSGlobalCluster{}, false, false
+	}
+	return g, true, true
+}
+
+// rdsGlobalMember resolves a global database member named by ARN or
+// identifier: DBClusterNotFoundFault when no such cluster exists,
+// InvalidGlobalClusterStateFault when it is no member.
+func rdsGlobalMember(w http.ResponseWriter, r *http.Request, g RDSGlobalCluster, target string) (int, bool) {
+	requestID := sim.RequestID(r.Context())
+	cluster, ok := findRDSClusterByARN(target)
+	if !ok {
+		cluster, ok = rdsClusterIn(r, target)
+	}
+	if !ok {
+		rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %s not found.", target), http.StatusNotFound, requestID)
+		return 0, false
+	}
+	for i, member := range g.Members {
+		if member == cluster.ARN {
+			return i, true
+		}
+	}
+	rdsErrorXML(w, "InvalidGlobalClusterStateFault",
+		fmt.Sprintf("DB cluster %s is not a member of global cluster %s.", cluster.ARN, g.GlobalClusterIdentifier), http.StatusBadRequest, requestID)
+	return 0, false
+}
+
+// rdsPromoteGlobalMember makes the member at index the writer; the old
+// primary stays as a read-only secondary.
+func rdsPromoteGlobalMember(w http.ResponseWriter, r *http.Request, action string) {
+	id := r.FormValue("GlobalClusterIdentifier")
+	requestID := sim.RequestID(r.Context())
+	g, ok := rdsGlobalClusters.Get(id)
+	if !ok {
+		rdsErrorXML(w, "GlobalClusterNotFoundFault", fmt.Sprintf("GlobalCluster %q not found", id), http.StatusNotFound, requestID)
+		return
+	}
+	index, ok := rdsGlobalMember(w, r, g, r.FormValue("TargetDbClusterIdentifier"))
+	if !ok {
+		return
+	}
+	if index == 0 {
+		rdsErrorXML(w, "InvalidGlobalClusterStateFault",
+			fmt.Sprintf("DB cluster %s is already the primary of global cluster %s.", g.Members[0], id), http.StatusBadRequest, requestID)
+		return
+	}
+	rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
+		promoted := x.Members[index]
+		rest := append(append([]string{}, x.Members[:index]...), x.Members[index+1:]...)
+		x.Members = append([]string{promoted}, rest...)
+	})
+	g, _ = rdsGlobalClusters.Get(id)
+	rdsXMLResponse(w, action, renderRDSGlobalCluster(g, "GlobalCluster"), requestID)
 }

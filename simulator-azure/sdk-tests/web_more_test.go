@@ -85,8 +85,23 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 		_, err := usagePager.NextPage(ctx)
 		require.NoError(t, err)
 	}
+
+	// A soft restart restarts nothing whose configuration is applied; the
+	// default restarts every app on the plan.
+	webApps, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	webMoreCreateSite(t, webApps, rg, "wm-plan-site", planID)
+	diagnostics, err := armappservice.NewDiagnosticsClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	_, err = client.RestartWebApps(ctx, rg, "wm-plan", &armappservice.PlansClientRestartWebAppsOptions{SoftRestart: to.Ptr(true)})
+	require.NoError(t, err)
+	quiet := executeDetector(t, diagnostics, rg, "wm-plan-site", "siterestartuserinitiated")
+	assert.Empty(t, quiet.Properties.Data, "a soft restart of an applied configuration restarts nothing")
 	_, err = client.RestartWebApps(ctx, rg, "wm-plan", nil)
 	require.NoError(t, err)
+	restarted := executeDetector(t, diagnostics, rg, "wm-plan-site", "siterestartuserinitiated")
+	require.Len(t, restarted.Properties.Data, 1, "restarting the plan restarts its app")
+	assert.Equal(t, "Restart", detectorValue(t, restarted.Properties.Data[0], "Operation"))
 }
 
 func webMoreCreateSite(t *testing.T, client *armappservice.WebAppsClient, rg, name, planID string) {
@@ -461,11 +476,25 @@ func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
 	require.NoError(t, err)
 	_, err = mgmt.ListSKUs(ctx, nil)
 	require.NoError(t, err)
-	geoPager := mgmt.NewListGeoRegionsPager(nil)
+	// The subscription's regions, by display name.
+	var regions []string
+	geoPager := mgmt.NewListGeoRegionsPager(&armappservice.WebSiteManagementClientListGeoRegionsOptions{
+		SKU: to.Ptr(armappservice.SKUNameDynamic), LinuxWorkersEnabled: to.Ptr(true),
+	})
 	for geoPager.More() {
-		_, err := geoPager.NextPage(ctx)
+		page, err := geoPager.NextPage(ctx)
 		require.NoError(t, err)
+		for _, region := range page.Value {
+			regions = append(regions, *region.Name)
+			assert.Equal(t, *region.Name, *region.Properties.DisplayName)
+		}
 	}
+	assert.Contains(t, regions, "East US")
+	// No region runs Xenon (Windows container) workers.
+	xenon := mgmt.NewListGeoRegionsPager(&armappservice.WebSiteManagementClientListGeoRegionsOptions{XenonWorkersEnabled: to.Ptr(true)})
+	page, err := xenon.NextPage(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, page.Value)
 
 	delClient, err := armappservice.NewDeletedWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)

@@ -47,6 +47,8 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 	require.NotNil(t, dequeued.Messages[0].PopReceipt)
 	messageID := *dequeued.Messages[0].MessageID
 	popReceipt := *dequeued.Messages[0].PopReceipt
+	require.NotNil(t, dequeued.Messages[0].TimeNextVisible)
+	dequeueVisible := *dequeued.Messages[0].TimeNextVisible
 
 	_, err = queueClient.UpdateMessage(ctx, messageID, "not-the-receipt", "work item",
 		&azqueue.UpdateMessageOptions{VisibilityTimeout: to.Ptr(int32(600))})
@@ -63,8 +65,10 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 	assert.True(t, updated.TimeNextVisible.After(time.Now().Add(5*time.Minute)),
 		"the extended visibility timeout must actually move the time the message reappears")
 
-	// Nothing else may dequeue the message.
-	time.Sleep(1500 * time.Millisecond)
+	// Nothing else may dequeue the message once the visibility timeout the
+	// dequeue set has run out. The service reports that instant to the second,
+	// so wait out the second it names.
+	time.Sleep(time.Until(dequeueVisible.Add(time.Second)))
 	other, err := queueClient.DequeueMessage(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, other.Messages,
