@@ -1938,9 +1938,6 @@ fails once the row closes or the operation is served.
   in), record `parent`, and run their operations under
   `locations/global/operations` with an `org-` name and the policy's id as
   `targetId`, which the Terraform provider and gcloud's poller read.
-- **Cloud Storage legacy object roles** are seeded only on buckets created
-  with uniform bucket-level access; a fine-grained bucket's members reach
-  objects through the default object ACL.
 - **Compute Engine instance identity.** An instance inserted without a
   service account has no identity on the metadata server, and identity tokens
   name the account by its IAM `uniqueId` in `sub` and `azp`.
