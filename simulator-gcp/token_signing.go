@@ -304,18 +304,39 @@ func bearerAuthMiddleware(srv *sim.Server) func(http.Handler) http.Handler {
 // plane that the API-method gate does not cover calls it itself, once it knows
 // the request is one it serves.
 func verifyRequestBearer(w http.ResponseWriter, r *http.Request) bool {
+	target := gcpRequestTarget(r)
+	missing, err := requestBearerFailure(r, target)
+	switch {
+	case missing && gcsStorageRequest(r.URL.Path):
+		writeGCSJSONErrorItem(w, http.StatusUnauthorized, map[string]string{
+			"domain": "global", "reason": "required", "message": "Login Required",
+			"locationType": "header", "location": "Authorization",
+		})
+	case missing:
+		gcpUnauthenticated(w, gcpMissingCredentialMessage, "CREDENTIALS_MISSING", target)
+	case err != nil && gcsStorageRequest(r.URL.Path):
+		writeGCSJSONErrorItem(w, http.StatusUnauthorized, map[string]string{
+			"domain": "global", "reason": "authError", "message": gcpInvalidCredentialMessage,
+			"locationType": "header", "location": "Authorization",
+		})
+	case err != nil:
+		gcpUnauthenticated(w, gcpInvalidCredentialMessage, gcpCredentialReason(err), target)
+	default:
+		return true
+	}
+	return false
+}
+
+// requestBearerFailure reports whether the request carries no bearer token,
+// or why the one it carries does not verify for the target's services.
+func requestBearerFailure(r *http.Request, target gcpCallTarget) (missing bool, err error) {
 	auth := r.Header.Get("Authorization")
 	const prefix = "Bearer "
-	target := gcpRequestTarget(r)
 	if !strings.HasPrefix(auth, prefix) {
-		gcpUnauthenticated(w, gcpMissingCredentialMessage, "CREDENTIALS_MISSING", target)
-		return false
+		return true, nil
 	}
-	if _, err := verifiedAccessTokenClaimsFor(strings.TrimSpace(auth[len(prefix):]), target.services); err != nil {
-		gcpUnauthenticated(w, gcpInvalidCredentialMessage, gcpCredentialReason(err), target)
-		return false
-	}
-	return true
+	_, err = verifiedAccessTokenClaimsFor(strings.TrimSpace(auth[len(prefix):]), target.services)
+	return false, err
 }
 
 // gcpCredentialReason is the google.api.ErrorReason Google's front end refuses

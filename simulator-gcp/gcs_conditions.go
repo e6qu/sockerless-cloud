@@ -116,7 +116,7 @@ func (p gcsPreconditions) readOutcome(obj GCSObject) int {
 func gcsJSONReadPreconditionsMet(w http.ResponseWriter, r *http.Request, obj GCSObject) bool {
 	pre, err := parseGCSPreconditions(r.URL.Query(), false)
 	if err != nil {
-		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return false
 	}
 	switch pre.readOutcome(obj) {
@@ -152,17 +152,67 @@ func writeGCSPreconditionFailed(w http.ResponseWriter) {
 // writeGCSJSONError answers a JSON API request in the service's error
 // envelope, whose errors[].reason clients branch on.
 func writeGCSJSONError(w http.ResponseWriter, status int, reason, message string) {
+	writeGCSJSONErrorItem(w, status, map[string]string{"message": message, "domain": "global", "reason": reason})
+}
+
+func writeGCSJSONErrorItem(w http.ResponseWriter, status int, item map[string]string) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{
 			"code":    status,
-			"message": message,
-			"errors": []map[string]string{{
-				"message": message, "domain": "global", "reason": reason,
-			}},
+			"message": item["message"],
+			"errors":  []map[string]string{item},
 		},
 	})
+}
+
+// gcsError answers a JSON API request with the reason
+// storage-json-status-codes.md.gz lists for the status. The JSON API carries
+// no google.rpc status name, so grpcStatus only separates a 400's reasons.
+func gcsError(w http.ResponseWriter, code int, message, grpcStatus string) {
+	domain, reason := "global", ""
+	switch code {
+	case http.StatusBadRequest:
+		reason = "invalid"
+		if grpcStatus == "FAILED_PRECONDITION" {
+			reason = "badRequest"
+		}
+	case http.StatusUnauthorized:
+		reason = "required"
+	case http.StatusForbidden:
+		reason = "forbidden"
+	case http.StatusNotFound:
+		reason = "notFound"
+	case http.StatusMethodNotAllowed:
+		reason = "methodNotAllowed"
+	case http.StatusConflict:
+		reason = "conflict"
+	case http.StatusPreconditionFailed:
+		reason = "conditionNotMet"
+	case http.StatusRequestedRangeNotSatisfiable:
+		reason = "requestedRangeNotSatisfiable"
+	case http.StatusTooManyRequests:
+		domain, reason = "usageLimits", "rateLimitExceeded"
+	case http.StatusServiceUnavailable:
+		reason = "backendError"
+	default:
+		reason = "internalError"
+		if code < http.StatusInternalServerError {
+			reason = "invalid"
+		}
+	}
+	writeGCSJSONErrorItem(w, code, map[string]string{"message": message, "domain": domain, "reason": reason})
+}
+
+func gcsErrorf(w http.ResponseWriter, code int, grpcStatus string, format string, args ...any) {
+	gcsError(w, code, fmt.Sprintf(format, args...), grpcStatus)
+}
+
+// gcsRequired answers a missing required parameter or body property with the
+// JSON API's required reason.
+func gcsRequired(w http.ResponseWriter, message string) {
+	writeGCSJSONError(w, http.StatusBadRequest, "required", message)
 }
 
 // gcsObjectWriters serializes the writes to one object: Cloud Storage
@@ -220,7 +270,7 @@ var gcsRangeGrammar = blobstore.RangeOpts{AllowSuffix: true, AllowOpenEnd: true,
 func serveGCSObjectMedia(w http.ResponseWriter, r *http.Request, obj GCSObject) {
 	obj, body, err := gcsOpenObject(obj)
 	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return
 	}
 	defer func() { _ = body.Close() }()
@@ -260,7 +310,7 @@ func serveGCSObjectMedia(w http.ResponseWriter, r *http.Request, obj GCSObject) 
 		return
 	}
 	if err := blobstore.ServeRange(w, r, body, start, end, size); err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 	}
 }
 

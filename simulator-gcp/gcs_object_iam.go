@@ -23,11 +23,11 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 	resolve := func(w http.ResponseWriter, r *http.Request) (bucket, object string, ok bool) {
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		if _, found := buckets.Get(bucket); !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return "", "", false
 		}
 		if _, found := objects.Get(bucket + "/" + object); !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
 			return "", "", false
 		}
 		return bucket, object, true
@@ -56,7 +56,7 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 		}
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		policy.Etag = gcpPolicyETag()

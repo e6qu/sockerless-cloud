@@ -24,7 +24,7 @@ func snsEmailDomain(endpoint string) (string, error) {
 }
 
 func snsConfirmationEnvelope(sub SNSSubscription) map[string]any {
-	token := snsConfirmationToken(sub)
+	token := sub.ConfirmationToken
 	messageID := sim.NewUUID()
 	subscribeURL := snsControlURL(sub, "ConfirmSubscription", url.Values{
 		"TopicArn": {sub.TopicARN},

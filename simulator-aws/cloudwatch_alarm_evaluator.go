@@ -37,12 +37,14 @@ func startCWAlarmEvaluator(srv *sim.Server) {
 const cwAlarmEvalInterval = 250 * time.Millisecond
 
 // Recover a panic per alarm so one bad alarm cannot stop delivery for the
-// rest. Composite alarms evaluate after the metric alarms they read.
+// rest. Composite alarms evaluate after the metric and log alarms they read.
 func cwEvaluateAlarmsOnce() {
 	for _, a := range cwAlarms.List() {
 		cwEvaluateAlarm(a)
 	}
-	cwEvaluateCompositeAlarms(time.Now())
+	now := time.Now()
+	cwEvaluateLogAlarms(now)
+	cwEvaluateCompositeAlarms(now)
 }
 
 // Only the background sweep calls this: dispatching from a read would let
@@ -72,7 +74,6 @@ func cwEvaluateAlarm(a CWAlarm) {
 			if prev == newState {
 				return
 			}
-			cwDispatchAlarmActions(*x, prev, newState, reason)
 			before = *x
 			x.StateValue = newState
 			x.StateReason = reason
@@ -83,7 +84,6 @@ func cwEvaluateAlarm(a CWAlarm) {
 			return
 		}
 		cwEvalLogger.Info().Str("alarmName", alarm.AlarmName).Str("oldState", prev).Str("newState", newState).Msg("CloudWatch alarm transitioned")
-		cwPutMetricAlarmStateChangeEvent(before, prev, newState, reason, time.Now())
 		historyData, _ := json.Marshal(map[string]string{
 			"previousState": prev,
 			"newState":      newState,
@@ -91,36 +91,37 @@ func cwEvaluateAlarm(a CWAlarm) {
 		})
 		cwRecordAlarmHistory(alarm.AlarmName, "MetricAlarm", "StateUpdate",
 			fmt.Sprintf("Alarm updated from %s to %s", prev, newState), string(historyData))
+		cwMetricAlarmTransition(before, prev, newState, reason, time.Now()).run()
 		ecsRequestServiceReconcileForAlarm(alarm.AlarmName)
 	}(a)
 }
 
-// Skip a topic ARN that no longer resolves, as CloudWatch drops a deleted
-// action target.
-func cwDispatchAlarmActions(a CWAlarm, oldState, newState, reason string) {
-	if !a.ActionsEnabled {
-		cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Msg("CloudWatch alarm actions disabled")
-		return
+// cwMetricAlarmTransition describes a metric alarm, as it stood before, moving
+// from prev to newState.
+func cwMetricAlarmTransition(before CWAlarm, prev, newState, reason string, at time.Time) cwAlarmTransition {
+	return cwAlarmTransition{
+		Name:           before.AlarmName,
+		Arn:            before.AlarmArn,
+		ActionsEnabled: before.ActionsEnabled,
+		Targets:        cwActionsForState(newState, before.AlarmActions, before.OKActions, before.InsufficientDataActions),
+		Subject:        cwAlarmNotificationSubject(newState, before.AlarmName),
+		SNSMessage:     cwAlarmNotificationMessage(before, prev, newState, reason),
+		Configuration:  cwMetricAlarmEventConfiguration(before),
+		Previous:       cwAlarmEventState{Value: prev, Reason: before.StateReason, Timestamp: cwAlarmEventUnixTime(before.StateUpdatedTimestamp, at)},
+		State:          cwAlarmEventState{Value: newState, Reason: reason, Timestamp: cwAlarmEventTime(at)},
+		ActionConfig:   before.ActionConfiguration,
+		Tags:           before.Tags,
 	}
-	targets := cwActionsForState(newState, a.AlarmActions, a.OKActions, a.InsufficientDataActions)
-	if len(targets) == 0 {
-		cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Msg("CloudWatch alarm has no action targets for state")
-		return
-	}
-	cwPublishAlarmNotification(a.AlarmName, targets, cwAlarmNotificationSubject(newState, a.AlarmName),
-		cwAlarmNotificationMessage(a, oldState, newState, reason))
 }
 
-func cwPublishAlarmNotification(alarmName string, targets []string, subject, message string) {
-	cwEvalLogger.Info().Str("alarmName", alarmName).Int("targetCount", len(targets)).Msg("CloudWatch alarm dispatching actions")
-	for _, topicARN := range targets {
-		name := snsTopicNameFromARN(topicARN)
-		if _, ok := snsTopics.Get(name); !ok {
-			cwEvalLogger.Info().Str("alarmName", alarmName).Str("topicARN", topicARN).Msg("CloudWatch alarm action topic not found")
-			continue
-		}
-		snsFanout(topicARN, sim.NewUUID(), subject, message, nil)
+// Skip a topic that no longer exists, as CloudWatch drops a deleted action
+// target.
+func cwPublishAlarmNotification(alarmName, topicARN, subject, message string) {
+	if _, ok := snsTopics.Get(snsTopicNameFromARN(topicARN)); !ok {
+		cwEvalLogger.Info().Str("alarmName", alarmName).Str("topicARN", topicARN).Msg("CloudWatch alarm action topic not found")
+		return
 	}
+	snsFanout(topicARN, sim.NewUUID(), subject, message, nil)
 }
 
 // The SNS Message an Amazon SQS subscriber parses.

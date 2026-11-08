@@ -243,11 +243,11 @@ func registerGCSObjectContexts(srv *sim.Server, buckets sim.Store[Bucket], objec
 		bucket, object := sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		key := r.URL.Query().Get("contextKey")
 		if key == "" {
-			GCPError(w, http.StatusBadRequest, "Required parameter: contextKey", "INVALID_ARGUMENT")
+			gcsRequired(w, "Required parameter: contextKey")
 			return
 		}
 		if _, found := buckets.Get(bucket); !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return
 		}
 		obj, found := objects.Get(bucket + "/" + object)
@@ -255,12 +255,12 @@ func registerGCSObjectContexts(srv *sim.Server, buckets sim.Store[Bucket], objec
 			found = false
 		}
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
 			return
 		}
 		ctx, found := obj.CustomContexts[key]
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q has no context %q", object, key)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q has no context %q", object, key)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{

@@ -116,14 +116,22 @@ type GCSObject struct {
 	CustomTime         string                      `json:"customTime,omitempty"`
 	Metadata           map[string]string           `json:"metadata,omitempty"`
 	CustomContexts     map[string]gcsCustomContext `json:"customContexts,omitempty"`
-	TimeCreated        string                      `json:"timeCreated"`
-	Updated            string                      `json:"updated"`
-	Generation         string                      `json:"generation,omitempty"`
-	Metageneration     string                      `json:"metageneration,omitempty"`
-	Md5Hash            string                      `json:"md5Hash,omitempty"`
-	Crc32c             string                      `json:"crc32c,omitempty"`
-	ComponentCount     int64                       `json:"componentCount,omitempty"`
-	Etag               string                      `json:"etag,omitempty"`
+	// Owner is the object's uploader; storage-access-control-lists.md.gz
+	// makes the project owners group the owner of an anonymous upload, which
+	// a nil Owner stands for.
+	Owner *gcsObjectOwner `json:"owner,omitempty"`
+	// CreateACL is the access control list the write asked the new object to
+	// start with. A resumable session stores it until the final chunk;
+	// persistGCSObject consumes it.
+	CreateACL      *gcsCreateACL `json:"createAcl,omitempty"`
+	TimeCreated    string        `json:"timeCreated"`
+	Updated        string        `json:"updated"`
+	Generation     string        `json:"generation,omitempty"`
+	Metageneration string        `json:"metageneration,omitempty"`
+	Md5Hash        string        `json:"md5Hash,omitempty"`
+	Crc32c         string        `json:"crc32c,omitempty"`
+	ComponentCount int64         `json:"componentCount,omitempty"`
+	Etag           string        `json:"etag,omitempty"`
 	// Body references the generation's contents in gcsBodies. The store
 	// persists it; no API response carries it.
 	Body           string `json:"-"`
@@ -360,13 +368,14 @@ func persistGCSObject(objects sim.PrefixStore[GCSObject], bucketName, objectName
 			obj.StorageClass, _ = bucket.Data["storageClass"].(string)
 		}
 	}
+	create := obj.CreateACL
+	obj.CreateACL = nil
 	objects.Put(bucketName+"/"+objectName, obj)
 	if existed {
 		bucket, _ := gcsBuckets.Get(bucketName)
-		gcsRetireGeneration(bucket, existing)
-	} else {
-		gcsSeedObjectACL(bucketName, objectName, obj.Generation)
+		gcsRetireObject(bucket, bucketName, existing)
 	}
+	gcsSeedObjectACL(bucketName, objectName, obj.Generation, obj.Owner, create)
 	place(obj)
 	gcsNotifyWrite(obj, existing, existed)
 	return obj, nil
@@ -388,10 +397,10 @@ func writeGCSPersistError(w http.ResponseWriter, action string, err error) {
 	}
 	var invalid *invalidGCSObjectMetadataError
 	if errors.As(err, &invalid) {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s: %v", action, err)
+		gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s: %v", action, err)
 		return
 	}
-	GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%s: %v", action, err)
+	gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "%s: %v", action, err)
 }
 
 // gcsResumableSession is a resumable upload between its initiation and the
@@ -436,7 +445,7 @@ func handleGCSResumableCancel(w http.ResponseWriter, uploadID string) {
 	defer gcsResumableWriters.Lock(uploadID)()
 	sess, ok := gcsResumableSessions.Get(uploadID)
 	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"resumable upload session %q not found", uploadID)
 		return
 	}
@@ -547,6 +556,9 @@ func gcsObjectMetadata(r *http.Request, obj GCSObject) map[string]any {
 		if entries := gcsObjectACLEntries(obj.Bucket, obj.Name); len(entries) > 0 {
 			meta["acl"] = entries
 		}
+		if obj.Owner != nil {
+			meta["owner"] = obj.Owner
+		}
 	}
 	return meta
 }
@@ -611,11 +623,11 @@ func handleGCSObjectCopyRequest(w http.ResponseWriter, r *http.Request, buckets 
 		return false
 	}
 	if _, ok := buckets.Get(srcBucket); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", srcBucket)
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", srcBucket)
 		return true
 	}
 	if _, ok := buckets.Get(dstBucket); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", dstBucket)
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", dstBucket)
 		return true
 	}
 	copied, ok := copyGCSObject(w, r, srcBucket, srcObject, dstBucket, dstObject, objects)
@@ -688,17 +700,17 @@ func pathUnescape(s string) (string, bool) {
 func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject, dstBucket, dstObject string, objects sim.PrefixStore[GCSObject]) (GCSObject, bool) {
 	pre, err := parseGCSPreconditions(r.URL.Query(), false)
 	if err != nil {
-		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return GCSObject{}, false
 	}
 	sourcePre, err := parseGCSPreconditions(r.URL.Query(), true)
 	if err != nil {
-		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return GCSObject{}, false
 	}
 	src, ok := objects.Get(srcBucket + "/" + srcObject)
 	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 			"source object %q not found in bucket %q", srcObject, srcBucket)
 		return GCSObject{}, false
 	}
@@ -711,19 +723,24 @@ func copyGCSObject(w http.ResponseWriter, r *http.Request, srcBucket, srcObject,
 	if r.Body != nil {
 		defer r.Body.Close()
 		if err := json.NewDecoder(r.Body).Decode(&meta); err != nil && err != io.EOF {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"failed to parse copy metadata: %v", err)
 			return GCSObject{}, false
 		}
 		dstAttrs = meta.applyTo(dstAttrs)
 	}
 	if dstAttrs.CustomContexts, err = gcsDestinationContexts(r, &meta, src); err != nil {
-		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+		return GCSObject{}, false
+	}
+	dstAttrs.Owner = gcsUploader(r)
+	if dstAttrs.CreateACL, err = gcsWriteCreateACL(r, "destinationPredefinedAcl", meta.Acl); err != nil {
+		writeGCSJSONError(w, http.StatusBadRequest, "invalidParameter", err.Error())
 		return GCSObject{}, false
 	}
 	_, copied, digests, err := gcsCopyContents(src)
 	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
 		return GCSObject{}, false
 	}
 	dst, err := persistGCSObject(objects, dstBucket, dstObject, copied, digests, dstAttrs, pre, gcsMirror)
@@ -876,7 +893,7 @@ func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.P
 
 	bucketExists := func(w http.ResponseWriter, name string) bool {
 		if _, ok := buckets.Get(name); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
 			return false
 		}
 		return true
@@ -910,7 +927,7 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "notification")
 		n, ok := gcsNotifications.Get(gcsNotificationKey(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, n)
@@ -923,11 +940,11 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 		}
 		var in GCSNotification
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Topic == "" {
-			GCPError(w, http.StatusBadRequest, "topic is required", "INVALID_ARGUMENT")
+			gcsRequired(w, "topic is required")
 			return
 		}
 		topicName, valid := gcsNotificationTopicName(in.Topic)
@@ -959,7 +976,7 @@ func registerGCSNotifications(srv *sim.Server, buckets sim.Store[Bucket], bucket
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/notificationConfigs/{notification}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "notification")
 		if !gcsNotifications.Delete(gcsNotificationKey(bucket, id)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "notification %q not found in bucket %q", id, bucket)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1073,7 +1090,7 @@ func gcsLookupOperation(w http.ResponseWriter, r *http.Request, bucketExists fun
 	name := gcsOperationName(bucket, id)
 	op, ok := crOperations.Get(name)
 	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 		return Operation{}, false
 	}
 	return op, true
@@ -1096,7 +1113,7 @@ func gcsOperationFilter(w http.ResponseWriter, r *http.Request) (done, filtered,
 			return false, true, true
 		}
 	}
-	GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+	gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 		"unsupported filter %q: the operations collection filters on `done = true` or `done = false`", filter)
 	return false, false, false
 }

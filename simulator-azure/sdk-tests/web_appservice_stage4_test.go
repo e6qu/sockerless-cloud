@@ -726,17 +726,19 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 	_, err = client.UpdateMachineKey(ctx, rg, "s4-machinekey-site", nil)
 	require.NoError(t, err)
 
-	// The simulator hard-deletes sites, so every deletedSiteId is absent.
+	// App Service keeps a deleted site under its deletedSiteId
+	// (TestSDK_WebApps_SnapshotsAndDeletedAppRestore reads one back); an ID no deletion
+	// issued names nothing.
 	global, err := armappservice.NewGlobalClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = global.GetDeletedWebApp(ctx, "12345", nil)
-	require.Error(t, err, "no deleted web app exists in the simulator")
+	requireAzureErrorCode(t, err, "ResourceNotFound", "no deletion issued deletedSiteId 12345")
 	_, err = global.GetDeletedWebAppSnapshots(ctx, "12345", nil)
-	require.Error(t, err)
+	requireAzureErrorCode(t, err, "ResourceNotFound", "no deletion issued deletedSiteId 12345")
 	deleted, err := armappservice.NewDeletedWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = deleted.GetDeletedWebAppByLocation(ctx, "eastus", "12345", nil)
-	require.Error(t, err)
+	requireAzureErrorCode(t, err, "ResourceNotFound", "no deletion issued deletedSiteId 12345")
 }
 
 func TestSDK_Web_MoveResources(t *testing.T) {

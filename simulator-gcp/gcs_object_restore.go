@@ -21,6 +21,9 @@ const gcsDefaultSoftDeleteRetention = 7 * 24 * time.Hour
 
 type gcsSoftDeleted struct {
 	Object GCSObject `json:"object"`
+	// ACL is the generation's access control list when it was retired, which
+	// restore's copySourceAcl brings back.
+	ACL []GCSObjectACL `json:"acl,omitempty"`
 	// Body references the retired generation's contents in gcsBodies.
 	Body           string `json:"body,omitempty"`
 	SoftDeleteTime string `json:"softDeleteTime"`
@@ -84,6 +87,7 @@ func gcsRetireGeneration(bucket Bucket, obj GCSObject) bool {
 	now := time.Now().UTC()
 	gcsSoftDeletedObjects.Put(gcsSoftDeleteKey(obj.Bucket, obj.Name, obj.Generation), gcsSoftDeleted{
 		Object:         obj,
+		ACL:            gcsObjectACLEntries(obj.Bucket, obj.Name),
 		Body:           obj.Body,
 		SoftDeleteTime: now.Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z"),
 		HardDeleteTime: now.Add(retention).Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z"),
@@ -91,14 +95,12 @@ func gcsRetireGeneration(bucket Bucket, obj GCSObject) bool {
 	return true
 }
 
-// gcsRetireObject retires a deleted object. An object that is not kept loses
-// its access controls with it.
+// gcsRetireObject retires a deleted object; a kept generation carries its
+// access controls into the soft-deleted entry.
 func gcsRetireObject(bucket Bucket, bucketName string, obj GCSObject) bool {
-	if gcsRetireGeneration(bucket, obj) {
-		return true
-	}
+	kept := gcsRetireGeneration(bucket, obj)
 	gcsDropObjectACL(bucketName, obj.Name)
-	return false
+	return kept
 }
 
 // gcsObjectETag is an object generation's entity tag. Each generation is a
@@ -132,15 +134,15 @@ func gcsRestoreGeneration(objects sim.PrefixStore[GCSObject], bucket Bucket, ent
 	if existed {
 		gcsRetireGeneration(bucket, replaced)
 	}
+	gcsDropObjectACL(restored.Bucket, restored.Name)
 	if copySourceACL {
-		for _, acl := range gcsObjectACLEntries(restored.Bucket, restored.Name) {
+		for _, acl := range entry.ACL {
 			acl.Generation = restored.Generation
 			acl.ID = restored.Bucket + "/" + restored.Name + "/" + restored.Generation + "/" + acl.Entity
 			gcsObjectACLs.Put(gcsObjectACLKey(restored.Bucket, restored.Name, acl.Entity), acl)
 		}
 	} else {
-		gcsDropObjectACL(restored.Bucket, restored.Name)
-		gcsSeedObjectACL(restored.Bucket, restored.Name, restored.Generation)
+		gcsSeedObjectACL(restored.Bucket, restored.Name, restored.Generation, restored.Owner, nil)
 	}
 	gcsMirror(restored)
 	gcsNotifyWrite(restored, replaced, existed)
@@ -184,7 +186,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 	bucketOr404 := func(w http.ResponseWriter, name string) (Bucket, bool) {
 		bucket, ok := buckets.Get(name)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
 			return Bucket{}, false
 		}
 		return bucket, true
@@ -198,19 +200,19 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 		}
 		generation := strings.TrimSpace(r.URL.Query().Get("generation"))
 		if generation == "" {
-			GCPError(w, http.StatusBadRequest, "generation is required to restore an object", "INVALID_ARGUMENT")
+			gcsRequired(w, "generation is required to restore an object")
 			return
 		}
 		gcsPurgeExpiredSoftDeletes(bucketName)
 		entry, ok := gcsSoftDeletedObjects.Get(gcsSoftDeleteKey(bucketName, objectName, generation))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no soft-deleted object %q with generation %s in bucket %q", objectName, generation, bucketName)
 			return
 		}
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 			return
 		}
 		defer gcsObjectWriters.Lock(bucketName + "/" + objectName)()
@@ -242,7 +244,7 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			SoftDeletedBeforeTime string   `json:"softDeletedBeforeTime"`
 		}
 		if err := sim.ReadJSON(r, &request); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		restored := 0
@@ -280,19 +282,19 @@ func registerGCSObjectRestore(srv *sim.Server, buckets sim.Store[Bucket], object
 			return
 		}
 		if !gcsHierarchicalNamespace(bucket) {
-			GCPError(w, http.StatusBadRequest,
+			gcsError(w, http.StatusBadRequest,
 				"The bucket does not have hierarchical namespace enabled, which objects.move requires.",
 				"INVALID_ARGUMENT")
 			return
 		}
 		obj, found := objects.Get(bucketName + "/" + source)
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", source, bucketName)
 			return
 		}
 		obj, copied, digests, err := gcsCopyContents(obj)
 		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
+			gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "read source object: %v", err)
 			return
 		}
 		// The write states that the destination must not exist when the move lands.

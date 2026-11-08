@@ -35,8 +35,12 @@ func TestGCSCLI_BucketAndObjectLifecycle(t *testing.T) {
 		t.Fatalf("gcloud storage cat returned %q", got)
 	}
 
-	require.Contains(t, gcloudCLIFails(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket)), "not empty",
-		"deleting a bucket that holds an object fails as not empty")
+	// gcloud logs a failed task as the exception's repr, which carries no
+	// message; the debug traceback carries the service's.
+	refused := gcloudCLIFails(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket, "--verbosity=debug"))
+	require.Contains(t, refused, "GcsConflictError", "deleting a bucket that holds an object conflicts")
+	require.Contains(t, refused, "The bucket you tried to delete is not empty.",
+		"gcloud reads the message from the JSON API's error envelope")
 
 	runCLI(t, gcloudCLI("storage", "rm", "gs://"+bucket+"/"+object))
 	runCLI(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket))
@@ -110,6 +114,63 @@ func cliObjectGeneration(t *testing.T, listing string) string {
 		t.Fatalf("soft-deleted listing carried no generation: %s", listing)
 		return ""
 	}
+}
+
+// TestGCSCLI_PredefinedObjectACL: `gcloud storage cp --predefined-acl` gives
+// the new object that predefined ACL in place of the bucket's default object
+// ACL, with the uploader as its owner.
+func TestGCSCLI_PredefinedObjectACL(t *testing.T) {
+	t.Parallel()
+	bucket := "cli-predefined-acl-bucket"
+	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--format=json"))
+
+	source := filepath.Join(tmpDir, "predefined-acl-source.txt")
+	if err := os.WriteFile(source, []byte("public"), 0644); err != nil {
+		t.Fatalf("failed to write source object: %v", err)
+	}
+	runCLI(t, gcloudCLI("storage", "cp", "--predefined-acl=publicRead", source, "gs://"+bucket+"/public.txt"))
+	runCLI(t, gcloudCLI("storage", "cp", source, "gs://"+bucket+"/default.txt"))
+
+	var public, defaulted struct {
+		ACL []struct {
+			Entity string `json:"entity"`
+			Role   string `json:"role"`
+		} `json:"acl"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, gcloudCLI("storage", "objects", "describe",
+		"gs://"+bucket+"/public.txt", "--format=json"))), &public); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, gcloudCLI("storage", "objects", "describe",
+		"gs://"+bucket+"/default.txt", "--format=json"))), &defaulted); err != nil {
+		t.Fatal(err)
+	}
+	entities := func(acl []struct {
+		Entity string `json:"entity"`
+		Role   string `json:"role"`
+	}) map[string]string {
+		out := map[string]string{}
+		for _, entry := range acl {
+			out[entry.Entity] = entry.Role
+		}
+		return out
+	}
+	got := entities(public.ACL)
+	if len(got) != 2 || got["allUsers"] != "READER" {
+		t.Fatalf("publicRead gives the owner OWNER and allUsers READER, got %v", got)
+	}
+	viewers := 0
+	for entity, role := range entities(defaulted.ACL) {
+		if strings.HasPrefix(entity, "project-viewers-") && role == "READER" {
+			viewers++
+		}
+	}
+	if viewers != 1 || len(defaulted.ACL) != 4 {
+		t.Fatalf("the default object ACL is projectPrivate plus the owner, got %v", entities(defaulted.ACL))
+	}
+
+	runCLI(t, gcloudCLI("storage", "rm", "gs://"+bucket+"/public.txt", "gs://"+bucket+"/default.txt"))
+	runCLI(t, gcloudCLI("storage", "buckets", "delete", "gs://"+bucket))
 }
 
 // TestGCSCLI_ObjectACLGrants: `gcloud storage objects update --add-acl-grant`

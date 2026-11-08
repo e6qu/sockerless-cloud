@@ -1798,6 +1798,26 @@ fails once the row closes or the operation is served.
   Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries
   its included or non-excluded tags, never an `aws:` key, in that event and
   in its Amazon SNS notification.
+  An action naming an AWS Lambda function invokes it asynchronously with the
+  User Guide's alarm payload when the function grants
+  `lambda.alarms.cloudwatch.amazonaws.com` `lambda:InvokeFunction`. Log
+  alarms evaluate on their scheduled query's schedule, accept
+  `SetAlarmState`, and run their actions and events as metric alarms do.
+  Creating, updating and deleting any alarm sends a "CloudWatch Alarm
+  Configuration Change" event, an update with its previous configuration,
+  and an update leaves the alarm's state unchanged as the API reference
+  says, where the simulator had reset it to INSUFFICIENT_DATA. A composite
+  alarm returns its `StateReasonData` and its real state timestamp over all
+  three protocols, and its query-protocol describe its `StateReason`.
+- **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
+  confirms an HTTP or email subscription with an opaque random token that only
+  the confirmation message carries, where it had been the subscription ARN
+  without its colons; the confirmation tests read it from a real endpoint.
+  `PutParameter` records each version in the parameter's history as it writes
+  it, and a deleted parameter drops its history, where the history had been
+  reconciled on read and lost a version overwritten between two reads. The
+  RDS snapshot restore test dials the restored endpoint whatever its host
+  name, instead of branching on the simulator's.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Cloud Run image export and Firestore REST listen.** `exportImage` copies
@@ -1856,6 +1876,30 @@ fails once the row closes or the operation is served.
   prefix and names "System Route" for a system route's table, as the
   specification says. Its effective security groups are the interface's and
   the subnet's, each with its association and its rules in priority order.
+- **Network Watcher packet capture.** A capture runs where the Network
+  Watcher agent extension would: once the machine has
+  `NetworkWatcherAgentLinux`, a session places pcapagent in the machine's
+  network namespace, where an `AF_PACKET` socket reads every frame crossing
+  its interfaces into a libpcap file, through the 5-tuple filters (an entry, a
+  range or a `;` list, matched from the machine's side), the per-packet
+  truncation and the session's byte and time limits, with the defaults the
+  specification declares. The create answers only once the agent's socket
+  receives, so traffic the caller sends next is captured. When the session
+  stops — on request, at its size, or at its time limit with `TimeExceeded`,
+  as `network-watcher-packet-capture-manage` reports it — Network Watcher
+  moves the file to `network-watcher-logs/subscriptions/…/packetcapture_{time}.cap`
+  in the storage account with an account SAS the account's key signs, and to
+  the machine's `/var/captures` path; a failed move reports `StorageFailed` or
+  `LocalFileFailed`. Deleting the resource leaves the file. The capture had
+  refused every machine with `PacketCaptureTargetNotReady` before.
+- **App Service catalogs and plan actions.** `geoRegions` lists the
+  subscription's regions by display name, which `az appservice
+  list-locations` matches against, and none for Xenon workers or custom-mode
+  plans, which no region here runs. `restartSites` restarts every app and
+  slot on the plan, which each site's restart detector then reports; a soft
+  restart restarts nothing, since every configuration change applies as it is
+  made. `MigrateMySql` and `MigrateStorage` had recorded migrations that moved
+  nothing; they answer a declared 501.
 - **App Service and Blob reads.** A site's `authsettings` and
   `authsettingsV2` lists answer what PUT stored, as the slot lists did, and
   the v1 settings carry the `configVersion` App Service fills in — `v2` once
@@ -2000,6 +2044,38 @@ fails once the row closes or the operation is served.
   the REST body keys (`vnetConfiguration`, `virtualNetworkSubnetId`) as well
   as the SDK fields; a raw-request test was invisible to it and took a range
   another test held.
+- **Cloud Storage errors.** Every JSON API route answered the JSON API's
+  own envelope, `{"error":{"code","message","errors":[{"domain","reason",
+  "message"}]}}` with no `status` and no `details`, and took each reason from
+  the vendored `storage-json-status-codes.md.gz`: `invalid`, `required`,
+  `notFound`, `conflict`, `forbidden`, `conditionNotMet` and the rest by HTTP
+  status. A request without a credential answered `required`/`Login Required`
+  located at the `Authorization` header and one with a bad credential
+  `authError`; the XML API answered `AuthenticationRequired` and
+  `InvalidAuthentication` from `storage-xml-status-codes.md.gz`.
+- **Cloud Storage object ACLs at creation.** An object took its ACL when it
+  was written, as `storage-access-control-lists.md.gz` describes: the
+  `predefinedAcl` or `destinationPredefinedAcl` the write named, else the
+  `acl` its resource carried, else the bucket's default object ACL, and in
+  every case its uploader, named in the object's `owner`, held `OWNER`. An
+  overwrite was a new object with a new ACL and a new owner; a retired
+  generation carried its ACL into the soft-deleted entry, which restore's
+  `copySourceAcl` brought back. `objects.patch` took `predefinedAcl` too,
+  which Terraform's `google_storage_object_acl` sends.
+- **Cloud Dataflow reports only what ran.** No worker runs a job's steps, so
+  `getMetrics` answered no metric updates, `messages.list` no messages,
+  `getExecutionDetails` no stages, a stage's details and the debug methods
+  `NOT_FOUND`; the fixed `ElementCount` of 0, the "Worker pool started."
+  message, stage `s1` and `worker-0` went. `templates.launch` and
+  `flexTemplates.launch` refused a launch without the job name Discovery marks
+  required instead of naming the job themselves, and the CLI suite launched its
+  job with `gcloud dataflow jobs run`.
+- **Firestore timestamps over REST.** A REST write stored each
+  `timestampValue`, nested ones included, in UTC rounded down to the
+  microsecond, as the Value schema states, and refused one that is no RFC 3339
+  time; equality and ordering compared timestamps as instants, so
+  `03:04:05.123456Z` and `04:04:05.1234560+01:00` matched, and change streams
+  stamped their times to the microsecond.
 
 ## Continuous integration and dependencies
 

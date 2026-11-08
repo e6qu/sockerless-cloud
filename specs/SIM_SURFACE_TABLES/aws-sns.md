@@ -17,25 +17,25 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action CreateTopic` | ✓ `simulator-aws/sns.go:76::handleSNSCreateTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action DeleteTopic` | ✓ `simulator-aws/sns.go:77::handleSNSDeleteTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListTopics` | ✓ `simulator-aws/sns.go:78::handleSNSListTopics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetTopicAttributes` | ✓ `simulator-aws/sns.go:79::handleSNSGetTopicAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SetTopicAttributes` | ✓ `simulator-aws/sns.go:80::handleSNSSetTopicAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Subscribe` | ✓ `simulator-aws/sns.go:81::handleSNSSubscribe` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Unsubscribe` | ✓ `simulator-aws/sns.go:82::handleSNSUnsubscribe` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ConfirmSubscription` | ✓ `simulator-aws/sns.go:83::handleSNSConfirmSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action GetSubscriptionAttributes` | ✓ `simulator-aws/sns.go:84::handleSNSGetSubscriptionAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action SetSubscriptionAttributes` | ✓ `simulator-aws/sns.go:85::handleSNSSetSubscriptionAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListSubscriptions` | ✓ `simulator-aws/sns.go:86::handleSNSListSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListSubscriptionsByTopic` | ✓ `simulator-aws/sns.go:87::handleSNSListSubscriptionsByTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AddPermission` | ✓ `simulator-aws/sns.go:88::handleSNSAddPermission` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action RemovePermission` | ✓ `simulator-aws/sns.go:89::handleSNSRemovePermission` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Publish` | ✓ `simulator-aws/sns.go:90::handleSNSPublish` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action PublishBatch` | ✓ `simulator-aws/sns.go:91::handleSNSPublishBatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action TagResource` | ✓ `simulator-aws/sns.go:92::handleSNSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action UntagResource` | ✓ `simulator-aws/sns.go:93::handleSNSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action ListTagsForResource` | ✓ `simulator-aws/sns.go:94::handleSNSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action CreateTopic` | ✓ `simulator-aws/sns.go:81::handleSNSCreateTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action DeleteTopic` | ✓ `simulator-aws/sns.go:82::handleSNSDeleteTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListTopics` | ✓ `simulator-aws/sns.go:83::handleSNSListTopics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetTopicAttributes` | ✓ `simulator-aws/sns.go:84::handleSNSGetTopicAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SetTopicAttributes` | ✓ `simulator-aws/sns.go:85::handleSNSSetTopicAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Subscribe` | ✓ `simulator-aws/sns.go:86::handleSNSSubscribe` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Unsubscribe` | ✓ `simulator-aws/sns.go:87::handleSNSUnsubscribe` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ConfirmSubscription` | ✓ `simulator-aws/sns.go:88::handleSNSConfirmSubscription` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action GetSubscriptionAttributes` | ✓ `simulator-aws/sns.go:89::handleSNSGetSubscriptionAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action SetSubscriptionAttributes` | ✓ `simulator-aws/sns.go:90::handleSNSSetSubscriptionAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListSubscriptions` | ✓ `simulator-aws/sns.go:91::handleSNSListSubscriptions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListSubscriptionsByTopic` | ✓ `simulator-aws/sns.go:92::handleSNSListSubscriptionsByTopic` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AddPermission` | ✓ `simulator-aws/sns.go:93::handleSNSAddPermission` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action RemovePermission` | ✓ `simulator-aws/sns.go:94::handleSNSRemovePermission` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Publish` | ✓ `simulator-aws/sns.go:95::handleSNSPublish` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action PublishBatch` | ✓ `simulator-aws/sns.go:96::handleSNSPublishBatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action TagResource` | ✓ `simulator-aws/sns.go:97::handleSNSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action UntagResource` | ✓ `simulator-aws/sns.go:98::handleSNSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action ListTagsForResource` | ✓ `simulator-aws/sns.go:99::handleSNSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action SetEndpointAttributes` | ✓ `simulator-aws/sns_mobile_sms.go:100::handleSNSSetEndpointAttributes` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action ListEndpointsByPlatformApplication` | ✓ `simulator-aws/sns_mobile_sms.go:101::handleSNSListEndpointsByPlatformApplication` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action CreateSMSSandboxPhoneNumber` | ○ `simulator-aws/sns_mobile_sms.go:103::handleSNSCreateSMSSandboxPhoneNumber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

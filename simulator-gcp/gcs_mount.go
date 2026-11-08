@@ -212,7 +212,7 @@ func gcsMountSyncMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if gcsMountsWatched.Load() > 0 && gcsStorageRequest(r.URL.Path) {
 			if err := gcsMountBarrier(r.Context()); err != nil {
-				GCPErrorf(w, http.StatusServiceUnavailable, "UNAVAILABLE", "cloud storage volume mounts: %v", err)
+				gcsErrorf(w, http.StatusServiceUnavailable, "UNAVAILABLE", "cloud storage volume mounts: %v", err)
 				return
 			}
 		}

@@ -23,7 +23,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "anywhereCacheId")
 		c, ok := caches.Get(key(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, c)
@@ -37,7 +37,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		}
 		var in GCSAnywhereCache
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		id := "anywhere-cache-" + gcsRandHex(6)
@@ -63,12 +63,12 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "anywhereCacheId")
 		c, ok := caches.Get(key(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
 			return
 		}
 		var in GCSAnywhereCache
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Ttl != "" {
@@ -87,7 +87,7 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 			bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "anywhereCacheId")
 			c, ok := caches.Get(key(bucket, id))
 			if !ok {
-				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
+				gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "anywhere cache %q not found in bucket %q", id, bucket)
 				return
 			}
 			c.State = state
@@ -122,7 +122,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
 		c, ok := caches.Get(key(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, c)
@@ -135,7 +135,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		}
 		var in GCSRapidCache
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		id := in.RapidCacheID
@@ -143,7 +143,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 			id = "rapid-cache-" + gcsRandHex(6)
 		}
 		if _, exists := caches.Get(key(bucket, id)); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "rapid cache %q already exists in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "rapid cache %q already exists in bucket %q", id, bucket)
 			return
 		}
 		now := gcsTimestamp()
@@ -173,7 +173,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
 		c, ok := caches.Get(key(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
 			return
 		}
 		var in struct {
@@ -182,7 +182,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 			IngestOnWrite   *bool  `json:"ingestOnWrite"`
 		}
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Ttl != "" {
@@ -203,7 +203,7 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		bucket, id := sim.PathParam(r, "bucket"), sim.PathParam(r, "rapidCacheId")
 		c, ok := caches.Get(key(bucket, id))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "rapid cache %q not found in bucket %q", id, bucket)
 			return
 		}
 		c.State = "disabled"

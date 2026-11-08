@@ -239,6 +239,60 @@ func fsDocumentsUnder(prefix string, keep func(FSDocument) bool) []FSDocument {
 	return docs
 }
 
+// fsNormalizeFields rewrites every timestampValue under fields in Firestore's
+// stored form, UTC rounded down to the microsecond, as the Value schema's
+// timestampValue description states, and refuses one that is no RFC 3339 time.
+func fsNormalizeFields(fields map[string]FSValue) error {
+	for k, v := range fields {
+		if err := fsNormalizeValue(&v); err != nil {
+			return err
+		}
+		fields[k] = v
+	}
+	return nil
+}
+
+func fsNormalizeValue(v *FSValue) error {
+	switch {
+	case v.TimestampValue != "":
+		t, err := time.Parse(time.RFC3339Nano, v.TimestampValue)
+		if err != nil {
+			return gcpInvalidValue(fmt.Sprintf("Invalid value for timestampValue: %q", v.TimestampValue))
+		}
+		v.TimestampValue = t.UTC().Truncate(time.Microsecond).Format(fsTimestampLayout)
+	case v.ArrayValue != nil:
+		values := make([]FSValue, len(v.ArrayValue.Values))
+		for i, item := range v.ArrayValue.Values {
+			if err := fsNormalizeValue(&item); err != nil {
+				return err
+			}
+			values[i] = item
+		}
+		v.ArrayValue = &FSArrayValue{Values: values}
+	case v.MapValue != nil:
+		fields := make(map[string]FSValue, len(v.MapValue.Fields))
+		for k, item := range v.MapValue.Fields {
+			if err := fsNormalizeValue(&item); err != nil {
+				return err
+			}
+			fields[k] = item
+		}
+		v.MapValue = &FSMapValue{Fields: fields}
+	}
+	return nil
+}
+
+// fsTimestampOrder orders two timestampValues as times, so spellings of one
+// instant compare equal.
+func fsTimestampOrder(a, b string) int {
+	at, aErr := time.Parse(time.RFC3339Nano, a)
+	bt, bErr := time.Parse(time.RFC3339Nano, b)
+	if aErr != nil || bErr != nil {
+		return strings.Compare(a, b)
+	}
+	return at.Truncate(time.Microsecond).Compare(bt.Truncate(time.Microsecond))
+}
+
 func fsPutDocument(doc FSDocument) FSDocument {
 	now := fsNow()
 	if doc.CreateTime == "" {
@@ -277,6 +331,10 @@ func handleFSPostDocuments(w http.ResponseWriter, r *http.Request) {
 	var req FSDocument
 	if err := sim.ReadJSON(r, &req); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
+		return
+	}
+	if err := fsNormalizeFields(req.Fields); err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return
 	}
 	name := fsFullName(project, database, strings.Trim(path, "/")+"/"+docID)
@@ -362,6 +420,10 @@ func handleFSPatchDocument(w http.ResponseWriter, r *http.Request) {
 	var req FSDocument
 	if err := sim.ReadJSON(r, &req); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid document body: %v", err)
+		return
+	}
+	if err := fsNormalizeFields(req.Fields); err != nil {
+		GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
 		return
 	}
 	// An absent updateMask.fieldPaths query param replaces wholesale; a present
@@ -577,6 +639,9 @@ func fsApplyWrite(wr fsWrite) (map[string]any, *fsWriteError) {
 	existing, _ := fsDocuments.Get(name)
 	merged := FSDocument{Name: name, CreateTime: existing.CreateTime}
 	if wr.Update != nil {
+		if err := fsNormalizeFields(wr.Update.Fields); err != nil {
+			return nil, &fsWriteError{http.StatusBadRequest, "INVALID_ARGUMENT", 3, err.Error()}
+		}
 		// An absent updateMask replaces; a present one, even empty, merges, which a
 		// transform-only Update relies on.
 		var mask *[]string
@@ -1031,7 +1096,8 @@ func fsArrayContainsAny(got, want FSValue) bool {
 }
 
 // fsCompareValues orders two scalar Firestore values of one type: numbers
-// numerically, strings and timestamps lexically, anything else by string form.
+// numerically, timestamps as times, strings lexically, anything else by string
+// form.
 func fsCompareValues(a, b FSValue) int {
 	an, aIsNum := fsNumeric(a)
 	bn, bIsNum := fsNumeric(b)
@@ -1044,6 +1110,9 @@ func fsCompareValues(a, b FSValue) int {
 		default:
 			return 0
 		}
+	}
+	if a.TimestampValue != "" && b.TimestampValue != "" {
+		return fsTimestampOrder(a.TimestampValue, b.TimestampValue)
 	}
 	as, bs := fsScalarString(a), fsScalarString(b)
 	return strings.Compare(as, bs)
@@ -1091,7 +1160,7 @@ func fsValuesEqual(a, b FSValue) bool {
 	case a.StringValue != "" || b.StringValue != "":
 		return a.StringValue == b.StringValue
 	case a.TimestampValue != "" || b.TimestampValue != "":
-		return a.TimestampValue == b.TimestampValue
+		return a.TimestampValue != "" && b.TimestampValue != "" && fsTimestampOrder(a.TimestampValue, b.TimestampValue) == 0
 	case a.BytesValue != "" || b.BytesValue != "":
 		return a.BytesValue == b.BytesValue
 	case a.ReferenceValue != "" || b.ReferenceValue != "":

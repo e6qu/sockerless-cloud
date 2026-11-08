@@ -299,6 +299,7 @@ func handleSSMPutParameter(w http.ResponseWriter, r *http.Request) {
 		AllowedPattern:   req.AllowedPattern,
 	}
 	ssmParams.Put(req.Name, param)
+	ssmRecordParameterVersion(param)
 	ssmTagOnCreate("Parameter", req.Name, req.Tags)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -519,6 +520,7 @@ func handleSSMDeleteParameter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssmParams.Delete(req.Name)
+	ssmParamVersions.Delete(ensureLeadingSlash(req.Name))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -534,6 +536,7 @@ func handleSSMDeleteParameters(w http.ResponseWriter, r *http.Request) {
 	for _, n := range req.Names {
 		if _, ok := ssmParams.Get(n); ok {
 			ssmParams.Delete(n)
+			ssmParamVersions.Delete(ensureLeadingSlash(n))
 			deleted = append(deleted, n)
 		} else {
 			invalid = append(invalid, n)

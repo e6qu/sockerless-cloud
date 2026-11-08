@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -38,6 +40,9 @@ type SNSSubscription struct {
 	Protocol  string // "sqs", "http", "https", "email", "sms", "lambda", "firehose"
 	Endpoint  string // queue ARN for sqs, URL for http(s), email addr, etc.
 	Confirmed bool
+	// ConfirmationToken is the opaque token the confirmation message carries
+	// and ConfirmSubscription takes back.
+	ConfirmationToken string
 	// ControlPlaneOrigin is the SNS endpoint that forms the SubscribeURL,
 	// UnsubscribeURL and SigningCertURL HTTP subscribers receive; it is no SNS
 	// response member.
@@ -367,6 +372,9 @@ func handleSNSSubscribe(w http.ResponseWriter, r *http.Request) {
 		ControlPlaneOrigin: snsRequestOrigin(r),
 		Attributes:         attributes,
 	}
+	if !sub.Confirmed {
+		sub.ConfirmationToken = snsNewConfirmationToken()
+	}
 	snsSubscriptions.Put(sub.ARN, sub)
 	if !sub.Confirmed && (strings.EqualFold(protocol, "http") || strings.EqualFold(protocol, "https")) {
 		snsDeliverHTTPConfirmation(sub)
@@ -426,7 +434,7 @@ func handleSNSConfirmSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	var found *SNSSubscription
 	for _, sub := range snsSubscriptions.List() {
-		if sub.TopicARN == topicARN && snsConfirmationToken(sub) == token {
+		if sub.TopicARN == topicARN && sub.ConfirmationToken != "" && sub.ConfirmationToken == token {
 			s := sub
 			found = &s
 			break
@@ -446,13 +454,13 @@ func handleSNSConfirmSubscription(w http.ResponseWriter, r *http.Request) {
 	snsXMLResponse(w, "ConfirmSubscription", body, sim.RequestID(r.Context()))
 }
 
-// snsConfirmationToken derives the deterministic confirmation token a
-// subscription's confirmation message carries. Keying it off the
-// subscription ARN means the Subscribe path issues it implicitly (the ARN is
-// returned to the subscriber) and ConfirmSubscription can resolve it without
-// extra stored state.
-func snsConfirmationToken(sub SNSSubscription) string {
-	return strings.ReplaceAll(sub.ARN, ":", "")
+// The endpoint learns the token only from the confirmation message.
+func snsNewConfirmationToken() string {
+	b := make([]byte, 128)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
 
 // handleSNSGetSubscriptionAttributes returns a subscription's read-only fields

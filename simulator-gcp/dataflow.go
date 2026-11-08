@@ -339,21 +339,8 @@ func dataflowGetMetrics(w http.ResponseWriter, project, location, id string) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
-	// Answer one ElementCount MetricUpdate of 0; `scalar` is typed "any" in the
-	// Discovery schema.
-	resp := map[string]any{
-		"metricTime": nowRFC3339(),
-		"metrics": []map[string]any{
-			{
-				"name":       map[string]any{"name": "ElementCount", "origin": "dataflow/v1b3"},
-				"kind":       "sum",
-				"cumulative": true,
-				"scalar":     0,
-				"updateTime": nowRFC3339(),
-			},
-		},
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	// No worker runs a job's steps, so no metric has an update to report.
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"metricTime": nowRFC3339(), "metrics": []any{}})
 }
 
 func handleDataflowListMessages(w http.ResponseWriter, r *http.Request) {
@@ -365,22 +352,12 @@ func handleDataflowListMessagesGlobal(w http.ResponseWriter, r *http.Request) {
 }
 
 func dataflowListMessages(w http.ResponseWriter, project, location, id string) {
-	job, _, ok := findDataflowJob(project, location, id)
-	if !ok {
+	if _, _, ok := findDataflowJob(project, location, id); !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
-	resp := map[string]any{
-		"jobMessages": []map[string]any{
-			{
-				"id":                job.ID + "-msg-0",
-				"time":              job.CreateTime,
-				"messageText":       "Worker pool started.",
-				"messageImportance": "JOB_MESSAGE_BASIC",
-			},
-		},
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	// The messages a job carries come from its workers, and none runs.
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"jobMessages": []any{}})
 }
 
 func handleDataflowGetExecutionDetails(w http.ResponseWriter, r *http.Request) {
@@ -391,15 +368,8 @@ func handleDataflowGetExecutionDetails(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
-	resp := map[string]any{
-		"stages": []map[string]any{
-			{
-				"stageId": "s1",
-				"state":   "EXECUTION_STATE_SUCCEEDED",
-			},
-		},
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	// A job's stages are the fused steps its workers execute; none runs.
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"stages": []any{}})
 }
 
 func handleDataflowGetStageExecutionDetails(w http.ResponseWriter, r *http.Request) {
@@ -410,20 +380,37 @@ func handleDataflowGetStageExecutionDetails(w http.ResponseWriter, r *http.Reque
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
 		return
 	}
-	resp := map[string]any{
-		"workers": []map[string]any{
-			{"workerName": "worker-0"},
-		},
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q has no stage %q", id, sim.PathParam(r, "stage"))
 }
 
+// The debug methods address one worker of the job, and no worker runs.
 func handleDataflowGetDebugConfig(w http.ResponseWriter, r *http.Request) {
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"config": "{}"})
+	dataflowDebugWorker(w, r)
 }
 
 func handleDataflowSendDebugCapture(w http.ResponseWriter, r *http.Request) {
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	dataflowDebugWorker(w, r)
+}
+
+func dataflowDebugWorker(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkerID string `json:"workerId"`
+		Location string `json:"location"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	location := sim.PathParam(r, "location")
+	if location == "" {
+		location = req.Location
+	}
+	id := sim.PathParam(r, "job")
+	if _, _, ok := findDataflowJob(sim.PathParam(r, "project"), location, id); !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q not found", id)
+		return
+	}
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "job %q has no worker %q", id, req.WorkerID)
 }
 
 func handleDataflowGetWorkerStacktraces(w http.ResponseWriter, r *http.Request) {
@@ -478,16 +465,12 @@ func dataflowLaunchTemplate(w http.ResponseWriter, r *http.Request, project, loc
 		JobName     string         `json:"jobName"`
 		Environment map[string]any `json:"environment"`
 	}
-	_ = sim.ReadJSON(r, &req)
-	name := req.JobName
-	if name == "" {
-		name = "template-launch"
-	}
-	if req.JobName == "" {
-		req.JobName = name
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
 	}
 	loc := location
-	job := dataflowJob{Name: name, Type: "JOB_TYPE_BATCH", Environment: req.Environment}
+	job := dataflowJob{Name: req.JobName, Type: "JOB_TYPE_BATCH", Environment: req.Environment}
 	if job.Name == "" {
 		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
 		return
@@ -524,10 +507,14 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 		} `json:"launchParameter"`
 		ValidateOnly bool `json:"validateOnly"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
 	name := req.LaunchParameter.JobName
 	if name == "" {
-		name = "flex-template-launch"
+		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
+		return
 	}
 	job := dataflowJob{
 		ID:           sim.NewUUID(),

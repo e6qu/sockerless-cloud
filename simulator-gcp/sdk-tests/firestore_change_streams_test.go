@@ -157,3 +157,38 @@ func TestFirestore_ListenAndExecutePipeline(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "needs the pipeline to run")
 }
+
+// Firestore keeps a timestampValue to the microsecond, rounding any further
+// precision down, and a query compares timestamps as instants, so another
+// spelling of the stored time matches it.
+func TestFirestore_RESTTimestampsAreInstants(t *testing.T) {
+	t.Parallel()
+	svc := firestoreAdminService(t)
+	const project = "timestamp-project"
+	ensureProject(t, project)
+	documents := "projects/" + project + "/databases/(default)/documents"
+	doc := documents + "/events/launch"
+	written, err := svc.Projects.Databases.Documents.Patch(doc, &firestore.Document{
+		Fields: map[string]firestore.Value{"at": {TimestampValue: "2024-01-02T03:04:05.123456789Z"}},
+	}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01-02T03:04:05.123456Z", written.Fields["at"].TimestampValue)
+
+	read, err := svc.Projects.Databases.Documents.Get(doc).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01-02T03:04:05.123456Z", read.Fields["at"].TimestampValue)
+
+	rows := runFirestoreQuery(t, baseURL+"/v1/"+documents+":runQuery",
+		`{"structuredQuery":{"from":[{"collectionId":"events"}],"where":{"fieldFilter":{"field":{"fieldPath":"at"},"op":"EQUAL","value":{"timestampValue":"2024-01-02T04:04:05.1234560+01:00"}}}}}`)
+	var matched []string
+	for _, row := range rows {
+		matched = append(matched, row.Document.Name)
+	}
+	assert.Equal(t, []string{doc}, matched)
+
+	_, err = svc.Projects.Databases.Documents.Patch(documents+"/events/bad", &firestore.Document{
+		Fields: map[string]firestore.Value{"at": {TimestampValue: "yesterday"}},
+	}).Do()
+	require.Error(t, err, "a timestampValue that is no RFC 3339 time is refused")
+	assert.Contains(t, err.Error(), "400")
+}

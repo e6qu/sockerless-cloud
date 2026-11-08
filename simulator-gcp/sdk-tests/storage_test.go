@@ -311,8 +311,9 @@ func TestGCS_DeleteObject(t *testing.T) {
 	assert.ErrorIs(t, object.Delete(ctx), storage.ErrObjectNotExist)
 }
 
-// TestGCS_CreateBucketTwiceConflicts: a second create answers 409
-// ALREADY_EXISTS, which the build helpers read as "the bucket is there".
+// TestGCS_CreateBucketTwiceConflicts: a second create answers 409 with the
+// JSON API's conflict reason, which the build helpers read as "the bucket is
+// there".
 func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)

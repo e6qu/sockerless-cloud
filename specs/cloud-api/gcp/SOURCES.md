@@ -180,3 +180,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-cpu.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/cpu` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-07T23:16:08Z |
 | `service-usage-enabled-service.md.gz` | `docs.cloud.google.com` | `service-usage/docs/enabled-service` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-07T23:44:40Z |
 | `iam-manage-workforce-pools.md.gz` | `docs.cloud.google.com` | `iam/docs/manage-workforce-identity-pools-providers` | CC-BY-4.0 | `modified2026-11-07` | 2026-11-08T07:57:32Z |
+| `storage-json-status-codes.md.gz` | `docs.cloud.google.com` | `storage/docs/json_api/v1/status-codes` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-08T11:09:33Z |
+| `storage-xml-status-codes.md.gz` | `docs.cloud.google.com` | `storage/docs/xml-api/reference-status` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-08T11:11:10Z |
+| `storage-access-control-lists.md.gz` | `docs.cloud.google.com` | `storage/docs/access-control/lists` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-08T11:16:25Z |
+| `resource-manager-delete-restore-projects.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/delete-restore-projects` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-08T11:24:15Z |

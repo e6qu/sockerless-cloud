@@ -401,9 +401,22 @@ func registerAppServicePlanMore(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, webPlanVnetConnections(planID(r)))
 	})
 
+	// A soft restart restarts an app only when applying its configuration needs
+	// it, and this simulator applies every configuration change as it is made;
+	// the default restarts every app and slot on the plan.
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/serverfarms/{planName}/restartSites", func(w http.ResponseWriter, r *http.Request) {
 		if !planExists(w, r) {
 			return
+		}
+		if strings.EqualFold(r.URL.Query().Get("softRestart"), "true") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		id := planID(r)
+		onPlan := func(s Site) bool { return strings.EqualFold(s.Properties.ServerFarmID, id) }
+		for _, site := range append(azfSites.Filter(onPlan), webSlots.Filter(onPlan)...) {
+			restartAzureFunctionInstance(site)
+			recordWebSiteEvent(site.ID, "Restart", webEventCauseUser)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -416,10 +429,7 @@ func registerWebGlobal(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 	})
 
-	// Answers an empty list.
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/geoRegions", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
-	})
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/geoRegions", handleWebGeoRegions)
 
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/skus", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -475,4 +485,25 @@ func registerWebGlobal(srv *sim.Server) {
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
+}
+
+// handleWebGeoRegions lists the subscription's regions, each of which runs
+// every App Service plan tier on Linux workers. No region runs Xenon (Windows
+// container) workers or custom-mode plans, so asking for either lists none.
+func handleWebGeoRegions(w http.ResponseWriter, r *http.Request) {
+	sub := sim.PathParam(r, "subscriptionId")
+	q := r.URL.Query()
+	out := []map[string]any{}
+	if !strings.EqualFold(q.Get("xenonWorkersEnabled"), "true") && !strings.EqualFold(q.Get("customModeWorkersEnabled"), "true") {
+		for _, region := range azureLocations(sub) {
+			display, _ := region["displayName"].(string)
+			out = append(out, map[string]any{
+				"id":         armSubscriptionResourceID(sub, "Microsoft.Web", "geoRegions", display),
+				"name":       display,
+				"type":       "Microsoft.Web/geoRegions",
+				"properties": map[string]any{"displayName": display},
+			})
+		}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }

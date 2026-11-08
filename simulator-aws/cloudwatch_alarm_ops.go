@@ -26,6 +26,7 @@ type CWCompositeAlarm struct {
 	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty"`
 	StateValue              string                 `json:"StateValue,omitempty"`
 	StateReason             string                 `json:"StateReason,omitempty"`
+	StateReasonData         string                 `json:"StateReasonData,omitempty"`
 	UpdatedTimestamp        int64                  `json:"-"`
 	Tags                    map[string]string      `json:"Tags,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty"`
@@ -87,8 +88,6 @@ func cwSetAlarmActionsEnabled(names []string, enabled bool) {
 	}
 }
 
-// A metric alarm's manual state holds until the next evaluation, as
-// CloudWatch's temporary override does.
 // SetAlarmState invokes the new state's actions when the state changes. A
 // metric alarm returns to its actual state at its next evaluation; a composite
 // alarm holds the state until a child changes state or its configuration is
@@ -104,15 +103,15 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 		a.StateValue = state
 		a.StateReason = reason
 		a.StateUpdatedTimestamp = time.Now().UTC().Unix()
-		if prev != state {
-			cwDispatchAlarmActions(*a, prev, state, reason)
-		}
 	}) {
 		cwRecordAlarmHistory(name, "MetricAlarm", "StateUpdate", fmt.Sprintf("Alarm updated from %s to %s", prev, state), reasonData)
 		if prev != state {
-			cwPutMetricAlarmStateChangeEvent(before, prev, state, reason, time.Now())
+			cwMetricAlarmTransition(before, prev, state, reason, time.Now()).run()
 		}
 		ecsRequestServiceReconcileForAlarm(name)
+		return true
+	}
+	if cwSetLogAlarmState(name, state, reason, reasonData) {
 		return true
 	}
 	ca, ok := cwCompositeAlarms.Get(name)
@@ -133,16 +132,14 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 		now := time.Now().UTC()
 		a.StateValue = state
 		a.StateReason = reason
+		a.StateReasonData = reasonData
 		a.UpdatedTimestamp = now.Unix()
 		a.Held = true
 		a.ManualChildStates = children
-		if prev != state {
-			cwDispatchCompositeAlarmActions(*a, prev, state, reason, nil, now)
-		}
 	}) {
 		cwRecordAlarmHistory(name, "CompositeAlarm", "StateUpdate", fmt.Sprintf("Alarm updated from %s to %s", prev, state), reasonData)
 		if prev != state {
-			cwPutCompositeAlarmStateChangeEvent(composite, prev, state, reason, "", time.Now())
+			cwCompositeAlarmTransition(composite, prev, state, reason, reasonData, nil, time.Now()).run()
 		}
 		return true
 	}
@@ -386,6 +383,8 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 	if exists {
 		ca.StateValue = existing.StateValue
 		ca.StateReason = existing.StateReason
+		ca.StateReasonData = existing.StateReasonData
+		ca.UpdatedTimestamp = existing.UpdatedTimestamp
 		ca.ChildStates = existing.ChildStates
 	}
 	if len(tags) > 0 {
@@ -398,6 +397,14 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 	}
 	cwCompositeAlarms.Put(name, ca)
 	cwRecordAlarmHistory(name, "CompositeAlarm", "ConfigurationUpdate", "Composite alarm updated", "")
+	now := time.Now().UTC()
+	operation, previous := "create", map[string]any(nil)
+	if exists {
+		operation, previous = "update", cwCompositeAlarmConfigurationDetail(existing, now)
+	}
+	cwPutAlarmConfigurationChangeEvent(name, ca.AlarmArn, operation,
+		cwAlarmEventState{Value: cwStateOrInsufficient(ca.StateValue), Timestamp: cwAlarmEventUnixTime(ca.UpdatedTimestamp, now)},
+		cwCompositeAlarmConfigurationDetail(ca, now), previous)
 }
 
 // A SetAlarmState shows until the evaluator's next pass. Otherwise a read

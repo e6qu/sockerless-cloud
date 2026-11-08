@@ -267,12 +267,12 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "OWNER", updated.Role)
 
-	// The object inherited the bucket's projectPrivate default, so the inserted
-	// entry joins three.
+	// The object inherited the bucket's projectPrivate default and gave its
+	// uploader OWNER, so the inserted entry joins four.
 	list, err := svc.ObjectAccessControls.List(bucketObjectAclBucket, "doc.txt").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "storage#objectAccessControls", list.Kind)
-	require.Len(t, list.Items, 4)
+	require.Len(t, list.Items, 5)
 	assert.Contains(t, defaultACLEntities(list.Items), entity)
 
 	require.NoError(t, svc.ObjectAccessControls.Delete(bucketObjectAclBucket, "doc.txt", entity).Do())
@@ -312,7 +312,7 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 
 	list, err := svc.ObjectAccessControls.List(bucketSeededAclBucket, "seeded.txt").Do()
 	require.NoError(t, err)
-	require.Len(t, list.Items, 4, "a new object inherits the bucket's default object ACL")
+	require.Len(t, list.Items, 5, "a new object inherits the bucket's default object ACL and its uploader's OWNER")
 	assert.Contains(t, defaultACLEntities(list.Items), "allUsers")
 	for _, item := range list.Items {
 		assert.Equal(t, "seeded.txt", item.Object)
@@ -327,7 +327,7 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 	require.NoError(t, err)
 	list, err = svc.ObjectAccessControls.List(bucketSeededAclBucket, "seeded.txt").Do()
 	require.NoError(t, err)
-	assert.Len(t, list.Items, 4, "editing the bucket default must not reach existing objects")
+	assert.Len(t, list.Items, 5, "editing the bucket default must not reach existing objects")
 	assert.NotContains(t, defaultACLEntities(list.Items), "allAuthenticatedUsers")
 }
 

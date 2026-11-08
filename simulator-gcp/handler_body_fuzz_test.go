@@ -99,8 +99,9 @@ func TestFuzzTargetsAreMounted(t *testing.T) {
 // FuzzHandlerMalformedBody drives every mutating handler with wrong-typed JSON
 // bodies and requires, for every input: no panic; no 5xx, the status a
 // recovered panic surfaces as; and every 4xx in Google's
-// `{"error":{"code","status","message"}}` envelope with its code matching the
-// HTTP status.
+// `{"error":{"code","status","message"}}` envelope, or for Cloud Storage the
+// JSON API's `{"error":{"code","message","errors":[{"reason"}]}}`, with its
+// code matching the HTTP status.
 func FuzzHandlerMalformedBody(f *testing.F) {
 	for ti := range fuzzTargets {
 		for bi := range fuzzBodies {
@@ -134,13 +135,20 @@ func FuzzHandlerMalformedBody(f *testing.F) {
 				Code    int    `json:"code"`
 				Status  string `json:"status"`
 				Message string `json:"message"`
+				Errors  []struct {
+					Reason string `json:"reason"`
+				} `json:"errors"`
 			} `json:"error"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 			t.Fatalf("%s %s: refusal %d is not JSON for body %q: %v\n%s",
 				tgt.method, tgt.path, rec.Code, body, err, rec.Body.String())
 		}
-		if envelope.Error.Code != rec.Code || envelope.Error.Status == "" || envelope.Error.Message == "" {
+		classified := envelope.Error.Status != ""
+		if strings.Contains(tgt.path, "/storage/v1/") {
+			classified = envelope.Error.Status == "" && len(envelope.Error.Errors) == 1 && envelope.Error.Errors[0].Reason != ""
+		}
+		if envelope.Error.Code != rec.Code || !classified || envelope.Error.Message == "" {
 			t.Fatalf("%s %s: refusal %d for body %q is not a Google error envelope: %s",
 				tgt.method, tgt.path, rec.Code, body, rec.Body.String())
 		}

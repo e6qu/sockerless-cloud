@@ -142,7 +142,7 @@ func appScalingCreateAlarms(policy AppScalingPolicy, cfg targetTrackingConfig) [
 	var alarms []AppScalingAlarm
 	for _, spec := range specs {
 		name := fmt.Sprintf("TargetTracking-%s-%s-%s", policy.ResourceId, spec.suffix, sim.NewUUID())
-		cwAlarms.Put(name, CWAlarm{
+		cwStoreMetricAlarm(CWAlarm{
 			AlarmName:          name,
 			AlarmArn:           cwAlarmArn(name),
 			AlarmDescription:   "DO NOT EDIT OR DELETE. For TargetTrackingScaling policy " + policy.PolicyARN + ".",

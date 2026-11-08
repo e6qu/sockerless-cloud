@@ -2043,6 +2043,40 @@ resource "azurerm_network_watcher" "az_nw" {
   }
 }
 
+# Packet capture needs the Network Watcher agent on the machine. The session
+# records the machine's frames until Terraform destroys it, and the file then
+# moves to the storage account.
+resource "azurerm_virtual_machine_extension" "az_vm_network_watcher_agent" {
+  name                 = "AzureNetworkWatcherExtension"
+  virtual_machine_id   = azurerm_linux_virtual_machine.az_vm.id
+  publisher            = "Microsoft.Azure.NetworkWatcher"
+  type                 = "NetworkWatcherAgentLinux"
+  type_handler_version = "1.4"
+}
+
+resource "azurerm_virtual_machine_packet_capture" "az_vm_capture" {
+  name               = "tf-azrm-vm-capture"
+  network_watcher_id = azurerm_network_watcher.az_nw.id
+  virtual_machine_id = azurerm_linux_virtual_machine.az_vm.id
+
+  maximum_capture_duration_in_seconds = 600
+
+  storage_location {
+    storage_account_id = azurerm_storage_account.main.id
+  }
+
+  filter {
+    protocol    = "TCP"
+    remote_port = "80"
+  }
+
+  depends_on = [azurerm_virtual_machine_extension.az_vm_network_watcher_agent]
+}
+
+output "azrm_vm_capture_storage_path" {
+  value = azurerm_virtual_machine_packet_capture.az_vm_capture.storage_location[0].storage_path
+}
+
 # The manager declares the subscriptions it governs and the configuration
 # kinds it may manage there.
 

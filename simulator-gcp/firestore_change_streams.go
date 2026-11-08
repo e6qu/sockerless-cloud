@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	fspb "cloud.google.com/go/firestore/apiv1/firestorepb"
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -61,7 +60,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 				"change stream %q already exists", name)
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
+		now := fsNow()
 		stream["name"] = name
 		stream["createTime"] = now
 		stream["updateTime"] = now
@@ -203,7 +202,7 @@ func fsExecutePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"executionTime": time.Now().UTC().Format(time.RFC3339),
+		"executionTime": fsNow(),
 		"results":       []any{},
 	})
 }

@@ -2,8 +2,12 @@ package aws_cli_test
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,8 +67,8 @@ func TestSNSCLI_SubscriptionAttributes(t *testing.T) {
 	assert.Equal(t, "true", got.Attributes["RawMessageDelivery"])
 }
 
-// TestSNSCLI_ConfirmSubscription confirms an https subscription with a token
-// derived from the subscription ARN by stripping its colons.
+// TestSNSCLI_ConfirmSubscription confirms an HTTP subscription with the token
+// the confirmation message delivered to the endpoint.
 func TestSNSCLI_ConfirmSubscription(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-confirm-t"))
@@ -74,17 +78,33 @@ func TestSNSCLI_ConfirmSubscription(t *testing.T) {
 		_ = awsCLI("sns", "delete-topic", "--topic-arn", topic.TopicArn).Run()
 	})
 
+	confirmations := make(chan []byte, 2)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		confirmations <- body
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(endpoint.Close)
 	out = runCLI(t, awsCLI("sns", "subscribe",
 		"--topic-arn", topic.TopicArn,
-		"--protocol", "https",
-		"--notification-endpoint", "https://example.com/cli-hook",
+		"--protocol", "http",
+		"--notification-endpoint", endpoint.URL,
 		"--return-subscription-arn"))
 	var sub struct{ SubscriptionArn string }
 	parseJSON(t, out, &sub)
 	require.NotEmpty(t, sub.SubscriptionArn)
 	require.Contains(t, sub.SubscriptionArn, ":cli-confirm-t:")
 
-	token := strings.ReplaceAll(sub.SubscriptionArn, ":", "")
+	var confirmation struct{ Type, Token string }
+	select {
+	case body := <-confirmations:
+		require.NoError(t, json.Unmarshal(body, &confirmation))
+	case <-time.After(30 * time.Second):
+		t.Fatal("the endpoint received no confirmation message")
+	}
+	require.Equal(t, "SubscriptionConfirmation", confirmation.Type)
+	token := confirmation.Token
 	out = runCLI(t, awsCLI("sns", "confirm-subscription",
 		"--topic-arn", topic.TopicArn,
 		"--token", token))

@@ -41,7 +41,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "folder")
 		f, ok := gcsFolders.Get(key(bucket, name))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, f)
@@ -54,7 +54,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/folders/{folder}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "folder")
 		if !gcsFolders.Delete(key(bucket, name)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -71,7 +71,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 			}
 		}
 		if !removed {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, gcsRecordDoneOperation(r, bucket, nil))
@@ -82,7 +82,7 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 		src, dst := sim.PathParam(r, "sourceFolder"), sim.PathParam(r, "destinationFolder")
 		f, ok := gcsFolders.Get(key(bucket, src))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", src, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "folder %q not found in bucket %q", src, bucket)
 			return
 		}
 		gcsFolders.Delete(key(bucket, src))
@@ -127,7 +127,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		f, ok := gcsManagedFolders.Get(key(bucket, name))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, f)
@@ -144,7 +144,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		f, ok := gcsManagedFolders.Get(key(bucket, name))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		var in struct {
@@ -153,7 +153,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 			RapidCacheConfig json.RawMessage `json:"rapidCacheConfig"`
 		}
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		switch {
@@ -175,7 +175,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/managedFolders/{managedFolder}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		if !gcsManagedFolders.Delete(key(bucket, name)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -188,7 +188,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
@@ -204,24 +204,24 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	srv.HandleFunc("PUT /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
 		var policy IAMPolicy
 		if err := sim.ReadJSON(r, &policy); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		// The document requires bindings on this method, so a set with none is
 		// refused.
 		if len(policy.Bindings) == 0 {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"the policy must carry at least one binding")
 			return
 		}
 		if err := validateIAMMembers(policy.Bindings); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 		policy.Etag = gcpPolicyETag()
@@ -236,7 +236,7 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 	srv.HandleFunc("GET /storage/v1/b/{bucket}/managedFolders/{managedFolder}/iam/testPermissions", func(w http.ResponseWriter, r *http.Request) {
 		bucket, name := sim.PathParam(r, "bucket"), sim.PathParam(r, "managedFolder")
 		if _, exists := gcsManagedFolders.Get(key(bucket, name)); !exists {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"managed folder %q not found in bucket %q", name, bucket)
 			return
 		}
@@ -259,16 +259,16 @@ func gcsCreateFolder[T any](w http.ResponseWriter, r *http.Request, store sim.St
 	}
 	var in T
 	if err := sim.ReadJSON(r, &in); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	folder := name(&in)
 	if folder == "" {
-		GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+		gcsRequired(w, "name is required")
 		return
 	}
 	if _, exists := store.Get(key(bucket, folder)); exists {
-		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s %q already exists", noun, folder)
+		gcsErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s %q already exists", noun, folder)
 		return
 	}
 	f := build(r, bucket, folder)

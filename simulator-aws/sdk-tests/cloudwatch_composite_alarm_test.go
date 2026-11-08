@@ -190,6 +190,22 @@ func TestCloudWatch_CompositeAlarmEvaluatesItsRule(t *testing.T) {
 	assert.True(t, strings.HasPrefix(fired["NewStateReason"].(string), cpuARN+" transitioned to ALARM at "),
 		"reason: %v", fired["NewStateReason"])
 
+	firedOut, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{
+		AlarmNames: []string{composite}, AlarmTypes: []cwtypes.AlarmType{cwtypes.AlarmTypeCompositeAlarm},
+	})
+	require.NoError(t, err)
+	require.Len(t, firedOut.CompositeAlarms, 1)
+	var reasonData struct {
+		TriggeringAlarms []struct {
+			Arn   string `json:"arn"`
+			State struct{ Value string }
+		} `json:"triggeringAlarms"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(firedOut.CompositeAlarms[0].StateReasonData)), &reasonData))
+	require.Len(t, reasonData.TriggeringAlarms, 1)
+	assert.Equal(t, cpuARN, reasonData.TriggeringAlarms[0].Arn)
+	assert.Equal(t, "ALARM", reasonData.TriggeringAlarms[0].State.Value)
+
 	// A SetAlarmState holds while the children keep their states.
 	_, err = cw.SetAlarmState(ctx, &cloudwatch.SetAlarmStateInput{
 		AlarmName: aws.String(composite), StateValue: cwtypes.StateValueOk, StateReason: aws.String("silenced for the test"),

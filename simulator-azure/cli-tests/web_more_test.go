@@ -98,7 +98,16 @@ func TestWebMore_CLI(t *testing.T) {
 
 	geo := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Web/geoRegions?api-version=%s",
 		baseURL, subscriptionID, webMoreAPIVersion)
-	runCLI(t, azRest("GET", geo, ""))
+	assert.Contains(t, runCLI(t, azRest("GET", geo, "")), `"name": "East US"`)
+	assert.NotContains(t, runCLI(t, azRest("GET", geo+"&xenonWorkersEnabled=true", "")), `"name"`,
+		"no region runs Xenon workers")
+
+	// Restarting the plan restarts its app, as the site's restart detector
+	// reports.
+	runCLI(t, azRest("POST", webMoreURL("serverfarms/cli-wm-plan/restartSites"), ""))
+	restarts := runCLI(t, azRest("POST",
+		webMoreURL("sites/cli-wm-site/diagnostics/availability/detectors/siterestartuserinitiated/execute"), ""))
+	assert.Contains(t, restarts, `"Restart"`)
 
 	runCLI(t, azRest("DELETE", webMoreURL("sites/cli-wm-site/slots/staging"), ""))
 	runCLI(t, azRest("DELETE", webMoreURL("staticSites/cli-wm-static"), ""))

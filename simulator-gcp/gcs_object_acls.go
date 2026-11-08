@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -70,37 +72,100 @@ func gcsSeedDefaultObjectACL(name string, bucket Bucket) {
 	}
 }
 
-// Copy at creation, not on read: later edits to the bucket default must not
-// reach objects already written.
-func gcsSeedObjectACL(bucket, object, generation string) {
-	defaults := gcsObjectDefACLs.Filter(func(a GCSObjectACL) bool { return a.Bucket == bucket })
-	for _, entry := range defaults {
-		acl := entry
-		acl.Object = object
-		acl.Generation = generation
-		acl.ID = bucket + "/" + object + "/" + generation + "/" + entry.Entity
-		acl.SelfLink = ""
-		gcsObjectACLs.Put(gcsObjectACLKey(bucket, object, entry.Entity), acl)
-	}
+type gcsObjectOwner struct {
+	Entity string `json:"entity"`
 }
 
-// objects.patch carries the whole ACL, so it replaces the set rather than
-// merging.
-func gcsReplaceObjectACL(bucket, object, generation string, entries []GCSObjectACL) {
-	gcsDropObjectACL(bucket, object)
-	for _, entry := range entries {
-		if entry.Entity == "" || entry.Role == "" {
-			continue
+// gcsCreateACL is what a write names for the new object's ACL: a predefined
+// ACL (predefinedAcl, destinationPredefinedAcl) or the resource's own acl.
+type gcsCreateACL struct {
+	Predefined string         `json:"predefined,omitempty"`
+	Entries    []GCSObjectACL `json:"entries,omitempty"`
+}
+
+// gcsUploader is the owner an authenticated write gives the object it
+// creates.
+func gcsUploader(r *http.Request) *gcsObjectOwner {
+	principal := gcpRequestPrincipal(r)
+	_, email, ok := strings.Cut(principal, ":")
+	if !ok || email == "" {
+		return nil
+	}
+	return &gcsObjectOwner{Entity: "user-" + email}
+}
+
+// gcsWriteCreateACL reads the ACL a write asks for from the predefined-ACL
+// query parameter its method takes and the resource it carries.
+func gcsWriteCreateACL(r *http.Request, param string, entries *[]GCSObjectACL) (*gcsCreateACL, error) {
+	predefined := r.URL.Query().Get(param)
+	if predefined != "" {
+		if _, known := gcsPredefinedObjectACLs[predefined]; !known {
+			return nil, gcpInvalidValue(fmt.Sprintf("Invalid value for %s: %s", param, predefined))
 		}
-		email, team := gcsACLEmailFor(entry.Entity)
-		gcsObjectACLs.Put(gcsObjectACLKey(bucket, object, entry.Entity), GCSObjectACL{
+		return &gcsCreateACL{Predefined: predefined}, nil
+	}
+	if entries != nil {
+		return &gcsCreateACL{Entries: *entries}, nil
+	}
+	return nil, nil
+}
+
+// gcsPredefinedObjectACLs are the grants each predefined object ACL adds to
+// the owner's OWNER, as storage-v1.discovery.json.gz's predefinedAcl
+// enumDescriptions and storage-access-control-lists.md.gz state them; a
+// "project-<team>" entity stands for the bucket's project team.
+var gcsPredefinedObjectACLs = map[string][][2]string{
+	"private":                {},
+	"projectPrivate":         {{"project-owners", "OWNER"}, {"project-editors", "OWNER"}, {"project-viewers", "READER"}},
+	"authenticatedRead":      {{"allAuthenticatedUsers", "READER"}},
+	"publicRead":             {{"allUsers", "READER"}},
+	"bucketOwnerFullControl": {{"project-owners", "OWNER"}},
+	"bucketOwnerRead":        {{"project-owners", "READER"}},
+}
+
+// gcsSeedObjectACL gives a new object its ACL at creation: the predefined or
+// explicit ACL the write named, else the bucket's default object ACL, with
+// the owner always holding OWNER. Copy at creation, not on read: later edits
+// to the bucket default must not reach objects already written.
+func gcsSeedObjectACL(bucket, object, generation string, owner *gcsObjectOwner, create *gcsCreateACL) {
+	b, _ := gcsBuckets.Get(bucket)
+	projectNumber, _ := b.Data["projectNumber"].(string)
+	ownerEntity := "project-owners-" + projectNumber
+	if owner != nil {
+		ownerEntity = owner.Entity
+	}
+	grants := map[string]string{}
+	switch {
+	case create != nil && create.Predefined != "":
+		for _, grant := range gcsPredefinedObjectACLs[create.Predefined] {
+			entity := grant[0]
+			if strings.HasPrefix(entity, "project-") {
+				entity += "-" + projectNumber
+			}
+			grants[entity] = grant[1]
+		}
+	case create != nil:
+		for _, entry := range create.Entries {
+			if entry.Entity != "" && entry.Role != "" {
+				grants[entry.Entity] = entry.Role
+			}
+		}
+	default:
+		for _, entry := range gcsObjectDefACLs.Filter(func(a GCSObjectACL) bool { return a.Bucket == bucket }) {
+			grants[entry.Entity] = entry.Role
+		}
+	}
+	grants[ownerEntity] = "OWNER"
+	for entity, role := range grants {
+		email, team := gcsACLEmailFor(entity)
+		gcsObjectACLs.Put(gcsObjectACLKey(bucket, object, entity), GCSObjectACL{
 			Kind:        "storage#objectAccessControl",
-			ID:          bucket + "/" + object + "/" + generation + "/" + entry.Entity,
+			ID:          bucket + "/" + object + "/" + generation + "/" + entity,
 			Bucket:      bucket,
 			Object:      object,
 			Generation:  generation,
-			Entity:      entry.Entity,
-			Role:        entry.Role,
+			Entity:      entity,
+			Role:        role,
 			Email:       email,
 			ProjectTeam: team,
 			Etag:        "CAE=",
@@ -131,18 +196,18 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		bucket, object = sim.PathParam(r, "bucket"), sim.PathParam(r, "object")
 		b, found := buckets.Get(bucket)
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return "", "", GCSObject{}, false
 		}
 		if gcsUniformBucketLevelAccess(b) {
-			GCPError(w, http.StatusBadRequest,
+			gcsError(w, http.StatusBadRequest,
 				"Cannot get legacy ACL for an object when uniform bucket-level access is enabled. "+
 					"Read the object's IAM policy instead.", "INVALID_ARGUMENT")
 			return "", "", GCSObject{}, false
 		}
 		obj, found = objects.Get(bucket + "/" + object)
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "object %q not found in bucket %q", object, bucket)
 			return "", "", GCSObject{}, false
 		}
 		return bucket, object, obj, true
@@ -191,7 +256,7 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		entity := sim.PathParam(r, "entity")
 		acl, found := gcsObjectACLs.Get(gcsObjectACLKey(bucket, object, entity))
 		if !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}
@@ -206,11 +271,11 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		var in GCSObjectACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Entity == "" || in.Role == "" {
-			GCPError(w, http.StatusBadRequest, "entity and role are required", "INVALID_ARGUMENT")
+			gcsRequired(w, "entity and role are required")
 			return
 		}
 		acl := build(r, bucket, object, obj.Generation, in.Entity, in.Role)
@@ -225,17 +290,17 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		entity := sim.PathParam(r, "entity")
 		if _, found := gcsObjectACLs.Get(gcsObjectACLKey(bucket, object, entity)); !found {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}
 		var in GCSObjectACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Role == "" {
-			GCPError(w, http.StatusBadRequest, "role is required", "INVALID_ARGUMENT")
+			gcsRequired(w, "role is required")
 			return
 		}
 		acl := build(r, bucket, object, obj.Generation, entity, in.Role)
@@ -252,7 +317,7 @@ func registerGCSObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], objects s
 		}
 		entity := sim.PathParam(r, "entity")
 		if !gcsObjectACLs.Delete(gcsObjectACLKey(bucket, object, entity)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND",
 				"no ACL entry for entity %q on object %q in bucket %q", entity, object, bucket)
 			return
 		}

@@ -14,18 +14,18 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 	srv.HandleFunc("POST /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
 		var data map[string]any
 		if err := sim.ReadJSON(r, &data); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 
 		name, _ := data["name"].(string)
 		if name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			gcsRequired(w, "name is required")
 			return
 		}
 		project := r.URL.Query().Get("project")
 		if project == "" {
-			GCPError(w, http.StatusBadRequest, "Required parameter: project", "INVALID_ARGUMENT")
+			gcsRequired(w, "Required parameter: project")
 			return
 		}
 		owner, ok := gcsResolveProject(w, project)
@@ -34,7 +34,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		}
 
 		if _, exists := buckets.Get(name); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %q already exists", name)
+			gcsErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %q already exists", name)
 			return
 		}
 
@@ -63,7 +63,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		// A new bucket holds no objects, so its mount directory starts empty
 		// whatever a deleted bucket of the same name left in it.
 		if err := gcsResetBucketHostDir(name); err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "bucket %q storage: %v", name, err)
+			gcsErrorf(w, http.StatusInternalServerError, "INTERNAL", "bucket %q storage: %v", name, err)
 			return
 		}
 		bucket := Bucket{Data: data, Project: owner.ProjectId}
@@ -82,7 +82,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 
 		bucket, ok := buckets.Get(bucketName)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, bucket.Data)
@@ -98,12 +98,12 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		}
 		bucket, ok := buckets.Get(bucketName)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		var patch map[string]any
 		if err := sim.ReadJSON(r, &patch); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		applyBucketPatch(bucket.Data, patch)
@@ -120,7 +120,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		bucketName := sim.PathParam(r, "bucket")
 		bucket, ok := buckets.Get(bucketName)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 
@@ -147,7 +147,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 		bucketName := sim.PathParam(r, "bucket")
 
 		if _, ok := buckets.Get(bucketName); !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		// Live objects hold a bucket and soft-deleted ones do not; the client
@@ -157,7 +157,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 			return
 		}
 		if !buckets.Delete(bucketName) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucketName)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -166,7 +166,7 @@ func registerGCSBuckets(srv *sim.Server, buckets sim.Store[Bucket]) {
 	srv.HandleFunc("GET /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		if project == "" {
-			GCPError(w, http.StatusBadRequest, "Required parameter: project", "INVALID_ARGUMENT")
+			gcsRequired(w, "Required parameter: project")
 			return
 		}
 		owner, ok := gcsResolveProject(w, project)
@@ -228,7 +228,7 @@ func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExi
 		bucket, entity := sim.PathParam(r, "bucket"), sim.PathParam(r, "entity")
 		acl, ok := gcsBucketACLs.Get(key(bucket, entity))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no ACL entry for entity %q on bucket %q", entity, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "no ACL entry for entity %q on bucket %q", entity, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, acl)
@@ -241,11 +241,11 @@ func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExi
 		}
 		var in GCSBucketACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Entity == "" || in.Role == "" {
-			GCPError(w, http.StatusBadRequest, "entity and role are required", "INVALID_ARGUMENT")
+			gcsRequired(w, "entity and role are required")
 			return
 		}
 		acl := build(r, bucket, in.Entity, in.Role)
@@ -263,7 +263,7 @@ func registerGCSBucketACLs(srv *sim.Server, buckets sim.Store[Bucket], bucketExi
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/acl/{entity}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, entity := sim.PathParam(r, "bucket"), sim.PathParam(r, "entity")
 		if !gcsBucketACLs.Delete(key(bucket, entity)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no ACL entry for entity %q on bucket %q", entity, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "no ACL entry for entity %q on bucket %q", entity, bucket)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -304,7 +304,7 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 		bucket, entity := sim.PathParam(r, "bucket"), sim.PathParam(r, "entity")
 		acl, ok := gcsObjectDefACLs.Get(key(bucket, entity))
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no default object ACL entry for entity %q on bucket %q", entity, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "no default object ACL entry for entity %q on bucket %q", entity, bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, acl)
@@ -317,11 +317,11 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 		}
 		var in GCSObjectACL
 		if err := sim.ReadJSON(r, &in); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		if in.Entity == "" || in.Role == "" {
-			GCPError(w, http.StatusBadRequest, "entity and role are required", "INVALID_ARGUMENT")
+			gcsRequired(w, "entity and role are required")
 			return
 		}
 		acl := build(r, bucket, in.Entity, in.Role)
@@ -338,7 +338,7 @@ func registerGCSDefaultObjectACLs(srv *sim.Server, buckets sim.Store[Bucket], bu
 	srv.HandleFunc("DELETE /storage/v1/b/{bucket}/defaultObjectAcl/{entity}", func(w http.ResponseWriter, r *http.Request) {
 		bucket, entity := sim.PathParam(r, "bucket"), sim.PathParam(r, "entity")
 		if !gcsObjectDefACLs.Delete(key(bucket, entity)) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no default object ACL entry for entity %q on bucket %q", entity, bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "no default object ACL entry for entity %q on bucket %q", entity, bucket)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -361,7 +361,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		bucket := sim.PathParam(r, "bucket")
 		b, ok := buckets.Get(bucket)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", bucket)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, b.Data)
@@ -376,12 +376,12 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		name := sim.PathParam(r, "bucket")
 		bucket, ok := buckets.Get(name)
 		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
+			gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %q not found", name)
 			return
 		}
 		var request GCSRelocateBucketRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		destination := request.DestinationLocation
@@ -464,7 +464,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		}
 		var request GCSAdvanceRelocateBucketOperationRequest
 		if err := sim.ReadJSON(r, &request); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+			gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -481,7 +481,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		var res gcsObjectResource
 		if r.ContentLength != 0 {
 			if err := sim.ReadJSON(r, &res); err != nil {
-				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+				gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 				return
 			}
 		}
@@ -489,14 +489,18 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			name = res.Name
 		}
 		if name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
+			gcsRequired(w, "name is required")
 			return
 		}
-		attrs := res.applyTo(GCSObject{Name: name})
+		attrs := res.applyTo(GCSObject{Name: name, Owner: gcsUploader(r)})
 		attrs.CustomContexts = res.Contexts.replacement(nil, "")
 		pre, err := parseGCSPreconditions(r.URL.Query(), false)
 		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			gcsError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		if attrs.CreateACL, err = gcsWriteCreateACL(r, "predefinedAcl", res.Acl); err != nil {
+			writeGCSJSONError(w, http.StatusBadRequest, "invalidParameter", err.Error())
 			return
 		}
 		obj, err := persistGCSObject(objects, bucket, name, "", blobstore.Digests{}, attrs, pre, gcsMirror)
@@ -517,12 +521,12 @@ func gcsUpdateACL[I, A any](w http.ResponseWriter, r *http.Request, store sim.St
 		if !bucketExists(w, bucket) {
 			return
 		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no %s entry for entity %q on bucket %q", what, entity, bucket)
+		gcsErrorf(w, http.StatusNotFound, "NOT_FOUND", "no %s entry for entity %q on bucket %q", what, entity, bucket)
 		return
 	}
 	var in I
 	if err := sim.ReadJSON(r, &in); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		gcsErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 		return
 	}
 	acl := build(r, bucket, entity, role(in))

@@ -279,7 +279,8 @@ var azureMethodFloor = map[string]int{
 	"subscription-arm-subscriptions-2021-10-01": 15,
 	// Every operation is served. The declared 501s that remain are conditions a
 	// particular request meets: a process whose memory this host cannot read, a
-	// site whose container runs no PHP, a detector whose input does not exist here.
+	// site whose container runs no PHP, a detector whose input does not exist
+	// here, a migration of a site no in-app MySQL or share migration serves.
 	"web-arm-openapi-2025-03-01": 692,
 }
 

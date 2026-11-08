@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,5 +111,53 @@ func TestBearerCheckCoversEverySpannerHost(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("an anonymous GET to %s → %d %s, want 401", host, rec.Code, rec.Body)
 		}
+	}
+}
+
+// Cloud Storage refuses a JSON API call without a credential in the JSON
+// API's own envelope, which storage-json-status-codes.md.gz shows: reason
+// required, located at the Authorization header, and no google.rpc status.
+func TestBearerCheckAnswersCloudStorageInItsOwnEnvelope(t *testing.T) {
+	srv := gcpCustomMethodTestServer(t)
+	handler := bearerAuthMiddleware(srv)(srv)
+	req := httptest.NewRequest(http.MethodGet, "/storage/v1/b?project=test-project", nil)
+	req.Host = "storage.googleapis.com"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var refusal struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+			Errors  []struct {
+				Domain       string `json:"domain"`
+				Reason       string `json:"reason"`
+				LocationType string `json:"locationType"`
+				Location     string `json:"location"`
+			} `json:"errors"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &refusal); err != nil {
+		t.Fatalf("refusal is not JSON: %v %s", err, rec.Body)
+	}
+	e := refusal.Error
+	if rec.Code != http.StatusUnauthorized || e.Code != 401 || e.Status != "" || e.Message != "Login Required" ||
+		len(e.Errors) != 1 || e.Errors[0].Reason != "required" || e.Errors[0].Domain != "global" ||
+		e.Errors[0].LocationType != "header" || e.Errors[0].Location != "Authorization" {
+		t.Fatalf("an anonymous Cloud Storage call → %d %s", rec.Code, rec.Body)
+	}
+}
+
+// The XML API refuses an object read without a credential with its own
+// AuthenticationRequired, which storage-xml-status-codes.md.gz lists under 401.
+func TestXMLObjectReadWithoutCredentialIsAuthenticationRequired(t *testing.T) {
+	srv := gcpCustomMethodTestServer(t)
+	if status, body := gcpDo(t, srv, http.MethodPost, "storage.googleapis.com",
+		"/storage/v1/b?project="+gcpTestProjectID, `{"name":"xml-anonymous-read"}`); status != http.StatusOK {
+		t.Fatalf("create bucket: %d %s", status, body)
+	}
+	status, body := gcpDo(t, srv, http.MethodGet, "storage.googleapis.com", "/xml-anonymous-read/object.txt", "")
+	if status != http.StatusUnauthorized || !strings.Contains(body, "<Code>AuthenticationRequired</Code>") {
+		t.Fatalf("an anonymous XML read → %d %s", status, body)
 	}
 }

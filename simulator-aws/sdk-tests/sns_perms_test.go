@@ -2,6 +2,9 @@ package aws_sdk_test
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -107,9 +110,9 @@ func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
 		"expected NotFound, got %v", err)
 }
 
-// TestSNS_ConfirmSubscription confirms an https subscription with the token its
-// confirmation message carries, the subscription ARN without colons;
-// ConfirmSubscription is idempotent.
+// TestSNS_ConfirmSubscription confirms an HTTP subscription with the opaque
+// token its confirmation message carries to the endpoint; ConfirmSubscription
+// is idempotent.
 func TestSNS_ConfirmSubscription(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
@@ -120,10 +123,18 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 		_, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: aws.String(topicARN)})
 	})
 
+	deliveries := make(chan snsHTTPDelivery, 2)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		deliveries <- snsHTTPDelivery{headers: r.Header.Clone(), body: body}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(endpoint.Close)
 	sub, err := snsC.Subscribe(ctx, &sns.SubscribeInput{
 		TopicArn:              aws.String(topicARN),
-		Protocol:              aws.String("https"),
-		Endpoint:              aws.String("https://example.com/hook"),
+		Protocol:              aws.String("http"),
+		Endpoint:              aws.String(endpoint.URL),
 		ReturnSubscriptionArn: true,
 	})
 	require.NoError(t, err)
@@ -136,7 +147,11 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "true", got.Attributes["PendingConfirmation"])
 
-	token := strings.ReplaceAll(subARN, ":", "")
+	var confirmation map[string]any
+	require.NoError(t, json.Unmarshal(receiveSNSHTTP(t, deliveries).body, &confirmation))
+	token := snsHTTPString(confirmation, "Token")
+	require.NotEmpty(t, token)
+	assert.NotContains(t, token, "arn", "the token is opaque")
 	conf, err := snsC.ConfirmSubscription(ctx, &sns.ConfirmSubscriptionInput{
 		TopicArn: aws.String(topicARN),
 		Token:    aws.String(token),

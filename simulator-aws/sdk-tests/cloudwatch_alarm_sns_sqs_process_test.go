@@ -122,8 +122,9 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 }
 
 // TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState expects
-// PutMetricAlarm over an alarm that reached ALARM to restart it from
-// INSUFFICIENT_DATA, so it dispatches its AlarmActions again.
+// PutMetricAlarm over an alarm that reached ALARM to leave its state unchanged,
+// as the API reference says of an update, and an alarm deleted and created
+// again to restart from INSUFFICIENT_DATA and dispatch its AlarmActions again.
 func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
@@ -214,11 +215,25 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 	recv := awaitQueueMessages(ctx, t, sqsC, q.QueueUrl, 1)
 	require.Len(t, recv.Messages, 1, "first transition should deliver one notification")
 
-	// Re-create the alarm without deleting it, as repeated Terraform applies that
-	// reuse alarm names do.
+	stateUpdates := func() int {
+		hist, err := cw.DescribeAlarmHistory(ctx, &cloudwatch.DescribeAlarmHistoryInput{
+			AlarmName: aws.String(alarmName), HistoryItemType: cwtypes.HistoryItemTypeStateUpdate,
+		})
+		require.NoError(t, err)
+		return len(hist.AlarmHistoryItems)
+	}
+	before := stateUpdates()
+	putAlarm()
+	out, err := cw.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{alarmName}})
+	require.NoError(t, err)
+	require.Len(t, out.MetricAlarms, 1)
+	assert.Equal(t, cwtypes.StateValueAlarm, out.MetricAlarms[0].StateValue, "an update leaves the state unchanged")
+	assert.Equal(t, before, stateUpdates(), "an update records no state transition")
+
 	_, err = sqsC.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: q.QueueUrl})
 	require.NoError(t, err)
-
+	_, err = cw.DeleteAlarms(ctx, &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
+	require.NoError(t, err)
 	putAlarm()
 
 	_, err = cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{

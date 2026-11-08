@@ -14,7 +14,8 @@ import (
 
 // Azure virtual machine extensions: the Custom Script extension's
 // commandToExecute runs in the guest through azureGuestExec, and its output and
-// exit status are what the extension reports. A handler this simulator does not
+// exit status are what the extension reports; the Network Watcher agent
+// extension enables packet capture. A handler this simulator does not
 // implement is refused rather than reported as succeeded.
 
 type VirtualMachineExtension struct {
@@ -248,6 +249,9 @@ func azureRunVMExtension(
 	properties VirtualMachineExtensionProperties,
 ) (*VirtualMachineExtensionInstanceView, error) {
 	handler := properties.Publisher + "/" + properties.Type
+	if strings.EqualFold(handler, networkWatcherAgentPublisher+"/"+networkWatcherAgentLinux) {
+		return azureNetworkWatcherAgentView(name, properties), nil
+	}
 	if !customScriptHandlers[handler] {
 		return nil, &azureVMExtensionHandlerError{message: fmt.Sprintf(
 			"extension handler %q is not one this simulator runs; it executes the Custom Script "+
@@ -289,6 +293,23 @@ func azureRunVMExtension(
 		outcome, string(stdout), string(stderr))
 	view.Statuses = []VMStatus{status}
 	return view, nil
+}
+
+// The Network Watcher agent extension enables packet capture on the machine:
+// Network Watcher places its agent in the machine's network namespace when a
+// capture starts, so enabling it runs nothing in the guest.
+func azureNetworkWatcherAgentView(name string, properties VirtualMachineExtensionProperties) *VirtualMachineExtensionInstanceView {
+	return &VirtualMachineExtensionInstanceView{
+		Name:               name,
+		Type:               properties.Type,
+		TypeHandlerVersion: properties.TypeHandlerVersion,
+		Statuses: []VMStatus{{
+			Code:          "ProvisioningState/succeeded",
+			Level:         "Info",
+			DisplayStatus: "Provisioning succeeded",
+			Time:          time.Now().UTC().Format(time.RFC3339),
+		}},
+	}
 }
 
 // The Custom Script extension accepts the command in public or protected

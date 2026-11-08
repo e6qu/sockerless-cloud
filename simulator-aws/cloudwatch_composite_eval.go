@@ -34,7 +34,7 @@ func cwAlarmCurrentState(name string) string {
 		return state
 	}
 	if la, ok := cwLogAlarms.Get(name); ok {
-		state, _, _ := cwEvaluateLogAlarmState(la)
+		state, _, _ := cwLogAlarmEffectiveState(la)
 		return state
 	}
 	if ca, ok := cwCompositeAlarms.Get(name); ok && ca.StateValue != "" {
@@ -124,9 +124,9 @@ func cwEvaluateCompositeAlarm(name string, now time.Time) {
 		before = *x
 		x.StateValue = newState
 		x.StateReason = reason
+		x.StateReasonData = cwTriggeringAlarmsReasonData(triggering, children, now)
 		x.UpdatedTimestamp = now.Unix()
 		transitioned = true
-		cwDispatchCompositeAlarmActions(*x, prev, newState, reason, triggering, now)
 	})
 	if !transitioned {
 		return
@@ -138,7 +138,7 @@ func cwEvaluateCompositeAlarm(name string, now time.Time) {
 	})
 	cwRecordAlarmHistory(name, "CompositeAlarm", "StateUpdate",
 		fmt.Sprintf("Alarm updated from %s to %s", prev, newState), string(historyData))
-	cwPutCompositeAlarmStateChangeEvent(before, prev, newState, reason, cwTriggeringAlarmsReasonData(triggering, children, now), now)
+	cwCompositeAlarmTransition(before, prev, newState, reason, cwTriggeringAlarmsReasonData(triggering, children, now), triggering, now).run()
 }
 
 // The reasonData the alarm events carry for a composite alarm:
@@ -169,49 +169,43 @@ func cwTriggeringAlarmsReasonData(triggering []string, children map[string]strin
 	return string(b)
 }
 
-func cwPutCompositeAlarmStateChangeEvent(before CWCompositeAlarm, prev, newState, reason, reasonData string, at time.Time) {
-	previous := cwAlarmEventState{Value: prev, Reason: before.StateReason, Timestamp: cwAlarmEventTime(at)}
-	if before.UpdatedTimestamp > 0 {
-		previous.Timestamp = cwAlarmEventTime(time.Unix(before.UpdatedTimestamp, 0))
-	}
-	cwPutAlarmStateChangeEvent(before.AlarmName, before.AlarmArn, map[string]any{"alarmRule": before.AlarmRule}, previous,
-		cwAlarmEventState{Value: newState, Reason: reason, ReasonData: reasonData, Timestamp: cwAlarmEventTime(at)},
-		before.ActionConfiguration, before.Tags)
-}
-
-func cwDispatchCompositeAlarmActions(ca CWCompositeAlarm, oldState, newState, reason string, triggering []string, now time.Time) {
-	if !ca.ActionsEnabled {
-		return
-	}
-	targets := cwActionsForState(newState, ca.AlarmActions, ca.OKActions, ca.InsufficientDataActions)
-	if len(targets) == 0 {
-		return
-	}
+// cwCompositeAlarmTransition describes a composite alarm, as it stood before,
+// moving from prev to newState.
+func cwCompositeAlarmTransition(before CWCompositeAlarm, prev, newState, reason, reasonData string, triggering []string, at time.Time) cwAlarmTransition {
 	if triggering == nil {
 		triggering = []string{}
 	}
 	payload := map[string]any{
-		"AlarmName":               ca.AlarmName,
-		"AlarmDescription":        ca.AlarmDescription,
+		"AlarmName":               before.AlarmName,
+		"AlarmDescription":        before.AlarmDescription,
 		"AWSAccountId":            awsAccountID(),
 		"NewStateValue":           newState,
 		"NewStateReason":          reason,
-		"StateChangeTime":         now.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"StateChangeTime":         at.UTC().Format("2006-01-02T15:04:05.000Z"),
 		"Region":                  awsRegion(),
-		"AlarmArn":                ca.AlarmArn,
-		"OKActions":               ca.OKActions,
-		"AlarmActions":            ca.AlarmActions,
-		"InsufficientDataActions": ca.InsufficientDataActions,
-		"OldStateValue":           oldState,
-		"AlarmRule":               ca.AlarmRule,
+		"AlarmArn":                before.AlarmArn,
+		"OKActions":               before.OKActions,
+		"AlarmActions":            before.AlarmActions,
+		"InsufficientDataActions": before.InsufficientDataActions,
+		"OldStateValue":           prev,
+		"AlarmRule":               before.AlarmRule,
 		"TriggeringChildren":      triggering,
 	}
-	cwAddNotificationTags(payload, ca.ActionConfiguration, ca.Tags)
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return
+	cwAddNotificationTags(payload, before.ActionConfiguration, before.Tags)
+	message, _ := json.Marshal(payload)
+	return cwAlarmTransition{
+		Name:           before.AlarmName,
+		Arn:            before.AlarmArn,
+		ActionsEnabled: before.ActionsEnabled,
+		Targets:        cwActionsForState(newState, before.AlarmActions, before.OKActions, before.InsufficientDataActions),
+		Subject:        cwAlarmNotificationSubject(newState, before.AlarmName),
+		SNSMessage:     string(message),
+		Configuration:  map[string]any{"alarmRule": before.AlarmRule},
+		Previous:       cwAlarmEventState{Value: prev, Reason: before.StateReason, Timestamp: cwAlarmEventUnixTime(before.UpdatedTimestamp, at)},
+		State:          cwAlarmEventState{Value: newState, Reason: reason, ReasonData: reasonData, Timestamp: cwAlarmEventTime(at)},
+		ActionConfig:   before.ActionConfiguration,
+		Tags:           before.Tags,
 	}
-	cwPublishAlarmNotification(ca.AlarmName, targets, cwAlarmNotificationSubject(newState, ca.AlarmName), string(body))
 }
 
 func cwActionsForState(state string, alarm, ok, insufficient []string) []string {
