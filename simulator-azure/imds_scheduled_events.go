@@ -231,7 +231,9 @@ func registerAzureScheduledEvents(srv *sim.Server) {
 			azureIMDSBadRequest(w, "Bad request. EventId '"+unknown+"' is not a current event.")
 			return
 		}
-		// Answer before the approved operation can stop the guest that asked.
+		// Finish the answer before the approved operation can stop the guest that
+		// asked: a body of unknown length would end only when the handler returns.
+		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusOK)
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()

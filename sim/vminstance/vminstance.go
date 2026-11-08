@@ -141,9 +141,22 @@ func Init(startupPath string) string {
 	}
 	lines = append(lines,
 		"touch "+ReadyPath,
+		// As PID 1 of the machine's namespace, a poweroff sends SIGTERM to every
+		// other process and waits for them to exit, as a Linux init does; the
+		// stop's grace period is the hard power-off. The init cannot wait on
+		// processes it did not start, so it checks for them. An init that is not
+		// PID 1 shares its namespace with the host's processes and signals none.
+		"poweroff() {",
+		"	trap '' TERM INT USR2 38",
+		"	if [ $$ -eq 1 ]; then",
+		"		kill -TERM -1 2>/dev/null",
+		"		while kill -0 -1 2>/dev/null; do sleep 0.1; done",
+		"	fi",
+		"	exit 0",
+		"}",
 		// SIGRTMIN+4 is systemd's poweroff signal and SIGUSR2 busybox init's,
 		// so a guest that powers itself off ends the init as it ends a real one.
-		"trap 'exit 0' TERM INT USR2 38",
+		"trap poweroff TERM INT USR2 38",
 		"while :; do sleep 2147483647 & wait $!; done",
 		"",
 	)

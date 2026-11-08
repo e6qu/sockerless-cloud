@@ -584,6 +584,15 @@ semaphores. The guest library is POSIX sh and edits `/etc/passwd` and
 `/etc/shadow` itself, because Amazon Linux 2023 has no shadow-utils. Compute
 Engine's `startup-script` runs at every boot after cloud-init; the init honours
 systemd's SIGRTMIN+4 and busybox's SIGUSR2 so a guest's own poweroff ends it.
+A poweroff, the guest's or the stop's SIGTERM, sends SIGTERM to every other
+process of the instance and waits for them to exit before the init does, as a
+Linux init does, with the stop's grace period as the hard power-off. The init
+had exited at once, which killed every guest process with it: a guest
+approving an Azure Scheduled Event raced the operation it approved and could
+lose the answer to it, even though it ignored SIGTERM. The approval's answer
+also carries `Content-Length: 0`, so it is complete before the operation starts;
+a body of unknown length ended only when the handler returned, after the
+approval.
 The metadata services read the instance's current record; each cloud's
 metadata service answers its own workloads and nothing else, since an
 invented default machine answered every other caller.
@@ -1512,6 +1521,12 @@ fails once the row closes or the operation is served.
 
 ## Testing discipline
 
+- **A test waits on the state it asserts, from a workload that holds it.** An
+  Azure Container Apps execution whose image ran its default command (`sh`
+  with no input) ended in milliseconds, so a test that read `Running` after
+  the start, or stopped the execution to read `Stopped`, raced the replica's
+  exit. Those tests run a replica that lasts until the execution is stopped,
+  under the 1800-second `replicaTimeout` Azure defaults to.
 - **A document's commands are tested as written.** `testutil/doctest` runs
   every shell block of a tutorial in order, as a reader runs it, and checks the
   output the text promises. Its first runs found commands that had never

@@ -26,7 +26,7 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	rgResp.Body.Close()
 
-	acaCreateJob(t, rg, jobName)
+	acaCreateJobUntilStopped(t, rg, jobName)
 
 	execName := acaStartExecution(t, rg, jobName)
 
