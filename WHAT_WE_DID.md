@@ -962,6 +962,23 @@ the socket answers). Lessons:
   SQL does. A restart of the simulator finishes, with an error, any operation
   it left RUNNING, since a RUNNING operation refuses every later one on the
   instance.
+- **A Cloud SQL `databaseVersion` runs its own release.** The version table
+  (`simulator-gcp/sqladmin_versions.go`) maps every version of the vendored
+  enum that has a community image to that release, pinned by its multi-arch
+  index digest, and `databaseInstalledVersion` names the minor it runs; a MySQL
+  8.0 version that carries its minor runs that minor. An earlier simulator ran
+  PostgreSQL 16 and MySQL 8.0 for every version, so a restart records the
+  version whose engine wrote an existing volume. Engine statements follow the
+  release (MySQL 5.6 has no `CREATE USER IF NOT EXISTS`, PostgreSQL 12 no
+  `DROP DATABASE ... WITH (FORCE)`, MySQL 8.4 no
+  `--default-authentication-plugin`). `instances.patch` and `instances.update`
+  with a later version run Cloud SQL's in-place upgrade as a
+  `MAJOR_VERSION_UPGRADE` operation, with its labelled pre- and post-upgrade
+  backup runs: MySQL's server upgrades the volume (`mysql_upgrade` before
+  8.0.16), and PostgreSQL's data moves through `pg_dumpall` into a fresh
+  cluster of the target; a failure restores the pre-upgrade backup. CI warms
+  only the engine images the suites name, resolved from the table by
+  `scripts/cloudsql-version-images-for.sh`, as the AWS Lambda runtimes are.
 - **Cloud SQL certificates are real X.509 material.** Each instance holds a
   per-instance CA rotation set, or a server certificate signed by the region's
   shared subordinate CA, and the data plane presents the active one;

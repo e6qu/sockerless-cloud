@@ -63,22 +63,12 @@ func sqlOpenSecret(sealed []byte) (string, error) {
 }
 
 // sqlEngineFamily reports the engine behind a databaseVersion, and whether
-// the version has a data plane at all.
+// the simulator runs a data plane for the version at all.
 func sqlEngineFamily(databaseVersion string) (dbengine.Family, bool) {
-	switch {
-	case strings.HasPrefix(databaseVersion, "POSTGRES_"):
-		return dbengine.Postgres, true
-	case strings.HasPrefix(databaseVersion, "MYSQL_"):
-		return dbengine.MySQL, true
+	if _, ok := sqlFindEngineVersion(databaseVersion); !ok {
+		return "", false
 	}
-	return "", false
-}
-
-func sqlEngine(family dbengine.Family) dbengine.Engine {
-	if family == dbengine.Postgres {
-		return dbengine.Postgres16.WithImage("mirror.gcr.io/library/postgres:16-alpine")
-	}
-	return dbengine.MySQL80.WithImage("mirror.gcr.io/library/mysql:8.0")
+	return sqlVersionFamily(databaseVersion)
 }
 
 // sqlBuiltInAdminUser is the user the engine is initialised with — the one
@@ -99,6 +89,7 @@ type sqlDataPlane struct {
 	*dbengine.Instance
 	project  string
 	instance string
+	version  sqlEngineVersion
 }
 
 var sqlDataPlanes sync.Map // project/instance -> *sqlDataPlane
@@ -112,11 +103,19 @@ func sqlLoadDataPlane(project, instance string) (*sqlDataPlane, bool) {
 	return plane, ok
 }
 
-func sqlNewDataPlane(project, instance string, family dbengine.Family) *sqlDataPlane {
-	plane := &sqlDataPlane{project: project, instance: instance}
+func sqlNewDataPlane(project, instance string, version sqlEngineVersion) *sqlDataPlane {
+	plane := sqlBuildDataPlane(project, instance, version)
+	sqlDataPlanes.Store(sqlInstanceKey(project, instance), plane)
+	return plane
+}
+
+// sqlBuildDataPlane builds the instance's data plane without publishing it.
+func sqlBuildDataPlane(project, instance string, version sqlEngineVersion) *sqlDataPlane {
+	family, _ := sqlVersionFamily(version.DatabaseVersion)
+	plane := &sqlDataPlane{project: project, instance: instance, version: version}
 	plane.Instance = &dbengine.Instance{
 		Name:     "Cloud SQL " + project + "/" + instance,
-		Engine:   sqlEngine(family),
+		Engine:   sqlEngine(version),
 		Volume:   sqlInstanceVolume(project, instance),
 		Labels:   map[string]string{"sockerless-cloudsql-instance": project + "/" + instance},
 		Sandbox:  SandboxCloudRun,
@@ -147,7 +146,6 @@ func sqlNewDataPlane(project, instance string, family dbengine.Family) *sqlDataP
 			return user, password, nil
 		},
 	}
-	sqlDataPlanes.Store(sqlInstanceKey(project, instance), plane)
 	return plane
 }
 
@@ -155,14 +153,14 @@ func sqlNewDataPlane(project, instance string, family dbengine.Family) *sqlDataP
 // returns false with the reason when this host cannot bind a loopback address
 // at the engine's port.
 func sqlInstallDataPlane(inst *SQLInstance) (bool, error) {
-	family, ok := sqlEngineFamily(inst.DatabaseVersion)
+	version, ok := sqlFindEngineVersion(inst.DatabaseVersion)
 	if !ok {
 		return false, nil
 	}
 	if sim.RequireContainerRuntime("the Cloud SQL data plane") != nil {
 		return false, nil
 	}
-	listener, err := dbengine.ListenLoopback(inst.Project+"/"+inst.Name, sqlEngine(family).Port)
+	listener, err := dbengine.ListenLoopback(inst.Project+"/"+inst.Name, sqlEngine(version).Port)
 	if err != nil {
 		return false, err
 	}
@@ -174,7 +172,7 @@ func sqlInstallDataPlane(inst *SQLInstance) (bool, error) {
 	inst.IpAddresses = []map[string]any{
 		{"type": "PRIMARY", "ipAddress": address.IP.String()},
 	}
-	sqlNewDataPlane(inst.Project, inst.Name, family).Serve(listener)
+	sqlNewDataPlane(inst.Project, inst.Name, version).Serve(listener)
 	return true, nil
 }
 
@@ -204,24 +202,19 @@ func sqlReportDataPlane(inst *SQLInstance) {
 // restart and re-adopts engine containers an earlier process left running.
 func sqlRecoverDataPlanes() error {
 	for _, inst := range sqlInstances.List() {
-		family, ok := sqlEngineFamily(inst.DatabaseVersion)
+		version, ok := sqlFindEngineVersion(inst.DatabaseVersion)
 		if !ok {
 			continue
 		}
-		if len(inst.IpAddresses) != 1 {
-			continue
-		}
-		recorded, _ := inst.IpAddresses[0]["ipAddress"].(string)
-		ip := net.ParseIP(recorded)
-		if ip == nil || !ip.IsLoopback() {
+		if !sqlServedAddress(inst) {
 			// An instance this host could not serve.
 			continue
 		}
-		listener, err := net.Listen("tcp", net.JoinHostPort(recorded, strconv.Itoa(sqlEngine(family).Port)))
+		listener, err := sqlRebindAddress(inst, version)
 		if err != nil {
-			return fmt.Errorf("rebind Cloud SQL instance %s at %s: %w", inst.Name, recorded, err)
+			return err
 		}
-		plane := sqlNewDataPlane(inst.Project, inst.Name, family)
+		plane := sqlNewDataPlane(inst.Project, inst.Name, version)
 		if err := plane.Adopt(); err != nil {
 			_ = listener.Close()
 			return fmt.Errorf("re-adopt Cloud SQL instance %s engine: %w", inst.Name, err)
@@ -229,6 +222,28 @@ func sqlRecoverDataPlanes() error {
 		plane.Serve(listener)
 	}
 	return nil
+}
+
+// sqlServedAddress reports whether the instance's PRIMARY address is a
+// loopback address this host binds; an instance the host could not serve
+// records none.
+func sqlServedAddress(inst SQLInstance) bool {
+	if len(inst.IpAddresses) != 1 {
+		return false
+	}
+	recorded, _ := inst.IpAddresses[0]["ipAddress"].(string)
+	ip := net.ParseIP(recorded)
+	return ip != nil && ip.IsLoopback()
+}
+
+// sqlRebindAddress binds the instance's recorded PRIMARY address again.
+func sqlRebindAddress(inst SQLInstance, version sqlEngineVersion) (net.Listener, error) {
+	recorded, _ := inst.IpAddresses[0]["ipAddress"].(string)
+	listener, err := net.Listen("tcp", net.JoinHostPort(recorded, strconv.Itoa(sqlEngine(version).Port)))
+	if err != nil {
+		return nil, fmt.Errorf("rebind Cloud SQL instance %s at %s: %w", inst.Name, recorded, err)
+	}
+	return listener, nil
 }
 
 // sqlEngineAdminPassword returns the built-in admin user's password —
@@ -348,6 +363,15 @@ func sqlEngineEnsureUser(plane *sqlDataPlane, name, password string) error {
 		return plane.Exec(sqlPostgresCommand(script))
 	}
 	quotedPassword := dbengine.QuoteMySQLLiteral(password)
+	if !plane.version.atLeast(5, 7) {
+		// MySQL 5.6 and earlier have neither CREATE USER IF NOT EXISTS nor
+		// ALTER USER ... IDENTIFIED BY; GRANT ... IDENTIFIED BY creates the
+		// account or sets its password.
+		if name == sqlBuiltInAdminUser(dbengine.MySQL) {
+			return plane.execMySQL("SET PASSWORD FOR 'root'@'%' = PASSWORD(" + quotedPassword + "); SET PASSWORD FOR 'root'@'localhost' = PASSWORD(" + quotedPassword + "); FLUSH PRIVILEGES;")
+		}
+		return plane.execMySQL("GRANT ALL PRIVILEGES ON *.* TO " + dbengine.QuoteMySQLLiteral(name) + "@'%' IDENTIFIED BY " + quotedPassword + " WITH GRANT OPTION; FLUSH PRIVILEGES;")
+	}
 	if name == sqlBuiltInAdminUser(dbengine.MySQL) {
 		return plane.execMySQL("ALTER USER 'root'@'%' IDENTIFIED BY " + quotedPassword + "; ALTER USER 'root'@'localhost' IDENTIFIED BY " + quotedPassword + "; FLUSH PRIVILEGES;")
 	}
@@ -379,7 +403,13 @@ func sqlEngineDropUserIfRunning(project, instance, name string) error {
 	if plane.Engine.Family == dbengine.Postgres {
 		return plane.Exec(sqlPostgresCommand("DROP ROLE IF EXISTS " + dbengine.QuoteIdentifier(name)))
 	}
-	return plane.execMySQL("DROP USER IF EXISTS " + dbengine.QuoteMySQLLiteral(name) + "@'%'")
+	account := dbengine.QuoteMySQLLiteral(name) + "@'%'"
+	if !plane.version.atLeast(5, 7) {
+		// MySQL 5.6 and earlier have no DROP USER IF EXISTS; the grant makes
+		// the account exist to drop.
+		return plane.execMySQL("GRANT USAGE ON *.* TO " + account + "; DROP USER " + account + ";")
+	}
+	return plane.execMySQL("DROP USER IF EXISTS " + account)
 }
 
 // sqlEngineDropDatabaseIfRunning removes a deleted database from a running
@@ -390,6 +420,14 @@ func sqlEngineDropDatabaseIfRunning(project, instance, name string) error {
 		return nil
 	}
 	if plane.Engine.Family == dbengine.Postgres {
+		if !plane.version.atLeast(13) {
+			// DROP DATABASE ... WITH (FORCE) arrived in PostgreSQL 13, and
+			// DROP DATABASE refuses to run inside the transaction one -c
+			// with two statements opens.
+			return plane.Exec([]string{"psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
+				"-c", "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = " + dbengine.QuoteLiteral(name),
+				"-c", "DROP DATABASE IF EXISTS " + dbengine.QuoteIdentifier(name)})
+		}
 		return plane.Exec(sqlPostgresCommand("DROP DATABASE IF EXISTS " + dbengine.QuoteIdentifier(name) + " WITH (FORCE)"))
 	}
 	return plane.execMySQL("DROP DATABASE IF EXISTS " + dbengine.QuoteMySQLIdentifier(name))

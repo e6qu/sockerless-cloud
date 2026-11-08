@@ -248,7 +248,7 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 
 	updateOp, err := svc.Instances.Update(project, instanceName, &sqladmin.DatabaseInstance{
 		Name:            instanceName,
-		DatabaseVersion: "POSTGRES_16",
+		DatabaseVersion: "POSTGRES_15",
 		Settings:        &sqladmin.Settings{Tier: "db-custom-2-7680"},
 	}).Do()
 	require.NoError(t, err)
@@ -258,7 +258,7 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 
 	inst, err := svc.Instances.Get(project, instanceName).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "POSTGRES_16", inst.DatabaseVersion)
+	assert.Equal(t, "POSTGRES_15", inst.DatabaseVersion, "an update carrying the current version leaves it")
 
 	restartOp, err := svc.Instances.Restart(project, instanceName).Do()
 	require.NoError(t, err)

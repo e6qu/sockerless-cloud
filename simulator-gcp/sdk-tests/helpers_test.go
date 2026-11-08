@@ -86,11 +86,18 @@ func TestMain(m *testing.M) {
 	// flaky dependency of the engine lifecycle: a transient failure surfaced
 	// as an engine that "did not become ready" rather than as what it was —
 	// the network. Fetching them here, with retries, removes that race.
-	if testRunSelects("TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt") {
-		pullImageBeforeRun("mirror.gcr.io/library/postgres:16-alpine")
+	if testRunSelects("TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt") ||
+		testRunSelects("TestCloudSQL_PostgresVersionRunsItsReleaseAndUpgradesInPlace") {
+		pullImageBeforeRun(cloudSQLPostgres15Image)
+	}
+	if testRunSelects("TestCloudSQL_PostgresVersionRunsItsReleaseAndUpgradesInPlace") {
+		pullImageBeforeRun(cloudSQLPostgres16Image)
 	}
 	if testRunSelects("TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt") {
-		pullImageBeforeRun("mirror.gcr.io/library/mysql:8.0")
+		pullImageBeforeRun(cloudSQLMySQL80Image)
+	}
+	if testRunSelects("TestCloudSQL_MySQLVersionRunsItsRelease") {
+		pullImageBeforeRun(cloudSQLMySQL84Image)
 	}
 	// Every Memorystore instance and cluster a test creates starts a real
 	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.

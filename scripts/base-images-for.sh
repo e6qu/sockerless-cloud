@@ -36,6 +36,8 @@ done
 # and one arrives only when a suite invokes a function on that runtime. Reading
 # it literally would cache all thirty, so it is resolved the other way round —
 # from the identifiers the suites name — by lambda-runtime-images-for.sh.
+# The Cloud SQL version table is resolved the same way, from the database
+# versions the suites name, by cloudsql-version-images-for.sh.
 # A simulator's own Dockerfile names the images its container build runs on,
 # which no suite runs a container from.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,12 +58,14 @@ done
             -name '*.sh' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o \
             -name 'Dockerfile*' \
         \) ! -path '*simulator-aws/lambda_runtime.go' \
+        ! -path '*simulator-gcp/sqladmin_versions.go' \
         ! -path '*simulator-*/Dockerfile' -print0 |
         xargs -0 grep -hoE '(public\.ecr\.aws|mirror\.gcr\.io)/[a-z0-9][a-z0-9/._-]*(:[a-zA-Z0-9][a-zA-Z0-9._-]*(@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})'
 
     for dir in "$@"; do
         case "$dir" in
             *simulator-aws | *simulator-aws/*) bash "$here/lambda-runtime-images-for.sh" "$dir" ;;
+            *simulator-gcp | *simulator-gcp/*) bash "$here/cloudsql-version-images-for.sh" "$dir" ;;
         esac
     done
 } | sort -u

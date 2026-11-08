@@ -468,13 +468,21 @@ func sqlDumpCommand(plane *sqlDataPlane, ec sqlExportContext) ([]string, []strin
 	switch masterData {
 	case 0:
 	case 1, 2:
-		command = append(command, "--source-data="+strconv.Itoa(masterData))
+		// mysqldump spells the option --master-data before 8.0.26.
+		option := "--source-data="
+		if !plane.version.atLeast(8, 0, 26) {
+			option = "--master-data="
+		}
+		command = append(command, option+strconv.Itoa(masterData))
 	default:
 		return nil, nil, fmt.Errorf("masterData %d is not 1 or 2", masterData)
 	}
-	if masterData == 1 {
+	switch {
+	case !plane.version.atLeast(5, 6):
+		// MySQL 5.5 has no GTIDs.
+	case masterData == 1:
 		command = append(command, "--set-gtid-purged=ON")
-	} else {
+	default:
 		command = append(command, "--set-gtid-purged=OFF")
 	}
 	if schemaOnly {
