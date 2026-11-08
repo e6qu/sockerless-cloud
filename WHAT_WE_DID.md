@@ -966,10 +966,12 @@ the socket answers). Lessons:
   (`simulator-gcp/sqladmin_versions.go`) maps every version of the vendored
   enum that has a community image to that release, pinned by its multi-arch
   index digest, and `databaseInstalledVersion` names the minor it runs; a MySQL
-  8.0 version that carries its minor runs that minor. An earlier simulator ran
+  8.0 version that carries its minor runs that minor. Docker Hub reports no
+  index digest or age for the MySQL 5.5 and 5.6 tags, so the dependency
+  freshness gate can never adopt them and those versions run no engine. An earlier simulator ran
   PostgreSQL 16 and MySQL 8.0 for every version, so a restart records the
   version whose engine wrote an existing volume. Engine statements follow the
-  release (MySQL 5.6 has no `CREATE USER IF NOT EXISTS`, PostgreSQL 12 no
+  release (PostgreSQL 12 has no
   `DROP DATABASE ... WITH (FORCE)`, MySQL 8.4 no
   `--default-authentication-plugin`). `instances.patch` and `instances.update`
   with a later version run Cloud SQL's in-place upgrade as a

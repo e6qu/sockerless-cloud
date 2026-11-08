@@ -477,12 +477,9 @@ func sqlDumpCommand(plane *sqlDataPlane, ec sqlExportContext) ([]string, []strin
 	default:
 		return nil, nil, fmt.Errorf("masterData %d is not 1 or 2", masterData)
 	}
-	switch {
-	case !plane.version.atLeast(5, 6):
-		// MySQL 5.5 has no GTIDs.
-	case masterData == 1:
+	if masterData == 1 {
 		command = append(command, "--set-gtid-purged=ON")
-	default:
+	} else {
 		command = append(command, "--set-gtid-purged=OFF")
 	}
 	if schemaOnly {

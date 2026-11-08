@@ -363,15 +363,6 @@ func sqlEngineEnsureUser(plane *sqlDataPlane, name, password string) error {
 		return plane.Exec(sqlPostgresCommand(script))
 	}
 	quotedPassword := dbengine.QuoteMySQLLiteral(password)
-	if !plane.version.atLeast(5, 7) {
-		// MySQL 5.6 and earlier have neither CREATE USER IF NOT EXISTS nor
-		// ALTER USER ... IDENTIFIED BY; GRANT ... IDENTIFIED BY creates the
-		// account or sets its password.
-		if name == sqlBuiltInAdminUser(dbengine.MySQL) {
-			return plane.execMySQL("SET PASSWORD FOR 'root'@'%' = PASSWORD(" + quotedPassword + "); SET PASSWORD FOR 'root'@'localhost' = PASSWORD(" + quotedPassword + "); FLUSH PRIVILEGES;")
-		}
-		return plane.execMySQL("GRANT ALL PRIVILEGES ON *.* TO " + dbengine.QuoteMySQLLiteral(name) + "@'%' IDENTIFIED BY " + quotedPassword + " WITH GRANT OPTION; FLUSH PRIVILEGES;")
-	}
 	if name == sqlBuiltInAdminUser(dbengine.MySQL) {
 		return plane.execMySQL("ALTER USER 'root'@'%' IDENTIFIED BY " + quotedPassword + "; ALTER USER 'root'@'localhost' IDENTIFIED BY " + quotedPassword + "; FLUSH PRIVILEGES;")
 	}
@@ -404,11 +395,6 @@ func sqlEngineDropUserIfRunning(project, instance, name string) error {
 		return plane.Exec(sqlPostgresCommand("DROP ROLE IF EXISTS " + dbengine.QuoteIdentifier(name)))
 	}
 	account := dbengine.QuoteMySQLLiteral(name) + "@'%'"
-	if !plane.version.atLeast(5, 7) {
-		// MySQL 5.6 and earlier have no DROP USER IF EXISTS; the grant makes
-		// the account exist to drop.
-		return plane.execMySQL("GRANT USAGE ON *.* TO " + account + "; DROP USER " + account + ";")
-	}
 	return plane.execMySQL("DROP USER IF EXISTS " + account)
 }
 

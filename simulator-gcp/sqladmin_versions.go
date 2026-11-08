@@ -30,12 +30,11 @@ const sqlDefaultDatabaseVersion = "POSTGRES_15"
 
 // sqlEngineVersions lists each databaseVersion of the vendored enum that has
 // a community image, at the newest release of the version; a MySQL 8.0
-// version that names its minor runs that minor. MYSQL_5_1, POSTGRES_19 and
-// POSTGRES_20 have no release image and run no engine.
+// version that names its minor runs that minor. POSTGRES_19 and POSTGRES_20
+// have no release image, and Docker Hub dates no digest for MYSQL_5_1,
+// MYSQL_5_5 or MYSQL_5_6, so those run no engine.
 // scripts/cloudsql-version-images-for.sh reads this table one row per line.
 var sqlEngineVersions = []sqlEngineVersion{
-	{"MYSQL_5_5", "MYSQL_5_5_62", "mirror.gcr.io/library/mysql:5.5.62@sha256:12da85ab88aedfdf39455872fb044f607c32fdc233cd59f1d26769fbf439b045"},
-	{"MYSQL_5_6", "MYSQL_5_6_51", "mirror.gcr.io/library/mysql:5.6.51@sha256:20575ecebe6216036d25dab5903808211f1e9ba63dc7825ac20cb975e34cfcae"},
 	{"MYSQL_5_7", "MYSQL_5_7_44", "mirror.gcr.io/library/mysql:5.7.44@sha256:4bc6bc963e6d8443453676cae56536f4b8156d78bae03c0145cbe47c2aad73bb"},
 	{"MYSQL_8_0", "MYSQL_8_0_46", "mirror.gcr.io/library/mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"},
 	{"MYSQL_8_0_18", "MYSQL_8_0_18", "mirror.gcr.io/library/mysql:8.0.18@sha256:e1b0fd480a11e5c37425a2591b6fbd32af886bfc6d6f404bd362be5e50a2e632"},
@@ -164,7 +163,7 @@ func sqlEngine(version sqlEngineVersion) dbengine.Engine {
 
 // sqlNextMySQLMajor is the consecutive major version each Cloud SQL for MySQL
 // major upgrades to: MySQL upgrades one major version at a time.
-var sqlNextMySQLMajor = map[string]string{"5.5": "5.6", "5.6": "5.7", "5.7": "8.0", "8.0": "8.4", "8.4": "9.7"}
+var sqlNextMySQLMajor = map[string]string{"5.7": "8.0", "8.0": "8.4", "8.4": "9.7"}
 
 // sqlCheckVersionChange answers why an instance on current cannot move to
 // target through instances.patch, or "" when it can: the target is a later
