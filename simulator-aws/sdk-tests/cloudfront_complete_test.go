@@ -108,6 +108,22 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, byFnOut.DistributionList)
 	assert.Equal(t, int32(0), aws.ToInt32(byFnOut.DistributionList.Quantity))
+
+	distID := cfExtras3MakeReferencingDistribution(t, c, ctx, cftypes.DistributionConfig{
+		DefaultCacheBehavior: &cftypes.DefaultCacheBehavior{
+			TargetOriginId:       aws.String("o1"),
+			ViewerProtocolPolicy: cftypes.ViewerProtocolPolicyHttpsOnly,
+			CachePolicyId:        aws.String("658327ea-f89d-4fab-a63d-7e88639e58f6"),
+		},
+		ConnectionFunctionAssociation: &cftypes.ConnectionFunctionAssociation{Id: aws.String(id)},
+	})
+	byFnOut, err = c.ListDistributionsByConnectionFunction(ctx, &cloudfront.ListDistributionsByConnectionFunctionInput{
+		ConnectionFunctionIdentifier: aws.String(id),
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), aws.ToInt32(byFnOut.DistributionList.Quantity))
+	assert.Equal(t, distID, aws.ToString(byFnOut.DistributionList.Items[0].Id))
+	assert.Equal(t, id, aws.ToString(byFnOut.DistributionList.Items[0].ConnectionFunctionAssociation.Id))
 }
 
 func TestCloudFront_TestFunction(t *testing.T) {

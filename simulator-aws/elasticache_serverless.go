@@ -822,9 +822,7 @@ func handleECCreateGlobalReplGroup(w http.ResponseWriter, r *http.Request) {
 		ecErrorXML(w, "ReplicationGroupNotFoundFault", fmt.Sprintf("Replication group %q not found", primary), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	// AWS prefixes a random tag for global uniqueness; the simulator's prefix is
-	// fixed.
-	id := "ldgnf-" + suffix
+	id := ecGlobalReplicationGroupPrefix(awsRegion()) + "-" + suffix
 	if _, ok := ecGlobalReplGroups.Get(id); ok {
 		ecErrorXML(w, "GlobalReplicationGroupAlreadyExistsFault", "Global replication group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
@@ -1231,4 +1229,13 @@ func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.R
 	var b strings.Builder
 	ecReservedNodeXML(&b, node)
 	ecXMLResponse(w, "PurchaseReservedCacheNodesOffering", b.String(), sim.RequestID(r.Context()))
+}
+
+// "Each Amazon Region has its own prefix": the API reference names US-West-1's
+// "dsdfu"; no vendored source names another Region's.
+func ecGlobalReplicationGroupPrefix(region string) string {
+	if region == "us-west-1" {
+		return "dsdfu"
+	}
+	return "ldgnf"
 }

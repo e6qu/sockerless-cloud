@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,18 +173,34 @@ func TestCloudFront_DistributionTenant(t *testing.T) {
 	}
 	assert.True(t, found)
 
-	byCust, err := c.ListDistributionTenantsByCustomization(ctx, &cloudfront.ListDistributionTenantsByCustomizationInput{})
-	require.NoError(t, err)
-	require.NotNil(t, byCust)
+	webACL := "arn:aws:wafv2:us-east-1:111122223333:global/webacl/tenant-" + time.Now().Format("150405.000000000") + "/abc"
+	tenantsByWebACL := func() []string {
+		t.Helper()
+		out, err := c.ListDistributionTenantsByCustomization(ctx, &cloudfront.ListDistributionTenantsByCustomizationInput{WebACLArn: aws.String(webACL)})
+		require.NoError(t, err)
+		var ids []string
+		for _, s := range out.DistributionTenantList {
+			ids = append(ids, aws.ToString(s.Id))
+		}
+		return ids
+	}
+	assert.Empty(t, tenantsByWebACL(), "no tenant overrides the web ACL yet")
 
 	assoc, err := c.AssociateDistributionTenantWebACL(ctx, &cloudfront.AssociateDistributionTenantWebACLInput{
 		Id:        aws.String(tenantID),
-		WebACLArn: aws.String("arn:aws:wafv2:us-east-1:111122223333:global/webacl/tenant/abc"),
+		WebACLArn: aws.String(webACL),
 		IfMatch:   aws.String(etag),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, tenantID, aws.ToString(assoc.Id))
 	etag = aws.ToString(assoc.ETag)
+	assert.Equal(t, []string{tenantID}, tenantsByWebACL())
+	got, err := c.GetDistributionTenant(ctx, &cloudfront.GetDistributionTenantInput{Identifier: aws.String(tenantID)})
+	require.NoError(t, err)
+	require.NotNil(t, got.DistributionTenant.Customizations)
+	require.NotNil(t, got.DistributionTenant.Customizations.WebAcl)
+	assert.Equal(t, cftypes.CustomizationActionTypeOverride, got.DistributionTenant.Customizations.WebAcl.Action)
+	assert.Equal(t, webACL, aws.ToString(got.DistributionTenant.Customizations.WebAcl.Arn))
 
 	disassoc, err := c.DisassociateDistributionTenantWebACL(ctx, &cloudfront.DisassociateDistributionTenantWebACLInput{
 		Id:      aws.String(tenantID),
@@ -191,6 +208,7 @@ func TestCloudFront_DistributionTenant(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, tenantID, aws.ToString(disassoc.Id))
+	assert.Empty(t, tenantsByWebACL(), "disassociating ends the override")
 
 	inv, err := c.CreateInvalidationForDistributionTenant(ctx, &cloudfront.CreateInvalidationForDistributionTenantInput{
 		Id: aws.String(tenantID),
@@ -325,9 +343,33 @@ func TestCloudFront_TrustStore(t *testing.T) {
 	}
 	assert.True(t, found)
 
+	distID := cfExtras3MakeReferencingDistribution(t, c, ctx, cftypes.DistributionConfig{
+		DefaultCacheBehavior: &cftypes.DefaultCacheBehavior{
+			TargetOriginId:       aws.String("o1"),
+			ViewerProtocolPolicy: cftypes.ViewerProtocolPolicyHttpsOnly,
+			CachePolicyId:        aws.String("658327ea-f89d-4fab-a63d-7e88639e58f6"),
+		},
+		ViewerMtlsConfig: &cftypes.ViewerMtlsConfig{
+			Mode:             cftypes.ViewerMtlsModeRequired,
+			TrustStoreConfig: &cftypes.TrustStoreConfig{TrustStoreId: aws.String(id)},
+		},
+	})
 	byTS, err := c.ListDistributionsByTrustStore(ctx, &cloudfront.ListDistributionsByTrustStoreInput{TrustStoreIdentifier: aws.String(id)})
 	require.NoError(t, err)
 	require.NotNil(t, byTS.DistributionList)
+	var tsIDs []string
+	for _, d := range byTS.DistributionList.Items {
+		tsIDs = append(tsIDs, aws.ToString(d.Id))
+		if aws.ToString(d.Id) == distID {
+			require.NotNil(t, d.ViewerMtlsConfig)
+			assert.Equal(t, id, aws.ToString(d.ViewerMtlsConfig.TrustStoreConfig.TrustStoreId))
+		}
+	}
+	assert.Equal(t, []string{distID}, tsIDs)
+
+	_, err = c.ListDistributionsByTrustStore(ctx, &cloudfront.ListDistributionsByTrustStoreInput{TrustStoreIdentifier: aws.String("ts-never-created")})
+	var notFound *cftypes.EntityNotFound
+	require.ErrorAs(t, err, &notFound)
 }
 
 func TestCloudFront_ResourcePolicy(t *testing.T) {
@@ -455,7 +497,16 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	anycastIPList := "aipl-" + stamp
 	webACL := "arn:aws:wafv2:us-east-1:000000000000:global/webacl/sdk-" + stamp + "/1"
 
+	vpcOrigin := "vo_" + strings.ReplaceAll(stamp, ".", "")
 	id := cfExtras3MakeReferencingDistribution(t, c, ctx, cftypes.DistributionConfig{
+		Origins: &cftypes.Origins{
+			Quantity: aws.Int32(1),
+			Items: []cftypes.Origin{{
+				Id:              aws.String("o1"),
+				DomainName:      aws.String("internal-alb.example.com"),
+				VpcOriginConfig: &cftypes.VpcOriginConfig{VpcOriginId: aws.String(vpcOrigin)},
+			}},
+		},
 		AnycastIpListId: aws.String(anycastIPList),
 		ConnectionMode:  cftypes.ConnectionModeTenantOnly,
 		WebACLId:        aws.String(webACL),
@@ -541,11 +592,15 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, summariesOf(byDirect.DistributionList), id)
 
-	// It names no VPC origin or real-time log configuration and owns no other
-	// account's resource, so none of those three projects it.
-	byVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String("vo-" + stamp)})
+	byVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String(vpcOrigin)})
 	require.NoError(t, err)
-	assert.NotContains(t, idsOf(byVpc.DistributionIdList), id)
+	assert.Contains(t, idsOf(byVpc.DistributionIdList), id)
+	byOtherVpc, err := c.ListDistributionsByVpcOriginId(ctx, &cloudfront.ListDistributionsByVpcOriginIdInput{VpcOriginId: aws.String(vpcOrigin + "x")})
+	require.NoError(t, err)
+	assert.NotContains(t, idsOf(byOtherVpc.DistributionIdList), id)
+
+	// It names no real-time log configuration and owns no other account's
+	// resource, so neither projects it.
 
 	byRTL, err := c.ListDistributionsByRealtimeLogConfig(ctx, &cloudfront.ListDistributionsByRealtimeLogConfigInput{RealtimeLogConfigName: aws.String("rtl-" + stamp)})
 	require.NoError(t, err)
@@ -565,9 +620,11 @@ func TestCloudFront_ListDistributionsByResource(t *testing.T) {
 func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ctx context.Context, overrides cftypes.DistributionConfig) string {
 	t.Helper()
 	config := &cftypes.DistributionConfig{
-		CallerReference: aws.String(cfExtras3Caller()),
-		Comment:         aws.String("sdk extras3 by-resource"),
-		Enabled:         aws.Bool(true),
+		CallerReference:               aws.String(cfExtras3Caller()),
+		Comment:                       aws.String("sdk extras3 by-resource"),
+		Enabled:                       aws.Bool(true),
+		ViewerMtlsConfig:              overrides.ViewerMtlsConfig,
+		ConnectionFunctionAssociation: overrides.ConnectionFunctionAssociation,
 		Origins: &cftypes.Origins{
 			Quantity: aws.Int32(1),
 			Items: []cftypes.Origin{{
@@ -592,6 +649,9 @@ func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ct
 		Restrictions: &cftypes.Restrictions{
 			GeoRestriction: &cftypes.GeoRestriction{RestrictionType: cftypes.GeoRestrictionTypeNone, Quantity: aws.Int32(0)},
 		},
+	}
+	if overrides.Origins != nil {
+		config.Origins = overrides.Origins
 	}
 	out, err := c.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{DistributionConfig: config})
 	require.NoError(t, err)

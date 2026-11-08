@@ -325,6 +325,11 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		spotOptions.InstanceInterruptionBehavior = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior", spotOptions.InstanceInterruptionBehavior)
 	}
 
+	targeting := ec2CapacityTargetingFrom(r)
+	if p := ec2CapacityTargetingProblem(targeting); p != nil {
+		ec2ErrorXML(w, p.code, p.message, http.StatusBadRequest)
+		return
+	}
 	var instances []EC2Instance
 	for i := 0; i < maxCount; i++ {
 		if placement.HostId != "" {
@@ -367,7 +372,26 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		spec := base
 		spec.PrivateIP = privateIP
 		spec.AmiLaunchIndex = i
+		ec2CapacityMu.Lock()
+		crID, capProblem := ec2ClaimCapacity(targeting, instanceType, subnet.AvailabilityZone, placement.Tenancy)
+		if capProblem != nil {
+			ec2CapacityMu.Unlock()
+			ec2HostCapacityMu.Unlock()
+			if i < minCount {
+				ec2ErrorXML(w, capProblem.code, capProblem.message, http.StatusBadRequest)
+				return
+			}
+			break
+		}
 		inst, err := ec2CreateInstance(spec)
+		if err == nil {
+			inst.CapacityReservationId = crID
+			inst.CapacityReservationPreference = targeting.Preference
+			inst.CapacityReservationTargetId = targeting.TargetId
+			inst.CapacityReservationTargetGroup = targeting.TargetGroup
+			ec2Instances.Put(inst.InstanceId, inst)
+		}
+		ec2CapacityMu.Unlock()
 		ec2HostCapacityMu.Unlock()
 		if err != nil {
 			if i < minCount {

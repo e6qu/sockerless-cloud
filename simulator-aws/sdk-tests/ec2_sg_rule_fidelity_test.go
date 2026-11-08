@@ -15,8 +15,8 @@ import (
 //   - an all-traffic rule (ip_protocol="-1") has no FromPort/ToPort, not 0,
 //     or the provider sees "0 -> null".
 //   - a rule referencing another group reports the bare sg- id, and its
-//     ReferencedGroupInfo carries no UserId; the provider prefixes the id only
-//     when UserId names another account.
+//     ReferencedGroupInfo names the referenced group's owner as UserId; the
+//     provider prefixes the id only when UserId names another account.
 func TestEC2_SecurityGroupRuleFidelity(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -92,5 +92,8 @@ func TestEC2_SecurityGroupRuleFidelity(t *testing.T) {
 
 	require.NotNil(t, ref.ReferencedGroupInfo)
 	assert.Equal(t, sgAlb, aws.ToString(ref.ReferencedGroupInfo.GroupId))
-	assert.Nil(t, ref.ReferencedGroupInfo.UserId, "same-account reference omits UserId so the provider keeps the bare id")
+	albOut, err := c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{GroupIds: []string{sgAlb}})
+	require.NoError(t, err)
+	require.Len(t, albOut.SecurityGroups, 1)
+	assert.Equal(t, aws.ToString(albOut.SecurityGroups[0].OwnerId), aws.ToString(ref.ReferencedGroupInfo.UserId))
 }

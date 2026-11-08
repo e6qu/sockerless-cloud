@@ -737,7 +737,7 @@ func handleGetCapacityManagerMetricData(w http.ResponseWriter, r *http.Request) 
 		vcpu := facts.VCpus * cr.TotalInstanceCount
 		var values strings.Builder
 		for _, m := range metrics {
-			v := ec2CapacityMetricValue(m, cr.TotalInstanceCount, cr.AvailableInstanceCount, vcpu)
+			v := ec2CapacityMetricValue(m, cr.TotalInstanceCount, ec2CapacityReservationAvailable(cr), vcpu)
 			fmt.Fprintf(&values, "<item><metric>%s</metric><value>%s</value></item>", m, strconv.FormatFloat(v, 'f', -1, 64))
 		}
 		dim := fmt.Sprintf("<resourceRegion>%s</resourceRegion><availabilityZoneId>%s-az1</availabilityZoneId><accountId>%s</accountId><instanceType>%s</instanceType><instancePlatform>%s</instancePlatform><reservationId>%s</reservationId><reservationArn>%s</reservationArn><reservationType>capacity-block</reservationType><tenancy>%s</tenancy><reservationState>%s</reservationState>",

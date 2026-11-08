@@ -98,10 +98,14 @@ func TestEventDataStoresIngestTheirOwnCopies(t *testing.T) {
 	cloudTrailRecord(CloudTrailEvent{EventName: "DescribeClusters", ReadOnly: true})
 
 	names := func(store string) []string {
-		rows, _, _ := cloudTrailRunQuery(store, "SELECT eventName FROM "+store)
+		q, err := ctSQLParse("SELECT eventName FROM lake")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, _, _ := cloudTrailRunQuery(store, q)
 		var out []string
 		for _, row := range rows {
-			out = append(out, row["eventName"])
+			out = append(out, row[0]["eventName"])
 		}
 		return out
 	}
@@ -142,7 +146,7 @@ func TestStartQueryNamesItsEventDataStore(t *testing.T) {
 	cloudTrailEventDataStores.Put(eds.ARN, eds)
 
 	for statement, want := range map[string]string{
-		"SELECT eventName FROM " + cloudTrailEDSARN("missing"): "EventDataStoreNotFoundException",
+		"SELECT eventName FROM missing":       "EventDataStoreNotFoundException",
 		"SELECT eventName":                    "InvalidQueryStatementException",
 		"SELECT eventName FROM named LIMIT 5": "",
 	} {

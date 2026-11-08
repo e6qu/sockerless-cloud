@@ -22,6 +22,7 @@ func TestEC2DefaultVpcGetsADefaultSubnetPerZone(t *testing.T) {
 	ec2Subnets = sim.MakeStore[EC2Subnet](nil, "ec2_subnets")
 	ec2VpcCidrAssocs = sim.MakeStore[EC2VpcCidrAssoc](nil, "ec2_vpc_cidr_assocs")
 	ec2VpcEncryptionControls = sim.MakeStore[EC2VpcEncryptionControl](nil, "ec2_vpc_encryption_controls")
+	ec2NetworkAcls = sim.MakeStore[EC2NetworkAcl](nil, "ec2_network_acls")
 
 	call := func(handler http.HandlerFunc, params url.Values) (int, string) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(params.Encode()))
@@ -38,6 +39,10 @@ func TestEC2DefaultVpcGetsADefaultSubnetPerZone(t *testing.T) {
 	defaults := ec2Subnets.Filter(func(s EC2Subnet) bool { return s.VpcId == vpcID && s.DefaultForAz })
 	if len(defaults) != len(awsAvailabilityZones()) {
 		t.Fatalf("default subnets: got %d, want one per zone (%d)", len(defaults), len(awsAvailabilityZones()))
+	}
+	acls := ec2NetworkAcls.Filter(func(acl EC2NetworkAcl) bool { return acl.VpcId == vpcID && acl.IsDefault })
+	if len(acls) != 1 || len(acls[0].Associations) != len(defaults) {
+		t.Fatalf("the default VPC's default network ACL must hold every default subnet: %+v", acls)
 	}
 	blocks := map[string]string{}
 	for _, s := range defaults {

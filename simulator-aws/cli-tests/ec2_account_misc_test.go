@@ -238,8 +238,19 @@ func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 		"--vpc-id", vpcID, "--query", "NetworkAcl.NetworkAclId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-network-acl", "--network-acl-id", acl2).Run() }()
 
+	defaultAssoc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-network-acls",
+		"--filters", "Name=association.subnet-id,Values="+subnetID, "Name=default,Values=true",
+		"--query", "NetworkAcls[0].Associations[?SubnetId=='"+subnetID+"'].NetworkAclAssociationId | [0]", "--output", "text")))
+	if !strings.HasPrefix(defaultAssoc, "aclassoc-") {
+		t.Fatalf("a new subnet must start on the default network ACL; association: got %q", defaultAssoc)
+	}
+	if out := runCLIExpectError(t, awsCLI("ec2", "replace-network-acl-association",
+		"--association-id", "aclassoc-0123456789abcdef0", "--network-acl-id", acl1)); !strings.Contains(out, "InvalidAssociationID.NotFound") {
+		t.Fatalf("an unknown association must be refused: %s", out)
+	}
+
 	seedAssoc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "replace-network-acl-association",
-		"--association-id", "aclassoc-seed-"+subnetID, "--network-acl-id", acl1,
+		"--association-id", defaultAssoc, "--network-acl-id", acl1,
 		"--query", "NewAssociationId", "--output", "text")))
 	if seedAssoc == "" || seedAssoc == "None" {
 		t.Fatalf("seed replace-network-acl-association NewAssociationId: got %q", seedAssoc)
@@ -251,6 +262,11 @@ func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 	if newAssoc == "" || newAssoc == "None" || newAssoc == seedAssoc {
 		t.Fatalf("replace-network-acl-association NewAssociationId: got %q", newAssoc)
 	}
+	if out := runCLIExpectError(t, awsCLI("ec2", "delete-network-acl", "--network-acl-id", acl2)); !strings.Contains(out, "DependencyViolation") {
+		t.Fatalf("an associated ACL must not delete: %s", out)
+	}
+	runCLI(t, awsCLI("ec2", "delete-subnet", "--subnet-id", subnetID))
+	runCLI(t, awsCLI("ec2", "delete-network-acl", "--network-acl-id", acl2))
 }
 
 // TestEC2CLI_MiscHonestEmpty covers the read-only operations aws CLI 2.26.6

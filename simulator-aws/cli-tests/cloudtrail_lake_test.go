@@ -1,8 +1,10 @@
 package aws_cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
@@ -81,14 +83,47 @@ func TestCloudTrailCLI_LakeQuery(t *testing.T) {
 	})
 	runCLI(t, awsCLI("ec2", "describe-vpcs"))
 
+	// A dedicated access key tells this test's calls apart from the parallel
+	// suite's in the shared store.
+	user := "cli-lake-query-" + strings.ReplaceAll(time.Now().Format("150405.000000000"), ".", "")
+	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
+	t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })
+	runCLI(t, awsCLI("iam", "put-user-policy", "--user-name", user, "--policy-name", "describe",
+		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:Describe*","Resource":"*"}]}`))
+	keyOut := runCLI(t, awsCLI("iam", "create-access-key", "--user-name", user, "--output", "json"))
+	var key struct {
+		AccessKey struct {
+			AccessKeyId     string `json:"AccessKeyId"`
+			SecretAccessKey string `json:"SecretAccessKey"`
+		} `json:"AccessKey"`
+	}
+	if err := json.Unmarshal([]byte(keyOut), &key); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		cmd := awsCLI("ec2", "describe-vpcs")
+		cmd.Env = append(cmd.Env, "AWS_ACCESS_KEY_ID="+key.AccessKey.AccessKeyId, "AWS_SECRET_ACCESS_KEY="+key.AccessKey.SecretAccessKey)
+		runCLI(t, cmd)
+	}
+	edsID := eds[strings.LastIndex(eds, "/")+1:]
+
+	countID := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "start-query",
+		"--query-statement", "SELECT COUNT(*) AS calls FROM "+edsID+" WHERE userIdentity.accessKeyId = '"+key.AccessKey.AccessKeyId+"' AND eventName = 'DescribeVpcs' AND eventSource LIKE 'ec2.%'",
+		"--query", "QueryId", "--output", "text")))
+	got := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "get-query-results",
+		"--query-id", countID, "--query", "QueryResultRows[0][0].calls", "--output", "text")))
+	if got != "2" {
+		t.Fatalf("COUNT(*) of the two DescribeVpcs calls: got %q", got)
+	}
+
 	qid := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "start-query",
-		"--query-statement", "SELECT eventName FROM "+eds+" WHERE eventName = 'DescribeVpcs'",
+		"--query-statement", "SELECT eventName FROM "+edsID+" WHERE eventName = 'DescribeVpcs'",
 		"--query", "QueryId", "--output", "text")))
 	if qid == "" {
 		t.Fatal("start-query returned no QueryId")
 	}
 
-	got := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "describe-query",
+	got = strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "describe-query",
 		"--query-id", qid, "--query", "QueryStatus", "--output", "text")))
 	if got != "FINISHED" {
 		t.Fatalf("describe-query QueryStatus: got %q, want FINISHED", got)

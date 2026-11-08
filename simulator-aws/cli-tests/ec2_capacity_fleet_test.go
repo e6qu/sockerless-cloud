@@ -14,6 +14,7 @@ func TestEC2CLI_CapacityReservations(t *testing.T) {
 		"--instance-platform", "Linux/UNIX",
 		"--availability-zone", "us-east-1a",
 		"--instance-count", "3",
+		"--instance-match-criteria", "targeted",
 		"--tag-specifications", "ResourceType=capacity-reservation,Tags=[{Key=team,Value=ci}]",
 		"--query", "CapacityReservation.CapacityReservationId", "--output", "text")
 	if id == "" {
@@ -250,5 +251,45 @@ func TestEC2CLI_ScheduledAndHostReservations(t *testing.T) {
 		"--query", "HostReservationSet[0].HostReservationId", "--output", "text")
 	if descHr != hrID {
 		t.Fatalf("describe-host-reservations: got %q, want %q", descHr, hrID)
+	}
+}
+
+func TestEC2CLI_CapacityReservationConsumedByLaunch(t *testing.T) {
+	t.Parallel()
+	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
+
+	vpc := q("ec2", "create-vpc", "--cidr-block", "10.188.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
+	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.188.1.0/24",
+		"--query", "Subnet.SubnetId", "--output", "text")
+	az := q("ec2", "describe-subnets", "--subnet-ids", subnet, "--query", "Subnets[0].AvailabilityZone", "--output", "text")
+	cr := q("ec2", "create-capacity-reservation", "--instance-type", "t3.micro", "--instance-platform", "Linux/UNIX",
+		"--availability-zone", az, "--instance-count", "1", "--instance-match-criteria", "targeted",
+		"--query", "CapacityReservation.CapacityReservationId", "--output", "text")
+	t.Cleanup(func() { _ = awsCLI("ec2", "cancel-capacity-reservation", "--capacity-reservation-id", cr).Run() })
+	available := func() string {
+		return q("ec2", "describe-capacity-reservations", "--capacity-reservation-ids", cr,
+			"--query", "CapacityReservations[0].AvailableInstanceCount", "--output", "text")
+	}
+
+	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+		"--subnet-id", subnet, "--capacity-reservation-specification", "CapacityReservationTarget={CapacityReservationId="+cr+"}",
+		"--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, inst)
+	if got := q("ec2", "describe-instances", "--instance-ids", inst,
+		"--query", "Reservations[0].Instances[0].CapacityReservationId", "--output", "text"); got != cr {
+		t.Fatalf("the instance must run in %s, got %q", cr, got)
+	}
+	if got := available(); got != "0" {
+		t.Fatalf("the launch must take the reservation's slot; available %q", got)
+	}
+	if out := runCLIExpectError(t, awsCLI("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+		"--subnet-id", subnet, "--capacity-reservation-specification", "CapacityReservationTarget={CapacityReservationId="+cr+"}")); !strings.Contains(out, "ReservationCapacityExceeded") {
+		t.Fatalf("a full targeted reservation must refuse the launch: %s", out)
+	}
+
+	runCLI(t, awsCLI("ec2", "terminate-instances", "--instance-ids", inst))
+	runCLI(t, awsCLI("ec2", "wait", "instance-terminated", "--instance-ids", inst))
+	if got := available(); got != "1" {
+		t.Fatalf("termination must return the slot; available %q", got)
 	}
 }

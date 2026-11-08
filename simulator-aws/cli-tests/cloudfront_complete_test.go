@@ -92,9 +92,12 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 	listOut := runCLI(t, awsCLI("cloudfront", "list-connection-functions", "--output", "json"))
 	require.Contains(t, listOut, id)
 
-	byFnOut := runCLI(t, awsCLI("cloudfront", "list-distributions-by-connection-function",
+	require.Empty(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-function",
 		"--connection-function-identifier", id, "--output", "json"))
-	require.Contains(t, byFnOut, "DistributionList")
+	distID := cfCreateReferencingDistributionCLI(t, cfCustomOriginCLI,
+		fmt.Sprintf(`,"ConnectionFunctionAssociation":{"Id":"%s"}`, id))
+	require.Equal(t, []string{distID}, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-function",
+		"--connection-function-identifier", name, "--output", "json"))
 }
 
 func TestCloudFront_TestFunction_CLI(t *testing.T) {

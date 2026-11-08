@@ -2180,6 +2180,56 @@ fails once the row closes or the operation is served.
   take a DIGEST message as the digest, refusing one of the wrong length,
   where they had hashed it again.
 
+- **Amazon VPC network ACLs.** Every VPC came with a default network ACL
+  that allowed all traffic in and out ahead of the deny-all rules, IPv6 too
+  when the VPC had an IPv6 block, as the vendored
+  `vpc-default-network-acl.md.gz` lists, and every new subnet started
+  associated with it. `ReplaceNetworkAclAssociation` refused an unknown
+  association with `InvalidAssociationID.NotFound` where it had accepted a
+  made-up one; `DeleteNetworkAcl` refused the default ACL and an ACL still
+  associated with a subnet; deleting a subnet ended its association.
+- **Amazon EC2 security group rules and VPN tunnels.** `ReferencedGroupInfo`
+  named the referenced group's owner as `UserId`; Terraform keeps the bare
+  group ID because the owner is the caller's account.
+  `ModifyVpnTunnelCertificate` kept the tunnel's status where it had left the
+  tunnel `DOWN`, and refused an outside address the connection does not have.
+- **Amazon EC2 Capacity Reservations.** `RunInstances` claimed a reservation
+  with matching instance type, platform, Availability Zone and tenancy that
+  was active and had room, per `ec2-capacity-reservations-launch.md.gz`: an
+  `open` preference (the default) took any open reservation and fell back to
+  On-Demand capacity, a target took that reservation or failed with
+  `ReservationCapacityExceeded`, and `capacity-reservations-only` failed
+  without one. An instance held its slot until it terminated, so
+  `AvailableInstanceCount` and `GetCapacityReservationUsage` counted live
+  instances, and `DescribeInstances` returned the reservation and the
+  launch's targeting. Tests that assert a reservation's counts make it
+  targeted, because the suite's parallel launches claim open ones as AWS
+  would.
+- **Amazon CloudFront.** Origins carried `VpcOriginConfig` and distributions
+  `ViewerMtlsConfig` and `ConnectionFunctionAssociation`, so
+  `ListDistributionsByVpcOriginId`, `ListDistributionsByTrustStore` and
+  `ListDistributionsByConnectionFunction` listed the distributions that
+  reference the resource; the latter two resolved the identifier and refused
+  an unknown one with `EntityNotFound`. Distribution tenants carried
+  `Customizations`; `AssociateDistributionTenantWebACL` set a web ACL
+  override that `DisassociateDistributionTenantWebACL` removed, and
+  `ListDistributionTenantsByCustomization` matched the web ACL and
+  certificate ARNs. `GetFunctionResult` binds no summary header, so
+  `GetFunction` returns the code and ETag alone.
+- **AWS CloudTrail Lake.** `StartQuery` parsed the statement and evaluated the
+  SQL the vendored constraints page lists over one event data store, named by
+  its ID in `FROM`: `SELECT [DISTINCT]` with aliases, `WHERE` with `AND`,
+  `OR`, `NOT`, `IN`, `LIKE`, `BETWEEN`, `IS [NOT] NULL`,
+  `IS [NOT] DISTINCT FROM` and the comparisons, `GROUP BY` with `COUNT`,
+  `MIN`, `MAX`, `SUM` and `AVG`, `HAVING`, `ORDER BY` and `LIMIT`. Results
+  keep the projection's column order, and a statement other than `SELECT`
+  fails with `InvalidQueryStatementException`. Tests scope their rows with a
+  dedicated access key, because the store records the whole parallel suite.
+- **Amazon API Gateway and Amazon ElastiCache.** A new method setting
+  override starts with the 300-second cache TTL the vendored caching guide
+  gives. A Global Datastore ID takes its Region's prefix, `dsdfu` in
+  US-West-1 as the API reference names.
+
 ## Continuous integration and dependencies
 
 Jobs are held to fifteen minutes; a timeout kill reports as "cancelled", which

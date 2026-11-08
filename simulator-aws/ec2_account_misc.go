@@ -563,18 +563,23 @@ func handleModifyVpnTunnelCertificate(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidVpnConnectionID.NotFound", fmt.Sprintf("The vpnConnection ID '%s' does not exist", vpnID), http.StatusBadRequest)
 		return
 	}
-	// Rotating a tunnel certificate sets the matching tunnel DOWN while it rekeys.
-	ec2VpnConnections.Update(vpnID, func(c *EC2VpnConnection) {
-		for i := range c.Tunnels {
-			if c.Tunnels[i].OutsideIpAddress == outsideIP {
-				c.Tunnels[i].Status = "DOWN"
-			}
-		}
-	})
 	conn, _ := ec2VpnConnections.Get(vpnID)
+	if !ec2VpnHasTunnel(conn, outsideIP) {
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The VPN tunnel outside IP address '%s' does not belong to VPN connection '%s'", outsideIP, vpnID), http.StatusBadRequest)
+		return
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVpnTunnelCertificateResponse %s><requestId>%s</requestId><vpnConnection>%s</vpnConnection></ModifyVpnTunnelCertificateResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2VpnConnectionFieldsXML(conn))
+}
+
+func ec2VpnHasTunnel(conn EC2VpnConnection, outsideIP string) bool {
+	for _, t := range conn.Tunnels {
+		if t.OutsideIpAddress == outsideIP {
+			return true
+		}
+	}
+	return false
 }
 
 func handleReplaceVpnTunnel(w http.ResponseWriter, r *http.Request) {
@@ -817,25 +822,27 @@ func handleReplaceNetworkAclAssociation(w http.ResponseWriter, r *http.Request) 
 		ec2ErrorXML(w, "InvalidNetworkAclID.NotFound", fmt.Sprintf("The networkAcl ID '%s' does not exist", newACLID), http.StatusBadRequest)
 		return
 	}
-	// Detach the subnet from its current ACL and attach it to the new one under a
-	// fresh association id.
-	var subnetID string
+	var currentACLID, subnetID string
 	for _, acl := range ec2NetworkAcls.List() {
 		for _, a := range acl.Associations {
 			if a.NetworkAclAssociationId == assocID {
-				subnetID = a.SubnetId
-				ec2NetworkAcls.Update(acl.NetworkAclId, func(cur *EC2NetworkAcl) {
-					next := make([]EC2NetworkAclAssociation, 0, len(cur.Associations))
-					for _, x := range cur.Associations {
-						if x.NetworkAclAssociationId != assocID {
-							next = append(next, x)
-						}
-					}
-					cur.Associations = next
-				})
+				currentACLID, subnetID = acl.NetworkAclId, a.SubnetId
 			}
 		}
 	}
+	if currentACLID == "" {
+		ec2ErrorXML(w, "InvalidAssociationID.NotFound", fmt.Sprintf("The association ID '%s' does not exist", assocID), http.StatusBadRequest)
+		return
+	}
+	ec2NetworkAcls.Update(currentACLID, func(cur *EC2NetworkAcl) {
+		next := make([]EC2NetworkAclAssociation, 0, len(cur.Associations))
+		for _, x := range cur.Associations {
+			if x.NetworkAclAssociationId != assocID {
+				next = append(next, x)
+			}
+		}
+		cur.Associations = next
+	})
 	newAssocID := ec2ID("aclassoc")
 	ec2NetworkAcls.Update(newACLID, func(cur *EC2NetworkAcl) {
 		cur.Associations = append(cur.Associations, EC2NetworkAclAssociation{

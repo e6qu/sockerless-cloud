@@ -854,7 +854,7 @@ func handleCreateCapacityReservationBySplitting(w http.ResponseWriter, r *http.R
 		return
 	}
 	count := ec2AtoiOr(r.FormValue("InstanceCount"), 0)
-	if count <= 0 || count > src.AvailableInstanceCount {
+	if count <= 0 || count > ec2CapacityReservationAvailable(src) {
 		ec2ErrorXML(w, "InvalidParameterValue", "InstanceCount must be a positive value no greater than the source reservation's available instance count", http.StatusBadRequest)
 		return
 	}
@@ -891,7 +891,7 @@ func handleMoveCapacityReservationInstances(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	count := ec2AtoiOr(r.FormValue("InstanceCount"), 0)
-	if count <= 0 || count > src.AvailableInstanceCount {
+	if count <= 0 || count > ec2CapacityReservationAvailable(src) {
 		ec2ErrorXML(w, "InvalidParameterValue", "InstanceCount must be a positive value no greater than the source reservation's available instance count", http.StatusBadRequest)
 		return
 	}

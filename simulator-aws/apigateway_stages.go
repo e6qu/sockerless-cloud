@@ -362,7 +362,11 @@ func apigwPatchMethodSetting(s *APIGWStage, path, value string) string {
 	parts := strings.Split(trimmed, "/")
 	setting := parts[len(parts)-2] + "/" + parts[len(parts)-1]
 	mkey := strings.Join(parts[:len(parts)-2], "/")
-	m := s.MethodSettings[mkey]
+	m, exists := s.MethodSettings[mkey]
+	if !exists {
+		// "The default TTL value for API caching is 300 seconds."
+		m.CacheTtlInSeconds = 300
+	}
 	bad := "Invalid patch path '" + path + "' specified for op 'replace'"
 	asBool := func(dst *bool) string {
 		if value != "true" && value != "false" {

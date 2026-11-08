@@ -375,7 +375,7 @@ func ec2CapReservationFieldsXML(cr EC2CapacityReservation) string {
 	return fmt.Sprintf("<capacityReservationId>%s</capacityReservationId><ownerId>%s</ownerId><capacityReservationArn>%s</capacityReservationArn><instanceType>%s</instanceType><instancePlatform>%s</instancePlatform><availabilityZone>%s</availabilityZone><tenancy>%s</tenancy><totalInstanceCount>%d</totalInstanceCount><availableInstanceCount>%d</availableInstanceCount><ebsOptimized>%t</ebsOptimized><ephemeralStorage>%t</ephemeralStorage><state>%s</state><startDate>%s</startDate>%s<endDateType>%s</endDateType><instanceMatchCriteria>%s</instanceMatchCriteria><createDate>%s</createDate>%s%s%s",
 		cr.CapacityReservationId, cr.OwnerId, ec2CapReservationArn(cr.CapacityReservationId),
 		cr.InstanceType, cr.InstancePlatform, cr.AvailabilityZone, cr.Tenancy,
-		cr.TotalInstanceCount, cr.AvailableInstanceCount, cr.EbsOptimized, cr.EphemeralStorage,
+		cr.TotalInstanceCount, ec2CapacityReservationAvailable(cr), cr.EbsOptimized, cr.EphemeralStorage,
 		cr.State, cr.StartDate, endDate, cr.EndDateType, cr.InstanceMatchCriteria, cr.CreateDate,
 		fleet, writeTagSetXML(cr.Tags), ec2CapacityCommitmentXML(cr))
 }
@@ -494,10 +494,11 @@ func handleGetCapacityReservationUsage(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidCapacityReservationId.NotFound", fmt.Sprintf("The Capacity Reservation ID %q does not exist", id), http.StatusBadRequest)
 		return
 	}
-	used := cr.TotalInstanceCount - cr.AvailableInstanceCount
+	available := ec2CapacityReservationAvailable(cr)
+	used := cr.TotalInstanceCount - available
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetCapacityReservationUsageResponse %s><requestId>%s</requestId><capacityReservationId>%s</capacityReservationId><instanceType>%s</instanceType><totalInstanceCount>%d</totalInstanceCount><availableInstanceCount>%d</availableInstanceCount><state>%s</state><instanceUsageSet><item><accountId>%s</accountId><usedInstanceCount>%d</usedInstanceCount></item></instanceUsageSet></GetCapacityReservationUsageResponse>`,
-		ec2Xmlns(), sim.NewUUID(), cr.CapacityReservationId, cr.InstanceType, cr.TotalInstanceCount, cr.AvailableInstanceCount, cr.State, ec2Owner(), used)
+		ec2Xmlns(), sim.NewUUID(), cr.CapacityReservationId, cr.InstanceType, cr.TotalInstanceCount, available, cr.State, ec2Owner(), used)
 }
 
 func handleGetGroupsForCapacityReservation(w http.ResponseWriter, r *http.Request) {

@@ -305,10 +305,11 @@ func sgrItemXML(rule EC2SecurityGroupRule) string {
 		fmt.Fprintf(&b, "<prefixListId>%s</prefixListId>", rule.PrefixListId)
 	}
 	if rule.RefGroupId != "" {
-		// Omit userId for same-account references: the provider renders
-		// "<account>/sg-id" when it is present, drifting against the bare sg-id. The
-		// simulator is single-account.
-		fmt.Fprintf(&b, "<referencedGroupInfo><groupId>%s</groupId></referencedGroupInfo>", rule.RefGroupId)
+		userID := rule.GroupOwner
+		if ref, ok := ec2SecurityGroups.Get(rule.RefGroupId); ok {
+			userID = ref.OwnerId
+		}
+		fmt.Fprintf(&b, "<referencedGroupInfo><groupId>%s</groupId><userId>%s</userId></referencedGroupInfo>", rule.RefGroupId, userID)
 	}
 	if rule.Description != "" {
 		fmt.Fprintf(&b, "<description>%s</description>", rule.Description)

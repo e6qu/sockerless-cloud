@@ -108,6 +108,7 @@ func TestAPIGateway_Stages(t *testing.T) {
 	assert.Equal(t, "INFO", aws.ToString(updated.MethodSettings["*/*"].LoggingLevel))
 	assert.Equal(t, int32(50), updated.MethodSettings["~1items/GET"].ThrottlingBurstLimit)
 	assert.InDelta(t, 25.5, updated.MethodSettings["~1items/GET"].ThrottlingRateLimit, 0)
+	assert.Equal(t, int32(300), updated.MethodSettings["~1items/GET"].CacheTtlInSeconds, "a new override starts from the documented 300-second TTL")
 	assert.False(t, updated.CacheClusterEnabled)
 	assert.Equal(t, apigwtypes.CacheClusterStatusDeleteInProgress, updated.CacheClusterStatus)
 

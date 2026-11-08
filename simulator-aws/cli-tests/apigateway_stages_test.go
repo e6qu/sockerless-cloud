@@ -22,6 +22,7 @@ type apigwCLIStage struct {
 		MetricsEnabled       bool   `json:"metricsEnabled"`
 		LoggingLevel         string `json:"loggingLevel"`
 		ThrottlingBurstLimit int    `json:"throttlingBurstLimit"`
+		CacheTtlInSeconds    int    `json:"cacheTtlInSeconds"`
 	} `json:"methodSettings"`
 	AccessLogSettings *struct {
 		DestinationArn string `json:"destinationArn"`
@@ -99,6 +100,7 @@ func TestAPIGatewayCLIStages(t *testing.T) {
 	assert.True(t, stage.MethodSettings["*/*"].MetricsEnabled)
 	assert.Equal(t, "ERROR", stage.MethodSettings["*/*"].LoggingLevel)
 	assert.Equal(t, 40, stage.MethodSettings["~1items/GET"].ThrottlingBurstLimit)
+	assert.Equal(t, 300, stage.MethodSettings["~1items/GET"].CacheTtlInSeconds, "a new override starts from the documented 300-second TTL")
 	assert.Contains(t, runCLIExpectError(t, awsCLI("apigateway", "update-stage",
 		"--rest-api-id", api.ID, "--stage-name", "prod",
 		"--patch-operations", "op=remove,path=/description")), "BadRequestException")

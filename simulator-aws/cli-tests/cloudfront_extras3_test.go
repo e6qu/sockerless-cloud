@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,34 @@ func cfExtras3DistConfig(caller string) string {
 		"Restrictions":{"GeoRestriction":{"RestrictionType":"none","Quantity":0}}
 	}`, caller)
 }
+
+// cfCreateReferencingDistributionCLI creates a distribution whose config
+// carries the given origins and extra top-level members, and registers its
+// cleanup.
+func cfCreateReferencingDistributionCLI(t *testing.T, origins, extra string) string {
+	t.Helper()
+	conf := fmt.Sprintf(`{
+		"CallerReference":"cli-ref-%s",
+		"Comment":"cli referencing",
+		"Enabled":true,
+		"Origins":{"Quantity":1,"Items":[%s]},
+		"DefaultCacheBehavior":{"TargetOriginId":"o1","ViewerProtocolPolicy":"https-only","CachePolicyId":"658327ea-f89d-4fab-a63d-7e88639e58f6"},
+		"ViewerCertificate":{"CloudFrontDefaultCertificate":true},
+		"Restrictions":{"GeoRestriction":{"RestrictionType":"none","Quantity":0}}%s
+	}`, time.Now().Format("150405.000000000"), origins, extra)
+	out := runCLI(t, awsCLI("cloudfront", "create-distribution", "--distribution-config", conf, "--output", "json"))
+	var create struct {
+		Distribution struct {
+			Id string `json:"Id"`
+		} `json:"Distribution"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &create))
+	require.NotEmpty(t, create.Distribution.Id)
+	t.Cleanup(func() { cfExtras3DeleteDistributionCLI(create.Distribution.Id) })
+	return create.Distribution.Id
+}
+
+const cfCustomOriginCLI = `{"Id":"o1","DomainName":"example.com","CustomOriginConfig":{"HTTPPort":80,"HTTPSPort":443,"OriginProtocolPolicy":"http-only","OriginSslProtocols":{"Quantity":1,"Items":["TLSv1.2"]}}}`
 
 // cfExtras3CreateDistributionCLI creates a distribution and registers a
 // cleanup that disables, then deletes it.
@@ -166,15 +195,26 @@ func TestCloudFrontDistributionTenantCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(lt), &ltr))
 	require.True(t, cfExtras2Contains(ltr.DistributionTenantList, tenantID))
 
-	runCLI(t, awsCLI("cloudfront", "list-distribution-tenants-by-customization", "--output", "json"))
+	webACL := "arn:aws:wafv2:us-east-1:111122223333:global/webacl/t-" + time.Now().Format("150405.000000000") + "/abc"
+	tenantsByWebACL := func() []cfIDItem {
+		t.Helper()
+		var out struct {
+			DistributionTenantList []cfIDItem `json:"DistributionTenantList"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("cloudfront", "list-distribution-tenants-by-customization",
+			"--web-acl-arn", webACL, "--output", "json"))), &out))
+		return out.DistributionTenantList
+	}
+	require.Empty(t, tenantsByWebACL(), "no tenant overrides the web ACL yet")
 
 	aw := runCLI(t, awsCLI("cloudfront", "associate-distribution-tenant-web-acl",
-		"--id", tenantID, "--web-acl-arn", "arn:aws:wafv2:us-east-1:111122223333:global/webacl/t/abc",
+		"--id", tenantID, "--web-acl-arn", webACL,
 		"--if-match", etag, "--output", "json"))
 	var awr struct {
 		ETag string `json:"ETag"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(aw), &awr))
+	require.True(t, cfExtras2Contains(tenantsByWebACL(), tenantID), "the associated web ACL overrides the tenant's")
 
 	dw := runCLI(t, awsCLI("cloudfront", "disassociate-distribution-tenant-web-acl",
 		"--id", tenantID, "--if-match", awr.ETag, "--output", "json"))
@@ -183,6 +223,7 @@ func TestCloudFrontDistributionTenantCLI(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(dw), &dwr))
 	require.Equal(t, tenantID, dwr.Id)
+	require.Empty(t, tenantsByWebACL(), "disassociating ends the override")
 
 	ci := runCLI(t, awsCLI("cloudfront", "create-invalidation-for-distribution-tenant",
 		"--id", tenantID,
@@ -300,7 +341,9 @@ func TestCloudFrontTrustStoreCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(ls), &lsr))
 	require.True(t, cfExtras2Contains(lsr.TrustStoreList, id))
 
-	runCLI(t, awsCLI("cloudfront", "list-distributions-by-trust-store",
+	distID := cfCreateReferencingDistributionCLI(t, cfCustomOriginCLI,
+		fmt.Sprintf(`,"ViewerMtlsConfig":{"Mode":"required","TrustStoreConfig":{"TrustStoreId":"%s"}}`, id))
+	require.Equal(t, []string{distID}, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-trust-store",
 		"--trust-store-identifier", id, "--output", "json"))
 }
 
@@ -452,10 +495,16 @@ func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-connection-mode",
 		"--connection-mode", "direct", "--output", "json"), id)
 
+	vpcOrigin := "vo_cli" + strings.ReplaceAll(stamp, ".", "")
+	vpcDist := cfCreateReferencingDistributionCLI(t,
+		fmt.Sprintf(`{"Id":"o1","DomainName":"internal-alb.example.com","VpcOriginConfig":{"VpcOriginId":"%s"}}`, vpcOrigin), "")
+	require.Equal(t, []string{vpcDist}, cfDistributionIDsCLI(t, "cloudfront", "list-distributions-by-vpc-origin-id",
+		"--vpc-origin-id", vpcOrigin, "--output", "json"))
+
 	// It names no VPC origin, no real-time log configuration and owns no other
 	// account's resource, so none of those three projects it.
 	require.NotContains(t, cfDistributionIDsCLI(t, "cloudfront", "list-distributions-by-vpc-origin-id",
-		"--vpc-origin-id", "vo-"+stamp, "--output", "json"), id)
+		"--vpc-origin-id", vpcOrigin, "--output", "json"), id)
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-realtime-log-config",
 		"--realtime-log-config-name", "rtl-"+stamp, "--output", "json"), id)
 	require.NotContains(t, cfDistributionSummaryIDsCLI(t, "cloudfront", "list-distributions-by-owned-resource",

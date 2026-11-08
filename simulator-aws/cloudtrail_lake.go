@@ -45,7 +45,7 @@ type CloudTrailQuery struct {
 	QueryStatus    string
 	CreationTime   string
 	DeliveryS3Uri  string
-	Rows           []map[string]string
+	Rows           [][]map[string]string
 	BytesScanned   int64
 	EventsScanned  int64
 	EventsMatched  int64
@@ -501,17 +501,6 @@ func cloudTrailSweepLake(now time.Time) int {
 	})
 }
 
-// The FROM clause names the store by ID or ARN.
-func cloudTrailQueryStore(statement string) (string, bool) {
-	fields := strings.Fields(statement)
-	for i, field := range fields {
-		if strings.EqualFold(field, "from") && i+1 < len(fields) {
-			return strings.Trim(fields[i+1], "`\"';()"), true
-		}
-	}
-	return "", false
-}
-
 func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueryStatement  string
@@ -527,12 +516,12 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 			"QueryStatement or QueryAlias is required", http.StatusBadRequest)
 		return
 	}
-	storeRef, ok := cloudTrailQueryStore(req.QueryStatement)
-	if !ok {
-		cloudTrailError(w, "InvalidQueryStatementException",
-			"The query statement does not name an event data store in its FROM clause", http.StatusBadRequest)
+	parsed, err := ctSQLParse(req.QueryStatement)
+	if err != nil {
+		cloudTrailError(w, "InvalidQueryStatementException", err.Error(), http.StatusBadRequest)
 		return
 	}
+	storeRef := parsed.from
 	eds, ok := findCloudTrailEDS(storeRef)
 	if !ok {
 		cloudTrailError(w, "EventDataStoreNotFoundException",
@@ -544,7 +533,7 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 			"The event data store "+eds.ARN+" is pending deletion", http.StatusBadRequest)
 		return
 	}
-	rows, scanned, matched := cloudTrailRunQuery(eds.ARN, req.QueryStatement)
+	rows, scanned, matched := cloudTrailRunQuery(eds.ARN, parsed)
 	query := CloudTrailQuery{
 		QueryId:        sim.NewUUID(),
 		EventDataStore: eds.ARN,
@@ -561,9 +550,7 @@ func handleCloudTrailStartQuery(w http.ResponseWriter, r *http.Request) {
 	writeAWSJSON(w, http.StatusOK, map[string]any{"QueryId": query.QueryId})
 }
 
-// Only `eventName = '<X>'` and `eventSource = '<X>'` predicates scope the
-// rows; any other statement returns all of the store's events.
-func cloudTrailRunQuery(storeARN, statement string) (rows []map[string]string, scanned, matched int64) {
+func cloudTrailRunQuery(storeARN string, q ctSQLQuery) (rows [][]map[string]string, scanned, matched int64) {
 	var events []CloudTrailEvent
 	for _, stored := range cloudTrailLakeEvents.Filter(func(stored CloudTrailLakeEvent) bool {
 		return stored.EventDataStore == storeARN
@@ -571,49 +558,8 @@ func cloudTrailRunQuery(storeARN, statement string) (rows []map[string]string, s
 		events = append(events, stored.Event)
 	}
 	sort.Slice(events, func(i, j int) bool { return events[i].Seq < events[j].Seq })
-	scanned = int64(len(events))
-	lower := strings.ToLower(statement)
-	wantName := cloudTrailQueryEquals(lower, "eventname")
-	wantSource := cloudTrailQueryEquals(lower, "eventsource")
-	rows = make([]map[string]string, 0)
-	for _, ev := range events {
-		if wantName != "" && !strings.EqualFold(ev.EventName, wantName) {
-			continue
-		}
-		if wantSource != "" && !strings.EqualFold(ev.EventSource, wantSource) {
-			continue
-		}
-		rows = append(rows, map[string]string{
-			"eventName":   ev.EventName,
-			"eventSource": ev.EventSource,
-			"eventTime":   ev.EventTime,
-			"eventId":     ev.EventId,
-		})
-	}
-	matched = int64(len(rows))
-	return rows, scanned, matched
-}
-
-// lowerStatement must be lowercased.
-func cloudTrailQueryEquals(lowerStatement, column string) string {
-	idx := strings.Index(lowerStatement, column)
-	for idx >= 0 {
-		rest := strings.TrimSpace(lowerStatement[idx+len(column):])
-		if strings.HasPrefix(rest, "=") {
-			rest = strings.TrimSpace(rest[1:])
-			if strings.HasPrefix(rest, "'") {
-				if end := strings.Index(rest[1:], "'"); end >= 0 {
-					return rest[1 : 1+end]
-				}
-			}
-		}
-		next := strings.Index(lowerStatement[idx+len(column):], column)
-		if next < 0 {
-			break
-		}
-		idx = idx + len(column) + next
-	}
-	return ""
+	rows, matched = ctSQLRun(q, events)
+	return rows, int64(len(events)), matched
 }
 
 func findCloudTrailQuery(w http.ResponseWriter, r *http.Request) (CloudTrailQuery, bool) {
@@ -660,32 +606,17 @@ func handleCloudTrailGetQueryResults(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows := make([]map[string]string, 0, len(q.Rows))
+	rows := make([][]map[string]string, 0, len(q.Rows))
 	rows = append(rows, q.Rows...)
 	writeAWSJSON(w, http.StatusOK, map[string]any{
 		"QueryStatus":     q.QueryStatus,
-		"QueryResultRows": cloudTrailQueryResultRows(rows),
+		"QueryResultRows": rows,
 		"QueryStatistics": map[string]any{
 			"ResultsCount":      len(rows),
 			"TotalResultsCount": len(rows),
 			"BytesScanned":      q.BytesScanned,
 		},
 	})
-}
-
-// Each row is a list of single-entry {column: value} maps.
-func cloudTrailQueryResultRows(rows []map[string]string) [][]map[string]string {
-	out := make([][]map[string]string, 0, len(rows))
-	for _, row := range rows {
-		cells := make([]map[string]string, 0, len(row))
-		for _, col := range []string{"eventId", "eventName", "eventSource", "eventTime"} {
-			if v, ok := row[col]; ok {
-				cells = append(cells, map[string]string{col: v})
-			}
-		}
-		out = append(out, cells)
-	}
-	return out
 }
 
 func handleCloudTrailCancelQuery(w http.ResponseWriter, r *http.Request) {

@@ -100,6 +100,17 @@ resource "aws_subnet" "tf_ipv6_subnet" {
   availability_zone = "us-east-1c"
 }
 
+# The association moves the subnet off the VPC's default network ACL; destroy
+# moves it back.
+resource "aws_network_acl" "tf_ec2_acl" {
+  vpc_id = aws_vpc.tf_ec2_vpc.id
+}
+
+resource "aws_network_acl_association" "tf_ec2_acl" {
+  network_acl_id = aws_network_acl.tf_ec2_acl.id
+  subnet_id      = aws_subnet.tf_ipv6_subnet.id
+}
+
 # The provider adopts the default VPC and a default subnet through
 # DescribeVpcs is-default and DescribeSubnets default-for-az rather than
 # creating them.
@@ -2505,6 +2516,18 @@ output "elbv2_nlb_subnet_mapping_allocation_id" {
 
 output "ec2_vpc_ipv6_cidr" {
   value = aws_vpc.tf_ec2_vpc.ipv6_cidr_block
+}
+
+output "ec2_vpc_default_network_acl_id" {
+  value = aws_vpc.tf_ec2_vpc.default_network_acl_id
+}
+
+output "ec2_custom_network_acl_id" {
+  value = aws_network_acl_association.tf_ec2_acl.network_acl_id
+}
+
+output "ec2_acl_association_id" {
+  value = aws_network_acl_association.tf_ec2_acl.id
 }
 
 output "ec2_ipv6_subnet_cidr" {

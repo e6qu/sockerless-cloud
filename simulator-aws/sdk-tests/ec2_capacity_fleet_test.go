@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,16 +28,18 @@ func createFleetLaunchTemplate(t *testing.T, c *ec2.Client, name string) string 
 
 // TestEC2_CapacityReservationLifecycle expects a reservation of N instances
 // of a type and zone to settle active with AvailableInstanceCount N, change
-// count on Modify, and move to cancelled on Cancel.
+// count on Modify, and move to cancelled on Cancel. The reservation is
+// targeted, so the suite's parallel launches cannot run in it.
 func TestEC2_CapacityReservationLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 
 	cr, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
-		InstanceType:     aws.String("t3.micro"),
-		InstancePlatform: types.CapacityReservationInstancePlatformLinuxUnix,
-		AvailabilityZone: aws.String("us-east-1a"),
-		InstanceCount:    aws.Int32(4),
+		InstanceType:          aws.String("t3.micro"),
+		InstancePlatform:      types.CapacityReservationInstancePlatformLinuxUnix,
+		AvailabilityZone:      aws.String("us-east-1a"),
+		InstanceCount:         aws.Int32(4),
+		InstanceMatchCriteria: types.InstanceMatchCriteriaTargeted,
 		TagSpecifications: []types.TagSpecification{{
 			ResourceType: types.ResourceTypeCapacityReservation,
 			Tags:         []types.Tag{{Key: aws.String("team"), Value: aws.String("ci")}},
@@ -443,4 +446,93 @@ func TestEC2_HostReservations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, desc.HostReservationSet, 1)
 	assert.Equal(t, hrID, aws.ToString(desc.HostReservationSet[0].HostReservationId))
+}
+
+// TestEC2_CapacityReservationConsumedByLaunch launches into a targeted
+// reservation, which takes its one slot until the instance terminates.
+func TestEC2_CapacityReservationConsumedByLaunch(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.187.0.0/16")})
+	require.NoError(t, err)
+	subnetID := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.187.1.0/24")
+	sn, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{SubnetIds: []string{aws.ToString(subnetID)}})
+	require.NoError(t, err)
+	az := aws.ToString(sn.Subnets[0].AvailabilityZone)
+
+	cr, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
+		InstanceType:          aws.String("t3.micro"),
+		InstancePlatform:      types.CapacityReservationInstancePlatformLinuxUnix,
+		AvailabilityZone:      aws.String(az),
+		InstanceCount:         aws.Int32(1),
+		InstanceMatchCriteria: types.InstanceMatchCriteriaTargeted,
+	})
+	require.NoError(t, err)
+	crID := aws.ToString(cr.CapacityReservation.CapacityReservationId)
+	t.Cleanup(func() {
+		_, _ = c.CancelCapacityReservation(ctx, &ec2.CancelCapacityReservationInput{CapacityReservationId: aws.String(crID)})
+	})
+	available := func() int32 {
+		t.Helper()
+		out, err := c.DescribeCapacityReservations(ctx, &ec2.DescribeCapacityReservationsInput{CapacityReservationIds: []string{crID}})
+		require.NoError(t, err)
+		return aws.ToInt32(out.CapacityReservations[0].AvailableInstanceCount)
+	}
+	targeted := &types.CapacityReservationSpecification{
+		CapacityReservationTarget: &types.CapacityReservationTarget{CapacityReservationId: aws.String(crID)},
+	}
+
+	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnetID,
+		CapacityReservationSpecification: targeted,
+	})
+	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
+	instID := aws.ToString(run.Instances[0].InstanceId)
+	assert.Equal(t, crID, aws.ToString(run.Instances[0].CapacityReservationId))
+	require.NotNil(t, run.Instances[0].CapacityReservationSpecification)
+	assert.Equal(t, crID, aws.ToString(run.Instances[0].CapacityReservationSpecification.CapacityReservationTarget.CapacityReservationId))
+	assert.Equal(t, int32(0), available(), "the launch takes the reservation's slot")
+	usage, err := c.GetCapacityReservationUsage(ctx, &ec2.GetCapacityReservationUsageInput{CapacityReservationId: aws.String(crID)})
+	require.NoError(t, err)
+	require.Len(t, usage.InstanceUsages, 1)
+	assert.Equal(t, int32(1), aws.ToInt32(usage.InstanceUsages[0].UsedInstanceCount))
+
+	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnetID,
+		CapacityReservationSpecification: targeted,
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "a full targeted reservation refuses the launch")
+	assert.Equal(t, "ReservationCapacityExceeded", apiErr.ErrorCode())
+
+	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnetID,
+		CapacityReservationSpecification: &types.CapacityReservationSpecification{
+			CapacityReservationTarget: &types.CapacityReservationTarget{CapacityReservationId: aws.String("cr-0123456789abcdef0")},
+		},
+	})
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidCapacityReservationId.NotFound", apiErr.ErrorCode())
+
+	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnetID,
+		CapacityReservationSpecification: &types.CapacityReservationSpecification{
+			CapacityReservationPreference: types.CapacityReservationPreferenceCapacityReservationsOnly,
+			CapacityReservationTarget: &types.CapacityReservationTarget{
+				CapacityReservationResourceGroupArn: aws.String("arn:aws:resource-groups:us-east-1:000000000000:group/empty-" + crID),
+			},
+		},
+	})
+	require.ErrorAs(t, err, &apiErr, "a group with no reservation in it holds no capacity")
+	assert.Equal(t, "ReservationCapacityExceeded", apiErr.ErrorCode())
+
+	_, err = c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instID}})
+	require.NoError(t, err)
+	waitForEC2InstanceTerminated(t, c, instID)
+	assert.Equal(t, int32(1), available(), "termination returns the slot")
 }
