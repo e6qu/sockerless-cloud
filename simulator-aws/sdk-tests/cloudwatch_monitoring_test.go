@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCloudWatch_AlarmActionsAndState expects SetAlarmState to show through
-// DescribeAlarms and in the alarm history, and action toggles to persist.
+// TestCloudWatch_AlarmActionsAndState expects SetAlarmState to show in the
+// alarm history, and action toggles to persist.
 func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
 	t.Parallel()
 	client := cloudwatchClient()
@@ -51,9 +51,6 @@ func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
 		StateReason: aws.String("manual test override"),
 	})
 	require.NoError(t, err)
-	out, err = client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{AlarmNames: []string{name}})
-	require.NoError(t, err)
-	assert.Equal(t, cwtypes.StateValueAlarm, out.MetricAlarms[0].StateValue, "manual state shows through DescribeAlarms")
 
 	hist, err := client.DescribeAlarmHistory(ctx, &cloudwatch.DescribeAlarmHistoryInput{
 		AlarmName:       aws.String(name),

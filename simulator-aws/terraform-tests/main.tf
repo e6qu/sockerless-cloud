@@ -328,6 +328,12 @@ resource "aws_cloudwatch_metric_alarm" "tf_alarm" {
   }
 }
 
+resource "aws_cloudwatch_composite_alarm" "tf_composite_alarm" {
+  alarm_name        = "tf-composite-alarm"
+  alarm_description = "terraform composite alarm coverage"
+  alarm_rule        = "ALARM(${aws_cloudwatch_metric_alarm.tf_alarm.alarm_name}) AND NOT ALARM(\"${aws_cloudwatch_metric_alarm.tf_alarm_p99.alarm_name}\")"
+}
+
 resource "aws_cloudwatch_metric_alarm" "tf_alarm_p99" {
   alarm_name          = "tf-alarm-p99"
   alarm_description   = "terraform percentile alarm coverage"
@@ -1819,6 +1825,9 @@ output "cloudwatch_dashboard_arn" {
 }
 output "cloudwatch_alarm_arn" {
   value = aws_cloudwatch_metric_alarm.tf_alarm.arn
+}
+output "cloudwatch_composite_alarm_arn" {
+  value = aws_cloudwatch_composite_alarm.tf_composite_alarm.arn
 }
 output "ec2_ebs_restored_volume_id" {
   value = aws_ebs_volume.tf_ebs_restored.id

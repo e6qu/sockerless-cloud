@@ -1781,6 +1781,18 @@ fails once the row closes or the operation is served.
   evaluator start after every slice is registered: the ELB publisher's first
   flush, due at the next minute, once raced the store's creation in a
   simulator built just before the minute turned.
+- **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
+  actions when the state changes, as the API reference says. A metric alarm
+  keeps the set state only until its next evaluation, which returns it to its
+  actual state and runs that state's actions; tests read the change from the
+  history and the delivered notifications, and the Amazon ECS rollback test
+  breaches its alarm with `PutMetricData` instead. A composite alarm parses
+  its `AlarmRule` by the User Guide's grammar, `AT_LEAST` included, and the
+  evaluator moves it to ALARM while the rule holds and OK otherwise, after
+  the metric alarms it reads; a transition publishes the composite
+  notification with `AlarmRule` and `TriggeringChildren` and the reason
+  wording the alarm events show. A `SetAlarmState` on a composite alarm holds
+  until a child's state changes or the alarm is updated.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Cloud Run image export and Firestore REST listen.** `exportImage` copies

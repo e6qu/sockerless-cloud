@@ -36,12 +36,13 @@ func startCWAlarmEvaluator(srv *sim.Server) {
 // actions fire.
 const cwAlarmEvalInterval = 250 * time.Millisecond
 
-// A manual SetAlarmState does not dispatch actions here. Recover a panic per
-// alarm so one bad alarm cannot stop delivery for the rest.
+// Recover a panic per alarm so one bad alarm cannot stop delivery for the
+// rest. Composite alarms evaluate after the metric alarms they read.
 func cwEvaluateAlarmsOnce() {
 	for _, a := range cwAlarms.List() {
 		cwEvaluateAlarm(a)
 	}
+	cwEvaluateCompositeAlarms(time.Now())
 }
 
 // Only the background sweep calls this: dispatching from a read would let
@@ -60,6 +61,9 @@ func cwEvaluateAlarm(a CWAlarm) {
 		dispatched := false
 		updated := cwAlarms.Update(alarm.AlarmName, func(x *CWAlarm) {
 			newState, reason = cwEvaluateAlarmState(*x)
+			// A SetAlarmState lasts until this evaluation returns the alarm to
+			// its actual state.
+			x.ManualState, x.ManualStateReason = "", ""
 			prev = x.StateValue
 			if prev == "" {
 				prev = "INSUFFICIENT_DATA"
@@ -95,26 +99,21 @@ func cwDispatchAlarmActions(a CWAlarm, oldState, newState, reason string) {
 		cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Msg("CloudWatch alarm actions disabled")
 		return
 	}
-	var targets []string
-	switch newState {
-	case "ALARM":
-		targets = a.AlarmActions
-	case "OK":
-		targets = a.OKActions
-	case "INSUFFICIENT_DATA":
-		targets = a.InsufficientDataActions
-	}
+	targets := cwActionsForState(newState, a.AlarmActions, a.OKActions, a.InsufficientDataActions)
 	if len(targets) == 0 {
 		cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Msg("CloudWatch alarm has no action targets for state")
 		return
 	}
-	message := cwAlarmNotificationMessage(a, oldState, newState, reason)
-	subject := cwAlarmNotificationSubject(newState, a.AlarmName)
-	cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("newState", newState).Int("targetCount", len(targets)).Msg("CloudWatch alarm dispatching actions")
+	cwPublishAlarmNotification(a.AlarmName, targets, cwAlarmNotificationSubject(newState, a.AlarmName),
+		cwAlarmNotificationMessage(a, oldState, newState, reason))
+}
+
+func cwPublishAlarmNotification(alarmName string, targets []string, subject, message string) {
+	cwEvalLogger.Info().Str("alarmName", alarmName).Int("targetCount", len(targets)).Msg("CloudWatch alarm dispatching actions")
 	for _, topicARN := range targets {
 		name := snsTopicNameFromARN(topicARN)
 		if _, ok := snsTopics.Get(name); !ok {
-			cwEvalLogger.Info().Str("alarmName", a.AlarmName).Str("topicARN", topicARN).Msg("CloudWatch alarm action topic not found")
+			cwEvalLogger.Info().Str("alarmName", alarmName).Str("topicARN", topicARN).Msg("CloudWatch alarm action topic not found")
 			continue
 		}
 		snsFanout(topicARN, sim.NewUUID(), subject, message, nil)

@@ -39,7 +39,7 @@ type CWAlarm struct {
 	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty" cbor:"InsufficientDataActions,omitempty"`
 	Tags                    map[string]string      `json:"Tags,omitempty" cbor:"Tags,omitempty"`
 	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty" cbor:"ActionConfiguration,omitempty"`
-	// A SetAlarmState override wins over evaluation until cleared.
+	// A SetAlarmState, until the evaluator's next pass clears it.
 	ManualState       string `json:"-" cbor:"-"`
 	ManualStateReason string `json:"-" cbor:"-"`
 	// The last state the evaluator dispatched actions for, kept so it detects

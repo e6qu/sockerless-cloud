@@ -227,10 +227,11 @@ func TestECS_ServiceDeploymentCloudWatchAlarmRollsBack(t *testing.T) {
 			AlarmNames: []string{alarmName},
 		})
 	})
-	_, err = cloudWatch.SetAlarmState(ctx, &cloudwatch.SetAlarmStateInput{
-		AlarmName:   aws.String(alarmName),
-		StateValue:  cwtypes.StateValueAlarm,
-		StateReason: aws.String("external deployment health signal failed"),
+	_, err = cloudWatch.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
+		Namespace: aws.String("Sockerless/ECSDeployment"),
+		MetricData: []cwtypes.MetricDatum{{
+			MetricName: aws.String("DeploymentFailure"), Value: aws.Float64(1), Timestamp: aws.Time(time.Now().UTC()),
+		}},
 	})
 	require.NoError(t, err)
 
