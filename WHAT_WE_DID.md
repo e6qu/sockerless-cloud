@@ -2256,6 +2256,9 @@ fails once the row closes or the operation is served.
   says "Document with name … does not exist.", the words terraform-provider-aws
   matches to see a deleted `aws_ssm_document` gone. The source is the vendored Automation
   actions reference and its per-action pages (`ssm-automation-*.md.gz`).
+  `specs/cloud-api/aws/ssm.supplement.json` widens `AutomationActionName`'s
+  pattern to the 26 letters `aws:waitForAwsResourceProperty` carries, which
+  the model's `{3,25}` refused.
 - **Amazon RDS global databases.** A DB cluster lives in the Region its
   request is signed for, as a DB instance does, so its ARN, endpoints and
   lookups name that Region. `CreateDBCluster` with `GlobalClusterIdentifier`
