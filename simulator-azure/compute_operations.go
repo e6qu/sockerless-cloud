@@ -50,6 +50,14 @@ var computeOperationCatalog = []computeProviderOperation{
 	{Name: "Microsoft.Compute/virtualMachines/installPatches/action", Resource: "Virtual Machine", Operation: "Install Patches On Virtual Machine"},
 	{Name: "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action", Resource: "Virtual Machine", Operation: "Retrieve Virtual Machine Boot Diagnostics Data"},
 
+	{Name: "Microsoft.Compute/virtualMachines/attachDetachDataDisks/action", Resource: "Virtual Machine", Operation: "Attach Or Detach Virtual Machine Data Disks"},
+
+	{Name: "Microsoft.Compute/disks/read", Resource: "Disk", Operation: "Get Disk"},
+	{Name: "Microsoft.Compute/disks/write", Resource: "Disk", Operation: "Create or Update Disk"},
+	{Name: "Microsoft.Compute/disks/delete", Resource: "Disk", Operation: "Delete Disk"},
+	{Name: "Microsoft.Compute/disks/beginGetAccess/action", Resource: "Disk", Operation: "Get Disk SAS URI"},
+	{Name: "Microsoft.Compute/disks/endGetAccess/action", Resource: "Disk", Operation: "Revoke Disk SAS URI"},
+
 	{Name: "Microsoft.Compute/virtualMachines/extensions/read", Resource: "Virtual Machine Extension", Operation: "Get Virtual Machine Extension"},
 	{Name: "Microsoft.Compute/virtualMachines/extensions/write", Resource: "Virtual Machine Extension", Operation: "Create or Update Virtual Machine Extension"},
 	{Name: "Microsoft.Compute/virtualMachines/extensions/delete", Resource: "Virtual Machine Extension", Operation: "Delete Virtual Machine Extension"},

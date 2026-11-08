@@ -115,6 +115,7 @@ var azureTrackedResources = map[string]azureTrackedResource{
 	"microsoft.network/privatednszones/virtualnetworklinks": azureTracked(func() sim.Store[VNetLink] { return azurePrivateDNSVNetLinks }),
 
 	"microsoft.compute/virtualmachines":            azureTracked(func() sim.Store[VirtualMachine] { return azureVMs }),
+	"microsoft.compute/disks":                      azureTracked(func() sim.Store[ManagedDisk] { return azureDisks }),
 	"microsoft.compute/virtualmachines/extensions": azureTracked(func() sim.Store[VirtualMachineExtension] { return azureVMExtensions }),
 
 	"microsoft.app/managedenvironments":                     azureTracked(func() sim.Store[ContainerAppEnvironment] { return acaEnvironments }),

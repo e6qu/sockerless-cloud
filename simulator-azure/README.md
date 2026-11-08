@@ -338,7 +338,7 @@ handler files hold the rest.
 | Monitoring | Azure Monitor activity log | `Microsoft.Insights/eventtypes` | [activitylog](../specs/SIM_SURFACE_TABLES/azure-activitylog.md) |
 | Monitoring | Log Analytics | `Microsoft.OperationalInsights`, `/v1/workspaces/{id}/query` | [monitor](../specs/SIM_SURFACE_TABLES/azure-monitor.md) |
 | Monitoring | Application Insights | `Microsoft.Insights/components`, `/v1/apps/{appId}/…` | [insights_dataplane](../specs/SIM_SURFACE_TABLES/azure-insights_dataplane.md) |
-| Compute | Azure Virtual Machines | `Microsoft.Compute`, `/metadata/instance` | [compute](../specs/SIM_SURFACE_TABLES/azure-compute.md), [vm_operations](../specs/SIM_SURFACE_TABLES/azure-compute_vm_operations.md), [vm_extensions](../specs/SIM_SURFACE_TABLES/azure-compute_vm_extensions.md), [vm_patches](../specs/SIM_SURFACE_TABLES/azure-compute_vm_patches.md), [images](../specs/SIM_SURFACE_TABLES/azure-compute_images_catalog.md) |
+| Compute | Azure Virtual Machines | `Microsoft.Compute`, `/metadata/instance` | [compute](../specs/SIM_SURFACE_TABLES/azure-compute.md), [vm_operations](../specs/SIM_SURFACE_TABLES/azure-compute_vm_operations.md), [vm_extensions](../specs/SIM_SURFACE_TABLES/azure-compute_vm_extensions.md), [vm_patches](../specs/SIM_SURFACE_TABLES/azure-compute_vm_patches.md), [images](../specs/SIM_SURFACE_TABLES/azure-compute_images_catalog.md), [disks](../specs/SIM_SURFACE_TABLES/azure-compute_disks.md), [data disks](../specs/SIM_SURFACE_TABLES/azure-compute_vm_data_disks.md) |
 | Compute | Azure Container Apps | `Microsoft.App`, an app's ingress FQDN | [containerapps](../specs/SIM_SURFACE_TABLES/azure-containerapps.md), [replicas](../specs/SIM_SURFACE_TABLES/azure-containerapps_replicas.md) |
 | Compute | Azure Container Instances | `Microsoft.ContainerInstance` | [containerinstance](../specs/SIM_SURFACE_TABLES/azure-containerinstance.md) |
 | Compute | Azure App Service, Azure Functions and Azure Static Web Apps | `Microsoft.Web`, `<site>.azurewebsites.net`, `<site>.scm.<host>` | [functions](../specs/SIM_SURFACE_TABLES/azure-functions.md), [appserviceplan](../specs/SIM_SURFACE_TABLES/azure-appserviceplan.md) |
@@ -389,6 +389,10 @@ a marketplace image (`Canonical:ubuntu-24_04-lts:server` or `server-arm64`,
 `Debian:debian-12:12` or `12-arm64`, each pinned by digest) or a
 `Microsoft.Compute/images` resource. It runs cloud-init over
 `osProfile.customData`, and keeps its OS disk across a stop or deallocate.
+A managed data disk attached at LUN `N` is the directory
+`/dev/disk/azure/scsi1/lun<N>` in the guest, not a block device: attach it
+while the machine runs and it appears, detach it and what the guest wrote
+leaves with the disk.
 
 The sidecar serves the Azure Instance Metadata Service (`/metadata/instance`,
 `/metadata/attested/document`) and its managed identity token endpoint

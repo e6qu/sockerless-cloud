@@ -1594,6 +1594,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformRedisCacheServesItsHostName
             timeout_minutes: 12
+          - suite: azure managed disks
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformManagedDiskAttachment
+            timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
             tf_timeout: 600s

@@ -367,8 +367,8 @@ flowchart LR
 
 ### Gaps in the core services
 
-- **Azure Managed Disks.** Azure's block storage, and with it disk snapshots
-  and attaching data disks, is not served.
+- **Azure Managed Disks as blocks.** Managed disks attach to machines as
+  directories, not block devices, and disk snapshots are not served.
 - **Cloud Monitoring.** Google Cloud has no metrics service, so nothing on
   Google Cloud can alarm or autoscale on a metric.
 - **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric

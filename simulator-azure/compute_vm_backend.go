@@ -247,6 +247,17 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 	return spec, azureMetadataVM{VM: vm, NIC: nic, SubnetID: subnetID}, nil
 }
 
+// azureVMWorkload is the instance's workload with the machine's disk bay
+// mounted where the guest finds its data disks.
+func azureVMWorkload(vm VirtualMachine, spec vminstance.Spec) (placement.Workload, error) {
+	workload, err := vminstance.Workload(spec)
+	if err != nil {
+		return placement.Workload{}, err
+	}
+	workload.Binds = append(workload.Binds, azureVMDiskBay(vm)+":"+azureDataDiskMountPath)
+	return workload, nil
+}
+
 // azureBootVMWorkload reports the machine running once the instance init is
 // ready. A guest that never becomes ready stops with its OS disk kept.
 func azureBootVMWorkload(ctx context.Context, vm VirtualMachine) error {
@@ -257,7 +268,7 @@ func azureBootVMWorkload(ctx context.Context, vm VirtualMachine) error {
 	if err != nil {
 		return err
 	}
-	workload, err := vminstance.Workload(spec)
+	workload, err := azureVMWorkload(vm, spec)
 	if err != nil {
 		return err
 	}
@@ -427,7 +438,7 @@ func azureAdoptVM(ctx context.Context, machines *machine.Manager, vm VirtualMach
 	if err != nil {
 		return err
 	}
-	workload, err := vminstance.Workload(spec)
+	workload, err := azureVMWorkload(vm, spec)
 	if err != nil {
 		return err
 	}
@@ -442,7 +453,9 @@ func azureAdoptVM(ctx context.Context, machines *machine.Manager, vm VirtualMach
 }
 
 // azureReleaseVMWorkloads runs only without persistent state: it discards
-// every machine, kept OS disk (detached included) and captured image.
+// every machine, kept OS disk (detached included) and captured image of this
+// run. Without a state directory the engine lists every simulator's machines,
+// so the run's label keeps a concurrent simulator's out of the sweep.
 func azureReleaseVMWorkloads(ctx context.Context) {
 	if sim.HasPersistentWorkloadIdentity() {
 		return
@@ -451,7 +464,9 @@ func azureReleaseVMWorkloads(ctx context.Context) {
 		for _, vm := range azureVMs.List() {
 			_ = azureDiscardVMDisk(ctx, vm.ID)
 		}
-		if left, err := machines.Find(ctx, map[string]string{"sockerless-sim-type": azureVMLabelType}); err == nil {
+		if run := sim.OwnershipLabels(nil)["sockerless-sim-run"]; run == "" {
+			log.Printf("release virtual machines: this run carries no run label, so no machine of it can be told from another simulator's")
+		} else if left, err := machines.Find(ctx, map[string]string{"sockerless-sim-type": azureVMLabelType, "sockerless-sim-run": run}); err == nil {
 			for _, c := range left {
 				_ = machines.Remove(ctx, c.ID)
 			}

@@ -2021,6 +2021,25 @@ fails once the row closes or the operation is served.
   The 2024-07-01 documents are vendored beside them, and a machine image
   version carries `imageDeprecationStatus` from api-version 2022-11-01, the
   first that declares it.
+- **Azure managed disks.** DiskRP's `disk.json` (2023-04-02, the version
+  `az disk` speaks) is vendored and `Microsoft.Compute/disks` served against
+  it: Empty and Copy creates, grow-only resizes, `diskState` derived from the
+  holding machine's power state (Unattached, Attached, Reserved), and a 409
+  `OperationNotAllowed` for deleting a held disk. A disk's contents are an
+  engine volume of its own. A machine's workload mounts a disk bay volume at
+  `/dev/disk/azure/scsi1`, and an attached disk is the bay's `lun<N>`
+  directory: attaching copies the disk in, detaching copies it back out, so a
+  running guest sees disks come and go without a reboot and what it wrote
+  follows the disk. `storageProfile.dataDisks` (Attach, Empty, Copy) and
+  `attachDetachDataDisks` share one plan, so both paths validate LUNs and the
+  size's data disk count alike. `az vm disk attach` and `az vm update` re-send
+  the machine without `imageReference`, so a machine PUT keeps the
+  creation-only `imageReference` and `osProfile` it was created with. DiskRP
+  answers a write 202 and az reads the result from the Location monitor URL
+  (final-state-via location), so a disk operation's result is the disk. A
+  simulator without a state directory sweeps only its own run's machines at
+  shutdown: the engine lists every simulator's, and one CLI test's shutdown
+  had removed a concurrent test's running machine.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever
