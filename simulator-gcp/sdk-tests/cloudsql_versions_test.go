@@ -20,10 +20,10 @@ import (
 // The engine images Cloud SQL runs for the versions these tests create, as
 // the simulator's version table pins them.
 const (
-	cloudSQLPostgres15Image = "mirror.gcr.io/library/postgres:15.19-alpine@sha256:aae6554de426ae1990f1a939ff183a0299146cf7142a6f4c379c3357af9cc2d8"
-	cloudSQLPostgres16Image = "mirror.gcr.io/library/postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139"
-	cloudSQLMySQL80Image    = "mirror.gcr.io/library/mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"
-	cloudSQLMySQL84Image    = "mirror.gcr.io/library/mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902"
+	cloudSQLPostgres15Image = "mirror.gcr.io/library/postgres:15.19-alpine"
+	cloudSQLPostgres16Image = "mirror.gcr.io/library/postgres:16.15-alpine"
+	cloudSQLMySQL80Image    = "mirror.gcr.io/library/mysql:8.0.46"
+	cloudSQLMySQL84Image    = "mirror.gcr.io/library/mysql:8.4.13"
 )
 
 // sqlDataPlaneAddress reads the instance's PRIMARY address, which must be a

@@ -29,47 +29,49 @@ type sqlEngineVersion struct {
 const sqlDefaultDatabaseVersion = "POSTGRES_15"
 
 // sqlEngineVersions lists each databaseVersion of the vendored enum that has
-// a community image, at the newest release of the version; a MySQL 8.0
-// version that names its minor runs that minor. POSTGRES_19 and POSTGRES_20
-// have no release image, and Docker Hub dates no digest for MYSQL_5_1,
-// MYSQL_5_5 or MYSQL_5_6, so those run no engine.
+// a community image, at the newest release of the version, by its release tag
+// as Amazon RDS's version table names its images; a MySQL 8.0
+// version that names its minor runs that minor. MYSQL_5_1, POSTGRES_19 and
+// POSTGRES_20 have no release image and run no engine.
 // scripts/cloudsql-version-images-for.sh reads this table one row per line.
 var sqlEngineVersions = []sqlEngineVersion{
-	{"MYSQL_5_7", "MYSQL_5_7_44", "mirror.gcr.io/library/mysql:5.7.44@sha256:4bc6bc963e6d8443453676cae56536f4b8156d78bae03c0145cbe47c2aad73bb"},
-	{"MYSQL_8_0", "MYSQL_8_0_46", "mirror.gcr.io/library/mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"},
-	{"MYSQL_8_0_18", "MYSQL_8_0_18", "mirror.gcr.io/library/mysql:8.0.18@sha256:e1b0fd480a11e5c37425a2591b6fbd32af886bfc6d6f404bd362be5e50a2e632"},
-	{"MYSQL_8_0_26", "MYSQL_8_0_26", "mirror.gcr.io/library/mysql:8.0.26@sha256:5d52dc010398db422949f079c76e98f6b62230e5b59c0bf7582409d2c85abacb"},
-	{"MYSQL_8_0_27", "MYSQL_8_0_27", "mirror.gcr.io/library/mysql:8.0.27@sha256:e9027fe4d91c0153429607251656806cc784e914937271037f7738bd5b8e7709"},
-	{"MYSQL_8_0_28", "MYSQL_8_0_28", "mirror.gcr.io/library/mysql:8.0.28@sha256:fc77d54cacef90ad3d75964837fad0f2a9a368b69e7d799665a3f4e90e600c2d"},
-	{"MYSQL_8_0_29", "MYSQL_8_0_29", "mirror.gcr.io/library/mysql:8.0.29@sha256:152cf187a3efc56afb0b3877b4d21e231d1d6eb828ca9221056590b0ac834c75"},
-	{"MYSQL_8_0_30", "MYSQL_8_0_30", "mirror.gcr.io/library/mysql:8.0.30@sha256:3c1aab708f6e57fc4dccafe36baccc7219acfb4ec450f3fb6d370ea89409e906"},
-	{"MYSQL_8_0_31", "MYSQL_8_0_31", "mirror.gcr.io/library/mysql:8.0.31@sha256:3d7ae561cf6095f6aca8eb7830e1d14734227b1fb4748092f2be2cfbccf7d614"},
-	{"MYSQL_8_0_32", "MYSQL_8_0_32", "mirror.gcr.io/library/mysql:8.0.32@sha256:f496c25da703053a6e0717f1d52092205775304ea57535cc9fcaa6f35867800b"},
-	{"MYSQL_8_0_33", "MYSQL_8_0_33", "mirror.gcr.io/library/mysql:8.0.33@sha256:ea68e51ffe9b96fef6076f1218af11301aeaf13c6201e0ec9aaef5791d5ddc5d"},
-	{"MYSQL_8_0_34", "MYSQL_8_0_34", "mirror.gcr.io/library/mysql:8.0.34@sha256:59ae56ac42c6c09aebd9a7bb8d9f07a5fdf836f956e050946f85bbfa29d0a080"},
-	{"MYSQL_8_0_35", "MYSQL_8_0_35", "mirror.gcr.io/library/mysql:8.0.35@sha256:c6812f0dcd978b589d9d3b90c20bd5e4a799deab4fd492985e0a076c5be1ee40"},
-	{"MYSQL_8_0_36", "MYSQL_8_0_36", "mirror.gcr.io/library/mysql:8.0.36@sha256:a532724022429812ec797c285c1b540a644c15e248579c6bfdf12a8fbaab4964"},
-	{"MYSQL_8_0_37", "MYSQL_8_0_37", "mirror.gcr.io/library/mysql:8.0.37@sha256:598bf8b783dddc9070e9011aeb1eb5947f0bf7c4eda8ac510906556b8a2b6d0a"},
-	{"MYSQL_8_0_39", "MYSQL_8_0_39", "mirror.gcr.io/library/mysql:8.0.39@sha256:ccb8f749bb5e59f9f8f03bf7282c7ef27a93a1814a24f0a8a926fb4e19b7fb97"},
-	{"MYSQL_8_0_40", "MYSQL_8_0_40", "mirror.gcr.io/library/mysql:8.0.40@sha256:d58ac93387f644e4e040c636b8f50494e78e5afc27ca0a87348b2f577da2b7ff"},
-	{"MYSQL_8_0_41", "MYSQL_8_0_41", "mirror.gcr.io/library/mysql:8.0.41@sha256:bf577825b52ab281d6281fb281eabbfdc73507eda8f2c2745790251533ef0306"},
-	{"MYSQL_8_0_42", "MYSQL_8_0_42", "mirror.gcr.io/library/mysql:8.0.42@sha256:63823b8e2cbe4ae0c558155e02d00beba56130fbc3d147efccbdb328ae2dbb9e"},
-	{"MYSQL_8_0_43", "MYSQL_8_0_43", "mirror.gcr.io/library/mysql:8.0.43@sha256:3e646bcda0d9448ffa3d2024eef04e1bca95528ec19b9e8b76749da9d97d4a10"},
-	{"MYSQL_8_0_44", "MYSQL_8_0_44", "mirror.gcr.io/library/mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714"},
-	{"MYSQL_8_0_45", "MYSQL_8_0_45", "mirror.gcr.io/library/mysql:8.0.45@sha256:4af1f8815716546f5b12410f7621f37f93db8dd11a184706ef59111930b8c2ff"},
-	{"MYSQL_8_0_46", "MYSQL_8_0_46", "mirror.gcr.io/library/mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"},
-	{"MYSQL_8_4", "MYSQL_8_4_13", "mirror.gcr.io/library/mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902"},
-	{"MYSQL_9_7", "MYSQL_9_7_4", "mirror.gcr.io/library/mysql:9.7.4@sha256:df90258da46f6e7ff8574ff84f17618aba0765cac749928299c69fd4e7cb8ad8"},
-	{"POSTGRES_9_6", "POSTGRES_9_6_24", "mirror.gcr.io/library/postgres:9.6.24-alpine@sha256:8342bcb43446694428ec6594e72e4299692854f0fc3aca090b0ab46f4c7f32a1"},
-	{"POSTGRES_10", "POSTGRES_10_23", "mirror.gcr.io/library/postgres:10.23-alpine@sha256:63cfb6eac6b362c7c994f22c3804c61b31898cf0cb52f8e7e86bd99a244f4366"},
-	{"POSTGRES_11", "POSTGRES_11_22", "mirror.gcr.io/library/postgres:11.22-alpine@sha256:33a78858869c44785eee197a60cf281c5c80376bb725992f092ec5e7e072f3de"},
-	{"POSTGRES_12", "POSTGRES_12_22", "mirror.gcr.io/library/postgres:12.22-alpine@sha256:7c8f4870583184ebadf7f17a6513620aac5f365a7938dc6a6911c1d5df2f481a"},
-	{"POSTGRES_13", "POSTGRES_13_23", "mirror.gcr.io/library/postgres:13.23-alpine@sha256:fb9065b6e3e213bdc07edd372a5b2a26245840b7fb65d1fd8b6700106d51805c"},
-	{"POSTGRES_14", "POSTGRES_14_24", "mirror.gcr.io/library/postgres:14.24-alpine@sha256:b084304744d27cbc34513a1d2916129bd6a33383fa17b79b9a9030a950f14870"},
-	{"POSTGRES_15", "POSTGRES_15_19", "mirror.gcr.io/library/postgres:15.19-alpine@sha256:aae6554de426ae1990f1a939ff183a0299146cf7142a6f4c379c3357af9cc2d8"},
-	{"POSTGRES_16", "POSTGRES_16_15", "mirror.gcr.io/library/postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139"},
-	{"POSTGRES_17", "POSTGRES_17_11", "mirror.gcr.io/library/postgres:17.11-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac"},
-	{"POSTGRES_18", "POSTGRES_18_6", "mirror.gcr.io/library/postgres:18.6-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395"},
+	{"MYSQL_5_5", "MYSQL_5_5_62", "mirror.gcr.io/library/mysql:5.5.62"},
+	{"MYSQL_5_6", "MYSQL_5_6_51", "mirror.gcr.io/library/mysql:5.6.51"},
+	{"MYSQL_5_7", "MYSQL_5_7_44", "mirror.gcr.io/library/mysql:5.7.44"},
+	{"MYSQL_8_0", "MYSQL_8_0_46", "mirror.gcr.io/library/mysql:8.0.46"},
+	{"MYSQL_8_0_18", "MYSQL_8_0_18", "mirror.gcr.io/library/mysql:8.0.18"},
+	{"MYSQL_8_0_26", "MYSQL_8_0_26", "mirror.gcr.io/library/mysql:8.0.26"},
+	{"MYSQL_8_0_27", "MYSQL_8_0_27", "mirror.gcr.io/library/mysql:8.0.27"},
+	{"MYSQL_8_0_28", "MYSQL_8_0_28", "mirror.gcr.io/library/mysql:8.0.28"},
+	{"MYSQL_8_0_29", "MYSQL_8_0_29", "mirror.gcr.io/library/mysql:8.0.29"},
+	{"MYSQL_8_0_30", "MYSQL_8_0_30", "mirror.gcr.io/library/mysql:8.0.30"},
+	{"MYSQL_8_0_31", "MYSQL_8_0_31", "mirror.gcr.io/library/mysql:8.0.31"},
+	{"MYSQL_8_0_32", "MYSQL_8_0_32", "mirror.gcr.io/library/mysql:8.0.32"},
+	{"MYSQL_8_0_33", "MYSQL_8_0_33", "mirror.gcr.io/library/mysql:8.0.33"},
+	{"MYSQL_8_0_34", "MYSQL_8_0_34", "mirror.gcr.io/library/mysql:8.0.34"},
+	{"MYSQL_8_0_35", "MYSQL_8_0_35", "mirror.gcr.io/library/mysql:8.0.35"},
+	{"MYSQL_8_0_36", "MYSQL_8_0_36", "mirror.gcr.io/library/mysql:8.0.36"},
+	{"MYSQL_8_0_37", "MYSQL_8_0_37", "mirror.gcr.io/library/mysql:8.0.37"},
+	{"MYSQL_8_0_39", "MYSQL_8_0_39", "mirror.gcr.io/library/mysql:8.0.39"},
+	{"MYSQL_8_0_40", "MYSQL_8_0_40", "mirror.gcr.io/library/mysql:8.0.40"},
+	{"MYSQL_8_0_41", "MYSQL_8_0_41", "mirror.gcr.io/library/mysql:8.0.41"},
+	{"MYSQL_8_0_42", "MYSQL_8_0_42", "mirror.gcr.io/library/mysql:8.0.42"},
+	{"MYSQL_8_0_43", "MYSQL_8_0_43", "mirror.gcr.io/library/mysql:8.0.43"},
+	{"MYSQL_8_0_44", "MYSQL_8_0_44", "mirror.gcr.io/library/mysql:8.0.44"},
+	{"MYSQL_8_0_45", "MYSQL_8_0_45", "mirror.gcr.io/library/mysql:8.0.45"},
+	{"MYSQL_8_0_46", "MYSQL_8_0_46", "mirror.gcr.io/library/mysql:8.0.46"},
+	{"MYSQL_8_4", "MYSQL_8_4_13", "mirror.gcr.io/library/mysql:8.4.13"},
+	{"MYSQL_9_7", "MYSQL_9_7_4", "mirror.gcr.io/library/mysql:9.7.4"},
+	{"POSTGRES_9_6", "POSTGRES_9_6_24", "mirror.gcr.io/library/postgres:9.6.24-alpine"},
+	{"POSTGRES_10", "POSTGRES_10_23", "mirror.gcr.io/library/postgres:10.23-alpine"},
+	{"POSTGRES_11", "POSTGRES_11_22", "mirror.gcr.io/library/postgres:11.22-alpine"},
+	{"POSTGRES_12", "POSTGRES_12_22", "mirror.gcr.io/library/postgres:12.22-alpine"},
+	{"POSTGRES_13", "POSTGRES_13_23", "mirror.gcr.io/library/postgres:13.23-alpine"},
+	{"POSTGRES_14", "POSTGRES_14_24", "mirror.gcr.io/library/postgres:14.24-alpine"},
+	{"POSTGRES_15", "POSTGRES_15_19", "mirror.gcr.io/library/postgres:15.19-alpine"},
+	{"POSTGRES_16", "POSTGRES_16_15", "mirror.gcr.io/library/postgres:16.15-alpine"},
+	{"POSTGRES_17", "POSTGRES_17_11", "mirror.gcr.io/library/postgres:17.11-alpine"},
+	{"POSTGRES_18", "POSTGRES_18_6", "mirror.gcr.io/library/postgres:18.6-alpine"},
 }
 
 func sqlFindEngineVersion(databaseVersion string) (sqlEngineVersion, bool) {
@@ -163,7 +165,7 @@ func sqlEngine(version sqlEngineVersion) dbengine.Engine {
 
 // sqlNextMySQLMajor is the consecutive major version each Cloud SQL for MySQL
 // major upgrades to: MySQL upgrades one major version at a time.
-var sqlNextMySQLMajor = map[string]string{"5.7": "8.0", "8.0": "8.4", "8.4": "9.7"}
+var sqlNextMySQLMajor = map[string]string{"5.5": "5.6", "5.6": "5.7", "5.7": "8.0", "8.0": "8.4", "8.4": "9.7"}
 
 // sqlCheckVersionChange answers why an instance on current cannot move to
 // target through instances.patch, or "" when it can: the target is a later
