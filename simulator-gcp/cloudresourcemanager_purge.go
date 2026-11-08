@@ -44,16 +44,16 @@ func crmProjectIDTaken(id string) bool {
 
 // crmPurgeDue permanently deletes every project whose 30-day recovery window
 // has closed by now, and answers when the next window closes.
-func crmPurgeDue(now time.Time) (next time.Time, pending bool) {
-	for _, p := range crmProjects.Filter(func(p CRMProject) bool { return p.State == "DELETE_REQUESTED" }) {
+func crmPurgeDue(now time.Time, projects sim.Store[CRMProject], purged sim.Store[crmPurgedProject]) (next time.Time, pending bool) {
+	for _, p := range projects.Filter(func(p CRMProject) bool { return p.State == "DELETE_REQUESTED" }) {
 		deleted, err := time.Parse(time.RFC3339Nano, p.DeleteTime)
 		if err != nil {
 			continue
 		}
 		due := deleted.Add(crmPurgeAfter)
 		if !due.After(now) {
-			crmPurgedProjects.Put(p.ProjectId, crmPurgedProject{ProjectID: p.ProjectId, PurgeTime: now.UTC().Format(time.RFC3339Nano)})
-			crmProjects.Delete(p.ProjectId)
+			purged.Put(p.ProjectId, crmPurgedProject{ProjectID: p.ProjectId, PurgeTime: now.UTC().Format(time.RFC3339Nano)})
+			projects.Delete(p.ProjectId)
 			continue
 		}
 		if !pending || due.Before(next) {
@@ -64,10 +64,17 @@ func crmPurgeDue(now time.Time) (next time.Time, pending bool) {
 }
 
 // crmProjectPurger runs the purge as each recovery window closes, and looks
-// again whenever a project is shut down or restored.
-func crmProjectPurger(ctx context.Context) {
+// again whenever a project is shut down or restored. It holds the stores its
+// server built, which a later build does not reassign under it.
+func crmProjectPurger(projects sim.Store[CRMProject], purged sim.Store[crmPurgedProject]) func(context.Context) {
+	return func(ctx context.Context) {
+		crmPurgeLoop(ctx, projects, purged)
+	}
+}
+
+func crmPurgeLoop(ctx context.Context, projects sim.Store[CRMProject], purged sim.Store[crmPurgedProject]) {
 	for {
-		next, pending := crmPurgeDue(time.Now())
+		next, pending := crmPurgeDue(time.Now(), projects, purged)
 		var fire <-chan time.Time
 		var timer *time.Timer
 		if pending {

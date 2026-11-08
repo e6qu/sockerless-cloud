@@ -19,7 +19,7 @@ func TestCRMPurgesProjectsPastTheirRecoveryWindow(t *testing.T) {
 		crmProjects.Put(id, CRMProject{Name: "projects/" + gcpNumericID(12), ProjectId: id, State: "DELETE_REQUESTED",
 			Parent: crmDefaultOrganization, DeleteTime: deleted.Format(time.RFC3339Nano)})
 	}
-	next, pending := crmPurgeDue(now)
+	next, pending := crmPurgeDue(now, crmProjects, crmPurgedProjects)
 	if !pending || next.Sub(now) > 24*time.Hour+time.Minute {
 		t.Fatalf("the next purge is due at %v (pending %v), a day from now", next, pending)
 	}

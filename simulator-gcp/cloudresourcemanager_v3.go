@@ -199,10 +199,11 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	}
 	projects := sim.MakeStore[CRMProject](srv.DB(), "crm_projects")
 	crmProjects = projects
-	crmPurgedProjects = sim.MakeStore[crmPurgedProject](srv.DB(), "crm_purged_projects")
-	crmPurgeDue(time.Now())
+	purged := sim.MakeStore[crmPurgedProject](srv.DB(), "crm_purged_projects")
+	crmPurgedProjects = purged
+	crmPurgeDue(time.Now(), projects, purged)
 	crmEnsureDefaultProject()
-	srv.StartBackground("Cloud Resource Manager project purge", crmProjectPurger)
+	srv.StartBackground("Cloud Resource Manager project purge", crmProjectPurger(projects, purged))
 	crmOrganizations = sim.MakeStore[CRMOrganization](srv.DB(), "crm_organizations")
 	crmEnsureDefaultOrganization()
 	folders := sim.MakeStore[CRMFolder](srv.DB(), "crm_folders")
