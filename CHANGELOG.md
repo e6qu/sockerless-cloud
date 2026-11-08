@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/e6qu/sockerless-cloud/compare/v3.5.1...v3.6.0) (2026-11-08)
+
+
+### Features
+
+* fidelity batch across AWS, Google Cloud and Azure, and cached CI tools ([33f81e5](https://github.com/e6qu/sockerless-cloud/commit/33f81e592836190ebcbf2d776cbfe8d6d0c77958))
+
 ## [3.5.1](https://github.com/e6qu/sockerless-cloud/compare/v3.5.0...v3.5.1) (2026-11-08)
 
 
