@@ -42,6 +42,28 @@ import (
 
 const volumeSnapshotImage = "mirror.gcr.io/library/alpine:3.22"
 
+// volumeHelperPlatform pulls the helper image for the engine's own platform
+// and returns the platform the pulled manifest names.
+func volumeHelperPlatform(ctx context.Context) (string, error) {
+	cli := DockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("container runtime is not initialized")
+	}
+	inspect, err := InspectHeldImage(ctx, cli, volumeSnapshotImage)
+	if err != nil {
+		if pullErr := PullImage(ctx, volumeSnapshotImage, ""); pullErr != nil {
+			return "", fmt.Errorf("pull %s: %w", volumeSnapshotImage, pullErr)
+		}
+		if inspect, err = InspectHeldImage(ctx, cli, volumeSnapshotImage); err != nil {
+			return "", fmt.Errorf("inspect %s: %w", volumeSnapshotImage, err)
+		}
+	}
+	if inspect.Os == "" || inspect.Architecture == "" {
+		return "", fmt.Errorf("image %s names no platform", volumeSnapshotImage)
+	}
+	return inspect.Os + "/" + inspect.Architecture, nil
+}
+
 // volumeCopySandbox confines the copy helper. It is the simulator's own
 // plumbing, not a cloud workload, so it gets exactly what `cp -a` needs to
 // preserve ownership and modes as root and nothing a workload profile grants.
@@ -68,10 +90,14 @@ func SnapshotVolume(ctx context.Context, src, dst string) (filesystem string, er
 	script := `set -e
 stat -f -c %T /snapshot-src
 cp -a --reflink=auto /snapshot-src/. /snapshot-dst/`
+	platform, err := volumeHelperPlatform(ctx)
+	if err != nil {
+		return "", err
+	}
 	var sink volumeSnapshotSink
 	handle, err := StartContainerSyncContext(ctx, ContainerConfig{
 		Image:        volumeSnapshotImage,
-		Architecture: "linux/amd64",
+		Architecture: platform,
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", script},
 		Timeout:      10 * time.Minute,
@@ -351,7 +377,7 @@ func ArchiveVolume(ctx context.Context, volume string) (io.ReadCloser, error) {
 	if !VolumeExists(volume) {
 		return nil, fmt.Errorf("volume %s does not exist", volume)
 	}
-	if err := PullImage(ctx, volumeSnapshotImage, "linux/amd64"); err != nil {
+	if _, err := volumeHelperPlatform(ctx); err != nil {
 		return nil, fmt.Errorf("archive volume %s: %w", volume, err)
 	}
 	cli := DockerClient()

@@ -2021,6 +2021,10 @@ fails once the row closes or the operation is served.
   The 2024-07-01 documents are vendored beside them, and a machine image
   version carries `imageDeprecationStatus` from api-version 2022-11-01, the
   first that declares it.
+- **Volume helper platform.** The disk copy helper and `sim`'s volume
+  snapshot and archive helper ran the Alpine image as `linux/amd64` on every
+  engine; they read the platform off the image the engine pulled, so an arm64
+  engine runs them natively.
 - **Azure managed disks.** DiskRP's `disk.json` (2023-04-02, the version
   `az disk` speaks) is vendored and `Microsoft.Compute/disks` served against
   it: Empty and Copy creates, grow-only resizes, `diskState` derived from the

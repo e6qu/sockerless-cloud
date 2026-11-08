@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // A machine's data disks. The machine's workload mounts its disk bay, an
@@ -107,10 +108,14 @@ if [ -d %[1]s ]; then cp -a %[1]s/. %[2]s/; fi`, from, to)
 		script += "\nrm -rf " + from
 		srcMode = ""
 	}
+	platform, err := workload.LocalImagePlatform(ctx, azureDiskCopyImage, "")
+	if err != nil {
+		return err
+	}
 	var sink azureLineSink
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        azureDiskCopyImage,
-		Architecture: "linux/amd64",
+		Architecture: platform,
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", script},
 		Binds:        []string{src.volume + ":/src" + srcMode, dst.volume + ":/dst"},
