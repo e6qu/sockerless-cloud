@@ -410,7 +410,15 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
-		extra.AuthSettings = req.Properties
+		// App Service reads an unset setting back as null; terraform-provider-azurerm
+		// sends "" for every identity provider it leaves unconfigured.
+		extra.AuthSettings = make(map[string]any, len(req.Properties))
+		for k, v := range req.Properties {
+			if v == nil || v == "" {
+				continue
+			}
+			extra.AuthSettings[k] = v
+		}
 		webConfigExtras.Put(webResourceID(r), extra)
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})

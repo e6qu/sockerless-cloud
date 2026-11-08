@@ -1843,7 +1843,8 @@ fails once the row closes or the operation is served.
   `authsettingsV2` lists answer what PUT stored, as the slot lists did, and
   the v1 settings carry the `configVersion` App Service fills in — `v2` once
   the site holds a v2 configuration, `v1` otherwise — which
-  terraform-provider-azurerm requires before it reads `auth_settings` back. A
+  terraform-provider-azurerm requires before it reads `auth_settings` back;
+  a setting PUT sends as an empty string reads back as null. A
   path-style Blob request may name an account `internal`; no surface claims
   the segment.
 - **Log Analytics soft delete.** Deleting a workspace keeps it, its data, keys

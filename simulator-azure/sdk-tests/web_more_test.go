@@ -151,6 +151,7 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 			Enabled:         to.Ptr(true),
 			DefaultProvider: to.Ptr(armappservice.BuiltInAuthenticationProviderAzureActiveDirectory),
 			ClientID:        to.Ptr("00000000-0000-0000-0000-00000000c11e"),
+			FacebookAppID:   to.Ptr(""),
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -161,6 +162,7 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	assert.Equal(t, "00000000-0000-0000-0000-00000000c11e", *v1.Properties.ClientID)
 	require.NotNil(t, v1.Properties.ConfigVersion)
 	assert.Equal(t, "v1", *v1.Properties.ConfigVersion, "App Service fills in the v1 configVersion")
+	assert.Nil(t, v1.Properties.FacebookAppID, "App Service reads an empty setting back as null")
 	v2, err := client.GetAuthSettingsV2WithoutSecrets(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, v2.Properties)
