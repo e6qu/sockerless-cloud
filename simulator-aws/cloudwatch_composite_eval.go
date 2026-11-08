@@ -83,6 +83,7 @@ func cwEvaluateCompositeAlarm(name string, now time.Time) {
 	children := cwCompositeChildStates(rule)
 	var prev, newState, reason string
 	var triggering []string
+	var before CWCompositeAlarm
 	transitioned := false
 	cwCompositeAlarms.Update(name, func(x *CWCompositeAlarm) {
 		if x.Held {
@@ -120,6 +121,7 @@ func cwEvaluateCompositeAlarm(name string, now time.Time) {
 				reason = fmt.Sprintf("%s alarm rule evaluates to %s", x.AlarmArn, newState)
 			}
 		}
+		before = *x
 		x.StateValue = newState
 		x.StateReason = reason
 		x.UpdatedTimestamp = now.Unix()
@@ -136,6 +138,45 @@ func cwEvaluateCompositeAlarm(name string, now time.Time) {
 	})
 	cwRecordAlarmHistory(name, "CompositeAlarm", "StateUpdate",
 		fmt.Sprintf("Alarm updated from %s to %s", prev, newState), string(historyData))
+	cwPutCompositeAlarmStateChangeEvent(before, prev, newState, reason, cwTriggeringAlarmsReasonData(triggering, children, now), now)
+}
+
+// The reasonData the alarm events carry for a composite alarm:
+// {"triggeringAlarms":[{"arn":…,"state":{"value":…,"timestamp":…}}]}.
+func cwTriggeringAlarmsReasonData(triggering []string, children map[string]string, at time.Time) string {
+	if len(triggering) == 0 {
+		return ""
+	}
+	type childState struct {
+		Value     string `json:"value"`
+		Timestamp string `json:"timestamp"`
+	}
+	type trigger struct {
+		Arn   string     `json:"arn"`
+		State childState `json:"state"`
+	}
+	out := struct {
+		TriggeringAlarms []trigger `json:"triggeringAlarms"`
+	}{}
+	for _, arn := range triggering {
+		out.TriggeringAlarms = append(out.TriggeringAlarms, trigger{Arn: arn,
+			State: childState{Value: children[cwAlarmRefName(arn)], Timestamp: cwAlarmEventTime(at)}})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func cwPutCompositeAlarmStateChangeEvent(before CWCompositeAlarm, prev, newState, reason, reasonData string, at time.Time) {
+	previous := cwAlarmEventState{Value: prev, Reason: before.StateReason, Timestamp: cwAlarmEventTime(at)}
+	if before.UpdatedTimestamp > 0 {
+		previous.Timestamp = cwAlarmEventTime(time.Unix(before.UpdatedTimestamp, 0))
+	}
+	cwPutAlarmStateChangeEvent(before.AlarmName, before.AlarmArn, map[string]any{"alarmRule": before.AlarmRule}, previous,
+		cwAlarmEventState{Value: newState, Reason: reason, ReasonData: reasonData, Timestamp: cwAlarmEventTime(at)},
+		before.ActionConfiguration, before.Tags)
 }
 
 func cwDispatchCompositeAlarmActions(ca CWCompositeAlarm, oldState, newState, reason string, triggering []string, now time.Time) {
@@ -149,7 +190,7 @@ func cwDispatchCompositeAlarmActions(ca CWCompositeAlarm, oldState, newState, re
 	if triggering == nil {
 		triggering = []string{}
 	}
-	payload, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"AlarmName":               ca.AlarmName,
 		"AlarmDescription":        ca.AlarmDescription,
 		"AWSAccountId":            awsAccountID(),
@@ -164,11 +205,13 @@ func cwDispatchCompositeAlarmActions(ca CWCompositeAlarm, oldState, newState, re
 		"OldStateValue":           oldState,
 		"AlarmRule":               ca.AlarmRule,
 		"TriggeringChildren":      triggering,
-	})
+	}
+	cwAddNotificationTags(payload, ca.ActionConfiguration, ca.Tags)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return
 	}
-	cwPublishAlarmNotification(ca.AlarmName, targets, cwAlarmNotificationSubject(newState, ca.AlarmName), string(payload))
+	cwPublishAlarmNotification(ca.AlarmName, targets, cwAlarmNotificationSubject(newState, ca.AlarmName), string(body))
 }
 
 func cwActionsForState(state string, alarm, ok, insufficient []string) []string {

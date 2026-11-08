@@ -1793,6 +1793,11 @@ fails once the row closes or the operation is served.
   notification with `AlarmRule` and `TriggeringChildren` and the reason
   wording the alarm events show. A `SetAlarmState` on a composite alarm holds
   until a child's state changes or the alarm is updated.
+  Every metric and composite alarm transition also reaches the default
+  event bus as a "CloudWatch Alarm State Change" event shaped like the User
+  Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries
+  its included or non-excluded tags, never an `aws:` key, in that event and
+  in its Amazon SNS notification.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
 - **Cloud Run image export and Firestore REST listen.** `exportImage` copies
@@ -2076,8 +2081,8 @@ unprivileged user namespaces, which the runner image leaves in force.
 A job that only restores the base-image cache loads it with `--load-only`:
 the race job had spent three of its fifteen minutes writing a tarball it
 never saves, after a changed image set left it the nearest earlier archive.
-Caddy and Terraform come from their release archives through the
-`install-caddy` and `install-terraform` composite actions, which keep the
+Caddy, Terraform and Bun come from their release archives through the
+`install-caddy`, `install-terraform` and `install-bun` composite actions, which keep the
 verified archive in the Actions cache keyed on the pin. GitHub release
 downloads had answered 504 through all eight of curl's retries and failed two
 Terraform jobs before a test ran; with the cache, only the first job after a

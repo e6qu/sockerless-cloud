@@ -58,6 +58,7 @@ func cwEvaluateAlarm(a CWAlarm) {
 		// Hold the alarm store lock so a concurrent PutMetricAlarm cannot leave a
 		// recreated alarm with a stale StateValue that never dispatches.
 		var prev, newState, reason string
+		var before CWAlarm
 		dispatched := false
 		updated := cwAlarms.Update(alarm.AlarmName, func(x *CWAlarm) {
 			newState, reason = cwEvaluateAlarmState(*x)
@@ -72,6 +73,7 @@ func cwEvaluateAlarm(a CWAlarm) {
 				return
 			}
 			cwDispatchAlarmActions(*x, prev, newState, reason)
+			before = *x
 			x.StateValue = newState
 			x.StateReason = reason
 			x.StateUpdatedTimestamp = time.Now().UTC().Unix()
@@ -81,6 +83,7 @@ func cwEvaluateAlarm(a CWAlarm) {
 			return
 		}
 		cwEvalLogger.Info().Str("alarmName", alarm.AlarmName).Str("oldState", prev).Str("newState", newState).Msg("CloudWatch alarm transitioned")
+		cwPutMetricAlarmStateChangeEvent(before, prev, newState, reason, time.Now())
 		historyData, _ := json.Marshal(map[string]string{
 			"previousState": prev,
 			"newState":      newState,
@@ -162,6 +165,7 @@ func cwAlarmNotificationMessage(a CWAlarm, oldState, newState, reason string) st
 		"InsufficientDataActions": a.InsufficientDataActions,
 		"Trigger":                 trigger,
 	}
+	cwAddNotificationTags(payload, a.ActionConfiguration, a.Tags)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Sprintf(`{"AlarmName":%q,"NewStateValue":%q,"OldStateValue":%q}`, a.AlarmName, newState, oldState)

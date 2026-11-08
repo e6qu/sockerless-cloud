@@ -95,8 +95,10 @@ func cwSetAlarmActionsEnabled(names []string, enabled bool) {
 // updated.
 func cwSetAlarmState(name, state, reason, reasonData string) bool {
 	var prev string
+	var before CWAlarm
 	if cwAlarms.Update(name, func(a *CWAlarm) {
 		prev, _ = cwAlarmEffectiveState(*a)
+		before = *a
 		a.ManualState = state
 		a.ManualStateReason = reason
 		a.StateValue = state
@@ -107,6 +109,9 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 		}
 	}) {
 		cwRecordAlarmHistory(name, "MetricAlarm", "StateUpdate", fmt.Sprintf("Alarm updated from %s to %s", prev, state), reasonData)
+		if prev != state {
+			cwPutMetricAlarmStateChangeEvent(before, prev, state, reason, time.Now())
+		}
 		ecsRequestServiceReconcileForAlarm(name)
 		return true
 	}
@@ -118,7 +123,9 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 	if rule, err := cwParseAlarmRule(ca.AlarmRule); err == nil {
 		children = cwCompositeChildStates(rule)
 	}
+	var composite CWCompositeAlarm
 	if cwCompositeAlarms.Update(name, func(a *CWCompositeAlarm) {
+		composite = *a
 		prev = a.StateValue
 		if prev == "" {
 			prev = "INSUFFICIENT_DATA"
@@ -134,6 +141,9 @@ func cwSetAlarmState(name, state, reason, reasonData string) bool {
 		}
 	}) {
 		cwRecordAlarmHistory(name, "CompositeAlarm", "StateUpdate", fmt.Sprintf("Alarm updated from %s to %s", prev, state), reasonData)
+		if prev != state {
+			cwPutCompositeAlarmStateChangeEvent(composite, prev, state, reason, "", time.Now())
+		}
 		return true
 	}
 	return false
