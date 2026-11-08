@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.1](https://github.com/e6qu/sockerless-cloud/compare/v3.5.0...v3.5.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* bundle Azure, AWS and Google Cloud fidelity fixes and spec vendoring ([bd2638c](https://github.com/e6qu/sockerless-cloud/commit/bd2638c9b7070d33661ba70f1ae8fcdb36b24177))
+
 ## [3.5.0](https://github.com/e6qu/sockerless-cloud/compare/v3.4.0...v3.5.0) (2026-11-07)
 
 
