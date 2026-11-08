@@ -680,8 +680,7 @@ jobs:
         # gateway, which is Caddy, because a container engine speaks TLS to a
         # registry.
         if: matrix.cloud == 'gcp' && matrix.suite == 'cli'
-        run: |
-          bash scripts/install-caddy.sh
+        uses: ./.github/actions/install-caddy
       # Module download + test-binary compilation get their own budget so the
       # timed run below isn't eaten by a cold module cache after a dep change
       # busts the shared **/go.sum Go cache.
@@ -1323,8 +1322,7 @@ jobs:
         # Caddy, because a container engine speaks TLS to a registry. That test
         # matches '^Test(...|ECR|...)', so only the compute shard runs it.
         if: matrix.suite == 'compute'
-        run: |
-          bash scripts/install-caddy.sh
+        uses: ./.github/actions/install-caddy
       - name: Install latest AWS CLI v2
         run: bash scripts/install-aws-cli.sh
       # Same contract as the SDK job: the CLI shards run real containers,
@@ -1676,28 +1674,11 @@ jobs:
         # does other work, and the wait step below blocks on it.
         run: bash scripts/ci-engine-image.sh sidecar-image start
         timeout-minutes: 3
-      # Terraform is installed from its own release archive rather than
-      # through hashicorp/setup-terraform: the runner downloads every action a
-      # workflow references before it evaluates any step's condition, so an
-      # action one job uses is fetched by all of them. The version is pinned
-      # here.
       - name: Install Terraform
-        env:
-          TERRAFORM_VERSION: 1.16.0
-        run: |
-          set -euo pipefail
-          archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-          base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
-          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" "$base/$archive"
-          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/sums" \
-            "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS"
-          (cd "$RUNNER_TEMP" && grep " $archive\$" sums | sha256sum --check --strict -)
-          unzip -q -o "$RUNNER_TEMP/$archive" -d /usr/local/bin terraform
-          terraform version
-        timeout-minutes: 3
+        uses: ./.github/actions/install-terraform
+        timeout-minutes: 6
       - name: Install Caddy
-        run: |
-          bash scripts/install-caddy.sh
+        uses: ./.github/actions/install-caddy
       - name: Wait for the base images
         # Priming a cache, not checking a dependency: if the registry refuses an
         # image here, the job carries on and whatever actually needs it fails at
@@ -1893,21 +1874,10 @@ jobs:
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
       - name: Install Terraform
-        env:
-          TERRAFORM_VERSION: 1.16.0
-        run: |
-          set -euo pipefail
-          archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-          base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
-          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/$archive" "$base/$archive"
-          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/sums" \
-            "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS"
-          (cd "$RUNNER_TEMP" && grep " $archive\$" sums | sha256sum --check --strict -)
-          unzip -q -o "$RUNNER_TEMP/$archive" -d /usr/local/bin terraform
-          terraform version
-        timeout-minutes: 3
+        uses: ./.github/actions/install-terraform
+        timeout-minutes: 6
       - name: Install Caddy
-        run: bash scripts/install-caddy.sh
+        uses: ./.github/actions/install-caddy
       - uses: ./.github/actions/install-bun
       - name: Install pre-commit
         run: pipx install pre-commit

@@ -2064,6 +2064,12 @@ unprivileged user namespaces, which the runner image leaves in force.
 A job that only restores the base-image cache loads it with `--load-only`:
 the race job had spent three of its fifteen minutes writing a tarball it
 never saves, after a changed image set left it the nearest earlier archive.
+Caddy and Terraform come from their release archives through the
+`install-caddy` and `install-terraform` composite actions, which keep the
+verified archive in the Actions cache keyed on the pin. GitHub release
+downloads had answered 504 through all eight of curl's retries and failed two
+Terraform jobs before a test ran; with the cache, only the first job after a
+pin moves downloads.
 
 Dependencies of every class are held to their newest release past a 24-hour
 quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret

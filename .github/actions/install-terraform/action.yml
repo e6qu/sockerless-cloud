@@ -1,0 +1,37 @@
+name: Install Terraform
+description: >-
+  Installs the pinned Terraform from its own release archive rather than
+  through hashicorp/setup-terraform, because the runner downloads every action
+  a workflow references before it evaluates any step's condition. The verified
+  archive comes back from the Actions cache, so a job does not depend on
+  releases.hashicorp.com answering.
+runs:
+  using: composite
+  steps:
+    - name: Restore the Terraform release archive
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/.cache/sockerless/terraform
+        key: terraform-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/install-terraform/action.yml') }}
+    - name: Install Terraform
+      shell: bash
+      env:
+        TERRAFORM_VERSION: 1.16.0
+      run: |
+        set -euo pipefail
+        dir="$HOME/.cache/sockerless/terraform"
+        mkdir -p "$dir"
+        archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+        sums="terraform_${TERRAFORM_VERSION}_SHA256SUMS"
+        base="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}"
+        for file in "$archive" "$sums"; do
+          if [ -s "$dir/$file" ]; then
+            continue
+          fi
+          curl -fsSL --speed-limit 1024 --speed-time 30 --retry 8 --retry-all-errors \
+            -o "$RUNNER_TEMP/$file.part" "$base/$file"
+          mv "$RUNNER_TEMP/$file.part" "$dir/$file"
+        done
+        (cd "$dir" && grep " $archive\$" "$sums" | sha256sum --check --strict -)
+        unzip -q -o "$dir/$archive" -d /usr/local/bin terraform
+        terraform version
