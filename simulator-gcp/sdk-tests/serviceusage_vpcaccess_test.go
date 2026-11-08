@@ -125,3 +125,28 @@ func TestVPCAccess_ConnectorPatch(t *testing.T) {
 
 	_, _ = svc.Projects.Locations.Connectors.Delete(connName).Do()
 }
+
+// A project projects.create made enables nothing; enabling
+// cloudapis.googleapis.com, as gcloud does after it creates a project, enables
+// the services Google Cloud lists as enabled by default.
+func TestServiceUsage_CloudAPIsEnablesTheDefaultServices(t *testing.T) {
+	t.Parallel()
+	ensureProject(t, "su-cloudapis")
+	svc := serviceUsageService(t)
+	const project = "projects/su-cloudapis"
+
+	before, err := svc.Services.Get(project + "/services/bigquery.googleapis.com").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "DISABLED", before.State, "projects.create enables no service")
+
+	_, err = svc.Services.Enable(project+"/services/cloudapis.googleapis.com", &serviceusage.EnableServiceRequest{}).Do()
+	require.NoError(t, err)
+	for _, id := range []string{"bigquery.googleapis.com", "logging.googleapis.com", "storage.googleapis.com", "serviceusage.googleapis.com", "cloudapis.googleapis.com"} {
+		got, err := svc.Services.Get(project + "/services/" + id).Do()
+		require.NoError(t, err)
+		assert.Equal(t, "ENABLED", got.State, id)
+	}
+	other, err := svc.Services.Get(project + "/services/run.googleapis.com").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "DISABLED", other.State, "cloudapis.googleapis.com brings only the default services")
+}

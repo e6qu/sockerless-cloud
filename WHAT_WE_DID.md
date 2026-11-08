@@ -1910,6 +1910,9 @@ fails once the row closes or the operation is served.
   `image.json` are vendored, so the conformance probe checks the marketplace
   catalog and `Microsoft.Compute/images` routes instead of an allowlist; the
   edge-zone catalog operations declare a 501, since no Extended Zone runs.
+  The 2024-07-01 documents are vendored beside them, and a machine image
+  version carries `imageDeprecationStatus` from api-version 2022-11-01, the
+  first that declares it.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever
@@ -1919,6 +1922,37 @@ fails once the row closes or the operation is served.
   `sim.ScopedDataDir` gives each process its own temporary directory, which
   the last of the process's servers to stop removes, so two simulators, or
   two runs of one test, never share App Service site homes.
+- **Cloud Logging sinks** honour `customWriterIdentity`, admitted only for a
+  sink routing to a log bucket in another project, keep
+  `outputVersionFormat`, and carry `createTime` and `updateTime`.
+- **Cloud KMS import jobs** expire three days after creation, and a key ring
+  that still holds an unexpired import job refuses deletion.
+- **Compute Engine firewall policies.** Network firewall policies clone
+  another policy's rules with `cloneRules`. Organization firewall policies
+  take a numeric `name`, require `shortName` (gcloud's `displayName` stands
+  in), record `parent`, and run their operations under
+  `locations/global/operations` with an `org-` name and the policy's id as
+  `targetId`, which the Terraform provider and gcloud's poller read.
+- **Cloud Storage legacy object roles** are seeded only on buckets created
+  with uniform bucket-level access; a fine-grained bucket's members reach
+  objects through the default object ACL.
+- **Compute Engine instance identity.** An instance inserted without a
+  service account has no identity on the metadata server, and identity tokens
+  name the account by its IAM `uniqueId` in `sub` and `azp`.
+- **Cloud Run** refuses a CPU limit outside the values `cloudrun-cpu.md.gz`
+  lists, and its invoke check gives binding conditions `request.host` and
+  `request.path`.
+- **Cloud SQL `databases.list`** reads a running instance's engine catalog,
+  so databases `executeSql` or an import created or dropped show as they are.
+- **Service Usage.** Enabling `cloudapis.googleapis.com`, as
+  `gcloud projects create` does, enables the default services
+  `service-usage-enabled-service.md.gz` lists. Workforce pools default
+  `sessionDuration` to `3600s`, and Cloud Scheduler's enums read through the
+  shared `protoEnum` tables.
+- **The gcloud CLI suite** clears an ambient `CLOUDSDK_AUTH_ACCESS_TOKEN` and
+  `CLOUDSDK_PROXY_*`, which made gcloud bypass the activated account.
+- **Firestore REST `listen`** is a server-streaming method to the spec
+  validator, which reads its JSON array element by element.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

@@ -35,6 +35,7 @@ func registerVirtualMachineOperations(srv *sim.Server) {
 
 	registerVirtualMachineStateOperations(srv, armBase)
 	registerVirtualMachineGuestOperations(srv, armBase)
+	registerVirtualMachineDataDiskOperations(srv, armBase)
 	registerVirtualMachineBootDiagnostics(srv, armBase)
 }
 
@@ -376,4 +377,12 @@ func azureBootDiagnosticsPath(vm VirtualMachine) (container, blob string) {
 		name = "vm"
 	}
 	return "bootdiagnostics-" + name, name + ".serialconsole.log"
+}
+
+// The simulator serves no Microsoft.Compute/disks, so there is no managed disk
+// to attach or detach.
+func registerVirtualMachineDataDiskOperations(srv *sim.Server, armBase string) {
+	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/attachDetachDataDisks", func(w http.ResponseWriter, r *http.Request) {
+		AzureError(w, "NotImplemented", "The simulator serves no managed disks (Microsoft.Compute/disks) to attach or detach.", http.StatusNotImplemented)
+	})
 }

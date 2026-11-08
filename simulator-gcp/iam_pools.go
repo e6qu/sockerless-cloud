@@ -120,6 +120,9 @@ type iamCollection struct {
 	createParam string
 	resType     string
 	stateField  bool // emit state=ACTIVE / DELETED
+	// defaults are the fields the service fills on create when the body
+	// leaves them out.
+	defaults map[string]any
 }
 
 func (c iamCollection) name(r *http.Request, id string) string {
@@ -211,6 +214,11 @@ func (c iamCollection) register() {
 		res["name"] = name
 		if c.stateField {
 			res["state"] = "ACTIVE"
+		}
+		for k, v := range c.defaults {
+			if _, set := res[k]; !set {
+				res[k] = v
+			}
 		}
 		iamResources.Put(name, res)
 		op := newIAMLRO(r, name, res, c.resType)
@@ -410,6 +418,7 @@ func registerWorkforcePools(srv *sim.Server) {
 		createParam: "workforcePoolId",
 		resType:     "type.googleapis.com/google.iam.v1.WorkforcePool",
 		stateField:  true,
+		defaults:    map[string]any{"sessionDuration": "3600s"},
 	}.register()
 
 	// Providers.

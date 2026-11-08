@@ -27,6 +27,9 @@ type gcpIAMResource struct {
 	// project is the project the resource lives in, from which it inherits
 	// tags; "" for a resource outside any project.
 	project string
+	// requestHost and requestPath are the request.host and request.path
+	// attributes, which only Cloud Run's invoke check supplies.
+	requestHost, requestPath string
 }
 
 // gcpIAMResourceTypes are the resource types the reference lists whose IAM
@@ -287,8 +290,13 @@ func gcpConditionHolds(raw json.RawMessage, resource gcpIAMResource, at time.Tim
 	if err != nil {
 		return false
 	}
+	request := map[string]any{"time": at}
+	if resource.requestHost != "" {
+		request["host"] = resource.requestHost
+		request["path"] = resource.requestPath
+	}
 	out, _, err := program.Eval(map[string]any{
-		"request":  map[string]any{"time": at},
+		"request":  request,
 		"resource": gcpConditionResourceValue(resource),
 	})
 	if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"log"
@@ -275,6 +276,38 @@ func sqlReconcileEngineState(plane *sqlDataPlane) error {
 		}
 	}
 	return nil
+}
+
+// sqlEngineDatabases reads the databases a running engine's catalog holds,
+// with each one's character set, leaving out the engine's own: PostgreSQL's
+// templates and its postgres maintenance database, and MySQL's system schemas.
+func sqlEngineDatabases(ctx context.Context, plane *sqlDataPlane) (map[string]string, error) {
+	var command, env []string
+	if plane.Engine.Family == dbengine.Postgres {
+		command = []string{"psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres", "-tA", "-F", "\t", "-c",
+			"SELECT datname, pg_encoding_to_char(encoding) FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres'"}
+	} else {
+		var err error
+		if env, err = sqlMySQLEnv(plane); err != nil {
+			return nil, err
+		}
+		command = []string{"mysql", "--user=root", "--batch", "--skip-column-names", "--execute=" +
+			"SELECT SCHEMA_NAME, DEFAULT_CHARACTER_SET_NAME FROM information_schema.SCHEMATA " +
+			"WHERE SCHEMA_NAME NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')"}
+	}
+	out, err := sqlEngineRun(ctx, plane, command, env, nil)
+	if err != nil {
+		return nil, err
+	}
+	databases := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name, charset, ok := strings.Cut(line, "\t")
+		if !ok || name == "" {
+			continue
+		}
+		databases[name] = charset
+	}
+	return databases, nil
 }
 
 func sqlPostgresCommand(statement string) []string {

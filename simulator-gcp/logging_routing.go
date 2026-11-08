@@ -112,6 +112,7 @@ func loggingEnsureDefaults(scope string) {
 	for _, s := range sinks {
 		logSinks.Upsert(s.Name, func(cur *LoggingSink) {
 			if cur.Name == "" {
+				s.CreateTime, s.UpdateTime = now, now
 				*cur = s
 			}
 		})

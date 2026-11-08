@@ -373,6 +373,7 @@ func kmsImportJobView(job kmsImportJob, format string) (kmsImportJob, error) {
 	if format == "PUBLIC_KEY_FORMAT_UNSPECIFIED" {
 		format = ""
 	}
+	job = job.current()
 	if job.PublicKey == nil {
 		return job, nil
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -34,6 +35,9 @@ type computePolicyFamily struct {
 	iam               bool
 	testIamPermission bool
 	setLabels         bool
+	// numericName marks the organization firewall policies, whose name is a
+	// numeric ID Compute Engine allocates and whose shortName is the caller's.
+	numericName bool
 }
 
 // computePolicyKey names a policy in its store. The organization spelling has
@@ -52,15 +56,39 @@ func replacePathParam(path, name, value string) string {
 	return strings.ReplaceAll(path, "{"+name+"}", value)
 }
 
-// computePolicyOperation reports the Operation a policy write returns, in the
-// scope the collection lives in.
-func computePolicyOperation(r *http.Request, scope computeScopeKind, target, opType string) map[string]any {
+// computePolicySelfLink is the URL of the policy a store key names; the key
+// keeps the route's /compute/v1 prefix.
+func computePolicySelfLink(key string) string {
+	return computeSelfLink(strings.TrimPrefix(key, "/compute/v1/"))
+}
+
+// operation reports the Operation a policy write returns, in the scope the
+// collection lives in: a project's global or regional operations, or the
+// organization's operations for the spelling with no project. Its targetId is
+// the policy's id.
+func (f computePolicyFamily) operation(r *http.Request, key, opType string) map[string]any {
 	project := sim.PathParam(r, "project")
 	segment := "global"
-	if scope == cScopeRegion {
+	switch {
+	case project == "":
+		segment = "locations/global"
+	case f.scope == cScopeRegion:
 		segment = "regions/" + sim.PathParam(r, "region")
 	}
-	return newComputeOpWithType(project, segment, computeSelfLink(target), opType)
+	rec := newComputeOpRecord(project, segment, computePolicySelfLink(key), opType)
+	if project == "" {
+		// gcloud recognises an organization operation by the "org-" in its
+		// name, and only then skips reading the target back by project.
+		rec.Name = "org-" + strings.TrimPrefix(rec.Name, "operation-")
+	}
+	if policy, ok := f.store.Get(key); ok {
+		if id, _ := policy["id"].(string); id != "" {
+			rec.TargetID = id
+		}
+	}
+	rec.Status, rec.Progress, rec.EndTime = "DONE", 100, rec.StartTime
+	recordComputeOp(rec)
+	return computeOpJSON(rec)
 }
 
 // computePolicyRules reads a policy's rule list, stored on the policy as the
@@ -111,6 +139,38 @@ func computeRequestedPriority(r *http.Request) int {
 	return n
 }
 
+// admitShortName refuses an organization firewall policy insert that names no
+// shortName, or one its parent already holds. displayName is the deprecated
+// spelling of shortName, and gcloud still sends it.
+func (f computePolicyFamily) admitShortName(w http.ResponseWriter, r *http.Request, body map[string]any) bool {
+	short, _ := body["shortName"].(string)
+	if short == "" {
+		short, _ = body["displayName"].(string)
+		if short != "" {
+			body["shortName"] = short
+		}
+	}
+	switch {
+	case short == "":
+		computeFieldError(w, "required", "Required field 'resource.shortName' not specified")
+		return false
+	case !computeResourceNameRE.MatchString(short):
+		computeFieldError(w, "invalid", fmt.Sprintf(
+			"Invalid value for field 'resource.shortName': '%s'. Must be a match of regex '%s'", short, computeResourceNamePattern))
+		return false
+	}
+	parent := r.URL.Query().Get("parentId")
+	for _, held := range f.store.List() {
+		heldShort, _ := held["shortName"].(string)
+		heldParent, _ := held["parent"].(string)
+		if heldShort == short && heldParent == parent {
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "firewall policy %q already exists in %s", short, parent)
+			return false
+		}
+	}
+	return true
+}
+
 func (f computePolicyFamily) register(srv *sim.Server) {
 	resource := f.base + "/{policy}"
 
@@ -138,8 +198,18 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		if body == nil {
 			body = map[string]any{}
 		}
+		id := computeNumericID()
 		name, _ := body["name"].(string)
-		if computeRefuseNameOf(w, f.kind, name) {
+		if f.numericName {
+			if !f.admitShortName(w, r, body) {
+				return
+			}
+			name = id
+			body["name"] = id
+			if parent := r.URL.Query().Get("parentId"); parent != "" {
+				body["parent"] = parent
+			}
+		} else if computeRefuseNameOf(w, f.kind, name) {
 			return
 		}
 		key := computePolicyKey(r, f.base, name)
@@ -148,20 +218,25 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			return
 		}
 		body["kind"] = f.kind
-		body["id"] = computeNumericID()
-		body["selfLink"] = computeSelfLink(key)
+		body["id"] = id
+		body["selfLink"] = computePolicySelfLink(key)
+		if f.numericName {
+			body["selfLinkWithId"] = body["selfLink"]
+		}
 		if _, held := body["rules"]; !held {
 			body["rules"] = []any{}
 		}
 		f.store.Put(key, body)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "insert"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "insert"))
 	})
 
 	srv.HandleFunc("GET "+f.base, func(w http.ResponseWriter, r *http.Request) {
-		prefix := computePolicyKey(r, f.base, "")
+		prefix := computePolicySelfLink(computePolicyKey(r, f.base, ""))
+		parent := r.URL.Query().Get("parentId")
 		items := f.store.Filter(func(policy map[string]any) bool {
 			link, _ := policy["selfLink"].(string)
-			return strings.HasPrefix(link, computeSelfLink(prefix))
+			held, _ := policy["parent"].(string)
+			return strings.HasPrefix(link, prefix) && (parent == "" || held == parent)
 		})
 		sort.Slice(items, func(i, j int) bool {
 			a, _ := items[i]["name"].(string)
@@ -196,7 +271,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			policy[name] = value
 		}
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "patch"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "patch"))
 	})
 
 	srv.HandleFunc("DELETE "+resource, func(w http.ResponseWriter, r *http.Request) {
@@ -204,8 +279,9 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		if !ok {
 			return
 		}
+		op := f.operation(r, key, "delete")
 		f.store.Delete(key)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "delete"))
+		sim.WriteJSON(w, http.StatusOK, op)
 	})
 
 	if f.rules {
@@ -253,7 +329,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			}
 			policy["parent"] = parent
 			f.store.Put(key, policy)
-			sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "move"))
+			sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "move"))
 		})
 	}
 	if f.cloneRulesVerb != "" {
@@ -285,7 +361,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			}
 			policy["rules"] = copied
 			f.store.Put(key, policy)
-			sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, f.cloneRulesVerb))
+			sim.WriteJSON(w, http.StatusOK, f.operation(r, key, f.cloneRulesVerb))
 		})
 	}
 	if f.setLabels {
@@ -305,7 +381,7 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 			policy["labels"] = body.Labels
 			policy["labelFingerprint"] = computeFingerprint()
 			f.store.Put(key, policy)
-			sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "setLabels"))
+			sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "setLabels"))
 		})
 	}
 	if f.iam || f.testIamPermission {
@@ -360,7 +436,7 @@ func (f computePolicyFamily) registerRuleVerbs(
 		})
 		policy[field] = rules
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "add"+infix+"Rule"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "add"+infix+"Rule"))
 	})
 
 	srv.HandleFunc("GET "+resource+"/get"+infix+"Rule", func(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +481,7 @@ func (f computePolicyFamily) registerRuleVerbs(
 		rules[at] = existing
 		policy[field] = rules
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "patch"+infix+"Rule"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "patch"+infix+"Rule"))
 	})
 
 	srv.HandleFunc("POST "+resource+"/remove"+infix+"Rule", func(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +498,7 @@ func (f computePolicyFamily) registerRuleVerbs(
 		}
 		policy[field] = append(rules[:at], rules[at+1:]...)
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "remove"+infix+"Rule"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "remove"+infix+"Rule"))
 	})
 }
 
@@ -474,12 +550,12 @@ func (f computePolicyFamily) registerAssociationVerbs(
 			associations[at] = association
 			policy["associations"] = associations
 			f.store.Put(key, policy)
-			sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "addAssociation"))
+			sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "addAssociation"))
 			return
 		}
 		policy["associations"] = append(computePolicyRules(policy, "associations"), association)
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "addAssociation"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "addAssociation"))
 	})
 
 	srv.HandleFunc("GET "+resource+"/getAssociation", func(w http.ResponseWriter, r *http.Request) {
@@ -510,7 +586,7 @@ func (f computePolicyFamily) registerAssociationVerbs(
 		associations := computePolicyRules(policy, "associations")
 		policy["associations"] = append(associations[:at], associations[at+1:]...)
 		f.store.Put(key, policy)
-		sim.WriteJSON(w, http.StatusOK, computePolicyOperation(r, f.scope, key, "removeAssociation"))
+		sim.WriteJSON(w, http.StatusOK, f.operation(r, key, "removeAssociation"))
 	})
 }
 
@@ -543,7 +619,7 @@ func registerComputePolicies(srv *sim.Server) {
 		{base: "/compute/v1/locations/global/firewallPolicies", store: gcpHierarchicalFirewallPolicies,
 			kind: "compute#firewallPolicy", scope: cScopeGlobal, rules: true, associations: true,
 			listAssociations: true, move: true, cloneRulesVerb: "cloneRules", sourceQueryParam: "sourceFirewallPolicy",
-			iam: true, testIamPermission: true},
+			iam: true, testIamPermission: true, numericName: true},
 	}
 	for _, family := range families {
 		family.register(srv)

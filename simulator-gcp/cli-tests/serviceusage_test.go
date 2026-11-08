@@ -132,3 +132,17 @@ func TestServiceUsage_CLI_EnableAndList(t *testing.T) {
 	}
 	assert.Truef(t, found, "gcloud services list did not list %s: %s", service, out)
 }
+
+// `gcloud projects create` enables cloudapis.googleapis.com, so the new
+// project starts with the services Google Cloud enables by default.
+func TestServiceUsage_CLI_NewProjectStartsWithTheDefaultServices(t *testing.T) {
+	t.Parallel()
+	const created = "cli-default-services"
+	runCLI(t, gcloudCLI("projects", "create", created, "--organization="+cliOrganizationID, "--format=json"))
+	out := runCLI(t, gcloudCLI("services", "list", "--enabled", "--project="+created, "--format=value(config.name)"))
+	enabled := strings.Fields(out)
+	for _, id := range []string{"bigquery.googleapis.com", "logging.googleapis.com", "storage.googleapis.com", "cloudapis.googleapis.com"} {
+		assert.Contains(t, enabled, id)
+	}
+	assert.NotContains(t, enabled, "run.googleapis.com")
+}

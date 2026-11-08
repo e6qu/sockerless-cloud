@@ -856,3 +856,41 @@ func kmsAwaitRESTVersionState(t *testing.T, svc *cloudkms.Service, name, want st
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+func TestCloudKMSDeleteKeyRingSDK(t *testing.T) {
+	t.Parallel()
+	svc := kmsService(t)
+	_, emptyRing := kmsNewRing(t, svc, "sdk-ring-delete-empty")
+	_, importRing := kmsNewRing(t, svc, "sdk-ring-delete-import")
+
+	job, err := svc.Projects.Locations.KeyRings.ImportJobs.Create(importRing, &cloudkms.ImportJob{
+		ImportMethod:    "RSA_OAEP_3072_SHA256",
+		ProtectionLevel: "SOFTWARE",
+	}).ImportJobId("pending-import").Do()
+	require.NoError(t, err)
+	created, err := time.Parse(time.RFC3339, job.CreateTime)
+	require.NoError(t, err)
+	expires, err := time.Parse(time.RFC3339, job.ExpireTime)
+	require.NoError(t, err)
+	require.Equal(t, 72*time.Hour, expires.Sub(created), "an import job expires three days after creation")
+
+	// An ACTIVE import job keeps its key ring.
+	_, err = svc.Projects.Locations.KeyRings.Delete(importRing).Do()
+	requireKMSErrorCode(t, err, 400)
+	_, err = svc.Projects.Locations.KeyRings.Get(importRing).Do()
+	require.NoError(t, err)
+
+	op, err := svc.Projects.Locations.KeyRings.Delete(emptyRing).Do()
+	require.NoError(t, err)
+	require.True(t, op.Done)
+	got, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	require.NoError(t, err, "the delete's operation reads back")
+	require.True(t, got.Done)
+	_, err = svc.Projects.Locations.KeyRings.Get(emptyRing).Do()
+	requireKMSErrorCode(t, err, 404)
+
+	// A deleted key ring's name is free for reuse.
+	_, err = svc.Projects.Locations.KeyRings.Create("projects/sdk-kms-project/locations/global", &cloudkms.KeyRing{}).
+		KeyRingId("sdk-ring-delete-empty").Do()
+	require.NoError(t, err)
+}

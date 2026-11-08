@@ -147,6 +147,34 @@ type kmsImportJob struct {
 	PublicKeyFormat  string             `json:"publicKeyFormat,omitempty"`
 }
 
+// kmsImportJobLifetime is how long an import job stays ACTIVE: Cloud KMS
+// expires it three days after creation.
+const kmsImportJobLifetime = 72 * time.Hour
+
+// current reports the job as it stands now: an ACTIVE job past its expireTime
+// is EXPIRED, carries the time it expired and no longer offers its public key.
+func (j kmsImportJob) current() kmsImportJob {
+	if j.State != "ACTIVE" || j.ExpireTime == "" {
+		return j
+	}
+	expire, err := time.Parse(time.RFC3339, j.ExpireTime)
+	if err != nil || time.Now().Before(expire) {
+		return j
+	}
+	j.State = "EXPIRED"
+	j.ExpireEventTime = j.ExpireTime
+	j.PublicKey = nil
+	return j
+}
+
+func kmsImportJobExpireTime(created string) string {
+	t, err := time.Parse(time.RFC3339, created)
+	if err != nil {
+		return ""
+	}
+	return t.Add(kmsImportJobLifetime).Format(time.RFC3339)
+}
+
 type kmsWrappingPubKey struct {
 	Pem  string `json:"pem,omitempty"`
 	Data []byte `json:"data,omitempty"`
@@ -299,10 +327,11 @@ func registerCloudKMS(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, kr)
 	})
 
-	// Cloud KMS refuses to delete a key ring that holds keys rather than delete
-	// key material with its container.
+	// Cloud KMS deletes a key ring only once its keys are deleted and its
+	// import jobs have expired.
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/keyRings/{keyRing}", func(w http.ResponseWriter, r *http.Request) {
-		name := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
+		project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
+		name := kmsKeyRingName(project, location, sim.PathParam(r, "keyRing"))
 		if _, ok := kmsKeyRings.Get(name); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "KeyRing %s not found", name)
 			return
@@ -315,10 +344,17 @@ func registerCloudKMS(srv *sim.Server) {
 				"KeyRing %s still holds %d key(s); a key ring is deleted only when it is empty", name, len(held))
 			return
 		}
-		kmsKeyRings.Delete(name)
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"name": name + "/operations/delete", "done": true,
+		unexpired := kmsImportJobs.Filter(func(j kmsImportJob) bool {
+			return strings.HasPrefix(j.Name, name+"/importJobs/") && j.current().State != "EXPIRED"
 		})
+		if len(unexpired) > 0 {
+			GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION",
+				"KeyRing %s still holds %d import job(s) that have not expired; a key ring is deleted only when every import job has expired", name, len(unexpired))
+			return
+		}
+		kmsKeyRings.Delete(name)
+		kmsIamPolicies.Delete(name)
+		sim.WriteJSON(w, http.StatusOK, newLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty", gcpFixedOperationMetadata(nil)))
 	})
 
 	// keyRingAction is "{keyRing}:setIamPolicy" or ":testIamPermissions".
@@ -812,6 +848,7 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 			PublicKey:       pub,
 			CreateTime:      now,
 			GenerateTime:    now,
+			ExpireTime:      kmsImportJobExpireTime(now),
 		}
 		kmsImportJobs.Put(name, job)
 		kmsImportJobMaterial.Put(name, material)
@@ -821,7 +858,7 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		prefix := ringName + "/importJobs/"
-		kmsWriteList(w, r, kmsImportJobs, prefix, "importJobs", func(v kmsImportJob) string { return v.Name })
+		kmsWriteList(w, r, kmsImportJobs, prefix, "importJobs", func(v kmsImportJob) string { return v.Name }, kmsImportJob.current)
 	})
 
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs/{importJobAction}", func(w http.ResponseWriter, r *http.Request) {
@@ -2119,6 +2156,7 @@ func kmsHandleImportCryptoKeyVersion(w http.ResponseWriter, r *http.Request, key
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "ImportJob %s not found", req.ImportJob)
 		return
 	}
+	job = job.current()
 	if job.State != "ACTIVE" || !strings.HasPrefix(req.ImportJob, strings.Split(keyName, "/cryptoKeys/")[0]+"/importJobs/") {
 		GCPError(w, http.StatusBadRequest, "ImportJob is not active in the target key ring", "FAILED_PRECONDITION")
 		return
@@ -2723,10 +2761,13 @@ func kmsHandleShowEffectiveKajEnrollmentConfig(w http.ResponseWriter, project st
 
 // kmsWriteList answers a list method: the resources of store named under
 // prefix, paged in name order under member, with the total the list holds.
-func kmsWriteList[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix, member string, name func(T) string) {
+func kmsWriteList[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix, member string, name func(T) string, view ...func(T) T) {
 	var all []T
 	for _, v := range store.List() {
 		if strings.HasPrefix(name(v), prefix) {
+			for _, f := range view {
+				v = f(v)
+			}
 			all = append(all, v)
 		}
 	}

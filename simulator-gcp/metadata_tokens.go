@@ -104,8 +104,13 @@ func serveMetadataIdentity(w http.ResponseWriter, r *http.Request, account strin
 	if inst, ok := gcpMetadataInstanceFor(r); ok && format == "full" {
 		extra = map[string]any{"google": map[string]any{"compute_engine": gceIdentityInstanceClaims(r, inst, licenses)}}
 	}
+	sa, found := iamServiceAccounts.Get("projects/" + gcpProjectFromEmail(email) + "/serviceAccounts/" + email)
+	if !found {
+		metadataNotFound(w)
+		return
+	}
 	now := time.Now()
-	writeMetadataText(w, signIdentityTokenWith(email, audience, now, now.Add(time.Hour), extra))
+	writeMetadataText(w, signIdentityTokenWith(sa.UniqueId, email, audience, now, now.Add(time.Hour), extra))
 }
 
 // gceIdentityInstanceClaims is the `google.compute_engine` claim of a

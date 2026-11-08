@@ -134,6 +134,10 @@ type LoggingSink struct {
 	IncludeChildren   bool                    `json:"includeChildren,omitempty"`
 	InterceptChildren bool                    `json:"interceptChildren,omitempty"`
 	BigqueryOptions   *LoggingBigQueryOptions `json:"bigqueryOptions,omitempty"`
+	// OutputVersionFormat is deprecated and unused; Cloud Logging keeps it.
+	OutputVersionFormat string `json:"outputVersionFormat,omitempty"`
+	CreateTime          string `json:"createTime,omitempty"`
+	UpdateTime          string `json:"updateTime,omitempty"`
 }
 
 type LoggingExclusion struct {
@@ -564,9 +568,10 @@ func normalizeLoggingSink(project string, sink LoggingSink, uniqueWriter bool) (
 // loggingServiceAgent is the Cloud Logging service agent of a resource
 // container, the identity its sinks with a unique writer identity write as:
 // service-PROJECT_NUMBER@gcp-sa-logging.iam.gserviceaccount.com for a
-// project, named for the number Cloud Resource Manager holds, and the
-// service-org-, service-folder- and service-billing- agents of the other
-// containers. It reports false for a project that does not exist.
+// project, named for the number Cloud Resource Manager holds, the
+// service-org- and service-folder- agents iam-service-agents.md.gz names for
+// organizations and folders, and service-billing- for a billing account. It
+// reports false for a project that does not exist.
 func loggingServiceAgent(parent string) (string, bool) {
 	collection, id, _ := strings.Cut(parent, "/")
 	const domain = "@gcp-sa-logging.iam.gserviceaccount.com"
@@ -585,6 +590,47 @@ func loggingServiceAgent(parent string) (string, bool) {
 		return "service-billing-" + id + domain, true
 	}
 	return "", false
+}
+
+// loggingCustomWriter sets a sink's writer identity from the
+// customWriterIdentity parameter of sinks.create and sinks.update, which Cloud
+// Logging admits only as serviceAccount:EMAIL and only for a sink that routes
+// to a log bucket in a project other than the sink's.
+func loggingCustomWriter(w http.ResponseWriter, r *http.Request, parent string, sink *LoggingSink) bool {
+	custom := r.URL.Query().Get("customWriterIdentity")
+	if custom == "" {
+		return true
+	}
+	if email, ok := strings.CutPrefix(custom, "serviceAccount:"); !ok || !strings.Contains(email, "@") {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"customWriterIdentity %q must have the form serviceAccount:EMAIL", custom)
+		return false
+	}
+	kind, bucket, ok := loggingDestination(sink.Destination)
+	if !ok || kind != loggingToBucket || loggingSameProject(parent, bucket) {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			"customWriterIdentity can only be specified for a sink that routes to a log bucket in a different project than the sink")
+		return false
+	}
+	sink.WriterIdentity = custom
+	return true
+}
+
+// loggingSameProject reports whether a sink's parent is the project that owns
+// a log bucket path (projects/P/locations/L/buckets/B), by ID or number.
+func loggingSameProject(parent, bucket string) bool {
+	sinkCollection, sinkProject, _ := strings.Cut(parent, "/")
+	bucketCollection, rest, _ := strings.Cut(bucket, "/")
+	bucketProject, _, _ := strings.Cut(rest, "/")
+	if sinkCollection != "projects" || bucketCollection != "projects" {
+		return false
+	}
+	a, okA := crmResolveProject(sinkProject)
+	b, okB := crmResolveProject(bucketProject)
+	if okA && okB {
+		return a.ProjectId == b.ProjectId
+	}
+	return sinkProject == bucketProject
 }
 
 // loggingUniqueWriter reads the uniqueWriterIdentity query parameter of
@@ -625,8 +671,11 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// writerIdentity is output only: sinks.create sets it from
-	// uniqueWriterIdentity, never from the body.
+	// customWriterIdentity or uniqueWriterIdentity, never from the body.
 	sink.WriterIdentity = ""
+	if !loggingCustomWriter(w, r, "projects/"+project, &sink) {
+		return
+	}
 	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r))
 	if !ok {
 		crmProjectPermissionDenied(w)
@@ -636,6 +685,8 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.settleBigQueryOptions()
+	sink.CreateTime = nowTimestamp()
+	sink.UpdateTime = sink.CreateTime
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }
@@ -684,6 +735,9 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	if loggingUniqueWriter(r) && strings.HasPrefix(sink.WriterIdentity, "serviceAccount:cloud-logs@") {
 		sink.WriterIdentity = ""
 	}
+	if !loggingCustomWriter(w, r, "projects/"+project, &sink) {
+		return
+	}
 	sink, ok = normalizeLoggingSink(project, sink, loggingUniqueWriter(r))
 	if !ok {
 		crmProjectPermissionDenied(w)
@@ -693,6 +747,7 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.settleBigQueryOptions()
+	sink.UpdateTime = nowTimestamp()
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }

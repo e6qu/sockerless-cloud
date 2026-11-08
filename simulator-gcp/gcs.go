@@ -75,33 +75,32 @@ type Bucket struct {
 
 // gcsDefaultBucketPolicy is the IAM policy a bucket carries from creation, as
 // Cloud Storage grants it: the project's owners and editors own the bucket
-// and its objects through the legacy bucket and object roles, and its viewers
-// read them. It is what remains when a client removes the bindings it added,
+// through the legacy bucket role, and its viewers read it; a bucket created
+// with uniform bucket-level access grants them its objects the same way. It is what remains when a client removes the bindings it added,
 // so a policy is never set empty.
-func gcsDefaultBucketPolicy(project string) IAMPolicy {
-	owners := []string{"projectEditor:" + project, "projectOwner:" + project}
-	viewers := []string{"projectViewer:" + project}
-	return IAMPolicy{
-		Bindings: []IAMBinding{
-			{Role: "roles/storage.legacyBucketOwner", Members: owners},
-			{Role: "roles/storage.legacyBucketReader", Members: viewers},
-			{Role: "roles/storage.legacyObjectOwner", Members: owners},
-			{Role: "roles/storage.legacyObjectReader", Members: viewers},
-		},
-		Etag:    gcpPolicyETag(),
-		Version: 1,
+func gcsDefaultBucketPolicy(bucket Bucket) IAMPolicy {
+	owners := []string{"projectEditor:" + bucket.Project, "projectOwner:" + bucket.Project}
+	viewers := []string{"projectViewer:" + bucket.Project}
+	bindings := []IAMBinding{
+		{Role: "roles/storage.legacyBucketOwner", Members: owners},
+		{Role: "roles/storage.legacyBucketReader", Members: viewers},
 	}
+	// A bucket created without uniform bucket-level access gives the convenience
+	// values object access through its default object ACL instead.
+	if gcsUniformBucketLevelAccess(bucket) {
+		bindings = append(bindings,
+			IAMBinding{Role: "roles/storage.legacyObjectOwner", Members: owners},
+			IAMBinding{Role: "roles/storage.legacyObjectReader", Members: viewers})
+	}
+	return IAMPolicy{Bindings: bindings, Etag: gcpPolicyETag(), Version: 1}
 }
 
 // gcsSeedDefaultBucketPolicy stores and returns the bucket's default policy;
 // storing it keeps its etag stable across reads, which the optimistic
 // concurrency check on setIamPolicy compares against.
 func gcsSeedDefaultBucketPolicy(name string) IAMPolicy {
-	project := ""
-	if bucket, ok := gcsBuckets.Get(name); ok {
-		project = bucket.Project
-	}
-	policy := gcsDefaultBucketPolicy(project)
+	bucket, _ := gcsBuckets.Get(name)
+	policy := gcsDefaultBucketPolicy(bucket)
 	gcpResourcePolicies.Put("bucket/"+name, policy)
 	return policy
 }

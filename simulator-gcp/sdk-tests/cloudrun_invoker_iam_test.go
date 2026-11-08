@@ -296,11 +296,25 @@ func TestSDK_CloudRunV2Services_InvokerBindingConditions(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, status, "a condition on resource attributes Cloud Run does not supply grants nothing")
 	revokeOnService(t, client, svc.Name, "roles/run.invoker", member)
 
+	// Cloud Run supplies the request's path and host to the condition.
+	host := strings.TrimPrefix(strings.TrimPrefix(svc.Uri, "https://"), "http://")
+	host, _, _ = strings.Cut(host, ":")
+	grantOnService(t, client, svc.Name, "roles/run.invoker", member, &expr.Expr{
+		Title:      "public paths on this host",
+		Expression: fmt.Sprintf(`request.path.startsWith("/public") && request.host == %q`, host),
+	})
+	status, _, body := invokeService(t, token, svc.Uri, http.MethodGet, "/public/page", "")
+	assert.Equal(t, http.StatusOK, status, "a path the condition admits reaches the service: %q", body)
+	assert.Equal(t, "GET /public/page", body)
+	status, _, _ = invokeService(t, token, svc.Uri, http.MethodGet, "/admin", "")
+	assert.Equal(t, http.StatusForbidden, status, "a path outside the condition is refused")
+	revokeOnService(t, client, svc.Name, "roles/run.invoker", member)
+
 	grantOnService(t, client, svc.Name, "roles/run.invoker", member, &expr.Expr{
 		Title:      "current",
 		Expression: `request.time > timestamp("2001-01-01T00:00:00Z")`,
 	})
-	status, _, body := invokeService(t, token, svc.Uri, http.MethodGet, "/", "")
+	status, _, body = invokeService(t, token, svc.Uri, http.MethodGet, "/", "")
 	assert.Equal(t, http.StatusOK, status, "a condition that holds admits the principal: %q", body)
 
 	// The same condition on the project grants nothing on another service.

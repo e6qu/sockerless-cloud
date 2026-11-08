@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -263,15 +264,16 @@ func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
-	_, err = svc.FirewallPolicies.Insert(&compute.FirewallPolicy{Name: "reads-hierarchy", ShortName: "reads-hierarchy"}).
+	inserted, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{ShortName: "reads-hierarchy"}).
 		ParentId(folder).Do()
 	require.NoError(t, err)
-	_, err = svc.FirewallPolicies.AddRule("reads-hierarchy", &compute.FirewallPolicyRule{
+	hierarchyID := strconv.FormatUint(inserted.TargetId, 10)
+	_, err = svc.FirewallPolicies.AddRule(hierarchyID, &compute.FirewallPolicyRule{
 		Priority: 10, Action: "goto_next", Direction: "INGRESS",
 		Match: &compute.FirewallPolicyRuleMatcher{SrcIpRanges: []string{"192.168.0.0/16"}},
 	}).Do()
 	require.NoError(t, err)
-	_, err = svc.FirewallPolicies.AddAssociation("reads-hierarchy", &compute.FirewallPolicyAssociation{
+	_, err = svc.FirewallPolicies.AddAssociation(hierarchyID, &compute.FirewallPolicyAssociation{
 		Name: "reads-folder", AttachmentTarget: folder,
 	}).Do()
 	require.NoError(t, err)

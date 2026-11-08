@@ -125,16 +125,16 @@ func signScopedAccessToken(subject string, scopes []string, issuedAt, expiresAt 
 // signIdentityTokenWith issues the RS256 identity token the metadata server's
 // `service-accounts/{sa}/identity` endpoint hands a workload: the bearer it
 // presents when invoking a Cloud Run service, whose single `aud` is the
-// requested audience — the service URL. The subject and email are the
-// workload's service-account email; a full-format Compute Engine token carries
-// its `google` claim in extra.
-func signIdentityTokenWith(subject, audience string, issuedAt, expiresAt time.Time, extra map[string]any) string {
+// requested audience — the service URL. Its subject and authorized party are
+// the service account's unique ID and its email the account's email; a
+// full-format Compute Engine token carries its `google` claim in extra.
+func signIdentityTokenWith(uniqueID, email, audience string, issuedAt, expiresAt time.Time, extra map[string]any) string {
 	claims := map[string]any{
 		"iss":            googleTokenIssuer,
 		"aud":            audience,
-		"azp":            subject,
-		"sub":            subject,
-		"email":          subject,
+		"azp":            uniqueID,
+		"sub":            uniqueID,
+		"email":          email,
 		"email_verified": true,
 		"iat":            issuedAt.Unix(),
 		"exp":            expiresAt.Unix(),

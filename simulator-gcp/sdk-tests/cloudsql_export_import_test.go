@@ -267,6 +267,32 @@ func TestCloudSQL_ExecuteSqlRunsOnTheEngine(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, refused.Status, "the engine refuses a wrong password")
 
+	// databases.list reads the engine's catalog, so a database a statement
+	// creates or drops shows there.
+	rootSecret := regionalPasswordSecret(t, "us-central1", rootPassword)
+	listed := func() []string {
+		t.Helper()
+		list, err := svc.Databases.List(project, name).Do()
+		require.NoError(t, err)
+		var names []string
+		for _, d := range list.Items {
+			names = append(names, d.Name)
+		}
+		return names
+	}
+	created, err := svc.Instances.ExecuteSql(project, name, &sqladmin.ExecuteSqlPayload{
+		Database: database, User: "postgres", PasswordSecretVersion: rootSecret, SqlStatement: "CREATE DATABASE from_statement",
+	}).Do()
+	require.NoError(t, err)
+	require.Nil(t, created.Status, "%+v", created.Status)
+	assert.ElementsMatch(t, []string{database, "from_statement"}, listed())
+	dropped, err := svc.Instances.ExecuteSql(project, name, &sqladmin.ExecuteSqlPayload{
+		Database: database, User: "postgres", PasswordSecretVersion: rootSecret, SqlStatement: "DROP DATABASE from_statement",
+	}).Do()
+	require.NoError(t, err)
+	require.Nil(t, dropped.Status, "%+v", dropped.Status)
+	assert.ElementsMatch(t, []string{database}, listed())
+
 	_, err = svc.Instances.ExecuteSql(project, name, &sqladmin.ExecuteSqlPayload{
 		Database: database, AutoIamAuthn: true, PasswordSecretVersion: secret, SqlStatement: "SELECT 1",
 	}).Do()

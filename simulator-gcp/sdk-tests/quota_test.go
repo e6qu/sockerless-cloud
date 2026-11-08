@@ -156,3 +156,27 @@ func TestSDK_RegionalCPUQuota_CloudFunctionsDeployHonoursQuotaPreference(t *test
 	setRunCPUQuota(t, quotas, project, "run-cpu-us-central1", "us-central1", 1000)
 	require.NoError(t, create())
 }
+
+// Cloud Run accepts a CPU limit of 0.08 to 1 vCPU in steps of 0.001, or 1, 2,
+// 4, 6 or 8 vCPU; it refuses any other limit rather than deploying it.
+func TestSDK_CloudRunRefusesAnUnacceptedCPULimit(t *testing.T) {
+	t.Parallel()
+	const project = "sdk-run-cpu-limit"
+	ensureProject(t, project)
+	client := newServicesClient(t)
+	parent := "projects/" + project + "/locations/us-central1"
+	for id, cpu := range map[string]string{
+		"cpu-word":     "two",
+		"cpu-tiny":     "0.05",
+		"cpu-three":    "3",
+		"cpu-too-many": "16",
+		"cpu-fine":     "0.0005",
+	} {
+		svc := oneCPUService()
+		svc.Template.Containers[0].Resources.Limits["cpu"] = cpu
+		_, err := client.CreateService(ctx, &runpb.CreateServiceRequest{Parent: parent, ServiceId: id, Service: svc})
+		require.Error(t, err, "cpu %q", cpu)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "cpu %q", cpu)
+		assert.Contains(t, err.Error(), "resources.limits.cpu", "cpu %q", cpu)
+	}
+}

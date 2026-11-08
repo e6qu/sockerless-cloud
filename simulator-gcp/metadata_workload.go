@@ -15,11 +15,15 @@ import (
 
 // gceMetadataWorkload is the resource a metadata request comes from: the
 // project it runs in and the service account it runs as. An empty
-// serviceAccount means the resource names none and runs as the project's
-// Compute Engine default service account, as Compute Engine and Cloud Run do.
+// serviceAccount means the project's Compute Engine default service account:
+// the account Cloud Run runs a resource naming none as, and the one a Compute
+// Engine instance names with the `default` alias.
 type gceMetadataWorkload struct {
 	project        string
 	serviceAccount string
+	// noAccount marks a Compute Engine instance inserted without
+	// serviceAccounts, which runs as no account at all.
+	noAccount bool
 	// cloudRunInstance and region identify a Cloud Run instance, which the
 	// metadata server reports by its own id and its region.
 	cloudRunInstance string
@@ -35,7 +39,7 @@ type gceMetadataWorkload struct {
 // server.
 func gceMetadataCaller(r *http.Request) (gceMetadataWorkload, bool) {
 	if inst, ok := gcpMetadataInstanceFor(r); ok {
-		w := gceMetadataWorkload{project: gcpProjectFromSelfLink(inst.SelfLink)}
+		w := gceMetadataWorkload{project: gcpProjectFromSelfLink(inst.SelfLink), noAccount: len(inst.ServiceAccounts) == 0}
 		if len(inst.ServiceAccounts) > 0 {
 			if email, _ := inst.ServiceAccounts[0]["email"].(string); email != "default" {
 				w.serviceAccount = email
@@ -226,6 +230,9 @@ func (w gceMetadataWorkload) projectNumber() (string, bool) {
 // names, and false when the workload runs as no account: it names none and
 // its project has no Compute Engine default service account.
 func (w gceMetadataWorkload) defaultServiceAccount() (string, bool) {
+	if w.noAccount {
+		return "", false
+	}
 	if w.serviceAccount != "" {
 		return w.serviceAccount, true
 	}

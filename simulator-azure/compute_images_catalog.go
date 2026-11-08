@@ -149,15 +149,19 @@ func registerVirtualMachineImages(srv *sim.Server) {
 			return
 		}
 		out := resource(sub, location, img.Version, "Publishers", img.Publisher, "ArtifactTypes", "VMImage", "Offers", img.Offer, "Skus", img.SKU, "Versions", img.Version)
-		out["properties"] = map[string]any{
+		props := map[string]any{
 			"osDiskImage":                  map[string]any{"operatingSystem": "Linux"},
 			"dataDiskImages":               []any{},
 			"hyperVGeneration":             "V2",
 			"architecture":                 azureImageArchitecture(img.Image),
 			"features":                     []any{},
-			"imageDeprecationStatus":       map[string]any{"imageState": "Active"},
 			"automaticOSUpgradeProperties": map[string]any{"automaticOSUpgradeSupported": false},
 		}
+		// Compute declares imageDeprecationStatus from api-version 2022-11-01.
+		if r.URL.Query().Get("api-version") >= "2022-11-01" {
+			props["imageDeprecationStatus"] = map[string]any{"imageState": "Active"}
+		}
+		out["properties"] = props
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 }

@@ -68,6 +68,58 @@ func serviceUsageRecord(services sim.Store[ServiceUsageState], project, service 
 	return svc
 }
 
+// serviceUsageCloudAPIs are the services Google Cloud enables on a project the
+// console or gcloud creates (service-usage-enabled-service.md.gz). gcloud
+// creates a project and then enables cloudapis.googleapis.com and nothing
+// else, so enabling cloudapis.googleapis.com enables them all.
+var serviceUsageCloudAPIs = []string{
+	"apptopology.googleapis.com",
+	"analyticshub.googleapis.com",
+	"bigquery.googleapis.com",
+	"bigqueryconnection.googleapis.com",
+	"bigquerydatapolicy.googleapis.com",
+	"bigquerydatatransfer.googleapis.com",
+	"bigquerymigration.googleapis.com",
+	"bigqueryreservation.googleapis.com",
+	"bigquerystorage.googleapis.com",
+	"dataform.googleapis.com",
+	"dataplex.googleapis.com",
+	"datastore.googleapis.com",
+	"logging.googleapis.com",
+	"monitoring.googleapis.com",
+	"sql-component.googleapis.com",
+	"storage-component.googleapis.com",
+	"storage.googleapis.com",
+	"cloudtrace.googleapis.com",
+	"cloudapis.googleapis.com",
+	"storage-api.googleapis.com",
+	"servicemanagement.googleapis.com",
+	"serviceusage.googleapis.com",
+	"telemetry.googleapis.com",
+}
+
+// serviceUsageEnable enables service on project, with the services
+// cloudapis.googleapis.com brings, and returns the service's record.
+func serviceUsageEnable(services sim.Store[ServiceUsageState], project, service string) ServiceUsageState {
+	put := func(id string) ServiceUsageState {
+		svc := ServiceUsageState{
+			Name:   fmt.Sprintf("projects/%s/services/%s", project, id),
+			State:  "ENABLED",
+			Parent: "projects/" + project,
+		}
+		svc.Config.Name = id
+		svc.Config.Title = id
+		services.Put(svc.Name, svc)
+		return svc
+	}
+	if service == "cloudapis.googleapis.com" {
+		for _, id := range serviceUsageCloudAPIs {
+			put(id)
+		}
+	}
+	return put(service)
+}
+
 func registerServiceUsage(srv *sim.Server) {
 	services := sim.MakeStore[ServiceUsageState](srv.DB(), "service_usage")
 
@@ -85,14 +137,7 @@ func registerServiceUsage(srv *sim.Server) {
 
 		switch action {
 		case "enable":
-			svc := ServiceUsageState{
-				Name:   name,
-				State:  "ENABLED",
-				Parent: "projects/" + project,
-			}
-			svc.Config.Name = service
-			svc.Config.Title = service
-			services.Put(name, svc)
+			svc := serviceUsageEnable(services, project, service)
 
 			op := renameGCPOperation(
 				serviceUsageLRO(map[string]any{"service": svc}, "EnableServiceResponse", name),
@@ -236,17 +281,9 @@ func registerServiceUsage(srv *sim.Server) {
 		enabled := make([]ServiceUsageState, 0, len(req.ServiceIds))
 		names := make([]string, 0, len(req.ServiceIds))
 		for _, serviceId := range req.ServiceIds {
-			name := fmt.Sprintf("projects/%s/services/%s", project, serviceId)
-			svc := ServiceUsageState{
-				Name:   name,
-				State:  "ENABLED",
-				Parent: "projects/" + project,
-			}
-			svc.Config.Name = serviceId
-			svc.Config.Title = serviceId
-			services.Put(name, svc)
+			svc := serviceUsageEnable(services, project, serviceId)
 			enabled = append(enabled, svc)
-			names = append(names, name)
+			names = append(names, svc.Name)
 		}
 
 		op := renameGCPOperation(

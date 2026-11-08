@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -133,21 +134,44 @@ func cloudRunCPUQuota() *cloudQuotaDefinition {
 }
 
 // containerCPULoad converts a container CPU limit ("1", "0.5", "1000m") into
-// vCPU; an empty limit is 1, the Cloud Run default.
+// vCPU; an unset limit is Cloud Run's default of 1 vCPU. The template's
+// validation refuses a limit this cannot read before any instance holds it.
 func containerCPULoad(cpuLimit string) float64 {
-	cpuLimit = strings.TrimSpace(cpuLimit)
-	if cpuLimit == "" {
+	if strings.TrimSpace(cpuLimit) == "" {
 		return 1.0
 	}
-	if strings.HasSuffix(cpuLimit, "m") {
-		if n, err := strconv.ParseFloat(strings.TrimSuffix(cpuLimit, "m"), 64); err == nil {
-			return n / 1000.0
-		}
+	milli, _ := cloudRunCPUMilli(cpuLimit)
+	return float64(milli) / 1000.0
+}
+
+// cloudRunCPUMilli reads a container CPU limit in milli vCPU and holds it to
+// the values Cloud Run accepts: 0.08 to 1 vCPU in steps of 0.001, or 1, 2, 4,
+// 6 or 8 vCPU.
+func cloudRunCPUMilli(cpuLimit string) (int64, error) {
+	cpuLimit = strings.TrimSpace(cpuLimit)
+	var vcpu float64
+	var err error
+	if milli, ok := strings.CutSuffix(cpuLimit, "m"); ok {
+		vcpu, err = strconv.ParseFloat(milli, 64)
+		vcpu /= 1000
+	} else {
+		vcpu, err = strconv.ParseFloat(cpuLimit, 64)
 	}
-	if n, err := strconv.ParseFloat(cpuLimit, 64); err == nil {
-		return n
+	if err != nil || math.IsNaN(vcpu) || math.IsInf(vcpu, 0) {
+		return 0, fmt.Errorf("resources.limits.cpu %q is not a CPU quantity", cpuLimit)
 	}
-	return 1.0
+	milli := math.Round(vcpu * 1000)
+	switch {
+	case math.Abs(vcpu*1000-milli) > 1e-6:
+		return 0, fmt.Errorf("resources.limits.cpu %q must be set in increments of 0.001 vCPU", cpuLimit)
+	case milli < 80:
+		return 0, fmt.Errorf("resources.limits.cpu %q is below the minimum of 0.08 vCPU", cpuLimit)
+	case milli > 8000:
+		return 0, fmt.Errorf("resources.limits.cpu %q exceeds the maximum of 8 vCPU", cpuLimit)
+	case milli > 1000 && milli != 2000 && milli != 4000 && milli != 6000 && milli != 8000:
+		return 0, fmt.Errorf("resources.limits.cpu %q must be 1, 2, 4, 6 or 8 vCPU when it exceeds 1 vCPU", cpuLimit)
+	}
+	return int64(milli), nil
 }
 
 // cloudRunInstanceMilliCPU sums the CPU limits of an instance's containers,
