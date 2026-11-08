@@ -401,9 +401,10 @@ func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
 			"--global-cluster-identifier", gcID).Run()
 	})
 	if clusterArn != "" {
+		secondaryArn := rdsGlobalSecondaryClusterCLI(t, gcID, "cli-rext-global-secondary", "aurora-mysql")
 		runCLI(t, awsCLI("rds", "failover-global-cluster",
 			"--global-cluster-identifier", gcID,
-			"--target-db-cluster-identifier", clusterArn))
+			"--target-db-cluster-identifier", secondaryArn))
 		runCLI(t, awsCLI("rds", "remove-from-global-cluster",
 			"--global-cluster-identifier", gcID,
 			"--db-cluster-identifier", clusterArn))

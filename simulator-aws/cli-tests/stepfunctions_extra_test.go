@@ -84,6 +84,7 @@ func TestSFNCLI_Activities(t *testing.T) {
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", machine.StateMachineArn))
 	})
+	watch := watchSFNExecutionsCLI(t, machine.StateMachineArn)
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", machine.StateMachineArn, "--input", `{"job":"real"}`))
 	var execution struct {
@@ -103,15 +104,12 @@ func TestSFNCLI_Activities(t *testing.T) {
 	runCLI(t, awsCLI("stepfunctions", "send-task-heartbeat", "--task-token", task.TaskToken))
 	runCLI(t, awsCLI("stepfunctions", "send-task-success",
 		"--cli-input-json", fmt.Sprintf(`{"taskToken":%q,"output":"{\"completed\":true}"}`, task.TaskToken)))
-	require.Eventually(t, func() bool {
-		result := runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", execution.ExecutionArn))
-		var described struct {
-			Status string `json:"status"`
-			Output string `json:"output"`
-		}
-		parseJSON(t, result, &described)
-		return described.Status == "SUCCEEDED" && described.Output == `{"completed":true}`
-	}, 10*time.Second, 100*time.Millisecond)
+	require.Equal(t, "SUCCEEDED", watch.await(t, execution.ExecutionArn, "SUCCEEDED", "FAILED"))
+	var described struct {
+		Output string `json:"output"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", execution.ExecutionArn)), &described)
+	assert.Equal(t, `{"completed":true}`, described.Output)
 
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", machine.StateMachineArn, "--input", `{"job":"fail"}`))
@@ -127,14 +125,7 @@ func TestSFNCLI_Activities(t *testing.T) {
 	parseJSON(t, out, &failedTask)
 	runCLI(t, awsCLI("stepfunctions", "send-task-failure",
 		"--task-token", failedTask.TaskToken, "--error", "Worker.Failed", "--cause", "real worker failure"))
-	require.Eventually(t, func() bool {
-		result := runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", failedExecution.ExecutionArn))
-		var described struct {
-			Status string `json:"status"`
-		}
-		parseJSON(t, result, &described)
-		return described.Status == "FAILED"
-	}, 10*time.Second, 100*time.Millisecond)
+	require.Equal(t, "FAILED", watch.await(t, failedExecution.ExecutionArn, "SUCCEEDED", "FAILED"))
 }
 
 func TestSFNCLI_VersionsAndAliases(t *testing.T) {
@@ -307,20 +298,18 @@ func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 		runCLI(t, awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", parent.StateMachineArn))
 	})
 
+	watch := watchSFNExecutionsCLI(t, parent.StateMachineArn)
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution", "--state-machine-arn", parent.StateMachineArn))
 	var started struct {
 		ExecutionArn string `json:"executionArn"`
 	}
 	parseJSON(t, out, &started)
-	require.Eventually(t, func() bool {
-		describedJSON := runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", started.ExecutionArn))
-		var described struct {
-			Status string `json:"status"`
-			Output string `json:"output"`
-		}
-		parseJSON(t, describedJSON, &described)
-		return described.Status == "SUCCEEDED" && described.Output == `{"child":{"order":"A-1"}}`
-	}, 10*time.Second, 100*time.Millisecond)
+	require.Equal(t, "SUCCEEDED", watch.await(t, started.ExecutionArn, "SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"))
+	var described struct {
+		Output string `json:"output"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", started.ExecutionArn)), &described)
+	assert.Equal(t, `{"child":{"order":"A-1"}}`, described.Output)
 	out = runCLI(t, awsCLI("stepfunctions", "list-executions", "--state-machine-arn", child.StateMachineArn))
 	var listed struct {
 		Executions []struct {
@@ -347,6 +336,7 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 		runCLI(t, awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", sm.StateMachineArn))
 	})
 
+	watch := watchSFNExecutionsCLI(t, sm.StateMachineArn)
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", sm.StateMachineArn, "--input", "{}"))
 	var started struct {
@@ -367,11 +357,8 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	var exec struct {
 		Status string `json:"status"`
 	}
-	require.Eventually(t, func() bool {
-		o := runCLI(t, awsCLI("stepfunctions", "describe-execution", "--execution-arn", started.ExecutionArn))
-		parseJSON(t, o, &exec)
-		return exec.Status == "FAILED"
-	}, 10*time.Second, 100*time.Millisecond)
+	exec.Status = watch.await(t, started.ExecutionArn, "SUCCEEDED", "FAILED")
+	require.Equal(t, "FAILED", exec.Status)
 
 	out = runCLI(t, awsCLI("stepfunctions", "redrive-execution", "--execution-arn", started.ExecutionArn))
 	// The CLI renders the epoch redriveDate as an ISO-8601 string.
@@ -389,14 +376,12 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	assert.Empty(t, lmr.MapRuns)
 }
 
-// Each poll spawns the Python aws CLI, so a poll cannot run faster than a CLI
-// process starts: the budgets cover the work (two items through a one-second
-// Wait, at MaxConcurrency 1 at first) plus CLI overhead on a loaded runner,
-// and the interval is one a CLI round trip can meet.
+// Step Functions sends no event when a Map Run starts, so the test polls
+// ListMapRuns; each poll spawns the Python aws CLI, so the interval is one a
+// CLI round trip can meet.
 const (
-	sfnMapRunAppears   = 30 * time.Second
-	sfnMapRunCompletes = 60 * time.Second
-	sfnMapRunPoll      = 500 * time.Millisecond
+	sfnMapRunAppears = 30 * time.Second
+	sfnMapRunPoll    = 500 * time.Millisecond
 )
 
 // TestSFNCLI_DistributedMapRun observes and updates a Distributed Map's Map
@@ -426,6 +411,7 @@ func TestSFNCLI_DistributedMapRun(t *testing.T) {
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", machine.StateMachineArn))
 	})
+	watch := watchSFNExecutionsCLI(t, machine.StateMachineArn)
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", machine.StateMachineArn, "--input", `[{"id":1},{"id":2}]`))
 	var execution struct {
@@ -461,20 +447,19 @@ func TestSFNCLI_DistributedMapRun(t *testing.T) {
 	parseJSON(t, out, &described)
 	assert.Equal(t, 2, described.MaxConcurrency)
 	assert.Equal(t, 2, described.ItemCounts.Total)
-	require.Eventually(t, func() bool {
-		result := runCLI(t, awsCLI("stepfunctions", "describe-map-run", "--map-run-arn", mapRunArn))
-		var terminal struct {
-			Status     string `json:"status"`
-			ItemCounts struct {
-				Succeeded      int `json:"succeeded"`
-				ResultsWritten int `json:"resultsWritten"`
-			} `json:"itemCounts"`
-		}
-		parseJSON(t, result, &terminal)
-		return terminal.Status == "SUCCEEDED" &&
-			terminal.ItemCounts.Succeeded == 2 &&
-			terminal.ItemCounts.ResultsWritten == 2
-	}, sfnMapRunCompletes, sfnMapRunPoll)
+	require.Equal(t, "SUCCEEDED", watch.await(t, execution.ExecutionArn, "SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"),
+		"the parent execution finishes only after its Map Run")
+	var terminal struct {
+		Status     string `json:"status"`
+		ItemCounts struct {
+			Succeeded      int `json:"succeeded"`
+			ResultsWritten int `json:"resultsWritten"`
+		} `json:"itemCounts"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "describe-map-run", "--map-run-arn", mapRunArn)), &terminal)
+	assert.Equal(t, "SUCCEEDED", terminal.Status)
+	assert.Equal(t, 2, terminal.ItemCounts.Succeeded)
+	assert.Equal(t, 2, terminal.ItemCounts.ResultsWritten)
 	out = runCLI(t, awsCLI("stepfunctions", "list-executions", "--map-run-arn", mapRunArn))
 	var children struct {
 		Executions []struct {

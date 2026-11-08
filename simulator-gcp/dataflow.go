@@ -447,7 +447,7 @@ func dataflowCreateJobFromTemplate(w http.ResponseWriter, r *http.Request, proje
 	if loc == "" {
 		loc = req.Location
 	}
-	createDataflowJob(w, project, loc, dataflowJob{Name: req.JobName, Type: "JOB_TYPE_BATCH", Environment: req.Environment})
+	createDataflowJob(w, project, loc, dataflowJob{Name: req.JobName, Type: "JOB_TYPE_BATCH", Environment: dataflowJobEnvironment(req.Environment)})
 }
 
 func handleDataflowCreateJobFromTemplate(w http.ResponseWriter, r *http.Request) {
@@ -470,7 +470,7 @@ func dataflowLaunchTemplate(w http.ResponseWriter, r *http.Request, project, loc
 		return
 	}
 	loc := location
-	job := dataflowJob{Name: req.JobName, Type: "JOB_TYPE_BATCH", Environment: req.Environment}
+	job := dataflowJob{Name: req.JobName, Type: "JOB_TYPE_BATCH", Environment: dataflowJobEnvironment(req.Environment)}
 	if job.Name == "" {
 		GCPError(w, http.StatusBadRequest, "job name is required", "INVALID_ARGUMENT")
 		return
@@ -522,7 +522,7 @@ func handleDataflowLaunchFlexTemplate(w http.ResponseWriter, r *http.Request) {
 		Type:         "JOB_TYPE_BATCH",
 		ProjectID:    project,
 		Location:     location,
-		Environment:  req.LaunchParameter.Environment,
+		Environment:  dataflowJobEnvironment(req.LaunchParameter.Environment),
 		CurrentState: "JOB_STATE_RUNNING",
 		CreateTime:   nowRFC3339(),
 		StartTime:    nowRFC3339(),
@@ -657,4 +657,20 @@ func handleDataflowDeleteSnapshotsGlobal(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// dataflowJobEnvironment carries a launch's RuntimeEnvironment into the job's
+// Environment, which shares only these fields with it in the Discovery
+// document.
+func dataflowJobEnvironment(runtime map[string]any) map[string]any {
+	env := map[string]any{}
+	for _, key := range []string{"serviceAccountEmail", "streamingMode", "workerRegion", "workerZone"} {
+		if v, ok := runtime[key]; ok {
+			env[key] = v
+		}
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }

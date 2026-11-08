@@ -547,7 +547,7 @@ func rdsRange(from, to, step int) string {
 
 func handleRDSModifyCurrentDBClusterCapacity(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	if _, ok := rdsClusters.Get(id); !ok {
+	if _, ok := rdsClusterIn(r, id); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
@@ -639,29 +639,7 @@ func rdsInstanceByArn(arn string) (RDSInstance, bool) {
 }
 
 func handleRDSSwitchoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("GlobalClusterIdentifier")
-	g, ok := rdsGlobalClusters.Get(id)
-	if !ok {
-		rdsErrorXML(w, "GlobalClusterNotFoundFault",
-			fmt.Sprintf("GlobalCluster %q not found", id),
-			http.StatusNotFound, sim.RequestID(r.Context()))
-		return
-	}
-	target := r.FormValue("TargetDbClusterIdentifier")
-	// Promote the target secondary to writer by moving its ARN first;
-	// renderRDSGlobalCluster treats index 0 as the writer.
-	if target != "" {
-		rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
-			for idx, arn := range x.Members {
-				if arn == target || strings.HasSuffix(arn, ":"+target) {
-					x.Members = append([]string{arn}, append(append([]string{}, x.Members[:idx]...), x.Members[idx+1:]...)...)
-					break
-				}
-			}
-		})
-		g, _ = rdsGlobalClusters.Get(id)
-	}
-	rdsXMLResponse(w, "SwitchoverGlobalCluster", renderRDSGlobalCluster(g, "GlobalCluster"), sim.RequestID(r.Context()))
+	rdsPromoteGlobalMember(w, r, "SwitchoverGlobalCluster")
 }
 
 func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {

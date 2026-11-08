@@ -683,7 +683,7 @@ func handleRDSRegisterProxyTargets(w http.ResponseWriter, r *http.Request) {
 		registered = append(registered, t)
 	}
 	for _, clID := range parseRDSIndexedStringList(r, "DBClusterIdentifiers.member") {
-		cl, ok := rdsClusters.Get(clID)
+		cl, ok := rdsClusterIn(r, clID)
 		if !ok {
 			rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %q not found", clID), http.StatusNotFound, sim.RequestID(r.Context()))
 			return
@@ -760,7 +760,7 @@ func rdsRemoveRole(store sim.Store[rdsRoleSet], resID, roleArn, feature string) 
 func handleRDSAddRoleToCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
 	roleArn := r.FormValue("RoleArn")
-	if _, ok := rdsClusters.Get(id); !ok {
+	if _, ok := rdsClusterIn(r, id); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
@@ -774,7 +774,7 @@ func handleRDSAddRoleToCluster(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSRemoveRoleFromCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	if _, ok := rdsClusters.Get(id); !ok {
+	if _, ok := rdsClusterIn(r, id); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}

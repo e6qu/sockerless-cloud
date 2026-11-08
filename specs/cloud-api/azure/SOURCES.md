@@ -181,3 +181,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `network-watcher-packet-capture-overview.md.gz` | `learn.microsoft.com` | `en-us/azure/network-watcher/packet-capture-overview` | CC-BY-4.0 | `commit608c76b13343ae6c6bfc7a97eb7779dc210ae23c` | 2026-11-08T11:30:54Z |
 | `network-watcher-packet-capture-manage.md.gz` | `learn.microsoft.com` | `en-us/azure/network-watcher/packet-capture-manage` | CC-BY-4.0 | `commitc32c6285d9f6c16ff94a113a610c157a33dfca52` | 2026-11-08T11:30:54Z |
 | `network-watcher-agent-manage.md.gz` | `learn.microsoft.com` | `en-us/azure/network-watcher/network-watcher-agent-manage` | CC-BY-4.0 | `commitc45875b37d1738795bd557672a5df232954a5b5f` | 2026-11-08T11:30:55Z |
+| `app-containerapps-logging.md.gz` | `learn.microsoft.com` | `en-us/azure/container-apps/logging` | CC-BY-4.0 | `commitd221c1752bb5d8569df7b7bdadb02be568f0383a` | 2026-11-08T12:03:46Z |
+| `storage-authorize-with-entra-id.md.gz` | `learn.microsoft.com` | `en-us/rest/api/storageservices/authorize-with-azure-active-directory` | CC-BY-4.0 | `commit0f0ae741adaf2e448d2668bd919c3e1e3cf97555` | 2026-11-08T12:25:58Z |

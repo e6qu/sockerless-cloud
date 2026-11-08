@@ -130,7 +130,8 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 	}
 	require.GreaterOrEqual(t, logIdx, 0)
 
-	assert.Equal(t, "Container started", table.Rows[0][logIdx])
+	assert.True(t, strings.HasPrefix(table.Rows[0][logIdx].(string), "Started container '"),
+		"the first event is the replica's container starting, got %v", table.Rows[0][logIdx])
 	assert.Equal(t, "Execution completed successfully", table.Rows[1][logIdx])
 }
 
@@ -469,7 +470,7 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	}
 	require.GreaterOrEqual(t, logIdx, 0)
 
-	// At least "Container started" and "real aca output".
+	// At least the container's start and "real aca output".
 	var logs []string
 	for _, row := range table.Rows {
 		logs = append(logs, row[logIdx].(string))

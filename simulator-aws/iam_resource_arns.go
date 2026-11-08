@@ -1438,21 +1438,7 @@ var (
 	iamEC2ElasticIPsByAssociation  sim.GenerationIndex[EC2ElasticIP]
 	iamEC2InterfacesByAttachment   sim.GenerationIndex[EC2NetworkInterface]
 	iamEC2ElasticIPsByAddress      sim.GenerationIndex[EC2ElasticIP]
-
-	// AWS Systems Manager names a maintenance window's execution by an id
-	// derived from the window's own, so the window is recoverable from it —
-	// but only by asking every window what its execution id would be, which a
-	// per-request derivation must not do a store-read at a time.
-	iamSSMWindowsByExecution sim.GenerationIndex[SSMMaintenanceWindow]
 )
-
-// iamSSMWindowExecutionKeys names a window by the execution id it answers to.
-func iamSSMWindowExecutionKeys(window SSMMaintenanceWindow) []string {
-	if window.WindowId == "" {
-		return nil
-	}
-	return []string{ssmWindowExecID(window.WindowId)}
-}
 
 func iamEC2RouteTableAssociationKeys(rtb EC2RouteTable) []string {
 	keys := make([]string, 0, len(rtb.Associations))
@@ -2241,14 +2227,11 @@ func iamSSMResourceARNs(r *http.Request, types []string, region, account string)
 		}
 	}
 	// Cancelling a maintenance window's execution names the execution, and the
-	// window is what the call authorizes against. The execution id is derived
-	// from the window's own id, so the window is recovered through an index
-	// keyed on what each window's execution id would be.
-	if iamHasType(types, "maintenancewindow") && ssmWindows != nil {
+	// window is what the call authorizes against.
+	if iamHasType(types, "maintenancewindow") && ssmWindowExecutions != nil {
 		var out []string
 		for _, execution := range fields["windowexecutionid"] {
-			if window, ok := iamSSMWindowsByExecution.Lookup(
-				ssmWindows, execution, iamSSMWindowExecutionKeys); ok && window.WindowId != "" {
+			if window, ok := ssmWindowExecutions.Get(execution); ok && window.WindowId != "" {
 				out = append(out, "arn:aws:ssm:"+region+":"+account+
 					":maintenancewindow/"+window.WindowId)
 			}

@@ -495,13 +495,16 @@ func TestRDS_ClusterOps(t *testing.T) {
 		_, _ = c.DeleteGlobalCluster(ctx, &rds.DeleteGlobalClusterInput{
 			GlobalClusterIdentifier: aws.String(gcID)})
 	})
+	secondaryArn := rdsGlobalSecondaryCluster(t, gcID, "rext-global-secondary", "aurora-mysql")
 	fgOut, err := c.FailoverGlobalCluster(ctx, &rds.FailoverGlobalClusterInput{
 		GlobalClusterIdentifier:   aws.String(gcID),
-		TargetDbClusterIdentifier: aws.String(clusterArn),
+		TargetDbClusterIdentifier: aws.String(secondaryArn),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, fgOut.GlobalCluster)
 	assert.Equal(t, gcID, aws.ToString(fgOut.GlobalCluster.GlobalClusterIdentifier))
+	require.NotEmpty(t, fgOut.GlobalCluster.GlobalClusterMembers)
+	assert.Equal(t, secondaryArn, aws.ToString(fgOut.GlobalCluster.GlobalClusterMembers[0].DBClusterArn))
 
 	rmOut, err := c.RemoveFromGlobalCluster(ctx, &rds.RemoveFromGlobalClusterInput{
 		GlobalClusterIdentifier: aws.String(gcID),
@@ -509,7 +512,8 @@ func TestRDS_ClusterOps(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, rmOut.GlobalCluster)
-	assert.Empty(t, rmOut.GlobalCluster.GlobalClusterMembers)
+	require.Len(t, rmOut.GlobalCluster.GlobalClusterMembers, 1, "the old primary, now a secondary, detaches")
+	assert.Equal(t, secondaryArn, aws.ToString(rmOut.GlobalCluster.GlobalClusterMembers[0].DBClusterArn))
 }
 
 func TestRDS_SnapshotAttributesAndModify(t *testing.T) {

@@ -110,7 +110,6 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 		},
 	}
 	executions.Put(execID, exec)
-	acaJobSystemLog(job, execName, "Normal", "Container started")
 
 	parallelism, completions, retryLimit, timeout := acaJobRunSettings(job)
 	record := acaExecutionRun{
@@ -195,6 +194,9 @@ func (r *acaJobRun) start(ctx context.Context, t jobrun.Task) (jobrun.Workload, 
 	if err != nil {
 		acaJobSystemLog(job, r.execName(), "Warning", err.Error())
 		return nil, err
+	}
+	for _, c := range tmpl.Containers {
+		acaJobSystemLog(job, r.execName(), "Normal", fmt.Sprintf("Started container '%s'", c.Name))
 	}
 	return r.track(t.Index, group), nil
 }

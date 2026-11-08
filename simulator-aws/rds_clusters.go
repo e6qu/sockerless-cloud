@@ -11,10 +11,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-func rdsClusterARN(id string) string {
-	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster:%s", awsRegion(), awsAccountID(), id)
-}
-
 func rdsClusterResourceID() string {
 	return "cluster-" + strings.ToUpper(strings.ReplaceAll(sim.NewUUID(), "-", ""))[:26]
 }
@@ -80,6 +76,18 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	defer releaseIdentifier()
 	engine := r.FormValue("Engine")
+	globalID := r.FormValue("GlobalClusterIdentifier")
+	secondary := false
+	if globalID != "" {
+		global, joinsAsSecondary, ok := rdsGlobalClusterForCreate(w, r, globalID)
+		if !ok {
+			return
+		}
+		secondary = joinsAsSecondary
+		if engine == "" {
+			engine = global.Engine
+		}
+	}
 	port := rdsDefaultPort(engine)
 	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
 		port = p
@@ -101,6 +109,7 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		backupRetention = atoiOrZero(v)
 	}
 	cl := RDSCluster{
+		Region:                     rdsRequestRegion(r),
 		DBClusterIdentifier:        id,
 		DbClusterResourceId:        rdsClusterResourceID(),
 		Engine:                     engine,
@@ -110,8 +119,8 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		DatabaseName:               r.FormValue("DatabaseName"),
 		MasterUsername:             r.FormValue("MasterUsername"),
 		Port:                       port,
-		Endpoint:                   fmt.Sprintf("%s.cluster-%s.%s.rds.amazonaws.com", id, "sim", awsRegion()),
-		ReaderEndpoint:             fmt.Sprintf("%s.cluster-ro-%s.%s.rds.amazonaws.com", id, "sim", awsRegion()),
+		Endpoint:                   fmt.Sprintf("%s.cluster-%s.%s.rds.amazonaws.com", id, "sim", rdsRequestRegion(r)),
+		ReaderEndpoint:             fmt.Sprintf("%s.cluster-ro-%s.%s.rds.amazonaws.com", id, "sim", rdsRequestRegion(r)),
 		DBClusterParameterGroup:    paramGroup,
 		DBSubnetGroup:              r.FormValue("DBSubnetGroupName"),
 		AllocatedStorage:           atoiOrZero(r.FormValue("AllocatedStorage")),
@@ -119,10 +128,10 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		StorageEncrypted:           r.FormValue("StorageEncrypted") == "true",
 		DeletionProtection:         r.FormValue("DeletionProtection") == "true",
 		ClusterCreateTime:          time.Now().UTC().Format(time.RFC3339),
-		AvailabilityZones:          []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"},
+		AvailabilityZones:          []string{rdsRequestRegion(r) + "a", rdsRequestRegion(r) + "b", rdsRequestRegion(r) + "c"},
 		PreferredBackupWindow:      rdsClusterBackupWindow(r),
 		PreferredMaintenanceWindow: "mon:00:00-mon:03:00",
-		ARN:                        rdsClusterARN(id),
+		ARN:                        rdsClusterARNIn(rdsRequestRegion(r), id),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
 
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
@@ -132,17 +141,22 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if rdsIsAurora(engine) && r.FormValue("MasterUserPassword") == "" {
+	if rdsIsAurora(engine) && r.FormValue("MasterUserPassword") == "" && !secondary {
 		rdsErrorXML(w, "InvalidParameterValue",
 			"The parameter MasterUserPassword must be provided and must not be blank.",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if err := rdsInstallAuroraDataPlane(&cl, r.FormValue("MasterUserPassword")); err != nil {
-		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
-		return
+	if !secondary {
+		if err := rdsInstallAuroraDataPlane(&cl, r.FormValue("MasterUserPassword")); err != nil {
+			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
+			return
+		}
 	}
 	rdsClusters.Put(id, cl)
+	if globalID != "" {
+		rdsGlobalClusters.Update(globalID, func(g *RDSGlobalCluster) { g.Members = append(g.Members, cl.ARN) })
+	}
 	rdsTakeFirstClusterBackup(id)
 	rdsXMLResponse(w, "CreateDBCluster", renderRDSCluster(cl), sim.RequestID(r.Context()))
 }
@@ -152,8 +166,9 @@ func handleRDSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 	matched := false
 	var b strings.Builder
 	b.WriteString("<DBClusters>")
+	region := rdsRequestRegion(r)
 	for _, c := range rdsClusters.List() {
-		if wanted != "" && c.DBClusterIdentifier != wanted && c.ARN != wanted {
+		if c.region() != region || (wanted != "" && c.DBClusterIdentifier != wanted && c.ARN != wanted) {
 			continue
 		}
 		matched = true
@@ -172,7 +187,7 @@ func handleRDSDescribeClusters(w http.ResponseWriter, r *http.Request) {
 func handleRDSModifyCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
 	requestID := sim.RequestID(r.Context())
-	cluster, ok := rdsClusters.Get(id)
+	cluster, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, requestID)
 		return
@@ -328,7 +343,7 @@ func rdsModifyClusterMasterPassword(cluster *RDSCluster, newPassword string) err
 
 func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cl, ok := rdsClusters.Get(id)
+	cl, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -416,7 +431,7 @@ func handleRDSDeleteCluster(w http.ResponseWriter, r *http.Request) {
 // Replica. The response carries the full DBCluster, which waiters read.
 func handleRDSFailoverCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cl, ok := rdsClusters.Get(id)
+	cl, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return

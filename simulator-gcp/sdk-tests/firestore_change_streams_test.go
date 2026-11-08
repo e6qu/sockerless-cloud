@@ -146,11 +146,14 @@ func TestFirestore_ListenAndExecutePipeline(t *testing.T) {
 
 	ran, err := svc.Projects.Databases.Documents.ExecutePipeline(documents,
 		&firestore.ExecutePipelineRequest{
-			StructuredPipeline: &firestore.StructuredPipeline{},
+			StructuredPipeline: &firestore.StructuredPipeline{Pipeline: &firestore.Pipeline{Stages: []*firestore.Stage{
+				{Name: "collection", Args: []*firestore.Value{{ReferenceValue: "/cities"}}},
+			}}},
 		}).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, ran.ExecutionTime)
-	assert.Empty(t, ran.Results, "a database holding nothing returns no rows")
+	require.Len(t, ran.Results, 1, "the collection holds the one document the watch saw")
+	assert.Equal(t, doc, ran.Results[0].Name)
 
 	_, err = svc.Projects.Databases.Documents.ExecutePipeline(documents,
 		&firestore.ExecutePipelineRequest{}).Do()

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Some derivations resolve an identifier to the resource it belongs to: Amazon
@@ -229,13 +230,18 @@ func iamSeedDerivationFixtures(t *testing.T,
 	out["rds:ModifyDBProxyTargetGroup:DBProxyName"] = "probe-proxy"
 	out["rds:ModifyDBProxyTargetGroup:TargetGroupName"] = "default"
 
-	// A maintenance window, named by the execution id AWS Systems Manager
-	// derives from it — which is all a cancellation carries.
+	// A maintenance window's execution, which is all a cancellation carries:
+	// the window runs as its schedule would fire it.
 	window := iamFixtureJSON(t, jsonRouter, "AmazonSSM.CreateMaintenanceWindow",
 		`{"Name":"probe-window","Schedule":"rate(1 day)","Duration":1,"Cutoff":0,`+
 			`"AllowUnassociatedTargets":true}`,
 		`"WindowId"\s*:\s*"([^"]+)"`)
-	out["ssm:CancelMaintenanceWindowExecution:WindowExecutionId"] = ssmWindowExecID(window)
+	ssmStartWindowExecution(window, time.Now())
+	for _, execution := range ssmWindowExecutions.List() {
+		if execution.WindowId == window {
+			out["ssm:CancelMaintenanceWindowExecution:WindowExecutionId"] = execution.WindowExecutionId
+		}
+	}
 
 	return out
 }

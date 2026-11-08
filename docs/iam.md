@@ -455,7 +455,7 @@ Real Google access tokens are opaque. A client must treat the simulator's the sa
 
 #### Data-plane bearer verification
 
-`bearerAuthMiddleware` (`token_signing.go`) wraps the REST mux. For every request that a Google API method routes, `verifyRequestBearer` requires `Authorization: Bearer`, verifies the signature, issuer, audience and expiry (`verifiedAccessTokenClaims`), and rejects a revoked workforce session. A failure answers `401 UNAUTHENTICATED`. Unrouted paths answer `404` before the credential is examined (`publishesAPIMethod`).
+`bearerAuthMiddleware` (`token_signing.go`) wraps the REST mux. For every request that a Google API method routes, `verifyRequestBearer` requires `Authorization: Bearer`, verifies the signature, issuer, audience and expiry (`verifiedAccessTokenClaims`), and rejects a revoked workforce session. A failure answers `401 UNAUTHENTICATED`; the Cloud Storage JSON API answers its own `errors[]` shape, with reason `required` for a missing token and `authError` for an invalid one. Unrouted paths answer `404` before the credential is examined (`publishesAPIMethod`).
 
 `isAuthExempt` lists what a client reaches without a token: the token endpoints, `/v1/introspect`, Discovery documents, `/.well-known/`, `/health`, `/computeMetadata/` (gated by `Metadata-Flavor` instead), the console under `/ui/` and `/auth/`, the Artifact Registry Docker data plane (its own token service, `ar_dataplane_auth.go`), and `*.run.app` hosts (the Cloud Run front end authenticates invokers itself). The Cloud Storage XML data plane (`GET /{bucket}/{object}`) checks the bearer itself, or a V4 signed URL in its place (`gcsSignedURLAuthorized`), whose signer it then authorizes as the caller.
 
@@ -785,9 +785,10 @@ curl -s "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage
 {"kind":"storage#testIamPermissionsResponse","permissions":["storage.objects.get"]}
 ```
 
-A request without a token is refused:
+A request without a token is refused, in the Cloud Storage JSON API's own error
+shape:
 
-<!-- doctest: run expect="\"status\":\"UNAUTHENTICATED\"" expect="HTTP 401" -->
+<!-- doctest: run expect="\"reason\":\"required\"" expect="HTTP 401" -->
 ```sh
 curl -s -w '\nHTTP %{http_code}\n' \
   "$S/storage/v1/b/iam-demo-bucket/iam/testPermissions?permissions=storage.objects.get"

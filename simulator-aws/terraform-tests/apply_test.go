@@ -371,6 +371,9 @@ func TestStackProductionShape(t *testing.T) {
 		"DynamoDB table ARN must end with :table/<name>; got %s", ddbARN)
 
 	kmsKeyARN := outputs.must(t, "kms_key_arn")
+	require.Equal(t, "ED25519_SHA_512,ED25519_PH_SHA_512", outputs.must(t, "kms_ed25519_signing_algorithms"))
+	require.Contains(t, outputs.must(t, "kms_ed25519_public_key_pem"), "BEGIN PUBLIC KEY")
+	require.Equal(t, "ML_DSA_SHAKE_256", outputs.must(t, "kms_mldsa_signing_algorithms"))
 	require.True(t, strings.HasPrefix(kmsKeyARN, "arn:aws:kms:"),
 		"KMS key ARN must include arn:aws:kms; got %s", kmsKeyARN)
 

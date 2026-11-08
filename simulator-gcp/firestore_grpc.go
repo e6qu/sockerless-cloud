@@ -59,14 +59,20 @@ func fsValueToProto(v FSValue) *fspb.Value {
 		return &fspb.Value{ValueType: &fspb.Value_DoubleValue{DoubleValue: *v.DoubleValue}}
 	case v.TimestampValue != "":
 		return &fspb.Value{ValueType: &fspb.Value_TimestampValue{TimestampValue: fsTimestampToProto(v.TimestampValue)}}
-	case v.StringValue != "":
-		return &fspb.Value{ValueType: &fspb.Value_StringValue{StringValue: v.StringValue}}
-	case v.BytesValue != "":
-		b, err := base64.StdEncoding.DecodeString(v.BytesValue)
-		if err != nil {
-			b = []byte(v.BytesValue)
-		}
-		return &fspb.Value{ValueType: &fspb.Value_BytesValue{BytesValue: b}}
+	case v.StringValue != nil:
+		return &fspb.Value{ValueType: &fspb.Value_StringValue{StringValue: *v.StringValue}}
+	case v.BytesValue != nil:
+		return &fspb.Value{ValueType: &fspb.Value_BytesValue{BytesValue: fsDecodeBytes(*v.BytesValue)}}
+	case v.FieldReferenceValue != "":
+		return &fspb.Value{ValueType: &fspb.Value_FieldReferenceValue{FieldReferenceValue: v.FieldReferenceValue}}
+	case v.VariableReferenceValue != "":
+		return &fspb.Value{ValueType: &fspb.Value_VariableReferenceValue{VariableReferenceValue: v.VariableReferenceValue}}
+	case v.FunctionValue != nil:
+		return &fspb.Value{ValueType: &fspb.Value_FunctionValue{FunctionValue: &fspb.Function{
+			Name: v.FunctionValue.Name, Args: fsValuesToProto(v.FunctionValue.Args), Options: fsValueMapToProto(v.FunctionValue.Options),
+		}}}
+	case v.PipelineValue != nil:
+		return &fspb.Value{ValueType: &fspb.Value_PipelineValue{PipelineValue: fsPipelineToProto(v.PipelineValue)}}
 	case v.ReferenceValue != "":
 		return &fspb.Value{ValueType: &fspb.Value_ReferenceValue{ReferenceValue: v.ReferenceValue}}
 	case v.GeoPointValue != nil:
@@ -110,9 +116,21 @@ func fsValueFromProto(v *fspb.Value) FSValue {
 	case *fspb.Value_TimestampValue:
 		return FSValue{TimestampValue: fsTimestampFromProto(vt.TimestampValue)}
 	case *fspb.Value_StringValue:
-		return FSValue{StringValue: vt.StringValue}
+		s := vt.StringValue
+		return FSValue{StringValue: &s}
 	case *fspb.Value_BytesValue:
-		return FSValue{BytesValue: base64.StdEncoding.EncodeToString(vt.BytesValue)}
+		b := fsEncodeBytes(vt.BytesValue)
+		return FSValue{BytesValue: &b}
+	case *fspb.Value_FieldReferenceValue:
+		return FSValue{FieldReferenceValue: vt.FieldReferenceValue}
+	case *fspb.Value_VariableReferenceValue:
+		return FSValue{VariableReferenceValue: vt.VariableReferenceValue}
+	case *fspb.Value_FunctionValue:
+		return FSValue{FunctionValue: &fsFunction{
+			Name: vt.FunctionValue.GetName(), Args: fsValuesFromProto(vt.FunctionValue.GetArgs()), Options: fsValueMapFromProto(vt.FunctionValue.GetOptions()),
+		}}
+	case *fspb.Value_PipelineValue:
+		return FSValue{PipelineValue: fsPipelineFromProto(vt.PipelineValue)}
 	case *fspb.Value_ReferenceValue:
 		return FSValue{ReferenceValue: vt.ReferenceValue}
 	case *fspb.Value_GeoPointValue:
@@ -1287,6 +1305,112 @@ func fsListenTargetIDs(targets map[int32]*fsListenTarget) []int32 {
 	return ids
 }
 
-// ExecutePipeline stays on the UnimplementedFirestoreServer default: the
-// simulator has no evaluator for pipeline expressions, which a structured
-// query cannot express.
+// ExecutePipeline runs the pipeline and streams its results in one response,
+// after the transaction a newTransaction request began.
+func (s *firestoreGRPC) ExecutePipeline(req *fspb.ExecutePipelineRequest, srv fspb.Firestore_ExecutePipelineServer) error {
+	project, database, ok := fsDatabaseOf(req.GetDatabase())
+	if !ok {
+		return status.Errorf(codes.InvalidArgument, "Invalid database name: %s", req.GetDatabase())
+	}
+	if _, ok := fsReadTimeForTxnBytes(req.GetTransaction()); !ok {
+		return status.Error(codes.InvalidArgument, "Invalid transaction.")
+	}
+	sp := req.GetStructuredPipeline()
+	if sp == nil {
+		return status.Error(codes.InvalidArgument, "executePipeline needs the pipeline to run")
+	}
+	resp := &fspb.ExecutePipelineResponse{}
+	if nt := req.GetNewTransaction(); nt != nil {
+		resp.Transaction = fsBeginTxnBytes(nt.GetReadOnly() != nil, "")
+	}
+	now := time.Now().UTC()
+	docs, err := fsRunPipeline(project, database, &fsStructuredPipeline{
+		Pipeline: fsPipelineFromProto(sp.GetPipeline()), Options: fsValueMapFromProto(sp.GetOptions()),
+	}, now)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	for _, d := range docs {
+		resp.Results = append(resp.Results, fsDocToProto(d))
+	}
+	resp.ExecutionTime = timestamppb.New(now.Truncate(time.Microsecond))
+	return srv.Send(resp)
+}
+
+func fsValuesToProto(vs []FSValue) []*fspb.Value {
+	out := make([]*fspb.Value, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, fsValueToProto(v))
+	}
+	return out
+}
+
+func fsValuesFromProto(vs []*fspb.Value) []FSValue {
+	out := make([]FSValue, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, fsValueFromProto(v))
+	}
+	return out
+}
+
+func fsValueMapToProto(m map[string]FSValue) map[string]*fspb.Value {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]*fspb.Value, len(m))
+	for k, v := range m {
+		out[k] = fsValueToProto(v)
+	}
+	return out
+}
+
+func fsValueMapFromProto(m map[string]*fspb.Value) map[string]FSValue {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]FSValue, len(m))
+	for k, v := range m {
+		out[k] = fsValueFromProto(v)
+	}
+	return out
+}
+
+func fsPipelineToProto(p *fsPipeline) *fspb.Pipeline {
+	out := &fspb.Pipeline{}
+	for _, st := range p.Stages {
+		out.Stages = append(out.Stages, &fspb.Pipeline_Stage{Name: st.Name, Args: fsValuesToProto(st.Args), Options: fsValueMapToProto(st.Options)})
+	}
+	return out
+}
+
+func fsPipelineFromProto(p *fspb.Pipeline) *fsPipeline {
+	if p == nil {
+		return nil
+	}
+	out := &fsPipeline{}
+	for _, st := range p.GetStages() {
+		out.Stages = append(out.Stages, fsPipelineStage{Name: st.GetName(), Args: fsValuesFromProto(st.GetArgs()), Options: fsValueMapFromProto(st.GetOptions())})
+	}
+	return out
+}
+
+// fsDatabaseOf splits projects/{project}/databases/{database}.
+func fsDatabaseOf(name string) (project, database string, ok bool) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 4 || parts[0] != "projects" || parts[2] != "databases" || parts[1] == "" || parts[3] == "" {
+		return "", "", false
+	}
+	return parts[1], parts[3], true
+}
+
+// fsEncodeBytes and fsDecodeBytes carry bytesValue as the base64 the REST
+// surface spells it in.
+func fsEncodeBytes(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+func fsDecodeBytes(s string) []byte {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return []byte(s)
+	}
+	return b
+}

@@ -97,17 +97,25 @@ type FSDocument struct {
 }
 
 type FSValue struct {
-	NullValue      any           `json:"nullValue,omitempty"`
-	BooleanValue   *bool         `json:"booleanValue,omitempty"`
-	IntegerValue   string        `json:"integerValue,omitempty"`
-	DoubleValue    *float64      `json:"doubleValue,omitempty"`
-	TimestampValue string        `json:"timestampValue,omitempty"`
-	StringValue    string        `json:"stringValue,omitempty"`
-	BytesValue     string        `json:"bytesValue,omitempty"`
+	NullValue      any      `json:"nullValue,omitempty"`
+	BooleanValue   *bool    `json:"booleanValue,omitempty"`
+	IntegerValue   string   `json:"integerValue,omitempty"`
+	DoubleValue    *float64 `json:"doubleValue,omitempty"`
+	TimestampValue string   `json:"timestampValue,omitempty"`
+	// StringValue and BytesValue are pointers so that an empty string and
+	// empty bytes stay values rather than vanishing under omitempty.
+	StringValue    *string       `json:"stringValue,omitempty"`
+	BytesValue     *string       `json:"bytesValue,omitempty"`
 	ReferenceValue string        `json:"referenceValue,omitempty"`
 	GeoPointValue  *FSGeoPoint   `json:"geoPointValue,omitempty"`
 	ArrayValue     *FSArrayValue `json:"arrayValue,omitempty"`
 	MapValue       *FSMapValue   `json:"mapValue,omitempty"`
+	// The expression forms a pipeline's arguments take; a document field never
+	// holds one.
+	FieldReferenceValue    string      `json:"fieldReferenceValue,omitempty"`
+	VariableReferenceValue string      `json:"variableReferenceValue,omitempty"`
+	FunctionValue          *fsFunction `json:"functionValue,omitempty"`
+	PipelineValue          *fsPipeline `json:"pipelineValue,omitempty"`
 }
 
 type FSGeoPoint struct {
@@ -1132,8 +1140,8 @@ func fsNumeric(v FSValue) (float64, bool) {
 
 func fsScalarString(v FSValue) string {
 	switch {
-	case v.StringValue != "":
-		return v.StringValue
+	case v.StringValue != nil:
+		return *v.StringValue
 	case v.TimestampValue != "":
 		return v.TimestampValue
 	case v.ReferenceValue != "":
@@ -1157,12 +1165,12 @@ func fsValuesEqual(a, b FSValue) bool {
 		return a.NullValue != nil && b.NullValue != nil
 	case a.BooleanValue != nil || b.BooleanValue != nil:
 		return a.BooleanValue != nil && b.BooleanValue != nil && *a.BooleanValue == *b.BooleanValue
-	case a.StringValue != "" || b.StringValue != "":
-		return a.StringValue == b.StringValue
+	case a.StringValue != nil || b.StringValue != nil:
+		return a.StringValue != nil && b.StringValue != nil && *a.StringValue == *b.StringValue
 	case a.TimestampValue != "" || b.TimestampValue != "":
 		return a.TimestampValue != "" && b.TimestampValue != "" && fsTimestampOrder(a.TimestampValue, b.TimestampValue) == 0
-	case a.BytesValue != "" || b.BytesValue != "":
-		return a.BytesValue == b.BytesValue
+	case a.BytesValue != nil || b.BytesValue != nil:
+		return a.BytesValue != nil && b.BytesValue != nil && *a.BytesValue == *b.BytesValue
 	case a.ReferenceValue != "" || b.ReferenceValue != "":
 		return a.ReferenceValue == b.ReferenceValue
 	case a.ArrayValue != nil || b.ArrayValue != nil:

@@ -495,3 +495,37 @@ func TestRBAC_UserDelegationSASIsVerifiedAgainstItsKey(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	assert.Equal(t, "AuthenticationFailed", resp.Header.Get("x-ms-error-code"))
 }
+
+// TestRBAC_BlobAddActionCreatesButDoesNotReplace proves the choice
+// `storage-authorize-with-entra-id` gives Put Blob: blobs/add/action creates a
+// new blob, and replacing one takes blobs/write.
+func TestRBAC_BlobAddActionCreatesButDoesNotReplace(t *testing.T) {
+	t.Parallel()
+	const account = "rbacblobadd"
+	accountID := rbacBlobAccount(t, "rbac-storage-rg", account, true)
+
+	definitions, err := armauthorization.NewRoleDefinitionsClient(&clientCredential{}, clientOpts())
+	require.NoError(t, err)
+	roleID := newRBACGUID()
+	_, err = definitions.CreateOrUpdate(ctx, "/subscriptions/"+subscriptionID, roleID, armauthorization.RoleDefinition{
+		Properties: &armauthorization.RoleDefinitionProperties{
+			RoleName: to.Ptr("Blob creator " + roleID),
+			RoleType: to.Ptr("CustomRole"),
+			Permissions: []*armauthorization.Permission{{
+				DataActions: []*string{to.Ptr("Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action")},
+			}},
+			AssignableScopes: []*string{to.Ptr("/subscriptions/" + subscriptionID)},
+		},
+	}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = definitions.Delete(ctx, "/subscriptions/"+subscriptionID, roleID, nil) })
+
+	principal := newTestServicePrincipal(t, "rbac-blob-add")
+	assignRole(t, accountID, roleID, principal.objectID)
+	client := rbacBlobClient(t, account, principal.credential())
+
+	_, err = client.UploadBuffer(ctx, "data", "created.txt", []byte("new"), nil)
+	require.NoError(t, err, "blobs/add/action creates a blob that does not exist")
+	_, err = client.UploadBuffer(ctx, "data", "hello.txt", []byte("over"), nil)
+	requireBlobErrorCode(t, err, "AuthorizationPermissionMismatch", "blobs/add/action replaces an existing blob")
+}

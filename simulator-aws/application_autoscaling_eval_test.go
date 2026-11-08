@@ -12,7 +12,9 @@ import (
 
 func appScalingTestStores(t *testing.T) {
 	t.Helper()
-	bg.Await()
+	// Creating a scaling policy creates its CloudWatch alarms, which send their
+	// configuration change events to Amazon EventBridge.
+	buildConformanceSimulator(t)
 	appScalableTargets = sim.MakeStore[AppScalableTarget](nil, "app_scalable_targets")
 	appScalingPolicies = sim.MakeStore[AppScalingPolicy](nil, "app_scaling_policies")
 	appScalingActivities = sim.MakeStore[AppScalingActivity](nil, "app_scaling_activities")

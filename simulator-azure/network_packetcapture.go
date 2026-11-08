@@ -25,6 +25,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/simulator-azure/pcapagent/filter"
 )
 
@@ -376,7 +377,11 @@ func startPacketCaptureAgent(ctx context.Context, machine placement.Handle, prop
 	if err := sim.RequireContainerRuntime("running a packet capture agent"); err != nil {
 		return nil, err
 	}
-	image, platform, err := sim.EnsureEngineBuild(ctx, cli, pcapAgentBuild)
+	image, _, err := sim.EnsureEngineBuild(ctx, cli, pcapAgentBuild)
+	if err != nil {
+		return nil, err
+	}
+	platform, err := workload.LocalImagePlatform(ctx, image, "")
 	if err != nil {
 		return nil, err
 	}

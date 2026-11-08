@@ -1892,6 +1892,42 @@ fails once the row closes or the operation is served.
   the machine's `/var/captures` path; a failed move reports `StorageFailed` or
   `LocalFileFailed`. Deleting the resource leaves the file. The capture had
   refused every machine with `PacketCaptureTargetNotReady` before.
+- **Container Apps system log events.** A revision writes the messages
+  `app-containerapps-logging` lists, with its Source and its `Info` or
+  `Error` Type, as each step happens: `Creating a new revision`, `Successfully
+  mounted volume` for each template volume, `Successfully provisioned
+  revision` or `Error provisioning revision … ErrorCode` (`ContainerCrashing`
+  for a replica whose container exited, `Timeout` for one never ready, and
+  `ErrImagePull` for one whose container never ran), `Setting a traffic
+  weight` for the revisions that take traffic, and `Deactivating old
+  revisions since 'ActiveRevisionsMode=Single'`. A job execution had logged
+  "Container started" when the execution record was written, before any
+  container ran; each replica's container now reports its start once it
+  runs, and tests wait for that row instead of reading the table at once.
+- **Azure Cosmos DB containers own their documents.** A document read,
+  write, query or patch against a container that does not exist answers 404
+  `Owner resource does not exist`, as reading the container does; the data
+  plane had stored documents under any database and container a path named.
+  A `SELECT VALUE` query returns bare values (`[2]` for `SELECT VALUE
+  COUNT(1)`); it had wrapped each in `{"$1": …}`, which the raw-HTTP query
+  test asserted and `azcosmos` exposed once the test drove it.
+- **Azure Storage data actions offer choices.** Where
+  `storage-authorize-with-entra-id` names alternatives, a Microsoft Entra
+  caller holding either is authorized: Put Blob, Put Blob from URL and Copy
+  Blob create a blob with `blobs/add/action` but replace one only with
+  `blobs/write`; Snapshot Blob and Append Block take either; Put Message takes
+  `messages/add/action` or `messages/write`; Get Messages takes
+  `process/action` or `delete` and `read` together; Delete Message takes
+  `process/action` or `delete`; Insert Entity takes `entities/write` or
+  `add/action`, Update and Merge Entity `write` or `update/action`, and the
+  insert-or-replace forms `write` or `add/action` with `update/action`. Set
+  Queue Service Properties needs `queueServices/read`, as the page lists it.
+- **Azure suites wait on events.** The Cosmos DB TTL test reads the item
+  until the service answers 404, the queue test waits out the visibility
+  instant the dequeue reported, the cross-job DNS test drives
+  `armappcontainers` and reads the lookup from the environment's console
+  logs rather than execing into containers found by Docker labels, and the
+  Cosmos DB query, upsert and patch tests drive `azcosmos`.
 - **App Service catalogs and plan actions.** `geoRegions` lists the
   subscription's regions by display name, which `az appservice
   list-locations` matches against, and none for Xenon workers or custom-mode
@@ -2076,6 +2112,73 @@ fails once the row closes or the operation is served.
   time; equality and ordering compared timestamps as instants, so
   `03:04:05.123456Z` and `04:04:05.1234560+01:00` matched, and change streams
   stamped their times to the microsecond.
+- **Firestore pipeline operations.** `executePipeline` over REST and gRPC ran
+  the pipeline it was given against the stored documents. The stages
+  (`collection`, `collection_group`, `database`, `documents`, `literals`,
+  `where`, `select`, `add_fields`, `remove_fields`, `sort`, `limit`, `offset`,
+  `distinct`, `aggregate`, `replace_with`, `union`, `unnest`, `sample`, `let`,
+  `find_nearest`, and `subcollection` inside `array(...)`/`scalar(...)`) and
+  the comparison, logical, arithmetic, string, array, map, reference, vector,
+  timestamp, type and aggregate functions followed the vendored
+  `firestore-pipeline-*.md.gz` pages; values ordered as `firestore-data-types.md.gz`
+  states, and the wire form came from the Go client's `pipeline_stage.go`.
+  A row carried the document's `__name__`, `__create_time__` and
+  `__update_time__` as fields, so a `select(...)` that left them out answered
+  a result with no name, as the API describes. `FSValue` held strings and
+  bytes as pointers, which kept an empty string a string instead of letting
+  `omitempty` turn it into a missing value.
+- **Cloud Resource Manager purge.** A project shut down 30 days earlier was
+  deleted for good by a background purger that woke when a project was
+  deleted or restored and when the next recovery window closed, as
+  `resource-manager-delete-restore-projects.md.gz` states. Its ID was
+  tombstoned, so `projects.create` refused to reuse it as it refuses an ID in
+  use (`resource-manager-creating-managing-projects.md.gz`), and a purged
+  default project was not recreated at start.
+- **AWS Systems Manager maintenance windows.** A window runs on its
+  `Schedule`: the simulator's ticker reads the cron (with the optional seconds
+  field), rate or at() expression in `ScheduleTimezone`, moves cron runs
+  `ScheduleOffset` days later, keeps runs inside `StartDate` and `EndDate`,
+  counts rate intervals from `StartDate`, and skips disabled windows. Each run
+  records an execution that runs the tasks in priority order, one priority in
+  parallel, starts no task after the window's end minus `Cutoff`, and records
+  a run that meets the previous one in progress as `SKIPPED_OVERLAPPING`. A
+  task calls its service through that service's API as Systems Manager, with
+  the task's service role or `AWSServiceRoleForAmazonSSM`: `RUN_COMMAND` sends
+  one command per target node and waits on the command store's writes,
+  cancelling at the cutoff under `CANCEL_TASK`; `LAMBDA`, `STEP_FUNCTIONS`
+  and `AUTOMATION` invoke the function, start the execution or the
+  Automation. Execution, task and invocation reads report what ran, where they
+  had reported one SUCCESS execution derived from the window ID;
+  `NextExecutionTime`, `DescribeMaintenanceWindowSchedule` and
+  `DescribeMaintenanceWindowsForTarget` read the schedule and the registered
+  targets, and `SendCommand` resolves `tag:` and `tag-key` targets. The tests
+  schedule an at() window seconds ahead and wait for its run.
+- **Amazon RDS global databases.** A DB cluster lives in the Region its
+  request is signed for, as a DB instance does, so its ARN, endpoints and
+  lookups name that Region. `CreateDBCluster` with `GlobalClusterIdentifier`
+  joins the global database, as its primary when it has no member and
+  otherwise as a read-only secondary in a Region no member uses, up to ten.
+  `SwitchoverGlobalCluster` and `FailoverGlobalCluster` refuse a target that
+  is no cluster or no member, or already the primary, and promote the
+  secondary while the old primary becomes a secondary that the writer lists
+  among its `Readers`; `RemoveFromGlobalCluster` detaches a secondary. The
+  tests join a secondary from us-west-2 and switch over to it, where they had
+  switched over to the cluster that already wrote.
+- **AWS Step Functions events.** A standard workflow execution sends every
+  status change to the default event bus as a "Step Functions Execution Status
+  Change" event, as the Step Functions Developer Guide describes; express
+  workflows send none. The CLI tests route their state machine's events to an
+  Amazon SQS queue and long-poll it, where they had run the Python CLI's
+  `describe-execution` every 100 ms.
+- **AWS KMS signing key specs.** `ECC_NIST_EDWARDS25519` keys sign with
+  `ED25519_SHA_512` over a RAW message and `ED25519_PH_SHA_512` over a SHA-512
+  digest that KMS prehashes once more; `ML_DSA_44`, `ML_DSA_65` and
+  `ML_DSA_87` keys sign with `ML_DSA_SHAKE_256` through circl, and
+  `GetPublicKey` exports their SubjectPublicKeyInfo without a
+  `CustomerMasterKeySpec`. `GenerateDataKeyPair` returns Ed25519 pairs and
+  ML-KEM pairs whose PKCS#8 private key holds the seed. `Sign` and `Verify`
+  take a DIGEST message as the digest, refusing one of the wrong length,
+  where they had hashed it again.
 
 ## Continuous integration and dependencies
 

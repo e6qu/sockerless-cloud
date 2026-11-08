@@ -42,12 +42,11 @@ var grpcServiceImplementations = map[string]string{
 
 // grpcMethodFloor is the number of methods each service implements. It only
 // rises: a method that stops being declared falls back to Unimplemented, a
-// silent regression. Three methods stay unimplemented because answering them
+// silent regression. Two methods stay unimplemented because answering them
 // would mean inventing state the simulator does not hold: Cloud Bigtable's
-// OpenMaterializedView (no materialized result set or aggregate evaluator),
-// Firestore's ExecutePipeline (no pipeline expression evaluator) and Cloud
-// Spanner's FetchCacheUpdate (one SQLite database with no splits, replicas or
-// zones to report).
+// OpenMaterializedView (no materialized result set or aggregate evaluator) and
+// Cloud Spanner's FetchCacheUpdate (one SQLite database with no splits,
+// replicas or zones to report).
 var grpcMethodFloor = map[string]int{
 	"google.bigtable.admin.v2.BigtableInstanceAdmin":     34,
 	"google.bigtable.admin.v2.BigtableTableAdmin":        35,
@@ -55,7 +54,7 @@ var grpcMethodFloor = map[string]int{
 	"google.cloud.kms.v1.Autokey":                        3,
 	"google.cloud.kms.v1.KeyManagementService":           35,
 	"google.cloud.secretmanager.v1.SecretManagerService": 17,
-	"google.firestore.v1.Firestore":                      16,
+	"google.firestore.v1.Firestore":                      17,
 	"google.logging.v2.LoggingServiceV2":                 6,
 	"google.longrunning.Operations":                      5,
 	"google.pubsub.v1.Publisher":                         9,

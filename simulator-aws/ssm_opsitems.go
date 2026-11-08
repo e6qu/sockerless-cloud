@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -619,296 +618,6 @@ func handleSSMListOpsItemRelatedItems(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
-// The simulator runs no maintenance window on its schedule; instead it reports
-// one SUCCESS execution per window on read, with one task execution and one
-// invocation per registered task, under IDs derived from the window and task IDs
-// so reads agree.
-
-const ssmMWExecStatus = "SUCCESS"
-
-func ssmWindowExecID(windowID string) string {
-	return uuid.NewSHA1(uuid.Nil, []byte("mwexec/"+windowID)).String()
-}
-
-func ssmWindowExecTaskID(windowTaskID string) string {
-	return uuid.NewSHA1(uuid.Nil, []byte("mwexectask/"+windowTaskID)).String()
-}
-
-func ssmWindowExecInvocationID(windowTaskID string) string {
-	return uuid.NewSHA1(uuid.Nil, []byte("mwexecinv/"+windowTaskID)).String()
-}
-
-// ssmWindowForExec finds the window whose derived execution ID is execID.
-func ssmWindowForExec(execID string) (SSMMaintenanceWindow, bool) {
-	for _, m := range ssmWindows.List() {
-		if ssmWindowExecID(m.WindowId) == execID {
-			return m, true
-		}
-	}
-	return SSMMaintenanceWindow{}, false
-}
-
-func ssmTasksForWindow(windowID string) []SSMMaintenanceWindowTask {
-	var tasks []SSMMaintenanceWindowTask
-	for _, t := range ssmWindowTasks.List() {
-		if t.WindowId == windowID {
-			tasks = append(tasks, t)
-		}
-	}
-	sort.Slice(tasks, func(i, j int) bool { return tasks[i].WindowTaskId < tasks[j].WindowTaskId })
-	return tasks
-}
-
-func handleSSMCancelMaintenanceWindowExecution(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if _, ok := ssmWindowForExec(req.WindowExecutionId); !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution %s doesn't exist.", req.WindowExecutionId)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"WindowExecutionId": req.WindowExecutionId})
-}
-
-func handleSSMDescribeMaintenanceWindowExecutions(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowId   string `json:"WindowId"`
-		NextToken  string `json:"NextToken"`
-		MaxResults int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, ok := ssmWindows.Get(req.WindowId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window %s doesn't exist.", req.WindowId)
-		return
-	}
-	execID := ssmWindowExecID(m.WindowId)
-	out := []map[string]any{{
-		"WindowId":          m.WindowId,
-		"WindowExecutionId": execID,
-		"Status":            ssmMWExecStatus,
-		"StartTime":         m.CreatedDate,
-		"EndTime":           m.CreatedDate + 60,
-	}}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, out, awsFieldKey("WindowExecutionId"), req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"WindowExecutions": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleSSMDescribeMaintenanceWindowExecutionTasks(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-		NextToken         string `json:"NextToken"`
-		MaxResults        int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, ok := ssmWindowForExec(req.WindowExecutionId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution %s doesn't exist.", req.WindowExecutionId)
-		return
-	}
-	var rows []map[string]any
-	for _, t := range ssmTasksForWindow(m.WindowId) {
-		rows = append(rows, map[string]any{
-			"WindowExecutionId": req.WindowExecutionId,
-			"TaskExecutionId":   ssmWindowExecTaskID(t.WindowTaskId),
-			"Status":            ssmMWExecStatus,
-			"StartTime":         m.CreatedDate,
-			"EndTime":           m.CreatedDate + 60,
-			"TaskArn":           t.TaskArn,
-			"TaskType":          t.Type,
-		})
-	}
-	if rows == nil {
-		rows = []map[string]any{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("TaskExecutionId"), req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"WindowExecutionTaskIdentities": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleSSMDescribeMaintenanceWindowExecutionTaskInvocations(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-		TaskId            string `json:"TaskId"`
-		NextToken         string `json:"NextToken"`
-		MaxResults        int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, ok := ssmWindowForExec(req.WindowExecutionId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution %s doesn't exist.", req.WindowExecutionId)
-		return
-	}
-	var rows []map[string]any
-	for _, t := range ssmTasksForWindow(m.WindowId) {
-		taskExecID := ssmWindowExecTaskID(t.WindowTaskId)
-		if req.TaskId != "" && req.TaskId != taskExecID {
-			continue
-		}
-		rows = append(rows, map[string]any{
-			"WindowExecutionId": req.WindowExecutionId,
-			"TaskExecutionId":   taskExecID,
-			"InvocationId":      ssmWindowExecInvocationID(t.WindowTaskId),
-			"ExecutionId":       uuid.NewSHA1(uuid.Nil, []byte("mwexecid/"+t.WindowTaskId)).String(),
-			"TaskType":          t.Type,
-			"Parameters":        "{}",
-			"Status":            ssmMWExecStatus,
-			"StartTime":         m.CreatedDate,
-			"EndTime":           m.CreatedDate + 60,
-		})
-	}
-	if rows == nil {
-		rows = []map[string]any{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("InvocationId"), req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"WindowExecutionTaskInvocationIdentities": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleSSMGetMaintenanceWindowExecution(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, ok := ssmWindowForExec(req.WindowExecutionId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution %s doesn't exist.", req.WindowExecutionId)
-		return
-	}
-	taskIDs := []string{}
-	for _, t := range ssmTasksForWindow(m.WindowId) {
-		taskIDs = append(taskIDs, ssmWindowExecTaskID(t.WindowTaskId))
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"WindowExecutionId": req.WindowExecutionId,
-		"TaskIds":           taskIDs,
-		"Status":            ssmMWExecStatus,
-		"StartTime":         m.CreatedDate,
-		"EndTime":           m.CreatedDate + 60,
-	})
-}
-
-// ssmTaskForExecTask finds the registered task whose derived task-execution ID is
-// taskExecID, within the window that owns execID.
-func ssmTaskForExecTask(execID, taskExecID string) (SSMMaintenanceWindow, SSMMaintenanceWindowTask, bool) {
-	m, ok := ssmWindowForExec(execID)
-	if !ok {
-		return SSMMaintenanceWindow{}, SSMMaintenanceWindowTask{}, false
-	}
-	for _, t := range ssmTasksForWindow(m.WindowId) {
-		if ssmWindowExecTaskID(t.WindowTaskId) == taskExecID {
-			return m, t, true
-		}
-	}
-	return SSMMaintenanceWindow{}, SSMMaintenanceWindowTask{}, false
-}
-
-func handleSSMGetMaintenanceWindowExecutionTask(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-		TaskId            string `json:"TaskId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, t, ok := ssmTaskForExecTask(req.WindowExecutionId, req.TaskId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution task %s doesn't exist.", req.TaskId)
-		return
-	}
-	out := map[string]any{
-		"WindowExecutionId": req.WindowExecutionId,
-		"TaskExecutionId":   req.TaskId,
-		"TaskArn":           t.TaskArn,
-		"Type":              t.Type,
-		"Priority":          t.Priority,
-		"Status":            ssmMWExecStatus,
-		"StartTime":         m.CreatedDate,
-		"EndTime":           m.CreatedDate + 60,
-	}
-	if t.ServiceRoleArn != "" {
-		out["ServiceRole"] = t.ServiceRoleArn
-	}
-	if t.MaxConcurrency != "" {
-		out["MaxConcurrency"] = t.MaxConcurrency
-	}
-	if t.MaxErrors != "" {
-		out["MaxErrors"] = t.MaxErrors
-	}
-	sim.WriteJSON(w, http.StatusOK, out)
-}
-
-func handleSSMGetMaintenanceWindowExecutionTaskInvocation(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowExecutionId string `json:"WindowExecutionId"`
-		TaskId            string `json:"TaskId"`
-		InvocationId      string `json:"InvocationId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	m, t, ok := ssmTaskForExecTask(req.WindowExecutionId, req.TaskId)
-	if !ok {
-		AWSErrorf(w, "DoesNotExistException", http.StatusBadRequest,
-			"Maintenance window execution task invocation %s doesn't exist.", req.InvocationId)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"WindowExecutionId": req.WindowExecutionId,
-		"TaskExecutionId":   req.TaskId,
-		"InvocationId":      ssmWindowExecInvocationID(t.WindowTaskId),
-		"ExecutionId":       uuid.NewSHA1(uuid.Nil, []byte("mwexecid/"+t.WindowTaskId)).String(),
-		"TaskType":          t.Type,
-		"Parameters":        "{}",
-		"Status":            ssmMWExecStatus,
-		"StartTime":         m.CreatedDate,
-		"EndTime":           m.CreatedDate + 60,
-	})
-}
-
 func handleSSMGetMaintenanceWindowTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WindowId     string `json:"WindowId"`
@@ -956,88 +665,10 @@ func handleSSMGetMaintenanceWindowTask(w http.ResponseWriter, r *http.Request) {
 	if t.LoggingInfo != nil {
 		out["LoggingInfo"] = t.LoggingInfo
 	}
+	if t.TaskInvocationParameters != nil {
+		out["TaskInvocationParameters"] = t.TaskInvocationParameters
+	}
 	sim.WriteJSON(w, http.StatusOK, out)
-}
-
-func handleSSMDescribeMaintenanceWindowSchedule(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		WindowId   string `json:"WindowId"`
-		NextToken  string `json:"NextToken"`
-		MaxResults int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	var rows []map[string]any
-	for _, m := range ssmWindows.List() {
-		if req.WindowId != "" && m.WindowId != req.WindowId {
-			continue
-		}
-		if !m.Enabled {
-			continue
-		}
-		rows = append(rows, map[string]any{
-			"WindowId":      m.WindowId,
-			"Name":          m.Name,
-			"ExecutionTime": time.Unix(int64(m.CreatedDate)+86400, 0).UTC().Format(time.RFC3339),
-		})
-	}
-	if rows == nil {
-		rows = []map[string]any{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("WindowId"), req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"ScheduledWindowExecutions": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleSSMDescribeMaintenanceWindowsForTarget(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Targets []struct {
-			Key    string   `json:"Key"`
-			Values []string `json:"Values"`
-		} `json:"Targets"`
-		ResourceType string `json:"ResourceType"`
-		NextToken    string `json:"NextToken"`
-		MaxResults   int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	// A window owns a target when it has a registered target.
-	owners := map[string]bool{}
-	for _, t := range ssmWindowTargets.List() {
-		owners[t.WindowId] = true
-	}
-	var rows []map[string]any
-	for _, m := range ssmWindows.List() {
-		if !owners[m.WindowId] {
-			continue
-		}
-		rows = append(rows, map[string]any{
-			"WindowId": m.WindowId,
-			"Name":     m.Name,
-		})
-	}
-	if rows == nil {
-		rows = []map[string]any{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("WindowId"), req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"WindowIdentities": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 func handleSSMUpdateMaintenanceWindowTarget(w http.ResponseWriter, r *http.Request) {
@@ -1113,6 +744,9 @@ func handleSSMUpdateMaintenanceWindowTask(w http.ResponseWriter, r *http.Request
 		Description    *string        `json:"Description"`
 		CutoffBehavior *string        `json:"CutoffBehavior"`
 		Replace        *bool          `json:"Replace"`
+
+		TaskInvocationParameters *SSMWindowTaskInvocationParameters `json:"TaskInvocationParameters"`
+		LoggingInfo              map[string]string                  `json:"LoggingInfo"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -1164,6 +798,16 @@ func handleSSMUpdateMaintenanceWindowTask(w http.ResponseWriter, r *http.Request
 	if req.CutoffBehavior != nil {
 		t.CutoffBehavior = *req.CutoffBehavior
 	}
+	if req.TaskInvocationParameters != nil {
+		t.TaskInvocationParameters = req.TaskInvocationParameters
+	} else if replace {
+		t.TaskInvocationParameters = nil
+	}
+	if req.LoggingInfo != nil {
+		t.LoggingInfo = req.LoggingInfo
+	} else if replace {
+		t.LoggingInfo = nil
+	}
 	ssmWindowTasks.Put(key, t)
 	out := map[string]any{
 		"WindowId":     t.WindowId,
@@ -1195,6 +839,9 @@ func handleSSMUpdateMaintenanceWindowTask(w http.ResponseWriter, r *http.Request
 	}
 	if t.LoggingInfo != nil {
 		out["LoggingInfo"] = t.LoggingInfo
+	}
+	if t.TaskInvocationParameters != nil {
+		out["TaskInvocationParameters"] = t.TaskInvocationParameters
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
 }

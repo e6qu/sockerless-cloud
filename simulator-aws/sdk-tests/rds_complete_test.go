@@ -389,49 +389,90 @@ func TestRDS_SwitchoverGlobalCluster(t *testing.T) {
 	secondaryID := "swg-secondary-cluster"
 	globalID := "swg-global"
 
-	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+	created, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 		DBClusterIdentifier: aws.String(writerID),
 		Engine:              aws.String("aurora-postgresql"),
 		MasterUsername:      aws.String("admin"),
 		MasterUserPassword:  aws.String("password123!"),
 	})
 	require.NoError(t, err)
-	secOut, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
-		DBClusterIdentifier: aws.String(secondaryID),
-		Engine:              aws.String("aurora-postgresql"),
-		MasterUsername:      aws.String("admin"),
-		MasterUserPassword:  aws.String("password123!"),
-	})
-	require.NoError(t, err)
-	secArn := aws.ToString(secOut.DBCluster.DBClusterArn)
+	writerArn := aws.ToString(created.DBCluster.DBClusterArn)
 	t.Cleanup(func() {
-		_, _ = c.DeleteGlobalCluster(ctx, &rds.DeleteGlobalClusterInput{
-			GlobalClusterIdentifier: aws.String(globalID),
-		})
-		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
-			DBClusterIdentifier: aws.String(secondaryID),
-			SkipFinalSnapshot:   aws.Bool(true),
-		})
 		_, _ = c.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(writerID),
 			SkipFinalSnapshot:   aws.Bool(true),
 		})
 	})
-
 	_, err = c.CreateGlobalCluster(ctx, &rds.CreateGlobalClusterInput{
 		GlobalClusterIdentifier:   aws.String(globalID),
-		SourceDBClusterIdentifier: secOut.DBCluster.DBClusterArn,
+		SourceDBClusterIdentifier: aws.String(writerArn),
 	})
 	require.NoError(t, err)
-	// The global cluster's one member is the cluster it was built from, and the
-	// switchover targets it.
+	t.Cleanup(func() {
+		_, _ = c.DeleteGlobalCluster(ctx, &rds.DeleteGlobalClusterInput{GlobalClusterIdentifier: aws.String(globalID)})
+	})
+
+	_, err = c.SwitchoverGlobalCluster(ctx, &rds.SwitchoverGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String(globalID),
+		TargetDbClusterIdentifier: aws.String(writerArn),
+	})
+	requireAWSErrorCode(t, err, "InvalidGlobalClusterStateFault")
+
+	secondaryArn := rdsGlobalSecondaryCluster(t, globalID, secondaryID, "aurora-postgresql")
+	_, err = c.SwitchoverGlobalCluster(ctx, &rds.SwitchoverGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String(globalID),
+		TargetDbClusterIdentifier: aws.String("arn:aws:rds:us-west-2:123456789012:cluster:swg-missing"),
+	})
+	requireAWSErrorCode(t, err, "DBClusterNotFoundFault")
+
 	out, err := c.SwitchoverGlobalCluster(ctx, &rds.SwitchoverGlobalClusterInput{
 		GlobalClusterIdentifier:   aws.String(globalID),
-		TargetDbClusterIdentifier: aws.String(secArn),
+		TargetDbClusterIdentifier: aws.String(secondaryArn),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.GlobalCluster)
 	assert.Equal(t, globalID, aws.ToString(out.GlobalCluster.GlobalClusterIdentifier))
-	require.NotEmpty(t, out.GlobalCluster.GlobalClusterMembers)
-	assert.True(t, aws.ToBool(out.GlobalCluster.GlobalClusterMembers[0].IsWriter))
+	require.Len(t, out.GlobalCluster.GlobalClusterMembers, 2)
+	assert.Equal(t, secondaryArn, aws.ToString(out.GlobalCluster.GlobalClusterMembers[0].DBClusterArn))
+	assert.True(t, aws.ToBool(out.GlobalCluster.GlobalClusterMembers[0].IsWriter), "the switchover promotes the secondary")
+	assert.Equal(t, []string{writerArn}, out.GlobalCluster.GlobalClusterMembers[0].Readers)
+	assert.Equal(t, writerArn, aws.ToString(out.GlobalCluster.GlobalClusterMembers[1].DBClusterArn))
+	assert.False(t, aws.ToBool(out.GlobalCluster.GlobalClusterMembers[1].IsWriter), "the old primary becomes a secondary")
+}
+
+// rdsGlobalSecondaryCluster joins a new cluster in us-west-2 to the global
+// database as its secondary, as aurora-global-database-attaching.md.gz
+// describes, and returns its ARN.
+func rdsGlobalSecondaryCluster(t *testing.T, globalID, id, engine string) string {
+	t.Helper()
+	west := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
+		o.BaseEndpoint = aws.String(baseURL)
+		o.Region = "us-west-2"
+	})
+	_, err := west.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+		DBClusterIdentifier:     aws.String(id),
+		GlobalClusterIdentifier: aws.String(globalID),
+		Engine:                  aws.String(engine),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = west.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+			DBClusterIdentifier: aws.String(id), SkipFinalSnapshot: aws.Bool(true),
+		})
+	})
+	described, err := west.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(id)})
+	require.NoError(t, err)
+	require.Len(t, described.DBClusters, 1)
+	arn := aws.ToString(described.DBClusters[0].DBClusterArn)
+	require.Contains(t, arn, ":us-west-2:", "a cluster lives in the Region its request is signed for")
+	_, err = rdsClient().DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{DBClusterIdentifier: aws.String(id)})
+	requireAWSErrorCode(t, err, "DBClusterNotFoundFault")
+
+	_, err = west.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
+		DBClusterIdentifier:     aws.String(id + "-second"),
+		GlobalClusterIdentifier: aws.String(globalID),
+		Engine:                  aws.String(engine),
+	})
+	requireAWSErrorCode(t, err, "InvalidGlobalClusterStateFault")
+	return arn
 }

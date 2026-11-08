@@ -47,12 +47,13 @@ func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 		_, err = container.CreateItem(ctx, pk, []byte(item), nil)
 		require.NoError(t, err)
 	}
-	time.Sleep(2500 * time.Millisecond)
-
-	_, err = container.ReadItem(ctx, pk, "short", nil)
-	var respErr *azcore.ResponseError
-	require.True(t, errors.As(err, &respErr), "an expired item no longer reads: %v", err)
-	assert.Equal(t, http.StatusNotFound, respErr.StatusCode)
+	// Azure Cosmos DB offers no notification of an expiry; read the item until
+	// the service answers 404, within a bound well past its one-second TTL.
+	require.Eventually(t, func() bool {
+		_, err := container.ReadItem(ctx, pk, "short", nil)
+		var respErr *azcore.ResponseError
+		return errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound
+	}, 30*time.Second, 250*time.Millisecond, "an item past its defaultTtl must stop reading")
 	_, err = container.ReadItem(ctx, pk, "kept", nil)
 	require.NoError(t, err, "an item with ttl -1 never expires")
 

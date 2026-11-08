@@ -2059,6 +2059,8 @@ resource "azurerm_virtual_machine_packet_capture" "az_vm_capture" {
   network_watcher_id = azurerm_network_watcher.az_nw.id
   virtual_machine_id = azurerm_linux_virtual_machine.az_vm.id
 
+  maximum_bytes_per_packet            = 0
+  maximum_bytes_per_session           = 1073741824
   maximum_capture_duration_in_seconds = 600
 
   storage_location {

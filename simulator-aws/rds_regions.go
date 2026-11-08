@@ -37,3 +37,24 @@ func rdsPlaceInstance(r *http.Request, instance *RDSInstance) {
 	instance.ARN = rdsInstanceARNIn(region, instance.DBInstanceIdentifier)
 	instance.Endpoint = rdsInstanceEndpointIn(region, instance.DBInstanceIdentifier)
 }
+
+func (c RDSCluster) region() string {
+	return firstNonEmpty(c.Region, awsRegion())
+}
+
+func rdsClusterARNIn(region, id string) string {
+	return fmt.Sprintf("arn:aws:rds:%s:%s:cluster:%s", region, awsAccountID(), id)
+}
+
+// rdsClusterIn is the DB cluster id names in the Region r is signed for; id
+// may also be the cluster's ARN.
+func rdsClusterIn(r *http.Request, id string) (RDSCluster, bool) {
+	cluster, ok := rdsClusters.Get(id)
+	if !ok {
+		cluster, ok = findRDSClusterByARN(id)
+	}
+	if !ok || cluster.region() != rdsRequestRegion(r) {
+		return RDSCluster{}, false
+	}
+	return cluster, true
+}

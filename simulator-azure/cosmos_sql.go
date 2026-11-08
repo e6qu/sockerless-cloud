@@ -903,7 +903,7 @@ func cosmosProjectRow(q *cosmosQuery, doc CosmosDocument) map[string]any {
 		return cosmosDocBody(doc)
 	}
 	if q.valueOnly {
-		// azcosmos unwraps a single-property row, so emit the scalar under "$1".
+		// cosmosQueryItems unwraps the value from under "$1".
 		v, ok := cosmosLookupPath(doc.Body, q.projection[0].segs)
 		if !ok {
 			return map[string]any{}
@@ -935,4 +935,21 @@ func cosmosRenderValue(v any) any {
 		return out
 	}
 	return v
+}
+
+// cosmosQueryItems renders a query's rows as the service returns them: a
+// SELECT VALUE query yields the bare values, and drops a row whose value is
+// undefined; any other query yields its objects.
+func cosmosQueryItems(q *cosmosQuery, rows []map[string]any) []any {
+	out := make([]any, 0, len(rows))
+	for _, row := range rows {
+		if q.valueOnly || q.countAll {
+			if v, ok := row["$1"]; ok {
+				out = append(out, v)
+			}
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }

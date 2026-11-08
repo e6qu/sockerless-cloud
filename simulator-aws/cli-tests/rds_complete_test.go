@@ -302,19 +302,47 @@ func TestRDSCLI_Complete(t *testing.T) {
 	runCLI(t, awsCLI("rds", "create-global-cluster",
 		"--global-cluster-identifier", gGlobal,
 		"--source-db-cluster-identifier", writerArn))
+	secondaryArn := rdsGlobalSecondaryClusterCLI(t, gGlobal, "cli-cmpl-g-secondary", "aurora-postgresql")
 	out = runCLI(t, awsCLI("rds", "switchover-global-cluster",
 		"--global-cluster-identifier", gGlobal,
-		"--target-db-cluster-identifier", writerArn))
+		"--target-db-cluster-identifier", secondaryArn))
 	var swG struct {
 		GlobalCluster struct {
 			GlobalClusterIdentifier string `json:"GlobalClusterIdentifier"`
 			GlobalClusterMembers    []struct {
-				IsWriter bool `json:"IsWriter"`
+				DBClusterArn string   `json:"DBClusterArn"`
+				IsWriter     bool     `json:"IsWriter"`
+				Readers      []string `json:"Readers"`
 			} `json:"GlobalClusterMembers"`
 		} `json:"GlobalCluster"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &swG))
 	assert.Equal(t, gGlobal, swG.GlobalCluster.GlobalClusterIdentifier)
-	require.NotEmpty(t, swG.GlobalCluster.GlobalClusterMembers)
+	require.Len(t, swG.GlobalCluster.GlobalClusterMembers, 2)
+	assert.Equal(t, secondaryArn, swG.GlobalCluster.GlobalClusterMembers[0].DBClusterArn)
 	assert.True(t, swG.GlobalCluster.GlobalClusterMembers[0].IsWriter)
+	assert.Equal(t, []string{writerArn}, swG.GlobalCluster.GlobalClusterMembers[0].Readers)
+	assert.False(t, swG.GlobalCluster.GlobalClusterMembers[1].IsWriter)
+	refused := runCLIExpectError(t, awsCLI("rds", "switchover-global-cluster",
+		"--global-cluster-identifier", gGlobal,
+		"--target-db-cluster-identifier", secondaryArn))
+	assert.Contains(t, refused, "InvalidGlobalClusterStateFault")
+}
+
+// rdsGlobalSecondaryClusterCLI joins a new cluster in us-west-2 to the global
+// database as its secondary and returns its ARN.
+func rdsGlobalSecondaryClusterCLI(t *testing.T, globalID, id, engine string) string {
+	t.Helper()
+	out := runCLI(t, awsCLI("rds", "--region", "us-west-2", "create-db-cluster",
+		"--db-cluster-identifier", id,
+		"--global-cluster-identifier", globalID,
+		"--engine", engine,
+		"--query", "DBCluster.DBClusterArn", "--output", "text"))
+	t.Cleanup(func() {
+		_ = awsCLI("rds", "--region", "us-west-2", "delete-db-cluster",
+			"--db-cluster-identifier", id, "--skip-final-snapshot").Run()
+	})
+	arn := strings.TrimSpace(out)
+	require.Contains(t, arn, ":us-west-2:")
+	return arn
 }

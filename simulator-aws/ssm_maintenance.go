@@ -45,6 +45,72 @@ type SSMMaintenanceWindowTarget struct {
 	Description      string      `json:"Description,omitempty"`
 }
 
+// SSMWindowTaskInvocationParameters is MaintenanceWindowTaskInvocationParameters.
+type SSMWindowTaskInvocationParameters struct {
+	RunCommand    *SSMWindowRunCommandParameters    `json:"RunCommand,omitempty"`
+	Automation    *SSMWindowAutomationParameters    `json:"Automation,omitempty"`
+	StepFunctions *SSMWindowStepFunctionsParameters `json:"StepFunctions,omitempty"`
+	Lambda        *SSMWindowLambdaParameters        `json:"Lambda,omitempty"`
+}
+
+type SSMWindowRunCommandParameters struct {
+	Comment                string              `json:"Comment,omitempty"`
+	CloudWatchOutputConfig map[string]any      `json:"CloudWatchOutputConfig,omitempty"`
+	DocumentHash           string              `json:"DocumentHash,omitempty"`
+	DocumentHashType       string              `json:"DocumentHashType,omitempty"`
+	DocumentVersion        string              `json:"DocumentVersion,omitempty"`
+	NotificationConfig     map[string]any      `json:"NotificationConfig,omitempty"`
+	OutputS3BucketName     string              `json:"OutputS3BucketName,omitempty"`
+	OutputS3KeyPrefix      string              `json:"OutputS3KeyPrefix,omitempty"`
+	Parameters             map[string][]string `json:"Parameters,omitempty"`
+	ServiceRoleArn         string              `json:"ServiceRoleArn,omitempty"`
+	TimeoutSeconds         int                 `json:"TimeoutSeconds,omitempty"`
+}
+
+type SSMWindowAutomationParameters struct {
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+}
+
+type SSMWindowStepFunctionsParameters struct {
+	Input string `json:"Input,omitempty"`
+	Name  string `json:"Name,omitempty"`
+}
+
+type SSMWindowLambdaParameters struct {
+	ClientContext string `json:"ClientContext,omitempty"`
+	Qualifier     string `json:"Qualifier,omitempty"`
+	Payload       string `json:"Payload,omitempty"`
+}
+
+func (p *SSMWindowTaskInvocationParameters) runCommand() *SSMWindowRunCommandParameters {
+	if p == nil {
+		return nil
+	}
+	return p.RunCommand
+}
+
+func (p *SSMWindowTaskInvocationParameters) automation() *SSMWindowAutomationParameters {
+	if p == nil {
+		return nil
+	}
+	return p.Automation
+}
+
+func (p *SSMWindowTaskInvocationParameters) stepFunctions() *SSMWindowStepFunctionsParameters {
+	if p == nil {
+		return nil
+	}
+	return p.StepFunctions
+}
+
+func (p *SSMWindowTaskInvocationParameters) lambda() *SSMWindowLambdaParameters {
+	if p == nil {
+		return nil
+	}
+	return p.Lambda
+}
+
 type SSMMaintenanceWindowTask struct {
 	WindowId       string            `json:"WindowId"`
 	WindowTaskId   string            `json:"WindowTaskId"`
@@ -60,6 +126,8 @@ type SSMMaintenanceWindowTask struct {
 	Description    string            `json:"Description,omitempty"`
 	CutoffBehavior string            `json:"CutoffBehavior,omitempty"`
 	LoggingInfo    map[string]string `json:"LoggingInfo,omitempty"`
+
+	TaskInvocationParameters *SSMWindowTaskInvocationParameters `json:"TaskInvocationParameters,omitempty"`
 }
 
 var (
@@ -84,6 +152,7 @@ func registerSSMMaintenanceWindows(r *AWSRouter, srv *sim.Server) {
 	r.Register("AmazonSSM.DeregisterTaskFromMaintenanceWindow", handleSSMDeregisterTask)
 	r.Register("AmazonSSM.DescribeMaintenanceWindowTargets", handleSSMDescribeTargets)
 	r.Register("AmazonSSM.DescribeMaintenanceWindowTasks", handleSSMDescribeTasks)
+	registerSSMMaintenanceWindowRuns(srv)
 }
 
 // newSSMWindowID returns an ID matching ^mw-[0-9a-f]{17}$.
@@ -155,6 +224,11 @@ func handleSSMCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "ValidationException", "Name, Schedule, and Duration are required", http.StatusBadRequest)
 		return
 	}
+	if _, err := ssmWindowPlanFor(SSMMaintenanceWindow{Schedule: req.Schedule, ScheduleTimezone: req.ScheduleTimezone,
+		StartDate: req.StartDate, EndDate: req.EndDate}); err != nil {
+		AWSErrorf(w, "ValidationException", http.StatusBadRequest, "%v", err)
+		return
+	}
 	now := float64(time.Now().Unix())
 	m := SSMMaintenanceWindow{
 		WindowId:                 newSSMWindowID(),
@@ -219,6 +293,9 @@ func handleSSMGetMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := ssmWindowWire(m)
+	if run, ok := ssmWindowNextRun(m, time.Now()); ok {
+		out["NextExecutionTime"] = ssmWindowTimeWire(run)
+	}
 	out["CreatedDate"] = m.CreatedDate
 	out["ModifiedDate"] = m.ModifiedDate
 	sim.WriteJSON(w, http.StatusOK, out)
@@ -327,18 +404,21 @@ func handleSSMRegisterTarget(w http.ResponseWriter, r *http.Request) {
 
 func handleSSMRegisterTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		WindowId       string         `json:"WindowId"`
-		TaskArn        string         `json:"TaskArn"`
-		TaskType       string         `json:"TaskType"`
-		Targets        []SSMTarget    `json:"Targets"`
-		TaskParameters map[string]any `json:"TaskParameters"`
-		Priority       int            `json:"Priority"`
-		ServiceRoleArn string         `json:"ServiceRoleArn"`
-		MaxConcurrency string         `json:"MaxConcurrency"`
-		MaxErrors      string         `json:"MaxErrors"`
-		Name           string         `json:"Name"`
-		Description    string         `json:"Description"`
-		CutoffBehavior string         `json:"CutoffBehavior"`
+		WindowId       string            `json:"WindowId"`
+		TaskArn        string            `json:"TaskArn"`
+		TaskType       string            `json:"TaskType"`
+		Targets        []SSMTarget       `json:"Targets"`
+		TaskParameters map[string]any    `json:"TaskParameters"`
+		Priority       int               `json:"Priority"`
+		ServiceRoleArn string            `json:"ServiceRoleArn"`
+		MaxConcurrency string            `json:"MaxConcurrency"`
+		MaxErrors      string            `json:"MaxErrors"`
+		Name           string            `json:"Name"`
+		Description    string            `json:"Description"`
+		CutoffBehavior string            `json:"CutoffBehavior"`
+		LoggingInfo    map[string]string `json:"LoggingInfo"`
+
+		TaskInvocationParameters *SSMWindowTaskInvocationParameters `json:"TaskInvocationParameters"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
@@ -352,6 +432,9 @@ func handleSSMRegisterTask(w http.ResponseWriter, r *http.Request) {
 	if req.TaskArn == "" || req.TaskType == "" {
 		AWSError(w, "ValidationException", "TaskArn and TaskType are required", http.StatusBadRequest)
 		return
+	}
+	if req.ServiceRoleArn == "" && req.TaskInvocationParameters.runCommand() == nil {
+		ssmEnsureServiceLinkedRole()
 	}
 	t := SSMMaintenanceWindowTask{
 		WindowId:       req.WindowId,
@@ -367,6 +450,9 @@ func handleSSMRegisterTask(w http.ResponseWriter, r *http.Request) {
 		Name:           req.Name,
 		Description:    req.Description,
 		CutoffBehavior: req.CutoffBehavior,
+		LoggingInfo:    req.LoggingInfo,
+
+		TaskInvocationParameters: req.TaskInvocationParameters,
 	}
 	ssmWindowTasks.Put(ssmWindowKey(t.WindowId, t.WindowTaskId), t)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"WindowTaskId": t.WindowTaskId})
@@ -513,6 +599,9 @@ func handleSSMDescribeTasks(w http.ResponseWriter, r *http.Request) {
 		if t.CutoffBehavior != "" {
 			row["CutoffBehavior"] = t.CutoffBehavior
 		}
+		if t.LoggingInfo != nil {
+			row["LoggingInfo"] = t.LoggingInfo
+		}
 		out = append(out, row)
 	}
 	resp := map[string]any{"Tasks": out}
@@ -560,4 +649,11 @@ func ssmDescribePage[T any](w http.ResponseWriter, r *http.Request, store sim.St
 		resp["NextToken"] = next
 	}
 	sim.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ssmEnsureServiceLinkedRole creates AWSServiceRoleForAmazonSSM, which a
+// maintenance window task without a service role runs as
+// (ssm-service-linked-role.md.gz).
+func ssmEnsureServiceLinkedRole() string {
+	return iamEnsureServiceLinkedRole(awsAccountID(), "ssm.amazonaws.com", "Provides access to AWS Resources managed or used by Amazon SSM")
 }

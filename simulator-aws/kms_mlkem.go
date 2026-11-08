@@ -76,13 +76,7 @@ func kmsMLKEMPublicKeyDER(spec string, pub kem.PublicKey) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return asn1.Marshal(struct {
-		Algorithm struct{ Algorithm asn1.ObjectIdentifier }
-		PublicKey asn1.BitString
-	}{
-		Algorithm: struct{ Algorithm asn1.ObjectIdentifier }{oid},
-		PublicKey: asn1.BitString{Bytes: raw, BitLength: 8 * len(raw)},
-	})
+	return kmsSPKI(oid, raw)
 }
 
 // kmsMLKEMKey resolves the request's key and checks that it is an enabled

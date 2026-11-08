@@ -42,7 +42,7 @@ func crmEnsureDefaultProject() {
 	for _, seed := range []struct{ id, number string }{
 		{"sockerless", "123456789012"},
 	} {
-		if _, ok := crmProjects.Get(seed.id); ok {
+		if crmProjectIDTaken(seed.id) {
 			continue
 		}
 		p := CRMProject{
@@ -584,7 +584,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
-		if _, exists := crmProjects.Get(req.ProjectID); exists {
+		if crmProjectIDTaken(req.ProjectID) {
 			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Requested entity already exists")
 			return
 		}
@@ -656,6 +656,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		p.DeleteTime = nowTimestamp()
 		p.UpdateTime = nowTimestamp()
 		crmProjects.Put(p.ProjectId, p)
+		crmWakePurger()
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
@@ -734,6 +735,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		p.DeleteTime = ""
 		p.UpdateTime = nowTimestamp()
 		crmProjects.Put(p.ProjectId, p)
+		crmWakePurger()
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 

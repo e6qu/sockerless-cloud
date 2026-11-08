@@ -192,6 +192,7 @@ func rdsClusterFromSource(r *http.Request, newID, engine, engineVersion string) 
 		paramGroup = "default." + rdsParameterGroupFamily(engine, engineVersion)
 	}
 	return RDSCluster{
+		Region:                     rdsRequestRegion(r),
 		DBClusterIdentifier:        newID,
 		DbClusterResourceId:        rdsClusterResourceID(),
 		Engine:                     engine,
@@ -201,16 +202,16 @@ func rdsClusterFromSource(r *http.Request, newID, engine, engineVersion string) 
 		DatabaseName:               r.FormValue("DatabaseName"),
 		MasterUsername:             r.FormValue("MasterUsername"),
 		Port:                       port,
-		Endpoint:                   fmt.Sprintf("%s.cluster-%s.%s.rds.amazonaws.com", newID, "sim", awsRegion()),
-		ReaderEndpoint:             fmt.Sprintf("%s.cluster-ro-%s.%s.rds.amazonaws.com", newID, "sim", awsRegion()),
+		Endpoint:                   fmt.Sprintf("%s.cluster-%s.%s.rds.amazonaws.com", newID, "sim", rdsRequestRegion(r)),
+		ReaderEndpoint:             fmt.Sprintf("%s.cluster-ro-%s.%s.rds.amazonaws.com", newID, "sim", rdsRequestRegion(r)),
 		DBClusterParameterGroup:    paramGroup,
 		DBSubnetGroup:              r.FormValue("DBSubnetGroupName"),
 		BackupRetentionPeriod:      1,
 		ClusterCreateTime:          time.Now().UTC().Format(time.RFC3339),
-		AvailabilityZones:          []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"},
+		AvailabilityZones:          []string{rdsRequestRegion(r) + "a", rdsRequestRegion(r) + "b", rdsRequestRegion(r) + "c"},
 		PreferredBackupWindow:      rdsClusterBackupWindow(r),
 		PreferredMaintenanceWindow: "mon:00:00-mon:03:00",
-		ARN:                        rdsClusterARN(newID),
+		ARN:                        rdsClusterARNIn(rdsRequestRegion(r), newID),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
 }
@@ -1187,7 +1188,7 @@ func handleRDSBacktrackCluster(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, ok := rdsClusters.Get(clusterID); !ok {
+	if _, ok := rdsClusterIn(r, clusterID); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", clusterID),
 			http.StatusNotFound, sim.RequestID(r.Context()))
@@ -1215,7 +1216,7 @@ func handleRDSDescribeClusterBacktracks(w http.ResponseWriter, r *http.Request) 
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, ok := rdsClusters.Get(clusterID); !ok {
+	if _, ok := rdsClusterIn(r, clusterID); !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", clusterID),
 			http.StatusNotFound, sim.RequestID(r.Context()))
@@ -1343,7 +1344,7 @@ func handleRDSCancelExportTask(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSRebootCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cl, ok := rdsClusters.Get(id)
+	cl, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault", "DB cluster not found",
 			http.StatusNotFound, sim.RequestID(r.Context()))
@@ -1415,6 +1416,10 @@ func rdsParseEndpointMembers(r *http.Request, field string) []string {
 }
 
 func handleRDSFailoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
+	rdsPromoteGlobalMember(w, r, "FailoverGlobalCluster")
+}
+
+func handleRDSRemoveFromGlobalCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("GlobalClusterIdentifier")
 	g, ok := rdsGlobalClusters.Get(id)
 	if !ok {
@@ -1423,51 +1428,27 @@ func handleRDSFailoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	target := r.FormValue("TargetDbClusterIdentifier")
-	// Promote the target cluster to writer by moving it first;
-	// renderRDSGlobalCluster treats index 0 as the writer.
-	if target != "" {
-		rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
-			var reordered []string
-			reordered = append(reordered, target)
-			for _, m := range x.Members {
-				if m != target {
-					reordered = append(reordered, m)
-				}
-			}
-			x.Members = reordered
-		})
-		g, _ = rdsGlobalClusters.Get(id)
-	}
-	rdsXMLResponse(w, "FailoverGlobalCluster", renderRDSGlobalCluster(g, "GlobalCluster"), sim.RequestID(r.Context()))
-}
-
-func handleRDSRemoveFromGlobalCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("GlobalClusterIdentifier")
-	_, ok := rdsGlobalClusters.Get(id)
+	index, ok := rdsGlobalMember(w, r, g, r.FormValue("DbClusterIdentifier"))
 	if !ok {
-		rdsErrorXML(w, "GlobalClusterNotFoundFault",
-			fmt.Sprintf("GlobalCluster %q not found", id),
-			http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	dbClusterArn := r.FormValue("DbClusterIdentifier")
+	// RemoveFromGlobalCluster detaches a secondary; the primary leaves only last.
+	if index == 0 && len(g.Members) > 1 {
+		rdsErrorXML(w, "InvalidGlobalClusterStateFault",
+			fmt.Sprintf("DB cluster %s is the primary of global cluster %s and has secondaries.", g.Members[0], id),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	rdsGlobalClusters.Update(id, func(x *RDSGlobalCluster) {
-		var kept []string
-		for _, m := range x.Members {
-			if m != dbClusterArn {
-				kept = append(kept, m)
-			}
-		}
-		x.Members = kept
+		x.Members = append(append([]string{}, x.Members[:index]...), x.Members[index+1:]...)
 	})
-	g, _ := rdsGlobalClusters.Get(id)
+	g, _ = rdsGlobalClusters.Get(id)
 	rdsXMLResponse(w, "RemoveFromGlobalCluster", renderRDSGlobalCluster(g, "GlobalCluster"), sim.RequestID(r.Context()))
 }
 
 func handleRDSPromoteReadReplicaCluster(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBClusterIdentifier")
-	cl, ok := rdsClusters.Get(id)
+	cl, ok := rdsClusterIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBClusterNotFoundFault",
 			fmt.Sprintf("DBCluster %q not found", id),

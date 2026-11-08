@@ -1,123 +1,81 @@
 package azure_sdk_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerApps_CrossJobDNS: two jobs of one managed environment resolve
-// each other by job name.
+// A job's name resolves inside its environment: once beta's replica has
+// started, alpha's container looks beta up and prints the answer, which the
+// environment's console logs carry.
 func TestContainerApps_CrossJobDNS(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
-	}
+	const rg = "aca-logs-rg"
+	envID, customerID := acaLogsEnvironment(t)
+	jobs, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
+	require.NoError(t, err)
 
-	rg := "xjob-aca-rg"
-	env := "xjob-aca-env"
-
-	rgBody := `{"location":"eastus"}`
-	doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=2023-07-01",
-		baseURL, subscriptionID, rg), rgBody)
-
-	envBody := `{"location":"eastus","properties":{"zoneRedundant":false}}`
-	envEcho := doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s?api-version=2024-03-01",
-		baseURL, subscriptionID, rg, env), envBody)
-	// ManagedEnvironment has no member naming its backing network.
-	require.NotContains(t, envEcho, "dockerNetworkName")
-	defer doDELETE(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s?api-version=2024-03-01",
-		baseURL, subscriptionID, rg, env))
-
-	envID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
-		subscriptionID, rg, env)
-
-	// The jobs sleep so the test can exec into them.
-	createJob := func(jobName string) {
-		body := map[string]any{
-			"location": "eastus",
-			"properties": map[string]any{
-				"environmentId": envID,
-				"configuration": map[string]any{
-					"triggerType":    "Manual",
-					"replicaTimeout": 60,
+	run := func(name, script string) string {
+		t.Helper()
+		create, err := jobs.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.Job{
+			Location: to.Ptr("eastus"),
+			Properties: &armappcontainers.JobProperties{
+				EnvironmentID: to.Ptr(envID),
+				Configuration: &armappcontainers.JobConfiguration{
+					TriggerType:    to.Ptr(armappcontainers.TriggerTypeManual),
+					ReplicaTimeout: to.Ptr[int32](120),
+					ManualTriggerConfig: &armappcontainers.JobConfigurationManualTriggerConfig{
+						Parallelism: to.Ptr[int32](1), ReplicaCompletionCount: to.Ptr[int32](1),
+					},
 				},
-				"template": map[string]any{
-					"containers": []map[string]any{{
-						"name":    "worker",
-						"image":   "mirror.gcr.io/library/alpine:latest",
-						"command": []string{"sh", "-c"},
-						"args":    []string{"sleep 30"},
-					}},
-				},
+				Template: &armappcontainers.JobTemplate{Containers: []*armappcontainers.Container{{
+					Name:    to.Ptr("worker"),
+					Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
+					Command: []*string{to.Ptr("sh"), to.Ptr("-c")},
+					Args:    []*string{to.Ptr(script)},
+				}}},
 			},
-		}
-		raw, _ := json.Marshal(body)
-		doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s?api-version=2024-03-01",
-			baseURL, subscriptionID, rg, jobName), string(raw))
+		}, nil)
+		require.NoError(t, err)
+		_, err = create.PollUntilDone(ctx, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			if poller, err := jobs.BeginDelete(ctx, rg, name, nil); err == nil {
+				_, _ = poller.PollUntilDone(ctx, nil)
+			}
+		})
+		start, err := jobs.BeginStart(ctx, rg, name, nil)
+		require.NoError(t, err)
+		started, err := start.PollUntilDone(ctx, nil)
+		require.NoError(t, err)
+		require.NotNil(t, started.Name)
+		return *started.Name
 	}
-	createJob("alpha")
-	createJob("beta")
-
-	startJob := func(jobName string) string {
-		resp := doPOST(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/start?api-version=2024-03-01",
-			baseURL, subscriptionID, rg, jobName), "")
-		_ = resp
-		return jobName
+	query := func(kql string) bool {
+		result := queryWorkspace(t, customerID, kql)
+		return len(result.Tables) == 1 && len(result.Tables[0].Rows) > 0
 	}
-	startJob("alpha")
-	startJob("beta")
 
-	alphaContainer := waitForJobContainer(t, "alpha", envID)
-	_ = waitForJobContainer(t, "beta", envID)
-
-	var getent []byte
+	betaExecution := run("xjob-beta", "sleep 60")
 	require.Eventually(t, func() bool {
-		var err error
-		getent, err = exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta").CombinedOutput()
-		return err == nil && len(getent) > 0
-	}, 30*time.Second, 500*time.Millisecond, "alpha should resolve 'beta' via ACA env DNS: %s", getent)
-	assert.Contains(t, string(getent), "beta", "getent output should mention beta: %s", getent)
-}
+		return query(`ContainerAppSystemLogs_CL | where JobName_s == "xjob-beta" and ExecutionName_s == "` +
+			betaExecution + `" and Log_s startswith "Started container"`)
+	}, 60*time.Second, 200*time.Millisecond, "beta's replica never started")
 
-// waitForJobContainer returns the name of the container the simulator started
-// for the job.
-func waitForJobContainer(t *testing.T, jobName, envID string) string {
-	t.Helper()
-	var name string
+	alphaExecution := run("xjob-alpha", "getent hosts xjob-beta")
+	exec := acaWaitExecution(t, rg, "xjob-alpha", alphaExecution)
+	assert.Equal(t, "Succeeded", exec["properties"].(map[string]any)["status"], "alpha resolved xjob-beta")
 	require.Eventually(t, func() bool {
-		out, err := exec.Command("docker", "ps",
-			"--filter", "label=sockerless-sim-type=aca-job-execution",
-			"--format", "{{.Names}}\t{{.Label \"sockerless-exec-id\"}}",
-		).Output()
-		if err != nil {
-			return false
-		}
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line == "" {
-				continue
-			}
-			parts := strings.SplitN(line, "\t", 2)
-			if len(parts) < 2 {
-				continue
-			}
-			// exec-id format: <envIDpath>/jobs/<jobName>/executions/<execName>
-			if strings.Contains(parts[1], "/jobs/"+jobName+"/executions/") {
-				name = parts[0]
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 300*time.Millisecond, "container for job %s should be running", jobName)
-	return name
+		return query(`ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "xjob-alpha" and Log_s contains "xjob-beta"`)
+	}, 60*time.Second, 200*time.Millisecond, "alpha's lookup of xjob-beta is in its console log")
 }
 
 func doPUT(t *testing.T, url, body string) string {
@@ -130,19 +88,6 @@ func doPUT(t *testing.T, url, body string) string {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	require.Less(t, resp.StatusCode, 400, "PUT %s failed: %d %s", url, resp.StatusCode, string(data))
-	return string(data)
-}
-
-func doPOST(t *testing.T, url, body string) string {
-	t.Helper()
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", simARMBearer)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	require.Less(t, resp.StatusCode, 400, "POST %s failed: %d %s", url, resp.StatusCode, string(data))
 	return string(data)
 }
 

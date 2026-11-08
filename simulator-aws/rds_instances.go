@@ -78,7 +78,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 	var cluster RDSCluster
 	if clusterID != "" {
 		var ok bool
-		cluster, ok = rdsClusters.Get(clusterID)
+		cluster, ok = rdsClusterIn(r, clusterID)
 		if !ok {
 			rdsErrorXML(w, "DBClusterNotFoundFault", fmt.Sprintf("DBCluster %s not found.", clusterID), http.StatusNotFound, sim.RequestID(r.Context()))
 			return

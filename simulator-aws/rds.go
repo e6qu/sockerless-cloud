@@ -182,6 +182,7 @@ type RDSSnapshot struct {
 // and its members' instance endpoints.
 type RDSCluster struct {
 	DBClusterIdentifier        string
+	Region                     string `json:",omitempty"`
 	DbClusterResourceId        string
 	Engine                     string
 	EngineVersion              string

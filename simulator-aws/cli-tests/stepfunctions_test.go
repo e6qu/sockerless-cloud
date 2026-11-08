@@ -76,6 +76,7 @@ func TestSFN_GenericAWSSDKIntegrations_CLI(t *testing.T) {
 			"--state-machine-arn", machine.StateMachineArn))
 	})
 
+	watch := watchSFNExecutionsCLI(t, machine.StateMachineArn)
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", machine.StateMachineArn))
 	var started struct {
@@ -88,12 +89,10 @@ func TestSFN_GenericAWSSDKIntegrations_CLI(t *testing.T) {
 		Error  string `json:"error"`
 		Cause  string `json:"cause"`
 	}
-	require.Eventually(t, func() bool {
-		out = runCLI(t, awsCLI("stepfunctions", "describe-execution",
-			"--execution-arn", started.ExecutionArn))
-		parseJSON(t, out, &execution)
-		return execution.Status != "RUNNING"
-	}, 10*time.Second, 100*time.Millisecond)
+	watch.await(t, started.ExecutionArn, "SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED")
+	out = runCLI(t, awsCLI("stepfunctions", "describe-execution",
+		"--execution-arn", started.ExecutionArn))
+	parseJSON(t, out, &execution)
 	require.Equal(t, "SUCCEEDED", execution.Status, "%s: %s", execution.Error, execution.Cause)
 	assert.Contains(t, execution.Output, roleName)
 
@@ -219,6 +218,7 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 			"--state-machine-arn", created.StateMachineArn))
 	})
 
+	watch := watchSFNExecutionsCLI(t, created.StateMachineArn)
 	inputJSON, _ := json.Marshal(map[string]string{"hello": "world"})
 	out = runCLI(t, awsCLI("stepfunctions", "start-execution",
 		"--state-machine-arn", created.StateMachineArn,
@@ -235,12 +235,10 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 		Status string `json:"status"`
 		Name   string `json:"name"`
 	}
-	require.Eventually(t, func() bool {
-		out = runCLI(t, awsCLI("stepfunctions", "describe-execution",
-			"--execution-arn", started.ExecutionArn))
-		parseJSON(t, out, &exec)
-		return exec.Status == "SUCCEEDED"
-	}, 10*time.Second, 100*time.Millisecond)
+	watch.await(t, started.ExecutionArn, "SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED")
+	out = runCLI(t, awsCLI("stepfunctions", "describe-execution",
+		"--execution-arn", started.ExecutionArn))
+	parseJSON(t, out, &exec)
 	assert.Equal(t, "SUCCEEDED", exec.Status)
 	assert.Equal(t, "cli-exec-1", exec.Name)
 

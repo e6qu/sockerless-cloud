@@ -33,8 +33,6 @@ import (
 	secretmanager "google.golang.org/api/secretmanager/v1"
 	spanner "google.golang.org/api/spanner/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
@@ -410,12 +408,9 @@ func TestConformance_EventarcDuplicateTriggerConflict(t *testing.T) {
 	})
 
 	_, err = client.CreateTrigger(ctx, req)
-	require.Error(t, err)
-	// The Eventarc REST client derives the gRPC code from the HTTP status, which
-	// ALREADY_EXISTS and ABORTED share, so accept either and assert the conflict
-	// message.
-	code := status.Code(err)
-	assert.Contains(t, []codes.Code{codes.AlreadyExists, codes.Aborted}, code, "duplicate CreateTrigger must be a 409-family conflict: %v", err)
+	// The Eventarc REST client derives its gRPC code from the HTTP status,
+	// which ALREADY_EXISTS and ABORTED share, so read the status the body names.
+	requireGoogleErr(t, err, http.StatusConflict, "ALREADY_EXISTS")
 	assert.Contains(t, err.Error(), "already exists")
 }
 

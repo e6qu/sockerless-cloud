@@ -158,12 +158,12 @@ func registerCosmosDB(srv *sim.Server) {
 	srv.HandleFunc("GET /dbs/{database}/colls/{container}", cosmosRecorded(handleCosmosDataGetColl))
 	srv.HandleFunc("PUT /dbs/{database}/colls/{container}", cosmosRecorded(handleCosmosDataReplaceColl))
 	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}", cosmosRecorded(handleCosmosDataDeleteColl))
-	srv.HandleFunc("POST /dbs/{database}/colls/{container}/docs", cosmosRecorded(cosmosMetered(handleCosmosDataCreateOrQueryDoc)))
-	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs", cosmosRecorded(cosmosMetered(handleCosmosDataListDocs)))
-	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(handleCosmosDataGetDoc)))
-	srv.HandleFunc("PUT /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(handleCosmosDataReplaceDoc)))
-	srv.HandleFunc("PATCH /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(handleCosmosDataPatchDoc)))
-	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(handleCosmosDataDeleteDoc)))
+	srv.HandleFunc("POST /dbs/{database}/colls/{container}/docs", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataCreateOrQueryDoc))))
+	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataListDocs))))
+	srv.HandleFunc("GET /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataGetDoc))))
+	srv.HandleFunc("PUT /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataReplaceDoc))))
+	srv.HandleFunc("PATCH /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataPatchDoc))))
+	srv.HandleFunc("DELETE /dbs/{database}/colls/{container}/docs/{doc}", cosmosRecorded(cosmosMetered(cosmosInCollection(handleCosmosDataDeleteDoc))))
 
 	registerCosmosThroughput(srv)
 }
@@ -888,15 +888,31 @@ func handleCosmosDataGetColl(w http.ResponseWriter, r *http.Request) {
 	account, db, coll := cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")
 	// A container created here and one created through the management plane are
 	// the same container to a data-plane client.
-	_, created := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll))
-	if !created {
-		_, created = cosmosARMContainer(account, db, coll)
-	}
-	if !created {
+	if !cosmosCollectionExists(account, db, coll) {
 		cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
 		return
 	}
 	cosmosWriteData(w, http.StatusOK, cosmosDataColl(account, db, coll))
+}
+
+func cosmosCollectionExists(account, db, coll string) bool {
+	if _, ok := cosmosDataColls.Get(cosmosDataCollKey(account, db, coll)); ok {
+		return true
+	}
+	_, ok := cosmosARMContainer(account, db, coll)
+	return ok
+}
+
+// cosmosInCollection answers a document operation on a container that does
+// not exist as GetColl does.
+func cosmosInCollection(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !cosmosCollectionExists(cosmosDataAccount(r), sim.PathParam(r, "database"), sim.PathParam(r, "container")) {
+			cosmosDataError(w, "NotFound", "Owner resource does not exist", http.StatusNotFound)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func cosmosCollPKPath(body map[string]any) string {
@@ -1192,7 +1208,7 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 		docs = filtered
 	}
 
-	out := cosmosRunQuery(plan, docs, cosmosBindParams(req.Parameters))
+	out := cosmosQueryItems(plan, cosmosRunQuery(plan, docs, cosmosBindParams(req.Parameters)))
 
 	// A COUNT aggregate is a single row and never paged.
 	start, end, continuation, err := listq.Window(listq.Base64Decimal, len(out), r.Header.Get("x-ms-continuation"), cosmosMaxItemCount(r), 0, 0)

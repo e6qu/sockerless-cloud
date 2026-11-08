@@ -77,6 +77,7 @@ func iamSLRName(servicePrincipal, customSuffix string) string {
 		"replication.ecr.amazonaws.com":   "ECRReplication",
 		"globalaccelerator.amazonaws.com": "GlobalAccelerator",
 		"appsync.amazonaws.com":           "AppSync",
+		"ssm.amazonaws.com":               "AmazonSSM",
 	}
 	suffix := known[servicePrincipal]
 	if suffix == "" {
