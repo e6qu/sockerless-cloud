@@ -39,15 +39,15 @@ func registerComputeCatalogs(srv *sim.Server) {
 	}
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/licenseCodes/{resource}/getIamPolicy",
 		func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "getIamPolicy")
+			handleComputeResourceIAM(srv, w, r, licenceIAM(r), "getIamPolicy")
 		})
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/setIamPolicy",
 		func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "setIamPolicy")
+			handleComputeResourceIAM(srv, w, r, licenceIAM(r), "setIamPolicy")
 		})
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/licenseCodes/{resource}/testIamPermissions",
 		func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies, licenceIAM(r), "testIamPermissions")
+			handleComputeResourceIAM(srv, w, r, licenceIAM(r), "testIamPermissions")
 		})
 
 	// interconnects.getDiagnostics is served in

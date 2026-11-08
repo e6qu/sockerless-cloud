@@ -440,13 +440,13 @@ func registerComputeInstanceVerbs(srv *sim.Server, instances sim.Store[ComputeIn
 			computeSelfLink(""))
 	}
 	srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
+		handleComputeResourceIAM(srv, w, r, policyName(r), "getIamPolicy")
 	})
 	srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
+		handleComputeResourceIAM(srv, w, r, policyName(r), "setIamPolicy")
 	})
 	srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
+		handleComputeResourceIAM(srv, w, r, policyName(r), "testIamPermissions")
 	})
 
 	srv.HandleFunc("GET "+base+"/{name}/getGuestAttributes", func(w http.ResponseWriter, r *http.Request) {

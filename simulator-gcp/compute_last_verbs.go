@@ -137,7 +137,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 	})
 	srv.HandleFunc("POST /compute/v1/projects/{project}/global/firewalls/{resource}/testIamPermissions",
 		func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies,
+			handleComputeResourceIAM(srv, w, r,
 				"compute/"+computeGlobalLink(sim.PathParam(r, "project"), "firewalls", sim.PathParam(r, "resource")),
 				"testIamPermissions")
 		})

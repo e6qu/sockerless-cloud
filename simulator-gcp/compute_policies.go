@@ -390,14 +390,14 @@ func (f computePolicyFamily) register(srv *sim.Server) {
 		}
 		if f.iam {
 			srv.HandleFunc("GET "+f.base+"/{policy}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
+				handleComputeResourceIAM(srv, w, r, policyName(r), "getIamPolicy")
 			})
 			srv.HandleFunc("POST "+f.base+"/{policy}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-				handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
+				handleComputeResourceIAM(srv, w, r, policyName(r), "setIamPolicy")
 			})
 		}
 		srv.HandleFunc("POST "+f.base+"/{policy}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "testIamPermissions")
+			handleComputeResourceIAM(srv, w, r, policyName(r), "testIamPermissions")
 		})
 	}
 }

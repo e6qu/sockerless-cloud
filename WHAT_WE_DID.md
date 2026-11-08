@@ -2041,6 +2041,15 @@ fails once the row closes or the operation is served.
   in), record `parent`, and run their operations under
   `locations/global/operations` with an `org-` name and the policy's id as
   `targetId`, which the Terraform provider and gcloud's poller read.
+- **Compute Engine IAM verbs.** `getIamPolicy`, `setIamPolicy` and
+  `testIamPermissions` on every Compute Engine collection first serve the
+  collection's own get method for the resource they name, and a resource
+  never created receives that method's 404, so no policy lands on an absent
+  resource. A unit test sends every mounted verb to an absent resource and
+  expects the structured 404; the SDK suites create each resource before its
+  policy verb, a gcloud test binds a policy on an image it created and is
+  refused one on an image it never created, and a licence code's policy
+  belongs to a code a licence in the project was issued.
 - **Compute Engine instance identity.** An instance inserted without a
   service account has no identity on the metadata server, and identity tokens
   name the account by its IAM `uniqueId` in `sub` and `azp`.

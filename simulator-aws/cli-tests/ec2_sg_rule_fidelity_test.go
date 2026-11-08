@@ -6,7 +6,8 @@ import (
 )
 
 // TestEC2CLI_SecurityGroupRuleFidelity expects an all-traffic (-1) rule to
-// report no ports, and a referenced group as a bare sg- id with no UserId.
+// report no ports, and a referenced group by its bare sg- id with its owner as
+// UserId.
 func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -35,7 +36,6 @@ func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 		t.Fatalf("all-traffic FromPort = %q, want None", from)
 	}
 
-	// Without a UserId terraform-provider-aws keeps the bare id.
 	ref := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--filters", "Name=group-id,Values="+sgTasks,
 		"--query", "SecurityGroupRules[?IpProtocol=='tcp'].ReferencedGroupInfo.GroupId | [0]", "--output", "text")))
@@ -45,7 +45,9 @@ func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
 	refUser := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-group-rules",
 		"--filters", "Name=group-id,Values="+sgTasks,
 		"--query", "SecurityGroupRules[?IpProtocol=='tcp'].ReferencedGroupInfo.UserId | [0]", "--output", "text")))
-	if refUser != "None" {
-		t.Fatalf("ReferencedGroupInfo.UserId = %q, want None for same-account ref", refUser)
+	owner := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-security-groups",
+		"--group-ids", sgAlb, "--query", "SecurityGroups[0].OwnerId", "--output", "text")))
+	if refUser != owner {
+		t.Fatalf("ReferencedGroupInfo.UserId = %q, want the referenced group's owner %q", refUser, owner)
 	}
 }

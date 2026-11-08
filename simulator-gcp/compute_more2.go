@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -448,6 +449,29 @@ var computeTLSCipherFeatures = []string{
 	"TLS_RSA_WITH_3DES_EDE_CBC_SHA",
 }
 
+// handleComputeResourceIAM answers an IAM verb on a Compute Engine resource
+// once the collection's get method finds the resource; a missing resource
+// receives that method's answer, as Compute Engine answers it.
+func handleComputeResourceIAM(srv *sim.Server, w http.ResponseWriter, r *http.Request, resource, verb string) {
+	get := r.Clone(r.Context())
+	get.Method = http.MethodGet
+	get.URL.Path = strings.TrimSuffix(r.URL.Path, "/"+verb)
+	get.URL.RawPath = ""
+	get.URL.RawQuery = ""
+	get.RequestURI = get.URL.RequestURI()
+	get.Body = http.NoBody
+	get.ContentLength = 0
+	found := &sim.CallResponse{}
+	srv.Mux().ServeHTTP(found, get)
+	if found.StatusCode != 0 && found.StatusCode != http.StatusOK {
+		maps.Copy(w.Header(), found.Header())
+		w.WriteHeader(found.StatusCode)
+		_, _ = w.Write(found.Body.Bytes())
+		return
+	}
+	handleResourceIAM(w, r, gcpResourcePolicies, resource, verb)
+}
+
 // registerComputeIAMTriplet serves getIamPolicy, setIamPolicy and
 // testIamPermissions for one scoped collection from the shared resource-policy
 // store the IAM gate reads.
@@ -458,10 +482,10 @@ func registerComputeIAMTriplet(srv *sim.Server, scope computeScopeKind, collecti
 			sim.PathParam(r, "project"), computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
 	}
 	srv.HandleFunc("GET "+base+"/{resource}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "getIamPolicy")
+		handleComputeResourceIAM(srv, w, r, policyName(r), "getIamPolicy")
 	})
 	srv.HandleFunc("POST "+base+"/{resource}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, policyName(r), "setIamPolicy")
+		handleComputeResourceIAM(srv, w, r, policyName(r), "setIamPolicy")
 	})
 	registerComputeTestIamPermissions(srv, scope, collection)
 }
@@ -473,7 +497,7 @@ func registerComputeTestIamPermissions(srv *sim.Server, scope computeScopeKind, 
 	srv.HandleFunc("POST "+base+"/{resource}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("compute/projects/%s/%s/%s/%s",
 			sim.PathParam(r, "project"), computeScopeSegment(scope, r), collection, sim.PathParam(r, "resource"))
-		handleResourceIAM(w, r, gcpResourcePolicies, name, "testIamPermissions")
+		handleComputeResourceIAM(srv, w, r, name, "testIamPermissions")
 	})
 }
 
