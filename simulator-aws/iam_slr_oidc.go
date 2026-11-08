@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -186,7 +185,7 @@ func handleIAMCreateServiceLinkedRole(w http.ResponseWriter, r *http.Request) {
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
 </CreateServiceLinkedRoleResponse>`,
 		role.Path, role.RoleName, role.RoleId, role.Arn, role.CreateDate,
-		url.QueryEscape(role.AssumeRolePolicyDocument), html.EscapeString(role.Description), sim.NewUUID())
+		iamEncodePolicyDocument(role.AssumeRolePolicyDocument), html.EscapeString(role.Description), sim.NewUUID())
 }
 
 func handleIAMDeleteServiceLinkedRole(w http.ResponseWriter, r *http.Request) {

@@ -577,6 +577,9 @@ func (s *Server) Serve() error {
 	if s.ln == nil {
 		return errors.New("Serve before Listen")
 	}
+	processDataDirs.Lock()
+	processDataDirs.servers++
+	processDataDirs.Unlock()
 	handler := s.finalHandler()
 	httpServer := func(addr string) *http.Server {
 		return &http.Server{
@@ -693,9 +696,7 @@ func (s *Server) Serve() error {
 		s.logger.Warn().Msg("shutdown: background work still running; the database stays open for the process exit")
 	}
 	s.removeEphemeralPayloads()
-	if drained {
-		removeProcessDataDirs()
-	}
+	releaseProcessDataDirs(drained)
 	return errors.Join(err, closeErr)
 }
 

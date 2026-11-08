@@ -171,3 +171,29 @@ func TestIAMCLI_EntitiesAndContextKeys(t *testing.T) {
 		t.Fatalf("get-context-keys-for-principal-policy did not return the inline-policy condition key: %s", principalKeys)
 	}
 }
+
+// TestIAMCLI_PolicyDocumentsKeepSpaces reads back documents whose strings hold
+// spaces; IAM encodes them %20, which the CLI decodes, never +.
+func TestIAMCLI_PolicyDocumentsKeepSpaces(t *testing.T) {
+	t.Parallel()
+	runCLI(t, awsCLI("iam", "create-role",
+		"--role-name", "cli-doc-spaces-role",
+		"--assume-role-policy-document", `{"Version": "2012-10-17", "Statement": [{"Sid": "Trust EC2", "Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"}, "Action": "sts:AssumeRole"}]}`))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-role", "--role-name", "cli-doc-spaces-role")) })
+	sid := strings.TrimSpace(runCLI(t, awsCLI("iam", "get-role", "--role-name", "cli-doc-spaces-role",
+		"--query", "Role.AssumeRolePolicyDocument.Statement[0].Sid", "--output", "text")))
+	if sid != "Trust EC2" {
+		t.Fatalf("get-role read the trust policy's Sid as %q, want %q", sid, "Trust EC2")
+	}
+
+	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy",
+		"--policy-name", "cli-doc-spaces-policy",
+		"--policy-document", `{"Version": "2012-10-17", "Statement": [{"Sid": "Read objects", "Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}]}`,
+		"--query", "Policy.Arn", "--output", "text")))
+	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-policy", "--policy-arn", arn)) })
+	sid = strings.TrimSpace(runCLI(t, awsCLI("iam", "get-policy-version", "--policy-arn", arn, "--version-id", "v1",
+		"--query", "PolicyVersion.Document.Statement[0].Sid", "--output", "text")))
+	if sid != "Read objects" {
+		t.Fatalf("get-policy-version read the Sid as %q, want %q", sid, "Read objects")
+	}
+}

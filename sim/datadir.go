@@ -32,14 +32,21 @@ func ScopedDataDir(overrideEnv, subdir, tempName string) string {
 	return dir
 }
 
+// processDataDirs holds the per-process directories and counts the servers
+// serving from them; the last server to stop removes them.
 var processDataDirs = struct {
 	sync.Mutex
-	held map[string]bool
+	held    map[string]bool
+	servers int
 }{held: map[string]bool{}}
 
-func removeProcessDataDirs() {
+func releaseProcessDataDirs(remove bool) {
 	processDataDirs.Lock()
 	defer processDataDirs.Unlock()
+	processDataDirs.servers--
+	if !remove || processDataDirs.servers > 0 {
+		return
+	}
 	for dir := range processDataDirs.held {
 		_ = os.RemoveAll(dir)
 		delete(processDataDirs.held, dir)

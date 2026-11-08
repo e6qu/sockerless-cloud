@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -244,7 +243,7 @@ func handleIAMGetAccountAuthorizationDetails(w http.ResponseWriter, r *http.Requ
 // iamRoleDetailInnerXML emits RoleDetail's fields without the <Role> wrapper:
 // the role's identity fields plus its assume-role policy document.
 func iamRoleDetailInnerXML(role IAMRole) string {
-	doc := urlQueryEscapeIAM(role.AssumeRolePolicyDocument)
+	doc := iamEncodePolicyDocument(role.AssumeRolePolicyDocument)
 	return fmt.Sprintf("<Path>%s</Path><RoleName>%s</RoleName><RoleId>%s</RoleId><Arn>%s</Arn><CreateDate>%s</CreateDate><AssumeRolePolicyDocument>%s</AssumeRolePolicyDocument>",
 		xmlEscape(role.Path), xmlEscape(role.RoleName), role.RoleId, xmlEscape(role.Arn), role.CreateDate, doc)
 }
@@ -292,7 +291,7 @@ func iamInlinePolicyListXML(field string, policies []iamInlinePolicy) string {
 	fmt.Fprintf(&b, "<%s>", field)
 	for _, p := range policies {
 		fmt.Fprintf(&b, "<member><PolicyName>%s</PolicyName><PolicyDocument>%s</PolicyDocument></member>",
-			xmlEscape(p.Name), urlQueryEscapeIAM(p.Doc))
+			xmlEscape(p.Name), iamEncodePolicyDocument(p.Doc))
 	}
 	fmt.Fprintf(&b, "</%s>", field)
 	return b.String()
@@ -367,7 +366,7 @@ func iamGroupListXML(acct string, user string) string {
 func iamManagedPolicyDetailXML(p IAMPolicy) string {
 	return fmt.Sprintf("<PolicyName>%s</PolicyName><PolicyId>%s</PolicyId><Arn>%s</Arn><Path>%s</Path><DefaultVersionId>%s</DefaultVersionId><AttachmentCount>0</AttachmentCount><PermissionsBoundaryUsageCount>0</PermissionsBoundaryUsageCount><IsAttachable>true</IsAttachable><Description>%s</Description><CreateDate>%s</CreateDate><UpdateDate>%s</UpdateDate><PolicyVersionList><member><Document>%s</Document><VersionId>%s</VersionId><IsDefaultVersion>true</IsDefaultVersion><CreateDate>%s</CreateDate></member></PolicyVersionList>",
 		xmlEscape(p.PolicyName), p.PolicyId, xmlEscape(p.Arn), xmlEscape(p.Path), p.DefaultVersionId,
-		xmlEscape(p.Description), p.CreateDate, p.CreateDate, urlQueryEscapeIAM(p.PolicyDocument), p.DefaultVersionId, p.CreateDate)
+		xmlEscape(p.Description), p.CreateDate, p.CreateDate, iamEncodePolicyDocument(p.PolicyDocument), p.DefaultVersionId, p.CreateDate)
 }
 
 // handleIAMGenerateCredentialReport reports STARTED on the first call and
@@ -1051,8 +1050,21 @@ func handleIAMGetHumanReadableSummary(w http.ResponseWriter, r *http.Request) {
 	iamResultXML(w, "GetHumanReadableSummary", inner)
 }
 
-// urlQueryEscapeIAM URL-encodes a policy document the way IAM returns embedded
-// documents (GetRolePolicy, GetPolicyVersion).
-func urlQueryEscapeIAM(s string) string {
-	return url.QueryEscape(s)
+// iamEncodePolicyDocument URL-encodes a policy document as IAM returns it,
+// RFC 3986-style: every byte but the unreserved characters becomes %XX, so a
+// space is %20, never +.
+func iamEncodePolicyDocument(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hex[c>>4])
+		b.WriteByte(hex[c&15])
+	}
+	return b.String()
 }

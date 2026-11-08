@@ -1898,18 +1898,27 @@ fails once the row closes or the operation is served.
   use for an endpoint addressed by IP. The CLI suite advertises
   `<account>.<service>.core.cli-shim.localhost`, the shape the CLI's storage
   SDK reads an account name from, and reaches it through `HTTP_PROXY`.
+- **Amazon S3 ListBuckets.** A request that names `max-buckets`, `prefix`,
+  `bucket-region` or `continuation-token` is paginated, as the model states:
+  it pages at `max-buckets` (10,000 by default), sorted by name, with an
+  opaque continuation token, and each bucket carries `BucketRegion`; an
+  unpaginated request names no Region.
+- **IAM policy documents** are URL-encoded RFC 3986-style, every byte but the
+  unreserved characters as `%XX`, so the AWS CLI decodes a space as a space,
+  not `+`.
 - **Azure Compute images.** ComputeRP's `virtualMachineImage.json` and
   `image.json` are vendored, so the conformance probe checks the marketplace
-  catalog and `Microsoft.Compute/images` routes instead of an allowlist.
+  catalog and `Microsoft.Compute/images` routes instead of an allowlist; the
+  edge-zone catalog operations declare a 501, since no Extended Zone runs.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever
   had and ten times its storage in GB, rounded to the nearest 1000. The
   simulator records each resource's peak throughput for that rule.
 - **Scoped data directories.** With no data directory set,
-  `sim.ScopedDataDir` gives each process its own temporary directory and the
-  server removes it on shutdown, so two simulators, or two runs of one test,
-  never share App Service site homes.
+  `sim.ScopedDataDir` gives each process its own temporary directory, which
+  the last of the process's servers to stop removes, so two simulators, or
+  two runs of one test, never share App Service site homes.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

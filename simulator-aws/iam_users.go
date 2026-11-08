@@ -342,7 +342,7 @@ func handleIAMGetUserPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetUserPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetUserPolicyResult><UserName>%s</UserName><PolicyName>%s</PolicyName><PolicyDocument>%s</PolicyDocument></GetUserPolicyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetUserPolicyResponse>`,
-		xmlEscape(name), xmlEscape(policyName), url.QueryEscape(p.PolicyDocument), sim.NewUUID())
+		xmlEscape(name), xmlEscape(policyName), iamEncodePolicyDocument(p.PolicyDocument), sim.NewUUID())
 }
 
 func handleIAMDeleteUserPolicy(w http.ResponseWriter, r *http.Request) {

@@ -403,3 +403,23 @@ func azureResolveVMImage(ctx context.Context, vm VirtualMachine) (vminstance.Ima
 	}
 	return img.Image, nil
 }
+
+// The simulator runs no Azure Extended Zone, so an edge zone's image catalog
+// declares itself unserved.
+func registerEdgeZoneVirtualMachineImages(srv *sim.Server) {
+	const base = "/subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/edgeZones/{edgeZone}"
+	unserved := func(w http.ResponseWriter, r *http.Request) {
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+			"The simulator runs no Azure Extended Zone, so edge zone %q has no image catalog.", sim.PathParam(r, "edgeZone"))
+	}
+	for _, path := range []string{
+		"/publishers",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions/{version}",
+		"/vmimages",
+	} {
+		srv.HandleFunc("GET "+base+path, unserved)
+	}
+}

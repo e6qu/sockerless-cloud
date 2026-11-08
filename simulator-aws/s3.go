@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 type S3Bucket struct {
 	Name         string `xml:"Name"`
 	CreationDate string `xml:"CreationDate"`
+	BucketRegion string `xml:"BucketRegion,omitempty" json:"-"`
 
 	// DirectoryZone is the Availability Zone id a directory bucket is placed
 	// in, empty for a general purpose bucket. It is what separates the two
@@ -83,10 +86,12 @@ type S3Object struct {
 }
 
 type s3ListAllMyBucketsResult struct {
-	XMLName xml.Name  `xml:"ListAllMyBucketsResult"`
-	Xmlns   string    `xml:"xmlns,attr"`
-	Owner   s3Owner   `xml:"Owner"`
-	Buckets s3Buckets `xml:"Buckets"`
+	XMLName           xml.Name  `xml:"ListAllMyBucketsResult"`
+	Xmlns             string    `xml:"xmlns,attr"`
+	Owner             s3Owner   `xml:"Owner"`
+	Buckets           s3Buckets `xml:"Buckets"`
+	ContinuationToken string    `xml:"ContinuationToken,omitempty"`
+	Prefix            string    `xml:"Prefix,omitempty"`
 }
 
 type s3Owner struct {
@@ -723,12 +728,43 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	// A directory bucket is returned by ListDirectoryBuckets and not by this
 	// listing, which is what separates the two surfaces.
 	caller := iamRequestAccount(r)
+	q := r.URL.Query()
+	// A request naming any of the four parameters is paginated: it pages at
+	// max-buckets, 10,000 by default, and each bucket carries its Region.
+	paginated := q.Has("max-buckets") || q.Has("prefix") || q.Has("bucket-region") || q.Has("continuation-token")
+	pageSize := 10000
+	if v := q.Get("max-buckets"); q.Has("max-buckets") {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 10000 {
+			S3ErrorXML(w, "InvalidArgument", "max-buckets must be an integer between 1 and 10000", "/", sim.RequestID(r.Context()), http.StatusBadRequest)
+			return
+		}
+		pageSize = n
+	}
+	after := ""
+	if tok := q.Get("continuation-token"); tok != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(tok)
+		if err != nil {
+			S3ErrorXML(w, "InvalidArgument", "The continuation token provided is incorrect", "/", sim.RequestID(r.Context()), http.StatusBadRequest)
+			return
+		}
+		after = string(raw)
+	}
+	prefix, region := q.Get("prefix"), q.Get("bucket-region")
 	buckets := []S3Bucket{}
 	for _, b := range s3Buckets_.List() {
-		if b.DirectoryZone == "" && s3BucketOwner(b) == caller {
-			buckets = append(buckets, b)
+		if b.DirectoryZone != "" || s3BucketOwner(b) != caller {
+			continue
 		}
+		if !strings.HasPrefix(b.Name, prefix) || (region != "" && region != awsRegion()) || b.Name <= after && after != "" {
+			continue
+		}
+		if paginated {
+			b.BucketRegion = awsRegion()
+		}
+		buckets = append(buckets, b)
 	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i].Name < buckets[j].Name })
 
 	result := s3ListAllMyBucketsResult{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
@@ -736,10 +772,13 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 			ID:          caller,
 			DisplayName: "simulator",
 		},
-		Buckets: s3Buckets{
-			Bucket: buckets,
-		},
+		Prefix: prefix,
 	}
+	if paginated && len(buckets) > pageSize {
+		buckets = buckets[:pageSize]
+		result.ContinuationToken = base64.RawURLEncoding.EncodeToString([]byte(buckets[pageSize-1].Name))
+	}
+	result.Buckets = s3Buckets{Bucket: buckets}
 
 	WriteXML(w, http.StatusOK, result)
 }

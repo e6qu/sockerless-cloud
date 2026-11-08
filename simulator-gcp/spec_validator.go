@@ -651,11 +651,12 @@ func decodeStreamElements(respBody []byte) ([]any, error) {
 }
 
 // isStreamingResponseOp reports whether op is a server-streaming REST method:
-// Firestore's queries and batchGet, Cloud Logging's entries.tail.
+// Firestore's queries, batchGet and listen, Cloud Logging's entries.tail.
 func isStreamingResponseOp(op string) bool {
 	return strings.HasSuffix(op, ":runQuery") ||
 		strings.HasSuffix(op, ":batchGet") ||
 		strings.HasSuffix(op, ":runAggregationQuery") ||
+		strings.HasSuffix(op, "documents:listen") ||
 		strings.HasSuffix(op, "entries:tail")
 }
 

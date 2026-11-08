@@ -14,7 +14,7 @@
       "name": "@sockerless/ui-core",
       "version": "0.1.0",
       "dependencies": {
-        "@tanstack/react-query": "^5.107.0",
+        "@tanstack/react-query": "^5.107.1",
         "react": "^19.3.1",
       },
       "devDependencies": {
@@ -36,7 +36,7 @@
         "@cloudscape-design/design-tokens": "^3.0.117",
         "@cloudscape-design/global-styles": "^1.0.72",
         "@sockerless/ui-core": "workspace:*",
-        "@tanstack/react-query": "^5.107.0",
+        "@tanstack/react-query": "^5.107.1",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
         "react-router": "^8.5.1",
@@ -64,7 +64,7 @@
         "@fluentui/react-components": "^9.75.1",
         "@fluentui/react-icons": "^2.0.345",
         "@sockerless/ui-core": "workspace:*",
-        "@tanstack/react-query": "^5.107.0",
+        "@tanstack/react-query": "^5.107.1",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
         "react-router": "^8.5.1",
@@ -90,7 +90,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@sockerless/ui-core": "workspace:*",
-        "@tanstack/react-query": "^5.107.0",
+        "@tanstack/react-query": "^5.107.1",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
         "react-router": "^8.5.1",
@@ -483,9 +483,9 @@
 
     "@tailwindcss/vite": ["@tailwindcss/vite@4.3.5", "", { "dependencies": { "@tailwindcss/node": "4.3.5", "@tailwindcss/oxide": "4.3.5", "tailwindcss": "4.3.5" }, "peerDependencies": { "vite": "^5.2.0 || ^6 || ^7 || ^8" } }, "sha512-BCNiY0a1ZjdOHVqw7kyb7U72BwfMF3dfUuN+tQsLWky/J5JOI/r7abibglXfygrZhVO/3u3V+E25kkKTeMkXaQ=="],
 
-    "@tanstack/query-core": ["@tanstack/query-core@5.107.0", "", {}, "sha512-QrobCJilIr2futzukm0E9w/j7fEGweTNZL0cBJDTV0ek1PeNE32XqzQHUxqKc6grb9OxUZt6tz27lgu5fchK0w=="],
+    "@tanstack/query-core": ["@tanstack/query-core@5.107.1", "", {}, "sha512-PSyAik11oQBEVOiVy5hjZWHmoUqOXqK1WYy4v55mcxozEfKaQgpUMsgnXhWjuESzSht8JfzqMS1m6M/9CpNgvg=="],
 
-    "@tanstack/react-query": ["@tanstack/react-query@5.107.0", "", { "dependencies": { "@tanstack/query-core": "5.107.0" }, "peerDependencies": { "@types/react": "^18 || ^19", "react": "^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-vzqV+83SAKau1E7meyPX6UwkMMowS+HIzXMXdZYwFXiY3ZmUogVgLFNAfh86Kxn5Wj+044fbkO1Vtt5TYy237g=="],
+    "@tanstack/react-query": ["@tanstack/react-query@5.107.1", "", { "dependencies": { "@tanstack/query-core": "5.107.1" }, "peerDependencies": { "@types/react": "^18 || ^19", "react": "^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-udCOOLp3ZAheUrIHLCe+ZZge6nr2ZUrGMSWcCuXsjY1Bf2JeeE09oxst97PILiCY6N8xo/7bIo3Hvz13zh06FA=="],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.1", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg=="],
 

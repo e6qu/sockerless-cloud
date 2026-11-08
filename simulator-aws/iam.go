@@ -123,7 +123,7 @@ func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 // iamRoleFieldsXML emits the role fields without the <Role> wrapper, for list
 // <member> elements where IAM's XML puts them directly under the member.
 func iamRoleFieldsXML(role IAMRole) string {
-	doc := url.QueryEscape(role.AssumeRolePolicyDocument)
+	doc := iamEncodePolicyDocument(role.AssumeRolePolicyDocument)
 	maxSession := iamRoleMaxSessionDuration(role)
 	var extra string
 	if role.Description != "" {
@@ -417,7 +417,7 @@ func handleIAMGetRolePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc := url.QueryEscape(policy.PolicyDocument)
+	doc := iamEncodePolicyDocument(policy.PolicyDocument)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetRolePolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetRolePolicyResult>
@@ -684,7 +684,7 @@ func handleIAMGetPolicyVersion(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<GetPolicyVersionResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
   <GetPolicyVersionResult><PolicyVersion><Document>%s</Document><VersionId>%s</VersionId><IsDefaultVersion>true</IsDefaultVersion><CreateDate>%s</CreateDate></PolicyVersion></GetPolicyVersionResult>
   <ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata>
-</GetPolicyVersionResponse>`, url.QueryEscape(policy.PolicyDocument), versionID, policy.CreateDate, sim.NewUUID())
+</GetPolicyVersionResponse>`, iamEncodePolicyDocument(policy.PolicyDocument), versionID, policy.CreateDate, sim.NewUUID())
 }
 
 func handleIAMCreateInstanceProfile(w http.ResponseWriter, r *http.Request) {
