@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +79,7 @@ func kuduAwaitStreamLine(t *testing.T, lines *bufio.Scanner, match func(string) 
 
 func TestSDK_WebApps_KuduZipDumpAndProcesses(t *testing.T) {
 	t.Parallel()
-	rg, name := "sdk-kudu-diag-rg", "sdk-kudu-diag-app"
+	rg, name := "sdk-kudu-diag-rg", uniquename.New("sdk-kudu-diag-app")
 	client := createStackWebApp(t, rg, name, "DOCKER|"+servingImageName, nil)
 	scm, auth := kuduSCM(t, client, rg, name)
 	withHeader := func(k, v string) func(*http.Request) {

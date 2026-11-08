@@ -64,7 +64,7 @@ const (
 
 func environmentsClient(t *testing.T) *armappservice.EnvironmentsClient {
 	t.Helper()
-	client, err := armappservice.NewEnvironmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewEnvironmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	return client
 }
@@ -391,7 +391,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	// A Linux plan on the worker pool lowers capacity by its instance count and
 	// flips the Linux-worker flag, both computed from the plan.
 	aseID := *created.ID
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	planPoller, err := plans.BeginCreateOrUpdate(ctx, aseRG, "sdk-ase-plan", armappservice.Plan{
 		Location: to.Ptr("eastus"),
@@ -426,7 +426,7 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	require.Len(t, listedPlans, 1)
 	assert.Equal(t, "sdk-ase-plan", *listedPlans[0].Name)
 
-	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sitePoller, err := webApps.BeginCreateOrUpdate(ctx, aseRG, "sdk-ase-app", armappservice.Site{
 		Location: to.Ptr("eastus"),
@@ -683,7 +683,7 @@ func TestSDK_KubeEnvironment_Lifecycle(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-kube-rg"
 	requireResourceGroup(t, rg)
-	client, err := armappservice.NewKubeEnvironmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewKubeEnvironmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.Get(ctx, rg, "sdk-kube", nil)

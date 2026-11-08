@@ -110,7 +110,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	require.NoError(t, err)
 	sourceLocation := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, ctr, blobName)
 
-	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := regClient.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.DockerBuildRequest{
@@ -131,7 +131,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	require.NotNil(t, queued.Properties.RunID)
 	assert.Equal(t, armcontainerregistry.RunStatusQueued, ptrVal(queued.Properties.Status))
 
-	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
 	require.Equal(t, armcontainerregistry.RunStatusSucceeded, ptrVal(result.Properties.Status),
@@ -315,7 +315,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 		regName = "acrmissingctxreg"
 	)
 	acrEnsureRegistry(t, rg, regName)
-	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := regClient.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.DockerBuildRequest{
@@ -333,7 +333,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 	require.NotNil(t, queued.Properties.RunID)
 	assert.Equal(t, armcontainerregistry.RunStatusQueued, ptrVal(queued.Properties.Status))
 
-	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
 	assert.Equal(t, armcontainerregistry.RunStatusFailed, ptrVal(result.Properties.Status),
@@ -372,7 +372,7 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	imageName := fmt.Sprintf("%s.azurecr.io/canceled:%d", regName, time.Now().UnixNano())
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
 
-	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := regClient.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.DockerBuildRequest{
 		Type:           to.Ptr("DockerBuildRequest"),
@@ -388,7 +388,7 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	runID := *queued.Properties.RunID
 
-	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	running := awaitACRRunLeaves(t, runsClient, rg, regName, runID, armcontainerregistry.RunStatusQueued)
 	require.Equal(t, armcontainerregistry.RunStatusRunning, ptrVal(running.Properties.Status))

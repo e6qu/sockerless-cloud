@@ -75,6 +75,7 @@ func StartGatewayLoadBalancerNode(ctx context.Context, spec GatewayLoadBalancerN
 	}
 	serving := make(chan struct{})
 	var once sync.Once
+	var last lastLines
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
@@ -108,6 +109,7 @@ func StartGatewayLoadBalancerNode(ctx context.Context, spec GatewayLoadBalancerN
 			ReadonlyRootfs:   true,
 		},
 	}, sim.FuncSink(func(line sim.LogLine) {
+		last.add(line.Text)
 		sink.WriteLog(line)
 		if strings.HasPrefix(line.Text, gwlb.ServingPrefix) {
 			once.Do(func() { close(serving) })
@@ -121,7 +123,7 @@ func StartGatewayLoadBalancerNode(ctx context.Context, spec GatewayLoadBalancerN
 		return handle, nil
 	case <-handle.Exited():
 		handle.Cancel()
-		return nil, fmt.Errorf("sidecar: the Gateway Load Balancer node %s ended before it served", spec.Name)
+		return nil, fmt.Errorf("sidecar: the Gateway Load Balancer node %s ended before it served: %s", spec.Name, &last)
 	case <-ctx.Done():
 		handle.Cancel()
 		return nil, ctx.Err()

@@ -96,7 +96,7 @@ func newTestServicePrincipal(t *testing.T, name string) testServicePrincipal {
 // scope as the bootstrap principal, and returns the assignment's ID.
 func assignRole(t *testing.T, scope, roleDefinitionID, principalID string) string {
 	t.Helper()
-	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created, err := client.Create(ctx, scope, newRBACGUID(), armauthorization.RoleAssignmentCreateParameters{
 		Properties: &armauthorization.RoleAssignmentProperties{
@@ -143,7 +143,7 @@ func TestRBAC_ReaderReadsButCannotWriteUntilContributor(t *testing.T) {
 	const group, other = "rbac-reader-rg", "rbac-reader-other-rg"
 	createResourceGroup(t, group)
 	createResourceGroup(t, other)
-	ownerIdentities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ownerIdentities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = ownerIdentities.CreateOrUpdate(ctx, group, "rbac-existing", armmsi.Identity{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestRBAC_NotActionsExcludeAnOperation(t *testing.T) {
 	createResourceGroup(t, group)
 	groupScope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + group
 
-	definitions, err := armauthorization.NewRoleDefinitionsClient(&fakeCredential{}, clientOpts())
+	definitions, err := armauthorization.NewRoleDefinitionsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	roleID := newRBACGUID()
 	_, err = definitions.CreateOrUpdate(ctx, "/subscriptions/"+subscriptionID, roleID, armauthorization.RoleDefinition{
@@ -289,7 +289,7 @@ func TestRBAC_TokenFromAnotherTenantIsRefused(t *testing.T) {
 func rbacBlobAccount(t *testing.T, group, account string, sharedKey bool) string {
 	t.Helper()
 	ensureStorageARMResourceGroup(t, group)
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accounts.BeginCreate(ctx, group, account, armstorage.AccountCreateParameters{
 		Kind:     to.Ptr(armstorage.KindStorageV2),
@@ -360,7 +360,7 @@ func TestRBAC_StorageBlobDataReaderReadsButCannotWrite(t *testing.T) {
 
 	// Owner of the subscription holds no data action: a bearer of the
 	// bootstrap principal reads no blob.
-	_, err = rbacDownload(rbacBlobClient(t, account, &fakeCredential{}))
+	_, err = rbacDownload(rbacBlobClient(t, account, &clientCredential{}))
 	requireBlobErrorCode(t, err, "AuthorizationPermissionMismatch", "the subscription's Owner reads with a bearer")
 }
 
@@ -472,7 +472,7 @@ func TestRBAC_UserDelegationSASIsVerifiedAgainstItsKey(t *testing.T) {
 	assert.Equal(t, "AuthenticationFailed", resp.Header.Get("x-ms-error-code"))
 
 	// The key's owner loses its data action: the signature stops reading.
-	assignments, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	assignments, err := armauthorization.NewRoleAssignmentsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = assignments.DeleteByID(ctx, assignment, nil)
 	require.NoError(t, err)
@@ -486,7 +486,7 @@ func TestRBAC_UserDelegationSASIsVerifiedAgainstItsKey(t *testing.T) {
 	resp = storageRawRequestSAS(t, account, "/data/hello.txt?"+valid)
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = accounts.RevokeUserDelegationKeys(ctx, group, account, nil)
 	require.NoError(t, err)

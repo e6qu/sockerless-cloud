@@ -22,7 +22,7 @@ runs:
         archive="$target.zip"
         # GitHub release downloads answer 504 for half a minute at a time; curl's
         # own doubling backoff rides out four minutes of that.
-        curl -fsSL --retry 8 --retry-all-errors -o "$RUNNER_TEMP/$archive" \
+        curl -fsSL --speed-limit 1024 --speed-time 30 --retry 8 --retry-all-errors -o "$RUNNER_TEMP/$archive" \
           "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/$archive"
         unzip -q -o "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/bun"
         mkdir -p "$HOME/.local/bin"

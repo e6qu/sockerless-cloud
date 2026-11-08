@@ -22,11 +22,11 @@ func TestEventHubsSDK_ARMAndAMQPRoundTrip(t *testing.T) {
 	hub := "sdkhub"
 	group := "sdkcg"
 
-	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	groupsClient, err := armeventhub.NewConsumerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groupsClient, err := armeventhub.NewConsumerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := nsClient.BeginCreateOrUpdate(ctx, rg, ns, armeventhub.EHNamespace{

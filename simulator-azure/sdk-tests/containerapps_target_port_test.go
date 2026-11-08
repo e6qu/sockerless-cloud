@@ -20,7 +20,7 @@ func TestSDK_ContainerAppsIngress_DetectsTheTargetPort(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-port-rg"), uniquename.New("acaport")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappcontainers.ContainerApp{
 		Location: to.Ptr("eastus"),

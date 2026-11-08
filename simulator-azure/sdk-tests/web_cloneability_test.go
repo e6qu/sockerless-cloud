@@ -23,7 +23,7 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	rg := uniquename.New("sdk-cloneable-rg")
 	ensureRG(t, rg)
 
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	newPlan := func(name, sku, tier string) string {
 		t.Helper()
@@ -37,7 +37,7 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 		return *created.ID
 	}
 
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	newSite := func(name, planID string) {
 		t.Helper()
@@ -107,7 +107,7 @@ func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
 	rg, name := "sdk-webgap-rg", "sdk-webgap-app"
 	ensureRG(t, rg)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),

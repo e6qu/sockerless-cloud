@@ -326,3 +326,41 @@ func TestMetadataServesWhatEachServiceDocuments(t *testing.T) {
 		t.Error("a worker pool without VPC access is placed on a subnetwork")
 	}
 }
+
+// An identity token names the instance's service account by its unique ID in
+// sub and azp, and by its email in email.
+func TestMetadataIdentityNamesTheAccountByItsUniqueID(t *testing.T) {
+	get := metadataTreeServer(t)
+	email := gcpTestProjectNumber(t) + "-compute@developer.gserviceaccount.com"
+	account, ok := iamServiceAccounts.Get("projects/" + gcpTestProjectID + "/serviceAccounts/" + email)
+	if !ok {
+		t.Fatal("IAM holds no Compute Engine default service account")
+	}
+	claims := identityClaims(t, get("/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://verifier.example"))
+	if claims["sub"] != account.UniqueId || claims["azp"] != account.UniqueId || claims["email"] != email {
+		t.Fatalf("identity claims sub=%v azp=%v email=%v, want sub and azp %s and email %s",
+			claims["sub"], claims["azp"], claims["email"], account.UniqueId, email)
+	}
+}
+
+// An instance inserted without serviceAccounts runs as no account: its
+// metadata server lists none and mints no token or identity.
+func TestMetadataInstanceWithoutServiceAccountHasNoIdentity(t *testing.T) {
+	get := metadataTreeServer(t)
+	gcpInstances.Update(metadataReaderSelfLink, func(inst *ComputeInstance) { inst.ServiceAccounts = nil })
+	inst, _ := gcpInstances.Get(metadataReaderSelfLink)
+	gcpMetadataInstancesByIP.Store(metadataReaderAddress, inst)
+
+	if rec := get("/computeMetadata/v1/instance/service-accounts/"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "" {
+		t.Fatalf("service-accounts/ = %d %q, want an empty listing", rec.Code, rec.Body.String())
+	}
+	for _, path := range []string{
+		"/computeMetadata/v1/instance/service-accounts/default/email",
+		"/computeMetadata/v1/instance/service-accounts/default/token",
+		"/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://verifier.example",
+	} {
+		if rec := get(path); rec.Code != http.StatusNotFound {
+			t.Fatalf("GET %s = %d, want 404 for an instance with no service account", path, rec.Code)
+		}
+	}
+}

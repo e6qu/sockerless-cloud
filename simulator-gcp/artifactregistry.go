@@ -223,13 +223,13 @@ func registerArtifactRegistry(srv *sim.Server) {
 				"Artifact Registry does not support chunked uploads; send the blob in a single monolithic upload",
 				http.StatusMethodNotAllowed)
 		},
-		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
+		OnManifestPut: func(_ *http.Request, _, repo, ref, contentType string, data []byte) {
 			registerDockerImageFromManifest(dockerImagesForHooks, repo, ref, contentType, data)
 			if project, location, repoID, _, ok := artifactRegistryImageParts(repo); ok {
 				arSyncDockerFiles(fmt.Sprintf("projects/%s/locations/%s/repositories/%s", project, location, repoID))
 			}
 		},
-		OnManifestDelete: func(_, repo, digest string) {
+		OnManifestDelete: func(_ *http.Request, _, repo, digest, _ string) {
 			project, location, repoID, imagePath, ok := artifactRegistryImageParts(repo)
 			if !ok {
 				return

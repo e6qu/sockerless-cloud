@@ -25,14 +25,14 @@ func TestContainerApps_JobOnAVirtualNetworkResolvesPrivateDNS(t *testing.T) {
 	ensureRG(t, rg)
 	subnetID := stage5Subnet(t, rg, "aca-vnet", "10.103.0.0/16", "infrastructure", "10.103.0.0/23")
 
-	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zonesClient.BeginCreateOrUpdate(ctx, rg, zone, armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 	vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/aca-vnet", subscriptionID, rg)
-	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPoller, err := linksClient.BeginCreateOrUpdate(ctx, rg, zone, "aca-vnet-link", armprivatedns.VirtualNetworkLink{
 		Location:   to.Ptr("global"),
@@ -41,7 +41,7 @@ func TestContainerApps_JobOnAVirtualNetworkResolvesPrivateDNS(t *testing.T) {
 	require.NoError(t, err)
 	_, err = linkPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	recordSets, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordSets, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = recordSets.CreateOrUpdate(ctx, rg, zone, armprivatedns.RecordTypeA, "db", armprivatedns.RecordSet{
 		Properties: &armprivatedns.RecordSetProperties{
@@ -52,7 +52,7 @@ func TestContainerApps_JobOnAVirtualNetworkResolvesPrivateDNS(t *testing.T) {
 	require.NoError(t, err)
 
 	ws := createLogWorkspace(t, rg, "aca-vnet-ws")
-	keys, err := armoperationalinsights.NewSharedKeysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	keys, err := armoperationalinsights.NewSharedKeysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	shared, err := keys.GetSharedKeys(ctx, ws.rg, ws.name, nil)
 	require.NoError(t, err)

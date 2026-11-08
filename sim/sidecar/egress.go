@@ -70,6 +70,7 @@ func StartEgress(ctx context.Context, spec EgressSpec, sink sim.LogSink) (*sim.C
 	}
 	serving := make(chan struct{})
 	var once sync.Once
+	var last lastLines
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
@@ -97,6 +98,7 @@ func StartEgress(ctx context.Context, spec EgressSpec, sink sim.LogSink) (*sim.C
 			ReadonlyRootfs:   true,
 		},
 	}, sim.FuncSink(func(line sim.LogLine) {
+		last.add(line.Text)
 		// The caller's sink holds the line before the start returns.
 		sink.WriteLog(line)
 		if strings.HasPrefix(line.Text, "sidecar: egress ") {
@@ -111,7 +113,7 @@ func StartEgress(ctx context.Context, spec EgressSpec, sink sim.LogSink) (*sim.C
 		return handle, nil
 	case <-handle.Exited():
 		handle.Cancel()
-		return nil, fmt.Errorf("sidecar: the egress sidecar %s ended before it served", spec.Name)
+		return nil, fmt.Errorf("sidecar: the egress sidecar %s ended before it served: %s", spec.Name, &last)
 	case <-ctx.Done():
 		handle.Cancel()
 		return nil, ctx.Err()

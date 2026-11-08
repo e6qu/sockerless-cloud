@@ -38,7 +38,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 deb="passt_${version}_${arch}.deb"
 curl --fail --location --show-error --silent \
 	--retry 5 --retry-all-errors --retry-delay 5 \
-	--connect-timeout 20 --max-time 300 \
+	--connect-timeout 20 --max-time 300 --speed-limit 1024 --speed-time 30 \
 	--output "$tmpdir/$deb" "$pool/$deb"
 echo "$sha256  $tmpdir/$deb" | sha256sum --check --strict -
 "${sudo[@]}" dpkg -i "$tmpdir/$deb"

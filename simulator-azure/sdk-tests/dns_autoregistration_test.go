@@ -22,13 +22,13 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	const zone = "reg.internal"
 	nicID := vmOperationsFixture(t, rg, "dns-reg", "10.95.0.0/16")
 
-	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zonesClient.BeginCreateOrUpdate(ctx, rg, zone, armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/dns-reg-vnet"
 	linkPoller, err := linksClient.BeginCreateOrUpdate(ctx, rg, zone, "dns-reg-link", armprivatedns.VirtualNetworkLink{
@@ -44,7 +44,7 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 
 	createOperationsVM(t, rg, vmName, nicID, nil)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "dns-reg-nic", nil)
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	address := derefString(nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
 	require.NotEmpty(t, address, "the booted machine's interface has an address")
 
-	recordSets, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordSets, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	record, err := recordSets.Get(ctx, rg, zone, armprivatedns.RecordTypeA, vmName, nil)
 	require.NoError(t, err, "the machine is registered under its computer name")
@@ -61,7 +61,7 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	require.Len(t, record.Properties.ARecords, 1)
 	assert.Equal(t, address, derefString(record.Properties.ARecords[0].IPv4Address))
 
-	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	extPoller, err := extClient.BeginCreateOrUpdate(ctx, rg, vmName, "resolve", armcompute.VirtualMachineExtension{
 		Location: to.Ptr("eastus"),

@@ -41,7 +41,7 @@ func newACAApp(t *testing.T, client *armappcontainers.ContainerAppsClient, rg, n
 
 func ensureManagedEnv(t *testing.T, rg, env string) {
 	t.Helper()
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, env, armappcontainers.ManagedEnvironment{
@@ -62,7 +62,7 @@ func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
 	rg := "sdk-aca-startstop-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -106,7 +106,7 @@ func TestSDK_ContainerApps_ListBySubscription_AuthToken_HostnameAnalysis(t *test
 	rg := "sdk-aca-listsub-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -150,7 +150,7 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 	rg := "sdk-aca-jobops-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -226,7 +226,7 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -294,7 +294,7 @@ func TestSDK_ManagedEnvironments_CheckNameAvailability(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewNamespacesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -314,7 +314,7 @@ func TestSDK_Certificates_CRUD(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewCertificatesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -374,7 +374,7 @@ func TestSDK_ManagedCertificates_CRUD(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewManagedCertificatesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

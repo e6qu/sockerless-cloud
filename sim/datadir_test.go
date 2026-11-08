@@ -3,6 +3,7 @@ package sim
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 )
@@ -10,7 +11,7 @@ import (
 func TestScopedDataDirResolutionOrder(t *testing.T) {
 	t.Setenv("SIM_TEST_SLICE_DATA_DIR", "")
 	t.Setenv("SIM_DATA_DIR", "")
-	if got, want := ScopedDataDir("SIM_TEST_SLICE_DATA_DIR", "slice", "sim-slice"), filepath.Join(os.TempDir(), "sim-slice"); got != want {
+	if got, want := ScopedDataDir("SIM_TEST_SLICE_DATA_DIR", "slice", "sim-slice"), filepath.Join(os.TempDir(), "sim-slice-"+strconv.Itoa(os.Getpid())); got != want {
 		t.Fatalf("no configuration: %q, want %q", got, want)
 	}
 	t.Setenv("SIM_DATA_DIR", "/data")

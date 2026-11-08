@@ -520,8 +520,19 @@ func handleOrgDescribeOrganization(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := orgRequireOrg(w); !ok {
+	status, ok := orgCreateMemberAccount(w, r)
+	if !ok {
 		return
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": orgCreateStatusToMap(status)})
+}
+
+// orgCreateMemberAccount creates the member account a CreateAccount or
+// CreateGovCloudAccount request names, with FullAWSAccess attached and its
+// access role in place, and records the request SUCCEEDED.
+func orgCreateMemberAccount(w http.ResponseWriter, r *http.Request) (OrgCreateAccountStatus, bool) {
+	if _, ok := orgRequireOrg(w); !ok {
+		return OrgCreateAccountStatus{}, false
 	}
 	var req struct {
 		Email       string `json:"Email"`
@@ -530,11 +541,11 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
-		return
+		return OrgCreateAccountStatus{}, false
 	}
 	if req.AccountName == "" || req.Email == "" {
 		AWSError(w, "InvalidInputException", "AccountName and Email are required", http.StatusBadRequest)
-		return
+		return OrgCreateAccountStatus{}, false
 	}
 	if req.RoleName == "" {
 		req.RoleName = orgAccountAccessRoleName
@@ -542,7 +553,7 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if !orgRoleNamePattern.MatchString(req.RoleName) || len(req.RoleName) > 64 {
 		AWSErrorf(w, "InvalidInputException", http.StatusBadRequest,
 			"1 validation error detected: Value '%s' at 'roleName' failed to satisfy constraint: Member must satisfy regular expression pattern: [\\w+=,.@-]{1,64}", req.RoleName)
-		return
+		return OrgCreateAccountStatus{}, false
 	}
 	now := orgEpoch()
 	acctID := orgNewAccountID()
@@ -568,7 +579,7 @@ func handleOrgCreateAccount(w http.ResponseWriter, r *http.Request) {
 		AccountId:          acctID,
 	}
 	orgCreateStatuses.Put(status.Id, status)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"CreateAccountStatus": orgCreateStatusToMap(status)})
+	return status, true
 }
 
 func handleOrgDescribeAccount(w http.ResponseWriter, r *http.Request) {
@@ -1692,7 +1703,8 @@ func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidInputException", "Content is required", http.StatusBadRequest)
 		return
 	}
-	if _, err := parseIAMPolicy(req.Content); err != nil {
+	doc, err := parseIAMPolicy(req.Content)
+	if err != nil || orgDelegationPolicyNegates(doc) {
 		AWSError(w, "InvalidInputException", "The provided policy document doesn't meet the requirements of the specified policy type.", http.StatusBadRequest)
 		return
 	}
@@ -1710,6 +1722,17 @@ func handleOrgPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 			"Content":               rp.Content,
 		},
 	})
+}
+
+// AWS Organizations refuses NotAction and NotResource in a delegation policy
+// from June 30, 2026, as organizations-delegation-policy.md states.
+func orgDelegationPolicyNegates(doc iamPolicyDoc) bool {
+	for _, stmt := range doc.Statement {
+		if len(stmt.NotAction) > 0 || len(stmt.NotResource) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func handleOrgDeleteResourcePolicy(w http.ResponseWriter, _ *http.Request) {

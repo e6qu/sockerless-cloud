@@ -52,6 +52,7 @@ func registerLogicAppsMore(srv *sim.Server) {
 	logicTriggers = sim.MakeStore[LogicResource](srv.DB(), "logic_workflow_triggers")
 	logicTriggerHistories = sim.MakeStore[LogicResource](srv.DB(), "logic_trigger_histories")
 	logicRunActions = sim.MakeStore[LogicResource](srv.DB(), "logic_run_actions")
+	registerLogicRunDetails(srv)
 	logicIntegrationAccts = sim.MakeStore[LogicResource](srv.DB(), "logic_integration_accounts")
 	logicIAArtifacts = sim.MakeStore[LogicResource](srv.DB(), "logic_integration_account_artifacts")
 	logicServiceEnvs = sim.MakeStore[LogicResource](srv.DB(), "logic_service_environments")
@@ -83,14 +84,14 @@ func registerLogicAppsMore(srv *sim.Server) {
 
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions", handleLogicRunActionList)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}", handleLogicResourceGet(logicRunActions, "run action"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions", handleLogicRunDetailEmptyList)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicNestedNotFound("repetition"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicRunDetailEmptyList)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories/{requestHistoryName}", handleLogicNestedNotFound("request history"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories", handleLogicRunDetailEmptyList)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories/{requestHistoryName}", handleLogicNestedNotFound("request history"))
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicRunDetailEmptyList)
-	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions/{repetitionName}", handleLogicNestedNotFound("scope repetition"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions", handleLogicRunDetailList(logicRepetitionsStore, "repetitions"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}", handleLogicRunDetailGet(logicRepetitionsStore, "repetitions", "repetitionName", "repetition"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories", handleLogicRunDetailList(logicRequestHistoriesStore, "requestHistories"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/requestHistories/{requestHistoryName}", handleLogicRunDetailGet(logicRequestHistoriesStore, "requestHistories", "requestHistoryName", "request history"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories", handleLogicRunDetailList(logicRequestHistoriesStore, "requestHistories"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/requestHistories/{requestHistoryName}", handleLogicRunDetailGet(logicRequestHistoriesStore, "requestHistories", "requestHistoryName", "request history"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions", handleLogicRunDetailList(logicScopeRepetitionsStore, "scopeRepetitions"))
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/scopeRepetitions/{repetitionName}", handleLogicRunDetailGet(logicScopeRepetitionsStore, "scopeRepetitions", "repetitionName", "scope repetition"))
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/operations/{operationId}", handleLogicNestedNotFound("run operation"))
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/listExpressionTraces", handleLogicExpressionTraces)
 	srv.HandleFunc("POST /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Logic/workflows/{workflowName}/runs/{runName}/actions/{actionName}/repetitions/{repetitionName}/listExpressionTraces", handleLogicExpressionTraces)
@@ -269,15 +270,6 @@ func logicRunMissing(w http.ResponseWriter, r *http.Request) bool {
 	AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 		"Run %q not found.", sim.PathParam(r, "runName"))
 	return true
-}
-
-// Answers an empty collection: runs record no repetitions or request
-// histories.
-func handleLogicRunDetailEmptyList(w http.ResponseWriter, r *http.Request) {
-	if logicRunMissing(w, r) {
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 }
 
 func handleLogicNestedNotFound(label string) http.HandlerFunc {
@@ -784,6 +776,7 @@ func logicSettleRun(workflowType, runID string, outcome logicRunOutcome) {
 			Properties: props,
 		})
 	}
+	logicPersistRunDetails(workflowType, runID, outcome)
 }
 
 // The run reads Cancelled at once. It reports false for an unknown id and an
@@ -811,6 +804,7 @@ func logicCancelRun(runID string) (bool, *AsyncOperationError) {
 func logicDeleteRun(runID string) {
 	logicStopRun(runID)
 	logicRuns.Delete(runID)
+	logicDropRunDetails(runID)
 }
 
 // Its execution died with the previous process and cannot resume.

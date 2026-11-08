@@ -212,6 +212,10 @@ func TestMetadata_CloudRunReadsThroughTheOfficialClient(t *testing.T) {
 		require.NoError(t, json.Unmarshal(payload, &claims))
 		assert.Equal(t, "https://example.com", claims["aud"])
 		assert.Equal(t, defaultAccount, claims["email"])
+		account, err := iamService(t).Projects.ServiceAccounts.Get("projects/test-project/serviceAccounts/" + defaultAccount).Do()
+		require.NoError(t, err)
+		assert.Equal(t, account.UniqueId, claims["sub"], "the token's subject is the account's unique ID")
+		assert.Equal(t, account.UniqueId, claims["azp"])
 
 		// An ID token is not an OAuth access token: a Google API refuses it.
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,

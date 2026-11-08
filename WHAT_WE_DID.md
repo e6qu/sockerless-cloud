@@ -1226,6 +1226,9 @@ as the simulator jobs do.
 The `install-bun` action and `scripts/install-caddy.sh` retry their GitHub
 release downloads through curl's doubling backoff on every error, riding out
 minutes of 504 answers.
+Every CI download through curl aborts a transfer that moves under 1 KiB/s
+for 30 seconds and retries it, so a stalled mirror costs a retry, not the
+job's time limit.
 
 Azure Key Vault authenticates and authorizes every request in Key Vault's
 order: token, network rules, then access policies or RBAC data actions, with
@@ -1730,6 +1733,10 @@ fails once the row closes or the operation is served.
   network or router change started found no sidecar in the map and removed,
   as stale, the container a machine's boot was still starting, which failed
   the boot with `AllocationFailed`.
+  A sidecar that ends before it serves — an egress sidecar, a Gateway Load
+  Balancer node, a share container — reports its last five lines in the
+  error, so a failed boot names the cause even where the simulator passes
+  the sidecar no log sink.
 - **Route 53 and AWS Cloud Map.** `GetChange` answers `NoSuchChange` (404)
   for an ID no call returned, as the Smithy model declares; every change the
   simulator reports is stored. Cloud Map's `ListOperations` filters
@@ -1776,6 +1783,14 @@ fails once the row closes or the operation is served.
   simulator built just before the minute turned.
 - **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
   policy, and a topic's `DisplayName` defaults to empty, not to its name.
+- **Cloud Run image export and Firestore REST listen.** `exportImage` copies
+  the image the revision, execution or service runs — from the simulator's
+  Artifact Registry or over the Registry v2 API — into the Artifact Registry
+  repository `destinationRepo` names, and `exportStatus` reports the exported
+  digest or the failure. Firestore's REST `documents:listen` runs the gRPC
+  watch for the one request its body carries and streams each ListenResponse
+  as an element of a JSON array, so a client reads the target's documents,
+  CURRENT, and each later change while the exchange stays open.
 - **Google Cloud hosts.** Eventarc and Cloud Build both publish
   `/v1/projects/{p}/locations/{l}/triggers`, and the Host tells them apart;
   harnesses reach each through its own host with an HTTP proxy that delivers
@@ -1807,6 +1822,145 @@ fails once the row closes or the operation is served.
   so it starts once from `TestMain`, its two oracle tests run serially before
   the parallel phase in a shard of their own, and `TestMain` removes it
   explicitly because `os.Exit` skips deferred removal.
+- **Azure networking reads.** A load balancer keeps the outbound rules its PUT
+  carries, lists and reads them as children, and the instance metadata
+  service reports their frontends to each backend. A virtual network's
+  usages count each subnet's held addresses against the addresses Azure
+  leaves to tenants, and `CheckIPAddressAvailability` answers a taken or
+  platform-reserved address with the next free ones, from every subnet when
+  the candidate lies outside them, which `az network vnet
+  list-available-ips` relies on.
+  A network interface's effective route table is its subnet's, as
+  `virtual-networks-udr-overview` lays it out: a route per address range,
+  Azure's None routes for the reserved ranges the address space does not
+  cover, a route per peered range, the Internet default, and the route
+  table's user routes, which turn a default route with the same prefix
+  Invalid. Network Watcher's next hop picks from the same table by longest
+  prefix and names "System Route" for a system route's table, as the
+  specification says. Its effective security groups are the interface's and
+  the subnet's, each with its association and its rules in priority order.
+- **App Service and Blob reads.** A site's `authsettings` and
+  `authsettingsV2` lists answer what PUT stored, as the slot lists did, and
+  the v1 settings carry the `configVersion` App Service fills in — `v2` once
+  the site holds a v2 configuration, `v1` otherwise — which
+  terraform-provider-azurerm requires before it reads `auth_settings` back;
+  a setting PUT sends as an empty string reads back as null. A
+  path-style Blob request may name an account `internal`; no surface claims
+  the segment.
+- **Log Analytics soft delete.** Deleting a workspace keeps it, its data, keys
+  and tables for 14 days, as `log-analytics-delete-workspace` describes:
+  `deletedWorkspaces` lists it, the retention sweep leaves its rows alone,
+  and a PUT with its name, group and region recovers it with its customer ID.
+  `force=true`, or the end of the 14 days, deletes it for good and releases
+  the name. The group-scoped `deletedWorkspaces` route had been registered
+  under `resourcegroups`, which the path rewrite never leaves, so it had
+  answered 404.
+- **Service Bus auto-forwarding.** A queue or subscription with `forwardTo`
+  hands each message it receives to the queue or topic it names, and one with
+  `forwardDeadLetteredMessagesTo` hands on its dead letters, as
+  `service-bus-auto-forwarding` describes: the destination must exist when
+  the source is created, a session-enabled entity cannot forward, the source
+  accepts no receiver, and a message past four hops, bound for a missing or
+  disabled destination, or without the session ID a session-enabled
+  destination needs, is dead-lettered on the source.
+- **Azure Container Registry webhooks, import and usage.** A push or manifest
+  delete that a webhook's actions, scope and status select reaches its
+  service URI as `container-registry-webhook-reference` lays out the event,
+  with the request's host, method and user agent, which `sim.OCIRegistry`'s
+  manifest hooks now carry; ping sends a ping event, and `listEvents`
+  returns each exchange, newest first, with Authorization masked.
+  `importImage` copies the source image, every manifest an index lists (at
+  most 50) and its blobs byte for byte: from the simulator's own stores for
+  a registry it serves, otherwise over the Registry v2 API through
+  `sim.PullOCIImage`, which answers the bearer challenge with the given
+  credentials. `listUsages` counts the stored bytes and the webhooks against
+  the SKU's included storage and webhook count from `container-registry-skus`,
+  and a webhook past that count is refused. terraform-provider-azurerm 5.13
+  addresses webhooks as `webHooks`; the path normalizer folds that segment
+  under a registry to the specification's `webhooks`.
+- **Azure Cosmos DB metrics.** Every data-plane request leaves a sample with
+  its container, status and charge, and every write a snapshot of its
+  container's documents, kept 60 days. `Total Requests` and `Total Request
+  Units` sum the samples in each grain, `Document Count`, `Data Usage` and
+  `Index Usage` carry a container's last snapshot forward, `Service
+  Availability` is the share of requests not answered 5xx, and the usages
+  count what the containers hold now. A container's one partition keeps a
+  stable partition ID.
+- **Logic Apps run details.** The engine records a repetition of every action
+  inside a For each loop per iteration, a scope repetition of the loop per
+  iteration, and the request and response of each Http action, on the action
+  or on its repetition; the run stores them, and the Microsoft.Logic and App
+  Service workflow routes read them back. `items('loop')` names a loop's
+  current item, which nested loops need.
+- **PostgreSQL long-term backup.** `startLtrBackup` refuses a SAS URI that
+  names no single container or carries no signature, and once the volume is
+  captured writes it, as a tar archive `sim.ArchiveVolume` reads through a
+  container that never starts, to a block blob in each container through the
+  Blob service with that SAS; a refused write fails the backup.
+- **Azure Storage endpoints.** The Files, Queue and Table data planes answer
+  only at an account's own `<account>.<service>.` host; the `/file/`,
+  `/queue/` and `/table/` path prefixes, which no Azure endpoint serves, are
+  gone, and the Blob service keeps the IP-style `/<account>/` form the SDKs
+  use for an endpoint addressed by IP. The CLI suite advertises
+  `<account>.<service>.core.cli-shim.localhost`, the shape the CLI's storage
+  SDK reads an account name from, and reaches it through `HTTP_PROXY`.
+- **AWS Organizations.** `CreateGovCloudAccount` creates its commercial
+  account through the same path as `CreateAccount`, with FullAWSAccess
+  attached and the access role the request names, and `PutResourcePolicy`
+  refuses a delegation policy with `NotAction` or `NotResource`, which AWS
+  stopped accepting on June 30, 2026.
+- **Amazon S3 ListBuckets.** A request that names `max-buckets`, `prefix`,
+  `bucket-region` or `continuation-token` is paginated, as the model states:
+  it pages at `max-buckets` (10,000 by default), sorted by name, with an
+  opaque continuation token, and each bucket carries `BucketRegion`; an
+  unpaginated request names no Region.
+- **IAM policy documents** are URL-encoded RFC 3986-style, every byte but the
+  unreserved characters as `%XX`, so the AWS CLI decodes a space as a space,
+  not `+`.
+- **Azure Compute images.** ComputeRP's `virtualMachineImage.json` and
+  `image.json` are vendored, so the conformance probe checks the marketplace
+  catalog and `Microsoft.Compute/images` routes instead of an allowlist; the
+  edge-zone catalog operations declare a 501, since no Extended Zone runs.
+  The 2024-07-01 documents are vendored beside them, and a machine image
+  version carries `imageDeprecationStatus` from api-version 2022-11-01, the
+  first that declares it.
+- **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
+  autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
+  the manual throughput, a tenth of the highest throughput the resource ever
+  had and ten times its storage in GB, rounded to the nearest 1000. The
+  simulator records each resource's peak throughput for that rule.
+- **Scoped data directories.** With no data directory set,
+  `sim.ScopedDataDir` gives each process its own temporary directory, which
+  the last of the process's servers to stop removes, so two simulators, or
+  two runs of one test, never share App Service site homes.
+- **Cloud Logging sinks** honour `customWriterIdentity`, admitted only for a
+  sink routing to a log bucket in another project, keep
+  `outputVersionFormat`, and carry `createTime` and `updateTime`.
+- **Cloud KMS import jobs** expire three days after creation, and a key ring
+  that still holds an unexpired import job refuses deletion.
+- **Compute Engine firewall policies.** Network firewall policies clone
+  another policy's rules with `cloneRules`. Organization firewall policies
+  take a numeric `name`, require `shortName` (gcloud's `displayName` stands
+  in), record `parent`, and run their operations under
+  `locations/global/operations` with an `org-` name and the policy's id as
+  `targetId`, which the Terraform provider and gcloud's poller read.
+- **Compute Engine instance identity.** An instance inserted without a
+  service account has no identity on the metadata server, and identity tokens
+  name the account by its IAM `uniqueId` in `sub` and `azp`.
+- **Cloud Run** refuses a CPU limit outside the values `cloudrun-cpu.md.gz`
+  lists, and its invoke check gives binding conditions `request.host` and
+  `request.path`.
+- **Cloud SQL `databases.list`** reads a running instance's engine catalog,
+  so databases `executeSql` or an import created or dropped show as they are.
+- **Service Usage.** Enabling `cloudapis.googleapis.com`, as
+  `gcloud projects create` does, enables the default services
+  `service-usage-enabled-service.md.gz` lists. Workforce pools default
+  `sessionDuration` to `3600s`, and Cloud Scheduler's enums read through the
+  shared `protoEnum` tables.
+- **The gcloud CLI suite** clears an ambient `CLOUDSDK_AUTH_ACCESS_TOKEN` and
+  `CLOUDSDK_PROXY_*`, which made gcloud bypass the activated account.
+- **Firestore REST `listen`** is a server-streaming method to the spec
+  validator, which reads its JSON array element by element.
 - **Azure Private DNS.** Auto-registration is a reconcile over links and
   machines run after every relevant write, not a hook per event, and never
   replaces a record set someone created.

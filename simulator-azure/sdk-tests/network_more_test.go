@@ -18,12 +18,12 @@ import (
 func TestNetwork_PublicIPDdosAndCloudServiceReservation(t *testing.T) {
 	t.Parallel()
 	rg := "pip-ops-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := pipClient.BeginCreateOrUpdate(ctx, rg, "ops-pip", armnetwork.PublicIPAddress{
 		Location: to.Ptr("eastus"),
@@ -67,12 +67,12 @@ func TestNetwork_PublicIPDdosAndCloudServiceReservation(t *testing.T) {
 func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	t.Parallel()
 	rg := "lb-extra-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	mkPip := func(name string) *string {
 		poller, err := pipClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.PublicIPAddress{
@@ -93,7 +93,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	poolID := lbID + "/backendAddressPools/pool"
 	probeID := lbID + "/probes/probe"
 
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "extra-lb", armnetwork.LoadBalancer{
 		Location: to.Ptr("eastus"),
@@ -126,7 +126,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	require.NoError(t, err)
 
 	// No NICs reference the pool.
-	nicListClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicListClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPager := nicListClient.NewListPager(rg, "extra-lb", nil)
 	require.True(t, nicPager.More())
@@ -163,7 +163,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	assert.Empty(t, mapResp.InboundNatRulePortMappings)
 
 	// Zero backends: 0 up, 0 down.
-	ruleClient, err := armnetwork.NewLoadBalancerLoadBalancingRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ruleClient, err := armnetwork.NewLoadBalancerLoadBalancingRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	healthPoller, err := ruleClient.BeginHealth(ctx, rg, "extra-lb", "rule", nil)
 	require.NoError(t, err)
@@ -190,12 +190,12 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	t.Parallel()
 	rg := "links-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "links-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -207,7 +207,7 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "links-vnet", "links-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.71.1.0/24")},
@@ -216,13 +216,13 @@ func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	_, err = subnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	navClient, err := armnetwork.NewResourceNavigationLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	navClient, err := armnetwork.NewResourceNavigationLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	navResp, err := navClient.List(ctx, rg, "links-vnet", "links-subnet", nil)
 	require.NoError(t, err)
 	assert.Empty(t, navResp.Value, "a subnet no service has delegated carries no resource navigation links")
 
-	svcClient, err := armnetwork.NewServiceAssociationLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	svcClient, err := armnetwork.NewServiceAssociationLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	svcResp, err := svcClient.List(ctx, rg, "links-vnet", "links-subnet", nil)
 	require.NoError(t, err)
@@ -268,12 +268,12 @@ func requireAzureNotFound(t *testing.T, err error, what string) {
 func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	t.Parallel()
 	rg := "assoc-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "assoc-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -285,7 +285,7 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "assoc-vnet", "assoc-subnet", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.70.1.0/24")},
@@ -296,7 +296,7 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 
 	lbID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/loadBalancers/assoc-lb"
 	poolID := lbID + "/backendAddressPools/assoc-pool"
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "assoc-lb", armnetwork.LoadBalancer{
 		Location: to.Ptr("eastus"),
@@ -309,7 +309,7 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	_, err = lbPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "assoc-nic", armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -327,7 +327,7 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	_, err = nicPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicLBClient, err := armnetwork.NewInterfaceLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicLBClient, err := armnetwork.NewInterfaceLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicLBPager := nicLBClient.NewListPager(rg, "assoc-nic", nil)
 	require.True(t, nicLBPager.More())
@@ -336,7 +336,7 @@ func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	require.Len(t, nicLBPage.Value, 1)
 	assert.Equal(t, "assoc-lb", *nicLBPage.Value[0].Name)
 
-	lbNICClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbNICClient, err := armnetwork.NewLoadBalancerNetworkInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbNICPager := lbNICClient.NewListPager(rg, "assoc-lb", nil)
 	require.True(t, lbNICPager.More())

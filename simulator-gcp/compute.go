@@ -155,6 +155,9 @@ func computeOpFinish(name string, err error) {
 // resource, the same shape from the starting method or a later poll.
 func computeOpJSON(rec ComputeOperationRecord) map[string]any {
 	path := fmt.Sprintf("projects/%s/%s/operations/%s", rec.Project, rec.Scope, rec.Name)
+	if rec.Project == "" {
+		path = rec.Scope + "/operations/" + rec.Name
+	}
 	op := map[string]any{
 		"kind":       "compute#operation",
 		"id":         rec.ID,

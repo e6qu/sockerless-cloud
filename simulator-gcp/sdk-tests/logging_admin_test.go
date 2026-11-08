@@ -524,3 +524,42 @@ func TestLogging_MonitoredResourceDescriptors_List(t *testing.T) {
 	}
 	assert.True(t, types["global"], "global descriptor must be listed")
 }
+
+func TestLogging_SinkTimestampsAndCustomWriterIdentity(t *testing.T) {
+	t.Parallel()
+	ensureProject(t, "sink-custom-writer")
+	ensureProject(t, "sink-custom-dest")
+	svc := loggingRESTService(t)
+	parent := "projects/sink-custom-writer"
+	writer := "serviceAccount:router@sink-custom-writer.iam.gserviceaccount.com"
+
+	created, err := svc.Projects.Sinks.Create(parent, &loggingrpc.LogSink{
+		Name:                "cross-project",
+		Destination:         "logging.googleapis.com/projects/sink-custom-dest/locations/global/buckets/_Default",
+		OutputVersionFormat: "V2",
+	}).CustomWriterIdentity(writer).Do()
+	require.NoError(t, err)
+	assert.Equal(t, writer, created.WriterIdentity, "a custom writer identity routes a sink to another project's log bucket")
+	assert.Equal(t, "V2", created.OutputVersionFormat)
+	require.NotEmpty(t, created.CreateTime)
+	assert.Equal(t, created.CreateTime, created.UpdateTime, "a new sink's update time is its creation time")
+
+	updated, err := svc.Projects.Sinks.Patch(parent+"/sinks/cross-project", &loggingrpc.LogSink{
+		Description: "routes to the destination project",
+	}).UpdateMask("description").Do()
+	require.NoError(t, err)
+	assert.Equal(t, created.CreateTime, updated.CreateTime)
+	assert.Greater(t, updated.UpdateTime, created.UpdateTime, "an update advances the sink's update time")
+	assert.Equal(t, writer, updated.WriterIdentity)
+
+	for name, dest := range map[string]string{
+		"same-project": "logging.googleapis.com/projects/sink-custom-writer/locations/global/buckets/_Default",
+		"to-storage":   "storage.googleapis.com/sink-custom-writer-bucket",
+	} {
+		_, err := svc.Projects.Sinks.Create(parent, &loggingrpc.LogSink{Name: name, Destination: dest}).
+			CustomWriterIdentity(writer).Do()
+		var apiErr *googleapi.Error
+		require.ErrorAs(t, err, &apiErr, name)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, "%s: a custom writer identity serves only a log bucket in another project", name)
+	}
+}

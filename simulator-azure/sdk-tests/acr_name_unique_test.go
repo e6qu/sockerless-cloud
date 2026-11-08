@@ -20,7 +20,7 @@ func TestACR_RegistryNameIsUniqueAcrossResourceGroups(t *testing.T) {
 	first, second := uniquename.New("acr-unique-a"), uniquename.New("acr-unique-b")
 	ensureRG(t, first)
 	ensureRG(t, second)
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := uniquename.Alnum("acrunique")
 	registry := armcontainerregistry.Registry{

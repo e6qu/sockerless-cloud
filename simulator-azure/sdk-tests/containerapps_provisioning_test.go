@@ -20,7 +20,7 @@ func TestSDK_ContainerAppsApps_ProvisioningSettlesAfterTheWrite(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-provisioning-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	revisionsClient, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, cred, clientOpts())

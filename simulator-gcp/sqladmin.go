@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1001,10 +1002,41 @@ func handleSQLListDatabases(w http.ResponseWriter, r *http.Request) {
 			out = append(out, d)
 		}
 	}
+	if plane, running := sqlRunningDataPlane(project, instance); running {
+		catalog, err := sqlEngineDatabases(r.Context(), plane)
+		if err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "read the engine's databases: %s", err.Error())
+			return
+		}
+		out = sqlCatalogDatabases(r, project, instance, out, catalog)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	if out == nil {
 		out = []SQLDatabase{}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "sql#databasesList", "items": out})
+}
+
+// sqlCatalogDatabases lists the databases a running engine's catalog holds:
+// a database an import or a CREATE DATABASE made appears beside the ones
+// databases.insert made, and one a DROP DATABASE removed is gone.
+func sqlCatalogDatabases(r *http.Request, project, instance string, stored []SQLDatabase, catalog map[string]string) []SQLDatabase {
+	byName := map[string]SQLDatabase{}
+	for _, d := range stored {
+		byName[d.Name] = d
+	}
+	out := make([]SQLDatabase, 0, len(catalog))
+	for name, charset := range catalog {
+		if d, ok := byName[name]; ok {
+			out = append(out, d)
+			continue
+		}
+		out = append(out, SQLDatabase{
+			Name: name, Instance: instance, Project: project, Charset: charset,
+			SelfLink: gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s/databases/%s", sqlAPIPrefix(r), project, instance, name)),
+		})
+	}
+	return out
 }
 
 func handleSQLDeleteDatabase(w http.ResponseWriter, r *http.Request) {

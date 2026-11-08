@@ -372,10 +372,15 @@ func acrDeleteRepository(w http.ResponseWriter, r *http.Request, reg *sim.OCIReg
 		acrPropertiesDenied(w, "the repository "+repo+" has deletion disabled")
 		return
 	}
+	deleted := map[string]bool{}
 	for _, held := range reg.Manifests.Filter(func(m sim.OCIManifest) bool {
 		return m.Scope == scope && m.Repo == repo
 	}) {
 		reg.DeleteManifest(scope, repo, held.Ref)
+		if !deleted[held.Digest] {
+			deleted[held.Digest] = true
+			acrFireWebhooks(scope, "delete", repo, "", map[string]any{"mediaType": held.ContentType, "digest": held.Digest, "repository": repo}, r)
+		}
 	}
 	acrChangeableAttributes.Delete(acrAttributeKey(scope, repo, ""))
 	w.WriteHeader(http.StatusAccepted)

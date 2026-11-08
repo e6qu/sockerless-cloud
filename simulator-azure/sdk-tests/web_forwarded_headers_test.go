@@ -20,7 +20,7 @@ func TestSDK_WebApps_ForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-web-xff-rg"), uniquename.New("sdk-web-xff")
 	ensureRG(t, rg)
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	planPoller, err := plans.BeginCreateOrUpdate(ctx, rg, name+"-plan", armappservice.Plan{
 		Location:   to.Ptr("eastus"),
@@ -31,7 +31,7 @@ func TestSDK_WebApps_ForwardedRequestHeaders(t *testing.T) {
 	require.NoError(t, err)
 	plan, err := planPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),

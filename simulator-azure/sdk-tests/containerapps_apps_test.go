@@ -23,7 +23,7 @@ func TestSDK_ContainerAppsApps_CreateGetDelete(t *testing.T) {
 	rg := "sdk-aca-app-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -103,7 +103,7 @@ func TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs(t *testing.T) {
 	rg := "sdk-aca-app-exec-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -194,7 +194,7 @@ func TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs(t *testing.T) {
 // endpoint, read until a line satisfies done or the stream ends.
 func readContainerAppConsole(t *testing.T, apps *armappcontainers.ContainerAppsClient, rg, app, revision, container string, done func(line string) bool) []string {
 	t.Helper()
-	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &fakeCredential{}, clientOpts())
+	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	listed, err := replicas.ListReplicas(ctx, rg, app, revision, nil)
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestSDK_ContainerAppsApps_MultiContainerSharesLocalhost(t *testing.T) {
 	appName := "sdk-app-pod-localhost"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -331,7 +331,7 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 	rg := "sdk-aca-systemdata-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -387,7 +387,7 @@ func TestSDK_WebApps_UpdateAzureStorageAccounts(t *testing.T) {
 	rg := "sdk-azf-storage-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -441,7 +441,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 	rg := "sdk-aca-patch-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -549,7 +549,7 @@ func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
 	rg := "sdk-aca-rfc7396-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -637,7 +637,7 @@ func TestSDK_ContainerAppsApps_DeleteLROEnvelope(t *testing.T) {
 	rg := "sdk-aca-dellro-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

@@ -29,8 +29,8 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261107131927-34aa5217d5cb
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107050956-c912ebfa3306
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108000639-c8ca9fe394a7
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/jackc/pgx/v5 v5.12.0

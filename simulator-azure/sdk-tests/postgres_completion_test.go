@@ -21,7 +21,7 @@ func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 	loc := "eastus"
 	createResourceGroup(t, rg)
 	pgCreateServer(t, rg, server)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	t.Run("Operations", func(t *testing.T) {
 		client, err := armpostgresqlflexibleservers.NewOperationsClient(cred, clientOpts())
@@ -85,7 +85,7 @@ func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
 		poller, err := fsClient.BeginStartLtrBackup(ctx, rg, server, armpostgresqlflexibleservers.LtrBackupRequest{
 			BackupSettings: &armpostgresqlflexibleservers.BackupSettings{BackupName: to.Ptr("ltr1")},
 			TargetDetails: &armpostgresqlflexibleservers.BackupStoreDetails{
-				SasURIList: []*string{to.Ptr("https://example.blob.core.windows.net/ltr?sas")},
+				SasURIList: []*string{to.Ptr(pgLtrContainerSAS(t, rg, "pgcompletionltr", "ltr"))},
 			},
 		}, nil)
 		require.NoError(t, err)

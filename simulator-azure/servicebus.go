@@ -688,6 +688,12 @@ func sbPutNamespaceChild[T sbEntityShape](w http.ResponseWriter, r *http.Request
 	name := sim.PathParam(r, nameParam)
 	id := armChildID(parent, collection, name)
 	entity := T(sbEntity{ID: id, Name: name, Type: resourceType, Properties: properties(sbEntity(req).Properties)})
+	if collection == "queues" {
+		if msg := sbForwardDestinationError(parent, sbEntity(entity).Properties); msg != "" {
+			AzureError(w, "BadRequest", msg, http.StatusBadRequest)
+			return
+		}
+	}
 	store.Put(id, entity)
 	sim.WriteJSON(w, http.StatusOK, entity)
 }
@@ -967,6 +973,10 @@ func handleSBCreateSubscription(w http.ResponseWriter, r *http.Request) {
 		for k, v := range req.Properties {
 			s.Properties[k] = v
 		}
+	}
+	if msg := sbForwardDestinationError(sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")), s.Properties); msg != "" {
+		AzureError(w, "BadRequest", msg, http.StatusBadRequest)
+		return
 	}
 	sbSubscriptions.Put(id, s)
 	sim.WriteJSON(w, http.StatusOK, s)

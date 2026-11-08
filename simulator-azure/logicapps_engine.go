@@ -27,6 +27,31 @@ type logicActionResult struct {
 	Error     map[string]any
 	StartTime time.Time
 	EndTime   time.Time
+	// Requests are the HTTP exchanges the action made.
+	Requests []logicRequestRecord
+}
+
+// logicRequestRecord is one outbound request and its response.
+type logicRequestRecord struct {
+	StartTime       time.Time
+	EndTime         time.Time
+	Method          string
+	URI             string
+	RequestHeaders  map[string]any
+	StatusCode      int
+	ResponseHeaders map[string]any
+}
+
+// logicRepetitionIndex names the iteration of one enclosing loop.
+type logicRepetitionIndex struct {
+	ScopeName string `json:"scopeName"`
+	ItemIndex int    `json:"itemIndex"`
+}
+
+// logicRepetition is an action's result in one iteration of its loops.
+type logicRepetition struct {
+	Indexes []logicRepetitionIndex
+	Result  *logicActionResult
 }
 
 type logicRun struct {
@@ -38,6 +63,10 @@ type logicRun struct {
 	variables  map[string]any
 	items      []any
 	terminated *logicTermination
+	// loops are the iterations of the loops running now, outermost first.
+	loops            []logicRepetitionIndex
+	repetitions      map[string][]logicRepetition
+	scopeRepetitions map[string][]logicRepetition
 }
 
 type logicTermination struct {
@@ -53,6 +82,10 @@ type logicRunOutcome struct {
 	Outputs map[string]any
 	Actions []string
 	Results map[string]*logicActionResult
+	// Repetitions are each action's results inside loops; ScopeRepetitions
+	// each loop's per-iteration results.
+	Repetitions      map[string][]logicRepetition
+	ScopeRepetitions map[string][]logicRepetition
 }
 
 func logicExecute(ctx context.Context, definition, parameters, triggerOutputs map[string]any) logicRunOutcome {
@@ -62,10 +95,14 @@ func logicExecute(ctx context.Context, definition, parameters, triggerOutputs ma
 		trigger:    triggerOutputs,
 		results:    map[string]*logicActionResult{},
 		variables:  map[string]any{},
+
+		repetitions:      map[string][]logicRepetition{},
+		scopeRepetitions: map[string][]logicRepetition{},
 	}
 	actions, _ := definition["actions"].(map[string]any)
 	status := run.runActions(actions)
-	outcome := logicRunOutcome{Status: status, Actions: run.order, Results: run.results}
+	outcome := logicRunOutcome{Status: status, Actions: run.order, Results: run.results,
+		Repetitions: run.repetitions, ScopeRepetitions: run.scopeRepetitions}
 	if run.terminated != nil {
 		outcome.Status, outcome.Error = run.terminated.Status, run.terminated.Error
 	}
@@ -186,6 +223,10 @@ func (run *logicRun) record(name string, result *logicActionResult) {
 		run.order = append(run.order, name)
 	}
 	run.results[name] = result
+	if len(run.loops) > 0 {
+		run.repetitions[name] = append(run.repetitions[name], logicRepetition{
+			Indexes: append([]logicRepetitionIndex(nil), run.loops...), Result: result})
+	}
 }
 
 // skip: a predecessor finished in a status runAfter does not list (Succeeded
@@ -310,12 +351,20 @@ func (run *logicRun) execute(name string, action map[string]any) *logicActionRes
 		}
 		inner, _ := action["actions"].(map[string]any)
 		failed := false
-		for _, item := range items {
+		for i, item := range items {
+			iteration := &logicActionResult{StartTime: time.Now().UTC(), Status: "Succeeded", Code: "OK"}
+			run.loops = append(run.loops, logicRepetitionIndex{ScopeName: name, ItemIndex: i})
 			run.items = append(run.items, item)
 			if run.runActions(inner) == "Failed" {
 				failed = true
+				iteration.Status, iteration.Code = "Failed", "ActionFailed"
+				iteration.Error = map[string]any{"code": "ActionFailed", "message": "An action failed. No dependent actions succeeded."}
 			}
 			run.items = run.items[:len(run.items)-1]
+			iteration.EndTime = time.Now().UTC()
+			run.scopeRepetitions[name] = append(run.scopeRepetitions[name], logicRepetition{
+				Indexes: append([]logicRepetitionIndex(nil), run.loops...), Result: iteration})
+			run.loops = run.loops[:len(run.loops)-1]
 			if run.terminated != nil {
 				break
 			}
@@ -354,8 +403,11 @@ func (run *logicRun) execute(name string, action map[string]any) *logicActionRes
 			return finish("Failed", "InvalidTemplate", err)
 		}
 		result.Inputs = inputs
-		outputs, code, err := logicHTTPAction(run.ctx, inputs)
+		outputs, code, exchange, err := logicHTTPAction(run.ctx, inputs)
 		result.Outputs = outputs
+		if exchange != nil {
+			result.Requests = append(result.Requests, *exchange)
+		}
 		if err != nil {
 			return finish("Failed", code, err)
 		}
@@ -417,12 +469,12 @@ func logicCoerceVariable(typ, value any) (any, error) {
 }
 
 // A response outside 2xx fails the action with the status's name as its code.
-func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, error) {
+func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, *logicRequestRecord, error) {
 	spec, _ := inputs.(map[string]any)
 	method, _ := spec["method"].(string)
 	uri, _ := spec["uri"].(string)
 	if method == "" || uri == "" {
-		return nil, "BadRequest", logicErrorf("The Http action requires 'method' and 'uri' inputs.")
+		return nil, "BadRequest", nil, logicErrorf("The Http action requires 'method' and 'uri' inputs.")
 	}
 	var body io.Reader
 	contentType := ""
@@ -433,7 +485,7 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 	default:
 		encoded, err := json.Marshal(b)
 		if err != nil {
-			return nil, "BadRequest", err
+			return nil, "BadRequest", nil, err
 		}
 		body, contentType = bytes.NewReader(encoded), "application/json"
 	}
@@ -443,7 +495,7 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, strings.ToUpper(method), uri, body)
 	if err != nil {
-		return nil, "BadRequest", err
+		return nil, "BadRequest", nil, err
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -460,14 +512,19 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 		}
 		req.URL.RawQuery = q.Encode()
 	}
+	exchange := &logicRequestRecord{StartTime: time.Now().UTC(), Method: req.Method, URI: req.URL.String(), RequestHeaders: map[string]any{}}
+	for k := range req.Header {
+		exchange.RequestHeaders[k] = req.Header.Get(k)
+	}
 	resp, err := http.DefaultClient.Do(req)
+	exchange.EndTime = time.Now().UTC()
 	if err != nil {
-		return nil, "BadGateway", logicErrorf("Http request failed: %v", err)
+		return nil, "BadGateway", exchange, logicErrorf("Http request failed: %v", err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "BadGateway", logicErrorf("Http request failed reading the response: %v", err)
+		return nil, "BadGateway", exchange, logicErrorf("Http request failed reading the response: %v", err)
 	}
 	respHeaders := map[string]any{}
 	for k := range resp.Header {
@@ -480,12 +537,13 @@ func logicHTTPAction(ctx context.Context, inputs any) (map[string]any, string, e
 			respBody = decoded
 		}
 	}
+	exchange.StatusCode, exchange.ResponseHeaders = resp.StatusCode, respHeaders
 	outputs := map[string]any{"statusCode": resp.StatusCode, "headers": respHeaders, "body": respBody}
 	code := strings.ReplaceAll(http.StatusText(resp.StatusCode), " ", "")
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return outputs, code, logicErrorf("The Http request returned status %d.", resp.StatusCode)
+		return outputs, code, exchange, logicErrorf("The Http request returned status %d.", resp.StatusCode)
 	}
-	return outputs, code, nil
+	return outputs, code, exchange, nil
 }
 
 // The message Logic Apps reports on the action or run, sentence case and all.

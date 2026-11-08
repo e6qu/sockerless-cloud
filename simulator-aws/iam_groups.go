@@ -344,7 +344,7 @@ func handleIAMGetGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<GetGroupPolicyResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><GetGroupPolicyResult><GroupName>%s</GroupName><PolicyName>%s</PolicyName><PolicyDocument>%s</PolicyDocument></GetGroupPolicyResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetGroupPolicyResponse>`,
-		xmlEscape(group), xmlEscape(pn), url.QueryEscape(p.PolicyDocument), sim.NewUUID())
+		xmlEscape(group), xmlEscape(pn), iamEncodePolicyDocument(p.PolicyDocument), sim.NewUUID())
 }
 
 func handleIAMDeleteGroupPolicy(w http.ResponseWriter, r *http.Request) {

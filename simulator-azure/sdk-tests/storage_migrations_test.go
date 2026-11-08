@@ -29,7 +29,7 @@ func TestSDK_StorageAccount_Migrations(t *testing.T) {
 	rg, account := "storage-migration-rg", uniquename.Alnum("storagemigration")
 	createStorageAccountForARM(t, rg, account)
 
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// Nothing has been migrated yet: the default migration answers with no
@@ -122,7 +122,7 @@ func TestSDK_StorageAccount_RestoreBlobRanges(t *testing.T) {
 	rg, account := "storage-restore-rg", uniquename.Alnum("storagerestore")
 	createStorageAccountForARM(t, rg, account)
 
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// Without a restore policy there is nothing keeping deleted blobs, so a
@@ -136,7 +136,7 @@ func TestSDK_StorageAccount_RestoreBlobRanges(t *testing.T) {
 
 	// Turn on the delete-retention and restore policies the way a client does,
 	// through the blob service properties.
-	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = blobServices.SetServiceProperties(ctx, rg, account, armstorage.BlobServiceProperties{
 		BlobServiceProperties: &armstorage.BlobServicePropertiesProperties{

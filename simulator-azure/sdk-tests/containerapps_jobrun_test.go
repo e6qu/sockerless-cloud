@@ -98,7 +98,7 @@ func TestSDK_ContainerAppsJobs_ExecutionRunsItsParallelismOfReplicas(t *testing.
 	t.Parallel()
 	rg := "sdk-aca-parallel-rg"
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := createACAReplicaJob(t, client, rg, acaLogsEnvironmentID(t), acaJobReplicas{parallelism: 3, completions: 3, timeout: 60},
 		`echo "replica $HOSTNAME"`)
@@ -115,7 +115,7 @@ func TestSDK_ContainerAppsJobs_ReplicaRetriesUpToItsLimit(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-aca-retry-rg"
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := createACAReplicaJob(t, client, rg, acaLogsEnvironmentID(t), acaJobReplicas{parallelism: 1, completions: 1, retryLimit: 2, timeout: 60},
 		`echo "attempt $HOSTNAME"; exit 1`)
@@ -132,7 +132,7 @@ func TestSDK_ContainerAppsJobs_ExecutionFailsWhenItsCompletionCountIsOutOfReach(
 	t.Parallel()
 	rg := "sdk-aca-completions-rg"
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := createACAReplicaJob(t, client, rg, acaLogsEnvironmentID(t), acaJobReplicas{parallelism: 3, completions: 2, timeout: 60},
 		`echo "replica $HOSTNAME"; exit 1`)
@@ -149,7 +149,7 @@ func TestSDK_ContainerAppsJobs_ReplicaTimeoutStopsTheReplicaForGood(t *testing.T
 	t.Parallel()
 	rg := "sdk-aca-timeout-rg"
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	name := createACAReplicaJob(t, client, rg, acaLogsEnvironmentID(t), acaJobReplicas{parallelism: 1, completions: 1, retryLimit: 3, timeout: 3},
 		`echo "attempt $HOSTNAME"; trap 'echo stopped; exit 143' TERM; sleep 600 & wait $!`)

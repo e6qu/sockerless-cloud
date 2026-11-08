@@ -17,7 +17,7 @@ import (
 // for the time span and scope its filter names.
 func TestActivityLog_RecordsResourceGroupOperations(t *testing.T) {
 	t.Parallel()
-	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const group = "activity-log-rg"
 	start := time.Now().UTC().Add(-time.Minute)
@@ -26,7 +26,7 @@ func TestActivityLog_RecordsResourceGroupOperations(t *testing.T) {
 	_, err = groups.CreateOrUpdate(ctx, group, armresources.ResourceGroup{Location: to.Ptr("eastus"), Tags: map[string]*string{"team": to.Ptr("console")}}, nil)
 	require.NoError(t, err)
 
-	logs, err := armmonitor.NewActivityLogsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	logs, err := armmonitor.NewActivityLogsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	filter := fmt.Sprintf("eventTimestamp ge '%s' and eventTimestamp le '%s' and resourceGroupName eq '%s'",
 		start.Format(time.RFC3339), time.Now().UTC().Add(time.Minute).Format(time.RFC3339), group)

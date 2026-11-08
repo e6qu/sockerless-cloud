@@ -20,7 +20,7 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 	rg := "sdk-mysql-rg"
 	ensureRG(t, rg)
 
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	newSite := func(name string, inApp bool) {
 		t.Helper()
@@ -115,7 +115,7 @@ func TestSDK_WebApps_MigrateStorage(t *testing.T) {
 	rg := "sdk-migrate-rg"
 	ensureRG(t, rg)
 
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := sites.BeginCreateOrUpdate(ctx, rg, "sdk-migrate-site", armappservice.Site{
 		Location: to.Ptr("eastus"),

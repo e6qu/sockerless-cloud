@@ -262,21 +262,6 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/operations/{opId}":                          "sim-emitted Compute LRO polling URL (Azure-AsyncOperation, and Location with monitor=true, as armcompute's recordings carry)",
 	"GET /eventsubscriptions/{eventSubscriptionName}/validate":                                                                        "sim-emitted Event Grid validationUrl a SubscriptionValidationEvent carries for manual validation",
 
-	// The Compute VirtualMachineImages_* and Images_* documents
-	// (virtualMachineImage.json, image.json) are not vendored; the routes follow
-	// their templates verbatim.
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers":                                                                                     "VirtualMachineImages_ListPublishers (ComputeRP virtualMachineImage.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers":                                        "VirtualMachineImages_ListOffers (ComputeRP virtualMachineImage.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus":                           "VirtualMachineImages_ListSkus (ComputeRP virtualMachineImage.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions":           "VirtualMachineImages_List (ComputeRP virtualMachineImage.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions/{version}": "VirtualMachineImages_Get (ComputeRP virtualMachineImage.json, not yet vendored)",
-	"PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images/{imageName}":                                                               "Images_CreateOrUpdate (ComputeRP image.json, not yet vendored)",
-	"PATCH /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images/{imageName}":                                                             "Images_Update (ComputeRP image.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images/{imageName}":                                                               "Images_Get (ComputeRP image.json, not yet vendored)",
-	"DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images/{imageName}":                                                            "Images_Delete (ComputeRP image.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/images":                                                                           "Images_ListByResourceGroup (ComputeRP image.json, not yet vendored)",
-	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/images":                                                                                                              "Images_List (ComputeRP image.json, not yet vendored)",
-
 	// listLogSasUrl returns an opaque log URL (Azure Container Registry hands out
 	// a storage SAS URL), which clients fetch verbatim.
 	"GET /acr/v1/logs/{runId}": "sim-emitted ACR Tasks run-log link (real API returns an opaque log SAS URL)",

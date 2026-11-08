@@ -74,7 +74,7 @@ func TestAzureResources_MoveServiceBusNamespace(t *testing.T) {
 	namespace := uniquename.New("sdk-sb-move-ns")
 	const queue = "sb-move-queue"
 
-	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	factory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := factory.NewNamespacesClient()
 	createPoller, err := namespaces.BeginCreateOrUpdate(ctx, srcRG, namespace, armservicebus.SBNamespace{
@@ -121,7 +121,7 @@ func TestAzureResources_MoveServiceBusNamespace(t *testing.T) {
 	before := sbMoveAMQPClient(t, connBefore)
 	sbMoveSend(t, before, queue, "enqueued before the move")
 
-	tags, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tags, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = tags.UpdateAtScope(ctx, namespaceID, armresources.TagsPatchResource{
 		Operation:  to.Ptr(armresources.TagsPatchOperationMerge),
@@ -129,7 +129,7 @@ func TestAzureResources_MoveServiceBusNamespace(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(namespaceID)},

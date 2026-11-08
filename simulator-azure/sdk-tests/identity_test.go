@@ -16,14 +16,14 @@ import (
 func TestIdentity_CreateUserAssigned(t *testing.T) {
 	t.Parallel()
 	// Ensure resource group
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "identity-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.CreateOrUpdate(ctx, "identity-rg", "test-identity", armmsi.Identity{
@@ -42,14 +42,14 @@ func TestIdentity_CreateUserAssigned(t *testing.T) {
 
 func TestIdentity_GetUserAssigned(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "get-id-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, "get-id-rg", "get-identity", armmsi.Identity{
@@ -64,14 +64,14 @@ func TestIdentity_GetUserAssigned(t *testing.T) {
 
 func TestIdentity_DeleteUserAssigned(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "del-id-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, "del-id-rg", "del-identity", armmsi.Identity{
@@ -90,14 +90,14 @@ func TestIdentity_DeleteUserAssigned(t *testing.T) {
 // servicePrincipalType "ManagedIdentity", exactly as real Azure does.
 func TestIdentity_PrincipalResolvesAsServicePrincipal(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "sp-id-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.CreateOrUpdate(ctx, "sp-id-rg", "sp-identity", armmsi.Identity{
 		Location: ptrStr("eastus"),
@@ -126,14 +126,14 @@ func TestIdentity_PrincipalResolvesAsServicePrincipal(t *testing.T) {
 // directory SP is removed when the backing managed identity is deleted.
 func TestIdentity_DeletedPrincipalUnregistersServicePrincipal(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "sp-del-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.CreateOrUpdate(ctx, "sp-del-rg", "sp-del-identity", armmsi.Identity{
 		Location: ptrStr("eastus"),
@@ -157,7 +157,7 @@ func TestIdentity_DeletedPrincipalUnregistersServicePrincipal(t *testing.T) {
 // drives the endpoint over raw HTTP.
 func TestIdentity_CreateOrUpdateStatusCodes(t *testing.T) {
 	t.Parallel()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "id-status-rg", armresources.ResourceGroup{
 		Location: ptrStr("eastus"),

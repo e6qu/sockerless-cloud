@@ -406,6 +406,8 @@ func loggingApplySinkMask(cur, upd LoggingSink, mask string) (LoggingSink, strin
 			cur.InterceptChildren = upd.InterceptChildren
 		case "bigqueryoptions", "bigqueryoptions.usepartitionedtables":
 			cur.BigqueryOptions = upd.BigqueryOptions
+		case "outputversionformat":
+			cur.OutputVersionFormat = upd.OutputVersionFormat
 		case "":
 		default:
 			return cur, field

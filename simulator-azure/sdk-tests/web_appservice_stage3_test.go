@@ -150,7 +150,7 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -270,7 +270,7 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 invoked", nil)
 	defer azureDeleteSite(rg, name)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -312,7 +312,7 @@ func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
 		`sh -c "while true; do printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n' | nc -l -p 80; done"`, nil)
 	defer azureDeleteSite(rg, name)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -484,7 +484,7 @@ func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
 	t.Parallel()
 	rg, name := "sdk-deploy-extra-rg", "sdk-deploy-extra-app"
 	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	pkg := makeJobsZip(t, map[string]string{"server.js": kuduFileServer, "index.html": "<h1>stage3</h1>"})
 	pkgURL := servePackage(t, pkg)

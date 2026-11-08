@@ -25,12 +25,12 @@ import (
 func TestCompute_VirtualNetworkWithTwoAddressPrefixesCarriesBothSubnets(t *testing.T) {
 	t.Parallel()
 	const rg, vnetName, zone = "vm-two-prefixes-rg", "vm-two-prefixes-vnet", "two-prefixes.internal"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -42,7 +42,7 @@ func TestCompute_VirtualNetworkWithTwoAddressPrefixesCarriesBothSubnets(t *testi
 	vnet, err := vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnet := func(name, prefix string) string {
 		poller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, name, armnetwork.Subnet{
@@ -62,7 +62,7 @@ func TestCompute_VirtualNetworkWithTwoAddressPrefixesCarriesBothSubnets(t *testi
 	require.Error(t, err, "a subnet outside every address prefix is refused")
 	assert.Contains(t, err.Error(), "10.109.1.0/24")
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic := func(name, subnetID string) armnetwork.Interface {
 		poller, err := nicClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.Interface{
@@ -91,13 +91,13 @@ func TestCompute_VirtualNetworkWithTwoAddressPrefixesCarriesBothSubnets(t *testi
 	assert.True(t, strings.HasPrefix(serverIP, "10.114.1."), "the first subnet's interface takes its address there: %s", serverIP)
 	assert.True(t, strings.HasPrefix(clientIP, "10.115.1."), "the second subnet's interface takes its address there: %s", clientIP)
 
-	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zonesClient.BeginCreateOrUpdate(ctx, rg, zone, armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPoller, err := linksClient.BeginCreateOrUpdate(ctx, rg, zone, "two-prefixes-link", armprivatedns.VirtualNetworkLink{
 		Location: to.Ptr("global"),

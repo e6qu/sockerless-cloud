@@ -18,7 +18,7 @@ import (
 // runs the challenge, token exchange and retry it runs against Azure.
 func acrDataPlaneClient(t *testing.T, loginServer string) *azcontainerregistry.Client {
 	t.Helper()
-	client, err := azcontainerregistry.NewClient("http://"+loginServer, &fakeCredential{}, acrClientOptions())
+	client, err := azcontainerregistry.NewClient("http://"+loginServer, &clientCredential{}, acrClientOptions())
 	require.NoError(t, err)
 	return client
 }
@@ -46,7 +46,7 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 
 	ensureRG(t, rgName)
 
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	regPoller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
 		Location: ptrStr("eastus"),
@@ -116,7 +116,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 		ruleName     = "docker-hub"
 	)
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rgName, armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
@@ -124,7 +124,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	require.NoError(t, err)
 
 	// Azure Container Registry validates that the registry exists.
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	regPoller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
 		Location: ptrStr("eastus"),
@@ -134,7 +134,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 	_, err = regPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	rulesClient, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rulesClient, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createPoller, err := rulesClient.BeginCreate(ctx, rgName, registryName, ruleName, armcontainerregistry.CacheRule{
@@ -188,14 +188,14 @@ func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 		ruleName     = "ghcr-io"
 	)
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rgName, armresources.ResourceGroup{
 		Location: ptrStr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	regPoller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
 		Location: ptrStr("eastus"),
@@ -205,7 +205,7 @@ func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 	_, err = regPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	rulesClient, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rulesClient, err := armcontainerregistry.NewCacheRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	first, err := rulesClient.BeginCreate(ctx, rgName, registryName, ruleName, armcontainerregistry.CacheRule{
@@ -242,7 +242,7 @@ func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
 
 	ensureRG(t, rgName)
 
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := registriesClient.BeginCreate(ctx, rgName, registryName, armcontainerregistry.Registry{
 		Location: ptrStr("eastus"),
@@ -286,7 +286,7 @@ func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 	rgName, registryName := "acr-namecheck-rg", uniquename.Alnum("namecheckregistry")
 	ensureRG(t, rgName)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	check := func(name string) armcontainerregistry.RegistryNameStatus {

@@ -194,7 +194,7 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 	defer azureDeleteSite(rg, site)
 	azureInvokeFunction(t, site)
 
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 	query := azquery.Body{Query: to.Ptr(`AppTraces | where AppRoleName == "` + site + `" | take 10`)}
 	// The engine's log stream delivers the line after the response, and Log

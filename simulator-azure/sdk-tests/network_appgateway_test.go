@@ -58,7 +58,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	}))
 	defer failing.Close()
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pipPoller, err := pipClient.BeginCreateOrUpdate(ctx, rg, "appgw-pip", armnetwork.PublicIPAddress{
 		Location: to.Ptr("eastus"),
@@ -80,7 +80,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 		return &armnetwork.SubResource{ID: to.Ptr(gatewayID + "/" + collection + "/" + name)}
 	}
 
-	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "site-gw", armnetwork.ApplicationGateway{
 		Location: to.Ptr("eastus"),
@@ -427,7 +427,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 
 	gatewayID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/applicationGateways/link-gw",
 		subscriptionID, rg)
-	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "link-gw", armnetwork.ApplicationGateway{
 		Location: to.Ptr("eastus"),
@@ -482,7 +482,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	assert.Equal(t, armnetwork.IPAllocationMethodDynamic,
 		*gw.Properties.FrontendIPConfigurations[0].Properties.PrivateIPAllocationMethod)
 
-	linkClient, err := armnetwork.NewApplicationGatewayPrivateLinkResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linkClient, err := armnetwork.NewApplicationGatewayPrivateLinkResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPager := linkClient.NewListPager(rg, "link-gw", nil)
 	var groups []string
@@ -498,7 +498,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	assert.Equal(t, []string{"private-frontend-link"}, groups,
 		"the gateway publishes one group per private link configuration")
 
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "gw-consumer", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -518,7 +518,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	_, err = pePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	connClient, err := armnetwork.NewApplicationGatewayPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	connClient, err := armnetwork.NewApplicationGatewayPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	connPager := connClient.NewListPager(rg, "link-gw", nil)
 	var connectionNames []string
@@ -573,7 +573,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 // built from.
 func TestNetworkApplicationGateway_Catalogs(t *testing.T) {
 	t.Parallel()
-	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	serverVariables, err := client.ListAvailableServerVariables(ctx, nil)
@@ -624,7 +624,7 @@ func TestNetworkApplicationGateway_RejectsUnknownSubnet(t *testing.T) {
 	t.Parallel()
 	rg := "appgw-reject-rg"
 	requireResourceGroup(t, rg)
-	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	missing := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/absent/subnets/absent",
 		subscriptionID, rg)
@@ -743,7 +743,7 @@ func stringValues(values []*string) []string {
 // web application firewall rule sets with their rule groups and rules.
 func TestNetworkApplicationGateway_AvailableWafRuleSets(t *testing.T) {
 	t.Parallel()
-	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	ruleSets, err := client.ListAvailableWafRuleSets(ctx, nil)

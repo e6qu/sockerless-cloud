@@ -112,3 +112,18 @@ func cliStorageAccountKey(account string) string {
 	}
 	panic(fmt.Sprintf("listKeys for %s served no key1: %s", account, body))
 }
+
+// storageAccountEndpoint is the endpoint the account advertises for a storage
+// service, `http://<account>.<service>.core.cli-shim.localhost:<port>/`, the
+// shape `<account>.<service>.core.windows.net` has, from which the CLI's
+// storage SDK reads the account name.
+func storageAccountEndpoint(account, service string) string {
+	return fmt.Sprintf("http://%s.%s.core.cli-shim.localhost:%s/", account, service, strings.TrimPrefix(baseURL[strings.LastIndex(baseURL, ":"):], ":"))
+}
+
+// storageProxyEnv sends the CLI's plain-HTTP requests to the simulator as a
+// forward proxy, because the account hostnames under .localhost do not resolve
+// on every platform; the request still names the account's own host.
+func storageProxyEnv() []string {
+	return []string{"HTTP_PROXY=" + baseURL, "http_proxy=" + baseURL, "NO_PROXY=", "no_proxy="}
+}

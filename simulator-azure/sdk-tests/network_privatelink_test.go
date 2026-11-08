@@ -22,7 +22,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	providerSubnet := requireSubnet(t, rg, "plink-provider-vnet", "10.50.0.0/16", "nat-subnet", "10.50.1.0/24")
 	consumerSubnet := requireSubnet(t, rg, "plink-consumer-vnet", "10.51.0.0/16", "pe-subnet", "10.51.1.0/24")
 
-	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	plsPoller, err := plsClient.BeginCreateOrUpdate(ctx, rg, "billing-pls", armnetwork.PrivateLinkService{
 		Location: to.Ptr("eastus"),
@@ -53,7 +53,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	assert.Empty(t, pls.Properties.PrivateEndpointConnections, "no consumer has connected yet")
 
 	// The NAT interface is an ordinary network interface that answers Get.
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	natNICName := resourceName(*pls.Properties.NetworkInterfaces[0].ID)
 	natNIC, err := nicClient.Get(ctx, rg, natNICName, nil)
@@ -61,7 +61,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	require.Len(t, natNIC.Properties.IPConfigurations, 1)
 	assert.Equal(t, natAddress, *natNIC.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
 
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "billing-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -173,7 +173,7 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	natSubnet := requireSubnet(t, rg, "vis-provider-vnet", "10.52.0.0/16", "nat-subnet", "10.52.1.0/24")
 	peSubnet := requireSubnet(t, rg, "vis-consumer-vnet", "10.53.0.0/16", "pe-subnet", "10.53.1.0/24")
 
-	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := plsClient.BeginCreateOrUpdate(ctx, rg, "open-pls", armnetwork.PrivateLinkService{
 		Location: to.Ptr("eastus"),
@@ -237,7 +237,7 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	assert.True(t, byRG[*pls.ID])
 
 	// An automatic connection to an auto-approving service connects at once.
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "auto-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -294,7 +294,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "kv-pe-vnet", "10.54.0.0/16", "pe-subnet", "10.54.1.0/24")
 
-	vaultClient, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaultClient, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vaultPoller, err := vaultClient.BeginCreateOrUpdate(ctx, rg, "pelinkvault", armkeyvault.VaultCreateOrUpdateParameters{
 		Location: to.Ptr("eastus"),
@@ -310,7 +310,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	vault, err := vaultPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "vault-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -341,7 +341,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	peAddress := *pe.Properties.CustomDNSConfigs[0].IPAddresses[0]
 	assert.NotEmpty(t, peAddress)
 
-	kvConnClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	kvConnClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	kvConn, err := kvConnClient.Get(ctx, rg, "pelinkvault", "vault-pe", nil)
 	require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "dns-pe-vnet", "10.55.0.0/16", "pe-subnet", "10.55.1.0/24")
 
-	vaultClient, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaultClient, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vaultPoller, err := vaultClient.BeginCreateOrUpdate(ctx, rg, "dnslinkvault", armkeyvault.VaultCreateOrUpdateParameters{
 		Location: to.Ptr("eastus"),
@@ -433,7 +433,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	vault, err := vaultPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	zoneClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zoneClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const zoneName = "privatelink.vaultcore.azure.net"
 	zonePoller, err := zoneClient.BeginCreateOrUpdate(ctx, rg, zoneName, armprivatedns.PrivateZone{
@@ -443,7 +443,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	zone, err := zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "dns-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -463,7 +463,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	require.NoError(t, err)
 	peAddress := *pe.Properties.CustomDNSConfigs[0].IPAddresses[0]
 
-	groupClient, err := armnetwork.NewPrivateDNSZoneGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groupClient, err := armnetwork.NewPrivateDNSZoneGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	groupPoller, err := groupClient.BeginCreateOrUpdate(ctx, rg, "dns-pe", "default",
 		armnetwork.PrivateDNSZoneGroup{
@@ -487,7 +487,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	require.Len(t, records[0].IPAddresses, 1)
 	assert.Equal(t, peAddress, *records[0].IPAddresses[0])
 
-	recordClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	record, err := recordClient.Get(ctx, rg, zoneName, armprivatedns.RecordTypeA, "dnslinkvault", nil)
 	require.NoError(t, err)
@@ -525,7 +525,7 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "list-pe-vnet", "10.56.0.0/16", "pe-subnet", "10.56.1.0/24")
 
-	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plsClient, err := armnetwork.NewPrivateLinkServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	natSubnet := requireSubnet(t, rg, "list-pls-vnet", "10.57.0.0/16", "nat-subnet", "10.57.1.0/24")
 	plsPoller, err := plsClient.BeginCreateOrUpdate(ctx, rg, "list-pls", armnetwork.PrivateLinkService{
@@ -543,7 +543,7 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	pls, err := plsPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "list-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -611,7 +611,7 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	}
 	assert.True(t, plsInRG)
 
-	typesClient, err := armnetwork.NewAvailablePrivateEndpointTypesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	typesClient, err := armnetwork.NewAvailablePrivateEndpointTypesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	types := map[string]bool{}
 	typePager := typesClient.NewListPager("eastus", nil)
@@ -646,7 +646,7 @@ func TestNetworkProfiles_CRUD(t *testing.T) {
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "profile-vnet", "10.58.0.0/16", "aci-subnet", "10.58.1.0/24")
 
-	client, err := armnetwork.NewProfilesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewProfilesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// A configuration naming a missing subnet is refused.

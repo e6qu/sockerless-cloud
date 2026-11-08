@@ -88,14 +88,16 @@ var (
 	azureFilesDataDir string
 )
 
-type fakeCredential struct{}
+// clientCredential is the client-credentials grant against the simulator's token
+// endpoint.
+type clientCredential struct{}
 
 // GetToken acquires a real access token from the simulator's token endpoint via
 // the client_credentials grant, honoring the resource the SDK asks for. The
 // returned token is a genuine RS256 JWT the simulator signed and can verify, so
 // SDK-driven requests exercise the real acquire-then-authorize path against the
 // ARM plane rather than a static placeholder string.
-func (f *fakeCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
+func (f *clientCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	scope := strings.Join(opts.Scopes, " ")
 	if scope == "" {
 		scope = "https://management.azure.com/.default"
@@ -192,7 +194,7 @@ func clientOpts() *arm.ClientOptions {
 // unread.
 func awaitARMOperation[T any](t *testing.T, resp *http.Response) T {
 	t.Helper()
-	client, err := arm.NewClient("sdk-tests", "v0.0.0", &fakeCredential{}, clientOpts())
+	client, err := arm.NewClient("sdk-tests", "v0.0.0", &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := azruntime.NewPoller[T](resp, client.Pipeline(), nil)
 	require.NoError(t, err)

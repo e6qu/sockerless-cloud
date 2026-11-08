@@ -13,7 +13,7 @@ const kvTenantID = "11111111-1111-1111-1111-111111111111"
 
 func ensureKVResourceGroup(t *testing.T, name string) {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, name, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
@@ -21,7 +21,7 @@ func ensureKVResourceGroup(t *testing.T, name string) {
 
 func createKVVault(t *testing.T, rg, name string) {
 	t.Helper()
-	client, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, armkeyvault.VaultCreateOrUpdateParameters{
 		Location: ptrStr("eastus"),
@@ -44,7 +44,7 @@ func TestKeyVaultMgmt_CheckNameAvailability(t *testing.T) {
 	t.Parallel()
 	rg := "kv-checkname-rg"
 	ensureKVResourceGroup(t, rg)
-	client, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.CheckNameAvailability(ctx, armkeyvault.VaultCheckNameAvailabilityParameters{
@@ -69,7 +69,7 @@ func TestKeyVaultMgmt_PrivateEndpointConnections(t *testing.T) {
 	ensureKVResourceGroup(t, rg)
 	createKVVault(t, rg, "kv-pe-vault")
 
-	pecClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pecClient, err := armkeyvault.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	putResp, err := pecClient.Put(ctx, rg, "kv-pe-vault", "pec1", armkeyvault.PrivateEndpointConnection{
@@ -108,7 +108,7 @@ func TestKeyVaultMgmt_PrivateLinkResources(t *testing.T) {
 	ensureKVResourceGroup(t, rg)
 	createKVVault(t, rg, "kv-plr-vault")
 
-	plrClient, err := armkeyvault.NewPrivateLinkResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plrClient, err := armkeyvault.NewPrivateLinkResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := plrClient.ListByVault(ctx, rg, "kv-plr-vault", nil)
 	require.NoError(t, err)

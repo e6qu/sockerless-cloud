@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -25,7 +26,7 @@ func TestSliceDataRootsFollowSimDataDir(t *testing.T) {
 			}
 
 			t.Setenv("SIM_DATA_DIR", "")
-			if got, want := tc.root(), filepath.Join(os.TempDir(), tc.fallback); got != want {
+			if got, want := tc.root(), filepath.Join(os.TempDir(), tc.fallback+"-"+strconv.Itoa(os.Getpid())); got != want {
 				t.Errorf("without SIM_DATA_DIR: root = %q, want %q", got, want)
 			}
 

@@ -22,7 +22,7 @@ func TestNetworkLoadBalancerCLI(t *testing.T) {
 	probeID := lbID + "/probes/tcp-probe"
 
 	lbURL := armURL("Microsoft.Network", "loadBalancers/cli-lb", "2024-05-01")
-	lbBody := fmt.Sprintf(`{"location":"eastus","sku":{"name":"Standard"},"properties":{"frontendIPConfigurations":[{"name":"frontend","properties":{"publicIPAddress":{"id":%q}}}],"backendAddressPools":[{"name":"backend","properties":{}}],"probes":[{"name":"tcp-probe","properties":{"protocol":"Tcp","port":80}}],"loadBalancingRules":[{"name":"http-rule","properties":{"protocol":"Tcp","frontendPort":80,"backendPort":80,"frontendIPConfiguration":{"id":%q},"backendAddressPool":{"id":%q},"probe":{"id":%q}}}]}}`, pipID, feID, beID, probeID)
+	lbBody := fmt.Sprintf(`{"location":"eastus","sku":{"name":"Standard"},"properties":{"frontendIPConfigurations":[{"name":"frontend","properties":{"publicIPAddress":{"id":%q}}}],"backendAddressPools":[{"name":"backend","properties":{}}],"probes":[{"name":"tcp-probe","properties":{"protocol":"Tcp","port":80}}],"loadBalancingRules":[{"name":"http-rule","properties":{"protocol":"Tcp","frontendPort":80,"backendPort":80,"frontendIPConfiguration":{"id":%q},"backendAddressPool":{"id":%q},"probe":{"id":%q},"disableOutboundSnat":true}}],"outboundRules":[{"name":"egress","properties":{"protocol":"All","frontendIPConfigurations":[{"id":%q}],"backendAddressPool":{"id":%q}}}]}}`, pipID, feID, beID, probeID, feID, beID)
 	out = runCLI(t, azRest("PUT", lbURL, lbBody))
 	if !strings.Contains(out, "http-rule") {
 		t.Fatalf("expected load-balancing rule in load balancer response, got %s", out)
@@ -31,6 +31,16 @@ func TestNetworkLoadBalancerCLI(t *testing.T) {
 	out = runCLI(t, azRest("GET", lbURL, ""))
 	if !strings.Contains(out, "frontendIPConfigurations") || !strings.Contains(out, "backendAddressPools") {
 		t.Fatalf("expected load balancer child resources, got %s", out)
+	}
+
+	rulesURL := armURL("Microsoft.Network", "loadBalancers/cli-lb/outboundRules", "2024-05-01")
+	out = runCLI(t, azRest("GET", rulesURL, ""))
+	if !strings.Contains(out, lbID+"/outboundRules/egress") {
+		t.Fatalf("expected the outbound rule the PUT carried, got %s", out)
+	}
+	out = runCLI(t, azRest("GET", armURL("Microsoft.Network", "loadBalancers/cli-lb/outboundRules/egress", "2024-05-01"), ""))
+	if !strings.Contains(out, `"protocol": "All"`) {
+		t.Fatalf("expected the outbound rule's protocol, got %s", out)
 	}
 
 	runCLI(t, azRest("DELETE", lbURL, ""))

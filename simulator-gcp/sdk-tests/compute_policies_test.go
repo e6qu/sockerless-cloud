@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"google.golang.org/api/googleapi"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,22 +112,30 @@ func TestCompute_RegionalSecurityPolicyIsItsOwnResource(t *testing.T) {
 	assert.Contains(t, scopes, "regions/"+region)
 }
 
+// orgFirewallPolicy inserts an organization firewall policy under the test
+// organization and returns the numeric name Compute Engine allocated it, which
+// the insert operation carries as its targetId.
+func orgFirewallPolicy(t *testing.T, svc *compute.Service, shortName string) string {
+	t.Helper()
+	op, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{ShortName: shortName}).
+		ParentId("organizations/12345").Do()
+	require.NoError(t, err)
+	require.NotZero(t, op.TargetId)
+	return strconv.FormatUint(op.TargetId, 10)
+}
+
 func TestCompute_OrganizationFirewallPolicyAssociations(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
+	name := orgFirewallPolicy(t, svc, "org-policy")
 
-	_, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{
-		Name: "org-policy", ShortName: "org-policy",
-	}).Do()
-	require.NoError(t, err)
-
-	_, err = svc.FirewallPolicies.AddAssociation("org-policy", &compute.FirewallPolicyAssociation{
+	_, err := svc.FirewallPolicies.AddAssociation(name, &compute.FirewallPolicyAssociation{
 		Name:             "to-prod",
 		AttachmentTarget: "organizations/12345",
 	}).Do()
 	require.NoError(t, err)
 
-	association, err := svc.FirewallPolicies.GetAssociation("org-policy").Name("to-prod").Do()
+	association, err := svc.FirewallPolicies.GetAssociation(name).Name("to-prod").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "organizations/12345", association.AttachmentTarget)
 
@@ -133,43 +143,120 @@ func TestCompute_OrganizationFirewallPolicyAssociations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Associations, 1)
 
-	_, err = svc.FirewallPolicies.RemoveAssociation("org-policy").Name("to-prod").Do()
+	_, err = svc.FirewallPolicies.RemoveAssociation(name).Name("to-prod").Do()
 	require.NoError(t, err)
-	_, err = svc.FirewallPolicies.GetAssociation("org-policy").Name("to-prod").Do()
+	_, err = svc.FirewallPolicies.GetAssociation(name).Name("to-prod").Do()
 	require.Error(t, err, "the association was removed, so reading it must fail")
+}
+
+func TestCompute_OrganizationFirewallPolicyIdentity(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+
+	op, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{ShortName: "org-identity", Description: "edge"}).
+		ParentId("folders/424242").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "https://www.googleapis.com/compute/v1/locations/global/operations/"+op.Name, op.SelfLink,
+		"an organization policy's operation lives under the organization's operations")
+	name := strconv.FormatUint(op.TargetId, 10)
+	assert.Equal(t, "https://www.googleapis.com/compute/v1/locations/global/firewallPolicies/"+name, op.TargetLink)
+
+	got, err := svc.FirewallPolicies.Get(name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, name, got.Name, "the name is the numeric ID Compute Engine allocates")
+	assert.Equal(t, op.TargetId, got.Id)
+	assert.Equal(t, "org-identity", got.ShortName)
+	assert.Equal(t, "folders/424242", got.Parent, "the policy records the parentId it was inserted under")
+	assert.Equal(t, op.TargetLink, got.SelfLink)
+
+	polled, err := svc.GlobalOrganizationOperations.Get(op.Name).ParentId("folders/424242").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "DONE", polled.Status)
+
+	listed, err := svc.FirewallPolicies.List().ParentId("folders/424242").Do()
+	require.NoError(t, err)
+	require.Len(t, listed.Items, 1, "the list is the parent's policies")
+	assert.Equal(t, name, listed.Items[0].Name)
+
+	_, err = svc.FirewallPolicies.Insert(&compute.FirewallPolicy{ShortName: "org-identity"}).ParentId("folders/424242").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 409, apiErr.Code, "a parent holds one policy per short name")
+
+	_, err = svc.FirewallPolicies.Insert(&compute.FirewallPolicy{Description: "no short name"}).ParentId("folders/424242").Do()
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.Code, "an organization policy needs a short name")
 }
 
 func TestCompute_OrganizationFirewallPolicyClonesAnotherPolicysRules(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-
-	_, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{
-		Name: "source-policy", ShortName: "source-policy",
-	}).Do()
-	require.NoError(t, err)
-	_, err = svc.FirewallPolicies.AddRule("source-policy", &compute.FirewallPolicyRule{
+	source := orgFirewallPolicy(t, svc, "source-policy")
+	_, err := svc.FirewallPolicies.AddRule(source, &compute.FirewallPolicyRule{
 		Priority: 100, Action: "deny", Direction: "INGRESS",
 	}).Do()
 	require.NoError(t, err)
+	target := orgFirewallPolicy(t, svc, "target-policy")
 
-	_, err = svc.FirewallPolicies.Insert(&compute.FirewallPolicy{
-		Name: "target-policy", ShortName: "target-policy",
-	}).Do()
+	_, err = svc.FirewallPolicies.CloneRules(target).SourceFirewallPolicy(source).Do()
 	require.NoError(t, err)
 
-	_, err = svc.FirewallPolicies.CloneRules("target-policy").
-		SourceFirewallPolicy("source-policy").Do()
+	cloned, err := svc.FirewallPolicies.Get(target).Do()
 	require.NoError(t, err)
-
-	target, err := svc.FirewallPolicies.Get("target-policy").Do()
-	require.NoError(t, err)
-	require.Len(t, target.Rules, 1, "the clone copied the source's rules rather than acknowledging the call")
-	assert.Equal(t, int64(100), target.Rules[0].Priority)
+	require.Len(t, cloned.Rules, 1, "the clone copied the source's rules rather than acknowledging the call")
+	assert.Equal(t, int64(100), cloned.Rules[0].Priority)
 
 	// Cloning from a policy that does not exist reports that.
-	_, err = svc.FirewallPolicies.CloneRules("target-policy").
-		SourceFirewallPolicy("absent-policy").Do()
+	_, err = svc.FirewallPolicies.CloneRules(target).SourceFirewallPolicy("1").Do()
 	require.Error(t, err)
+}
+
+func TestCompute_NetworkFirewallPolicyClonesAnotherPolicysRules(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+	const project, region = "sdk-fw-clone", "us-central1"
+	ensureProject(t, project)
+
+	_, err := svc.NetworkFirewallPolicies.Insert(project, &compute.FirewallPolicy{Name: "clone-source"}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.AddRule(project, "clone-source", &compute.FirewallPolicyRule{
+		Priority: 200, Action: "deny", Direction: "INGRESS",
+		Match: &compute.FirewallPolicyRuleMatcher{SrcIpRanges: []string{"10.0.0.0/8"}},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.Insert(project, &compute.FirewallPolicy{Name: "clone-target"}).Do()
+	require.NoError(t, err)
+
+	source, err := svc.NetworkFirewallPolicies.Get(project, "clone-source").Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkFirewallPolicies.CloneRules(project, "clone-target").SourceFirewallPolicy(source.SelfLink).Do()
+	require.NoError(t, err)
+	cloned, err := svc.NetworkFirewallPolicies.Get(project, "clone-target").Do()
+	require.NoError(t, err)
+	require.Len(t, cloned.Rules, 1)
+	assert.Equal(t, int64(200), cloned.Rules[0].Priority)
+	assert.Equal(t, []string{"10.0.0.0/8"}, cloned.Rules[0].Match.SrcIpRanges)
+
+	_, err = svc.NetworkFirewallPolicies.CloneRules(project, "clone-target").SourceFirewallPolicy("absent").Do()
+	var apiErr *googleapi.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 404, apiErr.Code, "an unknown source policy is not found")
+
+	_, err = svc.RegionNetworkFirewallPolicies.Insert(project, region, &compute.FirewallPolicy{Name: "regional-source"}).Do()
+	require.NoError(t, err)
+	_, err = svc.RegionNetworkFirewallPolicies.AddRule(project, region, "regional-source", &compute.FirewallPolicyRule{
+		Priority: 300, Action: "allow", Direction: "EGRESS",
+		Match: &compute.FirewallPolicyRuleMatcher{DestIpRanges: []string{"0.0.0.0/0"}},
+	}).Do()
+	require.NoError(t, err)
+	_, err = svc.RegionNetworkFirewallPolicies.Insert(project, region, &compute.FirewallPolicy{Name: "regional-target"}).Do()
+	require.NoError(t, err)
+	_, err = svc.RegionNetworkFirewallPolicies.CloneRules(project, region, "regional-target").SourceFirewallPolicy("regional-source").Do()
+	require.NoError(t, err)
+	regional, err := svc.RegionNetworkFirewallPolicies.Get(project, region, "regional-target").Do()
+	require.NoError(t, err)
+	require.Len(t, regional.Rules, 1)
+	assert.Equal(t, "EGRESS", regional.Rules[0].Direction)
 }
 
 // TestCompute_PreconfiguredExpressionSetsAreNotSwallowedByThePolicyRead: the

@@ -20,7 +20,7 @@ import (
 // with the resource provider's own NotFound.
 func TestCompute_VirtualMachineImagesCatalog(t *testing.T) {
 	t.Parallel()
-	images, err := armcompute.NewVirtualMachineImagesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	images, err := armcompute.NewVirtualMachineImagesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	publishers, err := images.ListPublishers(ctx, "eastus", nil)
@@ -70,7 +70,7 @@ func TestCompute_VirtualMachineWithUnknownImageIsRefused(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-noimage-rg"
 	nicID := vmOperationsFixture(t, rg, "vm-noimage", "10.100.0.0/16")
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = vmClient.BeginCreateOrUpdate(ctx, rg, "vm-noimage", armcompute.VirtualMachine{
 		Location: to.Ptr("eastus"),
@@ -94,7 +94,7 @@ func TestCompute_VirtualMachineWithUnknownImageIsRefused(t *testing.T) {
 // what it wrote.
 func runInGuest(t *testing.T, rg, vmName, name, command string) string {
 	t.Helper()
-	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	extClient, err := armcompute.NewVirtualMachineExtensionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := extClient.BeginCreateOrUpdate(ctx, rg, vmName, name, armcompute.VirtualMachineExtension{
 		Location: to.Ptr("eastus"),
@@ -134,7 +134,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	assert.Contains(t, ran, "Cloud-init v. 22.4.2 finished at ")
 	assert.Contains(t, ran, "Datasource DataSourceAzure [seed=/dev/sr0].")
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-init-nic", nil)
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	eth0 := runInGuest(t, rg, vmName, "mac", "cat /sys/class/net/eth0/address | tr -d :")
 	assert.Contains(t, eth0, "\n"+strings.ToLower(mac)+"\n", "the guest's interface carries the MAC the network interface reports")
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vm, err := vmClient.Get(ctx, rg, vmName, nil)
 	require.NoError(t, err)
@@ -222,7 +222,7 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 	_, err = vmClient.Generalize(ctx, rg, vmName, nil)
 	require.NoError(t, err)
 
-	imagesClient, err := armcompute.NewImagesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	imagesClient, err := armcompute.NewImagesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vmID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s", subscriptionID, rg, vmName)
 	imagePoller, err := imagesClient.BeginCreateOrUpdate(ctx, rg, "vm-disk-image", armcompute.Image{
@@ -250,7 +250,7 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 	assert.Contains(t, names, "vm-disk-image")
 
 	// The file written into the source machine is on the new machine's disk.
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/vm-disk-vnet/subnets/vm-disk-subnet", subscriptionID, rg)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "vm-disk-nic-2", armnetwork.Interface{
@@ -282,7 +282,7 @@ func TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-nsg-rg"
 	serverNIC := vmOperationsFixture(t, rg, "vm-nsg", "10.255.0.0/16")
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rule := func(name string, priority int32, access armnetwork.SecurityRuleAccess, port string) *armnetwork.SecurityRule {
 		return &armnetwork.SecurityRule{Name: to.Ptr(name), Properties: &armnetwork.SecurityRulePropertiesFormat{
@@ -302,7 +302,7 @@ func TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives(t *testing.T) {
 	nsg, err := nsgPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-nsg-nic", nil)
 	require.NoError(t, err)
@@ -346,7 +346,7 @@ serve 81
 	require.Eventually(t, func() bool { return strings.Contains(probe(80), "port=open") }, 30*time.Second, time.Second, "the allowed port never answered the neighbour")
 	assert.Contains(t, probe(81), "port=closed", "a port the group denies answered the neighbour")
 
-	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	rulePoller, err := rulesClient.BeginCreateOrUpdate(ctx, rg, "vm-nsg-web", "allow-81", *rule("allow-81", 150, armnetwork.SecurityRuleAccessAllow, "81"), nil)
 	require.NoError(t, err)

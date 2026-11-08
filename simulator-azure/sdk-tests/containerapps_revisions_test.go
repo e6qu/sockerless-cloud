@@ -96,9 +96,9 @@ func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-rev-single-rg"), uniquename.New("revsingle")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	revisions, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	revisions, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, servingContainerApp(rg, "v1", nil), nil)
@@ -184,11 +184,11 @@ func TestSDK_ContainerAppsRevisions_MultipleModeSplitsTraffic(t *testing.T) {
 	t.Parallel()
 	rg, name := uniquename.New("sdk-aca-rev-multi-rg"), uniquename.New("revmulti")
 	ensureRG(t, rg)
-	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	revisions, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	revisions, err := armappcontainers.NewContainerAppsRevisionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &fakeCredential{}, clientOpts())
+	replicas, err := armappcontainers.NewContainerAppsRevisionReplicasClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, name, servingContainerApp(rg, "blue", &armappcontainers.Configuration{

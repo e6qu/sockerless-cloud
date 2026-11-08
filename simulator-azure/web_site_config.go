@@ -118,47 +118,23 @@ func registerSiteConfigReads(srv *sim.Server, armBase string, sites sim.Store[Si
 	})
 
 	srv.HandleFunc("POST "+armBase+"/sites/{siteName}/config/authsettings/list", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "siteName")
-		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
-		if _, ok := sites.Get(resourceID); !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
+		if webMissing(w, r) {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":   resourceID + "/config/authsettings",
-			"name": "authsettings",
-			"type": "Microsoft.Web/sites/config",
-			"properties": map[string]any{
-				"enabled": false,
-			},
-		})
+		extra, _ := webConfigExtras.Get(webResourceID(r))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/authsettingsv2/list", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "siteName")
-		resourceID := armResourceID(sub, rg, "Microsoft.Web", "sites", name)
-		if _, ok := sites.Get(resourceID); !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
+		if webMissing(w, r) {
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":   resourceID + "/config/authsettingsV2",
-			"name": "authsettingsV2",
-			"type": "Microsoft.Web/sites/config",
-			"properties": map[string]any{
-				"platform":          map[string]any{"enabled": false},
-				"globalValidation":  map[string]any{},
-				"identityProviders": map[string]any{},
-				"login":             map[string]any{},
-				"httpSettings":      map[string]any{},
-			},
-		})
+		extra, _ := webConfigExtras.Get(webResourceID(r))
+		props := extra.AuthSettingsV2
+		if props == nil {
+			props = authSettingsV2Default()
+		}
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	})
 
 	// The password derives from the resource ID and the site's rotation counter:

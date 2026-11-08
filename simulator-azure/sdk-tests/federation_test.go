@@ -91,19 +91,19 @@ func (i *externalIssuer) mint(t *testing.T, subject, audience string, expiry tim
 // its client ID.
 func registerFederatedIdentity(t *testing.T, rg, issuerURL, subject string) string {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	idClient, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	idClient, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	id, err := idClient.CreateOrUpdate(ctx, rg, "console-identity", armmsi.Identity{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, id.Properties)
 	clientID := *id.Properties.ClientID
 
-	ficClient, err := armmsi.NewFederatedIdentityCredentialsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ficClient, err := armmsi.NewFederatedIdentityCredentialsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = ficClient.CreateOrUpdate(ctx, rg, "console-identity", "console-fic", armmsi.FederatedIdentityCredential{
 		Properties: &armmsi.FederatedIdentityCredentialProperties{

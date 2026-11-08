@@ -21,7 +21,10 @@ func TestGCS_BucketCarriesDefaultPolicyFromCreation(t *testing.T) {
 	svc := storageService(t)
 	bucket := uniquename.New("default-policy-bucket")
 	requireProject(t, "default-policy-project")
-	_, err := svc.Buckets.Insert("default-policy-project", &storageapi.Bucket{Name: bucket}).Do()
+	_, err := svc.Buckets.Insert("default-policy-project", &storageapi.Bucket{Name: bucket,
+		IamConfiguration: &storageapi.BucketIamConfiguration{
+			UniformBucketLevelAccess: &storageapi.BucketIamConfigurationUniformBucketLevelAccess{Enabled: true},
+		}}).Do()
 	require.NoError(t, err)
 
 	initial, err := svc.Buckets.GetIamPolicy(bucket).Do()

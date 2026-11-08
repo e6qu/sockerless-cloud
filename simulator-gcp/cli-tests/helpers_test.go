@@ -96,12 +96,25 @@ func pullWorkloadImage(image string) {
 	}
 }
 
+// clearAmbientGcloudAuthAndProxy drops the gcloud settings a host environment
+// may carry: gcloud prefers CLOUDSDK_AUTH_ACCESS_TOKEN to the activated
+// account, and CLOUDSDK_PROXY_* to the HTTP_PROXY the harness sets.
+func clearAmbientGcloudAuthAndProxy() {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == "CLOUDSDK_AUTH_ACCESS_TOKEN" || strings.HasPrefix(name, "CLOUDSDK_PROXY_") {
+			os.Unsetenv(name)
+		}
+	}
+}
+
 func TestMain(m *testing.M) {
 	// A simulator this process starts must not outlive it. The cleanup
 	// below stops each one, and a killed `go test` never reaches it — so
 	// the simulator watches this pid and exits when it goes. Set here
 	// rather than at each start: every one of them inherits os.Environ().
 	os.Setenv("SOCKERLESS_PARENT_PID", strconv.Itoa(os.Getpid()))
+	clearAmbientGcloudAuthAndProxy()
 	// Use the host gcloud when present; otherwise install a pinned Google Cloud
 	// CLI release into a temp dir so the suite runs unconditionally instead of
 	// skipping. Mirrors the AWS cli-tests install-or-fail approach — a required

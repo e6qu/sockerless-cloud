@@ -33,7 +33,7 @@ func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 	ensureCosmosAccount(t, rg, account)
 	db, coll := "appdb", "users"
 
-	acctClient, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	acctClient, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	metricsPager := acctClient.NewListMetricsPager(rg, account, cosmosMetricFilter, nil)
@@ -57,7 +57,7 @@ func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 	require.NotEmpty(t, defsPage.Value)
 	require.NotNil(t, defsPage.Value[0].PrimaryAggregationType)
 
-	dbClient, err := armcosmos.NewDatabaseClient(subscriptionID, &fakeCredential{}, clientOpts())
+	dbClient, err := armcosmos.NewDatabaseClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	dbMetrics, err := dbClient.NewListMetricsPager(rg, account, db, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, dbDefs.Value)
 
-	collClient, err := armcosmos.NewCollectionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	collClient, err := armcosmos.NewCollectionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	collMetrics, err := collClient.NewListMetricsPager(rg, account, db, coll, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 	ensureCosmosAccount(t, rg, account)
 	db, coll, region := "appdb", "users", "East US"
 
-	cpClient, err := armcosmos.NewCollectionPartitionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	cpClient, err := armcosmos.NewCollectionPartitionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	cpMetrics, err := cpClient.NewListMetricsPager(rg, account, db, coll, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -99,39 +99,39 @@ func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 	require.NotEmpty(t, cpUsages.Value)
 	require.NotNil(t, cpUsages.Value[0].PartitionKeyRangeID)
 
-	cprClient, err := armcosmos.NewCollectionPartitionRegionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	cprClient, err := armcosmos.NewCollectionPartitionRegionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	cprMetrics, err := cprClient.NewListMetricsPager(rg, account, region, db, coll, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, cprMetrics.Value)
 
-	pkrClient, err := armcosmos.NewPartitionKeyRangeIDClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pkrClient, err := armcosmos.NewPartitionKeyRangeIDClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pkrMetrics, err := pkrClient.NewListMetricsPager(rg, account, db, coll, "0", cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, pkrMetrics.Value)
 	assert.Equal(t, "0", *pkrMetrics.Value[0].PartitionKeyRangeID)
 
-	pkrrClient, err := armcosmos.NewPartitionKeyRangeIDRegionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pkrrClient, err := armcosmos.NewPartitionKeyRangeIDRegionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pkrrMetrics, err := pkrrClient.NewListMetricsPager(rg, account, region, db, coll, "0", cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, pkrrMetrics.Value)
 
-	crClient, err := armcosmos.NewCollectionRegionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	crClient, err := armcosmos.NewCollectionRegionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	crMetrics, err := crClient.NewListMetricsPager(rg, account, region, db, coll, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, crMetrics.Value)
 
-	darClient, err := armcosmos.NewDatabaseAccountRegionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	darClient, err := armcosmos.NewDatabaseAccountRegionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	darMetrics, err := darClient.NewListMetricsPager(rg, account, region, cosmosMetricFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, darMetrics.Value)
 
 	percFilter := "(name.value eq 'Probabilistic Bounded Staleness') and timeGrain eq duration'PT5M' and startTime eq 2024-01-01T00:00:00Z and endTime eq 2024-01-01T01:00:00Z"
-	pClient, err := armcosmos.NewPercentileClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pClient, err := armcosmos.NewPercentileClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pMetrics, err := pClient.NewListMetricsPager(rg, account, percFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -139,13 +139,13 @@ func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 	require.NotEmpty(t, pMetrics.Value[0].MetricValues)
 	require.NotNil(t, pMetrics.Value[0].MetricValues[0].P99)
 
-	ptClient, err := armcosmos.NewPercentileTargetClient(subscriptionID, &fakeCredential{}, clientOpts())
+	ptClient, err := armcosmos.NewPercentileTargetClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	ptMetrics, err := ptClient.NewListMetricsPager(rg, account, "West US", percFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, ptMetrics.Value)
 
-	pstClient, err := armcosmos.NewPercentileSourceTargetClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pstClient, err := armcosmos.NewPercentileSourceTargetClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pstMetrics, err := pstClient.NewListMetricsPager(rg, account, region, "West US", percFilter, nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestAzureCosmosDB_OnlineOfflineRegionSDK(t *testing.T) {
 	rg, account := "sdk-cosmos-region-rg", "sdkcosmosregion"
 	ensureCosmosMultiRegionAccount(t, rg, account)
 
-	client, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	offPoller, err := client.BeginOfflineRegion(ctx, rg, account, armcosmos.RegionForOnlineOffline{Region: to.Ptr("West US")}, nil)
@@ -182,7 +182,7 @@ func TestAzureCosmosDB_PrivateEndpointConnectionsSDK(t *testing.T) {
 	rg, account, pecName := "sdk-cosmos-pec-rg", "sdkcosmospec", "pe-conn-1"
 	ensureCosmosAccount(t, rg, account)
 
-	client, err := armcosmos.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcosmos.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	peID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateEndpoints/pe1", subscriptionID, rg)

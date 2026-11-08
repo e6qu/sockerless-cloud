@@ -483,16 +483,6 @@ func RequireStorageOAuthBearer(w http.ResponseWriter, r *http.Request, service, 
 	return false
 }
 
-// storageCredentialAccount is the account a Shared Key credential names: its
-// last path segment, because a path-style client's account string carries the
-// service prefix it parsed out of its endpoint.
-func storageCredentialAccount(named string) string {
-	if i := strings.LastIndexByte(named, '/'); i >= 0 {
-		return named[i+1:]
-	}
-	return named
-}
-
 // blobAuthorizationError writes the refusal the Blob service writes, in the
 // XML envelope its clients parse.
 func blobAuthorizationError(w http.ResponseWriter, status int, code, message string) {
@@ -559,15 +549,7 @@ func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, 
 		lite := strings.HasPrefix(authorization, "SharedKeyLite ")
 		_, credential, _ := strings.Cut(authorization, " ")
 		named, signature, ok := strings.Cut(strings.TrimSpace(credential), ":")
-		// A client on a path-style endpoint derives its account string from the
-		// endpoint's path — the az CLI's storage SDK turns
-		// `http://host/queue/<account>/` into the literal `queue/<account>` and
-		// signs with that string in the header and the resource alike. The
-		// credential still names this account (its last segment), and the
-		// signature is still verified against this account's keys; the string
-		// the client signed is reconstructed with the client's own spelling,
-		// which is how Azurite verifies the same requests.
-		if !ok || !strings.EqualFold(storageCredentialAccount(named), account) {
+		if !ok || !strings.EqualFold(named, account) {
 			return refuse(http.StatusForbidden, "AuthenticationFailed",
 				"Server failed to authenticate the request. Make sure the value of Authorization header is formed correctly including the signature.")
 		}

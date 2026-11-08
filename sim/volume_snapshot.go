@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -338,4 +339,47 @@ func (s *volumeSnapshotSink) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return strings.Join(s.lines, "\n")
+}
+
+// ArchiveVolume streams a volume's contents as a tar archive, read through a
+// container that mounts the volume and never starts. Closing the stream
+// removes the container.
+func ArchiveVolume(ctx context.Context, volume string) (io.ReadCloser, error) {
+	if err := RequireContainerRuntime("archiving volume " + volume); err != nil {
+		return nil, err
+	}
+	if !VolumeExists(volume) {
+		return nil, fmt.Errorf("volume %s does not exist", volume)
+	}
+	if err := PullImage(ctx, volumeSnapshotImage, "linux/amd64"); err != nil {
+		return nil, fmt.Errorf("archive volume %s: %w", volume, err)
+	}
+	cli := DockerClient()
+	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:     &container.Config{Image: volumeSnapshotImage, Entrypoint: []string{"/nonexistent"}},
+		HostConfig: &container.HostConfig{Binds: []string{volume + ":/archive:ro"}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archive volume %s: %w", volume, err)
+	}
+	remove := func() {
+		_, _ = cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
+	}
+	copied, err := cli.CopyFromContainer(ctx, created.ID, client.CopyFromContainerOptions{SourcePath: "/archive/."})
+	if err != nil {
+		remove()
+		return nil, fmt.Errorf("archive volume %s: %w", volume, err)
+	}
+	return &archivedVolume{ReadCloser: copied.Content, remove: remove}, nil
+}
+
+type archivedVolume struct {
+	io.ReadCloser
+	remove func()
+}
+
+func (a *archivedVolume) Close() error {
+	err := a.ReadCloser.Close()
+	a.remove()
+	return err
 }

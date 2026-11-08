@@ -34,7 +34,7 @@ func createFilesWebApp(t *testing.T, rg, name string, settings map[string]string
 	t.Helper()
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, name+"-plan")
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 	all := map[string]string{"WEBSITES_ENABLE_APP_SERVICE_STORAGE": "true"}

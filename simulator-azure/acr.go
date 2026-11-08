@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -414,7 +417,26 @@ func registerACR(srv *sim.Server) {
 			sim.WriteJSON(w, http.StatusOK, rule)
 		})
 
-	registerACRRegistryActions(srv, registries)
+	acrWebhookEvents = sim.MakeStore[acrWebhookEvent](srv.DB(), "acr_webhook_events")
+	reg.OnManifestPut = func(r *http.Request, scope, repo, ref, contentType string, data []byte) {
+		if r == nil {
+			return
+		}
+		sum := sha256.Sum256(data)
+		digest := "sha256:" + hex.EncodeToString(sum[:])
+		target := map[string]any{"mediaType": contentType, "size": len(data), "digest": digest, "length": len(data), "repository": repo}
+		tag := ""
+		if !strings.HasPrefix(ref, "sha256:") {
+			tag = ref
+			target["tag"] = ref
+		}
+		acrFireWebhooks(scope, "push", repo, tag, target, r)
+	}
+	reg.OnManifestDelete = func(r *http.Request, scope, repo, digest, contentType string) {
+		acrFireWebhooks(scope, "delete", repo, "", map[string]any{"mediaType": contentType, "digest": digest, "repository": repo}, r)
+	}
+
+	registerACRRegistryActions(srv, registries, reg)
 	registerACRChildResources(srv)
 	registerACRWebhooks(srv)
 
@@ -1064,6 +1086,16 @@ func registerACRWebhooks(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if _, exists := webhooks.Get(id); !exists {
+			regID, _ := acrRegistryID(r)
+			if registry, ok := acrRegistries.Get(regID); ok {
+				if _, limit := acrSKULimit(registry); acrWebhookCount(regID) >= limit {
+					AzureErrorf(w, "QuotaExceeded", http.StatusConflict,
+						"The registry '%s' already has the %d webhooks its SKU allows.", sim.PathParam(r, "registryName"), limit)
+					return
+				}
+			}
+		}
 		wh := acrWebhookStored{
 			ID: id, Name: sim.PathParam(r, "webhookName"), Type: typeName,
 			Location: req.Location, Tags: req.Tags,
@@ -1141,6 +1173,7 @@ func registerACRWebhooks(srv *sim.Server) {
 
 	srv.HandleFunc("DELETE "+base+"/{webhookName}", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := webhookID(r)
+		acrDropWebhookEvents(id)
 		if webhooks.Delete(id) {
 			w.WriteHeader(http.StatusOK)
 		} else {
@@ -1148,9 +1181,21 @@ func registerACRWebhooks(srv *sim.Server) {
 		}
 	})
 
-	// Ping answers an EventInfo id and delivers nothing.
+	// Ping sends a generic POST to the service URI and records the exchange.
 	srv.HandleFunc("POST "+base+"/{webhookName}/ping", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": sim.NewUUID()})
+		id, _ := webhookID(r)
+		wh, ok := webhooks.Get(id)
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"Webhook '%s' under registry '%s' was not found.", sim.PathParam(r, "webhookName"), sim.PathParam(r, "registryName"))
+			return
+		}
+		event := acrDeliverWebhook(wh, map[string]any{
+			"id":        sim.NewUUID(),
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+			"action":    "ping",
+		})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"id": event.ID})
 	})
 
 	srv.HandleFunc("POST "+base+"/{webhookName}/getCallbackConfig", func(w http.ResponseWriter, r *http.Request) {
@@ -1168,13 +1213,18 @@ func registerACRWebhooks(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// Answers an empty list: the simulator records no webhook deliveries.
 	srv.HandleFunc("POST "+base+"/{webhookName}/listEvents", func(w http.ResponseWriter, r *http.Request) {
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
+		id, _ := webhookID(r)
+		if _, ok := webhooks.Get(id); !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+				"Webhook '%s' under registry '%s' was not found.", sim.PathParam(r, "webhookName"), sim.PathParam(r, "registryName"))
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": acrWebhookEventList(id)})
 	})
 }
 
-func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry]) {
+func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry], oci *sim.OCIRegistry) {
 	srv.HandleFunc("GET /providers/Microsoft.ContainerRegistry/operations", func(w http.ResponseWriter, r *http.Request) {
 		op := func(name, resource, operation, desc string) map[string]any {
 			return map[string]any{
@@ -1246,22 +1296,35 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		sim.WriteJSON(w, http.StatusOK, reg)
 	})
 
-	// Answers fixed usage figures.
+	// The bytes the registry stores and its webhooks, against what its SKU
+	// includes.
 	srv.HandleFunc("GET "+acrARMBase+"/registries/{registryName}/listUsages", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := acrRegistryID(r); !ok {
+		regID, ok := acrRegistryID(r)
+		if !ok {
 			acrRegistryNotFound(w, r)
 			return
 		}
+		registry, _ := registries.Get(regID)
+		storage, webhookLimit := acrSKULimit(registry)
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []map[string]any{
-			{"name": "Size", "limit": 10737418240, "currentValue": 0, "unit": "Bytes"},
-			{"name": "Webhooks", "limit": 100, "currentValue": 0, "unit": "Count"},
+			{"name": "Size", "limit": storage, "currentValue": acrStoredBytes(oci, regID), "unit": "Bytes"},
+			{"name": "Webhooks", "limit": webhookLimit, "currentValue": acrWebhookCount(regID), "unit": "Count"},
 		}})
 	})
 
-	// Answers 200 and copies nothing.
 	srv.HandleFunc("POST "+acrARMBase+"/registries/{registryName}/importImage", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := acrRegistryID(r); !ok {
+		regID, ok := acrRegistryID(r)
+		if !ok {
 			acrRegistryNotFound(w, r)
+			return
+		}
+		var req acrImportImageParameters
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := acrImportImage(r.Context(), oci, regID, req); err != nil {
+			AzureError(w, "InvalidParameter", err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusOK)

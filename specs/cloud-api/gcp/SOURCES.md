@@ -177,3 +177,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `sql-auth-proxy.md.gz` | `docs.cloud.google.com` | `sql/docs/postgres/sql-proxy` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-01T14:19:30Z |
 | `sql-iam-permissions.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/iam-permissions` | CC-BY-4.0 | `modified2026-11-02` | 2026-11-05T11:04:18Z |
 | `vpc-mtu.md.gz` | `docs.cloud.google.com` | `vpc/docs/mtu` | CC-BY-4.0 | `modified2026-11-02` | 2026-11-07T02:48:53Z |
+| `cloudrun-cpu.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/cpu` | CC-BY-4.0 | `modified2026-10-30` | 2026-11-07T23:16:08Z |
+| `service-usage-enabled-service.md.gz` | `docs.cloud.google.com` | `service-usage/docs/enabled-service` | CC-BY-4.0 | `modified2026-10-26` | 2026-11-07T23:44:40Z |
+| `iam-manage-workforce-pools.md.gz` | `docs.cloud.google.com` | `iam/docs/manage-workforce-identity-pools-providers` | CC-BY-4.0 | `modified2026-11-07` | 2026-11-08T07:57:32Z |

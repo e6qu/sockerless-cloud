@@ -47,7 +47,7 @@ func newRedisTransferStorage(t *testing.T, rg, account, name string) redisTransf
 func newRedisTransferStorageIn(t *testing.T, rg, account, name, location string) redisTransferStorage {
 	t.Helper()
 	ensureStorageARMResourceGroup(t, rg)
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	creation, err := accounts.BeginCreate(ctx, rg, account, armstorage.AccountCreateParameters{
 		Kind:     to.Ptr(armstorage.KindStorageV2),
@@ -149,14 +149,14 @@ func TestRedis_ExportAndImportMoveKeysThroughBlobStorage(t *testing.T) {
 	rg := "redis-transfer-rg"
 	ensureRedisResourceGroup(t, rg)
 	storage := newRedisTransferStorage(t, rg, "redistransfersas", "snapshots")
-	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armredis.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	source := createPremiumRedisCache(t, client, rg, "redis-transfer-source",
 		&armredis.ManagedServiceIdentity{Type: ptr(armredis.ManagedServiceIdentityTypeSystemAssigned)})
 	target := createPremiumRedisCache(t, client, rg, "redis-transfer-target", nil)
 	require.NotNil(t, source.Identity)
 	require.NotNil(t, source.Identity.PrincipalID, "a system-assigned identity carries a principal")
-	identities, err := armmsi.NewSystemAssignedIdentitiesClient(&fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewSystemAssignedIdentitiesClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	byScope, err := identities.GetByScope(ctx, strings.TrimPrefix(*source.ID, "/"), nil)
 	require.NoError(t, err, "SystemAssignedIdentities_GetByScope resolves a cache")

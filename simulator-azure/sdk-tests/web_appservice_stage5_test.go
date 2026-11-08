@@ -56,7 +56,7 @@ import (
 
 func stage5EnsurePlan(t *testing.T, rg, plan, skuName, skuTier string) string {
 	t.Helper()
-	client, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	p, err := client.BeginCreateOrUpdate(ctx, rg, plan, armappservice.Plan{
 		Location: to.Ptr("eastus"),
@@ -80,7 +80,7 @@ const unstartedSiteImage = "registry.example/functions/azf:test"
 // its Linux container, appCommandLine its startup command.
 func stage5CreateSite(t *testing.T, rg, name, planID, image, appCommandLine string, alwaysOn bool) string {
 	t.Helper()
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	siteConfig := &armappservice.SiteConfig{AlwaysOn: to.Ptr(alwaysOn)}
 	if image != "" {
@@ -107,7 +107,7 @@ func stage5CreateSite(t *testing.T, rg, name, planID, image, appCommandLine stri
 // Microsoft.Web/serverFarms through armnetwork, and returns the subnet's ID.
 func stage5Subnet(t *testing.T, rg, vnetName, vnetCIDR, subnetName, subnetCIDR string) string {
 	t.Helper()
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vp, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -119,7 +119,7 @@ func stage5Subnet(t *testing.T, rg, vnetName, vnetCIDR, subnetName, subnetCIDR s
 	_, err = vp.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	sp, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -151,7 +151,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 	stage5CreateSite(t, rg, "s5-vnet-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-vnet", "10.60.0.0/16", "appsvc", "10.60.1.0/24")
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	swiftPut, err := web.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-vnet-app", armappservice.SwiftVirtualNetwork{
@@ -301,14 +301,14 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 	stage5CreateSite(t, rg, "s5-tail-app", planID, unstartedSiteImage, "", false)
 	subnetID := stage5Subnet(t, rg, "s5-tail-vnet", "10.61.0.0/16", "appsvc", "10.61.1.0/24")
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = web.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-tail-app", armappservice.SwiftVirtualNetwork{
 		Properties: &armappservice.SwiftVirtualNetworkProperties{SubnetResourceID: to.Ptr(subnetID), SwiftSupported: to.Ptr(true)},
 	}, nil)
 	require.NoError(t, err)
 
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	vnets, err := plans.ListVnets(ctx, rg, "s5-tail-plan", nil)
@@ -419,7 +419,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 
 	// A redis container group injected into a second subnet of the network holds
 	// a private address there.
-	subnets, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnets, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	aciSubnetPoller, err := subnets.BeginCreateOrUpdate(ctx, rg, "s5-join-vnet", "aci", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -433,7 +433,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	require.NoError(t, err)
 	aciSubnet, err := aciSubnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	cpu, mem := 1.0, 1.0
 	groupPoller, err := groups.BeginCreateOrUpdate(ctx, rg, "s5-join-redis", armcontainerinstance.ContainerGroup{
@@ -470,13 +470,13 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	require.True(t, strings.HasPrefix(redisAddress, "10.62.2."), "the group holds an address in its subnet, got %q", redisAddress)
 
 	// The network's private zone names the group.
-	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zones.BeginCreateOrUpdate(ctx, rg, "join.internal", armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
 	require.NoError(t, err)
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/s5-join-vnet"
 	linkPoller, err := links.BeginCreateOrUpdate(ctx, rg, "join.internal", "s5-join-link", armprivatedns.VirtualNetworkLink{
@@ -486,7 +486,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	require.NoError(t, err)
 	_, err = linkPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	records, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	records, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = records.CreateOrUpdate(ctx, rg, "join.internal", armprivatedns.RecordTypeA, "redis", armprivatedns.RecordSet{
 		Properties: &armprivatedns.RecordSetProperties{
@@ -502,7 +502,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 		"relay-http 80 redis.join.internal:6379 PING", false)
 	defer azureDeleteSite(rg, "s5-join-probe")
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = web.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, "s5-join-probe", armappservice.SwiftVirtualNetwork{
@@ -530,7 +530,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 
 	// The site's running container is the plan's live worker, and rebooting it
 	// through the plan API tears it down.
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	details, err := plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
 	require.NoError(t, err)
@@ -556,7 +556,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	planID := stage5EnsurePlan(t, rg, "s5-hyb-plan", "S1", "Standard")
 	siteID := stage5CreateSite(t, rg, "s5-hyb-app", planID, unstartedSiteImage, "", false)
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// The Service Bus relay send key is kept but never returned on an ARM read;
@@ -621,7 +621,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 	assert.Equal(t, "legacy2.internal", *features.Properties.HybridConnections[0].Properties.Hostname)
 
 	// The plan-level views assemble from the site-level state.
-	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plans, err := armappservice.NewPlansClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := plans.NewListHybridConnectionsPager(rg, "s5-hyb-plan", nil)
@@ -728,7 +728,7 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 	planID := stage5EnsurePlan(t, rg, "s5-pa-plan", "S1", "Standard")
 	stage5CreateSite(t, rg, s5PaAppName, planID, unstartedSiteImage, "", false)
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	initial, err := web.GetPrivateAccess(ctx, rg, s5PaAppName, nil)
@@ -794,7 +794,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	subnetID := stage5Subnet(t, rg, "s5-pec-vnet", "10.63.0.0/16", "pe-subnet", "10.63.1.0/24")
 
 	// Same subscription, so the connection is auto-approved.
-	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	peClient, err := armnetwork.NewPrivateEndpointsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pePoller, err := peClient.BeginCreateOrUpdate(ctx, rg, "s5-site-pe", armnetwork.PrivateEndpoint{
 		Location: to.Ptr("eastus"),
@@ -815,7 +815,7 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	require.Len(t, pe.Properties.CustomDNSConfigs, 1)
 	assert.Equal(t, "s5-pec-app.azurewebsites.net", *pe.Properties.CustomDNSConfigs[0].Fqdn)
 
-	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	web, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := web.NewGetPrivateEndpointConnectionListPager(rg, "s5-pec-app", nil)

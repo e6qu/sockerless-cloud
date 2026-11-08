@@ -161,7 +161,7 @@ func TestStorageTable_ARMOfficialSDKLifecycle(t *testing.T) {
 	ensureRG(t, rg)
 	createStorageAccount(t, rg, account)
 
-	client, err := armstorage.NewTableClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armstorage.NewTableClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := client.Create(ctx, rg, account, table, nil)

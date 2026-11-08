@@ -82,6 +82,7 @@ func cosmosThroughputByRID(rid string) (CosmosThroughput, bool) {
 // cosmosStampThroughput records the `_etag` and `_ts` both surfaces report and,
 // for a NoSQL resource, the owning resource's `_rid`.
 func cosmosStampThroughput(id string, resource map[string]any) {
+	cosmosRecordThroughputPeak(id, resource)
 	now := time.Now().UTC().Unix()
 	resource["_etag"] = fmt.Sprintf(`"%x-%x"`, now, cosmosETagSeq.Add(1))
 	resource["_ts"] = now
@@ -309,4 +310,35 @@ func cosmosRound(v float64) float64 {
 // No trailing zeros: "1", "5.71", "2.8".
 func cosmosFormatCharge(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// The highest RU/s each throughput resource was ever provisioned with, manual
+// or autoscale maximum, which the manual-to-autoscale migration reads.
+var cosmosThroughputPeaks sim.Store[float64]
+
+func cosmosRecordThroughputPeak(id string, resource map[string]any) {
+	if cosmosThroughputPeaks == nil {
+		return
+	}
+	current := cosmosToFloat(resource["throughput"])
+	if as, ok := resource["autoscaleSettings"].(map[string]any); ok {
+		current = math.Max(current, cosmosToFloat(as["maxThroughput"]))
+	}
+	if peak, ok := cosmosThroughputPeaks.Get(id); ok && peak >= current {
+		return
+	}
+	cosmosThroughputPeaks.Put(id, current)
+}
+
+// cosmosInitialAutoscaleMax is autoscale-faq's formula for a container moving
+// from manual throughput: MAX(1,000, current manual RU/s, maximum RU/s ever
+// provisioned / 10, storage in GB × 10), rounded to the nearest 1,000 RU/s.
+func cosmosInitialAutoscaleMax(id string, manual float64) float64 {
+	peak, _ := cosmosThroughputPeaks.Get(id)
+	var storageGB float64
+	if account, db, coll, ok := cosmosARMIDNames(id); ok && coll != "" {
+		storageGB = float64(cosmosContainerSnapshot(account, db, coll).DataBytes) / (1 << 30)
+	}
+	maxRU := math.Max(math.Max(1000, manual), math.Max(peak/10, storageGB*10))
+	return math.Round(maxRU/1000) * 1000
 }

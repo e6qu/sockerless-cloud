@@ -143,7 +143,7 @@ func TestMain(m *testing.M) {
 	// Start simulator
 	simCmd = exec.Command(binaryPath)
 	advertisedEndpoints := fmt.Sprintf(
-		`{"storage":{"blob":"http://{account}.blob.cli-shim.localhost:%d/","file":"http://{account}.file.cli-shim.localhost:%d/","queue":"http://{account}.queue.cli-shim.localhost:%d/","table":"http://{account}.table.cli-shim.localhost:%d/"},"keyVault":"https://{vault}.vault.cli-shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.cli-shim.localhost:%d/","acr":"http://{name}.azurecr.cli-shim.localhost:%d/"}`,
+		`{"storage":{"blob":"http://{account}.blob.core.cli-shim.localhost:%d/","file":"http://{account}.file.core.cli-shim.localhost:%d/","queue":"http://{account}.queue.core.cli-shim.localhost:%d/","table":"http://{account}.table.core.cli-shim.localhost:%d/"},"keyVault":"https://{vault}.vault.cli-shim.localhost:%d/","serviceBus":"https://{namespace}.servicebus.cli-shim.localhost:%d/","acr":"http://{name}.azurecr.cli-shim.localhost:%d/"}`,
 		port, port, port, port, port, port, port)
 	// The DNS front serves UDP and TCP at one port.
 	dnsPort, err := heldports.TCPUDP("127.0.0.1")

@@ -28,7 +28,7 @@ import (
 // returns the first table's rows.
 func queryWorkspaceRows(t *testing.T, customerID, kql string) []azquery.Row {
 	t.Helper()
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 	resp, err := client.QueryWorkspace(ctx, customerID, azquery.Body{Query: to.Ptr(kql)}, nil)
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestMonitor_DiagnosticSettingRoutesSiteConsoleLogs(t *testing.T) {
 	t.Cleanup(func() { azureDeleteSite(rg, site) })
 	siteID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Web/sites/" + site
 
-	categories, err := armmonitor.NewDiagnosticSettingsCategoryClient(&fakeCredential{}, clientOpts())
+	categories, err := armmonitor.NewDiagnosticSettingsCategoryClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	var offered []string
 	for pager := categories.NewListPager(siteID, nil); pager.More(); {
@@ -67,7 +67,7 @@ func TestMonitor_DiagnosticSettingRoutesSiteConsoleLogs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "AppServiceConsoleLogs", *console.Name)
 
-	settings, err := armmonitor.NewDiagnosticSettingsClient(&fakeCredential{}, clientOpts())
+	settings, err := armmonitor.NewDiagnosticSettingsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = settings.CreateOrUpdate(ctx, siteID, "unknown-category", armmonitor.DiagnosticSettingsResource{
 		Properties: &armmonitor.DiagnosticSettings{
@@ -129,7 +129,7 @@ func TestMonitor_DiagnosticSettingRoutesEnvironmentLogs(t *testing.T) {
 	t.Parallel()
 	const rg, envName, app = "monitor-diag-env-rg", "monitor-diag-env", "monitor-diag-app"
 	ws := createLogWorkspace(t, rg, "monitor-diag-env-ws")
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	envs, err := armappcontainers.NewManagedEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	envPoller, err := envs.BeginCreateOrUpdate(ctx, rg, envName, armappcontainers.ManagedEnvironment{

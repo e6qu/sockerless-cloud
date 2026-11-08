@@ -224,7 +224,7 @@ func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
 	assert.Equal(t, "10.90.1.9", hop.NextHopIPAddress)
 	assert.Equal(t, routeTableID, hop.RouteTableID)
 
-	// A system route carries no route table ID, so decode into a fresh value.
+	// A system route names "System Route" for its table.
 	out = runCLI(t, azRest("POST", nextHopURL, fmt.Sprintf(
 		`{"targetResourceId":%q,"sourceIPAddress":%q,"destinationIPAddress":"10.90.2.4"}`, nicID, nicAddress)))
 	var systemHop struct {
@@ -233,7 +233,30 @@ func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
 	}
 	parseJSON(t, out, &systemHop)
 	assert.Equal(t, "VnetLocal", systemHop.NextHopType)
-	assert.Empty(t, systemHop.RouteTableID)
+	assert.Equal(t, "System Route", systemHop.RouteTableID)
+
+	effectiveURL := strings.Replace(nicURL, "?api-version=", "/effectiveRouteTable?api-version=", 1)
+	var routes struct {
+		Value []struct {
+			Source        string   `json:"source"`
+			State         string   `json:"state"`
+			AddressPrefix []string `json:"addressPrefix"`
+			NextHopType   string   `json:"nextHopType"`
+		} `json:"value"`
+	}
+	parseJSON(t, runCLI(t, azRest("POST", effectiveURL, "")), &routes)
+	var rows []string
+	for _, route := range routes.Value {
+		rows = append(rows, route.Source+" "+route.State+" "+strings.Join(route.AddressPrefix, ",")+" "+route.NextHopType)
+	}
+	assert.Contains(t, rows, "Default Active 10.90.0.0/16 VnetLocal")
+	assert.Contains(t, rows, "Default Active 0.0.0.0/0 Internet")
+	assert.Contains(t, rows, "User Active 203.0.113.0/24 VirtualAppliance")
+
+	groupsURL := strings.Replace(nicURL, "?api-version=", "/effectiveNetworkSecurityGroups?api-version=", 1)
+	out = runCLI(t, azRest("POST", groupsURL, ""))
+	assert.Contains(t, out, nsgID)
+	assert.Contains(t, out, "cli-diag-nsg/deny-ssh")
 
 	viewURL := strings.Replace(watcherURL, "?api-version=", "/securityGroupView?api-version=", 1)
 	out = runCLI(t, azRest("POST", viewURL, fmt.Sprintf(`{"targetResourceId":%q}`, nicID)))

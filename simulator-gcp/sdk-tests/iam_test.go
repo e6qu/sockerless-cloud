@@ -964,6 +964,7 @@ func TestIAM_WorkforcePoolCRUD(t *testing.T) {
 	assert.Equal(t, name, got.Name)
 	assert.Equal(t, "Staff Pool", got.DisplayName)
 	assert.Equal(t, "ACTIVE", got.State)
+	assert.Equal(t, "3600s", got.SessionDuration, "a pool created without a session duration takes the one-hour default")
 
 	list, err := svc.Locations.WorkforcePools.List(location).Do()
 	require.NoError(t, err)

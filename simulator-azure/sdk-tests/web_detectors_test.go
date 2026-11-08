@@ -40,9 +40,9 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 	site := uniquename.New("detector-app")
 	host := createSiteForContainers(t, rg, site)
 
-	client, err := armappservice.NewDiagnosticsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewDiagnosticsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = webApps.CreateOrUpdateSiteContainer(ctx, rg, site, "main", armappservice.SiteContainer{
@@ -249,7 +249,7 @@ func TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	diagnostics, err := armappservice.NewDiagnosticsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	diagnostics, err := armappservice.NewDiagnosticsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	responses := pagerAll(t, diagnostics.NewListHostingEnvironmentDetectorResponsesPager(aseRG, "sdk-ase-diag", nil),
 		func(p armappservice.DiagnosticsClientListHostingEnvironmentDetectorResponsesResponse) []*armappservice.DetectorResponse {

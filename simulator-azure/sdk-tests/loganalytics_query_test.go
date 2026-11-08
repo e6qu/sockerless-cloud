@@ -46,7 +46,7 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": azqueryjobName, "Log": "hello from azquery"}})
 
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.QueryWorkspace(ctx, p.ws.customerID, azquery.Body{
@@ -65,7 +65,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": batchjobName, "Log": "batch line"}})
 
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	req := azquery.NewBatchQueryRequest(p.ws.customerID,
@@ -100,7 +100,7 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": "azquery-other-role"},
 	})
 
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.QueryWorkspace(ctx, p.ws.customerID, azquery.Body{
@@ -128,7 +128,7 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 	t.Parallel()
 	ws := createLogWorkspace(t, "la-syntax-rg", "la-syntax-ws")
-	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
+	client, err := azquery.NewLogsClient(&clientCredential{}, logsClientOpts())
 	require.NoError(t, err)
 
 	const broken = `AppTraces | where AppRoleName == "x" and`

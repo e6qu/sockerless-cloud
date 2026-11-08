@@ -47,7 +47,7 @@ func TestStorageSDK_BlobCORSRulesAreEnforced(t *testing.T) {
 	const account = "blobcorsrules"
 	const group = "blob-cors-rg"
 	createStorageAccountForARM(t, group, account)
-	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	blobServices, err := armstorage.NewBlobServicesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const origin = "https://console.example.com"

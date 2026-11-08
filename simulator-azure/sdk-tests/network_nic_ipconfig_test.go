@@ -41,12 +41,12 @@ func nicAddresses(nic armnetwork.Interface) map[string]string {
 func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	t.Parallel()
 	rg, vnet, nicName, otherName := uniquename.New("ipcfg-rg"), uniquename.New("ipcfg-vnet"), uniquename.New("ipcfg-nic"), uniquename.New("ipcfg-other")
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnet, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -63,7 +63,7 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 		}
 	})
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetID := func(name, prefix string) string {
 		poller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnet, name, armnetwork.Subnet{
@@ -76,7 +76,7 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	}
 	subnet, otherSubnet := subnetID("ipcfg-subnet", "10.71.1.0/24"), subnetID("ipcfg-subnet-2", "10.71.2.0/24")
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	put := func(name string, ipcfgs ...*armnetwork.InterfaceIPConfiguration) (armnetwork.Interface, error) {
 		poller, err := nicClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.Interface{
@@ -111,6 +111,32 @@ func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	read, err := nicClient.Get(ctx, rg, nicName, nil)
 	require.NoError(t, err)
 	assert.Equal(t, nicAddresses(nic), nicAddresses(read.Interface))
+
+	// The virtual network's usages count each subnet's held addresses against
+	// the 251 a /24 leaves to tenants.
+	usages := map[string][2]float64{}
+	usagePager := vnetClient.NewListUsagePager(rg, vnet, nil)
+	for usagePager.More() {
+		page, err := usagePager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, u := range page.Value {
+			usages[*u.ID] = [2]float64{*u.CurrentValue, *u.Limit}
+			assert.Equal(t, "Count", *u.Unit)
+		}
+	}
+	assert.Equal(t, map[string][2]float64{subnet: {3, 251}, otherSubnet: {0, 251}}, usages)
+
+	taken, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.4", nil)
+	require.NoError(t, err)
+	assert.False(t, *taken.Available)
+	assert.Equal(t, []string{"10.71.1.6", "10.71.1.7", "10.71.1.8", "10.71.1.9", "10.71.1.10"}, stringValues(taken.AvailableIPAddresses))
+	free, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.30", nil)
+	require.NoError(t, err)
+	assert.True(t, *free.Available)
+	gateway, err := vnetClient.CheckIPAddressAvailability(ctx, rg, vnet, "10.71.1.1", nil)
+	require.NoError(t, err)
+	assert.False(t, *gateway.Available)
+	assert.True(t, *gateway.IsPlatformReserved, "the subnet's gateway address is the platform's")
 
 	// Dropping ipconfig2 frees its address before the new dynamic configuration
 	// takes the lowest free one.

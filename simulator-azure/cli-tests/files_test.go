@@ -22,7 +22,7 @@ func azStorageFile(group string, args ...string) *exec.Cmd {
 	baseArgs = append(baseArgs,
 		"--account-name", filesAccountName,
 		"--account-key", cliStorageAccountKey(filesAccountName),
-		"--file-endpoint", baseURL+"/file/"+filesAccountName+"/",
+		"--file-endpoint", storageAccountEndpoint(filesAccountName, "file"),
 		"--only-show-errors",
 		"--output", "json",
 	)
@@ -31,6 +31,7 @@ func azStorageFile(group string, args ...string) *exec.Cmd {
 		"AZURE_CONFIG_DIR="+filepath.Join(tmpDir, "azure-config"),
 		"AZURE_CORE_NO_COLOR=1",
 	)
+	cmd.Env = append(cmd.Env, storageProxyEnv()...)
 	return cmd
 }
 

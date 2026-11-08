@@ -20,12 +20,12 @@ func TestCompute_VirtualMachineWithoutNetworkProfileIsRejected(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-request-validation-rg-8518"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := vmClient.BeginCreateOrUpdate(ctx, rg, "vm-no-nic", armcompute.VirtualMachine{
 		Location:   to.Ptr("eastus"),
@@ -47,7 +47,7 @@ func TestCompute_VirtualMachineWithUnknownNetworkInterfaceIsRejected(t *testing.
 	t.Parallel()
 	const rg = "vm-request-validation-rg"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestCompute_VirtualMachineWithUnknownNetworkInterfaceIsRejected(t *testing.
 	missingNIC := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
 		"/providers/Microsoft.Network/networkInterfaces/nic-that-was-never-created"
 
-	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := vmClient.BeginCreateOrUpdate(ctx, rg, "vm-missing-nic", armcompute.VirtualMachine{
 		Location: to.Ptr("eastus"),
@@ -80,12 +80,12 @@ func TestNetwork_SubnetInAbsentVirtualNetworkIsNotFound(t *testing.T) {
 	t.Parallel()
 	const rg = "subnet-request-validation-rg"
 
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "vnet-that-was-never-created", "orphan-subnet",
 		armnetwork.Subnet{

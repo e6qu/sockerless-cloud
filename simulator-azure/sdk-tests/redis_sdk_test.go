@@ -11,7 +11,7 @@ import (
 
 func ensureRedisResourceGroup(t *testing.T, name string) {
 	t.Helper()
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, name, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
@@ -19,7 +19,7 @@ func ensureRedisResourceGroup(t *testing.T, name string) {
 
 func newRedisCacheForTest(t *testing.T, rg, name string) *armredis.Client {
 	t.Helper()
-	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armredis.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginCreate(ctx, rg, name, armredis.CreateParameters{
 		Location: ptrStr("eastus"),
@@ -72,7 +72,7 @@ func TestRedis_CheckNameAvailability(t *testing.T) {
 	t.Parallel()
 	rg := "redis-checkname-rg"
 	ensureRedisResourceGroup(t, rg)
-	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armredis.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.CheckNameAvailability(ctx, armredis.CheckNameAvailabilityParameters{
@@ -142,7 +142,7 @@ func TestRedis_AccessPoliciesAndAssignments(t *testing.T) {
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-ap")
 
-	apClient, err := armredis.NewAccessPolicyClient(subscriptionID, &fakeCredential{}, clientOpts())
+	apClient, err := armredis.NewAccessPolicyClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	apPoller, err := apClient.BeginCreateUpdate(ctx, rg, "redis-ap", "policy1", armredis.CacheAccessPolicy{
 		Properties: &armredis.CacheAccessPolicyProperties{
@@ -169,7 +169,7 @@ func TestRedis_AccessPoliciesAndAssignments(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, apCount, 1)
 
-	apaClient, err := armredis.NewAccessPolicyAssignmentClient(subscriptionID, &fakeCredential{}, clientOpts())
+	apaClient, err := armredis.NewAccessPolicyAssignmentClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	apaPoller, err := apaClient.BeginCreateUpdate(ctx, rg, "redis-ap", "assignment1", armredis.CacheAccessPolicyAssignment{
 		Properties: &armredis.CacheAccessPolicyAssignmentProperties{
@@ -212,7 +212,7 @@ func TestRedis_LinkedServers(t *testing.T) {
 	newRedisCacheForTest(t, rg, "redis-primary")
 	newRedisCacheForTest(t, rg, "redis-secondary")
 
-	lsClient, err := armredis.NewLinkedServerClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lsClient, err := armredis.NewLinkedServerClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	secondaryID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Cache/Redis/redis-secondary"
 	lsPoller, err := lsClient.BeginCreate(ctx, rg, "redis-primary", "redis-secondary", armredis.LinkedServerCreateParameters{
@@ -249,7 +249,7 @@ func TestRedis_PatchSchedules(t *testing.T) {
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-patch")
 
-	psClient, err := armredis.NewPatchSchedulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	psClient, err := armredis.NewPatchSchedulesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = psClient.CreateOrUpdate(ctx, rg, "redis-patch", armredis.DefaultNameDefault, armredis.PatchSchedule{
 		Properties: &armredis.ScheduleEntries{
@@ -282,7 +282,7 @@ func TestRedis_PrivateEndpointAndLink(t *testing.T) {
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-pe")
 
-	pecClient, err := armredis.NewPrivateEndpointConnectionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pecClient, err := armredis.NewPrivateEndpointConnectionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pecPoller, err := pecClient.BeginPut(ctx, rg, "redis-pe", "pec1", armredis.PrivateEndpointConnection{
 		Properties: &armredis.PrivateEndpointConnectionProperties{
@@ -309,7 +309,7 @@ func TestRedis_PrivateEndpointAndLink(t *testing.T) {
 	_, err = pecClient.Delete(ctx, rg, "redis-pe", "pec1", nil)
 	require.NoError(t, err)
 
-	plrClient, err := armredis.NewPrivateLinkResourcesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	plrClient, err := armredis.NewPrivateLinkResourcesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	plrList := plrClient.NewListByRedisCachePager(rg, "redis-pe", nil)
 	groupFound := false
@@ -327,7 +327,7 @@ func TestRedis_PrivateEndpointAndLink(t *testing.T) {
 
 func TestRedis_OperationsList(t *testing.T) {
 	t.Parallel()
-	opsClient, err := armredis.NewOperationsClient(&fakeCredential{}, clientOpts())
+	opsClient, err := armredis.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := opsClient.NewListPager(nil)
 	names := map[string]bool{}

@@ -12,7 +12,7 @@ import (
 func acrEnsureRegistry(t *testing.T, rg, registryName string) {
 	t.Helper()
 	ensureRG(t, rg)
-	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	registriesClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := registriesClient.BeginCreate(ctx, rg, registryName, armcontainerregistry.Registry{
 		Location: ptrStr("eastus"),
@@ -32,7 +32,7 @@ func TestACR_ReplicationCRUD(t *testing.T) {
 	)
 	acrEnsureRegistry(t, rg, registryName)
 
-	client, err := armcontainerregistry.NewReplicationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewReplicationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createPoller, err := client.BeginCreate(ctx, rg, registryName, replName, armcontainerregistry.Replication{
@@ -94,7 +94,7 @@ func TestACR_WebhookCRUD(t *testing.T) {
 	)
 	acrEnsureRegistry(t, rg, registryName)
 
-	client, err := armcontainerregistry.NewWebhooksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewWebhooksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createPoller, err := client.BeginCreate(ctx, rg, registryName, webhookName, armcontainerregistry.WebhookCreateParameters{
@@ -149,7 +149,7 @@ func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
 	)
 	acrEnsureRegistry(t, rg, registryName)
 
-	scopeMaps, err := armcontainerregistry.NewScopeMapsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	scopeMaps, err := armcontainerregistry.NewScopeMapsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	smPoller, err := scopeMaps.BeginCreate(ctx, rg, registryName, scopeMapName, armcontainerregistry.ScopeMap{
 		Properties: &armcontainerregistry.ScopeMapProperties{
@@ -169,7 +169,7 @@ func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
 	assert.Equal(t, "read-only pulls", *smGet.Properties.Description)
 
 	scopeMapID := *sm.ID
-	tokens, err := armcontainerregistry.NewTokensClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tokens, err := armcontainerregistry.NewTokensClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	tokPoller, err := tokens.BeginCreate(ctx, rg, registryName, tokenName, armcontainerregistry.Token{
 		Properties: &armcontainerregistry.TokenProperties{
@@ -216,7 +216,7 @@ func TestACR_TaskAndTaskRunCRUD(t *testing.T) {
 	)
 	acrEnsureRegistry(t, rg, registryName)
 
-	tasksClient, err := armcontainerregistry.NewTasksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tasksClient, err := armcontainerregistry.NewTasksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	taskPoller, err := tasksClient.BeginCreate(ctx, rg, registryName, taskName, armcontainerregistry.Task{
 		Location: ptrStr("eastus"),
@@ -241,7 +241,7 @@ func TestACR_TaskAndTaskRunCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, taskName, *details.Name)
 
-	taskRuns, err := armcontainerregistry.NewTaskRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	taskRuns, err := armcontainerregistry.NewTaskRunsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	trPoller, err := taskRuns.BeginCreate(ctx, rg, registryName, taskRunName, armcontainerregistry.TaskRun{
 		Location: ptrStr("eastus"),

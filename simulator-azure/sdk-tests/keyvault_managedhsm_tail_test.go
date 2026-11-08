@@ -31,7 +31,7 @@ func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 	rg, hsm := uniquename.New("managedhsm-tail-rg"), uniquename.Alnum("tailhsm")
 	ensureKVResourceGroup(t, rg)
 
-	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	create := func(name string, purgeProtection bool) {
@@ -84,7 +84,7 @@ func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, live.Value)
 
-	deletedClient, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	deletedClient, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	deleted, err := deletedClient.NewListDeletedPager(nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestManagedHSMs_PurgeProtectionRefusesThePurge(t *testing.T) {
 	const rg = "managedhsm-protected-rg"
 	ensureKVResourceGroup(t, rg)
 
-	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armkeyvault.NewManagedHsmsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, "protected-hsm", armkeyvault.ManagedHsm{

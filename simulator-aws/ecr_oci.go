@@ -32,7 +32,7 @@ func registerECROCI(srv *sim.Server) {
 		AdmitRepository: ecrAdmitRepository,
 		// A pull a cache rule covers fetches and caches the upstream image.
 		HydrateManifest: ecrHydrateFromPullThroughCache,
-		OnManifestPut: func(_, repo, ref, contentType string, data []byte) {
+		OnManifestPut: func(_ *http.Request, _, repo, ref, contentType string, data []byte) {
 			digest := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 			detail := ECRImageDetail{
 				RegistryId:     ecrRegistryId(),

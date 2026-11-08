@@ -16,7 +16,7 @@ func TestSDK_WebApps_NetworkTraces(t *testing.T) {
 	rg, name := "sdk-trace-rg", "sdk-trace-app"
 	ensureRG(t, rg)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),

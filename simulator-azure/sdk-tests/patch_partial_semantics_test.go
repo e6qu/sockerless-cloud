@@ -26,7 +26,7 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 	)
 	ensureRG(t, rg)
 
-	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	createPoller, err := client.BeginCreate(ctx, rg, registryName, armcontainerregistry.Registry{
@@ -105,7 +105,7 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, "jobpatch-env")
 
-	client, err := armappcontainers.NewJobsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappcontainers.NewJobsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const jobName = "sdk-jobpatch-job"
@@ -195,7 +195,7 @@ func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-patchpartial-plan")
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const name = "wm-patchpartial-site"

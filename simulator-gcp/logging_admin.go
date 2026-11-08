@@ -263,10 +263,12 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 	sink.Name = parent + "/sinks/" + short
 	// writerIdentity is output only.
 	sink.WriterIdentity = ""
-	if !loggingSinkAdmissible(w, sink, true) || !loggingScopeWriterIdentity(w, parent, &sink) {
+	if !loggingSinkAdmissible(w, sink, true) || !loggingCustomWriter(w, r, parent, &sink) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
 	sink.settleBigQueryOptions()
+	sink.CreateTime = nowTimestamp()
+	sink.UpdateTime = sink.CreateTime
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
 }
@@ -327,10 +329,11 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !loggingSinkAdmissible(w, sink, false) || !loggingScopeWriterIdentity(w, parent, &sink) {
+	if !loggingSinkAdmissible(w, sink, false) || !loggingCustomWriter(w, r, parent, &sink) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
 	sink.settleBigQueryOptions()
+	sink.UpdateTime = nowTimestamp()
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
 }

@@ -17,7 +17,7 @@ import (
 
 func TestResourceGroup_CreateAndGet(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	resp, err := client.CreateOrUpdate(ctx, "test-rg-4a8c", armresources.ResourceGroup{
@@ -38,9 +38,9 @@ func TestResourceGroup_CreateAndGet(t *testing.T) {
 // group is gone.
 func TestResourceGroup_Delete(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	group := uniquename.New("sdk-del-rg")
@@ -76,7 +76,7 @@ func TestResourceGroup_Delete(t *testing.T) {
 
 func TestResourceGroup_DeleteMissingGroup(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.BeginDelete(ctx, uniquename.New("sdk-never-rg"), nil)
@@ -90,7 +90,7 @@ func TestResourceGroup_DeleteMissingGroup(t *testing.T) {
 // before the resource provider sees it.
 func TestResourceGroup_MissingGroupRefusesItsResources(t *testing.T) {
 	t.Parallel()
-	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	group := uniquename.New("sdk-never-rg")
 
@@ -110,7 +110,7 @@ func TestResourceGroup_MissingGroupRefusesItsResources(t *testing.T) {
 
 func TestResourceGroup_CheckExistence(t *testing.T) {
 	t.Parallel()
-	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	_, err = client.CreateOrUpdate(ctx, "exists-rg", armresources.ResourceGroup{

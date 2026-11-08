@@ -340,7 +340,7 @@ func cloudRunKnativeServiceValid(w http.ResponseWriter, service CRService) bool 
 
 // cloudRunServiceTemplateValid answers INVALID_ARGUMENT for a revision
 // template whose containers' dependsOn name no container of the template or
-// form a cycle.
+// form a cycle, or whose CPU limit Cloud Run does not accept.
 func cloudRunServiceTemplateValid(w http.ResponseWriter, template *RevisionTemplate) bool {
 	if template == nil {
 		return true
@@ -348,6 +348,17 @@ func cloudRunServiceTemplateValid(w http.ResponseWriter, template *RevisionTempl
 	if _, err := cloudRunContainerStartOrder(template.Containers); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return false
+	}
+	for _, c := range template.Containers {
+		if c.Resources == nil {
+			continue
+		}
+		if cpu, set := c.Resources.Limits["cpu"]; set {
+			if _, err := cloudRunCPUMilli(cpu); err != nil {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "container %s: %v", c.Name, err)
+				return false
+			}
+		}
 	}
 	return true
 }

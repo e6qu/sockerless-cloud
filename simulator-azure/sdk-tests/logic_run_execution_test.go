@@ -24,7 +24,7 @@ func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-exec-rg"
 	ensureRG(t, rg)
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, cred, clientOpts())
@@ -94,6 +94,54 @@ func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
 	assert.Equal(t, armlogic.WorkflowStatusSucceeded, actionStatus("exec-ok", runName, "accepted"))
 	_, err = runActions.Get(ctx, rg, "exec-ok", runName, "refused", nil)
 	require.Error(t, err, "the branch the condition did not select must not run")
+
+	histories, err := armlogic.NewWorkflowRunActionRequestHistoriesClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	historyPage, err := histories.NewListPager(rg, "exec-ok", runName, "call", nil).NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, historyPage.Value, 1, "the Http action records the request it sent")
+	exchange := historyPage.Value[0].Properties
+	assert.Equal(t, "POST", ptrVal(exchange.Request.Method))
+	assert.Equal(t, backend.URL, ptrVal(exchange.Request.URI))
+	assert.Equal(t, int32(200), ptrVal(exchange.Response.StatusCode))
+
+	deploy("exec-loop", map[string]any{
+		"each": map[string]any{"type": "Foreach", "foreach": []any{"a", "b", "c"},
+			"actions": map[string]any{"notify": map[string]any{"type": "Http",
+				"inputs": map[string]any{"method": "POST", "uri": backend.URL, "body": map[string]any{"item": "@items('each')"}}}}},
+	})
+	loopRun := ptrVal(lastRun("exec-loop").Name)
+	for range 3 {
+		select {
+		case <-calls:
+		case <-time.After(30 * time.Second):
+			t.Fatal("the loop's Http actions never reached the endpoint")
+		}
+	}
+	repetitions, err := armlogic.NewWorkflowRunActionRepetitionsClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	repPage, err := repetitions.NewListPager(rg, "exec-loop", loopRun, "notify", nil).NextPage(ctx)
+	require.NoError(t, err)
+	var repNames []string
+	for _, rep := range repPage.Value {
+		repNames = append(repNames, ptrVal(rep.Name))
+		require.Len(t, rep.Properties.RepetitionIndexes, 1)
+		assert.Equal(t, "each", ptrVal(rep.Properties.RepetitionIndexes[0].ScopeName))
+	}
+	assert.Equal(t, []string{"000000", "000001", "000002"}, repNames, "one repetition per item")
+	second, err := repetitions.Get(ctx, rg, "exec-loop", loopRun, "notify", "000001", nil)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), ptrVal(second.Properties.RepetitionIndexes[0].ItemIndex))
+	repHistories, err := armlogic.NewWorkflowRunActionRepetitionsRequestHistoriesClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	repHistoryPage, err := repHistories.NewListPager(rg, "exec-loop", loopRun, "notify", "000002", nil).NextPage(ctx)
+	require.NoError(t, err)
+	require.Len(t, repHistoryPage.Value, 1, "each iteration's request is its repetition's")
+	scopes, err := armlogic.NewWorkflowRunActionScopeRepetitionsClient(subscriptionID, cred, clientOpts())
+	require.NoError(t, err)
+	scopePage, err := scopes.NewListPager(rg, "exec-loop", loopRun, "each", nil).NextPage(ctx)
+	require.NoError(t, err)
+	assert.Len(t, scopePage.Value, 3, "the loop records each iteration")
 
 	deploy("exec-unsupported", map[string]any{
 		"send": map[string]any{"type": "ApiConnection", "inputs": map[string]any{}},

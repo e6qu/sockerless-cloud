@@ -39,6 +39,12 @@ func TestOrganizationsCLI_GovCloudAccount(t *testing.T) {
 	if !strings.Contains(desc, st.AccountId) {
 		t.Fatalf("describe-create-account-status missing AccountId %q: %s", st.AccountId, desc)
 	}
+
+	attached := runCLI(t, awsCLI("organizations", "list-policies-for-target", "--target-id", st.AccountId,
+		"--filter", "SERVICE_CONTROL_POLICY", "--query", "Policies[].Name", "--output", "text"))
+	if !strings.Contains(attached, "FullAWSAccess") {
+		t.Fatalf("the GovCloud request's commercial account has no FullAWSAccess: %s", attached)
+	}
 }
 
 // TestOrganizationsCLI_LeaveOrganization expects the management account's

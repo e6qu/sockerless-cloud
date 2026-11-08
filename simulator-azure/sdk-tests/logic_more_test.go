@@ -20,7 +20,7 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	rg := "logic-more-rg"
 	ensureRG(t, rg)
 	wfName := "logic-more-wf"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	rg := "logic-ia-rg"
 	ensureRG(t, rg)
 	iaName := "logic-ia"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	accounts, err := armlogic.NewIntegrationAccountsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
 	rg := "logic-ise-rg"
 	ensureRG(t, rg)
 	iseName := "logic-ise"
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 
 	envs, err := armlogic.NewIntegrationServiceEnvironmentsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)

@@ -106,7 +106,7 @@ func TestEventGridPublisher_SDKCredentialContract(t *testing.T) {
 	rg := "sdk-eg-auth-rg"
 	ensureRG(t, rg)
 
-	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	topics, err := armeventgrid.NewTopicsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const topicName = "sdk-eg-auth"
@@ -180,7 +180,7 @@ func TestEventGridPublisher_SDKCredentialContract(t *testing.T) {
 		// The publisher client requests the https://eventgrid.azure.net/.default
 		// scope, so the token the simulator's own OAuth2 endpoint mints carries
 		// the Event Grid data-plane audience.
-		client, err := azeventgrid.NewClient(endpoint, &fakeCredential{}, eventGridPublisherOptions())
+		client, err := azeventgrid.NewClient(endpoint, &clientCredential{}, eventGridPublisherOptions())
 		require.NoError(t, err)
 		// Owner of the subscription holds no data action; Event Grid admits the
 		// token once the principal holds EventGrid Data Sender on the topic.

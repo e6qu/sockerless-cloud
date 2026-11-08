@@ -1,17 +1,22 @@
 package azure_sdk_test
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,10 +127,22 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 		require.NoError(t, conn.Close(testContext))
 	}
 
-	// The operation succeeds only once the capture settles.
+	// The backup lands in the container the SAS names; a SAS without a
+	// signature is refused before anything starts.
+	const account, container = "pgltrbackups", "ltr"
+	sasURI := pgLtrContainerSAS(t, rg, account, container)
 	resp := armReq(t, "POST", serverPath+"/startLtrBackup", fmt.Sprintf(
-		`{"backupSettings":{"backupName":%q},"targetDetails":{"sasUriList":["https://example.blob.core.windows.net/ltr?sas"]}}`,
-		backupName))
+		`{"backupSettings":{"backupName":"unsigned"},"targetDetails":{"sasUriList":[%q]}}`,
+		storageSDKURL(t, account, "blob")+container))
+	unsigned, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(unsigned))
+	assert.Contains(t, string(unsigned), "no signature")
+
+	// The operation succeeds only once the capture settles.
+	resp = armReq(t, "POST", serverPath+"/startLtrBackup", fmt.Sprintf(
+		`{"backupSettings":{"backupName":%q},"targetDetails":{"sasUriList":[%q]}}`,
+		backupName, sasURI))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	opURL := resp.Header.Get("Azure-AsyncOperation")
 	require.NotEmpty(t, opURL)
@@ -148,6 +165,23 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 	assert.NotEmpty(t, got.Properties["startTime"])
 	assert.NotEmpty(t, got.Properties["endTime"])
 	assert.Equal(t, float64(100), got.Properties["percentComplete"])
+
+	download, err := newBlobTestClient(t, account).DownloadStream(testContext, container, backupName, nil)
+	require.NoError(t, err, "the backup is a blob in the container the SAS names")
+	archive := tar.NewReader(download.Body)
+	var files []string
+	for {
+		header, err := archive.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		files = append(files, path.Base(header.Name))
+	}
+	require.NoError(t, download.Body.Close())
+	if pgTryDataPlane(t, fqdn) {
+		assert.Contains(t, files, "PG_VERSION", "the archive holds the server's data directory")
+	}
 
 	resp = armReq(t, "GET", serverPath+"/ltrBackupOperations", "")
 	body, _ = io.ReadAll(resp.Body)
@@ -355,4 +389,21 @@ func TestAzurePGFlexibleServer_CreateModeRejections(t *testing.T) {
 	refuse("pg-mode-unknown",
 		`{"location":"eastus","properties":{"createMode":"SpinUp"}}`,
 		"not a creation mode the service defines")
+}
+
+// pgLtrContainerSAS creates a storage account and container and returns the
+// container's URL with a service SAS that lets a writer create blobs in it.
+func pgLtrContainerSAS(t *testing.T, rg, account, container string) string {
+	t.Helper()
+	accounts := createStorageAccountForARM(t, rg, account)
+	_, err := newBlobTestClient(t, account).CreateContainer(ctx, container, nil)
+	require.NoError(t, err)
+	sas, err := accounts.ListServiceSAS(ctx, rg, account, armstorage.ServiceSasParameters{
+		CanonicalizedResource:  to.Ptr("/blob/" + account + "/" + container),
+		Resource:               to.Ptr(armstorage.SignedResourceC),
+		Permissions:            to.Ptr(armstorage.Permissions("cw")),
+		SharedAccessExpiryTime: to.Ptr(time.Now().Add(time.Hour)),
+	}, nil)
+	require.NoError(t, err)
+	return storageSDKURL(t, account, "blob") + container + "?" + *sas.ServiceSasToken
 }

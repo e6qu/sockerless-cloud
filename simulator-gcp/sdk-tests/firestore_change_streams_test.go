@@ -1,7 +1,12 @@
 package gcp_sdk_test
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,27 +72,71 @@ func TestFirestore_ChangeStreams(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// listen reports the target it was given; executePipeline runs the pipeline it
-// was given. Neither reports data the database does not hold.
+// listen streams a watch over REST: the target's documents, CURRENT, and
+// then each change a write makes, as a JSON array that stays open while the
+// client reads. executePipeline runs the pipeline it was given.
 func TestFirestore_ListenAndExecutePipeline(t *testing.T) {
 	t.Parallel()
 	svc := firestoreAdminService(t)
 	const project, database = "listen-project", "(default)"
+	ensureProject(t, project)
 	documents := "projects/" + project + "/databases/" + database + "/documents"
-
-	listened, err := svc.Projects.Databases.Documents.Listen(documents,
-		&firestore.ListenRequest{
-			AddTarget: &firestore.Target{TargetId: 7},
-		}).Do()
+	doc := documents + "/cities/rest-listen"
+	_, err := svc.Projects.Databases.Documents.Patch(doc, &firestore.Document{
+		Fields: map[string]firestore.Value{"population": {IntegerValue: 1}},
+	}).Do()
 	require.NoError(t, err)
-	require.NotNil(t, listened.TargetChange)
-	assert.Equal(t, "ADD", listened.TargetChange.TargetChangeType)
-	assert.Equal(t, []int64{7}, listened.TargetChange.TargetIds)
 
-	removed, err := svc.Projects.Databases.Documents.Listen(documents,
-		&firestore.ListenRequest{RemoveTarget: 7}).Do()
+	token, err := simTokenSource().Token()
 	require.NoError(t, err)
-	assert.Equal(t, "REMOVE", removed.TargetChange.TargetChangeType)
+	listenCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	body := `{"addTarget":{"targetId":7,"documents":{"documents":["` + doc + `"]}}}`
+	req, err := http.NewRequestWithContext(listenCtx, http.MethodPost, baseURL+"/v1/"+documents+":listen", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	stream := json.NewDecoder(resp.Body)
+	open, err := stream.Token()
+	require.NoError(t, err)
+	require.Equal(t, json.Delim('['), open, "the responses stream as a JSON array")
+	next := func() firestore.ListenResponse {
+		t.Helper()
+		require.True(t, stream.More())
+		var r firestore.ListenResponse
+		require.NoError(t, stream.Decode(&r))
+		return r
+	}
+	until := func(match func(firestore.ListenResponse) bool) firestore.ListenResponse {
+		t.Helper()
+		for {
+			if r := next(); match(r) {
+				return r
+			}
+		}
+	}
+
+	added := next()
+	require.NotNil(t, added.TargetChange)
+	assert.Equal(t, "ADD", added.TargetChange.TargetChangeType)
+	assert.Equal(t, []int64{7}, added.TargetChange.TargetIds)
+	initial := until(func(r firestore.ListenResponse) bool { return r.DocumentChange != nil })
+	assert.Equal(t, doc, initial.DocumentChange.Document.Name)
+	until(func(r firestore.ListenResponse) bool {
+		return r.TargetChange != nil && r.TargetChange.TargetChangeType == "CURRENT"
+	})
+
+	_, err = svc.Projects.Databases.Documents.Patch(doc, &firestore.Document{
+		Fields: map[string]firestore.Value{"population": {IntegerValue: 2}},
+	}).Do()
+	require.NoError(t, err)
+	changed := until(func(r firestore.ListenResponse) bool { return r.DocumentChange != nil })
+	assert.Equal(t, int64(2), changed.DocumentChange.Document.Fields["population"].IntegerValue, "the write reaches the open watch")
+	cancel()
 
 	// A listen that neither adds nor removes is not a request.
 	_, err = svc.Projects.Databases.Documents.Listen(documents,

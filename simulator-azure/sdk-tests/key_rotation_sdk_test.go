@@ -132,7 +132,7 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	ns := "sdk-eh-rotation-ns"
 	rule := "sdk-eh-rotation-rule"
 
-	clientFactory, err := armeventhub.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	clientFactory, err := armeventhub.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := clientFactory.NewNamespacesClient()
 
@@ -253,7 +253,7 @@ func TestServiceBusARM_RegenerateKeysRotation(t *testing.T) {
 	ensureRG(t, rg)
 	ns := "sdk-sb-rotation-ns"
 
-	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
+	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	namespaces := clientFactory.NewNamespacesClient()
 

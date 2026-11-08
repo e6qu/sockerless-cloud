@@ -54,7 +54,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	const rg = "vm-nat-rg"
 	nicID := vmOperationsFixture(t, rg, "vm-nat", "10.254.0.0/16")
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pipPoller, err := pipClient.BeginCreateOrUpdate(ctx, rg, "vm-nat-pip", armnetwork.PublicIPAddress{
 		Location: to.Ptr("eastus"),
@@ -66,7 +66,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	require.NoError(t, err)
 	pip, err := pipPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
-	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
+	natClient, err := armnetwork.NewNatGatewaysClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	natPoller, err := natClient.BeginCreateOrUpdate(ctx, rg, "vm-nat-gw", armnetwork.NatGateway{
 		Location: to.Ptr("eastus"),
@@ -81,7 +81,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	require.NoError(t, err)
 	natID := *nat.ID
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	attach := func(gateway *armnetwork.SubResource) {
 		t.Helper()
@@ -98,7 +98,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	outside, lastRemote := outsideListener(t)
 	start := time.Now().UTC().Add(-time.Minute)
 	createOperationsVM(t, rg, "vm-nat", nicID, nil)
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-nat-nic", nil)
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	require.Contains(t, runInGuest(t, rg, "vm-nat", "reach-1", get), "reach=ok", "the machine does not reach the outside through the NAT gateway")
 	assert.NotEqual(t, machineIP, lastRemote(), "the connection arrived from the machine's own address, not the gateway's")
 
-	metrics, err := armmonitor.NewMetricsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	metrics, err := armmonitor.NewMetricsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	total := func(metric string) float64 {
 		resp, err := metrics.List(ctx, natID, &armmonitor.MetricsClientListOptions{
@@ -141,7 +141,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	runInGuest(t, rg, "vm-nat", "reach-2", get)
 	assert.Equal(t, attempts, total("SNATConnectionCount"), "a subnet detached from the gateway still counted on it")
 
-	definitions, err := armmonitor.NewMetricDefinitionsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	definitions, err := armmonitor.NewMetricDefinitionsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := definitions.NewListPager(natID, nil)
 	var names []string
@@ -155,7 +155,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	assert.Contains(t, names, "ByteCount")
 	assert.Contains(t, names, "SNATConnectionCount")
 
-	namespaces, err := armmonitor.NewMetricNamespacesClient(&fakeCredential{}, clientOpts())
+	namespaces, err := armmonitor.NewMetricNamespacesClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	var namespaceNames []string
 	for nsPager := namespaces.NewListPager(natID, nil); nsPager.More(); {

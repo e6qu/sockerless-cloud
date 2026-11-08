@@ -410,29 +410,28 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
-		extra.AuthSettings = req.Properties
+		// App Service reads an unset setting back as null; terraform-provider-azurerm
+		// sends "" for every identity provider it leaves unconfigured.
+		extra.AuthSettings = make(map[string]any, len(req.Properties))
+		for k, v := range req.Properties {
+			if v == nil || v == "" {
+				continue
+			}
+			extra.AuthSettings[k] = v
+		}
 		webConfigExtras.Put(webResourceID(r), extra)
-		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(req.Properties)))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 	slot("POST", "/config/authsettings/list", func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
 		}
 		extra, _ := webConfigExtras.Get(webResourceID(r))
-		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", authSettingsOrDefault(extra.AuthSettings)))
+		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettings", webAuthSettings(extra)))
 	})
 
 	// Easy Auth v2: GET and PUT at both, GET /list at slot level (functions.go
 	// serves the site's).
-	authV2Default := func() map[string]any {
-		return map[string]any{
-			"platform":          map[string]any{"enabled": false},
-			"globalValidation":  map[string]any{},
-			"identityProviders": map[string]any{},
-			"login":             map[string]any{},
-			"httpSettings":      map[string]any{},
-		}
-	}
 	authV2Get := func(w http.ResponseWriter, r *http.Request) {
 		if webMissing(w, r) {
 			return
@@ -440,7 +439,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		extra, _ := webConfigExtras.Get(webResourceID(r))
 		props := extra.AuthSettingsV2
 		if props == nil {
-			props = authV2Default()
+			props = authSettingsV2Default()
 		}
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	}
@@ -462,7 +461,7 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		webConfigExtras.Put(webResourceID(r), extra)
 		props := req.Properties
 		if props == nil {
-			props = authV2Default()
+			props = authSettingsV2Default()
 		}
 		sim.WriteJSON(w, http.StatusOK, configResource(webResourceID(r), "authsettingsV2", props))
 	})
@@ -490,11 +489,24 @@ func nonNilStrMap(m map[string]string) map[string]string {
 	return m
 }
 
-func authSettingsOrDefault(m map[string]any) map[string]any {
-	if m == nil {
-		return map[string]any{"enabled": false}
+// webAuthSettings answers the Easy Auth v1 settings with the configVersion
+// App Service fills in when a request leaves it out: v2 once the site holds
+// a v2 configuration, v1 otherwise.
+func webAuthSettings(extra webConfigExtra) map[string]any {
+	props := map[string]any{"enabled": false}
+	if extra.AuthSettings != nil {
+		props = make(map[string]any, len(extra.AuthSettings)+1)
+		for k, v := range extra.AuthSettings {
+			props[k] = v
+		}
 	}
-	return m
+	if v, _ := props["configVersion"].(string); v == "" {
+		props["configVersion"] = "v1"
+		if extra.AuthSettingsV2 != nil {
+			props["configVersion"] = "v2"
+		}
+	}
+	return props
 }
 
 func webConfigWebGet(w http.ResponseWriter, r *http.Request) {
@@ -1018,4 +1030,14 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 		row, _ = store.Get(id)
 	}
 	sim.WriteJSON(w, http.StatusOK, row)
+}
+
+func authSettingsV2Default() map[string]any {
+	return map[string]any{
+		"platform":          map[string]any{"enabled": false},
+		"globalValidation":  map[string]any{},
+		"identityProviders": map[string]any{},
+		"login":             map[string]any{},
+		"httpSettings":      map[string]any{},
+	}
 }

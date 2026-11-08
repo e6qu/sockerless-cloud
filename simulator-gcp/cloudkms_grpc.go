@@ -1021,6 +1021,7 @@ func (s *cloudKmsGRPC) CreateImportJob(ctx context.Context, req *kmspb.CreateImp
 		PublicKey:       pub,
 		CreateTime:      now,
 		GenerateTime:    now,
+		ExpireTime:      kmsImportJobExpireTime(now),
 	}
 	kmsImportJobs.Put(name, job)
 	kmsImportJobMaterial.Put(name, material)
@@ -1068,6 +1069,7 @@ func (s *cloudKmsGRPC) ImportCryptoKeyVersion(ctx context.Context, req *kmspb.Im
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "ImportJob %s not found", jobName)
 	}
+	job = job.current()
 	if job.State != "ACTIVE" || !strings.HasPrefix(jobName, strings.Split(keyName, "/cryptoKeys/")[0]+"/importJobs/") {
 		return nil, status.Error(codes.FailedPrecondition, "ImportJob is not active in the target key ring")
 	}
@@ -1365,6 +1367,7 @@ func kmsDurationString(d *durationpb.Duration) string {
 // kmsImportJobToProto leaves attestation and cryptoKeyBackend unset: the
 // wrapping key is a software key pair with no HSM or external backend.
 func kmsImportJobToProto(j kmsImportJob) *kmspb.ImportJob {
+	j = j.current()
 	out := &kmspb.ImportJob{
 		Name:            j.Name,
 		ImportMethod:    kmsImportMethodFromString(j.ImportMethod),

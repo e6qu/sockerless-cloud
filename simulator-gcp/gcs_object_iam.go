@@ -112,7 +112,7 @@ func gcsBucketPolicies(name string) []IAMPolicy {
 	bucket, _ := gcsBuckets.Get(name)
 	own, ok := gcpResourcePolicies.Get("bucket/" + name)
 	if !ok {
-		own = gcsDefaultBucketPolicy(bucket.Project)
+		own = gcsDefaultBucketPolicy(bucket)
 	}
 	policies := append(gcpHierarchyPolicies(bucket.Project), own)
 	if gcsUniformBucketLevelAccess(bucket) {

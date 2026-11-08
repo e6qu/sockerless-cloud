@@ -26,7 +26,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	rg := "netwatcher-rg"
 	requireResourceGroup(t, rg)
 
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nsgPoller, err := nsgClient.BeginCreateOrUpdate(ctx, rg, "web-nsg", armnetwork.SecurityGroup{
 		Location: to.Ptr("eastus"),
@@ -65,7 +65,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	nsg, err := nsgPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	routeClient, err := armnetwork.NewRouteTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	routeClient, err := armnetwork.NewRouteTablesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	routePoller, err := routeClient.BeginCreateOrUpdate(ctx, rg, "egress-rt", armnetwork.RouteTable{
 		Location: to.Ptr("eastus"),
@@ -84,7 +84,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	routeTable, err := routePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnetClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, "watch-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -96,7 +96,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	_, err = vnetPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, "watch-vnet", "web", armnetwork.Subnet{
 		Properties: &armnetwork.SubnetPropertiesFormat{
@@ -110,7 +110,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, subnet.Properties.RouteTable, "the subnet must report the route table attached to it")
 
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "web-nic", armnetwork.Interface{
 		Location: to.Ptr("eastus"),
@@ -129,7 +129,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	nicAddress := *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 	require.NotEmpty(t, nicAddress)
 
-	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	watcher, err := watcherClient.CreateOrUpdate(ctx, rg, "NetworkWatcher_eastus", armnetwork.Watcher{
 		Location:   to.Ptr("eastus"),
@@ -189,14 +189,22 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	assert.Equal(t, *routeTable.ID, *viaAppliance.RouteTableID)
 
 	// An address inside the virtual network stays in it, and a system route
-	// carries no route table ID.
+	// names "System Route" for its table.
 	local := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
 		TargetResourceID:     nic.ID,
 		SourceIPAddress:      to.Ptr(nicAddress),
 		DestinationIPAddress: to.Ptr("10.70.2.5"),
 	})
 	assert.Equal(t, armnetwork.NextHopTypeVnetLocal, *local.NextHopType)
-	assert.Nil(t, local.RouteTableID)
+	assert.Equal(t, "System Route", *local.RouteTableID)
+
+	// A private range outside the address space meets Azure's None route.
+	dropped := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
+		TargetResourceID:     nic.ID,
+		SourceIPAddress:      to.Ptr(nicAddress),
+		DestinationIPAddress: to.Ptr("10.200.0.5"),
+	})
+	assert.Equal(t, armnetwork.NextHopTypeNone, *dropped.NextHopType)
 
 	internet := nextHop(t, watcherClient, rg, armnetwork.NextHopParameters{
 		TargetResourceID:     nic.ID,
@@ -204,6 +212,34 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 		DestinationIPAddress: to.Ptr("8.8.8.8"),
 	})
 	assert.Equal(t, armnetwork.NextHopTypeInternet, *internet.NextHopType)
+
+	routesPoller, err := nicClient.BeginGetEffectiveRouteTable(ctx, rg, *nic.Name, nil)
+	require.NoError(t, err)
+	effective, err := routesPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	type routeRow struct{ source, state, prefix, hop string }
+	var rows []routeRow
+	for _, route := range effective.Value {
+		rows = append(rows, routeRow{string(*route.Source), string(*route.State), *route.AddressPrefix[0], string(*route.NextHopType)})
+	}
+	assert.Contains(t, rows, routeRow{"Default", "Active", "10.70.0.0/16", "VnetLocal"})
+	assert.Contains(t, rows, routeRow{"Default", "Active", "10.0.0.0/8", "None"})
+	assert.Contains(t, rows, routeRow{"Default", "Active", "0.0.0.0/0", "Internet"})
+	assert.Contains(t, rows, routeRow{"User", "Active", "203.0.113.0/24", "VirtualAppliance"})
+
+	groupsPoller, err := nicClient.BeginListEffectiveNetworkSecurityGroups(ctx, rg, *nic.Name, nil)
+	require.NoError(t, err)
+	groups, err := groupsPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, groups.Value, 1, "the subnet's group is the only one attached")
+	assert.Equal(t, *nsg.ID, *groups.Value[0].NetworkSecurityGroup.ID)
+	assert.Equal(t, *subnet.ID, *groups.Value[0].Association.Subnet.ID)
+	var ruleNames []string
+	for _, rule := range groups.Value[0].EffectiveSecurityRules {
+		ruleNames = append(ruleNames, *rule.Name)
+	}
+	assert.Contains(t, ruleNames, "web-nsg/deny-ssh")
+	assert.Contains(t, ruleNames, "web-nsg/DenyAllInBound")
 
 	viewPoller, err := watcherClient.BeginGetVMSecurityRules(ctx, rg, "NetworkWatcher_eastus",
 		armnetwork.SecurityGroupViewParameters{TargetResourceID: nic.ID}, nil)
@@ -321,7 +357,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	rg := "netwatcher-config-rg"
 	requireResourceGroup(t, rg)
 
-	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nsgPoller, err := nsgClient.BeginCreateOrUpdate(ctx, rg, "flow-nsg", armnetwork.SecurityGroup{
 		Location:   to.Ptr("eastus"),
@@ -331,7 +367,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	nsg, err := nsgPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = watcherClient.CreateOrUpdate(ctx, rg, "NetworkWatcher_config", armnetwork.Watcher{
 		Location:   to.Ptr("eastus"),
@@ -342,7 +378,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	storageID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/flowlogs",
 		subscriptionID, rg)
 
-	flowClient, err := armnetwork.NewFlowLogsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	flowClient, err := armnetwork.NewFlowLogsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	flowPoller, err := flowClient.BeginCreateOrUpdate(ctx, rg, "NetworkWatcher_config", "nsg-flows", armnetwork.FlowLog{
 		Location: to.Ptr("eastus"),
@@ -416,7 +452,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 	}, nil)
 	require.Error(t, err, "a flow log whose target does not exist must be rejected")
 
-	monitorClient, err := armnetwork.NewConnectionMonitorsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	monitorClient, err := armnetwork.NewConnectionMonitorsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	monitorPoller, err := monitorClient.BeginCreateOrUpdate(ctx, rg, "NetworkWatcher_config", "edge-probe",
 		armnetwork.ConnectionMonitor{
@@ -494,7 +530,7 @@ func TestNetworkWatcher_ReportsWhatItCannotObserve(t *testing.T) {
 	t.Parallel()
 	rg := "netwatcher-gaps-rg"
 	requireResourceGroup(t, rg)
-	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = watcherClient.CreateOrUpdate(ctx, rg, "NetworkWatcher_gaps", armnetwork.Watcher{
 		Location:   to.Ptr("eastus"),

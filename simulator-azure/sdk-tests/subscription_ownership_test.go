@@ -68,9 +68,9 @@ func createDirectedAlias(t *testing.T, client *armsubscription.AliasClient, alia
 // show the settled state.
 func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 	t.Parallel()
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	subClient, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
+	subClient, err := armsubscription.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const aliasName = "sdk-test-ownership-alias"
@@ -145,7 +145,7 @@ func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 // an ownership request has no status to report.
 func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 	t.Parallel()
-	subClient, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
+	subClient, err := armsubscription.NewClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = subClient.AcceptOwnershipStatus(ctx, "00000000-0000-0000-0000-0000000d0e5f", nil)
 	var respErr *azcore.ResponseError
@@ -156,7 +156,7 @@ func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 // TestSubscriptionTenantPolicyLifecycle reads the default policy, replaces it,
 // and reads it back through get and list.
 func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
-	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
+	policyClient, err := armsubscription.NewPolicyClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { resetTenantPolicy(t, policyClient) })
 
@@ -209,9 +209,9 @@ func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 // blockSubscriptionsLeavingTenant set, an alias handing a subscription to
 // another tenant is refused, unless the policy exempts the principal.
 func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
-	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
+	policyClient, err := armsubscription.NewPolicyClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { resetTenantPolicy(t, policyClient) })
 
@@ -265,9 +265,9 @@ func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
 // tenants holding the subscriptions created under it.
 func TestSubscriptionBillingAccountPolicy(t *testing.T) {
 	t.Parallel()
-	billingClient, err := armsubscription.NewBillingAccountClient(&fakeCredential{}, clientOpts())
+	billingClient, err := armsubscription.NewBillingAccountClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
+	aliasClient, err := armsubscription.NewAliasClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	const billingAccountID = "sdk-billing-account-policy"
@@ -299,7 +299,7 @@ func TestSubscriptionBillingAccountPolicy(t *testing.T) {
 // actions a role assignment can name.
 func TestSubscriptionOperationsList(t *testing.T) {
 	t.Parallel()
-	operationsClient, err := armsubscription.NewOperationsClient(&fakeCredential{}, clientOpts())
+	operationsClient, err := armsubscription.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	pager := operationsClient.NewListPager(nil)

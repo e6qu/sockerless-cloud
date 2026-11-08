@@ -72,13 +72,14 @@ type OCIRegistry struct {
 
 	// OnManifestPut, if set, runs after the registry stores a manifest, so the
 	// cloud can register a control-plane image row against the registry the
-	// request addressed.
-	OnManifestPut func(scope, repo, ref, contentType string, data []byte)
+	// request addressed. r is the client's push, or nil for a manifest the
+	// cloud stored itself through PutManifest.
+	OnManifestPut func(r *http.Request, scope, repo, ref, contentType string, data []byte)
 	// OnManifestDelete, if set, runs under the manifest lock after a client's
 	// DELETE removed a manifest and its aliases, so the cloud can drop the
 	// control-plane rows that describe that digest. It must not re-enter the
 	// manifest store.
-	OnManifestDelete func(scope, repo, digest string)
+	OnManifestDelete func(r *http.Request, scope, repo, digest, contentType string)
 	// HydrateManifest, if set, runs on a manifest GET/HEAD miss so the cloud's
 	// pull-through cache can populate the manifest and its blobs through
 	// PutBlob, in the scope of the registry the request addressed. It returns
@@ -294,7 +295,7 @@ func (reg *OCIRegistry) PutBlob(scope, repo, digest, contentType string, data []
 // somewhere else — an image cached through a pull-through cache rule is in the
 // repository exactly as a pushed one is.
 func (reg *OCIRegistry) PutManifest(scope, repo, ref, contentType string, data []byte) {
-	reg.putManifestRaw(scope, repo, ref, contentType, data)
+	reg.putManifestRaw(nil, scope, repo, ref, contentType, data)
 }
 
 func (reg *OCIRegistry) handleBlobUpload(w http.ResponseWriter, r *http.Request, scope, repo, uploadID string) {
@@ -483,7 +484,7 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, s
 		// putManifestRaw fires OnManifestPut under manifestMu so a concurrent
 		// DELETE of the same digest can't race the control-plane row
 		// registration against the data-plane alias writes.
-		reg.putManifestRaw(scope, repo, ref, contentType, data)
+		reg.putManifestRaw(r, scope, repo, ref, contentType, data)
 		w.Header().Set("Docker-Content-Digest", ociDigest(data))
 		w.Header().Set("Location", fmt.Sprintf("/v2/%s/manifests/%s", repo, ociDigest(data)))
 		w.Header().Set("Content-Length", "0")
@@ -507,7 +508,7 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, s
 		}
 		reg.Manifests.Delete(ociManifestKey(scope, repo, ref))
 		if reg.OnManifestDelete != nil {
-			reg.OnManifestDelete(scope, repo, entry.Digest)
+			reg.OnManifestDelete(r, scope, repo, entry.Digest, entry.ContentType)
 		}
 		reg.manifestMu.Unlock()
 		w.WriteHeader(http.StatusAccepted)
@@ -520,7 +521,7 @@ func (reg *OCIRegistry) handleManifest(w http.ResponseWriter, r *http.Request, s
 
 // putManifestRaw stores the manifest under its tag/reference and (using the
 // content digest) under its digest, with the given content type.
-func (reg *OCIRegistry) putManifestRaw(scope, repo, ref, contentType string, data []byte) {
+func (reg *OCIRegistry) putManifestRaw(r *http.Request, scope, repo, ref, contentType string, data []byte) {
 	digest := ociDigest(data)
 	m := OCIManifest{
 		Scope: scope, ContentType: contentType, Digest: digest,
@@ -537,7 +538,7 @@ func (reg *OCIRegistry) putManifestRaw(scope, repo, ref, contentType string, dat
 	// takes manifestMu). OnManifestPut registers a cloud image row and must not
 	// re-enter the manifest store under this lock.
 	if reg.OnManifestPut != nil {
-		reg.OnManifestPut(scope, repo, ref, contentType, data)
+		reg.OnManifestPut(r, scope, repo, ref, contentType, data)
 	}
 }
 
@@ -647,6 +648,11 @@ func (reg *OCIRegistry) GetBlob(scope, repo, digest string) ([]byte, bool) {
 // DeleteManifest removes a manifest and every alias pointing at the same
 // content, which is what the registry's own DELETE does: a manifest removed by
 // digest takes its tags with it, and one removed by tag takes the digest entry.
+// GetManifest is the manifest repo:ref names.
+func (reg *OCIRegistry) GetManifest(scope, repo, ref string) (OCIManifest, bool) {
+	return reg.Manifests.Get(ociManifestKey(scope, repo, ref))
+}
+
 func (reg *OCIRegistry) DeleteManifest(scope, repo, ref string) bool {
 	reg.manifestMu.Lock()
 	defer reg.manifestMu.Unlock()

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,20 +31,20 @@ import (
 // CSJob is a Cloud Scheduler job. Outstanding and Deferred are the
 // bookkeeping of its scheduled executions, which the API does not show.
 type CSJob struct {
-	Name                string         `json:"name"`
-	Description         string         `json:"description,omitempty"`
-	PubsubTarget        *CSPubsub      `json:"pubsubTarget,omitempty"`
-	AppEngineHTTPTarget map[string]any `json:"appEngineHttpTarget,omitempty"`
-	HTTPTarget          *CSHTTP        `json:"httpTarget,omitempty"`
-	Schedule            string         `json:"schedule,omitempty"`
-	TimeZone            string         `json:"timeZone,omitempty"`
-	UserUpdateTime      string         `json:"userUpdateTime,omitempty"`
-	State               csEnum         `json:"state,omitempty"`
-	Status              *CSStatus      `json:"status,omitempty"`
-	ScheduleTime        string         `json:"scheduleTime,omitempty"`
-	LastAttemptTime     string         `json:"lastAttemptTime,omitempty"`
-	RetryConfig         *CSRetryConfig `json:"retryConfig,omitempty"`
-	AttemptDeadline     string         `json:"attemptDeadline,omitempty"`
+	Name                string                `json:"name"`
+	Description         string                `json:"description,omitempty"`
+	PubsubTarget        *CSPubsub             `json:"pubsubTarget,omitempty"`
+	AppEngineHTTPTarget map[string]any        `json:"appEngineHttpTarget,omitempty"`
+	HTTPTarget          *CSHTTP               `json:"httpTarget,omitempty"`
+	Schedule            string                `json:"schedule,omitempty"`
+	TimeZone            string                `json:"timeZone,omitempty"`
+	UserUpdateTime      string                `json:"userUpdateTime,omitempty"`
+	State               protoEnum[csJobState] `json:"state,omitempty"`
+	Status              *CSStatus             `json:"status,omitempty"`
+	ScheduleTime        string                `json:"scheduleTime,omitempty"`
+	LastAttemptTime     string                `json:"lastAttemptTime,omitempty"`
+	RetryConfig         *CSRetryConfig        `json:"retryConfig,omitempty"`
+	AttemptDeadline     string                `json:"attemptDeadline,omitempty"`
 
 	Outstanding string    `json:"-"`
 	Deferred    time.Time `json:"-"`
@@ -58,12 +57,12 @@ type CSPubsub struct {
 }
 
 type CSHTTP struct {
-	URI        string            `json:"uri,omitempty"`
-	HTTPMethod csEnum            `json:"httpMethod,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	OAuthToken *gcpOAuthToken    `json:"oauthToken,omitempty"`
-	OidcToken  *gcpOIDCToken     `json:"oidcToken,omitempty"`
+	URI        string                  `json:"uri,omitempty"`
+	HTTPMethod protoEnum[csHTTPMethod] `json:"httpMethod,omitempty"`
+	Headers    map[string]string       `json:"headers,omitempty"`
+	Body       string                  `json:"body,omitempty"`
+	OAuthToken *gcpOAuthToken          `json:"oauthToken,omitempty"`
+	OidcToken  *gcpOIDCToken           `json:"oidcToken,omitempty"`
 }
 
 // CSStatus is the google.rpc.Status of a job's last attempted execution;
@@ -81,53 +80,16 @@ type CSRetryConfig struct {
 	MaxDoublings       int    `json:"maxDoublings,omitempty"`
 }
 
-// csEnum is an enum field, read from its name or, as the Go client's REST
-// transport sends it, its number, and written as its name.
-type csEnum string
+type csJobState struct{}
 
-// csEnumNames are the names of the enums a job carries, indexed by number.
-var csEnumNames = map[string][]string{
-	"httpMethod": {"HTTP_METHOD_UNSPECIFIED", "POST", "GET", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
-	"state":      {"STATE_UNSPECIFIED", "ENABLED", "PAUSED", "DISABLED", "UPDATE_FAILED"},
+func (csJobState) enumNames() map[int32]string {
+	return map[int32]string{1: "ENABLED", 2: "PAUSED", 3: "DISABLED", 4: "UPDATE_FAILED"}
 }
 
-func (e *csEnum) UnmarshalJSON(b []byte) error {
-	var name string
-	if json.Unmarshal(b, &name) == nil {
-		*e = csEnum(name)
-		return nil
-	}
-	var number int
-	if err := json.Unmarshal(b, &number); err != nil {
-		return fmt.Errorf("enum value %s is neither a name nor a number", b)
-	}
-	*e = csEnum(fmt.Sprintf("#%d", number))
-	return nil
-}
+type csHTTPMethod struct{}
 
-// csResolveEnums names the enum numbers a request carried.
-func csResolveEnums(job *CSJob) error {
-	resolve := func(field string, e *csEnum) error {
-		number, ok := strings.CutPrefix(string(*e), "#")
-		if !ok {
-			return nil
-		}
-		names := csEnumNames[field]
-		for i, name := range names {
-			if fmt.Sprint(i) == number {
-				*e = csEnum(name)
-				return nil
-			}
-		}
-		return fmt.Errorf("%s %s is not a value of the enum", field, number)
-	}
-	if err := resolve("state", &job.State); err != nil {
-		return err
-	}
-	if job.HTTPTarget != nil {
-		return resolve("httpMethod", &job.HTTPTarget.HTTPMethod)
-	}
-	return nil
+func (csHTTPMethod) enumNames() map[int32]string {
+	return map[int32]string{1: "POST", 2: "GET", 3: "HEAD", 4: "PUT", 5: "DELETE", 6: "PATCH", 7: "OPTIONS"}
 }
 
 // csExecution is one execution of a job: an occurrence of its schedule, or a
@@ -360,10 +322,7 @@ func csView(job CSJob) CSJob {
 }
 
 func csReadJob(r *http.Request, job *CSJob) error {
-	if err := sim.ReadJSON(r, job); err != nil {
-		return err
-	}
-	return csResolveEnums(job)
+	return sim.ReadJSON(r, job)
 }
 
 func csRefuse(w http.ResponseWriter, status int, reason string) {
@@ -551,7 +510,7 @@ func handleCSJobAction(w http.ResponseWriter, r *http.Request) {
 		cloudRunV1JobIAM(w, r, sim.PathParam(r, "project"), sim.PathParam(r, "location"), id, action)
 		return
 	}
-	states := map[string]csEnum{"pause": "PAUSED", "resume": "ENABLED", "run": ""}
+	states := map[string]protoEnum[csJobState]{"pause": "PAUSED", "resume": "ENABLED", "run": ""}
 	state, known := states[action]
 	if !known {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown job action %q", action)

@@ -58,7 +58,7 @@ func storageAccountPrimaryKey(account string) string {
 	if key, ok := storageCredKeys[account]; ok {
 		return key
 	}
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	if err != nil {
 		return ""
 	}

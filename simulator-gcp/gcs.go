@@ -78,9 +78,9 @@ type Bucket struct {
 // and its objects through the legacy bucket and object roles, and its viewers
 // read them. It is what remains when a client removes the bindings it added,
 // so a policy is never set empty.
-func gcsDefaultBucketPolicy(project string) IAMPolicy {
-	owners := []string{"projectEditor:" + project, "projectOwner:" + project}
-	viewers := []string{"projectViewer:" + project}
+func gcsDefaultBucketPolicy(bucket Bucket) IAMPolicy {
+	owners := []string{"projectEditor:" + bucket.Project, "projectOwner:" + bucket.Project}
+	viewers := []string{"projectViewer:" + bucket.Project}
 	return IAMPolicy{
 		Bindings: []IAMBinding{
 			{Role: "roles/storage.legacyBucketOwner", Members: owners},
@@ -97,11 +97,8 @@ func gcsDefaultBucketPolicy(project string) IAMPolicy {
 // storing it keeps its etag stable across reads, which the optimistic
 // concurrency check on setIamPolicy compares against.
 func gcsSeedDefaultBucketPolicy(name string) IAMPolicy {
-	project := ""
-	if bucket, ok := gcsBuckets.Get(name); ok {
-		project = bucket.Project
-	}
-	policy := gcsDefaultBucketPolicy(project)
+	bucket, _ := gcsBuckets.Get(name)
+	policy := gcsDefaultBucketPolicy(bucket)
 	gcpResourcePolicies.Put("bucket/"+name, policy)
 	return policy
 }

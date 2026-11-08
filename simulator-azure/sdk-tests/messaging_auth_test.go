@@ -38,7 +38,7 @@ var (
 func serviceBusNamespaceKey(t *testing.T, namespace string) string {
 	t.Helper()
 	return messagingNamespaceKey(t, "servicebus/"+namespace, func(rg string) string {
-		client, err := armservicebus.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armservicebus.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		poller, err := client.BeginCreateOrUpdate(ctx, rg, namespace, armservicebus.SBNamespace{
 			Location: to.Ptr("eastus"),
@@ -63,7 +63,7 @@ func serviceBusNamespaceKey(t *testing.T, namespace string) string {
 func eventHubsNamespaceKey(t *testing.T, namespace string) string {
 	t.Helper()
 	return messagingNamespaceKey(t, "eventhub/"+namespace, func(rg string) string {
-		client, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+		client, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 		require.NoError(t, err)
 		poller, err := client.BeginCreateOrUpdate(ctx, rg, namespace, armeventhub.EHNamespace{
 			Location: to.Ptr("eastus"),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -281,6 +282,15 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	backupName := req.BackupSettings.BackupName
+	var blobURLs []string
+	for _, sasURI := range req.TargetDetails.SasURIList {
+		blobURL, err := pgLtrBlobURL(sasURI, backupName)
+		if err != nil {
+			AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+			return
+		}
+		blobURLs = append(blobURLs, blobURL)
+	}
 	b := PGLtrBackup{
 		ID:   armChildID(id, "ltrBackupOperations", backupName),
 		Name: backupName,
@@ -297,7 +307,14 @@ func handlePGStartLtrBackup(w http.ResponseWriter, r *http.Request) {
 	// not measure the volume.
 	backupVolume := azurePGLtrBackupVolume(rg, serverName, backupName)
 	opID := startAzureAsyncOperationResult(func() (json.RawMessage, *AsyncOperationError) {
-		if err := azurePGCaptureVolume(rg, serverName, backupVolume); err != nil {
+		err := azurePGCaptureVolume(rg, serverName, backupVolume)
+		if err == nil {
+			var archive []byte
+			if archive, err = pgLtrArchive(context.Background(), backupVolume); err == nil {
+				err = pgLtrUpload(context.Background(), id, blobURLs, archive)
+			}
+		}
+		if err != nil {
 			azurePGRemoveBackupVolume(backupVolume)
 			pgLtrBackups.Update(b.ID, func(backup *PGLtrBackup) {
 				backup.Properties["status"] = "Failed"

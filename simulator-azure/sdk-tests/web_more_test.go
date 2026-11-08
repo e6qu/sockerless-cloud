@@ -21,7 +21,7 @@ import (
 
 func webMoreEnsurePlan(t *testing.T, rg, plan string) string {
 	t.Helper()
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewPlansClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	p, err := client.BeginCreateOrUpdate(ctx, rg, plan, armappservice.Plan{
@@ -44,7 +44,7 @@ func TestSDK_WebMore_Plans(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewPlansClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -112,7 +112,7 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-site-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -147,18 +147,39 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 	assert.Equal(t, "v1", *md.Properties["k1"])
 
 	_, err = client.UpdateAuthSettings(ctx, rg, name, armappservice.SiteAuthSettings{
-		Properties: &armappservice.SiteAuthSettingsProperties{Enabled: to.Ptr(false)},
+		Properties: &armappservice.SiteAuthSettingsProperties{
+			Enabled:         to.Ptr(true),
+			DefaultProvider: to.Ptr(armappservice.BuiltInAuthenticationProviderAzureActiveDirectory),
+			ClientID:        to.Ptr("00000000-0000-0000-0000-00000000c11e"),
+			FacebookAppID:   to.Ptr(""),
+		},
 	}, nil)
 	require.NoError(t, err)
+	v1, err := client.GetAuthSettings(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, v1.Properties)
+	assert.True(t, *v1.Properties.Enabled, "the site's authsettings list answers what PUT stored")
+	assert.Equal(t, "00000000-0000-0000-0000-00000000c11e", *v1.Properties.ClientID)
+	require.NotNil(t, v1.Properties.ConfigVersion)
+	assert.Equal(t, "v1", *v1.Properties.ConfigVersion, "App Service fills in the v1 configVersion")
+	assert.Nil(t, v1.Properties.FacebookAppID, "App Service reads an empty setting back as null")
 	v2, err := client.GetAuthSettingsV2WithoutSecrets(ctx, rg, name, nil)
 	require.NoError(t, err)
 	require.NotNil(t, v2.Properties)
 	_, err = client.UpdateAuthSettingsV2(ctx, rg, name, armappservice.SiteAuthSettingsV2{
 		Properties: &armappservice.SiteAuthSettingsV2Properties{
-			Platform: &armappservice.AuthPlatform{Enabled: to.Ptr(false)},
+			Platform: &armappservice.AuthPlatform{Enabled: to.Ptr(true), RuntimeVersion: to.Ptr("~1")},
 		},
 	}, nil)
 	require.NoError(t, err)
+	listed, err := client.GetAuthSettingsV2(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, listed.Properties.Platform)
+	assert.True(t, *listed.Properties.Platform.Enabled, "the site's authsettingsV2 list answers what PUT stored")
+	v1, err = client.GetAuthSettings(ctx, rg, name, nil)
+	require.NoError(t, err)
+	require.NotNil(t, v1.Properties.ConfigVersion)
+	assert.Equal(t, "v2", *v1.Properties.ConfigVersion, "a v2 configuration moves the site to configVersion v2")
 
 	bkPager := client.NewListBackupsPager(rg, name, nil)
 	for bkPager.More() {
@@ -179,7 +200,7 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-subres-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -285,7 +306,7 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-slot-plan")
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappservice.NewWebAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -375,7 +396,7 @@ func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
 	rg := "webmore-static-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	ssClient, err := armappservice.NewStaticSitesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

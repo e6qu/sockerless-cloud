@@ -17,7 +17,7 @@ func TestWebApps_LogsConfigurationRoundTripsAndKeepsTheDockerLog(t *testing.T) {
 	azureCreateContainerSite(t, rg, name, commandImageName, "log kept-under-retention", nil)
 	defer azureDeleteSite(rg, name)
 
-	client, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.UpdateDiagnosticLogsConfig(ctx, rg, name, armappservice.SiteLogsConfig{
 		Properties: &armappservice.SiteLogsConfigProperties{

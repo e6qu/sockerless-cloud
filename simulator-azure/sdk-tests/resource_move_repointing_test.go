@@ -28,7 +28,7 @@ import (
 
 func validateMoveExpectingFailure(t *testing.T, srcRG, dstRG, resourceID string) error {
 	t.Helper()
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginValidateMoveResources(ctx, srcRG, armresources.MoveInfo{
 		Resources:           []*string{to.Ptr(resourceID)},
@@ -54,7 +54,7 @@ func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	service, subscription := uniquename.New("sdk-apim-move-svc"), "sdk-consumer"
-	services, err := armapimanagement.NewServiceClient(subscriptionID, &fakeCredential{}, clientOpts())
+	services, err := armapimanagement.NewServiceClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := services.BeginCreateOrUpdate(ctx, srcRG, service, armapimanagement.ServiceResource{
 		Location: to.Ptr("eastus"),
@@ -73,7 +73,7 @@ func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 	require.NotNil(t, created.ID)
 	serviceID := *created.ID
 
-	subscriptions, err := armapimanagement.NewSubscriptionClient(subscriptionID, &fakeCredential{}, clientOpts())
+	subscriptions, err := armapimanagement.NewSubscriptionClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = subscriptions.CreateOrUpdate(ctx, srcRG, service, subscription, armapimanagement.SubscriptionCreateParameters{
 		Properties: &armapimanagement.SubscriptionCreateParameterProperties{
@@ -119,7 +119,7 @@ func TestAzureResources_MoveLogicWorkflow(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	const workflow = "sdk-logic-move-wf"
-	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created, err := workflows.CreateOrUpdate(ctx, srcRG, workflow, armlogic.Workflow{
 		Location: to.Ptr("eastus"),
@@ -179,7 +179,7 @@ func TestAzureResources_MoveCosmosAccount(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	account := uniquename.Alnum("sdkcosmosmove")
-	accounts, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accounts.BeginCreateOrUpdate(ctx, srcRG, account, armcosmos.DatabaseAccountCreateUpdateParameters{
 		Location: to.Ptr("eastus"),
@@ -243,7 +243,7 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	account, topic := uniquename.Alnum("sdkegsystem"), "sdk-eg-system-topic"
-	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	accounts, err := armstorage.NewAccountsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	accountPoller, err := accounts.BeginCreate(ctx, srcRG, account, armstorage.AccountCreateParameters{
 		Location: to.Ptr("eastus"),
@@ -256,7 +256,7 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	require.NotNil(t, createdAccount.ID)
 	accountID := *createdAccount.ID
 
-	systemTopics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	systemTopics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	topicPoller, err := systemTopics.BeginCreateOrUpdate(ctx, srcRG, topic, armeventgrid.SystemTopic{
 		Location: to.Ptr("eastus"),
@@ -305,7 +305,7 @@ func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	const vnet, zone, link = "sdk-vnet-move", "sdk-move.internal", "sdk-vnet-move-link"
-	vnets, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vnets, err := armnetwork.NewVirtualNetworksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetPoller, err := vnets.BeginCreateOrUpdate(ctx, srcRG, vnet, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
@@ -319,7 +319,7 @@ func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 	require.NotNil(t, createdVnet.ID)
 	vnetID := *createdVnet.ID
 
-	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zonePoller, err := zones.BeginCreateOrUpdate(ctx, srcRG, zone, armprivatedns.PrivateZone{
 		Location: to.Ptr("global"),
@@ -328,7 +328,7 @@ func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 	_, err = zonePoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPoller, err := links.BeginCreateOrUpdate(ctx, srcRG, zone, link, armprivatedns.VirtualNetworkLink{
 		Location: to.Ptr("global"),
@@ -370,7 +370,7 @@ func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 	ensureRG(t, dstRG)
 
 	primary, secondary := uniquename.New("sdk-redis-link-primary"), uniquename.New("sdk-redis-link-secondary")
-	caches, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	caches, err := armredis.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	ids := map[string]string{}
 	for _, name := range []string{primary, secondary} {
@@ -391,7 +391,7 @@ func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 		ids[name] = *created.ID
 	}
 
-	linkedServers, err := armredis.NewLinkedServerClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linkedServers, err := armredis.NewLinkedServerClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	linkPoller, err := linkedServers.BeginCreate(ctx, srcRG, primary, secondary, armredis.LinkedServerCreateParameters{
 		Properties: &armredis.LinkedServerCreateProperties{
@@ -501,7 +501,7 @@ func TestAzureResources_MoveRefusesOccupiedDestination(t *testing.T) {
 	createResourceGroup(t, occupiedRG)
 
 	const workflow = "sdkconflictwf"
-	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	workflows, err := armlogic.NewWorkflowsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	definition := armlogic.Workflow{
 		Location: to.Ptr("eastus"),
@@ -523,7 +523,7 @@ func TestAzureResources_MoveRefusesOccupiedDestination(t *testing.T) {
 	require.NotNil(t, occupant.Properties)
 	occupantEndpoint := occupant.Properties.AccessEndpoint
 
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	move := armresources.MoveInfo{
 		Resources:           []*string{source.ID},

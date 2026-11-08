@@ -332,17 +332,30 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 		getSub("getPacketMirroringRule", "packetMirroringRules", "priority", true)
 	}
 
-	// cloneRules — copies rules from the target policy into the policy
-	// named in the body (the new policy is created if absent).
+	// cloneRules replaces the policy's rules with those of the policy
+	// sourceFirewallPolicy names, by name or URL.
 	srv.HandleFunc("POST "+base+"/{name}/cloneRules", func(w http.ResponseWriter, r *http.Request) {
-		srcKey := relPath(r, sim.PathParam(r, "name"))
-		var body struct {
-			SrcPolicy string `json:"sourcePolicy"`
-			Name      string `json:"name"`
+		key := relPath(r, sim.PathParam(r, "name"))
+		source := r.URL.Query().Get("sourceFirewallPolicy")
+		if source == "" {
+			GCPError(w, http.StatusBadRequest, "sourceFirewallPolicy is required to name the policy the rules are copied from", "INVALID_ARGUMENT")
+			return
 		}
-		_ = sim.ReadJSON(r, &body)
-		_ = srcKey
-		sim.WriteJSON(w, http.StatusOK, scopeOp(r, srcKey, "cloneRules"))
+		sourceKey := relPath(r, lastSegment(source))
+		if strings.Contains(source, "/") {
+			sourceKey = computeRelativeRef(source)
+		}
+		src, ok := store.Get(sourceKey)
+		if !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' was not found", computeSelfLink(sourceKey))
+			return
+		}
+		rules := computeObjectList(src["rules"])
+		if !store.Update(key, func(m *map[string]any) { (*m)["rules"] = rules }) {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewallPolicy %q not found", sim.PathParam(r, "name"))
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, scopeOp(r, key, "cloneRules"))
 	})
 
 	registerComputeIAMTriplet(srv, scope, "firewallPolicies")

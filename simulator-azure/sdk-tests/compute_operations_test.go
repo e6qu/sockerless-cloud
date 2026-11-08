@@ -25,7 +25,7 @@ import (
 // usage counts what the subscription holds there.
 func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 	t.Parallel()
-	operations, err := armcompute.NewOperationsClient(&fakeCredential{}, clientOpts())
+	operations, err := armcompute.NewOperationsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	catalog, err := operations.NewListPager(nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 	}
 
 	// A location holding nothing reports nothing held, with no machine needed.
-	usageOnBareHost, err := armcompute.NewUsageClient(subscriptionID, &fakeCredential{}, clientOpts())
+	usageOnBareHost, err := armcompute.NewUsageClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	empty, err := usageOnBareHost.NewListPager("australiacentral2", nil).NextPage(ctx)
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 	ensureRG(t, rg)
 	nicID := vmOperationsFixture(t, rg, "usage-vm", "10.94.0.0/16")
 
-	usageClient, err := armcompute.NewUsageClient(subscriptionID, &fakeCredential{}, clientOpts())
+	usageClient, err := armcompute.NewUsageClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	usageFor := func(name string) (current int32, limit int64) {
 		t.Helper()
@@ -113,7 +113,7 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	rg := uniquename.New("eventgrid-extension-rg")
 	ensureRG(t, rg)
 
-	client, err := armeventgrid.NewExtensionTopicsClient(&fakeCredential{}, clientOpts())
+	client, err := armeventgrid.NewExtensionTopicsClient(&clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
@@ -129,7 +129,7 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 
 	// Once a system topic carries the resource's events, the extension topic
 	// names it.
-	topics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	topics, err := armeventgrid.NewSystemTopicsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := topics.BeginCreateOrUpdate(ctx, rg, "extension-system-topic", armeventgrid.SystemTopic{
 		Location: to.Ptr("eastus"),

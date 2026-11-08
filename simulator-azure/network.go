@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
+	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -533,27 +535,49 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 		azureWriteList(w, azureVNetPeerings.Filter(func(p VirtualNetworkPeering) bool { return strings.HasPrefix(p.ID, vnetID+"/virtualNetworkPeerings/") }))
 	})
 
-	// Checks the candidate against the virtual network's stored IP
-	// configurations.
+	// A taken or platform-reserved candidate answers the next free addresses of
+	// its subnet instead.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/CheckIPAddressAvailability", func(w http.ResponseWriter, r *http.Request) {
-		ip := r.URL.Query().Get("ipAddress")
-		available := true
-		for _, nic := range azureNICs.List() {
-			for _, cfg := range nic.Properties.IPConfigurations {
-				if ip != "" && cfg.Properties.PrivateIPAddress == ip {
-					available = false
-				}
-			}
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
+		if _, ok := azureVnets.Get(vnetID); !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", sim.PathParam(r, "vnetName"), sim.PathParam(r, "resourceGroupName"))
+			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"available":            available,
-			"availableIPAddresses": []string{},
-		})
+		candidate, err := netip.ParseAddr(r.URL.Query().Get("ipAddress"))
+		if err != nil || !candidate.Is4() {
+			AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest, "The IP address %q is not a valid IPv4 address.", r.URL.Query().Get("ipAddress"))
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, azureCheckIPAddressAvailability(vnetID, candidate))
 	})
 
-	// Answers an empty usage set.
+	// One row per IPv4 subnet: the addresses its interfaces and gateways hold
+	// against the addresses Azure leaves to tenants, five fewer than the range.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/usages", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
+		if _, ok := azureVnets.Get(vnetID); !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", sim.PathParam(r, "vnetName"), sim.PathParam(r, "resourceGroupName"))
+			return
+		}
+		usages := []map[string]any{}
+		for _, sn := range azureSubnets.Filter(func(sn Subnet) bool { return strings.EqualFold(azureVNetIDOfSubnet(sn.ID), vnetID) }) {
+			cidr, err := azureSubnetIPv4CIDR(sn.Properties)
+			if err != nil {
+				continue
+			}
+			prefix, err := netip.ParsePrefix(cidr)
+			if err != nil {
+				continue
+			}
+			usages = append(usages, map[string]any{
+				"id":           sn.ID,
+				"currentValue": float64(len(azureStoredSubnetAddresses(sn.ID))),
+				"limit":        float64(uint64(1)<<(32-prefix.Bits())) - float64(azureSubnetReservation.First+azureSubnetReservation.Last),
+				"unit":         "Count",
+				"name":         map[string]any{"value": "Subnet size and usage", "localizedValue": "Subnet size and usage"},
+			})
+		}
+		azureWriteList(w, usages)
 	})
 }
 
@@ -691,18 +715,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 		azureWriteList(w, azureLBInboundNatRules.Filter(func(c LoadBalancerChild) bool { return strings.HasPrefix(c.ID, prefix) }))
 	})
 
-	// Answers an empty collection: the parent PUT's outboundRules are not
-	// captured.
-	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/outboundRules", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := azureLBs.Get(lbID(r)); !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Load balancer %q not found.", sim.PathParam(r, "loadBalancerName"))
-			return
-		}
-		azureWriteList(w, []LoadBalancerChild{})
-	})
-	srv.HandleFunc("GET "+armBase+"/loadBalancers/{loadBalancerName}/outboundRules/{outboundRuleName}", func(w http.ResponseWriter, r *http.Request) {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Outbound rule %q not found.", sim.PathParam(r, "outboundRuleName"))
-	})
+	childList("outboundRules", func(lb LoadBalancer) []LoadBalancerChild { return lb.Properties.OutboundRules })
 }
 
 func registerNetworkInterfaceSubResources(srv *sim.Server) {
@@ -779,12 +792,31 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 		azureWriteList(w, azureNICTapConfigs.Filter(func(c InterfaceTapConfiguration) bool { return strings.HasPrefix(c.ID, prefix) }))
 	})
 
-	// Answer empty result sets: effective rules are not computed.
 	srv.HandleFunc("POST "+armBase+"/networkInterfaces/{networkInterfaceName}/effectiveRouteTable", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
+		nic, ok := azureNICs.Get(nicID(r))
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			return
+		}
+		disableBGP := false
+		if subnet, ok := networkWatcherNICSubnet(nic); ok && subnet.Properties.RouteTable != nil && azureRouteTables != nil {
+			if table, ok := azureRouteTables.Get(subnet.Properties.RouteTable.ID); ok {
+				disableBGP = table.Properties.DisableBgpRoutePropagation
+			}
+		}
+		routes := []map[string]any{}
+		for _, route := range azureEffectiveRoutesForNIC(nic) {
+			routes = append(routes, azureEffectiveRouteJSON(route, disableBGP))
+		}
+		azureWriteList(w, routes)
 	})
 	srv.HandleFunc("POST "+armBase+"/networkInterfaces/{networkInterfaceName}/effectiveNetworkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
-		azureWriteList(w, []any{})
+		nic, ok := azureNICs.Get(nicID(r))
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Network interface %q not found.", sim.PathParam(r, "networkInterfaceName"))
+			return
+		}
+		azureWriteList(w, azureEffectiveSecurityGroupsForNIC(nic))
 	})
 }
 
@@ -928,4 +960,71 @@ func azureMaterializeSubnet(sn Subnet) (string, string, int) {
 	azureSubnets.Put(sn.ID, sn)
 	azureReapplyIngress()
 	return "", "", 0
+}
+
+const azureAvailableAddressesListed = 5
+
+func azureCheckIPAddressAvailability(vnetID string, candidate netip.Addr) map[string]any {
+	type tenantSubnet struct {
+		first, last netip.Addr
+		held        map[netip.Addr]bool
+	}
+	var inVNet []tenantSubnet
+	var home *tenantSubnet
+	reserved := false
+	for _, sn := range azureSubnets.Filter(func(sn Subnet) bool { return strings.EqualFold(azureVNetIDOfSubnet(sn.ID), vnetID) }) {
+		cidr, err := azureSubnetIPv4CIDR(sn.Properties)
+		if err != nil {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			continue
+		}
+		ts := tenantSubnet{held: map[netip.Addr]bool{}}
+		ts.first, ts.last = azureSubnetTenantRange(prefix)
+		for _, ip := range azureStoredSubnetAddresses(sn.ID) {
+			if addr, ok := netip.AddrFromSlice(ip.To4()); ok {
+				ts.held[addr] = true
+			}
+		}
+		inVNet = append(inVNet, ts)
+		if prefix.Contains(candidate) {
+			home = &inVNet[len(inVNet)-1]
+			reserved = candidate.Less(ts.first) || ts.last.Less(candidate)
+		}
+	}
+	if home != nil && !reserved && !home.held[candidate] {
+		return map[string]any{"available": true}
+	}
+	// A candidate outside every subnet answers the free addresses of the
+	// virtual network's subnets in address order.
+	search := inVNet
+	if home != nil {
+		search = []tenantSubnet{*home}
+	}
+	sort.Slice(search, func(i, j int) bool { return search[i].first.Less(search[j].first) })
+	free := []string{}
+	for _, ts := range search {
+		for addr := ts.first; !ts.last.Less(addr) && len(free) < azureAvailableAddressesListed; addr = addr.Next() {
+			if !ts.held[addr] {
+				free = append(free, addr.String())
+			}
+		}
+	}
+	return map[string]any{"available": false, "availableIPAddresses": free, "isPlatformReserved": reserved}
+}
+
+// azureSubnetTenantRange is the first and last address Azure leaves to
+// tenants in a subnet.
+func azureSubnetTenantRange(prefix netip.Prefix) (netip.Addr, netip.Addr) {
+	first := prefix.Masked().Addr()
+	for i := 0; i < azureSubnetReservation.First; i++ {
+		first = first.Next()
+	}
+	last := azureSubnetLastAddress(prefix)
+	for i := 0; i < azureSubnetReservation.Last; i++ {
+		last = last.Prev()
+	}
+	return first, last
 }

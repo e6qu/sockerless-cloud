@@ -42,7 +42,7 @@ func TestRedis_CacheServesItsHostName(t *testing.T) {
 	t.Parallel()
 	rg := "redis-engine-rg"
 	ensureRedisResourceGroup(t, rg)
-	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armredis.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	const name = "redis-engine"
 	poller, err := client.BeginCreate(ctx, rg, name, armredis.CreateParameters{

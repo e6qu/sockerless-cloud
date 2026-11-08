@@ -112,34 +112,43 @@ func TestCLI_CloudBuildTriggers(t *testing.T) {
 func TestCLI_LoggingSinkCRUD(t *testing.T) {
 	t.Parallel()
 	const destination = "bigquery.googleapis.com/projects/test-project/datasets/audit_logs"
-	runCLI(t, gcloudCLI("logging", "sinks", "create", "cli-audit-sink",
+	name := uniquename.New("cli-sink-crud")
+	runCLI(t, gcloudCLI("logging", "sinks", "create", name,
 		destination,
 		"--log-filter=severity >= WARNING",
 		"--format=json",
 		"--quiet"))
 
-	list := runCLI(t, gcloudCLI("logging", "sinks", "list", "--format=json"))
-	assert.Contains(t, list, "cli-audit-sink")
+	listed := func() []string {
+		var sinks []struct {
+			Name string `json:"name"`
+		}
+		parseJSON(t, runCLI(t, gcloudCLI("logging", "sinks", "list", "--format=json")), &sinks)
+		names := make([]string, len(sinks))
+		for i, s := range sinks {
+			names[i] = s.Name
+		}
+		return names
+	}
+	assert.Contains(t, listed(), name)
 
 	// The described sink carries the destination and filter the create sent.
-	out := runCLI(t, gcloudCLI("logging", "sinks", "describe", "cli-audit-sink", "--format=json"))
+	out := runCLI(t, gcloudCLI("logging", "sinks", "describe", name, "--format=json"))
 	var sink struct {
 		Name        string `json:"name"`
 		Destination string `json:"destination"`
 		Filter      string `json:"filter"`
 	}
 	parseJSONObject(t, out, &sink)
-	assert.Equal(t, "cli-audit-sink", sink.Name)
+	assert.Equal(t, name, sink.Name)
 	assert.Equal(t, destination, sink.Destination)
 	assert.Equal(t, "severity >= WARNING", sink.Filter)
 
-	runCLI(t, gcloudCLI("logging", "sinks", "delete", "cli-audit-sink", "--quiet"))
+	runCLI(t, gcloudCLI("logging", "sinks", "delete", name, "--quiet"))
 
-	gone, err := gcloudCLI("logging", "sinks", "describe", "cli-audit-sink", "--format=json").CombinedOutput()
+	gone, err := gcloudCLI("logging", "sinks", "describe", name, "--format=json").CombinedOutput()
 	require.Error(t, err, "describing a deleted sink must fail: %s", gone)
-	assert.NotContains(t,
-		runCLI(t, gcloudCLI("logging", "sinks", "list", "--format=json")),
-		"cli-audit-sink")
+	assert.NotContains(t, listed(), name)
 }
 
 // cliLoggingMetric is the subset of the logging/v2 LogMetric this suite reads

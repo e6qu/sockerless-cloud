@@ -17,12 +17,12 @@ import (
 func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	t.Parallel()
 	rg := "dns-more-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	zonesClient, err := armdns.NewZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armdns.NewZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zone := "more.example.com"
 	_, err = zonesClient.CreateOrUpdate(ctx, rg, zone, armdns.Zone{Location: ptrStr("global")}, nil)
@@ -47,7 +47,7 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	}
 	assert.True(t, found, "subscription-wide list should include the created zone")
 
-	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordSetsClient, err := armdns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = recordSetsClient.CreateOrUpdate(ctx, rg, zone, "www", armdns.RecordTypeA, armdns.RecordSet{
 		Properties: &armdns.RecordSetProperties{
@@ -72,7 +72,7 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 	assert.Equal(t, "203.0.113.20", *recUpd.Properties.ARecords[0].IPv4Address)
 
 	// No record references the probe target, so dnsResources is empty.
-	refClient, err := armdns.NewResourceReferenceClient(subscriptionID, &fakeCredential{}, clientOpts())
+	refClient, err := armdns.NewResourceReferenceClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	target := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/publicIPAddresses/none"
 	refResp, err := refClient.GetByTargetResources(ctx, armdns.ResourceReferenceRequest{
@@ -93,12 +93,12 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	t.Parallel()
 	rg := "pdns-more-rg"
-	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
 	require.NoError(t, err)
 
-	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	zone := "more.private"
 	createPoller, err := zonesClient.BeginCreateOrUpdate(ctx, rg, zone, armprivatedns.PrivateZone{Location: ptrStr("global")}, nil)
@@ -121,7 +121,7 @@ func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, page.Value)
 
-	recordSetsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	recordSetsClient, err := armprivatedns.NewRecordSetsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = recordSetsClient.CreateOrUpdate(ctx, rg, zone, armprivatedns.RecordTypeA, "db", armprivatedns.RecordSet{
 		Properties: &armprivatedns.RecordSetProperties{
@@ -149,7 +149,7 @@ func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
 	// The automatic SOA plus the A record.
 	require.GreaterOrEqual(t, len(allPage.Value), 2)
 
-	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	linksClient, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/more-vnet"
 	createLink, err := linksClient.BeginCreateOrUpdate(ctx, rg, zone, "more-link", armprivatedns.VirtualNetworkLink{

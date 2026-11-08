@@ -82,7 +82,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	nicID := vmOperationsFixture(t, rg, "vm-imds", "10.131.0.0/16")
 	networkBase := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network"
 
-	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	publicIP := func(name string) armnetwork.PublicIPAddress {
 		poller, err := pipClient.BeginCreateOrUpdate(ctx, rg, name, armnetwork.PublicIPAddress{
@@ -102,7 +102,7 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	frontendPIP := publicIP("vm-imds-lb-pip")
 
 	lbID := networkBase + "/loadBalancers/vm-imds-lb"
-	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	lbClient, err := armnetwork.NewLoadBalancersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	lbPoller, err := lbClient.BeginCreateOrUpdate(ctx, rg, "vm-imds-lb", armnetwork.LoadBalancer{
 		Location: to.Ptr("eastus"),
@@ -121,6 +121,15 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 					BackendPort:             to.Ptr[int32](8080),
 					FrontendIPConfiguration: &armnetwork.SubResource{ID: to.Ptr(lbID + "/frontendIPConfigurations/fe")},
 					BackendAddressPool:      &armnetwork.SubResource{ID: to.Ptr(lbID + "/backendAddressPools/pool")},
+					DisableOutboundSnat:     to.Ptr(true),
+				},
+			}},
+			OutboundRules: []*armnetwork.OutboundRule{{
+				Name: to.Ptr("egress"),
+				Properties: &armnetwork.OutboundRulePropertiesFormat{
+					Protocol:                 to.Ptr(armnetwork.LoadBalancerOutboundRuleProtocolAll),
+					FrontendIPConfigurations: []*armnetwork.SubResource{{ID: to.Ptr(lbID + "/frontendIPConfigurations/fe")}},
+					BackendAddressPool:       &armnetwork.SubResource{ID: to.Ptr(lbID + "/backendAddressPools/pool")},
 				},
 			}},
 		},
@@ -128,10 +137,25 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 	require.NoError(t, err)
 	_, err = lbPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
+	outboundClient, err := armnetwork.NewLoadBalancerOutboundRulesClient(subscriptionID, &clientCredential{}, clientOpts())
+	require.NoError(t, err)
+	outboundPager := outboundClient.NewListPager(rg, "vm-imds-lb", nil)
+	var outboundNames []string
+	for outboundPager.More() {
+		page, err := outboundPager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, rule := range page.Value {
+			outboundNames = append(outboundNames, derefString(rule.Name))
+		}
+	}
+	assert.Equal(t, []string{"egress"}, outboundNames)
+	egress, err := outboundClient.Get(ctx, rg, "vm-imds-lb", "egress", nil)
+	require.NoError(t, err)
+	assert.Equal(t, lbID+"/outboundRules/egress", derefString(egress.ID))
 
 	// The interface's IP configuration takes the instance public address and
 	// joins the load balancer's backend pool.
-	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	nic, err := nicClient.Get(ctx, rg, "vm-imds-nic", nil)
 	require.NoError(t, err)
@@ -198,7 +222,9 @@ func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T
 			"frontendIpAddress": derefString(frontendPIP.Properties.IPAddress), "protocol": "tcp",
 			"frontendPort": float64(80), "backendPort": float64(8080), "privateIpAddress": private,
 		}}, got.LoadBalancer.InboundRules)
-		assert.Empty(t, got.LoadBalancer.OutboundRules)
+		assert.Equal(t, []map[string]any{{
+			"frontendIpAddress": derefString(frontendPIP.Properties.IPAddress), "privateIpAddress": private,
+		}}, got.LoadBalancer.OutboundRules)
 	})
 
 	scheduledEvents := func(step string) (int, []map[string]any) {

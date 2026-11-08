@@ -19,9 +19,9 @@ func TestEventHubsSDK_NamespaceDeleteDropsItsEvents(t *testing.T) {
 	t.Parallel()
 	rg, ns, hub := "eh-nsdelete-rg", uniquename.New("sdk-eventhub-nsdelete"), "dropped"
 	ensureRG(t, rg)
-	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
-	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	tlsConfig := &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- test-only self-signed simulator certificate.
 

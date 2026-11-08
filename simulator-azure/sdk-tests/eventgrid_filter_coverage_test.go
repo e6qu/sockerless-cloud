@@ -16,7 +16,7 @@ func TestEventGrid_EventSubscriptionFilterRoundTrip(t *testing.T) {
 	rg := "sdk-eg-filter-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	topics, err := armeventgrid.NewTopicsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	subs, err := armeventgrid.NewEventSubscriptionsClient(subscriptionID, cred, clientOpts())

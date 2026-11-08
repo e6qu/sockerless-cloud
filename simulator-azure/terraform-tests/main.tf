@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "5.12.0"
+      version = "5.13.0"
     }
   }
 }
@@ -122,6 +122,19 @@ resource "azurerm_container_registry" "az_acr" {
   location            = azurerm_resource_group.az_rg.location
   sku                 = "Standard"
   admin_enabled       = true
+}
+
+# A webhook the registry's pushes to app:* would reach; the provider reads its
+# service URI back through getCallbackConfig.
+resource "azurerm_container_registry_webhook" "az_acr_hook" {
+  name                = "tfazrmacrhook"
+  resource_group_name = azurerm_resource_group.az_rg.name
+  registry_name       = azurerm_container_registry.az_acr.name
+  location            = azurerm_resource_group.az_rg.location
+  service_uri         = "https://hooks.example.com/acr"
+  actions             = ["push", "delete"]
+  scope               = "app:*"
+  custom_headers      = { "Content-Type" = "application/json" }
 }
 
 # An Azure Container Registry Tasks task with an inline task file step, and a
@@ -254,6 +267,20 @@ resource "azurerm_lb_rule" "az_lb_rule" {
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.az_lb_backend.id]
   probe_id                       = azurerm_lb_probe.az_lb_probe.id
+  disable_outbound_snat          = true
+}
+
+# The provider writes an outbound rule through the load balancer's PUT and
+# reads it back from the parent, so a plan after apply shows any loss.
+resource "azurerm_lb_outbound_rule" "az_lb_egress" {
+  name                    = "egress"
+  loadbalancer_id         = azurerm_lb.az_lb.id
+  protocol                = "All"
+  backend_address_pool_id = azurerm_lb_backend_address_pool.az_lb_backend.id
+
+  frontend_ip_configuration {
+    name = "frontend"
+  }
 }
 
 # The interface sits in the subnet of the network's second address prefix, so
@@ -456,6 +483,15 @@ resource "azurerm_servicebus_queue" "az_sb_queue" {
   namespace_id = azurerm_servicebus_namespace.az_sb_ns.id
 
   max_size_in_megabytes = 1024
+}
+
+# The simulator refuses a forwarding queue whose destination does not exist,
+# so the provider must create the destination first.
+resource "azurerm_servicebus_queue" "az_sb_forwarder" {
+  name         = "tfazrmsbforwarder"
+  namespace_id = azurerm_servicebus_namespace.az_sb_ns.id
+
+  forward_to = azurerm_servicebus_queue.az_sb_queue.name
 }
 
 resource "azurerm_eventgrid_topic" "az_eg_topic" {
@@ -933,6 +969,16 @@ resource "azurerm_linux_web_app" "az_node_app" {
   site_config {
     application_stack {
       node_version = "20-lts"
+    }
+  }
+
+  # The provider reads the settings back through the site's authsettings
+  # list, so a plan after apply shows any drift from what PUT stored.
+  auth_settings {
+    enabled          = true
+    default_provider = "AzureActiveDirectory"
+    active_directory {
+      client_id = "00000000-0000-0000-0000-0000000a0de1"
     }
   }
 }

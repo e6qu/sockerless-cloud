@@ -45,6 +45,19 @@ func TestServiceBusCLI_ARMResources(t *testing.T) {
 	assert.Equal(t, queue, createdQueue.Name)
 	assert.Equal(t, 1024, createdQueue.Properties.MaxSizeInMegabytes)
 
+	// A forwarding queue names a destination that already exists.
+	forwardURL := armURL("Microsoft.ServiceBus", "namespaces/"+ns+"/queues/cliforward", "2024-01-01")
+	refused := runCLIExpectFailure(t, azRest("PUT", forwardURL, `{"properties":{"forwardTo":"cli-missing-queue"}}`))
+	assert.Contains(t, refused, "does not exist")
+	forwardOut := runCLI(t, azRest("PUT", forwardURL, `{"properties":{"forwardTo":"`+queue+`"}}`))
+	var forwarding struct {
+		Properties struct {
+			ForwardTo string `json:"forwardTo"`
+		} `json:"properties"`
+	}
+	parseJSON(t, forwardOut, &forwarding)
+	assert.Equal(t, queue, forwarding.Properties.ForwardTo)
+
 	networkRulesURL := armURL("Microsoft.ServiceBus", "namespaces/"+ns+"/networkRuleSets/default", "2024-01-01")
 	networkRulesOut := runCLI(t, azRest("GET", networkRulesURL, ""))
 	var networkRules struct {

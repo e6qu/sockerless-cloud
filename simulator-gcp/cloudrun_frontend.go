@@ -308,12 +308,13 @@ type cloudRunInvoked struct {
 // other request carries a Google-signed ID token whose audience is one of the
 // resource's URLs or custom audiences — an OAuth access token is not one —
 // and the principal the token names holds run.routes.invoke on the resource,
-// conditions on its bindings included.
+// conditions on its bindings included, which read the request's host and path.
 func cloudRunInvokerAuthorized(w http.ResponseWriter, r *http.Request, invoked cloudRunInvoked) bool {
 	if invoked.invokerIAMDisabled {
 		return true
 	}
 	resource := gcpIAMResourceNamed(invoked.name)
+	resource.requestHost, resource.requestPath = lbplane.Hostname(r.Host), r.URL.Path
 	policies := gcpHierarchyPolicies(resourceProject(invoked.name))
 	if store := gcpResourceIAMStore(); store != nil {
 		if own, ok := store.Get(invoked.name); ok {

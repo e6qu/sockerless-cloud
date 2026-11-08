@@ -25,7 +25,7 @@ import (
 )
 
 // goImage compiles the sidecar on the engine.
-const goImage = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
+const goImage = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18"
 
 const dockerfile = `FROM ` + goImage + ` AS build
 ARG GOPROXY
@@ -219,6 +219,7 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 	}
 	serving := make(chan struct{})
 	var once sync.Once
+	var last lastLines
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
@@ -237,6 +238,7 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 			ReadonlyRootfs:   true,
 		},
 	}, sim.FuncSink(func(line sim.LogLine) {
+		last.add(line.Text)
 		// The caller's sink holds the line before the start returns.
 		sink.WriteLog(line)
 		if strings.HasPrefix(line.Text, "sidecar: shares ") {
@@ -251,7 +253,7 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 		return handle, nil
 	case <-handle.Exited():
 		handle.Cancel()
-		return nil, fmt.Errorf("sidecar: the share container %s ended before it served", spec.Name)
+		return nil, fmt.Errorf("sidecar: the share container %s ended before it served: %s", spec.Name, &last)
 	case <-ctx.Done():
 		handle.Cancel()
 		return nil, ctx.Err()

@@ -65,5 +65,14 @@ func azureNormalizeRequestPath(r *http.Request) {
 	if strings.Contains(lower, "/providers/microsoft.web/sites/") && strings.HasSuffix(lower, "/listkeys") {
 		path = path[:len(path)-len("/listkeys")] + "/listkeys"
 	}
+	// Container Registry webhooks register as the REST specification spells
+	// them; terraform-provider-azurerm sends `webHooks`.
+	if i := strings.Index(lower, "/providers/microsoft.containerregistry/registries/"); i >= 0 {
+		segs := strings.Split(path[i:], "/")
+		if len(segs) > 5 && strings.EqualFold(segs[5], "webhooks") {
+			segs[5] = "webhooks"
+			path = path[:i] + strings.Join(segs, "/")
+		}
+	}
 	r.URL.Path = path
 }

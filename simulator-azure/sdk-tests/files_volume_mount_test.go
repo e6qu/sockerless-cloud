@@ -57,7 +57,7 @@ func TestStorageSDK_FilesDataPlaneBytesReachAContainerAppsMount(t *testing.T) {
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, env)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	storagesClient, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 	_, err = storagesClient.CreateOrUpdate(ctx, rg, env, storageName, armappcontainers.ManagedEnvironmentStorage{

@@ -32,14 +32,14 @@ func TestSDK_Recommendations_SubscriptionAndSiteScopes(t *testing.T) {
 	rg, name := "sdk-recommendation-rg", "sdk-recommendation-app"
 	ensureRG(t, rg)
 
-	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = sites.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
 		Location: to.Ptr("eastus"),
 	}, nil)
 	require.NoError(t, err)
 
-	client, err := armappservice.NewRecommendationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewRecommendationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	// Nothing was observed in the subscription.
@@ -109,7 +109,7 @@ func TestSDK_Recommendations_HostingEnvironmentScope(t *testing.T) {
 	_, err = poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	client, err := armappservice.NewRecommendationsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armappservice.NewRecommendationsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	page, err := client.NewListRecommendedRulesForHostingEnvironmentPager(rg, name, nil).NextPage(ctx)

@@ -149,15 +149,19 @@ func registerVirtualMachineImages(srv *sim.Server) {
 			return
 		}
 		out := resource(sub, location, img.Version, "Publishers", img.Publisher, "ArtifactTypes", "VMImage", "Offers", img.Offer, "Skus", img.SKU, "Versions", img.Version)
-		out["properties"] = map[string]any{
+		props := map[string]any{
 			"osDiskImage":                  map[string]any{"operatingSystem": "Linux"},
 			"dataDiskImages":               []any{},
 			"hyperVGeneration":             "V2",
 			"architecture":                 azureImageArchitecture(img.Image),
 			"features":                     []any{},
-			"imageDeprecationStatus":       map[string]any{"imageState": "Active"},
 			"automaticOSUpgradeProperties": map[string]any{"automaticOSUpgradeSupported": false},
 		}
+		// Compute declares imageDeprecationStatus from api-version 2022-11-01.
+		if r.URL.Query().Get("api-version") >= "2022-11-01" {
+			props["imageDeprecationStatus"] = map[string]any{"imageState": "Active"}
+		}
+		out["properties"] = props
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 }
@@ -402,4 +406,24 @@ func azureResolveVMImage(ctx context.Context, vm VirtualMachine) (vminstance.Ima
 		return vminstance.Image{}, azureVMImageNotFoundFault(publisher, offer, sku, version)
 	}
 	return img.Image, nil
+}
+
+// The simulator runs no Azure Extended Zone, so an edge zone's image catalog
+// declares itself unserved.
+func registerEdgeZoneVirtualMachineImages(srv *sim.Server) {
+	const base = "/subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/edgeZones/{edgeZone}"
+	unserved := func(w http.ResponseWriter, r *http.Request) {
+		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
+			"The simulator runs no Azure Extended Zone, so edge zone %q has no image catalog.", sim.PathParam(r, "edgeZone"))
+	}
+	for _, path := range []string{
+		"/publishers",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions",
+		"/publishers/{publisherName}/artifacttypes/vmimage/offers/{offer}/skus/{skus}/versions/{version}",
+		"/vmimages",
+	} {
+		srv.HandleFunc("GET "+base+path, unserved)
+	}
 }

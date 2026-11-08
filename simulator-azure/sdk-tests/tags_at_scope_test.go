@@ -34,7 +34,7 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 	ensureRG(t, rg)
 
 	const vault = "tags-scope-vault"
-	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := vaults.BeginCreateOrUpdate(ctx, rg, vault, armkeyvault.VaultCreateOrUpdateParameters{
 		Location: to.Ptr("eastus"),
@@ -54,7 +54,7 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 	require.NotNil(t, created.ID)
 	vaultID := *created.ID
 
-	tags, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tags, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	atScope, err := tags.GetAtScope(ctx, vaultID, nil)
@@ -127,7 +127,7 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T) {
 	t.Parallel()
 	rg := "tags-scope-group-rg"
-	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	created, err := groups.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{
 		Location: to.Ptr("eastus"),
@@ -137,7 +137,7 @@ func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T
 	require.NotNil(t, created.ID)
 	scope := *created.ID
 
-	tags, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tags, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	atScope, err := tags.GetAtScope(ctx, scope, nil)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource(t *testing.T) 
 	rg := "tags-scope-404-rg"
 	ensureRG(t, rg)
 
-	tags, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	tags, err := armresources.NewTagsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	for name, scope := range map[string]string{
@@ -190,7 +190,7 @@ func TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource(t *testing.T) 
 // generic list.
 func listedResourceTags(t *testing.T, rg, resourceID string) map[string]string {
 	t.Helper()
-	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armresources.NewClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := client.NewListByResourceGroupPager(rg, nil)
 	for pager.More() {

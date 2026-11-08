@@ -3,6 +3,7 @@ package azure_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -191,4 +192,25 @@ func TestLogAnalytics_CLI_TablesRulesAndIngestion(t *testing.T) {
 	runCLI(t, env.command(append(table("delete", "-n", "Builds_CL"), "--yes")...))
 	failure = runCLIExpectFailure(t, env.command(table("show", "-n", "Builds_CL")...))
 	assert.True(t, strings.Contains(failure, "ResourceNotFound") || strings.Contains(failure, "not found"), "%s", failure)
+
+	// A deleted workspace waits 14 days for recovery with its customer ID;
+	// --force deletes it for good.
+	workspace := func(args ...string) *exec.Cmd {
+		return env.command(append([]string{"monitor", "log-analytics", "workspace"}, append(args, "-g", rg, "-o", "json")...)...)
+	}
+	runCLI(t, workspace("delete", "-n", "cli-logs-other", "--yes"))
+	var softDeleted []struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, runCLI(t, workspace("list-deleted-workspaces")), &softDeleted)
+	require.Len(t, softDeleted, 1)
+	assert.Equal(t, "cli-logs-other", softDeleted[0].Name)
+	var recovered struct {
+		CustomerID string `json:"customerId"`
+	}
+	parseJSON(t, runCLI(t, workspace("recover", "-n", "cli-logs-other")), &recovered)
+	assert.Equal(t, otherWS.CustomerID, recovered.CustomerID, "recovery keeps the customer ID")
+	runCLI(t, workspace("delete", "-n", "cli-logs-other", "--force", "--yes"))
+	parseJSON(t, runCLI(t, workspace("list-deleted-workspaces")), &softDeleted)
+	assert.Empty(t, softDeleted, "a forced delete leaves nothing to recover")
 }

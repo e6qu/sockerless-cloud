@@ -34,7 +34,7 @@ func TestMonitor_QueryReadsWithinTheTableRetention(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []any{"fresh"}, logs())
 
-	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := client.BeginUpdate(ctx, p.ws.rg, p.ws.name, p.table, armoperationalinsights.Table{
 		Properties: &armoperationalinsights.TableProperties{RetentionInDays: to.Ptr[int32](60)},

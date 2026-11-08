@@ -433,7 +433,8 @@ func TestContainerApps_ExecutionFailedStatus(t *testing.T) {
 
 func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	t.Parallel()
-	acaCreateJobWithCommand(t, "exec-rg-b3ff", "exec-log-job", []string{"echo", "real aca output"})
+	acaCreateJobWithCommand(t, "exec-rg-b3ff", "exec-log-job", []string{"sh", "-c",
+		`echo "real aca output"; echo "job=$CONTAINER_APP_JOB_NAME execution=$CONTAINER_APP_JOB_EXECUTION_NAME"`})
 	execName := acaStartExecution(t, "exec-rg-b3ff", "exec-log-job")
 	exec := acaWaitExecution(t, "exec-rg-b3ff", "exec-log-job", execName)
 	require.Equal(t, "Succeeded", exec["properties"].(map[string]any)["status"], "the execution ran before its output is looked for")
@@ -474,6 +475,8 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 		logs = append(logs, row[logIdx].(string))
 	}
 	assert.Contains(t, logs, "real aca output", "process stdout should appear in Log Analytics")
+	assert.Contains(t, logs, "job=exec-log-job execution="+execName,
+		"Container Apps sets the job and execution names in a job's environment")
 }
 
 // TestContainerApps_GetJob reads back a job it creates itself, so it does not
@@ -544,7 +547,7 @@ func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {
 	rg := "sdk-aca-create-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -583,7 +586,7 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 	rg := "sdk-aca-exec-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	jobsClient, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -648,7 +651,7 @@ func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
 	rg := "sdk-aca-list-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -693,7 +696,7 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 	rg := "sdk-aca-del-rg"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -730,7 +733,7 @@ func TestSDK_ContainerApps_GetNonExistentJob(t *testing.T) {
 	rg := "sdk-aca-err-rg-0372"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
@@ -744,7 +747,7 @@ func TestSDK_ContainerApps_StartNonExistentJob(t *testing.T) {
 	rg := "sdk-aca-err-rg-c594"
 	ensureRG(t, rg)
 
-	cred := &fakeCredential{}
+	cred := &clientCredential{}
 	client, err := armappcontainers.NewJobsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 

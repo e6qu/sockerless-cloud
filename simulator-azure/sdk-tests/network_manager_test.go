@@ -19,7 +19,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	rg := "netmanager-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewManagersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewManagersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 
 	created, err := client.CreateOrUpdate(ctx, rg, "corp-manager", armnetwork.Manager{
@@ -71,7 +71,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	assert.True(t, all["corp-manager"], "the subscription-wide list must contain the manager")
 
 	// A commit naming no configurations removes whatever those regions hold.
-	commitClient, err := armnetwork.NewManagerCommitsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	commitClient, err := armnetwork.NewManagerCommitsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	commitPoller, err := commitClient.BeginPost(ctx, rg, "corp-manager", armnetwork.ManagerCommit{
 		CommitType:      to.Ptr(armnetwork.ConfigurationTypeConnectivity),
@@ -83,7 +83,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 	require.NotNil(t, commit.CommitID)
 	assert.NotEmpty(t, *commit.CommitID)
 
-	statusClient, err := armnetwork.NewManagerDeploymentStatusClient(subscriptionID, &fakeCredential{}, clientOpts())
+	statusClient, err := armnetwork.NewManagerDeploymentStatusClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	status, err := statusClient.List(ctx, rg, "corp-manager", armnetwork.ManagerDeploymentStatusParameter{}, nil)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing
 	rg := "netmanager-reject-rg"
 	requireResourceGroup(t, rg)
 
-	client, err := armnetwork.NewManagersClient(subscriptionID, &fakeCredential{}, clientOpts())
+	client, err := armnetwork.NewManagersClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = client.CreateOrUpdate(ctx, rg, "no-scope", armnetwork.Manager{
 		Location: to.Ptr("eastus"),
@@ -148,7 +148,7 @@ func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing
 	}, nil)
 	require.NoError(t, err)
 
-	commitClient, err := armnetwork.NewManagerCommitsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	commitClient, err := armnetwork.NewManagerCommitsClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	missing := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkManagers/scoped/connectivityConfigurations/absent",
 		subscriptionID, rg)
@@ -163,7 +163,7 @@ func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing
 	require.Error(t, err, "a commit naming a configuration that does not exist must be rejected")
 	assert.Contains(t, err.Error(), "ResourceNotFound")
 
-	statusClient, err := armnetwork.NewManagerDeploymentStatusClient(subscriptionID, &fakeCredential{}, clientOpts())
+	statusClient, err := armnetwork.NewManagerDeploymentStatusClient(subscriptionID, &clientCredential{}, clientOpts())
 	require.NoError(t, err)
 	status, err := statusClient.List(ctx, rg, "scoped", armnetwork.ManagerDeploymentStatusParameter{}, nil)
 	require.NoError(t, err)
