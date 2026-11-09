@@ -25,11 +25,12 @@
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
 - **CloudWatch Logs follow-ups.** Implement `parseToOCSF` and the rest of
-  `DateTimeFormatter` with Java SE 17's locale data (BUG-3936), the account
-  policies that still take no effect (BUG-3960), and the batch and payload
-  limits (BUG-3961, BUG-3962); capture the anomaly detection, metric math,
-  widget, Contributor Insights, scheduled query and import details no source
-  states (BUG-3951, BUG-3952); serve AWS usage metrics, Service Quotas and
+  `DateTimeFormatter` with Java SE 17's locale data (BUG-3936); hold service
+  principals' writes to the CloudWatch Logs resource policies (BUG-3980);
+  classify vended-log events into data sources (BUG-3981); capture the
+  anomaly detection, metric math, widget, Contributor Insights, scheduled
+  query, import and data protection findings details no source states
+  (BUG-3951, BUG-3952, BUG-3982); serve AWS usage metrics, Service Quotas and
   Performance Insights so `SERVICE_QUOTA` and `DB_PERF_INSIGHTS` evaluate,
   and page `GetMetricData` (BUG-3990).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),

@@ -1103,6 +1103,13 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 			"failed to read invocation payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if strings.EqualFold(invocationType, "Event") {
+		if lambdaRefuseOversizedRequest(w, payload, lambdaAsyncMaxPayload, "Invoke") {
+			return
+		}
+	} else if lambdaRefuseOversizedRequest(w, payload, lambdaSyncMaxPayload, "InvokeFunction") {
+		return
+	}
 	durableARN := ""
 	if fn.DurableConfig != nil {
 		if !lambdaInvocationHasQualifier(name, queryQualifier) {
@@ -1149,7 +1156,8 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		} else {
 			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 			var serviceErr *lambdaServiceError
-			responseBody, unhandled, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+			responseBody, unhandled, serviceErr = invokeLambdaViaRuntimeAPI(
+				lambdaWithResponseLimit(sim.LifetimeContext(r.Context()), lambdaSyncMaxResponse), fn, payload)
 			if serviceErr != nil {
 				lambdaWriteServiceError(w, serviceErr)
 				return

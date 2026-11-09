@@ -21,6 +21,7 @@ TestIAM_AccountPasswordPolicy	changes an account-wide setting other tests read
 TestIAM_ChangePassword	changes an account-wide setting other tests read
 TestIAM_OrganizationsRoot	changes a service-wide setting other tests read
 TestKinesisSDK_AccountSettings	changes an account-wide setting other tests read
+TestLogs_AccountDataProtectionIsCumulative	changes an account-wide setting other tests read
 TestLogs_AccountPolicyRoundTrip	changes an account-wide setting other tests read
 TestLogs_AccountRetentionPolicy	changes an account-wide setting other tests read
 TestLogs_AccountSubscriptionPolicyForwards	changes an account-wide setting other tests read

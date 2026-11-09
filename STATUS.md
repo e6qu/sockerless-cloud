@@ -146,6 +146,11 @@ Shared mechanisms, one package each:
   Amazon CloudWatch evaluates every metric math function but `SERVICE_QUOTA`
   and `DB_PERF_INSIGHTS`, Metrics Insights queries, single-metric and metric
   math anomaly detectors, and the metric widget's views and annotations.
+  Ingestion paths hold their documented payload limits: Amazon CloudWatch
+  Logs `PutLogEvents` batches, Amazon Kinesis Data Streams records, Amazon
+  Data Firehose records and batches, and AWS Lambda invocation requests and
+  responses. CloudWatch Logs data protection, field index and metric
+  extraction policies take effect at ingestion.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

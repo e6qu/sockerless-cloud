@@ -12,7 +12,9 @@ import (
 
 func TestLogs_AccountPolicyRoundTrip(t *testing.T) {
 	cw := cwLogsClient()
-	doc := `{"Rules":[{"DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
+	doc := `{"Name":"account-dp","Version":"2021-06-01","Configuration":{"CustomDataIdentifier":[{"Name":"SdkRoundTripToken","Regex":"SdkRoundTrip-\\d{12}"}]},"Statement":[` +
+		`{"Sid":"audit","DataIdentifier":["SdkRoundTripToken"],"Operation":{"Audit":{"FindingsDestination":{}}}},` +
+		`{"Sid":"redact","DataIdentifier":["SdkRoundTripToken"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	policyName := "test-account-dp-policy"
 	defer cw.DeleteAccountPolicy(ctx, &cloudwatchlogs.DeleteAccountPolicyInput{
 		PolicyName: aws.String(policyName),
@@ -304,14 +306,16 @@ func TestLogs_IndexPolicyRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, put.IndexPolicy)
-	assert.Equal(t, group, aws.ToString(put.IndexPolicy.LogGroupIdentifier))
+	groupArn := "arn:aws:logs:us-east-1:123456789012:log-group:" + group
+	assert.Equal(t, groupArn, aws.ToString(put.IndexPolicy.LogGroupIdentifier))
+	assert.Equal(t, cwlogtypes.IndexSourceLogGroup, put.IndexPolicy.Source)
 
 	desc, err := cw.DescribeIndexPolicies(ctx, &cloudwatchlogs.DescribeIndexPoliciesInput{
 		LogGroupIdentifiers: []string{group},
 	})
 	require.NoError(t, err)
 	require.Len(t, desc.IndexPolicies, 1)
-	assert.Equal(t, group, aws.ToString(desc.IndexPolicies[0].LogGroupIdentifier))
+	assert.Equal(t, groupArn, aws.ToString(desc.IndexPolicies[0].LogGroupIdentifier))
 
 	fi, err := cw.DescribeFieldIndexes(ctx, &cloudwatchlogs.DescribeFieldIndexesInput{
 		LogGroupIdentifiers: []string{group},

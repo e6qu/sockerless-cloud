@@ -974,13 +974,20 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 	// StartQuery results encode logRecordPointer as group|stream|index.
 	record := map[string]any{}
 	parts := strings.SplitN(req.LogRecordPointer, "|", 3)
+	if len(parts) == 3 && req.Unmask && cwRefuseUnmask(w, r, parts[0]) {
+		return
+	}
 	if len(parts) == 3 {
 		group, stream, idxStr := parts[0], parts[1], parts[2]
 		if events, ok := cwStreamEvents(cwEventsKey(group, stream)); ok {
 			if idx, err := strconv.Atoi(idxStr); err == nil && idx >= 0 && idx < len(events) {
 				e := events[idx]
+				message := e.processedMessage()
+				if req.Unmask {
+					message = e.unmaskedProcessedMessage()
+				}
 				record["@timestamp"] = cwFormatRecordTime(e.Timestamp)
-				record["@message"] = e.processedMessage()
+				record["@message"] = message
 				record["@ingestionTime"] = cwFormatRecordTime(e.IngestionTime)
 				record["@logStream"] = stream
 				record["@log"] = cwLogGroupArn(group)
@@ -988,7 +995,7 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 					record["@transformationError"] = e.TransformationError
 				}
 				var obj map[string]any
-				if json.Unmarshal([]byte(e.processedMessage()), &obj) == nil {
+				if json.Unmarshal([]byte(message), &obj) == nil {
 					for k, v := range obj {
 						if s, ok := v.(string); ok {
 							record[k] = s

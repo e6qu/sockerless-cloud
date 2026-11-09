@@ -420,9 +420,12 @@ func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 			limit("An account can have only one account-level data protection policy: %s", others[0].PolicyName)
 			return
 		}
-		var doc map[string]any
-		if json.Unmarshal([]byte(req.PolicyDocument), &doc) != nil {
-			AWSError(w, "InvalidParameterException", "The policy document must be a JSON object", http.StatusBadRequest)
+		compiled, err := cwCompileDataProtection(req.PolicyDocument)
+		if err != nil {
+			AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !cwPrepareFindingsDestinations(w, r, compiled) {
 			return
 		}
 	case cwPolicySubscription:
@@ -473,9 +476,8 @@ func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case cwPolicyFieldIndex:
-		var doc map[string]any
-		if json.Unmarshal([]byte(req.PolicyDocument), &doc) != nil {
-			AWSError(w, "InvalidParameterException", "The policy document must be a JSON object", http.StatusBadRequest)
+		if _, err := cwParseIndexPolicyDocument(req.PolicyDocument); err != nil {
+			AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
 			return
 		}
 		mine := cwPolicyPrefixes(req.PolicyType, req.SelectionCriteria)
@@ -502,9 +504,16 @@ func handleCWPutAccountPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case cwPolicyMetricExtraction:
-		var doc map[string]any
-		if json.Unmarshal([]byte(req.PolicyDocument), &doc) != nil {
-			AWSError(w, "InvalidParameterException", "The policy document must be a JSON object", http.StatusBadRequest)
+		if _, err := cwParseMetricExtractionDocument(req.PolicyDocument); err != nil {
+			AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+			return
+		}
+		if conflict, overLimit := cwMetricExtractionConflict(req.SelectionCriteria, others); conflict != "" {
+			if overLimit {
+				limit("%s", conflict)
+			} else {
+				AWSError(w, "InvalidParameterException", conflict, http.StatusBadRequest)
+			}
 			return
 		}
 	case cwPolicyRetention:

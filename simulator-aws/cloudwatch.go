@@ -90,7 +90,9 @@ type CWLogStream struct {
 }
 
 // GetLogEvents and FilterLogEvents read Message, the event as ingested;
-// Insights and metric filters read the transformed version.
+// Insights and metric filters read the transformed version. A data
+// protection policy masks both at ingestion and keeps the originals in
+// Unmasked and UnmaskedTransformed for a reader that may unmask.
 type CWLogEvent struct {
 	ID                  string `json:"id,omitempty"`
 	Timestamp           int64  `json:"timestamp"`
@@ -98,11 +100,41 @@ type CWLogEvent struct {
 	IngestionTime       int64  `json:"ingestionTime"`
 	Transformed         string `json:"transformed,omitempty"`
 	TransformationError string `json:"transformationError,omitempty"`
+	Unmasked            string `json:"unmasked,omitempty"`
+	UnmaskedTransformed string `json:"unmaskedTransformed,omitempty"`
+	// IndexedFields holds the value of each field index the event matched
+	// when it was ingested.
+	IndexedFields map[string]string `json:"indexedFields,omitempty"`
 }
 
 func (e CWLogEvent) processedMessage() string {
 	if e.Transformed != "" {
 		return e.Transformed
+	}
+	return e.Message
+}
+
+func (e CWLogEvent) unmaskedMessage() string {
+	if e.Unmasked != "" {
+		return e.Unmasked
+	}
+	return e.Message
+}
+
+func (e CWLogEvent) unmaskedProcessedMessage() string {
+	switch {
+	case e.UnmaskedTransformed != "":
+		return e.UnmaskedTransformed
+	case e.Transformed != "":
+		return e.Transformed
+	}
+	return e.unmaskedMessage()
+}
+
+// message is the event as a reader that asked to unmask, or did not, reads it.
+func (e CWLogEvent) message(unmask bool) string {
+	if unmask {
+		return e.unmaskedMessage()
 	}
 	return e.Message
 }
@@ -198,6 +230,14 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	if group.standard() {
 		cwTransformIngested(groupName, stream, events)
 	}
+	var findings []cwPendingFindings
+	withFindings := 0
+	if group.class() != cwClassDelivery {
+		findings, withFindings = cwProtectIngested(groupName, events)
+	}
+	if group.standard() {
+		cwIndexIngested(groupName, stream, events)
+	}
 	items := make([]logstore.Item[CWLogEvent], 0, len(events))
 	for _, e := range events {
 		items = append(items, logstore.Item[CWLogEvent]{Time: e.Timestamp, Value: e})
@@ -206,13 +246,10 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	if group.standard() {
 		cwLiveTailPublish(groupName, stream, events)
 		cwDeliverSubscriptions(groupName, stream, events)
-		for _, e := range events {
-			for _, datum := range extractEMFMetrics(e.Message, e.Timestamp) {
-				cwStoreDatum(datum)
-			}
-		}
+		cwExtractEMF(groupName, events)
 		cwEvaluateMetricFilters(groupName, events)
 	}
+	cwPublishFindings(groupName, findings, withFindings)
 	first, last, ingested := events[0].Timestamp, events[0].Timestamp, events[0].IngestionTime
 	for _, e := range events[1:] {
 		first, last, ingested = min(first, e.Timestamp), max(last, e.Timestamp), max(ingested, e.IngestionTime)
@@ -336,6 +373,10 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	registerCloudWatchLogsOps(r, srv)
 	registerCloudWatchLogsSubscriptions(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)
+	registerCloudWatchLogsFieldIndexes(srv)
+	if err := cwMigrateIndexPolicyKeys(srv.DB()); err != nil {
+		log.Fatalf("cloudwatch logs: %v", err)
+	}
 	registerCloudWatchLogsExtra3(r, srv)
 	registerCloudWatchLogsExtra4(r, srv)
 	registerCloudWatchLogsExtra5(r, srv)
@@ -576,6 +617,8 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	cwTransformers.Delete(req.LogGroupName)
 	cwDataProtection.Delete(req.LogGroupName)
+	cwIndexPolicies.Delete(req.LogGroupName)
+	cwDeleteFieldIndexes(req.LogGroupName)
 	for _, f := range cwGroupMetricFilters(req.LogGroupName) {
 		cwMetricFilters.Delete(cwFilterKey(req.LogGroupName, f.FilterName))
 	}
@@ -705,6 +748,15 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inputs := make([]CWLogEvent, 0, len(req.LogEvents))
+	for _, e := range req.LogEvents {
+		inputs = append(inputs, CWLogEvent{Timestamp: e.Timestamp, Message: e.Message})
+	}
+	if refusal := cwCheckPutLogEventsBatch(inputs); refusal != "" {
+		AWSError(w, "InvalidParameterException", refusal, http.StatusBadRequest)
+		return
+	}
+
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
 	if _, ok := cwLogStreams.Get(key); !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
@@ -712,24 +764,32 @@ func handleCWPutLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UnixMilli()
-	var newEvents []CWLogEvent
-	for _, e := range req.LogEvents {
-		newEvents = append(newEvents, CWLogEvent{
-			Timestamp:     e.Timestamp,
-			Message:       e.Message,
-			IngestionTime: now,
-		})
+	group, _ := cwLogGroups.Get(req.LogGroupName)
+	now := time.Now()
+	retention, _ := cwEffectiveRetention(group, cwRetentionVersionsAt(now))
+	window := cwClassifyPutLogEvents(inputs, now, retention)
+	if refusal := window.spanRefusal(inputs); refusal != "" {
+		AWSError(w, "InvalidParameterException", refusal, http.StatusBadRequest)
+		return
+	}
+	var accepted []CWLogEvent
+	for i, e := range inputs {
+		if window.accepts(i) {
+			e.IngestionTime = now.UnixMilli()
+			accepted = append(accepted, e)
+		}
 	}
 
 	nextSequenceToken := cwNextSequenceToken()
-	cwAppendLogEvents(key, newEvents, func(s *CWLogStream) {
+	cwAppendLogEvents(key, accepted, func(s *CWLogStream) {
 		s.UploadSequenceToken = nextSequenceToken
 	})
 
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"nextSequenceToken": nextSequenceToken,
-	})
+	out := map[string]any{"nextSequenceToken": nextSequenceToken}
+	if rejected := window.rejectedInfo(); rejected != nil {
+		out["rejectedLogEventsInfo"] = rejected
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
 }
 
 // GetLogEvents' default bounds: 10,000 events and 1 MB, each event costing
@@ -777,6 +837,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		Limit         int    `json:"limit"`
 		StartFromHead *bool  `json:"startFromHead"`
 		NextToken     string `json:"nextToken"`
+		Unmask        bool   `json:"unmask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -794,6 +855,9 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cwRefuseEventReads(w, group) {
+		return
+	}
+	if req.Unmask && cwRefuseUnmask(w, r, req.LogGroupName) {
 		return
 	}
 
@@ -864,7 +928,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	output := make([]outputLogEvent, 0, len(filtered))
 	for _, e := range filtered {
-		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.Message, IngestionTime: e.IngestionTime})
+		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.message(req.Unmask), IngestionTime: e.IngestionTime})
 	}
 
 	newForwardOffset := offset + len(filtered)
@@ -885,6 +949,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		StartTime           int64    `json:"startTime"`
 		EndTime             int64    `json:"endTime"`
 		Limit               int      `json:"limit"`
+		Unmask              bool     `json:"unmask"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -908,6 +973,9 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cwRefuseEventReads(w, group) {
+		return
+	}
+	if req.Unmask && cwRefuseUnmask(w, r, req.LogGroupName) {
 		return
 	}
 
@@ -951,13 +1019,14 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 			if req.EndTime > 0 && e.Timestamp > req.EndTime {
 				continue
 			}
-			if !pattern.match(e.Message) {
+			message := e.message(req.Unmask)
+			if !pattern.match(message) {
 				continue
 			}
 			results = append(results, map[string]any{
 				"logStreamName": stream.LogStreamName,
 				"timestamp":     e.Timestamp,
-				"message":       e.Message,
+				"message":       message,
 				"ingestionTime": e.IngestionTime,
 				"eventId":       e.ID,
 			})

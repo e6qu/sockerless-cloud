@@ -24,6 +24,7 @@ type CWQuery struct {
 	Results    [][]map[string]any `json:"results"`
 	MatchedN   int                `json:"-"`
 	ScannedN   int                `json:"-"`
+	SkippedN   int                `json:"-"`
 	CreateTime int64              `json:"-"`
 	LogGroups  []string           `json:"-"`
 }
@@ -64,8 +65,12 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if cwInsightsUnmasks(req.QueryString) && cwRefuseUnmask(w, r, groups...) {
+		return
+	}
 	// Insights times are epoch seconds.
 	records, scanned := cwGatherRecords(groups, req.StartTime, req.EndTime)
+	skipped := cwIndexSkipped(req.QueryString, records)
 	results, err := cwRunInsightsQuery(req.QueryString, records, req.Limit)
 	if err != nil {
 		// A malformed query is a MalformedQueryException.
@@ -80,7 +85,8 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 		Status:     "Complete",
 		Results:    results,
 		MatchedN:   len(results),
-		ScannedN:   scanned,
+		ScannedN:   scanned - skipped,
+		SkippedN:   skipped,
 		CreateTime: time.Now().Unix(),
 		LogGroups:  groups,
 	})
@@ -105,9 +111,10 @@ func handleCWGetQueryResults(w http.ResponseWriter, r *http.Request) {
 		"status":  q.Status,
 		"results": q.Results,
 		"statistics": map[string]any{
-			"recordsMatched": float64(q.MatchedN),
-			"recordsScanned": float64(q.ScannedN),
-			"bytesScanned":   float64(q.ScannedN * 256),
+			"recordsMatched":          float64(q.MatchedN),
+			"recordsScanned":          float64(q.ScannedN),
+			"bytesScanned":            float64(q.ScannedN * 256),
+			"estimatedRecordsSkipped": float64(q.SkippedN),
 		},
 	})
 }
@@ -171,6 +178,7 @@ type cwInsightsRecord map[string]string
 func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecord, int) {
 	var records []cwInsightsRecord
 	scanned := 0
+	now := time.Now()
 	for _, stream := range cwLogStreams.List() {
 		if len(groups) > 0 && !cwStrIn(stream.LogGroupName, groups) {
 			continue
@@ -195,6 +203,10 @@ func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecor
 			if e.TransformationError != "" {
 				rec["@transformationError"] = e.TransformationError
 			}
+			if indexed := cwIndexedFieldsJSON(e, now); indexed != "" {
+				rec["@__indexed"] = indexed
+			}
+			rec[cwInsightsUnmaskField] = e.unmaskedProcessedMessage()
 			cwFlattenJSONInto(rec, e.processedMessage())
 			records = append(records, rec)
 		}
@@ -253,6 +265,11 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 				return nil, err
 			}
 			records = cwFilterRecords(records, node)
+		case "filterindex":
+			var err error
+			if records, err = cwRunFilterIndex(rest, records); err != nil {
+				return nil, err
+			}
 		case "stats":
 			records = cwRunStats(rest, records)
 			statsApplied = true
@@ -287,6 +304,14 @@ func cwRunInsightsQuery(query string, records []cwInsightsRecord, reqLimit int) 
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// The data protection guide's unmask(@message) shows a protected event as
+// ingested to a caller with logs:Unmask.
+const cwInsightsUnmaskField = "unmask(@message)"
+
+func cwInsightsUnmasks(query string) bool {
+	return strings.Contains(strings.ReplaceAll(query, " ", ""), cwInsightsUnmaskField)
 }
 
 func cwRecTS(rec cwInsightsRecord) int64 {

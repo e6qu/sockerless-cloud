@@ -114,11 +114,12 @@ func (d CWLogAnomalyDetector) wire() map[string]any {
 	return out
 }
 
-// Keyed by logGroupIdentifier.
+// Keyed by log group name.
 type CWIndexPolicy struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 	LastUpdateTime     int64  `json:"lastUpdateTime"`
 	PolicyDocument     string `json:"policyDocument"`
+	PolicyName         string `json:"policyName,omitempty"`
 	Source             string `json:"source,omitempty"`
 }
 
@@ -852,88 +853,6 @@ func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 	}
 	cwDeleteLogAnomalyModel(req.AnomalyDetectorArn)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWPutIndexPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifier string `json:"logGroupIdentifier"`
-		PolicyDocument     string `json:"policyDocument"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.LogGroupIdentifier == "" || req.PolicyDocument == "" {
-		AWSError(w, "InvalidParameterException", "logGroupIdentifier and policyDocument are required", http.StatusBadRequest)
-		return
-	}
-	if name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier); ok {
-		if group, _ := cwLogGroups.Get(name); !group.standard() {
-			AWSError(w, "InvalidParameterException", "Only log groups in the Standard log class support field index policies.", http.StatusBadRequest)
-			return
-		}
-	}
-	p := CWIndexPolicy{
-		LogGroupIdentifier: req.LogGroupIdentifier,
-		LastUpdateTime:     time.Now().UnixMilli(),
-		PolicyDocument:     req.PolicyDocument,
-		Source:             "LOG_GROUP",
-	}
-	cwIndexPolicies.Put(req.LogGroupIdentifier, p)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"indexPolicy": p})
-}
-
-func handleCWDeleteIndexPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifier string `json:"logGroupIdentifier"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if !cwIndexPolicies.Delete(req.LogGroupIdentifier) {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified index policy does not exist: %s", req.LogGroupIdentifier)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWDescribeIndexPolicies(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	wanted := map[string]bool{}
-	for _, id := range req.LogGroupIdentifiers {
-		wanted[id] = true
-	}
-	policies := cwIndexPolicies.Filter(func(p CWIndexPolicy) bool {
-		if len(wanted) == 0 {
-			return true
-		}
-		return wanted[p.LogGroupIdentifier]
-	})
-	if policies == nil {
-		policies = []CWIndexPolicy{}
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"indexPolicies": policies})
-}
-
-func handleCWDescribeFieldIndexes(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	// Field indexes appear once a policy is in effect and the group has ingested
-	// matching events; until then the list is empty.
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"fieldIndexes": []any{}})
 }
 
 // The templates AWS publishes for Amazon Bedrock model-invocation logging and

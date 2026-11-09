@@ -517,6 +517,9 @@ func handleLambdaInvokeAsync(w http.ResponseWriter, r *http.Request) {
 			"failed to read invoke args: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if lambdaRefuseOversizedRequest(w, payload, lambdaInvokeAsyncMaxBytes, "InvokeAsync") {
+		return
+	}
 	// InvokeAsync runs the invocation in the background, the path Invoke takes with InvocationType=Event.
 	lambdaInvokeAsynchronously(fn, payload, lambdaAsyncQualifier(name, r.URL.Query().Get("Qualifier")))
 	// The deprecated InvokeAsync response binds Status to the HTTP code (202)
@@ -573,6 +576,9 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		AWSError(w, "InvalidRequestContentException",
 			"failed to read payload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if lambdaRefuseOversizedRequest(w, payload, lambdaSyncMaxPayload, "InvokeWithResponseStream") {
 		return
 	}
 	// Run the function, then send its response in AWS event-stream framing: one

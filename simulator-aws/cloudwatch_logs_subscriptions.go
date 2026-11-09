@@ -81,14 +81,7 @@ const (
 	cwPolicyLevelAccount          = "ACCOUNT_LEVEL_POLICY"
 	cwPolicyLevelAccountDimension = "AccountPolicy"
 
-	// Destination record limits: an Amazon Kinesis Data Streams record (data
-	// and partition key) up to the stream's maximum record size, 1 MiB unless
-	// raised; an Amazon Data Firehose record up to 1,000 KiB; an asynchronous
-	// AWS Lambda invocation payload up to 1 MB.
-	cwKinesisDefaultMaxRecordKiB = 1024
-	cwFirehoseMaxRecordBytes     = 1000 * 1024
-	cwLambdaMaxAsyncPayload      = 1024 * 1024
-	cwLambdaEnvelopeBytes        = len(`{"awslogs":{"data":""}}`)
+	cwLambdaEnvelopeBytes = len(`{"awslogs":{"data":""}}`)
 )
 
 type cwSubscriptionMessage struct {
@@ -431,15 +424,12 @@ func cwGzipSubscriptionMessage(message cwSubscriptionMessage) []byte {
 func cwSubscriptionRecordLimit(target cwSubscriptionTarget, partitionKey string) int {
 	switch target.Kind {
 	case cwTargetKinesis:
-		kib := int64(cwKinesisDefaultMaxRecordKiB)
-		if stream, ok := kinesisStreamByARN(target.Arn); ok && stream.MaxRecordSizeInKiB > 0 {
-			kib = stream.MaxRecordSizeInKiB
-		}
-		return int(kib)*1024 - len(partitionKey)
+		stream, _ := kinesisStreamByARN(target.Arn)
+		return stream.maxRecordBytes() - len(partitionKey)
 	case cwTargetFirehose:
-		return cwFirehoseMaxRecordBytes
+		return firehoseMaxRecordBytes
 	}
-	return (cwLambdaMaxAsyncPayload - cwLambdaEnvelopeBytes) / 4 * 3
+	return (lambdaAsyncMaxPayload - cwLambdaEnvelopeBytes) / 4 * 3
 }
 
 // cwSplitSubscriptionMessage gzips message, halving its events until each

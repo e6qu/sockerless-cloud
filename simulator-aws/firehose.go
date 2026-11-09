@@ -482,9 +482,24 @@ func handleFirehoseListTags(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags, "HasMoreTags": end < len(keys)})
 }
 
+// The PutRecord and PutRecordBatch API references cap a record at 1,000 KiB
+// and a PutRecordBatch request at 500 records and 4 MiB.
+const (
+	firehoseMaxRecordBytes      = 1000 * 1024
+	firehoseBatchMaxRecords     = 500
+	firehoseBatchMaxRecordBytes = 4 * 1024 * 1024
+)
+
+func firehoseCheckRecordSize(data []byte) error {
+	if len(data) == 0 || len(data) > firehoseMaxRecordBytes {
+		return fmt.Errorf("record data must contain between 1 and %d bytes, not %d", firehoseMaxRecordBytes, len(data))
+	}
+	return nil
+}
+
 func firehoseAddRecord(name string, data []byte) (string, bool, error) {
-	if len(data) == 0 || len(data) > 1000*1024 {
-		return "", false, fmt.Errorf("record data must contain between 1 and 1,024,000 bytes")
+	if err := firehoseCheckRecordSize(data); err != nil {
+		return "", false, err
 	}
 	firehoseRecordsMu.Lock()
 	defer firehoseRecordsMu.Unlock()
@@ -557,6 +572,25 @@ func handleFirehosePutRecordBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		firehoseError(w, "InvalidArgumentException", "The request body could not be parsed.")
+		return
+	}
+	if _, ok := firehoseGet(w, req.DeliveryStreamName); !ok {
+		return
+	}
+	if len(req.Records) < 1 || len(req.Records) > firehoseBatchMaxRecords {
+		firehoseError(w, "InvalidArgumentException", fmt.Sprintf("Records must contain between 1 and %d records, not %d", firehoseBatchMaxRecords, len(req.Records)))
+		return
+	}
+	total := 0
+	for i, record := range req.Records {
+		if err := firehoseCheckRecordSize(record.Data); err != nil {
+			firehoseError(w, "InvalidArgumentException", fmt.Sprintf("Records[%d]: %v", i, err))
+			return
+		}
+		total += len(record.Data)
+	}
+	if total > firehoseBatchMaxRecordBytes {
+		firehoseError(w, "InvalidArgumentException", fmt.Sprintf("The PutRecordBatch request carries %d bytes of record data, which exceeds the limit of %d bytes", total, firehoseBatchMaxRecordBytes))
 		return
 	}
 	responses := make([]map[string]any, 0, len(req.Records))

@@ -36,6 +36,8 @@ type lambdaInvocation struct {
 	// from when the runtime receives the invocation.
 	TimeoutSec int
 	TraceID    string
+	// ResponseLimit caps the response the runtime may post; zero is no cap.
+	ResponseLimit int
 
 	// done closes once the runtime posted a response or an error.
 	done     chan struct{}
@@ -60,6 +62,41 @@ func newLambdaInvocation(fn LambdaFunction, payload []byte) *lambdaInvocation {
 		done:        make(chan struct{}),
 		ended:       make(chan struct{}),
 	}
+}
+
+// The Invoke API reference and the quotas page cap a synchronous invocation's
+// request and response at 6 MB and an asynchronous request at 1 MB;
+// InvokeAsync keeps its 256 KB. Lambda's Function.ResponseSizeTooLarge error
+// names 6,291,556 bytes as the response's cap.
+const (
+	lambdaSyncMaxPayload      = 6 * 1024 * 1024
+	lambdaSyncMaxResponse     = 6*1024*1024 + 100
+	lambdaAsyncMaxPayload     = 1024 * 1024
+	lambdaInvokeAsyncMaxBytes = 256 * 1024
+)
+
+type lambdaResponseLimitKey struct{}
+
+// lambdaWithResponseLimit marks ctx as a synchronous invocation whose
+// response the runtime may post up to limit bytes.
+func lambdaWithResponseLimit(ctx context.Context, limit int) context.Context {
+	return context.WithValue(ctx, lambdaResponseLimitKey{}, limit)
+}
+
+func lambdaResponseLimit(ctx context.Context) int {
+	limit, _ := ctx.Value(lambdaResponseLimitKey{}).(int)
+	return limit
+}
+
+// lambdaRefuseOversizedRequest answers RequestTooLargeException for a payload
+// over limit bytes.
+func lambdaRefuseOversizedRequest(w http.ResponseWriter, payload []byte, limit int, operation string) bool {
+	if len(payload) <= limit {
+		return false
+	}
+	AWSErrorf(w, "RequestTooLargeException", http.StatusRequestEntityTooLarge,
+		"Request must be smaller than %d bytes for the %s operation", limit, operation)
+	return true
 }
 
 func (inv *lambdaInvocation) reply(response, errorObj []byte) {
@@ -224,6 +261,14 @@ func (s *runtimeAPISidecar) handleResponse(w http.ResponseWriter, r *http.Reques
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		lambdaRuntimeAPIError(w, http.StatusBadRequest, "TruncatedHTTPRequest", "HTTP request detected as truncated")
+		return
+	}
+	if inv.ResponseLimit > 0 && len(body) > inv.ResponseLimit {
+		message := fmt.Sprintf("Response payload size exceeded maximum allowed payload size (%d bytes).", inv.ResponseLimit)
+		errorObj, _ := json.Marshal(map[string]string{"errorMessage": message, "errorType": "Function.ResponseSizeTooLarge"})
+		inv.reply(nil, errorObj)
+		lambdaRuntimeAPIError(w, http.StatusRequestEntityTooLarge, "RequestEntityTooLarge",
+			fmt.Sprintf("Exceeded maximum allowed payload size (%d bytes).", inv.ResponseLimit))
 		return
 	}
 	inv.reply(body, nil)

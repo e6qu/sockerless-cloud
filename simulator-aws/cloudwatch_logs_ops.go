@@ -533,6 +533,14 @@ func handleCWPutDataProtectionPolicy(w http.ResponseWriter, r *http.Request) {
 			"The specified log group does not exist: %s", req.LogGroupIdentifier)
 		return
 	}
+	compiled, err := cwCompileDataProtection(req.PolicyDocument)
+	if err != nil {
+		AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !cwPrepareFindingsDestinations(w, r, compiled) {
+		return
+	}
 	now := time.Now().UnixMilli()
 	cwLogGroups.Update(name, func(g *CWLogGroup) { g.DataProtectionStatus = "ACTIVATED" })
 	cwDataProtection.Put(name, CWDataProtectionPolicy{

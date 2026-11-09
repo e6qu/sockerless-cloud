@@ -2048,6 +2048,46 @@ fails once the row closes or the operation is served.
   is ENABLED and that the role trusts `cloudtrail.amazonaws.com`, then imports
   the store's events in background batches, where the task had settled
   COMPLETED having read nothing.
+- **Amazon CloudWatch Logs data protection, field indexes, metric
+  extraction and ingestion limits.** A data protection policy, account-level
+  or a log group's own, is validated as the data protection guide defines it
+  (two statements, Audit with a `FindingsDestination` and Deidentify with an
+  empty `MaskConfig`, matching `DataIdentifier` arrays, at most ten custom
+  identifiers of the guide's character sets, 30,720 characters) and takes
+  effect at ingestion in every class but Delivery: the two policies are
+  cumulative, each match becomes asterisks, and the event keeps its
+  original beside the masked text, so every egress (reads, Insights, metric
+  filters, subscriptions, Live Tail) sees masked data and `unmask` on
+  `GetLogEvents`, `FilterLogEvents`, `GetLogRecord`, `GetLogObject` and
+  Insights' `unmask(@message)` shows the original to a caller holding
+  `logs:Unmask` on the group. The 98 managed identifiers the guide's type
+  pages list match their published formats, checksums (Luhn, IBAN, DEA, NPI,
+  NHS, CPF, CNPJ, DNI) and keywords within 30 characters, with the spacing
+  variants the guide allows; findings reports go to a CloudWatch Logs group,
+  an S3 bucket and a Firehose stream as `delivery.logs.amazonaws.com`, after
+  the put grants it as the caller (the `AWSLogDeliveryWrite20150319`
+  resource policy, the bucket policy's two statements, the
+  `LogDeliveryEnabled` tag), and `LogEventsWithFindings` counts the events.
+  Field index policies are validated (twenty fields, `Fields` and `FieldsV2`
+  disjoint, `@@` for custom `@` fields), keyed by group name and reported
+  with the group's ARN; a group's own policy overrides the account-level
+  policies that select groups, events are indexed at ingestion for 30 days
+  with the default fields, `DescribeFieldIndexes` reports DEFAULT, CUSTOM and
+  INACTIVE indexes, and Insights' `filterIndex` reads only indexed events
+  and reports the skipped ones in `estimatedRecordsSkipped`. A metric
+  extraction policy's document and selection limits (one unscoped or five
+  scoped, one `NOT IN`, no overlap) are enforced, and a selected group's EMF
+  events create no metrics and count in `EMFDisabledErrors`. `PutLogEvents`
+  refuses a batch over 10,000 events or 1,048,576 bytes, an event over
+  1,048,576 bytes (both counting 26 bytes per event), an unordered batch and
+  one spanning over 24 hours, and rejects too-old, expired and too-new events
+  in `rejectedLogEventsInfo`. Amazon Kinesis Data Streams holds a record to
+  the stream's maximum record size and `PutRecords` to 500 records and
+  10 MiB; Amazon Data Firehose's `PutRecordBatch` refuses a batch over 500
+  records, 1,000 KiB a record or 4 MiB as a whole; AWS Lambda refuses a
+  synchronous request over 6 MB, an asynchronous one over 1 MB and an
+  `InvokeAsync` one over 256 KB with `RequestTooLargeException`, and turns a
+  synchronous response over 6 MB into `Function.ResponseSizeTooLarge`.
 - **Test fidelity: Amazon SNS, AWS Systems Manager, Amazon RDS.** Amazon SNS
   confirms an HTTP or email subscription with an opaque random token that only
   the confirmation message carries, where it had been the subscription ARN

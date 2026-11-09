@@ -9,7 +9,9 @@ import (
 
 func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 	policyName := "cli-account-dp-policy"
-	doc := `{"Rules":[{"DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
+	doc := `{"Name":"account-dp","Version":"2021-06-01","Configuration":{"CustomDataIdentifier":[{"Name":"CliRoundTripToken","Regex":"CliRoundTrip-\\d{12}"}]},"Statement":[` +
+		`{"Sid":"audit","DataIdentifier":["CliRoundTripToken"],"Operation":{"Audit":{"FindingsDestination":{}}}},` +
+		`{"Sid":"redact","DataIdentifier":["CliRoundTripToken"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	defer runCLIIgnore(awsCLI("logs", "delete-account-policy",
 		"--policy-name", policyName, "--policy-type", "DATA_PROTECTION_POLICY"))
 
@@ -293,7 +295,7 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	}
 	parseJSON(t, descIdx, &ip)
 	require.Len(t, ip.IndexPolicies, 1)
-	assert.Equal(t, group, ip.IndexPolicies[0].LogGroupIdentifier)
+	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:log-group:"+group, ip.IndexPolicies[0].LogGroupIdentifier)
 
 	runCLI(t, awsCLI("logs", "describe-field-indexes", "--log-group-identifiers", group))
 	runCLI(t, awsCLI("logs", "delete-index-policy", "--log-group-identifier", group))

@@ -214,7 +214,9 @@ func TestLogs_DataProtectionPolicy(t *testing.T) {
 	require.NoError(t, err)
 	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(group)})
 
-	doc := `{"Name":"policy","Version":"2021-06-01","Statement":[{"Sid":"audit","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Audit":{"FindingsDestination":{}}}}]}`
+	doc := `{"Name":"policy","Version":"2021-06-01","Statement":[` +
+		`{"Sid":"audit","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Audit":{"FindingsDestination":{}}}},` +
+		`{"Sid":"redact","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Deidentify":{"MaskConfig":{}}}}]}`
 	put, err := cw.PutDataProtectionPolicy(ctx, &cloudwatchlogs.PutDataProtectionPolicyInput{
 		LogGroupIdentifier: aws.String(group),
 		PolicyDocument:     aws.String(doc),

@@ -138,7 +138,7 @@ func TestLogs_DataProtectionPolicyCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))
 
-	doc := `{"Name":"policy","Version":"2021-06-01","Statement":[{"Sid":"audit","DataIdentifier":["arn:aws:dataprotection::aws:data-identifier/EmailAddress"],"Operation":{"Audit":{"FindingsDestination":{}}}}]}`
+	doc := cliDataProtectionDocument("EmailAddress")
 	put := runCLI(t, awsCLI("logs", "put-data-protection-policy",
 		"--log-group-identifier", group,
 		"--policy-document", doc,

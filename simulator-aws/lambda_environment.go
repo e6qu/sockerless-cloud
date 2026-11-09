@@ -422,6 +422,7 @@ type lambdaInvocationResult struct {
 // REPORT entries to the environment's log stream.
 func (e *lambdaEnvironment) invoke(ctx context.Context, fn LambdaFunction, payload []byte) lambdaInvocationResult {
 	inv := newLambdaInvocation(fn, payload)
+	inv.ResponseLimit = lambdaResponseLimit(ctx)
 	version := fn.Version
 	if version == "" {
 		version = "$LATEST"
