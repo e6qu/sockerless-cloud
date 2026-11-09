@@ -250,14 +250,17 @@ func networkAclMatchesFilters(acl EC2NetworkAcl, filters map[string][]string) bo
 			if acl.IsDefault != ec2StrInValues("true", vals) {
 				return false
 			}
-		case "association.subnet-id":
-			ok := false
-			for _, a := range acl.Associations {
-				if ec2StrInValues(a.SubnetId, vals) {
-					ok = true
-				}
+		case "owner-id":
+			if !ec2StrInValues(acl.OwnerId, vals) {
+				return false
 			}
-			if !ok {
+		case "association.association-id", "association.network-acl-id", "association.subnet-id":
+			if !networkAclAssociationMatches(acl.Associations, name, vals) {
+				return false
+			}
+		case "entry.cidr", "entry.ipv6-cidr", "entry.egress", "entry.protocol", "entry.rule-action",
+			"entry.rule-number", "entry.port-range.from", "entry.port-range.to", "entry.icmp.type", "entry.icmp.code":
+			if !networkAclEntryMatches(acl.Entries, name, vals) {
 				return false
 			}
 		default:
@@ -267,6 +270,75 @@ func networkAclMatchesFilters(acl EC2NetworkAcl, filters map[string][]string) bo
 		}
 	}
 	return true
+}
+
+func networkAclAssociationMatches(assocs []EC2NetworkAclAssociation, name string, vals []string) bool {
+	for _, a := range assocs {
+		var v string
+		switch name {
+		case "association.association-id":
+			v = a.NetworkAclAssociationId
+		case "association.network-acl-id":
+			v = a.NetworkAclId
+		default:
+			v = a.SubnetId
+		}
+		if ec2StrInValues(v, vals) {
+			return true
+		}
+	}
+	return false
+}
+
+// networkAclEntryProtocolNames maps the protocol names the entry.protocol
+// filter takes to the numbers an entry stores.
+var networkAclEntryProtocolNames = map[string]string{"tcp": "6", "udp": "17", "icmp": "1", "icmpv6": "58", "all": "-1"}
+
+func networkAclEntryMatches(entries []EC2NetworkAclEntry, name string, vals []string) bool {
+	for _, e := range entries {
+		var candidates []string
+		switch name {
+		case "entry.cidr":
+			candidates = []string{e.CidrBlock}
+		case "entry.ipv6-cidr":
+			candidates = []string{e.Ipv6CidrBlock}
+		case "entry.egress":
+			candidates = []string{strconv.FormatBool(e.Egress)}
+		case "entry.protocol":
+			candidates = []string{e.Protocol}
+			for named, number := range networkAclEntryProtocolNames {
+				if number == e.Protocol {
+					candidates = append(candidates, named)
+				}
+			}
+		case "entry.rule-action":
+			candidates = []string{e.RuleAction}
+		case "entry.rule-number":
+			candidates = []string{strconv.Itoa(e.RuleNumber)}
+		case "entry.port-range.from":
+			if e.HasPortRange {
+				candidates = []string{strconv.Itoa(e.PortRangeFrom)}
+			}
+		case "entry.port-range.to":
+			if e.HasPortRange {
+				candidates = []string{strconv.Itoa(e.PortRangeTo)}
+			}
+		case "entry.icmp.type":
+			if e.HasIcmp {
+				candidates = []string{strconv.Itoa(e.IcmpType)}
+			}
+		case "entry.icmp.code":
+			if e.HasIcmp {
+				candidates = []string{strconv.Itoa(e.IcmpCode)}
+			}
+		}
+		for _, c := range candidates {
+			if c != "" && ec2StrInValues(c, vals) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // A VPC comes with a default network ACL that allows all traffic in and out,

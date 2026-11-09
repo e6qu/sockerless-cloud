@@ -130,6 +130,38 @@ func TestCloudSQL_PostgresVersionRunsItsReleaseAndUpgradesInPlace(t *testing.T) 
 	assert.Equal(t, 400, apiErr.Code, "Cloud SQL upgrades and never downgrades")
 }
 
+// An instance nobody has connected to has started no engine, so its major
+// version upgrade carries no data and needs no admin credential, as
+// terraform-provider-google's database_version change on an instance with no
+// root_password expects.
+func TestCloudSQL_UpgradeOfAnInstanceWithoutRootPassword(t *testing.T) {
+	t.Parallel()
+	svc := sqlAdminService(t)
+	const (
+		project      = "test-project"
+		instanceName = "version-pg-nopw"
+	)
+	insertOp, err := svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+		Name: instanceName, Region: "us-central1", DatabaseVersion: "POSTGRES_15",
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, instanceName).Do() })
+	waitSQLOperationDone(t, svc, project, insertOp.Name)
+	dbOp, err := svc.Databases.Insert(project, instanceName, &sqladmin.Database{Name: "appdb"}).Do()
+	require.NoError(t, err)
+	waitSQLOperationDone(t, svc, project, dbOp.Name)
+
+	upgradeOp, err := svc.Instances.Patch(project, instanceName, &sqladmin.DatabaseInstance{DatabaseVersion: "POSTGRES_16"}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "MAJOR_VERSION_UPGRADE", upgradeOp.OperationType)
+	waitSQLOperationDone(t, svc, project, upgradeOp.Name)
+
+	inst, err := svc.Instances.Get(project, instanceName).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "POSTGRES_16", inst.DatabaseVersion)
+	assert.Equal(t, "POSTGRES_16_15", inst.DatabaseInstalledVersion)
+}
+
 // A MYSQL_8_4 instance runs MySQL 8.4 and a MYSQL_8_0_31 instance the 8.0.31
 // release its name carries, each reporting the version through the server
 // itself; MySQL refuses to skip a major version.

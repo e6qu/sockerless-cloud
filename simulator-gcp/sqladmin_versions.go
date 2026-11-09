@@ -205,8 +205,11 @@ func sqlUpgradeInstanceEngine(project, name string, from, to sqlEngineVersion) e
 	}
 	family, _ := sqlVersionFamily(from.DatabaseVersion)
 	volume := sqlInstanceVolume(project, name)
+	// An engine boots on its volume at the first connection, so an instance
+	// nobody has connected to holds no data to carry over.
+	started := sim.VolumeExists(volume)
 	var dump []byte
-	if family == dbengine.Postgres && sim.VolumeExists(volume) {
+	if family == dbengine.Postgres && started {
 		var err error
 		if dump, err = sqlEngineRun(context.Background(), plane, []string{"pg_dumpall", "--username=postgres"}, nil, nil); err != nil {
 			return fmt.Errorf("dump the %s cluster: %w", from.DatabaseVersion, err)
@@ -222,6 +225,14 @@ func sqlUpgradeInstanceEngine(project, name string, from, to sqlEngineVersion) e
 		sim.RemoveVolumeSettled(volume, "cloudsql")
 	}
 	upgraded := sqlBuildDataPlane(project, name, to)
+	if !started {
+		if err := sqlServeDataPlane(inst, upgraded); err != nil {
+			return err
+		}
+		_, err = sqlTakeUpgradeBackup(project, name, to.DatabaseVersion,
+			fmt.Sprintf("Post-upgrade backup, %s from %s.", to.DatabaseVersion, from.DatabaseVersion))
+		return err
+	}
 	if err := sqlBringUpUpgradedEngine(upgraded, from, to, dump); err != nil {
 		if stopErr := upgraded.Stop(); stopErr != nil {
 			err = errors.Join(err, stopErr)

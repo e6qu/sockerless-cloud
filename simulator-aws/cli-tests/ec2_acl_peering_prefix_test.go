@@ -164,3 +164,29 @@ func TestEC2CLI_EgressOnlyInternetGatewayLifecycle(t *testing.T) {
 		t.Fatalf("egress-only igw attachment vpc: got %q, want %q", strings.TrimSpace(out), vpcID)
 	}
 }
+
+// TestEC2CLI_NetworkAclAssociationFilter expects describe-network-acls to
+// find a network ACL by the ID of one of its subnet associations.
+func TestEC2CLI_NetworkAclAssociationFilter(t *testing.T) {
+	t.Parallel()
+	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
+		"--cidr-block", "10.228.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
+	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcID).Run() }()
+	subnetID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpcID,
+		"--cidr-block", "10.228.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
+	defer func() { _ = awsCLI("ec2", "delete-subnet", "--subnet-id", subnetID).Run() }()
+
+	assocID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-network-acls",
+		"--filters", "Name=association.subnet-id,Values="+subnetID,
+		"--query", "NetworkAcls[0].Associations[?SubnetId=='"+subnetID+"'].NetworkAclAssociationId | [0]", "--output", "text")))
+	defaultACL := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-network-acls",
+		"--filters", "Name=vpc-id,Values="+vpcID, "Name=default,Values=true",
+		"--query", "NetworkAcls[0].NetworkAclId", "--output", "text")))
+
+	out := strings.Fields(runCLI(t, awsCLI("ec2", "describe-network-acls",
+		"--filters", "Name=association.association-id,Values="+assocID,
+		"--query", "NetworkAcls[].NetworkAclId", "--output", "text")))
+	if len(out) != 1 || out[0] != defaultACL {
+		t.Fatalf("association %s filter: got %v, want only the default network ACL %s", assocID, out, defaultACL)
+	}
+}

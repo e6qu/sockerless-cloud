@@ -231,3 +231,68 @@ func TestEC2_EgressOnlyInternetGatewayLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(del.ReturnCode))
 }
+
+// TestEC2_NetworkAclFiltersSDK expects DescribeNetworkAcls to apply the
+// association and entry filters the API reference lists, as
+// terraform-provider-aws reads one association by its ID.
+func TestEC2_NetworkAclFiltersSDK(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.227.0.0/16")})
+	require.NoError(t, err)
+	vpcID := vpc.Vpc.VpcId
+	defer func() { _, _ = c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: vpcID}) }()
+	subnet, err := c.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: vpcID, CidrBlock: aws.String("10.227.1.0/24")})
+	require.NoError(t, err)
+	defer func() { _, _ = c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: subnet.Subnet.SubnetId}) }()
+
+	acl, err := c.CreateNetworkAcl(ctx, &ec2.CreateNetworkAclInput{VpcId: vpcID})
+	require.NoError(t, err)
+	aclID := acl.NetworkAcl.NetworkAclId
+	_, err = c.CreateNetworkAclEntry(ctx, &ec2.CreateNetworkAclEntryInput{
+		NetworkAclId: aclID, RuleNumber: aws.Int32(110), Protocol: aws.String("6"), RuleAction: types.RuleActionAllow,
+		Egress: aws.Bool(false), CidrBlock: aws.String("192.0.2.0/24"), PortRange: &types.PortRange{From: aws.Int32(443), To: aws.Int32(443)},
+	})
+	require.NoError(t, err)
+
+	byDefault, err := c.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{Filters: []types.Filter{
+		{Name: aws.String("association.subnet-id"), Values: []string{aws.ToString(subnet.Subnet.SubnetId)}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, byDefault.NetworkAcls, 1)
+	var assocID string
+	for _, a := range byDefault.NetworkAcls[0].Associations {
+		if aws.ToString(a.SubnetId) == aws.ToString(subnet.Subnet.SubnetId) {
+			assocID = aws.ToString(a.NetworkAclAssociationId)
+		}
+	}
+	require.NotEmpty(t, assocID)
+
+	replaced, err := c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{AssociationId: aws.String(assocID), NetworkAclId: aclID})
+	require.NoError(t, err)
+	newAssoc := aws.ToString(replaced.NewAssociationId)
+
+	byAssoc, err := c.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{Filters: []types.Filter{
+		{Name: aws.String("association.association-id"), Values: []string{newAssoc}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, byAssoc.NetworkAcls, 1)
+	assert.Equal(t, aws.ToString(aclID), aws.ToString(byAssoc.NetworkAcls[0].NetworkAclId))
+
+	byEntry, err := c.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{Filters: []types.Filter{
+		{Name: aws.String("vpc-id"), Values: []string{aws.ToString(vpcID)}},
+		{Name: aws.String("entry.protocol"), Values: []string{"tcp"}},
+		{Name: aws.String("entry.port-range.from"), Values: []string{"443"}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, byEntry.NetworkAcls, 1)
+	assert.Equal(t, aws.ToString(aclID), aws.ToString(byEntry.NetworkAcls[0].NetworkAclId))
+
+	_, err = c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{
+		AssociationId: aws.String(newAssoc), NetworkAclId: byDefault.NetworkAcls[0].NetworkAclId,
+	})
+	require.NoError(t, err)
+	_, err = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: aclID})
+	require.NoError(t, err)
+}

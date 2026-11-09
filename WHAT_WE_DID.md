@@ -990,6 +990,8 @@ the socket answers). Lessons:
   cluster of the target; a failure restores the pre-upgrade backup. CI warms
   only the engine images the suites name, resolved from the table by
   `scripts/cloudsql-version-images-for.sh`, as the AWS Lambda runtimes are.
+  An instance nobody has connected to has started no engine, so its upgrade
+  swaps the release without carrying data or needing an admin credential.
 - **Cloud SQL certificates are real X.509 material.** Each instance holds a
   per-instance CA rotation set, or a server certificate signed by the region's
   shared subordinate CA, and the data plane presents the active one;
@@ -2294,9 +2296,14 @@ fails once the row closes or the operation is served.
   association with `InvalidAssociationID.NotFound` where it had accepted a
   made-up one; `DeleteNetworkAcl` refused the default ACL and an ACL still
   associated with a subnet; deleting a subnet ended its association.
+  `DescribeNetworkAcls` applied the association, entry and `owner-id`
+  filters the API reference lists, which terraform-provider-aws needs to
+  read one association by `association.association-id`; it had ignored
+  them and answered every ACL once each VPC carried a default one.
 - **Amazon EC2 security group rules and VPN tunnels.** `ReferencedGroupInfo`
   named the referenced group's owner as `UserId`; Terraform keeps the bare
-  group ID because the owner is the caller's account.
+  group ID because the owner is the caller's account, which the
+  idempotency fixture's provider now requests from STS rather than skipping.
   `ModifyVpnTunnelCertificate` kept the tunnel's status where it had left the
   tunnel `DOWN`, and refused an outside address the connection does not have.
 - **Amazon EC2 Capacity Reservations.** `RunInstances` claimed a reservation
