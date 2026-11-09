@@ -158,6 +158,8 @@ lives.
 | `azure-azure_dns` | [`azure-azure_dns`](SIM_SURFACE_TABLES/azure-azure_dns.md) | [`azure-azure_dns`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-cache_redis` | [`azure-cache_redis`](SIM_SURFACE_TABLES/azure-cache_redis.md) | [`azure-cache_redis`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute` | [`azure-compute`](SIM_SURFACE_TABLES/azure-compute.md) | [`azure-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_disks` | [`azure-compute_disks`](SIM_SURFACE_TABLES/azure-compute_disks.md) | [`azure-compute_disks`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_vm_data_disks` | [`azure-compute_vm_data_disks`](SIM_SURFACE_TABLES/azure-compute_vm_data_disks.md) | [`azure-compute_vm_data_disks`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_operations` | [`azure-compute_operations`](SIM_SURFACE_TABLES/azure-compute_operations.md) | [`azure-compute_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_extensions` | [`azure-compute_vm_extensions`](SIM_SURFACE_TABLES/azure-compute_vm_extensions.md) | [`azure-compute_vm_extensions`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_images_catalog` | [`azure-compute_images_catalog`](SIM_SURFACE_TABLES/azure-compute_images_catalog.md) | [`azure-compute_images_catalog`](SIM_TEST_COVERAGE_MATRIX.md) |

@@ -117,6 +117,10 @@ func handleSQLCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 	green.CreateTime = nowTimestamp()
 	if body.RequestedConfig != nil && body.RequestedConfig.DatabaseVersion != "" {
 		green.DatabaseVersion = body.RequestedConfig.DatabaseVersion
+		green.DatabaseInstalledVersion = ""
+		if version, ok := sqlFindEngineVersion(green.DatabaseVersion); ok {
+			green.DatabaseInstalledVersion = version.InstalledVersion
+		}
 	}
 	sqlInstances.Put(sqlInstanceKey(project, green.Name), green)
 

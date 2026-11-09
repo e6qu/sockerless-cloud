@@ -356,20 +356,25 @@ func handleCFListConnectionFunctions(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, list)
 }
 
-// Distributions carry no connection-function association in the simulator,
-// so the list is empty.
 func handleCFListDistributionsByConnectionFunction(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("ConnectionFunctionIdentifier") == "" {
+	identifier := r.URL.Query().Get("ConnectionFunctionIdentifier")
+	if identifier == "" {
 		cfWriteError(w, http.StatusBadRequest, "InvalidArgument", "ConnectionFunctionIdentifier query parameter is required")
 		return
 	}
-	list := CFDistributionList{
-		Xmlns:    cfNamespace,
-		MaxItems: 100,
-		Quantity: 0,
-		Items:    []CFDistributionSummary{},
+	fn, ok := cfResolveConnectionFunction(identifier)
+	if !ok {
+		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The specified connection function does not exist.")
+		return
 	}
-	cfWriteXML(w, http.StatusOK, list)
+	matches := []cfStoredDistribution{}
+	for _, d := range cfDistributions.List() {
+		a := d.Distribution.DistributionConfig.ConnectionFunctionAssociation
+		if a != nil && a.Id == fn.Summary.Id {
+			matches = append(matches, d)
+		}
+	}
+	cfWriteDistributionList(w, matches)
 }
 
 type cfTestFunctionRequest struct {

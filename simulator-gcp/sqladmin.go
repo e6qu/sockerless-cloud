@@ -24,6 +24,7 @@ type SQLInstance struct {
 	Project                          string           `json:"project,omitempty"`
 	Region                           string           `json:"region,omitempty"`
 	DatabaseVersion                  string           `json:"databaseVersion,omitempty"`
+	DatabaseInstalledVersion         string           `json:"databaseInstalledVersion,omitempty"`
 	State                            string           `json:"state,omitempty"`
 	BackendType                      string           `json:"backendType,omitempty"`
 	InstanceType                     string           `json:"instanceType,omitempty"`
@@ -103,7 +104,9 @@ type SQLBackupRun struct {
 	StartTime    string `json:"startTime,omitempty"`
 	EndTime      string `json:"endTime,omitempty"`
 	Type         string `json:"type,omitempty"` // ON_DEMAND|AUTOMATED
-	SelfLink     string `json:"selfLink,omitempty"`
+	// DatabaseVersion is the instance's version when the run was taken.
+	DatabaseVersion string `json:"databaseVersion,omitempty"`
+	SelfLink        string `json:"selfLink,omitempty"`
 }
 
 // SQLSslCert mirrors the Cloud SQL SslCert resource — the per-instance
@@ -160,6 +163,7 @@ func registerCloudSQL(srv *sim.Server) {
 
 	sqlBlueGreenDeployments = sim.MakeStore[SQLBlueGreenDeployment](srv.DB(), "sql_blue_green_deployments")
 	sqlRecoverOperations()
+	sqlMigrateEngineVersions()
 
 	registerCloudSQLCertificates(srv)
 	registerCloudSQLData(srv)
@@ -286,7 +290,8 @@ func sqlBackupRunKey(project, instance string, id int64) string {
 func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	instance := sim.PathParam(r, "instance")
-	if _, ok := sqlInstances.Get(sqlInstanceKey(project, instance)); !ok {
+	inst, ok := sqlInstances.Get(sqlInstanceKey(project, instance))
+	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
 		return
 	}
@@ -299,10 +304,11 @@ func handleSQLInsertBackupRun(w http.ResponseWriter, r *http.Request) {
 		// The run answers ENQUEUED and settles once the instance's volume is
 		// captured: copy-on-write where the volume store clones blocks, a full copy
 		// elsewhere.
-		Status:       "ENQUEUED",
-		EnqueuedTime: now,
-		Type:         "ON_DEMAND",
-		SelfLink:     gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+instance+"/backupRuns/"+strconv.FormatInt(id, 10)),
+		Status:          "ENQUEUED",
+		EnqueuedTime:    now,
+		Type:            "ON_DEMAND",
+		DatabaseVersion: inst.DatabaseVersion,
+		SelfLink:        gcpSelfLink(r, sqlAPIPrefix(r)+"/projects/"+project+"/instances/"+instance+"/backupRuns/"+strconv.FormatInt(id, 10)),
 	}
 	sqlBackupRuns.Put(sqlBackupRunKey(project, instance, id), br)
 	op := newSQLOperationRunning(project, "BACKUP_VOLUME", instance)
@@ -780,7 +786,7 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		Name:                             req.Name,
 		Project:                          project,
 		Region:                           defaultStr(req.Region, "us-central1"),
-		DatabaseVersion:                  defaultStr(req.DatabaseVersion, "POSTGRES_15"),
+		DatabaseVersion:                  defaultStr(req.DatabaseVersion, sqlDefaultDatabaseVersion),
 		State:                            "RUNNABLE",
 		BackendType:                      "SECOND_GEN",
 		InstanceType:                     "CLOUD_SQL_INSTANCE",
@@ -791,6 +797,9 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 		Settings:                         req.Settings,
 		SelfLink:                         gcpSelfLink(r, fmt.Sprintf("%s/projects/%s/instances/%s", sqlAPIPrefix(r), project, req.Name)),
 	}
+	if version, ok := sqlFindEngineVersion(inst.DatabaseVersion); ok {
+		inst.DatabaseInstalledVersion = version.InstalledVersion
+	}
 	sqlPlaceZones(&inst, nil)
 	sqlReportDataPlane(&inst)
 	if err := sqlIssueInstanceCertificates(&inst); err != nil {
@@ -800,7 +809,7 @@ func handleSQLInsertInstance(w http.ResponseWriter, r *http.Request) {
 	sqlInstances.Put(sqlInstanceKey(project, req.Name), inst)
 	// The built-in admin user Cloud SQL creates with the instance — postgres
 	// for PostgreSQL, root for MySQL — listed by users.list like any other.
-	if family, ok := sqlEngineFamily(inst.DatabaseVersion); ok {
+	if family, ok := sqlVersionFamily(inst.DatabaseVersion); ok {
 		admin := sqlBuiltInAdminUser(family)
 		host := ""
 		if family == "mysql" {
@@ -851,7 +860,8 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "instance")
 	key := sqlInstanceKey(project, name)
-	if _, ok := sqlInstances.Get(key); !ok {
+	current, ok := sqlInstances.Get(key)
+	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
@@ -860,10 +870,14 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
+	upgrade, ok := sqlPlanVersionChange(w, current, req.DatabaseVersion)
+	if !ok {
+		return
+	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
 		before := sqlLocationPreference(i.Settings)
 		defer sqlPlaceZones(i, before)
-		if req.DatabaseVersion != "" {
+		if req.DatabaseVersion != "" && upgrade == nil {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
 		if req.DatabaseCenterIntegrationEnabled != nil {
@@ -888,7 +902,14 @@ func handleSQLPatchInstance(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if err := sqlRefreshServerCa(project, name); err != nil {
+		if upgrade != nil {
+			sqlSettleOperation(project, upgrade.op.Name, err)
+		}
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		return
+	}
+	if upgrade != nil {
+		upgrade.start(w)
 		return
 	}
 	op := newSQLOperation(project, "UPDATE", name)
@@ -1234,7 +1255,8 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	name := sim.PathParam(r, "instance")
 	key := sqlInstanceKey(project, name)
-	if _, ok := sqlInstances.Get(key); !ok {
+	current, ok := sqlInstances.Get(key)
+	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance not found: %s", name)
 		return
 	}
@@ -1243,10 +1265,14 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err.Error())
 		return
 	}
+	upgrade, ok := sqlPlanVersionChange(w, current, req.DatabaseVersion)
+	if !ok {
+		return
+	}
 	sqlInstances.Update(key, func(i *SQLInstance) {
 		before := sqlLocationPreference(i.Settings)
 		defer sqlPlaceZones(i, before)
-		if req.DatabaseVersion != "" {
+		if req.DatabaseVersion != "" && upgrade == nil {
 			i.DatabaseVersion = req.DatabaseVersion
 		}
 		i.DatabaseCenterIntegrationEnabled = req.DatabaseCenterIntegrationEnabled
@@ -1260,7 +1286,14 @@ func handleSQLUpdateInstance(w http.ResponseWriter, r *http.Request) {
 		i.Settings["settingsVersion"] = next
 	})
 	if err := sqlRefreshServerCa(project, name); err != nil {
+		if upgrade != nil {
+			sqlSettleOperation(project, upgrade.op.Name, err)
+		}
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+		return
+	}
+	if upgrade != nil {
+		upgrade.start(w)
 		return
 	}
 	op := newSQLOperation(project, "UPDATE", name)

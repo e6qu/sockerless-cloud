@@ -484,13 +484,13 @@ func registerComputeImages(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
 			return
 		}
-		handleResourceIAM(w, r, gcpResourcePolicies,
+		handleComputeResourceIAM(srv, w, r,
 			"compute/"+computeGlobalLink(project, "images", first), "getIamPolicy")
 	})
 	for verb, method := range map[string]string{"setIamPolicy": "POST", "testIamPermissions": "POST"} {
 		verb := verb
 		srv.HandleFunc(method+" "+base+"/{resource}/"+verb, func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies,
+			handleComputeResourceIAM(srv, w, r,
 				"compute/"+computeGlobalLink(sim.PathParam(r, "project"), "images", sim.PathParam(r, "resource")), verb)
 		})
 	}

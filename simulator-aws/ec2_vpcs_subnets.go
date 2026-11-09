@@ -42,6 +42,7 @@ func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 		ec2AssociateVpcIpv6Block(id, ec2AmazonProvidedIpv6Block())
 	}
 	ec2CreateDefaultSecurityGroup(id)
+	ec2EnsureDefaultNetworkAcl(id)
 	accountControl := currentAccountVpcEncryptionControl()
 	switch accountControl.Mode {
 	case "attempt-monitor":
@@ -243,6 +244,9 @@ func handleDeleteVpc(w http.ResponseWriter, r *http.Request) {
 	for _, s := range ec2Subnets.Filter(func(s EC2Subnet) bool { return s.VpcId == id }) {
 		ec2SubnetIPCursor.Delete(s.SubnetId)
 	}
+	for _, acl := range ec2NetworkAcls.Filter(func(acl EC2NetworkAcl) bool { return acl.VpcId == id && acl.IsDefault }) {
+		ec2NetworkAcls.Delete(acl.NetworkAclId)
+	}
 	for _, groupID := range ec2DefaultSecurityGroupIDs(id) {
 		for _, rule := range ec2SecurityGroupRules.Filter(func(rule EC2SecurityGroupRule) bool { return rule.GroupId == groupID }) {
 			ec2SecurityGroupRules.Delete(rule.RuleId)
@@ -376,6 +380,7 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 		PrivateDnsHostnameTypeOnLaunch: "ip-name",
 	}
 	ec2Subnets.Put(id, subnet)
+	ec2AssociateSubnetDefaultNetworkAcl(id, vpcId)
 	ec2ReconcileRegionalNatGatewaysLogged(r.Context(), vpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -608,6 +613,7 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ec2Subnets.Delete(id)
+	ec2DisassociateSubnetNetworkAcl(id)
 	// Deleting a subnet ends its explicit route table association.
 	for _, rt := range ec2RouteTables.List() {
 		for _, assoc := range rt.Associations {

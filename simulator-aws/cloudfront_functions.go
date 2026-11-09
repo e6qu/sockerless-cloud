@@ -208,8 +208,8 @@ func handleCFDescribeFunction(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusOK, stored.Summary)
 }
 
-// The code goes in the body and the version in ETag. The simulator omits the
-// X-Amz-Cf-Functionsummary header.
+// The code goes in the body and the version in ETag; GetFunctionResult binds
+// no other header.
 func handleCFGetFunction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	stored, ok := cfFunctions.Get(name)

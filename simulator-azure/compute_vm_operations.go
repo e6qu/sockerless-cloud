@@ -287,6 +287,10 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 					logger.Error().Err(err).Str("vm", id).Msg("failed to delete an evicted virtual machine")
 					return azureVMHaltFailure(id, err)
 				}
+				if err := azureReleaseVMDataDisks(ctx, vm); err != nil {
+					logger.Error().Err(err).Str("vm", id).Msg("failed to release an evicted virtual machine's data disks")
+					return azureDataDiskFailure(id, err)
+				}
 				azureForgetVM(id)
 				return nil
 			}
@@ -377,12 +381,4 @@ func azureBootDiagnosticsPath(vm VirtualMachine) (container, blob string) {
 		name = "vm"
 	}
 	return "bootdiagnostics-" + name, name + ".serialconsole.log"
-}
-
-// The simulator serves no Microsoft.Compute/disks, so there is no managed disk
-// to attach or detach.
-func registerVirtualMachineDataDiskOperations(srv *sim.Server, armBase string) {
-	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/attachDetachDataDisks", func(w http.ResponseWriter, r *http.Request) {
-		AzureError(w, "NotImplemented", "The simulator serves no managed disks (Microsoft.Compute/disks) to attach or detach.", http.StatusNotImplemented)
-	})
 }

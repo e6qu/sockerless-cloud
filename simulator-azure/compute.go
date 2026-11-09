@@ -216,6 +216,7 @@ func registerCompute(srv *sim.Server) {
 	registerPublicIPPrefixes(srv)
 	registerLoadBalancers(srv)
 	registerNetworkInterfaces(srv)
+	registerManagedDisks(srv)
 	registerVirtualMachines(srv)
 	registerVirtualMachineOperations(srv)
 	registerVirtualMachineExtensions(srv)
@@ -1128,6 +1129,20 @@ func registerNetworkInterfaces(srv *sim.Server) {
 }
 
 // Azure never echoes osProfile.adminPassword.
+// azureKeepCreationOnlyProfile carries into an update the members Azure reads
+// only at creation, which a client re-sending the machine may leave out: `az vm
+// update` and `az vm disk attach` clear imageReference so as not to ask for the
+// image's permissions again.
+func azureKeepCreationOnlyProfile(vm *VirtualMachine, stored VirtualMachine) {
+	if vm.Properties.OSProfile == nil {
+		vm.Properties.OSProfile = stored.Properties.OSProfile
+	}
+	if vm.Properties.StorageProfile["imageReference"] == nil && stored.Properties.StorageProfile["imageReference"] != nil {
+		vm.Properties.StorageProfile = azureCopyStorageProfile(vm.Properties.StorageProfile)
+		vm.Properties.StorageProfile["imageReference"] = stored.Properties.StorageProfile["imageReference"]
+	}
+}
+
 func stripVMAdminPassword(vm *VirtualMachine) {
 	if vm.Properties.OSProfile != nil {
 		delete(vm.Properties.OSProfile, "adminPassword")
@@ -1162,6 +1177,9 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, "LocationRequired", "The location property is required for this definition.", http.StatusBadRequest)
 			return
 		}
+		if stored, exists := azureVMs.Get(id); exists {
+			azureKeepCreationOnlyProfile(&vm, stored)
+		}
 		// Azure validates the request before provisioning: a networkProfile, image or
 		// size the Compute resource provider cannot accept is a 400/404, not a failed
 		// operation.
@@ -1176,6 +1194,17 @@ func registerVirtualMachines(srv *sim.Server) {
 			return
 		}
 		vm.Identity, vm.SystemIdentityClientID = identity, identityClientID
+		var prevVM *VirtualMachine
+		if prev.ID != "" {
+			prevVM = &prev
+		}
+		plan, fault := azurePlanDataDisks(vm, prevVM)
+		if fault != nil {
+			AzureError(w, fault.code, fault.message, fault.status)
+			return
+		}
+		vm.Properties.StorageProfile = azureCopyStorageProfile(vm.Properties.StorageProfile)
+		vm.Properties.StorageProfile["dataDisks"] = plan.entries
 		created, busy := false, false
 		azureVMs.Upsert(id, func(stored *VirtualMachine) {
 			if stored.ID != "" && azureVMOperationRunning(stored.Properties.ProvisioningState) {
@@ -1199,6 +1228,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			azureVMOperationConflict(w, "CreateOrUpdate", id)
 			return
 		}
+		azureHoldDataDisks(id, plan)
 		syncManagedIdentityPrincipal(prev.Identity, vm.Identity, vm.SystemIdentityClientID, vm.Name)
 		priorState, _ := azureVMStates.Get(id)
 		if created {
@@ -1214,6 +1244,11 @@ func registerVirtualMachines(srv *sim.Server) {
 		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
 			// The boot leases a dynamic address, which the registered record names.
 			defer azureReconcileAutoRegisteredRecords()
+			if err := azureMoveDataDisks(ctx, vm, plan); err != nil {
+				logger.Error().Err(err).Str("vm", id).Msg("failed to move the virtual machine's data disks")
+				azureVMStates.Put(id, priorState)
+				return azureDataDiskFailure(id, err)
+			}
 			if err := azureBootVM(ctx, vm); err != nil {
 				logger.Error().
 					Err(err).
@@ -1267,6 +1302,25 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, "InvalidParameter", err.Error(), http.StatusBadRequest)
 			return
 		}
+		var plan azureDataDiskPlan
+		if patch.Properties != nil && patch.Properties.StorageProfile != nil {
+			requested := prev
+			requested.Properties.StorageProfile = patch.Properties.StorageProfile
+			if patch.Properties.HardwareProfile != nil {
+				requested.Properties.HardwareProfile = patch.Properties.HardwareProfile
+			}
+			var fault *azureVMRequestFault
+			if plan, fault = azurePlanDataDisks(requested, &prev); fault != nil {
+				AzureError(w, fault.code, fault.message, fault.status)
+				return
+			}
+			patch.Properties.StorageProfile = azureCopyStorageProfile(patch.Properties.StorageProfile)
+			patch.Properties.StorageProfile["dataDisks"] = plan.entries
+		}
+		if plan.moves() && !azureClaimVMOperation(id, "") {
+			azureVMOperationConflict(w, "Update", id)
+			return
+		}
 		if !azureVMs.Update(id, func(vm *VirtualMachine) {
 			if patch.Tags != nil {
 				vm.Tags = patch.Tags
@@ -1295,6 +1349,19 @@ func registerVirtualMachines(srv *sim.Server) {
 		syncManagedIdentityPrincipal(prev.Identity, identity, identityClientID, prev.Name)
 		azureReconcileAutoRegisteredRecords()
 		vm, _ := azureVMs.Get(id)
+		if plan.moves() {
+			azureHoldDataDisks(id, plan)
+			opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+				if err := azureMoveDataDisks(ctx, vm, plan); err != nil {
+					logger.Error().Err(err).Str("vm", id).Msg("failed to move the virtual machine's data disks")
+					return azureDataDiskFailure(id, err)
+				}
+				return nil
+			})
+			asyncOperation, _ := computeOperationURLs(r, sim.PathParam(r, "subscriptionId"), vm.Location, opID)
+			w.Header().Set("Azure-AsyncOperation", asyncOperation)
+			setAzureAsyncOperationRetryAfter(w, opID)
+		}
 		sim.WriteJSON(w, http.StatusOK, vm)
 	})
 
@@ -1368,6 +1435,10 @@ func registerVirtualMachines(srv *sim.Server) {
 			if err := azureDestroyVM(ctx, vm); err != nil {
 				logger.Error().Err(err).Str("vm", id).Msg("failed to delete the virtual machine")
 				return azureVMHaltFailure(id, err)
+			}
+			if err := azureReleaseVMDataDisks(ctx, vm); err != nil {
+				logger.Error().Err(err).Str("vm", id).Msg("failed to release the virtual machine's data disks")
+				return azureDataDiskFailure(id, err)
 			}
 			azureForgetVM(id)
 			return nil

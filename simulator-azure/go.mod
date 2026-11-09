@@ -5,9 +5,10 @@ go 1.26.0
 require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108000639-c8ca9fe394a7
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108214326-1b2babaecf10
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56
 	github.com/go-git/go-git/v5 v5.19.3
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/api v1.56.1
@@ -41,7 +42,6 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
@@ -83,5 +83,5 @@ require (
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.61.1 // indirect
+	modernc.org/sqlite v1.62.0 // indirect
 )

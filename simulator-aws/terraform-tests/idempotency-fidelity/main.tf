@@ -16,7 +16,6 @@ provider "aws" {
   access_key                  = "test"
   secret_key                  = "test"
   skip_credentials_validation = true
-  skip_requesting_account_id  = true
 
   endpoints {
     ec2      = var.endpoint
@@ -27,6 +26,7 @@ provider "aws" {
     ecr      = var.endpoint
     acm      = var.endpoint
     route53  = var.endpoint
+    sts      = var.endpoint
   }
 }
 

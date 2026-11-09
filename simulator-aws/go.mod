@@ -8,7 +8,7 @@ require (
 	github.com/beevik/etree v1.8.1
 	github.com/cloudflare/circl v1.6.5
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108000639-c8ca9fe394a7
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108214326-1b2babaecf10
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-git/go-git/v5 v5.19.3
@@ -94,5 +94,5 @@ require (
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.61.1 // indirect
+	modernc.org/sqlite v1.62.0 // indirect
 )

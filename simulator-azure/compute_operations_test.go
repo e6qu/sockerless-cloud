@@ -43,6 +43,16 @@ var computeSpecActions = map[string]string{
 	"VirtualMachines_AssessPatches":               "Microsoft.Compute/virtualMachines/assessPatches/action",
 	"VirtualMachines_InstallPatches":              "Microsoft.Compute/virtualMachines/installPatches/action",
 	"VirtualMachines_RetrieveBootDiagnosticsData": "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action",
+	"VirtualMachines_AttachDetachDataDisks":       "Microsoft.Compute/virtualMachines/attachDetachDataDisks/action",
+
+	"Disks_Get":                 "Microsoft.Compute/disks/read",
+	"Disks_List":                "Microsoft.Compute/disks/read",
+	"Disks_ListByResourceGroup": "Microsoft.Compute/disks/read",
+	"Disks_CreateOrUpdate":      "Microsoft.Compute/disks/write",
+	"Disks_Update":              "Microsoft.Compute/disks/write",
+	"Disks_Delete":              "Microsoft.Compute/disks/delete",
+	"Disks_GrantAccess":         "Microsoft.Compute/disks/beginGetAccess/action",
+	"Disks_RevokeAccess":        "Microsoft.Compute/disks/endGetAccess/action",
 
 	"VirtualMachineExtensions_Get":            "Microsoft.Compute/virtualMachines/extensions/read",
 	"VirtualMachineExtensions_List":           "Microsoft.Compute/virtualMachines/extensions/read",
@@ -57,6 +67,8 @@ var computeSpecFiles = []string{
 	"compute-arm-computerpcommon-2022-03-01.swagger.json.gz",
 	"compute-arm-skus-2021-07-01.swagger.json.gz",
 	"compute-arm-virtualmachine-2022-03-01.swagger.json.gz",
+	"compute-arm-virtualmachine-2024-07-01.swagger.json.gz",
+	"compute-arm-disk-2023-04-02.swagger.json.gz",
 }
 
 // TestComputeOperationCatalogCoversSpec: the catalog carries an action for

@@ -584,6 +584,15 @@ semaphores. The guest library is POSIX sh and edits `/etc/passwd` and
 `/etc/shadow` itself, because Amazon Linux 2023 has no shadow-utils. Compute
 Engine's `startup-script` runs at every boot after cloud-init; the init honours
 systemd's SIGRTMIN+4 and busybox's SIGUSR2 so a guest's own poweroff ends it.
+A poweroff, the guest's or the stop's SIGTERM, sends SIGTERM to every other
+process of the instance and waits for them to exit before the init does, as a
+Linux init does, with the stop's grace period as the hard power-off. The init
+had exited at once, which killed every guest process with it: a guest
+approving an Azure Scheduled Event raced the operation it approved and could
+lose the answer to it, even though it ignored SIGTERM. The approval's answer
+also carries `Content-Length: 0`, so it is complete before the operation starts;
+a body of unknown length ended only when the handler returned, after the
+approval.
 The metadata services read the instance's current record; each cloud's
 metadata service answers its own workloads and nothing else, since an
 invented default machine answered every other caller.
@@ -962,6 +971,27 @@ the socket answers). Lessons:
   SQL does. A restart of the simulator finishes, with an error, any operation
   it left RUNNING, since a RUNNING operation refuses every later one on the
   instance.
+- **A Cloud SQL `databaseVersion` runs its own release.** The version table
+  (`simulator-gcp/sqladmin_versions.go`) maps every version of the vendored
+  enum that has a community image to that release by its release tag, as
+  Amazon RDS's version table does (the dependency freshness gate keeps one
+  moving digest per major series, which frozen minors such as MySQL 8.0.30
+  cannot meet), and `databaseInstalledVersion` names the minor it runs; a MySQL
+  8.0 version that carries its minor runs that minor. An earlier simulator ran
+  PostgreSQL 16 and MySQL 8.0 for every version, so a restart records the
+  version whose engine wrote an existing volume. Engine statements follow the
+  release (MySQL 5.6 has no `CREATE USER IF NOT EXISTS`, PostgreSQL 12 no
+  `DROP DATABASE ... WITH (FORCE)`, MySQL 8.4 no
+  `--default-authentication-plugin`). `instances.patch` and `instances.update`
+  with a later version run Cloud SQL's in-place upgrade as a
+  `MAJOR_VERSION_UPGRADE` operation, with its labelled pre- and post-upgrade
+  backup runs: MySQL's server upgrades the volume (`mysql_upgrade` before
+  8.0.16), and PostgreSQL's data moves through `pg_dumpall` into a fresh
+  cluster of the target; a failure restores the pre-upgrade backup. CI warms
+  only the engine images the suites name, resolved from the table by
+  `scripts/cloudsql-version-images-for.sh`, as the AWS Lambda runtimes are.
+  An instance nobody has connected to has started no engine, so its upgrade
+  swaps the release without carrying data or needing an admin credential.
 - **Cloud SQL certificates are real X.509 material.** Each instance holds a
   per-instance CA rotation set, or a server certificate signed by the region's
   shared subordinate CA, and the data plane presents the active one;
@@ -1493,6 +1523,12 @@ fails once the row closes or the operation is served.
 
 ## Testing discipline
 
+- **A test waits on the state it asserts, from a workload that holds it.** An
+  Azure Container Apps execution whose image ran its default command (`sh`
+  with no input) ended in milliseconds, so a test that read `Running` after
+  the start, or stopped the execution to read `Stopped`, raced the replica's
+  exit. Those tests run a replica that lasts until the execution is stopped,
+  under the 1800-second `replicaTimeout` Azure defaults to.
 - **A document's commands are tested as written.** `testutil/doctest` runs
   every shell block of a tutorial in order, as a reader runs it, and checks the
   output the text promises. Its first runs found commands that had never
@@ -2021,6 +2057,32 @@ fails once the row closes or the operation is served.
   The 2024-07-01 documents are vendored beside them, and a machine image
   version carries `imageDeprecationStatus` from api-version 2022-11-01, the
   first that declares it.
+- **AWS CLI decode-authorization-message test.** The encoded message is
+  base64url, so one run in 64 it began with `-`, which the CLI's argument
+  parser read as an option; the test passes it as `--encoded-message=…`.
+- **Volume helper platform.** The disk copy helper and `sim`'s volume
+  snapshot and archive helper ran the Alpine image as `linux/amd64` on every
+  engine; they read the platform off the image the engine pulled, so an arm64
+  engine runs them natively.
+- **Azure managed disks.** DiskRP's `disk.json` (2023-04-02, the version
+  `az disk` speaks) is vendored and `Microsoft.Compute/disks` served against
+  it: Empty and Copy creates, grow-only resizes, `diskState` derived from the
+  holding machine's power state (Unattached, Attached, Reserved), and a 409
+  `OperationNotAllowed` for deleting a held disk. A disk's contents are an
+  engine volume of its own. A machine's workload mounts a disk bay volume at
+  `/dev/disk/azure/scsi1`, and an attached disk is the bay's `lun<N>`
+  directory: attaching copies the disk in, detaching copies it back out, so a
+  running guest sees disks come and go without a reboot and what it wrote
+  follows the disk. `storageProfile.dataDisks` (Attach, Empty, Copy) and
+  `attachDetachDataDisks` share one plan, so both paths validate LUNs and the
+  size's data disk count alike. `az vm disk attach` and `az vm update` re-send
+  the machine without `imageReference`, so a machine PUT keeps the
+  creation-only `imageReference` and `osProfile` it was created with. DiskRP
+  answers a write 202 and az reads the result from the Location monitor URL
+  (final-state-via location), so a disk operation's result is the disk. A
+  simulator without a state directory sweeps only its own run's machines at
+  shutdown: the engine lists every simulator's, and one CLI test's shutdown
+  had removed a concurrent test's running machine.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever
@@ -2041,6 +2103,15 @@ fails once the row closes or the operation is served.
   in), record `parent`, and run their operations under
   `locations/global/operations` with an `org-` name and the policy's id as
   `targetId`, which the Terraform provider and gcloud's poller read.
+- **Compute Engine IAM verbs.** `getIamPolicy`, `setIamPolicy` and
+  `testIamPermissions` on every Compute Engine collection first serve the
+  collection's own get method for the resource they name, and a resource
+  never created receives that method's 404, so no policy lands on an absent
+  resource. A unit test sends every mounted verb to an absent resource and
+  expects the structured 404; the SDK suites create each resource before its
+  policy verb, a gcloud test binds a policy on an image it created and is
+  refused one on an image it never created, and a licence code's policy
+  belongs to a code a licence in the project was issued.
 - **Compute Engine instance identity.** An instance inserted without a
   service account has no identity on the metadata server, and identity tokens
   name the account by its IAM `uniqueId` in `sub` and `azp`.
@@ -2153,6 +2224,46 @@ fails once the row closes or the operation is served.
   `DescribeMaintenanceWindowsForTarget` read the schedule and the registered
   targets, and `SendCommand` resolves `tag:` and `tag-key` targets. The tests
   schedule an at() window seconds ahead and wait for its run.
+- **AWS Systems Manager Automation.** `StartAutomationExecution` had
+  recorded one settled `aws:runShellScript` step with status Success, so an
+  execution and an `AUTOMATION` maintenance window task reported work nothing
+  did. The execution became a run of the runbook, an Automation document of
+  schema version 0.3 in YAML or JSON, taken from the version the request
+  named. The start types each declared parameter from the request or its
+  default (a `{{ssm:name}}` default read from Parameter Store as the caller)
+  and refuses an undeclared, missing or disallowed value with
+  `InvalidAutomationExecutionParametersException`; a document that is no
+  Automation runbook answers `AutomationDefinitionNotFoundException`. A
+  background runner lays every step out Pending and runs them in order, each
+  moving InProgress → Success, Failed, TimedOut or Cancelled as the work
+  settles, honouring `maxAttempts`, `timeoutSeconds`, `onFailure` (`Abort`,
+  `Continue`, `step:`), `onCancel`, `nextStep`, `isEnd` and `isCritical`, and
+  resolving `{{ }}` references to parameters, earlier steps' outputs and the
+  `global:` and `automation:` variables. Steps call services through their
+  APIs, as the runbook's `assumeRole` when it names one (Automation fails the
+  execution with "The defined assume role is unable to be assumed." when it
+  cannot) and otherwise with the starting caller's own credential:
+  `aws:executeAwsApi`, `aws:assertAwsResourceProperty` and
+  `aws:waitForAwsResourceProperty` reach any served operation by its Boto3
+  namespace, `aws:runCommand` goes through `SendCommand`,
+  `aws:invokeLambdaFunction` through `Invoke` and `aws:executeAutomation`
+  through a child execution; `aws:sleep`, `aws:branch` and `aws:pause`
+  (resumed by `SendAutomationSignal`) run in the runner. Any other action
+  fails its step. Outputs come from each output's JSONPath selector over the
+  response, converted to its declared type. `StopAutomationExecution` cancels
+  the running step through the store, Interactive mode waits for `StartStep`,
+  `Targets` with `ParameterValues` and `TargetMaps` run rate-controlled child
+  automations, and `StartChangeRequestExecution` runs an
+  `Automation.ChangeTemplate` and then its runbooks. Executions an earlier
+  process left running resume from their step. `CreateDocument` and
+  `UpdateDocument` read `schemaVersion` from JSON and YAML content, where
+  every document had reported 2.2, and a missing document's `InvalidDocument`
+  says "Document with name … does not exist.", the words terraform-provider-aws
+  matches to see a deleted `aws_ssm_document` gone. The source is the vendored Automation
+  actions reference and its per-action pages (`ssm-automation-*.md.gz`).
+  `specs/cloud-api/aws/ssm.supplement.json` widens `AutomationActionName`'s
+  pattern to the 26 letters `aws:waitForAwsResourceProperty` carries, which
+  the model's `{3,25}` refused.
 - **Amazon RDS global databases.** A DB cluster lives in the Region its
   request is signed for, as a DB instance does, so its ARN, endpoints and
   lookups name that Region. `CreateDBCluster` with `GlobalClusterIdentifier`
@@ -2179,6 +2290,61 @@ fails once the row closes or the operation is served.
   ML-KEM pairs whose PKCS#8 private key holds the seed. `Sign` and `Verify`
   take a DIGEST message as the digest, refusing one of the wrong length,
   where they had hashed it again.
+
+- **Amazon VPC network ACLs.** Every VPC came with a default network ACL
+  that allowed all traffic in and out ahead of the deny-all rules, IPv6 too
+  when the VPC had an IPv6 block, as the vendored
+  `vpc-default-network-acl.md.gz` lists, and every new subnet started
+  associated with it. `ReplaceNetworkAclAssociation` refused an unknown
+  association with `InvalidAssociationID.NotFound` where it had accepted a
+  made-up one; `DeleteNetworkAcl` refused the default ACL and an ACL still
+  associated with a subnet; deleting a subnet ended its association.
+  `DescribeNetworkAcls` applied the association, entry and `owner-id`
+  filters the API reference lists, which terraform-provider-aws needs to
+  read one association by `association.association-id`; it had ignored
+  them and answered every ACL once each VPC carried a default one.
+- **Amazon EC2 security group rules and VPN tunnels.** `ReferencedGroupInfo`
+  named the referenced group's owner as `UserId`; Terraform keeps the bare
+  group ID because the owner is the caller's account, which the
+  idempotency fixture's provider now requests from STS rather than skipping.
+  `ModifyVpnTunnelCertificate` kept the tunnel's status where it had left the
+  tunnel `DOWN`, and refused an outside address the connection does not have.
+- **Amazon EC2 Capacity Reservations.** `RunInstances` claimed a reservation
+  with matching instance type, platform, Availability Zone and tenancy that
+  was active and had room, per `ec2-capacity-reservations-launch.md.gz`: an
+  `open` preference (the default) took any open reservation and fell back to
+  On-Demand capacity, a target took that reservation or failed with
+  `ReservationCapacityExceeded`, and `capacity-reservations-only` failed
+  without one. An instance held its slot until it terminated, so
+  `AvailableInstanceCount` and `GetCapacityReservationUsage` counted live
+  instances, and `DescribeInstances` returned the reservation and the
+  launch's targeting. Tests that assert a reservation's counts make it
+  targeted, because the suite's parallel launches claim open ones as AWS
+  would.
+- **Amazon CloudFront.** Origins carried `VpcOriginConfig` and distributions
+  `ViewerMtlsConfig` and `ConnectionFunctionAssociation`, so
+  `ListDistributionsByVpcOriginId`, `ListDistributionsByTrustStore` and
+  `ListDistributionsByConnectionFunction` listed the distributions that
+  reference the resource; the latter two resolved the identifier and refused
+  an unknown one with `EntityNotFound`. Distribution tenants carried
+  `Customizations`; `AssociateDistributionTenantWebACL` set a web ACL
+  override that `DisassociateDistributionTenantWebACL` removed, and
+  `ListDistributionTenantsByCustomization` matched the web ACL and
+  certificate ARNs. `GetFunctionResult` binds no summary header, so
+  `GetFunction` returns the code and ETag alone.
+- **AWS CloudTrail Lake.** `StartQuery` parsed the statement and evaluated the
+  SQL the vendored constraints page lists over one event data store, named by
+  its ID in `FROM`: `SELECT [DISTINCT]` with aliases, `WHERE` with `AND`,
+  `OR`, `NOT`, `IN`, `LIKE`, `BETWEEN`, `IS [NOT] NULL`,
+  `IS [NOT] DISTINCT FROM` and the comparisons, `GROUP BY` with `COUNT`,
+  `MIN`, `MAX`, `SUM` and `AVG`, `HAVING`, `ORDER BY` and `LIMIT`. Results
+  keep the projection's column order, and a statement other than `SELECT`
+  fails with `InvalidQueryStatementException`. Tests scope their rows with a
+  dedicated access key, because the store records the whole parallel suite.
+- **Amazon API Gateway and Amazon ElastiCache.** A new method setting
+  override starts with the 300-second cache TTL the vendored caching guide
+  gives. A Global Datastore ID takes its Region's prefix, `dsdfu` in
+  US-West-1 as the API reference names.
 
 ## Continuous integration and dependencies
 

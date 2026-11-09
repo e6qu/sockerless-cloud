@@ -214,34 +214,40 @@ type EC2Tag struct {
 }
 
 type EC2Instance struct {
-	InstanceId             string
-	ReservationId          string
-	AmiLaunchIndex         int
-	ImageId                string
-	InstanceType           string
-	SubnetId               string
-	VpcId                  string
-	State                  string
-	PrivateIpAddress       string
-	PublicIpAddress        string
-	SecurityGroupIds       []string
-	Tags                   []EC2Tag
-	LaunchTime             string
-	KeyName                string
-	Architecture           string
-	RootDeviceName         string
-	NetworkInterfaceId     string
-	IamInstanceProfileArn  string
-	IamInstanceProfileName string
-	EbsOptimized           bool
-	Monitoring             bool
-	UserData               string
-	DisableApiTermination  bool
-	SourceDestCheck        bool
-	CpuCoreCount           int
-	CpuThreadsPerCore      int
-	RootVolumeSize         int
-	RootVolumeType         string
+	// CapacityReservationId names the reservation the instance runs in; the
+	// preference and target are what its launch asked for.
+	CapacityReservationId          string
+	CapacityReservationPreference  string
+	CapacityReservationTargetId    string
+	CapacityReservationTargetGroup string
+	InstanceId                     string
+	ReservationId                  string
+	AmiLaunchIndex                 int
+	ImageId                        string
+	InstanceType                   string
+	SubnetId                       string
+	VpcId                          string
+	State                          string
+	PrivateIpAddress               string
+	PublicIpAddress                string
+	SecurityGroupIds               []string
+	Tags                           []EC2Tag
+	LaunchTime                     string
+	KeyName                        string
+	Architecture                   string
+	RootDeviceName                 string
+	NetworkInterfaceId             string
+	IamInstanceProfileArn          string
+	IamInstanceProfileName         string
+	EbsOptimized                   bool
+	Monitoring                     bool
+	UserData                       string
+	DisableApiTermination          bool
+	SourceDestCheck                bool
+	CpuCoreCount                   int
+	CpuThreadsPerCore              int
+	RootVolumeSize                 int
+	RootVolumeType                 string
 	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
 	// "terminate".
 	ShutdownBehavior     string
@@ -733,6 +739,7 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	registerEC2LgwCapacity(r, srv)
 	registerEC2AccountMisc(r, srv)
 	registerEC2VolumesMisc(r, srv)
+	ec2EnsureDefaultNetworkAcls()
 }
 
 func parseTags(r *http.Request) []EC2Tag {

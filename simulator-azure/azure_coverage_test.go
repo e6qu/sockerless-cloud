@@ -61,6 +61,7 @@ var azureDeclaredOperationTotals = map[string]int{
 	"compute-arm-virtualmachineimage-2024-07-01":                      11,
 	"compute-arm-virtualmachine-2024-07-01":                           30,
 	"compute-arm-computerpcommon-2024-07-01":                          3,
+	"compute-arm-disk-2023-04-02":                                     8,
 	"containerinstance-arm-containerinstance-2021-10-01":              18,
 	"containerregistry-arm-containerregistry-2023-07-01":              52,
 	"containerregistry-arm-containerregistry-2025-11-01":              58,
@@ -170,11 +171,15 @@ var azureMethodFloor = map[string]int{
 	"authorization-arm-authorization-roledefinitionscalls-2022-04-01": 7,
 	// The per-location usage counts the machines and cores the subscription holds
 	// there, against its own quotas.
-	"compute-arm-computerpcommon-2022-03-01":                 3,
-	"compute-arm-skus-2021-07-01":                            1,
-	"compute-arm-virtualmachine-2022-03-01":                  29,
-	"compute-arm-virtualmachineimage-2022-03-01":             5,
-	"compute-arm-image-2022-03-01":                           6,
+	"compute-arm-computerpcommon-2022-03-01":     3,
+	"compute-arm-skus-2021-07-01":                1,
+	"compute-arm-virtualmachine-2022-03-01":      29,
+	"compute-arm-virtualmachineimage-2022-03-01": 5,
+	"compute-arm-image-2022-03-01":               6,
+	"compute-arm-virtualmachine-2024-07-01":      30,
+	// GrantAccess and RevokeAccess are a declared 501: the simulator keeps a disk
+	// as a filesystem, not the VHD a shared access signature reads or writes.
+	"compute-arm-disk-2023-04-02":                            6,
 	"containerinstance-arm-containerinstance-2021-10-01":     18,
 	"containerregistry-arm-containerregistry-2023-07-01":     52,
 	"containerregistry-arm-containerregistry-2025-11-01":     58,

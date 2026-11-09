@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -261,18 +263,19 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 	assert.Empty(t, other.Items)
 }
 
-// A project may bind a policy on a licence code without a licence behind it,
-// for example a code Google issued for one of its published images.
+// A licence code's policy is the policy of the code its licence was issued,
+// and a code never issued has no policy to read or set.
 func TestCompute_LicenceCodePolicy(t *testing.T) {
 	t.Parallel()
+	const project = "licence-project"
+	ensureProject(t, project)
 	svc := computeService(t)
-	const project, code = "licence-project", "1000205"
 
-	// Reading a code reads the licence it was issued for, and Google's published
-	// codes are not licences this project holds.
-	_, err := svc.LicenseCodes.Get(project, code).Do()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	_, err := svc.Licenses.Insert(project, &compute.License{Name: "licence-with-policy"}).Do()
+	require.NoError(t, err)
+	licence, err := svc.Licenses.Get(project, "licence-with-policy").Do()
+	require.NoError(t, err)
+	code := strconv.FormatUint(licence.LicenseCode, 10)
 
 	set, err := svc.LicenseCodes.SetIamPolicy(project, code, &compute.GlobalSetPolicyRequest{
 		Policy: &compute.Policy{
@@ -297,10 +300,16 @@ func TestCompute_LicenceCodePolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, perms)
 
-	// A code nobody has bound has no policy of its own.
-	empty, err := svc.LicenseCodes.GetIamPolicy(project, "1000999").Do()
-	require.NoError(t, err)
-	assert.Empty(t, empty.Bindings)
+	// Google's published codes are not codes this project was issued.
+	const published = "1000205"
+	_, err = svc.LicenseCodes.Get(project, published).Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
+	_, err = svc.LicenseCodes.GetIamPolicy(project, published).Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
+	_, err = svc.LicenseCodes.SetIamPolicy(project, published, &compute.GlobalSetPolicyRequest{
+		Policy: &compute.Policy{},
+	}).Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
 }
 
 // Google's analysis detects reliability risks; the simulator runs none, so it

@@ -18,6 +18,10 @@ simulator-azure/dist/
 simulator-aws/simulator-aws
 simulator-gcp/simulator-gcp
 simulator-azure/simulator-azure
+# `go build` in a command directory of a support module
+sim/nodeagent/cmd/nodeagent/nodeagent
+sim/nodeagent/cmd/guestinit/guestinit
+sim/sidecar/cmd/sidecar/sidecar
 # Per-suite simulator binaries: each test suite builds the simulator it runs
 # into its own path so concurrent suites cannot overwrite each other.
 simulator-aws/.build/

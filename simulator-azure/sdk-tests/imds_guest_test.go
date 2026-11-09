@@ -67,12 +67,14 @@ func imdsGuestExchange(t *testing.T, rg, vmName, step, method, path, body string
 
 // imdsGuestApproveDetached approves a scheduled event from a process the
 // command leaves behind, writing the response to file: the approved operation
-// stops the guest, and with it a command still running.
+// stops the guest, and with it a command still running. The process ignores
+// the SIGTERM the guest's shutdown sends, so the shutdown waits for it to
+// record the answer, as a guest's shutdown handler would.
 func imdsGuestApproveDetached(t *testing.T, rg, vmName, step, eventID, file string) {
 	t.Helper()
 	request := imdsGuestRequest(http.MethodPost, "/metadata/scheduledevents?api-version=2020-07-01",
 		`{"StartRequests":[{"EventId":"`+eventID+`"}]}`)
-	runInGuest(t, rg, vmName, step, `bash -c '(`+request+`) > `+file+` 2>&1 < /dev/null &'`)
+	runInGuest(t, rg, vmName, step, `bash -c '(trap "" TERM; `+request+`) > `+file+` 2>&1 < /dev/null &'`)
 }
 
 func TestIMDS_GuestReadsPathsVersionsLoadBalancerAndScheduledEvents(t *testing.T) {

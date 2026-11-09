@@ -122,13 +122,13 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 			"/reservationBlocks/" + sim.PathParam(r, "block")
 	}
 	srv.HandleFunc("GET "+base+"/{name}/reservationBlocks/{block}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "getIamPolicy")
+		handleComputeResourceIAM(srv, w, r, blockIAM(r), "getIamPolicy")
 	})
 	srv.HandleFunc("POST "+base+"/{name}/reservationBlocks/{block}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "setIamPolicy")
+		handleComputeResourceIAM(srv, w, r, blockIAM(r), "setIamPolicy")
 	})
 	srv.HandleFunc("POST "+base+"/{name}/reservationBlocks/{block}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, blockIAM(r), "testIamPermissions")
+		handleComputeResourceIAM(srv, w, r, blockIAM(r), "testIamPermissions")
 	})
 
 	subBlocks := func(w http.ResponseWriter, r *http.Request) ([]map[string]any, bool) {
@@ -196,13 +196,13 @@ func registerComputeReservationVerbs(srv *sim.Server, reservations sim.Store[map
 		return blockIAM(r) + "/reservationSubBlocks/" + sim.PathParam(r, "subBlock")
 	}
 	srv.HandleFunc("GET "+subBase+"/{subBlock}/getIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "getIamPolicy")
+		handleComputeResourceIAM(srv, w, r, subIAM(r), "getIamPolicy")
 	})
 	srv.HandleFunc("POST "+subBase+"/{subBlock}/setIamPolicy", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "setIamPolicy")
+		handleComputeResourceIAM(srv, w, r, subIAM(r), "setIamPolicy")
 	})
 	srv.HandleFunc("POST "+subBase+"/{subBlock}/testIamPermissions", func(w http.ResponseWriter, r *http.Request) {
-		handleResourceIAM(w, r, gcpResourcePolicies, subIAM(r), "testIamPermissions")
+		handleComputeResourceIAM(srv, w, r, subIAM(r), "testIamPermissions")
 	})
 
 	// A slot is one machine of a sub-block, the level a reservation reports

@@ -258,6 +258,11 @@ func TestStackProductionShape(t *testing.T) {
 		"aws_vpc assign_generated_ipv6_cidr_block must read back the Amazon-provided /56 from DescribeVpcs")
 	require.Regexp(t, `/64$`, outputs.must(t, "ec2_ipv6_subnet_cidr"),
 		"aws_subnet ipv6_cidr_block must read back the /64 CreateSubnet took from the VPC's block")
+	require.Regexp(t, `^acl-`, outputs.must(t, "ec2_vpc_default_network_acl_id"),
+		"aws_vpc must read back the default network ACL every VPC comes with")
+	require.NotEqual(t, outputs.must(t, "ec2_vpc_default_network_acl_id"), outputs.must(t, "ec2_custom_network_acl_id"))
+	require.Regexp(t, `^aclassoc-`, outputs.must(t, "ec2_acl_association_id"),
+		"aws_network_acl_association must replace the subnet's default association")
 
 	natGatewayID := outputs.must(t, "ec2_nat_gateway_id")
 	require.True(t, strings.HasPrefix(natGatewayID, "nat-"),

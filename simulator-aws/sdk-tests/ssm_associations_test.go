@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -158,68 +159,69 @@ func TestSSM_AssociationBatch(t *testing.T) {
 	})
 }
 
-// TestSSM_AutomationLifecycle covers an Automation execution that settles
-// Success with a step, its step executions, a signal and a stop, and a
-// change-request execution.
-func TestSSM_AutomationLifecycle(t *testing.T) {
+// TestSSM_ChangeRequestRunsRunbooks starts a change request: Automation runs
+// the change template's steps and then each runbook it names, as a child
+// automation of the change request.
+func TestSSM_ChangeRequestRunsRunbooks(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
-	docName := "sockerless-automation-doc-sdk"
-	ssmEnsureDoc(t, c, docName)
-
-	start, err := c.StartAutomationExecution(ctx, &ssm.StartAutomationExecutionInput{
-		DocumentName: aws.String(docName),
-		Parameters:   map[string][]string{"Param": {"v"}},
+	template := uniquename.New("change-template-sdk")
+	_, err := c.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:           aws.String(template),
+		Content:        aws.String("schemaVersion: '0.3'\nmainSteps:\n- name: settle\n  action: aws:sleep\n  inputs:\n    Duration: PT0S\n"),
+		DocumentType:   ssmtypes.DocumentTypeChangeTemplate,
+		DocumentFormat: ssmtypes.DocumentFormatYaml,
 	})
 	require.NoError(t, err)
-	execID := aws.ToString(start.AutomationExecutionId)
-	require.NotEmpty(t, execID)
+	t.Cleanup(func() { _, _ = c.DeleteDocument(ctx, &ssm.DeleteDocumentInput{Name: aws.String(template)}) })
+	runbook := uniquename.New("change-runbook-sdk")
+	ssmCreateRunbook(t, c, runbook, `schemaVersion: '0.3'
+parameters:
+  ParamName:
+    type: String
+mainSteps:
+- name: put
+  action: aws:executeAwsApi
+  inputs:
+    Service: ssm
+    Api: PutParameter
+    Name: '{{ ParamName }}'
+    Value: changed
+    Type: String
+`)
+	param := "/sdk/change/" + runbook
+	t.Cleanup(func() { _, _ = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(param)}) })
 
-	got, err := c.GetAutomationExecution(ctx, &ssm.GetAutomationExecutionInput{
-		AutomationExecutionId: aws.String(execID),
+	_, err = c.StartChangeRequestExecution(ctx, &ssm.StartChangeRequestExecutionInput{
+		DocumentName: aws.String(runbook),
+		Runbooks:     []ssmtypes.Runbook{{DocumentName: aws.String(runbook)}},
 	})
-	require.NoError(t, err)
-	require.NotNil(t, got.AutomationExecution)
-	assert.Equal(t, ssmtypes.AutomationExecutionStatusSuccess, got.AutomationExecution.AutomationExecutionStatus)
-	require.NotEmpty(t, got.AutomationExecution.StepExecutions)
-	assert.Equal(t, ssmtypes.AutomationExecutionStatusSuccess, got.AutomationExecution.StepExecutions[0].StepStatus)
-
-	desc, err := c.DescribeAutomationExecutions(ctx, &ssm.DescribeAutomationExecutionsInput{})
-	require.NoError(t, err)
-	foundExec := false
-	for _, e := range desc.AutomationExecutionMetadataList {
-		if aws.ToString(e.AutomationExecutionId) == execID {
-			foundExec = true
-		}
-	}
-	assert.True(t, foundExec, "DescribeAutomationExecutions must include the started execution")
-
-	steps, err := c.DescribeAutomationStepExecutions(ctx, &ssm.DescribeAutomationStepExecutionsInput{
-		AutomationExecutionId: aws.String(execID),
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, steps.StepExecutions)
-
-	_, err = c.SendAutomationSignal(ctx, &ssm.SendAutomationSignalInput{
-		AutomationExecutionId: aws.String(execID),
-		SignalType:            ssmtypes.SignalTypeResume,
-	})
-	require.NoError(t, err)
-
-	_, err = c.StopAutomationExecution(ctx, &ssm.StopAutomationExecutionInput{
-		AutomationExecutionId: aws.String(execID),
-	})
-	require.NoError(t, err)
+	requireAWSErrorCode(t, err, "AutomationDefinitionNotFoundException")
 
 	cr, err := c.StartChangeRequestExecution(ctx, &ssm.StartChangeRequestExecutionInput{
-		DocumentName:      aws.String(docName),
+		DocumentName:      aws.String(template),
 		ChangeRequestName: aws.String("sdk-change"),
-		Runbooks: []ssmtypes.Runbook{
-			{DocumentName: aws.String(docName)},
-		},
+		Runbooks: []ssmtypes.Runbook{{
+			DocumentName: aws.String(runbook),
+			Parameters:   map[string][]string{"ParamName": {param}},
+		}},
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, aws.ToString(cr.AutomationExecutionId))
+	id := aws.ToString(cr.AutomationExecutionId)
+	execution := ssmAwaitAutomation(t, c, id, ssmAutomationSettled)
+	require.Equal(t, ssmtypes.AutomationExecutionStatusSuccess, execution.AutomationExecutionStatus, aws.ToString(execution.FailureMessage))
+	assert.Equal(t, "sdk-change", aws.ToString(execution.ChangeRequestName))
+	assert.Equal(t, ssmtypes.AutomationSubtypeChangeRequest, execution.AutomationSubtype)
+
+	children, err := c.DescribeAutomationExecutions(ctx, &ssm.DescribeAutomationExecutionsInput{
+		Filters: []ssmtypes.AutomationExecutionFilter{{Key: ssmtypes.AutomationExecutionFilterKeyParentExecutionId, Values: []string{id}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, children.AutomationExecutionMetadataList, 1)
+	assert.Equal(t, runbook, aws.ToString(children.AutomationExecutionMetadataList[0].DocumentName))
+	got, err := c.GetParameter(ctx, &ssm.GetParameterInput{Name: aws.String(param)})
+	require.NoError(t, err)
+	assert.Equal(t, "changed", aws.ToString(got.Parameter.Value))
 }
 
 func TestSSM_AutomationExecutionPreview(t *testing.T) {

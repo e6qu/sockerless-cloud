@@ -344,7 +344,7 @@ func TestContainerApps_ExecutionSucceededState(t *testing.T) {
 func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 	t.Parallel()
 	rg := "status-rg-088d"
-	acaCreateJob(t, rg, "stop-job")
+	acaCreateJobUntilStopped(t, rg, "stop-job")
 	execName := acaStartExecution(t, rg, "stop-job")
 
 	stopReq, _ := http.NewRequestWithContext(ctx, "POST",
@@ -369,6 +369,20 @@ func acaCreateJobWithCommand(t *testing.T, rg, jobName string, cmd []string) {
 
 func acaCreateJobWithImageAndCommand(t *testing.T, rg, jobName, image string, cmd []string) {
 	t.Helper()
+	acaCreateJobWithReplicaTimeout(t, rg, jobName, image, cmd, 5)
+}
+
+// acaCreateJobUntilStopped creates a job whose replica runs until the execution
+// is stopped: it answers SIGTERM at once and otherwise outlasts any test, within
+// the 1800-second replicaTimeout Azure Container Apps defaults to.
+func acaCreateJobUntilStopped(t *testing.T, rg, jobName string) {
+	t.Helper()
+	acaCreateJobWithReplicaTimeout(t, rg, jobName, "mirror.gcr.io/library/alpine:latest",
+		[]string{"sh", "-c", "trap 'exit 143' TERM; sleep 1800 & wait $!"}, 1800)
+}
+
+func acaCreateJobWithReplicaTimeout(t *testing.T, rg, jobName, image string, cmd []string, replicaTimeout int) {
+	t.Helper()
 
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -391,7 +405,7 @@ func acaCreateJobWithImageAndCommand(t *testing.T, rg, jobName, image string, cm
 			"environmentId": acaLogsEnvironmentID(t),
 			"configuration": map[string]any{
 				"triggerType":    "Manual",
-				"replicaTimeout": 5,
+				"replicaTimeout": replicaTimeout,
 			},
 			"template": map[string]any{
 				"containers": []map[string]any{container},

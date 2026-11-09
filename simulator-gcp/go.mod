@@ -29,7 +29,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108000639-c8ca9fe394a7
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261108214326-1b2babaecf10
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261107182651-c6a1de951b56
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/hamba/avro/v2 v2.31.0
@@ -49,7 +49,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.61.1
+	modernc.org/sqlite v1.62.0
 )
 
 require (

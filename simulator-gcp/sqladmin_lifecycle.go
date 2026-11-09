@@ -411,7 +411,7 @@ func (o *sqlHelperOutput) Lines() []string {
 // from a one-shot container of the engine's image that mounts the volume
 // read-only. An instance whose engine never started holds none.
 func sqlStorageUsedBytes(inst SQLInstance) (int64, error) {
-	family, ok := sqlEngineFamily(inst.DatabaseVersion)
+	version, ok := sqlFindEngineVersion(inst.DatabaseVersion)
 	if !ok || sim.RequireContainerRuntime("measuring a Cloud SQL instance's storage") != nil {
 		return 0, nil
 	}
@@ -419,7 +419,7 @@ func sqlStorageUsedBytes(inst SQLInstance) (int64, error) {
 	if !sim.VolumeExists(volume) {
 		return 0, nil
 	}
-	engine := sqlEngine(family)
+	engine := sqlEngine(version)
 	output := &sqlHelperOutput{}
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        engine.Image,
@@ -715,21 +715,16 @@ func sqlPostgresRows(plane *sqlDataPlane, database, query string) ([][]string, e
 }
 
 // sqlMajorVersion splits a databaseVersion into its engine prefix and its
-// major version: POSTGRES_15 is (POSTGRES, 15), MYSQL_8_0_31 is (MYSQL, 8.0).
+// major version: POSTGRES_15 is (POSTGRES, 15), POSTGRES_9_6 is (POSTGRES,
+// 9.6), MYSQL_8_0_31 is (MYSQL, 8.0).
 func sqlMajorVersion(databaseVersion string) (string, string) {
 	engine, rest, _ := strings.Cut(databaseVersion, "_")
-	if engine == "MYSQL" {
-		parts := strings.Split(rest, "_")
-		if len(parts) >= 2 {
-			return engine, parts[0] + "." + parts[1]
-		}
+	parts := strings.Split(rest, "_")
+	if len(parts) >= 2 && (engine == "MYSQL" || parts[0] == "9") {
+		return engine, parts[0] + "." + parts[1]
 	}
 	return engine, rest
 }
-
-// sqlNextMySQLMajor is the consecutive major version each Cloud SQL for MySQL
-// major upgrades to, the only upgrade its precheck checks.
-var sqlNextMySQLMajor = map[string]string{"5.7": "8.0", "8.0": "8.4", "8.4": "9.7"}
 
 // sqlPostgresPreChecks are the checks of Cloud SQL for PostgreSQL's major
 // version upgrade precheck that read the engine, each in every database it
@@ -868,8 +863,8 @@ func handleSQLPreCheckMajorVersionUpgrade(w http.ResponseWriter, r *http.Request
 	}
 	switch currentEngine {
 	case "POSTGRES":
-		currentNumber, currentErr := strconv.Atoi(currentMajor)
-		targetNumber, targetErr := strconv.Atoi(targetMajor)
+		currentNumber, currentErr := strconv.ParseFloat(currentMajor, 64)
+		targetNumber, targetErr := strconv.ParseFloat(targetMajor, 64)
 		if currentErr != nil || targetErr != nil || targetNumber <= currentNumber {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 				"The target database version %s must be a later major version than %s.", target, inst.DatabaseVersion)

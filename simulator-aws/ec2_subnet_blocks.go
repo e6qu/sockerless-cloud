@@ -191,6 +191,7 @@ func ec2DefaultVpcSubnets(vpc EC2Vpc) []EC2Subnet {
 		}
 		subnet := ec2NewDefaultSubnet(ec2ID("subnet"), vpc.VpcId, zone, cidr, true)
 		ec2Subnets.Put(subnet.SubnetId, subnet)
+		ec2AssociateSubnetDefaultNetworkAcl(subnet.SubnetId, vpc.VpcId)
 		subnets = append(subnets, subnet)
 	}
 	return subnets

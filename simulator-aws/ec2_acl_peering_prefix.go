@@ -250,14 +250,17 @@ func networkAclMatchesFilters(acl EC2NetworkAcl, filters map[string][]string) bo
 			if acl.IsDefault != ec2StrInValues("true", vals) {
 				return false
 			}
-		case "association.subnet-id":
-			ok := false
-			for _, a := range acl.Associations {
-				if ec2StrInValues(a.SubnetId, vals) {
-					ok = true
-				}
+		case "owner-id":
+			if !ec2StrInValues(acl.OwnerId, vals) {
+				return false
 			}
-			if !ok {
+		case "association.association-id", "association.network-acl-id", "association.subnet-id":
+			if !networkAclAssociationMatches(acl.Associations, name, vals) {
+				return false
+			}
+		case "entry.cidr", "entry.ipv6-cidr", "entry.egress", "entry.protocol", "entry.rule-action",
+			"entry.rule-number", "entry.port-range.from", "entry.port-range.to", "entry.icmp.type", "entry.icmp.code":
+			if !networkAclEntryMatches(acl.Entries, name, vals) {
 				return false
 			}
 		default:
@@ -269,10 +272,165 @@ func networkAclMatchesFilters(acl EC2NetworkAcl, filters map[string][]string) bo
 	return true
 }
 
+func networkAclAssociationMatches(assocs []EC2NetworkAclAssociation, name string, vals []string) bool {
+	for _, a := range assocs {
+		var v string
+		switch name {
+		case "association.association-id":
+			v = a.NetworkAclAssociationId
+		case "association.network-acl-id":
+			v = a.NetworkAclId
+		default:
+			v = a.SubnetId
+		}
+		if ec2StrInValues(v, vals) {
+			return true
+		}
+	}
+	return false
+}
+
+// networkAclEntryProtocolNames maps the protocol names the entry.protocol
+// filter takes to the numbers an entry stores.
+var networkAclEntryProtocolNames = map[string]string{"tcp": "6", "udp": "17", "icmp": "1", "icmpv6": "58", "all": "-1"}
+
+func networkAclEntryMatches(entries []EC2NetworkAclEntry, name string, vals []string) bool {
+	for _, e := range entries {
+		var candidates []string
+		switch name {
+		case "entry.cidr":
+			candidates = []string{e.CidrBlock}
+		case "entry.ipv6-cidr":
+			candidates = []string{e.Ipv6CidrBlock}
+		case "entry.egress":
+			candidates = []string{strconv.FormatBool(e.Egress)}
+		case "entry.protocol":
+			candidates = []string{e.Protocol}
+			for named, number := range networkAclEntryProtocolNames {
+				if number == e.Protocol {
+					candidates = append(candidates, named)
+				}
+			}
+		case "entry.rule-action":
+			candidates = []string{e.RuleAction}
+		case "entry.rule-number":
+			candidates = []string{strconv.Itoa(e.RuleNumber)}
+		case "entry.port-range.from":
+			if e.HasPortRange {
+				candidates = []string{strconv.Itoa(e.PortRangeFrom)}
+			}
+		case "entry.port-range.to":
+			if e.HasPortRange {
+				candidates = []string{strconv.Itoa(e.PortRangeTo)}
+			}
+		case "entry.icmp.type":
+			if e.HasIcmp {
+				candidates = []string{strconv.Itoa(e.IcmpType)}
+			}
+		case "entry.icmp.code":
+			if e.HasIcmp {
+				candidates = []string{strconv.Itoa(e.IcmpCode)}
+			}
+		}
+		for _, c := range candidates {
+			if c != "" && ec2StrInValues(c, vals) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// A VPC comes with a default network ACL that allows all traffic in and out,
+// IPv6 too when the VPC has an IPv6 block, ahead of the deny-all "*" rules.
+func ec2EnsureDefaultNetworkAcl(vpcID string) string {
+	for _, acl := range ec2NetworkAcls.List() {
+		if acl.VpcId == vpcID && acl.IsDefault {
+			return acl.NetworkAclId
+		}
+	}
+	var entries []EC2NetworkAclEntry
+	for _, egress := range []bool{false, true} {
+		entries = append(entries,
+			EC2NetworkAclEntry{RuleNumber: 100, Protocol: "-1", RuleAction: "allow", Egress: egress, CidrBlock: "0.0.0.0/0"},
+			EC2NetworkAclEntry{RuleNumber: 32767, Protocol: "-1", RuleAction: "deny", Egress: egress, CidrBlock: "0.0.0.0/0"})
+		if len(ec2VpcIpv6Assocs(vpcID)) > 0 {
+			entries = append(entries,
+				EC2NetworkAclEntry{RuleNumber: 101, Protocol: "-1", RuleAction: "allow", Egress: egress, Ipv6CidrBlock: "::/0"},
+				EC2NetworkAclEntry{RuleNumber: 32767, Protocol: "-1", RuleAction: "deny", Egress: egress, Ipv6CidrBlock: "::/0"})
+		}
+	}
+	id := ec2ID("acl")
+	ec2NetworkAcls.Put(id, EC2NetworkAcl{
+		NetworkAclId: id,
+		VpcId:        vpcID,
+		IsDefault:    true,
+		OwnerId:      ec2Owner(),
+		Entries:      entries,
+	})
+	return id
+}
+
+func ec2EnsureDefaultNetworkAcls() {
+	for _, vpc := range ec2Vpcs.List() {
+		ec2EnsureDefaultNetworkAcl(vpc.VpcId)
+	}
+	for _, subnet := range ec2Subnets.List() {
+		ec2AssociateSubnetDefaultNetworkAcl(subnet.SubnetId, subnet.VpcId)
+	}
+}
+
+// A new subnet starts associated with its VPC's default network ACL.
+func ec2AssociateSubnetDefaultNetworkAcl(subnetID, vpcID string) {
+	for _, acl := range ec2NetworkAcls.List() {
+		for _, a := range acl.Associations {
+			if a.SubnetId == subnetID {
+				return
+			}
+		}
+	}
+	aclID := ec2EnsureDefaultNetworkAcl(vpcID)
+	ec2NetworkAcls.Update(aclID, func(acl *EC2NetworkAcl) {
+		acl.Associations = append(acl.Associations, EC2NetworkAclAssociation{
+			NetworkAclAssociationId: ec2ID("aclassoc"),
+			NetworkAclId:            aclID,
+			SubnetId:                subnetID,
+		})
+	})
+}
+
+func ec2DisassociateSubnetNetworkAcl(subnetID string) {
+	for _, acl := range ec2NetworkAcls.List() {
+		for _, a := range acl.Associations {
+			if a.SubnetId != subnetID {
+				continue
+			}
+			ec2NetworkAcls.Update(acl.NetworkAclId, func(cur *EC2NetworkAcl) {
+				kept := cur.Associations[:0]
+				for _, x := range cur.Associations {
+					if x.SubnetId != subnetID {
+						kept = append(kept, x)
+					}
+				}
+				cur.Associations = kept
+			})
+		}
+	}
+}
+
 func handleDeleteNetworkAcl(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("NetworkAclId")
-	if _, ok := ec2NetworkAcls.Get(id); !ok {
+	acl, ok := ec2NetworkAcls.Get(id)
+	if !ok {
 		ec2ErrorXML(w, "InvalidNetworkAclID.NotFound", fmt.Sprintf("The networkAcl ID '%s' does not exist", id), http.StatusBadRequest)
+		return
+	}
+	if acl.IsDefault {
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("cannot delete default network ACL %s", id), http.StatusBadRequest)
+		return
+	}
+	if len(acl.Associations) > 0 {
+		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("The networkAcl '%s' has dependencies and cannot be deleted.", id), http.StatusBadRequest)
 		return
 	}
 	ec2NetworkAcls.Delete(id)

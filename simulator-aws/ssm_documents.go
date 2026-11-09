@@ -19,6 +19,7 @@ type SSMDocumentVersion struct {
 	VersionName     string  `json:"VersionName,omitempty"`
 	Content         string  `json:"Content"`
 	DocumentFormat  string  `json:"DocumentFormat"`
+	SchemaVersion   string  `json:"SchemaVersion,omitempty"`
 	CreatedDate     float64 `json:"CreatedDate"`
 	Status          string  `json:"Status"`
 	StatusInfo      string  `json:"StatusInformation,omitempty"`
@@ -30,7 +31,6 @@ type SSMDocument struct {
 	DisplayName    string               `json:"DisplayName,omitempty"`
 	DocumentType   string               `json:"DocumentType"`
 	DocumentFormat string               `json:"DocumentFormat"`
-	SchemaVersion  string               `json:"SchemaVersion"`
 	TargetType     string               `json:"TargetType,omitempty"`
 	Owner          string               `json:"Owner"`
 	CreatedDate    float64              `json:"CreatedDate"`
@@ -95,7 +95,7 @@ func ssmDocumentDescriptionWire(d SSMDocument, v SSMDocumentVersion) map[string]
 		"DocumentFormat":  v.DocumentFormat,
 		"DocumentVersion": v.DocumentVersion,
 		"VersionName":     v.VersionName,
-		"SchemaVersion":   d.SchemaVersion,
+		"SchemaVersion":   v.SchemaVersion,
 		"TargetType":      d.TargetType,
 		"Owner":           d.Owner,
 		"CreatedDate":     d.CreatedDate,
@@ -106,7 +106,26 @@ func ssmDocumentDescriptionWire(d SSMDocument, v SSMDocumentVersion) map[string]
 		"Hash":            ssmDocHash(v.Content),
 		"HashType":        "Sha256",
 		"PlatformTypes":   []string{"Linux", "Windows", "MacOS"},
-	}, "VersionName", "TargetType", "DisplayName")
+	}, "VersionName", "TargetType", "DisplayName", "SchemaVersion")
+}
+
+// ssmContentSchemaVersion reads the schemaVersion JSON and YAML content names.
+// Content in the TEXT format, such as a change calendar's iCalendar, has none.
+func ssmContentSchemaVersion(w http.ResponseWriter, content, format string) (string, bool) {
+	if strings.EqualFold(format, "TEXT") {
+		return "", true
+	}
+	doc, err := ssmDecodeDocument(content, format)
+	if err != nil {
+		AWSErrorf(w, "InvalidDocumentContent", http.StatusBadRequest, "The content for the document isn't valid: %v", err)
+		return "", false
+	}
+	version := ssmValueString(doc["schemaVersion"])
+	if version == "" {
+		AWSError(w, "InvalidDocumentSchemaVersion", "The document doesn't specify a schemaVersion.", http.StatusBadRequest)
+		return "", false
+	}
+	return version, true
 }
 
 func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
@@ -139,12 +158,17 @@ func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
 	if req.DocumentFormat == "" {
 		req.DocumentFormat = "JSON"
 	}
+	schemaVersion, ok := ssmContentSchemaVersion(w, req.Content, req.DocumentFormat)
+	if !ok {
+		return
+	}
 	now := float64(time.Now().Unix())
 	ver := SSMDocumentVersion{
 		DocumentVersion: "1",
 		VersionName:     req.VersionName,
 		Content:         req.Content,
 		DocumentFormat:  req.DocumentFormat,
+		SchemaVersion:   schemaVersion,
 		CreatedDate:     now,
 		Status:          "Active",
 		ReviewStatus:    "NOT_REVIEWED",
@@ -154,7 +178,6 @@ func handleSSMCreateDocument(w http.ResponseWriter, r *http.Request) {
 		DisplayName:    req.DisplayName,
 		DocumentType:   req.DocumentType,
 		DocumentFormat: req.DocumentFormat,
-		SchemaVersion:  "2.2",
 		TargetType:     req.TargetType,
 		Owner:          awsAccountID(),
 		CreatedDate:    now,
@@ -179,7 +202,7 @@ func handleSSMDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := ssmDocuments.Get(req.Name); !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	ssmDocuments.Delete(req.Name)
@@ -199,7 +222,7 @@ func handleSSMDescribeDocument(w http.ResponseWriter, r *http.Request) {
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)
@@ -227,7 +250,7 @@ func handleSSMGetDocument(w http.ResponseWriter, r *http.Request) {
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)
@@ -281,13 +304,13 @@ func handleSSMListDocuments(w http.ResponseWriter, r *http.Request) {
 			"DocumentFormat":  d.DocumentFormat,
 			"DocumentVersion": def.DocumentVersion,
 			"VersionName":     def.VersionName,
-			"SchemaVersion":   d.SchemaVersion,
+			"SchemaVersion":   def.SchemaVersion,
 			"TargetType":      d.TargetType,
 			"Owner":           d.Owner,
 			"CreatedDate":     d.CreatedDate,
 			"ReviewStatus":    def.ReviewStatus,
 			"PlatformTypes":   []string{"Linux", "Windows", "MacOS"},
-		}, "VersionName", "TargetType", "DisplayName"))
+		}, "VersionName", "TargetType", "DisplayName", "SchemaVersion"))
 	}
 	resp := map[string]any{"DocumentIdentifiers": out}
 	if next != "" {
@@ -309,7 +332,7 @@ func handleSSMListDocumentVersions(w http.ResponseWriter, r *http.Request) {
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	all := make([]SSMDocumentVersion, len(doc.Versions))
@@ -356,7 +379,7 @@ func handleSSMUpdateDocument(w http.ResponseWriter, r *http.Request) {
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	if req.Content == "" {
@@ -374,6 +397,10 @@ func handleSSMUpdateDocument(w http.ResponseWriter, r *http.Request) {
 	if req.DocumentFormat != "" {
 		format = req.DocumentFormat
 	}
+	schemaVersion, ok := ssmContentSchemaVersion(w, req.Content, format)
+	if !ok {
+		return
+	}
 	newVersion := nextSSMDocVersion(doc)
 	now := float64(time.Now().Unix())
 	ver := SSMDocumentVersion{
@@ -381,6 +408,7 @@ func handleSSMUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		VersionName:     req.VersionName,
 		Content:         req.Content,
 		DocumentFormat:  format,
+		SchemaVersion:   schemaVersion,
 		CreatedDate:     now,
 		Status:          "Active",
 		ReviewStatus:    "NOT_REVIEWED",
@@ -446,7 +474,7 @@ func handleSSMUpdateDocumentDefaultVersion(w http.ResponseWriter, r *http.Reques
 	doc, ok := ssmDocuments.Get(req.Name)
 	if !ok {
 		AWSErrorf(w, "InvalidDocument", http.StatusBadRequest,
-			"The specified SSM document doesn't exist.")
+			"Document with name %s does not exist.", req.Name)
 		return
 	}
 	ver, ok := ssmDocVersion(doc, req.DocumentVersion)

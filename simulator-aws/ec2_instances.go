@@ -159,7 +159,7 @@ func ec2InstanceXML(inst EC2Instance) string {
 		ec2PrivateDNSName(inst.PrivateIpAddress), dnsNameXML, reasonXML, keyNameXML, inst.AmiLaunchIndex, inst.InstanceType, inst.LaunchTime,
 		ec2PlacementXML(inst), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
 		inst.Architecture, inst.RootDeviceName, inst.RootDeviceName, "vol-"+strings.TrimPrefix(inst.InstanceId, "i-"), inst.LaunchTime,
-		ec2InstanceLifecycleXML(inst), inst.EbsOptimized, iamXML, metaXML, cpuXML,
+		ec2InstanceLifecycleXML(inst), inst.EbsOptimized, iamXML, metaXML, cpuXML+ec2InstanceCapacityReservationXML(inst),
 		writeTagSetXML(inst.Tags), ni.String())
 }
 

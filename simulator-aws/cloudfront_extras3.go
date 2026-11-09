@@ -21,27 +21,49 @@ type CFDomainResult struct {
 }
 
 type CFDistributionTenant struct {
-	XMLName           xml.Name         `xml:"DistributionTenant"`
-	Xmlns             string           `xml:"xmlns,attr,omitempty"`
-	Id                string           `xml:"Id"`
-	DistributionId    string           `xml:"DistributionId"`
-	Name              string           `xml:"Name"`
-	Arn               string           `xml:"Arn"`
-	Domains           []CFDomainResult `xml:"Domains>member,omitempty"`
-	ConnectionGroupId string           `xml:"ConnectionGroupId,omitempty"`
-	CreatedTime       string           `xml:"CreatedTime"`
-	LastModifiedTime  string           `xml:"LastModifiedTime"`
-	Enabled           bool             `xml:"Enabled"`
-	Status            string           `xml:"Status,omitempty"`
+	XMLName           xml.Name          `xml:"DistributionTenant"`
+	Xmlns             string            `xml:"xmlns,attr,omitempty"`
+	Id                string            `xml:"Id"`
+	DistributionId    string            `xml:"DistributionId"`
+	Name              string            `xml:"Name"`
+	Arn               string            `xml:"Arn"`
+	Domains           []CFDomainResult  `xml:"Domains>member,omitempty"`
+	Customizations    *CFCustomizations `xml:"Customizations,omitempty"`
+	ConnectionGroupId string            `xml:"ConnectionGroupId,omitempty"`
+	CreatedTime       string            `xml:"CreatedTime"`
+	LastModifiedTime  string            `xml:"LastModifiedTime"`
+	Enabled           bool              `xml:"Enabled"`
+	Status            string            `xml:"Status,omitempty"`
+}
+
+type CFCustomizations struct {
+	WebAcl          *CFWebAclCustomization         `xml:"WebAcl,omitempty"`
+	Certificate     *CFTenantCertificate           `xml:"Certificate,omitempty"`
+	GeoRestrictions *CFGeoRestrictionCustomization `xml:"GeoRestrictions,omitempty"`
+}
+
+type CFWebAclCustomization struct {
+	Action string `xml:"Action"`
+	Arn    string `xml:"Arn,omitempty"`
+}
+
+type CFTenantCertificate struct {
+	Arn string `xml:"Arn"`
+}
+
+type CFGeoRestrictionCustomization struct {
+	RestrictionType string   `xml:"RestrictionType"`
+	Locations       []string `xml:"Locations>Location,omitempty"`
 }
 
 type CFDistributionTenantCreateRequest struct {
-	XMLName           xml.Name        `xml:"CreateDistributionTenantRequest"`
-	DistributionId    string          `xml:"DistributionId"`
-	Name              string          `xml:"Name"`
-	Domains           []CFDomainInput `xml:"Domains>member,omitempty"`
-	ConnectionGroupId string          `xml:"ConnectionGroupId,omitempty"`
-	Enabled           *bool           `xml:"Enabled,omitempty"`
+	XMLName           xml.Name          `xml:"CreateDistributionTenantRequest"`
+	DistributionId    string            `xml:"DistributionId"`
+	Name              string            `xml:"Name"`
+	Domains           []CFDomainInput   `xml:"Domains>member,omitempty"`
+	Customizations    *CFCustomizations `xml:"Customizations,omitempty"`
+	ConnectionGroupId string            `xml:"ConnectionGroupId,omitempty"`
+	Enabled           *bool             `xml:"Enabled,omitempty"`
 }
 
 type CFDomainInput struct {
@@ -49,25 +71,27 @@ type CFDomainInput struct {
 }
 
 type CFDistributionTenantUpdateRequest struct {
-	XMLName           xml.Name        `xml:"UpdateDistributionTenantRequest"`
-	DistributionId    string          `xml:"DistributionId,omitempty"`
-	Domains           []CFDomainInput `xml:"Domains>member,omitempty"`
-	ConnectionGroupId string          `xml:"ConnectionGroupId,omitempty"`
-	Enabled           *bool           `xml:"Enabled,omitempty"`
+	XMLName           xml.Name          `xml:"UpdateDistributionTenantRequest"`
+	DistributionId    string            `xml:"DistributionId,omitempty"`
+	Domains           []CFDomainInput   `xml:"Domains>member,omitempty"`
+	Customizations    *CFCustomizations `xml:"Customizations,omitempty"`
+	ConnectionGroupId string            `xml:"ConnectionGroupId,omitempty"`
+	Enabled           *bool             `xml:"Enabled,omitempty"`
 }
 
 type CFDistributionTenantSummary struct {
-	Id                string           `xml:"Id"`
-	DistributionId    string           `xml:"DistributionId"`
-	Name              string           `xml:"Name"`
-	Arn               string           `xml:"Arn"`
-	Domains           []CFDomainResult `xml:"Domains>member,omitempty"`
-	ConnectionGroupId string           `xml:"ConnectionGroupId,omitempty"`
-	CreatedTime       string           `xml:"CreatedTime"`
-	LastModifiedTime  string           `xml:"LastModifiedTime"`
-	ETag              string           `xml:"ETag,omitempty"`
-	Enabled           bool             `xml:"Enabled"`
-	Status            string           `xml:"Status,omitempty"`
+	Id                string            `xml:"Id"`
+	DistributionId    string            `xml:"DistributionId"`
+	Name              string            `xml:"Name"`
+	Arn               string            `xml:"Arn"`
+	Domains           []CFDomainResult  `xml:"Domains>member,omitempty"`
+	ConnectionGroupId string            `xml:"ConnectionGroupId,omitempty"`
+	Customizations    *CFCustomizations `xml:"Customizations,omitempty"`
+	CreatedTime       string            `xml:"CreatedTime"`
+	LastModifiedTime  string            `xml:"LastModifiedTime"`
+	ETag              string            `xml:"ETag,omitempty"`
+	Enabled           bool              `xml:"Enabled"`
+	Status            string            `xml:"Status,omitempty"`
 }
 
 // DistributionTenantList is a flat list of <DistributionTenantSummary>.
@@ -575,6 +599,7 @@ func handleCFCreateTenant(w http.ResponseWriter, r *http.Request) {
 		Name:              req.Name,
 		Arn:               cfTenantARN(id),
 		Domains:           cfDomainResultsFrom(req.Domains),
+		Customizations:    req.Customizations,
 		ConnectionGroupId: req.ConnectionGroupId,
 		CreatedTime:       cfNowISO(),
 		LastModifiedTime:  cfNowISO(),
@@ -635,6 +660,9 @@ func handleCFUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	if req.ConnectionGroupId != "" {
 		stored.Tenant.ConnectionGroupId = req.ConnectionGroupId
 	}
+	if req.Customizations != nil {
+		stored.Tenant.Customizations = req.Customizations
+	}
 	if req.Enabled != nil {
 		stored.Tenant.Enabled = *req.Enabled
 	}
@@ -674,12 +702,19 @@ func handleCFListTenantsByCustomization(w http.ResponseWriter, r *http.Request) 
 		WebACLArn      string   `xml:"WebACLArn"`
 		CertificateArn string   `xml:"CertificateArn"`
 	}
-	_ = xml.NewDecoder(r.Body).Decode(&req)
-	// Tenants carry no customizations in the simulator, so a customization filter
-	// matches nothing.
-	stored := cfTenants.List()
-	if req.WebACLArn != "" || req.CertificateArn != "" {
-		stored = nil
+	if !cfDecodeXML(w, r, "ListDistributionTenantsByCustomizationRequest", &req) {
+		return
+	}
+	stored := []cfStoredTenant{}
+	for _, t := range cfTenants.List() {
+		c := t.Tenant.Customizations
+		if req.WebACLArn != "" && (c == nil || c.WebAcl == nil || c.WebAcl.Arn != req.WebACLArn) {
+			continue
+		}
+		if req.CertificateArn != "" && (c == nil || c.Certificate == nil || c.Certificate.Arn != req.CertificateArn) {
+			continue
+		}
+		stored = append(stored, t)
 	}
 	cfWriteXML(w, http.StatusOK, CFListDistributionTenantsByCustomizationResult{
 		Xmlns:                  cfNamespace,
@@ -698,6 +733,7 @@ func cfTenantSummaries(stored []cfStoredTenant) []CFDistributionTenantSummary {
 			Arn:               t.Arn,
 			Domains:           t.Domains,
 			ConnectionGroupId: t.ConnectionGroupId,
+			Customizations:    t.Customizations,
 			CreatedTime:       t.CreatedTime,
 			LastModifiedTime:  t.LastModifiedTime,
 			ETag:              s.ETag,
@@ -722,6 +758,10 @@ func handleCFAssociateTenantWebACL(w http.ResponseWriter, r *http.Request) {
 	if !cfDecodeXML(w, r, "request", &body) {
 		return
 	}
+	if stored.Tenant.Customizations == nil {
+		stored.Tenant.Customizations = &CFCustomizations{}
+	}
+	stored.Tenant.Customizations.WebAcl = &CFWebAclCustomization{Action: "override", Arn: body.WebACLArn}
 	newETag := cfETag()
 	stored.ETag = newETag
 	stored.Tenant.LastModifiedTime = cfNowISO()
@@ -739,6 +779,9 @@ func handleCFDisassociateTenantWebACL(w http.ResponseWriter, r *http.Request) {
 	}
 	if !cfIfMatches(w, r, stored.ETag) {
 		return
+	}
+	if stored.Tenant.Customizations != nil {
+		stored.Tenant.Customizations.WebAcl = nil
 	}
 	newETag := cfETag()
 	stored.ETag = newETag
@@ -963,8 +1006,20 @@ func handleCFCreateTrustStore(w http.ResponseWriter, r *http.Request) {
 	cfWriteXML(w, http.StatusCreated, ts)
 }
 
+func cfResolveTrustStore(identifier string) (cfStoredTrustStore, bool) {
+	if stored, ok := cfTrustStores.Get(identifier); ok {
+		return stored, true
+	}
+	for _, stored := range cfTrustStores.List() {
+		if stored.Store.Arn == identifier {
+			return stored, true
+		}
+	}
+	return cfStoredTrustStore{}, false
+}
+
 func handleCFGetTrustStore(w http.ResponseWriter, r *http.Request) {
-	stored, ok := cfTrustStores.Get(r.PathValue("Identifier"))
+	stored, ok := cfResolveTrustStore(r.PathValue("Identifier"))
 	if !ok {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The trust store does not exist.")
 		return
@@ -1033,8 +1088,24 @@ func handleCFListTrustStores(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleCFListDistributionsByTrustStore(w http.ResponseWriter, r *http.Request) {
-	// No distribution references a trust store in the simulator.
-	cfWriteDistributionList(w, nil)
+	identifier := r.URL.Query().Get("TrustStoreIdentifier")
+	if identifier == "" {
+		cfWriteError(w, http.StatusBadRequest, "InvalidArgument", "TrustStoreIdentifier query parameter is required")
+		return
+	}
+	stored, ok := cfResolveTrustStore(identifier)
+	if !ok {
+		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The specified trust store does not exist.")
+		return
+	}
+	matches := []cfStoredDistribution{}
+	for _, d := range cfDistributions.List() {
+		m := d.Distribution.DistributionConfig.ViewerMtlsConfig
+		if m != nil && m.TrustStoreConfig != nil && m.TrustStoreConfig.TrustStoreId == stored.Store.Id {
+			matches = append(matches, d)
+		}
+	}
+	cfWriteDistributionList(w, matches)
 }
 
 func handleCFGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
@@ -1257,6 +1328,11 @@ func cfDistributionSummaryOf(d CFDistribution) CFDistributionSummary {
 		Enabled:              c.Enabled,
 		WebACLId:             c.WebACLId,
 		HttpVersion:          c.HttpVersion,
+		ConnectionMode:       c.ConnectionMode,
+		AnycastIpListId:      c.AnycastIpListId,
+		ViewerMtlsConfig:     c.ViewerMtlsConfig,
+
+		ConnectionFunctionAssociation: c.ConnectionFunctionAssociation,
 	}
 	if c.ViewerCertificate != nil {
 		s.ViewerCertificate = *c.ViewerCertificate
@@ -1358,9 +1434,11 @@ func cfDistMatchesKeyGroup(id string, d CFDistribution) bool {
 }
 
 func cfDistMatchesVpcOrigin(id string, d CFDistribution) bool {
-	// The modelled Origin carries no VpcOriginConfig, so nothing matches.
-	_ = id
-	_ = d
+	for _, o := range d.DistributionConfig.Origins.Items {
+		if o.VpcOriginConfig != nil && o.VpcOriginConfig.VpcOriginId == id {
+			return true
+		}
+	}
 	return false
 }
 

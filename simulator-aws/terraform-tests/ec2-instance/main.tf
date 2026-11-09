@@ -117,12 +117,35 @@ resource "aws_ami_from_instance" "golden" {
   source_instance_id = aws_instance.golden.id
 }
 
+# The clone runs in a targeted Capacity Reservation, taking its one slot.
+resource "aws_ec2_capacity_reservation" "clone" {
+  instance_type           = "t3.micro"
+  instance_platform       = "Linux/UNIX"
+  availability_zone       = aws_subnet.main.availability_zone
+  instance_count          = 1
+  instance_match_criteria = "targeted"
+}
+
 resource "aws_instance" "clone" {
   ami           = aws_ami_from_instance.golden.id
   instance_type = "t3.micro"
   subnet_id     = aws_subnet.main.id
 
   instance_initiated_shutdown_behavior = "terminate"
+
+  capacity_reservation_specification {
+    capacity_reservation_target {
+      capacity_reservation_id = aws_ec2_capacity_reservation.clone.id
+    }
+  }
+}
+
+output "capacity_reservation_id" {
+  value = aws_ec2_capacity_reservation.clone.id
+}
+
+output "clone_capacity_reservation_id" {
+  value = aws_instance.clone.capacity_reservation_specification[0].capacity_reservation_target[0].capacity_reservation_id
 }
 
 output "ami_name" {

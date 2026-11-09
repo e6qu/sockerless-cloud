@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,9 +65,25 @@ func TestCompute_TestIamPermissionsAnswersFromThePolicy(t *testing.T) {
 
 func TestCompute_TestIamPermissionsAcrossCollections(t *testing.T) {
 	t.Parallel()
-	svc := computeService(t)
 	const project, region, zone = "iam-verbs", "us-central1", "us-central1-a"
+	ensureProject(t, project)
+	svc := computeService(t)
 	want := &compute.TestPermissionsRequest{Permissions: []string{"compute.instances.get"}}
+
+	_, err := svc.TargetSslProxies.Insert(project, &compute.TargetSslProxy{Name: "proxy"}).Do()
+	require.NoError(t, err)
+	_, err = svc.NodeTemplates.Insert(project, region, &compute.NodeTemplate{Name: "template"}).Do()
+	require.NoError(t, err)
+	_, err = svc.TargetInstances.Insert(project, zone, &compute.TargetInstance{Name: "target"}).Do()
+	require.NoError(t, err)
+	_, err = svc.HttpHealthChecks.Insert(project, &compute.HttpHealthCheck{Name: "http-check"}).Do()
+	require.NoError(t, err)
+	_, err = svc.Autoscalers.Insert(project, zone, &compute.Autoscaler{Name: "scaler"}).Do()
+	require.NoError(t, err)
+	_, err = svc.NetworkEndpointGroups.Insert(project, zone, &compute.NetworkEndpointGroup{Name: "neg"}).Do()
+	require.NoError(t, err)
+	_, err = svc.VpnGateways.Insert(project, region, &compute.VpnGateway{Name: "gateway"}).Do()
+	require.NoError(t, err)
 
 	// A permission check answers for the resource it names, whatever scope the
 	// collection sits in.
@@ -92,14 +109,29 @@ func TestCompute_TestIamPermissionsAcrossCollections(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.VpnGateways.TestIamPermissions(project, region, "gateway", want).Do()
 	require.NoError(t, err)
+
+	// A resource never created answers the 404 its collection's get answers.
+	_, missingGet := svc.TargetSslProxies.Get(project, "never-created").Do()
+	requireGoogleAPICode(t, missingGet, http.StatusNotFound)
+	_, missingCheck := svc.TargetSslProxies.TestIamPermissions(project, "never-created", want).Do()
+	requireGoogleAPICode(t, missingCheck, http.StatusNotFound)
+	assert.Equal(t, missingGet.Error(), missingCheck.Error())
+	_, err = svc.NodeTemplates.SetIamPolicy(project, region, "never-created",
+		&compute.RegionSetPolicyRequest{Policy: &compute.Policy{}}).Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
+	_, err = svc.NodeTemplates.GetIamPolicy(project, region, "never-created").Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
 }
 
 func TestCompute_NodeTemplateIamPolicyRoundTrips(t *testing.T) {
 	t.Parallel()
-	svc := computeService(t)
 	const project, region, name = "iam-templates", "us-central1", "tenant"
+	ensureProject(t, project)
+	svc := computeService(t)
+	_, err := svc.NodeTemplates.Insert(project, region, &compute.NodeTemplate{Name: name}).Do()
+	require.NoError(t, err)
 
-	_, err := svc.NodeTemplates.SetIamPolicy(project, region, name,
+	_, err = svc.NodeTemplates.SetIamPolicy(project, region, name,
 		&compute.RegionSetPolicyRequest{Policy: &compute.Policy{
 			Bindings: []*compute.Binding{{
 				Role: "roles/compute.admin", Members: []string{"user:admin@example.com"},
@@ -119,10 +151,15 @@ func TestCompute_NodeTemplateIamPolicyRoundTrips(t *testing.T) {
 // own method, and a tail that is neither has to be refused.
 func TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther(t *testing.T) {
 	t.Parallel()
-	svc := computeService(t)
 	const project, name = "iam-images", "golden"
+	ensureProject(t, project)
+	svc := computeService(t)
+	_, err := svc.Images.Insert(project, &compute.Image{
+		Name: name, SourceImage: "projects/debian-cloud/global/images/family/debian-12",
+	}).Do()
+	require.NoError(t, err)
 
-	_, err := svc.Images.SetIamPolicy(project, name, &compute.GlobalSetPolicyRequest{
+	_, err = svc.Images.SetIamPolicy(project, name, &compute.GlobalSetPolicyRequest{
 		Policy: &compute.Policy{Bindings: []*compute.Binding{{
 			Role: "roles/compute.imageUser", Members: []string{"user:reader@example.com"},
 		}}},
@@ -143,4 +180,7 @@ func TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther(t *testin
 	_, err = svc.Images.TestIamPermissions(project, name,
 		&compute.TestPermissionsRequest{Permissions: []string{"compute.images.get"}}).Do()
 	require.NoError(t, err)
+
+	_, err = svc.Images.GetIamPolicy(project, "never-created").Do()
+	requireGoogleAPICode(t, err, http.StatusNotFound)
 }

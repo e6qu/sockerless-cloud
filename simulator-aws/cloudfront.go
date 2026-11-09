@@ -44,8 +44,25 @@ type CFDistributionConfig struct {
 	Staging              *bool                `xml:"Staging,omitempty"`
 	// ListDistributionsByAnycastIpListId and ListDistributionsByConnectionMode
 	// select on these; ConnectionMode defaults to "direct".
-	AnycastIpListId string `xml:"AnycastIpListId,omitempty"`
-	ConnectionMode  string `xml:"ConnectionMode,omitempty"`
+	AnycastIpListId               string                           `xml:"AnycastIpListId,omitempty"`
+	ConnectionMode                string                           `xml:"ConnectionMode,omitempty"`
+	ViewerMtlsConfig              *CFViewerMtlsConfig              `xml:"ViewerMtlsConfig,omitempty"`
+	ConnectionFunctionAssociation *CFConnectionFunctionAssociation `xml:"ConnectionFunctionAssociation,omitempty"`
+}
+
+type CFViewerMtlsConfig struct {
+	Mode             string              `xml:"Mode,omitempty"`
+	TrustStoreConfig *CFTrustStoreConfig `xml:"TrustStoreConfig,omitempty"`
+}
+
+type CFTrustStoreConfig struct {
+	TrustStoreId               string `xml:"TrustStoreId"`
+	AdvertiseTrustStoreCaNames *bool  `xml:"AdvertiseTrustStoreCaNames,omitempty"`
+	IgnoreCertificateExpiry    *bool  `xml:"IgnoreCertificateExpiry,omitempty"`
+}
+
+type CFConnectionFunctionAssociation struct {
+	Id string `xml:"Id"`
 }
 
 type CFAliases struct {
@@ -65,10 +82,18 @@ type CFOrigin struct {
 	CustomHeaders         *CFCustomHeaders      `xml:"CustomHeaders,omitempty"`
 	S3OriginConfig        *CFS3OriginConfig     `xml:"S3OriginConfig,omitempty"`
 	CustomOriginConfig    *CFCustomOriginConfig `xml:"CustomOriginConfig,omitempty"`
+	VpcOriginConfig       *CFVpcOriginConfig    `xml:"VpcOriginConfig,omitempty"`
 	ConnectionAttempts    *int                  `xml:"ConnectionAttempts,omitempty"`
 	ConnectionTimeout     *int                  `xml:"ConnectionTimeout,omitempty"`
 	OriginShield          *CFOriginShield       `xml:"OriginShield,omitempty"`
 	OriginAccessControlId string                `xml:"OriginAccessControlId,omitempty"`
+}
+
+type CFVpcOriginConfig struct {
+	VpcOriginId            string `xml:"VpcOriginId"`
+	OwnerAccountId         string `xml:"OwnerAccountId,omitempty"`
+	OriginReadTimeout      *int   `xml:"OriginReadTimeout,omitempty"`
+	OriginKeepaliveTimeout *int   `xml:"OriginKeepaliveTimeout,omitempty"`
 }
 
 type CFCustomHeaders struct {
@@ -334,27 +359,31 @@ type CFDistributionList struct {
 
 // The list shape inlines the distribution's fields flat.
 type CFDistributionSummary struct {
-	Id                   string               `xml:"Id"`
-	ARN                  string               `xml:"ARN"`
-	Status               string               `xml:"Status"`
-	LastModifiedTime     string               `xml:"LastModifiedTime"`
-	DomainName           string               `xml:"DomainName"`
-	Aliases              *CFAliases           `xml:"Aliases,omitempty"`
-	Origins              CFOrigins            `xml:"Origins"`
-	OriginGroups         *CFOriginGroups      `xml:"OriginGroups,omitempty"`
-	DefaultCacheBehavior CFCacheBehavior      `xml:"DefaultCacheBehavior"`
-	CacheBehaviors       *CFCacheBehaviors    `xml:"CacheBehaviors,omitempty"`
-	CustomErrorResponses *CFCustomErrors      `xml:"CustomErrorResponses,omitempty"`
-	Comment              string               `xml:"Comment"`
-	PriceClass           string               `xml:"PriceClass,omitempty"`
-	Enabled              bool                 `xml:"Enabled"`
-	ViewerCertificate    CFViewerCertificate  `xml:"ViewerCertificate"`
-	Restrictions         CFRestrictions       `xml:"Restrictions"`
-	WebACLId             string               `xml:"WebACLId,omitempty"`
-	HttpVersion          string               `xml:"HttpVersion,omitempty"`
-	IsIPV6Enabled        bool                 `xml:"IsIPV6Enabled"`
-	Staging              bool                 `xml:"Staging"`
-	AliasICPRecordals    *CFAliasICPRecordals `xml:"AliasICPRecordals,omitempty"`
+	Id                            string                           `xml:"Id"`
+	ARN                           string                           `xml:"ARN"`
+	Status                        string                           `xml:"Status"`
+	LastModifiedTime              string                           `xml:"LastModifiedTime"`
+	DomainName                    string                           `xml:"DomainName"`
+	Aliases                       *CFAliases                       `xml:"Aliases,omitempty"`
+	Origins                       CFOrigins                        `xml:"Origins"`
+	OriginGroups                  *CFOriginGroups                  `xml:"OriginGroups,omitempty"`
+	DefaultCacheBehavior          CFCacheBehavior                  `xml:"DefaultCacheBehavior"`
+	CacheBehaviors                *CFCacheBehaviors                `xml:"CacheBehaviors,omitempty"`
+	CustomErrorResponses          *CFCustomErrors                  `xml:"CustomErrorResponses,omitempty"`
+	Comment                       string                           `xml:"Comment"`
+	PriceClass                    string                           `xml:"PriceClass,omitempty"`
+	Enabled                       bool                             `xml:"Enabled"`
+	ViewerCertificate             CFViewerCertificate              `xml:"ViewerCertificate"`
+	Restrictions                  CFRestrictions                   `xml:"Restrictions"`
+	WebACLId                      string                           `xml:"WebACLId,omitempty"`
+	HttpVersion                   string                           `xml:"HttpVersion,omitempty"`
+	IsIPV6Enabled                 bool                             `xml:"IsIPV6Enabled"`
+	Staging                       bool                             `xml:"Staging"`
+	AliasICPRecordals             *CFAliasICPRecordals             `xml:"AliasICPRecordals,omitempty"`
+	ConnectionMode                string                           `xml:"ConnectionMode,omitempty"`
+	AnycastIpListId               string                           `xml:"AnycastIpListId,omitempty"`
+	ViewerMtlsConfig              *CFViewerMtlsConfig              `xml:"ViewerMtlsConfig,omitempty"`
+	ConnectionFunctionAssociation *CFConnectionFunctionAssociation `xml:"ConnectionFunctionAssociation,omitempty"`
 }
 
 type CFTags struct {

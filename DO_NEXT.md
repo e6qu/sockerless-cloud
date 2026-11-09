@@ -24,8 +24,9 @@
   `docs/so-you-want-to-build-a-cloud.md` into a presentation. Keep its gap list
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
-- **Core-service gaps.** Azure Managed Disks, Cloud Monitoring (BUG-3522)
-  and Filestore; the managed caches' remaining gaps (BUG-3835, BUG-3840 and BUG-3845).
+- **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
+  Cloud Monitoring (BUG-3522) and Filestore; the managed caches' remaining
+  gaps (BUG-3835, BUG-3840 and BUG-3845).
 - **M4: the remaining cleanups.** The AWS ARN builder and parser and the
   tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
   clone groups `dupl` finds at 120 tokens, then lowering

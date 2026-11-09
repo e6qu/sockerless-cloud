@@ -1,13 +1,16 @@
 package aws_sdk_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cttypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,12 +111,62 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 		_, _ = ct.DeleteEventDataStore(ctx, &cloudtrail.DeleteEventDataStoreInput{EventDataStore: aws.String(eds)})
 	})
 
-	// A store holds the events recorded after its creation.
-	_, err = ec2Client().DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+	// FROM names the store by the ID portion of its ARN.
+	edsID := eds[strings.LastIndex(eds, "/")+1:]
+
+	// A dedicated access key tells this test's calls apart from the parallel
+	// suite's in the shared store.
+	iamc := iamClient()
+	user := uniquename.New("lake-query")
+	_, err = iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = iamc.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)}) })
+	_, err = iamc.PutUserPolicy(ctx, &iam.PutUserPolicyInput{
+		UserName:       aws.String(user),
+		PolicyName:     aws.String("describe"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:Describe*","Resource":"*"}]}`),
+	})
+	require.NoError(t, err)
+	key, err := iamc.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String(user)})
+	require.NoError(t, err)
+	keyID := aws.ToString(key.AccessKey.AccessKeyId)
+	cfg := sdkConfig()
+	cfg.Credentials = credentials.NewStaticCredentialsProvider(keyID, aws.ToString(key.AccessKey.SecretAccessKey), "")
+	scoped := ec2.NewFromConfig(cfg, func(o *ec2.Options) { o.BaseEndpoint = aws.String(baseURL) })
+
+	// A store holds the events recorded after its creation.
+	for range 2 {
+		_, err = scoped.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+		require.NoError(t, err)
+	}
+	_, err = scoped.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{})
+	require.NoError(t, err)
+	byKey := " userIdentity.accessKeyId = '" + keyID + "'"
+
+	runQuery := func(statement string) [][]map[string]string {
+		t.Helper()
+		started, err := ct.StartQuery(ctx, &cloudtrail.StartQueryInput{QueryStatement: aws.String(statement)})
+		require.NoError(t, err)
+		res, err := ct.GetQueryResults(ctx, &cloudtrail.GetQueryResultsInput{QueryId: started.QueryId})
+		require.NoError(t, err)
+		return res.QueryResultRows
+	}
+	counts := runQuery("SELECT eventName, COUNT(*) AS calls FROM " + edsID +
+		" WHERE" + byKey + " AND eventSource = 'ec2.amazonaws.com' AND eventName IN ('DescribeVpcs', 'DescribeSubnets')" +
+		" GROUP BY eventName ORDER BY calls DESC, eventName")
+	assert.Equal(t, [][]map[string]string{
+		{{"eventName": "DescribeVpcs"}, {"calls": "2"}},
+		{{"eventName": "DescribeSubnets"}, {"calls": "1"}},
+	}, counts)
+	like := runQuery("SELECT DISTINCT eventName FROM " + edsID + " WHERE" + byKey + " AND eventName LIKE 'Describe%' AND NOT eventName = 'DescribeVpcs' LIMIT 5")
+	assert.Equal(t, [][]map[string]string{{{"eventName": "DescribeSubnets"}}}, like)
+
+	_, err = ct.StartQuery(ctx, &cloudtrail.StartQueryInput{QueryStatement: aws.String("DELETE FROM " + edsID)})
+	var invalid *cttypes.InvalidQueryStatementException
+	require.ErrorAs(t, err, &invalid, "only SELECT statements are allowed")
 
 	started, err := ct.StartQuery(ctx, &cloudtrail.StartQueryInput{
-		QueryStatement: aws.String("SELECT eventName, eventSource FROM " + eds + " WHERE eventName = 'DescribeVpcs'"),
+		QueryStatement: aws.String("SELECT eventName, eventSource FROM " + edsID + " WHERE eventName = 'DescribeVpcs'"),
 	})
 	require.NoError(t, err)
 	qid := aws.ToString(started.QueryId)
@@ -130,7 +183,7 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 	require.NotEmpty(t, res.QueryResultRows, "the store must hold the DescribeVpcs call made after it was created")
 
 	_, err = ct.StartQuery(ctx, &cloudtrail.StartQueryInput{
-		QueryStatement: aws.String("SELECT eventName FROM arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/never-created"),
+		QueryStatement: aws.String("SELECT eventName FROM 00000000-0000-4000-8000-000000000000"),
 	})
 	var notFound *cttypes.EventDataStoreNotFoundException
 	require.ErrorAs(t, err, &notFound)

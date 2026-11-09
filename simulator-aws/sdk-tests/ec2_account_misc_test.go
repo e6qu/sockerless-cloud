@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -385,10 +386,40 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 	acl2ID := aws.ToString(acl2.NetworkAcl.NetworkAclId)
 	defer func() { _, _ = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: aws.String(acl2ID)}) }()
 
-	// Seed with an association ID made up from the subnet ID, which the simulator
-	// accepts, then check the real ID round-trips through DescribeNetworkAcls.
+	// A new subnet starts on the VPC's default network ACL.
+	byDefault, err := c.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{Filters: []types.Filter{
+		{Name: aws.String("association.subnet-id"), Values: []string{subnetID}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, byDefault.NetworkAcls, 1)
+	defaultACL := byDefault.NetworkAcls[0]
+	assert.True(t, aws.ToBool(defaultACL.IsDefault))
+	assert.Equal(t, aws.ToString(vpc.Vpc.VpcId), aws.ToString(defaultACL.VpcId))
+	allows := map[bool]bool{}
+	for _, e := range defaultACL.Entries {
+		if aws.ToInt32(e.RuleNumber) == 100 && e.RuleAction == types.RuleActionAllow && aws.ToString(e.CidrBlock) == "0.0.0.0/0" {
+			allows[aws.ToBool(e.Egress)] = true
+		}
+	}
+	assert.Equal(t, map[bool]bool{false: true, true: true}, allows, "the default ACL allows all traffic in and out")
+	var defaultAssocID string
+	for _, a := range defaultACL.Associations {
+		if aws.ToString(a.SubnetId) == subnetID {
+			defaultAssocID = aws.ToString(a.NetworkAclAssociationId)
+		}
+	}
+	require.NotEmpty(t, defaultAssocID)
+
+	_, err = c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{
+		AssociationId: aws.String("aclassoc-0123456789abcdef0"),
+		NetworkAclId:  aws.String(acl1ID),
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidAssociationID.NotFound", apiErr.ErrorCode())
+
 	seedAssoc, err := c.ReplaceNetworkAclAssociation(ctx, &ec2.ReplaceNetworkAclAssociationInput{
-		AssociationId: aws.String("aclassoc-seed-" + subnetID),
+		AssociationId: aws.String(defaultAssocID),
 		NetworkAclId:  aws.String(acl1ID),
 	})
 	require.NoError(t, err)
@@ -413,6 +444,17 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "new association must live on the target ACL")
+
+	_, err = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: aws.String(acl2ID)})
+	require.ErrorAs(t, err, &apiErr, "an ACL associated with a subnet cannot be deleted")
+	assert.Equal(t, "DependencyViolation", apiErr.ErrorCode())
+	_, err = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: defaultACL.NetworkAclId})
+	require.ErrorAs(t, err, &apiErr, "the default ACL cannot be deleted")
+
+	_, err = c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+	require.NoError(t, err)
+	_, err = c.DeleteNetworkAcl(ctx, &ec2.DeleteNetworkAclInput{NetworkAclId: aws.String(acl2ID)})
+	require.NoError(t, err, "deleting the subnet ends its association")
 }
 
 func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
@@ -463,6 +505,18 @@ func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cert.VpnConnection)
 	assert.Equal(t, connID, aws.ToString(cert.VpnConnection.VpnConnectionId))
+	for _, tel := range cert.VpnConnection.VgwTelemetry {
+		if aws.ToString(tel.OutsideIpAddress) == outsideIP {
+			assert.Equal(t, conn.VpnConnection.VgwTelemetry[0].Status, tel.Status, "rotating the certificate keeps the tunnel's status")
+		}
+	}
+	_, err = c.ModifyVpnTunnelCertificate(ctx, &ec2.ModifyVpnTunnelCertificateInput{
+		VpnConnectionId:           aws.String(connID),
+		VpnTunnelOutsideIpAddress: aws.String("192.0.2.250"),
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr, "a tunnel the connection does not have is refused")
+	assert.Equal(t, "InvalidParameterValue", apiErr.ErrorCode())
 
 	repl, err := c.ReplaceVpnTunnel(ctx, &ec2.ReplaceVpnTunnelInput{
 		VpnConnectionId:           aws.String(connID),
