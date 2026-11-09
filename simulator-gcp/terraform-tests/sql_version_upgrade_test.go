@@ -29,7 +29,7 @@ func TestTerraformCloudSQLMajorVersionUpgrade(t *testing.T) {
 
 	out, err = runTimed(t, "terraform apply (upgrade)", terraformCmdInDir(fixtureDir, append([]string{"apply", "-auto-approve", "-no-color"}, version("POSTGRES_16")...)...))
 	require.NoError(t, err, "terraform apply with POSTGRES_16 failed:\n%s", out)
-	assert.Contains(t, out, "0 added, 1 changed, 0 destroyed", "the upgrade happens in place")
+	assert.Contains(t, string(out), "0 added, 1 changed, 0 destroyed", "the upgrade happens in place")
 	assert.Equal(t, "POSTGRES_16", readOutputsInDir(t, fixtureDir).must(t, "database_version"))
 
 	out, err = runTimed(t, "terraform plan", terraformCmdInDir(fixtureDir, append([]string{"plan", "-detailed-exitcode"}, version("POSTGRES_16")...)...))
