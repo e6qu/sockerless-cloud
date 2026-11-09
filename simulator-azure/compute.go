@@ -212,6 +212,7 @@ func registerCompute(srv *sim.Server) {
 	registerVirtualMachineImages(srv)
 	registerEdgeZoneVirtualMachineImages(srv)
 	registerComputeImages(srv)
+	registerComputeGalleries(srv)
 	registerPublicIPAddresses(srv)
 	registerPublicIPPrefixes(srv)
 	registerLoadBalancers(srv)

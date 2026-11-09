@@ -2087,6 +2087,26 @@ fails once the row closes or the operation is served.
   simulator without a state directory sweeps only its own run's machines at
   shutdown: the engine lists every simulator's, and one CLI test's shutdown
   had removed a concurrent test's running machine.
+- **Azure Compute Gallery.** GalleryRP's `gallery.json` (2023-07-03, the
+  version terraform-provider-azurerm's image versions speak) is vendored and
+  galleries, image definitions and image versions served against it, with the
+  creation-only members of a definition (`osType`, `osState`,
+  `hyperVGeneration`, `architecture`, `identifier`) and a version's source
+  refused as changes. A version's OS disk is an OCI image recorded in the same
+  `azureImageBackings` table a managed image uses, so `imageReference.id`
+  resolves a version as it resolves a managed image: captured from a machine
+  through `machine.Manager.Capture` in a background operation (generalized for
+  a Generalized definition, never generalized for a Specialized one), or copied
+  from a managed image, another version or a captured VHD blob. The image
+  definition's id resolves to the highest version not excluded from latest in
+  the machine's region, as the Compute Gallery documentation directs, and a
+  machine from a Specialized version refuses an `osProfile`. `az sig ... update`
+  reads the version and PUTs it back without `storageProfile.source`, which
+  Azure reads as no change, so only a source the write names counts as
+  changed. Gallery applications, sharing, community galleries, soft delete,
+  data disk images and disk or snapshot sources answer a declared 501.
+  Managed images and the three gallery types are tracked resources, so a
+  resource group's list, tags and delete reach them.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever

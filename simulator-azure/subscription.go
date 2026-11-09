@@ -35,7 +35,7 @@ var azureProviderResourceTypes = map[string][]string{
 	"Microsoft.App":                 {"managedEnvironments", "containerApps", "jobs"},
 	"Microsoft.Authorization":       {"roleAssignments"},
 	"Microsoft.Cache":               {"Redis", "Redis/firewallRules"},
-	"Microsoft.Compute":             {"virtualMachines", "virtualMachines/instanceView", "disks"},
+	"Microsoft.Compute":             {"virtualMachines", "virtualMachines/instanceView", "disks", "images", "galleries", "galleries/images", "galleries/images/versions"},
 	"Microsoft.ContainerRegistry":   {"registries"},
 	"Microsoft.DBforPostgreSQL":     {"flexibleServers", "flexibleServers/databases", "flexibleServers/firewallRules", "flexibleServers/configurations"},
 	"Microsoft.EventGrid":           {"topics", "domains", "domains/topics", "systemTopics", "partnerTopics", "eventSubscriptions"},

@@ -117,6 +117,10 @@ var azureTrackedResources = map[string]azureTrackedResource{
 	"microsoft.compute/virtualmachines":            azureTracked(func() sim.Store[VirtualMachine] { return azureVMs }),
 	"microsoft.compute/disks":                      azureTracked(func() sim.Store[ManagedDisk] { return azureDisks }),
 	"microsoft.compute/virtualmachines/extensions": azureTracked(func() sim.Store[VirtualMachineExtension] { return azureVMExtensions }),
+	"microsoft.compute/images":                     azureTracked(func() sim.Store[ComputeImage] { return azureComputeImages }),
+	"microsoft.compute/galleries":                  azureTracked(func() sim.Store[Gallery] { return azureGalleries }),
+	"microsoft.compute/galleries/images":           azureTracked(func() sim.Store[GalleryImage] { return azureGalleryImages }),
+	"microsoft.compute/galleries/images/versions":  azureTracked(func() sim.Store[GalleryImageVersion] { return azureGalleryImageVersions }),
 
 	"microsoft.app/managedenvironments":                     azureTracked(func() sim.Store[ContainerAppEnvironment] { return acaEnvironments }),
 	"microsoft.app/containerapps":                           azureTracked(func() sim.Store[ContainerApp] { return acaApps }),

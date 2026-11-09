@@ -37,7 +37,8 @@
 - **Azure.** Close the Azure service gaps the M2 work left in view: Event
   Grid's Azure Functions, Event Hubs and Hybrid Connections destinations
   (BUG-3535), the Functions host's other stacks (BUG-3237), Azure Compute
-  Gallery (BUG-3504) and Azure Container Registry cache rules (BUG-3612).
+  Gallery applications and sharing (BUG-3932) and Azure Container Registry
+  cache rules (BUG-3612).
 - **Follow-ups of the M2 libraries.** Reset an AWS Lambda
   environment in place (BUG-3700), keep an event source mapping's qualifier
   (BUG-3701), and serve DynamoDB Streams as a `funcrt` source (BUG-3603);

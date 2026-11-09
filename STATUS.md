@@ -148,8 +148,8 @@ Shared mechanisms, one package each:
   method's sourced permission and the policies on the resource and its
   ancestors; the bootstrap account is an Owner through an organization-level
   `roles/owner` binding.
-- **Azure**: 2,653 of 2,660 Swagger operations across 122 documents are
-  served; the seven others answer a declared 501.
+- **Azure**: 2,669 of 2,687 Swagger operations across 123 documents are
+  served; the eighteen others answer a declared 501.
 - **Coverage ratchets** hold a served floor and every document's declared
   total, refuse phantom coverage (a served method must reach a route naming
   its literal path segments), and require every unserved operation to answer

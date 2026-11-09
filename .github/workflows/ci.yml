@@ -1603,6 +1603,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformManagedDiskAttachment
             timeout_minutes: 12
+          - suite: azure compute gallery
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformComputeGalleryCapturesAMachine
+            timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
             tf_timeout: 600s

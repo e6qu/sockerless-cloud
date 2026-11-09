@@ -62,6 +62,7 @@ var azureDeclaredOperationTotals = map[string]int{
 	"compute-arm-virtualmachine-2024-07-01":                           30,
 	"compute-arm-computerpcommon-2024-07-01":                          3,
 	"compute-arm-disk-2023-04-02":                                     8,
+	"compute-arm-gallery-2023-07-03":                                  27,
 	"containerinstance-arm-containerinstance-2021-10-01":              18,
 	"containerregistry-arm-containerregistry-2023-07-01":              52,
 	"containerregistry-arm-containerregistry-2025-11-01":              58,
@@ -179,7 +180,11 @@ var azureMethodFloor = map[string]int{
 	"compute-arm-virtualmachine-2024-07-01":      30,
 	// GrantAccess and RevokeAccess are a declared 501: the simulator keeps a disk
 	// as a filesystem, not the VHD a shared access signature reads or writes.
-	"compute-arm-disk-2023-04-02":                            6,
+	"compute-arm-disk-2023-04-02": 6,
+	// The gallery applications and sharing are a declared 501: the simulator
+	// installs no gallery applications and serves no SharedGalleries or
+	// CommunityGalleries APIs.
+	"compute-arm-gallery-2023-07-03":                         16,
 	"containerinstance-arm-containerinstance-2021-10-01":     18,
 	"containerregistry-arm-containerregistry-2023-07-01":     52,
 	"containerregistry-arm-containerregistry-2025-11-01":     58,
