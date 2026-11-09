@@ -1947,7 +1947,7 @@ jobs:
         timeout-minutes: 10
 
   ui-browser:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: browser (${{ matrix.package }})
     # The release scripts/install-passt.sh takes pasta and its AppArmor
@@ -1967,6 +1967,32 @@ jobs:
       - uses: ./.github/actions/install-go
         with:
           cache: 'true'
+      # The suite's simulator runs real workloads (a Compute Engine VM, an
+      # Amazon ECS task), and the first one pulls the images the simulator
+      # builds and runs them from; restoring them keeps that pull out of a
+      # test's wait.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh ${{ matrix.package }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "cloud=${PACKAGE#simulator-}" >> "$GITHUB_OUTPUT"
+        env:
+          PACKAGE: ${{ matrix.package }}
+      - name: Restore the base images
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ steps.base-images-list.outputs.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ steps.base-images-list.outputs.cloud }}-
+      - name: Load or fetch the base images
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh --load-only ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile

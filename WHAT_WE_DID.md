@@ -2381,6 +2381,10 @@ module proxy lists as newest, so a slow proxy costs a job only the listing;
 `install-go` logs how long the listing and a download took, because one job
 once spent 3m44s in a single step that did both and the log could not say
 which.
+The browser jobs load their cloud's base images like the simulator jobs: the
+Google Cloud console's first VM pulled `golang` and `debian` to build the
+network sidecar inside the test's one-minute wait for the instance page, and
+the create once outlasted it.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.
