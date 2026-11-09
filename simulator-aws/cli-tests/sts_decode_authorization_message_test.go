@@ -38,7 +38,7 @@ func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
 	require.Len(t, match, 2, "the refusal carries an encoded authorization message: %s", refused)
 
 	decoded := strings.TrimSpace(runCLI(t, awsCLI("sts", "decode-authorization-message",
-		"--encoded-message", match[1], "--query", "DecodedMessage", "--output", "text")))
+		"--encoded-message="+match[1], "--query", "DecodedMessage", "--output", "text")))
 	var doc struct {
 		Allowed string `json:"allowed"`
 		Context struct {

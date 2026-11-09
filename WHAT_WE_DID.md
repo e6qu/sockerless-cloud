@@ -2057,6 +2057,9 @@ fails once the row closes or the operation is served.
   The 2024-07-01 documents are vendored beside them, and a machine image
   version carries `imageDeprecationStatus` from api-version 2022-11-01, the
   first that declares it.
+- **AWS CLI decode-authorization-message test.** The encoded message is
+  base64url, so one run in 64 it began with `-`, which the CLI's argument
+  parser read as an option; the test passes it as `--encoded-message=…`.
 - **Volume helper platform.** The disk copy helper and `sim`'s volume
   snapshot and archive helper ran the Alpine image as `linux/amd64` on every
   engine; they read the platform off the image the engine pulled, so an arm64
