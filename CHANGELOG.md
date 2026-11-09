@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/e6qu/sockerless-cloud/compare/v3.6.0...v3.7.0) (2026-11-09)
+
+
+### Features
+
+* fidelity batch 2 across AWS, Google Cloud and Azure ([ec9f131](https://github.com/e6qu/sockerless-cloud/commit/ec9f131730b3845cc8872270b50a2e5407ad3628))
+
 ## [3.6.0](https://github.com/e6qu/sockerless-cloud/compare/v3.5.1...v3.6.0) (2026-11-08)
 
 
