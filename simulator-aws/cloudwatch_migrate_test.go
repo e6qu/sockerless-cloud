@@ -40,3 +40,32 @@ func TestCloudWatchLogsMigratesLegacyStreamRows(t *testing.T) {
 		t.Fatalf("legacy stream rows left: %d %v", len(rows), err)
 	}
 }
+
+// A log group an earlier build protected from deletion, or gave a data
+// protection policy, reads back with both after the upgrade.
+func TestCloudWatchLogsMigratesLogGroupProtection(t *testing.T) {
+	db := migrateTestDB(t)
+	groups, policies := cwLogGroups, cwDataProtection
+	t.Cleanup(func() { cwLogGroups, cwDataProtection = groups, policies })
+	cwLogGroups = sim.MakeStore[CWLogGroup](db, "cw_log_groups")
+	cwDataProtection = sim.MakeStore[CWDataProtectionPolicy](db, "cw_data_protection")
+	cwLogGroups.Put("/protected", CWLogGroup{LogGroupName: "/protected"})
+	cwLogGroups.Put("/masked", CWLogGroup{LogGroupName: "/masked"})
+	legacyStore[bool](t, db, "cw_deletion_protection").Put("/protected", true)
+	cwDataProtection.Put("/masked", CWDataProtectionPolicy{LogGroupName: "/masked", PolicyDocument: "{}"})
+
+	if err := cwMigrateLogGroupProtection(db); err != nil {
+		t.Fatal(err)
+	}
+
+	if g, _ := cwLogGroups.Get("/protected"); !g.DeletionProtectionEnabled {
+		t.Fatalf("migrated protected group = %+v", g)
+	}
+	if g, _ := cwLogGroups.Get("/masked"); g.DataProtectionStatus != "ACTIVATED" || g.DeletionProtectionEnabled {
+		t.Fatalf("migrated group with a data protection policy = %+v", g)
+	}
+	_, rows, err := sim.LegacyRows[bool](db, "cw_deletion_protection")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("legacy deletion protection rows left: %d %v", len(rows), err)
+	}
+}

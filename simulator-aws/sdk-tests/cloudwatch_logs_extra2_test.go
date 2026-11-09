@@ -127,10 +127,11 @@ func TestLogs_DestinationRoundTrip(t *testing.T) {
 	name := "test-destination"
 	defer cw.DeleteDestination(ctx, &cloudwatchlogs.DeleteDestinationInput{DestinationName: aws.String(name)})
 
+	streamARN := createActiveStream(t, "cwl-destination-round-trip")
 	put, err := cw.PutDestination(ctx, &cloudwatchlogs.PutDestinationInput{
 		DestinationName: aws.String(name),
-		TargetArn:       aws.String("arn:aws:kinesis:us-east-1:123456789012:stream/logs"),
-		RoleArn:         aws.String("arn:aws:iam::123456789012:role/CWLtoKinesisRole"),
+		TargetArn:       aws.String(streamARN),
+		RoleArn:         aws.String(logsDeliveryRole(t, "kinesis:PutRecord", streamARN)),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, put.Destination)
@@ -256,7 +257,7 @@ func TestLogs_AnomalyDetectorRoundTrip(t *testing.T) {
 
 	created, err := cw.CreateLogAnomalyDetector(ctx, &cloudwatchlogs.CreateLogAnomalyDetectorInput{
 		DetectorName:        aws.String("test-detector"),
-		LogGroupArnList:     []string{cwLogGroupArnForTest(group)},
+		LogGroupArnList:     []string{cwLogGroupArnForTest(t, group)},
 		EvaluationFrequency: cwlogtypes.EvaluationFrequencyOneHour,
 	})
 	require.NoError(t, err)
@@ -338,18 +339,19 @@ func TestLogs_ConfigurationTemplates(t *testing.T) {
 	}
 }
 
-// cwLogGroupArnForTest builds a log group's ARN, the target a log anomaly
+// cwLogGroupArnForTest reads a log group's ARN, the target a log anomaly
 // detector names.
-func cwLogGroupArnForTest(group string) string {
+func cwLogGroupArnForTest(t *testing.T, group string) string {
+	t.Helper()
 	out, err := cwLogsClient().DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(group),
 	})
-	if err == nil {
-		for _, g := range out.LogGroups {
-			if aws.ToString(g.LogGroupName) == group {
-				return aws.ToString(g.Arn)
-			}
+	require.NoError(t, err)
+	for _, g := range out.LogGroups {
+		if aws.ToString(g.LogGroupName) == group {
+			return aws.ToString(g.LogGroupArn)
 		}
 	}
-	return "arn:aws:logs:us-east-1:000000000000:log-group:" + group
+	t.Fatalf("log group %s does not exist", group)
+	return ""
 }

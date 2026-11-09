@@ -409,6 +409,17 @@ func handleCWPutDestination(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "destinationName is required", http.StatusBadRequest)
 		return
 	}
+	target, refused := cwResolveSubscriptionTarget(req.TargetArn, req.RoleArn)
+	if refused == nil && (target.Kind == cwTargetLambda || target.Arn != req.TargetArn) {
+		refused = cwInvalidParameter("Invalid targetArn: %s", req.TargetArn)
+	}
+	if refused == nil {
+		refused = cwCheckSubscriptionTarget(r.Context(), cwDestinationArn(req.DestinationName), target)
+	}
+	if refused != nil {
+		cwWriteRefusal(w, refused)
+		return
+	}
 	creation := time.Now().UnixMilli()
 	access := ""
 	if existing, ok := cwDestinations.Get(req.DestinationName); ok {

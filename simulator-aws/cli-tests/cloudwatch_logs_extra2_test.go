@@ -95,10 +95,11 @@ func TestLogsDestinationCLI(t *testing.T) {
 	name := "cli-destination"
 	defer runCLIIgnore(awsCLI("logs", "delete-destination", "--destination-name", name))
 
+	streamARN := createCLIActiveStream(t, "cli-destination-stream")
 	out := runCLI(t, awsCLI("logs", "put-destination",
 		"--destination-name", name,
-		"--target-arn", "arn:aws:kinesis:us-east-1:123456789012:stream/logs",
-		"--role-arn", "arn:aws:iam::123456789012:role/CWLtoKinesisRole",
+		"--target-arn", streamARN,
+		"--role-arn", createCLILogsDeliveryRole(t, "cli-destination-role", "kinesis:PutRecord", streamARN),
 		"--output", "json"))
 	var put struct {
 		Destination struct {
@@ -233,12 +234,12 @@ func TestLogsAnomalyAndIndexCLI(t *testing.T) {
 	var lg struct {
 		LogGroups []struct {
 			LogGroupName string `json:"logGroupName"`
-			Arn          string `json:"arn"`
+			LogGroupArn  string `json:"logGroupArn"`
 		} `json:"logGroups"`
 	}
 	parseJSON(t, lgOut, &lg)
 	require.NotEmpty(t, lg.LogGroups)
-	groupArn := lg.LogGroups[0].Arn
+	groupArn := lg.LogGroups[0].LogGroupArn
 
 	adOut := runCLI(t, awsCLI("logs", "create-log-anomaly-detector",
 		"--detector-name", "cli-detector",

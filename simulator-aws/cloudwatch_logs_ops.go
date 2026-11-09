@@ -29,16 +29,6 @@ type CWMetricFilter struct {
 	MetricTransformations []CWMetricTransformation `json:"metricTransformations"`
 }
 
-type CWSubscriptionFilter struct {
-	FilterName     string `json:"filterName"`
-	FilterPattern  string `json:"filterPattern"`
-	LogGroupName   string `json:"logGroupName"`
-	DestinationArn string `json:"destinationArn"`
-	RoleArn        string `json:"roleArn,omitempty"`
-	Distribution   string `json:"distribution,omitempty"`
-	CreationTime   int64  `json:"creationTime"`
-}
-
 type CWExportTask struct {
 	TaskId            string                    `json:"taskId"`
 	TaskName          string                    `json:"taskName,omitempty"`
@@ -68,15 +58,14 @@ type CWDataProtectionPolicy struct {
 }
 
 var (
-	cwMetricFilters       sim.Store[CWMetricFilter]
-	cwSubscriptionFilters sim.Store[CWSubscriptionFilter]
-	cwExportTasks         sim.Store[CWExportTask]
-	cwDataProtection      sim.Store[CWDataProtectionPolicy]
+	cwMetricFilters        sim.Store[CWMetricFilter]
+	cwMetricFiltersByGroup sim.GenerationIndex[CWMetricFilter]
+	cwExportTasks          sim.Store[CWExportTask]
+	cwDataProtection       sim.Store[CWDataProtectionPolicy]
 )
 
 func registerCloudWatchLogsOps(r *AWSRouter, srv *sim.Server) {
 	cwMetricFilters = sim.MakeStore[CWMetricFilter](srv.DB(), "cw_metric_filters")
-	cwSubscriptionFilters = sim.MakeStore[CWSubscriptionFilter](srv.DB(), "cw_subscription_filters")
 	cwExportTasks = sim.MakeStore[CWExportTask](srv.DB(), "cw_export_tasks")
 	cwDataProtection = sim.MakeStore[CWDataProtectionPolicy](srv.DB(), "cw_data_protection")
 
@@ -85,9 +74,6 @@ func registerCloudWatchLogsOps(r *AWSRouter, srv *sim.Server) {
 	r.Register("Logs_20140328.DescribeMetricFilters", handleCWDescribeMetricFilters)
 	r.Register("Logs_20140328.DeleteMetricFilter", handleCWDeleteMetricFilter)
 	r.Register("Logs_20140328.TestMetricFilter", handleCWTestMetricFilter)
-	r.Register("Logs_20140328.PutSubscriptionFilter", handleCWPutSubscriptionFilter)
-	r.Register("Logs_20140328.DescribeSubscriptionFilters", handleCWDescribeSubscriptionFilters)
-	r.Register("Logs_20140328.DeleteSubscriptionFilter", handleCWDeleteSubscriptionFilter)
 	r.Register("Logs_20140328.DeleteRetentionPolicy", handleCWDeleteRetentionPolicy)
 	r.Register("Logs_20140328.TagLogGroup", handleCWTagLogGroup)
 	r.Register("Logs_20140328.UntagLogGroup", handleCWUntagLogGroup)
@@ -99,6 +85,12 @@ func registerCloudWatchLogsOps(r *AWSRouter, srv *sim.Server) {
 	r.Register("Logs_20140328.PutDataProtectionPolicy", handleCWPutDataProtectionPolicy)
 	r.Register("Logs_20140328.GetDataProtectionPolicy", handleCWGetDataProtectionPolicy)
 	r.Register("Logs_20140328.DeleteDataProtectionPolicy", handleCWDeleteDataProtectionPolicy)
+}
+
+func cwGroupMetricFilters(group string) []CWMetricFilter {
+	return cwMetricFiltersByGroup.LookupAll(cwMetricFilters, group, func(f CWMetricFilter) []string {
+		return []string{f.LogGroupName}
+	})
 }
 
 // Two groups may share a filter name.
@@ -286,119 +278,6 @@ func handleCWTestMetricFilter(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"matches": matches})
-}
-
-func handleCWPutSubscriptionFilter(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupName   string `json:"logGroupName"`
-		FilterName     string `json:"filterName"`
-		FilterPattern  string `json:"filterPattern"`
-		DestinationArn string `json:"destinationArn"`
-		RoleArn        string `json:"roleArn"`
-		Distribution   string `json:"distribution"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.LogGroupName == "" || req.FilterName == "" || req.DestinationArn == "" {
-		AWSError(w, "InvalidParameterException", "logGroupName, filterName and destinationArn are required", http.StatusBadRequest)
-		return
-	}
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified log group does not exist: %s", req.LogGroupName)
-		return
-	}
-	if _, err := cwCompileLogPattern(req.FilterPattern); err != nil {
-		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
-			"Invalid filter pattern: %s", err.Error())
-		return
-	}
-	key := cwFilterKey(req.LogGroupName, req.FilterName)
-	creation := time.Now().UnixMilli()
-	if existing, ok := cwSubscriptionFilters.Get(key); ok {
-		creation = existing.CreationTime
-	}
-	cwSubscriptionFilters.Put(key, CWSubscriptionFilter{
-		FilterName:     req.FilterName,
-		FilterPattern:  req.FilterPattern,
-		LogGroupName:   req.LogGroupName,
-		DestinationArn: req.DestinationArn,
-		RoleArn:        req.RoleArn,
-		Distribution:   req.Distribution,
-		CreationTime:   creation,
-	})
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleCWDescribeSubscriptionFilters(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupName     string `json:"logGroupName"`
-		FilterNamePrefix string `json:"filterNamePrefix"`
-		Limit            int    `json:"limit"`
-		NextToken        string `json:"nextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.LogGroupName == "" {
-		AWSError(w, "InvalidParameterException", "logGroupName is required", http.StatusBadRequest)
-		return
-	}
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified log group does not exist: %s", req.LogGroupName)
-		return
-	}
-	filters := cwSubscriptionFilters.Filter(func(f CWSubscriptionFilter) bool {
-		if f.LogGroupName != req.LogGroupName {
-			return false
-		}
-		if req.FilterNamePrefix != "" {
-			return strings.HasPrefix(f.FilterName, req.FilterNamePrefix)
-		}
-		return true
-	})
-	if filters == nil {
-		filters = []CWSubscriptionFilter{}
-	}
-	page, next, pageOK := awsKeyPage(w, logsBadToken, filters, func(it CWSubscriptionFilter) string { return it.FilterName }, req.NextToken, req.Limit, 50)
-	if !pageOK {
-		return
-	}
-	out := map[string]any{"subscriptionFilters": page}
-	if next != "" {
-		out["nextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, out)
-}
-
-func handleCWDeleteSubscriptionFilter(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		LogGroupName string `json:"logGroupName"`
-		FilterName   string `json:"filterName"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.LogGroupName == "" || req.FilterName == "" {
-		AWSError(w, "InvalidParameterException", "logGroupName and filterName are required", http.StatusBadRequest)
-		return
-	}
-	if _, ok := cwLogGroups.Get(req.LogGroupName); !ok {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified log group does not exist: %s", req.LogGroupName)
-		return
-	}
-	if !cwSubscriptionFilters.Delete(cwFilterKey(req.LogGroupName, req.FilterName)) {
-		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
-			"The specified subscription filter does not exist: %s", req.FilterName)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
 func handleCWDeleteRetentionPolicy(w http.ResponseWriter, r *http.Request) {
@@ -628,6 +507,7 @@ func handleCWPutDataProtectionPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
+	cwLogGroups.Update(name, func(g *CWLogGroup) { g.DataProtectionStatus = "ACTIVATED" })
 	cwDataProtection.Put(name, CWDataProtectionPolicy{
 		LogGroupName:    name,
 		PolicyDocument:  req.PolicyDocument,
@@ -681,7 +561,9 @@ func handleCWDeleteDataProtectionPolicy(w http.ResponseWriter, r *http.Request) 
 			"The specified log group does not exist: %s", req.LogGroupIdentifier)
 		return
 	}
-	cwDataProtection.Delete(name)
+	if cwDataProtection.Delete(name) {
+		cwLogGroups.Update(name, func(g *CWLogGroup) { g.DataProtectionStatus = "DELETED" })
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -701,9 +583,7 @@ func cwResolveLogGroupIdentifier(id string) (string, bool) {
 // datapoints. Every producer, PutLogEvents and the container log drivers,
 // calls this.
 func cwEvaluateMetricFilters(logGroupName string, events []CWLogEvent) {
-	filters := cwMetricFilters.Filter(func(f CWMetricFilter) bool {
-		return f.LogGroupName == logGroupName
-	})
+	filters := cwGroupMetricFilters(logGroupName)
 	if len(filters) == 0 {
 		return
 	}

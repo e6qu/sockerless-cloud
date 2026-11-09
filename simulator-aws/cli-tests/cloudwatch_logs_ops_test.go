@@ -55,37 +55,6 @@ func TestLogs_MetricFilterCLI(t *testing.T) {
 		"--log-group-name", group, "--filter-name", "errors"))
 }
 
-func TestLogs_SubscriptionFilterCLI(t *testing.T) {
-	t.Parallel()
-	group := "/cli/sub-filter"
-	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
-	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))
-
-	destArn := "arn:aws:lambda:us-east-1:123456789012:function:sink"
-	runCLI(t, awsCLI("logs", "put-subscription-filter",
-		"--log-group-name", group,
-		"--filter-name", "to-lambda",
-		"--filter-pattern", "",
-		"--destination-arn", destArn,
-	))
-
-	out := runCLI(t, awsCLI("logs", "describe-subscription-filters",
-		"--log-group-name", group, "--output", "json"))
-	var desc struct {
-		SubscriptionFilters []struct {
-			FilterName     string `json:"filterName"`
-			DestinationArn string `json:"destinationArn"`
-		} `json:"subscriptionFilters"`
-	}
-	parseJSON(t, out, &desc)
-	require.Len(t, desc.SubscriptionFilters, 1)
-	assert.Equal(t, "to-lambda", desc.SubscriptionFilters[0].FilterName)
-	assert.Equal(t, destArn, desc.SubscriptionFilters[0].DestinationArn)
-
-	runCLI(t, awsCLI("logs", "delete-subscription-filter",
-		"--log-group-name", group, "--filter-name", "to-lambda"))
-}
-
 func TestLogs_RetentionAndTagsCLI(t *testing.T) {
 	t.Parallel()
 	group := "/cli/retention"

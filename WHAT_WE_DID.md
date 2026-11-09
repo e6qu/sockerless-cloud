@@ -1847,6 +1847,32 @@ fails once the row closes or the operation is served.
   York) contradicts its own zones, so the test asserts the converted
   instant instead, and the documented default target format, missing its
   closing quote, became `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`.
+- **Amazon CloudWatch Logs subscriptions and log groups.** Every ingestion
+  path forwards, after the transformer, the events each of the log group's
+  subscription filters matches (the transformed version when the filter sets
+  `applyOnTransformedLogs`) as one gzipped `DATA_MESSAGE` per filter and
+  batch, in the subscription guide's envelope, through `awsCall` as
+  `logs.amazonaws.com` with the log group's ARN and `:*` as the source: to
+  Amazon Kinesis Data Streams and Amazon Data Firehose with `PutRecord` as the
+  filter's role, to AWS Lambda as an `Event` invocation of
+  `{"awslogs":{"data":…}}` the function's resource policy must admit, and to a
+  destination's stream as the destination's role. A `sim/delivery` dispatcher
+  retries a retryable refusal for the guide's 24 hours and disables a filter
+  for ten minutes after a non-retryable one. `PutSubscriptionFilter` and
+  `PutDestination` prove the destination first, as terraform-provider-aws's
+  retries on "Could not deliver test message" and "Could not execute the
+  lambda function" show the service does: a `CONTROL_MESSAGE` to a stream, a
+  `DryRun` invocation of a function. A log group takes five filters, the
+  quotas page's figure over the model's stale two. `DescribeLogGroups` answers
+  `arn` with the model's trailing `:*` and `logGroupArn` without it, so tests
+  that pass an ARN to tagging, Live Tail or anomaly detectors read
+  `logGroupArn`; it reports `metricFilterCount`, `deletionProtectionEnabled`,
+  `dataProtectionStatus` (`ACTIVATED`, then `DELETED`) and the class
+  `CreateLogGroup` stored, and filters by class and name pattern. Deletion
+  protection moved onto the log group (a migration carries the old table) and
+  refuses `DeleteLogGroup` with the guide's `ValidationException`; deleting a
+  group deletes its metric and subscription filters and data protection
+  policy. Subscription filters and transformers refuse a non-Standard group.
 - **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
   actions when the state changes, as the API reference says. A metric alarm
   keeps the set state only until its next evaluation, which returns it to its

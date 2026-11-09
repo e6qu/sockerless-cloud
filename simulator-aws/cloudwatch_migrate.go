@@ -28,3 +28,22 @@ func cwMigrateLogEvents(db *sql.DB) error {
 		return nil
 	})
 }
+
+// An earlier build kept deletion protection in a table of its own and derived
+// no data protection status; move both onto the log group.
+func cwMigrateLogGroupProtection(db *sql.DB) error {
+	return sim.Migrate(db, "cw_log_groups/protection", func() error {
+		legacy, rows, err := sim.LegacyRows[bool](db, "cw_deletion_protection")
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			cwLogGroups.Update(row.ID, func(g *CWLogGroup) { g.DeletionProtectionEnabled = row.Item })
+			legacy.Delete(row.ID)
+		}
+		for _, policy := range cwDataProtection.ListPrefix("") {
+			cwLogGroups.Update(policy.ID, func(g *CWLogGroup) { g.DataProtectionStatus = "ACTIVATED" })
+		}
+		return nil
+	})
+}

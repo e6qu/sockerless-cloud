@@ -1,12 +1,14 @@
 package aws_sdk_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwlogtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -268,6 +270,15 @@ func TestLogs_LogStructureReads(t *testing.T) {
 	_, err = cw.PutLogGroupDeletionProtection(ctx, &cloudwatchlogs.PutLogGroupDeletionProtectionInput{
 		LogGroupIdentifier:        aws.String(lg),
 		DeletionProtectionEnabled: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	_, err = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(lg)})
+	var refused smithy.APIError
+	require.True(t, errors.As(err, &refused), "deletion protection refuses DeleteLogGroup: %v", err)
+	assert.Equal(t, "ValidationException", refused.ErrorCode())
+	_, err = cw.PutLogGroupDeletionProtection(ctx, &cloudwatchlogs.PutLogGroupDeletionProtectionInput{
+		LogGroupIdentifier:        aws.String(lg),
+		DeletionProtectionEnabled: aws.Bool(false),
 	})
 	require.NoError(t, err)
 }

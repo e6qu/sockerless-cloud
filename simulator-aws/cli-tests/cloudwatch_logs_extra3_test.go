@@ -254,6 +254,11 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "put-log-group-deletion-protection",
 		"--log-group-identifier", lg,
 		"--deletion-protection-enabled"))
+	refused := runCLIExpectError(t, awsCLI("logs", "delete-log-group", "--log-group-name", lg))
+	assert.Contains(t, refused, "ValidationException")
+	runCLI(t, awsCLI("logs", "put-log-group-deletion-protection",
+		"--log-group-identifier", lg,
+		"--no-deletion-protection-enabled"))
 
 	detOut := runCLI(t, awsCLI("logs", "create-log-anomaly-detector",
 		"--log-group-arn-list", "arn:aws:logs:us-east-1:123456789012:log-group:"+lg,

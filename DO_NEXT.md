@@ -24,6 +24,9 @@
   `docs/so-you-want-to-build-a-cloud.md` into a presentation. Keep its gap list
   in step with `PLAN.md` M3 and its LocalStack and Floci tables dated and
   sourced. Change a tutorial step only together with the test that runs it.
+- **CloudWatch Logs follow-ups.** Apply account-level subscription and
+  transformer policies (BUG-3939, BUG-3936) and enforce the log classes'
+  remaining limits (BUG-3940).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
   Cloud Monitoring (BUG-3522) and Filestore; the managed caches' remaining
   gaps (BUG-3835, BUG-3840 and BUG-3845).

@@ -35,7 +35,7 @@ func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, dg.LogGroups)
-		arn := aws.ToString(dg.LogGroups[0].Arn)
+		arn := aws.ToString(dg.LogGroups[0].LogGroupArn)
 
 		lt, err := c.ListTagsForResource(ctx, &cloudwatchlogs.ListTagsForResourceInput{
 			ResourceArn: aws.String(arn),

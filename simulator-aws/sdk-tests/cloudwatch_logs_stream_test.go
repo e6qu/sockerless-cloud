@@ -59,7 +59,7 @@ func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stre
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, desc.LogGroups)
-	return aws.ToString(desc.LogGroups[0].Arn)
+	return aws.ToString(desc.LogGroups[0].LogGroupArn)
 }
 
 // TestLogs_StartLiveTail reassembles a Live Tail session's sessionStart and
@@ -200,7 +200,7 @@ func awaitLogLineTailing(t *testing.T, cw, tailClient *cloudwatchlogs.Client, gr
 	var groupArn string
 	for _, g := range groups.LogGroups {
 		if aws.ToString(g.LogGroupName) == group {
-			groupArn = aws.ToString(g.Arn)
+			groupArn = aws.ToString(g.LogGroupArn)
 		}
 	}
 	require.NotEmpty(t, groupArn, "log group %s does not exist", group)

@@ -82,12 +82,11 @@ type CWImportTask struct {
 }
 
 var (
-	cwIntegrations    sim.Store[CWIntegration]
-	cwLookupTables    sim.Store[CWLookupTable]
-	cwScheduledQ      sim.Store[CWScheduledQuery]
-	cwTransformers    sim.Store[CWTransformer]
-	cwImportTasks     sim.Store[CWImportTask]
-	cwDeletionProtect sim.Store[bool]
+	cwIntegrations sim.Store[CWIntegration]
+	cwLookupTables sim.Store[CWLookupTable]
+	cwScheduledQ   sim.Store[CWScheduledQuery]
+	cwTransformers sim.Store[CWTransformer]
+	cwImportTasks  sim.Store[CWImportTask]
 )
 
 func registerCloudWatchLogsExtra3(r *AWSRouter, srv *sim.Server) {
@@ -96,7 +95,6 @@ func registerCloudWatchLogsExtra3(r *AWSRouter, srv *sim.Server) {
 	cwScheduledQ = sim.MakeStore[CWScheduledQuery](srv.DB(), "cw_scheduled_queries")
 	cwTransformers = sim.MakeStore[CWTransformer](srv.DB(), "cw_transformers")
 	cwImportTasks = sim.MakeStore[CWImportTask](srv.DB(), "cw_import_tasks")
-	cwDeletionProtect = sim.MakeStore[bool](srv.DB(), "cw_deletion_protection")
 
 	for op, h := range map[string]http.HandlerFunc{
 		"PutIntegration":                 handleCWPutIntegration,
@@ -695,6 +693,11 @@ func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 			"The specified log group does not exist: %s", req.LogGroupIdentifier)
 		return
 	}
+	if group, _ := cwLogGroups.Get(name); group.class() != "STANDARD" {
+		AWSErrorf(w, "InvalidOperationException", http.StatusBadRequest,
+			"Transformers are supported only for log groups in the Standard log class: %s", name)
+		return
+	}
 	now := time.Now().UnixMilli()
 	creation := now
 	if existing, ok := cwTransformers.Get(name); ok {
@@ -1083,12 +1086,11 @@ func handleCWPutLogGroupDeletionProtection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	name := cwLogGroupIdentifierToName(req.LogGroupIdentifier)
-	if _, ok := cwLogGroups.Get(name); !ok {
+	if !cwLogGroups.Update(name, func(g *CWLogGroup) { g.DeletionProtectionEnabled = req.DeletionProtectionEnabled }) {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not exist: %s", name)
 		return
 	}
-	cwDeletionProtect.Put(name, req.DeletionProtectionEnabled)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1195,14 +1197,13 @@ func handleCWListLogGroups(w http.ResponseWriter, r *http.Request) {
 		if req.LogGroupNamePattern != "" && !strings.Contains(lg.LogGroupName, req.LogGroupNamePattern) {
 			continue
 		}
-		class := "STANDARD"
-		if req.LogGroupClass != "" && class != req.LogGroupClass {
+		if req.LogGroupClass != "" && lg.class() != req.LogGroupClass {
 			continue
 		}
 		groups = append(groups, map[string]any{
 			"logGroupName":  lg.LogGroupName,
-			"logGroupArn":   cwLogGroupArn(lg.LogGroupName),
-			"logGroupClass": class,
+			"logGroupArn":   lg.Arn,
+			"logGroupClass": lg.class(),
 		})
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroups": groups})
