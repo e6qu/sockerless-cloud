@@ -94,6 +94,10 @@ var iamResourceExists = map[string]func(arn string) bool{
 		return ok
 	},
 	"logs": func(arn string) bool {
+		if _, name, ok := strings.Cut(arn, ":destination:"); ok {
+			dest, exists := cwDestinations.Get(name)
+			return exists && dest.Arn == arn
+		}
 		group, ok := strings.CutPrefix(arn[strings.Index(arn, ":log-group:")+1:], "log-group:")
 		if !ok {
 			return false

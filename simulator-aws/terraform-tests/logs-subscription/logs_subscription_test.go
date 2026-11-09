@@ -34,6 +34,7 @@ type subscriptionMessage struct {
 	LogEvents           []struct {
 		Message string `json:"message"`
 	} `json:"logEvents"`
+	PolicyLevel string `json:"policyLevel"`
 }
 
 // decode reads every gzip member of data, as a Firehose object can hold
@@ -79,7 +80,8 @@ func TestLogsSubscriptionTerraform(t *testing.T) {
 	env.Terraform(t, append([]string{"apply", "-auto-approve", "-refresh-only"}, vars("true")...)...)
 	outputs := readOutputs(t, env)
 	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:log-group:/tf/logs-subscription", outputs["log_group_arn"])
-	assert.Equal(t, "INFREQUENT_ACCESS", outputs["archive_class"])
+	assert.Equal(t, "DELIVERY", outputs["archive_class"])
+	assert.Equal(t, "2", outputs["archive_retention"], "the log classes guide keeps a Delivery group's events two days")
 	assert.Equal(t, "Random", outputs["kinesis_distribution"])
 	assert.Equal(t, "ByLogStream", outputs["firehose_distribution"])
 	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:destination:tfDestination", outputs["destination_arn"])
@@ -184,6 +186,19 @@ func TestLogsSubscriptionTerraform(t *testing.T) {
 	assert.Equal(t, []string{"demo"}, invoked[0].SubscriptionFilters)
 	require.Len(t, invoked[0].LogEvents, 1)
 	assert.Equal(t, "hello lambda", invoked[0].LogEvents[0].Message)
+
+	const sender = "/tf/logs-account-sender"
+	_, err = logs.CreateLogStream(ctx, &cloudwatchlogs.CreateLogStreamInput{LogGroupName: aws.String(sender), LogStreamName: aws.String(logStream)})
+	require.NoError(t, err)
+	_, err = logs.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
+		LogGroupName: aws.String(sender), LogStreamName: aws.String(logStream),
+		LogEvents: []cwltypes.InputLogEvent{{Timestamp: aws.Int64(time.Now().UnixMilli()), Message: aws.String("Simple AccountPolicyTest")}},
+	})
+	require.NoError(t, err)
+	account := readStream("tf-AccountPolicy")
+	assert.Equal(t, sender, account.LogGroup)
+	assert.Equal(t, []string{"ExamplePolicy"}, account.SubscriptionFilters)
+	assert.Equal(t, "ACCOUNT_LEVEL_POLICY", account.PolicyLevel)
 
 	refused := env.TerraformFails(t, append([]string{"destroy", "-auto-approve"}, vars("true")...)...)
 	assert.Contains(t, string(refused), "Cannot delete log group with deletion protection enabled")

@@ -69,3 +69,25 @@ func TestCloudWatchLogsMigratesLogGroupProtection(t *testing.T) {
 		t.Fatalf("legacy deletion protection rows left: %d %v", len(rows), err)
 	}
 }
+
+// Events an earlier build stored without an ID each get one, which reads
+// return from then on.
+func TestCloudWatchLogsMigratesEventIDs(t *testing.T) {
+	db := migrateTestDB(t)
+	events := cwLogEvents
+	t.Cleanup(func() { cwLogEvents = events })
+	cwLogEvents = cwNewLogEvents(db)
+	key := cwEventsKey("/g", "s")
+	cwPutTestEvents(key, []CWLogEvent{{Timestamp: 1000, IngestionTime: 1100, Message: "a"}, {Timestamp: 2000, IngestionTime: 2100, Message: "b"}})
+	if err := cwMigrateLogEventIDs(db); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := cwStreamEvents(key)
+	if len(got) != 2 || got[0].ID == "" || got[0].ID == got[1].ID {
+		t.Fatalf("migrated events = %+v", got)
+	}
+	again, _ := cwStreamEvents(key)
+	if again[0].ID != got[0].ID {
+		t.Fatalf("an event's ID changed between reads: %s, %s", got[0].ID, again[0].ID)
+	}
+}

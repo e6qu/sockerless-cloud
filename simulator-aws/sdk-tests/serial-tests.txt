@@ -22,6 +22,9 @@ TestIAM_ChangePassword	changes an account-wide setting other tests read
 TestIAM_OrganizationsRoot	changes a service-wide setting other tests read
 TestKinesisSDK_AccountSettings	changes an account-wide setting other tests read
 TestLogs_AccountPolicyRoundTrip	changes an account-wide setting other tests read
+TestLogs_AccountRetentionPolicy	changes an account-wide setting other tests read
+TestLogs_AccountSubscriptionPolicyForwards	changes an account-wide setting other tests read
+TestLogs_AccountTransformerPolicyApplies	changes an account-wide setting other tests read
 TestOrganizations_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_DisableServiceControlPolicies	disables and re-enables service control policies in the root, which detaches every one other tests attach

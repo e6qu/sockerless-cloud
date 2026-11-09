@@ -112,6 +112,7 @@ func TestLogs_TransformerAppliedAtIngestion(t *testing.T) {
 		MetricTransformations: []cwlogtypes.MetricTransformation{{
 			MetricName: aws.String("TransformedErrors"), MetricNamespace: aws.String("Test/LogsTransformer"), MetricValue: aws.String("1"),
 		}},
+		ApplyOnTransformedLogs: true,
 	})
 	require.NoError(t, err)
 
@@ -199,4 +200,44 @@ func TestLogs_TransformerAppliedAtIngestion(t *testing.T) {
 		TransformerConfig:  []cwlogtypes.Processor{{ParseJSON: &cwlogtypes.ParseJSON{}}},
 	})
 	require.True(t, errors.As(err, &notFound), "a transformer needs an existing log group: %v", err)
+}
+
+// substituteString compiles from as a java.util.regex.Pattern, with the
+// guide's (?P<name>...) groups: lookaround, backreferences, possessive
+// quantifiers and Java's ASCII \w all hold.
+func TestLogs_SubstituteStringTakesJavaPatterns(t *testing.T) {
+	t.Parallel()
+	cw := cwLogsClient()
+	entry := func(source, from, to string) cwlogtypes.SubstituteStringEntry {
+		return cwlogtypes.SubstituteStringEntry{Source: aws.String(source), From: aws.String(from), To: aws.String(to)}
+	}
+	out, err := cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseJSON: &cwlogtypes.ParseJSON{}},
+			{SubstituteString: &cwlogtypes.SubstituteString{Entries: []cwlogtypes.SubstituteStringEntry{
+				entry("price", `(?<=\$)\d+`, "N"),
+				entry("doubled", `(\w)\1`, "<$1>"),
+				entry("greedy", `a++a`, "X"),
+				entry("arn", `^arn:aws:sts::(?P<account_id>\d{12}):assumed-role/(?P<role_name>[\w+=,.@-]+)/(?P<role_session_name>[\w+=,.@-]+)$`,
+					"${account_id}:${role_name}:${role_session_name}"),
+				entry("word", `\w+`, "W"),
+			}}},
+		},
+		LogEventMessages: []string{`{"price":"cost $15 and 20","doubled":"aabbcd","greedy":"aaaa",` +
+			`"arn":"arn:aws:sts::123456789012:assumed-role/MyImportantRole/MySession","word":"café"}`},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TransformedLogs, 1)
+	assert.JSONEq(t, `{"price":"cost $N and 20","doubled":"<a><b>cd","greedy":"aaaa",`+
+		`"arn":"123456789012:MyImportantRole:MySession","word":"Wé"}`, aws.ToString(out.TransformedLogs[0].TransformedEventMessage))
+
+	_, err = cw.TestTransformer(ctx, &cloudwatchlogs.TestTransformerInput{
+		TransformerConfig: []cwlogtypes.Processor{
+			{ParseJSON: &cwlogtypes.ParseJSON{}},
+			{SubstituteString: &cwlogtypes.SubstituteString{Entries: []cwlogtypes.SubstituteStringEntry{entry("a", `(?<=a*)b`, "x")}}},
+		},
+		LogEventMessages: []string{`{"a":"b"}`},
+	})
+	var invalid *cwlogtypes.InvalidParameterException
+	require.True(t, errors.As(err, &invalid), "Pattern refuses an unbounded look-behind: %v", err)
 }

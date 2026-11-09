@@ -47,3 +47,22 @@ func cwMigrateLogGroupProtection(db *sql.DB) error {
 		return nil
 	})
 }
+
+// An earlier build gave a stored event no ID and answered a new one on every
+// read; give each one the ID it keeps from now on.
+func cwMigrateLogEventIDs(db *sql.DB) error {
+	return sim.Migrate(db, "cw_log_stream_events/ids", func() error {
+		for _, scope := range cwLogEvents.Scopes("") {
+			cwLogEvents.Edit(scope, func(e *logstore.Entry[CWLogEvent]) (bool, bool) {
+				if e.Value.ID != "" {
+					return true, false
+				}
+				events := []CWLogEvent{e.Value}
+				cwAssignEventIDs(events)
+				e.Value.ID = events[0].ID
+				return true, true
+			})
+		}
+		return nil
+	})
+}

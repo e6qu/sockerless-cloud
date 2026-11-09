@@ -692,7 +692,7 @@ func cwtCompileSplitString(c *cwtSplitString) (cwtStep, error) {
 
 type cwtSubstitution struct {
 	source string
-	re     *regexp.Regexp
+	re     *cwjRegex
 	to     []cwtReplPart
 }
 
@@ -711,7 +711,7 @@ func cwtCompileSubstituteString(c *cwtSubstituteString) (cwtStep, error) {
 		if err := cwtCheckLen("substituteString.to", e.To, 1, 128); err != nil {
 			return nil, err
 		}
-		re, err := regexp.Compile(e.From)
+		re, err := cwjCompile(e.From)
 		if err != nil {
 			return nil, cwtInvalid("substituteString.from %q is not a valid regular expression: %v", e.From, err)
 		}
@@ -727,7 +727,11 @@ func cwtCompileSubstituteString(c *cwtSubstituteString) (cwtStep, error) {
 			if !ok {
 				continue
 			}
-			ev.root.SetPath(s.source, cwtReplaceAll(s.re, v, s.to), true)
+			replaced, err := s.re.replaceAll(v, s.to)
+			if err != nil {
+				return fmt.Errorf("substituteString: %v", err)
+			}
+			ev.root.SetPath(s.source, replaced, true)
 		}
 		return nil
 	}), nil
@@ -745,7 +749,7 @@ type cwtReplPart struct {
 // cwtParseReplacement reads Matcher.appendReplacement syntax: $n takes as many
 // digits as still name a group, ${name} names a group, and a backslash escapes
 // the next character.
-func cwtParseReplacement(to string, re *regexp.Regexp) ([]cwtReplPart, error) {
+func cwtParseReplacement(to string, re *cwjRegex) ([]cwtReplPart, error) {
 	var parts []cwtReplPart
 	var lit strings.Builder
 	refs := map[string]int{}
@@ -755,7 +759,7 @@ func cwtParseReplacement(to string, re *regexp.Regexp) ([]cwtReplPart, error) {
 			lit.Reset()
 		}
 	}
-	groups := re.NumSubexp()
+	groups := re.groups
 	for i := 0; i < len(to); i++ {
 		c := to[i]
 		switch c {
@@ -777,7 +781,7 @@ func cwtParseReplacement(to string, re *regexp.Regexp) ([]cwtReplPart, error) {
 					return nil, cwtInvalid("substituteString.to %q has an unclosed group reference", to)
 				}
 				name := to[i+1 : i+end]
-				if re.SubexpIndex(name) < 0 {
+				if _, ok := re.group(name); !ok {
 					return nil, cwtInvalid("substituteString.to references an unknown group %q", name)
 				}
 				parts = append(parts, cwtReplPart{name: name, isRef: true})
@@ -818,29 +822,6 @@ func cwtParseReplacement(to string, re *regexp.Regexp) ([]cwtReplPart, error) {
 		return nil, cwtInvalid("substituteString.to contains more than %d backreferences", cwtMaxBackreferences)
 	}
 	return parts, nil
-}
-
-func cwtReplaceAll(re *regexp.Regexp, v string, parts []cwtReplPart) string {
-	var b strings.Builder
-	prev := 0
-	for _, m := range re.FindAllStringSubmatchIndex(v, -1) {
-		b.WriteString(v[prev:m[0]])
-		for _, p := range parts {
-			g := p.group
-			if p.name != "" {
-				g = re.SubexpIndex(p.name)
-			}
-			switch {
-			case !p.isRef:
-				b.WriteString(p.literal)
-			case m[2*g] >= 0:
-				b.WriteString(v[m[2*g]:m[2*g+1]])
-			}
-		}
-		prev = m[1]
-	}
-	b.WriteString(v[prev:])
-	return b.String()
 }
 
 func cwtCompileAddKeys(c *cwtAddKeys) (cwtStep, error) {
@@ -1185,15 +1166,36 @@ func cwtCompileParseToOCSF(c *cwtParseToOCSF) (cwtStep, error) {
 	}
 }
 
+// cwGroupTransformer is the transformer that applies to group: its own, or
+// else the account-level transformer policy whose selection admits it, with
+// the metric dimensions each publishes under.
+func cwGroupTransformer(group string) ([]cwtProcessor, []CWDimension, bool) {
+	if cfg, ok := cwTransformers.Get(group); ok {
+		return cfg.TransformerConfig, []CWDimension{{Name: "LogGroupname", Value: group}}, true
+	}
+	for _, p := range cwAccountPoliciesOf(cwPolicyTransformer) {
+		if !cwPolicySelects(p.PolicyType, p.SelectionCriteria, group) {
+			continue
+		}
+		procs, err := cwParseTransformerPolicyDocument(p.PolicyDocument)
+		if err != nil {
+			log.Printf("cloudwatch logs: stored transformer policy %s no longer compiles: %v", p.PolicyName, err)
+			return nil, nil, false
+		}
+		return procs, []CWDimension{{Name: "PolicyLevel", Value: cwPolicyLevelAccountDimension}}, true
+	}
+	return nil, nil, false
+}
+
 // cwTransformIngested runs a log group's transformer over events as they are
 // ingested, recording each event's transformed version or its transformation
 // error beside the original, and publishes the AWS/Logs transformer metrics.
 func cwTransformIngested(group, stream string, events []CWLogEvent) {
-	cfg, ok := cwTransformers.Get(group)
+	procs, dims, ok := cwGroupTransformer(group)
 	if !ok {
 		return
 	}
-	t, err := cwCompileTransformer(cfg.TransformerConfig)
+	t, err := cwCompileTransformer(procs)
 	if err != nil {
 		log.Printf("cloudwatch logs: stored transformer of %s no longer compiles: %v", group, err)
 		return
@@ -1217,7 +1219,6 @@ func cwTransformIngested(group, stream string, events []CWLogEvent) {
 		bytes += len(res.Transformed)
 	}
 	now := float64(time.Now().Unix())
-	dims := []CWDimension{{Name: "LogGroupname", Value: group}}
 	if transformed > 0 {
 		cwStoreDatum(CWMetricDatum{Namespace: "AWS/Logs", MetricName: "TransformedLogEvents", Dimensions: dims, Value: float64(transformed), Timestamp: now, Unit: "None"})
 		cwStoreDatum(CWMetricDatum{Namespace: "AWS/Logs", MetricName: "TransformedBytes", Dimensions: dims, Value: float64(bytes), Timestamp: now, Unit: "Bytes"})

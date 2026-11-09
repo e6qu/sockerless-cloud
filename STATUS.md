@@ -101,8 +101,9 @@ Shared mechanisms, one package each:
 - **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler and
   Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
   `delivery.Post`, keeping their attempts in the queue; CloudWatch Logs
-  subscription filters forward matching events to Amazon Kinesis Data
-  Streams, Amazon Data Firehose, AWS Lambda and destinations through it.
+  subscription filters and the account-level subscription filter policy
+  forward matching events to Amazon Kinesis Data Streams, Amazon Data
+  Firehose, AWS Lambda and destinations through it.
 - **`lbplane`**: `HostRouter` fronts Cloud Run services and instances, Cloud
   Run functions, Container Apps ingress, App Service sites and slots, and
   AWS Lambda function URLs. Those and Amplify Hosting compute, Elastic Load

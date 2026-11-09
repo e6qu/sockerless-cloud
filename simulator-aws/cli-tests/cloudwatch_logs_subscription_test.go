@@ -25,6 +25,7 @@ type cliSubscriptionMessage struct {
 		Timestamp int64  `json:"timestamp"`
 		Message   string `json:"message"`
 	} `json:"logEvents"`
+	PolicyLevel string `json:"policyLevel"`
 }
 
 func createCLIActiveStream(t *testing.T, stream string) string {
@@ -60,6 +61,45 @@ func createCLILogsDeliveryRole(t *testing.T, name, action, resource string) stri
 	}
 	parseJSON(t, out, &created)
 	return created.Role.Arn
+}
+
+// awaitCLIStreamMessages reads the stream from its start with get-records,
+// decoding each record as base64 -d | zcat does, until want DATA_MESSAGE
+// records arrived.
+func awaitCLIStreamMessages(t *testing.T, stream string, want int) []cliSubscriptionMessage {
+	t.Helper()
+	var iterator struct {
+		ShardIterator string `json:"ShardIterator"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("kinesis", "get-shard-iterator", "--stream-name", stream,
+		"--shard-id", "shardId-000000000000", "--shard-iterator-type", "TRIM_HORIZON")), &iterator)
+	next := iterator.ShardIterator
+	var delivered []cliSubscriptionMessage
+	require.Eventually(t, func() bool {
+		var records struct {
+			Records []struct {
+				Data string `json:"Data"`
+			} `json:"Records"`
+			NextShardIterator string `json:"NextShardIterator"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("kinesis", "get-records", "--limit", "10", "--shard-iterator", next)), &records)
+		next = records.NextShardIterator
+		for _, record := range records.Records {
+			compressed, err := base64.StdEncoding.DecodeString(record.Data)
+			require.NoError(t, err)
+			zr, err := gzip.NewReader(bytes.NewReader(compressed))
+			require.NoError(t, err)
+			raw, err := io.ReadAll(zr)
+			require.NoError(t, err)
+			var message cliSubscriptionMessage
+			require.NoError(t, json.Unmarshal(raw, &message), string(raw))
+			if message.MessageType == "DATA_MESSAGE" {
+				delivered = append(delivered, message)
+			}
+		}
+		return len(delivered) >= want
+	}, 60*time.Second, 500*time.Millisecond, "the stream must receive %d DATA_MESSAGE record(s)", want)
+	return delivered
 }
 
 // The guide's example: put-subscription-filter, then get-shard-iterator and
@@ -106,37 +146,7 @@ func TestLogs_SubscriptionFilterKinesisCLI(t *testing.T) {
 	runCLI(t, awsCLI("logs", "put-log-events", "--log-group-name", group, "--log-stream-name", logStream,
 		"--log-events", string(events)))
 
-	var iterator struct {
-		ShardIterator string `json:"ShardIterator"`
-	}
-	parseJSON(t, runCLI(t, awsCLI("kinesis", "get-shard-iterator", "--stream-name", stream,
-		"--shard-id", "shardId-000000000000", "--shard-iterator-type", "TRIM_HORIZON")), &iterator)
-	next := iterator.ShardIterator
-	var delivered []cliSubscriptionMessage
-	require.Eventually(t, func() bool {
-		var records struct {
-			Records []struct {
-				Data string `json:"Data"`
-			} `json:"Records"`
-			NextShardIterator string `json:"NextShardIterator"`
-		}
-		parseJSON(t, runCLI(t, awsCLI("kinesis", "get-records", "--limit", "10", "--shard-iterator", next)), &records)
-		next = records.NextShardIterator
-		for _, record := range records.Records {
-			compressed, err := base64.StdEncoding.DecodeString(record.Data)
-			require.NoError(t, err)
-			zr, err := gzip.NewReader(bytes.NewReader(compressed))
-			require.NoError(t, err)
-			raw, err := io.ReadAll(zr)
-			require.NoError(t, err)
-			var message cliSubscriptionMessage
-			require.NoError(t, json.Unmarshal(raw, &message), string(raw))
-			if message.MessageType == "DATA_MESSAGE" {
-				delivered = append(delivered, message)
-			}
-		}
-		return len(delivered) > 0
-	}, 60*time.Second, 500*time.Millisecond, "the stream must receive the filter's DATA_MESSAGE")
+	delivered := awaitCLIStreamMessages(t, stream, 1)
 	m := delivered[0]
 	assert.Equal(t, "123456789012", m.Owner)
 	assert.Equal(t, group, m.LogGroup)
@@ -180,7 +190,7 @@ func TestLogs_LogGroupClassAndProtectionCLI(t *testing.T) {
 	g := described.LogGroups[0]
 	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:log-group:"+group+":*", g.Arn)
 	assert.Equal(t, "arn:aws:logs:us-east-1:123456789012:log-group:"+group, g.LogGroupArn)
-	assert.Equal(t, "INFREQUENT_ACCESS", g.LogGroupClass)
+	assert.Equal(t, essentialsReadClassCLI(), g.LogGroupClass)
 	assert.Zero(t, g.MetricFilterCount)
 	assert.True(t, g.DeletionProtectionEnabled)
 

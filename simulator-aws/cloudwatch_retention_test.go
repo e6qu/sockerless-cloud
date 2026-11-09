@@ -12,11 +12,20 @@ import (
 func useLogMemoryStores(t *testing.T) {
 	t.Helper()
 	bg.Await()
-	groups, streams, events := cwLogGroups, cwLogStreams, cwLogEvents
+	groups, streams, events, policies := cwLogGroups, cwLogStreams, cwLogEvents, cwAccountPolicies
+	transformers, subscriptions, metricFilters, metrics := cwTransformers, cwSubscriptionFilters, cwMetricFilters, cwMetrics
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")
 	cwLogEvents = cwNewLogEvents(nil)
-	t.Cleanup(func() { cwLogGroups, cwLogStreams, cwLogEvents = groups, streams, events })
+	cwAccountPolicies = sim.MakeStore[CWAccountPolicy](nil, "cw_account_policies")
+	cwTransformers = sim.MakeStore[CWTransformer](nil, "cw_transformers")
+	cwSubscriptionFilters = sim.MakeStore[CWSubscriptionFilter](nil, "cw_subscription_filters")
+	cwMetricFilters = sim.MakeStore[CWMetricFilter](nil, "cw_metric_filters")
+	cwMetrics = sim.MakeStore[[]CWMetricDatum](nil, "cw_metrics")
+	t.Cleanup(func() {
+		cwLogGroups, cwLogStreams, cwLogEvents, cwAccountPolicies = groups, streams, events, policies
+		cwTransformers, cwSubscriptionFilters, cwMetricFilters, cwMetrics = transformers, subscriptions, metricFilters, metrics
+	})
 }
 
 func cwPutTestEvents(key string, events []CWLogEvent) {

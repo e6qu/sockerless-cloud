@@ -38,7 +38,11 @@ type logsSubscriptionMessage struct {
 		ID        string `json:"id"`
 		Timestamp int64  `json:"timestamp"`
 		Message   string `json:"message"`
+		Account   string `json:"@aws.account"`
+		Region    string `json:"@aws.region"`
+		SourceLog string `json:"@source.log"`
 	} `json:"logEvents"`
+	PolicyLevel string `json:"policyLevel"`
 }
 
 // A Firehose object can hold several gzip members back to back.
@@ -197,6 +201,7 @@ func TestLogs_SubscriptionFilterDeliversToKinesis(t *testing.T) {
 	assert.Equal(t, group, m.LogGroup)
 	assert.Equal(t, logStream, m.LogStream)
 	assert.Equal(t, []string{"RootAccess"}, m.SubscriptionFilters)
+	assert.Empty(t, m.PolicyLevel, "the log group-level guide's envelope carries no policyLevel")
 	require.Len(t, m.LogEvents, 2, "only the events the pattern matches are forwarded")
 	for _, e := range m.LogEvents {
 		assert.Equal(t, root, e.Message)

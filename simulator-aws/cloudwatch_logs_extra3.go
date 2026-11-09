@@ -693,9 +693,8 @@ func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 			"The specified log group does not exist: %s", req.LogGroupIdentifier)
 		return
 	}
-	if group, _ := cwLogGroups.Get(name); group.class() != "STANDARD" {
-		AWSErrorf(w, "InvalidOperationException", http.StatusBadRequest,
-			"Transformers are supported only for log groups in the Standard log class: %s", name)
+	if group, _ := cwLogGroups.Get(name); !group.standard() {
+		AWSError(w, "InvalidOperationException", "You can create transformers only for the log groups in the Standard log class.", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -1193,17 +1192,18 @@ func handleCWListLogGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	groups := []map[string]any{}
+	now := time.Now()
 	for _, lg := range cwLogGroups.List() {
 		if req.LogGroupNamePattern != "" && !strings.Contains(lg.LogGroupName, req.LogGroupNamePattern) {
 			continue
 		}
-		if req.LogGroupClass != "" && lg.class() != req.LogGroupClass {
+		if req.LogGroupClass != "" && cwCanonicalClass(lg.class()) != cwCanonicalClass(req.LogGroupClass) {
 			continue
 		}
 		groups = append(groups, map[string]any{
 			"logGroupName":  lg.LogGroupName,
 			"logGroupArn":   lg.Arn,
-			"logGroupClass": lg.class(),
+			"logGroupClass": lg.wireClass(now),
 		})
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"logGroups": groups})

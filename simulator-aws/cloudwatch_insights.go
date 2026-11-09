@@ -58,6 +58,12 @@ func handleCWStartQuery(w http.ResponseWriter, r *http.Request) {
 	if req.LogGroupName != "" {
 		groups = append(groups, req.LogGroupName)
 	}
+	for _, name := range groups {
+		if group, ok := cwLogGroups.Get(name); ok && group.class() == cwClassDelivery {
+			AWSError(w, "InvalidParameterException", "The Delivery log class doesn't offer CloudWatch Logs Insights queries.", http.StatusBadRequest)
+			return
+		}
+	}
 	// Insights times are epoch seconds.
 	records, scanned := cwGatherRecords(groups, req.StartTime, req.EndTime)
 	results, err := cwRunInsightsQuery(req.QueryString, records, req.Limit)

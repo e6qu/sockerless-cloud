@@ -66,6 +66,10 @@ func handleCWStartLiveTail(w http.ResponseWriter, r *http.Request) {
 				"The specified log group does not exist: %s", id)
 			return
 		}
+		if group, _ := cwLogGroups.Get(name); !group.standard() {
+			AWSError(w, "InvalidOperationException", "Live Tail is supported only for log groups in the Standard log class.", http.StatusBadRequest)
+			return
+		}
 		groupARNs[name] = cwLogGroupArn(name)
 		echoedIdentifiers = append(echoedIdentifiers, groupARNs[name])
 	}

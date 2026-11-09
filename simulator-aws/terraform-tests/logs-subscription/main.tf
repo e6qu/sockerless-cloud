@@ -45,7 +45,11 @@ resource "aws_cloudwatch_log_group" "app" {
 
 resource "aws_cloudwatch_log_group" "archive" {
   name            = "/tf/logs-subscription-archive"
-  log_group_class = "INFREQUENT_ACCESS"
+  log_group_class = "DELIVERY"
+}
+
+resource "aws_cloudwatch_log_group" "account_sender" {
+  name = "/tf/logs-account-sender"
 }
 
 # The role CloudWatch Logs writes to the streams with, as the subscription
@@ -71,7 +75,7 @@ resource "aws_iam_role_policy" "cwl" {
       {
         Effect   = "Allow"
         Action   = "kinesis:PutRecord"
-        Resource = [aws_kinesis_stream.root_access.arn, aws_kinesis_stream.recipient.arn]
+        Resource = [aws_kinesis_stream.root_access.arn, aws_kinesis_stream.recipient.arn, aws_kinesis_stream.account.arn]
       },
       {
         Effect   = "Allow"
@@ -249,12 +253,36 @@ resource "aws_cloudwatch_log_subscription_filter" "destination" {
   depends_on      = [aws_cloudwatch_log_destination_policy.recipient]
 }
 
+resource "aws_kinesis_stream" "account" {
+  name        = "tf-AccountPolicy"
+  shard_count = 1
+}
+
+# The account-level guide's policy: every log group but the excluded ones
+# forwards the events that contain "AccountPolicyTest".
+resource "aws_cloudwatch_log_account_policy" "subscription" {
+  policy_name = "ExamplePolicy"
+  policy_type = "SUBSCRIPTION_FILTER_POLICY"
+  policy_document = jsonencode({
+    RoleArn        = aws_iam_role.cwl.arn
+    DestinationArn = aws_kinesis_stream.account.arn
+    FilterPattern  = "AccountPolicyTest"
+    Distribution   = "Random"
+  })
+  selection_criteria = "LogGroupName NOT IN [\"${aws_cloudwatch_log_group.app.name}\"]"
+  depends_on         = [aws_iam_role_policy.cwl]
+}
+
 output "log_group_arn" {
   value = aws_cloudwatch_log_group.app.arn
 }
 
 output "archive_class" {
   value = aws_cloudwatch_log_group.archive.log_group_class
+}
+
+output "archive_retention" {
+  value = tostring(aws_cloudwatch_log_group.archive.retention_in_days)
 }
 
 output "kinesis_distribution" {
