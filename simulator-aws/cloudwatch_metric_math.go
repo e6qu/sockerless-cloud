@@ -1,18 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
-// GetMetricData, metric alarms and metric widgets share these MetricDataQuery
-// shapes and one evaluator. Expressions follow the User Guide's "Metric math
-// syntax and functions": arithmetic over time series and scalars, the
-// aggregate functions, and ANOMALY_DETECTION_BAND.
+// GetMetricData, metric alarms, metric math anomaly detectors and metric
+// widgets share these MetricDataQuery shapes and one evaluator. Expressions
+// follow the User Guide's "Math expressions with metrics": arithmetic,
+// comparison and logical operators over scalars, time series and arrays of
+// time series, and every function its table lists; an expression that starts
+// with SELECT is a Metrics Insights query.
 
 type CWMetricRef struct {
 	Namespace  string        `json:"Namespace" cbor:"Namespace"`
@@ -39,11 +43,21 @@ type CWMetricDataQuery struct {
 
 func (q CWMetricDataQuery) returns() bool { return q.ReturnData == nil || *q.ReturnData }
 
+type cwMessage struct {
+	Code  string
+	Value string
+}
+
 // cwMetricSeries maps a period's start, in epoch seconds, to its value.
+// Status is the MetricDataResult StatusCode, empty for Complete.
 type cwMetricSeries struct {
-	Label  string
-	Period int32
-	Points map[int64]float64
+	Label    string
+	Period   int32
+	Points   map[int64]float64
+	Status   string
+	Messages []cwMessage
+	Edge     string
+	Unit     string
 }
 
 func (s cwMetricSeries) times(descending bool) []int64 {
@@ -60,14 +74,48 @@ func (s cwMetricSeries) times(descending bool) []int64 {
 	return keys
 }
 
-// A metric math value is a scalar or one or more time series.
-type cwMathValue struct {
-	scalar   *float64
-	series   []cwMetricSeries
-	detector *CWAnomalyDetector
+func (s cwMetricSeries) values() []float64 {
+	out := make([]float64, 0, len(s.Points))
+	for _, t := range s.times(false) {
+		out = append(out, s.Points[t])
+	}
+	return out
 }
 
-// cwMetricResult is one MetricDataResult: a band answers two, upper first.
+// derive answers an empty series that keeps s's label, period and status.
+func (s cwMetricSeries) derive() cwMetricSeries {
+	return cwMetricSeries{Label: s.Label, Period: s.Period, Points: map[int64]float64{}, Status: s.Status, Messages: s.Messages, Unit: s.Unit}
+}
+
+// A metric math value is a scalar (S), a time series (TS), an array of time
+// series (TS[]), a string or a bare keyword such as REPEAT or DESC.
+type cwMathValue struct {
+	scalar  *float64
+	series  []cwMetricSeries
+	array   bool
+	text    *string
+	keyword string
+	boolean *bool
+}
+
+func cwScalar(v float64) cwMathValue { return cwMathValue{scalar: &v} }
+
+func cwSeriesValue(s cwMetricSeries) cwMathValue { return cwMathValue{series: []cwMetricSeries{s}} }
+
+func cwArrayValue(s []cwMetricSeries) cwMathValue {
+	if s == nil {
+		s = []cwMetricSeries{}
+	}
+	return cwMathValue{series: s, array: true}
+}
+
+func (v cwMathValue) isSeries() bool {
+	return v.scalar == nil && v.text == nil && v.keyword == "" && v.boolean == nil
+}
+
+func (v cwMathValue) isSingle() bool { return v.isSeries() && !v.array && len(v.series) == 1 }
+
+// cwMetricResult is one MetricDataResult: a band answers two, lower first.
 type cwMetricResult struct {
 	Id     string
 	Label  string
@@ -97,6 +145,9 @@ func cwStatSeries(ref CWMetricRef, period int32, stat string, start, end int64) 
 		if ts < start || ts >= end {
 			continue
 		}
+		if out.Unit == "" {
+			out.Unit = d.Unit
+		}
 		b := (ts / p) * p
 		buckets[b] = append(buckets[b], d.Value)
 	}
@@ -113,7 +164,18 @@ func cwStatValue(stat string, vals []float64) float64 {
 	return cwApplyStat(stat, vals)
 }
 
+// cwMathOptions carries what differs between callers: an alarm gives a
+// LAMBDA data source 4.5 seconds and a Metrics Insights query three hours of
+// data, a graph 10 seconds and two weeks.
+type cwMathOptions struct {
+	ctx   context.Context
+	alarm bool
+	now   time.Time
+}
+
 type cwMetricEvaluator struct {
+	opts    cwMathOptions
+	order   []CWMetricDataQuery
 	queries map[string]CWMetricDataQuery
 	values  map[string]cwMathValue
 	active  map[string]bool
@@ -123,8 +185,15 @@ type cwMetricEvaluator struct {
 
 // cwEvaluateMetricQueries answers every query with ReturnData unset or true,
 // in request order.
-func cwEvaluateMetricQueries(queries []CWMetricDataQuery, start, end int64) ([]cwMetricResult, error) {
-	ev := &cwMetricEvaluator{queries: map[string]CWMetricDataQuery{}, values: map[string]cwMathValue{}, active: map[string]bool{}, start: start, end: end}
+func cwEvaluateMetricQueries(opts cwMathOptions, queries []CWMetricDataQuery, start, end int64) ([]cwMetricResult, error) {
+	if opts.ctx == nil {
+		opts.ctx = context.Background()
+	}
+	if opts.now.IsZero() {
+		opts.now = time.Now()
+	}
+	ev := &cwMetricEvaluator{opts: opts, order: queries, queries: map[string]CWMetricDataQuery{}, values: map[string]cwMathValue{}, active: map[string]bool{}, start: start, end: end}
+	insights := 0
 	for _, q := range queries {
 		if q.Id == "" {
 			return nil, cwMathErrorf("The parameter MetricDataQueries.member.Id is required.")
@@ -135,7 +204,13 @@ func cwEvaluateMetricQueries(queries []CWMetricDataQuery, start, end int64) ([]c
 		if (q.MetricStat == nil) == (q.Expression == "") {
 			return nil, cwMathErrorf("Exactly one of MetricStat and Expression must be set for query %s.", q.Id)
 		}
+		if cwIsMetricsInsightsQuery(q.Expression) {
+			insights++
+		}
 		ev.queries[q.Id] = q
+	}
+	if insights > 1 {
+		return nil, cwMathErrorf("A GetMetricData operation can include only one Metrics Insights query.")
 	}
 	var out []cwMetricResult
 	for _, q := range queries {
@@ -146,18 +221,62 @@ func cwEvaluateMetricQueries(queries []CWMetricDataQuery, start, end int64) ([]c
 		if !q.returns() {
 			continue
 		}
-		if v.scalar != nil {
+		if !v.isSeries() {
 			return nil, cwMathErrorf("Error in expression %s: the expression returns a scalar, not a time series.", q.Id)
 		}
 		for _, s := range v.series {
-			label := q.Label
-			if label == "" {
-				label = s.Label
-			}
-			out = append(out, cwMetricResult{Id: q.Id, Label: label, Series: s})
+			out = append(out, cwMetricResult{Id: q.Id, Label: cwResultLabel(q, v, s), Series: s})
 		}
 	}
 	return out, nil
+}
+
+// cwResultLabel follows the graph legend: an expression that answers an
+// array of time series labels each one "Expression-Label Metric-Label", and
+// an empty expression label leaves the metric's own. A band's edges carry
+// (lower) and (upper).
+func cwResultLabel(q CWMetricDataQuery, v cwMathValue, s cwMetricSeries) string {
+	if s.Edge != "" {
+		base := s.Label
+		if q.Label != "" {
+			base = q.Label
+		}
+		return base + " (" + s.Edge + ")"
+	}
+	switch {
+	case q.Label == "":
+		return s.Label
+	case v.array && s.Label != "":
+		return q.Label + " " + s.Label
+	}
+	return q.Label
+}
+
+// periodOf answers the period an expression's own series take: its Period,
+// else that of the first metric in the request, else one minute.
+func (ev *cwMetricEvaluator) periodOf(q CWMetricDataQuery) int32 {
+	if q.Period > 0 {
+		return q.Period
+	}
+	for _, other := range ev.order {
+		if other.MetricStat != nil && other.MetricStat.Period > 0 {
+			return other.MetricStat.Period
+		}
+	}
+	return 60
+}
+
+// grid answers the period starts that cover the request's time range.
+func (ev *cwMetricEvaluator) grid(period int32) []int64 {
+	if period <= 0 {
+		period = 60
+	}
+	p := int64(period)
+	var out []int64
+	for t := (ev.start / p) * p; t < ev.end; t += p {
+		out = append(out, t)
+	}
+	return out
 }
 
 func (ev *cwMetricEvaluator) value(id string) (cwMathValue, error) {
@@ -174,14 +293,17 @@ func (ev *cwMetricEvaluator) value(id string) (cwMathValue, error) {
 	ev.active[id] = true
 	defer delete(ev.active, id)
 	var v cwMathValue
-	if q.MetricStat != nil {
+	switch {
+	case q.MetricStat != nil:
 		ms := q.MetricStat
-		s := cwStatSeries(ms.Metric, ms.Period, ms.Stat, ev.start, ev.end)
-		v = cwMathValue{series: []cwMetricSeries{s}}
-		if d, ok := cwAnomalyDetectors.Get(cwAnomalyKey(ms.Metric.Namespace, ms.Metric.MetricName, ms.Stat, ms.Metric.Dimensions)); ok {
-			v.detector = &d
+		v = cwSeriesValue(cwStatSeries(ms.Metric, ms.Period, ms.Stat, ev.start, ev.end))
+	case cwIsMetricsInsightsQuery(q.Expression):
+		var err error
+		v, err = ev.metricsInsights(q)
+		if err != nil {
+			return cwMathValue{}, cwMathErrorf("Error in expression %s: %s", id, err.Error())
 		}
-	} else {
+	default:
 		node, err := cwParseMetricExpression(q.Expression)
 		if err != nil {
 			return cwMathValue{}, cwMathErrorf("Error in expression %s: %s", id, err.Error())
@@ -196,10 +318,10 @@ func (ev *cwMetricEvaluator) value(id string) (cwMathValue, error) {
 }
 
 type cwMathNode struct {
-	kind  string // num, id, op, neg, call
+	kind  string // num, str, id, op, neg, call, array
 	num   float64
 	name  string
-	op    byte
+	op    string
 	left  *cwMathNode
 	right *cwMathNode
 	args  []*cwMathNode
@@ -212,7 +334,7 @@ type cwMathParser struct {
 
 func cwParseMetricExpression(src string) (*cwMathNode, error) {
 	p := &cwMathParser{src: src}
-	n, err := p.sum()
+	n, err := p.or()
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +359,78 @@ func (p *cwMathParser) peek() byte {
 	return 0
 }
 
+// accept consumes tok when it comes next; a word operator must end there.
+func (p *cwMathParser) accept(tok string) bool {
+	p.space()
+	if !strings.HasPrefix(p.src[p.pos:], tok) {
+		return false
+	}
+	end := p.pos + len(tok)
+	if unicode.IsLetter(rune(tok[0])) && end < len(p.src) && cwIdentByte(p.src[end]) {
+		return false
+	}
+	p.pos = end
+	return true
+}
+
+func cwIdentByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+func (p *cwMathParser) or() (*cwMathNode, error) {
+	left, err := p.and()
+	if err != nil {
+		return nil, err
+	}
+	for p.accept("||") || p.accept("OR") {
+		right, err := p.and()
+		if err != nil {
+			return nil, err
+		}
+		left = &cwMathNode{kind: "op", op: "OR", left: left, right: right}
+	}
+	return left, nil
+}
+
+func (p *cwMathParser) and() (*cwMathNode, error) {
+	left, err := p.comparison()
+	if err != nil {
+		return nil, err
+	}
+	for p.accept("&&") || p.accept("AND") {
+		right, err := p.comparison()
+		if err != nil {
+			return nil, err
+		}
+		left = &cwMathNode{kind: "op", op: "AND", left: left, right: right}
+	}
+	return left, nil
+}
+
+func (p *cwMathParser) comparison() (*cwMathNode, error) {
+	left, err := p.sum()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		var op string
+		for _, candidate := range []string{"==", "!=", "<=", ">=", "<", ">"} {
+			if p.accept(candidate) {
+				op = candidate
+				break
+			}
+		}
+		if op == "" {
+			return left, nil
+		}
+		right, err := p.sum()
+		if err != nil {
+			return nil, err
+		}
+		left = &cwMathNode{kind: "op", op: op, left: left, right: right}
+	}
+}
+
 func (p *cwMathParser) sum() (*cwMathNode, error) {
 	left, err := p.product()
 	if err != nil {
@@ -248,41 +442,25 @@ func (p *cwMathParser) sum() (*cwMathNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &cwMathNode{kind: "op", op: c, left: left, right: right}
+		left = &cwMathNode{kind: "op", op: string(c), left: left, right: right}
 	}
 	return left, nil
 }
 
 func (p *cwMathParser) product() (*cwMathNode, error) {
-	left, err := p.power()
+	left, err := p.unary()
 	if err != nil {
 		return nil, err
 	}
 	for c := p.peek(); c == '*' || c == '/'; c = p.peek() {
 		p.pos++
-		right, err := p.power()
+		right, err := p.unary()
 		if err != nil {
 			return nil, err
 		}
-		left = &cwMathNode{kind: "op", op: c, left: left, right: right}
+		left = &cwMathNode{kind: "op", op: string(c), left: left, right: right}
 	}
 	return left, nil
-}
-
-func (p *cwMathParser) power() (*cwMathNode, error) {
-	base, err := p.unary()
-	if err != nil {
-		return nil, err
-	}
-	if p.peek() == '^' {
-		p.pos++
-		exp, err := p.power()
-		if err != nil {
-			return nil, err
-		}
-		return &cwMathNode{kind: "op", op: '^', left: base, right: exp}, nil
-	}
-	return base, nil
 }
 
 func (p *cwMathParser) unary() (*cwMathNode, error) {
@@ -294,7 +472,47 @@ func (p *cwMathParser) unary() (*cwMathNode, error) {
 		}
 		return &cwMathNode{kind: "neg", left: inner}, nil
 	}
-	return p.primary()
+	return p.power()
+}
+
+func (p *cwMathParser) power() (*cwMathNode, error) {
+	base, err := p.primary()
+	if err != nil {
+		return nil, err
+	}
+	if p.peek() == '^' {
+		p.pos++
+		exp, err := p.unary()
+		if err != nil {
+			return nil, err
+		}
+		return &cwMathNode{kind: "op", op: "^", left: base, right: exp}, nil
+	}
+	return base, nil
+}
+
+func (p *cwMathParser) list(closing byte) ([]*cwMathNode, error) {
+	var out []*cwMathNode
+	if p.peek() == closing {
+		p.pos++
+		return out, nil
+	}
+	for {
+		arg, err := p.or()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, arg)
+		switch p.peek() {
+		case ',':
+			p.pos++
+		case closing:
+			p.pos++
+			return out, nil
+		default:
+			return nil, fmt.Errorf("expected %q at position %d", string(closing), p.pos)
+		}
+	}
 }
 
 func (p *cwMathParser) primary() (*cwMathNode, error) {
@@ -302,7 +520,7 @@ func (p *cwMathParser) primary() (*cwMathNode, error) {
 	switch {
 	case c == '(':
 		p.pos++
-		n, err := p.sum()
+		n, err := p.or()
 		if err != nil {
 			return nil, err
 		}
@@ -311,19 +529,53 @@ func (p *cwMathParser) primary() (*cwMathNode, error) {
 		}
 		p.pos++
 		return n, nil
+	case c == '[':
+		p.pos++
+		items, err := p.list(']')
+		if err != nil {
+			return nil, err
+		}
+		return &cwMathNode{kind: "array", args: items}, nil
+	case c == '\'' || c == '"':
+		p.pos++
+		var b strings.Builder
+		for p.pos < len(p.src) && p.src[p.pos] != c {
+			if p.src[p.pos] == '\\' && p.pos+1 < len(p.src) && p.src[p.pos+1] == c {
+				p.pos++
+			}
+			b.WriteByte(p.src[p.pos])
+			p.pos++
+		}
+		if p.pos >= len(p.src) {
+			return nil, fmt.Errorf("unterminated string")
+		}
+		p.pos++
+		return &cwMathNode{kind: "str", name: b.String()}, nil
 	case c >= '0' && c <= '9' || c == '.':
 		start := p.pos
 		for p.pos < len(p.src) && (p.src[p.pos] >= '0' && p.src[p.pos] <= '9' || p.src[p.pos] == '.') {
 			p.pos++
+		}
+		if p.pos < len(p.src) && (p.src[p.pos] == 'e' || p.src[p.pos] == 'E') {
+			q := p.pos + 1
+			if q < len(p.src) && (p.src[q] == '+' || p.src[q] == '-') {
+				q++
+			}
+			if q < len(p.src) && p.src[q] >= '0' && p.src[q] <= '9' {
+				for q < len(p.src) && p.src[q] >= '0' && p.src[q] <= '9' {
+					q++
+				}
+				p.pos = q
+			}
 		}
 		f, err := strconv.ParseFloat(p.src[start:p.pos], 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid number %q", p.src[start:p.pos])
 		}
 		return &cwMathNode{kind: "num", num: f}, nil
-	case c == '_' || unicode.IsLetter(rune(c)):
+	case c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z':
 		start := p.pos
-		for p.pos < len(p.src) && (p.src[p.pos] == '_' || unicode.IsLetter(rune(p.src[p.pos])) || unicode.IsDigit(rune(p.src[p.pos]))) {
+		for p.pos < len(p.src) && cwIdentByte(p.src[p.pos]) {
 			p.pos++
 		}
 		name := p.src[start:p.pos]
@@ -331,48 +583,61 @@ func (p *cwMathParser) primary() (*cwMathNode, error) {
 			return &cwMathNode{kind: "id", name: name}, nil
 		}
 		p.pos++
-		call := &cwMathNode{kind: "call", name: strings.ToUpper(name)}
-		if p.peek() == ')' {
-			p.pos++
-			return call, nil
+		args, err := p.list(')')
+		if err != nil {
+			return nil, err
 		}
-		for {
-			arg, err := p.sum()
-			if err != nil {
-				return nil, err
-			}
-			call.args = append(call.args, arg)
-			if p.peek() == ',' {
-				p.pos++
-				continue
-			}
-			if p.peek() != ')' {
-				return nil, fmt.Errorf("expected ')' at position %d", p.pos)
-			}
-			p.pos++
-			return call, nil
-		}
+		return &cwMathNode{kind: "call", name: name, args: args}, nil
+	}
+	if c == 0 {
+		return nil, fmt.Errorf("unexpected end of expression")
 	}
 	return nil, fmt.Errorf("unexpected %q at position %d", string(c), p.pos)
 }
 
+var cwMathKeywords = map[string]bool{"REPEAT": true, "LINEAR": true, "ASC": true, "DESC": true, "AVG": true, "MIN": true, "MAX": true, "SUM": true}
+
 func (ev *cwMetricEvaluator) eval(n *cwMathNode, q CWMetricDataQuery) (cwMathValue, error) {
 	switch n.kind {
 	case "num":
-		f := n.num
-		return cwMathValue{scalar: &f}, nil
+		return cwScalar(n.num), nil
+	case "str":
+		s := n.name
+		return cwMathValue{text: &s}, nil
 	case "id":
 		if n.name == q.Id {
 			return cwMathValue{}, fmt.Errorf("the expression references itself")
 		}
-		return ev.value(n.name)
+		if _, ok := ev.queries[n.name]; ok {
+			return ev.value(n.name)
+		}
+		if cwMathKeywords[n.name] {
+			return cwMathValue{keyword: n.name}, nil
+		}
+		if n.name == "true" || n.name == "false" {
+			b := n.name == "true"
+			return cwMathValue{boolean: &b}, nil
+		}
+		return cwMathValue{}, fmt.Errorf("unrecognized metric or expression id %q", n.name)
+	case "array":
+		var all []cwMetricSeries
+		for _, item := range n.args {
+			v, err := ev.eval(item, q)
+			if err != nil {
+				return cwMathValue{}, err
+			}
+			if !v.isSeries() {
+				return cwMathValue{}, fmt.Errorf("an array holds only time series")
+			}
+			all = append(all, v.series...)
+		}
+		return cwArrayValue(all), nil
 	case "neg":
 		v, err := ev.eval(n.left, q)
 		if err != nil {
 			return cwMathValue{}, err
 		}
-		zero := 0.0
-		return cwMathBinary('-', cwMathValue{scalar: &zero}, v)
+		return cwMathBinary("-", cwScalar(0), v)
 	case "op":
 		l, err := ev.eval(n.left, q)
 		if err != nil {
@@ -389,236 +654,133 @@ func (ev *cwMetricEvaluator) eval(n *cwMathNode, q CWMetricDataQuery) (cwMathVal
 	return cwMathValue{}, fmt.Errorf("unsupported expression")
 }
 
-func cwMathApply(op byte, a, b float64) (float64, bool) {
+func cwTruth(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func cwMathApply(op string, a, b float64) (float64, bool) {
 	switch op {
-	case '+':
+	case "+":
 		return a + b, true
-	case '-':
+	case "-":
 		return a - b, true
-	case '*':
+	case "*":
 		return a * b, true
-	case '/':
+	case "/":
 		if b == 0 {
 			return 0, false
 		}
 		return a / b, true
-	case '^':
+	case "^":
 		r := math.Pow(a, b)
 		return r, !math.IsNaN(r) && !math.IsInf(r, 0)
+	case "==":
+		return cwTruth(a == b), true
+	case "!=":
+		return cwTruth(a != b), true
+	case "<":
+		return cwTruth(a < b), true
+	case "<=":
+		return cwTruth(a <= b), true
+	case ">":
+		return cwTruth(a > b), true
+	case ">=":
+		return cwTruth(a >= b), true
+	case "AND":
+		return cwTruth(a != 0 && b != 0), true
+	case "OR":
+		return cwTruth(a != 0 || b != 0), true
 	}
 	return 0, false
 }
 
-// A division by zero or an undefined result drops the datapoint, as metric
-// math leaves no value where none is defined.
-func cwMathBinary(op byte, l, r cwMathValue) (cwMathValue, error) {
+// cwMathBinary applies an operator. Between two time series a timestamp only
+// one of them has counts the other's missing value as 0; a division by zero
+// drops the datapoint.
+func cwMathBinary(op string, l, r cwMathValue) (cwMathValue, error) {
+	if !l.isSeries() && l.scalar == nil || !r.isSeries() && r.scalar == nil {
+		return cwMathValue{}, fmt.Errorf("the operator %s takes numbers and time series", op)
+	}
 	switch {
 	case l.scalar != nil && r.scalar != nil:
 		v, ok := cwMathApply(op, *l.scalar, *r.scalar)
 		if !ok {
 			return cwMathValue{}, fmt.Errorf("the result is undefined")
 		}
-		return cwMathValue{scalar: &v}, nil
+		return cwScalar(v), nil
 	case l.scalar != nil:
 		out := make([]cwMetricSeries, 0, len(r.series))
 		for _, s := range r.series {
 			out = append(out, cwMapSeries(s, func(v float64) (float64, bool) { return cwMathApply(op, *l.scalar, v) }))
 		}
-		return cwMathValue{series: out}, nil
+		return cwMathValue{series: out, array: r.array}, nil
 	case r.scalar != nil:
 		out := make([]cwMetricSeries, 0, len(l.series))
 		for _, s := range l.series {
 			out = append(out, cwMapSeries(s, func(v float64) (float64, bool) { return cwMathApply(op, v, *r.scalar) }))
 		}
-		return cwMathValue{series: out}, nil
+		return cwMathValue{series: out, array: l.array}, nil
 	}
-	if len(l.series) == 0 || len(r.series) == 0 {
-		return cwMathValue{series: []cwMetricSeries{}}, nil
+	if l.array && r.array {
+		return cwMathValue{}, fmt.Errorf("the operator %s takes at most one array of time series", op)
 	}
-	if len(l.series) != 1 && len(r.series) != 1 && len(l.series) != len(r.series) {
-		return cwMathValue{}, fmt.Errorf("the operands hold different numbers of time series")
-	}
-	n := max(len(l.series), len(r.series))
-	out := make([]cwMetricSeries, 0, n)
-	for i := 0; i < n; i++ {
-		a, b := l.series[min(i, len(l.series)-1)], r.series[min(i, len(r.series)-1)]
-		s := cwMetricSeries{Label: a.Label, Period: a.Period, Points: map[int64]float64{}}
-		for t, av := range a.Points {
-			if bv, ok := b.Points[t]; ok {
-				if v, ok := cwMathApply(op, av, bv); ok {
-					s.Points[t] = v
-				}
+	if l.array || r.array {
+		arr, single, arrLeft := l, r, true
+		if r.array {
+			arr, single, arrLeft = r, l, false
+		}
+		if len(single.series) != 1 {
+			return cwArrayValue(nil), nil
+		}
+		out := make([]cwMetricSeries, 0, len(arr.series))
+		for _, s := range arr.series {
+			if arrLeft {
+				out = append(out, cwCombineSeries(op, s, single.series[0]))
+			} else {
+				out = append(out, cwCombineSeries(op, single.series[0], s))
 			}
 		}
-		out = append(out, s)
+		return cwArrayValue(out), nil
 	}
-	return cwMathValue{series: out}, nil
+	if len(l.series) != 1 || len(r.series) != 1 {
+		return cwMathValue{series: []cwMetricSeries{}}, nil
+	}
+	return cwSeriesValue(cwCombineSeries(op, l.series[0], r.series[0])), nil
+}
+
+func cwCombineSeries(op string, a, b cwMetricSeries) cwMetricSeries {
+	out := a.derive()
+	if out.Status == "" {
+		out.Status, out.Messages = b.Status, b.Messages
+	}
+	for t := range cwUnionTimes(a, b) {
+		v, ok := cwMathApply(op, a.Points[t], b.Points[t])
+		if ok {
+			out.Points[t] = v
+		}
+	}
+	return out
+}
+
+func cwUnionTimes(series ...cwMetricSeries) map[int64]bool {
+	out := map[int64]bool{}
+	for _, s := range series {
+		for t := range s.Points {
+			out[t] = true
+		}
+	}
+	return out
 }
 
 func cwMapSeries(s cwMetricSeries, f func(float64) (float64, bool)) cwMetricSeries {
-	out := cwMetricSeries{Label: s.Label, Period: s.Period, Points: map[int64]float64{}}
+	out := s.derive()
 	for t, v := range s.Points {
 		if r, ok := f(v); ok {
 			out.Points[t] = r
 		}
 	}
 	return out
-}
-
-func (ev *cwMetricEvaluator) call(n *cwMathNode, q CWMetricDataQuery) (cwMathValue, error) {
-	if n.name == "ANOMALY_DETECTION_BAND" {
-		return ev.anomalyBand(n, q)
-	}
-	if n.name == "METRICS" {
-		var series []cwMetricSeries
-		for id, other := range ev.queries {
-			if other.MetricStat == nil || id == q.Id {
-				continue
-			}
-			v, err := ev.value(id)
-			if err != nil {
-				return cwMathValue{}, err
-			}
-			series = append(series, v.series...)
-		}
-		sort.Slice(series, func(i, j int) bool { return series[i].Label < series[j].Label })
-		return cwMathValue{series: series}, nil
-	}
-	args := make([]cwMathValue, 0, len(n.args))
-	for _, a := range n.args {
-		v, err := ev.eval(a, q)
-		if err != nil {
-			return cwMathValue{}, err
-		}
-		args = append(args, v)
-	}
-	switch n.name {
-	case "ABS", "CEIL", "FLOOR", "LOG", "LOG10", "SQRT":
-		if len(args) != 1 {
-			return cwMathValue{}, fmt.Errorf("%s takes one argument", n.name)
-		}
-		f := map[string]func(float64) float64{"ABS": math.Abs, "CEIL": math.Ceil, "FLOOR": math.Floor, "LOG": math.Log, "LOG10": math.Log10, "SQRT": math.Sqrt}[n.name]
-		apply := func(v float64) (float64, bool) {
-			r := f(v)
-			return r, !math.IsNaN(r) && !math.IsInf(r, 0)
-		}
-		if args[0].scalar != nil {
-			r, ok := apply(*args[0].scalar)
-			if !ok {
-				return cwMathValue{}, fmt.Errorf("the result of %s is undefined", n.name)
-			}
-			return cwMathValue{scalar: &r}, nil
-		}
-		out := make([]cwMetricSeries, 0, len(args[0].series))
-		for _, s := range args[0].series {
-			out = append(out, cwMapSeries(s, apply))
-		}
-		return cwMathValue{series: out}, nil
-	case "AVG", "MAX", "MIN", "SUM", "STDDEV":
-		return cwMathAggregate(n.name, args)
-	}
-	return cwMathValue{}, fmt.Errorf("unsupported function %s", n.name)
-}
-
-// On one time series an aggregate answers a scalar; on several it answers
-// one time series of the per-timestamp aggregate.
-func cwMathAggregate(name string, args []cwMathValue) (cwMathValue, error) {
-	if len(args) != 1 || args[0].scalar != nil {
-		return cwMathValue{}, fmt.Errorf("%s takes one time series or an array of time series", name)
-	}
-	reduce := func(vals []float64) float64 {
-		switch name {
-		case "AVG":
-			return cwApplyStat("Average", vals)
-		case "MAX":
-			return cwApplyStat("Maximum", vals)
-		case "MIN":
-			return cwApplyStat("Minimum", vals)
-		case "SUM":
-			return cwApplyStat("Sum", vals)
-		}
-		return cwStdDev(vals)
-	}
-	series := args[0].series
-	if len(series) == 1 {
-		vals := make([]float64, 0, len(series[0].Points))
-		for _, v := range series[0].Points {
-			vals = append(vals, v)
-		}
-		if len(vals) == 0 {
-			return cwMathValue{series: []cwMetricSeries{{Label: series[0].Label, Period: series[0].Period, Points: map[int64]float64{}}}}, nil
-		}
-		r := reduce(vals)
-		return cwMathValue{scalar: &r}, nil
-	}
-	byTime := map[int64][]float64{}
-	var period int32
-	for _, s := range series {
-		period = s.Period
-		for t, v := range s.Points {
-			byTime[t] = append(byTime[t], v)
-		}
-	}
-	out := cwMetricSeries{Label: name, Period: period, Points: map[int64]float64{}}
-	for t, vals := range byTime {
-		out.Points[t] = reduce(vals)
-	}
-	return cwMathValue{series: []cwMetricSeries{out}}, nil
-}
-
-func cwStdDev(vals []float64) float64 {
-	if len(vals) == 0 {
-		return 0
-	}
-	mean := cwApplyStat("Average", vals)
-	sum := 0.0
-	for _, v := range vals {
-		sum += (v - mean) * (v - mean)
-	}
-	return math.Sqrt(sum / float64(len(vals)))
-}
-
-// ANOMALY_DETECTION_BAND(m, k) answers the upper and lower edges of the
-// trained model's expected range for m, k standard deviations wide (2 by
-// default), at each of m's periods.
-func (ev *cwMetricEvaluator) anomalyBand(n *cwMathNode, q CWMetricDataQuery) (cwMathValue, error) {
-	if len(n.args) < 1 || len(n.args) > 2 || n.args[0].kind != "id" {
-		return cwMathValue{}, fmt.Errorf("ANOMALY_DETECTION_BAND takes the id of a metric and an optional number of standard deviations")
-	}
-	width := 2.0
-	if len(n.args) == 2 {
-		w, err := ev.eval(n.args[1], q)
-		if err != nil {
-			return cwMathValue{}, err
-		}
-		if w.scalar == nil {
-			return cwMathValue{}, fmt.Errorf("the band width of ANOMALY_DETECTION_BAND must be a number")
-		}
-		width = *w.scalar
-	}
-	target, ok := ev.queries[n.args[0].name]
-	if !ok || target.MetricStat == nil {
-		return cwMathValue{}, fmt.Errorf("ANOMALY_DETECTION_BAND needs the id of a metric with MetricStat")
-	}
-	m, err := ev.value(target.Id)
-	if err != nil {
-		return cwMathValue{}, err
-	}
-	label := target.Label
-	if label == "" {
-		label = target.MetricStat.Metric.MetricName
-	}
-	upper := cwMetricSeries{Label: label + " (upper)", Period: m.series[0].Period, Points: map[int64]float64{}}
-	lower := cwMetricSeries{Label: label + " (lower)", Period: m.series[0].Period, Points: map[int64]float64{}}
-	if m.detector != nil {
-		model, ok := cwFitAnomalyModel(*m.detector, m.series[0].Period)
-		if ok {
-			for t := range m.series[0].Points {
-				expected, spread := model.at(t)
-				upper.Points[t] = expected + width*spread
-				lower.Points[t] = expected - width*spread
-			}
-		}
-	}
-	return cwMathValue{series: []cwMetricSeries{upper, lower}}, nil
 }

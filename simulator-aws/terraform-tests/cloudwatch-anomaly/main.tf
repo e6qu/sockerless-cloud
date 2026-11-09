@@ -66,6 +66,81 @@ resource "aws_cloudwatch_metric_alarm" "latency" {
   }
 }
 
+resource "aws_cloudwatch_metric_alarm" "error_rate" {
+  alarm_name          = "tf-error-rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  threshold           = 5
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id = "errors"
+    metric {
+      namespace   = "TF/Anomaly"
+      metric_name = "Errors"
+      period      = 60
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id = "requests"
+    metric {
+      namespace   = "TF/Anomaly"
+      metric_name = "Requests"
+      period      = 60
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id          = "rate"
+    expression  = "IF(requests > 0, FILL(errors, 0) / requests * 100, 0)"
+    label       = "Error rate"
+    return_data = true
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "error_rate_band" {
+  alarm_name          = "tf-error-rate-band"
+  comparison_operator = "GreaterThanUpperThreshold"
+  evaluation_periods  = 1
+  threshold_metric_id = "ad1"
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id = "errors"
+    metric {
+      namespace   = "TF/Anomaly"
+      metric_name = "Errors"
+      period      = 60
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id = "requests"
+    metric {
+      namespace   = "TF/Anomaly"
+      metric_name = "Requests"
+      period      = 60
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id          = "rate"
+    expression  = "errors / requests * 100"
+    return_data = true
+  }
+
+  metric_query {
+    id          = "ad1"
+    expression  = "ANOMALY_DETECTION_BAND(rate, ${var.band_width})"
+    return_data = true
+  }
+}
+
 resource "aws_cloudwatch_contributor_insight_rule" "talkers" {
   rule_name  = "tf-top-talkers"
   rule_state = "ENABLED"
@@ -84,6 +159,14 @@ output "detector_arn" {
 
 output "alarm_threshold_metric_id" {
   value = aws_cloudwatch_metric_alarm.latency.threshold_metric_id
+}
+
+output "error_rate_expression" {
+  value = [for q in aws_cloudwatch_metric_alarm.error_rate.metric_query : q.expression if q.id == "rate"][0]
+}
+
+output "error_rate_band_threshold_metric_id" {
+  value = aws_cloudwatch_metric_alarm.error_rate_band.threshold_metric_id
 }
 
 output "rule_arn" {

@@ -95,11 +95,17 @@ type getMetricDataRequest struct {
 }
 
 type metricDataResult struct {
-	Id         string      `cbor:"Id"`
-	Label      string      `cbor:"Label,omitempty"`
-	StatusCode string      `cbor:"StatusCode"`
-	Values     []float64   `cbor:"Values"`
-	Timestamps []time.Time `cbor:"Timestamps"`
+	Id         string              `cbor:"Id"`
+	Label      string              `cbor:"Label,omitempty"`
+	StatusCode string              `cbor:"StatusCode"`
+	Messages   []cborMetricMessage `cbor:"Messages,omitempty"`
+	Values     []float64           `cbor:"Values"`
+	Timestamps []time.Time         `cbor:"Timestamps"`
+}
+
+type cborMetricMessage struct {
+	Code  string `cbor:"Code"`
+	Value string `cbor:"Value"`
 }
 
 func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
@@ -113,14 +119,18 @@ func handleCWGetMetricData(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "InvalidParameterValue", "Invalid CBOR request", http.StatusBadRequest)
 		return
 	}
-	outputs, err := cwGetMetricData(req.MetricDataQueries, req.StartTime, req.EndTime, req.ScanBy)
+	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), req.MetricDataQueries, req.StartTime, req.EndTime, req.ScanBy)
 	if err != nil {
 		cwWriteCBORError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
 	}
 	results := make([]metricDataResult, 0, len(outputs))
 	for _, o := range outputs {
-		results = append(results, metricDataResult{Id: o.Id, Label: o.Label, StatusCode: "Complete", Values: o.Values, Timestamps: o.Timestamps})
+		res := metricDataResult{Id: o.Id, Label: o.Label, StatusCode: o.StatusCode, Values: o.Values, Timestamps: o.Timestamps}
+		for _, m := range o.Messages {
+			res.Messages = append(res.Messages, cborMetricMessage(m))
+		}
+		results = append(results, res)
 	}
 	data, err := cwEncMode.Marshal(map[string]any{"MetricDataResults": results})
 	if err != nil {

@@ -56,7 +56,7 @@ func TestCloudWatchCLI_AnomalyBandAlarmAndGraph(t *testing.T) {
 	require.Len(t, data.MetricDataResults, 3)
 	assert.Equal(t, "ad1", data.MetricDataResults[1].Id)
 	require.NotEmpty(t, data.MetricDataResults[1].Values)
-	assert.Greater(t, data.MetricDataResults[1].Values[0], data.MetricDataResults[2].Values[0], "the upper edge is above the lower")
+	assert.Greater(t, data.MetricDataResults[2].Values[0], data.MetricDataResults[1].Values[0], "the band answers its lower edge, then its upper")
 
 	name := uniquename.New("cli-anomaly-alarm")
 	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm", "--alarm-name", name,

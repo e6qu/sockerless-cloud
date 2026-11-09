@@ -29,7 +29,9 @@
   policies that still take no effect (BUG-3960), and the batch and payload
   limits (BUG-3961, BUG-3962); capture the anomaly detection, metric math,
   widget, Contributor Insights, scheduled query and import details no source
-  states (BUG-3951, BUG-3952).
+  states (BUG-3951, BUG-3952); serve AWS usage metrics, Service Quotas and
+  Performance Insights so `SERVICE_QUOTA` and `DB_PERF_INSIGHTS` evaluate,
+  and page `GetMetricData` (BUG-3990).
 - **Core-service gaps.** Azure Managed Disks as block devices (BUG-3931),
   Cloud Monitoring (BUG-3522) and Filestore; the managed caches' remaining
   gaps (BUG-3835, BUG-3840 and BUG-3845).

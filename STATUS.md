@@ -143,6 +143,9 @@ Shared mechanisms, one package each:
   to the callers its model names, removed accounts run standalone, and
   invitations and the migration to all features run through handshakes
   their parties answer.
+  Amazon CloudWatch evaluates every metric math function but `SERVICE_QUOTA`
+  and `DB_PERF_INSIGHTS`, Metrics Insights queries, single-metric and metric
+  math anomaly detectors, and the metric widget's views and annotations.
 - **Google Cloud**: every method spelling across the 35 vendored Discovery
   documents, Cloud Tasks, Cloud Scheduler and Cloud Quotas among them, reaches a route that
   serves it or answers a declared 501; the gRPC door serves all but three

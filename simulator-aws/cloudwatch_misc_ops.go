@@ -90,7 +90,7 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
 		return
 	}
-	outputs, err := cwGetMetricData(req.MetricDataQueries, time.Unix(int64(req.StartTime), 0), time.Unix(int64(req.EndTime), 0), req.ScanBy)
+	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), req.MetricDataQueries, time.Unix(int64(req.StartTime), 0), time.Unix(int64(req.EndTime), 0), req.ScanBy)
 	if err != nil {
 		AWSError(w, "ValidationError", err.Error(), http.StatusBadRequest)
 		return
@@ -107,9 +107,16 @@ func handleCWJSONGetMetricData(w http.ResponseWriter, r *http.Request) {
 		for _, ts := range o.Timestamps {
 			timestamps = append(timestamps, float64(ts.Unix()))
 		}
-		res := map[string]any{"Id": o.Id, "StatusCode": "Complete", "Values": values, "Timestamps": timestamps}
+		res := map[string]any{"Id": o.Id, "StatusCode": o.StatusCode, "Values": values, "Timestamps": timestamps}
 		if o.Label != "" {
 			res["Label"] = o.Label
+		}
+		if len(o.Messages) > 0 {
+			messages := make([]map[string]string, 0, len(o.Messages))
+			for _, m := range o.Messages {
+				messages = append(messages, map[string]string{"Code": m.Code, "Value": m.Value})
+			}
+			res["Messages"] = messages
 		}
 		results = append(results, res)
 	}
@@ -501,7 +508,7 @@ func handleCWQueryGetMetricData(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Unix(int64(cwParseTimeUnix(r.FormValue("StartTime"))), 0)
 	end := time.Unix(int64(cwParseTimeUnix(r.FormValue("EndTime"))), 0)
-	outputs, err := cwGetMetricData(queries, start, end, r.FormValue("ScanBy"))
+	outputs, err := cwGetMetricData(sim.LifetimeContext(r.Context()), queries, start, end, r.FormValue("ScanBy"))
 	if err != nil {
 		cwQueryError(w, "ValidationError", err.Error())
 		return
@@ -514,7 +521,15 @@ func handleCWQueryGetMetricData(w http.ResponseWriter, r *http.Request) {
 		if o.Label != "" {
 			b = cwQueryAppendf(b, "<Label>%s</Label>", xmlEscape(o.Label))
 		}
-		b = append(b, []byte("<StatusCode>Complete</StatusCode><Timestamps>")...)
+		b = cwQueryAppendf(b, "<StatusCode>%s</StatusCode>", o.StatusCode)
+		if len(o.Messages) > 0 {
+			b = append(b, "<Messages>"...)
+			for _, m := range o.Messages {
+				b = cwQueryAppendf(b, "<member><Code>%s</Code><Value>%s</Value></member>", xmlEscape(m.Code), xmlEscape(m.Value))
+			}
+			b = append(b, "</Messages>"...)
+		}
+		b = append(b, []byte("<Timestamps>")...)
 		for _, ts := range o.Timestamps {
 			b = cwQueryAppendf(b, "<member>%s</member>", ts.Format(time.RFC3339))
 		}

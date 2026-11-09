@@ -87,8 +87,8 @@ func TestCloudWatch_AnomalyDetectorTrainsAndBands(t *testing.T) {
 	}
 	require.Len(t, byID["m1"], 1)
 	require.Len(t, byID["m1"][0].Values, 30)
-	require.Len(t, byID["ad1"], 2, "a band answers its upper and lower edges")
-	upper, lower := byID["ad1"][0], byID["ad1"][1]
+	require.Len(t, byID["ad1"], 2, "a band answers its lower and upper edges")
+	lower, upper := byID["ad1"][0], byID["ad1"][1]
 	require.Len(t, upper.Values, 30)
 	for i := range upper.Values {
 		assert.Greater(t, upper.Values[i], 10.0)

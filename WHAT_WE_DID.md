@@ -2000,6 +2000,37 @@ fails once the row closes or the operation is served.
   Contributor Insights reads only the events a rule's log groups ingested
   while the rule was ENABLED, kept as enabled windows, so disabling a rule
   stops its report growing.
+- **Amazon CloudWatch metric math, metric math anomaly detectors and widget
+  options.** The evaluator implements every function the User Guide's "Math
+  expressions with metrics" table lists and the operators it defines, to the
+  page's own examples: comparison and logical operators, arrays of time series
+  in brackets, missing values counting as 0 between two series, `IF` with the
+  tables' exact drop-or-zero rules, `FILL` with a number, a series, `REPEAT`
+  or `LINEAR`, `SORT`, `SLICE`, `FIRST`, `LAST`, `RATE`, `DIFF`,
+  `RUNNING_SUM`, the calendar functions, `PERIOD`, `TIME_SERIES`, `SEARCH`
+  with the search syntax page's tokenization and Boolean operators,
+  `INSIGHT_RULE_METRIC` over a Contributor Insights report, and `LAMBDA`,
+  which invokes a function that grants the data source principal with the
+  documented `GetMetricData` event, holds it to 10 seconds (4.5 for an alarm)
+  and 6 MB, discards off-grid datapoints and carries its `StatusCode` and
+  `Messages` into the result. An expression that starts with `SELECT` is a
+  Metrics Insights query with `SCHEMA`, `WHERE`, `GROUP BY`, `ORDER BY` and
+  `LIMIT`. `ANOMALY_DETECTION_BAND` answers its lower edge first, as
+  `LAST(ANOMALY_DETECTION_BAND(m1))` being the upper bound requires, where the
+  simulator had answered the upper first. `PutAnomalyDetector` accepts a
+  `MetricMathAnomalyDetector`, validated against the guide's list of what
+  anomaly detection on metric math does not support, returns an
+  `AnomalyDetectorId`, and `DescribeAnomalyDetectors` and
+  `DeleteAnomalyDetector` take ids, types, dimensions and pages; a band alarm
+  on an expression generates the metric math model. `AdaptationSpeed`,
+  `OutlierFilteringStrength` and `PeriodicSpikes` shape the model in the
+  direction the API Reference describes each. `GetMetricWidgetImage` draws
+  vertical annotations, a right y-axis with its own scale and caption,
+  stacked graphs, the pie view and, without `liveData`, only periods that
+  ended a minute ago, and translucent fills blend rather than tint, as
+  premultiplied colours had made them. `SERVICE_QUOTA`, `DB_PERF_INSIGHTS`
+  and Metrics Insights tag filters wait on services the simulator lacks
+  (BUG-3990); the details no source states stay in BUG-3951.
 - **Amazon CloudWatch Logs anomaly detection, scheduled queries and
   imports.** A log anomaly detector moves INITIALIZING, TRAINING (two weeks of
   its group's events), ANALYZING on a one-second sweep, then analyzes once per

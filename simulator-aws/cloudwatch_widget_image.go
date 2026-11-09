@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/image/font"
@@ -23,8 +22,10 @@ import (
 // GetMetricWidgetImage draws the graph the MetricWidget describes, as the
 // "GetMetricWidgetImage: Metric Widget Structure and Syntax" reference lays
 // the document out: the metrics array (raw metrics with "." repeating the
-// previous metric's entry, and expressions), period, stat, start, end,
-// title, legend, theme, timezone, view, yAxis and horizontal annotations.
+// previous metric's entry, and expressions, each on the left or right
+// y-axis), period, stat, start, end, title, legend, theme, timezone, view
+// (timeSeries, bar or pie), stacked, liveData, yAxis and the horizontal and
+// vertical annotations.
 
 type cwWidgetMetricOptions struct {
 	Expression string `json:"expression"`
@@ -63,6 +64,7 @@ type cwWidget struct {
 	Timezone string `json:"timezone"`
 	View     string `json:"view"`
 	Stacked  bool   `json:"stacked"`
+	LiveData bool   `json:"liveData"`
 	Region   string `json:"region"`
 	Legend   struct {
 		Position string `json:"position"`
@@ -79,16 +81,20 @@ type cwWidgetAnnotation struct {
 	Color   string          `json:"color"`
 	Fill    string          `json:"fill"`
 	Visible *bool           `json:"visible"`
+	YAxis   string          `json:"yAxis"`
 }
 
 // cwWidgetPalette is the default sequence CloudWatch colors graph lines with.
 var cwWidgetPalette = []string{"#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"}
 
+// cwWidgetLine is one legend entry; a band's line is its upper edge, with
+// band its lower edge.
 type cwWidgetLine struct {
 	label  string
 	color  color.RGBA
 	series cwMetricSeries
 	band   *cwMetricSeries
+	right  bool
 }
 
 type cwWidgetProblem struct{ msg string }
@@ -138,6 +144,11 @@ func cwWidgetZone(tz string) (*time.Location, error) {
 		offset = -offset
 	}
 	return time.FixedZone(tz, offset), nil
+}
+
+// cwWidgetTranslucent is col at alpha, unpremultiplied so draw blends it.
+func cwWidgetTranslucent(col color.RGBA, alpha uint8) color.NRGBA {
+	return color.NRGBA{R: col.R, G: col.G, B: col.B, A: alpha}
 }
 
 func cwWidgetColor(hex string) (color.RGBA, bool) {
@@ -297,6 +308,75 @@ func abs(v int) int {
 	return v
 }
 
+// cwWidgetAxisScale maps values onto the plot's height for one y-axis.
+type cwWidgetAxisScale struct {
+	lo, hi float64
+	used   bool
+}
+
+func (a *cwWidgetAxisScale) include(v float64) {
+	if !a.used {
+		a.lo, a.hi, a.used = v, v, true
+		return
+	}
+	a.lo, a.hi = math.Min(a.lo, v), math.Max(a.hi, v)
+}
+
+func (a *cwWidgetAxisScale) settle(axis cwWidgetAxis) {
+	if !a.used {
+		a.lo, a.hi = 0, 1
+	}
+	if axis.Min != nil {
+		a.lo = *axis.Min
+	}
+	if axis.Max != nil {
+		a.hi = *axis.Max
+	}
+	if a.hi <= a.lo {
+		a.hi = a.lo + 1
+	}
+}
+
+// cwWidgetAxisCaption is an axis' label, followed by the unit its metrics
+// share unless showUnits is false.
+func cwWidgetAxisCaption(axis cwWidgetAxis, lines []cwWidgetLine, right bool) string {
+	caption := axis.Label
+	if axis.ShowUnits != nil && !*axis.ShowUnits {
+		return caption
+	}
+	unit := ""
+	for _, l := range lines {
+		if l.right != right {
+			continue
+		}
+		if unit == "" {
+			unit = l.series.Unit
+		} else if l.series.Unit != unit {
+			return caption
+		}
+	}
+	if unit == "" || unit == "None" {
+		return caption
+	}
+	if caption == "" {
+		return unit
+	}
+	return caption + " (" + unit + ")"
+}
+
+// cwWidgetLive drops the datapoints live data would show: without liveData a
+// period appears one minute after it ends.
+func cwWidgetLive(s cwMetricSeries, now time.Time) cwMetricSeries {
+	out := s
+	out.Points = map[int64]float64{}
+	for t, v := range s.Points {
+		if t+int64(s.Period)+60 <= now.Unix() {
+			out.Points[t] = v
+		}
+	}
+	return out
+}
+
 func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 	var w cwWidget
 	if err := json.Unmarshal([]byte(raw), &w); err != nil {
@@ -314,6 +394,11 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 	}
 	if w.Region != "" && w.Region != awsRegion() {
 		return nil, cwWidgetErrorf("The region %s is not the local Region %s.", w.Region, awsRegion())
+	}
+	switch w.View {
+	case "", "timeSeries", "bar", "pie":
+	default:
+		return nil, cwWidgetErrorf("The view must be timeSeries, bar or pie.")
 	}
 	start, err := cwWidgetTime(w.Start, "-PT3H", now)
 	if err != nil {
@@ -334,38 +419,67 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	results, err := cwEvaluateMetricQueries(queries, start.Unix(), end.Unix())
+	results, err := cwEvaluateMetricQueries(cwMathOptions{now: now}, queries, start.Unix(), end.Unix())
 	if err != nil {
 		return nil, cwWidgetErrorf("%s", err.Error())
 	}
+	horizontal, err := cwWidgetHorizontalAnnotations(w.Annotations.Horizontal)
+	if err != nil {
+		return nil, err
+	}
+	vertical, err := cwWidgetVerticalAnnotations(w.Annotations.Vertical)
+	if err != nil {
+		return nil, err
+	}
 
 	var lines []cwWidgetLine
-	bandSeen := map[string]int{}
+	lowerEdges := map[string]cwMetricSeries{}
 	for _, res := range results {
 		opts := options[res.Id]
-		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(queriesExpression(queries, res.Id))), "ANOMALY_DETECTION_BAND") {
-			if idx, ok := bandSeen[res.Id]; ok {
-				lower := res.Series
-				lines[idx].band = &lower
-				continue
-			}
-			bandSeen[res.Id] = len(lines)
+		series := res.Series
+		if !w.LiveData {
+			series = cwWidgetLive(series, now)
+		}
+		right := opts.YAxis == "right"
+		switch series.Edge {
+		case "lower":
+			lowerEdges[res.Id] = series
+			continue
+		case "upper":
 			col, ok := cwWidgetColor(opts.Color)
 			if !ok {
 				col = color.RGBA{R: 0x9e, G: 0x9e, B: 0x9e, A: 0xff}
 			}
 			label := opts.Label
 			if label == "" {
-				label = strings.TrimSuffix(res.Label, " (upper)") + " expected range"
+				label = series.Label + " expected range"
 			}
-			lines = append(lines, cwWidgetLine{label: label, color: col, series: res.Series})
+			lower := lowerEdges[res.Id]
+			lines = append(lines, cwWidgetLine{label: label, color: col, series: series, band: &lower, right: right})
 			continue
 		}
 		col, ok := cwWidgetColor(opts.Color)
 		if !ok {
 			col, _ = cwWidgetColor(cwWidgetPalette[len(lines)%len(cwWidgetPalette)])
 		}
-		lines = append(lines, cwWidgetLine{label: res.Label, color: col, series: res.Series})
+		lines = append(lines, cwWidgetLine{label: res.Label, color: col, series: series, right: right})
+	}
+
+	stacked := map[int]map[int64][2]float64{}
+	if w.Stacked && (w.View == "" || w.View == "timeSeries") {
+		base := map[bool]map[int64]float64{false: {}, true: {}}
+		for i, l := range lines {
+			if l.band != nil {
+				continue
+			}
+			spans := map[int64][2]float64{}
+			for t, v := range l.series.Points {
+				b := base[l.right][t]
+				spans[t] = [2]float64{b, b + v}
+				base[l.right][t] = b + v
+			}
+			stacked[i] = spans
+		}
 	}
 
 	dark := w.Theme == "dark"
@@ -397,7 +511,47 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 			x += c.textWidth(l.label) + 24
 		}
 	}
+
+	scales := map[bool]*cwWidgetAxisScale{false: {}, true: {}}
+	for i, l := range lines {
+		if spans, ok := stacked[i]; ok {
+			for _, span := range spans {
+				scales[l.right].include(span[0])
+				scales[l.right].include(span[1])
+			}
+			continue
+		}
+		for _, v := range l.series.Points {
+			scales[l.right].include(v)
+		}
+		if l.band != nil {
+			for _, v := range l.band.Points {
+				scales[l.right].include(v)
+			}
+		}
+	}
+	for _, a := range horizontal {
+		if !a.visible {
+			continue
+		}
+		scales[a.right].include(a.value)
+		if a.to != nil {
+			scales[a.right].include(*a.to)
+		}
+	}
+	hasRight := scales[true].used
+	scales[false].settle(w.YAxis.Left)
+	scales[true].settle(w.YAxis.Right)
+	leftCaption := cwWidgetAxisCaption(w.YAxis.Left, lines, false)
+	rightCaption := cwWidgetAxisCaption(w.YAxis.Right, lines, true)
+	if leftCaption != "" || rightCaption != "" {
+		top += 14
+	}
+
 	plot := image.Rect(56, top+6, width-12, height-24-legendRows*16)
+	if hasRight {
+		plot.Max.X = width - 56
+	}
 	legendX := 0
 	if legend == "right" && len(lines) > 0 {
 		longest := 0
@@ -405,53 +559,39 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 			longest = max(longest, c.textWidth(l.label))
 		}
 		legendX = width - longest - 28
-		plot.Max.X = legendX - 8
+		plot.Max.X = min(plot.Max.X, legendX-8)
+		if hasRight {
+			plot.Max.X = legendX - 52
+		}
 	}
 
-	lo, hi := math.Inf(1), math.Inf(-1)
-	for _, l := range lines {
-		for _, v := range l.series.Points {
-			lo, hi = math.Min(lo, v), math.Max(hi, v)
-		}
-		if l.band != nil {
-			for _, v := range l.band.Points {
-				lo, hi = math.Min(lo, v), math.Max(hi, v)
-			}
-		}
-	}
-	horizontal := cwWidgetHorizontalAnnotations(w.Annotations.Horizontal)
-	for _, a := range horizontal {
-		lo, hi = math.Min(lo, a.value), math.Max(hi, a.value)
-		if a.to != nil {
-			lo, hi = math.Min(lo, *a.to), math.Max(hi, *a.to)
-		}
-	}
-	if math.IsInf(lo, 1) {
-		lo, hi = 0, 1
-	}
-	if w.YAxis.Left.Min != nil {
-		lo = *w.YAxis.Left.Min
-	}
-	if w.YAxis.Left.Max != nil {
-		hi = *w.YAxis.Left.Max
-	}
-	if hi <= lo {
-		hi = lo + 1
-	}
-
-	if plot.Dx() > 4 && plot.Dy() > 4 {
+	if w.View == "pie" && plot.Dx() > 4 && plot.Dy() > 4 {
+		cwWidgetPie(c, plot, lines)
+	} else if plot.Dx() > 4 && plot.Dy() > 4 {
 		xOf := func(ts int64) int {
 			return plot.Min.X + int(float64(plot.Dx())*float64(ts-start.Unix())/float64(end.Unix()-start.Unix()))
 		}
-		yOf := func(v float64) int {
-			return plot.Max.Y - int(float64(plot.Dy())*(v-lo)/(hi-lo))
+		yOn := func(right bool) func(float64) int {
+			sc := scales[right]
+			return func(v float64) int { return plot.Max.Y - int(float64(plot.Dy())*(v-sc.lo)/(sc.hi-sc.lo)) }
 		}
+		yLeft, yRight := yOn(false), yOn(true)
 		for i := 0; i <= 4; i++ {
-			v := lo + (hi-lo)*float64(i)/4
-			y := yOf(v)
+			v := scales[false].lo + (scales[false].hi-scales[false].lo)*float64(i)/4
+			y := yLeft(v)
 			c.fill(image.Rect(plot.Min.X, y, plot.Max.X, y+1), grid)
 			label := strconv.FormatFloat(v, 'g', 4, 64)
 			c.text(plot.Min.X-6-c.textWidth(label), y+4, label, fg)
+			if hasRight {
+				rv := scales[true].lo + (scales[true].hi-scales[true].lo)*float64(i)/4
+				c.text(plot.Max.X+6, y+4, strconv.FormatFloat(rv, 'g', 4, 64), fg)
+			}
+		}
+		if leftCaption != "" {
+			c.text(8, plot.Min.Y-6, leftCaption, fg)
+		}
+		if rightCaption != "" {
+			c.text(width-8-c.textWidth(rightCaption), plot.Min.Y-6, rightCaption, fg)
 		}
 		for i := 0; i <= 4; i++ {
 			ts := start.Unix() + (end.Unix()-start.Unix())*int64(i)/4
@@ -464,13 +604,39 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 		}
 		c.fill(image.Rect(plot.Min.X, plot.Max.Y, plot.Max.X, plot.Max.Y+1), fg)
 		c.fill(image.Rect(plot.Min.X, plot.Min.Y, plot.Min.X+1, plot.Max.Y), fg)
+		if hasRight {
+			c.fill(image.Rect(plot.Max.X-1, plot.Min.Y, plot.Max.X, plot.Max.Y), fg)
+		}
+		clampX := func(x int) int { return max(plot.Min.X, min(plot.Max.X, x)) }
+		for _, a := range vertical {
+			if !a.visible {
+				continue
+			}
+			x := xOf(a.at.Unix())
+			shade := cwWidgetTranslucent(a.color, 0x40)
+			switch {
+			case a.to != nil:
+				x2 := xOf(a.to.Unix())
+				c.fill(image.Rect(clampX(min(x, x2)), plot.Min.Y, clampX(max(x, x2)), plot.Max.Y), shade)
+			case a.fill == "before":
+				c.fill(image.Rect(plot.Min.X, plot.Min.Y, clampX(x), plot.Max.Y), shade)
+			case a.fill == "after":
+				c.fill(image.Rect(clampX(x), plot.Min.Y, plot.Max.X, plot.Max.Y), shade)
+			}
+			if x >= plot.Min.X && x <= plot.Max.X {
+				c.line(x, plot.Min.Y, x, plot.Max.Y-1, 1, a.color)
+				if a.label != "" {
+					c.text(x+3, plot.Min.Y+12, a.label, a.color)
+				}
+			}
+		}
 		for _, a := range horizontal {
 			if !a.visible {
 				continue
 			}
+			yOf := yOn(a.right)
 			y := yOf(a.value)
-			shade := a.color
-			shade.A = 0x40
+			shade := cwWidgetTranslucent(a.color, 0x40)
 			switch {
 			case a.to != nil:
 				y2 := yOf(*a.to)
@@ -486,14 +652,14 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 			}
 		}
 		switch w.View {
-		case "bar", "pie":
-			cwWidgetLatestBars(c, plot, lines, yOf)
+		case "bar":
+			cwWidgetLatestBars(c, plot, lines, yLeft, yRight)
 		default:
-			for _, l := range lines {
+			for i, l := range lines {
+				yOf := yOn(l.right)
 				times := l.series.times(false)
 				if l.band != nil {
-					shade := l.color
-					shade.A = 0x50
+					shade := cwWidgetTranslucent(l.color, 0x50)
 					for _, t := range times {
 						upper, okU := l.series.Points[t]
 						lower, okL := l.band.Points[t]
@@ -504,13 +670,32 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 					}
 					continue
 				}
-				for i, t := range times {
+				if spans, ok := stacked[i]; ok {
+					shade := cwWidgetTranslucent(l.color, 0x60)
+					step := max(2, plot.Dx()/max(len(times), 1))
+					for k, t := range times {
+						x := xOf(t)
+						next := x + step
+						if k+1 < len(times) {
+							next = xOf(times[k+1])
+						}
+						c.fill(image.Rect(x, yOf(spans[t][1]), max(next, x+1), yOf(spans[t][0])), shade)
+					}
+					for k, t := range times {
+						if k > 0 {
+							prev := times[k-1]
+							c.line(xOf(prev), yOf(spans[prev][1]), xOf(t), yOf(spans[t][1]), 2, l.color)
+						}
+					}
+					continue
+				}
+				for k, t := range times {
 					x, y := xOf(t), yOf(l.series.Points[t])
-					if i == 0 {
+					if k == 0 {
 						c.fill(image.Rect(x-1, y-1, x+2, y+2), l.color)
 						continue
 					}
-					prev := times[i-1]
+					prev := times[k-1]
 					c.line(xOf(prev), yOf(l.series.Points[prev]), x, y, 2, l.color)
 				}
 			}
@@ -543,28 +728,70 @@ func cwRenderMetricWidget(raw string, now time.Time) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func queriesExpression(queries []CWMetricDataQuery, id string) string {
-	for _, q := range queries {
-		if q.Id == id {
-			return q.Expression
-		}
+func cwWidgetLatest(l cwWidgetLine) (float64, bool) {
+	times := l.series.times(true)
+	if len(times) == 0 {
+		return 0, false
 	}
-	return ""
+	return l.series.Points[times[0]], true
 }
 
-// The bar and pie views draw each series' latest value as one bar.
-func cwWidgetLatestBars(c cwWidgetCanvas, plot image.Rectangle, lines []cwWidgetLine, yOf func(float64) int) {
+// The bar view draws each series' latest value as one bar on its y-axis.
+func cwWidgetLatestBars(c cwWidgetCanvas, plot image.Rectangle, lines []cwWidgetLine, yLeft, yRight func(float64) int) {
 	if len(lines) == 0 {
 		return
 	}
 	slot := plot.Dx() / len(lines)
 	for i, l := range lines {
-		times := l.series.times(true)
-		if len(times) == 0 {
+		v, ok := cwWidgetLatest(l)
+		if !ok {
 			continue
 		}
+		yOf := yLeft
+		if l.right {
+			yOf = yRight
+		}
 		x := plot.Min.X + i*slot + slot/4
-		c.fill(image.Rect(x, yOf(l.series.Points[times[0]]), x+slot/2, plot.Max.Y), l.color)
+		y, zero := yOf(v), min(plot.Max.Y, max(plot.Min.Y, yOf(0)))
+		c.fill(image.Rect(x, min(y, zero), x+slot/2, max(y, zero)), l.color)
+	}
+}
+
+// The pie view draws each series' latest value as a slice of a disc, its
+// angle the value's share of the positive latest values.
+func cwWidgetPie(c cwWidgetCanvas, plot image.Rectangle, lines []cwWidgetLine) {
+	total := 0.0
+	values := make([]float64, len(lines))
+	for i, l := range lines {
+		if v, ok := cwWidgetLatest(l); ok && v > 0 {
+			values[i] = v
+			total += v
+		}
+	}
+	if total == 0 {
+		return
+	}
+	cx, cy := (plot.Min.X+plot.Max.X)/2, (plot.Min.Y+plot.Max.Y)/2
+	radius := float64(min(plot.Dx(), plot.Dy()))/2 - 4
+	for y := plot.Min.Y; y < plot.Max.Y; y++ {
+		for x := plot.Min.X; x < plot.Max.X; x++ {
+			dx, dy := float64(x-cx), float64(y-cy)
+			if dx*dx+dy*dy > radius*radius {
+				continue
+			}
+			angle := math.Atan2(dx, -dy)
+			if angle < 0 {
+				angle += 2 * math.Pi
+			}
+			share := angle / (2 * math.Pi) * total
+			for i, v := range values {
+				if share < v {
+					c.img.SetRGBA(x, y, lines[i].color)
+					break
+				}
+				share -= v
+			}
+		}
 	}
 }
 
@@ -575,37 +802,100 @@ type cwWidgetHorizontal struct {
 	color   color.RGBA
 	fill    string
 	visible bool
+	right   bool
 }
 
-func cwWidgetHorizontalAnnotations(raw []json.RawMessage) []cwWidgetHorizontal {
-	var out []cwWidgetHorizontal
+// cwWidgetAnnotationItems reads an annotations array, each item one
+// annotation object or a two-object band.
+func cwWidgetAnnotationItems(kind string, raw []json.RawMessage) ([][]cwWidgetAnnotation, error) {
+	out := make([][]cwWidgetAnnotation, 0, len(raw))
 	for i, item := range raw {
-		var single cwWidgetAnnotation
 		var band []cwWidgetAnnotation
-		var h cwWidgetHorizontal
-		switch {
-		case json.Unmarshal(item, &band) == nil && len(band) == 2:
-			single = band[0]
-			if v, err := strconv.ParseFloat(strings.Trim(string(band[1].Value), `"`), 64); err == nil {
-				h.to = &v
+		if json.Unmarshal(item, &band) == nil {
+			if len(band) != 2 {
+				return nil, cwWidgetErrorf("The %s band annotation %d must hold two annotation objects.", kind, i)
 			}
-		case json.Unmarshal(item, &single) == nil:
-		default:
+			out = append(out, band)
 			continue
 		}
-		v, err := strconv.ParseFloat(strings.Trim(string(single.Value), `"`), 64)
-		if err != nil {
-			continue
+		var single cwWidgetAnnotation
+		if err := json.Unmarshal(item, &single); err != nil {
+			return nil, cwWidgetErrorf("The %s annotation %d is neither an annotation object nor a band of two.", kind, i)
 		}
-		h.value, h.label, h.fill = v, single.Label, single.Fill
-		h.visible = single.Visible == nil || *single.Visible
-		col, ok := cwWidgetColor(single.Color)
-		if !ok {
-			col, _ = cwWidgetColor(cwWidgetPalette[(i+3)%len(cwWidgetPalette)])
+		out = append(out, []cwWidgetAnnotation{single})
+	}
+	return out, nil
+}
+
+func cwWidgetAnnotationColor(hex string, i int) color.RGBA {
+	if col, ok := cwWidgetColor(hex); ok {
+		return col
+	}
+	col, _ := cwWidgetColor(cwWidgetPalette[(i+3)%len(cwWidgetPalette)])
+	return col
+}
+
+func cwWidgetHorizontalAnnotations(raw []json.RawMessage) ([]cwWidgetHorizontal, error) {
+	items, err := cwWidgetAnnotationItems("horizontal", raw)
+	if err != nil {
+		return nil, err
+	}
+	var out []cwWidgetHorizontal
+	for i, item := range items {
+		values := make([]float64, len(item))
+		for k, a := range item {
+			if err := json.Unmarshal(a.Value, &values[k]); err != nil {
+				return nil, cwWidgetErrorf("The value of horizontal annotation %d must be a number.", i)
+			}
 		}
-		h.color = col
+		first := item[0]
+		h := cwWidgetHorizontal{value: values[0], label: first.Label, fill: first.Fill, color: cwWidgetAnnotationColor(first.Color, i),
+			visible: first.Visible == nil || *first.Visible, right: first.YAxis == "right"}
+		if len(item) == 2 {
+			h.to = &values[1]
+		}
 		out = append(out, h)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].value < out[j].value })
-	return out
+	return out, nil
+}
+
+type cwWidgetVertical struct {
+	at      time.Time
+	to      *time.Time
+	label   string
+	color   color.RGBA
+	fill    string
+	visible bool
+}
+
+// A vertical annotation's value is an absolute time stamp such as
+// 2018-08-28T15:25:26Z.
+func cwWidgetVerticalAnnotations(raw []json.RawMessage) ([]cwWidgetVertical, error) {
+	items, err := cwWidgetAnnotationItems("vertical", raw)
+	if err != nil {
+		return nil, err
+	}
+	var out []cwWidgetVertical
+	for i, item := range items {
+		times := make([]time.Time, len(item))
+		for k, a := range item {
+			var s string
+			if json.Unmarshal(a.Value, &s) != nil {
+				return nil, cwWidgetErrorf("The value of vertical annotation %d must be an absolute time stamp.", i)
+			}
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				return nil, cwWidgetErrorf("The value of vertical annotation %d must be an absolute time stamp.", i)
+			}
+			times[k] = t
+		}
+		first := item[0]
+		v := cwWidgetVertical{at: times[0], label: first.Label, fill: first.Fill, color: cwWidgetAnnotationColor(first.Color, i), visible: first.Visible == nil || *first.Visible}
+		if len(item) == 2 {
+			v.to = &times[1]
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
