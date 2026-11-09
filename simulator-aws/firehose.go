@@ -150,10 +150,11 @@ type firehoseTag struct {
 }
 
 var (
-	firehoseStreams   sim.Store[FirehoseDeliveryStream]
-	firehoseRecordsMu sync.Mutex
-	firehoseTimersMu  sync.Mutex
-	firehoseTimers    = map[string]*bg.Timer{}
+	firehoseStreams      sim.Store[FirehoseDeliveryStream]
+	firehoseStreamsByARN sim.GenerationIndex[FirehoseDeliveryStream]
+	firehoseRecordsMu    sync.Mutex
+	firehoseTimersMu     sync.Mutex
+	firehoseTimers       = map[string]*bg.Timer{}
 )
 
 func registerFirehose(r *AWSRouter, srv *sim.Server) {
@@ -183,12 +184,8 @@ func firehoseARN(name string) string {
 }
 
 func firehoseStreamByARN(arn string) (FirehoseDeliveryStream, bool) {
-	for _, stream := range firehoseStreams.List() {
-		if stream.ARN == arn {
-			return stream, true
-		}
-	}
-	return FirehoseDeliveryStream{}, false
+	return firehoseStreamsByARN.Lookup(firehoseStreams, arn,
+		func(s FirehoseDeliveryStream) []string { return []string{s.ARN} })
 }
 
 func firehosePutServiceRecord(arn string, data []byte) (string, error) {

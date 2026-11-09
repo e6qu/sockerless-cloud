@@ -41,10 +41,21 @@ type CWLogStream struct {
 	UploadSequenceToken string `json:"uploadSequenceToken"`
 }
 
+// GetLogEvents and FilterLogEvents read Message, the event as ingested;
+// Insights and metric filters read the transformed version.
 type CWLogEvent struct {
-	Timestamp     int64  `json:"timestamp"`
-	Message       string `json:"message"`
-	IngestionTime int64  `json:"ingestionTime"`
+	Timestamp           int64  `json:"timestamp"`
+	Message             string `json:"message"`
+	IngestionTime       int64  `json:"ingestionTime"`
+	Transformed         string `json:"transformed,omitempty"`
+	TransformationError string `json:"transformationError,omitempty"`
+}
+
+func (e CWLogEvent) processedMessage() string {
+	if e.Transformed != "" {
+		return e.Transformed
+	}
+	return e.Message
 }
 
 var (
@@ -91,15 +102,15 @@ func cwIngestWorkloadLogLine(logGroup, logStream, message string, writtenAt time
 	if !writtenAt.IsZero() {
 		eventMs = writtenAt.UnixMilli()
 	}
-	event := CWLogEvent{Timestamp: eventMs, Message: message, IngestionTime: nowMs}
+	events := []CWLogEvent{{Timestamp: eventMs, Message: message, IngestionTime: nowMs}}
 	nextSequenceToken := cwNextSequenceToken()
-	cwAppendLogEvents(key, []CWLogEvent{event}, func(stream *CWLogStream) {
+	cwAppendLogEvents(key, events, func(stream *CWLogStream) {
 		stream.UploadSequenceToken = nextSequenceToken
 	})
 	for _, datum := range extractEMFMetrics(message, eventMs) {
 		cwStoreDatum(datum)
 	}
-	cwEvaluateMetricFilters(logGroup, []CWLogEvent{event})
+	cwEvaluateMetricFilters(logGroup, events)
 }
 
 // Create the stream before the workload starts, as the writing service does,
@@ -128,9 +139,14 @@ func cwEnsureLogStream(group, stream string) {
 
 // Keep the stream's first and last event timestamps and last ingestion time in
 // step, whichever path delivered; touch updates the stream in the same write.
+// Transform the events in place, so the caller's metric filters read the
+// transformed versions.
 func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)) {
 	if len(events) == 0 {
 		return
+	}
+	if group, stream, ok := strings.Cut(key, ":"); ok {
+		cwTransformIngested(group, stream, events)
 	}
 	items := make([]logstore.Item[CWLogEvent], 0, len(events))
 	for _, e := range events {
@@ -199,6 +215,10 @@ func cwCompressedSize(events []CWLogEvent) int64 {
 	for _, e := range events {
 		_, _ = zw.Write([]byte(e.Message))
 		_, _ = zw.Write([]byte{'\n'})
+		if e.Transformed != "" {
+			_, _ = zw.Write([]byte(e.Transformed))
+			_, _ = zw.Write([]byte{'\n'})
+		}
 	}
 	_ = zw.Close()
 	return int64(counted)
@@ -380,11 +400,22 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	if !pageOK {
 		return
 	}
-	out := map[string]any{"logGroups": page}
+	wire := make([]cwLogGroupWire, 0, len(page))
+	for _, g := range page {
+		wire = append(wire, cwLogGroupWire{CWLogGroup: g, LogGroupArn: g.Arn, LogGroupClass: "STANDARD"})
+	}
+	out := map[string]any{"logGroups": wire}
 	if next != "" {
 		out["nextToken"] = next
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+// The simulator creates only Standard-class log groups.
+type cwLogGroupWire struct {
+	CWLogGroup
+	LogGroupArn   string `json:"logGroupArn"`
+	LogGroupClass string `json:"logGroupClass"`
 }
 
 func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +445,7 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 		cwLogStreams.Delete(key)
 		cwLogEvents.Drop(key)
 	}
+	cwTransformers.Delete(req.LogGroupName)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -682,14 +714,20 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	if len(filtered) > page {
 		filtered = filtered[:page]
 	}
-	if filtered == nil {
-		filtered = []CWLogEvent{}
+	type outputLogEvent struct {
+		Timestamp     int64  `json:"timestamp"`
+		Message       string `json:"message"`
+		IngestionTime int64  `json:"ingestionTime"`
+	}
+	output := make([]outputLogEvent, 0, len(filtered))
+	for _, e := range filtered {
+		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.Message, IngestionTime: e.IngestionTime})
 	}
 
 	newForwardOffset := offset + len(filtered)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"events":            filtered,
+		"events":            output,
 		"nextForwardToken":  fmt.Sprintf("f/%d", newForwardOffset),
 		"nextBackwardToken": fmt.Sprintf("b/%d", offset),
 	})

@@ -61,13 +61,13 @@ RUN go build -trimpath -o /out/nodeagent ./nodeagent && go build -trimpath -o /o
 FROM %[2]s
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl e2fsprogs iproute2 nftables && rm -rf /var/lib/apt/lists/*
 RUN set -eu; \
-    curl -fsSL --retry 5 --retry-delay 5 -o /tmp/fc.tgz https://github.com/firecracker-microvm/firecracker/releases/download/%[3]s/firecracker-%[3]s-%[4]s.tgz; \
+    curl -fsSL --speed-limit 1024 --speed-time 30 --retry 12 --retry-delay 15 --retry-all-errors -o /tmp/fc.tgz https://github.com/firecracker-microvm/firecracker/releases/download/%[3]s/firecracker-%[3]s-%[4]s.tgz; \
     echo "%[5]s  /tmp/fc.tgz" | sha256sum -c -; \
     tar -xzf /tmp/fc.tgz -C /tmp; \
     install -m 0755 /tmp/release-%[3]s-%[4]s/firecracker-%[3]s-%[4]s /usr/local/bin/firecracker; \
     rm -rf /tmp/fc.tgz /tmp/release-%[3]s-%[4]s; \
     mkdir -p /usr/local/lib/sockerless; \
-    curl -fsSL --retry 5 --retry-delay 5 -o /usr/local/lib/sockerless/vmlinux https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/%[4]s/vmlinux-%[6]s; \
+    curl -fsSL --speed-limit 1024 --speed-time 30 --retry 12 --retry-delay 15 --retry-all-errors -o /usr/local/lib/sockerless/vmlinux https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/%[4]s/vmlinux-%[6]s; \
     echo "%[7]s  /usr/local/lib/sockerless/vmlinux" | sha256sum -c -
 COPY --from=build /out/nodeagent /usr/local/bin/nodeagent
 COPY --from=build /out/guestinit /usr/local/lib/sockerless/guestinit

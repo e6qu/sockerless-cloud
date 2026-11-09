@@ -32,7 +32,10 @@ type CWMetricStream struct {
 	Tags           map[string]string      `json:"-"`
 }
 
-var cwMetricStreams sim.Store[CWMetricStream]
+var (
+	cwMetricStreams        sim.Store[CWMetricStream]
+	cwMetricStreamsByState sim.GenerationIndex[CWMetricStream]
+)
 
 func cwMetricStreamArn(name string) string {
 	return "arn:aws:cloudwatch:" + awsRegion() + ":" + awsAccountID() + ":metric-stream/" + name
@@ -73,8 +76,9 @@ func cwMetricStreamAccepts(stream CWMetricStream, datum CWMetricDatum) bool {
 
 // Newline-terminate every object: one Firehose record can carry several.
 func cwDeliverMetricDatum(datum CWMetricDatum) {
-	for _, stream := range cwMetricStreams.List() {
-		if stream.State != "running" || !cwMetricStreamAccepts(stream, datum) {
+	for _, stream := range cwMetricStreamsByState.LookupAll(cwMetricStreams, "running",
+		func(s CWMetricStream) []string { return []string{s.State} }) {
+		if !cwMetricStreamAccepts(stream, datum) {
 			continue
 		}
 		if stream.OutputFormat != "json" {

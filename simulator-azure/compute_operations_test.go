@@ -54,6 +54,38 @@ var computeSpecActions = map[string]string{
 	"Disks_GrantAccess":         "Microsoft.Compute/disks/beginGetAccess/action",
 	"Disks_RevokeAccess":        "Microsoft.Compute/disks/endGetAccess/action",
 
+	"Galleries_Get":                 "Microsoft.Compute/galleries/read",
+	"Galleries_List":                "Microsoft.Compute/galleries/read",
+	"Galleries_ListByResourceGroup": "Microsoft.Compute/galleries/read",
+	"Galleries_CreateOrUpdate":      "Microsoft.Compute/galleries/write",
+	"Galleries_Update":              "Microsoft.Compute/galleries/write",
+	"Galleries_Delete":              "Microsoft.Compute/galleries/delete",
+	"GallerySharingProfile_Update":  "Microsoft.Compute/galleries/share/action",
+
+	"GalleryImages_Get":            "Microsoft.Compute/galleries/images/read",
+	"GalleryImages_ListByGallery":  "Microsoft.Compute/galleries/images/read",
+	"GalleryImages_CreateOrUpdate": "Microsoft.Compute/galleries/images/write",
+	"GalleryImages_Update":         "Microsoft.Compute/galleries/images/write",
+	"GalleryImages_Delete":         "Microsoft.Compute/galleries/images/delete",
+
+	"GalleryImageVersions_Get":                "Microsoft.Compute/galleries/images/versions/read",
+	"GalleryImageVersions_ListByGalleryImage": "Microsoft.Compute/galleries/images/versions/read",
+	"GalleryImageVersions_CreateOrUpdate":     "Microsoft.Compute/galleries/images/versions/write",
+	"GalleryImageVersions_Update":             "Microsoft.Compute/galleries/images/versions/write",
+	"GalleryImageVersions_Delete":             "Microsoft.Compute/galleries/images/versions/delete",
+
+	"GalleryApplications_Get":            "Microsoft.Compute/galleries/applications/read",
+	"GalleryApplications_ListByGallery":  "Microsoft.Compute/galleries/applications/read",
+	"GalleryApplications_CreateOrUpdate": "Microsoft.Compute/galleries/applications/write",
+	"GalleryApplications_Update":         "Microsoft.Compute/galleries/applications/write",
+	"GalleryApplications_Delete":         "Microsoft.Compute/galleries/applications/delete",
+
+	"GalleryApplicationVersions_Get":                      "Microsoft.Compute/galleries/applications/versions/read",
+	"GalleryApplicationVersions_ListByGalleryApplication": "Microsoft.Compute/galleries/applications/versions/read",
+	"GalleryApplicationVersions_CreateOrUpdate":           "Microsoft.Compute/galleries/applications/versions/write",
+	"GalleryApplicationVersions_Update":                   "Microsoft.Compute/galleries/applications/versions/write",
+	"GalleryApplicationVersions_Delete":                   "Microsoft.Compute/galleries/applications/versions/delete",
+
 	"VirtualMachineExtensions_Get":            "Microsoft.Compute/virtualMachines/extensions/read",
 	"VirtualMachineExtensions_List":           "Microsoft.Compute/virtualMachines/extensions/read",
 	"VirtualMachineExtensions_CreateOrUpdate": "Microsoft.Compute/virtualMachines/extensions/write",
@@ -69,6 +101,7 @@ var computeSpecFiles = []string{
 	"compute-arm-virtualmachine-2022-03-01.swagger.json.gz",
 	"compute-arm-virtualmachine-2024-07-01.swagger.json.gz",
 	"compute-arm-disk-2023-04-02.swagger.json.gz",
+	"compute-arm-gallery-2023-07-03.swagger.json.gz",
 }
 
 // TestComputeOperationCatalogCoversSpec: the catalog carries an action for

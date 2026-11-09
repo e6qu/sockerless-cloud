@@ -1443,6 +1443,10 @@ badge, "Not supported" product pages) went, because a control that does
 nothing is a fake. A console gap whose API the simulator does not serve is a
 `BUGS.md` row naming that API.
 
+- **The Azure header panels hold steady.** The rebuilt portal's header
+  panels (Notifications, Settings, Help + support and the account card)
+  passed 120 of 120 repeated runs; the Fluent `Popover` whose surface once
+  failed to mount after a click went with the rebuild.
 - **Sign-in is a deployment's.** The AWS and Google Cloud browser suites
   sign their operator in through simulator-azure's Microsoft Entra ID and
   federate through the cloud's own primitive, provisioned by
@@ -1817,6 +1821,32 @@ fails once the row closes or the operation is served.
   evaluator start after every slice is registered: the ELB publisher's first
   flush, due at the next minute, once raced the store's creation in a
   simulator built just before the minute turned.
+- **Amazon CloudWatch Logs transformers.** `PutTransformer` and
+  `TestTransformer` came to compile every processor of the Smithy model's
+  `Processor` structure against the model's lengths and the transformation
+  guide's rules (a parser first, at most five parsers, one vended-log parser
+  and only first, one `grok`, one `addKeys`, one `copyValue`, nested key depth
+  three), answering `InvalidParameterException` for a refused configuration.
+  `PutLogEvents` and every other ingestion path run the log group's
+  transformer once, at ingestion, and keep the transformed event beside the
+  original: `GetLogEvents` and `FilterLogEvents` return the original, while
+  CloudWatch Logs Insights, field discovery, `GetLogRecord` and metric filters
+  read the transformed one, and an event that fails carries
+  `@transformationError` (Insights gained `ispresent()` for the guide's query).
+  Ingestion publishes `TransformedLogEvents`, `TransformedBytes` and
+  `TransformationErrors` to `AWS/Logs` under the guide's `LogGroupname`
+  dimension. The processors' semantics came from the guide's examples, which
+  `cloudwatch_logs_transformer_test.go` runs as input-to-output vectors: grok
+  matches its whole source with literal text between the documented patterns
+  only, `moveKeys` moves a key into a target that is an object,
+  `dateTimeConverter` reads `java.time` patterns with English and German names,
+  and the transformed event keeps its keys in the order the processors wrote
+  them. `parseToOCSF` answers `InvalidOperationException`, because the guide
+  does not publish its OCSF mappings. The guide's `dateTimeConverter` example
+  output (`1998-12-05T17:00:00 MEZ` for 11:00 Berlin time converted to New
+  York) contradicts its own zones, so the test asserts the converted
+  instant instead, and the documented default target format, missing its
+  closing quote, became `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`.
 - **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
   actions when the state changes, as the API reference says. A metric alarm
   keeps the set state only until its next evaluation, which returns it to its
@@ -2083,6 +2113,26 @@ fails once the row closes or the operation is served.
   simulator without a state directory sweeps only its own run's machines at
   shutdown: the engine lists every simulator's, and one CLI test's shutdown
   had removed a concurrent test's running machine.
+- **Azure Compute Gallery.** GalleryRP's `gallery.json` (2023-07-03, the
+  version terraform-provider-azurerm's image versions speak) is vendored and
+  galleries, image definitions and image versions served against it, with the
+  creation-only members of a definition (`osType`, `osState`,
+  `hyperVGeneration`, `architecture`, `identifier`) and a version's source
+  refused as changes. A version's OS disk is an OCI image recorded in the same
+  `azureImageBackings` table a managed image uses, so `imageReference.id`
+  resolves a version as it resolves a managed image: captured from a machine
+  through `machine.Manager.Capture` in a background operation (generalized for
+  a Generalized definition, never generalized for a Specialized one), or copied
+  from a managed image, another version or a captured VHD blob. The image
+  definition's id resolves to the highest version not excluded from latest in
+  the machine's region, as the Compute Gallery documentation directs, and a
+  machine from a Specialized version refuses an `osProfile`. `az sig ... update`
+  reads the version and PUTs it back without `storageProfile.source`, which
+  Azure reads as no change, so only a source the write names counts as
+  changed. Gallery applications, sharing, community galleries, soft delete,
+  data disk images and disk or snapshot sources answer a declared 501.
+  Managed images and the three gallery types are tracked resources, so a
+  resource group's list, tags and delete reach them.
 - **Azure Cosmos DB autoscale migration.** Migrating manual throughput to
   autoscale sets the maximum the autoscale FAQ states: the largest of 1000,
   the manual throughput, a tenth of the highest throughput the resource ever
@@ -2372,6 +2422,28 @@ because the module proxy resets streams under load: `scripts/ci-go-mod-download.
 warms a module directory, or a `module@version` a document installs, and the
 engine builds of the sidecar and the node agent run `go mod download` in the
 same retried loop before `go build`.
+The Go toolchain comes from the Actions cache, keyed on the version the
+module proxy lists as newest, so a slow proxy costs a job only the listing;
+`install-go` logs how long the listing and a download took, because one job
+once spent 3m44s in a single step that did both and the log could not say
+which.
+The browser jobs load their cloud's base images like the simulator jobs: the
+Google Cloud console's first VM pulled `golang` and `debian` to build the
+network sidecar inside the test's one-minute wait for the instance page, and
+the create once outlasted it.
+`install-terraform` restores the providers `terraform init` installs from the
+Actions cache too, one entry per cloud, through `TF_PLUGIN_CACHE_DIR`: an
+Amazon RDS suite once spent five minutes of its fifteen downloading the AWS
+provider before its first request. The suites keep no lock file, so the job
+sets `TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE` for Terraform to use a
+cached provider at all.
+The node agent's image build downloads Firecracker and its kernel with
+twelve retries fifteen seconds apart on any error, because GitHub's release
+host answered 504 past five quick retries and failed a cold build.
+The docs jobs restore the pre-commit hook environments from the Actions
+cache, keyed on `.pre-commit-config.yaml`: building shellcheck-py's
+downloads shellcheck from GitHub releases, which answered 504 and failed the
+maintaining guide.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.

@@ -1551,6 +1551,10 @@ jobs:
             cloud: aws
             tf_packages: "./lambda-concurrency"
             timeout_minutes: 12
+          - suite: aws Amazon CloudWatch Logs transformer
+            cloud: aws
+            tf_packages: "./logs-transformer"
+            timeout_minutes: 12
           - suite: aws AWS Systems Manager Automation
             cloud: aws
             tf_packages: "./ssm-automation"
@@ -1602,6 +1606,11 @@ jobs:
             cloud: azure
             tf_timeout: 600s
             tf_run: TestTerraformManagedDiskAttachment
+            timeout_minutes: 12
+          - suite: azure compute gallery
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformComputeGalleryCapturesAMachine
             timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
@@ -1685,6 +1694,8 @@ jobs:
         timeout-minutes: 3
       - name: Install Terraform
         uses: ./.github/actions/install-terraform
+        with:
+          providers-scope: ${{ matrix.cloud }}
         timeout-minutes: 6
       - name: Install Caddy
         uses: ./.github/actions/install-caddy
@@ -1890,6 +1901,14 @@ jobs:
       - uses: ./.github/actions/install-bun
       - name: Install pre-commit
         run: pipx install pre-commit
+      # The maintaining guide installs every hook environment; restoring them
+      # keeps a hook whose build downloads a binary (shellcheck-py from GitHub
+      # releases) off the network.
+      - name: Restore the pre-commit hook environments
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: Install latest AWS CLI v2
         if: matrix.cloud == 'aws'
         run: bash scripts/install-aws-cli.sh
@@ -1947,7 +1966,7 @@ jobs:
         timeout-minutes: 10
 
   ui-browser:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: browser (${{ matrix.package }})
     # The release scripts/install-passt.sh takes pasta and its AppArmor
@@ -1967,6 +1986,32 @@ jobs:
       - uses: ./.github/actions/install-go
         with:
           cache: 'true'
+      # The suite's simulator runs real workloads (a Compute Engine VM, an
+      # Amazon ECS task), and the first one pulls the images the simulator
+      # builds and runs them from; restoring them keeps that pull out of a
+      # test's wait.
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh ${{ matrix.package }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "cloud=${PACKAGE#simulator-}" >> "$GITHUB_OUTPUT"
+        env:
+          PACKAGE: ${{ matrix.package }}
+      - name: Restore the base images
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ steps.base-images-list.outputs.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ steps.base-images-list.outputs.cloud }}-
+      - name: Load or fetch the base images
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh --load-only ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile

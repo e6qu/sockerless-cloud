@@ -710,11 +710,12 @@ func cwEvaluateMetricFilters(logGroupName string, events []CWLogEvent) {
 	for _, e := range events {
 		for _, f := range filters {
 			pattern, err := cwCompileLogPattern(f.FilterPattern)
-			if err != nil || !pattern.match(e.Message) {
+			msg := e.processedMessage()
+			if err != nil || !pattern.match(msg) {
 				continue
 			}
 			for _, t := range f.MetricTransformations {
-				cwPublishFilterMetric(t, e.Message, e.Timestamp)
+				cwPublishFilterMetric(t, msg, e.Timestamp)
 			}
 		}
 	}

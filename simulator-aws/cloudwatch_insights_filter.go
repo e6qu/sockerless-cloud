@@ -19,6 +19,7 @@ import (
 //	term   = "(" expr ")" | comparison | restriction
 //	comparison = field (= | != | < | <= | > | >= | like | in) value
 //	restriction = field                       (bare field → present & truthy)
+//	            | "ispresent" "(" field ")"
 //	value  = "string" | number | /regex/ | [ v, v, … ]   (in)
 //
 // Flattened field names may hold dots, so a comparison reads its field by
@@ -38,6 +39,8 @@ func (n cwInsCmp) Eval(rec listq.Doc) bool {
 	switch n.op {
 	case "":
 		return present && actual != "" && actual != "false" && actual != "0"
+	case "ispresent":
+		return present
 	case "=", "==":
 		return actual == n.value
 	case "!=":
@@ -268,6 +271,20 @@ func (p *cwInsParser) parseTerm() listq.Node {
 		return listq.True{}
 	}
 	field := p.next().text
+	if strings.EqualFold(field, "ispresent") && p.peek().kind == cwInsLParen {
+		p.next()
+		if p.peek().kind != cwInsWord {
+			p.fail("malformed query: ispresent takes a field name")
+			return listq.True{}
+		}
+		arg := p.next().text
+		if p.peek().kind != cwInsRParen {
+			p.fail("malformed query: expected ')' after ispresent(%s", arg)
+			return listq.True{}
+		}
+		p.next()
+		return cwInsCmp{field: arg, op: "ispresent"}
+	}
 	switch p.peek().kind {
 	case cwInsOp:
 		op := p.next().text

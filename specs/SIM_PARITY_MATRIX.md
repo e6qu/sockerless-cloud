@@ -17,7 +17,7 @@ lives.
 - Which slices a simulator covers is this project's choice; nothing downstream
   defines it. The inventory is exhaustive rather than consumer-driven.
 
-## AWS — 50 surfaces
+## AWS — 51 surfaces
 
 | AWS cloud slice | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -73,7 +73,7 @@ lives.
 | AWS Security Token Service (STS) | [`aws-sts`](SIM_SURFACE_TABLES/aws-sts.md) | [`aws-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | AWS WAF | [`aws-wafv2`](SIM_SURFACE_TABLES/aws-wafv2.md) | [`aws-wafv2`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-## Google Cloud — 65 surfaces
+## Google Cloud — 67 surfaces
 
 | Google Cloud surface | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -145,7 +145,7 @@ lives.
 | `gcp-sts` | [`gcp-sts`](SIM_SURFACE_TABLES/gcp-sts.md) | [`gcp-sts`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-vpcaccess` | [`gcp-vpcaccess`](SIM_SURFACE_TABLES/gcp-vpcaccess.md) | [`gcp-vpcaccess`](SIM_TEST_COVERAGE_MATRIX.md) |
 
-## Azure — 50 surfaces
+## Azure — 54 surfaces
 
 | Azure surface | Per-operation inventory | External client evidence |
 |---|---|---|
@@ -159,6 +159,7 @@ lives.
 | `azure-cache_redis` | [`azure-cache_redis`](SIM_SURFACE_TABLES/azure-cache_redis.md) | [`azure-cache_redis`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute` | [`azure-compute`](SIM_SURFACE_TABLES/azure-compute.md) | [`azure-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_disks` | [`azure-compute_disks`](SIM_SURFACE_TABLES/azure-compute_disks.md) | [`azure-compute_disks`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_galleries` | [`azure-compute_galleries`](SIM_SURFACE_TABLES/azure-compute_galleries.md) | [`azure-compute_galleries`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_data_disks` | [`azure-compute_vm_data_disks`](SIM_SURFACE_TABLES/azure-compute_vm_data_disks.md) | [`azure-compute_vm_data_disks`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_operations` | [`azure-compute_operations`](SIM_SURFACE_TABLES/azure-compute_operations.md) | [`azure-compute_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_extensions` | [`azure-compute_vm_extensions`](SIM_SURFACE_TABLES/azure-compute_vm_extensions.md) | [`azure-compute_vm_extensions`](SIM_TEST_COVERAGE_MATRIX.md) |

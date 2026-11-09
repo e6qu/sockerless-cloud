@@ -4,7 +4,16 @@ description: >-
   through hashicorp/setup-terraform, because the runner downloads every action
   a workflow references before it evaluates any step's condition. The verified
   archive comes back from the Actions cache, so a job does not depend on
-  releases.hashicorp.com answering.
+  releases.hashicorp.com answering. So do the providers `terraform init`
+  installs, through Terraform's plugin cache directory: the configurations pin
+  exact versions, and a registry download of the AWS provider once took a job
+  five of its fifteen minutes.
+inputs:
+  providers-scope:
+    description: >-
+      Names the provider cache this job shares, such as its cloud; jobs that
+      install the same providers pass the same scope.
+    default: ${{ github.job }}
 runs:
   using: composite
   steps:
@@ -13,6 +22,22 @@ runs:
       with:
         path: ~/.cache/sockerless/terraform
         key: terraform-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/install-terraform/action.yml') }}
+    - name: Restore the Terraform providers
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/.cache/sockerless/terraform-plugins
+        key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ inputs.providers-scope }}-${{ hashFiles('**/*.tf') }}
+        restore-keys: |
+          terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ inputs.providers-scope }}-
+    - name: Use the Terraform plugin cache
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/.cache/sockerless/terraform-plugins"
+        echo "TF_PLUGIN_CACHE_DIR=$HOME/.cache/sockerless/terraform-plugins" >> "$GITHUB_ENV"
+        # The suites keep no lock file, so without this Terraform would verify
+        # a cached provider against nothing and download it again.
+        echo "TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true" >> "$GITHUB_ENV"
     - name: Install Terraform
       shell: bash
       env:

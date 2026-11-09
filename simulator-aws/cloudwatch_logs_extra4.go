@@ -153,7 +153,7 @@ func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, e := range events {
 				var obj map[string]any
-				if json.Unmarshal([]byte(e.Message), &obj) == nil {
+				if json.Unmarshal([]byte(e.processedMessage()), &obj) == nil {
 					for k, v := range obj {
 						fieldTypes[k] = cwLogFieldDataType(v)
 					}

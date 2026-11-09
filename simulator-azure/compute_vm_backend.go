@@ -155,6 +155,13 @@ func azureValidateVMRequest(ctx context.Context, vm VirtualMachine) *azureVMRequ
 		return &azureVMRequestFault{code: "InvalidParameter", status: http.StatusBadRequest,
 			message: "The value of parameter properties.storageProfile is invalid: " + err.Error()}
 	}
+	// A specialized image keeps the source machine's accounts and hostname, so
+	// Azure provisions no OS profile onto it.
+	if id, _ := azureVMImageReference(vm)["id"].(string); azureIsGalleryImageRef(id) && vm.Properties.OSProfile != nil {
+		if _, osState, fault := azureResolveGalleryImage(id, vm.Location); fault == nil && osState == "Specialized" {
+			return &azureVMRequestFault{code: "InvalidParameter", status: http.StatusBadRequest, message: "Parameter 'osProfile' is not allowed."}
+		}
+	}
 	size, _ := vm.Properties.HardwareProfile["vmSize"].(string)
 	if _, _, ok := azureVMSizeSpec(size); !ok {
 		return &azureVMRequestFault{code: "InvalidParameter", status: http.StatusBadRequest,

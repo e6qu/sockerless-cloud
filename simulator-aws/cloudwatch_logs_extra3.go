@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -59,12 +60,12 @@ type CWScheduledQuery struct {
 	LastExecutionStatus      string          `json:"lastExecutionStatus,omitempty"`
 }
 
-// Keyed by logGroupIdentifier; transformerConfig is kept verbatim.
+// Keyed by log group name.
 type CWTransformer struct {
-	LogGroupIdentifier string          `json:"logGroupIdentifier"`
-	TransformerConfig  json.RawMessage `json:"transformerConfig"`
-	CreationTime       int64           `json:"creationTime"`
-	LastModifiedTime   int64           `json:"lastModifiedTime"`
+	LogGroupIdentifier string         `json:"logGroupIdentifier"`
+	TransformerConfig  []cwtProcessor `json:"transformerConfig"`
+	CreationTime       int64          `json:"creationTime"`
+	LastModifiedTime   int64          `json:"lastModifiedTime"`
 }
 
 // Keyed by importId.
@@ -662,10 +663,19 @@ func handleCWGetScheduledQueryHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func cwWriteTransformerConfigError(w http.ResponseWriter, err error) {
+	var ce *cwtConfigError
+	if errors.As(err, &ce) {
+		AWSError(w, ce.Code, ce.Message, http.StatusBadRequest)
+		return
+	}
+	AWSError(w, "InvalidParameterException", err.Error(), http.StatusBadRequest)
+}
+
 func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LogGroupIdentifier string          `json:"logGroupIdentifier"`
-		TransformerConfig  json.RawMessage `json:"transformerConfig"`
+		LogGroupIdentifier string         `json:"logGroupIdentifier"`
+		TransformerConfig  []cwtProcessor `json:"transformerConfig"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
@@ -675,12 +685,22 @@ func handleCWPutTransformer(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "logGroupIdentifier is required", http.StatusBadRequest)
 		return
 	}
+	if _, err := cwCompileTransformer(req.TransformerConfig); err != nil {
+		cwWriteTransformerConfigError(w, err)
+		return
+	}
+	name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
+	if !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			"The specified log group does not exist: %s", req.LogGroupIdentifier)
+		return
+	}
 	now := time.Now().UnixMilli()
 	creation := now
-	if existing, ok := cwTransformers.Get(req.LogGroupIdentifier); ok {
+	if existing, ok := cwTransformers.Get(name); ok {
 		creation = existing.CreationTime
 	}
-	cwTransformers.Put(req.LogGroupIdentifier, CWTransformer{
+	cwTransformers.Put(name, CWTransformer{
 		LogGroupIdentifier: req.LogGroupIdentifier,
 		TransformerConfig:  req.TransformerConfig,
 		CreationTime:       creation,
@@ -697,7 +717,13 @@ func handleCWGetTransformer(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	t, ok := cwTransformers.Get(req.LogGroupIdentifier)
+	name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
+	if !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			"The specified log group does not exist: %s", req.LogGroupIdentifier)
+		return
+	}
+	t, ok := cwTransformers.Get(name)
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not have a transformer: %s", req.LogGroupIdentifier)
@@ -719,7 +745,13 @@ func handleCWDeleteTransformer(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if !cwTransformers.Delete(req.LogGroupIdentifier) {
+	name, ok := cwResolveLogGroupIdentifier(req.LogGroupIdentifier)
+	if !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
+			"The specified log group does not exist: %s", req.LogGroupIdentifier)
+		return
+	}
+	if !cwTransformers.Delete(name) {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log group does not have a transformer: %s", req.LogGroupIdentifier)
 		return
@@ -727,34 +759,44 @@ func handleCWDeleteTransformer(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
+// TestTransformer has no log group or stream, so copyValue finds only the
+// account and Region metadata. A record whose event fails to transform carries
+// no transformedEventMessage.
 func handleCWTestTransformer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TransformerConfig json.RawMessage `json:"transformerConfig"`
-		LogEventMessages  []string        `json:"logEventMessages"`
+		TransformerConfig []cwtProcessor `json:"transformerConfig"`
+		LogEventMessages  []string       `json:"logEventMessages"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Only a parseJSON processor rewrites the record, flattening the message into
-	// top-level fields; otherwise the message is echoed.
-	parseJSON := strings.Contains(string(req.TransformerConfig), "parseJSON")
+	if len(req.LogEventMessages) < 1 || len(req.LogEventMessages) > 50 {
+		AWSError(w, "InvalidParameterException", "logEventMessages must contain between 1 and 50 messages", http.StatusBadRequest)
+		return
+	}
+	for _, m := range req.LogEventMessages {
+		if m == "" {
+			AWSError(w, "InvalidParameterException", "logEventMessages must not contain an empty message", http.StatusBadRequest)
+			return
+		}
+	}
+	t, err := cwCompileTransformer(req.TransformerConfig)
+	if err != nil {
+		cwWriteTransformerConfigError(w, err)
+		return
+	}
+	meta := map[string]string{"@accountId": awsAccountID(), "@regionName": awsRegion()}
 	transformed := []map[string]any{}
 	for i, msg := range req.LogEventMessages {
-		out := msg
-		if parseJSON {
-			var obj map[string]any
-			if json.Unmarshal([]byte(msg), &obj) == nil {
-				if b, err := json.Marshal(obj); err == nil {
-					out = string(b)
-				}
-			}
+		rec := map[string]any{
+			"eventNumber":  int64(i + 1),
+			"eventMessage": msg,
 		}
-		transformed = append(transformed, map[string]any{
-			"eventNumber":             int64(i + 1),
-			"eventMessage":            msg,
-			"transformedEventMessage": out,
-		})
+		if res := t.Transform(msg, meta); res.Err == nil {
+			rec["transformedEventMessage"] = res.Transformed
+		}
+		transformed = append(transformed, rec)
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"transformedLogs": transformed})
 }
@@ -949,8 +991,11 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 			fieldCounts["@message"]++
 			fieldCounts["@ingestionTime"]++
 			fieldCounts["@logStream"]++
+			if e.TransformationError != "" {
+				fieldCounts["@transformationError"]++
+			}
 			var obj map[string]any
-			if json.Unmarshal([]byte(e.Message), &obj) == nil {
+			if json.Unmarshal([]byte(e.processedMessage()), &obj) == nil {
 				for k := range obj {
 					fieldCounts[k]++
 				}
@@ -1005,12 +1050,15 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 			if idx, err := strconv.Atoi(idxStr); err == nil && idx >= 0 && idx < len(events) {
 				e := events[idx]
 				record["@timestamp"] = cwFormatRecordTime(e.Timestamp)
-				record["@message"] = e.Message
+				record["@message"] = e.processedMessage()
 				record["@ingestionTime"] = cwFormatRecordTime(e.IngestionTime)
 				record["@logStream"] = stream
 				record["@log"] = cwLogGroupArn(group)
+				if e.TransformationError != "" {
+					record["@transformationError"] = e.TransformationError
+				}
 				var obj map[string]any
-				if json.Unmarshal([]byte(e.Message), &obj) == nil {
+				if json.Unmarshal([]byte(e.processedMessage()), &obj) == nil {
 					for k, v := range obj {
 						if s, ok := v.(string); ok {
 							record[k] = s

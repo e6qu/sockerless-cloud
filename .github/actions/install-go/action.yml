@@ -6,7 +6,8 @@ description: >-
   the runner fetches every action a job references from codeload.github.com
   before the job's first step, makes one attempt, and fails the job when
   codeload answers 404; a local action is already on disk from the checkout,
-  and the toolchain download here retries.
+  and the toolchain download here retries. The toolchain itself comes from the
+  Actions cache, keyed on its version, so a slow proxy costs only the listing.
 inputs:
   cache:
     description: >-
@@ -16,8 +17,8 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install Go
-      id: install
+    - name: Find the newest Go toolchain
+      id: list
       shell: bash
       env:
         GO_SERIES: '1.26'
@@ -28,23 +29,49 @@ runs:
           aarch64|arm64) arch=arm64 ;;
           *) echo "::error::unsupported architecture $(uname -m) for Go"; exit 1 ;;
         esac
-        proxy=https://proxy.golang.org/golang.org/toolchain/@v
         series=${GO_SERIES//./\\.}
-        version=$(curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors "$proxy/list" \
+        SECONDS=0
+        version=$(curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors \
+            https://proxy.golang.org/golang.org/toolchain/@v/list \
           | grep -E "^v0\.0\.1-go${series}\.[0-9]+\.linux-${arch}\$" | sort -V | tail -n 1)
+        echo "Listed the Go module proxy's toolchains in ${SECONDS} s."
         if [[ -z $version ]]; then
           echo "::error::the Go module proxy lists no go${GO_SERIES} toolchain for linux-${arch}"
           exit 1
         fi
-        curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/go.zip" "$proxy/$version.zip"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - name: Restore the Go toolchain
+      id: toolchain
+      uses: actions/cache@v6.1.0
+      with:
+        path: ${{ runner.temp }}/go-toolchain
+        key: go-toolchain-${{ steps.list.outputs.version }}
+    - name: Download the Go toolchain
+      if: steps.toolchain.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.list.outputs.version }}
+      run: |
+        set -euo pipefail
+        SECONDS=0
+        curl -fsSL --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 5 --retry-all-errors \
+          -o "$RUNNER_TEMP/go.zip" "https://proxy.golang.org/golang.org/toolchain/@v/$VERSION.zip"
+        echo "Downloaded $VERSION in ${SECONDS} s."
         rm -rf "$RUNNER_TEMP/go-toolchain"
         unzip -q "$RUNNER_TEMP/go.zip" -d "$RUNNER_TEMP/go-toolchain"
         rm "$RUNNER_TEMP/go.zip"
-        goroot="$RUNNER_TEMP/go-toolchain/golang.org/toolchain@$version"
+    - name: Install Go
+      id: install
+      shell: bash
+      env:
+        VERSION: ${{ steps.list.outputs.version }}
+      run: |
+        set -euo pipefail
+        goroot="$RUNNER_TEMP/go-toolchain/golang.org/toolchain@$VERSION"
         echo "$goroot/bin" >> "$GITHUB_PATH"
         echo "$("$goroot/bin/go" env GOPATH)/bin" >> "$GITHUB_PATH"
         "$goroot/bin/go" version
-        echo "version=${version#v0.0.1-}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION#v0.0.1-}" >> "$GITHUB_OUTPUT"
         echo "gomodcache=$("$goroot/bin/go" env GOMODCACHE)" >> "$GITHUB_OUTPUT"
         echo "gocache=$("$goroot/bin/go" env GOCACHE)" >> "$GITHUB_OUTPUT"
     - name: Restore and save the Go module and build caches

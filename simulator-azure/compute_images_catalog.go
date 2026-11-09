@@ -370,8 +370,8 @@ func azureVMImageNotFoundFault(publisher, offer, sku, version string) *azureVMRe
 	}
 }
 
-// azureResolveVMImage resolves the marketplace image, the customer image by
-// id, or the captured disk osDisk.image.uri names.
+// azureResolveVMImage resolves the marketplace image, the customer image or
+// gallery image by id, or the captured disk osDisk.image.uri names.
 func azureResolveVMImage(ctx context.Context, vm VirtualMachine) (vminstance.Image, error) {
 	osDisk, _ := vm.Properties.StorageProfile["osDisk"].(map[string]any)
 	if diskImage, _ := osDisk["image"].(map[string]any); diskImage != nil {
@@ -381,6 +381,13 @@ func azureResolveVMImage(ctx context.Context, vm VirtualMachine) (vminstance.Ima
 	}
 	ref := azureVMImageReference(vm)
 	if id, _ := ref["id"].(string); id != "" {
+		if azureIsGalleryImageRef(id) {
+			image, _, fault := azureResolveGalleryImage(id, vm.Location)
+			if fault != nil {
+				return vminstance.Image{}, fault
+			}
+			return image, nil
+		}
 		if image, ok := azureImageBackings.Get(azureImageBackingKey(id)); ok {
 			return image, nil
 		}
