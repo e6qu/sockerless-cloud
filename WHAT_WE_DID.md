@@ -2411,6 +2411,9 @@ Amazon RDS suite once spent five minutes of its fifteen downloading the AWS
 provider before its first request. The suites keep no lock file, so the job
 sets `TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE` for Terraform to use a
 cached provider at all.
+The node agent's image build downloads Firecracker and its kernel with
+twelve retries fifteen seconds apart on any error, because GitHub's release
+host answered 504 past five quick retries and failed a cold build.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.
