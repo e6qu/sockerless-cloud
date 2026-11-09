@@ -95,7 +95,7 @@ func TestCloudWatch_CompositeAlarm(t *testing.T) {
 	name := "sdk-composite"
 	_, err := client.PutCompositeAlarm(ctx, &cloudwatch.PutCompositeAlarmInput{
 		AlarmName: aws.String(name),
-		AlarmRule: aws.String("ALARM(child-1) OR ALARM(child-2)"),
+		AlarmRule: aws.String("TRUE"),
 		Tags:      []cwtypes.Tag{{Key: aws.String("team"), Value: aws.String("sre")}},
 	})
 	require.NoError(t, err)

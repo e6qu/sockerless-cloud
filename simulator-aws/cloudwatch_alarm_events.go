@@ -112,6 +112,7 @@ type cwAlarmTransition struct {
 // Lambda function that grants lambda.alarms.cloudwatch.amazonaws.com
 // lambda:InvokeFunction is invoked asynchronously with the alarm payload.
 func (t cwAlarmTransition) run() {
+	cwNoteChildTransition(t.Name, t.State.Value, time.Now())
 	detail := map[string]any{
 		"alarmName":     t.Name,
 		"configuration": t.Configuration,

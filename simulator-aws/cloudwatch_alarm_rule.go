@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -23,60 +24,160 @@ type cwRuleNode struct {
 	percent bool
 }
 
+// A cwRuleError is CloudWatch's refusal of an AlarmRule it cannot parse:
+// ValidationError "Error in AlarmRule [Unsupported token 'XOR' at char 20,
+// must be: <EOF>, 'AND', 'OR']". The offset counts from 0 and <EOF> sits at
+// the rule's length. CloudWatch omits the list when the rule ends where exactly
+// one token would complete it. Where no capture shows how CloudWatch names an
+// expected token (cwRuleUnnamed), the message carries no list.
+type cwRuleError struct {
+	token    string
+	offset   int
+	expected []string
+}
+
+func (e *cwRuleError) Error() string {
+	msg := fmt.Sprintf("Error in AlarmRule [Unsupported token '%s' at char %d", e.token, e.offset)
+	if len(e.expected) > 0 && !slices.Contains(e.expected, cwRuleUnnamed) &&
+		(e.token != cwRuleEOF || len(e.expected) > 1) {
+		msg += ", must be: " + strings.Join(e.expected, ", ")
+	}
+	return msg + "]"
+}
+
+const (
+	cwRuleEOF     = "<EOF>"
+	cwRuleUnnamed = ""
+)
+
+var (
+	cwRuleOperand  = []string{"'('", "'NOT'", "AT_LEAST", "TRUE or FALSE", "ALARM, OK, or INSUFFICIENT_DATA"}
+	cwRuleStateArg = []string{"'NOT'", "ALARM, OK, or INSUFFICIENT_DATA"}
+)
+
+type cwRuleToken struct {
+	text   string
+	offset int
+	quoted bool
+}
+
+// cwRuleTokens splits a rule into parentheses, commas, double-quoted
+// references and words, a word running to the next space, parenthesis, comma
+// or double quote.
+func cwRuleTokens(src string) ([]cwRuleToken, *cwRuleError) {
+	var out []cwRuleToken
+	for i := 0; i < len(src); {
+		c := src[i]
+		switch {
+		case strings.IndexByte(" \t\r\n", c) >= 0:
+			i++
+		case c == '(' || c == ')' || c == ',':
+			out = append(out, cwRuleToken{text: string(c), offset: i})
+			i++
+		case c == '"':
+			start := i
+			var b strings.Builder
+			for i++; ; i++ {
+				if i >= len(src) {
+					return nil, &cwRuleError{token: src[start:], offset: start, expected: []string{cwRuleUnnamed}}
+				}
+				if src[i] == '\\' && i+1 < len(src) {
+					i++
+					b.WriteByte(src[i])
+					continue
+				}
+				if src[i] == '"' {
+					i++
+					break
+				}
+				b.WriteByte(src[i])
+			}
+			out = append(out, cwRuleToken{text: b.String(), offset: start, quoted: true})
+		default:
+			start := i
+			for i < len(src) && strings.IndexByte(" \t\r\n(),\"", src[i]) < 0 {
+				i++
+			}
+			out = append(out, cwRuleToken{text: src[start:i], offset: start})
+		}
+	}
+	return out, nil
+}
+
 type cwRuleParser struct {
-	src string
-	pos int
+	src    string
+	tokens []cwRuleToken
+	pos    int
+	depth  int
 }
 
 func cwParseAlarmRule(rule string) (*cwRuleNode, error) {
-	p := &cwRuleParser{src: rule}
+	tokens, lexErr := cwRuleTokens(rule)
+	if lexErr != nil {
+		return nil, lexErr
+	}
+	p := &cwRuleParser{src: rule, tokens: tokens}
 	n, err := p.or()
 	if err != nil {
 		return nil, err
 	}
-	p.space()
-	if p.pos != len(p.src) {
-		return nil, fmt.Errorf("unexpected %q at offset %d", p.src[p.pos:], p.pos)
+	if p.pos != len(p.tokens) {
+		return nil, p.fail(p.afterOperand())
 	}
 	return n, nil
 }
 
-func (p *cwRuleParser) space() {
-	for p.pos < len(p.src) && strings.ContainsRune(" \t\r\n", rune(p.src[p.pos])) {
-		p.pos++
+// fail refuses the token at the cursor.
+func (p *cwRuleParser) fail(expected []string) *cwRuleError {
+	if p.pos >= len(p.tokens) {
+		return &cwRuleError{token: cwRuleEOF, offset: len(p.src), expected: expected}
 	}
+	t := p.tokens[p.pos]
+	text := t.text
+	if t.quoted {
+		text = p.src[t.offset:p.tokenEnd(p.pos)]
+	}
+	return &cwRuleError{token: text, offset: t.offset, expected: expected}
 }
 
-// keyword consumes word when it stands alone at the cursor.
+func (p *cwRuleParser) tokenEnd(i int) int {
+	t := p.tokens[i]
+	if !t.quoted {
+		return t.offset + len(t.text)
+	}
+	for j := t.offset + 1; j < len(p.src); j++ {
+		if p.src[j] == '\\' {
+			j++
+			continue
+		}
+		if p.src[j] == '"' {
+			return j + 1
+		}
+	}
+	return len(p.src)
+}
+
+// afterOperand lists what may follow a complete operand.
+func (p *cwRuleParser) afterOperand() []string {
+	if p.depth > 0 {
+		return []string{"')'", "'AND'", "'OR'"}
+	}
+	return []string{cwRuleEOF, "'AND'", "'OR'"}
+}
+
+// keyword consumes the word at the cursor when it is word; keywords are case
+// sensitive.
 func (p *cwRuleParser) keyword(word string) bool {
-	p.space()
-	if !strings.HasPrefix(p.src[p.pos:], word) {
-		return false
-	}
-	end := p.pos + len(word)
-	if end < len(p.src) && cwRuleWordByte(p.src[end]) {
-		return false
-	}
-	p.pos = end
-	return true
-}
-
-func cwRuleWordByte(b byte) bool {
-	return b == '_' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9'
-}
-
-func (p *cwRuleParser) punct(c byte) bool {
-	p.space()
-	if p.pos < len(p.src) && p.src[p.pos] == c {
+	if p.pos < len(p.tokens) && !p.tokens[p.pos].quoted && p.tokens[p.pos].text == word {
 		p.pos++
 		return true
 	}
 	return false
 }
 
-func (p *cwRuleParser) expect(c byte) error {
-	if !p.punct(c) {
-		return fmt.Errorf("expected %q at offset %d", c, p.pos)
+func (p *cwRuleParser) expect(c string, expected []string) error {
+	if !p.keyword(c) {
+		return p.fail(expected)
 	}
 	return nil
 }
@@ -132,12 +233,17 @@ func (p *cwRuleParser) stateWord() (string, bool) {
 }
 
 func (p *cwRuleParser) primary() (*cwRuleNode, error) {
-	if p.punct('(') {
+	if p.keyword("(") {
+		p.depth++
 		n, err := p.or()
 		if err != nil {
 			return nil, err
 		}
-		return n, p.expect(')')
+		if !p.keyword(")") {
+			return nil, p.fail(p.afterOperand())
+		}
+		p.depth--
+		return n, nil
 	}
 	if p.keyword("TRUE") {
 		return &cwRuleNode{op: "const", value: true}, nil
@@ -149,49 +255,52 @@ func (p *cwRuleParser) primary() (*cwRuleNode, error) {
 		return p.atLeast()
 	}
 	if state, ok := p.stateWord(); ok {
-		if err := p.expect('('); err != nil {
+		if err := p.expect("(", []string{"'('"}); err != nil {
 			return nil, err
 		}
 		ref, err := p.ref()
 		if err != nil {
 			return nil, err
 		}
-		return &cwRuleNode{op: "state", state: state, ref: ref}, p.expect(')')
+		return &cwRuleNode{op: "state", state: state, ref: ref}, p.expect(")", []string{"')'"})
 	}
-	p.space()
-	return nil, fmt.Errorf("expected a function, TRUE, FALSE or '(' at offset %d", p.pos)
+	return nil, p.fail(cwRuleOperand)
 }
 
 func (p *cwRuleParser) atLeast() (*cwRuleNode, error) {
-	if err := p.expect('('); err != nil {
+	if err := p.expect("(", []string{"'('"}); err != nil {
 		return nil, err
 	}
-	p.space()
-	start := p.pos
-	for p.pos < len(p.src) && p.src[p.pos] >= '0' && p.src[p.pos] <= '9' {
-		p.pos++
+	if p.pos >= len(p.tokens) || p.tokens[p.pos].quoted {
+		return nil, p.fail([]string{cwRuleUnnamed})
 	}
-	count, err := strconv.Atoi(p.src[start:p.pos])
-	if err != nil {
-		return nil, fmt.Errorf("AT_LEAST needs a count or percentage at offset %d", start)
+	m := p.tokens[p.pos].text
+	n := &cwRuleNode{op: "atLeast"}
+	if digits, ok := strings.CutSuffix(m, "%"); ok {
+		m, n.percent = digits, true
 	}
-	n := &cwRuleNode{op: "atLeast", count: count}
-	if p.punct('%') {
-		n.percent = true
+	count, err := strconv.Atoi(m)
+	if err != nil || strings.ContainsAny(m, "+-") {
+		return nil, p.fail([]string{cwRuleUnnamed})
 	}
-	if err := p.expect(','); err != nil {
+	n.count = count
+	p.pos++
+	if err := p.expect(",", []string{cwRuleUnnamed}); err != nil {
 		return nil, err
 	}
 	n.negate = p.keyword("NOT")
 	state, ok := p.stateWord()
 	if !ok {
-		return nil, fmt.Errorf("AT_LEAST needs ALARM, OK or INSUFFICIENT_DATA at offset %d", p.pos)
+		if n.negate {
+			return nil, p.fail([]string{"ALARM, OK, or INSUFFICIENT_DATA"})
+		}
+		return nil, p.fail(cwRuleStateArg)
 	}
 	n.state = state
-	if err := p.expect(','); err != nil {
+	if err := p.expect(",", []string{cwRuleUnnamed}); err != nil {
 		return nil, err
 	}
-	if err := p.expect('('); err != nil {
+	if err := p.expect("(", []string{"'('"}); err != nil {
 		return nil, err
 	}
 	for {
@@ -200,47 +309,28 @@ func (p *cwRuleParser) atLeast() (*cwRuleNode, error) {
 			return nil, err
 		}
 		n.refs = append(n.refs, ref)
-		if !p.punct(',') {
+		if !p.keyword(",") {
 			break
 		}
 	}
-	if err := p.expect(')'); err != nil {
+	if err := p.expect(")", []string{cwRuleUnnamed}); err != nil {
 		return nil, err
 	}
-	return n, p.expect(')')
+	return n, p.expect(")", []string{"')'"})
 }
 
 // A quoted reference escapes a double quote with a backslash; a bare one holds
 // no space, parenthesis or comma.
 func (p *cwRuleParser) ref() (string, error) {
-	p.space()
-	if p.pos < len(p.src) && p.src[p.pos] == '"' {
-		p.pos++
-		var b strings.Builder
-		for p.pos < len(p.src) {
-			c := p.src[p.pos]
-			switch {
-			case c == '\\' && p.pos+1 < len(p.src):
-				b.WriteByte(p.src[p.pos+1])
-				p.pos += 2
-			case c == '"':
-				p.pos++
-				return b.String(), nil
-			default:
-				b.WriteByte(c)
-				p.pos++
-			}
-		}
-		return "", fmt.Errorf("unterminated quoted alarm reference")
+	if p.pos >= len(p.tokens) {
+		return "", p.fail([]string{cwRuleUnnamed})
 	}
-	start := p.pos
-	for p.pos < len(p.src) && !strings.ContainsRune(" \t\r\n(),", rune(p.src[p.pos])) {
-		p.pos++
+	t := p.tokens[p.pos]
+	if !t.quoted && (t.text == "(" || t.text == ")" || t.text == ",") {
+		return "", p.fail([]string{cwRuleUnnamed})
 	}
-	if p.pos == start {
-		return "", fmt.Errorf("expected an alarm name or ARN at offset %d", start)
-	}
-	return p.src[start:p.pos], nil
+	p.pos++
+	return t.text, nil
 }
 
 // eval answers the rule's truth, with stateOf giving each referenced alarm's

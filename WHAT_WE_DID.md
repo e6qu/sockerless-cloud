@@ -1946,7 +1946,24 @@ fails once the row closes or the operation is served.
   the metric alarms it reads; a transition publishes the composite
   notification with `AlarmRule` and `TriggeringChildren` and the reason
   wording the alarm events show. A `SetAlarmState` on a composite alarm holds
-  until a child's state changes or the alarm is updated.
+  until a child's state changes or the alarm is updated; every child
+  transition is recorded on its parents, so a child that changes and changes
+  back between two evaluations ends the hold, where comparing snapshots of the
+  children's states had missed it. An update that changes the outcome says
+  "was updated and its new alarm rule evaluates to", where the simulator had
+  invented a reason. No AWS document states the rule's operator precedence or
+  the refusals, so they follow captures of CloudWatch published with
+  ministackorg/ministack#2260, aws/aws-cdk#13953,
+  hashicorp/terraform-provider-aws#19575 and
+  awsdocs/aws-cloudformation-user-guide#911: NOT binds tighter than AND and
+  AND tighter than OR; `PutCompositeAlarm` refuses a rule that does not parse
+  (`ValidationError` "Error in AlarmRule [Unsupported token '…' at char N,
+  must be: …]"), one with surrounding whitespace and one naming an alarm the
+  Region does not hold, where the simulator had stored the first never to
+  evaluate it and read a missing child as INSUFFICIENT_DATA; and
+  `DeleteAlarms` refuses more than one composite alarm per request and any
+  alarm a composite alarm references, so a child cannot go missing. Where the
+  captures stop, `BUGS.md` holds the inference.
   Every metric and composite alarm transition also reaches the default
   event bus as a "CloudWatch Alarm State Change" event shaped like the User
   Guide's examples, and an alarm with `AlarmTagsPropagation` enabled carries

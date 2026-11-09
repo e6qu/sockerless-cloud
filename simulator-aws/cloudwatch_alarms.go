@@ -330,7 +330,7 @@ func handleCWJSONDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	if cwWantAlarmType(req.AlarmTypes, "CompositeAlarm") {
 		comps := make([]map[string]any, 0)
-		for _, ca := range cwListCompositeAlarms(req.AlarmNames) {
+		for _, ca := range cwListCompositeAlarms(req.AlarmNames, req.StateValue) {
 			comps = append(comps, cwJSONCompositeAlarm(ca, now))
 		}
 		resp["CompositeAlarms"] = comps
@@ -393,6 +393,10 @@ func handleCWJSONDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 			AWSErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
 			return
 		}
+	}
+	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
+		AWSError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
 	}
 	cwDeleteAlarms(req.AlarmNames)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -686,7 +690,7 @@ func handleCWCBORDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	if cwWantAlarmType(req.AlarmTypes, "CompositeAlarm") {
 		comps := make([]cborCompositeAlarm, 0)
-		for _, ca := range cwListCompositeAlarms(req.AlarmNames) {
+		for _, ca := range cwListCompositeAlarms(req.AlarmNames, req.StateValue) {
 			comps = append(comps, cborCompositeAlarmOf(ca, now))
 		}
 		resp["CompositeAlarms"] = comps
@@ -718,7 +722,7 @@ func cwWantAlarmType(filter []string, t string) bool {
 	return false
 }
 
-func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
+func cwListCompositeAlarms(names []string, stateValue string) []CWCompositeAlarm {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true
@@ -726,6 +730,9 @@ func cwListCompositeAlarms(names []string) []CWCompositeAlarm {
 	out := make([]CWCompositeAlarm, 0)
 	for _, a := range cwCompositeAlarms.List() {
 		if len(want) > 0 && !want[a.AlarmName] {
+			continue
+		}
+		if stateValue != "" && cwStateOrInsufficient(a.StateValue) != stateValue {
 			continue
 		}
 		out = append(out, a)
@@ -790,6 +797,10 @@ func handleCWCBORDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 			cwWriteCBORErrorf(w, "ResourceNotFound", http.StatusBadRequest, "Alarm %s does not exist", n)
 			return
 		}
+	}
+	if msg, ok := cwValidateDeleteAlarms(req.AlarmNames); !ok {
+		cwWriteCBORError(w, "ValidationError", msg, http.StatusBadRequest)
+		return
 	}
 	cwDeleteAlarms(req.AlarmNames)
 	cwWriteCBOR(w, map[string]any{})
@@ -1018,7 +1029,7 @@ func handleCWQueryDescribeAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	var composites strings.Builder
 	if cwWantAlarmType(alarmTypes, "CompositeAlarm") {
-		for _, ca := range cwListCompositeAlarms(names) {
+		for _, ca := range cwListCompositeAlarms(names, stateFilter) {
 			state := ca.StateValue
 			if state == "" {
 				state = "INSUFFICIENT_DATA"
@@ -1103,6 +1114,10 @@ func handleCWQueryDeleteAlarms(w http.ResponseWriter, r *http.Request) {
 			cwQueryError(w, "ResourceNotFound", fmt.Sprintf("Alarm %s does not exist", n))
 			return
 		}
+	}
+	if msg, ok := cwValidateDeleteAlarms(names); !ok {
+		cwQueryError(w, "ValidationError", msg)
+		return
 	}
 	cwDeleteAlarms(names)
 	w.Header().Set("Content-Type", "text/xml")
