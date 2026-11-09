@@ -714,14 +714,20 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	if len(filtered) > page {
 		filtered = filtered[:page]
 	}
-	if filtered == nil {
-		filtered = []CWLogEvent{}
+	type outputLogEvent struct {
+		Timestamp     int64  `json:"timestamp"`
+		Message       string `json:"message"`
+		IngestionTime int64  `json:"ingestionTime"`
+	}
+	output := make([]outputLogEvent, 0, len(filtered))
+	for _, e := range filtered {
+		output = append(output, outputLogEvent{Timestamp: e.Timestamp, Message: e.Message, IngestionTime: e.IngestionTime})
 	}
 
 	newForwardOffset := offset + len(filtered)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"events":            filtered,
+		"events":            output,
 		"nextForwardToken":  fmt.Sprintf("f/%d", newForwardOffset),
 		"nextBackwardToken": fmt.Sprintf("b/%d", offset),
 	})
