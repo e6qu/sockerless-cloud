@@ -1443,6 +1443,10 @@ badge, "Not supported" product pages) went, because a control that does
 nothing is a fake. A console gap whose API the simulator does not serve is a
 `BUGS.md` row naming that API.
 
+- **The Azure header panels hold steady.** The rebuilt portal's header
+  panels (Notifications, Settings, Help + support and the account card)
+  passed 120 of 120 repeated runs; the Fluent `Popover` whose surface once
+  failed to mount after a click went with the rebuild.
 - **Sign-in is a deployment's.** The AWS and Google Cloud browser suites
   sign their operator in through simulator-azure's Microsoft Entra ID and
   federate through the cloud's own primitive, provisioned by
@@ -2372,6 +2376,11 @@ because the module proxy resets streams under load: `scripts/ci-go-mod-download.
 warms a module directory, or a `module@version` a document installs, and the
 engine builds of the sidecar and the node agent run `go mod download` in the
 same retried loop before `go build`.
+The Go toolchain comes from the Actions cache, keyed on the version the
+module proxy lists as newest, so a slow proxy costs a job only the listing;
+`install-go` logs how long the listing and a download took, because one job
+once spent 3m44s in a single step that did both and the log could not say
+which.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.

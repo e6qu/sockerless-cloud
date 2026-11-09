@@ -34,8 +34,7 @@
 - **M3: the next shared libraries in ranked order** — the long-running
   operation tracker, asymmetric cryptography in `sim/simkms`, time-bounded
   soft delete (BUG-3606), then the build runner.
-- **Azure.** Fix the Azure console's header disclosure flake (BUG-3690).
-  Close the Azure service gaps the M2 work left in view: Event
+- **Azure.** Close the Azure service gaps the M2 work left in view: Event
   Grid's Azure Functions, Event Hubs and Hybrid Connections destinations
   (BUG-3535), the Functions host's other stacks (BUG-3237), Azure Compute
   Gallery (BUG-3504) and Azure Container Registry cache rules (BUG-3612).
