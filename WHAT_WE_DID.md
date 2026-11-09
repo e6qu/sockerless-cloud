@@ -2405,6 +2405,12 @@ The browser jobs load their cloud's base images like the simulator jobs: the
 Google Cloud console's first VM pulled `golang` and `debian` to build the
 network sidecar inside the test's one-minute wait for the instance page, and
 the create once outlasted it.
+`install-terraform` restores the providers `terraform init` installs from the
+Actions cache too, one entry per cloud, through `TF_PLUGIN_CACHE_DIR`: an
+Amazon RDS suite once spent five minutes of its fifteen downloading the AWS
+provider before its first request. The suites keep no lock file, so the job
+sets `TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE` for Terraform to use a
+cached provider at all.
 The specification freshness check fetches each upstream page with curl's
 bounded retries, because a documentation host dropping one request failed
 the whole check.

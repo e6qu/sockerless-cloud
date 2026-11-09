@@ -1690,6 +1690,8 @@ jobs:
         timeout-minutes: 3
       - name: Install Terraform
         uses: ./.github/actions/install-terraform
+        with:
+          providers-scope: ${{ matrix.cloud }}
         timeout-minutes: 6
       - name: Install Caddy
         uses: ./.github/actions/install-caddy
