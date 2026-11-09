@@ -1551,6 +1551,10 @@ jobs:
             cloud: aws
             tf_packages: "./lambda-concurrency"
             timeout_minutes: 12
+          - suite: aws Amazon CloudWatch Logs transformer
+            cloud: aws
+            tf_packages: "./logs-transformer"
+            timeout_minutes: 12
           - suite: aws AWS Systems Manager Automation
             cloud: aws
             tf_packages: "./ssm-automation"

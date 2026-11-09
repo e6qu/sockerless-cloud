@@ -181,12 +181,15 @@ func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecor
 			scanned++
 			rec := cwInsightsRecord{
 				"@timestamp":     time.UnixMilli(e.Timestamp).UTC().Format("2006-01-02 15:04:05.000"),
-				"@message":       e.Message,
+				"@message":       e.processedMessage(),
 				"@logStream":     stream.LogStreamName,
 				"@ingestionTime": time.UnixMilli(e.IngestionTime).UTC().Format("2006-01-02 15:04:05.000"),
 				"@__ts":          strconv.FormatInt(e.Timestamp, 10),
 			}
-			cwFlattenJSONInto(rec, e.Message)
+			if e.TransformationError != "" {
+				rec["@transformationError"] = e.TransformationError
+			}
+			cwFlattenJSONInto(rec, e.processedMessage())
 			records = append(records, rec)
 		}
 	}

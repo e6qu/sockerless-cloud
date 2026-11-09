@@ -1821,6 +1821,32 @@ fails once the row closes or the operation is served.
   evaluator start after every slice is registered: the ELB publisher's first
   flush, due at the next minute, once raced the store's creation in a
   simulator built just before the minute turned.
+- **Amazon CloudWatch Logs transformers.** `PutTransformer` and
+  `TestTransformer` came to compile every processor of the Smithy model's
+  `Processor` structure against the model's lengths and the transformation
+  guide's rules (a parser first, at most five parsers, one vended-log parser
+  and only first, one `grok`, one `addKeys`, one `copyValue`, nested key depth
+  three), answering `InvalidParameterException` for a refused configuration.
+  `PutLogEvents` and every other ingestion path run the log group's
+  transformer once, at ingestion, and keep the transformed event beside the
+  original: `GetLogEvents` and `FilterLogEvents` return the original, while
+  CloudWatch Logs Insights, field discovery, `GetLogRecord` and metric filters
+  read the transformed one, and an event that fails carries
+  `@transformationError` (Insights gained `ispresent()` for the guide's query).
+  Ingestion publishes `TransformedLogEvents`, `TransformedBytes` and
+  `TransformationErrors` to `AWS/Logs` under the guide's `LogGroupname`
+  dimension. The processors' semantics came from the guide's examples, which
+  `cloudwatch_logs_transformer_test.go` runs as input-to-output vectors: grok
+  matches its whole source with literal text between the documented patterns
+  only, `moveKeys` moves a key into a target that is an object,
+  `dateTimeConverter` reads `java.time` patterns with English and German names,
+  and the transformed event keeps its keys in the order the processors wrote
+  them. `parseToOCSF` answers `InvalidOperationException`, because the guide
+  does not publish its OCSF mappings. The guide's `dateTimeConverter` example
+  output (`1998-12-05T17:00:00 MEZ` for 11:00 Berlin time converted to New
+  York) contradicts its own zones, so the test asserts the converted
+  instant instead, and the documented default target format, missing its
+  closing quote, became `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`.
 - **Amazon CloudWatch alarm state.** `SetAlarmState` runs the new state's
   actions when the state changes, as the API reference says. A metric alarm
   keeps the set state only until its next evaluation, which returns it to its

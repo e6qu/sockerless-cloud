@@ -17,18 +17,18 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action Firehose_20150804.CreateDeliveryStream` | ✓ `simulator-aws/firehose.go:161::handleFirehoseCreateDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.DeleteDeliveryStream` | ✓ `simulator-aws/firehose.go:162::handleFirehoseDeleteDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.DescribeDeliveryStream` | ✓ `simulator-aws/firehose.go:163::handleFirehoseDescribeDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.ListDeliveryStreams` | ✓ `simulator-aws/firehose.go:164::handleFirehoseListDeliveryStreams` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.ListTagsForDeliveryStream` | ✓ `simulator-aws/firehose.go:165::handleFirehoseListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.PutRecord` | ✓ `simulator-aws/firehose.go:166::handleFirehosePutRecord` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.PutRecordBatch` | ✓ `simulator-aws/firehose.go:167::handleFirehosePutRecordBatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.StartDeliveryStreamEncryption` | ✓ `simulator-aws/firehose.go:168::handleFirehoseStartEncryption` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.StopDeliveryStreamEncryption` | ✓ `simulator-aws/firehose.go:169::handleFirehoseStopEncryption` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.TagDeliveryStream` | ✓ `simulator-aws/firehose.go:170::handleFirehoseTagDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.UntagDeliveryStream` | ✓ `simulator-aws/firehose.go:171::handleFirehoseUntagDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Firehose_20150804.UpdateDestination` | ✓ `simulator-aws/firehose.go:172::handleFirehoseUpdateDestination` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.CreateDeliveryStream` | ✓ `simulator-aws/firehose.go:162::handleFirehoseCreateDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.DeleteDeliveryStream` | ✓ `simulator-aws/firehose.go:163::handleFirehoseDeleteDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.DescribeDeliveryStream` | ✓ `simulator-aws/firehose.go:164::handleFirehoseDescribeDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.ListDeliveryStreams` | ✓ `simulator-aws/firehose.go:165::handleFirehoseListDeliveryStreams` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.ListTagsForDeliveryStream` | ✓ `simulator-aws/firehose.go:166::handleFirehoseListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.PutRecord` | ✓ `simulator-aws/firehose.go:167::handleFirehosePutRecord` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.PutRecordBatch` | ✓ `simulator-aws/firehose.go:168::handleFirehosePutRecordBatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.StartDeliveryStreamEncryption` | ✓ `simulator-aws/firehose.go:169::handleFirehoseStartEncryption` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.StopDeliveryStreamEncryption` | ✓ `simulator-aws/firehose.go:170::handleFirehoseStopEncryption` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.TagDeliveryStream` | ✓ `simulator-aws/firehose.go:171::handleFirehoseTagDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.UntagDeliveryStream` | ✓ `simulator-aws/firehose.go:172::handleFirehoseUntagDeliveryStream` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Firehose_20150804.UpdateDestination` | ✓ `simulator-aws/firehose.go:173::handleFirehoseUpdateDestination` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 
